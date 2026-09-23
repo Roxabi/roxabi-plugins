@@ -36,7 +36,7 @@ describe('evaluateRequiredRollup', () => {
   })
 })
 
-function mockLand({ rollupSequence = [], mergeThrows = null, timeout = 60_000 } = {}) {
+function mockLand({ rollupSequence = [], mergeThrows = null, disableThrows = null, timeout = 60_000 } = {}) {
   let t = 0
   const calls = []
   let poll = 0
@@ -46,6 +46,10 @@ function mockLand({ rollupSequence = [], mergeThrows = null, timeout = 60_000 } 
       const entry = rollupSequence[Math.min(poll, rollupSequence.length - 1)]
       poll++
       return JSON.stringify(entry)
+    }
+    if (args[0] === 'pr' && args[1] === 'merge' && args.includes('--disable-auto')) {
+      if (disableThrows) throw new Error(disableThrows)
+      return ''
     }
     if (args[0] === 'pr' && args[1] === 'merge') {
       if (mergeThrows) throw new Error(mergeThrows)
@@ -72,6 +76,15 @@ function mockLand({ rollupSequence = [], mergeThrows = null, timeout = 60_000 } 
 function labeled(calls) {
   return calls.some((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--add-label') && a.includes('reviewed'))
 }
+
+const rollupOf = (conclusion) => ({
+  state: 'OPEN',
+  statusCheckRollup: [{ name: 'ci', status: 'COMPLETED', conclusion }],
+})
+
+const call = (calls, predicate) => calls.findIndex(predicate)
+const removesLabel = (a) => a[1] === 'edit' && a.includes('--remove-label') && a.includes('reviewed')
+const disablesAuto = (a) => a[1] === 'merge' && a.includes('--disable-auto')
 
 describe('landPr', () => {
   it('required=[] → no-required-checks, never labels', async () => {
@@ -186,5 +199,40 @@ describe('landPr', () => {
     const result = await land(['ci'])
     expect(result).toEqual({ status: 'merged' })
     expect(labeled(calls)).toBe(true)
+  })
+
+  it('closed under us → closed, never labels', async () => {
+    const { calls, land } = mockLand({ rollupSequence: [{ state: 'CLOSED', statusCheckRollup: [] }] })
+    expect(await land(['ci'])).toEqual({ status: 'closed' })
+    expect(labeled(calls)).toBe(false)
+  })
+
+  it.each([
+    ['FAILURE', { status: 'ci-failed', failed: ['ci'] }],
+    ['SKIPPED', { status: 'ci-skipped', skipped: ['ci'] }],
+  ])('armed, then required ci %s → label removed, auto-merge disabled, then reported', async (conclusion, expected) => {
+    // A strict-policy update-branch re-runs CI after the label is written. Returning
+    // with the gate armed lets the next push merge before its re-review: the label
+    // makes auto-merge.yml re-enable auto-merge on every synchronize.
+    const { calls, land } = mockLand({ rollupSequence: [rollupOf('SUCCESS'), rollupOf(conclusion)] })
+    expect(await land(['ci'])).toEqual({ ...expected, disarmed: true })
+    const armed = call(calls, (a) => a[1] === 'merge' && a.includes('--auto'))
+    const unlabelled = call(calls, removesLabel)
+    const disabled = call(calls, disablesAuto)
+    expect(armed).toBeGreaterThan(-1)
+    // Label first: while it is on, a check_suite completion re-enables auto-merge.
+    expect(unlabelled).toBeGreaterThan(armed)
+    expect(disabled).toBeGreaterThan(unlabelled)
+  })
+
+  it('never disarms a gate it did not arm', async () => {
+    const { calls, land } = mockLand({ rollupSequence: [rollupOf('FAILURE')] })
+    expect(await land(['ci'])).toEqual({ status: 'ci-failed', failed: ['ci'] })
+    expect(calls.some(removesLabel) || calls.some(disablesAuto)).toBe(false)
+  })
+
+  it('throws when disarming fails, instead of reporting a disarmed PR', async () => {
+    const { land } = mockLand({ rollupSequence: [rollupOf('SUCCESS'), rollupOf('FAILURE')], disableThrows: 'boom' })
+    await expect(land(['ci'])).rejects.toThrow('boom')
   })
 })

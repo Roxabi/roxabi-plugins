@@ -1,6 +1,6 @@
 # omp-build
 
-OMP-only cycle: grill → validate spec → plan → impl → PR → review (≤2) → `reviewed` → watch merge.
+OMP-only cycle: frame → GitHub issue → branch proposal + operator `/wt` → implement → bounded review/fix → land.
 
 Not a Claude/Grok factory — does not invoke host `/dev` or dev-core Skill() children.
 
@@ -45,7 +45,7 @@ omp plugin doctor    # expect plugin:omp-build (link lane; a marketplace install
 omp plugin list      # npm Plugins → omp-build@0.1.0
 ```
 
-Either way `/build` loads `skills/build/` from `~/.omp/plugins/node_modules/omp-build/`. Do **not** copy `SKILL.md` into `~/.omp/agent/skills/` — that shadows the plugin. `omp-wt` uses the script that symlink points at.
+`/feature` loads `skills/feature/` from the installed plugin. Do **not** copy `SKILL.md` into `~/.omp/agent/skills/` — that shadows the plugin.
 
 ### After you change the plugin
 
@@ -58,25 +58,29 @@ Symlinking into `~/.omp/agent/agents/` is not supported — use `link` (or the c
 
 ## Launch
 
-From a **clean** principal, fetched: **staging** if it exists, else `main`/`master`.
-
-```bash
-omp-wt 42                         # GitHub issue
-omp-wt -s 60                      # Spark — client from origin (silex#176), else config
-omp-wt -s 60 -c metalyde          # Spark, override client
-omp-wt -s https://spark.gosilex.com/silex/developpement/cmt…  # Spark URL
-omp-wt                            # prompt: GH # | spark URL | spark:<client>#N | subject
+```text
+/feature <subject>    # frame the need and publish through issue-triage
+/feature #42          # read an existing issue and propose its branch
 ```
 
-stderr is the log (`omp-wt: …`). Spark `{error:…}` is fatal even when `spark.sh` exits 0. A numeric `-s N` with no client (`-c`, `slug#N`, origin by-repo, or spark config) exits 1 instead of fetching the wrong ticket.
+As soon as an issue number exists, `/feature` proposes `<type>/<N>-<slug>` and
+hands off to the operator's `/wt`. It does not create a branch/worktree or switch
+the Principal on its own. The proposal names the base; creation waits for a clean,
+up-to-date checkout on that base. Existing branches/worktrees are offered for reuse.
 
+After entering the matching worktree, run `/feature #42` again. Incomplete scope
+returns to framing; an actionable, unblocked issue proceeds to implementation.
+Framing can start in conversation on the Principal; local file edits cannot.
+After a framing pass, start implementation with fresh context in the ticket's
+worktree. Declining branch creation permits further discussion, not implementation.
 
-Creates ω (`<type>/<N>-<slug>` via `resolveNames`) and `omp --cwd` there. Then `/build`:
+The issue body is the spec. Current dependencies: `grilling` for open design
+questions, `issue-triage` for issue writes, and bundled `dev-review` / `fix` for
+verification. `tdd` is used at agreed test-first seams. The old `grill-with-docs`,
+`to-spec`, `to-tickets` and `implement` skills are no longer prerequisites.
 
-1. Grill + you type `validated` (parent turn — not `run()`)
-2. `run()` = plan → impl → PR → review (≤2) → label `reviewed` → watch until merge
-
-Skip grill when the spec is already `status: validated`.
+`omp-wt` and `/build` belong to the legacy entry flow; `/feature` does not invoke
+them. The still-used PR/landing functions remain in `skills/build/workflow.js`.
 
 ## Slash commands
 
@@ -93,21 +97,18 @@ is **not** a second gate: omp normalises it to `hide`, which omits the skill fro
 the prompt listing while `skill://<name>` and `/skill:<name>` still reach it
 (omp 18.2.9). Requires a **restart** (extension module), not `/reload-plugins`.
 
-`/feature` from the Principal creates ω, installs it, prints `omp --cwd <ω>` and
-stops — the in-session cwd hop is not extension-facing (ADR-020 §3), and the
-relaunch names ω's **directory**, never `/wt`: that command mints a fresh branch
-in `~/.omp/wt/…` instead of entering the worktree just built. Inside ω with no
-ticket it frames: grill → spec → tickets through `issue-triage`, then stops at the
-frontier. Inside ω **on the branch that carries the ticket** it builds (§6, #494):
-`implement` (which drives `tdd`) → `dev-review` → `fix` → land. The deterministic
-steps are calls on `skills/build/workflow.js` — `commitPush`, `openPr`, `landPr` —
-so the PR number comes from the client's response and never from an agent's
-wording. The review→fix bound is `createReviewLoop`, which counts the rounds
-itself: at most two, and the third red returns `stop` — after which `enforceStop`
-removes any `reviewed` label the PR carries, since that label is what auto-merge
-reads. `resumeReviewLoop` re-reads the count off the PR, so a re-entry resumes the
-bound instead of restarting it. `/build` and its `run()` driver keep working until
-#497 removes them.
+`/feature` offers the branch handoff immediately after issue creation/selection,
+not after the entire spec or ticket batch. `/wt` is operator-only; the skill does not
+simulate its invocation through a tool. Existing worktrees are entered by their
+directory (`omp --cwd <path>`), not recreated.
+
+In the matching worktree: implement → `dev-review` → `fix --no-label` → land.
+`openPr` returns the PR number; `resumeReviewLoop` restores rounds from PR comments.
+At most two fix rounds; a third red stops and `enforceStop` removes the `reviewed`
+label and disables native auto-merge. Every verdict and CI reopening is persisted
+(counts only, not the stop). Only an approved landing calls `landPr`, which waits for
+green required checks before labelling and enabling auto-merge, and disarms both if a
+required check then fails or is skipped. No duplicate spec files or `validated` gate.
 
 ## Guards
 
@@ -151,7 +152,7 @@ Spawn: `task` `{ agent: "R-adversarial" | "R-advisor" | "R-architect" | "R-devop
 
 | Skill | Lane |
 |---|---|
-| `build` | `/build`, then `workflow.js` |
+| `build` | legacy `/build` entry; `workflow.js` still supplies feature's PR/landing functions |
 | `feature` | `/feature` (registered command) |
 | `dev-review` | model-invocable · the five-role review panel |
 | `fix` | model-invocable · applies the findings, inline |
@@ -160,10 +161,10 @@ Spawn: `task` `{ agent: "R-adversarial" | "R-advisor" | "R-architect" | "R-devop
 
 `dev-review` and `fix` are the #492 snapshot of dev-core's `dev-review`/`fix` pair, cut to this plugin's roster: five dispatchable roles, `R-tester` armed by changed-test evidence alone, and every finding applied in-session. They read their own bundled files through `skill://dev-review/<file>`. `lib.sh` is the exception: it sits one level up, in a non-skill directory, and `skill://` rejects `..`, so `dev-review` Phase 1 traverses from `$SKILL_DIR` instead. **Nothing in this plugin exports `SKILL_DIR`** — only the registered commands print a skill directory (`omp/index.ts`) — so that fence asserts the variable (`${SKILL_DIR:?…}`) and stops when it is unset, rather than sourcing `/../shared/lib.sh` and detecting a base branch against nothing. `cleanup/analyze-branches.sh` has no such problem: it is a script, so it resolves `../shared/lib.sh` from its own `BASH_SOURCE`.
 
-`promote` and `cleanup` are the #495 snapshot of dev-core's tail. They are **offered
-after land, never automatic, and never inside the review→fix loop** — `/feature` §0
-prints the offer and stops, and both bodies say the same thing. Two behaviours
-changed in the copy: `promote/preflight.sh` is now read-only (dev-core's ran
+`promote` and `cleanup` are the #495 snapshot of dev-core's tail. They are
+**offered after land, never automatic, and never inside the review→fix loop**.
+`/feature` offers `promote` only for `release.model: staging-train`, not trunk.
+Two behaviours changed in the copy: `promote/preflight.sh` is now read-only (dev-core's ran
 `git checkout staging && git pull` before asking the operator anything), and
 `cleanup/scan-orphan-worktree-shells.sh` scans `~/.omp/worktrees/<repo>/` and
 `<principal>/.claude/worktrees/` instead of the Grok roots this plugin never writes

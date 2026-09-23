@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   createReviewLoop,
@@ -8,7 +6,6 @@ import {
   parseReviewRounds,
   readReviewRounds,
   resumeReviewLoop,
-  run,
 } from './workflow.js'
 
 /**
@@ -49,23 +46,30 @@ function mockGh({
 }
 
 /**
- * The client the loop drives: label read-back, label removal, the round marker.
- * Injected, like every other client here — nothing labels or merges a real PR.
+ * The client the loop drives: label and auto-merge read-back, their removal, the
+ * round marker. Injected, like every other client here — nothing labels or merges a
+ * real PR.
  */
-function mockLoopGh({ labels = [], comments = [] } = {}) {
+function mockLoopGh({ labels = [], comments = [], autoMerge = null } = {}) {
   const calls = []
   const present = new Set(labels)
   const posted = [...comments]
+  const state = { autoMerge }
   const gh = async (_cwd, args) => {
     calls.push(args)
-    if (args[0] === 'pr' && args[1] === 'view' && args.includes('labels')) {
-      return JSON.stringify({ labels: [...present].map((name) => ({ name })) })
+    const fields = args[0] === 'pr' && args[1] === 'view' ? (args.at(-1) ?? '').split(',') : []
+    if (fields.includes('labels')) {
+      return JSON.stringify({ labels: [...present].map((name) => ({ name })), autoMergeRequest: state.autoMerge })
     }
-    if (args[0] === 'pr' && args[1] === 'view' && args.includes('comments')) {
+    if (fields.includes('comments')) {
       return JSON.stringify({ comments: posted.map((body) => ({ body })) })
     }
     if (args[0] === 'pr' && args[1] === 'edit' && args.includes('--remove-label')) {
       present.delete(args[args.indexOf('--remove-label') + 1])
+      return ''
+    }
+    if (args[0] === 'pr' && args[1] === 'merge' && args.includes('--disable-auto')) {
+      state.autoMerge = null
       return ''
     }
     if (args[0] === 'pr' && args[1] === 'comment') {
@@ -74,30 +78,8 @@ function mockLoopGh({ labels = [], comments = [] } = {}) {
     }
     throw new Error(`unexpected gh call: ${args.join(' ')}`)
   }
-  return { gh, calls, labels: present, comments: posted }
+  return { gh, calls, labels: present, comments: posted, state }
 }
-
-describe('expand–contract (#494 adds, #497 removes)', () => {
-  it('keeps every seam mode 2 and the old driver import from this module', async () => {
-    // `skills/build/SKILL.md` does `const { run } = await import(…/workflow.js)` and
-    // `skills/feature/SKILL.md` §6.0 destructures its own list. Both are runtime imports
-    // in a live session: nothing else observes a deletion, or a rename, until it runs.
-    const module = await import('./workflow.js')
-    const feature = readFileSync(join(import.meta.dirname, '..', 'feature', 'SKILL.md'), 'utf8')
-    const imported = feature.match(/const \{([^}]+)\} =\s*await import\(`\$\{SKILL_DIR\}\/\.\.\/build\/workflow\.js`\)/)
-    expect(imported).not.toBeNull()
-    const names = imported[1]
-      .split(',')
-      .map((name) => name.trim())
-      .filter(Boolean)
-    expect(names.length).toBeGreaterThan(0)
-    expect(Object.fromEntries(names.map((name) => [name, typeof module[name]]))).toEqual(
-      Object.fromEntries(names.map((name) => [name, 'function'])),
-    )
-    expect(typeof run).toBe('function')
-    expect(readFileSync(join(import.meta.dirname, 'SKILL.md'), 'utf8')).toContain('const { run } = await import(')
-  })
-})
 
 const INPUT = { issue: 494, branch: 'feat/494-feature-back-half', base: 'staging', title: 'feat: back half' }
 
@@ -365,7 +347,7 @@ describe('the bound, measured on the PR rather than on the object', () => {
   }
 
   it('removes a `reviewed` label it finds on a stopped PR, and says it did', async () => {
-    // The label is the whole of what `stop` promises: auto-merge.yml turns it into
+    // The label is half of what `stop` promises: auto-merge.yml turns it into
     // `gh pr merge --auto --merge`. A stop that only *says* "unlabelled" while the
     // label sits on the PR is the merge the bound exists to prevent.
     const { loop } = stopped()
@@ -374,19 +356,35 @@ describe('the bound, measured on the PR rather than on the object', () => {
     expect(outcome.removed).toBe(true)
     expect([...labels]).toEqual(['size:F-full'])
     expect(calls).toEqual([
-      ['pr', 'view', '512', '--json', 'labels'],
+      ['pr', 'view', '512', '--json', 'labels,autoMergeRequest'],
       ['pr', 'edit', '512', '--remove-label', 'reviewed'],
     ])
     expect(outcome.message).toContain('unlabelled and unmerged')
     expect(outcome.message).toContain('removed')
   })
 
-  it('touches nothing when the stopped PR carries no label', async () => {
+  it('disables native auto-merge left on a stopped PR, label first', async () => {
+    // Once enabled, GitHub's auto-merge outlives the label: removing `reviewed` alone
+    // leaves a PR that the next green run merges, under a message saying it will not.
+    const { loop } = stopped()
+    const { gh, calls, labels, state } = mockLoopGh({ labels: ['reviewed'], autoMerge: { mergeMethod: 'MERGE' } })
+    const outcome = await loop.enforceStop('/tmp/wt', { gh })
+    expect(outcome).toMatchObject({ removed: true, autoMergeDisabled: true })
+    expect([...labels]).toEqual([])
+    expect(state.autoMerge).toBe(null)
+    expect(calls.slice(1)).toEqual([
+      ['pr', 'edit', '512', '--remove-label', 'reviewed'],
+      ['pr', 'merge', '512', '--disable-auto'],
+    ])
+    expect(outcome.message).toContain('Auto-merge was enabled on PR #512 — disabled.')
+  })
+
+  it('touches nothing when the stopped PR carries neither label nor auto-merge', async () => {
     const { loop, step } = stopped()
     const { gh, calls } = mockLoopGh({ labels: ['size:F-full'] })
     const outcome = await loop.enforceStop('/tmp/wt', { gh })
-    expect(outcome).toMatchObject({ removed: false, labels: ['size:F-full'] })
-    expect(calls).toEqual([['pr', 'view', '512', '--json', 'labels']])
+    expect(outcome).toMatchObject({ removed: false, autoMergeDisabled: false, labels: ['size:F-full'] })
+    expect(calls).toEqual([['pr', 'view', '512', '--json', 'labels,autoMergeRequest']])
     expect(outcome.message).toBe(step.message)
   })
 
@@ -501,54 +499,5 @@ describe('the count outlives the process that holds it', () => {
   it('refuses seeded counts that are not counts', () => {
     expect(() => createReviewLoop({ pr: 512, fixes: -1 })).toThrow(TypeError)
     expect(() => createReviewLoop({ pr: 512, reviews: 1.5 })).toThrow(TypeError)
-  })
-})
-
-const skill = (...parts) => readFileSync(join(import.meta.dirname, '..', ...parts), 'utf8')
-
-function section(text, heading) {
-  const level = heading.match(/^#+/)[0].length
-  const start = text.indexOf(`${heading}\n`)
-  if (start === -1) throw new Error(`no such heading: ${heading}`)
-  const rest = text.slice(start + heading.length)
-  const next = rest.search(new RegExp(`\\n#{1,${level}} `))
-  return next === -1 ? rest : rest.slice(0, next)
-}
-
-describe('`reviewed` has exactly one writer', () => {
-  // The label is not a status: `.github/workflows/auto-merge.yml` turns it into
-  // `gh pr merge --auto --merge`. Two writers means the bound in `createReviewLoop`
-  // decides nothing, because a fix round merges the PR before the re-review lands.
-  const fix = () => skill('fix', 'SKILL.md')
-  const feature = () => skill('feature', 'SKILL.md')
-
-  it('makes a fix round write no label unless it is told to', () => {
-    const phase7 = section(fix(), '## Phase 7 — Final Push + Approve')
-    const writes = phase7.split('\n').filter((line) => line.includes('gh api repos/:owner/:repo/issues/<#>/labels'))
-    expect(writes).toHaveLength(1)
-    expect(writes[0]).toMatch(/mode = `label` → `gh api/)
-    expect(phase7).toMatch(/mode = `no-label` → \*\*write nothing\*\*/)
-  })
-
-  it('has `/feature` §6.5 invoke fix in that mode, and name §6.7 as the only writer', () => {
-    const body = feature()
-    expect(section(body, '### 6.5 Fix — inline, and back round')).toMatch(/`#<pr> --no-label`/)
-    expect(section(body, '### 6.7 Land — wait, label, let auto-merge finish')).toMatch(/sole writer of `reviewed`/)
-  })
-
-  it('commits the fix round against the issue, not against a literal `#N`', () => {
-    // The fence interpolated `${step.fixes}` while printing `fix(#N)` verbatim, so
-    // every round's commit claimed a ticket called N.
-    expect(section(feature(), '### 6.5 Fix — inline, and back round')).toMatch(
-      /commitPush\(cwd, branch, `fix\(#\$\{issue\}\): review round \$\{step\.fixes\}`\)/,
-    )
-  })
-
-  it('does not attribute a merge offer to a `fix` phase that only posts a comment', () => {
-    // The stale sentence told the operator to decline an offer `fix` never makes —
-    // inherited from `dev-review`, whose Phase 8 does make it.
-    expect(fix()).toMatch(/^## Phase 8 — Post Follow-Up Comment$/m)
-    const claims = feature().match(/[^.\n]*`fix`[^.\n]*Phase 8[^.\n]*/g) ?? []
-    for (const claim of claims) expect(claim).not.toMatch(/merge|rebase|label/i)
   })
 })

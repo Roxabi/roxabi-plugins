@@ -674,7 +674,15 @@ async function resolveRequiredContexts(cwd, pr, ghFn) {
   return [...out]
 }
 
-/** Wait for required rollup SUCCESS, then label `reviewed` and auto-merge. */
+/**
+ * Wait for required rollup SUCCESS, then label `reviewed` and auto-merge.
+ *
+ * A required check can still fail — or report SKIPPED, which GitHub counts as passing
+ * — *after* this call has armed the gate (a strict-policy `update-branch` re-runs CI on
+ * the merged head). Returning with the gate armed would let the next push merge: the
+ * `reviewed` label makes `auto-merge.yml` re-enable auto-merge on every `synchronize`.
+ * So once armed, a `ci-failed`/`ci-skipped` return disarms first and says so.
+ */
 export async function landPr(
   cwd,
   pr,
@@ -687,14 +695,28 @@ export async function landPr(
   let labeled = false
   const deadline = now() + timeout
 
+  /**
+   * Label first, then auto-merge: while the label is still on, a `check_suite`
+   * completion would let `auto-merge.yml` re-enable what was just disabled. A failing
+   * call throws — a half-disarmed PR must stop the caller, not read as disarmed.
+   * @template {Record<string, unknown>} T
+   * @param {T} result
+   */
+  async function disarm(result) {
+    if (!labeled) return result
+    await ghFn(cwd, ['pr', 'edit', String(pr), '--remove-label', 'reviewed'])
+    await ghFn(cwd, ['pr', 'merge', String(pr), '--disable-auto'])
+    return { ...result, disarmed: true }
+  }
+
   while (now() < deadline) {
     const j = JSON.parse(await ghFn(cwd, ['pr', 'view', String(pr), '--json', 'state,statusCheckRollup']))
     if (j.state === 'MERGED') return { status: 'merged' }
     if (j.state === 'CLOSED') return { status: 'closed' }
 
     const rollup = evaluateRequiredRollup(j.statusCheckRollup || [], required)
-    if (rollup.status === 'ci-failed') return { status: 'ci-failed', failed: rollup.failed }
-    if (rollup.status === 'ci-skipped') return { status: 'ci-skipped', skipped: rollup.skipped }
+    if (rollup.status === 'ci-failed') return disarm({ status: 'ci-failed', failed: rollup.failed })
+    if (rollup.status === 'ci-skipped') return disarm({ status: 'ci-skipped', skipped: rollup.skipped })
 
     if (rollup.status === 'pending') {
       await sleep(WATCH_EVERY)
@@ -969,31 +991,36 @@ export function createReviewLoop({
     /**
      * Make `stop` true of the PR, not just of this object.
      *
-     * `stop` promises "no `reviewed` label, no auto-merge", and that label is the only
-     * thing the promise can be measured against: `.github/workflows/auto-merge.yml`
-     * turns it into `gh pr merge --auto --merge`. Anything that wrote it earlier — a
-     * fix round run in labelling mode, a `dev-review` Phase 8 "Merge as-is", a human —
-     * would merge a PR the loop just refused. So on `stop` the label is read back and
-     * removed before the operator is told nothing merged.
+     * `stop` promises "no `reviewed` label, no auto-merge". Two signals carry that
+     * promise: the label, which `.github/workflows/auto-merge.yml` turns into
+     * `gh pr merge --auto --merge`, and GitHub's native `autoMergeRequest`, which
+     * outlives the label once enabled. Anything that armed them earlier — a fix round
+     * run in labelling mode, a `dev-review` Phase 8 "Merge as-is", a human — would merge
+     * a PR the loop just refused. So on `stop` both are read back and disarmed, label
+     * first, before the operator is told nothing merged.
      *
      * @param {string} cwd
      * @param {{ gh?: (cwd: string, args: string[]) => Promise<string> }} [deps]
-     * @returns {Promise<{ removed: boolean, labels: string[], message: string }>}
+     * @returns {Promise<{ removed: boolean, autoMergeDisabled: boolean, labels: string[], message: string }>}
      */
     async enforceStop(cwd, { gh: ghFn = ghDefault } = {}) {
       if (closed !== 'stop') {
         throw new Error(`createReviewLoop: enforceStop only follows a stop, not ${JSON.stringify(closed)}`)
       }
       const number = requirePr('enforceStop')
-      const raw = await ghFn(cwd, ['pr', 'view', number, '--json', 'labels'])
+      const raw = await ghFn(cwd, ['pr', 'view', number, '--json', 'labels,autoMergeRequest'])
       let data
       try {
         data = JSON.parse(raw)
       } catch {
-        throw new Error(`createReviewLoop: \`gh pr view ${number} --json labels\` returned no JSON — ${preview(raw)}`)
+        throw new Error(
+          `createReviewLoop: \`gh pr view ${number} --json labels,autoMergeRequest\` returned no JSON — ${preview(raw)}`,
+        )
       }
       if (!Array.isArray(data?.labels)) {
-        throw new Error(`createReviewLoop: \`gh pr view ${number} --json labels\` carried no labels — ${preview(raw)}`)
+        throw new Error(
+          `createReviewLoop: \`gh pr view ${number} --json labels,autoMergeRequest\` carried no labels — ${preview(raw)}`,
+        )
       }
       const labels = data.labels.map((l) => (typeof l?.name === 'string' ? l.name : '')).filter(Boolean)
       const stop = stopStep(closedReason)
@@ -1002,10 +1029,14 @@ export function createReviewLoop({
         await ghFn(cwd, ['pr', 'edit', number, '--remove-label', 'reviewed'])
         removed = true
       }
-      const message = removed
-        ? `${stop.message}\nA \`reviewed\` label was already on ${subject} — removed, so auto-merge cannot pick it up.`
-        : stop.message
-      return { removed, labels, message }
+      const autoMergeDisabled = Boolean(data.autoMergeRequest)
+      if (autoMergeDisabled) await ghFn(cwd, ['pr', 'merge', number, '--disable-auto'])
+      const notes = [
+        removed && `A \`reviewed\` label was already on ${subject} — removed, so auto-merge cannot pick it up.`,
+        autoMergeDisabled && `Auto-merge was enabled on ${subject} — disabled.`,
+      ].filter(Boolean)
+      const message = [stop.message, ...notes].join('\n')
+      return { removed, autoMergeDisabled, labels, message }
     },
   }
 }

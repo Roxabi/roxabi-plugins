@@ -2,489 +2,264 @@
 name: feature
 disable-model-invocation: true
 argument-hint: '[#N | <subject>]'
-description: OMP-only — one feature. From the Principal it hops into ω; in ω with no ticket it frames (grill → spec → tickets) and stops at the frontier; in ω on its ticket's branch it builds, reviews, fixes and lands.
+description: OMP-only feature cycle — frame a GitHub issue, propose its branch immediately, hand off /wt to the operator, then implement, review, fix and land in the matching worktree.
 version: 0.1.0
 ---
 
 # Feature
 
-One feature, one worktree. This body covers **entry** (§2), **mode 1 — framing**
-(§3–§5) and **mode 2 — build** (§6: implement → review → fix → land).
+One issue → one branch → one worktree → one PR. Read the issue as the spec;
+use the current repository conventions, not a separate spec-file lifecycle.
+`SKILL_DIR` below is this skill's directory, printed by the command.
 
-Bundled seam: `skill://feature/entry.js`. The skill directory is printed at the end
-of this body; import from there.
+## 0. Boundaries
 
-## 0. The tail is offered, never run
+- The operator alone invokes `/wt`. Propose the branch as soon as the issue number
+  is known; stop at that handoff rather than creating a worktree behind their back.
+- Read-only exploration and tracker framing may start on the Principal. File edits,
+  dependency installation and implementation require the matching worktree.
+- Issue creation, labels and native relations belong to `skill://issue-triage`.
+- `dev-review` owns findings; `fix --no-label` applies them; §6.7 alone lands.
+- After confirmed merge, offer `/cleanup`. Offer `/promote` only when
+  `.dev/stack.yml` declares `release.model: staging-train`. Never invoke either.
 
-`/promote` and `/cleanup` sit outside this cycle (#495). Mode 2 ends at **land**;
-after it lands, print the offer and stop:
+## 1. Route-specific prerequisites
 
-> Landed #N. Optional: `/cleanup` to sweep merged branches · `/promote` to cut a
-> release from staging.
+Read the project's `.dev/stack.yml` and `docs/agents/issue-tracker.md`.
+Missing tracker contract → stop and name the missing path. Missing stack → use
+repository-documented commands; do not guess an installer or release model.
 
-Printing that line is the whole handoff. Never invoke either skill — not from
-mode 2's land step, and above all not from the review→fix loop, where `/cleanup`
-would delete the branch under review and `/promote` would cut a release out of a
-half-reviewed diff. Both are `registerCommand` slash commands: the operator types
-one, or it does not run.
+| Route | Read before executing |
+|---|---|
+| Frame | `skill://grilling`, `skill://issue-triage` |
+| Build | `skill://dev-review`, `skill://fix`; `skill://issue-triage` before a deferral |
+| Agreed test-first work | `skill://tdd` |
 
-## 1. Preflight — the capabilities §4 actually calls
+Check only the selected route. A missing required skill stops that route with its
+name; do not replace tracker mutations or the review panel with an improvised flow.
+Implementation is native agent work, not dependent on an external `implement` skill.
 
-**This check gates §4, not the whole command.** Answer §2 first: only the `frame`
-route reaches §4, and mode 2 (§6) calls none of these four — gating a build on
-`grill-with-docs` would stop every ticket on a machine that frames elsewhere. Mode 2
-has its own list, in §6.0, and it is a different list.
+## 2. Locate the session
 
-§4 invokes four skills by name. Three come from an external plugin, one from this
-repo, and **nothing makes them arrive together**. Routed to §4 → check all four
-before anything else:
-
-| Capability | Called at | Source |
-|---|---|---|
-| `grill-with-docs` | §4.1 | Matt Pocock's skills plugin |
-| `to-spec` | §4.3 | idem |
-| `to-tickets` | §4.4 | idem |
-| `issue-triage:issue-triage` | §4, every issue write | the `issue-triage` plugin |
-
-**Any one of the four unavailable → stop, name the missing ones, and say
-`/setup-matt-pocock-skills` (or install `issue-triage`). Never fall back** — not to
-a hand-written spec, not to `gh issue create`. The fallback *is* the failure mode:
-a batch published without `issue-triage` carries no `size:`, no `--parent` and no
-edges, so the review tier silently downgrades and the frontier query reads empty.
-
-Do not grill. Do not create a worktree. Do not publish anything.
-
-The tracker-contract stop below is **not** scoped to §4: §6.4 defers findings
-through the same contract, so read it on both routes.
-
-Then, as a **separate** stop — the two conditions are independent, and this repo is
-the proof (2026-09-23: the tracker contract is present, and all three Matt skills
-are absent):
-
-**Read `docs/agents/issue-tracker.md` from the repo root. Absent → stop** and print:
-
-> Tracker contract missing: `docs/agents/issue-tracker.md`. It is the contract §4
-> and §5 obey — label vocabulary, relation shape, tier. Restore it, then re-run
-> `/feature`.
-
-Present → keep it in context.
-
-## 2. Where am I?
+Collect the real worktree root (`git rev-parse --show-toplevel`, resolve symlinks),
+the Principal (first path in `git worktree list --porcelain`, also resolved), and
+HEAD's branch (`git branch --show-current`, empty means detached).
 
 ```javascript
-const { isPrincipal, resolveEntry } = await import(`${SKILL_DIR}/entry.js`)  // SKILL_DIR = the printed skill directory
-const { ensureWorktree, resolveNames } = await import(`${SKILL_DIR}/../build/workflow.js`)
+const { isPrincipal, resolveEntry } = await import(`${SKILL_DIR}/entry.js`)
 ```
 
-The location question is answered **with no branch in hand** — on the Principal the
-branch this invocation is about is the one §3 has not created yet, and HEAD there
-is a base branch:
-
-| Input | Where it comes from |
+| Situation | Next |
 |---|---|
-| `cwd` | the session cwd, absolute and symlink-resolved — `pwd -P` |
-| `principalPath` | first entry of `git worktree list --porcelain` |
+| No issue number yet | §4: frame in conversation; no local file edits on the Principal |
+| Issue exists, session on Principal | Read it, then §3 immediately |
+| Issue exists, linked worktree | Call `resolveEntry({ cwd, principalPath, branch, ticket: issue })` |
+| `action: build` | Incomplete scope → §4; actionable ticket → §6 |
+| `action: refuse` | Name the mismatch/detached HEAD; §3, never implement here |
 
-`isPrincipal(cwd, principalPath)` throws on anything it cannot compare as a string
-(relative, `.`, `..`, `\`): it touches no filesystem, so an unresolved spelling of
-the Principal would read as "not the Principal" — and framing on the Principal is
-exactly what this skill exists to prevent.
+Use `isPrincipal(cwd, principalPath)` before `resolveEntry`: its legacy Principal
+hop route is not used. A branch for #N is not a branch for #M, including an epic's
+branch versus a child's. Read the ticket before deciding whether its scope is ready.
 
-- **true** → §3. `resolveEntry` is not called yet; there is nothing to call it with.
-- **false** → gather the two remaining facts and call it once:
+## 3. Issue → branch proposal → operator `/wt`
 
-| Input | Where it comes from |
-|---|---|
-| `branch` | `git -C <cwd> rev-parse --abbrev-ref HEAD`, or `null` when detached |
-| `ticket` | `#N` in `$ARGUMENTS`, else nothing |
+**Run this immediately after creating or selecting an issue**, before more grilling,
+spec refinement, decomposition or implementation. Do not wait for a finished spec
+or a batch of tickets. Reuse an already tracked issue instead of minting a duplicate.
 
-```javascript
-const entry = resolveEntry({ cwd, principalPath, branch, ticket })
-```
+1. Derive `<type>/<N>-<short-kebab-slug>` from the issue and repository conventions.
+   Read existing local/remote branches and worktrees first. If this session is
+   already in the matching worktree, continue without asking for another branch.
+2. Resolve the base from the release model: trunk → repository default branch;
+   staging-train → `staging`. Fetch the intended base before proposing creation.
+   Unknown base/model → resolve from repository configuration before proceeding.
+3. Check the checkout `/wt` will branch from — it creates the branch from the
+   current `HEAD`: on the intended base, clean and up to date. Otherwise report the
+   precise mismatch and the operator action needed, and print no `/wt` line until it
+   holds. Never branch from an unrelated ticket, and never move or stash the
+   operator's changes. Do not pre-create a branch that `/wt` would then refuse.
+4. Present the concrete branch, base and next operator action:
 
-| `action` | What it means | Go to |
-|---|---|---|
-| `frame` | no ticket | §4 |
-| `build` | the branch carries the ticket | §6 |
-| `refuse` | the branch carries `branchTicket` (or nothing), not `ticket` | stop: « ce ω porte `<branch>`, pas #`<ticket>` » — go back to the Principal and run `/feature #<ticket>` |
+   > Issue #N créée. Je propose la branche `<type>/<N>-<slug>` depuis `<base>`.
+   > Pour créer la branche et son worktree, saisis `/wt <type>/<N>-<slug>`.
+   > Puis reprends avec `/feature #N` ; le cadrage continuera si nécessaire.
 
-`refuse` is not pedantry: implementing #N inside #M's worktree puts #N's commits on
-#M's branch and into #M's PR, and nothing downstream notices.
+   For an existing issue, say “Issue #N sélectionnée”. **The proposal is not a
+   branch-creation receipt.** Only report creation after observing the branch.
+5. Stop for the operator. Do not invoke `/wt` through a tool, create the worktree,
+   switch the Principal's branch, or implement while waiting. If they defer the
+   branch, continue only read-only exploration/conversation and tracker framing;
+   no local file edit happens outside the matching worktree.
 
-## 3. Hop — never implement on the Principal
+These rules are agent discipline: the plugin's guard blocks moving the Principal's
+`HEAD`, not creating a branch or worktree from it.
 
-On the Principal, `/feature` prepares ω and leaves. In order:
+Existing branch/worktree → offer reuse, not another branch. For a registered
+worktree, print `omp --cwd <quoted-existing-path>`, then `/feature #N`. For a branch
+without a worktree, propose an unused path and the operator commands
+`git worktree add <quoted-new-path> <existing-branch>` then `omp --cwd <quoted-new-path>`.
+Do not execute them, reset/delete the branch or pass it to a create-only `/wt`.
 
-1. **Name the branch**: `resolveNames({ cwd, type, slug, issue })` →
-   `<type>/<N>-<slug>`, plus the ω path and `principalPath`.
+## 4. Frame — agreed scope in the issue
 
-   `resolveNames` refuses without an issue (`workflow.js` — "mint first"), and that
-   policy has no bypass here: hand-building `names = { branch: 'feat/<slug>' }`
-   skips it, and `ensureWorktree` then reads the `names.worktree` that was never
-   computed and dies with a `TypeError`.
+1. Use `skill://grilling` for unresolved decisions; research facts yourself. Stop
+   questioning when the user confirms shared understanding. An already actionable
+   issue needs no replay of the interview.
+2. Draft scope, acceptance criteria, invariants and out-of-scope in conversation.
+   Publish through `skill://issue-triage`; amend the existing issue when one exists.
+   **A newly returned issue number immediately triggers §3**, even mid-framing.
+3. Record durable vocabulary/decisions only in the matching worktree, using the
+   project's glossary and ADR conventions when warranted. The issue remains the
+   spec home; no `artifacts/specs` or `status: validated` gate.
+4. Split only when needed into independently landable tickets. Through
+   `issue-triage`, each gets `--size`, `--priority`, `--type`; add `--parent` only
+   for actual decomposition and `--blocked-by` only for actual dependencies.
+   Every newly created ticket gets its branch proposal immediately; a declined
+   proposal does not authorize creating branches for the rest of the batch.
 
-   **No `#N` in `$ARGUMENTS`, only a subject** — there is no mint-free path to a
-   branch, so pick one of the two that exist:
-   - mint the issue first, through `Skill(skill: "issue-triage:issue-triage")` — one
-     issue carrying the subject, epic or not — then continue here with its number.
-     `resolveNames` then works as designed and §4 refines that issue rather than
-     opening a second one;
-   - or do not hop at all: the framing pass is what mints tickets, and it only needs
-     *a* worktree. Run `/feature <subject>` from a ω you already own and §4 takes it
-     in the current worktree.
-2. **Create ω**: `const resolved = await ensureWorktree(principalPath, names)`. It
-   refuses a dirty or non-base Principal, and it never moves the Principal's HEAD.
-   `resolved.worktree` is ω's directory — the fact step 4 needs.
-3. **Install its dependencies**: `bun install` **inside ω**, and wait for it.
-   Non-negotiable (#499): `commitlint` runs on every commit through lefthook and
-   resolves its config from `node_modules`; an uninstalled worktree therefore
-   refuses *every* commit, whatever the content, with an error that names the config
-   and not the cause. A hop that lands the operator in a tree that cannot commit is
-   a broken hop.
-4. **Resolve the entry, now that both halves exist**, and print its command:
+Scope changes require re-evaluating the issue tier under the tracker contract.
+Post-review deferrals are siblings under the origin's parent, blocked by the origin;
+`fix` and `issue-triage` own that procedure.
 
-   ```javascript
-   const entry = resolveEntry({
-     cwd,
-     principalPath,
-     branch: resolved.branch,
-     ticket,
-     worktreePath: resolved.worktree,
-   })
-   ```
+## 5. Frontier and framing handoff
 
-   `entry.action` is `hop`. Print `entry.command` verbatim — it is a directory hop:
-
-   ```
-   omp --cwd <ω>
-   ```
-
-   Then: « ω prêt et installé. Tape la ligne ci-dessus, puis relance `/feature`. »
-
-   **Never `/wt`.** That command always *mints* a new branch and hard-refuses one
-   that already exists, and it lands in `~/.omp/wt/<sanitised>-<hash>` — never in
-   the ω `ensureWorktree` just built and installed. The relaunch names the
-   directory: `skills/build/SKILL.md` (`need-relaunch` → `omp --cwd
-   <result.worktree>`) and `scripts/omp-wt.mjs` (`Bun.spawn(['omp', '--cwd', …])`)
-   already answer it that way.
-
-Why printed and not performed: `applyCwdChange` lives on the interactive-mode
-controller, reached through `session.switchSession({ onCwdChange })`. The documented
-`ExtensionCommandContext` exposes `newSession` / `switchSession(path)` / `branch` /
-`navigateTree` / `reload` / `compact` and **no cwd hop** (measured on omp v18.2.6,
-re-read on 18.2.9 — ADR-020 §3 residual). If a later OMP exposes one, perform the
-hop there and delete this step. Until then the fallback *is* the behaviour: one
-relaunch per feature, and no line of code written on the Principal.
-
-## 4. Frame — grill, spec, tickets
-
-Only reachable inside ω (`action: frame`). Everything below is written **in ω**.
-
-1. **Grill.** `Skill(skill: "grill-with-docs")` — HITL, one frontier of numbered
-   questions per round, each with a recommended answer. Domain only: TL;DR, data
-   model, acceptance, out of scope, invariants.
-2. **Write the durable prose as the grill settles**, inside ω, not after the fact:
-   - new or sharpened vocabulary → the project glossary (`CONTEXT.md` of the
-     touched plugin, or the repo's);
-   - a decision with alternatives and a cost → an ADR under
-     `docs/architecture/adr/`. No decision worth one → write none, and say so.
-3. **Spec**: `Skill(skill: "to-spec")`. The spec home is the **tracker issue**
-   (ADR-020 §4) — no `artifacts/specs`, no `status: validated` gate. If an epic
-   already tracks this subject, amend that issue instead of opening a second one.
-4. **Tickets**: `Skill(skill: "to-tickets")` — tracer bullets, each independently
-   landable.
-
-### Publishing is `issue-triage`'s job, not `gh`'s
-
-Every issue write goes through
-`Skill(skill: "issue-triage:issue-triage")` — creation, `size:`, priority, type, and
-every relation. Never `gh issue create`, never a `Blocked by: #12` line in a body
-(invisible to `gh issue view` and to the frontier query).
-
-Per ticket, in one `create`:
-
-| Flag | Why it is mandatory |
-|---|---|
-| `--size S \| F-lite \| F-full` | the label is the **only** source of the review tier τ; a ticket without one silently downgrades its own review to `F-lite` |
-| `--blocked-by "#N"` | the tracer-bullet order is a DAG, not a list |
-| `--parent "#E"` | the epic's fan-out stays flat |
-| `--type` | `feat` \| `fix` \| `docs` \| `chore` \| `refactor` \| … |
-
-## 5. The frontier — read the edges, never the summary
-
-Stop here. Print what is grabbable now, computed from the **edge list**. There is no
-batch form: the endpoint is per issue, so read it **once per published ticket** —
-`{owner}` and `{repo}` are `gh`'s own placeholders, filled from the current repo:
+Read the native dependency edges **for every ticket**, including on build re-entry:
 
 ```bash
-for n in 501 502 503; do   # the numbers §4 just published
-  open=$(gh api "repos/{owner}/{repo}/issues/$n/dependencies/blocked_by" \
-    --jq '[.[] | select(.state == "open")] | length')
-  echo "#$n blocked_by(open)=$open"
-done
+gh api --paginate 'repos/{owner}/{repo}/issues/<N>/dependencies/blocked_by'
 ```
 
-`0` → grabbable. Anything else → blocked, and name the blockers (drop `| length` to
-read them: the same call returns `number` and `state` per blocker).
+Only tickets with no **open** blocker are actionable. Name blockers for the others.
+Use the edge list, not the eventually consistent dependency summary after writes.
+Branch preparation does not authorize implementing a blocked ticket.
 
-**Never `issue_dependencies_summary.blocked_by` in the turn that published the
-tickets.** Measured on #493 (2026-09-21): it is a denormalised counter that lags the
-edge write. Creating an issue with `--blocked-by '#489'` (#489 open) and reading the
-summary in the same batch returned
-
-```
-{"blocked_by":0,"blocking":0,"total_blocked_by":0,"total_blocking":0}
-```
-
-while `GET /issues/503/dependencies/blocked_by` already returned
-`[{"number":489,"state":"open"}]`. A moment later the summary agreed. Computed from
-the summary, every fresh ticket reports as grabbable and the stop prints the whole
-batch as ready — including the blocked half. The failure is silent and it points the
-operator at the wrong work.
-
-(`blocked_by` counts **open** blockers; `total_blocked_by` counts all of them. Use
-the open count.)
-
-Then stop — for real. Print:
-
-> Frontier: #A, #B. `/clear`, then `/feature #A` from here.
-
-The context that framed the epic is not the context that implements a ticket
-(ADR-020 § Consequences). Do not roll into mode 2 in the same window.
+After framing, print ready ticket numbers and their branch/worktree handoffs from
+§3. Stop before implementation: the operator starts `/feature #N` in the matching
+worktree with fresh context (`/clear` when staying in that same worktree).
 
 ## 6. Build — implement → review → fix → land
 
-Reachable on one route only: §2 answered `build`, so this ω is checked out on the
-branch that carries `#N`. Everything below runs here, in this worktree, and ends
-either with a merged PR or with an explicitly unmerged one.
+### 6.0 Preflight
 
-### 6.0 Preflight and the seam
-
-Mode 2 calls five capabilities. Two are this plugin's, two are upstream, one is the
-tracker:
-
-| Capability | Called at | Source |
-|---|---|---|
-| `implement` | §6.2 | Matt Pocock's skills plugin |
-| `tdd` | never called here — `implement` drives it | idem, and it must be **un-ignored** |
-| `dev-review` | §6.4 | this plugin — `skill://dev-review/SKILL.md` |
-| `fix` | §6.5 | this plugin — `skill://fix/SKILL.md` |
-| `issue-triage:issue-triage` | §6.5, every Defer | the `issue-triage` plugin |
-
-Two settings checks, both read off the skill listing you were given:
-
-- **`tdd` must be listed.** It is model-invoked and `implement` reaches for it; an
-  ignored `tdd` turns "test-first at the seams" into a sentence nobody can act on
-  (ADR-020 §5 un-ignores it). Absent → say so, and run §6.2 stating that the
-  implementation is not test-first.
-- **`code-review` must *not* be listed**, and is never invoked whether it is or not.
-  This repo's panel replaces it (ADR-020 §5): `code-review` is Matt's two-axis pass,
-  `dev-review` is five evidence-selected roles plus the tier τ read from the ticket's
-  `size:` label. Running both doubles the findings and halves the attention paid to
-  each. Listed → say so once, do not call it, continue.
-
-`implement` or `dev-review` or `fix` missing → **stop** and name it. Never hand-roll
-the missing one: a hand-written review is the failure mode the panel exists to
-remove, and a hand-rolled `gh pr create` is the prose-parsing this section deletes.
-
-Then import the seam once, and keep the handle — §6.6's bound lives in it:
+Verify the actual cwd/branch again after the operator's handoff. Read the issue body,
+`size:` label and open blockers (§5). Missing scope → §4; open blocker → stop.
+Resolve the base as in §3, fetch it, and check history: every commit in
+`origin/<base>..HEAD` belongs to this ticket (none on first entry). A foreign commit,
+or a fork point off `<base>`, → stop and name it; a correct branch name proves nothing.
+Install dependencies with the repository's documented command in this worktree
+before running hooks/builds; no unconditional `bun install` for unrelated stacks.
 
 ```javascript
-const { commitPush, openPr, landPr, resumeReviewLoop, detectPrincipal } =
-  await import(`${SKILL_DIR}/../build/workflow.js`)   // SKILL_DIR = the printed skill directory
+const { openPr, landPr, resumeReviewLoop } =
+  await import(`${SKILL_DIR}/../build/workflow.js`)
 ```
 
-`resumeReviewLoop` rather than `createReviewLoop`: it reads the rounds the PR already
-carries before handing back a loop, so re-entering mode 2 on a PR that has already spent
-its rounds resumes the bound instead of restarting it (§6.6).
+These bundled functions remain the PR/landing seam. Do not invoke the legacy
+`/build` driver or its spec-file stages.
 
-### 6.1 Read the ticket
+### 6.1 Plan against acceptance criteria
 
-`gh issue view <N>` — body, `size:` label, blocked-by edges. The body **is** the spec
-(ADR-020 §4): there is no `artifacts/specs` file to open, and its Acceptance criteria
-are what §6.2 implements, what §6.4 reviews, and what §6.7 closes.
+Map every criterion to the affected code and the evidence needed to prove it.
+Reuse repository patterns. Agree any uncertain behavior before implementation.
 
-An open `blocked_by` edge → stop and name the blocker. §5's frontier query is the
-same call; a ticket that was grabbable at framing time may not be now.
+### 6.2 Implement and verify
 
-### 6.2 Implement — test-first at the agreed seams
+Implement in this worktree, delegating independent slices when useful. Use `tdd`
+for agreed test-first seams. Run the actual changed path and relevant existing
+checks; keep regression tests for plausible failures, not to inflate coverage.
+Update affected docs. Finish every acceptance criterion before opening the PR.
 
-`Skill(skill: "implement")`, given the ticket number, its Acceptance criteria and
-this worktree.
+### 6.3 Commit, push, open or resume
 
-**`tdd` is driven, never stepped.** It is `implement`'s to invoke, at the seams it
-agrees with the operator — that agreement is the human turn of mode 2, and it is the
-reason `tdd` is not a numbered step here (ADR-020 §5, refuse list). Do not invoke
-`tdd` yourself, and do not "add tests afterwards" to compensate for skipping it.
-
-Do not commit, do not push, do not switch branch: §6.3 owns all three.
-
-### 6.3 Commit, push, open — three calls, no prose
+Stage only task-owned files, commit with a Conventional Commit subject and push
+this branch. Preserve unrelated work; never stage the whole checkout indiscriminately.
+Use the base resolved in §3, including when already inside a worktree on entry.
 
 ```javascript
-await commitPush(cwd, branch, `feat(#${issue}): <what actually landed>`)
-const base = await detectPrincipal(cwd)
 const { number: pr, status } = await openPr(cwd, {
   issue, branch, base,
   title: '<Conventional Commit subject>',
-  body: '<what changed and why, in plain prose>',
+  body: '<changes, verification, and criterion→evidence matrix>',
 })
+const loop = await resumeReviewLoop(cwd, { pr })
 ```
 
-`openPr` returns `{ number, status }` — `status` is `'created'` or `'existing'`, and
-`existing` is the normal answer when mode 2 is re-entered after an interruption. It
-appends `Closes #<issue>` when the body does not already carry a closing keyword;
-that keyword is the only machine-readable link back to the ticket, and `/promote`
-re-emits exactly it.
+`openPr` returns the numeric PR and `created | existing`, and supplies the closing
+issue link. Print that result. Failure → report it; reconcile remote state before
+retrying, never blindly create a second PR. The matrix follows `dev-review`'s
+SC→Test contract, including justified NO TEST rows.
 
-Print one line: « PR #<pr> ouverte » or « PR #<pr> déjà ouverte, on continue dessus ».
+### 6.4 Review
 
-**The number comes from the client's response, never from a reply.** Do not ask an
-agent to open the PR and read the number out of what it says; do not scrape a URL.
-`openPr` throws when the response carries no number — a throw here is worth more than
-a plausible-looking string reaching `landPr` as a PR id.
+Read and execute `skill://dev-review` for `#<pr>`, using **its own** directory for
+`SKILL_DIR`. Keep feature's directory separately. After its posted verdict and
+before its Phase 8 decision, record the verdict below. This cycle owns subsequent
+fix/landing actions; the nested review must not execute them independently.
 
-| `openPr` | Say |
+Translate the panel's verdict before calling the loop:
+`Approve`, `Approve (clean)`, `Approve with comments` → `verdict = 'green'`;
+`Request changes` → `verdict = 'red'`. Pass only `'green'` or `'red'` to
+`loop.record`, never a raw panel string such as `'Request changes'`.
+
+```javascript
+let step = loop.record(verdict)
+await loop.persist(cwd)
+```
+
+Present the Phase 8 human choice constrained by `step`: **Fix now** routes through
+§6.5 only on `fix`; **Merge** routes through §6.7 only on `land`; **Stop** exits
+without fixing or merging. On `stop`, enforce §6.6 rather than offer another round.
+Never choose on the user's behalf or offer “Merge as-is” for a red verdict.
+The human's **Stop** simply exits; `enforceStop` is valid only when the loop itself
+returned `step.action === 'stop'`, not when the user declines an available fix.
+`record` has already counted the round when the choice is offered: say so, since a
+red verdict spends a fix round whether or not the operator then fixes.
+
+### 6.5 Fix
+
+`step.action === 'fix'`, by `step.reason`:
+
+- review round (no reason) → execute `skill://fix` with `#<pr> --no-label`. Its inline
+  fixes and deferrals remain subject to its human choices.
+- `ci-failed` → fix inline from the failed checks (`land.failed`) and their logs.
+  `fix` reads review comments, not CI: running it here replays stale findings.
+
+Verify and commit/push the fixes, then return to §6.4 on the same PR for a fresh
+review. State `step.remaining`.
+
+### 6.6 Bound
+
+| `step.action` | Next |
 |---|---|
-| **throws** | stop, and print the error verbatim |
+| `fix` | §6.5 |
+| `land` | §6.7 |
+| `stop` | `await loop.enforceStop(cwd)`; print its result and stop |
 
-There is no retry row and no manual fallback. `openPr` throws exactly when the client's
-answer was not understood — no JSON, no array, no `number` — and the one thing you must
-not do then is open the PR another way: `gh pr create` after a create whose outcome is
-unknown is the duplicate this function exists to prevent, and a retry is the same create
-again. Read the quoted response, fix the cause (auth, base branch, a `gh` that answered
-HTML), and re-run §6.3 — which is idempotent, and will find the PR if one was in fact
-opened.
+At most two fix rounds; a third red stops. Persist every verdict and CI reopening;
+resume from the PR on re-entry, never reset its spent rounds. `enforceStop` removes
+the `reviewed` label and disables native auto-merge; it cannot reverse a completed merge.
+The PR marker stores counts, not the stop itself: a re-entry after a stop resumes an
+open loop, so report the exhausted bound rather than start another round unasked.
+Nothing on a stopped path invokes landing or the optional tail.
+`loop.reopen('ci-failed')` **spends one fix round immediately** (0 → 1, 1 → 2;
+already 2 → stop). It never refunds or preserves an unspent round after reopening.
 
-### 6.4 Review — the panel, and only the panel
+### 6.7 Land
 
-```javascript
-const loop = await resumeReviewLoop(cwd, { pr })   // once, before the first review
-```
+Only `step.action === 'land'` may reach this step. Obtain the operator's merge
+approval if not already explicit for this PR. Then `await landPr(cwd, pr)` waits
+for required contexts, writes `reviewed` and enables merge-commit auto-merge. If a
+required check fails or is skipped after that, it removes the label and disables
+auto-merge before returning (`land.disarmed`).
+Neither a fix round nor another review action may write that label in this cycle.
 
-Invoke `Skill(skill: "dev-review")` with `#<pr>`. Its Phase 1 asserts `SKILL_DIR`
-and stops without it, so export **dev-review's own** directory first —
-`<the printed skill directory>/../dev-review`, not this skill's.
-
-It must **stay out of the way of the loop and of landing**. Its Phase 8 offers
-"Fix now" and "Merge as-is — rebase + label + auto-merge". Answer **Stop**, both
-times, whatever the verdict: the fix is §6.5's to run *after* the verdict has been
-recorded (a fix that happens inside Phase 8 is a round the counter never saw), and
-§6.7 is the only place a `reviewed` label is written. `fix` has no such offer — its
-Phase 8 posts the follow-up comment and nothing else — but its Phase 7 *does* write
-the label unless it is told not to, which is why §6.5 passes `--no-label`.
-
-Fold its verdict to the one word the loop takes:
-
-| `dev-review` verdict | Word |
+| `land.status` | Action |
 |---|---|
-| `Approve`, `Approve (clean)`, `Approve with comments` | `green` |
-| `Request changes` | `red` |
+| `merged` | Report issue + PR; offer the optional tail (§0), stop |
+| `ci-failed` | Gate already disarmed if armed; `step = loop.reopen('ci-failed')`; `await loop.persist(cwd)`; follow §6.6 |
+| `ci-skipped` / `no-required-checks` | Stop; report skipped contexts / missing protection, no bypass — a skipped required check counts as passing on GitHub, hence the disarm |
+| `timeout` / `auto-merge-failed` | Stop; inspect and report actual PR/label/auto-merge state, never claim merged |
+| `closed` | Stop; report closure |
 
-```javascript
-let step = loop.record(verdict)   // 'green' | 'red' — nothing else; anything else throws
-await loop.persist(cwd)           // the count, onto the PR, after every verdict
-```
-
-`persist` writes `<!-- omp-build:review-rounds reviews=N fixes=M -->` as a PR comment.
-That marker is what `resumeReviewLoop` reads back, and it is the only part of the bound
-that outlives this process: skip it and a re-entry starts again at zero rounds.
-
-### 6.5 Fix — inline, and back round
-
-`step.action === 'fix'` → `Skill(skill: "fix")` with `#<pr> --no-label`. It applies
-findings **inline in this worktree** (there is no fixer agent in this plugin, ADR-020
-§7), and defers what it does not apply through
-`Skill(skill: "issue-triage:issue-triage")` as a sibling of `#N` — never a child, never
-a `Blocked by:` text line.
-
-**`--no-label` is not optional.** `fix` Phase 7 step 2 otherwise writes `reviewed`, and
-`.github/workflows/auto-merge.yml` turns that label into `gh pr merge --auto --merge`:
-a fix round would merge the PR before the re-review that judges the fix, and the bound
-below would be deciding nothing. §6.7 is the **sole** writer of `reviewed` on this PR.
-
-Then commit the round — ``await commitPush(cwd, branch, `fix(#${issue}): review round ${step.fixes}`)`` —
-and go back to §6.4: re-run the panel on the same PR and record the new verdict.
-`step.remaining` is how many rounds are left after this one; say it out loud.
-
-### 6.6 The bound — two rounds, counted in code
-
-The loop holds the count, not this body and not your memory of it. Each verdict goes
-through `loop.record(...)` and the returned `action` is what happens next:
-
-| `action` | Meaning | Next |
-|---|---|---|
-| `land` | the panel approved | §6.7 |
-| `fix` | red, and a round is left | §6.5 |
-| `stop` | no round is left — a third red, or a CI failure (§6.7) with nothing left to spend | `await loop.enforceStop(cwd)`, print its `message`, stop |
-
-review → red → fix → review → red → fix → review: two fix rounds. **A third red
-stops.** `record` then returns `stop` and closes the loop — a fourth verdict throws
-rather than yielding `land`, so "one more review, it will be green this time" is not
-a move that exists. `landPr` is not called on `stop`.
-
-**`stop` is enforced on the PR, not asserted about it.** "No `reviewed` label, no
-auto-merge" is a claim about a label anything could have written — a fix round run
-without `--no-label`, a `dev-review` "Merge as-is", a hand. So on `stop`:
-
-```javascript
-const outcome = await loop.enforceStop(cwd)   // reads the labels back, removes `reviewed`
-print(outcome.message)
-```
-
-`enforceStop` reads `gh pr view <pr> --json labels`, removes `reviewed` if it is there,
-and returns the operator message — saying so explicitly when it had to remove one,
-because a label found at that point means something else in this session was labelling
-PRs and that is worth knowing.
-
-What the operator sees is `outcome.message`, verbatim — this one for a third red, and
-the same sentence opened by the failed landing when the stop came from §6.7:
-
-> Review bound reached: 3 reviews, 2 fix rounds, still red. PR #512 stays unlabelled
-> and unmerged — no `reviewed` label, no auto-merge. Read the findings on the PR,
-> then fix by hand or close it.
-
-Then stop. Do not offer the tail (§0): nothing landed.
-
-**What is durable, and what is not.** `persist` (§6.4) writes the count onto the PR and
-`resumeReviewLoop` (§6.0) reads it back, so the bound survives a compaction, a crash and
-a re-created loop: three reds are three reds even across sessions. It does **not** bind a
-session that skips `persist`, nor one that labels the PR by hand — nothing inside a
-prose-driven skill can. The seam is what makes a resumed loop honest; the operator's
-branch protection is what makes an unlabelled PR unmergeable.
-
-### 6.7 Land — wait, label, let auto-merge finish
-
-```javascript
-const land = await landPr(cwd, pr)
-```
-
-`landPr` is the whole landing: it resolves the base branch's **required** contexts
-(classic protection and rulesets both), polls the rollup until every one of them is
-`SUCCESS`, and only then writes the `reviewed` label and enables auto-merge. Do not
-reimplement any of that, and above all **never `gh pr merge` while a check is
-running** — a mid-CI merge cancels the in-flight runs and skips the gates that the
-label is supposed to attest.
-
-**This call is the sole writer of `reviewed` on this PR**, and therefore the only place
-mode 2 can cause a merge: §6.5 runs `fix` with `--no-label`, §6.4 declines `dev-review`'s
-"Merge as-is", and §6.6 removes the label if it finds one. Reached only from
-`step.action === 'land'` — that is, from a green panel verdict inside the bound.
-
-| `land.status` | What it means | Say |
-|---|---|---|
-| `merged` | landed | « #N landed in PR #<pr> » → §0's offer |
-| `ci-failed` | a required check is red (`land.failed`) | the branch is not landable: `step = loop.reopen('ci-failed')`, then `await loop.persist(cwd)` — it re-opens the loop **spending** a fix round, not refunding one, so it returns `fix` (→ §6.5) while a round is left and `stop` (→ §6.6, `enforceStop`) when none is. Never re-create the loop: a fresh one hands this PR two fresh rounds |
-| `ci-skipped` | a required check reported `SKIPPED`/`NEUTRAL` (`land.skipped`) | a skipped required check is not a passed one — stop, no label |
-| `no-required-checks` | the base protects nothing | stop: there is nothing to wait on, so landing would attest nothing. Merge by hand, deliberately, or add the protection |
-| `timeout` | 20 minutes without a green rollup | stop, name the pending contexts |
-| `auto-merge-failed` | labelled, auto-merge refused | stop: the label is set, the merge is the operator's |
-| `closed` | someone closed the PR under us | stop |
-
-Only `merged` reaches §0.
-
-### 6.8 After it lands
-
-Print §0's offer verbatim and **stop**. `/promote` and `/cleanup` are typed by the
-operator or they do not run — and `/cleanup` in particular would remove the worktree
-this session is standing in.
+Errors stop with their evidence. No manual mid-CI merge and no automatic release
+or worktree deletion.

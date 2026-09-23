@@ -70,8 +70,8 @@
     },
     {
       "name": "omp-build",
-      "version": "0.2.0",
-      "description": "OMP-only post-spec orchestrator — plan, isolated implement, PR, review, merge.",
+      "version": "0.3.0",
+      "description": "OMP-only feature cycle — issue, branch proposal and operator /wt, then implement, bounded review/fix, land.",
       "source": "./plugins/omp-build",
       "category": "development"
     }
