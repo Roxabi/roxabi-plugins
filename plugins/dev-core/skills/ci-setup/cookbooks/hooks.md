@@ -180,6 +180,17 @@ h. Ensure principal freeze script exists (idempotent):
    test -f scripts/check-principal-branch.sh || bun $I_TS seed-principal-freeze
    ```
 
+h2. Ensure the ADR hygiene gate exists (idempotent — a locally tuned copy is kept):
+   ```bash
+   test -f scripts/check-agents-adr-hygiene.sh || bun $I_TS seed-adr-hygiene
+   ```
+   Enforces the ADR frontmatter contract (`status` + `normative` + `date`,
+   `superseded_by` when superseded, at most one `axial: true`). Defaults:
+   contract family `fail`, bare-ref heuristic `warn`, axial assertion `off`.
+   Tune per repo via `AGENTS_ADR_CONTRACT_MODE` / `AGENTS_ADR_MODE` /
+   `AGENTS_ADR_AXIAL_MODE` / `AGENTS_ADR_DIR`. Set `AGENTS_ADR_AXIAL_MODE=fail`
+   once `/R-adr --axial` has declared the axis of decomposition.
+
 i. Check trufflehog binary:
    ```bash
    which trufflehog 2>/dev/null && echo "installed" || echo "missing"

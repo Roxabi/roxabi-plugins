@@ -5,16 +5,17 @@ description: >
   /feature = grill-with-docs → to-spec → to-tickets → implement(tdd) → R-dev-review → R-fix ≤2 → landPr.
   Absorb mode is snapshot freeze, not resync. Spec home is the tracker issue.
   Narrows ADR-019 to the Claude product; keeps ADR-017.
+status: accepted
+normative: true
+date: 2026-09-21
 ---
 
-## Status
-
-Accepted — 2026-09-21. Implements Roxabi/roxabi-plugins#488.
-
-Extends the ADR-018 amendment (2026-08-24) from the back half to the whole cycle.
-**Narrows ADR-019** to the Claude/Grok product — the falsify oracle is not part of
-the OMP product. **Keeps ADR-017** — the principal freeze is the reason parallel
-features are possible at all.
+> Implements Roxabi/roxabi-plugins#488.
+>
+> Extends the ADR-018 amendment (2026-08-24) from the back half to the whole cycle.
+> **Narrows ADR-019** to the Claude/Grok product — the falsify oracle is not part of
+> the OMP product. **Keeps ADR-017** — the principal freeze is the reason parallel
+> features are possible at all.
 
 ## Context
 

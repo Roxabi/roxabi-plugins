@@ -1,11 +1,12 @@
 ---
 title: "ADR-003: Typed Workspace Projects and Per-Project Field Resolution"
 description: Establish how WorkspaceProject types (technical vs company) are discriminated, how GitHub Projects field IDs are resolved per-project, and why the .env global fallback is a migration path rather than a steady-state design.
+status: accepted
+normative: true
+date: 2026-04-22
 ---
 
-## Status
-
-Accepted. **Amended by #268** — the `fieldIds` bag, `resolveFieldIds`, `discoverProject`, and the per-project GitHub Projects field-ID resolution described below were removed when the ProjectV2 board path was purged; the `.env` field-ID fallback no longer exists in code. This ADR is retained for traceability. See [ADR-015](015-direct-call-over-role-interface-ports-typescript.mdx).
+> **Amended by #268** — the `fieldIds` bag, `resolveFieldIds`, `discoverProject`, and the per-project GitHub Projects field-ID resolution described below were removed when the ProjectV2 board path was purged; the `.env` field-ID fallback no longer exists in code. This ADR is retained for traceability. See [ADR-015](015-direct-call-over-role-interface-ports-typescript.mdx).
 
 ## Context
 

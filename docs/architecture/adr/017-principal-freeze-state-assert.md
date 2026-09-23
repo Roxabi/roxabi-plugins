@@ -5,15 +5,16 @@ description: >
   Persist law = lefthook / pre-commit seeded by /dev-init → /ci-setup.
   Agent layer = plugin PreToolUse deny + PostToolUse deny-after-exec.
   Still rejects a full shell/git argv parser.
+status: accepted
+normative: true
+date: 2026-08-07
 ---
 
-## Status
-
-Accepted — 2026-08-07. **Amended 2026-08-14** — lefthook persist gate offered by
-`/dev-init`; plugin Pre/Post kept as **agent deny** (not the persist law).
-**Amended 2026-08-15** — persist law repriced to lefthook 2.1.10 staged-file
-gate. `git commit --allow-empty` skip is a named residual, not a closed
-every-commit law.
+> **Amended 2026-08-14** — lefthook persist gate offered by
+> `/dev-init`; plugin Pre/Post kept as **agent deny** (not the persist law).
+> **Amended 2026-08-15** — persist law repriced to lefthook 2.1.10 staged-file
+> gate. `git commit --allow-empty` skip is a named residual, not a closed
+> every-commit law.
 
 ## Context
 

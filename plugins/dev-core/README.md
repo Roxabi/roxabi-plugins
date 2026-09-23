@@ -134,7 +134,7 @@ Skills organized by workflow phase:
 | `R-cleanup` | Ship | Post-merge cleanup |
 | `R-promote` | Ship | Staging-train repos: promotes staging→main. Trunk repos: pre-flight only — a release is cut by pushing an annotated tag |
 | `R-test` | Supporting | Runs and manages tests |
-| `R-adr` | Supporting | Creates Architecture Decision Records. `/R-adr --axial` elicits the Axis of Decomposition ADR (used by `/R-dev-init`) |
+| `R-adr` | Supporting | Creates Architecture Decision Records against a single canonical template (`skills/adr/references/adr-template.md`): frontmatter carries `status`, `normative`, `date`. `/R-adr --axial` elicits the Axis of Decomposition ADR (used by `/R-dev-init`); `/R-adr --migrate` backfills the contract on an older corpus. Superseding archives to `adr/archived/` without ever freeing the ADR number |
 | `R-doc-sync` | Supporting | Syncs AGENTS.md, README.md, and plugin SKILL.md after a code change |
 | `R-readme-upgrade` | Supporting | Audits and improves root README, CONTRIBUTING.md, and plugin READMEs against the developer-tool quality pattern (Why, Quick Start, How it works, categorized tables, diagrams). Auto-detects Mermaid vs ASCII based on host |
 | `R-cleanup-context` | Supporting | Audits and cleans CLAUDE.md, memory, skills, and rules — resolves every finding (fix/promote/relocate/delete), tracks recurrences, targets bloat=0 |

@@ -77,9 +77,15 @@ Reference: `${CLAUDE_PLUGIN_ROOT}/../shared/references/axial-decomposition.md`
 
 1. Check existing:
    ```
-   Grep tool: pattern="^axial: true|axis of decomposition", path="docs/architecture/adr/", -l, -i
+   bun ${CLAUDE_PLUGIN_ROOT}/skills/adr/adr.ts axial
    ```
-2. Exactly 1 match → D("Axial ADR", "✅ Already present"), continue.
+   `"count": 1` → an axis is declared. Exit 1 ⟺ `"violated": true` (>1 axial ADR);
+   `"declared": false` is the undeclared repo this gate exists for, not an error.
+   The canonical marker is `^axial: true` in frontmatter and nothing else — a
+   superseded axial ADR under `docs/architecture/adr/archived/` keeps its
+   "Axis of Decomposition" title, so a body-prose match would report a violation
+   on a correctly-archived corpus.
+2. `count == 1` → D("Axial ADR", "✅ Already present"), continue.
 3. ∅ ∨ >1 match → invoke the skill (host: Skill / slash):
    ```
    skill: "R-adr", args: "--axial"

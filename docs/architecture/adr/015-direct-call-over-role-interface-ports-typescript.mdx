@@ -1,11 +1,12 @@
 ---
 title: "ADR-015: Direct-Call over Role-Interface Ports for the TypeScript Shared Layer"
 description: Records that dev-core consolidated the ADR-005 role-interface ports (IssuePort/ProjectPort/services DI) back to direct-call functions in #192, makes direct-call the official pattern for the TS dev-core/dev-init shared layer, and removes the abandoned port/DI scaffolding that survived in dev-init. ADR-005/006 Python-plugin port decisions are unaffected.
+status: accepted
+normative: true
+date: 2026-06-12
 ---
 
-## Status
-
-Accepted — supersedes the TypeScript/dev-core portion of ADR-005 and ADR-006; their Python-plugin decisions remain in force. **Partially superseded (2026-08-24)** for the dev-core ↔ dev-init copy-sync mirror scope — `dev-init` merged into `dev-core` as skill `/dev-init`; the duplication this ADR governed no longer exists. Direct-call pattern and remaining `WorkspacePort` / `ConfigPort` decisions stay in force.
+> Supersedes the TypeScript/dev-core portion of ADR-005 and ADR-006; their Python-plugin decisions remain in force. **Partially superseded (2026-08-24)** for the dev-core ↔ dev-init copy-sync mirror scope — `dev-init` merged into `dev-core` as skill `/dev-init`; the duplication this ADR governed no longer exists. Direct-call pattern and remaining `WorkspacePort` / `ConfigPort` decisions stay in force.
 
 ## Context
 

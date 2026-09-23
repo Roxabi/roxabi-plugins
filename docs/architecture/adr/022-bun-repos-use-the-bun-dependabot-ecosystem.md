@@ -7,13 +7,14 @@ description: >
   on every CI run. The price is explicit: the bun ecosystem has no Dependabot
   security updates and GitHub's dependency graph does not parse `bun.lock`.
   Resolves #518.
+status: accepted
+normative: true
+date: 2026-09-22
 ---
 
-## Status
-
-Accepted — 2026-09-22. Resolves Roxabi/roxabi-plugins#518.
-
-Applies to every repo the workflow generator scaffolds with `stack: bun`.
+> Resolves Roxabi/roxabi-plugins#518.
+>
+> Applies to every repo the workflow generator scaffolds with `stack: bun`.
 
 ## Context
 

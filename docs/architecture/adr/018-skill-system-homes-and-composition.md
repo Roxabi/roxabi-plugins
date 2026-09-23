@@ -1,11 +1,12 @@
 ---
 title: "ADR-018: Skill-system homes and composition"
 description: "One home per fact in the dev-core skill system: three orthogonal axes, placement law, refuse list. /dev stays NL-routable."
+status: accepted
+normative: true
+date: 2026-08-17
 ---
 
-## Status
-
-Accepted — 2026-08-17 (human confirmed the cadastre).
+> Human confirmed the cadastre.
 
 ## Context
 

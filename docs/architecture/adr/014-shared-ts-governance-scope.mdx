@@ -1,14 +1,12 @@
 ---
 title: "ADR-014: Shared TypeScript File Governance — Full Scope Assignment"
 description: Assigns a governance mechanism (copy-sync, shared-import, caller-parity, intentional-fork, leave-alone) to every byte-identical or divergent TypeScript file shared between dev-core and dev-init, expanding copy-sync from 3 to 10 runtime files and deferring test shared-import conversion to #239.
-status: superseded
+status: deprecated
+normative: false
+date: 2026-06-12
 ---
 
-> **Superseded (2026-08-24)** — `dev-init` merged into `dev-core` as skill `/dev-init`. Copy-sync (`tools/shared-sources.json`, `bun run sync:shared`), biome generated-copy overrides, caller-parity, and **shared-import** for test-only files under `plugins/shared/__tests__/` are retired. Suite factories now live in-plugin at `plugins/dev-core/skills/shared/__tests__/suites/`. Body below is historical traceability.
-
-## Status
-
-Superseded — 2026-08-24 (dev-init plugin retired; copy-sync and caller-parity gates removed)
+> **Deprecated (2026-08-24)** — `dev-init` merged into `dev-core` as skill `/dev-init`. Copy-sync (`tools/shared-sources.json`, `bun run sync:shared`), biome generated-copy overrides, caller-parity, and **shared-import** for test-only files under `plugins/shared/__tests__/` are retired. Suite factories now live in-plugin at `plugins/dev-core/skills/shared/__tests__/suites/`. Body below is historical traceability.
 
 ## Context
 

@@ -4,14 +4,15 @@ description: >
   Executable run-falsify is the sole falsify oracle for τ≠S gates.
   Isolation = copy at HEAD plus the working-tree overlay. Proven record = falsify.json.
   Gate boolean = oracle_ok from --verify re-exec. parse-falsify demoted to ungated lint.
+status: accepted
+normative: true
+date: 2026-08-21
 ---
 
-## Status
-
-Accepted — 2026-08-21. Implements Roxabi/roxabi-plugins#417 Shape 1 (V1).
-**Narrowed 2026-09-21 by ADR-020** — this ADR governs the Claude/Grok product only.
-The OMP product does not absorb `R-pr`, so it has no oracle producer and no tester
-falsify gate.
+> Implements Roxabi/roxabi-plugins#417 Shape 1 (V1).
+> **Narrowed 2026-09-21 by ADR-020** — this ADR governs the Claude/Grok product only.
+> The OMP product does not absorb `R-pr`, so it has no oracle producer and no tester
+> falsify gate.
 
 ## Context
 

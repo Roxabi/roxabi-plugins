@@ -1,11 +1,12 @@
 ---
 title: "ADR-006: Slice V1 Port Boundary Review — Findings and Corrections"
 description: Records architectural findings from the Slice V1 (Clean Architecture foundation layer) review — 40 new files across 6 plugins. Documents 7 must-fix defects, 4 non-blocking issues, and confirms the per-plugin PluginError strategy.
+status: accepted
+normative: true
+date: 2026-04-22
 ---
 
-## Status
-
-Accepted. **Partially superseded by [ADR-015](015-direct-call-over-role-interface-ports-typescript.mdx) for the TypeScript (dev-core/dev-init) layer** — the `IssuePort`/`ProjectPort` role interfaces reviewed here were consolidated back to direct-call standalone functions in #192. The **Python-plugin** findings in this ADR remain in force.
+> **Partially superseded by [ADR-015](015-direct-call-over-role-interface-ports-typescript.mdx) for the TypeScript (dev-core/dev-init) layer** — the `IssuePort`/`ProjectPort` role interfaces reviewed here were consolidated back to direct-call standalone functions in #192. The **Python-plugin** findings in this ADR remain in force.
 
 ## Context
 
