@@ -254,7 +254,9 @@ Adopt **Option D**, scoped narrowly.
 - `plugins/dev-core/skills/promote/price.sh:117-134` (the bump map, kept for
   staging-train) · `lib/finalize.ts:119-125` (the refuse this ADR avoids
   triggering)
-- `scripts/provision-release-gate.sh:43` (`DEFAULT_REF`, the one real tag referent)
+- `scripts/provision-release-gate.sh` (`resolve_pin`, the one real tag referent —
+  the newest `roxabi-plugins/v*` tag, resolved at provision time rather than
+  hardcoded, since trunk cuts a new one on every merge; #385 item 5)
 - `~/projects/docs/release-convention.md` (fleet roster)
 - Prior art: `googleapis/release-please` `src/util/filter-commits.ts`
   (`DEFAULT_CHANGELOG_SECTIONS`) · `hoklims/semctx` `.github/workflows/release.yml`
