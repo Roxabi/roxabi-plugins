@@ -7,8 +7,10 @@ Covers the Decision-6 normalization charset, the Decision-7 diff contract
 """
 
 import importlib.util
+import inspect
 import json
 import re
+import textwrap
 import unicodedata
 from pathlib import Path
 
@@ -16,16 +18,36 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = REPO_ROOT / 'plugins' / 'compress' / 'scripts' / 'inventory_diff.py'
+COUNT_TOKENS_SCRIPT = REPO_ROOT / 'plugins' / 'compress' / 'scripts' / 'count_tokens.py'
 VALIDATE_PLUGINS_SCRIPT = REPO_ROOT / 'tools' / 'validate_plugins.py'
 
 # Crockford base32 alphabet — no I, L, O, U
 ULID_RE = re.compile(r'^[0-9ABCDEFGHJKMNPQRSTVWXYZ]{26}$')
+
+# The only things the two append-only-log twins are allowed to differ in: which
+# file they write and what they name it. Longest-first so 'verify-log.jsonl' is
+# not eaten by 'log'.
+_TWIN_VARIANTS = tuple(sorted(
+    ('ledger.jsonl', 'verify-log.jsonl', 'LedgerTruncatedError',
+     'VerifyLogTruncatedError', 'append_row', 'append_log', 'count_tokens.py',
+     'inventory_diff.py', 'verify-log', 'ledger', 'log'),
+    key=len, reverse=True,
+))
 
 
 @pytest.fixture(scope='module')
 def inv_diff():
     """Load inventory_diff.py as a module via its file path."""
     spec = importlib.util.spec_from_file_location('inventory_diff', SCRIPT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+@pytest.fixture(scope='module')
+def count_tokens_mod():
+    """Load count_tokens.py as a module via its file path (twin lockstep)."""
+    spec = importlib.util.spec_from_file_location('count_tokens', COUNT_TOKENS_SCRIPT)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -373,7 +395,7 @@ def test_log_carries_real_classification(inv_diff, tmp_path, isolated_vault, cap
     ])
     assert rc == 0
     log = isolated_vault / 'compress' / 'verify-log.jsonl'
-    row = json.loads(log.read_text(encoding='utf-8').splitlines()[0])
+    row = inv_diff.read_rows(log)[0]
     assert row['payload_typed']['changed'][0]['writer_classification'] == 'faithful'
 
 
@@ -488,10 +510,10 @@ def test_log_appends_verify_row(inv_diff, tmp_path, isolated_vault, capsys):
     assert rc == 0
 
     log = isolated_vault / 'compress' / 'verify-log.jsonl'
-    lines = log.read_text(encoding='utf-8').splitlines()
-    assert len(lines) == 1
+    rows = inv_diff.read_rows(log)
+    assert len(rows) == 1
 
-    row = json.loads(lines[0])
+    row = rows[0]
     assert ULID_RE.match(row['id'])
     assert row['source'] == 'compress-skill'
     assert row['source_ref'] == '3f786850e387550fdab836ed7e6dc881de23001b'
@@ -516,7 +538,84 @@ def test_log_is_append_only(inv_diff, tmp_path, isolated_vault, capsys):
     _run_log(inv_diff, tmp_path, inv_diff.new_ulid())
     _run_log(inv_diff, tmp_path, inv_diff.new_ulid())
     log = isolated_vault / 'compress' / 'verify-log.jsonl'
-    assert len(log.read_text(encoding='utf-8').splitlines()) == 2
+    assert len(inv_diff.read_rows(log)) == 2
+
+
+def _shorten_once(inv_diff, monkeypatch, missing):
+    """Make the next verify-row os.write drop its last `missing` bytes, once."""
+    real_write = inv_diff.os.write
+    marker = b'"category": "verify"'
+    shortened = []
+
+    def short_write(fd, data):
+        payload = bytes(data)
+        # One-shot, verify row only. Never monkeypatch.undo() here — the
+        # vault-isolation fixture shares this monkeypatch instance.
+        if marker in payload and not shortened:
+            shortened.append(True)
+            return real_write(fd, payload[:len(payload) - missing])
+        return real_write(fd, payload)
+
+    monkeypatch.setattr(inv_diff.os, 'write', short_write)
+
+
+def test_log_short_write_fails_loudly(inv_diff, isolated_vault, monkeypatch):
+    """Lockstep with count_tokens.append_row: a short write raises, never resumes.
+
+    And, as there, the fragment cannot swallow the next row: the separator
+    leads the row, so the row after a truncation still parses.
+    """
+    _shorten_once(inv_diff, monkeypatch, missing=200)
+    with pytest.raises(inv_diff.VerifyLogTruncatedError, match='truncated'):
+        inv_diff.append_log({'recall': 1.0}, 't.md', 'abc', 'CORR1')
+
+    log = isolated_vault / 'compress' / 'verify-log.jsonl'
+    fragment = [ln for ln in log.read_text(encoding='utf-8').splitlines() if ln.strip()]
+    assert len(fragment) == 1
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(fragment[0])
+    assert inv_diff.read_rows(log) == []
+
+    good = inv_diff.append_log({'recall': 1.0}, 't.md', 'abc', 'CORR2')
+    assert [row['id'] for row in inv_diff.read_rows(log)] == [good['id']]
+
+
+def test_log_truncation_propagates_and_is_never_report_only(
+    inv_diff, tmp_path, isolated_vault, monkeypatch
+):
+    """A truncated row is corruption, not an unavailable vault.
+
+    The --log caller downgrades OSError to a report-only note at exit 0; a
+    truncation must not ride that path, or a corrupt log reads like a vault
+    that could not be created. It leaves main() and the process exits non-zero.
+    """
+    _shorten_once(inv_diff, monkeypatch, missing=200)
+    with pytest.raises(inv_diff.VerifyLogTruncatedError):
+        _run_log(inv_diff, tmp_path, inv_diff.new_ulid())
+
+
+def test_verify_log_truncation_is_a_distinct_oserror(inv_diff):
+    """Truncation is catchable apart from 'no row was written' OSErrors."""
+    assert issubclass(inv_diff.VerifyLogTruncatedError, OSError)
+    assert inv_diff.VerifyLogTruncatedError is not OSError
+
+
+def test_read_rows_tolerates_blank_and_unparseable_lines(inv_diff, tmp_path):
+    """The reader skips what the framing produces — it never raises on a log."""
+    log = tmp_path / 'verify-log.jsonl'
+    log.write_text('\n{"id": "A"}\n{"id": "B"}\n{"trunc\n\n\n{"id": "C"}',
+                   encoding='utf-8')
+    assert [row['id'] for row in inv_diff.read_rows(log)] == ['A', 'B', 'C']
+
+
+def test_read_rows_parses_a_mixed_framing_file(inv_diff, isolated_vault):
+    """Rows written under the old trailing-newline framing still read back."""
+    log = isolated_vault / 'compress' / 'verify-log.jsonl'
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text('{"id": "OLD1"}\n{"id": "OLD2"}\n', encoding='utf-8')  # pre-#329
+    new = inv_diff.append_log({'recall': 1.0}, 't.md', 'abc', 'CORR1')
+
+    assert [row['id'] for row in inv_diff.read_rows(log)] == ['OLD1', 'OLD2', new['id']]
 
 
 def test_log_requires_envelope_flags(inv_diff, tmp_path, capsys):
@@ -539,3 +638,50 @@ def test_log_uncreatable_vault_degrades_to_report_only(
     captured = capsys.readouterr()
     assert json.loads(captured.out)['verdict'] == 'pass'
     assert 'report-only' in captured.err
+
+
+# ---------------------------------------------------------------------------
+# twin lockstep — the "keep identical to …" comments, enforced (m9)
+# ---------------------------------------------------------------------------
+
+def _normalised_source(func) -> str:
+    """Function source with the twins' permitted variations neutralised."""
+    source = textwrap.dedent(inspect.getsource(func))
+    for token in _TWIN_VARIANTS:
+        source = source.replace(token, '<V>')
+    return source
+
+
+def _normalised_lockstep_block(func) -> str:
+    """The part of a twin below its `# lockstep:` marker, normalised.
+
+    The envelopes above the marker legitimately differ (an Observation ledger
+    row is not a verify row); everything from the marker down is the framing
+    and write discipline, which must not.
+    """
+    lines = _normalised_source(func).splitlines()
+    marked = [i for i, line in enumerate(lines) if line.strip().startswith('# lockstep:')]
+    assert marked, f'{func.__qualname__} lost its `# lockstep:` marker'
+    return '\n'.join(lines[marked[0]:])
+
+
+def test_new_ulid_twins_are_identical(inv_diff, count_tokens_mod):
+    """The two vendored ULID generators are the same function, not a shared comment."""
+    assert (_normalised_source(inv_diff.new_ulid)
+            == _normalised_source(count_tokens_mod.new_ulid))
+
+
+def test_append_write_discipline_twins_are_identical(inv_diff, count_tokens_mod):
+    """append_log and append_row share one framing and one error path, mechanically.
+
+    A comment asking the next editor to keep two blocks identical is worth what
+    it can prove; drift here fails a test instead of making the comment lie.
+    """
+    assert (_normalised_lockstep_block(inv_diff.append_log)
+            == _normalised_lockstep_block(count_tokens_mod.append_row))
+
+
+def test_read_rows_twins_are_identical(inv_diff, count_tokens_mod):
+    """The reader half of the framing contract is the same in both scripts."""
+    assert (_normalised_source(inv_diff.read_rows)
+            == _normalised_source(count_tokens_mod.read_rows))

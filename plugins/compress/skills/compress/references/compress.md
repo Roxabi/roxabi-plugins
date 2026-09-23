@@ -92,7 +92,8 @@ One ledger row per completed target, appended ONLY via S (SKILL.md's sole ledger
 python3 S append --target "<f>" --mode <μ> --source-ref <hash> \
   --tokens-before <n> --tokens-after <n> --correlation <run-ulid> \
   --payload-file /tmp/sections.json --method <m> \
-  --proxy-agreement <bool> --calibration "<line>"  # when captured in Phase 2
+  --proxy-agreement <bool> --calibration "<line>" \
+  --calibration-error "<line>"   # calibration / calibration-error: whichever Phase 2 captured
 
 # Legacy (still supported but avoid for untrusted data):
 # --sections-json '[{"name": "…", ...}]'
