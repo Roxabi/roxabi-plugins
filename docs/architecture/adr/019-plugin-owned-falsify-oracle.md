@@ -46,12 +46,18 @@ fail-under-absent → pass-under-restore of mapped unit/fast-integration tests.
    The snapshot also carries a **linked dependency surface** (#541): installed
    dependencies are gitignored, so the overlay alone never holds them and a
    `{commands.test}` such as `bun run test` would exit 127. Each entry of a
-   `node_modules` next to a carried `package.json` (and of a root `.venv`) is
-   symlinked into a real directory of the snapshot, so what a run creates stays
-   in the snapshot while the dependencies themselves are shared, read-mostly,
-   with the real tree. Every other ignored path (`.env`, caches) stays out. The
-   snapshot is also not a git repository: a test that shells out to git inside
-   it cannot be a falsify row.
+   `node_modules` next to a carried `package.json` is symlinked into a real
+   directory of the snapshot; an entry that is itself a link into the repo (a
+   workspace or `file:` package) is re-pointed at the snapshot's copy, so a
+   deleted source is really gone. What a run creates at the top of `node_modules`
+   stays in the snapshot, but writes *inside* an existing entry reach the real
+   tree — vitest's `node_modules/.vite` results cache is the everyday case. A
+   `.venv` is never linked: `uv run` re-syncs an editable install *through* a
+   linked venv and rewrites the real one; a uv contract builds the snapshot's own
+   venv instead. Every other ignored path (`.env`, other caches) stays out. The
+   runner unsets the git location variables (`GIT_DIR`, `GIT_INDEX_FILE`, …) on
+   entry, so the snapshot is not a git repository even under a git hook: a test
+   that shells out to git inside it cannot be a falsify row.
 
    2b. **Named residual — the gate-time call inherits that, and the record
    cannot fix it.** `/R-pr` refuse and `/R-dev-review` tester-skip read
@@ -72,36 +78,54 @@ fail-under-absent → pass-under-restore of mapped unit/fast-integration tests.
    `verify()` rebuilds its map from the committed
    `artifacts/reviews/{N}-falsify.json`, and until #541 it executed each row's
    `test_cmd` through `bash -lc`, so a PR author chose what ran on a reviewer's
-   machine. Now a row only names test files: its `test_cmd` must be exactly
-   `.dev/stack.yml` `commands.test` followed by plain relative paths, each a file
-   the snapshot carries, and the runner executes that argv — with no shell
-   anywhere in the runner. `commands.test` is read the way YAML reads it (a
-   direct child of the one top-level `commands:`, unquoted, a duplicate refused)
-   and must be plain words with no `VAR=` prefix. A non-conforming row — or a
-   source that is absolute or has a `..` segment — is refused before **any** row
-   runs, with `oracle_reason=refused-test-cmd:row<i>` naming the first refused
-   row; a direct run (`/R-dev-implement` Step 6b, `--map`) names every refused
-   row and its `sc_id` on stderr, which `/R-pr` gather-state discards. A
-   contract that is unusable refuses everything (`missing-test-command` /
-   `unsupported-test-command`), and `/R-pr` routes those to `.dev/stack.yml`,
-   not to Step 6b. A source that still resolves outside the snapshot (a committed
-   symlink) fails its row as `source-escape` instead of being deleted.
+   machine. Now a row's `test_cmd` must be exactly the contract's test command
+   followed by plain relative paths, each a file the snapshot carries, and the
+   runner executes that argv — with no shell anywhere in the runner. The
+   contract's test command is `.dev/stack.yml` `commands.test_file` when present
+   (a command that runs exactly the files named after it — what turbo root
+   scripts and `unittest discover` cannot do), else `commands.test`. It is read
+   by a deliberately small subset of YAML, not a YAML parser: a single-line plain
+   or quoted value of a direct child of the one top-level `commands:`, plain
+   ASCII words with no `VAR=` prefix. Whatever that subset cannot read the way
+   YAML would — a duplicate key, a multi-line or unclosed value, tabs,
+   non-ASCII — is refused, never guessed. A non-conforming row, a malformed row,
+   or a source that is absolute or has an empty, `.` or `..` segment is refused
+   before **any** row runs, with `oracle_reason=refused-test-cmd:row<i>`. Test
+   paths are an allowlist, because they reach argv; sources are not, because
+   they are only hashed and deleted inside the snapshot. The reason names the
+   first refused row of the check that failed: shape is checked before the
+   snapshot is built, and presence in the snapshot after it. A direct run
+   (`/R-dev-implement` Step 6b, `--map`) names every row that check refused, with
+   its `sc_id`, on stderr, which `/R-pr` gather-state discards. A contract that
+   is unusable refuses everything (`missing-test-command` /
+   `unsupported-test-command`), and `/R-pr` routes those to `.dev/stack.yml`, not
+   to Step 6b. A source that still resolves outside the snapshot (a committed
+   symlink) fails its row as `source-escape` instead of being deleted, and any
+   input that makes the runner raise ends as `oracle_ok=false
+   oracle_reason=runner-error` — never as a missing verdict.
 
-   What the artifact still decides: `sources` and the test files. A row is
-   proven when the test fails with its sources absent and passes with them
-   present, and nothing checks what the test asserts or which files it names as
-   sources — a row whose source is its own test file, the runner script, or a
-   file the test merely loads verifies green. Those checks belong to the trust
-   gate, not to the row shape.
+   What the artifact still decides. First, the trailing tokens are arguments to
+   the runner, and the only check on them is that each one names a file the
+   snapshot carries. Which files exist is up to the PR, and the runner reads each
+   token however it wants. Under `make test` a committed file named `publish`
+   selects the `publish` target, and under pytest a token can import a non-test
+   module or collect a `.rst` file's doctests. Second, `sources` and the test
+   files. A row is proven when the test fails with its sources absent and passes
+   with them present, and nothing checks what the test asserts or which files the
+   row names as sources. A row whose source is its own test file, the runner
+   script, or a file the test only loads therefore verifies green. The row shape
+   cannot close either gap. Both belong to #569 (row-result classification and
+   trust gating).
 
    **Named residual.** Everything the re-exec runs is still PR content: the
    contract is read from the checked-out tree, `commands.test` is typically
-   indirect (`bun run test` → `package.json`), and the test files are PR code
-   that runs as the reviewer — including writing to the stdout the gates read
-   `oracle_ok` from. `--verify` on an untrusted checkout is therefore as
-   dangerous as running `{commands.test}` on the PR's own test files, and its
-   `oracle_ok` is advisory. Gating the re-exec on the PR author's trust — and
-   pricing what a green row proves — is tracked as #569.
+   indirect (`bun run test` → `package.json`), the test files are PR code that
+   runs as the reviewer — including writing to the stdout the gates read
+   `oracle_ok` from — and the row picks the runner's arguments. `--verify` on an
+   untrusted checkout is therefore as dangerous as running the contract's test
+   command, with arguments the PR chose, on the PR's tree, and its `oracle_ok` is
+   advisory. Gating the re-exec on the PR author's trust — and pricing what a
+   green row proves — is tracked as #569.
 
 3. **Proven record** — `artifacts/reviews/{N}-falsify.json` (`schema_version: "1"`)
    holds `head`, `runner_id`, `rows[]`, `oracle_ok`. Markdown `*-falsify.md` is an
@@ -109,7 +133,8 @@ fail-under-absent → pass-under-restore of mapped unit/fast-integration tests.
 
 4. **Gate boolean graph** — `/R-pr` refuse and `/R-dev-review` tester-skip read
    only **`oracle_ok`** from `run-falsify --verify` (full re-exec of mapped rows),
-   which §2b qualifies: that boolean is about the tree the re-exec ran in.
+   which §2b and §2c qualify: that boolean is about the tree the re-exec ran in,
+   and on an untrusted checkout it is advisory (#569).
    Schema-parse of a pre-written green JSON alone → ¬`oracle_ok`.
    `falsify_ok` from `parse-falsify.sh` is removed from refuse/skip paths.
    `parse-falsify.sh` may remain as ungated markdown hygiene.

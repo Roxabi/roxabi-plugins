@@ -107,6 +107,7 @@ commands:
   dev: bun run dev
   build: bun run build
   test: bun run test
+  # test_file: bunx vitest run  # optional — runs exactly the files named after it; falsify rows use it over `test` (needed when `test` is a turbo root script)
   # "test:falsify": bun run test:falsify  # optional — mechanical falsify (/dev-implement 6b, /validate --full)
   lint: bun run lint
   typecheck: bun run typecheck
