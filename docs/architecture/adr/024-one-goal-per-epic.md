@@ -73,9 +73,14 @@ ADR-020 no longer bind:
    refuse line against a second spec home; it does not withdraw it.
 
 3. **§8 — executable falsification returns through assertledger, where an
-   adapter exists.** The adapter is the producer. ADR-020's refuse line — do not
-   restore the falsify gate without its producer — is satisfied, not broken.
-   Where no adapter exists the gate is absent, not a permanent `false`.
+   adapter exists.** The adapter is the producer of that gate, and of no other.
+   ADR-020's refuse line stays in force as written: do not restore the
+   `R-tester` falsify gate without its producer. assertledger is not that gate
+   and does not write `oracle_ok` or `artifacts/reviews/{N}-falsify.json`. It
+   does not discharge the line, and this decision does not restore the gate.
+   Where no adapter exists the assertledger gate is absent, not a permanent
+   `false`. Sentences in ADR-020 and ADR-019 that say the OMP product has no
+   falsify producer mean the `R-pr` / `oracle_ok` oracle, not this gate.
 
 4. **§9 — the agent creates the worktree** from a freshly fetched
    `origin/<base>`, never from `HEAD`, and never carrying the Principal's

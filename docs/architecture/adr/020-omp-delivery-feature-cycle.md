@@ -14,14 +14,16 @@ superseded_in_part_by: [ADR-024]
 > Implements Roxabi/roxabi-plugins#488.
 >
 > Extends the ADR-018 amendment (2026-08-24) from the back half to the whole cycle.
-> **Narrows ADR-019** to the Claude/Grok product — the falsify oracle is not part of
-> the OMP product. **Keeps ADR-017** — the principal freeze is the reason parallel
-> features are possible at all.
+> **Narrows ADR-019** to the Claude/Grok product — the `R-pr` falsify oracle is not
+> part of the OMP product. [ADR-024](024-one-goal-per-epic.md) does not restore it.
+> **Keeps ADR-017** — the principal freeze is the reason parallel features are
+> possible at all.
 >
 > **Amended 2026-09-24 by [ADR-024](024-one-goal-per-epic.md)** — §3, §4, §8 and §9
 > no longer bind as written. Autonomy is an epic goal; the change contract is proof,
-> not a second spec; assertledger is the falsify producer where an adapter exists;
-> the agent creates the worktree from a fresh `origin/<base>`.
+> not a second spec; assertledger is a separate gate where an adapter exists, and
+> does not restore the `R-tester` falsify gate; the agent creates the worktree
+> from a fresh `origin/<base>`.
 
 ## Context
 
@@ -149,8 +151,10 @@ Adopt **Option C**.
 - Adopting the Matt base means adopting its context hygiene (`/clear` between
   tickets), which is why `/feature` stops at the frontier instead of running the
   whole cycle in one window.
-- The OMP product loses executable falsification. Test quality rests on `tdd` plus
-  `R-tester` judgement.
+- The OMP product loses the `R-pr` falsify oracle (`oracle_ok`,
+  `artifacts/reviews/{N}-falsify.json`). Test quality on that gate rests on `tdd`
+  plus `R-tester` judgement. [ADR-024](024-one-goal-per-epic.md) does not restore
+  that oracle; assertledger, where an adapter exists, is a separate gate.
 
 ### Named residuals
 
