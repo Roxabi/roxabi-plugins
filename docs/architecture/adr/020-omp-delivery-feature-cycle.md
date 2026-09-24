@@ -2,20 +2,28 @@
 title: "ADR-020: OMP delivery leaves dev-core — /feature on the Matt base"
 description: >
   OMP runs omp-build + issue-triage; dev-core is uninstalled there.
-  /feature = grill-with-docs → to-spec → to-tickets → implement(tdd) → R-dev-review → R-fix ≤2 → landPr.
+  /feature = grilling + issue-triage → implement → dev-review → fix ≤2 → landPr.
   Absorb mode is snapshot freeze, not resync. Spec home is the tracker issue.
   Narrows ADR-019 to the Claude product; keeps ADR-017.
 status: accepted
 normative: true
 date: 2026-09-21
+superseded_in_part_by: [ADR-024]
 ---
 
 > Implements Roxabi/roxabi-plugins#488.
 >
 > Extends the ADR-018 amendment (2026-08-24) from the back half to the whole cycle.
-> **Narrows ADR-019** to the Claude/Grok product — the falsify oracle is not part of
-> the OMP product. **Keeps ADR-017** — the principal freeze is the reason parallel
-> features are possible at all.
+> **Narrows ADR-019** to the Claude/Grok product — the `R-pr` falsify oracle is not
+> part of the OMP product. [ADR-024](024-one-goal-per-epic.md) does not restore it.
+> **Keeps ADR-017** — the principal freeze is the reason parallel features are
+> possible at all.
+>
+> **Amended 2026-09-24 by [ADR-024](024-one-goal-per-epic.md)** — §3, §4, §8 and §9
+> no longer bind as written. Autonomy is an epic goal; the change contract is proof,
+> not a second spec; assertledger is a separate gate where an adapter exists, and
+> does not restore the `R-tester` falsify gate; the agent creates the worktree
+> from a fresh `refs/remotes/origin/<base>`.
 
 ## Context
 
@@ -141,15 +149,18 @@ Adopt **Option C**.
   with no drift detection. A future ADR may retire the Claude copies; this one does
   not.
 - Adopting the Matt base means adopting its context hygiene (`/clear` between
-  tickets), which is why `/feature` stops at the frontier instead of running the
-  whole cycle in one window.
-- The OMP product loses executable falsification. Test quality rests on `tdd` plus
-  `R-tester` judgement.
+  tickets). The frontier stop is the assisted case — no Epic goal. Under an
+  Epic goal, [ADR-024](024-one-goal-per-epic.md) §3 replaces it.
+- The OMP product loses the `R-pr` falsify oracle (`oracle_ok`,
+  `artifacts/reviews/{N}-falsify.json`). Test quality on that gate rests on `tdd`
+  plus `R-tester` judgement. [ADR-024](024-one-goal-per-epic.md) does not restore
+  that oracle; assertledger, where an adapter exists, is a separate gate.
 
 ### Named residuals
 
-- The in-session cwd hop may turn out to be unreachable from an extension. The
-  fallback is then the steady state, and `/feature` costs one relaunch per feature.
+- The in-session cwd hop may turn out to be unreachable from an extension. In
+  the assisted case the fallback is the steady state, and `/feature` costs one
+  relaunch per feature. An Epic goal is not that case.
 - Setup skills (`R-dev-init`, `R-env-setup`, `R-stack-setup`, `R-ci-setup`,
   `R-release-setup`, `R-seed-docs`, `R-seed-community`) are **parked**, not decided.
   Until that pass, OMP has no project-init surface.
@@ -167,7 +178,8 @@ Adopt **Option C**.
 
 - Issue #488 · Glossary `plugins/omp-build/CONTEXT.md`
 - ADR-017 (principal freeze) · ADR-018 (skill homes, 2026-08-24 amendment) ·
-  ADR-019 (falsify oracle — Claude product only)
+  ADR-019 (falsify oracle — Claude product only) ·
+  [ADR-024](024-one-goal-per-epic.md) (amends §3, §4, §8, §9)
 - `plugins/dev-core/omp/index.ts` (`SKILL_COMMANDS`, guards)
 - `plugins/dev-core/skills/dev-review/roster.ts` (`DISPATCHABLE`, FE/BE scoring)
 - `plugins/issue-triage/skills/shared/queries.ts` (`addSubIssue`, `addBlockedBy`)

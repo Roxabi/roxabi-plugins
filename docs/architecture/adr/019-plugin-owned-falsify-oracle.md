@@ -7,13 +7,16 @@ description: >
 status: accepted
 normative: true
 date: 2026-08-21
-superseded_in_part_by: [ADR-020]
+superseded_in_part_by: [ADR-020, ADR-024]
 ---
 
 > Implements Roxabi/roxabi-plugins#417 Shape 1 (V1).
 > **Narrowed 2026-09-21 by ADR-020** — this ADR governs the Claude/Grok product only.
 > The OMP product does not absorb `R-pr`, so it has no oracle producer and no tester
 > falsify gate.
+> **Qualified 2026-09-24 by [ADR-024](024-one-goal-per-epic.md)** — that exclusion
+> is the `R-pr` / `oracle_ok` oracle. assertledger is a separate gate and is not
+> this producer.
 
 ## Context
 
