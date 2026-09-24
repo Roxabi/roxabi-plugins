@@ -175,7 +175,12 @@ export async function updateIssueType(
 }
 
 /** Update labels on a GitHub issue: add and/or remove labels. */
-export async function updateLabels(issueNumber: number, add: string[], remove: string[]): Promise<void> {
+export async function updateLabels(
+  issueNumber: number,
+  add: string[],
+  remove: string[],
+  repo: string = GITHUB_REPO,
+): Promise<void> {
   let removeExisting = remove
   if (remove.length) {
     const out = await run([
@@ -183,7 +188,7 @@ export async function updateLabels(issueNumber: number, add: string[], remove: s
       'label',
       'list',
       '--repo',
-      GITHUB_REPO,
+      repo,
       '--limit',
       '200',
       '--json',
@@ -199,7 +204,7 @@ export async function updateLabels(issueNumber: number, add: string[], remove: s
     )
     removeExisting = remove.filter((l) => existing.has(l))
   }
-  const args = ['gh', 'issue', 'edit', String(issueNumber), '--repo', GITHUB_REPO]
+  const args = ['gh', 'issue', 'edit', String(issueNumber), '--repo', repo]
   if (add.length) args.push('--add-label', add.join(','))
   if (removeExisting.length) args.push('--remove-label', removeExisting.join(','))
   await run(args)
@@ -230,4 +235,53 @@ export async function getParentNumber(issueNumber: number): Promise<number | nul
     data: { repository: { issue: { parent: { number: number } | null } } }
   }
   return data.data.repository.issue.parent?.number ?? null
+}
+
+export interface IssueLabelSet {
+  number: number
+  labels: string[]
+  body: string
+}
+
+/** Label names defined on the repository. Does not delete any. */
+export async function listLabelNames(repo: string = GITHUB_REPO): Promise<string[]> {
+  const out = await run(['gh', 'label', 'list', '--repo', repo, '--limit', '500', '--json', 'name', '--jq', '.[].name'])
+  return out
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+}
+
+/**
+ * Create a label definition when it is missing. An existing name is left
+ * untouched — including its color. Never deletes a definition.
+ */
+export async function ensureLabel(name: string, repo: string = GITHUB_REPO): Promise<'created' | 'present'> {
+  const existing = await listLabelNames(repo)
+  if (existing.includes(name)) return 'present'
+  await run(['gh', 'label', 'create', name, '--repo', repo, '--color', 'ededed'])
+  return 'created'
+}
+
+/** Every issue (not pull request) with its labels and body. Read-only. */
+export async function listIssueLabelSets(repo: string = GITHUB_REPO): Promise<IssueLabelSet[]> {
+  const out = await run([
+    'gh',
+    'issue',
+    'list',
+    '--repo',
+    repo,
+    '--state',
+    'all',
+    '--limit',
+    '5000',
+    '--json',
+    'number,labels,body',
+  ])
+  const rows = JSON.parse(out) as { number: number; labels: { name: string }[]; body: string | null }[]
+  return rows.map((row) => ({
+    number: row.number,
+    labels: (row.labels ?? []).map((label) => label.name),
+    body: row.body ?? '',
+  }))
 }
