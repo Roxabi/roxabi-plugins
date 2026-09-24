@@ -556,9 +556,6 @@ export async function openPr(cwd, { issue, branch, base, title, body } = {}, { g
   return { number, status: 'created' }
 }
 
-const WATCH_MS = 20 * 60 * 1000
-const WATCH_EVERY = 15_000
-
 const CI_FAILED = new Set(['FAILURE', 'CANCELLED', 'TIMED_OUT', 'STARTUP_FAILURE'])
 
 /** @param {string} apiJson */
@@ -675,68 +672,109 @@ async function resolveRequiredContexts(cwd, pr, ghFn) {
 }
 
 /**
- * Wait for required rollup SUCCESS, then label `reviewed` and auto-merge.
+ * `landing.mode` from stack text. Absent mode: a merge-on-green workflow means
+ * that mode; otherwise native protection/rulesets, as before.
  *
- * A required check can still fail — or report SKIPPED, which GitHub counts as passing
- * — *after* this call has armed the gate (a strict-policy `update-branch` re-runs CI on
- * the merged head). Returning with the gate armed would let the next push merge: the
- * `reviewed` label makes `auto-merge.yml` re-enable auto-merge on every `synchronize`.
- * So once armed, a `ci-failed`/`ci-skipped` return disarms first and says so.
+ * @param {string} stackText
+ * @param {{ mergeOnGreenWorkflow?: boolean }} [opts]
  */
-export async function landPr(
-  cwd,
-  pr,
-  { now = Date.now, sleep = (ms) => Bun.sleep(ms), timeout = WATCH_MS, gh: ghFn = gh, requiredContexts } = {},
-) {
-  const required = requiredContexts !== undefined ? [...requiredContexts] : await resolveRequiredContexts(cwd, pr, ghFn)
-
-  if (required.length === 0) return { status: 'no-required-checks' }
-
-  let labeled = false
-  const deadline = now() + timeout
-
-  /**
-   * Label first, then auto-merge: while the label is still on, a `check_suite`
-   * completion would let `auto-merge.yml` re-enable what was just disabled. A failing
-   * call throws — a half-disarmed PR must stop the caller, not read as disarmed.
-   * @template {Record<string, unknown>} T
-   * @param {T} result
-   */
-  async function disarm(result) {
-    if (!labeled) return result
-    await ghFn(cwd, ['pr', 'edit', String(pr), '--remove-label', 'reviewed'])
-    await ghFn(cwd, ['pr', 'merge', String(pr), '--disable-auto'])
-    return { ...result, disarmed: true }
-  }
-
-  while (now() < deadline) {
-    const j = JSON.parse(await ghFn(cwd, ['pr', 'view', String(pr), '--json', 'state,statusCheckRollup']))
-    if (j.state === 'MERGED') return { status: 'merged' }
-    if (j.state === 'CLOSED') return { status: 'closed' }
-
-    const rollup = evaluateRequiredRollup(j.statusCheckRollup || [], required)
-    if (rollup.status === 'ci-failed') return disarm({ status: 'ci-failed', failed: rollup.failed })
-    if (rollup.status === 'ci-skipped') return disarm({ status: 'ci-skipped', skipped: rollup.skipped })
-
-    if (rollup.status === 'pending') {
-      await sleep(WATCH_EVERY)
+export function parseLanding(stackText, { mergeOnGreenWorkflow = false } = {}) {
+  const lines = String(stackText || '').split('\n')
+  let inLanding = false
+  let inChecks = false
+  let mode = ''
+  const checks = []
+  for (const raw of lines) {
+    const line = raw.replace(/#.*$/, '')
+    if (!line.trim()) continue
+    const indent = line.length - line.trimStart().length
+    const text = line.trim()
+    if (indent === 0 && text.endsWith(':')) {
+      inLanding = text === 'landing:'
+      inChecks = false
       continue
     }
-
-    if (!labeled) {
-      await ghFn(cwd, ['pr', 'edit', String(pr), '--add-label', 'reviewed'])
-      labeled = true
-      try {
-        await ghFn(cwd, ['pr', 'merge', String(pr), '--auto', '--merge'])
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e)
-        if (!/already enabled/i.test(msg)) return { status: 'auto-merge-failed' }
-      }
+    if (!inLanding) continue
+    if (indent === 2 && text.startsWith('mode:')) {
+      mode = text.slice(5).trim().replace(/['"]/g, '')
+      inChecks = false
+      continue
     }
-
-    await sleep(WATCH_EVERY)
+    if (indent === 2 && text.startsWith('required_checks:')) {
+      inChecks = true
+      const inline = text.slice('required_checks:'.length).trim()
+      if (inline.startsWith('[') && inline.endsWith(']')) {
+        for (const item of inline.slice(1, -1).split(',')) {
+          const name = item.trim().replace(/['"]/g, '')
+          if (name) checks.push(name)
+        }
+        inChecks = false
+      }
+      continue
+    }
+    if (inChecks && text.startsWith('- ')) checks.push(text.slice(2).trim().replace(/['"]/g, ''))
   }
-  return { status: 'timeout' }
+  if (mode !== 'merge-on-green' && mode !== 'native') {
+    mode = mergeOnGreenWorkflow ? 'merge-on-green' : 'native'
+  }
+  return { mode, required_checks: checks }
+}
+
+/**
+ * Arm `reviewed` and hand the wait to `/ci-watch`. No in-process poll.
+ * Native also enables merge-commit auto-merge. merge-on-green never returns
+ * `no-required-checks` — the workflow, not the rules API, is the gate.
+ */
+export async function landPr(cwd, pr, { gh: ghFn = gh, requiredContexts, landing } = {}) {
+  const resolved = landing ?? { mode: 'native', required_checks: [] }
+  if (resolved.mode === 'native') {
+    const required =
+      requiredContexts !== undefined
+        ? [...requiredContexts]
+        : resolved.required_checks.length
+          ? resolved.required_checks
+          : await resolveRequiredContexts(cwd, pr, ghFn)
+    if (required.length === 0) return { status: 'no-required-checks' }
+  }
+
+  await ghFn(cwd, ['pr', 'edit', String(pr), '--add-label', 'reviewed'])
+  if (resolved.mode === 'native') {
+    try {
+      await ghFn(cwd, ['pr', 'merge', String(pr), '--auto', '--merge'])
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      if (!/already enabled/i.test(msg)) return { status: 'auto-merge-failed', armed: true }
+    }
+  }
+  return {
+    status: 'watching',
+    mode: resolved.mode,
+    watch: `bash skill://ci-watch/ci-watch.sh ${pr} --merge-mode ${resolved.mode}`,
+  }
+}
+
+/** Map a `/ci-watch` exit. 1 disarms. 4 stops. 5 is re-attachable. */
+export async function applyCiWatchExit(cwd, pr, code, { mode = 'native', gh: ghFn = gh } = {}) {
+  if (code === 0) return { status: 'merged' }
+  if (code === 4) return { status: 'stopped' }
+  if (code === 5) return { status: 'timeout' }
+  if (code === 1) {
+    await ghFn(cwd, ['pr', 'edit', String(pr), '--remove-label', 'reviewed'])
+    if (mode === 'native') await ghFn(cwd, ['pr', 'merge', String(pr), '--disable-auto'])
+    return { status: 'ci-failed', disarmed: true }
+  }
+  return { status: 'watch-failed', code }
+}
+
+/**
+ * A push after `reviewed` must drop the label first. metalyde does not revoke
+ * it on synchronize, so the push would merge without a re-review.
+ */
+export async function disarmReviewedBeforePush(cwd, pr, { gh: ghFn = gh, push } = {}) {
+  await ghFn(cwd, ['pr', 'edit', String(pr), '--remove-label', 'reviewed'])
+  await ghFn(cwd, ['pr', 'merge', String(pr), '--disable-auto'])
+  if (push) await push()
+  return { disarmed: true }
 }
 
 /** ADR-020 §3 / #488: at most two review→fix rounds. The third red stops. */
@@ -1105,7 +1143,15 @@ export async function run({ issue, specPath, cwd }) {
 
   const land = await landPr(cwd, pr)
   if (land.status !== 'merged') {
-    return { status: 'red', reason: land.status, reviewPath, branch: expectedBranch, worktree: cwd, pr }
+    return {
+      status: 'red',
+      reason: land.status,
+      watch: land.watch,
+      reviewPath,
+      branch: expectedBranch,
+      worktree: cwd,
+      pr,
+    }
   }
   return {
     status: 'green',
