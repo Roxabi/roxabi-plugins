@@ -171,6 +171,10 @@ when the principal already has one — a copied DB embeds an absolute path), run
 principal and never copies `*.example` in place of a missing real file.
 Agent-created worktrees live at `<worktree base>/<repo>/<slug>`, where the base
 is `OMP_WORKTREE_DIR`, else `.dev/stack.yml` `worktree.base`, else `~/.omp/wt`.
+When `.semctx/` exists, derive a change contract from the issue body — goal,
+invariants, required evidence, open unknowns — and open it in `.semctx/working/`.
+The issue stays the spec. If the contract and the issue diverge, the issue wins
+and the contract is re-derived. Repos without `.semctx/` skip this.
 
 ```javascript
 const { openPr, landPr, resumeReviewLoop } =
@@ -198,6 +202,7 @@ For a criterion whose surface is `frontend.path` or `shared.ui`, run the app and
 check it with the OMP `browser`, and record the steps, URL and observed result
 in the PR. If `.dev/stack.yml` declares `commands.test_e2e`, that command is the
 proof — do not record `ui-manual-only`.
+When a contract is open, record each piece of evidence on it as it is produced.
 
 ### 6.3 Commit, push, open or resume
 
@@ -218,6 +223,15 @@ const loop = await resumeReviewLoop(cwd, { pr })
 issue link. Print that result. Failure → report it; reconcile remote state before
 retrying, never blindly create a second PR. The matrix follows `dev-review`'s
 SC→Test contract, including justified NO TEST rows.
+
+**Proof gate, before `openPr`, when `.semctx/` exists.** `proofGate` in
+`$SKILL_DIR/proof-gate.ts` must pass: VERIFIED, or PARTIAL where every gap is a
+NO TEST row with an accepted reason. BLOCKED stops. A `type: fix` ticket with an
+assertledger adapter stops on any verdict other than detection, including
+`WEAK_ORACLE`. No adapter is non-blocking. Then close the contract and leave
+`.semctx/working/` empty apart from `.gitkeep`. No PR opened by `/feature` in a
+semctx repo carries any other file there. The PR body's proof section is the
+criterion → evidence map from the contract.
 
 ### 6.4 Review
 
