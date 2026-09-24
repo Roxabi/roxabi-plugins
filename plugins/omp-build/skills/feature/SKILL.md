@@ -106,6 +106,9 @@ Do not execute them, reset/delete the branch or pass it to a create-only `/wt`.
    questioning when the user confirms shared understanding. An already actionable
    issue needs no replay of the interview.
 2. Draft scope, acceptance criteria, invariants and out-of-scope in conversation.
+   For τ ≠ `size:S`, write a **decision brief** into the issue body before
+   publishing: what, why, chosen solution, pros, cons, and rejected alternatives.
+   Skip the brief for `size:S`.
    Publish with `bun skill://issue-triage/triage.ts create`, or `set` to amend
    an existing issue. Titles and bodies you did not write go through
    `--title-file` and `--body-file`. If that command cannot be resolved, stop
@@ -165,6 +168,9 @@ These bundled functions remain the PR/landing seam. Do not invoke the legacy
 
 Map every criterion to the affected code and the evidence needed to prove it.
 Reuse repository patterns. Agree any uncertain behavior before implementation.
+After that mapping, spawn R-architect and R-adversarial read-only on the plan —
+one round. A blocking plan finding amends the plan before any code. This review
+never calls the review loop: it spends no fix round and writes no PR marker.
 
 ### 6.2 Implement and verify
 
