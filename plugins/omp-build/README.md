@@ -1,6 +1,6 @@
 # omp-build
 
-OMP-only cycle: frame → GitHub issue → branch proposal + operator `/wt` → implement → bounded review/fix → land.
+OMP-only cycle: frame → GitHub issue → agent-created worktree → `/move` + `/goal` → implement → bounded review/fix → land.
 
 Not a Claude/Grok factory — does not invoke host `/dev` or dev-core Skill() children.
 
@@ -63,10 +63,10 @@ Symlinking into `~/.omp/agent/agents/` is not supported — use `link` (or the c
 /feature #42          # read an existing issue and propose its branch
 ```
 
-As soon as an issue number exists, `/feature` proposes `<type>/<N>-<slug>` and
-hands off to the operator's `/wt`. It does not create a branch/worktree or switch
-the Principal on its own. The proposal names the base; creation waits for a clean,
-up-to-date checkout on that base. Existing branches/worktrees are offered for reuse.
+At the end of framing an epic, the agent creates `<worktree base>/<repo>/<epic-slug>`
+from fresh `origin/<base>` and prints `/move <path>` then the generated `/goal` line.
+It does not switch the Principal. A single ticket outside a goal uses the same
+`/move`; assisted mode, no `/goal`.
 
 After entering the matching worktree, run `/feature #42` again. Incomplete scope
 returns to framing; an actionable, unblocked issue proceeds to implementation.
@@ -98,10 +98,9 @@ is **not** a second gate: omp normalises it to `hide`, which omits the skill fro
 the prompt listing while `skill://<name>` and `/skill:<name>` still reach it
 (omp 18.2.9). Requires a **restart** (extension module), not `/reload-plugins`.
 
-`/feature` offers the branch handoff immediately after issue creation/selection,
-not after the entire spec or ticket batch. `/wt` is operator-only; the skill does not
-simulate its invocation through a tool. Existing worktrees are entered by their
-directory (`omp --cwd <path>`), not recreated.
+`/feature` prints `/move` and, for an epic, `/goal`, immediately after framing.
+It does not hand the operator a `/wt` line. Existing worktrees are entered by
+`/move <path>`, not recreated.
 
 In the matching worktree: implement → `dev-review` → `fix --no-label` → land.
 `openPr` returns the PR number; `resumeReviewLoop` restores rounds from PR comments.
