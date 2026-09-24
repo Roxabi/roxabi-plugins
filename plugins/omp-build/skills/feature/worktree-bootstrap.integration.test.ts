@@ -79,4 +79,14 @@ describe('worktree bootstrap', () => {
     const { repo } = principalWith(STACK)
     expect(() => execFileSync('bash', [BOOT], { cwd: repo, env: ENV, encoding: 'utf8' })).toThrow(/bootstrap=refused/)
   })
+
+  it('does not write on the principal through a checkout symlink', () => {
+    const { repo, wt } = principalWith(`worktree:\n  copy:\n    - out/NEW\n`)
+    mkdirSync(path.join(repo, 'out'))
+    writeFileSync(path.join(repo, 'out', 'NEW'), 'src-bytes\n')
+    execFileSync('ln', ['-s', repo, path.join(wt, 'out')])
+    expect(() => execFileSync('bash', [BOOT], { cwd: wt, env: ENV, encoding: 'utf8' })).toThrow(/bootstrap=refused symlink/)
+    expect(() => statSync(path.join(repo, 'NEW'))).toThrow()
+    expect(readFileSync(path.join(repo, 'out', 'NEW'), 'utf8')).toBe('src-bytes\n')
+  })
 })

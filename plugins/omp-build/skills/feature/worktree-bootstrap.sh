@@ -85,9 +85,24 @@ refuse_example() {
   return 1
 }
 
-under_here() {
-  local dest="$1"
-  case "$dest" in
+path_stays_here() {
+  local rel="$1" acc="$here" part probe canon
+  case "$rel" in
+    /* | .. | ../* | */.. | */../*) return 1 ;;
+  esac
+  local IFS=/
+  for part in $rel; do
+    [ -n "$part" ] || continue
+    [ "$part" = "." ] || [ "$part" = ".." ] && return 1
+    acc="$acc/$part"
+    [ -L "$acc" ] && return 1
+  done
+  probe="$here/$rel"
+  while [ ! -e "$probe" ] && [ "$probe" != "$here" ]; do
+    probe="$(dirname "$probe")"
+  done
+  canon="$(realpath -- "$probe")"
+  case "$canon" in
     "$here" | "$here"/*) return 0 ;;
   esac
   return 1
@@ -98,9 +113,12 @@ copy_from_principal() {
   refuse_example "$rel" && return 0
   local src="$principal/$rel"
   [ -e "$src" ] || return 0
+  if ! path_stays_here "$rel"; then
+    echo "bootstrap=refused symlink $rel" >&2
+    exit 2
+  fi
   local dest="$here/$rel"
-  [ -e "$dest" ] && return 0
-  under_here "$dest" || return 0
+  [ -e "$dest" ] || [ -L "$dest" ] && return 0
   mkdir -p "$(dirname "$dest")"
   cp -a "$src" "$dest"
 }
