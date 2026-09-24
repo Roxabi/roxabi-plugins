@@ -3,9 +3,9 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   BUN_TEST_DENY_REASON,
+  evalGuard,
   extractShellCommand,
   extractWriteContent,
-  evalGuard,
   hasProjectContract,
   isBunTestBlocked,
   PRINCIPAL_FREEZE_REASON,
