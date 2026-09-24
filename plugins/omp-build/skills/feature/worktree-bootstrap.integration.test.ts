@@ -85,7 +85,9 @@ describe('worktree bootstrap', () => {
     mkdirSync(path.join(repo, 'out'))
     writeFileSync(path.join(repo, 'out', 'NEW'), 'src-bytes\n')
     execFileSync('ln', ['-s', repo, path.join(wt, 'out')])
-    expect(() => execFileSync('bash', [BOOT], { cwd: wt, env: ENV, encoding: 'utf8' })).toThrow(/bootstrap=refused symlink/)
+    expect(() => execFileSync('bash', [BOOT], { cwd: wt, env: ENV, encoding: 'utf8' })).toThrow(
+      /bootstrap=refused symlink/,
+    )
     expect(() => statSync(path.join(repo, 'NEW'))).toThrow()
     expect(readFileSync(path.join(repo, 'out', 'NEW'), 'utf8')).toBe('src-bytes\n')
   })
