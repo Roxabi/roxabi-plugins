@@ -155,6 +155,15 @@ Resolve the base as in §3, fetch it, and check history: every commit in
 or a fork point off `<base>`, → stop and name it; a correct branch name proves nothing.
 Install dependencies with the repository's documented command in this worktree
 before running hooks/builds; no unconditional `bun install` for unrelated stacks.
+On entering a worktree that is not the principal, run
+`bash skill://feature/worktree-bootstrap.sh`. It copies `worktree.copy` from the
+principal, seeds `worktree.seed` (`.cocoindex_code` is a fresh `ccc index` only
+when the principal already has one — a copied DB embeds an absolute path), runs
+`worktree.setup`, then `semctx index` when `.semctx/` exists. A marker under
+`git rev-parse --git-dir` makes a second run a no-op. It refuses to write on the
+principal and never copies `*.example` in place of a missing real file.
+Agent-created worktrees live at `<worktree base>/<repo>/<slug>`, where the base
+is `OMP_WORKTREE_DIR`, else `.dev/stack.yml` `worktree.base`, else `~/.omp/wt`.
 
 ```javascript
 const { openPr, landPr, resumeReviewLoop } =
