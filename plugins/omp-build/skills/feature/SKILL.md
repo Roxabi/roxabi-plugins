@@ -271,18 +271,38 @@ already 2 → stop). It never refunds or preserves an unspent round after reopen
 ### 6.7 Land
 
 Only `step.action === 'land'` may reach this step. Obtain the operator's merge
-approval if not already explicit for this PR. Then `await landPr(cwd, pr)` waits
-for required contexts, writes `reviewed` and enables merge-commit auto-merge. If a
-required check fails or is skipped after that, it removes the label and disables
-auto-merge before returning (`land.disarmed`).
+approval if not already explicit for this PR. Then `await landPr(cwd, pr)` adds
+`reviewed` and returns `{ status: 'watching', watch }`. It does not poll. Native
+also enables merge-commit auto-merge. merge-on-green — `landing.mode`, or
+`.github/workflows/merge-on-green.yml` when mode is absent — never returns
+`no-required-checks`.
+
+Run `watch` as an async bash job (`timeout: 0`). Map the exit with
+`applyCiWatchExit(cwd, pr, code, { mode })`:
+
+| Exit | Result |
+|---|---|
+| 0 | `merged` |
+| 1 | remove `reviewed` (native: also disable auto-merge), `ci-failed`, then `loop.reopen('ci-failed')` |
+| 4 | stop and report; do not claim merged |
+| 5 | `timeout`; re-attach the same watch later |
+
+Before any push that follows a `reviewed` label, call
+`disarmReviewedBeforePush(cwd, pr, { push })`. The label is removed before the
+push. A push with the label still on is forbidden — metalyde does not revoke it
+on synchronize.
+
 Neither a fix round nor another review action may write that label in this cycle.
 
 | `land.status` | Action |
 |---|---|
+| `watching` | Start the async `/ci-watch` job named in `land.watch` |
 | `merged` | Report issue + PR; offer the optional tail (§0), stop |
-| `ci-failed` | Gate already disarmed if armed; `step = loop.reopen('ci-failed')`; `await loop.persist(cwd)`; follow §6.6 |
-| `ci-skipped` / `no-required-checks` | Stop; report skipped contexts / missing protection, no bypass — a skipped required check counts as passing on GitHub, hence the disarm |
-| `timeout` / `auto-merge-failed` | Stop; inspect and report actual PR/label/auto-merge state, never claim merged |
+| `ci-failed` | Gate already disarmed; `step = loop.reopen('ci-failed')`; `await loop.persist(cwd)`; follow §6.6 |
+| `no-required-checks` | Stop; report missing protection. Native only — merge-on-green does not return this |
+| `timeout` | Re-attach the watch. Do not claim merged |
+| `stopped` | Stop and report. Do not claim merged |
+| `auto-merge-failed` | Stop; inspect and report actual PR/label/auto-merge state, never claim merged |
 | `closed` | Stop; report closure |
 
 Errors stop with their evidence. No manual mid-CI merge and no automatic release

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { evaluateRequiredRollup, landPr, parseRequiredContexts } from './workflow.js'
+import { applyCiWatchExit, disarmReviewedBeforePush, evaluateRequiredRollup, landPr, parseLanding, parseRequiredContexts } from './workflow.js'
 
 describe('parseRequiredContexts', () => {
   it('parses classic contexts and checks', () => {
@@ -86,153 +86,101 @@ const call = (calls, predicate) => calls.findIndex(predicate)
 const removesLabel = (a) => a[1] === 'edit' && a.includes('--remove-label') && a.includes('reviewed')
 const disablesAuto = (a) => a[1] === 'merge' && a.includes('--disable-auto')
 
+describe('parseLanding', () => {
+  it('absent mode with the workflow file is merge-on-green', () => {
+    expect(parseLanding('runtime: bun\n', { mergeOnGreenWorkflow: true }).mode).toBe('merge-on-green')
+  })
+
+  it('absent mode without the workflow file stays native', () => {
+    expect(parseLanding('runtime: bun\n').mode).toBe('native')
+  })
+})
+
 describe('landPr', () => {
-  it('required=[] → no-required-checks, never labels', async () => {
+  it('native required=[] → no-required-checks, never labels', async () => {
     const { calls, land } = mockLand()
     const result = await land([])
     expect(result).toEqual({ status: 'no-required-checks' })
     expect(labeled(calls)).toBe(false)
   })
 
-  it('missing required context → pending then timeout, no label', async () => {
-    const { calls, land } = mockLand({
-      rollupSequence: [
-        {
-          state: 'OPEN',
-          statusCheckRollup: [{ name: 'ci', status: 'COMPLETED', conclusion: 'SUCCESS' }],
-        },
-      ],
-      timeout: 30_000,
+  it('merge-on-green with declared checks never returns no-required-checks', async () => {
+    const { calls, gh } = mockLand()
+    const result = await landPr('/tmp/wt', 7, {
+      gh,
+      requiredContexts: [],
+      landing: { mode: 'merge-on-green', required_checks: ['ci'] },
     })
-    const result = await land(['ci', 'trufflehog'])
-    expect(result.status).toBe('timeout')
-    expect(labeled(calls)).toBe(false)
+    expect(result.status).toBe('watching')
+    expect(result.mode).toBe('merge-on-green')
+    expect(result.watch).toContain('--merge-mode merge-on-green')
+    expect(labeled(calls)).toBe(true)
+    expect(calls.some((a) => a.includes('--auto'))).toBe(false)
   })
 
-  it('required ci SKIPPED → ci-skipped, no label', async () => {
-    const { calls, land } = mockLand({
-      rollupSequence: [
-        {
-          state: 'OPEN',
-          statusCheckRollup: [{ name: 'ci', status: 'COMPLETED', conclusion: 'SKIPPED' }],
-        },
-      ],
+  it('native arms the label and auto-merge, then hands off the watch', async () => {
+    const { calls, gh } = mockLand()
+    const result = await landPr('/tmp/wt', 7, {
+      gh,
+      landing: { mode: 'native', required_checks: ['ci'] },
     })
-    const result = await land(['ci'])
-    expect(result).toEqual({ status: 'ci-skipped', skipped: ['ci'] })
-    expect(labeled(calls)).toBe(false)
+    expect(result).toMatchObject({ status: 'watching', mode: 'native' })
+    expect(labeled(calls)).toBe(true)
+    expect(calls.some((a) => a[1] === 'merge' && a.includes('--auto'))).toBe(true)
   })
 
-  it('wrong-case check name → pending then timeout, no label', async () => {
-    const { calls, land } = mockLand({
-      rollupSequence: [
-        {
-          state: 'OPEN',
-          statusCheckRollup: [{ name: 'CI', status: 'COMPLETED', conclusion: 'SUCCESS' }],
-        },
-      ],
-      timeout: 30_000,
+  it('native auto-merge boom returns auto-merge-failed after arming', async () => {
+    const { calls, gh } = mockLand({ mergeThrows: 'boom' })
+    const result = await landPr('/tmp/wt', 7, {
+      gh,
+      landing: { mode: 'native', required_checks: ['ci'] },
     })
-    const result = await land(['ci'])
-    expect(result.status).toBe('timeout')
-    expect(labeled(calls)).toBe(false)
-  })
-
-  it('non-required SKIPPED + required SUCCESS → label then merged', async () => {
-    const { calls, land } = mockLand({
-      rollupSequence: [
-        {
-          state: 'OPEN',
-          statusCheckRollup: [
-            { name: 'classify', status: 'COMPLETED', conclusion: 'SKIPPED' },
-            { name: 'ci', status: 'COMPLETED', conclusion: 'SUCCESS' },
-          ],
-        },
-        { state: 'MERGED', statusCheckRollup: [] },
-      ],
-    })
-    const result = await land(['ci'])
-    expect(result).toEqual({ status: 'merged' })
+    expect(result).toEqual({ status: 'auto-merge-failed', armed: true })
     expect(labeled(calls)).toBe(true)
   })
+})
 
-  it('required ci FAILURE → ci-failed, no label', async () => {
-    const { calls, land } = mockLand({
-      rollupSequence: [
-        {
-          state: 'OPEN',
-          statusCheckRollup: [{ name: 'ci', status: 'COMPLETED', conclusion: 'FAILURE' }],
-        },
-      ],
-    })
-    const result = await land(['ci'])
-    expect(result).toEqual({ status: 'ci-failed', failed: ['ci'] })
-    expect(labeled(calls)).toBe(false)
-  })
-
-  it('ready + auto-merge throws boom → auto-merge-failed', async () => {
-    const { calls, land } = mockLand({
-      rollupSequence: [
-        {
-          state: 'OPEN',
-          statusCheckRollup: [{ name: 'ci', status: 'COMPLETED', conclusion: 'SUCCESS' }],
-        },
-      ],
-      mergeThrows: 'boom',
-    })
-    const result = await land(['ci'])
-    expect(result).toEqual({ status: 'auto-merge-failed' })
-    expect(labeled(calls)).toBe(true)
-  })
-
-  it('ready + auto-merge already enabled → continues to merged', async () => {
-    const { calls, land } = mockLand({
-      rollupSequence: [
-        {
-          state: 'OPEN',
-          statusCheckRollup: [{ name: 'ci', status: 'COMPLETED', conclusion: 'SUCCESS' }],
-        },
-        { state: 'MERGED', statusCheckRollup: [] },
-      ],
-      mergeThrows: 'Pull request auto-merge is already enabled',
-    })
-    const result = await land(['ci'])
-    expect(result).toEqual({ status: 'merged' })
-    expect(labeled(calls)).toBe(true)
-  })
-
-  it('closed under us → closed, never labels', async () => {
-    const { calls, land } = mockLand({ rollupSequence: [{ state: 'CLOSED', statusCheckRollup: [] }] })
-    expect(await land(['ci'])).toEqual({ status: 'closed' })
-    expect(labeled(calls)).toBe(false)
-  })
-
+describe('applyCiWatchExit', () => {
   it.each([
-    ['FAILURE', { status: 'ci-failed', failed: ['ci'] }],
-    ['SKIPPED', { status: 'ci-skipped', skipped: ['ci'] }],
-  ])('armed, then required ci %s → label removed, auto-merge disabled, then reported', async (conclusion, expected) => {
-    // A strict-policy update-branch re-runs CI after the label is written. Returning
-    // with the gate armed lets the next push merge before its re-review: the label
-    // makes auto-merge.yml re-enable auto-merge on every synchronize.
-    const { calls, land } = mockLand({ rollupSequence: [rollupOf('SUCCESS'), rollupOf(conclusion)] })
-    expect(await land(['ci'])).toEqual({ ...expected, disarmed: true })
-    const armed = call(calls, (a) => a[1] === 'merge' && a.includes('--auto'))
-    const unlabelled = call(calls, removesLabel)
-    const disabled = call(calls, disablesAuto)
-    expect(armed).toBeGreaterThan(-1)
-    // Label first: while it is on, a check_suite completion re-enables auto-merge.
-    expect(unlabelled).toBeGreaterThan(armed)
-    expect(disabled).toBeGreaterThan(unlabelled)
+    [0, 'merged'],
+    [4, 'stopped'],
+    [5, 'timeout'],
+  ])('exit %s → %s', async (code, status) => {
+    const { gh, calls } = mockLand()
+    expect(await applyCiWatchExit('/tmp/wt', 7, code, { mode: 'merge-on-green', gh })).toEqual({ status })
+    expect(calls.some(removesLabel)).toBe(false)
   })
 
-  it('never disarms a gate it did not arm', async () => {
-    const { calls, land } = mockLand({ rollupSequence: [rollupOf('FAILURE')] })
-    expect(await land(['ci'])).toEqual({ status: 'ci-failed', failed: ['ci'] })
-    expect(calls.some(removesLabel) || calls.some(disablesAuto)).toBe(false)
+  it('exit 1 on merge-on-green removes reviewed and does not disable auto-merge', async () => {
+    const { gh, calls } = mockLand()
+    expect(await applyCiWatchExit('/tmp/wt', 7, 1, { mode: 'merge-on-green', gh })).toEqual({
+      status: 'ci-failed',
+      disarmed: true,
+    })
+    expect(calls.some(removesLabel)).toBe(true)
+    expect(calls.some(disablesAuto)).toBe(false)
   })
 
-  it('throws when disarming fails, instead of reporting a disarmed PR', async () => {
-    const { land } = mockLand({ rollupSequence: [rollupOf('SUCCESS'), rollupOf('FAILURE')], disableThrows: 'boom' })
-    await expect(land(['ci'])).rejects.toThrow('boom')
+  it('exit 1 on native removes the label before disabling auto-merge', async () => {
+    const { gh, calls } = mockLand()
+    expect(await applyCiWatchExit('/tmp/wt', 7, 1, { mode: 'native', gh })).toEqual({
+      status: 'ci-failed',
+      disarmed: true,
+    })
+    expect(call(calls, disablesAuto)).toBeGreaterThan(call(calls, removesLabel))
+  })
+})
+
+describe('disarmReviewedBeforePush', () => {
+  it('removes reviewed before the push that follows it', async () => {
+    const { gh, calls } = mockLand()
+    let removedBeforePush = false
+    await disarmReviewedBeforePush('/tmp/wt', 7, {
+      gh,
+      push: async () => {
+        removedBeforePush = calls.some(removesLabel)
+      },
+    })
+    expect(removedBeforePush).toBe(true)
   })
 })
