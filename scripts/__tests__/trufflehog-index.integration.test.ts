@@ -7,8 +7,15 @@ import { afterEach, describe, expect, it } from 'vitest'
 // ─── Paths ───────────────────────────────────────────────────────────────────
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
-const TRUFFLEHOG_CHECK = path.join(REPO_ROOT, 'scripts/trufflehog-check.sh')
 const EXCLUDE_PATHS = path.join(REPO_ROOT, 'scripts/trufflehog-exclude-paths.txt')
+
+// This repo's own hook, and the copy dev-init seeds into every fleet repo
+// (seed-trufflehog.ts). The fix once landed in the first only, so the fleet kept
+// committing empty trees from linked worktrees.
+const SCRIPTS = {
+  'scripts/trufflehog-check.sh': path.join(REPO_ROOT, 'scripts/trufflehog-check.sh'),
+  'plugins/dev-core/scripts/trufflehog-check.sh': path.join(REPO_ROOT, 'plugins/dev-core/scripts/trufflehog-check.sh'),
+}
 
 // ─── Clean env (isolate from the outer git context) ──────────────────────────
 
@@ -35,7 +42,7 @@ function git(args: string[], cwd: string, env: NodeJS.ProcessEnv = CLEAN_ENV): s
  * branch that shells out to a clone) actually runs. `argvLog` records every
  * invocation of the stubbed scanner.
  */
-function makeRepo(): { dir: string; argvLog: string; fakeBin: string } {
+function makeRepo(script: string): { dir: string; argvLog: string; fakeBin: string } {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'th-index-'))
   tmpDirs.push(dir)
 
@@ -53,7 +60,7 @@ function makeRepo(): { dir: string; argvLog: string; fakeBin: string } {
   git(['commit', '-qm', 'chore: ahead'], dir)
 
   fs.mkdirSync(path.join(dir, 'scripts'), { recursive: true })
-  fs.copyFileSync(TRUFFLEHOG_CHECK, path.join(dir, 'scripts/trufflehog-check.sh'))
+  fs.copyFileSync(script, path.join(dir, 'scripts/trufflehog-check.sh'))
   fs.chmodSync(path.join(dir, 'scripts/trufflehog-check.sh'), 0o755)
   fs.copyFileSync(EXCLUDE_PATHS, path.join(dir, 'scripts/trufflehog-exclude-paths.txt'))
 
@@ -98,9 +105,9 @@ function runCheck(repo: { dir: string; fakeBin: string }): { code: number; stder
 
 // ─── The contract ────────────────────────────────────────────────────────────
 
-describe('trufflehog-check.sh', () => {
+describe.each(Object.entries(SCRIPTS))('%s', (_name, script) => {
   it('leaves the staged index untouched when the scanner shells out to git', () => {
-    const repo = makeRepo()
+    const repo = makeRepo(script)
     fs.writeFileSync(path.join(repo.dir, 'kept.txt'), 'staged change\n')
     git(['add', 'kept.txt'], repo.dir)
 
@@ -115,7 +122,7 @@ describe('trufflehog-check.sh', () => {
   })
 
   it('still scans the staged files after the git env is stripped', () => {
-    const repo = makeRepo()
+    const repo = makeRepo(script)
     fs.writeFileSync(path.join(repo.dir, 'kept.txt'), 'staged change\n')
     git(['add', 'kept.txt'], repo.dir)
 
