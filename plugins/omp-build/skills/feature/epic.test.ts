@@ -55,7 +55,7 @@ describe('handoff docs', () => {
     expect(readme).toContain('/goal')
     expect(skill).toContain('/move')
     expect(skill).toContain('/goal')
+    expect(skill).not.toMatch(/hand off \/wt|invokes `\/wt`|print no `\/wt`|saisis `\/wt`/)
     expect(readme).not.toContain("operator's `/wt`")
-    expect(skill).not.toContain('saisis `/wt')
   })
 })

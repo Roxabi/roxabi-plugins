@@ -2,7 +2,7 @@
 name: feature
 disable-model-invocation: true
 argument-hint: '[#N | <subject>]'
-description: OMP-only feature cycle — frame a GitHub issue, propose its branch immediately, hand off /wt to the operator, then implement, review, fix and land in the matching worktree.
+description: OMP-only feature cycle — frame a GitHub issue, create the worktree from origin/<base>, hand off /move and /goal, then implement, review, fix and land.
 version: 0.1.0
 ---
 
@@ -14,8 +14,7 @@ use the current repository conventions, not a separate spec-file lifecycle.
 
 ## 0. Boundaries
 
-- The operator alone invokes `/wt`. Propose the branch as soon as the issue number
-  is known; stop at that handoff rather than creating a worktree behind their back.
+- The operator enters with `/move <path>`, then `/goal` for an epic. The agent creates the worktree from fresh `origin/<base>`, never from HEAD, and never asks the operator to type `/wt`.
 - Read-only exploration and tracker framing may start on the Principal. File edits,
   dependency installation and implementation require the matching worktree.
 - Issue creation, labels and native relations belong to `skill://issue-triage`.
@@ -68,7 +67,7 @@ Use `isPrincipal(cwd, principalPath)` before `resolveEntry`: its legacy Principa
 hop route is not used. A branch for #N is not a branch for #M, including an epic's
 branch versus a child's. Read the ticket before deciding whether its scope is ready.
 
-## 3. Issue → branch proposal → operator `/wt`
+## 3. Issue → worktree → operator `/move`
 
 **Run this immediately after creating or selecting an issue**, before more grilling,
 spec refinement, decomposition or implementation. Do not wait for a finished spec
@@ -80,11 +79,10 @@ or a batch of tickets. Reuse an already tracked issue instead of minting a dupli
 2. Resolve the base from the release model: trunk → repository default branch;
    staging-train → `staging`. Fetch the intended base before proposing creation.
    Unknown base/model → resolve from repository configuration before proceeding.
-3. Check the checkout `/wt` will branch from — it creates the branch from the
-   current `HEAD`: on the intended base, clean and up to date. Otherwise report the
-   precise mismatch and the operator action needed, and print no `/wt` line until it
-   holds. Never branch from an unrelated ticket, and never move or stash the
-   operator's changes. Do not pre-create a branch that `/wt` would then refuse.
+3. Create the worktree from fresh `origin/<base>`, never from HEAD and never via `/wt`.
+   The base must be clean and up to date. Otherwise report the mismatch and print
+   no `/move` line until it holds. Never branch from an unrelated ticket, and never
+   move or stash the operator's changes.
 4. Present the concrete branch, base and next operator action:
 
    > Issue #N créée. Worktree `<path>`.
@@ -93,19 +91,17 @@ or a batch of tickets. Reuse an already tracked issue instead of minting a dupli
 
    For an existing issue, say “Issue #N sélectionnée”. **The proposal is not a
    branch-creation receipt.** Only report creation after observing the branch.
-5. Stop for the operator. Do not invoke `/wt` through a tool, create the worktree,
-   switch the Principal's branch, or implement while waiting. If they defer the
-   branch, continue only read-only exploration/conversation and tracker framing;
-   no local file edit happens outside the matching worktree.
+5. Stop for the operator. Print `/move <path>` and, for an epic, the generated
+   `/goal` line. Do not switch the Principal's branch or implement while waiting.
+   If they defer, continue only read-only exploration and tracker framing.
 
 These rules are agent discipline: the plugin's guard blocks moving the Principal's
 `HEAD`, not creating a branch or worktree from it.
 
 Existing branch/worktree → offer reuse, not another branch. For a registered
-worktree, print `omp --cwd <quoted-existing-path>`, then `/feature #N`. For a branch
-without a worktree, propose an unused path and the operator commands
-`git worktree add <quoted-new-path> <existing-branch>` then `omp --cwd <quoted-new-path>`.
-Do not execute them, reset/delete the branch or pass it to a create-only `/wt`.
+worktree, print `/move <path>`, then `/feature #N`. For a branch without a
+worktree, create it at `<worktree base>/<repo>/<slug>` from `origin/<base>` and
+print `/move`. Do not ask the operator to type `/wt`.
 
 ## 4. Frame — agreed scope in the issue
 
