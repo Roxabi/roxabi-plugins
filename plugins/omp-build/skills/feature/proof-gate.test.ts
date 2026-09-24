@@ -48,7 +48,6 @@ describe('proofGate', () => {
     ).toEqual({ pass: false, reason: 'WEAK_ORACLE' })
   })
 
-
   it('is stated before openPr and read back as the matrix', () => {
     const feature = readFileSync(fileURLToPath(new URL('./SKILL.md', import.meta.url)), 'utf-8')
     const review = readFileSync(fileURLToPath(new URL('../dev-review/SKILL.md', import.meta.url)), 'utf-8')
