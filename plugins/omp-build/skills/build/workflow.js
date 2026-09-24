@@ -556,7 +556,6 @@ export async function openPr(cwd, { issue, branch, base, title, body } = {}, { g
   return { number, status: 'created' }
 }
 
-
 const CI_FAILED = new Set(['FAILURE', 'CANCELLED', 'TIMED_OUT', 'STARTUP_FAILURE'])
 
 /** @param {string} apiJson */

@@ -84,7 +84,6 @@ function labeled(calls) {
   return calls.some((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--add-label') && a.includes('reviewed'))
 }
 
-
 const call = (calls, predicate) => calls.findIndex(predicate)
 const removesLabel = (a) => a[1] === 'edit' && a.includes('--remove-label') && a.includes('reviewed')
 const disablesAuto = (a) => a[1] === 'merge' && a.includes('--disable-auto')
