@@ -3,10 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 const review = readFileSync(fileURLToPath(new URL('../SKILL.md', import.meta.url)), 'utf-8')
-const feature = readFileSync(
-  fileURLToPath(new URL('../../feature/SKILL.md', import.meta.url)),
-  'utf-8',
-)
+const feature = readFileSync(fileURLToPath(new URL('../../feature/SKILL.md', import.meta.url)), 'utf-8')
 
 const ENUM = '{infra-not-wired, prompt-logic-only, ui-manual-only, out-of-scope}'
 
