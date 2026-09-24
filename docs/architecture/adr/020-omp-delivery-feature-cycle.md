@@ -2,12 +2,13 @@
 title: "ADR-020: OMP delivery leaves dev-core — /feature on the Matt base"
 description: >
   OMP runs omp-build + issue-triage; dev-core is uninstalled there.
-  /feature = grill-with-docs → to-spec → to-tickets → implement(tdd) → R-dev-review → R-fix ≤2 → landPr.
+  /feature = grilling + issue-triage → implement → dev-review → fix ≤2 → landPr.
   Absorb mode is snapshot freeze, not resync. Spec home is the tracker issue.
   Narrows ADR-019 to the Claude product; keeps ADR-017.
 status: accepted
 normative: true
 date: 2026-09-21
+superseded_in_part_by: [ADR-024]
 ---
 
 > Implements Roxabi/roxabi-plugins#488.
@@ -16,6 +17,11 @@ date: 2026-09-21
 > **Narrows ADR-019** to the Claude/Grok product — the falsify oracle is not part of
 > the OMP product. **Keeps ADR-017** — the principal freeze is the reason parallel
 > features are possible at all.
+>
+> **Amended 2026-09-24 by [ADR-024](024-one-goal-per-epic.md)** — §3, §4, §8 and §9
+> no longer bind as written. Autonomy is an epic goal; the change contract is proof,
+> not a second spec; assertledger is the falsify producer where an adapter exists;
+> the agent creates the worktree from a fresh `origin/<base>`.
 
 ## Context
 
@@ -167,7 +173,8 @@ Adopt **Option C**.
 
 - Issue #488 · Glossary `plugins/omp-build/CONTEXT.md`
 - ADR-017 (principal freeze) · ADR-018 (skill homes, 2026-08-24 amendment) ·
-  ADR-019 (falsify oracle — Claude product only)
+  ADR-019 (falsify oracle — Claude product only) ·
+  [ADR-024](024-one-goal-per-epic.md) (amends §3, §4, §8, §9)
 - `plugins/dev-core/omp/index.ts` (`SKILL_COMMANDS`, guards)
 - `plugins/dev-core/skills/dev-review/roster.ts` (`DISPATCHABLE`, FE/BE scoring)
 - `plugins/issue-triage/skills/shared/queries.ts` (`addSubIssue`, `addBlockedBy`)

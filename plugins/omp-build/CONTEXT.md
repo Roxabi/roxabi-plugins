@@ -12,9 +12,21 @@ _Avoid_: factory, /R-dev, /build, dev-core (on OMP)
 The unit of OMP delivery, run by `/feature`.
 _Avoid_: build, /build, /dev, /R-dev, omp-wt
 
+**Epic goal**:
+The `/goal` in the operator's session that delivers one epic. The autonomy unit of `/feature`.
+_Avoid_: a per-ticket stop, an autonomy level stored on the issue, one goal per ticket
+
 **Spec**:
 The GitHub issue body: agreed scope, acceptance criteria, invariants and exclusions. The SSoT for what to build.
 _Avoid_: artifacts/specs, validated, /R-spec
+
+**Change contract**:
+The semctx record derived from the issue body. It is proof, not a second Spec.
+_Avoid_: artifacts/specs, a second spec home, the contract as what to build
+
+**Proof gate**:
+The bar a change must clear before its PR opens: a verified Change contract, and assertledger where an adapter exists.
+_Avoid_: a green test run standing in for it, a falsify gate with no producer
 
 **TDD**:
 Test-first implementation at the seams agreed with the operator, using the model-invoked `tdd` skill.
@@ -25,8 +37,12 @@ Work that satisfies one ticket's acceptance criteria inside its matching Worktre
 _Avoid_: an external `implement` skill as a prerequisite, implementation on the Principal
 
 **Land**:
-After a green review loop: required checks, `reviewed` label, auto-merge (`landPr`).
-_Avoid_: R-ci-watch, gh pr merge while checks run
+After a green review loop: the `reviewed` label, then the landing mode declared in `.dev/stack.yml`, followed by `/ci-watch`.
+_Avoid_: R-ci-watch, gh pr merge while checks run, a raw delay inside `landPr`
+
+**Post-merge hook**:
+The repository's declared command that runs once the epic has landed, not after each ticket.
+_Avoid_: a per-ticket deploy, a release cut
 
 **Review bound**:
 At most two review→fix rounds per PR, counted by `createReviewLoop` and resumed from
@@ -74,8 +90,20 @@ The first `git worktree list --porcelain` worktree. Read-only exploration and tr
 _Avoid_: main, staging, master (those are bases, not this worktree)
 
 **Worktree**:
-A durable linked git checkout (ω) that isolates one Feature from the Principal. Created by `/wt` (session moves with it) or `omp worktree add` (tree only).
-_Avoid_: branch; Isolation (ephemeral `task.isolated` sandbox)
+A durable linked git checkout (ω) that isolates delivery from the Principal. Created by the agent from a fresh `origin/<base>`; one per epic under an Epic goal.
+_Avoid_: branch; Isolation (ephemeral `task.isolated` sandbox); `/wt`
+
+**Epic worktree**:
+The one Worktree an epic is delivered from. Each ticket inside it is its own branch and its own PR.
+_Avoid_: one worktree per ticket, the Principal, Isolation
+
+**Bootstrap**:
+The prepared state of an Epic worktree, taken once from what the repository declares, before its first ticket.
+_Avoid_: a hand-maintained checklist, copying the Principal's uncommitted state
+
+**Init**:
+A repository's adoption by `/feature`: its tracker contract, canonical labels, proof tools and declared stack blocks.
+_Avoid_: R-dev-init, assuming every repository is already adopted
 
 **Isolation**:
 An ephemeral `task.isolated` sandbox for a subagent. Torn down at yield; patches or cherry-pick land on the parent cwd. Not a Feature Worktree.
