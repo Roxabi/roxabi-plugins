@@ -66,10 +66,12 @@ ADR-020 no longer bind:
    `/goal` in the operator's session, covering one epic: one epic worktree, and
    one branch plus one PR per ticket, in `blocked_by` order. A stopped ticket is
    reported; independent tickets continue and its dependents are skipped. A
-   shared-state failure — base CI red, or the post-merge hook failing — stops
-   the goal. No autonomy level is stored on the issue. Without a goal, `/feature`
-   stays assisted: the operator starts each step. The per-ticket stop ADR-020
-   required is the assisted case, not the law for an epic under a goal.
+   shared-state failure stops the goal. Base CI is read before each ticket
+   starts; red stops the goal, it does not skip the ticket. The post-merge
+   hook failing stops the goal. No autonomy level is stored on the issue.
+   Without a goal, `/feature` stays assisted: the operator starts each step.
+   The per-ticket stop ADR-020 required is the assisted case, not the law for
+   an epic under a goal.
 
 2. **§4 — the semctx change contract is proof, not a spec.** It is derived from
    the issue body. The issue remains the only spec home. Where the contract and
