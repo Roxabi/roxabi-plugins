@@ -23,7 +23,7 @@ superseded_in_part_by: [ADR-024]
 > no longer bind as written. Autonomy is an epic goal; the change contract is proof,
 > not a second spec; assertledger is a separate gate where an adapter exists, and
 > does not restore the `R-tester` falsify gate; the agent creates the worktree
-> from a fresh `origin/<base>`.
+> from a fresh `refs/remotes/origin/<base>`.
 
 ## Context
 

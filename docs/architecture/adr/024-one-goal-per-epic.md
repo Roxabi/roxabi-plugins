@@ -70,9 +70,11 @@ ADR-020 no longer bind:
    reported; independent tickets continue and its dependents are skipped. A
    shared-state failure stops the goal. Base CI is read before each ticket
    starts; red stops the goal, it does not skip the ticket. The post-merge
-   hook failing stops the goal. Its command is read from `origin/<base>`, not
-   from the working tree, and executed as argv with no shell. A value that is
-   not that argv stops the goal. The glossary names the hook; it does not
+   hook failing stops the goal. Its command is read from
+   `refs/remotes/origin/<base>`, not from the working tree, and executed as
+   argv with no shell. A missing ref, or a short `origin/<base>` that is
+   ambiguous, stops the goal. A value that is not that argv stops the goal.
+   The glossary names the hook; it does not
    carry this rule. No autonomy level is stored on the issue.
    Without a goal, `/feature` stays assisted: the operator starts each step.
    The per-ticket stop ADR-020 required is the assisted case, not the law for
@@ -98,8 +100,9 @@ ADR-020 no longer bind:
    ADR-020's preamble and Negative.
 
 4. **§9 — the agent creates the worktree** from a freshly fetched
-   `origin/<base>`, never from `HEAD`, and never carrying the Principal's
-   uncommitted changes. The operator enters that directory by moving the
+   `refs/remotes/origin/<base>`, never from `HEAD`, and never carrying the
+   Principal's uncommitted changes. A missing ref, or a short `origin/<base>`
+   that is ambiguous, stops the goal. The operator enters that directory by moving the
    session (`/move`, or `omp --cwd`). `/wt` is neither the creation path nor
    the hop: it branches from `HEAD`, carries uncommitted changes, and refuses
    an existing tree. This is not a second worktree CLI. ADR-020's refuse line
