@@ -156,7 +156,7 @@ or a fork point off `<base>`, → stop and name it; a correct branch name proves
 Install dependencies with the repository's documented command in this worktree
 before running hooks/builds; no unconditional `bun install` for unrelated stacks.
 On entering a worktree that is not the principal, run
-`bash skill://feature/worktree-bootstrap.sh`. It copies `worktree.copy` from the
+`bash "$SKILL_DIR/worktree-bootstrap.sh"`. It copies `worktree.copy` from the
 principal, seeds `worktree.seed` (`.cocoindex_code` is a fresh `ccc index` only
 when the principal already has one — a copied DB embeds an absolute path), runs
 `worktree.setup`, then `semctx index` when `.semctx/` exists. A marker under
