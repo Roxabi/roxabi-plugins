@@ -72,8 +72,10 @@ ADR-020 no longer bind:
    required is the assisted case, not the law for an epic under a goal.
 
 2. **§4 — the semctx change contract is proof, not a spec.** It is derived from
-   the issue body. The issue remains the only spec home. This satisfies ADR-020's
-   refuse line against a second spec home; it does not withdraw it.
+   the issue body. The issue remains the only spec home. Where the contract and
+   the issue diverge, the issue wins: the contract is re-derived, and it cannot
+   add a requirement the issue does not contain. ADR-020's refuse line against
+   a second spec home stays in force; renaming the home does not satisfy it.
 
 3. **§8 — executable falsification returns through assertledger, where an
    adapter exists.** The adapter is the producer of that gate, and of no other.
