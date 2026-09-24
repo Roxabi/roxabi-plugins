@@ -172,6 +172,10 @@ Implement in this worktree, delegating independent slices when useful. Use `tdd`
 for agreed test-first seams. Run the actual changed path and relevant existing
 checks; keep regression tests for plausible failures, not to inflate coverage.
 Update affected docs. Finish every acceptance criterion before opening the PR.
+For a criterion whose surface is `frontend.path` or `shared.ui`, run the app and
+check it with the OMP `browser`, and record the steps, URL and observed result
+in the PR. If `.dev/stack.yml` declares `commands.test_e2e`, that command is the
+proof — do not record `ui-manual-only`.
 
 ### 6.3 Commit, push, open or resume
 
