@@ -27,7 +27,8 @@ never mutates them.
 2. ∀ issue: determine Size, Priority, κ (see [Complexity Scoring](#complexity-scoring))
 3. Set values: `T set <number> --size <S> --priority <P>`
 4. Create issues: `T create --title "Title" [--body "Body"] [--label "bug,frontend"] [--size M] [--priority High] [--type feat] [--lane b] [--parent 163]`
-5. → ask userif unsure about Size ∨ Priority.
+5. Adopt a repository: `bun skill://issue-triage/triage.ts init [--dry-run] [--repo owner/repo]`
+6. → ask userif unsure about Size ∨ Priority.
 
 ## Size Guidelines
 
