@@ -74,6 +74,9 @@ ADR-020 no longer bind:
    `refs/remotes/origin/<base>`, not from the working tree, and executed as
    argv with no shell. A missing ref, or a short `origin/<base>` that is
    ambiguous, stops the goal. A value that is not that argv stops the goal.
+   The hook runs in a clean checkout of the commit that argv was read from.
+   An argv whose lookup leaves that tree, or a runner that loads the epic
+   worktree, stops the goal.
    The glossary names the hook; it does not
    carry this rule. No autonomy level is stored on the issue.
    Without a goal, `/feature` stays assisted: the operator starts each step.
