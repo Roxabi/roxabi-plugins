@@ -28,10 +28,7 @@ describe('feature init plan', () => {
     write('.codegraph/keep', '')
     write('package.json', '{"devDependencies":{"vitest":"1"}}\n')
     write('.dev/stack.yml', 'release:\n  model: staging-train\n')
-    write(
-      '.github/workflows/merge-on-green.yml',
-      'workflows: ["Secret scan", "Lint & Test"]\n/^ci$/\nhasSecret\n',
-    )
+    write('.github/workflows/merge-on-green.yml', 'workflows: ["Secret scan", "Lint & Test"]\n/^ci$/\nhasSecret\n')
     write('.github/workflows/secret-scan.yml', 'name: Secret scan\n')
     const lines = plan(readFacts(root, ['XS', 'M', 'priority: high']))
     expect(lines).toContain('tracker contract')
