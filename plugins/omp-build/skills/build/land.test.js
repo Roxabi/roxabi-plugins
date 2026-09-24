@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { applyCiWatchExit, disarmReviewedBeforePush, evaluateRequiredRollup, landPr, parseLanding, parseRequiredContexts } from './workflow.js'
+import {
+  applyCiWatchExit,
+  disarmReviewedBeforePush,
+  evaluateRequiredRollup,
+  landPr,
+  parseLanding,
+  parseRequiredContexts,
+} from './workflow.js'
 
 describe('parseRequiredContexts', () => {
   it('parses classic contexts and checks', () => {
@@ -77,10 +84,6 @@ function labeled(calls) {
   return calls.some((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--add-label') && a.includes('reviewed'))
 }
 
-const rollupOf = (conclusion) => ({
-  state: 'OPEN',
-  statusCheckRollup: [{ name: 'ci', status: 'COMPLETED', conclusion }],
-})
 
 const call = (calls, predicate) => calls.findIndex(predicate)
 const removesLabel = (a) => a[1] === 'edit' && a.includes('--remove-label') && a.includes('reviewed')

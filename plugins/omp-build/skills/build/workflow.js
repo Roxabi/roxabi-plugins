@@ -556,8 +556,6 @@ export async function openPr(cwd, { issue, branch, base, title, body } = {}, { g
   return { number, status: 'created' }
 }
 
-const WATCH_MS = 20 * 60 * 1000
-const WATCH_EVERY = 15_000
 
 const CI_FAILED = new Set(['FAILURE', 'CANCELLED', 'TIMED_OUT', 'STARTUP_FAILURE'])
 
@@ -728,11 +726,7 @@ export function parseLanding(stackText, { mergeOnGreenWorkflow = false } = {}) {
  * Native also enables merge-commit auto-merge. merge-on-green never returns
  * `no-required-checks` — the workflow, not the rules API, is the gate.
  */
-export async function landPr(
-  cwd,
-  pr,
-  { gh: ghFn = gh, requiredContexts, landing } = {},
-) {
+export async function landPr(cwd, pr, { gh: ghFn = gh, requiredContexts, landing } = {}) {
   const resolved = landing ?? { mode: 'native', required_checks: [] }
   if (resolved.mode === 'native') {
     const required =
@@ -1150,7 +1144,15 @@ export async function run({ issue, specPath, cwd }) {
 
   const land = await landPr(cwd, pr)
   if (land.status !== 'merged') {
-    return { status: 'red', reason: land.status, watch: land.watch, reviewPath, branch: expectedBranch, worktree: cwd, pr }
+    return {
+      status: 'red',
+      reason: land.status,
+      watch: land.watch,
+      reviewPath,
+      branch: expectedBranch,
+      worktree: cwd,
+      pr,
+    }
   }
   return {
     status: 'green',
