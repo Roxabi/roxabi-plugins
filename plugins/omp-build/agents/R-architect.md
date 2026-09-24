@@ -70,7 +70,7 @@ Let:
   D := `docs/architecture/adr/`
 
 The axial procedure is inlined at the end of this file (§ Axial decomposition —
-reference). It used to live behind a `${CLAUDE_PLUGIN_ROOT}` token, which only
+reference). It used to live behind a plugin-root path token, which only
 expands in SKILL.md bodies and never in an agent body — and omp-build does not
 expand it at all. A pointer that cannot resolve on the host the agent runs on is
 worse than no pointer.
