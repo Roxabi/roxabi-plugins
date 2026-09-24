@@ -8,7 +8,10 @@ date: 2026-09-24
 
 > Implements Roxabi/roxabi-plugins#576.
 > Amends [ADR-020](020-omp-delivery-feature-cycle.md) §3, §4, §8 and §9.
-> The rest of ADR-020 stays in force, including its refuse list.
+> The rest of ADR-020 stays in force, including its refuse list, except the
+> consequences §3 and §8 reverse: the per-ticket frontier stop, and the claim
+> that OMP loses every executable check. Those sentences are qualified in
+> ADR-020. They are not still law.
 
 ## Context
 

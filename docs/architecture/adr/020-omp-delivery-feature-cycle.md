@@ -149,8 +149,8 @@ Adopt **Option C**.
   with no drift detection. A future ADR may retire the Claude copies; this one does
   not.
 - Adopting the Matt base means adopting its context hygiene (`/clear` between
-  tickets), which is why `/feature` stops at the frontier instead of running the
-  whole cycle in one window.
+  tickets). The frontier stop is the assisted case — no Epic goal. Under an
+  Epic goal, [ADR-024](024-one-goal-per-epic.md) §3 replaces it.
 - The OMP product loses the `R-pr` falsify oracle (`oracle_ok`,
   `artifacts/reviews/{N}-falsify.json`). Test quality on that gate rests on `tdd`
   plus `R-tester` judgement. [ADR-024](024-one-goal-per-epic.md) does not restore
@@ -158,8 +158,9 @@ Adopt **Option C**.
 
 ### Named residuals
 
-- The in-session cwd hop may turn out to be unreachable from an extension. The
-  fallback is then the steady state, and `/feature` costs one relaunch per feature.
+- The in-session cwd hop may turn out to be unreachable from an extension. In
+  the assisted case the fallback is the steady state, and `/feature` costs one
+  relaunch per feature. An Epic goal is not that case.
 - Setup skills (`R-dev-init`, `R-env-setup`, `R-stack-setup`, `R-ci-setup`,
   `R-release-setup`, `R-seed-docs`, `R-seed-community`) are **parked**, not decided.
   Until that pass, OMP has no project-init surface.
