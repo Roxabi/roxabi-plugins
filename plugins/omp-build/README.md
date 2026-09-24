@@ -89,6 +89,7 @@ them. The still-used PR/landing functions remain in `skills/build/workflow.js`.
 | `/feature` | `omp/index.ts` → `registerCommand('feature')`, in-process. Dumps `skills/feature/SKILL.md` |
 | `/promote` | idem, `registerCommand('promote')`. Dumps `skills/promote/SKILL.md` |
 | `/cleanup` | idem, `registerCommand('cleanup')`. Dumps `skills/cleanup/SKILL.md` |
+| `/ci-watch` | idem, `registerCommand('ci-watch')`. Dumps `skills/ci-watch/SKILL.md` |
 
 Slash-only, on the one lane there is: `registerCommand` is the user lane,
 `registerTool` is the LLM one, and the model cannot reach a command — that is the

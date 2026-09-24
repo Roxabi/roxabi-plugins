@@ -256,11 +256,19 @@ describe('OMP omp-build hooks', () => {
       })
     })
 
-    it('registers exactly the three skill commands', () => {
+    it('registers exactly the skill commands', () => {
       // The tail (#495) is reachable by slash and by nothing else. Dropping a
       // registration makes `/promote` or `/cleanup` unreachable while the body
       // still sits on disk looking installed.
-      expect([...commands.keys()].sort()).toEqual(['cleanup', 'feature', 'promote'])
+      expect([...commands.keys()].sort()).toEqual(['ci-watch', 'cleanup', 'feature', 'promote'])
+    })
+
+    it('dumps /ci-watch with the PR argument the operator passed', async () => {
+      await commands.get('ci-watch')?.handler('123', { cwd: '/repo' })
+      const message = sent.at(-1) ?? ''
+      expect(message).toContain('skill://ci-watch/ci-watch.sh')
+      expect(message).toContain('123')
+      expect(message).toContain('[Skill directory:')
     })
 
     // Built the way the source builds it — two levels up from the module, then

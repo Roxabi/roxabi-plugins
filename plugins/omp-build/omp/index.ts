@@ -72,6 +72,11 @@ const SKILL_COMMANDS = [
     description: 'Clean merged branches, worktrees and remotes after verification',
     requires: [],
   },
+  {
+    name: 'ci-watch',
+    description: 'Watch every check on a PR head, then the merge, until the script deadline',
+    requires: [],
+  },
 ] as const
 
 function stripFrontmatter(markdown: string): string {
