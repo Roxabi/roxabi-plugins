@@ -37,7 +37,7 @@ Work that satisfies one ticket's acceptance criteria inside its matching Worktre
 _Avoid_: an external `implement` skill as a prerequisite, implementation on the Principal
 
 **Land**:
-After a green review loop: the `reviewed` label, then the landing mode declared in `.dev/stack.yml`, followed by `/ci-watch`. An unregistered `/ci-watch` is a stop: the label is not a completed landing.
+After a green review loop: the `reviewed` label, then the landing mode declared in `.dev/stack.yml`, followed by `/ci-watch`. That mode is read from the base ref, not from the epic worktree. An unregistered `/ci-watch` is a stop: remove `reviewed` and disable auto-merge. The label is not a completed landing.
 _Avoid_: R-ci-watch, gh pr merge while checks run, a raw delay inside `landPr`
 
 **Post-merge hook**:
