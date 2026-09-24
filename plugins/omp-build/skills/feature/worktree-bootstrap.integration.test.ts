@@ -77,8 +77,6 @@ describe('worktree bootstrap', () => {
   })
   it('refuses to write on the principal', () => {
     const { repo } = principalWith(STACK)
-    expect(() => execFileSync('bash', [BOOT], { cwd: repo, env: ENV, encoding: 'utf8' })).toThrow(
-      /bootstrap=refused/,
-    )
+    expect(() => execFileSync('bash', [BOOT], { cwd: repo, env: ENV, encoding: 'utf8' })).toThrow(/bootstrap=refused/)
   })
 })
