@@ -1,6 +1,6 @@
 ---
 title: "ADR-024: One goal per epic"
-description: Amends ADR-020 §3, §4, §8 and §9 — autonomy is an epic goal, the change contract is proof not a second spec, assertledger is the falsify producer where an adapter exists, and the agent creates the worktree from a fresh origin base.
+description: Amends ADR-020 §3, §4, §8 and §9 — autonomy is an epic goal, the change contract is proof not a second spec, assertledger is a separate gate where an adapter exists and does not restore the R-tester falsify gate, and the agent creates the worktree from a fresh origin base.
 status: accepted
 normative: true
 date: 2026-09-24
@@ -30,8 +30,10 @@ Four facts since then changed the cost of those clauses:
 - A semctx change contract written as a second spec reintroduces the
   `artifacts/specs` split ADR-020 retired. Derived from the issue, the same
   record is proof.
-- assertledger has a producer — the adapter — so the falsify cut is no longer
-  "no producer exists". It is "no producer in this repository".
+- assertledger, where an adapter exists, is a separate gate. It is not the
+  `R-pr` / `oracle_ok` producer, and it does not discharge the refuse line
+  against restoring the `R-tester` falsify gate. Where no adapter exists that
+  gate is absent, not a permanent `false`.
 
 ## Options Considered
 
@@ -89,8 +91,11 @@ ADR-020 no longer bind:
    and does not write `oracle_ok` or `artifacts/reviews/{N}-falsify.json`. It
    does not discharge the line, and this decision does not restore the gate.
    Where no adapter exists the assertledger gate is absent, not a permanent
-   `false`. Sentences in ADR-020 and ADR-019 that say the OMP product has no
-   falsify producer mean the `R-pr` / `oracle_ok` oracle, not this gate.
+   `false`. The ADR-019 sentence this qualifies is its banner: the OMP product
+   has no oracle producer and no tester falsify gate. That sentence means the
+   `R-pr` / `oracle_ok` oracle. `superseded_in_part_by` records that
+   qualification and no other ADR-019 clause. The same reading applies to
+   ADR-020's preamble and Negative.
 
 4. **§9 — the agent creates the worktree** from a freshly fetched
    `origin/<base>`, never from `HEAD`, and never carrying the Principal's
@@ -107,8 +112,9 @@ ADR-020 no longer bind:
 - An epic lands as one goal instead of one relaunch per ticket.
 - The worktree starts from the base the PR will merge into, not from whatever
   the Principal held.
-- Proof has a home that cannot become a second spec, and falsification has a
-  producer where one exists.
+- Proof has a home that cannot become a second spec. assertledger, where an
+  adapter exists, is a separate gate; it is not the `R-pr` producer and does
+  not discharge the `R-tester` refuse line.
 
 ### Negative
 
@@ -117,9 +123,9 @@ ADR-020 no longer bind:
   goal itself must not do.
 - Two creation paths now exist in the operator's head. Only one is in contract.
   Using `/wt` for an epic worktree is a contract break, not a shortcut.
-- A repository with no assertledger adapter still has no executable
-  falsification. That absence has to be said; a gate that cannot run must not
-  be wired to read `false`.
+- A repository with no assertledger adapter has no assertledger gate. That
+  absence is stated, not a permanent `false`, and it is not the `R-pr` oracle,
+  which stays cut.
 
 ### Neutral
 
