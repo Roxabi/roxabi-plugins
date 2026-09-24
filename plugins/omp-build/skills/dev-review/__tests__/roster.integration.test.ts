@@ -104,9 +104,9 @@ oracles: ["z"]
 })
 
 describe('default roster', () => {
-  it('plain TS diff at F-lite is exactly R-adversarial', () => {
+  it('plain TS diff at F-lite arms the tester, not a second specialist', () => {
     const out = roster({ delta: ['src/foo.ts'], tier: 'F-lite' })
-    expect(out.agents).toEqual(['R-adversarial'])
+    expect(out.agents).toEqual(['R-adversarial', 'R-tester'])
   })
 })
 
@@ -139,7 +139,7 @@ oracles: ["z"]
     expect(out.path_hit).toBe(false)
     expect(out.claims).toContain('fail-closed')
     expect(out.spawn_security_auditor).toBe(false)
-    expect(out.agents).toEqual(['R-adversarial'])
+    expect(out.agents).toEqual(['R-adversarial', 'R-tester'])
   })
 
   it('priced fence without valid claim → priced_claim_ok false ∧ ¬spawn', () => {
@@ -207,8 +207,8 @@ describe('R-tester', () => {
     expect(Object.hasOwn(out, 'oracle_ok')).toBe(false)
   })
 
-  it('no test file → ¬spawn', () => {
-    const out = roster({ delta: ['src/foo.ts'] })
+  it('size S source with no test file stays cold', () => {
+    const out = roster({ delta: ['src/foo.ts'], tier: 'S' })
     expect(out.delta_test_hit).toBe(false)
     expect(out.agents).not.toContain('R-tester')
     expect(gate(out, 'R-tester')).toMatchObject({ spawn: false, reason: 'no-test-delta' })
@@ -232,7 +232,7 @@ describe('infra', () => {
 
   it('plain non-infra Δ at F-full does not add R-architect', () => {
     const out = roster({ delta: ['src/foo.ts'], tier: 'F-full' })
-    expect(out.agents).toEqual(['R-adversarial'])
+    expect(out.agents).toEqual(['R-adversarial', 'R-tester'])
     expect(gate(out, 'R-architect')).toMatchObject({ spawn: false, reason: 'no-structure' })
   })
 })
@@ -287,7 +287,7 @@ describe('cut roles', () => {
       )
       expect(cfg.warnings).not.toContain(`unknown roster agent: ${agent}`)
       expect(cfg.overrides[agent]).toBeUndefined()
-      expect(roster({ delta: ['anywhere/App.tsx'], config: cfg }).agents).toEqual(['R-adversarial'])
+      expect(roster({ delta: ['anywhere/App.tsx'], config: cfg }).agents).toEqual(['R-adversarial', 'R-tester'])
     }
   })
 
@@ -299,9 +299,9 @@ describe('cut roles', () => {
 
   it('a frontend-only or backend-only diff is reviewed by the floor alone', () => {
     const paths = { frontendPath: 'apps/web', sharedUi: '', backendPath: 'apps/api' }
-    expect(roster({ delta: ['anywhere/App.tsx'] }).agents).toEqual(['R-adversarial'])
-    expect(roster({ delta: ['apps/web/a.tsx'], stackPaths: paths }).agents).toEqual(['R-adversarial'])
-    expect(roster({ delta: ['apps/api/user.ts'], stackPaths: paths }).agents).toEqual(['R-adversarial'])
+    expect(roster({ delta: ['anywhere/App.tsx'] }).agents).toEqual(['R-adversarial', 'R-tester'])
+    expect(roster({ delta: ['apps/web/a.tsx'], stackPaths: paths }).agents).toEqual(['R-adversarial', 'R-tester'])
+    expect(roster({ delta: ['apps/api/user.ts'], stackPaths: paths }).agents).toEqual(['R-adversarial', 'R-tester'])
   })
 })
 
@@ -389,6 +389,52 @@ describe('structural signals', () => {
   })
 })
 
+describe('reproduced roster misses', () => {
+  it('arms the tester and not the architect on a metalyde service file', () => {
+    const out = roster({
+      delta: ['src/lib/services/budget.ts'],
+      tier: 'F-lite',
+      stackPaths: { frontendPath: 'src', sharedUi: '', backendPath: 'src' },
+    })
+    expect(out.agents).toContain('R-tester')
+    expect(out.agents).not.toContain('R-architect')
+    expect(gate(out, 'R-tester')).toMatchObject({ spawn: true, reason: 'untested-change' })
+  })
+
+  it('arms architect and tester on a shared-root engine file at F-full', () => {
+    const out = roster({
+      delta: ['packages/core/src/flows/engine.ts'],
+      tier: 'F-full',
+      stackPaths: { frontendPath: '', sharedUi: '', backendPath: '', sharedRoots: ['packages/core'] },
+    })
+    expect(out.agents).toEqual(expect.arrayContaining(['R-architect', 'R-tester']))
+    expect(gate(out, 'R-architect')?.reason).toBe('structure')
+  })
+
+  it('arms the architect on an ADR path outside docs/architecture', () => {
+    const out = roster({ delta: ['docs/kit/architecture/adr/0016-new.md'] })
+    expect(out.agents).toContain('R-architect')
+    expect(out.agents).not.toContain('R-tester')
+  })
+
+  it('maps a spaced legacy tier to F-lite instead of exiting', () => {
+    const spec = writeSpec('- [ ] ok')
+    const list = join(dir, 'delta.txt')
+    writeFileSync(list, 'src/app.ts\n')
+    const run = spawnSync(
+      'bash',
+      [join(fileURLToPath(new URL('../roster.sh', import.meta.url))), '--diff-list', list, '--tier', ' M', '--json'],
+      {
+        encoding: 'utf8',
+      },
+    )
+    expect(run.status).toBe(0)
+    expect(JSON.parse(run.stdout).tier).toBe('F-lite')
+    expect(run.stderr).toContain('F-lite')
+    void spec
+  })
+})
+
 describe('cap', () => {
   it('default cap is at most 3 total agents per chunk', () => {
     const out = roster({
@@ -433,7 +479,7 @@ describe('cap', () => {
       }),
     })
     expect(out.agents).toEqual(['R-adversarial', 'R-devops', 'R-architect'])
-    expect(out.capped).toEqual([])
+    expect(out.capped).toEqual(['R-tester'])
     expect(out.max_agents).toBe(3)
     expect(out.warnings).toContain('max_agents (1) < forced agents (3) — cap raised to 3')
   })
@@ -994,7 +1040,7 @@ describe('allocateReview', () => {
       shared: allocateShared({ delta: chunkDeltas.flat(), chunks: 2, axialAdr: true }),
     })
     expect(out.chunk_agents).toEqual([
-      ['R-adversarial', 'R-architect'],
+      ['R-adversarial', 'R-architect', 'R-tester'],
       ['R-adversarial', 'R-architect'],
     ])
     expect(out.chunk_agents.every((agents) => agents.length <= 3)).toBe(true)
@@ -1067,7 +1113,7 @@ describe('allocateReview', () => {
       shared: allocateShared({ delta: chunkDeltas.flat(), chunks: 5 }),
     })
     expect(out.chunk_agents.filter((c) => c.includes('R-adversarial'))).toHaveLength(5)
-    expect(out.chunk_agents.reduce((n, c) => n + c.length, 0)).toBe(10)
+    expect(out.chunk_agents.reduce((n, c) => n + c.length, 0)).toBe(15)
     expect(out.capped).toEqual([])
   })
 

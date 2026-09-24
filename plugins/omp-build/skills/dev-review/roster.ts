@@ -21,6 +21,8 @@ export type StackPaths = {
   frontendPath: string
   sharedUi: string
   backendPath: string
+  sharedRoots?: string[]
+  adrPath?: string
 }
 
 export type RosterConfig = {
@@ -122,6 +124,7 @@ const FE_EXT_RE = /\.(tsx|jsx|vue|svelte|css|scss)$/
 const AXIAL_RE = /^(infrastructure|adapters|domains|stages)\//
 const STRUCTURAL_RES = [
   /(^|\/)docs\/(architecture|architectures)(\/|$)/,
+  /(^|\/)docs\/(?:[^/]+\/)*architecture\/adr(\/|$)/,
   /(^|\/)\.?dependency-cruiser\.(c?js|mjs|json|ya?ml)$/,
   /(^|\/)(nx|turbo)\.jsonc?$/,
   /(^|\/)pnpm-workspace\.ya?ml$/,
@@ -317,6 +320,13 @@ export function testHit(delta: string[]): boolean {
   return delta.some((f) => TEST_DIR_RE.test(f) || TEST_EXT_RE.test(f) || TEST_PY_RE.test(f) || TEST_SUFFIX_RE.test(f))
 }
 
+const SOURCE_EXT_RE = /\.(tsx?|jsx?|py|go|rs|vue|svelte)$/
+
+/** A source file that is not itself a test. Docs and config stay out. */
+export function sourceHit(delta: string[]): boolean {
+  return delta.some((f) => SOURCE_EXT_RE.test(f) && !testHit([f]))
+}
+
 export function infraHit(delta: string[]): boolean {
   return delta.some((f) => INFRA_RES.some((re) => re.test(f)))
 }
@@ -344,11 +354,17 @@ export function domainFileCounts(delta: string[], paths: StackPaths): { frontend
   }
 }
 
-/** Conservative architecture signals: explicit architecture/workspace files or a
- * diff crossing configured frontend and backend boundaries. Ordinary F-full source
- * changes deliberately stay cold. */
+/** Conservative architecture signals: explicit architecture/workspace files, a
+ * shared root, an ADR path, or a diff crossing configured frontend and backend
+ * boundaries. Equal frontend and backend roots are not a crossing. Ordinary
+ * F-full source changes outside those roots stay cold. */
 export function structureHit(delta: string[], paths: StackPaths): boolean {
   if (delta.some((f) => STRUCTURAL_RES.some((re) => re.test(f)))) return true
+  if (paths.adrPath && prefixCount(delta, [paths.adrPath]) > 0) return true
+  if (paths.sharedRoots?.length && prefixCount(delta, paths.sharedRoots) > 0) return true
+  const frontend = paths.frontendPath.replace(/\/+$/, '')
+  const backend = paths.backendPath.replace(/\/+$/, '')
+  if (frontend && frontend === backend) return false
   const counts = domainFileCounts(delta, paths)
   return counts.frontend > 0 && counts.backend > 0
 }
@@ -649,7 +665,7 @@ export function parseRosterConfig(text: string | null): RosterConfig {
 
 export function parseStackPaths(text: string | null): StackPaths {
   if (text == null || !text.trim()) {
-    return { frontendPath: '', sharedUi: '', backendPath: '' }
+    return { frontendPath: '', sharedUi: '', backendPath: '', sharedRoots: [], adrPath: '' }
   }
   const lines = parseYamlLines(text)
   const childScalar = (blockKey: string, childKey: string): string => {
@@ -661,10 +677,22 @@ export function parseStackPaths(text: string | null): StackPaths {
     }
     return ''
   }
+  const blockValues = (blockKey: string): string[] => {
+    const idx = lines.findIndex((l) => l.indent === 0 && l.key === blockKey)
+    if (idx < 0) return []
+    const end = blockEnd(lines, idx)
+    const values: string[] = []
+    for (let i = idx + 1; i < end; i++) {
+      if (lines[i].indent > 0 && lines[i].value) values.push(lines[i].value)
+    }
+    return values
+  }
   return {
     frontendPath: childScalar('frontend', 'path'),
     sharedUi: childScalar('shared', 'ui'),
     backendPath: childScalar('backend', 'path'),
+    sharedRoots: blockValues('shared'),
+    adrPath: childScalar('docs', 'adr_path'),
   }
 }
 
@@ -689,13 +717,13 @@ function applyOverride(agent: string, gate: Gate, overrides: Record<string, Agen
   return gate
 }
 
-/** Changed-test evidence is the whole gate. dev-core held the spawn behind a second
- *  `--oracle-ok` round-trip fed by `run-falsify.sh`; that producer is not snapshotted
- *  (ADR-020 §8), so waiting for it here would park `R-tester` permanently at
- *  `oracle-unknown` — a gate that never opens is not a gate. */
-function testerGate(deltaTestHit: boolean): Gate {
-  if (!deltaTestHit) return { spawn: false, reason: 'no-test-delta', forced: false }
-  return { spawn: true, reason: 'test-delta', forced: false }
+/** Changed tests arm the role. So does an untested source change when τ ≠ S —
+ *  the caller passes that as `untested`. A gate that only sees test files leaves
+ *  a service-only diff with no tester. */
+function testerGate(deltaTestHit: boolean, untested: boolean): Gate {
+  if (deltaTestHit) return { spawn: true, reason: 'test-delta', forced: false }
+  if (untested) return { spawn: true, reason: 'untested-change', forced: false }
+  return { spawn: false, reason: 'no-test-delta', forced: false }
 }
 
 function architectGate(axialAdr: boolean, delta: string[], structural: boolean, axialOverride: AgentOverride): Gate {
@@ -779,7 +807,8 @@ export function computeRoster(input: ComputeRosterInput): RosterResult {
     warnings,
   )
 
-  gates['R-tester'] = applyOverride('R-tester', testerGate(delta_test_hit), config.overrides, warnings)
+  const untested = tier !== 'S' && sourceHit(delta) && !delta_test_hit
+  gates['R-tester'] = applyOverride('R-tester', testerGate(delta_test_hit, untested), config.overrides, warnings)
 
   gates['R-devops'] = applyOverride('R-devops', devopsGate(infra), config.overrides, warnings)
 
@@ -892,6 +921,19 @@ function usage(): never {
  *  the run actually used. */
 const TIERS: Record<string, true> = { S: true, 'F-lite': true, 'F-full': true }
 
+/** Trim, then map legacy sizes. Anything else is F-lite — the CLI says so on stderr. */
+export function normalizeTier(raw: string): ReviewTier {
+  const value = raw
+    .trim()
+    .replace(/^size:\s*/i, '')
+    .trim()
+  const key = value.toLowerCase()
+  if (key === 's' || key === 'xs') return 'S'
+  if (key === 'm' || key === 'f-lite') return 'F-lite'
+  if (key === 'l' || key === 'xl' || key === 'f-full') return 'F-full'
+  return 'F-lite'
+}
+
 function printResult(result: object, json: boolean): void {
   if (json) {
     console.log(JSON.stringify(result, null, 2))
@@ -925,8 +967,10 @@ function main(): void {
       chunkLists.push(next)
       i++
     } else if (a === '--tier' && next !== undefined) {
-      if (!Object.hasOwn(TIERS, next)) usage()
-      tier = next as ReviewTier
+      tier = normalizeTier(next)
+      if (!Object.hasOwn(TIERS, next.trim())) {
+        console.error(`tier ${JSON.stringify(next)} → ${tier}`)
+      }
       i++
     } else if (a === '--spec' && next !== undefined) {
       specPath = next
