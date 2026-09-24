@@ -68,7 +68,10 @@ ADR-020 no longer bind:
    reported; independent tickets continue and its dependents are skipped. A
    shared-state failure stops the goal. Base CI is read before each ticket
    starts; red stops the goal, it does not skip the ticket. The post-merge
-   hook failing stops the goal. No autonomy level is stored on the issue.
+   hook failing stops the goal. Its command is read from `origin/<base>`, not
+   from the working tree, and executed as argv with no shell. A value that is
+   not that argv stops the goal. The glossary names the hook; it does not
+   carry this rule. No autonomy level is stored on the issue.
    Without a goal, `/feature` stays assisted: the operator starts each step.
    The per-ticket stop ADR-020 required is the assisted case, not the law for
    an epic under a goal.
