@@ -45,6 +45,7 @@ const SIGNALS: Record<string, RegExp> = {
   floor: /always|floor/i,
   path_hit: /path_hit/,
   delta_test_hit: /delta_test_hit/,
+  'untested-change': /untested-change/,
   infra: /\binfra\b/i,
   axial: /axial/i,
   structural: /structural|FE\+BE/i,
@@ -58,12 +59,11 @@ const GATE_READS: Record<string, string[]> = {
   'R-security-auditor': ['path_hit'],
   'R-architect': ['axial', 'structural'],
   'R-devops': ['infra'],
-  'R-tester': ['delta_test_hit'],
+  'R-tester': ['delta_test_hit', 'untested-change'],
 }
 
-/** No gate reads τ (roster.ts § TIERS — it is validated, echoed, and read by
- *  nobody), so a tier word in a gate cell documents a branch that does not
- *  exist. Phase 2 branches on τ; the oracle never does. */
+/** Only the tester's untested-change disjunct reads τ. A tier word in any other
+ *  gate cell documents a branch that does not exist. */
 const TIER_WORDS = /F-lite|F-full|\btier\b|τ|size:/i
 
 const roster = (over: Partial<Parameters<typeof computeRoster>[0]> = {}) =>
@@ -103,7 +103,7 @@ describe('dispatch table ≡ roster oracle', () => {
 
   it('documents the adversarial floor', () => {
     expect(gateCell('R-adversarial')).toContain('always')
-    expect(roster().agents).toEqual(['R-adversarial'])
+    expect(roster({ delta: ['README.md'] }).agents).toEqual(['R-adversarial'])
   })
 
   it('documents tier-independent infra routing to R-devops', () => {
@@ -121,11 +121,14 @@ describe('dispatch table ≡ roster oracle', () => {
   })
 
   it('implements no blanket F-full architect routing', () => {
-    expect(roster({ delta: ['src/app.ts'], tier: 'F-full' }).agents).toEqual(['R-adversarial'])
+    const out = roster({ delta: ['src/app.ts'], tier: 'F-full' })
+    expect(out.agents).toEqual(['R-adversarial', 'R-tester'])
+    expect(out.agents).not.toContain('R-architect')
   })
 
-  it('documents R-tester on changed-test evidence alone, with no oracle handshake', () => {
+  it('documents R-tester on changed tests and on an untested source change', () => {
     expect(gateCell('R-tester')).toContain('delta_test_hit')
+    expect(gateCell('R-tester')).toContain('untested-change')
     expect(gateCell('R-tester')).not.toContain('oracle')
     const out = roster({ delta: ['src/app.test.ts'] })
     expect(out.agents).toEqual(['R-adversarial', 'R-tester'])

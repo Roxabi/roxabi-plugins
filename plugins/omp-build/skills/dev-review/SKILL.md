@@ -96,13 +96,21 @@ git diff origin/${BASE}...HEAD | grep -iE '(password|passwd|secret|api[_-]?key|a
 ### τ comes from the `size:` label — nothing else
 
 ```bash
-TIER=$(gh issue view "$issue_num" --json labels \
+RAW=$(gh issue view "$issue_num" --json labels \
   --jq '[.labels[].name | select(startswith("size:"))][0] // empty' | sed 's/^size://')
+RAW=$(printf '%s' "$RAW" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+case "$(printf '%s' "$RAW" | tr '[:upper:]' '[:lower:]')" in
+  '' ) TIER=F-lite; echo "no size: label on #$issue_num — review tier defaults to F-lite" ;;
+  s|xs) TIER=S ;;
+  m|f-lite) TIER=F-lite ;;
+  l|xl|f-full) TIER=F-full ;;
+  *) TIER=F-lite; echo "size: label '$RAW' on #$issue_num is not canonical — review tier defaults to F-lite" ;;
+esac
 ```
 
 `docs/agents/issue-tracker.md` § Labels: the `size:` label is the **only** source of τ. With spec frontmatter gone (ADR-020 §4), there is no second place to look — ¬infer τ from |Δ|, ¬from the issue title, ¬from a spec file.
 
-∄ label ∨ ∄ issue_num → τ := `F-lite` **and say so out loud**: "no `size:` label on #N — review tier defaults to F-lite". A silent default is the failure `issue-triage` exists to prevent.
+∄ label ∨ ∄ issue_num → τ := `F-lite` **and say so out loud**: "no `size:` label on #N — review tier defaults to F-lite". A silent default is the failure `issue-triage` exists to prevent. A legacy or spaced value (`M`, ` M`, `XS`, `L`, `XL`) is mapped (`M` → F-lite); anything else is F-lite, said out loud.
 
 ## Phase 3 — Multi-Domain Review (Fresh Agents)
 
@@ -164,7 +172,7 @@ bash skill://dev-review/roster.sh \
   --json
 ```
 
-**R-tester gate (one call, one input):** `delta_test_hit` alone decides — changed-test evidence in Δ arms the role, absence leaves it cold. There is no second round-trip: the executable falsify oracle is cut on OMP (ADR-020 §8), so no `--oracle-ok`, no `run-falsify.sh --verify`, no `oracle_ok` field to read and no coverage-gap disclosure to make when it is absent.
+**R-tester gate:** `delta_test_hit` or `untested-change`. Changed-test evidence in Δ arms the role. So does a source change with no test file, except at size S. There is no second round-trip: the executable falsify oracle is cut on OMP (ADR-020 §8), so no `--oracle-ok`, no `run-falsify.sh --verify`, no `oracle_ok` field to read and no coverage-gap disclosure to make when it is absent.
 
 Exit: `0` ok · `1` usage/IO error (including unreadable `--spec` or empty `--chunk-list`) · `2` σ priced-fence hygiene (emit the spec-hygiene `issue(blocking):`; JSON remains on stdout). `claims` and `priced_claim_ok` report that hygiene check only and never gate a spawn.
 
@@ -176,15 +184,15 @@ Exit: `0` ok · `1` usage/IO error (including unreadable `--spec` or empty `--ch
 | **R-security-auditor** | strong auth/secrets/crypto path or diff evidence (`path_hit`, including `**/auth/**`) | OWASP, secrets, injection, auth |
 | **R-architect** | axial ADR + root axial path → axial mode; otherwise architecture/ADR path, workspace graph config, or configured FE+BE crossing → structural mode | axial N×M drift, boundaries, coupling, circular dependencies |
 | **R-devops** | infra/config/deploy evidence such as `scripts/`, `.github/`, or `lefthook.yml` | config, deploy, infra |
-| **R-tester** | `delta_test_hit` — changed tests in Δ, after devops in priority | coverage, AAA, edge cases, tautology |
+| **R-tester** | `delta_test_hit` or `untested-change` — changed tests, or source with no test file | coverage, AAA, edge cases, tautology |
 
 Five roles, and that is the whole panel: the oracle selects at most two specialists after the floor unless forced overrides bypass the cap. There is **no** `R-frontend-dev` and **no** `R-backend-dev` here — both are cut (ADR-020 §7), and component, hook, client-behaviour, API, contract and error concerns fall to the `R-adversarial` floor through the sibling-drop rule, which keys off the `Spawned roster:` line in the prompt below. Nothing replaces them; a domain-heavy diff simply gets the floor plus whatever evidence actually fired. Likewise **no** `R-fixer`: `skill://fix` applies findings inline.
 
 Architect requires axial or structural evidence; F-full alone is cold. Axial mode requires an axial ADR (`axial: true` under `docs/architecture/adr/`) plus a root axial path in Δ (`infrastructure/`, `adapters/`, `domains/`, or `stages/`) and also covers read-only structural architecture concerns in that assigned chunk. Structural mode requires an architecture/ADR path, a workspace graph config, or a diff crossing the `frontend.path`/`backend.path` roots configured in `.dev/stack.yml` — that crossing is an architecture signal, not a domain-role gate, and it survives the cut of the domain roles.
 
-Skip: tester → ¬`delta_test_hit` | devops → no infra evidence | architect → no axial/structural evidence | security → `¬spawn_security_auditor`.
+Skip: tester → ¬`delta_test_hit` ∧ ¬`untested-change` (source files, no tests, τ ≠ S) | devops → no infra evidence | architect → no axial/structural evidence | security → `¬spawn_security_auditor`.
 
-**No gate reads τ.** Every row above fires on Δ, the stack overrides and the axial ADR alone — the tier is validated, echoed back in the JSON, and consumed by Phase 2 (SC→Test matrix at τ≠S), never by the oracle. A gate described as tier-driven would be describing a branch that does not exist.
+**One gate reads τ.** `R-tester`'s `untested-change` disjunct is cold at `S` and arms otherwise. Every other row fires on Δ, the stack overrides and the axial ADR alone. The tier is still echoed back in the JSON and consumed by Phase 2. A gate described as tier-selected for any other role would be describing a branch that does not exist.
 
 **Subdomain split (multi-chunk):** one allocate call, exact per-chunk spawn from `chunk_agents[i]`, one `R-adversarial` floor per chunk, and at most two selected specialists per chunk. `max_agents` is the active per-chunk cap; it is the only cap. A `max_agents_review` key in `.dev/stack.yml` is parsed, warned about as deprecated, and then has no effect whatsoever — there is no review-wide ceiling to raise or lower.
 
@@ -462,7 +470,7 @@ Q:
 | Missing root cause/solutions | C(f) := 0; keep finding; `skill://fix` files its cause instead of applying it |
 | ∄ `size:` label | τ := F-lite, disclosed out loud (never silently) |
 | R-architect skipped | no axial or structural evidence |
-| R-tester skipped | ¬delta_test_hit — that is the whole gate |
+| R-tester skipped | ¬delta_test_hit and ¬untested-change |
 | R-security-auditor skipped | path_hit=false — R-adversarial owns OWASP on every review |
 | FE/BE concern in Δ | R-adversarial floor owns it — the domain roles are cut, ¬spawn a substitute |
 | Low-confidence finding | keep; it joins its cause; confidence orders, it does not split the fix queue |
