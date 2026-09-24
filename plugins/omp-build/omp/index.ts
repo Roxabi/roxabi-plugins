@@ -3,10 +3,12 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   BUN_TEST_DENY_REASON,
+  evalGuard,
   extractShellCommand,
   extractWriteContent,
   hasProjectContract,
   isBunTestBlocked,
+  PRINCIPAL_FREEZE_REASON,
   PROJECT_CONTRACT_FILES,
   scanSecurityContent,
   shouldBlockPrincipalSwitch,
@@ -159,10 +161,14 @@ export default function ompBuildExtension(
       if (shouldBlockPrincipalSwitch(command, ctx.cwd)) {
         return {
           block: true,
-          reason:
-            'Principal freeze (pre): do not move principal off staging|main|master. Feature work → dedicated worktree (/R-setup-worktree or /R-dev #N).',
+          reason: PRINCIPAL_FREEZE_REASON,
         }
       }
+    }
+
+    if (event.toolName === 'eval') {
+      const verdict = evalGuard(event.input, ctx.cwd)
+      if (verdict) return verdict
     }
 
     if (event.toolName === 'write' || event.toolName === 'edit') {

@@ -18,8 +18,8 @@ This skill owns every issue write: creation, `size:` tier, priority, type, and t
 native relations. Nothing else writes them — not `gh issue create`, not a
 `Blocked by:` line in a body. The project contract is `docs/agents/issue-tracker.md`.
 
-It runs **before** the delivery cycle, not inside it: `/feature` reads tickets and
-never mutates them.
+It runs **before** the delivery cycle, not inside it. `/feature` mutates tickets
+only through issue-triage.
 
 ## Instructions
 

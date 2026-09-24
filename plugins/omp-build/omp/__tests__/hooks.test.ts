@@ -4,9 +4,11 @@ import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
+  evalGuard,
   extractWriteContent,
   hasProjectContract,
   isBunTestBlocked,
+  PRINCIPAL_FREEZE_REASON,
   SECURITY_SCAN_MAX_BYTES,
   scanSecurityContent,
   shouldBlockPrincipalSwitch,
@@ -50,6 +52,11 @@ describe('OMP omp-build hooks', () => {
 
     it('is false when no contract exists', () => {
       expect(hasProjectContract('/repo', () => false)).toBe(false)
+    })
+
+    it('arms guards from a subdirectory when the contract is at the git top-level', () => {
+      const exists = (path: string) => path === '/repo/.git' || path === '/repo/.dev/stack.yml'
+      expect(hasProjectContract('/repo/src/lib', exists)).toBe(true)
     })
   })
 
@@ -100,6 +107,24 @@ describe('OMP omp-build hooks', () => {
         { isPrincipalCwd: (cwd) => cwd === principalCwd },
       )
       expect(denied).toBe(false)
+    })
+  })
+
+  describe('eval guard', () => {
+    const principal = { isPrincipalCwd: (cwd: string) => cwd === '/repo' }
+
+    it('blocks git switch main in eval code on the principal', () => {
+      const verdict = evalGuard({ code: 'await Bun.$`git switch main`' }, '/repo', {}, principal)
+      expect(verdict?.block).toBe(true)
+      expect(verdict?.reason).toBe(PRINCIPAL_FREEZE_REASON)
+      expect(verdict?.reason).toContain('/feature #N')
+      expect(verdict?.reason).not.toContain('/R-setup-worktree')
+    })
+
+    it('blocks a hardcoded secret in eval code', () => {
+      const verdict = evalGuard({ code: CREDENTIAL }, '/repo', {}, { isPrincipalCwd: () => false })
+      expect(verdict?.block).toBe(true)
+      expect(verdict?.reason).toContain(SECRET_REASON)
     })
   })
 
