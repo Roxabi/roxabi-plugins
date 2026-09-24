@@ -23,6 +23,13 @@ use the current repository conventions, not a separate spec-file lifecycle.
 - After confirmed merge, offer `/cleanup`. Offer `/promote` only when
   `.dev/stack.yml` declares `release.model: staging-train`. Never invoke either.
 
+`/feature init [--dry-run]` adopts a repository from a worktree, never the
+Principal. `--dry-run` prints the plan and writes nothing. A real run calls
+`bun skill://issue-triage/triage.ts init` for the tracker and labels, fills
+`landing` and `worktree` in `.dev/stack.yml`, and does not index ccc or
+codegraph without consent already recorded there. A second run is `init=noop`.
+Orphan semctx contracts are listed, not closed.
+
 ## 1. Route-specific prerequisites
 
 Read the project's `.dev/stack.yml` and `docs/agents/issue-tracker.md`.
