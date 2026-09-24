@@ -9,7 +9,7 @@
 
 import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { join } from 'node:path'
+import { dirname, join, parse, resolve } from 'node:path'
 import type * as ContractPaths from '../hooks/lib/contract-paths.cjs'
 
 const require = createRequire(import.meta.url)
@@ -50,8 +50,56 @@ export const SECURITY_SCAN_MAX_BYTES = 256_000
  */
 export const PROJECT_CONTRACT_FILES = contractPaths.PROJECT_CONTRACT_FILES
 
+/** Walk to the git top-level using the same exists probe — no process spawn. */
+export function gitTopLevel(cwd: string, exists: (path: string) => boolean = existsSync): string | null {
+  let dir = resolve(cwd)
+  const root = parse(dir).root
+  for (;;) {
+    if (exists(join(dir, '.git'))) return dir
+    if (dir === root) return null
+    const parent = dirname(dir)
+    if (parent === dir) return null
+    dir = parent
+  }
+}
+
 export function hasProjectContract(cwd: string, exists: (path: string) => boolean = existsSync): boolean {
-  return PROJECT_CONTRACT_FILES.some((rel) => exists(join(cwd, rel)))
+  const top = gitTopLevel(cwd, exists)
+  const roots = top && top !== resolve(cwd) ? [top, cwd] : [cwd]
+  return roots.some((dir) => PROJECT_CONTRACT_FILES.some((rel) => exists(join(dir, rel))))
+}
+
+export const PRINCIPAL_FREEZE_REASON =
+  'Principal freeze (pre): do not move principal off staging|main|master. Feature work → `/feature #N` in an agent-created worktree.'
+
+const EVAL_SWITCH = /\bgit\s+(?:switch|checkout)\b/
+
+export function extractEvalCode(input: Record<string, unknown>): string {
+  const parts: string[] = []
+  if (typeof input.code === 'string') parts.push(input.code)
+  if (Array.isArray(input.cells)) {
+    for (const cell of input.cells) {
+      if (cell && typeof cell === 'object' && 'code' in cell && typeof cell.code === 'string') parts.push(cell.code)
+    }
+  }
+  return parts.join('\n')
+}
+
+export function evalGuard(
+  input: Record<string, unknown>,
+  cwd: string,
+  env: NodeJS.ProcessEnv = process.env,
+  deps?: { isPrincipalCwd?: (cwd: string) => boolean },
+): { block: true; reason: string } | null {
+  const code = extractEvalCode(input)
+  if (!code) return null
+  if (!principalFreeze.hasEscapeHatch(env) && EVAL_SWITCH.test(code)) {
+    const principal = deps?.isPrincipalCwd ?? principalFreeze.isPrincipalCwd
+    if (principal(cwd)) return { block: true, reason: PRINCIPAL_FREEZE_REASON }
+  }
+  const violation = scanSecurityContent(code)
+  if (violation) return { block: true, reason: `Security check: ${violation}` }
+  return null
 }
 
 export function shouldBlockPrincipalSwitch(
