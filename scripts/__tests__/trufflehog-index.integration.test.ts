@@ -14,10 +14,7 @@ const EXCLUDE_PATHS = path.join(REPO_ROOT, 'scripts/trufflehog-exclude-paths.txt
 // committing empty trees from linked worktrees.
 const SCRIPTS = {
   'scripts/trufflehog-check.sh': path.join(REPO_ROOT, 'scripts/trufflehog-check.sh'),
-  'plugins/dev-core/scripts/trufflehog-check.sh': path.join(
-    REPO_ROOT,
-    'plugins/dev-core/scripts/trufflehog-check.sh',
-  ),
+  'plugins/dev-core/scripts/trufflehog-check.sh': path.join(REPO_ROOT, 'plugins/dev-core/scripts/trufflehog-check.sh'),
 }
 
 // ─── Clean env (isolate from the outer git context) ──────────────────────────
