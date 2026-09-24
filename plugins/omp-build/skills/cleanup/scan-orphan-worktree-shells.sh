@@ -4,12 +4,14 @@
 # kind ∈ empty_parent | unregistered
 #
 # Finds leftover worktree *shells* that `git worktree list` misses after
-# `git worktree remove`. It scans the two roots THIS plugin creates worktrees in,
+# `git worktree remove`. It scans the roots THIS plugin and OMP create worktrees in,
 # and nothing else:
 #
 #   1. ~/.omp/worktrees/<repo>/<type>-<issue>-<slug>  — skills/build/workflow.js
 #      `resolveNames`, the path `ensureWorktree` hands to `git worktree add`.
 #   2. <repo>/.claude/worktrees/<…>                   — harness-created worktrees.
+#   3. <worktree base>/<repo>/<slug>                  — OMP and agent-created worktrees.
+#      Base is OMP_WORKTREE_DIR, else stack.yml worktree.base, else ~/.omp/wt.
 #
 # dev-core's copy scanned ~/.grok/worktrees/<slug>/ and deleted rows from a Grok
 # `worktrees.db` via sqlite3. omp-build ships neither the Grok harness nor a
@@ -130,3 +132,33 @@ scan_root "$OMP_WT_ROOT/$(basename "$principal")" "~/.omp/worktrees"
 
 # --- 2) <principal>/.claude/worktrees/* ---
 scan_root "$principal/.claude/worktrees" ".claude/worktrees"
+
+# --- 3) <worktree base>/<repo>/ — OMP /wt and agent-created worktrees ---
+# Scoped to this repository's directory name. A sibling repo under the same base
+# is not listed.
+wt_base="${OMP_WORKTREE_DIR:-}"
+if [ -z "$wt_base" ] && [ -f "$principal/.dev/stack.yml" ]; then
+  wt_base="$(python3 - "$principal/.dev/stack.yml" << 'PY'
+import sys
+section = None
+for raw in open(sys.argv[1], encoding="utf-8"):
+    text = raw.split("#", 1)[0].rstrip()
+    if not text.strip():
+        continue
+    indent = len(text) - len(text.lstrip(" "))
+    stripped = text.strip()
+    if indent == 0 and stripped.endswith(":"):
+        section = stripped[:-1]
+        continue
+    if section == "worktree" and indent == 2 and stripped.startswith("base:"):
+        print(stripped.split(":", 1)[1].strip().strip("'\""))
+        break
+PY
+)"
+fi
+case "$wt_base" in
+  "~/"*) wt_base="$HOME/${wt_base#~/}" ;;
+  "~") wt_base="$HOME" ;;
+  "") wt_base="$(canon "$HOME")/.omp/wt" ;;
+esac
+scan_root "$wt_base/$(basename "$principal")" "omp-wt"
