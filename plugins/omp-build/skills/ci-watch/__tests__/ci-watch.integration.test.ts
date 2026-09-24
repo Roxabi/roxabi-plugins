@@ -40,14 +40,14 @@ describe('classify-merge-state', () => {
 
 describe('classify-checks', () => {
   it('aggregates green, failed, skipped, and pending', () => {
-    expect(classifyChecks('[{"name":"ci","status":"completed","conclusion":"success"}]')).toBe('GREEN')
+    expect(classifyChecks('[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}]')).toBe('GREEN')
     expect(
       classifyChecks(
-        '[{"name":"ci","status":"completed","conclusion":"success"},{"name":"scan","status":"completed","conclusion":"failure"}]',
+        '[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"name":"scan","status":"COMPLETED","conclusion":"FAILURE"}]',
       ),
     ).toBe('FAIL')
-    expect(classifyChecks('[{"name":"ci","status":"completed","conclusion":"skipped"}]')).toBe('SKIP')
-    expect(classifyChecks('[{"name":"ci","status":"in_progress","conclusion":""}]')).toBe('PENDING')
+    expect(classifyChecks('[{"name":"ci","status":"COMPLETED","conclusion":"SKIPPED"}]')).toBe('SKIP')
+    expect(classifyChecks('[{"name":"ci","status":"IN_PROGRESS","conclusion":""}]')).toBe('PENDING')
   })
 })
 
@@ -72,15 +72,15 @@ n=$((n + 1))
 echo "$n" > "$CI_WATCH_COUNT"
 if [[ "$n" -eq 1 ]]; then
   cat <<'EOF'
-{"state":"OPEN","mergeStateStatus":"BLOCKED","autoMergeRequest":null,"labels":[{"name":"reviewed"}],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"completed","conclusion":"success"}]}
+{"state":"OPEN","mergeStateStatus":"BLOCKED","autoMergeRequest":null,"labels":[{"name":"reviewed"}],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}]}
 EOF
 elif [[ "$n" -eq 2 ]]; then
   cat <<'EOF'
-{"state":"OPEN","mergeStateStatus":"BLOCKED","autoMergeRequest":null,"labels":[{"name":"reviewed"}],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"completed","conclusion":"success"},{"name":"scan","status":"in_progress","conclusion":""}]}
+{"state":"OPEN","mergeStateStatus":"BLOCKED","autoMergeRequest":null,"labels":[{"name":"reviewed"}],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"name":"scan","status":"IN_PROGRESS","conclusion":""}]}
 EOF
 else
   cat <<'EOF'
-{"state":"MERGED","mergeStateStatus":"UNKNOWN","autoMergeRequest":null,"labels":[],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"completed","conclusion":"success"},{"name":"scan","status":"completed","conclusion":"success"}]}
+{"state":"MERGED","mergeStateStatus":"UNKNOWN","autoMergeRequest":null,"labels":[],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"name":"scan","status":"COMPLETED","conclusion":"SUCCESS"}]}
 EOF
 fi
 `,
@@ -105,7 +105,7 @@ fi
 set -euo pipefail
 if [[ "$1" == "run" ]]; then exit 0; fi
 cat <<'EOF'
-{"state":"OPEN","mergeStateStatus":"BLOCKED","autoMergeRequest":null,"labels":[{"name":"reviewed"}],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"completed","conclusion":"failure"}]}
+{"state":"OPEN","mergeStateStatus":"BLOCKED","autoMergeRequest":null,"labels":[{"name":"reviewed"}],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"FAILURE"}]}
 EOF
 `,
     )

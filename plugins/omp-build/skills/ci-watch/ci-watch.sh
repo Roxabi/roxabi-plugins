@@ -52,12 +52,13 @@ classify_merge_state() {
 # Pure. JSON array of {name,status,conclusion} on stdin → GREEN|FAIL|CANCEL|SKIP|PENDING|OTHER.
 classify_checks() {
   jq -r '
+    def norm: ascii_downcase;
     if length == 0 then "PENDING"
-    elif any(.conclusion == "failure" or .conclusion == "timed_out" or .conclusion == "startup_failure") then "FAIL"
-    elif any(.conclusion == "cancelled") then "CANCEL"
-    elif any(.conclusion == "skipped") then "SKIP"
-    elif any(.status != "completed") then "PENDING"
-    elif all(.conclusion == "success") then "GREEN"
+    elif any((.conclusion // "" | norm) as $c | $c == "failure" or $c == "timed_out" or $c == "startup_failure") then "FAIL"
+    elif any((.conclusion // "" | norm) == "cancelled") then "CANCEL"
+    elif any((.conclusion // "" | norm) == "skipped") then "SKIP"
+    elif any((.status // "" | norm) != "completed") then "PENDING"
+    elif all((.conclusion // "" | norm) == "success") then "GREEN"
     else "OTHER"
     end
   '
@@ -197,7 +198,7 @@ checks_of() {
 
 dump_failed_logs() {
   local sha="$1"
-  gh run list --repo "$REPO" --commit "$sha" --json databaseId,conclusion --jq '.[] | select(.conclusion=="failure") | .databaseId' |
+  gh run list --repo "$REPO" --commit "$sha" --json databaseId,conclusion --jq '.[] | select((.conclusion | ascii_downcase) == "failure") | .databaseId' |
     while read -r id; do
       [[ -z "$id" ]] && continue
       echo "----- failed run $id -----"
