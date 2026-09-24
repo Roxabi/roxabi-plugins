@@ -87,8 +87,8 @@ or a batch of tickets. Reuse an already tracked issue instead of minting a dupli
    operator's changes. Do not pre-create a branch that `/wt` would then refuse.
 4. Present the concrete branch, base and next operator action:
 
-   > Issue #N créée. Je propose la branche `<type>/<N>-<slug>` depuis `<base>`.
-   > Pour créer la branche et son worktree, saisis `/wt <type>/<N>-<slug>`.
+   > Issue #N créée. Worktree `<path>`.
+   > Saisis `/move <path>`, puis `/goal` avec la ligne générée.
    > Puis reprends avec `/feature #N` ; le cadrage continuera si nécessaire.
 
    For an existing issue, say “Issue #N sélectionnée”. **The proposal is not a

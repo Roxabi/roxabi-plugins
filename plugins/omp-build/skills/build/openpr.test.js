@@ -471,6 +471,15 @@ describe('the count outlives the process that holds it', () => {
     expect(loop.record('red').action).toBe('stop')
   })
 
+  it('reads the PR marker before a relaunch and refuses a third fix round', async () => {
+    const { gh } = mockLoopGh({
+      comments: ['<!-- omp-build:review-rounds reviews=2 fixes=2 -->'],
+    })
+    const loop = await resumeReviewLoop('/tmp/wt', { pr: 512, gh })
+    expect(loop.fixes).toBe(2)
+    expect(loop.record('red').action).toBe('stop')
+  })
+
   it('starts at zero on a PR that has never been reviewed', async () => {
     const { gh } = mockLoopGh({ comments: ['a plain review comment'] })
     const loop = await resumeReviewLoop('/tmp/wt', { pr: 512, gh })
