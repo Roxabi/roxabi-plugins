@@ -103,6 +103,16 @@ worktree, print `/move <path>`, then `/feature #N`. For a branch without a
 worktree, create it at `<worktree base>/<repo>/<slug>` from `origin/<base>` and
 print `/move`. Do not ask the operator to type `/wt`.
 
+## Epic completion
+
+After the last child lands, run a final epic review: R-architect and R-adversarial,
+read-only, on the cumulative diff from `epicDiffRange`. A blocking finding becomes
+one fix ticket under the epic, through issue-triage, delivered in the same goal,
+at most one round. Anything else is a follow-up sibling.
+Then run `release.post_merge` once. It must succeed for the goal to complete.
+Failure is a shared-state stop: `goal drop` + report. A repo without
+`release.post_merge` skips the hook and says so. No per-ticket deploy.
+
 ## 4. Frame — agreed scope in the issue
 
 1. Use `skill://grilling` for unresolved decisions; research facts yourself. Stop
