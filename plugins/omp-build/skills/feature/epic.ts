@@ -38,10 +38,7 @@ export function generateObjective(
   return { objective, order }
 }
 
-export function resolveTicketBranch(
-  branch: string,
-  children: number[],
-): { ticket: number } | { error: string } {
+export function resolveTicketBranch(branch: string, children: number[]): { ticket: number } | { error: string } {
   const match = branch.match(/\/(\d+)-/)
   if (!match) return { error: 'no ticket' }
   const ticket = Number(match[1])

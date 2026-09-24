@@ -32,13 +32,20 @@ describe('epic entry', () => {
   })
 
   it('refuses a foreign commit on a ticket branch', () => {
-    expect(refuseForeignCommits([{ sha: 'aaa', ticket: 577 }, { sha: 'bbb', ticket: 578 }], 577)).toEqual({
+    expect(
+      refuseForeignCommits(
+        [
+          { sha: 'aaa', ticket: 577 },
+          { sha: 'bbb', ticket: 578 },
+        ],
+        577,
+      ),
+    ).toEqual({
       error: 'foreign commit bbb',
     })
     expect(refuseForeignCommits([{ sha: 'aaa', ticket: 577 }], 577)).toEqual({ ok: true })
   })
 })
-
 
 describe('handoff docs', () => {
   it('describes /move and /goal, not an operator /wt handoff', () => {
