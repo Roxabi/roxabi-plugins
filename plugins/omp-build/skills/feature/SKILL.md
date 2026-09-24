@@ -32,7 +32,7 @@ repository-documented commands; do not guess an installer or release model.
 | Route | Read before executing |
 |---|---|
 | Frame | `skill://grilling`, `skill://issue-triage` |
-| Build | `skill://dev-review`, `skill://fix`; `skill://issue-triage` before a deferral |
+| Build | `skill://dev-review`, `skill://fix`; `bun skill://issue-triage/triage.ts` before a deferral |
 | Agreed test-first work | `skill://tdd` |
 
 Check only the selected route. A missing required skill stops that route with its
@@ -106,14 +106,18 @@ Do not execute them, reset/delete the branch or pass it to a create-only `/wt`.
    questioning when the user confirms shared understanding. An already actionable
    issue needs no replay of the interview.
 2. Draft scope, acceptance criteria, invariants and out-of-scope in conversation.
-   Publish through `skill://issue-triage`; amend the existing issue when one exists.
+   Publish with `bun skill://issue-triage/triage.ts create`, or `set` to amend
+   an existing issue. Titles and bodies you did not write go through
+   `--title-file` and `--body-file`. If that command cannot be resolved, stop
+   and name issue-triage. Do not resolve the CLI from a path inside the skill body.
    **A newly returned issue number immediately triggers §3**, even mid-framing.
 3. Record durable vocabulary/decisions only in the matching worktree, using the
    project's glossary and ADR conventions when warranted. The issue remains the
    spec home; no `artifacts/specs` or `status: validated` gate.
 4. Split only when needed into independently landable tickets. Through
-   `issue-triage`, each gets `--size`, `--priority`, `--type`; add `--parent` only
-   for actual decomposition and `--blocked-by` only for actual dependencies.
+   `bun skill://issue-triage/triage.ts create`, each gets `--size`, `--priority`,
+   `--type`; add `--parent` only for actual decomposition and `--blocked-by` only
+   for actual dependencies.
    Every newly created ticket gets its branch proposal immediately; a declined
    proposal does not authorize creating branches for the rest of the batch.
 

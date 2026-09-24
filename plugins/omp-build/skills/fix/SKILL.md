@@ -167,7 +167,7 @@ Applied: N | Filed: M
 
 ### Filing — the follow-up is a sibling, never a child
 
-File a cause that is ineligible or failed, and an actionable finding no cause cites. This is the skill's decision. Create the follow-up through `Skill(skill: "issue-triage:issue-triage")` in **create** mode (requires the **issue-triage** plugin installed). Never raw `gh issue create`: issue mutations go through the skill so blocked-by and parent are wired atomically, and a `Blocked by: #12` line in a body is invisible to `gh issue view` and to the frontier query.
+File a cause that is ineligible or failed, and an actionable finding no cause cites. This is the skill's decision. Create the follow-up with `bun skill://issue-triage/triage.ts create --title-file … --body-file …`. If that command cannot be resolved, stop and name issue-triage. Never raw `gh issue create`: issue mutations go through that CLI so blocked-by and parent are wired atomically, and a `Blocked by: #12` line in a body is invisible to `gh issue view` and to the frontier query.
 
 **Comment text never reaches a command line.** Titles and bodies come from PR comments, which anyone can write. Write them with the `write` tool into a mktemp dir and pass the files; a double-quoted `$(…)` or backtick in an argument runs in the operator's shell.
 
@@ -175,7 +175,7 @@ File a cause that is ineligible or failed, and an actionable finding no cause ci
 FILE_DIR=$(mktemp -d -t "omp-build-fix-file-XXXXXX")
 trap 'rm -rf "$FILE_DIR"' EXIT
 # write "$FILE_DIR/title.txt" and "$FILE_DIR/body.md" with the write tool, then:
-T create --title-file "$FILE_DIR/title.txt" --body-file "$FILE_DIR/body.md" ...
+bun skill://issue-triage/triage.ts create --title-file "$FILE_DIR/title.txt" --body-file "$FILE_DIR/body.md" ...
 ```
 
 `docs/agents/issue-tracker.md` § "Deferred follow-ups are siblings":

@@ -75,7 +75,9 @@ describe('deferred follow-ups are siblings', () => {
   // deferral takes the ORIGIN'S parent and is blocked by the origin. Parenting
   // it to the origin builds the nested cascade that rule exists to prevent.
   it('routes the create through issue-triage, never raw gh', () => {
-    expect(FIX).toContain('Skill(skill: "issue-triage:issue-triage")')
+    expect(FIX).toContain('bun skill://issue-triage/triage.ts create')
+    expect(FIX).toContain('--title-file')
+    expect(FIX).toContain('--body-file')
     expect(FIX).toMatch(/Never raw `gh issue create`/)
   })
 
@@ -155,7 +157,9 @@ describe('fix decides eligibility where the human used to', () => {
   })
 
   it('sends filed titles and bodies through files, never argv', () => {
-    expect(FIX).toContain('T create --title-file "$FILE_DIR/title.txt" --body-file "$FILE_DIR/body.md"')
+    expect(FIX).toContain(
+      'bun skill://issue-triage/triage.ts create --title-file "$FILE_DIR/title.txt" --body-file "$FILE_DIR/body.md"',
+    )
     expect(FIX).not.toMatch(/--(title|body) "/)
   })
 })
