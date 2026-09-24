@@ -79,10 +79,11 @@ ADR-020 no longer bind:
 
 4. **§9 — the agent creates the worktree** from a freshly fetched
    `origin/<base>`, never from `HEAD`, and never carrying the Principal's
-   uncommitted changes. The operator moves the session into it. `/wt` leaves
-   this contract: it branches from `HEAD` and carries uncommitted changes.
-   This is not a second worktree CLI. ADR-020's refuse line against one stays;
-   `/wt` remains the session hop, and it is the wrong creation path.
+   uncommitted changes. The operator enters that directory by moving the
+   session (`/move`, or `omp --cwd`). `/wt` is neither the creation path nor
+   the hop: it branches from `HEAD`, carries uncommitted changes, and refuses
+   an existing tree. This is not a second worktree CLI. ADR-020's refuse line
+   against one stays.
 
 ## Consequences
 

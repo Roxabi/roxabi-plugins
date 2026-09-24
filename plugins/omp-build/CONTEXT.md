@@ -90,7 +90,7 @@ The first `git worktree list --porcelain` worktree. Read-only exploration and tr
 _Avoid_: main, staging, master (those are bases, not this worktree)
 
 **Worktree**:
-A durable linked git checkout (ω) that isolates delivery from the Principal. Created by the agent from a fresh `origin/<base>`; one per epic under an Epic goal.
+A durable linked git checkout (ω) that isolates delivery from the Principal. Created by the agent from a fresh `origin/<base>`; one per epic under an Epic goal. The operator enters it by moving the session, not by `/wt`.
 _Avoid_: branch; Isolation (ephemeral `task.isolated` sandbox); `/wt`
 
 **Epic worktree**:
