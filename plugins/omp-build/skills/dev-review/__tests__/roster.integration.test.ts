@@ -389,7 +389,6 @@ describe('structural signals', () => {
   })
 })
 
-
 describe('reproduced roster misses', () => {
   it('arms the tester and not the architect on a metalyde service file', () => {
     const out = roster({
@@ -422,9 +421,13 @@ describe('reproduced roster misses', () => {
     const spec = writeSpec('- [ ] ok')
     const list = join(dir, 'delta.txt')
     writeFileSync(list, 'src/app.ts\n')
-    const run = spawnSync('bash', [join(fileURLToPath(new URL('../roster.sh', import.meta.url))), '--diff-list', list, '--tier', ' M', '--json'], {
-      encoding: 'utf8',
-    })
+    const run = spawnSync(
+      'bash',
+      [join(fileURLToPath(new URL('../roster.sh', import.meta.url))), '--diff-list', list, '--tier', ' M', '--json'],
+      {
+        encoding: 'utf8',
+      },
+    )
     expect(run.status).toBe(0)
     expect(JSON.parse(run.stdout).tier).toBe('F-lite')
     expect(run.stderr).toContain('F-lite')

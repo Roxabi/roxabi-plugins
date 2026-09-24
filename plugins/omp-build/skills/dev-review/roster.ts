@@ -923,7 +923,10 @@ const TIERS: Record<string, true> = { S: true, 'F-lite': true, 'F-full': true }
 
 /** Trim, then map legacy sizes. Anything else is F-lite — the CLI says so on stderr. */
 export function normalizeTier(raw: string): ReviewTier {
-  const value = raw.trim().replace(/^size:\s*/i, '').trim()
+  const value = raw
+    .trim()
+    .replace(/^size:\s*/i, '')
+    .trim()
   const key = value.toLowerCase()
   if (key === 's' || key === 'xs') return 'S'
   if (key === 'm' || key === 'f-lite') return 'F-lite'
