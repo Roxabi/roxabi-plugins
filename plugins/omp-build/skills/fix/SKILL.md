@@ -34,6 +34,8 @@ supposed to judge the fix.
 
 **You apply every fix yourself.** There is no `R-fixer` in this plugin (ADR-020 §7) and nothing replaces it: Phase 3 edits files inline, in this session, with the diff visible in the working tree. ¬spawn a fixer, ¬delegate the edit.
 
+On a PR, `/feature` §6.5 and `dev-review` **Fix now** run this skill in a fresh agent spawned for that round alone (ADR-025), seeded with the PR number, the branch and the worktree. That agent is you, and every rule here holds inside it. Take nothing from an earlier context: the review record on the PR is the input.
+
 ## Pipeline
 
 | Phase | ID | Required | Verifies via | Notes |
@@ -153,7 +155,7 @@ The tree must be clean before the first cause. Uncommitted changes → halt and 
 1. Re-read every cited file.
 2. Apply `r.fix` once, so every member callsite is covered. The fix line is the change. There is no alternate solution to pick.
 3. Sweep the touched files for the same-class anti-pattern: justify or fix any uncited hit of a class already on a member finding.
-4. Run lint + the tests covering the changed files. Red → retry max 3.
+4. Run lint + the tests covering the changed files, with their output written to a file. Bring back the exit code and the failing lines, never a green log. Red → retry max 3.
 
 succeeds → O_commit(r) → `[applied]`, keep the commit sha.
 fails after 3, or the only change that turns the tests green widens a denylist, adds a grep, or copies an inventory list → restore the tree to the last cause commit (`git restore --staged --worktree -- .`, then delete the files r created) → `[failed]`, file r, continue with the next cause. Earlier causes keep their commits.

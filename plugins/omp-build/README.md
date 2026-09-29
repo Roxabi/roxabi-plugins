@@ -74,6 +74,13 @@ Framing can start in conversation on the Principal; local file edits cannot.
 After a framing pass, start implementation with fresh context in the ticket's
 worktree. Declining branch creation permits further discussion, not implementation.
 
+Every unit of work starts in a fresh context ([ADR-025](../../docs/architecture/adr/025-fresh-context-per-unit-of-work.md)):
+a ticket, each fix round and any independent task. Under a goal, the goal session
+spawns one fresh agent per ticket; each fix round is a fresh agent running `fix`.
+A finished agent is never handed new work. Within one unit, compaction is machine
+configuration: on Grok 4.7 the reference setting is
+`task.agentCompactionThresholdOverrides: { task: 200000 }` in `~/.omp/agent/config.yml`.
+
 The issue body is the spec. Current dependencies: `grilling` for open design
 questions, `issue-triage` for issue writes, and bundled `dev-review` / `fix` for
 verification. `tdd` is used at agreed test-first seams. The old `grill-with-docs`,
@@ -155,7 +162,7 @@ Spawn: `task` `{ agent: "R-adversarial" | "R-advisor" | "R-architect" | "R-devop
 |---|---|
 | `feature` | `/feature` (registered command) |
 | `dev-review` | model-invocable · the five-role review panel |
-| `fix` | model-invocable · applies the findings, inline |
+| `fix` | model-invocable · applies the findings, inline, one fresh agent per round |
 | `promote` | `/promote` (registered command) · the optional tail |
 | `cleanup` | `/cleanup` (registered command) · the optional tail |
 | `ci-watch` | `/ci-watch` (registered command) · watches checks, then the merge |

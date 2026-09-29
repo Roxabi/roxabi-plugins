@@ -4,6 +4,7 @@ description: Amends ADR-020 §3, §4, §8 and §9 — autonomy is an epic goal, 
 status: accepted
 normative: true
 date: 2026-09-24
+superseded_in_part_by: [ADR-025]
 ---
 
 > Implements Roxabi/roxabi-plugins#576.
@@ -12,6 +13,10 @@ date: 2026-09-24
 > consequences §3 and §8 reverse: the per-ticket frontier stop, and the claim
 > that OMP loses every executable check. Those sentences are qualified in
 > ADR-020. They are not still law.
+>
+> **Amended 2026-09-29 by [ADR-025](025-fresh-context-per-unit-of-work.md)** — §1:
+> the goal session keeps the frontier and each ticket's outcome; each ticket's §6
+> runs in a fresh agent. The goal is still the autonomy unit.
 
 ## Context
 
@@ -142,4 +147,4 @@ ADR-020 no longer bind:
 
 ## References
 
-- Issue #576 · [ADR-020](020-omp-delivery-feature-cycle.md) · Glossary `plugins/omp-build/CONTEXT.md`
+- Issue #576 · [ADR-020](020-omp-delivery-feature-cycle.md) · [ADR-025](025-fresh-context-per-unit-of-work.md) (amends §1) · Glossary `plugins/omp-build/CONTEXT.md`

@@ -8,7 +8,7 @@ description: >
 status: accepted
 normative: true
 date: 2026-09-21
-superseded_in_part_by: [ADR-024]
+superseded_in_part_by: [ADR-024, ADR-025]
 ---
 
 > Implements Roxabi/roxabi-plugins#488.
@@ -24,6 +24,10 @@ superseded_in_part_by: [ADR-024]
 > not a second spec; assertledger is a separate gate where an adapter exists, and
 > does not restore the `R-tester` falsify gate; the agent creates the worktree
 > from a fresh `refs/remotes/origin/<base>`.
+>
+> **Amended 2026-09-29 by [ADR-025](025-fresh-context-per-unit-of-work.md)** — §7:
+> `R-fix` still applies inline, in the session that runs it; `/feature` now runs
+> each fix round in a fresh agent spawned for that round alone.
 
 ## Context
 
@@ -150,7 +154,9 @@ Adopt **Option C**.
   not.
 - Adopting the Matt base means adopting its context hygiene (`/clear` between
   tickets). The frontier stop is the assisted case — no Epic goal. Under an
-  Epic goal, [ADR-024](024-one-goal-per-epic.md) §3 replaces it.
+  Epic goal, [ADR-024](024-one-goal-per-epic.md) §3 replaces it, and
+  [ADR-025](025-fresh-context-per-unit-of-work.md) restores the hygiene: each
+  ticket and each fix round starts in a fresh context.
 - The OMP product loses the `R-pr` falsify oracle (`oracle_ok`,
   `artifacts/reviews/{N}-falsify.json`). Test quality on that gate rests on `tdd`
   plus `R-tester` judgement. [ADR-024](024-one-goal-per-epic.md) does not restore
@@ -179,7 +185,8 @@ Adopt **Option C**.
 - Issue #488 · Glossary `plugins/omp-build/CONTEXT.md`
 - ADR-017 (principal freeze) · ADR-018 (skill homes, 2026-08-24 amendment) ·
   ADR-019 (falsify oracle — Claude product only) ·
-  [ADR-024](024-one-goal-per-epic.md) (amends §3, §4, §8, §9)
+  [ADR-024](024-one-goal-per-epic.md) (amends §3, §4, §8, §9) ·
+  [ADR-025](025-fresh-context-per-unit-of-work.md) (amends §7)
 - `plugins/dev-core/omp/index.ts` (`SKILL_COMMANDS`, guards)
 - `plugins/dev-core/skills/dev-review/roster.ts` (`DISPATCHABLE`, FE/BE scoring)
 - `plugins/issue-triage/skills/shared/queries.ts` (`addSubIssue`, `addBlockedBy`)

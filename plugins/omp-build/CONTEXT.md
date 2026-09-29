@@ -13,8 +13,12 @@ The unit of OMP delivery, run by `/feature`.
 _Avoid_: build, /build, /dev, /R-dev, omp-wt
 
 **Epic goal**:
-The `/goal` in the operator's session that delivers one epic. The autonomy unit of `/feature`.
-_Avoid_: a per-ticket stop, an autonomy level stored on the issue, one goal per ticket
+The `/goal` in the operator's session that delivers one epic. The autonomy unit of `/feature`. The goal session keeps the frontier; each ticket runs in a fresh agent (Context boundary).
+_Avoid_: a per-ticket stop, an autonomy level stored on the issue, one goal per ticket, one context carrying several tickets
+
+**Context boundary**:
+One unit of work — a ticket, a fix round, a task independent of the previous one — starts in a fresh context: a new session, or an agent spawned for that unit alone and seeded only with durable state (issue, worktree, branch, base, PR). A finished agent gets no new work. ADR-025.
+_Avoid_: an IRC follow-up to a finished agent, resuming the implementer for its fix round, pasting another unit's transcript, relying on compaction to separate units
 
 **Spec**:
 The GitHub issue body: agreed scope, acceptance criteria, invariants and exclusions. The SSoT for what to build.
@@ -118,8 +122,8 @@ The skill holding Roxabi's multi-domain review on OMP: roster, Conventional Comm
 _Avoid_: R-dev-review as the skill name, code-review (Matt), /review (host builtin)
 
 **fix**:
-The skill that applies one change per common root cause from a review, inline, with no per-finding choice.
-_Avoid_: R-fix as the skill name, R-fixer, spawning a fixer agent, a per-finding walkthrough
+The skill that applies one change per common root cause from a review, inline, with no per-finding choice. On a PR, each round runs in its own fresh agent (Context boundary); inside it, `fix` still makes every edit itself.
+_Avoid_: R-fix as the skill name, R-fixer (a fixer role), delegating an edit from inside `fix`, a fix round in the implementer's context, a per-finding walkthrough
 
 **Root cause**:
 The shared mechanism behind one or more review findings. Named after the review, before any edit. The unit `fix` applies.

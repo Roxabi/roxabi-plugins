@@ -1,0 +1,126 @@
+---
+title: "ADR-025: Fresh context per unit of work"
+description: Amends ADR-020 §7 and ADR-024 §1 — a ticket, a fix round and any independent task each start in a fresh context seeded only with durable state; a finished agent gets no new work; fix still edits inline, inside its own fresh agent.
+status: accepted
+normative: true
+date: 2026-09-29
+---
+
+> Amends [ADR-020](020-omp-delivery-feature-cycle.md) §7 (where `fix` runs) and
+> [ADR-024](024-one-goal-per-epic.md) §1 (where a ticket runs under an epic goal).
+> Restores the context hygiene that ADR-020's Negative priced and that ADR-024
+> removed without a replacement.
+
+## Context
+
+Every model call resends the agent's whole conversation. The prompt cache
+discounts that resend; it does not remove it. A unit of work therefore costs the
+sum of its context over its turns, and that sum grows faster than the work.
+
+One measured OMP session (2026-09-29, one kit repository, Grok 4.7) delivered
+about ten tickets through parallel agents:
+
+- 351 M input tokens in about two and a half hours, 93 % of them cache reads of
+  history already sent.
+- Implementer contexts grew from about 17.5 k tokens on the first turn to
+  300–430 k. The five largest implementers compacted once between them. The
+  model's window is 500 k and the default compaction trigger sits near 425 k,
+  so it almost never fired.
+- Review findings went back to the same implementer agents. For the four
+  largest implementers with a PR, 60–78 % of their tokens were spent after the
+  first review, at their largest contexts: 31.6 % of the whole session.
+
+The cycle does not need that history. Everything a later step reads is already
+durable: the issue (the spec), the branch and its commits, the review record on
+the PR, the `omp-build:review-rounds` marker and the change contract.
+`workflow.js` keeps the round count on the PR precisely because an agent's memory
+is not trusted across a compaction. ADR-020 adopted `/clear` between tickets as a
+consequence. ADR-024 removed the per-ticket stop under a goal and nothing took its
+place, so a goal carries every ticket in one context.
+
+## Options Considered
+
+### Option A: Rely on compaction
+
+Lower the compaction trigger and keep one context per goal or per ticket.
+
+- **Pros:** No workflow change.
+- **Cons:** A summary is lossy and costs a call. Until the trigger fires, the
+  context still carries the previous unit's reads and findings. Compaction bounds
+  the size of a context, not what a context is for. It is operator
+  configuration, not plugin law.
+
+### Option B: Cap how many tickets run at once
+
+- **Pros:** Paces spend and leaves checkpoints.
+- **Cons:** Does not change what one ticket costs. A goal already runs its
+  tickets one at a time and still accumulates them in one context.
+
+### Option C: Fresh context per unit of work (chosen)
+
+- **Pros:** A unit costs what that unit needs. A fix round starts from the skill
+  and the review record, not from the implementer's transcript. The durable state
+  already exists, so nothing new has to be persisted.
+- **Cons:** A fresh agent re-reads the files it needs. A fix agent does not see the
+  implementer's reasoning beyond the PR, its commits and the review record. Under a
+  goal, work runs one spawn level deeper.
+
+## Decision
+
+Adopt **Option C**.
+
+1. **Unit of work.** One ticket's delivery (`/feature` §6), one fix round —
+   a review round or `ci-failed` — and any task independent of the previous one.
+   Each starts in a fresh context.
+2. **Fresh context.** A new session — the assisted case, unchanged: the operator
+   runs `/feature #N` after `/clear` — or an agent spawned for that unit alone,
+   seeded only with durable state: issue number, worktree path, branch, base, PR
+   number and, for `ci-failed`, the failed check names. No transcript, pasted
+   finding or summary of another unit goes in.
+3. **A finished agent gets no new work.** No IRC follow-up, no resume, no second
+   assignment. A new unit spawns a new agent.
+4. **Fix rounds.** `/feature` §6.5, and a standalone `dev-review` **Fix now** on a
+   PR, run `skill://fix #<pr>` in a fresh agent. ADR-020 §7 still holds inside it:
+   `fix` applies every cause inline, in the session that runs it, spawns no fixer
+   and delegates no edit. That session is now the fresh one. No fixer role returns.
+5. **Epic goal.** The goal session keeps the frontier, the base-CI read and each
+   ticket's reported PR and outcome. Each ticket's §6 runs in a fresh agent, in
+   `blocked_by` order, in the epic worktree. The rest of ADR-024 §1 stands: the
+   goal is still the autonomy unit.
+6. **What enters a context.** A full-suite run writes its log to a file and brings
+   back its exit code and its failing section. Files are read by line range; a file
+   whose current content is already in the context is not read again.
+
+## Consequences
+
+### Positive
+
+- A unit's cost is bounded by that unit, not by what ran before it.
+- The most expensive turns measured — fix rounds at the largest contexts — now
+  start small.
+- No new state: the cycle already persists what a fresh context needs.
+
+### Negative
+
+- Fresh agents re-read the files they touch. That cost is bounded by the diff; the
+  history it replaces is not.
+- A fix agent knows the implementer's intent only through the issue, the PR body,
+  the commits and the review record. A cause that needs more is filed, as today.
+- Under a goal, a ticket agent spawns its reviewers and its fix agents one level
+  down. That fits the default `task.maxRecursionDepth` of 2; a lower setting breaks
+  the goal path.
+
+### Neutral
+
+- Compaction still bounds a single unit. On Grok 4.7 the operator sets
+  `task.agentCompactionThresholdOverrides.task` (200 000 on the reference machine).
+  That is machine configuration, not this plugin's contract.
+- Panel reviewers were already fresh agents; nothing changes for them.
+
+## References
+
+- [ADR-020](020-omp-delivery-feature-cycle.md) §7 and Negative (context hygiene) ·
+  [ADR-024](024-one-goal-per-epic.md) §1 and Option A
+- `plugins/omp-build/skills/feature/SKILL.md` § Context boundary, §6.5
+- `plugins/omp-build/skills/fix/SKILL.md` · `plugins/omp-build/CONTEXT.md`
+  (Context boundary)

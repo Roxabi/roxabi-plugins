@@ -19,6 +19,8 @@ use the current repository conventions, not a separate spec-file lifecycle.
   dependency installation and implementation require the matching worktree.
 - Issue creation, labels and native relations belong to `skill://issue-triage`.
 - `dev-review` owns findings; `fix --no-label` applies them; §6.7 alone lands.
+- Every ticket, fix round and independent task starts in a fresh context
+  (§ Context boundary). A finished agent gets no new work.
 - After confirmed merge, offer `/cleanup`. Offer `/promote` only when
   `.dev/stack.yml` declares `release.model: staging-train`. Never invoke either.
 
@@ -34,6 +36,30 @@ left untouched by that command (`contract: keep-existing`). The command does
 not write the `omp-build-feature-init` marker, because the tracker step has
 not run. It does not index ccc or codegraph without consent already recorded
 there. Orphan semctx contracts are listed, not closed.
+
+## Context boundary
+
+One unit of work, one fresh context (ADR-025). The units are one ticket's §6,
+one fix round (§6.5, review or `ci-failed`), and any task independent of the
+previous one.
+
+- **Fresh** means a new session — assisted: the operator runs `/feature #N`
+  after `/clear` — or an agent spawned for that unit alone. Seed it with durable
+  state only: issue number, worktree path, branch, base and PR number, plus the
+  failed check names for `ci-failed`. It reads everything else from the issue,
+  the branch and the PR. Never paste another unit's transcript, findings or
+  summary into it.
+- **A finished agent gets no new work.** No IRC follow-up, no resume, no second
+  assignment: the next unit spawns a new agent.
+- **Under a goal**, this session keeps the frontier (§5), the base CI read and
+  each ticket's reported PR and outcome. It delivers each actionable ticket, in
+  `blocked_by` order and in the epic worktree, by spawning one fresh agent that
+  reads `$SKILL_DIR/SKILL.md` (this body) and runs §6 for `#N`. It does not
+  implement, review or fix a ticket itself.
+- **What enters a context.** Run a full suite (`validate:full`, the whole test
+  run) with its log written to a file, and bring back the exit code and the
+  failing section, never a green log. Read files by line range. Do not re-read a
+  file whose current content is already in this context.
 
 ## 1. Route-specific prerequisites
 
@@ -205,7 +231,9 @@ never calls the review loop: it spends no fix round and writes no PR marker.
 
 ### 6.2 Implement and verify
 
-Implement in this worktree, delegating independent slices when useful. Use `tdd`
+Implement in this worktree, delegating independent slices when useful: each
+delegate is a fresh agent seeded with the issue, the worktree and its slice, and
+gets no second slice (§ Context boundary). Use `tdd`
 for agreed test-first seams. Run the actual changed path and relevant existing
 checks; keep regression tests for plausible failures, not to inflate coverage.
 Update affected docs. Finish every acceptance criterion before opening the PR.
@@ -272,16 +300,23 @@ red verdict spends a fix round whether or not the operator then fixes.
 
 ### 6.5 Fix
 
-`step.action === 'fix'`, by `step.reason`:
+`step.action === 'fix'`, by `step.reason`. Each round runs in a fresh agent
+spawned for that round alone (§ Context boundary); this session makes no edit.
 
-- review round (no reason) → execute `skill://fix` with `#<pr> --no-label`. It applies
-  one change per posted root cause, inline, and does not stop for a per-finding choice.
-  A cause it cannot apply becomes a sibling issue.
-- `ci-failed` → fix inline from the failed checks (`land.failed`) and their logs.
-  `fix` reads review comments, not CI: running it here replays stale findings.
+- review round (no reason) → spawn one agent in this worktree whose whole
+  assignment is to read and execute `skill://fix` with `#<pr> --no-label`.
+  Pass it the worktree path, the branch and the PR number, nothing else: `fix`
+  reads the review record from the PR. It applies one change per posted root
+  cause, inline, and does not stop for a per-finding choice. A cause it cannot
+  apply becomes a sibling issue.
+- `ci-failed` → spawn one agent in this worktree seeded with the PR number, the
+  branch and the failed check names (`land.failed`). It fixes inline from those
+  checks and their logs, then commits and pushes. Do not run `fix` here: it reads
+  review comments, not CI, and would replay stale findings.
 
-Verify and commit/push the fixes, then return to §6.4 on the same PR for a fresh
-review. State `step.remaining`.
+Wait for that agent, then check its push: `origin/<branch>` carries its commits
+and, after a review round, the PR carries its `## Review Fixes Applied` comment.
+Then return to §6.4 on the same PR for a fresh review. State `step.remaining`.
 
 ### 6.6 Bound
 

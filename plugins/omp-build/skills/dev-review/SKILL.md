@@ -444,7 +444,7 @@ Skip the standalone actions below; never choose on the operator's behalf.
 **Standalone review:**
 
 Q:
-- **Fix now** — invoke `skill://fix` (one commit per eligible root cause, applied inline, no per-finding choice; its Phase 5 writes the `reviewed` label only in label mode and only when no cause with a blocking member was filed or failed; its Phase 6 posts the follow-up comment — it offers no rebase and no merge)
+- **Fix now** — PR ∃ → spawn one fresh agent in this worktree, seeded with the PR number and branch only, whose whole assignment is `skill://fix` on that PR (ADR-025: a fix round never runs in the reviewing context); ¬PR → invoke `skill://fix` here, since it reads this conversation's review. Either way: one commit per eligible root cause, applied inline, no per-finding choice; its Phase 5 writes the `reviewed` label only in label mode and only when no cause with a blocking member was filed or failed; its Phase 6 posts the follow-up comment — it offers no rebase and no merge
 - **Merge as-is** — rebase + label + auto-merge (below)
 - **Stop** — exit
 
