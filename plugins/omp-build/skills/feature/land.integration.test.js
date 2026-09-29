@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 // `.dev/stack.yml` is parsed with Bun.YAML, which the vitest worker does not
 // have: every case runs the real module under bun.
 const WORKFLOW = join(import.meta.dirname, 'workflow.js')
+const CI_WATCH = join(import.meta.dirname, '..', 'ci-watch', 'ci-watch.sh')
 
 const DRIVER = `
 const [mod, fn, cwd, pr] = process.argv.slice(1)
@@ -49,6 +50,12 @@ function readLanding(cwd) {
   return JSON.parse(execFileSync('bun', ['-e', DRIVER, WORKFLOW, 'readLanding', cwd], { encoding: 'utf8' }))
 }
 
+/** Pull the shell-quoted path out of `bash '<path>' …`. */
+function watchScript(watch) {
+  const m = /^bash '([^']*(?:'\\''[^']*)*)'/.exec(watch)
+  return m ? m[1].replace(/'\\''/g, "'") : ''
+}
+
 const WORKFLOW_FILE = { '.github/workflows/merge-on-green.yml': 'name: merge-on-green\n' }
 const PROTECTION = ['api', 'repos/acme/app/branches/main/protection/required_status_checks']
 const RULES = ['api', 'repos/acme/app/rules/branches/main']
@@ -57,10 +64,22 @@ describe('landPr through the checkout', () => {
   it('a merge-on-green workflow and a stack with no landing block watch merge-on-green, asking no rules API', () => {
     const { result, calls } = land(checkout({ ...WORKFLOW_FILE, '.dev/stack.yml': 'runtime: bun\n' }))
     expect(result).toMatchObject({ status: 'watching', mode: 'merge-on-green' })
-    expect(result.watch).toMatch(
-      /^bash skill:\/\/ci-watch\/ci-watch\.sh 7 --merge-mode merge-on-green --since \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/,
-    )
+    const script = watchScript(result.watch)
+    expect(script.startsWith('/')).toBe(true)
+    expect(existsSync(script)).toBe(true)
+    expect(result.watch).toContain(`bash '${script}' 7 --merge-mode merge-on-green --since `)
+    expect(result.watch).toMatch(/--since \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
+    // The absolute path is the real ci-watch.sh: a pure hook works from a cwd outside the plugin.
+    const outside = mkdtempSync(join(tmpdir(), 'land-watch-cwd-'))
+    expect(
+      execFileSync('bash', [script, '--classify-checks'], {
+        encoding: 'utf8',
+        cwd: outside,
+        input: '[]',
+      }).trim(),
+    ).toBe('PENDING')
     // The stub answers repo view, baseRefName and api, so a rules/protection probe would show here.
+    // Events read fails (api throws) → local since still present until RC-2; only label calls here.
     expect(calls).toEqual([
       ['pr', 'view', '7', '--json', 'labels'],
       ['pr', 'edit', '7', '--add-label', 'reviewed'],
@@ -102,5 +121,38 @@ describe('readLanding', () => {
 
   it('no stack and no workflow file is native', () => {
     expect(readLanding(checkout())).toEqual({ mode: 'native', required_checks: [] })
+  })
+})
+
+describe('ci-watch real path', () => {
+  it('a copy of the script alone exits 70 naming the real-path fix, with no gh call', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-orphan-'))
+    const orphan = join(dir, 'ci-watch.sh')
+    writeFileSync(orphan, readFileSync(CI_WATCH))
+    chmodSync(orphan, 0o755)
+    const log = join(dir, 'gh.log')
+    writeFileSync(
+      join(dir, 'gh'),
+      `#!/usr/bin/env bash\necho "$*" >> "${log}"\necho '{"state":"MERGED","mergeStateStatus":"UNKNOWN","autoMergeRequest":null,"labels":[],"headRefOid":"abc","statusCheckRollup":[]}'\n`,
+    )
+    chmodSync(join(dir, 'gh'), 0o755)
+    let code = 0
+    let stderr = ''
+    try {
+      execFileSync('bash', [orphan, '7', '--merge-mode', 'merge-on-green', '--repo', 'acme/app', '--timeout', '1s'], {
+        encoding: 'utf8',
+        env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
+      })
+    } catch (error) {
+      if (error && typeof error === 'object' && 'status' in error) {
+        code = /** @type {{ status: number; stderr?: string }} */ (error).status
+        stderr = /** @type {{ stderr?: string }} */ (error).stderr ?? ''
+      } else throw error
+    }
+    expect(code).toBe(70)
+    expect(stderr).toContain(
+      'ci-watch: run this script from its real path (realpath skill://ci-watch/ci-watch.sh) — cannot find ../feature/workflow.js',
+    )
+    expect(existsSync(log) ? readFileSync(log, 'utf8') : '').toBe('')
   })
 })

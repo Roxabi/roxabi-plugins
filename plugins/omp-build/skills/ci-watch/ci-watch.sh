@@ -223,7 +223,12 @@ TIMEOUT=$(parse_duration "$TIMEOUT_RAW")
 # `landing.mode` in .dev/stack.yml, else merge-on-green when
 # .github/workflows/merge-on-green.yml exists, else native. Prints the mode, then
 # one required check per line. An invalid .dev/stack.yml exits 70.
+# Needs this script's real path so `$0` finds the sibling (not a pipe or copy).
 LANDING_JS="$(dirname "$(readlink -f "$0")")/../feature/workflow.js"
+if [[ ! -f "$LANDING_JS" ]]; then
+  echo "ci-watch: run this script from its real path (realpath skill://ci-watch/ci-watch.sh) — cannot find ../feature/workflow.js" >&2
+  exit "$EXIT_INTERNAL"
+fi
 LANDING=$(bun -e '
 const { readLanding } = await import(process.argv[1])
 try {

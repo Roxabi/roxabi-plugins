@@ -10,11 +10,16 @@ version: 0.1.0
 Watch the PR until it merges or a check fails. The script owns the deadline.
 OMP's bash tool must not: call it with `async: true` and `timeout: 0`.
 
+`landPr` returns a `watch` string that already uses this script's absolute real
+path — run that string as given. For a standalone invocation, resolve the path
+first so `$0` can find the sibling `feature/workflow.js`:
+
 ```bash
-bash skill://ci-watch/ci-watch.sh <pr>
+bash "$(realpath skill://ci-watch/ci-watch.sh)" <pr>
 ```
 
-No plugin-root token. `skill://` resolves to the installed copy.
+A pipe (`cat skill://… | bash -s`) or a copy of the script alone exits 70:
+`ci-watch: run this script from its real path …`.
 
 ## Flags
 
@@ -39,7 +44,7 @@ Checks watched: every run on the PR head, or exactly `landing.required_checks` w
 | 4 | Green but unmerged. Under merge-on-green, the `reviewed` label disappearing is this code. |
 | 5 | Deadline. Undetermined — re-run to resume. |
 | 6 | Evaluate-only (merge-on-green only). Once checks are green, every merge-phase poll that keeps watching looks at the newest non-skipped `merge-on-green` check run on the PR head started at or after `--since` (any, without `--since`), until that run has completed. Completed with a `kit-ci not configured` annotation: the kit-ci App is not configured, so the workflow will not merge — prints `evaluate-only: kit-ci App not configured — manual merge required (docs/kit/ci-app-setup.md)` on stderr. Completed without it: configured, the probe stops. Maps to `evaluate-only`; the gate stays armed. |
-| 70 | Not a check verdict: usage, unknown flag, bad mode or timeout, an invalid `landing` in `.dev/stack.yml` (invalid YAML, a mode other than native/merge-on-green, `required_checks` not a list of names), missing `gh`/`jq`/`bun`, or a `gh`/`jq` failure. Maps to `watch-failed`; the gate stays armed. |
+| 70 | Not a check verdict: usage, unknown flag, bad mode or timeout, an invalid `landing` in `.dev/stack.yml` (invalid YAML, a mode other than native/merge-on-green, `required_checks` not a list of names), this script not run from its real path (sibling `../feature/workflow.js` missing), missing `gh`/`jq`/`bun`, or a `gh`/`jq` failure. Maps to `watch-failed`; the gate stays armed. |
 
 ## Classifier
 

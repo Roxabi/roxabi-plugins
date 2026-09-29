@@ -3,8 +3,19 @@
  * `detectPrincipal` names the base when `landPr` has none. No worktree driver.
  */
 
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+/** @param {string} value */
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`
+}
+
+/** Absolute real path of `ci-watch.sh` next to this module — runnable without `skill://`. */
+function ciWatchSh() {
+  return realpathSync(fileURLToPath(new URL('../ci-watch/ci-watch.sh', import.meta.url)))
+}
 
 const PRINCIPALS = ['staging', 'main', 'master']
 
@@ -451,6 +462,8 @@ export function readLanding(cwd) {
  * merge-on-green a `reviewed` already on the PR is removed and re-added, so a
  * fresh labeled run exists. The watch gets `--since`, the label time (UTC, to
  * the second), so `/ci-watch` judges only a merge-on-green run of this landing.
+ * `watch` is `bash '<real path of ci-watch.sh>' …` — the OMP shell does not
+ * resolve `skill://` for a bare `bash` argv.
  */
 export async function landPr(cwd, pr, { gh: ghFn = gh, requiredContexts, landing } = {}) {
   let resolved = landing
@@ -490,7 +503,7 @@ export async function landPr(cwd, pr, { gh: ghFn = gh, requiredContexts, landing
   return {
     status: 'watching',
     mode: resolved.mode,
-    watch: `bash skill://ci-watch/ci-watch.sh ${pr} --merge-mode ${resolved.mode} --since ${since}`,
+    watch: `bash ${shellQuote(ciWatchSh())} ${pr} --merge-mode ${resolved.mode} --since ${since}`,
   }
 }
 

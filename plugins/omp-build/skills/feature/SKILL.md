@@ -310,8 +310,10 @@ else merge-on-green when `.github/workflows/merge-on-green.yml` exists, else
 native. An invalid `landing` returns `bad-landing` before any gh call. Otherwise
 it adds `reviewed` — under merge-on-green, a `reviewed` already on the PR is
 removed first so a fresh labeled run exists — and returns
-`{ status: 'watching', mode, watch }`; `watch` already carries
-`--merge-mode <mode> --since <label time>`. It does not poll. Native also enables
+`{ status: 'watching', mode, watch }`. `watch` is the absolute real path of
+`ci-watch.sh` (derived from this module), already carrying
+`--merge-mode <mode> --since <label time>`. Run that string as given — the OMP
+shell does not resolve `skill://` for a bare `bash` argv. It does not poll. Native also enables
 merge-commit auto-merge. merge-on-green never returns `no-required-checks`.
 
 Run `watch` as an async bash job (`timeout: 0`). Map the exit with
