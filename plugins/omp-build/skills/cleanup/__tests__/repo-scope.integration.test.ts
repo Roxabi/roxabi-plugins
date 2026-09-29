@@ -628,10 +628,81 @@ describe('cleanup orphan scan repo scope (#622)', () => {
       const full = scan(repo, env)
       const yesTargets = scan(repo, env, ['--yes-targets'])
       expect(kinds(full, locked)).toEqual(['unreadable'])
+      expect(full.some((line) => line.startsWith(`${locked}|unreadable|`) && line.includes('not readable/searchable'))).toBe(
+        true,
+      )
       expect(yesTargets.map(pathOf)).toEqual([emptyOk])
     } finally {
       chmodSync(locked, 0o700)
     }
+  })
+
+  it('marks a readable child with a chmod-000 descendant as unreadable (find EACCES)', () => {
+    if (typeof process.getuid === 'function' && process.getuid() === 0) return
+    const { root, home, base } = tempRoot('eacces')
+    const repo = path.join(root, 'app')
+    initRepo(repo, home)
+    const parent = path.join(base, 'app', 'feat-parent')
+    const locked = path.join(parent, 'locked')
+    mkdirSync(locked, { recursive: true })
+    writeFileSync(path.join(locked, 'notes.md'), 'secret\n')
+    chmodSync(locked, 0o000)
+    const emptyOk = path.join(base, 'app', 'empty-ok')
+    mkdirSync(emptyOk)
+    try {
+      const env = { HOME: home, OMP_WORKTREE_DIR: base }
+      const full = scan(repo, env)
+      expect(kinds(full, parent)).toEqual(['unreadable'])
+      expect(full.some((line) => line.startsWith(`${parent}|unreadable|`) && line.includes('cannot search'))).toBe(true)
+      expect(scan(repo, env, ['--yes-targets']).map(pathOf)).toEqual([emptyOk])
+    } finally {
+      chmodSync(locked, 0o700)
+    }
+  })
+
+  it('ignores ambient GIT_DIR/GIT_WORK_TREE when classifying a foreign tracked src', () => {
+    const { root, home, base } = tempRoot('gitdir-env')
+    const orgB = path.join(root, 'orgB', 'app')
+    initRepo(orgB, home)
+    const foreignCheckout = path.join(base, 'app')
+    initRepo(foreignCheckout, home)
+    mkdirSync(path.join(foreignCheckout, 'src'))
+    writeFileSync(path.join(foreignCheckout, 'src', 'wip.ts'), 'export {}\n')
+    git(foreignCheckout, home, 'add', 'src')
+    git(foreignCheckout, home, 'commit', '-q', '-m', 'chore: src')
+    const legacyEmpty = path.join(home, '.omp', 'worktrees', 'app', 'empty-ok')
+    mkdirSync(legacyEmpty, { recursive: true })
+
+    // Point GIT_* at orgB — without unset, ls-files would miss the foreign track.
+    const env = {
+      HOME: home,
+      OMP_WORKTREE_DIR: base,
+      GIT_DIR: path.join(orgB, '.git'),
+      GIT_WORK_TREE: orgB,
+    }
+    const full = scan(orgB, env)
+    expect(kinds(full, path.join(foreignCheckout, 'src'))).toEqual(['inside_worktree'])
+    expect(scan(orgB, env, ['--yes-targets']).map(pathOf)).toEqual([legacyEmpty])
+  })
+
+  it('lists dot-named harness children; the root itself is not a deletable row', () => {
+    const { root, home } = tempRoot('dotglob')
+    const principal = path.join(root, 'app')
+    initRepo(principal, home)
+    const harness = path.join(principal, '.claude', 'worktrees')
+    const tmpOrphan = path.join(harness, '.tmp-orphan')
+    mkdirSync(path.join(tmpOrphan, 'node_modules'), { recursive: true })
+    const emptyDot = path.join(harness, '.empty')
+    mkdirSync(emptyDot, { recursive: true })
+    const emptyOk = path.join(home, '.omp', 'worktrees', 'app', 'empty-ok')
+    mkdirSync(emptyOk, { recursive: true })
+
+    const env = { HOME: home, OMP_WORKTREE_DIR: path.join(root, 'wt') }
+    const full = scan(principal, env)
+    expect(kinds(full, tmpOrphan)).toEqual(['unregistered'])
+    expect(kinds(full, emptyDot)).toEqual(['empty_untracked'])
+    expect(kinds(full, harness)).toEqual([])
+    expect(scan(principal, env, ['--yes-targets']).map(pathOf)).toEqual([emptyOk])
   })
 
   it('rejects shell-metacharacter names as unsafe_name', () => {

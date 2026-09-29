@@ -35,6 +35,10 @@
 # are skipped. Rows carry the lexical scanned entry; matching uses realpath.
 set -euo pipefail
 
+# Ambient GIT_* from a hook or an outer harness redirect every `git -C` to the
+# wrong repository. Drop the known overrides so ownership is path-local.
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_CEILING_DIRECTORIES
+
 YES_TARGETS=false
 for arg in "$@"; do
   case "$arg" in
@@ -299,11 +303,18 @@ scan_root() {
     return 0
   fi
   if [ -d "$root" ]; then
-    shopt -s nullglob
-    children=("$root"/*)
-    shopt -u nullglob
+    # Dot-named leftovers (`.tmp-orphan`, `.empty`) are real shells; skip only
+    # `.git` so a root holding solely a gitdir is not walked as a child.
+    local entry
+    shopt -s nullglob dotglob
+    for entry in "$root"/*; do
+      [ "$(basename -- "$entry")" = .git ] && continue
+      children+=("$entry")
+    done
+    shopt -u nullglob dotglob
   fi
   if [ "${#children[@]}" -eq 0 ]; then
+    # Root itself is only deletable when empty (empty_parent / empty_untracked).
     classify "$root"
     return 0
   fi
