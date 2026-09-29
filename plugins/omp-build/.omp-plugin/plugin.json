@@ -1,6 +1,6 @@
 {
   "name": "omp-build",
-  "description": "OMP-only feature cycle — issue, branch proposal and operator /wt, then implement, bounded review/fix, land.",
+  "description": "OMP-only feature cycle — frame, GitHub issue, worktree, implement, bounded review/fix, land.",
   "author": {
     "name": "Roxabi"
   }
