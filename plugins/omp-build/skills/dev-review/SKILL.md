@@ -54,17 +54,22 @@ Steps: gather-changes → secret-scan → spec-compliance → multi-domain-revie
 
 ## Phase 1 — Gather Changes
 
-0. Source the shared helpers. `skill://` rejects `..`, so `lib.sh` (one level up, outside any skill directory) is reachable only from a real path — and an unset `SKILL_DIR` would silently make that path `/../shared/lib.sh`, i.e. a base branch detected against nothing:
+0. **Standalone only — loop already live.** When this skill owns the PR loop (not
+   called by `/feature`), Phase 8's `resumeReviewLoop` / `createReviewLoop` must
+   already have run **before** this phase. If `loop.closed === 'stop'`, escalate
+   and exit — do not gather another review. Called-by-`/feature` never
+   initializes here.
+1. Source the shared helpers. `skill://` rejects `..`, so `lib.sh` (one level up, outside any skill directory) is reachable only from a real path — and an unset `SKILL_DIR` would silently make that path `/../shared/lib.sh`, i.e. a base branch detected against nothing:
 
    ```bash
    SKILL_DIR="${SKILL_DIR:?dev-review Phase 1: skill directory not announced — export SKILL_DIR to this skill's directory and re-run}"
    BASE=$(. "$SKILL_DIR/../shared/lib.sh" && detect_base_branch)
    ```
-1. PR# → `gh pr diff <#>` | else → `git diff origin/${BASE}...HEAD`
-2. Δ = `git diff --name-only origin/${BASE}...HEAD` (or `gh pr diff <#> --name-only`)
-3. ∀ f ∈ Δ: read full (skip binaries, note)
-4. |Δ| = 0 → halt
-5. |Δ| > 50 → warn, suggest split
+2. PR# → `gh pr diff <#>` | else → `git diff origin/${BASE}...HEAD`
+3. Δ = `git diff --name-only origin/${BASE}...HEAD` (or `gh pr diff <#> --name-only`)
+4. ∀ f ∈ Δ: read full (skip binaries, note)
+5. |Δ| = 0 → halt
+6. |Δ| > 50 → warn, suggest split
 
 ## Phase 1.5 — Secret Scan
 
@@ -434,28 +439,153 @@ Roster capped by max_agents: R-devops
 
 **→ immediately continue to Phase 8.**
 
-## Phase 8 — Next Step
+## Phase 8 — Next Step (canonical escalation)
+
+This section is the single escalation contract. `/feature` §6.6 and `skill://fix`
+point here; do not invent a parallel stop policy.
 
 **Called by `/feature`:** return the posted verdict to `skill://feature` §6.4
-before presenting this decision. That caller records the bounded round and owns
-the land-or-fix choice and its execution (`fix --no-label` or gated landing).
-Skip the standalone actions below; never choose on the operator's behalf.
+before presenting this decision. That caller already owns the loop (initialized
+before this nested review) and records the bounded round once:
+`record` → (`stop` ? `enforceStop` : `persist`) → human choice → `assertFixAllowed`
+→ `fix --no-label` or gated landing. Skip the standalone actions below; never
+choose on the operator's behalf. Nested review must not initialize, `record`, or
+`persist` again.
 
-**Standalone review:**
+**Standalone review (owns the same loop):** initialize the loop **before**
+Phase 1 / Phase 4 emit the current review, keep that handle through Phase 8, and
+never re-initialize after posting. On resume, if `loop.closed === 'stop'`,
+escalate without running another review — terminal-red derivation lives in
+`interpretReviewHistory` (author-bound; latest code-review after the latest
+receipt). `readReviewRounds` / `interpretReviewHistory` never produce
+`pendingFix` — only a live `record`/`reopen` in this process does.
 
-Q:
-- **Fix now** — invoke `skill://fix` (one commit per eligible root cause, applied inline, no per-finding choice; its Phase 5 writes the `reviewed` label only in label mode and only when no cause with a blocking member was filed or failed; its Phase 6 posts the follow-up comment — it offers no rebase and no merge)
-- **Merge as-is** — rebase + label + auto-merge (below)
-- **Stop** — exit
+```javascript
+import { pathToFileURL } from 'node:url'
+import { join } from 'node:path'
+// `$SKILL_DIR` is this skill's directory (announced with the body). Sibling feature
+// module — same pattern `/feature` uses with `${SKILL_DIR}/workflow.js`.
+const featureWorkflow = pathToFileURL(join(SKILL_DIR, '../feature/workflow.js')).href
+const { resumeReviewLoop, createReviewLoop, landPr, applyCiWatchExit } = await import(featureWorkflow)
 
-**If Merge as-is:**
+// BEFORE Phase 1 (PR path). Empty PR → counts 0. Ambiguous history returns
+// `stopReason: 'history-ambiguous'` (not a throw). Transport/shape errors throw —
+// catch, report, stop; no edits, no landing. Keep `loop` through Phase 8.
+let loop
+if (pr) {
+  try {
+    loop = await resumeReviewLoop(cwd, { pr })
+  } catch (error) {
+    print(String(error))
+    return
+  }
+} else {
+  // No-PR: build from the complete local review/fix record BEFORE the stop check.
+  // Absent or incomplete record → stop and display the dossier (do not invent a reset).
+  const local = /* complete { reviews, fixes, stopReason? } from this conversation, or null */
+  if (!local) {
+    // stop + display dossier; never createReviewLoop() empty and "seed later"
+    return
+  }
+  loop = createReviewLoop({ reviews: local.reviews, fixes: local.fixes, stopReason: local.stopReason })
+}
 
-1. `git fetch origin ${BASE} && git rev-list HEAD..origin/${BASE} --count`
-   - count > 0 → `git rebase origin/${BASE}` + `git push --force-with-lease`
-   - conflict → halt (¬label)
-2. Q: "Add `reviewed` label?" → Yes / No
-3. Yes → `gh api repos/:owner/:repo/issues/<#>/labels -f "labels[]=reviewed"` → auto-merge merges (merge commit, ¬squash) on green CI. ¬auto-merge workflow in repo → `gh pr merge <#> --auto --merge`. ¬plain `gh pr merge` while any check is IN_PROGRESS/QUEUED — mid-CI merge cancels in-flight runs + skips gates.
-4. No → inform manual
+if (loop.closed === 'stop') {
+  if (pr) {
+    const stop = await loop.enforceStop(cwd)
+    print(stop.message)
+  }
+  // Publish/display the escalation dossier below, then exit. Do not review; do not record.
+  // No PR → never call persist/enforceStop; keep stopReason on the local loop and show the dossier.
+  return
+}
+
+// First (or continuing) review: Phases 1–4 post the current review, then record it.
+// … Phases 1–4 run and post the current review …
+const verdict = /* green | red from the posted panel word */
+let step = loop.record(verdict) // sole producer of in-memory pendingFix on red/ci-failed
+if (step.action === 'stop') {
+  if (pr) {
+    const stop = await loop.enforceStop(cwd) // publishes durable stop + disarms; do this BEFORE dossier
+    print(stop.message)
+  }
+  // else: keep stopReason on the local record; display dossier — never persist/enforceStop without a PR
+} else if (pr) {
+  await loop.persist(cwd)
+}
+```
+
+No-PR local flow: reconstruct from the current complete review/fix record in this
+conversation into `createReviewLoop({ reviews, fixes, stopReason })` **before**
+the stop check and before recording the current verdict. Absent or incomplete
+history → stop and display the dossier; do not invent a reset. Two *completed*
+rounds still allow a blocker-free green to land; an incomplete allocation never
+replays. Placeholders above are local procedure variables only — not executable
+stubs.
+
+### Human choice (constrained by `step`)
+
+- **`fix`** → Q: **Fix now** / **Stop**. Fix now → `loop.assertFixAllowed(step)` once,
+  then `skill://fix #<pr> --no-label` (always `--no-label`; this path never writes
+  `reviewed`). Return to a fresh review after the fix (same `loop`). **Stop** while a
+  fix remains available exits without `enforceStop` (the round stays spent). A **Stop**
+  at the second fix offer (`fixes=2`) means the next resume escalates.
+- **`land`** → Q: **Merge** / **Stop**. Merge → obtain explicit approval if needed,
+  then follow **`skill://feature` §6.7 in full** with this same `loop`: `landPr` (sole
+  writer of `reviewed`; no raw label shortcuts), run the returned `watch`, map exits
+  with `applyCiWatchExit`, and on `ci-failed` call `loop.reopen('ci-failed')` (spends a
+  round) then continue the bound. Never merge with residual blockers. Warnings-only is
+  ordinary gated landing.
+- **`stop`** → no Fix, no Merge. When a PR exists, run `enforceStop` **first**
+  (durable stop + disarm; publication failure must not skip disarm; read-back
+  failure still attempts both disarms and reports `readError`; never claim a
+  durable stop or guaranteed unlabelled/unmerged state when those steps failed),
+  then publish/display the escalation dossier. No PR → never call `persist` /
+  `enforceStop`; keep `stopReason` on the local record and display the dossier.
+  Leave any PR open and the code unchanged by the stop.
+
+Never offer **Merge as-is** with blockers at any round. Nitpicks / warnings alone on
+a green verdict do not require escalation.
+
+### Escalation dossier (on `stop`, or when displaying a recovered stop)
+
+Publish as a PR comment when a PR exists; otherwise display locally:
+
+1. Review/commit references and residual blockers (quote the latest review refs).
+2. Recurring mechanisms across rounds (round-local RC IDs).
+3. Fix-induced defects observed after an allocated round.
+4. Higher-level hypothesis — labelled **hypothesis, not certainty** — plus the
+   falsifying observations that would discriminate it.
+5. Exactly 2–3 human options (revised diagnostic plan via a NEW superseding PR,
+   revised design/scope via a NEW superseding PR, or the operator finishing this
+   PR by hand). Generic "retry" is not an option.
+6. Explicit ask: after a stop, automation on this PR is finished. Resumption is
+   either a NEW superseding PR (revised ticket → new branch → fresh `/feature`) or
+   the operator landing by hand. Spent counts and the sticky stop stay intact;
+   guidance does not unlock a parseable permission bit. The bound is per
+   automation account; records by other accounts, and edited/deleted comments of
+   that account, are not detected.
+
+### Human resumption
+
+After a stop, automation on that PR is finished for good. Resumption is an
+explicit human selection of either:
+
+1. a revised plan delivered in a **NEW PR** that supersedes the stopped one
+   (revised/amended issue via issue-triage, new branch, fresh budget; old PR
+   stays open as evidence until the operator closes it — never closed or
+   relabelled by an agent), or
+2. the operator finishing/landing the stopped PR by hand.
+
+Helpers (`persist`, `enforceStop`, `assertFixAllowed`, `resumeReviewLoop`) never
+lift the sticky stop. A fresh `/feature` run on a stopped PR always
+`enforceStop`s, publishes the dossier, and exits before edits — it does not
+continue automatic work on that PR.
+
+Forbidden as resumption: generic retry, a new session/agent, rebase-as-retry,
+counter deletion/reset, re-labelling, continuing human-guided work on the same
+PR after a "fresh review", or moving the same plan to another PR without an
+explicit human-selected supersede.
 
 > This skill ¬fixes code. Fixing = `skill://fix`.
 
@@ -469,7 +599,7 @@ Q:
 | F = ∅ | Clean approve, post, Phase 8 |
 | Critical security | Escalate in findings, flag in verdict |
 | Agents disagree | Present both with respective C |
-| ¬∃ PR | Render Phase 4 body; Phase 8 local only |
+| ¬∃ PR | Render Phase 4 body; Phase 8 local only; absent history → stop |
 | Missing root cause/solutions | C(f) := 0; keep finding; `skill://fix` files its cause instead of applying it |
 | ∄ `size:` label | τ := F-lite, disclosed out loud (never silently) |
 | R-architect skipped | no axial or structural evidence |
@@ -480,22 +610,25 @@ Q:
 | Recall worker skipped | single chunk ∨ class appears in <2 chunks ∨ <3 unique callsites |
 | roster capped (max_agents, per chunk) | disclosed when ≠ ∅ (Phase 4) |
 | oracle warnings ≠ ∅ | echoed into output; review_halt → HALT |
+| sticky `stopReason` on resume (`loop.closed === 'stop'`) | enforceStop (PR) + dossier; ¬record; ¬Fix; ¬Merge |
+| terminal-red derived by `interpretReviewHistory` (exhausted fixes + latest me-authored code-review after latest receipt is Request changes) | `loop.closed === 'stop'` → same as sticky stop; ¬pendingFix; ¬replay |
 
 ## Safety Rules
 
 1. Fresh agents only — ¬implementation context
-2. ¬approve PRs on GitHub; ¬enable auto-merge outside the Phase 8 human decision (label gate)
+2. ¬approve PRs on GitHub; ¬enable auto-merge outside a green `land` step through `landPr`
 3. Merge = merge commit only, ¬squash; merge executes via the gate (label + auto-merge), never manually mid-CI
-4. ¬fix code — findings only. Fixing = `skill://fix`
+4. ¬fix code — findings only. Fixing = `skill://fix` with `--no-label` on every review-driven path
 5. ∃ PR → must post the Phase 4 body
 6. Human decides at Phase 8 — ¬proceed without Q
+7. ¬merge with residual blockers at any round; warnings-only may use normal gated landing
 
 ## Chain Position
 
 - **Phase:** Verify
 - **Predecessor:** implement
-- **Successor:** conditional — APPROVED → merge → cleanup | CHANGES_REQUESTED → `skill://fix`
+- **Successor:** conditional — green `land` → gated landing | red `fix` → `skill://fix --no-label` | `stop` → escalation dossier + human guidance
 - **Class:** verdict (branching based on findings)
-- **Loop cap:** max 2 fix→review iterations. A 3rd review iteration → Phase 8 must recommend Merge as-is or Stop, not Fix.
+- **Loop cap:** max 2 automatic fix→review rounds via `createReviewLoop`. Residual blockers after those rounds → stop + dossier; never Merge-as-is with blockers.
 
 $ARGUMENTS

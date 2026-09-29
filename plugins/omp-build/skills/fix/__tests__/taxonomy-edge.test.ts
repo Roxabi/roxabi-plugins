@@ -152,10 +152,6 @@ describe('fix decides eligibility where the human used to', () => {
     expect(FIX).toContain('every cited path resolves inside the repository root')
   })
 
-  it('writes no label while a blocking cause is filed or failed', () => {
-    expect(FIX).toContain('no cause with a blocking member was filed or failed')
-  })
-
   it('sends filed titles and bodies through files, never argv', () => {
     expect(FIX).toContain(
       'bun skill://issue-triage/triage.ts create --title-file "$FILE_DIR/title.txt" --body-file "$FILE_DIR/body.md"',

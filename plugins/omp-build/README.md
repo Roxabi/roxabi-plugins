@@ -102,10 +102,24 @@ It does not hand the operator a `/wt` line. Existing worktrees are entered by
 `/move <path>`, not recreated.
 
 In the matching worktree: implement → `dev-review` → `fix --no-label` → land.
-`openPr` returns the PR number; `resumeReviewLoop` restores rounds from PR comments.
-At most two fix rounds; a third red stops and `enforceStop` removes the `reviewed`
-label and disables native auto-merge. Every verdict and CI reopening is persisted
-(counts only, not the stop). Only an approved landing calls `landPr`, which resolves
+`openPr` returns the PR number; `resumeReviewLoop` restores spent counts and any sticky
+`stopReason` from PR comments via author-bound `interpretReviewHistory` (markers +
+unambiguous fix receipts; terminal-red when the latest me-authored code-review after
+the latest receipt is Request changes; ambiguous history returns
+`stopReason: 'history-ambiguous'`). A resumed
+loop has **no** live fix grant — receipt absence never authorizes replaying an
+allocation; only a fresh in-process `record`/`reopen` does.
+`assertFixAllowed` is single-use on that live grant. At most two automatic fix rounds;
+residual blockers after those rounds stop (`loop.closed === 'stop'`), `enforceStop`
+publishes the durable stop then independently disarms `reviewed`/auto-merge
+(publication or read-back failure still attempts disarm; incomplete steps are
+reported as not guaranteed), and Phase 8 publishes an escalation dossier — no
+Merge-as-is with blockers. After a stop, automation on that PR is finished:
+resumption is a NEW superseding PR or the operator finishing by hand. The bound is
+per automation account; records by other accounts, and edited/deleted comments of
+that account, are not detected. Every verdict and CI reopening is persisted (counts and
+terminal stop). `fixes === 2` with no stop still permits a final blocker-free green
+to land. Only an approved landing calls `landPr`, which resolves
 the landing mode through `readLanding` — the resolver `/ci-watch` also uses (stack
 `landing.mode`, else `merge-on-green.yml`, else native; an invalid landing returns
 `bad-landing` before any gh call) — adds `reviewed` (re-adding it under merge-on-green), arms native auto-merge, and hands the wait to `/ci-watch` via an absolute `watch` path that always carries GitHub's new label time as `--since` under merge-on-green (unreadable event → `watch-failed`). It does not

@@ -46,12 +46,23 @@ _Avoid_: a per-ticket deploy, a release cut
 
 **Review bound**:
 At most two review→fix rounds per PR, counted by `createReviewLoop` and resumed from
-the PR by `resumeReviewLoop`. The third red returns `stop`; `enforceStop` then removes
-`reviewed` and disables auto-merge, so the PR really is unlabelled and unmerged.
+the PR by `resumeReviewLoop` (counts plus sticky `stopReason` derived by
+author-bound `interpretReviewHistory`; never a durable `pendingFix` replay).
+Residual blockers after those rounds return `stop` (`loop.closed === 'stop'`);
+`enforceStop` publishes the stop then independently removes `reviewed` and disables
+auto-merge (publication/read-back failure still attempts disarm; report incomplete
+steps honestly), and Phase 8 publishes an escalation dossier. After a stop,
+automation on that PR is finished: resumption is a NEW superseding PR or the
+operator finishing by hand. The bound is per automation account; records by other
+accounts, and edited/deleted comments of that account, are not detected. A
+blocker-free terminal green may still land when counts are exhausted but no stop
+applies.
 A CI failure after a green verdict re-enters through `reopen('ci-failed')`, which
 spends a round rather than refunding one.
 _Avoid_: "one more review", a second loop on the same PR, a round counter held in
-prose, a `reviewed` label written by anything but the landing step
+prose, Merge-as-is with blockers, a `reviewed` label written by anything but the landing step,
+replaying a fix from receipt absence, escalating on `remaining === 0` without a derived stop,
+continuing automatic work on a stopped PR after "human guidance"
 
 **Snapshot**:
 A frozen copy of selected `dev-core` files inside `omp-build`. No resync. Claude's `dev-core` evolves alone.

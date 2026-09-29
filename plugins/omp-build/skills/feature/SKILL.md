@@ -189,7 +189,7 @@ The issue stays the spec. If the contract and the issue diverge, the issue wins
 and the contract is re-derived. Repos without `.semctx/` skip this.
 
 ```javascript
-const { openPr, landPr, resumeReviewLoop, applyCiWatchExit, disarmReviewedBeforePush } =
+const { openPr, landPr, resumeReviewLoop, applyCiWatchExit, disarmReviewedBeforePush, findOpenPr } =
   await import(`${SKILL_DIR}/workflow.js`)
 ```
 
@@ -203,6 +203,37 @@ After that mapping, spawn R-architect and R-adversarial read-only on the plan �
 one round. A blocking plan finding amends the plan before any code. This review
 never calls the review loop: it spends no fix round and writes no PR marker.
 
+**Re-entry before §6.2.** When an open PR already exists for this ticket branch
+(`await findOpenPr(cwd, branch, base)` — same lookup `openPr` uses), resume the
+loop first:
+
+```javascript
+const existing = await findOpenPr(cwd, branch, base)
+if (existing !== null) {
+  let loop
+  try {
+    loop = await resumeReviewLoop(cwd, { pr: existing })
+  } catch (error) {
+    // Transport/shape error from readReviewRounds — stop, report, no edits, no landing.
+    print(String(error))
+    return
+  }
+  if (loop.closed === 'stop') {
+    // Automation on this PR is finished for good. Always disarm + dossier and exit
+    // before any edit. Resumption is either (a) a NEW superseding PR from a revised
+    // ticket (issue-triage → new branch → fresh /feature run), or (b) the operator
+    // finishing/landing this PR by hand. Never continue automatic work on a stopped PR.
+    print((await loop.enforceStop(cwd)).message)
+    // publish/display Phase 8 escalation dossier, then return
+    return
+  }
+  if (loop.fixes >= 1) {
+    // Open loop with at least one spent fix — skip §6.2 edits; go to §6.4 review.
+    // (Reuse `loop` from here; do not re-implement under §6.2.)
+  }
+}
+```
+
 ### 6.2 Implement and verify
 
 Implement in this worktree, delegating independent slices when useful. Use `tdd`
@@ -214,6 +245,8 @@ check it with the OMP `browser`, and record the steps, URL and observed result
 in the PR. If `.dev/stack.yml` declares `commands.test_e2e`, that command is the
 proof — do not record `ui-manual-only`.
 When a contract is open, record each piece of evidence on it as it is produced.
+**Skip this section** when re-entry found an open loop with `fixes >= 1` — go to
+§6.3/§6.4 with the resumed loop.
 
 ### 6.3 Commit, push, open or resume
 
@@ -227,7 +260,20 @@ const { number: pr, status } = await openPr(cwd, {
   title: '<Conventional Commit subject>',
   body: '<changes, verification, and criterion→evidence matrix>',
 })
-const loop = await resumeReviewLoop(cwd, { pr })
+let loop
+try {
+  loop = await resumeReviewLoop(cwd, { pr })
+} catch (error) {
+  print(String(error)) // transport/shape — stop, report, no edits, no landing
+  return
+}
+if (loop.closed === 'stop') {
+  // Sticky / derived / history-ambiguous stop — disarm again if needed,
+  // publish/display the Phase 8 dossier, and exit. Do not record a new verdict.
+  // Escalation keys only on `loop.closed === 'stop'` (derived by `interpretReviewHistory`).
+  print((await loop.enforceStop(cwd)).message)
+  return
+}
 ```
 
 `openPr` returns the numeric PR and `created | existing`, and supplies the closing
@@ -258,27 +304,39 @@ Translate the panel's verdict before calling the loop:
 
 ```javascript
 let step = loop.record(verdict)
-await loop.persist(cwd)
+if (step.action === 'stop') {
+  const stop = await loop.enforceStop(cwd) // BEFORE dossier; publishes durable stop + disarms
+  print(stop.message)
+  // publish/display Phase 8 escalation dossier, then return — do not persist separately
+} else {
+  await loop.persist(cwd)
+}
 ```
 
 Present the Phase 8 human choice constrained by `step`: **Fix now** routes through
-§6.5 only on `fix`; **Merge** routes through §6.7 only on `land`; **Stop** exits
-without fixing or merging. On `stop`, enforce §6.6 rather than offer another round.
+§6.5 only on `fix`; **Merge** routes through §6.7 only on `land`; on `stop`,
+follow §6.6 (enforceStop already ran above + escalation dossier) rather than offer
+another round.
 Never choose on the user's behalf or offer “Merge as-is” for a red verdict.
-The human's **Stop** simply exits; `enforceStop` is valid only when the loop itself
-returned `step.action === 'stop'`, not when the user declines an available fix.
+The human's **Stop** while a fix is still available simply exits; `enforceStop` is
+valid only when the loop itself returned `step.action === 'stop'`. A **Stop** at
+the second fix offer (`fixes=2`) means the next resume escalates (derived
+`review-bound` once the allocating review sits after the last receipt).
 `record` has already counted the round when the choice is offered: say so, since a
-red verdict spends a fix round whether or not the operator then fixes.
+red verdict **spends/allocates** a fix round whether or not the operator then fixes.
 
 ### 6.5 Fix
 
 `step.action === 'fix'`, by `step.reason`:
 
-- review round (no reason) → execute `skill://fix` with `#<pr> --no-label`. It applies
-  one change per posted root cause, inline, and does not stop for a per-finding choice.
-  A cause it cannot apply becomes a sibling issue.
-- `ci-failed` → fix inline from the failed checks (`land.failed`) and their logs.
-  `fix` reads review comments, not CI: running it here replays stale findings.
+- review round (no reason) → `loop.assertFixAllowed(step)`, then execute
+  `skill://fix` with `#<pr> --no-label`. Nested fix consumes this caller-owned
+  allocated step and must not call `record('red')` again. It applies one change per
+  posted root cause, inline, and does not stop for a per-finding choice. A cause it
+  cannot apply becomes a sibling issue.
+- `ci-failed` → `loop.assertFixAllowed(step)`, then fix inline from the failed checks
+  (`land.failed`) and their logs. `fix` reads review comments, not CI: running it
+  here replays stale findings.
 
 Verify and commit/push the fixes, then return to §6.4 on the same PR for a fresh
 review. State `step.remaining`.
@@ -289,16 +347,27 @@ review. State `step.remaining`.
 |---|---|
 | `fix` | §6.5 |
 | `land` | §6.7 |
-| `stop` | `await loop.enforceStop(cwd)`; print its result and stop |
+| `stop` | `await loop.enforceStop(cwd)` first (when a PR exists), then publish/display the escalation dossier from `skill://dev-review` Phase 8; print both results and stop. No PR → never `persist`/`enforceStop`; keep `stopReason` locally and display the dossier |
 
-At most two fix rounds; a third red stops. Persist every verdict and CI reopening;
-resume from the PR on re-entry, never reset its spent rounds. `enforceStop` removes
-the `reviewed` label and disables native auto-merge; it cannot reverse a completed merge.
-The PR marker stores counts, not the stop itself: a re-entry after a stop resumes an
-open loop, so report the exhausted bound rather than start another round unasked.
-Nothing on a stopped path invokes landing or the optional tail.
+At most two automatic fix rounds; residual blockers after those rounds stop — no
+third fix, no `reviewed` label, no merge. Persist every verdict and CI reopening
+(counts **and** any sticky `stopReason`); resume from the PR on re-entry, never
+reset its spent rounds. `fixes === 2` with no stop still permits a final
+blocker-free green to land. A recovered stop stays closed even on green: call
+`enforceStop`, publish the dossier, and exit — do not `record`. Failure to publish
+the dossier must not skip disarming; report incomplete publication/disarm honestly.
+`enforceStop` removes `reviewed` and disables native auto-merge; it cannot reverse
+a completed merge. Nothing on a stopped path invokes landing or the optional tail.
+After a stop, automation on that PR is finished for good. Resumption is either
+(a) a NEW PR that supersedes the stopped one (revised/amended issue via
+issue-triage, new branch, fresh budget; old PR stays open as evidence until the
+operator closes it — never closed or relabelled by an agent), or (b) the operator
+finishing/landing the stopped PR by hand. Generic retry, counter reset, re-label,
+or a new session is not resumption. Helpers never unlock a sticky stop.
 `loop.reopen('ci-failed')` **spends one fix round immediately** (0 → 1, 1 → 2;
 already 2 → stop). It never refunds or preserves an unspent round after reopening.
+The bound is per automation account; records by other accounts, and edited/deleted
+comments of that account, are not detected.
 
 ### 6.7 Land
 
@@ -345,7 +414,7 @@ Neither a fix round nor another review action may write that label in this cycle
 |---|---|
 | `watching` | Start the async `/ci-watch` job named in `land.watch` |
 | `merged` | Report issue + PR; offer the optional tail (§0), stop |
-| `ci-failed` | Gate already disarmed; `step = loop.reopen('ci-failed')`; `await loop.persist(cwd)`; follow §6.6 |
+| `ci-failed` | Gate already disarmed; `step = loop.reopen('ci-failed')`; if `step.action === 'stop'` → `enforceStop` then dossier (do not `persist` separately); else `await loop.persist(cwd)` and follow §6.6 |
 | `ci-cancelled` | Gate disarmed; stop, report the cancelled checks; operator re-runs CI then re-enters §6.7 |
 | `ci-blocked` | Gate disarmed; stop, report the checks named on stderr; operator resolves the named checks or re-runs CI, then re-enters §6.7 |
 | `watch-failed` | Stop; report the code or `land.error` (including when the labeled `reviewed` event could not be read after re-label under merge-on-green). Gate left as is; do not claim merged |
