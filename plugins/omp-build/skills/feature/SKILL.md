@@ -99,7 +99,8 @@ It returns one line, `{pr, outcome, reason}`:
 | `shared-state-stop` | a state the next ticket would hit too: `watch-failed`, `bad-landing`, `no-required-checks`, `evaluate-only`, `auto-merge-failed` |
 | `ticket-stopped` | anything else — a §6.0 stop, behaviour §6.1 cannot settle, a halted fix round, `stop` from the loop, a third `timeout`, `ci-cancelled`, `ci-blocked`, `stopped`, `closed` — with the status as `reason` |
 
-The goal session confirms `merged` with `gh pr view <pr> --json state` before
+The goal session confirms `merged` with `gh pr view <pr> --json state,closingIssuesReferences`
+— `state` is MERGED and `closingIssuesReferences` contains `#N` — before
 trusting it. A shared-state stop stops the goal. A ticket stop is reported; its
 dependents are skipped and independent tickets continue. A ticket unit that
 returns no well-formed outcome line, or an outcome its PR state refutes, is read
@@ -360,11 +361,13 @@ spawned for that round alone (§ Context boundary); this session makes no edit.
   and `SKILL_DIR`. Do not run `fix` here: it reads review comments, not CI, and
   would replay stale findings.
 
-Wait for that agent and read its result, `{status: done | halted, reason,
-applied_shas, comment_id}` (`comment_id` only after a review round). Check it
-against durable state: every sha is on `origin/<branch>`, and after a review
-round `comment_id` is a `## Review Fixes Applied` comment newer than the newest
-review record. `halted`, a check that fails, or `done` with no sha (every cause
+Before the spawn, record `PRE=$(git rev-parse origin/<branch>)`. Wait for that
+agent and read its result, `{status: done | halted, reason, applied_shas,
+comment_id}` (`comment_id` only after a review round). Check it against durable
+state: `git fetch`, then `applied_shas` is non-empty and every sha is in
+`$PRE..origin/<branch>`; after a review round, `comment_id` is a
+`## Review Fixes Applied` comment newer than the newest review record.
+`halted`, a check that fails, or `done` with no sha (every cause
 was filed) → stop the ticket and report the reason and any filed issues. Never
 re-enter §6.4 on unchanged code, and never spawn a second agent for the same
 round. Otherwise return to §6.4 on the same PR for a fresh review. State
