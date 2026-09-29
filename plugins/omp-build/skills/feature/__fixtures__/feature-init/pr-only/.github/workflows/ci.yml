@@ -1,0 +1,7 @@
+name: Widget Build
+on: [push]
+jobs:
+  widget-build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo build

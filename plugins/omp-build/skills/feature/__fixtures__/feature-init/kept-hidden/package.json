@@ -1,0 +1,7 @@
+{
+  "name": "acme-kept",
+  "devDependencies": {
+    "assertledger": "1.0.0",
+    "vitest": "1.0.0"
+  }
+}

@@ -1,0 +1,10 @@
+label
+list
+-R
+github.com/acme/app
+--limit
+500
+--json
+name
+--jq
+.[].name

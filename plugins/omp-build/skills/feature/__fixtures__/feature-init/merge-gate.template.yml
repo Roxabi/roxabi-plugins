@@ -1,0 +1,24 @@
+# Invented merge gate for the feature-init tests. Every workflow, job, check and
+# variable name below is made up; only the parsed shape matters: one
+# presence test per gate on the run name, plus one all-checks failed filter.
+name: Widget Gate
+
+on:
+  workflow_run:
+    workflows: [Widget Build, Widget Audit]
+    types: [completed]
+
+jobs:
+  widget-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const probes = runs.filter((r) => r.name !== 'widget-gate');
+            const sawAudit = probes.some((r) => /^widget-audit$/i.test(r.name || ''));
+            const sawBuild = probes.some((r) =>
+              /^(widget-build|widget-build-full)$/i.test(r.name || ''),
+            );
+            const sawScan = probes.some((r) => /Widget scan, nightly|widget-scan/.test(r.name || ''));
+            const broken = probes.filter((r) => r.status === 'completed' && r.conclusion !== 'success');
