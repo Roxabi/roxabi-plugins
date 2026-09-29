@@ -8,7 +8,7 @@ version: 0.1.0
 
 # Git Cleanup
 
-Let: β := branch | ω := worktree | π := open PR | Π := protected branch (main/master/staging) | safe(β) ⟺ proven_merged(β) ∧ ¬π(β) | proven_merged(β) := regular_merge(β) ∨ verified_squash(β) | regular_merge(β) := `BASE..β` is empty | verified_squash(β) := gh reports a MERGED PR on β **and** that PR's head SHA is an ancestor of its merge commit | hinted(β) := a commit message on BASE contains `#N` or β's name — **not** a proof, since any commit may type the number | N := scope issue number (∅ if unscoped) | orphan_shell := leftover path under `~/.omp/worktrees/<repo>/` or `<principal>/.claude/worktrees/` that is **not** in `git worktree list` | principal := the first `git worktree list` entry, pinned to Π by `hooks/principal-branch-pre.cjs` and the `tool_call` guard in `omp/index.ts`
+Let: β := branch | ω := worktree | π := open PR | Π := protected branch (main/master/staging) | safe(β) ⟺ proven_merged(β) ∧ ¬π(β) | proven_merged(β) := regular_merge(β) ∨ verified_squash(β) | regular_merge(β) := `BASE..β` is empty | verified_squash(β) := gh reports a MERGED PR on β **and** that PR's head SHA is an ancestor of its merge commit | hinted(β) := a commit message on BASE contains `#N` or β's name — **not** a proof, since any commit may type the number | N := scope issue number (∅ if unscoped) | orphan_shell := leftover path under `~/.omp/worktrees/<repo>/` (legacy leftover of the retired `ensureWorktree`), `<principal>/.claude/worktrees/` (harness-created worktrees), or `<worktree base>/<repo>/<slug>` (the `/feature` root; base is `OMP_WORKTREE_DIR`, else stack.yml `worktree.base`, else `~/.omp/wt`) that is **not** in `git worktree list` | principal := the first `git worktree list` entry, pinned to Π by `hooks/principal-branch-pre.cjs` and the `tool_call` guard in `omp/index.ts`
 
 Safely clean local β, ω, and remote branches with **mandatory merge-status verification** before any deletion. End-of-session sweep also strips stuck pipeline labels from closed PRs, cancels long-queued CI runs, and surfaces **orphan worktree shells** that git no longer tracks.
 
@@ -189,12 +189,12 @@ Never run any of these against the principal's path or its branch.
 
 ### 5b. Orphan worktree shells
 
-`git worktree list` only knows registered worktrees. After `git worktree remove`, leftovers stay behind in the two roots this plugin creates worktrees in — `~/.omp/worktrees/<repo>/` (`skills/build/workflow.js`) and `<principal>/.claude/worktrees/`:
+`git worktree list` only knows registered worktrees. After `git worktree remove`, leftovers stay behind in the three roots the scanner walks — `<worktree base>/<repo>/<slug>` (the `/feature` root: `OMP_WORKTREE_DIR`, else `.dev/stack.yml` `worktree.base`, else `~/.omp/wt`), `<principal>/.claude/worktrees/` (harness), and `~/.omp/worktrees/<repo>/` (legacy leftover of the retired `ensureWorktree`):
 
 | kind | Example | Safe cleanup |
 |------|---------|--------------|
 | `empty_parent` | `~/.omp/worktrees/roxabi-plugins/` empty | `rmdir` (or `rm -rf` if confirmed empty) |
-| `unregistered` | partial dir (e.g. only `node_modules`) under either root and **not** in `git worktree list` | `rm -rf -- "<path>"` after confirm — **never** if the path is still a live registered ω |
+| `unregistered` | partial dir (e.g. only `node_modules`) under any of those roots and **not** in `git worktree list` | `rm -rf -- "<path>"` after confirm — **never** if the path is still a live registered ω |
 
 Source: `gather-state.sh` → `---orphan-worktree-shells---` (`path|kind|detail`). Scope is **this repo only**: the `~/.omp/worktrees/` child is named after the principal's directory, so a sibling checkout's worktrees are never listed, let alone offered for deletion.
 
@@ -429,7 +429,7 @@ If `REPORT_ONLY=true`, prefix the header with `[report-only — no mutations per
 - **Deleted on the strength of a grep**: the failure this ordering exists to prevent — an unmerged, pushed β whose issue number appears in an unrelated commit on BASE, deleted from origin with no copy left. `safe_remote` therefore admits proofs only.
 - **Remote tracking branches**: Step 6 scans **all** remote β independently — always require explicit confirmation.
 - **Stale worktrees**: ω path ∉ disk → `git worktree prune`.
-- **Invoked from inside ω**: the orphan scan anchors both roots on the **principal** (first `git worktree list` entry), not on `git rev-parse --show-toplevel` — inside a linked worktree the latter names the ω itself, and every scan would report zero.
+- **Invoked from inside ω**: the orphan scan anchors its three roots on the **principal** (first `git worktree list` entry) — `<principal>/.claude/worktrees/` by path, the other two by its `basename` and `$principal/.dev/stack.yml` — never on `git rev-parse --show-toplevel`, which inside a linked worktree names the ω itself and would make every scan report zero.
 - **Symlinked `$HOME`**: git records the *resolved* worktree path, the scan root is built from `$HOME`. Compared lexically a live registered ω reads as an orphan and 5b-execute `rm -rf`s it, so `scan-orphan-worktree-shells.sh` canonicalises both sides (`realpath`) before comparing and emits canonical paths.
 - **Orphan shells after remove**: `git worktree remove` does not delete empty parent dirs. Step 5b + `scan-orphan-worktree-shells.sh` cover these.
 

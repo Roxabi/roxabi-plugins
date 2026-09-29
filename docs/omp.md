@@ -24,6 +24,8 @@ omp plugin install dev-core@roxabi-marketplace
 
 `--scope project` for one repo. Do not install `--scope user` until safety hooks are project-gated and verified.
 
+If `~/.local/bin/omp-wt` exists, `rm -f ~/.local/bin/omp-wt` — the script is retired; enter a worktree with `/move <path>`.
+
 A marketplace install exposes the registered slash commands below.
 Other skills resolve via `skill://` when the plugin is linked (`omp plugin link` / `-e`).
 
@@ -39,11 +41,14 @@ Other skills resolve via `skill://` when the plugin is linked (`omp plugin link`
 | `/dev-review` | Multi-domain review (not native `/review`) |
 | `/dev-checkup` | Project health check (not native `/checkup`) |
 
-`omp-build` registers one of its own (`plugins/omp-build/omp/index.ts`):
+`omp-build` registers four commands (`plugins/omp-build/omp/index.ts`):
 
 | Command | What it does |
 |---------|--------------|
-| `/feature` | One OMP feature — hop into ω from the Principal, or frame (grill → spec → tickets → frontier) inside it |
+| `/feature` | One OMP feature — frame → GitHub issue → worktree → `/move` + `/goal` → implement → bounded review/fix → land |
+| `/promote` | Promote staging→main — pre-flight, version, changelog, PR, tag |
+| `/cleanup` | Clean merged branches, worktrees and remotes after verification |
+| `/ci-watch` | Watch every check on a PR head, then the merge, until the script deadline |
 
 A registered command is user-only: `registerCommand` is the slash lane, `registerTool` is the LLM one, and the model cannot reach a command. That is the whole property — `disable-model-invocation` in the skill body is not a second lane: omp normalises it to `hide`, which drops the skill from the prompt listing while `skill://feature` and `/skill:feature` still reach it (measured on omp 18.2.9).
 

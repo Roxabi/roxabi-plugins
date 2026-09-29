@@ -67,10 +67,10 @@ const { isPrincipal, resolveEntry } = await import(`${SKILL_DIR}/entry.js`)
 | Issue exists, session on Principal | Read it, then §3 immediately |
 | Issue exists, linked worktree | Call `resolveEntry({ cwd, principalPath, branch, ticket: issue })` |
 | `action: build` | Incomplete scope → §4; actionable ticket → §6 |
-| `action: refuse` | Name the mismatch/detached HEAD; §3, never implement here |
+| `action: refuse` | Principal, or a ticket/branch mismatch — name it; §3, never implement here |
 
-Use `isPrincipal(cwd, principalPath)` before `resolveEntry`: its legacy Principal
-hop route is not used. A branch for #N is not a branch for #M, including an epic's
+Use `isPrincipal(cwd, principalPath)` before `resolveEntry`. On the Principal it
+returns `{ action: 'refuse', reason: 'principal' }` — do not implement there. A branch for #N is not a branch for #M, including an epic's
 branch versus a child's. Read the ticket before deciding whether its scope is ready.
 
 ## 3. Issue → worktree → operator `/move`
@@ -189,12 +189,11 @@ The issue stays the spec. If the contract and the issue diverge, the issue wins
 and the contract is re-derived. Repos without `.semctx/` skip this.
 
 ```javascript
-const { openPr, landPr, resumeReviewLoop } =
-  await import(`${SKILL_DIR}/../build/workflow.js`)
+const { openPr, landPr, resumeReviewLoop, applyCiWatchExit, disarmReviewedBeforePush } =
+  await import(`${SKILL_DIR}/workflow.js`)
 ```
 
-These bundled functions remain the PR/landing seam. Do not invoke the legacy
-`/build` driver or its spec-file stages.
+These bundled functions remain the PR/landing seam.
 
 ### 6.1 Plan against acceptance criteria
 
