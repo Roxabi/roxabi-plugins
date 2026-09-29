@@ -75,18 +75,26 @@ classify_checks() {
 # Check-run entries are left unchanged. An unmapped state keeps that state as
 # its conclusion so an exit 3 never prints an empty conclusion for a status.
 normalise_rollup() {
+  # Keep workflowName so duplicate runs of the same check (re-runs) can be
+  # collapsed. Rank: non-completed last, then startedAt — so a fresh pending
+  # re-run outranks a stale cancelled/failed entry, and a newer green re-run
+  # outranks an older cancelled one.
   jq '
+    def started: (.startedAt // .started_at // "");
     [.statusCheckRollup[]? |
       if .status != null then
         {
           name: (.name // .context // "unknown"),
+          workflow: (.workflowName // ""),
           status: .status,
-          conclusion: (.conclusion // "")
+          conclusion: (.conclusion // ""),
+          started: started
         }
       else
         (.state // "" | ascii_downcase) as $s |
         {
           name: (.name // .context // "unknown"),
+          workflow: (.workflowName // ""),
           status: (if ($s == "pending" or $s == "expected") then "in_progress" else "completed" end),
           conclusion: (
             if $s == "success" then "success"
@@ -94,10 +102,20 @@ normalise_rollup() {
             elif ($s == "failure" or $s == "error") then "failure"
             else (.state // "")
             end
-          )
+          ),
+          started: started
         }
       end
     ]
+    | group_by([.workflow, .name])
+    | map(
+        sort_by([
+          (if ((.status // "") | ascii_downcase) == "completed" then 0 else 1 end),
+          .started
+        ])
+        | last
+        | {name, status, conclusion}
+      )
   '
 }
 
@@ -143,12 +161,14 @@ done
 
 parse_duration() {
   local raw="$1"
+  # 10# — a leading-zero raw digit string is decimal, not octal (09 must not
+  # disable the deadline; 010 must stay 10 seconds, not 8).
   if [[ "$raw" =~ ^([0-9]+)s$ ]]; then
-    echo "${BASH_REMATCH[1]}"
+    echo $((10#${BASH_REMATCH[1]}))
   elif [[ "$raw" =~ ^([0-9]+)m$ ]]; then
-    echo $((${BASH_REMATCH[1]} * 60))
+    echo $((10#${BASH_REMATCH[1]} * 60))
   elif [[ "$raw" =~ ^([0-9]+)$ ]]; then
-    echo "$raw"
+    echo $((10#${BASH_REMATCH[1]}))
   else
     echo "Error: --timeout '$raw' is not <n>s, <n>m, or seconds." >&2
     exit "$EXIT_INTERNAL"
@@ -162,21 +182,33 @@ INTERVAL=15
 MERGE_MODE=""
 SINCE=""
 
+need_value() {
+  local flag="$1"
+  if [[ $# -lt 2 ]]; then
+    echo "Error: $flag needs a value" >&2
+    exit "$EXIT_INTERNAL"
+  fi
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --timeout)
+      need_value "$@"
       TIMEOUT_RAW="$2"
       shift 2
       ;;
     --interval)
+      need_value "$@"
       INTERVAL="$2"
       shift 2
       ;;
     --merge-mode)
+      need_value "$@"
       MERGE_MODE="$2"
       shift 2
       ;;
     --repo)
+      need_value "$@"
       REPO="$2"
       shift 2
       ;;
@@ -352,6 +384,10 @@ while true; do
   if [[ "$state" == "MERGED" ]]; then
     echo "merged"
     exit 0
+  fi
+  if [[ "$state" == "CLOSED" ]]; then
+    echo "closed"
+    exit "$EXIT_UNMERGED"
   fi
   checks=$(checks_of "$snapshot")
   verdict=$(echo "$checks" | classify_checks)
