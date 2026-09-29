@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 const CLI = path.resolve(import.meta.dirname, 'feature-init.ts')
 const TRIAGE = path.resolve(import.meta.dirname, '../../../issue-triage/skills/issue-triage/triage.ts')
 const REAL_BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
-const EXPECTED_NEXT = 'next: bun "$(realpath skill://issue-triage/triage.ts)" init'
+const EXPECTED_NEXT = 'next: T=$(realpath skill://issue-triage/triage.ts) && bun "$T" init'
 const ENV: NodeJS.ProcessEnv = {
   ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))),
   GIT_CONFIG_GLOBAL: '/dev/null',
@@ -163,5 +163,17 @@ printf '[]\\n'
     expect(result.status).toBe(0)
     expect(result.stdout).toContain('dry-run: true')
     expect(result.stderr).not.toContain('Module not found')
+  })
+
+  it('exits non-zero when the printed next line targets an unresolvable skill', () => {
+    // The inline `bun "$(realpath …)"` form exits 0 on a miss (`bun ""` prints
+    // usage). The fail-closed `T=$(realpath …) && bun "$T"` form must not.
+    const cmd = EXPECTED_NEXT.replace(/^next:\s*/, '').replace(
+      'skill://issue-triage/triage.ts',
+      'skill://issue-triagex/triage.ts',
+    )
+    const result = spawnSync('bash', ['-c', cmd], { env: ENV, encoding: 'utf8' })
+    expect(result.status).not.toBe(0)
+    expect(`${result.stdout}\n${result.stderr}`).toMatch(/No such file or directory/)
   })
 })

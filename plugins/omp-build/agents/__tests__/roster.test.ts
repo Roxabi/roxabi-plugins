@@ -127,7 +127,7 @@ describe('omp-build agent roster', () => {
       .filter(({ text }) => /\$\{CLAUDE_(PLUGIN_ROOT|SKILL_DIR)\}\S*\.md/.test(text.replace(STATED_ABSENT, '')))
       .map(({ file }) => file)
     expect(cited).toEqual([])
-    // #577/#619: the write path is `bun "$(realpath skill://issue-triage/triage.ts)"`,
+    // #577/#619: the write path is `T=$(realpath skill://issue-triage/triage.ts) && bun "$T"`,
     // not a bare skill:// bun argv, not a plugin-root token, and not a Skill()
     // call. Those shapes are what the model follows into a stale copy.
     const invoked = sources

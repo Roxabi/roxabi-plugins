@@ -13,8 +13,7 @@ const REPO = path.resolve(import.meta.dirname, '../../../..')
 const PLUGINS = path.join(REPO, 'plugins')
 
 /** `\b(bun|bash|node|sh|bunx|npx)\b(\s+(run|-\S+))*\s+"?skill://` */
-const EXTERNAL_SKILL_ARGV =
-  /\b(?:bun|bash|node|sh|bunx|npx)\b(?:\s+(?:run|-\S+))*\s+"?skill:\/\//
+const EXTERNAL_SKILL_ARGV = /\b(?:bun|bash|node|sh|bunx|npx)\b(?:\s+(?:run|-\S+))*\s+"?skill:\/\//
 
 /**
  * #627 rewrites cleanup's bash skill:// sites to the realpath form. Until that

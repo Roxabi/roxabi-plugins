@@ -15,7 +15,7 @@ path — run that string as given. For a standalone invocation, resolve the path
 first so `$0` can find the sibling `feature/workflow.js`:
 
 ```bash
-bash "$(realpath skill://ci-watch/ci-watch.sh)" <pr>
+T=$(realpath skill://ci-watch/ci-watch.sh) && bash "$T" <pr>
 ```
 
 A pipe (`cat skill://… | bash -s`) or a copy of the script alone exits 70:

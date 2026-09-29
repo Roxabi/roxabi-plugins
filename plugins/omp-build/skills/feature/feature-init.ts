@@ -102,7 +102,7 @@ export function readFacts(dir: string, labels: string[] = []): Facts {
 }
 
 /** Agent-layer command. `realpath` is an OMP builtin; bare skill:// as a bun argv is not. */
-export const TRACKER_INIT_NEXT = 'next: bun "$(realpath skill://issue-triage/triage.ts)" init'
+export const TRACKER_INIT_NEXT = 'next: T=$(realpath skill://issue-triage/triage.ts) && bun "$T" init'
 
 export function trackerNext(dry: boolean): string {
   return dry ? `${TRACKER_INIT_NEXT} --dry-run` : TRACKER_INIT_NEXT

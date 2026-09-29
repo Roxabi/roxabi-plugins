@@ -78,7 +78,7 @@ Steps: pre-flight → version → changelog → commit → preview → create-pr
 ## Step 1 — Pre-flight
 
 ```bash
-bash "$(realpath skill://promote/preflight.sh)"
+T=$(realpath skill://promote/preflight.sh) && bash "$T"
 ```
 
 Emits: `commits_ahead`, `status`, commit log, diff stat, open PRs on staging, CI check results, `hotfix_density`, and a closing `---worktree---` line naming the branch still checked out.
@@ -331,7 +331,7 @@ EOF
 
 # 2) Create or update staging→main PR (harvest + inject mandatory)
 # Exit 1 if harvest degraded (exit 3 from collect) unless --allow-degraded after human review.
-PR_URL=$(bash "$(realpath skill://promote/create-promote-pr.sh)" \
+T=$(realpath skill://promote/create-promote-pr.sh) && PR_URL=$(bash "$T" \
   --base main --head staging \
   --title "chore: promote staging to main ($VERSION)" \
   --body-file "$BODY_FILE")
@@ -412,10 +412,10 @@ NEWEST=$(gh pr list --base main --head staging --state merged --limit 1 --json m
 
 # Derived version + BASE floor — BOTH from price.sh, the sole deriver (D10). --base-only reuses
 # the deriver's own floor predicate, so the gate and finalize never diverge from a second copy.
-DERIVED=$(bash "$(realpath skill://promote/price.sh)" "$COMPONENT" "${M}^1" "$M"); RC=$?
+T=$(realpath skill://promote/price.sh) && DERIVED=$(bash "$T" "$COMPONENT" "${M}^1" "$M"); RC=$?
 { [ "$RC" -ge 1 ] && [ "$RC" -ne 10 ]; } && { echo "REFUSE: price.sh error ($RC)"; exit 1; }
 if [ "$RC" -eq 10 ]; then DERIVED=0.1.0; BASE=""; else       # first release — no floor
-  set +e; BASE=$(bash "$(realpath skill://promote/price.sh)" --base-only "$COMPONENT" "${M}^1"); BRC=$?; set -e
+  set +e; T=$(realpath skill://promote/price.sh) && BASE=$(bash "$T" --base-only "$COMPONENT" "${M}^1"); BRC=$?; set -e
   { [ "$BRC" -ge 1 ] && [ "$BRC" -ne 10 ]; } && { echo "REFUSE: price.sh --base-only error ($BRC)"; exit 1; }
   [ "$BRC" -eq 10 ] && BASE=""
 fi
