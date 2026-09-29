@@ -539,8 +539,8 @@ export async function readFacts(dir: string, opts: ReadFactsOpts = {}): Promise<
   }
 }
 
-/** Agent-layer command. `skill://` is not resolvable in a child process. */
-export const TRACKER_INIT_NEXT = 'next: bun skill://issue-triage/triage.ts init'
+/** Agent-layer command. `realpath` is an OMP builtin; bare skill:// as a bun argv is not. */
+export const TRACKER_INIT_NEXT = 'next: T=$(realpath skill://issue-triage/triage.ts) && bun "$T" init'
 
 export function trackerNext(dry: boolean): string {
   return dry ? `${TRACKER_INIT_NEXT} --dry-run` : TRACKER_INIT_NEXT
