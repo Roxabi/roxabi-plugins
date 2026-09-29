@@ -1,0 +1,11 @@
+schema_version: "1.0"
+name: acme-hooks-ok
+release:
+  model: trunk
+  post_merge: echo done
+landing:
+  mode: merge-on-green
+worktree:
+  copy: []
+  seed: []
+  setup: ""
