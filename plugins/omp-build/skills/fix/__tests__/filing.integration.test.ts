@@ -5,9 +5,9 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 /**
- * The ### Filing block of fix/SKILL.md is the command operators paste. A bare
- * `skill://` argv yields "Module not found"; the fail-closed form must reach
- * triage (or REFUSE on a realpath miss without ever invoking bun).
+ * The ### Filing fenced block (after `# write … then:`) is what operators paste.
+ * Run the whole trailing block so a multi-line fail-closed form stays green and
+ * a newline fail-open form reaches bun on a miss (#619).
  */
 const FIX = readFileSync(path.resolve(import.meta.dirname, '..', 'SKILL.md'), 'utf8')
 const TRIAGE = path.resolve(import.meta.dirname, '../../../../issue-triage/skills/issue-triage/triage.ts')
@@ -19,17 +19,20 @@ afterEach(() => {
   root = undefined
 })
 
-function filingCommand(): string {
+/** Body of the Filing ```bash fence after the `# write … then:` comment. */
+function filingBlockAfterWrite(): string {
   const block = /### Filing[\s\S]*?```bash\n([\s\S]*?)```/.exec(FIX)?.[1]
   if (!block) throw new Error('### Filing bash block missing from fix/SKILL.md')
-  // Match the create line whether or not it still uses the fail-closed form —
-  // a bare `bun skill://…` regression must run and yield Module not found.
-  const line = block
-    .split('\n')
-    .map((l) => l.trim())
-    .find((l) => /issue-triage\/triage\.ts/.test(l) && /\bcreate\b/.test(l))
-  if (!line) throw new Error('Filing create line missing')
-  return line.replace(/\s+\.\.\.\s*$/, '')
+  const lines = block.split('\n')
+  const idx = lines.findIndex((l) => /#\s*write\b.*\bthen\s*:/.test(l))
+  if (idx < 0) throw new Error('Filing "# write … then:" marker missing')
+  const tail = lines
+    .slice(idx + 1)
+    .join('\n')
+    .replace(/\s+\.\.\.\s*$/, '')
+    .trim()
+  if (!tail) throw new Error('Filing block empty after write marker')
+  return tail
 }
 
 function writeRealpathStub(bin: string, ok: boolean) {
@@ -61,9 +64,11 @@ describe('fix Filing command', () => {
 
     const fileDir = path.join(root, 'files')
     mkdirSync(fileDir)
-    const cmd = filingCommand().replaceAll('$FILE_DIR', fileDir)
-    const result = spawnSync('bash', ['-c', cmd], {
-      env: { PATH: `${bin}:${path.dirname(REAL_BUN)}:${process.env.PATH ?? ''}` },
+    const result = spawnSync('bash', ['-c', filingBlockAfterWrite()], {
+      env: {
+        PATH: `${bin}:${path.dirname(REAL_BUN)}:${process.env.PATH ?? ''}`,
+        FILE_DIR: fileDir,
+      },
       encoding: 'utf8',
     })
     const combined = `${result.stdout}\n${result.stderr}`
@@ -89,9 +94,8 @@ exit 42
 
     const fileDir = path.join(root, 'files')
     mkdirSync(fileDir)
-    const cmd = filingCommand().replaceAll('$FILE_DIR', fileDir)
-    const result = spawnSync('bash', ['-c', cmd], {
-      env: { PATH: `${bin}:/usr/bin:/bin` },
+    const result = spawnSync('bash', ['-c', filingBlockAfterWrite()], {
+      env: { PATH: `${bin}:/usr/bin:/bin`, FILE_DIR: fileDir },
       encoding: 'utf8',
     })
     expect(result.status).not.toBe(0)
