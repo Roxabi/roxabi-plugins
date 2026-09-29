@@ -249,8 +249,15 @@ describe('ownerRepoFromRemote', () => {
     ['git@github.com:acme/app.git', 'acme/app'],
     ['https://github.com/acme/app.git', 'acme/app'],
     ['ssh://git@github.com:22/acme/app', 'acme/app'],
-    ['git@ghe.acme.test:acme/app.git', 'ghe.acme.test/acme/app'],
-    ['https://ghe.acme.test/acme/app', 'ghe.acme.test/acme/app'],
+    ['https://GitHub.com/acme/app', 'acme/app'],
+    ['git@ghe.acme.test:acme/app.git', null],
+    ['https://ghe.acme.test/acme/app', null],
+    ['git@gitlab.acme.test:acme/app.git', null],
+    ['https://github.com./acme/app', null],
+    ['git@github.com.:acme/app.git', null],
+    ['acme-alias:acme/app.git', null],
+    ['ssh://git@10.0.0.7:2222/acme/app', null],
+    ['https://[::1]/acme/app', null],
     ['/srv/git/app.git', null],
     ['../app', null],
     ['file:///srv/git/acme/app.git', null],
@@ -263,18 +270,24 @@ describe('ownerRepoFromRemote', () => {
     expect(ownerRepoFromRemote(url)).toBe(repo)
   })
 
-  it('passes -R host/owner/repo for a remote that is not on github.com', async () => {
+  it.each([
+    ['a GitLab-style two-segment origin', 'git@gitlab.acme.test:acme/app.git'],
+    ['a GHE origin', 'https://ghe.acme.test/acme/app.git'],
+    ['a trailing-dot github.com origin', 'https://github.com./acme/app'],
+  ])('never calls gh for %s', async (_row, url) => {
     const seen: string[][] = []
-    await readFacts(path.join(staged, 'acme'), {
+    const facts = await readFacts(path.join(staged, 'acme'), {
       gh: (args) => {
         seen.push(args)
-        return ''
+        return 'size: M\n'
       },
-      gitRemoteUrl: () => 'git@ghe.acme.test:acme/app.git',
+      gitRemoteUrl: (remote) => (remote === 'origin' ? url : null),
       migrateLabel,
       parseYaml: recordedParseYaml('acme'),
     })
-    expect(seen[0]?.slice(0, 4)).toEqual(['label', 'list', '-R', 'ghe.acme.test/acme/app'])
+    expect(seen).toEqual([])
+    expect(plan(facts)).toContain('labels unknown (non-GitHub origin)')
+    expect(plan(facts)).not.toContain('label migration')
   })
 })
 

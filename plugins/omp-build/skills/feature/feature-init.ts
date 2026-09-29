@@ -58,7 +58,7 @@ export async function resolveMigrateLabel(
 }
 
 /** `ok`, or why the repository's labels are not known. */
-export type LabelsState = 'ok' | 'gh-failed' | 'no-origin'
+export type LabelsState = 'ok' | 'gh-failed' | 'no-origin' | 'non-github'
 /** Whether a lefthook git hook runs semctx, or why that cannot be told. */
 export type HooksState = 'present' | 'absent' | 'unreadable' | 'extends'
 
@@ -98,6 +98,7 @@ export function plan(facts: Facts): string[] {
   if (!facts.hasTracker) lines.push('tracker contract')
   if (facts.labelsState === 'gh-failed') lines.push('labels unknown (gh failed)')
   else if (facts.labelsState === 'no-origin') lines.push('labels unknown (no GitHub origin)')
+  else if (facts.labelsState === 'non-github') lines.push('labels unknown (non-GitHub origin)')
   else if (facts.legacyLabels.length) lines.push('label migration')
   else if (!facts.hasTracker) lines.push('labels')
   const hookLine = HOOK_LINES[facts.hooks]
@@ -163,9 +164,10 @@ function lines(text: string | null): string[] | null {
 }
 
 /**
- * The `gh -R` value for a git remote: `owner/repo` on github.com,
- * `host/owner/repo` on any other host. Null for a local or `file://` remote, or a
- * path that is not exactly `owner/repo`.
+ * The `gh -R` value for a git remote: `owner/repo` when the remote is on
+ * github.com, else null. Any other host (GHE, GitLab, an ssh alias, an IP,
+ * `github.com.`), a local or `file://` remote, or a path that is not exactly
+ * `owner/repo` is refused: gh would send its enterprise token to that host.
  */
 export function ownerRepoFromRemote(url: string | null): string | null {
   const text = url?.trim()
@@ -193,8 +195,7 @@ export function ownerRepoFromRemote(url: string | null): string | null {
     .replace(/\.git$/, '')
     .split('/')
   if (!host || parts.length !== 2 || !parts.every((part) => /^[\w.-]+$/.test(part))) return null
-  const slug = parts.join('/')
-  return host.toLowerCase() === 'github.com' ? slug : `${host.toLowerCase()}/${slug}`
+  return host.toLowerCase() === 'github.com' ? parts.join('/') : null
 }
 
 /** The regex literals the merge-on-green gate tests check-run names with. Unparseable ones are skipped. */
@@ -386,11 +387,18 @@ export async function readFacts(dir: string, opts: ReadFactsOpts = {}): Promise<
   const pkg = read(join(dir, 'package.json'))
   const hasLanding = /^landing:/m.test(stack)
 
-  const repo = ownerRepoFromRemote(gitRemoteUrl('origin'))
+  const origin = gitRemoteUrl('origin')
+  const repo = ownerRepoFromRemote(origin)
   const labelLines = repo
     ? lines(gh(['label', 'list', '-R', repo, '--limit', '500', '--json', 'name', '--jq', '.[].name']))
     : null
-  const labelsState: LabelsState = !repo ? 'no-origin' : labelLines === null ? 'gh-failed' : 'ok'
+  const labelsState: LabelsState = !origin?.trim()
+    ? 'no-origin'
+    : !repo
+      ? 'non-github'
+      : labelLines === null
+        ? 'gh-failed'
+        : 'ok'
   const labels = labelLines ?? []
 
   return {
