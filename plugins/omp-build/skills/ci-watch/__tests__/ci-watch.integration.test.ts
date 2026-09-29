@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -46,6 +46,14 @@ describe('non-verdict exits', () => {
 
   it('a bad timeout exits 70', () => {
     expect(exitOf(['7', '--timeout', 'bogus', '--repo', 'acme/app'])).toBe(70)
+  })
+
+  it('--since without a value exits 70', () => {
+    expect(exitOf(['7', '--repo', 'acme/app', '--since'])).toBe(70)
+  })
+
+  it('--since that is not a UTC second exits 70', () => {
+    expect(exitOf(['7', '--since', '2026-09-29T10:00:00.123Z', '--repo', 'acme/app'])).toBe(70)
   })
 })
 
@@ -501,75 +509,188 @@ fi
     expect(result.stderr).toContain('not valid YAML')
   })
 
-  function evaluateOnlyGh(dir: string, annotations: string): void {
+  // Stub gh for the evaluate-only probe. `pr view` walks `snapshots`, the
+  // check-runs lookup walks `runs` (each clamped to its last entry), and a run's
+  // annotations come from `annotations[id]` — an id without an entry fails the
+  // call. Every `api` call is logged to api.log, every walk counted in <name>.count.
+  function probeGh(
+    dir: string,
+    {
+      snapshots,
+      runs = [page()],
+      annotations = {},
+    }: { snapshots: string[]; runs?: string[]; annotations?: Record<number, string> },
+  ): void {
+    for (const [i, body] of snapshots.entries()) writeFileSync(join(dir, `snap.${i + 1}.json`), body)
+    for (const [i, body] of runs.entries()) writeFileSync(join(dir, `runs.${i + 1}.json`), body)
+    for (const [id, body] of Object.entries(annotations)) writeFileSync(join(dir, `annotations.${id}.json`), body)
     fakeGh(
       dir,
       `#!/usr/bin/env bash
 set -euo pipefail
+d="$(dirname "$0")"
+next() {
+  local n=0 f="$d/$1.count"
+  if [[ -f "$f" ]]; then n=$(cat "$f"); fi
+  n=$((n + 1))
+  echo "$n" > "$f"
+  if (( n > $2 )); then n=$2; fi
+  cat "$d/$1.$n.json"
+}
 if [[ "$1" == "api" ]]; then
-  echo "$*" >> "$CI_WATCH_API"
-  case "$*" in
-    *commits/abc/check-runs*) echo '{"total_count":2,"check_runs":[{"id":41,"name":"ci"},{"id":42,"name":"merge-on-green"}]}' ;;
-    *check-runs/42/annotations*) echo '${annotations}' ;;
+  args="$*"
+  echo "$args" >> "$d/api.log"
+  case "$args" in
+    *commits/abc/check-runs*) next runs ${runs.length} ;;
+    *check-runs/*/annotations*) id="\${args#*check-runs/}"; cat "$d/annotations.\${id%%/*}.json" ;;
     *) exit 1 ;;
   esac
   exit 0
 fi
-n=0
-if [[ -f "$CI_WATCH_COUNT" ]]; then n=$(cat "$CI_WATCH_COUNT"); fi
-n=$((n + 1))
-echo "$n" > "$CI_WATCH_COUNT"
-if [[ "$n" -le 2 ]]; then
-  cat <<'EOF'
-{"state":"OPEN","mergeStateStatus":"BLOCKED","autoMergeRequest":null,"labels":[{"name":"reviewed"}],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"name":"merge-on-green","status":"COMPLETED","conclusion":"SUCCESS"}]}
-EOF
-else
-  cat <<'EOF'
-{"state":"MERGED","mergeStateStatus":"UNKNOWN","autoMergeRequest":null,"labels":[],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"name":"merge-on-green","status":"COMPLETED","conclusion":"SUCCESS"}]}
-EOF
-fi
+next snap ${snapshots.length}
 `,
     )
   }
 
-  it('exits 6 once green when the merge-on-green run reports kit-ci not configured', () => {
+  const SINCE = '2026-09-29T10:00:00Z'
+  const EVALUATE_ONLY = 'evaluate-only: kit-ci App not configured — manual merge required (docs/kit/ci-app-setup.md)'
+  const NOT_CONFIGURED = JSON.stringify([
+    { title: 'kit-ci not configured', message: 'Auto-merge OFF (evaluate-only)', annotation_level: 'notice' },
+  ])
+  const OTHER_NOTICE = JSON.stringify([{ title: 'something else', message: 'x', annotation_level: 'notice' }])
+
+  function page(
+    ...runs: { id: number; status: string; started_at: string | null; conclusion?: string | null }[]
+  ): string {
+    return JSON.stringify({
+      total_count: runs.length,
+      check_runs: runs.map((r) => ({
+        name: 'merge-on-green',
+        conclusion: r.status === 'completed' ? 'success' : null,
+        ...r,
+      })),
+    })
+  }
+
+  function snapshot(
+    state = 'OPEN',
+    { autoMergeRequest = null as unknown, extraChecks = [] as unknown[] } = {},
+  ): string {
+    return JSON.stringify({
+      state,
+      mergeStateStatus: state === 'OPEN' ? 'BLOCKED' : 'UNKNOWN',
+      autoMergeRequest,
+      labels: state === 'OPEN' ? [{ name: 'reviewed' }] : [],
+      headRefOid: 'abc',
+      statusCheckRollup: [{ name: 'ci', status: 'COMPLETED', conclusion: 'SUCCESS' }, ...extraChecks],
+    })
+  }
+
+  const count = (dir: string, name: string) => readFileSync(join(dir, `${name}.count`), 'utf8').trim()
+  const apiLog = (dir: string) => (existsSync(join(dir, 'api.log')) ? readFileSync(join(dir, 'api.log'), 'utf8') : '')
+
+  it('exits 6 once green when the merge-on-green run of this landing reports kit-ci not configured', () => {
     const dir = mkdtempSync(join(tmpdir(), 'ci-watch-eval-only-'))
-    evaluateOnlyGh(
-      dir,
-      '[{"title":"kit-ci not configured","message":"Auto-merge OFF (evaluate-only)","annotation_level":"notice"}]',
-    )
+    probeGh(dir, {
+      snapshots: [snapshot(), snapshot(), snapshot(), snapshot('MERGED')],
+      runs: [page({ id: 42, status: 'completed', started_at: '2026-09-29T10:00:05Z' })],
+      annotations: { 42: NOT_CONFIGURED },
+    })
     const started = Date.now()
-    const result = runWatch(dir, { CI_WATCH_COUNT: join(dir, 'count'), CI_WATCH_API: join(dir, 'api') })
+    const result = runWatch(dir, {}, undefined, '30s', 'merge-on-green', ['--since', SINCE])
     expect(result.code).toBe(6)
-    expect(result.stderr).toContain(
-      'evaluate-only: kit-ci App not configured — manual merge required (docs/kit/ci-app-setup.md)',
-    )
-    expect(readFileSync(join(dir, 'count'), 'utf8').trim()).toBe('2')
+    expect(result.stderr).toContain(EVALUATE_ONLY)
+    expect(count(dir, 'snap')).toBe('3')
     expect(Date.now() - started).toBeLessThan(10_000)
   })
 
-  it('enters the merge phase unchanged when the merge-on-green run has no such annotation', () => {
+  it('a completed run without the notice is configured: the probe stops and the merge path runs unchanged', () => {
     const dir = mkdtempSync(join(tmpdir(), 'ci-watch-eval-merge-'))
-    evaluateOnlyGh(dir, '[{"title":"something else","message":"x","annotation_level":"notice"}]')
-    const api = join(dir, 'api')
-    const result = runWatch(dir, { CI_WATCH_COUNT: join(dir, 'count'), CI_WATCH_API: api })
+    probeGh(dir, {
+      snapshots: [snapshot(), snapshot(), snapshot(), snapshot(), snapshot('MERGED')],
+      runs: [page({ id: 42, status: 'completed', started_at: '2026-09-29T10:00:05Z' })],
+      annotations: { 42: OTHER_NOTICE },
+    })
+    const result = runWatch(dir, {}, undefined, '30s', 'merge-on-green', ['--since', SINCE])
     expect(result.code).toBe(0)
-    expect(readFileSync(join(dir, 'count'), 'utf8').trim()).toBe('3')
-    expect(readFileSync(api, 'utf8')).toContain('check-runs/42/annotations')
+    expect(count(dir, 'snap')).toBe('5')
+    expect(count(dir, 'runs')).toBe('1')
+  })
+
+  it('never judges a stale annotated run older than --since; the fresh configured run wins', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-eval-stale-'))
+    const stale = { id: 41, status: 'completed', started_at: '2026-09-29T09:00:00Z' }
+    probeGh(dir, {
+      snapshots: [snapshot(), snapshot(), snapshot(), snapshot(), snapshot('MERGED')],
+      runs: [page(stale), page(stale, { id: 42, status: 'completed', started_at: '2026-09-29T10:00:07Z' })],
+      annotations: { 41: NOT_CONFIGURED, 42: '[]' },
+    })
+    const result = runWatch(dir, {}, undefined, '30s', 'merge-on-green', ['--since', SINCE])
+    expect(result.code).toBe(0)
+    expect(count(dir, 'runs')).toBe('2')
+    expect(apiLog(dir)).not.toContain('check-runs/41/annotations')
+    expect(apiLog(dir)).toContain('check-runs/42/annotations')
+  })
+
+  it('keeps probing a queued run hidden by landing.required_checks until it reports kit-ci not configured', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-eval-queued-'))
+    const cwd = mkdtempSync(join(tmpdir(), 'ci-watch-eval-queued-cwd-'))
+    mkdirSync(join(cwd, '.dev'))
+    writeFileSync(join(cwd, '.dev', 'stack.yml'), 'landing:\n  required_checks: [ci]\n')
+    const queued = page({ id: 42, status: 'queued', started_at: '2026-09-29T10:00:05Z' })
+    const open = snapshot('OPEN', { extraChecks: [{ name: 'merge-on-green', status: 'QUEUED', conclusion: '' }] })
+    probeGh(dir, {
+      snapshots: [open],
+      runs: [queued, queued, queued, page({ id: 42, status: 'completed', started_at: '2026-09-29T10:00:05Z' })],
+      annotations: { 42: NOT_CONFIGURED },
+    })
+    const result = runWatch(dir, {}, cwd, '30s', 'merge-on-green', ['--since', SINCE])
+    expect(result.code).toBe(6)
+    expect(result.stderr).toContain(EVALUATE_ONLY)
+    expect(count(dir, 'runs')).toBe('4')
+  })
+
+  it('a newer skipped run does not hide the run that reports kit-ci not configured', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-eval-skipped-'))
+    probeGh(dir, {
+      snapshots: [snapshot(), snapshot(), snapshot(), snapshot('MERGED')],
+      runs: [
+        page(
+          { id: 42, status: 'completed', started_at: '2026-09-29T10:00:05Z' },
+          { id: 43, status: 'completed', conclusion: 'skipped', started_at: '2026-09-29T10:00:09Z' },
+        ),
+      ],
+      annotations: { 42: NOT_CONFIGURED, 43: '[]' },
+    })
+    const result = runWatch(dir, {}, undefined, '30s', 'merge-on-green', ['--since', SINCE])
+    expect(result.code).toBe(6)
+  })
+
+  it('of two runs since the label, the newest decides', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-eval-newest-'))
+    probeGh(dir, {
+      snapshots: [snapshot(), snapshot(), snapshot(), snapshot('MERGED')],
+      runs: [
+        page(
+          { id: 44, status: 'completed', started_at: '2026-09-29T10:00:08Z' },
+          { id: 42, status: 'completed', started_at: '2026-09-29T10:00:03Z' },
+        ),
+      ],
+      annotations: { 42: NOT_CONFIGURED, 44: '[]' },
+    })
+    const result = runWatch(dir, {}, undefined, '30s', 'merge-on-green', ['--since', SINCE])
+    expect(result.code).toBe(0)
+    expect(apiLog(dir)).not.toContain('check-runs/42/annotations')
   })
 
   it('exits 70, not 6, when the annotations lookup fails', () => {
     const dir = mkdtempSync(join(tmpdir(), 'ci-watch-eval-fail-'))
-    fakeGh(
-      dir,
-      `#!/usr/bin/env bash
-if [[ "$1" == "api" && "$*" == *commits/abc/check-runs* ]]; then echo '{"check_runs":[{"id":42,"name":"merge-on-green"}]}'; exit 0; fi
-if [[ "$1" == "api" ]]; then exit 1; fi
-cat <<'EOF'
-{"state":"OPEN","mergeStateStatus":"BLOCKED","autoMergeRequest":null,"labels":[{"name":"reviewed"}],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}]}
-EOF
-`,
-    )
-    expect(runWatch(dir).code).toBe(70)
+    probeGh(dir, {
+      snapshots: [snapshot()],
+      runs: [page({ id: 42, status: 'completed', started_at: '2026-09-29T10:00:05Z' })],
+    })
+    const result = runWatch(dir, {}, undefined, '30s', 'merge-on-green', ['--since', SINCE])
+    expect(result.code).toBe(70)
+    expect(apiLog(dir)).toContain('check-runs/42/annotations')
   })
 })

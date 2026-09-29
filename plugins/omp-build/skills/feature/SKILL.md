@@ -308,8 +308,10 @@ resolves the landing mode itself from `cwd` through `readLanding` — the same
 resolver `/ci-watch` uses: `landing.mode` in `.dev/stack.yml` (parsed as YAML),
 else merge-on-green when `.github/workflows/merge-on-green.yml` exists, else
 native. An invalid `landing` returns `bad-landing` before any gh call. Otherwise
-it adds `reviewed` and returns `{ status: 'watching', mode, watch }`; `watch`
-already carries `--merge-mode <mode>`. It does not poll. Native also enables
+it adds `reviewed` — under merge-on-green, a `reviewed` already on the PR is
+removed first so a fresh labeled run exists — and returns
+`{ status: 'watching', mode, watch }`; `watch` already carries
+`--merge-mode <mode> --since <label time>`. It does not poll. Native also enables
 merge-commit auto-merge. merge-on-green never returns `no-required-checks`.
 
 Run `watch` as an async bash job (`timeout: 0`). Map the exit with
@@ -323,7 +325,7 @@ Run `watch` as an async bash job (`timeout: 0`). Map the exit with
 | 3 | remove `reviewed` (native: also disable auto-merge), `ci-blocked` |
 | 4 | stop and report; do not claim merged |
 | 5 | `timeout`; re-attach the same watch later |
-| 6 | `evaluate-only`: merge-on-green is green but its run reports `kit-ci not configured`; gate left armed |
+| 6 | `evaluate-only`: merge-on-green is green but its run for this landing (started at or after `--since`) reports `kit-ci not configured`; gate left armed |
 | 70 | usage, missing tool, invalid `.dev/stack.yml` landing, or `gh`/`jq` failure → `watch-failed`; gate left armed |
 
 Before any push that follows a `reviewed` label, call

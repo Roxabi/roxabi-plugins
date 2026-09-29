@@ -447,7 +447,10 @@ export function readLanding(cwd) {
  * Without an explicit `landing`, the mode comes from `readLanding(cwd)`; an
  * invalid landing returns `bad-landing` before any gh call.
  * Native also enables merge-commit auto-merge. merge-on-green never returns
- * `no-required-checks` — the workflow, not the rules API, is the gate.
+ * `no-required-checks` — the workflow, not the rules API, is the gate. Under
+ * merge-on-green a `reviewed` already on the PR is removed and re-added, so a
+ * fresh labeled run exists. The watch gets `--since`, the label time (UTC, to
+ * the second), so `/ci-watch` judges only a merge-on-green run of this landing.
  */
 export async function landPr(cwd, pr, { gh: ghFn = gh, requiredContexts, landing } = {}) {
   let resolved = landing
@@ -468,6 +471,13 @@ export async function landPr(cwd, pr, { gh: ghFn = gh, requiredContexts, landing
     if (required.length === 0) return { status: 'no-required-checks' }
   }
 
+  if (resolved.mode === 'merge-on-green') {
+    const { labels = [] } = JSON.parse(await ghFn(cwd, ['pr', 'view', String(pr), '--json', 'labels']))
+    if (labels.some((label) => label?.name === 'reviewed')) {
+      await ghFn(cwd, ['pr', 'edit', String(pr), '--remove-label', 'reviewed'])
+    }
+  }
+  const since = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
   await ghFn(cwd, ['pr', 'edit', String(pr), '--add-label', 'reviewed'])
   if (resolved.mode === 'native') {
     try {
@@ -480,7 +490,7 @@ export async function landPr(cwd, pr, { gh: ghFn = gh, requiredContexts, landing
   return {
     status: 'watching',
     mode: resolved.mode,
-    watch: `bash skill://ci-watch/ci-watch.sh ${pr} --merge-mode ${resolved.mode}`,
+    watch: `bash skill://ci-watch/ci-watch.sh ${pr} --merge-mode ${resolved.mode} --since ${since}`,
   }
 }
 

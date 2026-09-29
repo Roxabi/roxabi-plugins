@@ -45,6 +45,7 @@ function mockLand({
   timeout = 60_000,
   states = ['OPEN'],
   autoMerges = [null],
+  labels = [],
 } = {}) {
   let t = 0
   const calls = []
@@ -59,6 +60,9 @@ function mockLand({
       const autoMergeRequest = autoMerges[Math.min(statePoll, autoMerges.length - 1)] ?? null
       statePoll++
       return JSON.stringify({ state, autoMergeRequest })
+    }
+    if (args[0] === 'pr' && args[1] === 'view' && fields.includes('labels')) {
+      return JSON.stringify({ labels: labels.map((name) => ({ name })) })
     }
     if (args[0] === 'pr' && args[1] === 'view') {
       const entry = rollupSequence[Math.min(poll, rollupSequence.length - 1)]
@@ -119,6 +123,23 @@ describe('landPr', () => {
     expect(result.watch).toContain('--merge-mode merge-on-green')
     expect(labeled(calls)).toBe(true)
     expect(calls.some((a) => a.includes('--auto'))).toBe(false)
+  })
+
+  it('merge-on-green re-entry with reviewed on the PR removes it, then re-adds it after the --since time', async () => {
+    const { calls, gh } = mockLand({ labels: ['reviewed'] })
+    const before = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const result = await landPr(checkout({ '.github/workflows/merge-on-green.yml': 'name: merge-on-green\n' }), 7, {
+      gh,
+    })
+    const after = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+    expect(calls).toEqual([
+      ['pr', 'view', '7', '--json', 'labels'],
+      ['pr', 'edit', '7', '--remove-label', 'reviewed'],
+      ['pr', 'edit', '7', '--add-label', 'reviewed'],
+    ])
+    const since = /--since (\S+)$/.exec(result.watch)?.[1] ?? ''
+    expect(since).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
+    expect(since >= before && since <= after).toBe(true)
   })
 
   it('native arms the label and auto-merge, then hands off the watch', async () => {

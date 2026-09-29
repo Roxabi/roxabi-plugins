@@ -9,7 +9,7 @@
 #   3  another conclusion (skipped and neutral are passing, declared list or not)
 #   4  green but unmerged (label revoked, closed, dirty)
 #   5  deadline — undetermined, re-run to resume
-#   6  evaluate-only — merge-on-green green, but its run says kit-ci is not configured
+#   6  evaluate-only — merge-on-green: the newest merge-on-green run since --since says kit-ci is not configured
 #   70 not a check verdict (usage, missing tool, gh/jq failure) — do not disarm
 EXIT_FAIL=1
 EXIT_CANCELLED=2
@@ -160,6 +160,7 @@ REPO=""
 TIMEOUT_RAW="30m"
 INTERVAL=15
 MERGE_MODE=""
+SINCE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -179,6 +180,14 @@ while [[ $# -gt 0 ]]; do
       REPO="$2"
       shift 2
       ;;
+    --since)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --since needs a UTC time, YYYY-MM-DDTHH:MM:SSZ" >&2
+        exit "$EXIT_INTERNAL"
+      fi
+      SINCE="$2"
+      shift 2
+      ;;
     --)
       shift
       break
@@ -195,7 +204,12 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$PR" ]]; then
-  echo "Usage: ci-watch.sh <pr> [--timeout 30m] [--merge-mode merge-on-green|native] [--repo owner/repo]" >&2
+  echo "Usage: ci-watch.sh <pr> [--timeout 30m] [--merge-mode merge-on-green|native] [--since <UTC time>] [--repo owner/repo]" >&2
+  exit "$EXIT_INTERNAL"
+fi
+
+if [[ -n "$SINCE" && ! "$SINCE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]; then
+  echo "Error: --since '$SINCE' is not a UTC time, YYYY-MM-DDTHH:MM:SSZ" >&2
   exit "$EXIT_INTERNAL"
 fi
 
@@ -281,19 +295,38 @@ require_snapshot() {
   fi
 }
 
-# Count of `kit-ci not configured` annotations on the merge-on-green check runs
-# of a commit. The kit workflow emits that notice when it runs evaluate-only.
+# What the kit's merge-on-green workflow resolved for this landing: the newest
+# non-skipped `merge-on-green` check run on the commit, started at or after
+# --since. A completed run with a `kit-ci not configured` annotation (the notice
+# the workflow emits when it runs evaluate-only) → unconfigured; completed
+# without it → configured; no such run yet, or not completed → pending.
 # Called in an assignment, never an `if`, so a gh/jq failure still exits 70.
-kit_ci_unconfigured_of() {
-  local sha="$1" ids id count total=0
-  ids=$(gh api --paginate "repos/$REPO/commits/$sha/check-runs?check_name=merge-on-green" |
-    jq -rs '.[] | .check_runs[]? | select(.name == "merge-on-green") | .id')
-  for id in $ids; do
-    count=$(gh api --paginate "repos/$REPO/check-runs/$id/annotations" |
-      jq -s '[.[][]? | select(.title == "kit-ci not configured")] | length')
-    total=$((total + count))
-  done
-  echo "$total"
+kit_ci_of() {
+  local sha="$1" run id status count
+  run=$(gh api --paginate "repos/$REPO/commits/$sha/check-runs?check_name=merge-on-green&filter=all" |
+    jq -rs --arg since "$SINCE" '
+      [.[] | .check_runs[]?
+        | select(.name == "merge-on-green")
+        | select((.conclusion // "" | ascii_downcase) != "skipped")
+        | select($since == "" or (.started_at // "") >= $since)]
+      | sort_by([(.started_at // ""), .id]) | last
+      | if . == null then "" else "\(.id) \(.status // "" | ascii_downcase)" end')
+  if [[ -z "$run" ]]; then
+    echo pending
+    return 0
+  fi
+  read -r id status <<<"$run"
+  if [[ "$status" != "completed" ]]; then
+    echo pending
+    return 0
+  fi
+  count=$(gh api --paginate "repos/$REPO/check-runs/$id/annotations" |
+    jq -s '[.[][]? | select(.title == "kit-ci not configured")] | length')
+  if (( count > 0 )); then
+    echo unconfigured
+  else
+    echo configured
+  fi
 }
 
 START=$SECONDS
@@ -347,13 +380,11 @@ while true; do
   esac
 done
 
+# merge-on-green only: probe the kit-ci resolution on every merge-phase poll that
+# would keep watching, until the run of this landing has completed.
+KIT_CI=off
 if [[ "$MERGE_MODE" == "merge-on-green" ]]; then
-  head_sha=$(echo "$snapshot" | jq -r .headRefOid)
-  unconfigured=$(kit_ci_unconfigured_of "$head_sha")
-  if (( unconfigured > 0 )); then
-    echo "evaluate-only: kit-ci App not configured — manual merge required (docs/kit/ci-app-setup.md)" >&2
-    exit "$EXIT_EVALUATE_ONLY"
-  fi
+  KIT_CI=pending
 fi
 
 while true; do
@@ -364,6 +395,14 @@ while true; do
   mss=$(echo "$snapshot" | jq -r .mergeStateStatus)
   eligible=$(eligible_of "$MERGE_MODE" "$snapshot")
   code=$(classify_merge_state "$state" "$mss" "$MERGE_MODE" "$eligible" "$elapsed" "$TIMEOUT")
+  if [[ "$code" == "WATCH" && "$KIT_CI" == "pending" ]]; then
+    head_sha=$(echo "$snapshot" | jq -r .headRefOid)
+    KIT_CI=$(kit_ci_of "$head_sha")
+    if [[ "$KIT_CI" == "unconfigured" ]]; then
+      echo "evaluate-only: kit-ci App not configured — manual merge required (docs/kit/ci-app-setup.md)" >&2
+      exit "$EXIT_EVALUATE_ONLY"
+    fi
+  fi
   if [[ "$code" == "WATCH" ]]; then
     sleep "$INTERVAL"
     continue
