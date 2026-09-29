@@ -25,6 +25,30 @@ function classifyRollup(rollup: unknown[]): string {
   return execFileSync(SCRIPT, ['--classify-checks'], { encoding: 'utf8', input: checksOf(rollup) }).trim()
 }
 
+function exitOf(args: string[]): number {
+  try {
+    execFileSync(SCRIPT, args, { encoding: 'utf8' })
+    return 0
+  } catch (error) {
+    if (error && typeof error === 'object' && 'status' in error && typeof error.status === 'number') return error.status
+    throw error
+  }
+}
+
+describe('non-verdict exits', () => {
+  it('an unknown flag exits 70', () => {
+    expect(exitOf(['7', '--nope'])).toBe(70)
+  })
+
+  it('a bogus merge mode exits 70', () => {
+    expect(exitOf(['7', '--merge-mode', 'bogus', '--repo', 'acme/app'])).toBe(70)
+  })
+
+  it('a bad timeout exits 70', () => {
+    expect(exitOf(['7', '--timeout', 'bogus', '--repo', 'acme/app'])).toBe(70)
+  })
+})
+
 describe('classify-merge-state', () => {
   it('maps a deadline to exit 5', () => {
     expect(classifyMerge('OPEN', 'BLOCKED', 'merge-on-green', 'true', '1800', '1800')).toBe('5')

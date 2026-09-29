@@ -4,20 +4,20 @@
 #
 # Exit codes:
 #   0  merged, or nothing to watch
-#   1  a check failed (failed-job logs printed)
+#   1  a check failed (failed-job logs printed) — only the FAIL verdict
 #   2  cancelled
 #   3  another conclusion (skipped and neutral are passing, declared list or not)
 #   4  green but unmerged (label revoked, closed, dirty)
 #   5  deadline — undetermined, re-run to resume
-#   70 internal failure (gh or jq) — not a check verdict; do not disarm
-set -Eeuo pipefail
-trap 'exit 70' ERR
-
+#   70 not a check verdict (usage, missing tool, gh/jq failure) — do not disarm
 EXIT_FAIL=1
 EXIT_CANCELLED=2
 EXIT_OTHER=3
 EXIT_UNMERGED=4
 EXIT_DEADLINE=5
+EXIT_INTERNAL=70
+set -Eeuo pipefail
+trap 'exit "$EXIT_INTERNAL"' ERR
 
 # Pure. (state, mergeStateStatus, mode, eligible, elapsed, timeout) → exit code or WATCH.
 # eligible=true means the PR is in the merge path: reviewed label (merge-on-green)
@@ -135,7 +135,7 @@ fi
 for cmd in gh jq bun; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     echo "Error: '$cmd' is required but not found on PATH." >&2
-    exit "$EXIT_FAIL"
+    exit "$EXIT_INTERNAL"
   fi
 done
 
@@ -149,7 +149,7 @@ parse_duration() {
     echo "$raw"
   else
     echo "Error: --timeout '$raw' is not <n>s, <n>m, or seconds." >&2
-    exit "$EXIT_FAIL"
+    exit "$EXIT_INTERNAL"
   fi
 }
 
@@ -183,7 +183,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     -*)
       echo "Error: unknown flag $1" >&2
-      exit "$EXIT_FAIL"
+      exit "$EXIT_INTERNAL"
       ;;
     *)
       PR="$1"
@@ -194,7 +194,7 @@ done
 
 if [[ -z "$PR" ]]; then
   echo "Usage: ci-watch.sh <pr> [--timeout 30m] [--merge-mode merge-on-green|native] [--repo owner/repo]" >&2
-  exit "$EXIT_FAIL"
+  exit "$EXIT_INTERNAL"
 fi
 
 if [[ -z "$REPO" ]]; then
@@ -211,7 +211,7 @@ if [[ -z "$MERGE_MODE" ]]; then
 fi
 if [[ "$MERGE_MODE" != "merge-on-green" && "$MERGE_MODE" != "native" ]]; then
   echo "Error: --merge-mode must be merge-on-green or native, got $MERGE_MODE" >&2
-  exit "$EXIT_FAIL"
+  exit "$EXIT_INTERNAL"
 fi
 
 REQUIRED=""
