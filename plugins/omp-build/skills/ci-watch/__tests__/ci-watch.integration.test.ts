@@ -247,7 +247,7 @@ if [[ "$n" -eq 1 ]]; then
   cat <<'EOF'
 {"state":"OPEN","mergeStateStatus":"BLOCKED","autoMergeRequest":null,"labels":[{"name":"reviewed"}],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"IN_PROGRESS","conclusion":""},{"name":"Update behind PRs","status":"COMPLETED","conclusion":"SKIPPED"}]}
 EOF
-elif [[ "$n" -le 3 ]]; then
+elif [[ "$n" -eq 2 ]]; then
   cat <<'EOF'
 {"state":"OPEN","mergeStateStatus":"BLOCKED","autoMergeRequest":null,"labels":[{"name":"reviewed"}],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"name":"Update behind PRs","status":"COMPLETED","conclusion":"SKIPPED"}]}
 EOF
@@ -260,7 +260,6 @@ fi
     )
     const count = join(dir, 'count')
     const result = runWatch(dir, { CI_WATCH_COUNT: count }, undefined, '2s')
-    expect(result.code).not.toBe(3)
     expect(result.code).toBe(4)
     expect(readFileSync(count, 'utf8').trim()).toBe('4')
   })
