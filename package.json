@@ -14,12 +14,12 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",
-    "@commitlint/cli": "^21.2.2",
+    "@commitlint/cli": "^21.2.3",
     "@commitlint/config-conventional": "^21.2.2",
     "bun-types": "^1.4.2",
     "lefthook": "^2.1.14",
     "typescript": "^7.0.2",
-    "typescript-language-server": "^6.0.0",
-    "vitest": "^5.0.1"
+    "typescript-language-server": "^6.0.1",
+    "vitest": "^5.0.2"
   }
 }
