@@ -16,7 +16,8 @@ git worktree list 2>/dev/null || echo "worktrees=none"
 echo "---orphan-worktree-shells---"
 # Leftovers that `git worktree list` misses. The scanner walks three roots:
 # `<worktree base>/<repo>/<slug>` (/feature: OMP_WORKTREE_DIR, else stack.yml worktree.base, else ~/.omp/wt), `<principal>/.claude/worktrees/` (harness), and `~/.omp/worktrees/<repo>/` (legacy leftover of the retired ensureWorktree).
-# Analyze-only — lines: path|kind|detail. See scan-orphan-worktree-shells.sh.
+# Analyze-only — full table (path|kind|detail), including unregistered+.git rows
+# that 5b shows but never pre-selects. See scan-orphan-worktree-shells.sh.
 _script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -x "$_script_dir/scan-orphan-worktree-shells.sh" ]; then
   bash "$_script_dir/scan-orphan-worktree-shells.sh" || echo "orphan_shells=error"

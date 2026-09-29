@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
-# Usage: scan-orphan-worktree-shells.sh
+# Usage: scan-orphan-worktree-shells.sh [--yes-targets]
 # Analyze-only — never deletes. Emits lines: path|kind|detail
 # kind ∈ empty_parent | unregistered
+#
+# --yes-targets: emit only rows the 5b multi-select defaults to and that `--yes`
+# may delete. `unregistered` rows that still have a `.git` are omitted (shown in
+# the full scan, never pre-selected, never deleted under `--yes`).
 #
 # Finds leftover worktree *shells* that `git worktree list` misses after
 # `git worktree remove`. It scans three roots, and nothing else:
@@ -12,12 +16,26 @@
 #   3. <worktree base>/<repo>/<slug>                  — the `/feature` root.
 #      Base is OMP_WORKTREE_DIR, else stack.yml worktree.base, else ~/.omp/wt.
 #
+# A child with `.git` is emitted only when its `gitdir:` back-pointer resolves
+# under this repo's `git rev-parse --git-common-dir`/worktrees. Otherwise it
+# belongs to another checkout sharing the basename and is never listed. The
+# principal itself (and paths under it outside `.claude/worktrees`) are skipped
+# so a mis-set `worktree.base` equal to the principal's parent cannot offer the
+# principal's own tree for deletion.
+#
 # dev-core's copy scanned ~/.grok/worktrees/<slug>/ and deleted rows from a Grok
 # `worktrees.db` via sqlite3. omp-build ships neither the Grok harness nor a
 # writer for that database, and it never puts a worktree under that root — so
 # those branches could only ever report zero, while the root this plugin does use
 # went unscanned. Both are repointed rather than copied (ADR-020 §3).
 set -euo pipefail
+
+YES_TARGETS=false
+for arg in "$@"; do
+  case "$arg" in
+    --yes-targets) YES_TARGETS=true ;;
+  esac
+done
 
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 if [ -z "$repo_root" ]; then
@@ -65,14 +83,72 @@ while IFS= read -r line; do
 done < <(git worktree list --porcelain 2>/dev/null || true)
 [ -n "$principal" ] || principal="$(canon "$repo_root")"
 
+# Absolute common dir + its worktrees/ — the only place a linked worktree's
+# `gitdir:` back-pointer may land if it belongs to this repository.
+common_dir="$(git rev-parse --git-common-dir 2>/dev/null || true)"
+case "$common_dir" in
+  '') common_dir="" ;;
+  /*) ;;
+  *) common_dir="$repo_root/$common_dir" ;;
+esac
+[ -n "$common_dir" ] && common_dir="$(canon "$common_dir")"
+ours_worktrees=""
+[ -n "$common_dir" ] && ours_worktrees="$(canon "$common_dir/worktrees" 2>/dev/null || printf '%s\n' "$common_dir/worktrees")"
+
+claude_root="$(canon "$principal/.claude/worktrees")"
+
 emit() {
   # path|kind|detail
-  printf '%s|%s|%s\n' "$1" "$2" "$3"
+  local path="$1" kind="$2" detail="$3"
+  if [ "$YES_TARGETS" = true ]; then
+    case "$kind|$detail" in
+      unregistered\|has\ .git*) return 0 ;;
+    esac
+  fi
+  printf '%s|%s|%s\n' "$path" "$kind" "$detail"
 }
 
 is_registered() {
   local p="$1"
   [ -n "${REGISTERED[$p]+x}" ]
+}
+
+# Principal itself, or anything under it outside the harness worktree root.
+# The `.claude/worktrees` scan hangs off the principal on purpose; those children
+# remain candidates. Everything else under the principal (e.g. `src/` when
+# worktree.base points at the principal's parent) is never an orphan shell.
+is_skipped_principal_path() {
+  local p="$1"
+  [ "$p" = "$principal" ] && return 0
+  case "$p" in
+    "$claude_root"|"$claude_root"/*) return 1 ;;
+    "$principal"/*) return 0 ;;
+  esac
+  return 1
+}
+
+# Resolve a linked worktree's `gitdir:` back-pointer to a canonical path.
+# Empty when `.git` is a directory (full checkout) or the file is unparseable.
+resolve_gitdir() {
+  local child="$1" gd
+  [ -f "$child/.git" ] || return 0
+  gd="$(sed -n 's/^gitdir:[[:space:]]*//p' "$child/.git" | head -n1)"
+  [ -n "$gd" ] || return 0
+  case "$gd" in
+    /*) ;;
+    *) gd="$child/$gd" ;;
+  esac
+  canon "$gd"
+}
+
+# True when gitdir lives under this repo's <common-dir>/worktrees/.
+belongs_to_this_repo() {
+  local gitdir="$1"
+  [ -n "$ours_worktrees" ] || return 1
+  case "$gitdir" in
+    "$ours_worktrees"|"$ours_worktrees"/*) return 0 ;;
+  esac
+  return 1
 }
 
 # True if directory has at least one entry (incl. hidden). Avoids
@@ -86,14 +162,18 @@ dir_has_entries() {
 }
 
 # Classify one candidate directory and emit it, unless git still tracks it.
-# `.git` present but unregistered = a half-removed worktree; empty = a leftover
-# shell; content without `.git` = an orphan (typically node_modules survived).
+# `.git` present but unregistered = a half-removed worktree of *this* repo only
+# (gitdir under our common-dir/worktrees); empty = a leftover shell; content
+# without `.git` = an orphan (typically node_modules survived).
 classify_child() {
-  local child="$1" origin="$2"
+  local child="$1" origin="$2" gitdir
   [ -e "$child" ] || return 0
   child="$(canon "$child")"
+  is_skipped_principal_path "$child" && return 0
   is_registered "$child" && return 0
   if [ -e "$child/.git" ]; then
+    gitdir="$(resolve_gitdir "$child")"
+    belongs_to_this_repo "$gitdir" || return 0
     emit "$child" "unregistered" "has .git but not in git worktree list ($origin)"
   elif ! dir_has_entries "$child"; then
     emit "$child" "empty_parent" "empty leftover after worktree remove ($origin)"
@@ -107,6 +187,8 @@ scan_root() {
   local root="$1" origin="$2"
   [ -d "$root" ] || return 0
   root="$(canon "$root")"
+  # Never treat the principal checkout as a worktree-shell root (mis-set base).
+  [ "$root" = "$principal" ] && return 0
   local children=()
   shopt -s nullglob
   children=("$root"/*)
@@ -122,10 +204,10 @@ scan_root() {
 }
 
 # --- 1) ~/.omp/worktrees/<repo>/ — legacy leftover of the retired ensureWorktree ---
-# The <repo> segment is the principal's directory name. Scoped to this repo: a
-# sibling checkout's worktrees are not ours to report on, let alone offer for
-# deletion. `$HOME` is canonicalised because git stored the resolved path for
-# the very worktrees that live here.
+# The <repo> segment is the principal's directory name. Basename alone is not a
+# repo identity — same-named checkouts share it; the gitdir check above keeps
+# another repo's live worktrees out. `$HOME` is canonicalised because git stored
+# the resolved path for the very worktrees that live here.
 OMP_WT_ROOT="${OMP_WORKTREES_ROOT:-$(canon "$HOME")/.omp/worktrees}"
 scan_root "$OMP_WT_ROOT/$(basename "$principal")" "~/.omp/worktrees"
 
@@ -133,8 +215,8 @@ scan_root "$OMP_WT_ROOT/$(basename "$principal")" "~/.omp/worktrees"
 scan_root "$principal/.claude/worktrees" ".claude/worktrees"
 
 # --- 3) <worktree base>/<repo>/ — the /feature root (OMP_WORKTREE_DIR, else stack.yml worktree.base, else ~/.omp/wt) ---
-# Scoped to this repository's directory name. A sibling repo under the same base
-# is not listed.
+# Basename scopes the directory; gitdir ownership scopes the repo. A sibling
+# checkout of the same name under the same base is not listed.
 wt_base="${OMP_WORKTREE_DIR:-}"
 if [ -z "$wt_base" ] && [ -f "$principal/.dev/stack.yml" ]; then
   wt_base="$(python3 - "$principal/.dev/stack.yml" << 'PY'
