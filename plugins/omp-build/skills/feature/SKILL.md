@@ -311,9 +311,10 @@ native. An invalid `landing` returns `bad-landing` before any gh call. Otherwise
 it adds `reviewed` — under merge-on-green, a `reviewed` already on the PR is
 removed first so a fresh labeled run exists — and returns
 `{ status: 'watching', mode, watch }`. `watch` is the absolute real path of
-`ci-watch.sh` (derived from this module), already carrying
-`--merge-mode <mode> --since <label time>`. Run that string as given — the OMP
-shell does not resolve `skill://` for a bare `bash` argv. It does not poll. Native also enables
+`ci-watch.sh` (derived from this module), carrying `--merge-mode <mode>` and,
+under merge-on-green, `--since <GitHub labeled time>` when that event can be
+read. Run that string as given — the OMP shell does not resolve `skill://` for a
+bare `bash` argv. It does not poll. Native also enables
 merge-commit auto-merge. merge-on-green never returns `no-required-checks`.
 
 Run `watch` as an async bash job (`timeout: 0`). Map the exit with
@@ -327,7 +328,7 @@ Run `watch` as an async bash job (`timeout: 0`). Map the exit with
 | 3 | remove `reviewed` (native: also disable auto-merge), `ci-blocked` |
 | 4 | stop and report; do not claim merged |
 | 5 | `timeout`; re-attach the same watch later |
-| 6 | `evaluate-only`: merge-on-green is green but its run for this landing (started at or after `--since`) reports `kit-ci not configured`; gate left armed |
+| 6 | `evaluate-only`: merge-on-green is green but its run for this landing (started at or after `--since`, or the latest run without `--since`) reports `kit-ci not configured`; gate left armed |
 | 70 | usage, missing tool, invalid `.dev/stack.yml` landing, or `gh`/`jq` failure → `watch-failed`; gate left armed |
 
 Before any push that follows a `reviewed` label, call

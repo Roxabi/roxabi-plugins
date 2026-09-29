@@ -554,6 +554,8 @@ next snap ${snapshots.length}
 
   const SINCE = '2026-09-29T10:00:00Z'
   const EVALUATE_ONLY = 'evaluate-only: kit-ci App not configured — manual merge required (docs/kit/ci-app-setup.md)'
+  const EVALUATE_ONLY_LATEST =
+    'evaluate-only: the latest merge-on-green run was evaluate-only — configure kit-ci (docs/kit/ci-app-setup.md), then re-label reviewed'
   const NOT_CONFIGURED = JSON.stringify([
     { title: 'kit-ci not configured', message: 'Auto-merge OFF (evaluate-only)', annotation_level: 'notice' },
   ])
@@ -602,6 +604,19 @@ next snap ${snapshots.length}
     expect(result.stderr).toContain(EVALUATE_ONLY)
     expect(count(dir, 'snap')).toBe('3')
     expect(Date.now() - started).toBeLessThan(10_000)
+  })
+
+  it('without --since, an annotated latest run exits 6 naming the re-label fix', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-eval-no-since-'))
+    probeGh(dir, {
+      snapshots: [snapshot(), snapshot(), snapshot(), snapshot('MERGED')],
+      runs: [page({ id: 42, status: 'completed', started_at: '2026-09-29T09:00:00Z' })],
+      annotations: { 42: NOT_CONFIGURED },
+    })
+    const result = runWatch(dir, {}, undefined, '30s', 'merge-on-green', [])
+    expect(result.code).toBe(6)
+    expect(result.stderr).toContain(EVALUATE_ONLY_LATEST)
+    expect(result.stderr).not.toContain(EVALUATE_ONLY)
   })
 
   it('a completed run without the notice is configured: the probe stops and the merge path runs unchanged', () => {

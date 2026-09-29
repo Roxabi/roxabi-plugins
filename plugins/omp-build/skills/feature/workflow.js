@@ -460,10 +460,11 @@ export function readLanding(cwd) {
  * Native also enables merge-commit auto-merge. merge-on-green never returns
  * `no-required-checks` — the workflow, not the rules API, is the gate. Under
  * merge-on-green a `reviewed` already on the PR is removed and re-added, so a
- * fresh labeled run exists. The watch gets `--since`, the label time (UTC, to
- * the second), so `/ci-watch` judges only a merge-on-green run of this landing.
- * `watch` is `bash '<real path of ci-watch.sh>' …` — the OMP shell does not
- * resolve `skill://` for a bare `bash` argv.
+ * fresh labeled run exists. After the add, `--since` is GitHub's `created_at`
+ * of that labeled event (no local clock); if the read fails, `--since` is
+ * omitted and the re-label alone scopes the probe. `watch` is
+ * `bash '<real path of ci-watch.sh>' …` — the OMP shell does not resolve
+ * `skill://` for a bare `bash` argv.
  */
 export async function landPr(cwd, pr, { gh: ghFn = gh, requiredContexts, landing } = {}) {
   let resolved = landing
@@ -490,8 +491,12 @@ export async function landPr(cwd, pr, { gh: ghFn = gh, requiredContexts, landing
       await ghFn(cwd, ['pr', 'edit', String(pr), '--remove-label', 'reviewed'])
     }
   }
-  const since = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
   await ghFn(cwd, ['pr', 'edit', String(pr), '--add-label', 'reviewed'])
+  /** @type {string} */
+  let since = ''
+  if (resolved.mode === 'merge-on-green') {
+    since = await labeledReviewedAt(cwd, pr, ghFn)
+  }
   if (resolved.mode === 'native') {
     try {
       await ghFn(cwd, ['pr', 'merge', String(pr), '--auto', '--merge'])
@@ -500,10 +505,40 @@ export async function landPr(cwd, pr, { gh: ghFn = gh, requiredContexts, landing
       if (!/already enabled/i.test(msg)) return { status: 'auto-merge-failed', armed: true }
     }
   }
+  const sinceArg = since ? ` --since ${since}` : ''
   return {
     status: 'watching',
     mode: resolved.mode,
-    watch: `bash ${shellQuote(ciWatchSh())} ${pr} --merge-mode ${resolved.mode} --since ${since}`,
+    watch: `bash ${shellQuote(ciWatchSh())} ${pr} --merge-mode ${resolved.mode}${sinceArg}`,
+  }
+}
+
+/**
+ * GitHub's time of the newest `reviewed` label on the PR. Empty when the read
+ * fails or finds nothing — callers then omit `--since`.
+ *
+ * @param {string} cwd
+ * @param {string | number} pr
+ * @param {(cwd: string, args: string[]) => Promise<string>} ghFn
+ */
+async function labeledReviewedAt(cwd, pr, ghFn) {
+  try {
+    const { nameWithOwner } = JSON.parse(await ghFn(cwd, ['repo', 'view', '--json', 'nameWithOwner']))
+    const [owner, repo] = (nameWithOwner || '').split('/')
+    if (!owner || !repo) return ''
+    const out = await ghFn(cwd, [
+      'api',
+      `repos/${owner}/${repo}/issues/${pr}/events`,
+      '--paginate',
+      '--jq',
+      '.[] | select(.event == "labeled" and .label.name == "reviewed") | .created_at',
+    ])
+    const last = String(out).trim().split('\n').filter(Boolean).at(-1)
+    if (!last) return ''
+    const since = last.replace(/\.\d+Z$/, 'Z')
+    return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(since) ? since : ''
+  } catch {
+    return ''
   }
 }
 

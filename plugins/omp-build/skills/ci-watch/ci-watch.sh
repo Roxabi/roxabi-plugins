@@ -9,7 +9,7 @@
 #   3  another conclusion (skipped and neutral are passing, declared list or not)
 #   4  green but unmerged (label revoked, closed, dirty)
 #   5  deadline — undetermined, re-run to resume
-#   6  evaluate-only — merge-on-green: the newest merge-on-green run since --since says kit-ci is not configured
+#   6  evaluate-only — merge-on-green: the newest merge-on-green run (since --since, or the latest without it) says kit-ci is not configured
 #   70 not a check verdict (usage, missing tool, gh/jq failure) — do not disarm
 EXIT_FAIL=1
 EXIT_CANCELLED=2
@@ -404,7 +404,11 @@ while true; do
     head_sha=$(echo "$snapshot" | jq -r .headRefOid)
     KIT_CI=$(kit_ci_of "$head_sha")
     if [[ "$KIT_CI" == "unconfigured" ]]; then
-      echo "evaluate-only: kit-ci App not configured — manual merge required (docs/kit/ci-app-setup.md)" >&2
+      if [[ -n "$SINCE" ]]; then
+        echo "evaluate-only: kit-ci App not configured — manual merge required (docs/kit/ci-app-setup.md)" >&2
+      else
+        echo "evaluate-only: the latest merge-on-green run was evaluate-only — configure kit-ci (docs/kit/ci-app-setup.md), then re-label reviewed" >&2
+      fi
       exit "$EXIT_EVALUATE_ONLY"
     fi
   fi

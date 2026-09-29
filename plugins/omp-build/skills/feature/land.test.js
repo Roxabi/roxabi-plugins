@@ -46,6 +46,8 @@ function mockLand({
   states = ['OPEN'],
   autoMerges = [null],
   labels = [],
+  events = '2026-09-29T10:00:05Z',
+  eventsThrow = null,
 } = {}) {
   let t = 0
   const calls = []
@@ -63,6 +65,11 @@ function mockLand({
     }
     if (args[0] === 'pr' && args[1] === 'view' && fields.includes('labels')) {
       return JSON.stringify({ labels: labels.map((name) => ({ name })) })
+    }
+    if (args[0] === 'repo') return JSON.stringify({ nameWithOwner: 'acme/app' })
+    if (args[0] === 'api' && String(args[1] ?? '').includes('/events')) {
+      if (eventsThrow) throw new Error(eventsThrow)
+      return events
     }
     if (args[0] === 'pr' && args[1] === 'view') {
       const entry = rollupSequence[Math.min(poll, rollupSequence.length - 1)]
@@ -125,21 +132,37 @@ describe('landPr', () => {
     expect(calls.some((a) => a.includes('--auto'))).toBe(false)
   })
 
-  it('merge-on-green re-entry with reviewed on the PR removes it, then re-adds it after the --since time', async () => {
-    const { calls, gh } = mockLand({ labels: ['reviewed'] })
-    const before = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+  it('merge-on-green re-entry with reviewed on the PR removes it, then re-adds it and reads the labeled event time', async () => {
+    const eventAt = '2026-09-29T10:00:05Z'
+    const { calls, gh } = mockLand({ labels: ['reviewed'], events: `2026-09-29T09:00:00Z\n${eventAt}\n` })
     const result = await landPr(checkout({ '.github/workflows/merge-on-green.yml': 'name: merge-on-green\n' }), 7, {
       gh,
     })
-    const after = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
     expect(calls).toEqual([
       ['pr', 'view', '7', '--json', 'labels'],
       ['pr', 'edit', '7', '--remove-label', 'reviewed'],
       ['pr', 'edit', '7', '--add-label', 'reviewed'],
+      ['repo', 'view', '--json', 'nameWithOwner'],
+      [
+        'api',
+        'repos/acme/app/issues/7/events',
+        '--paginate',
+        '--jq',
+        '.[] | select(.event == "labeled" and .label.name == "reviewed") | .created_at',
+      ],
     ])
-    const since = /--since (\S+)$/.exec(result.watch)?.[1] ?? ''
-    expect(since).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
-    expect(since >= before && since <= after).toBe(true)
+    expect(result.watch).toContain(`--since ${eventAt}`)
+  })
+
+  it('merge-on-green still watches when the labeled-event read fails, without --since', async () => {
+    const { calls, gh } = mockLand({ eventsThrow: 'boom' })
+    const result = await landPr('/tmp/wt', 7, {
+      gh,
+      landing: { mode: 'merge-on-green', required_checks: [] },
+    })
+    expect(result).toMatchObject({ status: 'watching', mode: 'merge-on-green' })
+    expect(result.watch).not.toContain('--since')
+    expect(calls.some((a) => a[0] === 'api' && String(a[1]).includes('/events'))).toBe(true)
   })
 
   it('native arms the label and auto-merge, then hands off the watch', async () => {
