@@ -15,8 +15,10 @@ superseded_in_part_by: [ADR-025]
 > ADR-020. They are not still law.
 >
 > **Amended 2026-09-29 by [ADR-025](025-fresh-context-per-unit-of-work.md)** — decision 1 (§3):
-> the goal session keeps the frontier and each ticket's outcome; each ticket's `/feature` §6
-> runs in a fresh agent. The goal is still the autonomy unit.
+> the goal session keeps the frontier, the base-CI read and each ticket's outcome.
+> Each ticket's `/feature` §6 runs in a fresh ticket unit, one at a time, which
+> holds the goal's standing merge approval and returns a closed outcome. The goal
+> is still the autonomy unit.
 
 ## Context
 

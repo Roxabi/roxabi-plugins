@@ -25,9 +25,12 @@ superseded_in_part_by: [ADR-024, ADR-025]
 > does not restore the `R-tester` falsify gate; the agent creates the worktree
 > from a fresh `refs/remotes/origin/<base>`.
 >
-> **Amended 2026-09-29 by [ADR-025](025-fresh-context-per-unit-of-work.md)** — §7:
-> `R-fix` still applies inline, in the session that runs it; `/feature` now runs
-> each fix round in a fresh agent spawned for that round alone.
+> **Amended 2026-09-29 by [ADR-025](025-fresh-context-per-unit-of-work.md)** — §7
+> and Negative (context hygiene): `R-fix` still applies inline, in the session that
+> runs it. `/feature` §6.5 and a standalone `dev-review` Fix now on a PR run each
+> review fix round in a fresh agent spawned for that round alone; a `ci-failed`
+> round runs its own `/feature` procedure. Each ticket and each fix round starts
+> in a fresh context.
 
 ## Context
 
@@ -186,7 +189,7 @@ Adopt **Option C**.
 - ADR-017 (principal freeze) · ADR-018 (skill homes, 2026-08-24 amendment) ·
   ADR-019 (falsify oracle — Claude product only) ·
   [ADR-024](024-one-goal-per-epic.md) (amends §3, §4, §8, §9) ·
-  [ADR-025](025-fresh-context-per-unit-of-work.md) (amends §7)
+  [ADR-025](025-fresh-context-per-unit-of-work.md) (amends §7, Negative)
 - `plugins/dev-core/omp/index.ts` (`SKILL_COMMANDS`, guards)
 - `plugins/dev-core/skills/dev-review/roster.ts` (`DISPATCHABLE`, FE/BE scoring)
 - `plugins/issue-triage/skills/shared/queries.ts` (`addSubIssue`, `addBlockedBy`)
