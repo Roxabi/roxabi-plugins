@@ -61,10 +61,10 @@ const { isPrincipal, resolveEntry } = await import(`${SKILL_DIR}/entry.js`)
 | Issue exists, session on Principal | Read it, then §3 immediately |
 | Issue exists, linked worktree | Call `resolveEntry({ cwd, principalPath, branch, ticket: issue })` |
 | `action: build` | Incomplete scope → §4; actionable ticket → §6 |
-| `action: refuse` | Name the mismatch/detached HEAD; §3, never implement here |
+| `action: refuse` | Principal, or a ticket/branch mismatch — name it; §3, never implement here |
 
-Use `isPrincipal(cwd, principalPath)` before `resolveEntry`: its legacy Principal
-hop route is not used. A branch for #N is not a branch for #M, including an epic's
+Use `isPrincipal(cwd, principalPath)` before `resolveEntry`. On the Principal it
+returns `{ action: 'refuse', reason: 'principal' }` — do not implement there. A branch for #N is not a branch for #M, including an epic's
 branch versus a child's. Read the ticket before deciding whether its scope is ready.
 
 ## 3. Issue → worktree → operator `/move`

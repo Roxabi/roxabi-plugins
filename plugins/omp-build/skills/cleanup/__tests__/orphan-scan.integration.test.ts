@@ -58,8 +58,8 @@ function symlinkedHomeFixture(): { repo: string; home: string; live: string; lin
   git('add', 'README.md')
   git('commit', '-q', '-m', 'chore: base')
 
-  // Built from the symlinked `$HOME`, the way `ensureWorktree` builds it from
-  // `os.homedir()`. Git stores the resolved path for the same worktree.
+  // ~/.omp/worktrees is a legacy leftover root the scanner still walks.
+  // Git stores the resolved path for the same worktree.
   const wtRoot = path.join(home, '.omp', 'worktrees', 'repo')
   const live = path.join(wtRoot, 'feat-1-live')
   mkdirSync(wtRoot, { recursive: true })

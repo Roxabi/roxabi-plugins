@@ -1,12 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  applyCiWatchExit,
-  disarmReviewedBeforePush,
-  evaluateRequiredRollup,
-  landPr,
-  parseLanding,
-  parseRequiredContexts,
-} from './workflow.js'
+import { applyCiWatchExit, disarmReviewedBeforePush, landPr, parseLanding, parseRequiredContexts } from './workflow.js'
 
 describe('parseRequiredContexts', () => {
   it('parses classic contexts and checks', () => {
@@ -29,17 +22,6 @@ describe('parseRequiredContexts', () => {
 
   it('returns empty set on invalid json', () => {
     expect(parseRequiredContexts('not-json').size).toBe(0)
-  })
-})
-
-describe('evaluateRequiredRollup', () => {
-  it('empty required → no-required-checks', () => {
-    expect(evaluateRequiredRollup([], [])).toEqual({ ready: false, status: 'no-required-checks' })
-  })
-
-  it('all required SUCCESS → ok', () => {
-    const checks = [{ name: 'ci', status: 'COMPLETED', conclusion: 'SUCCESS' }]
-    expect(evaluateRequiredRollup(checks, ['ci'])).toEqual({ ready: true, status: 'ok' })
   })
 })
 

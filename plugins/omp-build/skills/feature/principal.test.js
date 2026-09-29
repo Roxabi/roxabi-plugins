@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { pickPrincipal, startPointFor } from './workflow.js'
+import { pickPrincipal } from './workflow.js'
 
 describe('pickPrincipal', () => {
   it('prefers staging over main and origin/HEAD', () => {
@@ -16,15 +16,5 @@ describe('pickPrincipal', () => {
 
   it('returns null when no principal exists', () => {
     expect(pickPrincipal(new Set())).toBeNull()
-  })
-})
-
-describe('startPointFor', () => {
-  it('uses origin/staging when the remote ref exists', () => {
-    expect(startPointFor('staging', true)).toBe('origin/staging')
-  })
-
-  it('uses the local name when origin is missing', () => {
-    expect(startPointFor('main', false)).toBe('main')
   })
 })

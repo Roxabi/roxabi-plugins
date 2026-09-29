@@ -4,13 +4,12 @@
 # kind ∈ empty_parent | unregistered
 #
 # Finds leftover worktree *shells* that `git worktree list` misses after
-# `git worktree remove`. It scans the roots THIS plugin and OMP create worktrees in,
-# and nothing else:
+# `git worktree remove`. It scans three roots, and nothing else:
 #
-#   1. ~/.omp/worktrees/<repo>/<type>-<issue>-<slug>  — skills/feature/workflow.js
-#      `resolveNames`, the path `ensureWorktree` hands to `git worktree add`.
-#   2. <repo>/.claude/worktrees/<…>                   — harness-created worktrees.
-#   3. <worktree base>/<repo>/<slug>                  — OMP and agent-created worktrees.
+#   1. ~/.omp/worktrees/<repo>/                       — legacy leftover of the
+#      retired `ensureWorktree`. Still scanned; `/feature` does not write here.
+#   2. <principal>/.claude/worktrees/<…>              — harness-created worktrees.
+#   3. <worktree base>/<repo>/<slug>                  — the `/feature` root.
 #      Base is OMP_WORKTREE_DIR, else stack.yml worktree.base, else ~/.omp/wt.
 #
 # dev-core's copy scanned ~/.grok/worktrees/<slug>/ and deleted rows from a Grok
@@ -122,18 +121,18 @@ scan_root() {
   done
 }
 
-# --- 1) ~/.omp/worktrees/<repo>/ — the root ensureWorktree writes to ---
-# The <repo> segment is the principal's directory name, exactly as workflow.js
-# derives it. Scoped to this repo: a sibling checkout's worktrees are not ours to
-# report on, let alone offer for deletion. `$HOME` is canonicalised because git
-# stored the resolved path for the very worktrees that live here.
+# --- 1) ~/.omp/worktrees/<repo>/ — legacy leftover of the retired ensureWorktree ---
+# The <repo> segment is the principal's directory name. Scoped to this repo: a
+# sibling checkout's worktrees are not ours to report on, let alone offer for
+# deletion. `$HOME` is canonicalised because git stored the resolved path for
+# the very worktrees that live here.
 OMP_WT_ROOT="${OMP_WORKTREES_ROOT:-$(canon "$HOME")/.omp/worktrees}"
 scan_root "$OMP_WT_ROOT/$(basename "$principal")" "~/.omp/worktrees"
 
 # --- 2) <principal>/.claude/worktrees/* ---
 scan_root "$principal/.claude/worktrees" ".claude/worktrees"
 
-# --- 3) <worktree base>/<repo>/ — OMP /wt and agent-created worktrees ---
+# --- 3) <worktree base>/<repo>/ — the /feature root (OMP_WORKTREE_DIR, else stack.yml worktree.base, else ~/.omp/wt) ---
 # Scoped to this repository's directory name. A sibling repo under the same base
 # is not listed.
 wt_base="${OMP_WORKTREE_DIR:-}"

@@ -189,12 +189,12 @@ Never run any of these against the principal's path or its branch.
 
 ### 5b. Orphan worktree shells
 
-`git worktree list` only knows registered worktrees. After `git worktree remove`, leftovers stay behind in the two roots this plugin creates worktrees in — `~/.omp/worktrees/<repo>/` (`skills/feature/workflow.js`) and `<principal>/.claude/worktrees/`:
+`git worktree list` only knows registered worktrees. After `git worktree remove`, leftovers stay behind in the three roots the scanner walks — `<worktree base>/<repo>/<slug>` (the `/feature` root: `OMP_WORKTREE_DIR`, else `.dev/stack.yml` `worktree.base`, else `~/.omp/wt`), `<principal>/.claude/worktrees/` (harness), and `~/.omp/worktrees/<repo>/` (legacy leftover of the retired `ensureWorktree`):
 
 | kind | Example | Safe cleanup |
 |------|---------|--------------|
 | `empty_parent` | `~/.omp/worktrees/roxabi-plugins/` empty | `rmdir` (or `rm -rf` if confirmed empty) |
-| `unregistered` | partial dir (e.g. only `node_modules`) under either root and **not** in `git worktree list` | `rm -rf -- "<path>"` after confirm — **never** if the path is still a live registered ω |
+| `unregistered` | partial dir (e.g. only `node_modules`) under any of those roots and **not** in `git worktree list` | `rm -rf -- "<path>"` after confirm — **never** if the path is still a live registered ω |
 
 Source: `gather-state.sh` → `---orphan-worktree-shells---` (`path|kind|detail`). Scope is **this repo only**: the `~/.omp/worktrees/` child is named after the principal's directory, so a sibling checkout's worktrees are never listed, let alone offered for deletion.
 

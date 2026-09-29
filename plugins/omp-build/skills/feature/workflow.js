@@ -1,16 +1,12 @@
 /**
- * Deterministic core `/feature` uses: worktree names, PR open, review-loop
- * bound, and landing. No agent-stage runner and no driver.
- *
- * `ensureWorktree` creates ~/.omp/worktrees/<repo>/<type>-<issue>-<slug> from
- * the principal and never `git switch`s that checkout.
+ * Deterministic core `/feature` uses: open a PR, bound the review loop, and land.
+ * `detectPrincipal` names the base when `landPr` has none. No worktree driver.
  */
 
-export const PRINCIPALS = ['staging', 'main', 'master']
-const HOME = process.env.HOME || ''
+const PRINCIPALS = ['staging', 'main', 'master']
 
 /** Hook vars that redirect git. Same set as check-principal-branch.sh git_probe. */
-export const GIT_HOOK_VARS = [
+const GIT_HOOK_VARS = [
   'GIT_DIR',
   'GIT_WORK_TREE',
   'GIT_COMMON_DIR',
@@ -20,7 +16,7 @@ export const GIT_HOOK_VARS = [
   'GIT_CEILING_DIRECTORIES',
 ]
 
-export function stripGitHookEnv(env = process.env) {
+function stripGitHookEnv(env = process.env) {
   const out = { ...env }
   for (const key of GIT_HOOK_VARS) delete out[key]
   return out
@@ -51,10 +47,6 @@ export function pickPrincipal(present) {
   return null
 }
 
-export function startPointFor(principal, hasOrigin) {
-  return hasOrigin ? `origin/${principal}` : principal
-}
-
 async function refExists(cwd, ref) {
   try {
     await git(cwd, ['rev-parse', '--verify', '--quiet', ref])
@@ -82,78 +74,6 @@ export async function detectPrincipal(cwd) {
   const name = pickPrincipal(present)
   if (!name) throw new Error('no principal branch (staging|main|master)')
   return name
-}
-
-async function repoName(cwd) {
-  const root = await git(cwd, ['rev-parse', '--show-toplevel'])
-  return root.split('/').pop() || 'repo'
-}
-
-/** Policy: no branch without an issue. Mint first, then <type>/<issue>-<slug>. */
-export async function resolveNames({ cwd, type, slug, issue }) {
-  if (!issue) throw new Error('resolveNames: mint first')
-  if (!type || !slug) throw new Error('resolveNames: type and slug required')
-  const root = await git(cwd, ['rev-parse', '--show-toplevel'])
-  const principal = await detectPrincipal(root)
-  const name = await repoName(root)
-  return {
-    type,
-    slug,
-    issue,
-    principal,
-    branch: `${type}/${issue}-${slug}`,
-    worktree: `${HOME}/.omp/worktrees/${name}/${type}-${issue}-${slug}`,
-    principalPath: root,
-  }
-}
-
-/** Create ω from principal. Never switch principal HEAD. `names` from resolveNames. */
-export async function ensureWorktree(principalPath, names) {
-  const head = await git(principalPath, ['rev-parse', '--abbrev-ref', 'HEAD'])
-  if (!PRINCIPALS.includes(head)) {
-    throw new Error(`principal HEAD is ${head}, not staging|main|master — refuse`)
-  }
-  const resolved = names.branch ? names : await resolveNames({ cwd: principalPath, ...names })
-  const listed = await git(principalPath, ['worktree', 'list', '--porcelain'])
-  if (listed.includes(resolved.worktree)) return resolved
-
-  const dirty = await git(principalPath, ['status', '--porcelain'])
-  if (dirty) throw new Error(`principal dirty — refuse\n${dirty}`)
-
-  resolved.principal = await detectPrincipal(principalPath)
-  if (head === resolved.principal && (await refExists(principalPath, `refs/remotes/origin/${resolved.principal}`))) {
-    await git(principalPath, ['merge', '--ff-only', `origin/${resolved.principal}`])
-  }
-
-  await Bun.$`mkdir -p ${resolved.worktree.split('/').slice(0, -1).join('/')}`.quiet()
-  const branchExists = await git(principalPath, ['rev-parse', '--verify', resolved.branch])
-    .then(() => true)
-    .catch(() => false)
-  if (branchExists) {
-    await git(principalPath, ['worktree', 'add', resolved.worktree, resolved.branch])
-  } else {
-    const start = startPointFor(
-      resolved.principal,
-      await refExists(principalPath, `refs/remotes/origin/${resolved.principal}`),
-    )
-    await git(principalPath, ['worktree', 'add', '-b', resolved.branch, resolved.worktree, start])
-  }
-  return resolved
-}
-
-/**
- * Commit dirty tree if any, then push the feature branch.
- *
- * Exported since #494: `/feature` mode 2 drives commit and push from skill
- * prose, which cannot call a module-private function.
- */
-export async function commitPush(cwd, branch, message) {
-  const status = await git(cwd, ['status', '--porcelain'])
-  if (status) {
-    await git(cwd, ['add', '-A'])
-    await git(cwd, ['commit', '-m', message])
-  }
-  await git(cwd, ['push', '-u', 'origin', branch])
 }
 
 /**
@@ -392,8 +312,6 @@ export async function openPr(cwd, { issue, branch, base, title, body } = {}, { g
   return { number, status: 'created' }
 }
 
-const CI_FAILED = new Set(['FAILURE', 'CANCELLED', 'TIMED_OUT', 'STARTUP_FAILURE'])
-
 /** @param {string} apiJson */
 export function parseRequiredContexts(apiJson) {
   const out = new Set()
@@ -427,45 +345,6 @@ export function parseRequiredContexts(apiJson) {
     /* parse failure → ∅ */
   }
   return out
-}
-
-/**
- * @param {Array<{ name?: string, conclusion?: string | null, status?: string }>} checks
- * @param {string[]} required
- */
-export function evaluateRequiredRollup(checks, required) {
-  if (!required?.length) return { ready: false, status: 'no-required-checks' }
-
-  const failed = []
-  const skipped = []
-  const pending = []
-  const missing = []
-
-  for (const ctx of required) {
-    const check = checks.find((c) => c.name === ctx)
-    if (!check) {
-      missing.push(ctx)
-      pending.push(ctx)
-      continue
-    }
-    const { conclusion, status } = check
-    if (CI_FAILED.has(conclusion)) {
-      failed.push(ctx)
-      continue
-    }
-    if (conclusion === 'SKIPPED' || conclusion === 'NEUTRAL') {
-      skipped.push(ctx)
-      continue
-    }
-    if (!conclusion || conclusion === '' || status !== 'COMPLETED' || conclusion !== 'SUCCESS') {
-      pending.push(ctx)
-    }
-  }
-
-  if (failed.length) return { ready: false, status: 'ci-failed', failed }
-  if (skipped.length) return { ready: false, status: 'ci-skipped', skipped }
-  if (pending.length || missing.length) return { ready: false, status: 'pending', pending, missing }
-  return { ready: true, status: 'ok' }
 }
 
 /** @param {string} cwd @param {string | number} pr @param {(cwd: string, args: string[]) => Promise<string>} ghFn */
