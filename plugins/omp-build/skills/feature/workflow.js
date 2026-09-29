@@ -453,6 +453,11 @@ export function readLanding(cwd) {
   return parseLanding(stackText, { mergeOnGreenWorkflow })
 }
 
+/** Attempts to read a labeled-reviewed time newer than the pre-add snapshot. */
+const SINCE_ATTEMPTS = 5
+/** Delay between post-add events reads (tests inject a no-op `sleep`). */
+const SINCE_RETRY_MS = 200
+
 /**
  * Arm `reviewed` and hand the wait to `/ci-watch`. No in-process poll.
  * Without an explicit `landing`, the mode comes from `readLanding(cwd)`; an
@@ -460,13 +465,27 @@ export function readLanding(cwd) {
  * Native also enables merge-commit auto-merge. merge-on-green never returns
  * `no-required-checks` — the workflow, not the rules API, is the gate. Under
  * merge-on-green a `reviewed` already on the PR is removed and re-added, so a
- * fresh labeled run exists. After the add, `--since` is GitHub's `created_at`
- * of that labeled event (no local clock); if the read fails, `--since` is
- * omitted and the re-label alone scopes the probe. `watch` is
- * `bash '<real path of ci-watch.sh>' …` — the OMP shell does not resolve
- * `skill://` for a bare `bash` argv.
+ * fresh labeled run exists. `--since` is always GitHub's `created_at` of that
+ * new labeled event (no local clock): read the pre-add time, re-label, then
+ * retry until a strictly newer time appears. If the event stays unreadable,
+ * return `watch-failed` — never watch without `--since` under merge-on-green.
+ * `watch` is `bash '<real path of ci-watch.sh>' …` — the OMP shell does not
+ * resolve `skill://` for a bare `bash` argv.
+ *
+ * @param {string} cwd
+ * @param {string | number} pr
+ * @param {{
+ *   gh?: (cwd: string, args: string[]) => Promise<string>,
+ *   requiredContexts?: string[],
+ *   landing?: { mode: string, required_checks: string[] },
+ *   sleep?: (ms: number) => Promise<void>,
+ * }} [opts]
  */
-export async function landPr(cwd, pr, { gh: ghFn = gh, requiredContexts, landing } = {}) {
+export async function landPr(
+  cwd,
+  pr,
+  { gh: ghFn = gh, requiredContexts, landing, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {},
+) {
   let resolved = landing
   if (!resolved) {
     try {
@@ -485,17 +504,24 @@ export async function landPr(cwd, pr, { gh: ghFn = gh, requiredContexts, landing
     if (required.length === 0) return { status: 'no-required-checks' }
   }
 
+  /** @type {string} */
+  let since = ''
   if (resolved.mode === 'merge-on-green') {
+    const before = await labeledReviewedAt(cwd, pr, ghFn)
     const { labels = [] } = JSON.parse(await ghFn(cwd, ['pr', 'view', String(pr), '--json', 'labels']))
     if (labels.some((label) => label?.name === 'reviewed')) {
       await ghFn(cwd, ['pr', 'edit', String(pr), '--remove-label', 'reviewed'])
     }
-  }
-  await ghFn(cwd, ['pr', 'edit', String(pr), '--add-label', 'reviewed'])
-  /** @type {string} */
-  let since = ''
-  if (resolved.mode === 'merge-on-green') {
-    since = await labeledReviewedAt(cwd, pr, ghFn)
+    await ghFn(cwd, ['pr', 'edit', String(pr), '--add-label', 'reviewed'])
+    since = await waitLabeledSince(cwd, pr, ghFn, before, sleep)
+    if (!since) {
+      return {
+        status: 'watch-failed',
+        error: 'could not read the labeled reviewed event after re-label — merge-on-green needs --since from GitHub',
+      }
+    }
+  } else {
+    await ghFn(cwd, ['pr', 'edit', String(pr), '--add-label', 'reviewed'])
   }
   if (resolved.mode === 'native') {
     try {
@@ -509,13 +535,13 @@ export async function landPr(cwd, pr, { gh: ghFn = gh, requiredContexts, landing
   return {
     status: 'watching',
     mode: resolved.mode,
-    watch: `bash ${shellQuote(ciWatchSh())} ${pr} --merge-mode ${resolved.mode}${sinceArg}`,
+    watch: `bash ${shellQuote(ciWatchSh())} ${shellQuote(String(pr))} --merge-mode ${resolved.mode}${sinceArg}`,
   }
 }
 
 /**
  * GitHub's time of the newest `reviewed` label on the PR. Empty when the read
- * fails or finds nothing — callers then omit `--since`.
+ * fails or finds nothing.
  *
  * @param {string} cwd
  * @param {string | number} pr
@@ -540,6 +566,26 @@ async function labeledReviewedAt(cwd, pr, ghFn) {
   } catch {
     return ''
   }
+}
+
+/**
+ * After re-label, wait for a labeled-reviewed time that is strictly newer than
+ * `before` (or any non-empty time when `before` was empty). Empty when retries
+ * exhaust.
+ *
+ * @param {string} cwd
+ * @param {string | number} pr
+ * @param {(cwd: string, args: string[]) => Promise<string>} ghFn
+ * @param {string} before
+ * @param {(ms: number) => Promise<void>} sleep
+ */
+async function waitLabeledSince(cwd, pr, ghFn, before, sleep) {
+  for (let attempt = 0; attempt < SINCE_ATTEMPTS; attempt++) {
+    if (attempt > 0) await sleep(SINCE_RETRY_MS)
+    const since = await labeledReviewedAt(cwd, pr, ghFn)
+    if (since && (before === '' || since > before)) return since
+  }
+  return ''
 }
 
 async function watchPrState(cwd, pr, ghFn) {

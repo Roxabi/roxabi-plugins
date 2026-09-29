@@ -312,9 +312,11 @@ it adds `reviewed` — under merge-on-green, a `reviewed` already on the PR is
 removed first so a fresh labeled run exists — and returns
 `{ status: 'watching', mode, watch }`. `watch` is the absolute real path of
 `ci-watch.sh` (derived from this module), carrying `--merge-mode <mode>` and,
-under merge-on-green, `--since <GitHub labeled time>` when that event can be
-read. Run that string as given — the OMP shell does not resolve `skill://` for a
-bare `bash` argv. It does not poll. Native also enables
+under merge-on-green, always `--since <GitHub labeled time>` of that new event.
+If the labeled event cannot be read after re-label, `landPr` returns
+`watch-failed` — never watches without `--since` under merge-on-green. Run that
+string as given — the OMP shell does not resolve `skill://` for a bare `bash`
+argv. It does not poll. Native also enables
 merge-commit auto-merge. merge-on-green never returns `no-required-checks`.
 
 Run `watch` as an async bash job (`timeout: 0`). Map the exit with
@@ -345,7 +347,7 @@ Neither a fix round nor another review action may write that label in this cycle
 | `ci-failed` | Gate already disarmed; `step = loop.reopen('ci-failed')`; `await loop.persist(cwd)`; follow §6.6 |
 | `ci-cancelled` | Gate disarmed; stop, report the cancelled checks; operator re-runs CI then re-enters §6.7 |
 | `ci-blocked` | Gate disarmed; stop, report the checks named on stderr; operator resolves the named checks or re-runs CI, then re-enters §6.7 |
-| `watch-failed` | Stop, report the code, gate left as is; do not claim merged |
+| `watch-failed` | Stop; report the code or `land.error` (including when the labeled `reviewed` event could not be read after re-label under merge-on-green). Gate left as is; do not claim merged |
 | `evaluate-only` | Stop; report "evaluate-only — manual merge required" and `docs/kit/ci-app-setup.md`. Gate left armed; the operator merges by hand. Do not claim merged; do not wait |
 | `bad-landing` | Stop; report `land.error` (the `.dev/stack.yml` problem). Nothing was labelled or armed. Fix the stack file, then re-enter §6.7 |
 | `no-required-checks` | Stop; report missing protection. Native only, when no required context was found (declared `landing.required_checks`, protection or rulesets) — merge-on-green does not return this |

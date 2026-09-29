@@ -27,7 +27,7 @@ A pipe (`cat skill://… | bash -s`) or a copy of the script alone exits 70:
 |---|---|---|
 | `--timeout <n>s\|<n>m` | `30m` | Bounds the check phase and the merge phase together. Deadline → exit 5. |
 | `--merge-mode merge-on-green\|native` | resolved by `readLanding` in `feature/workflow.js` (the resolver `landPr` uses): `landing.mode` in `.dev/stack.yml`, else `merge-on-green` when `.github/workflows/merge-on-green.yml` exists, else `native` | merge-on-green watches the `reviewed` label. native watches `autoMergeRequest`. |
-| `--since YYYY-MM-DDTHH:MM:SSZ` | none | GitHub's time of the `reviewed` label for this landing; `landPr` reads it from the newest labeled event after the add. Under merge-on-green the evaluate-only probe judges only a `merge-on-green` run started at or after it. Without `--since`, the probe judges the newest non-skipped run of any age. Missing value or another format → exit 70. |
+| `--since YYYY-MM-DDTHH:MM:SSZ` | none | GitHub's time of the `reviewed` label for this landing; `landPr` always passes it under merge-on-green. The evaluate-only probe judges only a `merge-on-green` run started at or after it (fractional `started_at` is truncated to the second before the compare). Without `--since` (standalone only), the probe judges the newest non-skipped run of any age. Missing value or another format → exit 70. |
 | `--repo owner/repo` | `gh repo view` | Target repository. |
 | `--interval <seconds>` | `15` | Poll interval. |
 

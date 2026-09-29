@@ -310,11 +310,14 @@ kit_ci_of() {
   local sha="$1" run id status count
   run=$(gh api --paginate "repos/$REPO/commits/$sha/check-runs?check_name=merge-on-green&filter=all" |
     jq -rs --arg since "$SINCE" '
+      def trunc: sub("\\.[0-9]+Z$"; "Z");
       [.[] | .check_runs[]?
         | select(.name == "merge-on-green")
         | select((.conclusion // "" | ascii_downcase) != "skipped")
-        | select($since == "" or (.started_at // "") >= $since)]
-      | sort_by([(.started_at // ""), .id]) | last
+        | ((.started_at // "") | trunc) as $start
+        | select($since == "" or $start >= $since)
+        | . + {started_at: $start}]
+      | sort_by([.started_at, .id]) | last
       | if . == null then "" else "\(.id) \(.status // "" | ascii_downcase)" end')
   if [[ -z "$run" ]]; then
     echo pending
