@@ -63,7 +63,8 @@ Let:
   ME := `gh api user --jq .login`
   MARK := `<!-- omp-build:code-review -->` — the first line of every review `dev-review` posts
   O_commit(r) { stage only the files r changed (¬`git add -A`) → commit `fix(<scope>): <r.id> <r.title>` }
-  O_push { lint + tests (max 3 retries) → `git push` }
+  O_log(cmd) { run cmd with its output in `mktemp -t omp-build-fix-XXXXXX.log`, outside the worktree — a log left in the tree fails the next round's clean-tree check → bring back the exit code and the failing lines, never a green log }
+  O_push { O_log(lint + tests) (max 3 retries) → `git push` }
   D_subsumption := {d ∈ D | d.tag = "subsumption-violation"}
 
 Join rules, the `## Root causes` shape, and what may not join: `skill://dev-review/root-causes.md`. Read it in Phase 2.
@@ -155,7 +156,7 @@ The tree must be clean before the first cause. Uncommitted changes → halt and 
 1. Re-read every cited file.
 2. Apply `r.fix` once, so every member callsite is covered. The fix line is the change. There is no alternate solution to pick.
 3. Sweep the touched files for the same-class anti-pattern: justify or fix any uncited hit of a class already on a member finding.
-4. Run lint + the tests covering the changed files, with their output in `mktemp -t omp-build-fix-XXXXXX.log`, outside the worktree: a log left in the tree fails the next round's clean-tree check. Bring back the exit code and the failing lines, never a green log. Red → retry max 3.
+4. O_log(lint + the tests covering the changed files). Red → retry max 3.
 
 succeeds → O_commit(r) → `[applied]`, keep the commit sha.
 fails after 3, or the only change that turns the tests green widens a denylist, adds a grep, or copies an inventory list → restore the tree to the last cause commit (`git restore --staged --worktree -- .`, then delete the files r created) → `[failed]`, file r, continue with the next cause. Earlier causes keep their commits.
