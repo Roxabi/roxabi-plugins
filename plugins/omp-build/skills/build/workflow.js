@@ -753,15 +753,17 @@ export async function landPr(cwd, pr, { gh: ghFn = gh, requiredContexts, landing
   }
 }
 
-/** Map a `/ci-watch` exit. 1 disarms. 4 stops. 5 is re-attachable. */
+/** Map a `/ci-watch` exit. 1, 2 and 3 disarm. 4 stops. 5 is re-attachable. Any other code leaves the gate armed. */
 export async function applyCiWatchExit(cwd, pr, code, { mode = 'native', gh: ghFn = gh } = {}) {
   if (code === 0) return { status: 'merged' }
   if (code === 4) return { status: 'stopped' }
   if (code === 5) return { status: 'timeout' }
-  if (code === 1) {
+  if (code === 1 || code === 2 || code === 3) {
     await ghFn(cwd, ['pr', 'edit', String(pr), '--remove-label', 'reviewed'])
     if (mode === 'native') await ghFn(cwd, ['pr', 'merge', String(pr), '--disable-auto'])
-    return { status: 'ci-failed', disarmed: true }
+    if (code === 1) return { status: 'ci-failed', disarmed: true }
+    if (code === 2) return { status: 'ci-cancelled', disarmed: true }
+    return { status: 'ci-blocked', disarmed: true }
   }
   return { status: 'watch-failed', code }
 }

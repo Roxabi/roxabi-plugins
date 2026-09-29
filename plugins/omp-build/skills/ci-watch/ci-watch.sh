@@ -6,7 +6,7 @@
 #   0  merged, or nothing to watch
 #   1  a check failed (failed-job logs printed)
 #   2  cancelled
-#   3  another conclusion (including a skipped required check)
+#   3  another conclusion (skipped and neutral are passing, declared list or not)
 #   4  green but unmerged (label revoked, closed, dirty)
 #   5  deadline — undetermined, re-run to resume
 set -euo pipefail
@@ -49,16 +49,19 @@ classify_merge_state() {
   esac
 }
 
-# Pure. JSON array of {name,status,conclusion} on stdin → GREEN|FAIL|CANCEL|SKIP|PENDING|OTHER.
+# Pure. JSON array of {name,status,conclusion} on stdin → GREEN|FAIL|CANCEL|PENDING|OTHER.
+# skipped and neutral are passing, whether or not landing.required_checks names them.
 classify_checks() {
   jq -r '
     def norm: ascii_downcase;
+    def conc: (.conclusion // "" | norm);
+    def passing: conc == "success" or conc == "skipped" or conc == "neutral";
+    def failing: conc == "failure" or conc == "timed_out" or conc == "startup_failure";
     if length == 0 then "PENDING"
-    elif any((.conclusion // "" | norm) as $c | $c == "failure" or $c == "timed_out" or $c == "startup_failure") then "FAIL"
-    elif any((.conclusion // "" | norm) == "cancelled") then "CANCEL"
-    elif any((.conclusion // "" | norm) == "skipped") then "SKIP"
+    elif any(failing) then "FAIL"
+    elif any(conc == "cancelled") then "CANCEL"
     elif any((.status // "" | norm) != "completed") then "PENDING"
-    elif all((.conclusion // "" | norm) == "success") then "GREEN"
+    elif all(passing) then "GREEN"
     else "OTHER"
     end
   '
@@ -206,6 +209,23 @@ dump_failed_logs() {
     done
 }
 
+# Offending checks for a terminal verdict, one `name=conclusion` per line on stderr.
+print_offending() {
+  local kind="$1"
+  jq -r --arg kind "$kind" '
+    def norm: ascii_downcase;
+    def conc: (.conclusion // "" | norm);
+    def passing: conc == "success" or conc == "skipped" or conc == "neutral";
+    def failing: conc == "failure" or conc == "timed_out" or conc == "startup_failure";
+    .[] | select(
+      if $kind == "FAIL" then failing
+      elif $kind == "CANCEL" then conc == "cancelled"
+      else (passing | not) and (failing | not) and (conc != "cancelled")
+      end
+    ) | "\(.name)=\(.conclusion // "")"
+  ' >&2
+}
+
 START=$SECONDS
 CONFIRMED_GREEN=0
 
@@ -225,11 +245,18 @@ while true; do
   verdict=$(echo "$checks" | classify_checks)
   case "$verdict" in
     FAIL)
+      echo "$checks" | print_offending FAIL
       dump_failed_logs "$(echo "$snapshot" | jq -r .headRefOid)"
       exit "$EXIT_FAIL"
       ;;
-    CANCEL) exit "$EXIT_CANCELLED" ;;
-    SKIP | OTHER) exit "$EXIT_OTHER" ;;
+    CANCEL)
+      echo "$checks" | print_offending CANCEL
+      exit "$EXIT_CANCELLED"
+      ;;
+    OTHER)
+      echo "$checks" | print_offending OTHER
+      exit "$EXIT_OTHER"
+      ;;
     PENDING)
       CONFIRMED_GREEN=0
       sleep "$INTERVAL"

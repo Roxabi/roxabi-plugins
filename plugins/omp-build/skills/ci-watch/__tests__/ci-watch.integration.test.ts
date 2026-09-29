@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -39,15 +39,27 @@ describe('classify-merge-state', () => {
 })
 
 describe('classify-checks', () => {
-  it('aggregates green, failed, skipped, and pending', () => {
+  it('treats skipped and neutral as passing, and pending outranks them', () => {
     expect(classifyChecks('[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}]')).toBe('GREEN')
+    expect(classifyChecks('[{"name":"ci","status":"COMPLETED","conclusion":"SKIPPED"}]')).toBe('GREEN')
+    expect(classifyChecks('[{"name":"ci","status":"COMPLETED","conclusion":"Skipped"}]')).toBe('GREEN')
+    expect(
+      classifyChecks(
+        '[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"name":"lint","status":"COMPLETED","conclusion":"NEUTRAL"}]',
+      ),
+    ).toBe('GREEN')
+    expect(
+      classifyChecks(
+        '[{"name":"ci","status":"IN_PROGRESS","conclusion":""},{"name":"Update behind PRs","status":"COMPLETED","conclusion":"SKIPPED"}]',
+      ),
+    ).toBe('PENDING')
     expect(
       classifyChecks(
         '[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"name":"scan","status":"COMPLETED","conclusion":"FAILURE"}]',
       ),
     ).toBe('FAIL')
-    expect(classifyChecks('[{"name":"ci","status":"COMPLETED","conclusion":"SKIPPED"}]')).toBe('SKIP')
     expect(classifyChecks('[{"name":"ci","status":"IN_PROGRESS","conclusion":""}]')).toBe('PENDING')
+    expect(classifyChecks('[]')).toBe('PENDING')
   })
 })
 
@@ -125,5 +137,100 @@ EOF
       }
     }
     expect(code).toBe(1)
+  })
+
+  function runWatch(dir: string, extraEnv: Record<string, string> = {}, cwd?: string) {
+    const args = ['7', '--interval', '0', '--timeout', '30s', '--merge-mode', 'merge-on-green', '--repo', 'acme/app']
+    const env = { ...process.env, PATH: `${dir}:${process.env.PATH}`, ...extraEnv }
+    try {
+      const stdout = execFileSync(SCRIPT, args, { encoding: 'utf8', env, cwd })
+      return { code: 0, stdout, stderr: '' }
+    } catch (error) {
+      if (error && typeof error === 'object' && 'status' in error && typeof error.status === 'number') {
+        const failed = error as { status: number; stdout?: string; stderr?: string }
+        return { code: failed.status, stdout: failed.stdout ?? '', stderr: failed.stderr ?? '' }
+      }
+      throw error
+    }
+  }
+
+  it('keeps polling a skipped run beside an in-progress check, then merges', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-skip-'))
+    fakeGh(
+      dir,
+      `#!/usr/bin/env bash
+set -euo pipefail
+n=0
+if [[ -f "$CI_WATCH_COUNT" ]]; then n=$(cat "$CI_WATCH_COUNT"); fi
+n=$((n + 1))
+echo "$n" > "$CI_WATCH_COUNT"
+if [[ "$n" -eq 1 ]]; then
+  cat <<'EOF'
+{"state":"OPEN","mergeStateStatus":"BLOCKED","autoMergeRequest":null,"labels":[{"name":"reviewed"}],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"IN_PROGRESS","conclusion":""},{"name":"Update behind PRs","status":"COMPLETED","conclusion":"SKIPPED"}]}
+EOF
+elif [[ "$n" -le 3 ]]; then
+  cat <<'EOF'
+{"state":"OPEN","mergeStateStatus":"BLOCKED","autoMergeRequest":null,"labels":[{"name":"reviewed"}],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"name":"Update behind PRs","status":"COMPLETED","conclusion":"SKIPPED"}]}
+EOF
+else
+  cat <<'EOF'
+{"state":"MERGED","mergeStateStatus":"UNKNOWN","autoMergeRequest":null,"labels":[],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"name":"Update behind PRs","status":"COMPLETED","conclusion":"SKIPPED"}]}
+EOF
+fi
+`,
+    )
+    const count = join(dir, 'count')
+    const result = runWatch(dir, { CI_WATCH_COUNT: count })
+    expect(result.code).toBe(0)
+    expect(readFileSync(count, 'utf8').trim()).toBe('4')
+  })
+
+  it('treats a skipped check named in landing.required_checks as green', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-req-'))
+    const cwd = mkdtempSync(join(tmpdir(), 'ci-watch-req-cwd-'))
+    mkdirSync(join(cwd, '.dev'))
+    writeFileSync(join(cwd, '.dev', 'stack.yml'), 'landing:\n  required_checks:\n    - lint\n')
+    fakeGh(
+      dir,
+      `#!/usr/bin/env bash
+set -euo pipefail
+n=0
+if [[ -f "$CI_WATCH_COUNT" ]]; then n=$(cat "$CI_WATCH_COUNT"); fi
+n=$((n + 1))
+echo "$n" > "$CI_WATCH_COUNT"
+if [[ "$n" -le 2 ]]; then
+  cat <<'EOF'
+{"state":"OPEN","mergeStateStatus":"BLOCKED","autoMergeRequest":null,"labels":[{"name":"reviewed"}],"headRefOid":"abc","statusCheckRollup":[{"name":"lint","status":"COMPLETED","conclusion":"SKIPPED"},{"name":"scan","status":"COMPLETED","conclusion":"FAILURE"}]}
+EOF
+else
+  cat <<'EOF'
+{"state":"MERGED","mergeStateStatus":"UNKNOWN","autoMergeRequest":null,"labels":[],"headRefOid":"abc","statusCheckRollup":[{"name":"lint","status":"COMPLETED","conclusion":"SKIPPED"}]}
+EOF
+fi
+`,
+    )
+    const count = join(dir, 'count')
+    const result = runWatch(dir, { CI_WATCH_COUNT: count }, cwd)
+    expect(result.code).toBe(0)
+    expect(readFileSync(count, 'utf8').trim()).toBe('3')
+  })
+
+  it('exits 3 naming each offending check and conclusion', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-other-'))
+    fakeGh(
+      dir,
+      `#!/usr/bin/env bash
+set -euo pipefail
+cat <<'EOF'
+{"state":"OPEN","mergeStateStatus":"BLOCKED","autoMergeRequest":null,"labels":[{"name":"reviewed"}],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"name":"Update behind PRs","status":"COMPLETED","conclusion":"SKIPPED"},{"name":"rules","status":"COMPLETED","conclusion":"ACTION_REQUIRED"},{"name":"policy","status":"COMPLETED","conclusion":"STALE"}]}
+EOF
+`,
+    )
+    const result = runWatch(dir)
+    expect(result.code).toBe(3)
+    expect(result.stderr).toContain('rules=ACTION_REQUIRED')
+    expect(result.stderr).toContain('policy=STALE')
+    expect(result.stderr).not.toContain('ci=SUCCESS')
+    expect(result.stderr).not.toContain('Update behind PRs=SKIPPED')
   })
 })

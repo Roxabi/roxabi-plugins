@@ -171,6 +171,42 @@ describe('applyCiWatchExit', () => {
     })
     expect(call(calls, disablesAuto)).toBeGreaterThan(call(calls, removesLabel))
   })
+
+  it.each([
+    [2, 'ci-cancelled'],
+    [3, 'ci-blocked'],
+  ])('exit %s on merge-on-green disarms reviewed only → %s', async (code, status) => {
+    const { gh, calls } = mockLand()
+    expect(await applyCiWatchExit('/tmp/wt', 7, code, { mode: 'merge-on-green', gh })).toEqual({
+      status,
+      disarmed: true,
+    })
+    expect(calls).toEqual([['pr', 'edit', '7', '--remove-label', 'reviewed']])
+  })
+
+  it.each([
+    [2, 'ci-cancelled'],
+    [3, 'ci-blocked'],
+  ])('exit %s on native removes the label then disables auto-merge → %s', async (code, status) => {
+    const { gh, calls } = mockLand()
+    expect(await applyCiWatchExit('/tmp/wt', 7, code, { mode: 'native', gh })).toEqual({
+      status,
+      disarmed: true,
+    })
+    expect(calls).toEqual([
+      ['pr', 'edit', '7', '--remove-label', 'reviewed'],
+      ['pr', 'merge', '7', '--disable-auto'],
+    ])
+  })
+
+  it('an unmapped exit leaves the gate armed', async () => {
+    const { gh, calls } = mockLand()
+    expect(await applyCiWatchExit('/tmp/wt', 7, 9, { mode: 'native', gh })).toEqual({
+      status: 'watch-failed',
+      code: 9,
+    })
+    expect(calls).toEqual([])
+  })
 })
 
 describe('disarmReviewedBeforePush', () => {

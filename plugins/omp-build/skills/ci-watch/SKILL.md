@@ -25,16 +25,16 @@ No plugin-root token. `skill://` resolves to the installed copy.
 | `--repo owner/repo` | `gh repo view` | Target repository. |
 | `--interval <seconds>` | `15` | Poll interval. |
 
-Checks watched: every run on the PR head, or exactly `landing.required_checks` when that list is declared. A green result waits one more poll so a late run is not missed.
+Checks watched: every run on the PR head, or exactly `landing.required_checks` when that list is declared. `skipped` and `neutral` are passing either way — a declared required check with either conclusion does not stop the watch and does not block `GREEN`. GitHub counts both as passing for a required context. A green result waits one more poll so a late run is not missed.
 
 ## Exit codes
 
 | Code | Meaning |
 |---|---|
 | 0 | Merged, or nothing to watch (native mode, no auto-merge). |
-| 1 | A check failed. Failed-job logs are printed. |
-| 2 | Cancelled. |
-| 3 | Another conclusion, including a skipped required check. |
+| 1 | A check failed. Failed-job logs are printed, and each failing check as `name=conclusion` on stderr. |
+| 2 | Cancelled. Each cancelled check is printed as `name=conclusion` on stderr. |
+| 3 | Another conclusion. Offending checks are printed on stderr as `name=conclusion`. Skipped and neutral are not this code, declared list or not. |
 | 4 | Green but unmerged. Under merge-on-green, the `reviewed` label disappearing is this code. |
 | 5 | Deadline. Undetermined — re-run to resume. |
 
