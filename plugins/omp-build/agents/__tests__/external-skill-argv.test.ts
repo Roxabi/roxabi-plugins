@@ -25,12 +25,6 @@ import { describe, expect, it } from 'vitest'
 const REPO = path.resolve(import.meta.dirname, '../../../..')
 const PLUGINS = path.join(REPO, 'plugins')
 
-/**
- * #627 rewrites cleanup's bare bash skill:// sites. Until that PR lands on main,
- * allow-list only this file; remove the entry once merged.
- */
-const ALLOWED = new Set(['plugins/omp-build/skills/cleanup/SKILL.md'])
-
 /** Languages that are never shell, even when the fence body looks shellish. */
 const NON_SHELL_LANG = new Set([
   'js',
@@ -309,24 +303,15 @@ describe('external programs never take bare skill:// argv', () => {
     expect(corpus.length).toBeGreaterThan(80)
   })
 
-  it('finds no unsafe skill:// in shell contexts outside the temporary allow-list', () => {
+  it('finds no unsafe skill:// in shell contexts across the corpus', () => {
     const hits: string[] = []
     for (const rel of corpus) {
-      if (ALLOWED.has(rel)) continue
       const text = readFileSync(path.join(REPO, rel), 'utf8')
       for (const ctx of shellContexts(text)) {
         for (const hit of skillArgvHits(ctx)) hits.push(`${rel}: ${hit}`)
       }
     }
     expect(hits).toEqual([])
-  })
-
-  it('keep the allow-list honest: every entry still hits today', () => {
-    for (const rel of ALLOWED) {
-      const text = readFileSync(path.join(REPO, rel), 'utf8')
-      const found = shellContexts(text).some((ctx) => skillArgvHits(ctx).length > 0)
-      expect(found, rel).toBe(true)
-    }
   })
 })
 

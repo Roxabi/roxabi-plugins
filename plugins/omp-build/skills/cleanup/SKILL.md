@@ -75,7 +75,7 @@ If both set: `REPORT_ONLY` wins — no mutations.
 ### 1. Gather State
 
 ```bash
-bash "$(realpath skill://cleanup/gather-state.sh)"
+T=$(realpath skill://cleanup/gather-state.sh) && bash "$T"
 ```
 
 Emits: `current`, branch list with tracking info, worktree list, **orphan worktree shells** (`---orphan-worktree-shells---` via `scan-orphan-worktree-shells.sh`), open PRs, closed PRs with pipeline labels, and queued/stuck CI runs. Unscoped — always full-repo; Steps 7–8 (label/CI sweeps) and the orphan-shell scan consume gather-state as-is regardless of `--scope` (see Options).
@@ -88,13 +88,17 @@ Emits: `current`, branch list with tracking info, worktree list, **orphan worktr
 # the trade knowingly: a possibly stale mirror (and so a possibly stale BASE)
 # rather than a write. Interactive runs still fetch, because the deletions that
 # follow are priced on a fresh base.
+T=$(realpath skill://cleanup/analyze-branches.sh) || {
+  printf 'REFUSE: cannot resolve skill://cleanup/analyze-branches.sh\n'
+  exit 1
+}
 FETCH_ARG=""
 [ "$REPORT_ONLY" = true ] && FETCH_ARG="--no-fetch"
 
 if [ -n "$SCOPE" ]; then
-  bash "$(realpath skill://cleanup/analyze-branches.sh)" $FETCH_ARG --scope "$SCOPE"
+  bash "$T" $FETCH_ARG --scope "$SCOPE"
 else
-  bash "$(realpath skill://cleanup/analyze-branches.sh)" $FETCH_ARG
+  bash "$T" $FETCH_ARG
 fi
 ```
 
@@ -217,7 +221,7 @@ Orphan worktree shells
 
 If `REPORT_ONLY=true` → print table and skip deletion. Else → multi-select; always offer "Skip".
 
-**Defaults / `--yes` set:** **only** the rows `bash "$(realpath skill://cleanup/scan-orphan-worktree-shells.sh)" --yes-targets` emits — an allowlist of `empty_parent` rows (proven-empty real directories, outside any git work tree, no symlink component below the trusted anchor). `empty_untracked` and `unregistered` need per-row confirmation (`rmdir` / `rm -rf`). `inside_worktree`, `nested_git`, `symlink_root`, `symlink`, `dangling_git`, `not_a_dir`, `unreadable`, and `unsafe_name` are **not selectable** — never offered, even per row.
+**Defaults / `--yes` set:** **only** the rows `T=$(realpath skill://cleanup/scan-orphan-worktree-shells.sh) && bash "$T" --yes-targets` emits — an allowlist of `empty_parent` rows (proven-empty real directories, outside any git work tree, no symlink component below the trusted anchor). `empty_untracked` and `unregistered` need per-row confirmation (`rmdir` / `rm -rf`). `inside_worktree`, `nested_git`, `symlink_root`, `symlink`, `dangling_git`, `not_a_dir`, `unreadable`, and `unsafe_name` are **not selectable** — never offered, even per row.
 
 #### 5b-execute (confirmed only)
 

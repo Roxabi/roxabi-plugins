@@ -72,11 +72,12 @@ describe('--report-only', () => {
     expect(step2, 'Step 2 section').toBeDefined()
     expect(step2).toMatch(/REPORT_ONLY.*=.*true.*--no-fetch/)
     expect(step2).toMatch(/stale/)
-    const invocations = step2?.match(/bash "\$\(realpath skill:\/\/cleanup\/analyze-branches\.sh\)".*/g) ?? []
+    const invocations = step2?.match(/bash "\$T".*/g) ?? []
     expect(invocations.length).toBeGreaterThan(0)
     for (const invocation of invocations) {
       expect(invocation).toContain('$FETCH_ARG')
     }
+    expect(step2).toMatch(/T=\$\(realpath skill:\/\/cleanup\/analyze-branches\.sh\) \|\| \{[\s\S]*?\bexit 1\b/)
   })
 })
 
@@ -91,7 +92,7 @@ describe('5b orphan shells', () => {
     const defaults = /^\*\*Defaults \/ `--yes` set:\*\* (.*)$/m.exec(step5b!)?.[1]
     expect(defaults, 'Defaults sentence').toBeDefined()
     expect(defaults!.startsWith('**only** the rows')).toBe(true)
-    expect(defaults).toMatch(/scan-orphan-worktree-shells\.sh\)" --yes-targets/)
+    expect(defaults).toMatch(/scan-orphan-worktree-shells\.sh\) && bash "\$T" --yes-targets/)
 
     const fence = /#### 5b-execute[\s\S]*?```bash\n([\s\S]*?)```/.exec(step5b!)?.[1]
     expect(fence, '5b-execute fence').toBeDefined()

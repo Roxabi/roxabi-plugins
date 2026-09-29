@@ -628,9 +628,9 @@ describe('cleanup orphan scan repo scope (#622)', () => {
       const full = scan(repo, env)
       const yesTargets = scan(repo, env, ['--yes-targets'])
       expect(kinds(full, locked)).toEqual(['unreadable'])
-      expect(full.some((line) => line.startsWith(`${locked}|unreadable|`) && line.includes('not readable/searchable'))).toBe(
-        true,
-      )
+      expect(
+        full.some((line) => line.startsWith(`${locked}|unreadable|`) && line.includes('not readable/searchable')),
+      ).toBe(true)
       expect(yesTargets.map(pathOf)).toEqual([emptyOk])
     } finally {
       chmodSync(locked, 0o700)
