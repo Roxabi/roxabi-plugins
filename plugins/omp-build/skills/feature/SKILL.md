@@ -309,7 +309,7 @@ Run `watch` as an async bash job (`timeout: 0`). Map the exit with
 
 | Exit | Result |
 |---|---|
-| 0 | `merged` |
+| 0 | re-read state: MERGED → `merged`; otherwise `stopped` (do not claim merged) |
 | 1 | remove `reviewed` (native: also disable auto-merge), `ci-failed`, then `loop.reopen('ci-failed')` |
 | 2 | remove `reviewed` (native: also disable auto-merge), `ci-cancelled` |
 | 3 | remove `reviewed` (native: also disable auto-merge), `ci-blocked` |
