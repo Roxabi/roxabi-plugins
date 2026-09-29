@@ -1,8 +1,8 @@
-import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { git as gitIn, initRepo, scan as scanRepo } from './fixture'
 
 /**
  * #536 F2: the scanner compares a path git gave it against a path it built out
@@ -17,19 +17,6 @@ import { afterEach, describe, expect, it } from 'vitest'
  * construction. This one puts a symlink between them, exactly where a real home
  * puts one.
  */
-const SCAN = path.resolve(import.meta.dirname, '..', 'scan-orphan-worktree-shells.sh')
-
-/** GIT_DIR/GIT_WORK_TREE beat `cwd` and a hook exports them (#532) — strip them. */
-const FIXTURE_ENV: NodeJS.ProcessEnv = {
-  ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))),
-  GIT_CONFIG_GLOBAL: '/dev/null',
-  GIT_CONFIG_SYSTEM: '/dev/null',
-  GIT_AUTHOR_NAME: 'Fixture',
-  GIT_AUTHOR_EMAIL: 'fixture@example.com',
-  GIT_COMMITTER_NAME: 'Fixture',
-  GIT_COMMITTER_EMAIL: 'fixture@example.com',
-}
-
 let root: string | undefined
 
 afterEach(() => {
@@ -50,13 +37,8 @@ function symlinkedHomeFixture(): { repo: string; home: string; live: string; lin
   symlinkSync(realHome, home)
 
   const repo = path.join(root, 'repo')
-  mkdirSync(repo)
-  const git = (...args: string[]) =>
-    execFileSync('git', args, { cwd: repo, env: { ...FIXTURE_ENV, HOME: home }, stdio: 'ignore' })
-  git('init', '-q', '-b', 'main')
-  writeFileSync(path.join(repo, 'README.md'), 'base\n')
-  git('add', 'README.md')
-  git('commit', '-q', '-m', 'chore: base')
+  initRepo(repo, home)
+  const git = (...args: string[]) => gitIn(repo, home, ...args)
 
   // ~/.omp/worktrees is a legacy leftover root the scanner still walks.
   // Git stores the resolved path for the same worktree.
@@ -80,14 +62,7 @@ function symlinkedHomeFixture(): { repo: string; home: string; live: string; lin
   return { repo, home, live, linked, orphan }
 }
 
-function scan(repo: string, home: string): string[] {
-  const out = execFileSync('bash', [SCAN], {
-    cwd: repo,
-    env: { ...FIXTURE_ENV, HOME: home },
-    encoding: 'utf8',
-  })
-  return out.split('\n').filter((line) => line.includes('|'))
-}
+const scan = (repo: string, home: string) => scanRepo(repo, { HOME: home })
 
 describe('orphan scan under a symlinked home', () => {
   it('never reports a registered worktree as an orphan', () => {
@@ -114,7 +89,7 @@ describe('orphan scan under a symlinked home', () => {
     expect(reported.map((p) => realpathSync(p))).not.toContain(realpathSync(linked))
   })
 
-  it('emits canonical paths, the spelling git registers and the operator deletes', () => {
+  it('emits symlink-free paths under a canonical anchor, the spelling git registers', () => {
     const { repo, home } = symlinkedHomeFixture()
     const reported = scan(repo, home).map((line) => line.split('|')[0])
     expect(reported.length).toBeGreaterThan(0)

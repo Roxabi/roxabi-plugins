@@ -149,6 +149,25 @@ describe('cleanup orphan scan repo scope (#622)', () => {
     expect(full.some((line) => pathOf(line) === stale && line.includes('has .git'))).toBe(true)
   })
 
+  it('never lists a checkout whose gitdir is this repo but not under its worktrees/', () => {
+    // A `.git` pointing at `<common>/modules/…` (a submodule work tree) is not a
+    // worktree shell, even though it names this repository's git dir.
+    const { root, home, base } = tempRoot('modules')
+    const repo = path.join(root, 'app')
+    initRepo(repo, home)
+    const common = commonDir(repo, home)
+    mkdirSync(path.join(common, 'modules', 'vendored'), { recursive: true })
+    const sub = path.join(base, 'app', 'vendored')
+    mkdirSync(sub, { recursive: true })
+    writeFileSync(path.join(sub, '.git'), `gitdir: ${path.join(common, 'modules', 'vendored')}\n`)
+    const emptyOk = path.join(base, 'app', 'empty-ok')
+    mkdirSync(emptyOk)
+
+    const full = scan(repo, { HOME: home, OMP_WORKTREE_DIR: base })
+    expect(mentions(full, sub)).toEqual([])
+    expect(kinds(full, emptyOk)).toEqual(['empty_parent'])
+  })
+
   it('shows a symlink child as symlink and never follows it', () => {
     const { root, home, base } = tempRoot('symlink')
     const outside = path.join(root, 'important')
@@ -187,6 +206,41 @@ describe('cleanup orphan scan repo scope (#622)', () => {
     expect(scan(principal, env, ['--yes-targets']).map(pathOf)).toEqual([emptySibling])
   })
 
+  it('never lists a base child that contains a registered worktree of this repo', () => {
+    const { root, home, base } = tempRoot('contains-reg')
+    const repo = path.join(root, 'app')
+    initRepo(repo, home)
+    const holder = path.join(base, 'app', 'feat')
+    const live = path.join(holder, '7-ours')
+    mkdirSync(holder, { recursive: true })
+    git(repo, home, 'worktree', 'add', '-q', live, '-b', 'feat/7-ours')
+    writeFileSync(path.join(holder, 'notes.txt'), 'wip\n')
+    const emptyOk = path.join(base, 'app', 'empty-ok')
+    mkdirSync(emptyOk)
+
+    const full = scan(repo, { HOME: home, OMP_WORKTREE_DIR: base })
+    expect(mentions(full, holder)).toEqual([])
+    expect(kinds(full, emptyOk)).toEqual(['empty_parent'])
+  })
+
+  it('never lists anything under a registered worktree sitting at <base>/<repo>', () => {
+    const { root, home, base } = tempRoot('under-reg')
+    const repo = path.join(root, 'app')
+    initRepo(repo, home)
+    const live = path.join(base, 'app')
+    mkdirSync(base, { recursive: true })
+    git(repo, home, 'worktree', 'add', '-q', live, '-b', 'feat/8-at-root')
+    mkdirSync(path.join(live, 'scratch'))
+    writeFileSync(path.join(live, 'scratch', 'wip.md'), 'wip\n')
+    mkdirSync(path.join(live, 'empty-in-live'))
+    const emptyOk = path.join(home, '.omp', 'worktrees', 'app', 'empty-ok')
+    mkdirSync(emptyOk, { recursive: true })
+
+    const full = scan(repo, { HOME: home, OMP_WORKTREE_DIR: base })
+    expect(mentions(full, live)).toEqual([])
+    expect(kinds(full, emptyOk)).toEqual(['empty_parent'])
+  })
+
   it('marks a copy of a live worktree of this repo as inside_worktree, never rm -rf-able', () => {
     // Its `.git` names this repo's live `worktrees/<id>`: ownership is proven,
     // but git still resolves it as a work tree, so it is live work, not a shell.
@@ -206,6 +260,22 @@ describe('cleanup orphan scan repo scope (#622)', () => {
     const full = scan(repo, { HOME: home, OMP_WORKTREE_DIR: base })
     expect(kinds(full, copy)).toEqual(['inside_worktree'])
     expect(kinds(full, emptyOk)).toEqual(['empty_parent'])
+  })
+
+  it('shows a dangling .git with content as dangling_git, never selectable', () => {
+    const { root, home, base } = tempRoot('dangling')
+    const repo = path.join(root, 'app')
+    initRepo(repo, home)
+    const shell = path.join(base, 'app', 'feat-6-dangling')
+    mkdirSync(path.join(shell, 'src'), { recursive: true })
+    writeFileSync(path.join(shell, 'src', 'wip.ts'), 'export {}\n')
+    symlinkSync(path.join(root, 'gone', '.git'), path.join(shell, '.git'))
+    const emptyOk = path.join(base, 'app', 'empty-ok')
+    mkdirSync(emptyOk)
+
+    const env = { HOME: home, OMP_WORKTREE_DIR: base }
+    expect(kinds(scan(repo, env), shell)).toEqual(['dangling_git'])
+    expect(scan(repo, env, ['--yes-targets']).map(pathOf)).toEqual([emptyOk])
   })
 
   it('cannot forge a row: control characters and pipes become one escaped unsafe_name row', () => {

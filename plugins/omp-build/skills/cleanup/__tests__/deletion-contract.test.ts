@@ -36,9 +36,7 @@ describe('executed deletion templates', () => {
     const unquoted = DELETION_LINES.filter((line) => /<[a-z-]+>/.test(line)).filter(
       (line) => !/--\s+"<[a-z-]+>"/.test(line),
     )
-    // `rmdir -- "<path>" 2>/dev/null || rm -rf -- "<path>"` is one line carrying
-    // two templates; each half must satisfy the rule, hence the filter runs on
-    // the whole line and the failure prints it verbatim.
+    // The filter runs on the whole line, so a failure prints it verbatim.
     expect(unquoted).toEqual([])
   })
 
@@ -74,8 +72,24 @@ describe('--report-only', () => {
     expect(step2, 'Step 2 section').toBeDefined()
     expect(step2).toMatch(/REPORT_ONLY.*=.*true.*--no-fetch/)
     expect(step2).toMatch(/stale/)
-    for (const invocation of step2?.match(/bash "\$\(realpath skill:\/\/cleanup\/analyze-branches\.sh\)".*/g) ?? []) {
+    const invocations = step2?.match(/bash "\$\(realpath skill:\/\/cleanup\/analyze-branches\.sh\)".*/g) ?? []
+    expect(invocations.length).toBeGreaterThan(0)
+    for (const invocation of invocations) {
       expect(invocation).toContain('$FETCH_ARG')
     }
+  })
+})
+
+describe('5b orphan shells', () => {
+  it('takes the --yes set from --yes-targets and deletes it with rmdir, never rm -rf', () => {
+    // The scanner's allowlist only protects anything if the executed layer uses
+    // it: defaults and `--yes` must come from `--yes-targets`, and the command
+    // they run must be one that refuses a non-empty directory.
+    const step5b = /### 5b\. Orphan worktree shells[\s\S]*?\n### /.exec(SKILL)?.[0]
+    expect(step5b, 'Step 5b section').toBeDefined()
+    expect(step5b).toMatch(/scan-orphan-worktree-shells\.sh\)" --yes-targets/)
+    expect(step5b).toMatch(/^rmdir -- "<path>"$/m)
+    const fallback = DELETION_LINES.filter((line) => /rmdir/.test(line) && /rm -rf/.test(line))
+    expect(fallback).toEqual([])
   })
 })

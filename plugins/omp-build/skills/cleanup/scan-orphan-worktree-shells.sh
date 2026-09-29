@@ -49,9 +49,14 @@ if [ -z "$repo_root" ]; then
 fi
 
 # canon: physical path, missing components allowed. lexical: `.`/`..` folded
-# without resolving symlinks.
-canon() { realpath -m -- "$1"; }
-lexical() { realpath -ms -- "$1"; }
+# without resolving symlinks. GNU realpath has both; elsewhere use python3.
+if realpath -m / >/dev/null 2>&1; then
+  canon() { realpath -m -- "$1"; }
+  lexical() { realpath -ms -- "$1"; }
+else
+  canon() { python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"; }
+  lexical() { python3 -c 'import os, sys; print(os.path.normpath(sys.argv[1]))' "$1"; }
+fi
 
 declare -A REGISTERED=()
 principal=""

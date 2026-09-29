@@ -2,9 +2,15 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
-/** GIT_DIR/GIT_WORK_TREE beat `cwd` and a hook exports them (#532) — strip them. */
+/**
+ * GIT_DIR/GIT_WORK_TREE beat `cwd` and a hook exports them (#532); an operator's
+ * OMP_WORKTREE_DIR / OMP_WORKTREES_ROOT would point the scan at their real
+ * roots. Strip both families so every suite sees only what it sets.
+ */
 export const FIXTURE_ENV: NodeJS.ProcessEnv = {
-  ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))),
+  ...Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_') && !key.startsWith('OMP_WORKTREE')),
+  ),
   GIT_CONFIG_GLOBAL: '/dev/null',
   GIT_CONFIG_SYSTEM: '/dev/null',
   GIT_AUTHOR_NAME: 'Fixture',
