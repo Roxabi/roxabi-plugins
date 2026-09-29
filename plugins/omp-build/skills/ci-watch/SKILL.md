@@ -25,7 +25,7 @@ No plugin-root token. `skill://` resolves to the installed copy.
 | `--repo owner/repo` | `gh repo view` | Target repository. |
 | `--interval <seconds>` | `15` | Poll interval. |
 
-Checks watched: every run on the PR head, or exactly `landing.required_checks` when that list is declared. `skipped` and `neutral` are passing either way — a declared required check with either conclusion does not stop the watch and does not block `GREEN`. GitHub counts both as passing for a required context. A green result waits one more poll so a late run is not missed.
+Checks watched: every run on the PR head, or exactly `landing.required_checks` when that list is declared. A commit status (`state`, no `conclusion`) is normalised first: `SUCCESS` passes, `PENDING` and `EXPECTED` stay pending, `FAILURE` and `ERROR` fail; a check run is left unchanged. `skipped` and `neutral` are passing either way — a declared required check with either conclusion does not stop the watch and does not block `GREEN`. GitHub counts both as passing for a required context. A green result waits one more poll so a late run is not missed.
 
 ## Exit codes
 

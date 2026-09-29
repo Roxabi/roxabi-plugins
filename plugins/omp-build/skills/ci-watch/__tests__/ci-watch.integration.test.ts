@@ -14,6 +14,17 @@ function classifyChecks(json: string): string {
   return execFileSync(SCRIPT, ['--classify-checks'], { encoding: 'utf8', input: json }).trim()
 }
 
+function checksOf(rollup: unknown[]): string {
+  return execFileSync(SCRIPT, ['--checks-of'], {
+    encoding: 'utf8',
+    input: JSON.stringify({ statusCheckRollup: rollup }),
+  })
+}
+
+function classifyRollup(rollup: unknown[]): string {
+  return execFileSync(SCRIPT, ['--classify-checks'], { encoding: 'utf8', input: checksOf(rollup) }).trim()
+}
+
 describe('classify-merge-state', () => {
   it('maps a deadline to exit 5', () => {
     expect(classifyMerge('OPEN', 'BLOCKED', 'merge-on-green', 'true', '1800', '1800')).toBe('5')
@@ -60,6 +71,50 @@ describe('classify-checks', () => {
     ).toBe('FAIL')
     expect(classifyChecks('[{"name":"ci","status":"IN_PROGRESS","conclusion":""}]')).toBe('PENDING')
     expect(classifyChecks('[]')).toBe('PENDING')
+  })
+})
+
+describe('checks-of', () => {
+  it('normalises each commit-status state and leaves a check run unchanged', () => {
+    expect(JSON.parse(checksOf([{ context: 'ci', state: 'SUCCESS' }]))).toEqual([
+      { name: 'ci', status: 'completed', conclusion: 'success' },
+    ])
+    expect(classifyRollup([{ context: 'ci', state: 'SUCCESS' }])).toBe('GREEN')
+    expect(JSON.parse(checksOf([{ context: 'ci', state: 'PENDING' }]))).toEqual([
+      { name: 'ci', status: 'in_progress', conclusion: '' },
+    ])
+    expect(classifyRollup([{ context: 'ci', state: 'PENDING' }])).toBe('PENDING')
+    expect(JSON.parse(checksOf([{ context: 'ci', state: 'EXPECTED' }]))).toEqual([
+      { name: 'ci', status: 'in_progress', conclusion: '' },
+    ])
+    expect(classifyRollup([{ context: 'ci', state: 'EXPECTED' }])).toBe('PENDING')
+    expect(JSON.parse(checksOf([{ context: 'ci', state: 'FAILURE' }]))).toEqual([
+      { name: 'ci', status: 'completed', conclusion: 'failure' },
+    ])
+    expect(classifyRollup([{ context: 'ci', state: 'FAILURE' }])).toBe('FAIL')
+    expect(JSON.parse(checksOf([{ context: 'ci', state: 'ERROR' }]))).toEqual([
+      { name: 'ci', status: 'completed', conclusion: 'failure' },
+    ])
+    expect(classifyRollup([{ context: 'ci', state: 'ERROR' }])).toBe('FAIL')
+    expect(JSON.parse(checksOf([{ name: 'ci', status: 'COMPLETED', conclusion: 'SUCCESS' }]))).toEqual([
+      { name: 'ci', status: 'COMPLETED', conclusion: 'SUCCESS' },
+    ])
+  })
+
+  it('keeps a pending commit status ahead of a successful check run', () => {
+    expect(
+      classifyRollup([
+        { name: 'ci', status: 'COMPLETED', conclusion: 'SUCCESS' },
+        { context: 'coverage', state: 'PENDING' },
+      ]),
+    ).toBe('PENDING')
+  })
+
+  it('keeps an unmapped commit-status state as a non-empty conclusion', () => {
+    expect(JSON.parse(checksOf([{ context: 'coverage', state: 'BLOCKED' }]))).toEqual([
+      { name: 'coverage', status: 'completed', conclusion: 'BLOCKED' },
+    ])
+    expect(classifyRollup([{ context: 'coverage', state: 'BLOCKED' }])).toBe('OTHER')
   })
 })
 
@@ -232,5 +287,22 @@ EOF
     expect(result.stderr).toContain('policy=STALE')
     expect(result.stderr).not.toContain('ci=SUCCESS')
     expect(result.stderr).not.toContain('Update behind PRs=SKIPPED')
+  })
+
+  it('exits 3 naming a commit status with its state, never an empty conclusion', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-status-'))
+    fakeGh(
+      dir,
+      `#!/usr/bin/env bash
+set -euo pipefail
+cat <<'EOF'
+{"state":"OPEN","mergeStateStatus":"BLOCKED","autoMergeRequest":null,"labels":[{"name":"reviewed"}],"headRefOid":"abc","statusCheckRollup":[{"context":"coverage","state":"BLOCKED"}]}
+EOF
+`,
+    )
+    const result = runWatch(dir)
+    expect(result.code).toBe(3)
+    expect(result.stderr).toContain('coverage=BLOCKED')
+    expect(result.stderr.split('\n').filter((line) => line.length > 0).every((line) => !line.endsWith('='))).toBe(true)
   })
 })

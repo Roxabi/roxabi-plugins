@@ -67,6 +67,58 @@ classify_checks() {
   '
 }
 
+# StatusContext entries carry .state and .context, not .status/.conclusion.
+# Check-run entries are left unchanged. An unmapped state keeps that state as
+# its conclusion so an exit 3 never prints an empty conclusion for a status.
+normalise_rollup() {
+  jq '
+    [.statusCheckRollup[]? |
+      if .status != null then
+        {
+          name: (.name // .context // "unknown"),
+          status: .status,
+          conclusion: (.conclusion // "")
+        }
+      else
+        (.state // "" | ascii_downcase) as $s |
+        {
+          name: (.name // .context // "unknown"),
+          status: (if ($s == "pending" or $s == "expected") then "in_progress" else "completed" end),
+          conclusion: (
+            if $s == "success" then "success"
+            elif ($s == "pending" or $s == "expected") then ""
+            elif ($s == "failure" or $s == "error") then "failure"
+            else (.state // "")
+            end
+          )
+        }
+      end
+    ]
+  '
+}
+
+REQUIRED=""
+
+filter_required() {
+  if [[ -z "$REQUIRED" ]]; then
+    cat
+    return 0
+  fi
+  jq --arg names "$REQUIRED" '
+    ($names | split("\n") | map(select(length > 0))) as $want |
+    if ($want | length) == 0 then . else map(select(.name as $n | $want | index($n))) end
+  '
+}
+
+checks_of() {
+  echo "$1" | normalise_rollup | filter_required
+}
+
+if [[ "${1:-}" == "--checks-of" ]]; then
+  checks_of "$(cat)"
+  exit 0
+fi
+
 if [[ "${1:-}" == "--classify-merge-state" ]]; then
   shift
   classify_merge_state "$@"
@@ -165,16 +217,6 @@ if [[ -f .dev/stack.yml ]]; then
   REQUIRED=$(bun -e 'const t=await Bun.file(".dev/stack.yml").text(); const d=Bun.YAML.parse(t); const c=d?.landing?.required_checks; if (Array.isArray(c)) console.log(c.join("\n"))')
 fi
 
-filter_required() {
-  if [[ -z "$REQUIRED" ]]; then
-    cat
-    return 0
-  fi
-  jq --arg names "$REQUIRED" '
-    ($names | split("\n") | map(select(length > 0))) as $want |
-    if ($want | length) == 0 then . else map(select(.name as $n | $want | index($n))) end
-  '
-}
 
 pr_json() {
   gh pr view "$PR" --repo "$REPO" --json state,mergeStateStatus,autoMergeRequest,labels,headRefOid,statusCheckRollup
@@ -189,15 +231,6 @@ eligible_of() {
   fi
 }
 
-checks_of() {
-  echo "$1" | jq '
-    [.statusCheckRollup[]? | {
-      name: (.name // .context // "unknown"),
-      status: (.status // "completed"),
-      conclusion: (.conclusion // "")
-    }]
-  ' | filter_required
-}
 
 dump_failed_logs() {
   local sha="$1"
