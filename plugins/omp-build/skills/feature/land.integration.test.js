@@ -120,14 +120,22 @@ describe('landPr through the checkout', () => {
   it.each([
     ['malformed YAML', 'landing: [unclosed\n', /not valid YAML/],
     ['a landing that is not a map', 'landing: native\n', /landing is not a map/],
+    ['a non-map document', '- a\n', /the document is not a map/],
     ['an unknown mode', 'landing:\n  mode: auto\n', /landing\.mode must be native or merge-on-green/],
     ['required_checks not a list', 'landing:\n  required_checks: ci\n', /required_checks must be a list/],
     ['a non-string check', 'landing:\n  required_checks: [1]\n', /required_checks must be a list/],
+    ['an empty check name', 'landing:\n  required_checks: [""]\n', /required_checks must be a list/],
   ])('%s → bad-landing with no gh call', (_case, stack, error) => {
     const { result, calls } = land(checkout({ ...WORKFLOW_FILE, '.dev/stack.yml': stack }))
     expect(result.status).toBe('bad-landing')
     expect(result.error).toMatch(error)
     expect(calls).toEqual([])
+  })
+
+  it('a comment-only stack with the workflow file watches merge-on-green', () => {
+    const { result, calls } = land(checkout({ ...WORKFLOW_FILE, '.dev/stack.yml': '# only a comment\n' }))
+    expect(result).toMatchObject({ status: 'watching', mode: 'merge-on-green' })
+    expect(calls[0]).toEqual(['pr', 'view', '7', '--json', 'labels'])
   })
 })
 

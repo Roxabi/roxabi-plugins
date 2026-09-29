@@ -503,10 +503,54 @@ fi
     const cwd = mkdtempSync(join(tmpdir(), 'ci-watch-bad-stack-cwd-'))
     mkdirSync(join(cwd, '.dev'))
     writeFileSync(join(cwd, '.dev', 'stack.yml'), 'landing: [unclosed\n')
-    fakeGh(dir, '#!/usr/bin/env bash\nexit 1\n')
+    const log = join(dir, 'gh.log')
+    fakeGh(
+      dir,
+      `#!/usr/bin/env bash
+echo "$*" >> "${log}"
+cat <<'EOF'
+{"state":"MERGED","mergeStateStatus":"UNKNOWN","autoMergeRequest":null,"labels":[],"headRefOid":"abc","statusCheckRollup":[]}
+EOF
+`,
+    )
     const result = runWatch(dir, {}, cwd)
     expect(result.code).toBe(70)
     expect(result.stderr).toContain('not valid YAML')
+    expect(existsSync(log) ? readFileSync(log, 'utf8') : '').toBe('')
+  })
+
+  it('--since that is not a UTC second exits 70 with no gh call', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-since-frac-'))
+    const log = join(dir, 'gh.log')
+    fakeGh(
+      dir,
+      `#!/usr/bin/env bash
+echo "$*" >> "${log}"
+cat <<'EOF'
+{"state":"MERGED","mergeStateStatus":"UNKNOWN","autoMergeRequest":null,"labels":[],"headRefOid":"abc","statusCheckRollup":[]}
+EOF
+`,
+    )
+    const result = runWatch(dir, {}, undefined, '30s', 'merge-on-green', ['--since', '2026-09-29T10:00:00.123Z'])
+    expect(result.code).toBe(70)
+    expect(existsSync(log) ? readFileSync(log, 'utf8') : '').toBe('')
+  })
+
+  it('--since without a value exits 70 with no gh call', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-since-missing-'))
+    const log = join(dir, 'gh.log')
+    fakeGh(
+      dir,
+      `#!/usr/bin/env bash
+echo "$*" >> "${log}"
+cat <<'EOF'
+{"state":"MERGED","mergeStateStatus":"UNKNOWN","autoMergeRequest":null,"labels":[],"headRefOid":"abc","statusCheckRollup":[]}
+EOF
+`,
+    )
+    const result = runWatch(dir, {}, undefined, '30s', 'merge-on-green', ['--since'])
+    expect(result.code).toBe(70)
+    expect(existsSync(log) ? readFileSync(log, 'utf8') : '').toBe('')
   })
 
   // Stub gh for the evaluate-only probe. `pr view` walks `snapshots`, the
@@ -617,6 +661,57 @@ next snap ${snapshots.length}
     expect(result.code).toBe(6)
     expect(result.stderr).toContain(EVALUATE_ONLY_LATEST)
     expect(result.stderr).not.toContain(EVALUATE_ONLY)
+  })
+
+  it('a run started at exactly --since counts as this landing and exits 6', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-eval-boundary-'))
+    probeGh(dir, {
+      snapshots: [snapshot(), snapshot(), snapshot(), snapshot('MERGED')],
+      runs: [page({ id: 42, status: 'completed', started_at: SINCE })],
+      annotations: { 42: NOT_CONFIGURED },
+    })
+    const result = runWatch(dir, {}, undefined, '30s', 'merge-on-green', ['--since', SINCE])
+    expect(result.code).toBe(6)
+    expect(result.stderr).toContain(EVALUATE_ONLY)
+  })
+
+  it('MERGED on the first merge-phase poll exits 0 without probing', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-eval-merged-'))
+    probeGh(dir, {
+      snapshots: [snapshot(), snapshot(), snapshot('MERGED')],
+      runs: [page({ id: 42, status: 'completed', started_at: '2026-09-29T10:00:05Z' })],
+      annotations: { 42: NOT_CONFIGURED },
+    })
+    const result = runWatch(dir, {}, undefined, '30s', 'merge-on-green', ['--since', SINCE])
+    expect(result.code).toBe(0)
+    expect(apiLog(dir)).toBe('')
+    expect(count(dir, 'snap')).toBe('3')
+  })
+
+  it('exits 70 when the check-runs lookup fails', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-eval-runs-fail-'))
+    writeFileSync(join(dir, 'snap.1.json'), snapshot())
+    writeFileSync(join(dir, 'snap.2.json'), snapshot())
+    writeFileSync(join(dir, 'snap.3.json'), snapshot())
+    fakeGh(
+      dir,
+      `#!/usr/bin/env bash
+set -euo pipefail
+d="$(dirname "$0")"
+if [[ "$1" == "api" ]]; then
+  echo "$*" >> "$d/api.log"
+  exit 1
+fi
+n=0
+if [[ -f "$d/snap.count" ]]; then n=$(cat "$d/snap.count"); fi
+n=$((n + 1))
+echo "$n" > "$d/snap.count"
+cat "$d/snap.$n.json"
+`,
+    )
+    const result = runWatch(dir, {}, undefined, '30s', 'merge-on-green', ['--since', SINCE])
+    expect(result.code).toBe(70)
+    expect(apiLog(dir)).toContain('commits/abc/check-runs')
   })
 
   it('a completed run without the notice is configured: the probe stops and the merge path runs unchanged', () => {
