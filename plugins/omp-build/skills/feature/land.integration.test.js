@@ -54,11 +54,17 @@ const PROTECTION = ['api', 'repos/acme/app/branches/main/protection/required_sta
 const RULES = ['api', 'repos/acme/app/rules/branches/main']
 
 describe('landPr through the checkout', () => {
-  it('a merge-on-green workflow and a stack with no landing block watch merge-on-green', () => {
+  it('a merge-on-green workflow and a stack with no landing block watch merge-on-green, asking no rules API', () => {
     const { result, calls } = land(checkout({ ...WORKFLOW_FILE, '.dev/stack.yml': 'runtime: bun\n' }))
     expect(result).toMatchObject({ status: 'watching', mode: 'merge-on-green' })
-    expect(result.watch).toContain('--merge-mode merge-on-green')
-    expect(calls).toContainEqual(['pr', 'edit', '7', '--add-label', 'reviewed'])
+    expect(result.watch).toMatch(
+      /^bash skill:\/\/ci-watch\/ci-watch\.sh 7 --merge-mode merge-on-green --since \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/,
+    )
+    // The stub answers repo view, baseRefName and api, so a rules/protection probe would show here.
+    expect(calls).toEqual([
+      ['pr', 'view', '7', '--json', 'labels'],
+      ['pr', 'edit', '7', '--add-label', 'reviewed'],
+    ])
   })
 
   it.each([

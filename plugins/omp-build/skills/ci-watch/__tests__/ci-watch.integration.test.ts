@@ -683,6 +683,20 @@ next snap ${snapshots.length}
     expect(apiLog(dir)).not.toContain('check-runs/42/annotations')
   })
 
+  it('native mode never probes: an annotated merge-on-green run with auto-merge armed still merges', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-native-no-probe-'))
+    const armed = snapshot('OPEN', { autoMergeRequest: { mergeMethod: 'MERGE' } })
+    probeGh(dir, {
+      snapshots: [armed, armed, armed, snapshot('MERGED')],
+      runs: [page({ id: 42, status: 'completed', started_at: '2026-09-29T10:00:05Z' })],
+      annotations: { 42: NOT_CONFIGURED },
+    })
+    const result = runWatch(dir, {}, undefined, '30s', 'native', ['--since', SINCE])
+    expect(result.code).toBe(0)
+    expect(count(dir, 'snap')).toBe('4')
+    expect(apiLog(dir)).toBe('')
+  })
+
   it('exits 70, not 6, when the annotations lookup fails', () => {
     const dir = mkdtempSync(join(tmpdir(), 'ci-watch-eval-fail-'))
     probeGh(dir, {
