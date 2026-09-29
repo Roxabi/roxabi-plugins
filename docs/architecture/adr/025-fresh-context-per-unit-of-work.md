@@ -1,13 +1,14 @@
 ---
 title: "ADR-025: Fresh context per unit of work"
-description: Amends ADR-020 §7 and ADR-024 decision 1 (§3) — a ticket, each fix round and any new assignment that delivers another issue or PR start in a fresh context seeded with the unit's assignment and durable state only; a finished agent gets no new work; fix still edits inline, inside its own fresh agent; under a goal the ticket unit holds the goal's merge approval.
+description: Amends ADR-020 §7 and its Negative (context hygiene), and ADR-024 decision 1 (§3) — a ticket, each fix round and any new assignment that delivers another issue or PR start in a fresh context seeded with the unit's assignment and durable state only; a finished agent gets no new work; fix still edits inline, inside its own fresh agent; under a goal the ticket unit holds the goal's merge approval.
 status: accepted
 normative: true
 date: 2026-09-29
 ---
 
-> Amends [ADR-020](020-omp-delivery-feature-cycle.md) §7 (where `fix` runs) and
-> [ADR-024](024-one-goal-per-epic.md) decision 1 (§3 — where a ticket runs under an epic goal).
+> Amends [ADR-020](020-omp-delivery-feature-cycle.md) §7 (where `fix` runs) and its
+> Negative (context hygiene), and [ADR-024](024-one-goal-per-epic.md) decision 1
+> (§3 — where a ticket runs under an epic goal).
 > Restores the context hygiene that ADR-020's Negative priced and that ADR-024
 > removed without a replacement.
 
