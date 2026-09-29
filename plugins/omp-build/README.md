@@ -75,7 +75,8 @@ After a framing pass, start implementation with fresh context in the ticket's
 worktree. Declining branch creation permits further discussion, not implementation.
 
 Every unit of work starts in a fresh context ([ADR-025](../../docs/architecture/adr/025-fresh-context-per-unit-of-work.md)):
-a ticket, each fix round and any work on another issue or PR. Under a goal, the
+a ticket, each fix round and any new assignment that delivers another issue or PR
+(tracker reads and writes for the current unit stay inline). Under a goal, the
 goal session spawns one ticket unit at a time; a review fix round is a fresh agent
 running `fix`, and a `ci-failed` round a fresh agent running its own procedure.
 Without a PR, a local Fix now runs `fix` in the reviewing session.

@@ -17,7 +17,7 @@ The `/goal` in the operator's session that delivers one epic. The autonomy unit 
 _Avoid_: a per-ticket stop, an autonomy level stored on the issue, one goal per ticket, one context carrying several tickets
 
 **Context boundary**:
-One unit of work — a ticket, a fix round (review or `ci-failed`), any work on another issue or PR — starts in a fresh context: a new session, or an agent spawned for that unit alone and seeded per `/feature` § Context boundary, with its assignment and durable state only. A finished agent gets no new work. Without a PR, a local Fix now runs in the reviewing session. ADR-025.
+One unit of work — a ticket, a fix round (review or `ci-failed`), any new assignment that delivers another issue or PR — starts in a fresh context: a new session, or an agent spawned for that unit alone and seeded per `/feature` § Context boundary, with its assignment and durable state only. Tracker reads and writes done for the current unit stay inline. A finished agent gets no new work. Without a PR, a local Fix now runs in the reviewing session. ADR-025.
 _Avoid_: an IRC follow-up to a finished agent, resuming the implementer for its fix round, pasting another unit's transcript, relying on compaction to separate units
 
 **Spec**:
