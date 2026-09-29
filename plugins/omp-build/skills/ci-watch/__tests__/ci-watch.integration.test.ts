@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -13,6 +13,41 @@ function classifyMerge(...args: string[]): string {
 function classifyChecks(json: string): string {
   return execFileSync(SCRIPT, ['--classify-checks'], { encoding: 'utf8', input: json }).trim()
 }
+
+function checksOf(rollup: unknown[]): string {
+  return execFileSync(SCRIPT, ['--checks-of'], {
+    encoding: 'utf8',
+    input: JSON.stringify({ statusCheckRollup: rollup }),
+  })
+}
+
+function classifyRollup(rollup: unknown[]): string {
+  return execFileSync(SCRIPT, ['--classify-checks'], { encoding: 'utf8', input: checksOf(rollup) }).trim()
+}
+
+function exitOf(args: string[]): number {
+  try {
+    execFileSync(SCRIPT, args, { encoding: 'utf8' })
+    return 0
+  } catch (error) {
+    if (error && typeof error === 'object' && 'status' in error && typeof error.status === 'number') return error.status
+    throw error
+  }
+}
+
+describe('non-verdict exits', () => {
+  it('an unknown flag exits 70', () => {
+    expect(exitOf(['7', '--nope'])).toBe(70)
+  })
+
+  it('a bogus merge mode exits 70', () => {
+    expect(exitOf(['7', '--merge-mode', 'bogus', '--repo', 'acme/app'])).toBe(70)
+  })
+
+  it('a bad timeout exits 70', () => {
+    expect(exitOf(['7', '--timeout', 'bogus', '--repo', 'acme/app'])).toBe(70)
+  })
+})
 
 describe('classify-merge-state', () => {
   it('maps a deadline to exit 5', () => {
@@ -39,15 +74,71 @@ describe('classify-merge-state', () => {
 })
 
 describe('classify-checks', () => {
-  it('aggregates green, failed, skipped, and pending', () => {
+  it('treats skipped and neutral as passing, and pending outranks them', () => {
     expect(classifyChecks('[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}]')).toBe('GREEN')
+    expect(classifyChecks('[{"name":"ci","status":"COMPLETED","conclusion":"SKIPPED"}]')).toBe('GREEN')
+    expect(classifyChecks('[{"name":"ci","status":"COMPLETED","conclusion":"Skipped"}]')).toBe('GREEN')
+    expect(
+      classifyChecks(
+        '[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"name":"lint","status":"COMPLETED","conclusion":"NEUTRAL"}]',
+      ),
+    ).toBe('GREEN')
+    expect(
+      classifyChecks(
+        '[{"name":"ci","status":"IN_PROGRESS","conclusion":""},{"name":"Update behind PRs","status":"COMPLETED","conclusion":"SKIPPED"}]',
+      ),
+    ).toBe('PENDING')
     expect(
       classifyChecks(
         '[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"name":"scan","status":"COMPLETED","conclusion":"FAILURE"}]',
       ),
     ).toBe('FAIL')
-    expect(classifyChecks('[{"name":"ci","status":"COMPLETED","conclusion":"SKIPPED"}]')).toBe('SKIP')
     expect(classifyChecks('[{"name":"ci","status":"IN_PROGRESS","conclusion":""}]')).toBe('PENDING')
+    expect(classifyChecks('[]')).toBe('PENDING')
+  })
+})
+
+describe('checks-of', () => {
+  it('normalises each commit-status state and leaves a check run unchanged', () => {
+    expect(JSON.parse(checksOf([{ context: 'ci', state: 'SUCCESS' }]))).toEqual([
+      { name: 'ci', status: 'completed', conclusion: 'success' },
+    ])
+    expect(classifyRollup([{ context: 'ci', state: 'SUCCESS' }])).toBe('GREEN')
+    expect(JSON.parse(checksOf([{ context: 'ci', state: 'PENDING' }]))).toEqual([
+      { name: 'ci', status: 'in_progress', conclusion: '' },
+    ])
+    expect(classifyRollup([{ context: 'ci', state: 'PENDING' }])).toBe('PENDING')
+    expect(JSON.parse(checksOf([{ context: 'ci', state: 'EXPECTED' }]))).toEqual([
+      { name: 'ci', status: 'in_progress', conclusion: '' },
+    ])
+    expect(classifyRollup([{ context: 'ci', state: 'EXPECTED' }])).toBe('PENDING')
+    expect(JSON.parse(checksOf([{ context: 'ci', state: 'FAILURE' }]))).toEqual([
+      { name: 'ci', status: 'completed', conclusion: 'failure' },
+    ])
+    expect(classifyRollup([{ context: 'ci', state: 'FAILURE' }])).toBe('FAIL')
+    expect(JSON.parse(checksOf([{ context: 'ci', state: 'ERROR' }]))).toEqual([
+      { name: 'ci', status: 'completed', conclusion: 'failure' },
+    ])
+    expect(classifyRollup([{ context: 'ci', state: 'ERROR' }])).toBe('FAIL')
+    expect(JSON.parse(checksOf([{ name: 'ci', status: 'COMPLETED', conclusion: 'SUCCESS' }]))).toEqual([
+      { name: 'ci', status: 'COMPLETED', conclusion: 'SUCCESS' },
+    ])
+  })
+
+  it('keeps a pending commit status ahead of a successful check run', () => {
+    expect(
+      classifyRollup([
+        { name: 'ci', status: 'COMPLETED', conclusion: 'SUCCESS' },
+        { context: 'coverage', state: 'PENDING' },
+      ]),
+    ).toBe('PENDING')
+  })
+
+  it('keeps an unmapped commit-status state as a non-empty conclusion', () => {
+    expect(JSON.parse(checksOf([{ context: 'coverage', state: 'BLOCKED' }]))).toEqual([
+      { name: 'coverage', status: 'completed', conclusion: 'BLOCKED' },
+    ])
+    expect(classifyRollup([{ context: 'coverage', state: 'BLOCKED' }])).toBe('OTHER')
   })
 })
 
@@ -125,5 +216,234 @@ EOF
       }
     }
     expect(code).toBe(1)
+  })
+
+  function runWatch(dir: string, extraEnv: Record<string, string> = {}, cwd?: string, timeout = '30s') {
+    const args = ['7', '--interval', '0', '--timeout', timeout, '--merge-mode', 'merge-on-green', '--repo', 'acme/app']
+    const env = { ...process.env, PATH: `${dir}:${process.env.PATH}`, ...extraEnv }
+    try {
+      const stdout = execFileSync(SCRIPT, args, { encoding: 'utf8', env, cwd })
+      return { code: 0, stdout, stderr: '' }
+    } catch (error) {
+      if (error && typeof error === 'object' && 'status' in error && typeof error.status === 'number') {
+        const failed = error as { status: number; stdout?: string; stderr?: string }
+        return { code: failed.status, stdout: failed.stdout ?? '', stderr: failed.stderr ?? '' }
+      }
+      throw error
+    }
+  }
+
+  it('keeps polling a skipped run beside an in-progress check, then enters the merge phase', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-skip-'))
+    fakeGh(
+      dir,
+      `#!/usr/bin/env bash
+set -euo pipefail
+n=0
+if [[ -f "$CI_WATCH_COUNT" ]]; then n=$(cat "$CI_WATCH_COUNT"); fi
+n=$((n + 1))
+echo "$n" > "$CI_WATCH_COUNT"
+if [[ "$n" -eq 1 ]]; then
+  cat <<'EOF'
+{"state":"OPEN","mergeStateStatus":"BLOCKED","autoMergeRequest":null,"labels":[{"name":"reviewed"}],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"IN_PROGRESS","conclusion":""},{"name":"Update behind PRs","status":"COMPLETED","conclusion":"SKIPPED"}]}
+EOF
+elif [[ "$n" -eq 2 ]]; then
+  cat <<'EOF'
+{"state":"OPEN","mergeStateStatus":"BLOCKED","autoMergeRequest":null,"labels":[{"name":"reviewed"}],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"name":"Update behind PRs","status":"COMPLETED","conclusion":"SKIPPED"}]}
+EOF
+else
+  cat <<'EOF'
+{"state":"OPEN","mergeStateStatus":"DIRTY","autoMergeRequest":null,"labels":[{"name":"reviewed"}],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"name":"Update behind PRs","status":"COMPLETED","conclusion":"SKIPPED"}]}
+EOF
+fi
+`,
+    )
+    const count = join(dir, 'count')
+    const result = runWatch(dir, { CI_WATCH_COUNT: count }, undefined, '2s')
+    expect(result.code).toBe(4)
+    expect(readFileSync(count, 'utf8').trim()).toBe('4')
+  })
+
+  it('treats a skipped check named in landing.required_checks as green', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-req-'))
+    const cwd = mkdtempSync(join(tmpdir(), 'ci-watch-req-cwd-'))
+    mkdirSync(join(cwd, '.dev'))
+    writeFileSync(join(cwd, '.dev', 'stack.yml'), 'landing:\n  required_checks:\n    - lint\n')
+    fakeGh(
+      dir,
+      `#!/usr/bin/env bash
+set -euo pipefail
+n=0
+if [[ -f "$CI_WATCH_COUNT" ]]; then n=$(cat "$CI_WATCH_COUNT"); fi
+n=$((n + 1))
+echo "$n" > "$CI_WATCH_COUNT"
+if [[ "$n" -le 2 ]]; then
+  cat <<'EOF'
+{"state":"OPEN","mergeStateStatus":"BLOCKED","autoMergeRequest":null,"labels":[{"name":"reviewed"}],"headRefOid":"abc","statusCheckRollup":[{"name":"lint","status":"COMPLETED","conclusion":"SKIPPED"},{"name":"scan","status":"COMPLETED","conclusion":"FAILURE"}]}
+EOF
+else
+  cat <<'EOF'
+{"state":"MERGED","mergeStateStatus":"UNKNOWN","autoMergeRequest":null,"labels":[],"headRefOid":"abc","statusCheckRollup":[{"name":"lint","status":"COMPLETED","conclusion":"SKIPPED"}]}
+EOF
+fi
+`,
+    )
+    const count = join(dir, 'count')
+    const result = runWatch(dir, { CI_WATCH_COUNT: count }, cwd)
+    expect(result.code).toBe(0)
+    expect(readFileSync(count, 'utf8').trim()).toBe('3')
+  })
+
+  it('exits 1 naming the failed check and not the skipped one', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-fail-skip-'))
+    fakeGh(
+      dir,
+      `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1" == "run" ]]; then exit 0; fi
+cat <<'EOF'
+{"state":"OPEN","mergeStateStatus":"BLOCKED","autoMergeRequest":null,"labels":[{"name":"reviewed"}],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"FAILURE"},{"name":"Update behind PRs","status":"COMPLETED","conclusion":"SKIPPED"}]}
+EOF
+`,
+    )
+    const result = runWatch(dir)
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain('ci=FAILURE')
+    expect(result.stderr).not.toContain('Update behind PRs')
+  })
+
+  it('exits 1 naming the failure when run list fails', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-run-list-'))
+    fakeGh(
+      dir,
+      `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1" == "run" && "$2" == "list" ]]; then exit 1; fi
+if [[ "$1" == "run" ]]; then exit 0; fi
+cat <<'EOF'
+{"state":"OPEN","mergeStateStatus":"BLOCKED","autoMergeRequest":null,"labels":[{"name":"reviewed"}],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"FAILURE"}]}
+EOF
+`,
+    )
+    const result = runWatch(dir)
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain('ci=FAILURE')
+    expect(result.stderr).toContain('failed-run logs unavailable')
+  })
+
+  it('exits 2 naming a cancelled check beside a skipped one', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-cancel-'))
+    fakeGh(
+      dir,
+      `#!/usr/bin/env bash
+set -euo pipefail
+cat <<'EOF'
+{"state":"OPEN","mergeStateStatus":"BLOCKED","autoMergeRequest":null,"labels":[{"name":"reviewed"}],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"CANCELLED"},{"name":"Update behind PRs","status":"COMPLETED","conclusion":"SKIPPED"}]}
+EOF
+`,
+    )
+    const result = runWatch(dir)
+    expect(result.code).toBe(2)
+    expect(result.stderr).toContain('ci=CANCELLED')
+    expect(result.stderr).not.toContain('Update behind PRs')
+  })
+
+  it('treats a neutral check named in landing.required_checks as green', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-neutral-'))
+    const cwd = mkdtempSync(join(tmpdir(), 'ci-watch-neutral-cwd-'))
+    mkdirSync(join(cwd, '.dev'))
+    writeFileSync(join(cwd, '.dev', 'stack.yml'), 'landing:\n  required_checks:\n    - lint\n')
+    fakeGh(
+      dir,
+      `#!/usr/bin/env bash
+set -euo pipefail
+n=0
+if [[ -f "$CI_WATCH_COUNT" ]]; then n=$(cat "$CI_WATCH_COUNT"); fi
+n=$((n + 1))
+echo "$n" > "$CI_WATCH_COUNT"
+if [[ "$n" -le 2 ]]; then
+  cat <<'EOF'
+{"state":"OPEN","mergeStateStatus":"BLOCKED","autoMergeRequest":null,"labels":[{"name":"reviewed"}],"headRefOid":"abc","statusCheckRollup":[{"name":"lint","status":"COMPLETED","conclusion":"NEUTRAL"},{"name":"scan","status":"COMPLETED","conclusion":"FAILURE"}]}
+EOF
+else
+  cat <<'EOF'
+{"state":"MERGED","mergeStateStatus":"UNKNOWN","autoMergeRequest":null,"labels":[],"headRefOid":"abc","statusCheckRollup":[{"name":"lint","status":"COMPLETED","conclusion":"NEUTRAL"}]}
+EOF
+fi
+`,
+    )
+    const count = join(dir, 'count')
+    const result = runWatch(dir, { CI_WATCH_COUNT: count }, cwd)
+    expect(result.code).toBe(0)
+    expect(readFileSync(count, 'utf8').trim()).toBe('3')
+  })
+
+  it('exits 3 naming each offending check and conclusion', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-other-'))
+    fakeGh(
+      dir,
+      `#!/usr/bin/env bash
+set -euo pipefail
+cat <<'EOF'
+{"state":"OPEN","mergeStateStatus":"BLOCKED","autoMergeRequest":null,"labels":[{"name":"reviewed"}],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"name":"Update behind PRs","status":"COMPLETED","conclusion":"SKIPPED"},{"name":"rules","status":"COMPLETED","conclusion":"ACTION_REQUIRED"},{"name":"policy","status":"COMPLETED","conclusion":"STALE"}]}
+EOF
+`,
+    )
+    const result = runWatch(dir)
+    expect(result.code).toBe(3)
+    expect(result.stderr).toContain('rules=ACTION_REQUIRED')
+    expect(result.stderr).toContain('policy=STALE')
+    expect(result.stderr).not.toContain('ci=SUCCESS')
+    expect(result.stderr).not.toContain('Update behind PRs=SKIPPED')
+  })
+
+  it('exits 3 naming a commit status with its state, never an empty conclusion', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-status-'))
+    fakeGh(
+      dir,
+      `#!/usr/bin/env bash
+set -euo pipefail
+cat <<'EOF'
+{"state":"OPEN","mergeStateStatus":"BLOCKED","autoMergeRequest":null,"labels":[{"name":"reviewed"}],"headRefOid":"abc","statusCheckRollup":[{"context":"coverage","state":"BLOCKED"}]}
+EOF
+`,
+    )
+    const result = runWatch(dir)
+    expect(result.code).toBe(3)
+    expect(result.stderr).toContain('coverage=BLOCKED')
+    expect(
+      result.stderr
+        .split('\n')
+        .filter((line) => line.length > 0)
+        .every((line) => !line.endsWith('=')),
+    ).toBe(true)
+  })
+
+  it('exits 70 when gh returns malformed JSON', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-bad-json-'))
+    fakeGh(
+      dir,
+      `#!/usr/bin/env bash
+echo '{'
+`,
+    )
+    const result = runWatch(dir)
+    expect(result.code).toBe(70)
+    expect([1, 2, 3, 4, 5]).not.toContain(result.code)
+  })
+
+  it('exits 70 when gh returns an empty snapshot', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-empty-'))
+    fakeGh(
+      dir,
+      `#!/usr/bin/env bash
+exit 0
+`,
+    )
+    const started = Date.now()
+    const result = runWatch(dir, {}, undefined, '2s')
+    expect(result.code).toBe(70)
+    expect(result.stderr).toContain('empty gh pr view')
+    expect(Date.now() - started).toBeLessThan(1500)
   })
 })

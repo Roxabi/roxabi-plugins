@@ -753,15 +753,35 @@ export async function landPr(cwd, pr, { gh: ghFn = gh, requiredContexts, landing
   }
 }
 
-/** Map a `/ci-watch` exit. 1 disarms. 4 stops. 5 is re-attachable. */
+async function watchPrState(cwd, pr, ghFn) {
+  const raw = await ghFn(cwd, ['pr', 'view', String(pr), '--json', 'state,autoMergeRequest'])
+  return JSON.parse(raw)
+}
+
+/** Map a `/ci-watch` exit. 0–3 re-read state: MERGED is merged, CLOSED or an unmerged 0 is stopped, otherwise 1–3 disarm. 4 stops. 5 is re-attachable. 70 and any other code leave the gate armed. */
 export async function applyCiWatchExit(cwd, pr, code, { mode = 'native', gh: ghFn = gh } = {}) {
-  if (code === 0) return { status: 'merged' }
   if (code === 4) return { status: 'stopped' }
   if (code === 5) return { status: 'timeout' }
-  if (code === 1) {
+  if (code === 0 || code === 1 || code === 2 || code === 3) {
+    const view = await watchPrState(cwd, pr, ghFn)
+    if (view?.state === 'MERGED') return { status: 'merged' }
+    if (view?.state === 'CLOSED' || code === 0) return { status: 'stopped' }
     await ghFn(cwd, ['pr', 'edit', String(pr), '--remove-label', 'reviewed'])
-    if (mode === 'native') await ghFn(cwd, ['pr', 'merge', String(pr), '--disable-auto'])
-    return { status: 'ci-failed', disarmed: true }
+    if (mode === 'native') {
+      try {
+        await ghFn(cwd, ['pr', 'merge', String(pr), '--disable-auto'])
+      } catch (error) {
+        const again = await watchPrState(cwd, pr, ghFn)
+        if (again?.state === 'MERGED') return { status: 'merged' }
+        if (again?.autoMergeRequest == null) {
+          return { status: code === 1 ? 'ci-failed' : code === 2 ? 'ci-cancelled' : 'ci-blocked', disarmed: true }
+        }
+        throw error
+      }
+    }
+    if (code === 1) return { status: 'ci-failed', disarmed: true }
+    if (code === 2) return { status: 'ci-cancelled', disarmed: true }
+    return { status: 'ci-blocked', disarmed: true }
   }
   return { status: 'watch-failed', code }
 }
