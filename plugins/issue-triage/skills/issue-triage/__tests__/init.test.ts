@@ -453,9 +453,7 @@ describe('init vocabulary refusals', () => {
     )
     const vocab = classifyVocabulary(contract)
     expect(vocab.source).toBe('table')
-    expect(vocab.labels.map((l) => l.name)).toEqual(
-      expect.arrayContaining(['size:S', 'P1-high', 'epic', 'reviewed']),
-    )
+    expect(vocab.labels.map((l) => l.name)).toEqual(expect.arrayContaining(['size:S', 'P1-high', 'epic', 'reviewed']))
   })
 
   it('matches relabel targets case-insensitively', () => {
