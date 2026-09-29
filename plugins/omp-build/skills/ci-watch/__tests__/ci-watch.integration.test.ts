@@ -194,8 +194,8 @@ EOF
     expect(code).toBe(1)
   })
 
-  function runWatch(dir: string, extraEnv: Record<string, string> = {}, cwd?: string) {
-    const args = ['7', '--interval', '0', '--timeout', '30s', '--merge-mode', 'merge-on-green', '--repo', 'acme/app']
+  function runWatch(dir: string, extraEnv: Record<string, string> = {}, cwd?: string, timeout = '30s') {
+    const args = ['7', '--interval', '0', '--timeout', timeout, '--merge-mode', 'merge-on-green', '--repo', 'acme/app']
     const env = { ...process.env, PATH: `${dir}:${process.env.PATH}`, ...extraEnv }
     try {
       const stdout = execFileSync(SCRIPT, args, { encoding: 'utf8', env, cwd })
@@ -209,7 +209,7 @@ EOF
     }
   }
 
-  it('keeps polling a skipped run beside an in-progress check, then merges', () => {
+  it('keeps polling a skipped run beside an in-progress check, then enters the merge phase', () => {
     const dir = mkdtempSync(join(tmpdir(), 'ci-watch-skip-'))
     fakeGh(
       dir,
@@ -229,14 +229,15 @@ elif [[ "$n" -le 3 ]]; then
 EOF
 else
   cat <<'EOF'
-{"state":"MERGED","mergeStateStatus":"UNKNOWN","autoMergeRequest":null,"labels":[],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"name":"Update behind PRs","status":"COMPLETED","conclusion":"SKIPPED"}]}
+{"state":"OPEN","mergeStateStatus":"DIRTY","autoMergeRequest":null,"labels":[{"name":"reviewed"}],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"name":"Update behind PRs","status":"COMPLETED","conclusion":"SKIPPED"}]}
 EOF
 fi
 `,
     )
     const count = join(dir, 'count')
-    const result = runWatch(dir, { CI_WATCH_COUNT: count })
-    expect(result.code).toBe(0)
+    const result = runWatch(dir, { CI_WATCH_COUNT: count }, undefined, '2s')
+    expect(result.code).not.toBe(3)
+    expect(result.code).toBe(4)
     expect(readFileSync(count, 'utf8').trim()).toBe('4')
   })
 
@@ -260,6 +261,71 @@ EOF
 else
   cat <<'EOF'
 {"state":"MERGED","mergeStateStatus":"UNKNOWN","autoMergeRequest":null,"labels":[],"headRefOid":"abc","statusCheckRollup":[{"name":"lint","status":"COMPLETED","conclusion":"SKIPPED"}]}
+EOF
+fi
+`,
+    )
+    const count = join(dir, 'count')
+    const result = runWatch(dir, { CI_WATCH_COUNT: count }, cwd)
+    expect(result.code).toBe(0)
+    expect(readFileSync(count, 'utf8').trim()).toBe('3')
+  })
+
+  it('exits 1 naming the failed check and not the skipped one', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-fail-skip-'))
+    fakeGh(
+      dir,
+      `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1" == "run" ]]; then exit 0; fi
+cat <<'EOF'
+{"state":"OPEN","mergeStateStatus":"BLOCKED","autoMergeRequest":null,"labels":[{"name":"reviewed"}],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"FAILURE"},{"name":"Update behind PRs","status":"COMPLETED","conclusion":"SKIPPED"}]}
+EOF
+`,
+    )
+    const result = runWatch(dir)
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain('ci=FAILURE')
+    expect(result.stderr).not.toContain('Update behind PRs')
+  })
+
+  it('exits 2 naming a cancelled check beside a skipped one', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-cancel-'))
+    fakeGh(
+      dir,
+      `#!/usr/bin/env bash
+set -euo pipefail
+cat <<'EOF'
+{"state":"OPEN","mergeStateStatus":"BLOCKED","autoMergeRequest":null,"labels":[{"name":"reviewed"}],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"CANCELLED"},{"name":"Update behind PRs","status":"COMPLETED","conclusion":"SKIPPED"}]}
+EOF
+`,
+    )
+    const result = runWatch(dir)
+    expect(result.code).toBe(2)
+    expect(result.stderr).toContain('ci=CANCELLED')
+    expect(result.stderr).not.toContain('Update behind PRs')
+  })
+
+  it('treats a neutral check named in landing.required_checks as green', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-neutral-'))
+    const cwd = mkdtempSync(join(tmpdir(), 'ci-watch-neutral-cwd-'))
+    mkdirSync(join(cwd, '.dev'))
+    writeFileSync(join(cwd, '.dev', 'stack.yml'), 'landing:\n  required_checks:\n    - lint\n')
+    fakeGh(
+      dir,
+      `#!/usr/bin/env bash
+set -euo pipefail
+n=0
+if [[ -f "$CI_WATCH_COUNT" ]]; then n=$(cat "$CI_WATCH_COUNT"); fi
+n=$((n + 1))
+echo "$n" > "$CI_WATCH_COUNT"
+if [[ "$n" -le 2 ]]; then
+  cat <<'EOF'
+{"state":"OPEN","mergeStateStatus":"BLOCKED","autoMergeRequest":null,"labels":[{"name":"reviewed"}],"headRefOid":"abc","statusCheckRollup":[{"name":"lint","status":"COMPLETED","conclusion":"NEUTRAL"},{"name":"scan","status":"COMPLETED","conclusion":"FAILURE"}]}
+EOF
+else
+  cat <<'EOF'
+{"state":"MERGED","mergeStateStatus":"UNKNOWN","autoMergeRequest":null,"labels":[],"headRefOid":"abc","statusCheckRollup":[{"name":"lint","status":"COMPLETED","conclusion":"NEUTRAL"}]}
 EOF
 fi
 `,
