@@ -203,8 +203,9 @@ describe('classifyFinalize — verdict shape', () => {
 })
 
 // ─── CLI wiring — the EXECUTED verdict IS the tested classifier (F2/#369) ────────
-// /promote --finalize runs `bun run lib/finalize.ts`; this proves that path returns exactly
-// what classifyFinalize returns, so the tested code and the executed code cannot diverge.
+// /promote --finalize runs `T=$(realpath skill://promote/lib/finalize.ts)` then
+// `bun "$T"`; this proves that path returns exactly what classifyFinalize returns,
+// so the tested code and the executed code cannot diverge.
 
 function toArgv(input: FinalizeInput): string[] {
   return [

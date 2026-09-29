@@ -7,7 +7,7 @@
  *   bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts [list] [--json] [--untriaged]
  *   bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts set <number> [--size S] [--priority P] [--lane L] [--blocked-by N] [--parent N] [--child N] ...
  *   bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts create (--title "Title" | --title-file <path>) [--body "Body" | --body-file <path>] ...
- *   bun skill://issue-triage/triage.ts init [--dry-run] [--repo owner/repo]
+ *   bun ${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts init [--dry-run] [--repo owner/repo]
  * Default with no args (or flags-only) is list.
  */
 
