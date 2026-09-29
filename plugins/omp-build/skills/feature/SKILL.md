@@ -85,8 +85,10 @@ ticket unit runs §6 for its ticket to a terminal outcome and asks nothing:
   must confirm it claims `#N`. A §6.0 stop, or behaviour §6.1 cannot settle from
   the issue, is `ticket-stopped` with that reason.
 - §6.4: `step.action` is the choice — `fix` → §6.5, `land` → §6.7, `stop` → §6.6.
-- §6.7: the goal is the merge approval. Wait on the `watch` job in this unit;
-  `timeout` re-attaches here, and `ci-failed` reopens the loop here.
+- §6.7: the goal is the merge approval. Wait on the `watch` job in this unit.
+  `timeout` re-attaches here at most twice, then the unit returns
+  `ticket-stopped` with reason `timeout` and reports the gate as still armed.
+  `ci-failed` reopens the loop here.
 - It never applies the goal-session rules above and never spawns a ticket unit.
 
 It returns one line, `{pr, outcome, reason}`:
@@ -95,11 +97,14 @@ It returns one line, `{pr, outcome, reason}`:
 |---|---|
 | `merged` | `land.status` is `merged` |
 | `shared-state-stop` | a state the next ticket would hit too: `watch-failed`, `bad-landing`, `no-required-checks`, `evaluate-only`, `auto-merge-failed` |
-| `ticket-stopped` | anything else — a §6.0 stop, behaviour §6.1 cannot settle, a halted fix round, `stop` from the loop, `ci-cancelled`, `ci-blocked`, `stopped`, `closed` — with the status as `reason` |
+| `ticket-stopped` | anything else — a §6.0 stop, behaviour §6.1 cannot settle, a halted fix round, `stop` from the loop, a third `timeout`, `ci-cancelled`, `ci-blocked`, `stopped`, `closed` — with the status as `reason` |
 
 The goal session confirms `merged` with `gh pr view <pr> --json state` before
 trusting it. A shared-state stop stops the goal. A ticket stop is reported; its
-dependents are skipped and independent tickets continue.
+dependents are skipped and independent tickets continue. A ticket unit that
+returns no well-formed outcome line, or an outcome its PR state refutes, is read
+from the PR: `shared-state-stop` unless the PR is MERGED, since an armed PR still
+in flight must not meet the next ticket.
 
 ## 1. Route-specific prerequisites
 

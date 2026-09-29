@@ -85,7 +85,9 @@ Adopt **Option C**.
    assignment. A new unit spawns a new agent. Every unit returns a closed result
    that its spawner checks against durable state. A unit that returns `halted`,
    or whose result does not match that state, ends there: the spawner stops and
-   reports, and never respawns the same unit.
+   reports, and never respawns the same unit. Under a goal, a ticket unit that
+   returns no well-formed outcome, or one its PR state refutes, is a
+   `shared-state-stop` unless the PR is merged (`/feature` § Ticket unit).
 4. **Fix rounds.** A review round — `/feature` §6.5, and a standalone `dev-review`
    **Fix now** on a PR — runs `fix` in a fresh agent with the caller's label mode:
    `/feature` always passes `--no-label`, because its loop owns the merge gate.
@@ -105,10 +107,10 @@ Adopt **Option C**.
    the branch, the base and the skill directory. The ticket unit runs `/feature` §6
    to a terminal outcome without asking, with every operator gate mapped per
    `/feature` § Ticket unit: it follows the review loop's step, lands on green and
-   waits on its own CI watch. It returns one closed outcome — `merged`,
-   `ticket-stopped` or `shared-state-stop` — and the goal session confirms `merged`
-   from PR state before trusting it. The rest of ADR-024 decision 1 stands: the
-   goal is still the autonomy unit.
+   waits on its own CI watch, re-attaching a timeout at most twice. It returns one
+   closed outcome — `merged`, `ticket-stopped` or `shared-state-stop` — and the
+   goal session confirms `merged` from PR state before trusting it. The rest of
+   ADR-024 decision 1 stands: the goal is still the autonomy unit.
 6. **What enters a context.** A full-suite or test run writes its log to a
    temporary file outside the worktree and brings back its exit code and its
    failing section. Reads prefer line ranges and skip content already in the
