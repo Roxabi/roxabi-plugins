@@ -5,7 +5,7 @@ import path from 'node:path'
 export const FIXTURES = import.meta.dirname
 
 /** Every fixture repository under FIXTURES. */
-export const FIXTURE_NAMES = ['acme', 'kept', 'pr-only', 'hooks-ok'] as const
+export const FIXTURE_NAMES = ['acme', 'kept', 'kept-hidden', 'pr-only', 'hooks-ok'] as const
 
 /**
  * Copies fixture `name` to `dest` and writes the one invented merge gate as its

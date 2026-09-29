@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
@@ -19,6 +19,7 @@ import {
   readFacts,
   resolveMigrateLabel,
   semctxHooks,
+  trustedDir,
 } from './feature-init'
 
 let staged = ''
@@ -252,7 +253,7 @@ describe('feature init on the fictional acme fixture', () => {
       return null
     })
     expect(seen).toEqual([recordedArgv('acme')])
-    expect(seen.flat()).not.toContain('acme/kit-upstream')
+    expect(seen.flat().join(' ')).not.toContain('kit-upstream')
   })
 
   it('writes a landing without required_checks under merge-on-green', async () => {
@@ -290,6 +291,21 @@ describe('semctx hooks: git-hook groups only', () => {
 })
 
 describe('feature init when landing already exists', () => {
+  it.each([
+    ['acme', { hasWorkingEmptyJob: false, hasAssertledger: false, landingHidesChecks: false }],
+    ['kept', { hasWorkingEmptyJob: true, hasAssertledger: true, landingHidesChecks: false }],
+    ['kept-hidden', { hasWorkingEmptyJob: true, hasAssertledger: true, landingHidesChecks: true }],
+  ])('%s: CI job, assertledger and landing facts', async (name, expected) => {
+    expect(await factsFor(name)).toMatchObject(expected)
+  })
+
+  it('names a recorded required_checks list in the kept line', async () => {
+    const lines = plan(await factsFor('kept-hidden'))
+    expect(lines).toContain('landing kept (existing; required_checks hides other checks)')
+    expect(lines).not.toContain('CI job semctx-working-empty')
+    expect(lines).not.toContain('assertledger')
+  })
+
   it('prints landing kept and leaves the stack alone', async () => {
     const dir = scratchCopy('kept')
     const before = readFileSync(path.join(dir, '.dev', 'stack.yml'), 'utf8')
@@ -337,6 +353,9 @@ describe('ownerRepoFromRemote', () => {
     ['file://nas/acme/app.git', null],
     ['https://gitlab.acme.test/group/sub/app.git', null],
     ['https://github.com/acme', null],
+    ['git@GitHub.COM:acme/app.git', 'acme/app'],
+    ['ftp://github.com/acme/app.git', null],
+    ['https://github.com/acme/app/tree', null],
     ['', null],
     [null, null],
   ])('%s → %s', (url, repo) => {
@@ -401,6 +420,18 @@ describe('semctx hook detection', () => {
   }
 
   const guarded = { 'pre-push': { commands: { guard: { run: 'semctx verify' } } } }
+  it('reads a comment-only lefthook.yml (null document) as having no hook', () => {
+    expect(withLefthook({ 'lefthook.yml': null })).toBe('absent')
+  })
+
+  it('prefers a YAML main config over a foreign file beside it', () => {
+    expect(withLefthook({ 'lefthook.yml': guarded, 'lefthook.toml': null })).toBe('present')
+  })
+
+  it('reports a .config/lefthook.toml as unknown', () => {
+    expect(withLefthook({ '.config/lefthook.toml': null })).toBe('lefthook.toml')
+  })
+
   it('reads .config/lefthook.yml when it is the only config', () => {
     expect(withLefthook({ '.config/lefthook.yml': guarded })).toBe('present')
   })
@@ -547,6 +578,31 @@ describe('issue-triage lookup', () => {
     expect(migrateLabelCandidates(file)).toEqual([
       path.join(plugins, 'cache', 'issue-triage', 'skills', 'issue-triage', 'lib', 'migrate-labels.ts'),
       path.join(plugins, 'node_modules', lib),
+    ])
+  })
+
+  it('does not trust a directory owned by another user', () => {
+    scratch = realpathSync(mkdtempSync(path.join(tmpdir(), 'omp-init-owner-')))
+    const me = statSync(scratch).uid
+    expect(trustedDir(scratch, me)).toBe(true)
+    expect(trustedDir(scratch, me + 1)).toBe(false)
+  })
+
+  it.each([
+    ['a world-writable ancestor', 'plugins', 0o777],
+    ['a sticky world-writable ancestor', 'plugins', 0o1777],
+    ['a world-writable node_modules', 'plugins/node_modules', 0o777],
+  ])('never trusts %s as the installed-layout stop', (_row, rel, mode) => {
+    scratch = realpathSync(mkdtempSync(path.join(tmpdir(), 'omp-init-trust-')))
+    const plugins = path.join(scratch, 'plugins')
+    const file = path.join(plugins, 'cache', 'omp-build', 'skills', 'feature', 'feature-init.ts')
+    mkdirSync(path.dirname(file), { recursive: true })
+    writeFileSync(file, '')
+    mkdirSync(path.join(plugins, 'node_modules', 'omp-build'), { recursive: true })
+    chmodSync(path.join(scratch, rel), mode)
+    expect(trustedDir(path.join(scratch, rel))).toBe(false)
+    expect(migrateLabelCandidates(file)).toEqual([
+      path.join(plugins, 'cache', 'issue-triage', 'skills', 'issue-triage', 'lib', 'migrate-labels.ts'),
     ])
   })
 

@@ -95,6 +95,19 @@ describe('feature init installed layout', () => {
   })
 })
 
+describe('feature init names the github.com host', () => {
+  it('passes -R github.com/owner/repo even when GH_HOST points elsewhere', () => {
+    root = mkdtempSync(path.join(tmpdir(), 'omp-init-ghhost-'))
+    const gh = hermeticGh(root, { argv: ARGV, body: LABELS })
+    const env = { ...gh.env, GH_HOST: 'ghe.example' }
+    const target = acmeRepo(path.join(root, 'target'), env)
+    const result = spawnSync(REAL_BUN, [CLI, '--dir', target, '--dry-run'], { env, encoding: 'utf8' })
+    expect(result.status).toBe(0)
+    expect(gh.calls()).toEqual([ARGV])
+    expect(gh.calls()[0]).toContain('github.com/acme/app')
+  })
+})
+
 describe('feature init with a broken issue-triage', () => {
   it('exits 3 and names the load error, not a missing package', () => {
     root = mkdtempSync(path.join(tmpdir(), 'omp-init-broken-'))

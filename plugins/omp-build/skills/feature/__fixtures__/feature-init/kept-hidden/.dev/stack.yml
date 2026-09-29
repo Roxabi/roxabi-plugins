@@ -1,0 +1,12 @@
+schema_version: "1.0"
+name: acme-kept-hidden
+release:
+  model: trunk
+  post_merge: echo done
+landing:
+  mode: merge-on-green
+  required_checks: [widget-build]
+worktree:
+  copy: []
+  seed: []
+  setup: ""

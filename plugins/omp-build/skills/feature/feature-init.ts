@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -20,15 +20,31 @@ const MIGRATE_LABELS = join('skills', 'issue-triage', 'lib', 'migrate-labels.ts'
  * plugin first, then the installed layout. For the latter, the walk up this
  * file's real path stops at the first ancestor holding `node_modules/omp-build`
  * (`~/.omp/plugins`) and looks only at its `node_modules/issue-triage`, so an
- * unrelated `node_modules` higher up (say `/tmp`) is never reached. Only
+ * unrelated `node_modules` higher up (say `/tmp`) is never reached. An
+ * ancestor that is world-writable (sticky or not) or not owned by the current
+ * user is never trusted as that stop, nor is its `node_modules`. Only
  * absolute file paths are imported, never a bare specifier, so Bun has nothing
  * to auto-install from a registry.
  */
+/** Owned by the current user and not world-writable. The sticky bit does not make a directory trusted. */
+export function trustedDir(dir: string, uid: number | undefined = process.getuid?.()): boolean {
+  try {
+    const stat = statSync(dir)
+    return (stat.mode & 0o002) === 0 && (uid === undefined || stat.uid === uid)
+  } catch {
+    return false
+  }
+}
+
 export function migrateLabelCandidates(from: string): string[] {
   const here = dirname(realpathSync(from))
   const out = [join(here, '..', '..', '..', 'issue-triage', MIGRATE_LABELS)]
   for (let dir = here; ; dir = dirname(dir)) {
-    if (existsSync(join(dir, 'node_modules', 'omp-build'))) {
+    if (
+      trustedDir(dir) &&
+      trustedDir(join(dir, 'node_modules')) &&
+      existsSync(join(dir, 'node_modules', 'omp-build'))
+    ) {
       out.push(join(dir, 'node_modules', 'issue-triage', MIGRATE_LABELS))
       break
     }
@@ -487,7 +503,7 @@ export async function readFacts(dir: string, opts: ReadFactsOpts = {}): Promise<
   const origin = gitRemoteUrl('origin')
   const repo = ownerRepoFromRemote(origin)
   const labelLines = repo
-    ? lines(gh(['label', 'list', '-R', repo, '--limit', '500', '--json', 'name', '--jq', '.[].name']))
+    ? lines(gh(['label', 'list', '-R', `github.com/${repo}`, '--limit', '500', '--json', 'name', '--jq', '.[].name']))
     : null
   const labelsState: LabelsState = !origin?.trim()
     ? 'no-origin'

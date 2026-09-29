@@ -1,7 +1,7 @@
 label
 list
 -R
-acme/app
+github.com/acme/app
 --limit
 500
 --json
