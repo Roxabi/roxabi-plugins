@@ -1,4 +1,4 @@
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -500,7 +500,6 @@ describe('cleanup orphan scan repo scope (#622)', () => {
     expect(yesTargets.map(pathOf)).toEqual([orphan])
   })
 
-
   it('lists a half-removed harness .git shell as unregistered (X14)', () => {
     const { root, home } = tempRoot('x14')
     const principal = path.join(root, 'app')
@@ -577,6 +576,29 @@ describe('cleanup orphan scan repo scope (#622)', () => {
     expect(kinds(full, legacyEmpty)).toEqual(['empty_untracked'])
     expect(kinds(full, outsideEmpty)).toEqual(['empty_parent'])
     expect(scan(principal, env, ['--yes-targets']).map(pathOf)).toEqual([outsideEmpty])
+  })
+
+
+  it('marks a chmod-000 child holding content as unreadable, never in --yes-targets', () => {
+    if (typeof process.getuid === 'function' && process.getuid() === 0) return
+    const { root, home, base } = tempRoot('unreadable')
+    const repo = path.join(root, 'app')
+    initRepo(repo, home)
+    const locked = path.join(base, 'app', 'feat-locked')
+    mkdirSync(path.join(locked, 'src'), { recursive: true })
+    writeFileSync(path.join(locked, 'src', 'notes.md'), 'secret\n')
+    chmodSync(locked, 0o000)
+    const emptyOk = path.join(base, 'app', 'empty-ok')
+    mkdirSync(emptyOk)
+    try {
+      const env = { HOME: home, OMP_WORKTREE_DIR: base }
+      const full = scan(repo, env)
+      const yesTargets = scan(repo, env, ['--yes-targets'])
+      expect(kinds(full, locked)).toEqual(['unreadable'])
+      expect(yesTargets.map(pathOf)).toEqual([emptyOk])
+    } finally {
+      chmodSync(locked, 0o700)
+    }
   })
 
   it('marks a regular file child as not_a_dir', () => {

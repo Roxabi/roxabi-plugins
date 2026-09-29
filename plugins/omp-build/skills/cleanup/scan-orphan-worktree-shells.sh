@@ -3,10 +3,10 @@
 # Analyze-only — never deletes. Emits one line per entry: path|kind|detail
 #   kind ∈ empty_parent | empty_untracked | unregistered | inside_worktree |
 #          nested_git | symlink | symlink_root | dangling_git | not_a_dir |
-#          unsafe_name
+#          unreadable | unsafe_name
 #
 # --yes-targets is an allowlist: it emits ONLY `empty_parent` rows — a real,
-# directory (`[ -d ] && [ ! -L ]`),
+# readable, searchable directory (`[ -d ] && [ ! -L ] && [ -r ] && [ -x ]`),
 # empty, outside any git work tree, with no symlink component between its
 # trusted anchor and itself. 5b deletes those with `rmdir` only, never
 # `rm -rf`. Every other kind needs a per-row confirmation (or is not
@@ -226,6 +226,12 @@ classify() {
     emit "$p" not_a_dir "not a directory"
     return 0
   fi
+  # Emptiness and nested searches need to list/search; without that a content
+  # dir reads as empty_parent. Non-selectable until the operator can prove it.
+  if [ ! -r "$p" ] || [ ! -x "$p" ]; then
+    emit "$p" unreadable "directory not readable/searchable — emptiness unprovable"
+    return 0
+  fi
   if [ -L "$p/.git" ] && [ ! -e "$p/.git" ]; then
     emit "$p" dangling_git "dangling .git symlink — ownership unprovable"
     return 0
@@ -246,7 +252,11 @@ classify() {
     emit "$p" inside_worktree "owned by a git work tree (tracked or rooted here)"
     return 0
   fi
-  nested="$(find "$p" -mindepth 1 -maxdepth 4 -name .git -print -quit 2>/dev/null || true)"
+  # Do not swallow EACCES: an unreadable descendant must not read as "no .git".
+  if ! nested="$(find "$p" -mindepth 1 -maxdepth 4 -name .git -print -quit)"; then
+    emit "$p" unreadable "cannot search directory for nested .git"
+    return 0
+  fi
   if [ -n "$nested" ]; then
     emit "$p" nested_git "contains a .git within depth 4"
     return 0

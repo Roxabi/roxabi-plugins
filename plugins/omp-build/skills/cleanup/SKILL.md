@@ -198,7 +198,7 @@ Never run any of these against the principal's path or its branch.
 | `unregistered` (content without `.git`) | partial dir (e.g. only `node_modules`) | per-row confirm only — **never** in `--yes-targets` |
 | `unregistered` (`has .git`) | half-removed worktree of **this** repo (gitdir proven ours) | per-row confirm only — **never** in `--yes-targets` |
 | `inside_worktree` / `nested_git` | owned by a work tree (tracks something at/under the path, or rooted at/below it), or a `.git` within depth 4 | **not selectable** |
-| `symlink_root` / `symlink` / `dangling_git` / `not_a_dir` | symlink between anchor and root (children not listed), symlink child, dangling `.git`, non-directory | **not selectable** |
+| `symlink_root` / `symlink` / `dangling_git` / `not_a_dir` / `unreadable` | symlink between anchor and root (children not listed), symlink child, dangling `.git`, non-directory, not readable/searchable | **not selectable** |
 | `unsafe_name` | path with a control character or `\|`, shown `%q`-escaped with `\|` as `\x7c` | **not selectable** |
 
 Source: `gather-state.sh` → `---orphan-worktree-shells---` (`path|kind|detail`). Scope is **this repo only**: a child with `.git` is listed only when its `gitdir:` back-pointer resolves under this repo's absolute `git-common-dir`/worktrees. The principal and its tracked descendants are never offered, except children of an untracked harness or feature root (`.claude/worktrees` / in-principal feature base, each only while `git ls-files` finds nothing tracked there). Anything under a registered worktree, and any child that **contains** the principal or a registered worktree, are skipped. An empty untracked child under those roots is `empty_untracked` (per-row `rmdir`); content is `unregistered` (per-row confirm). Each root is built lexically under a canonical trusted anchor (the principal, `$HOME`, or the configured / default base); a relative `worktree.base` resolves against the principal. Rows carry the lexical scanned entry; matching uses `realpath`.
@@ -217,7 +217,7 @@ Orphan worktree shells
 
 If `REPORT_ONLY=true` → print table and skip deletion. Else → multi-select; always offer "Skip".
 
-**Defaults / `--yes` set:** **only** the rows `bash "$(realpath skill://cleanup/scan-orphan-worktree-shells.sh)" --yes-targets` emits — an allowlist of `empty_parent` rows (proven-empty real directories, outside any git work tree, no symlink component below the trusted anchor). `empty_untracked` and `unregistered` need per-row confirmation (`rmdir` / `rm -rf`). `inside_worktree`, `nested_git`, `symlink_root`, `symlink`, `dangling_git`, `not_a_dir`, and `unsafe_name` are **not selectable** — never offered, even per row.
+**Defaults / `--yes` set:** **only** the rows `bash "$(realpath skill://cleanup/scan-orphan-worktree-shells.sh)" --yes-targets` emits — an allowlist of `empty_parent` rows (proven-empty real directories, outside any git work tree, no symlink component below the trusted anchor). `empty_untracked` and `unregistered` need per-row confirmation (`rmdir` / `rm -rf`). `inside_worktree`, `nested_git`, `symlink_root`, `symlink`, `dangling_git`, `not_a_dir`, `unreadable`, and `unsafe_name` are **not selectable** — never offered, even per row.
 
 #### 5b-execute (confirmed only)
 
