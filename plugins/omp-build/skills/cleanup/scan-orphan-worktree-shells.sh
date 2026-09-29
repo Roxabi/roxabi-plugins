@@ -199,14 +199,22 @@ dir_has_entries() {
 }
 
 # Live = owned by a work tree: the enclosing toplevel tracks something at or
-# under p, or is rooted at/below p. Mere enclosure (principal, $HOME dotfiles)
-# is not ownership.
+# under p, or is rooted at/below p. A work tree rooted *strictly below* the
+# trusted scan anchor (and not the principal) is someone else's checkout —
+# its untracked children are also live. Mere enclosure by the principal or by
+# an ancestor of the anchor ($HOME dotfiles) is not ownership.
 live_in_worktree() {
   local p="$1" top tracked
   top="$(git -C "$p" rev-parse --show-toplevel 2>/dev/null)" || return 1
   case "$top" in
     "$p"|"$p"/*) return 0 ;;
   esac
+  # Foreign enclosure: top sits under the trusted anchor and is not ours.
+  if [ -n "$current_anchor" ] && [ "$top" != "$principal" ]; then
+    case "$top" in
+      "$current_anchor"/*) return 0 ;;
+    esac
+  fi
   tracked="$(git -C "$top" ls-files -- "$p" 2>/dev/null || true)"
   [ -n "$tracked" ]
 }

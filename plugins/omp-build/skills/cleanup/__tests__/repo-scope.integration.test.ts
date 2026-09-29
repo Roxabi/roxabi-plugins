@@ -434,16 +434,17 @@ describe('cleanup orphan scan repo scope (#622)', () => {
     expect(scan(principal, { HOME: home }, ['--yes-targets']).map(pathOf)).toEqual([emptyOk])
   })
 
-  it("marks a foreign checkout's tracked src as inside_worktree; untracked empty is empty_untracked", () => {
+  it("marks a foreign checkout's untracked work as inside_worktree — never selectable", () => {
     const { root, home, base } = tempRoot('foreign-co')
     const orgB = path.join(root, 'orgB', 'app')
     initRepo(orgB, home)
+    // Same-named foreign checkout living AT the scan root. Its WIP stays untracked.
     const foreignCheckout = path.join(base, 'app')
     initRepo(foreignCheckout, home)
     mkdirSync(path.join(foreignCheckout, 'src'))
     writeFileSync(path.join(foreignCheckout, 'src', 'wip.ts'), 'export const wip = 1\n')
-    git(foreignCheckout, home, 'add', 'src')
-    git(foreignCheckout, home, 'commit', '-q', '-m', 'chore: src')
+    mkdirSync(path.join(foreignCheckout, 'new-feature'))
+    writeFileSync(path.join(foreignCheckout, 'new-feature', 'wip.md'), 'draft\n')
     mkdirSync(path.join(foreignCheckout, 'empty-in-foreign'))
     const legacyEmpty = path.join(home, '.omp', 'worktrees', 'app', 'empty-ok')
     mkdirSync(legacyEmpty, { recursive: true })
@@ -451,7 +452,30 @@ describe('cleanup orphan scan repo scope (#622)', () => {
     const env = { HOME: home, OMP_WORKTREE_DIR: base }
     const full = scan(orgB, env)
     expect(kinds(full, path.join(foreignCheckout, 'src'))).toEqual(['inside_worktree'])
-    expect(kinds(full, path.join(foreignCheckout, 'empty-in-foreign'))).toEqual(['empty_untracked'])
+    expect(kinds(full, path.join(foreignCheckout, 'new-feature'))).toEqual(['inside_worktree'])
+    expect(kinds(full, path.join(foreignCheckout, 'empty-in-foreign'))).toEqual(['inside_worktree'])
+    expect(scan(orgB, env, ['--yes-targets']).map(pathOf)).toEqual([legacyEmpty])
+  })
+
+  it("marks a child of a foreign linked worktree at <base>/<repo> as inside_worktree", () => {
+    const { root, home, base } = tempRoot('foreign-link')
+    const orgA = path.join(root, 'orgA', 'app')
+    const orgB = path.join(root, 'orgB', 'app')
+    initRepo(orgA, home)
+    initRepo(orgB, home)
+    // Scan root IS a live linked worktree of orgA.
+    const foreignLive = path.join(base, 'app')
+    mkdirSync(base, { recursive: true })
+    git(orgA, home, 'worktree', 'add', '-q', foreignLive, '-b', 'feat/foreign-link')
+    const wip = path.join(foreignLive, 'wip')
+    mkdirSync(wip)
+    writeFileSync(path.join(wip, 'notes.md'), 'foreign wip\n')
+    const legacyEmpty = path.join(home, '.omp', 'worktrees', 'app', 'empty-ok')
+    mkdirSync(legacyEmpty, { recursive: true })
+
+    const env = { HOME: home, OMP_WORKTREE_DIR: base }
+    const full = scan(orgB, env)
+    expect(kinds(full, wip)).toEqual(['inside_worktree'])
     expect(scan(orgB, env, ['--yes-targets']).map(pathOf)).toEqual([legacyEmpty])
   })
 
