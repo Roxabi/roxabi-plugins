@@ -472,7 +472,13 @@ for _ in 1 2 3; do
     { [ "$TAG_AT" = "$M" ] && RELEASE_STATE=points-at-M; } || RELEASE_STATE=points-elsewhere
   else RELEASE_STATE=absent; fi
 
-  VERDICT=$(bun run skill://promote/lib/finalize.ts \
+  T=$(realpath skill://promote/lib/finalize.ts) || {
+    printf 'REFUSE: cannot resolve skill://promote/lib/finalize.ts\n'
+    exit 1
+  }
+  # Capture finalize's stdout even when it exits non-zero; empty/unknown ACTION
+  # still REFUSEs below — never treat a failed resolve or empty verdict as noop.
+  VERDICT=$(bun "$T" \
     --parent-count "$PARENT_COUNT" --is-promote "$IS_PROMOTE" \
     --derived "$DERIVED" --base "$BASE" \
     --witness-title "$TITLE_V" --witness-heading "$HEADING_V" --witness-file "$FILE_V" \
@@ -484,7 +490,8 @@ for _ in 1 2 3; do
     refuse)         printf '%s\n' "$VERDICT" | sed -n 's/^reason=/REFUSE: /p'; exit 1 ;;
     tag)            git tag -a "$VERSION" -m "Release $VERSION" "$M" && git push origin "$VERSION" ;;
     create-release) TITLE="${VERSION/\/v/ v}"; gh release create "$VERSION" --title "$TITLE" --notes "$CHANGELOG_CONTENT" ;;
-    noop|*)         break ;;
+    noop)           break ;;
+    *)              printf 'REFUSE: empty or unknown finalize action\n%s\n' "$VERDICT"; exit 1 ;;
   esac
 done
 ```
