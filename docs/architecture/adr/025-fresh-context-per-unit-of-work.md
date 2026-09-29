@@ -103,9 +103,9 @@ Adopt **Option C**.
    A `ci-failed` round runs `/feature`'s `ci-failed` round procedure, never
    `fix`: it reads the failed checks from GitHub, stages only what it changed,
    verifies before its push and writes no label.
-5. **Epic goal.** ADR-024 decision 1 (§3) already makes a goal unattended: the
-   operator's `/goal` is the standing Phase 8 choice and merge approval for every
-   ticket of the epic. The goal session keeps the frontier, the base-CI read and
+5. **Epic goal.** ADR-024 decision 1 (§3) makes a goal unattended; this decision
+   makes the operator's `/goal` the standing Phase 8 choice and merge approval for
+   every ticket of the epic. The goal session keeps the frontier, the base-CI read and
    each ticket's outcome, and owns the hand-over of the epic worktree: before each
    spawn it requires a clean tree and checks out the ticket's branch, created from
    fresh `refs/remotes/origin/<base>` when it does not exist. It spawns one ticket
