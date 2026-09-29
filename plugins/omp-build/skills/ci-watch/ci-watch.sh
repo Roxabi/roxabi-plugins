@@ -261,6 +261,13 @@ print_offending() {
   ' >&2
 }
 
+require_snapshot() {
+  if [[ -z "$1" ]]; then
+    echo "empty gh pr view" >&2
+    exit "$EXIT_INTERNAL"
+  fi
+}
+
 START=$SECONDS
 CONFIRMED_GREEN=0
 
@@ -271,6 +278,7 @@ while true; do
     exit "$EXIT_DEADLINE"
   fi
   snapshot=$(pr_json)
+  require_snapshot "$snapshot"
   state=$(echo "$snapshot" | jq -r .state)
   if [[ "$state" == "MERGED" ]]; then
     echo "merged"
@@ -304,12 +312,17 @@ while true; do
       fi
       break
       ;;
+    *)
+      echo "unexpected verdict: ${verdict}" >&2
+      exit "$EXIT_INTERNAL"
+      ;;
   esac
 done
 
 while true; do
   elapsed=$((SECONDS - START))
   snapshot=$(pr_json)
+  require_snapshot "$snapshot"
   state=$(echo "$snapshot" | jq -r .state)
   mss=$(echo "$snapshot" | jq -r .mergeStateStatus)
   eligible=$(eligible_of "$MERGE_MODE" "$snapshot")

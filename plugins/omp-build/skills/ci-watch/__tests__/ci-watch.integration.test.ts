@@ -432,4 +432,19 @@ echo '{'
     expect(result.code).toBe(70)
     expect([1, 2, 3, 4, 5]).not.toContain(result.code)
   })
+
+  it('exits 70 when gh returns an empty snapshot', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-empty-'))
+    fakeGh(
+      dir,
+      `#!/usr/bin/env bash
+exit 0
+`,
+    )
+    const started = Date.now()
+    const result = runWatch(dir, {}, undefined, '2s')
+    expect(result.code).toBe(70)
+    expect(result.stderr).toContain('empty gh pr view')
+    expect(Date.now() - started).toBeLessThan(1500)
+  })
 })
