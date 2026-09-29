@@ -382,6 +382,88 @@ function countActiveContracts(dir: string): number {
   ).length
 }
 
+const DEPENDENCY_MAPS = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']
+
+function readPackage(dir: string): YamlMap | null {
+  try {
+    const doc: unknown = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
+    return isMap(doc) ? doc : null
+  } catch {
+    return null
+  }
+}
+
+/** The package names a package.json declares in its dependency maps. Scripts are not dependencies. */
+function dependencyNames(pkg: YamlMap | null): string[] {
+  if (!pkg) return []
+  return DEPENDENCY_MAPS.flatMap((key) => {
+    const deps = pkg[key]
+    return isMap(deps) ? Object.keys(deps) : []
+  })
+}
+
+/** One `workspaces` glob as an anchored regex over `/`-joined relative paths. */
+function workspaceGlob(glob: string): RegExp {
+  const parts = glob.replace(/^\.\//, '').replace(/\/+$/, '').split('/')
+  let source = ''
+  parts.forEach((part, index) => {
+    const last = index === parts.length - 1
+    if (part === '**') source += last ? '(?:[^/]+(?:/[^/]+){0,2})?' : '(?:[^/]+/){0,3}'
+    else source += part.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*') + (last ? '' : '/')
+  })
+  return new RegExp(`^${source}$`)
+}
+
+/** Bounded expansion of npm/bun `workspaces` globs: `*` is one level, `**` up to three, `!` excludes. */
+export function workspaceDirs(dir: string, pkg: YamlMap | null): string[] {
+  const field = pkg?.workspaces
+  const globs = Array.isArray(field) ? field : isMap(field) && Array.isArray(field.packages) ? field.packages : []
+  const patterns = globs.filter((glob): glob is string => typeof glob === 'string')
+  const include = patterns.filter((glob) => !glob.startsWith('!')).map(workspaceGlob)
+  const exclude = patterns.filter((glob) => glob.startsWith('!')).map((glob) => workspaceGlob(glob.slice(1)))
+  if (!include.length) return []
+  const out: string[] = []
+  const walk = (rel: string, depth: number) => {
+    if (out.length >= 500 || depth > 4) return
+    let entries: string[]
+    try {
+      entries = readdirSync(join(dir, rel), { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && entry.name !== 'node_modules' && !entry.name.startsWith('.'))
+        .map((entry) => entry.name)
+    } catch {
+      return
+    }
+    for (const name of entries) {
+      const child = rel ? `${rel}/${name}` : name
+      if (include.some((re) => re.test(child)) && !exclude.some((re) => re.test(child))) {
+        if (existsSync(join(dir, child, 'package.json'))) out.push(join(dir, child))
+      }
+      walk(child, depth + 1)
+    }
+  }
+  walk('', 0)
+  return out
+}
+
+const VITEST_CONFIG = /^vitest\.(?:config|workspace)\.[a-z]+$/
+
+/**
+ * True when the repository uses vitest: a `vitest` or `@vitest/*` dependency,
+ * or a `vitest.config.*` / `vitest.workspace.*` file, at the root or in a
+ * `workspaces` package. A script that merely mentions vitest does not count.
+ */
+export function detectsVitest(dir: string): boolean {
+  const root = readPackage(dir)
+  for (const pkgDir of [dir, ...workspaceDirs(dir, root)]) {
+    const pkg = pkgDir === dir ? root : readPackage(pkgDir)
+    if (dependencyNames(pkg).some((name) => name === 'vitest' || name.startsWith('@vitest/'))) return true
+    try {
+      if (readdirSync(pkgDir).some((name) => VITEST_CONFIG.test(name))) return true
+    } catch {}
+  }
+  return false
+}
+
 export type ReadFactsOpts = {
   gh?: Gh
   gitRemoteUrl?: GitRemoteUrl
@@ -426,7 +508,7 @@ export async function readFacts(dir: string, opts: ReadFactsOpts = {}): Promise<
     hasWorkingEmptyJob: /^\s*(name:\s*)?semctx-working-empty:?\s*$/m.test(ci),
     activeContracts: countActiveContracts(dir),
     hasAssertledger: /"assertledger"/.test(pkg),
-    vitest: /"vitest"/.test(pkg),
+    vitest: detectsVitest(dir),
     hasCcc: existsSync(join(dir, '.cocoindex_code')),
     hasCodegraph: existsSync(join(dir, '.codegraph')),
     mergeOnGreen: Boolean(merge),

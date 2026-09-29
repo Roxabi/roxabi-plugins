@@ -111,6 +111,62 @@ describe('feature init on the fictional acme fixture', () => {
     expect(facts.hasAssertledger).toBe(false)
   })
 
+  const WIDGET = { name: 'widget-app', private: true }
+  it.each([
+    ['a root vitest dependency', { 'package.json': { ...WIDGET, devDependencies: { vitest: '1.0.0' } } }, true],
+    [
+      'only a scoped @vitest/* root dependency',
+      { 'package.json': { ...WIDGET, devDependencies: { '@vitest/coverage-v8': '1.0.0' } } },
+      true,
+    ],
+    [
+      'a workspace package that depends on vitest',
+      {
+        'package.json': { ...WIDGET, workspaces: ['apps/*', 'packages/**'] },
+        'packages/widget/core/package.json': { name: 'widget-core', devDependencies: { vitest: '1.0.0' } },
+      },
+      true,
+    ],
+    [
+      'an excluded workspace package',
+      {
+        'package.json': { ...WIDGET, workspaces: ['apps/*', '!apps/legacy'] },
+        'apps/legacy/package.json': { name: 'widget-legacy', devDependencies: { vitest: '1.0.0' } },
+      },
+      false,
+    ],
+    [
+      'a package outside the workspaces globs',
+      {
+        'package.json': { ...WIDGET, workspaces: ['apps/*'] },
+        'tools/bench/package.json': { name: 'widget-bench', devDependencies: { vitest: '1.0.0' } },
+      },
+      false,
+    ],
+    ['a vitest.config file', { 'package.json': WIDGET, 'vitest.config.ts': '' }, true],
+    ['a vitest.workspace file', { 'package.json': WIDGET, 'vitest.workspace.json': '' }, true],
+    [
+      'a script that only mentions vitest',
+      {
+        'package.json': {
+          ...WIDGET,
+          scripts: { test: 'vitest run' },
+          devDependencies: { 'widget-vitest-reporter': '1.0.0' },
+        },
+      },
+      false,
+    ],
+  ])('vitest adapter for %s → %s', async (_row, files, adapter) => {
+    const dir = scratchCopy('acme')
+    for (const [rel, body] of Object.entries(files)) {
+      mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true })
+      writeFileSync(path.join(dir, rel), typeof body === 'string' ? body : JSON.stringify(body))
+    }
+    const lines = plan(await factsIn(dir, 'acme'))
+    expect(lines).toContain(adapter ? 'assertledger + vitest adapter' : 'assertledger')
+    expect(lines).not.toContain(adapter ? 'assertledger' : 'assertledger + vitest adapter')
+  })
+
   it('decides label migration with issue-triage grammar', async () => {
     const facts = await factsFor('acme')
     expect(facts.legacyLabels).toEqual(['size: M', 'priority: high', 'ready-for-agent'])
