@@ -28,7 +28,7 @@
 /** Operator forms accepted for a ticket: `493`, `'493'`, `'#493'`. */
 const TICKET_RE = /^#?(\d+)$/
 
-/** Branch convention: `<type>/<issue>-<slug>` — `resolveNames` in `../build/workflow.js`. */
+/** Branch convention: `<type>/<issue>-<slug>` — `resolveNames` in `./workflow.js`. */
 const BRANCH_TICKET_RE = /^[^/]+\/(\d+)(?:-|$)/
 
 /**
@@ -166,8 +166,7 @@ export function resolveEntry({ cwd, principalPath, branch = null, ticket = null,
     const worktree = normalizePath(worktreePath, 'worktreePath')
     // `omp --cwd <dir>`, not `/wt`: that command always mints a fresh branch and
     // hard-refuses an existing one, and it lands in `~/.omp/wt/<sanitised>-<hash>`
-    // — never in the ω `ensureWorktree` just built and installed. Same answer as
-    // `skills/build/SKILL.md` (`need-relaunch`) and `scripts/omp-wt.mjs`.
+    // — never in the ω `ensureWorktree` just built and installed.
     return {
       action: 'hop',
       reason: 'principal',

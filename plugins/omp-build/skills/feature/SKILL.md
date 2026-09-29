@@ -184,11 +184,10 @@ and the contract is re-derived. Repos without `.semctx/` skip this.
 
 ```javascript
 const { openPr, landPr, resumeReviewLoop } =
-  await import(`${SKILL_DIR}/../build/workflow.js`)
+  await import(`${SKILL_DIR}/workflow.js`)
 ```
 
-These bundled functions remain the PR/landing seam. Do not invoke the legacy
-`/build` driver or its spec-file stages.
+These bundled functions remain the PR/landing seam.
 
 ### 6.1 Plan against acceptance criteria
 

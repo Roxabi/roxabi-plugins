@@ -7,7 +7,7 @@
 # `git worktree remove`. It scans the roots THIS plugin and OMP create worktrees in,
 # and nothing else:
 #
-#   1. ~/.omp/worktrees/<repo>/<type>-<issue>-<slug>  — skills/build/workflow.js
+#   1. ~/.omp/worktrees/<repo>/<type>-<issue>-<slug>  — skills/feature/workflow.js
 #      `resolveNames`, the path `ensureWorktree` hands to `git worktree add`.
 #   2. <repo>/.claude/worktrees/<…>                   — harness-created worktrees.
 #   3. <worktree base>/<repo>/<slug>                  — OMP and agent-created worktrees.
@@ -161,4 +161,4 @@ case "$wt_base" in
   "~") wt_base="$HOME" ;;
   "") wt_base="$(canon "$HOME")/.omp/wt" ;;
 esac
-scan_root "$wt_base/$(basename "$principal")" "omp-wt"
+scan_root "$wt_base/$(basename "$principal")" "worktree-base"

@@ -1,22 +1,13 @@
 /**
- * OMP /build — sequential SDLC after spec validation.
+ * Deterministic core `/feature` uses: worktree names, PR open, review-loop
+ * bound, and landing. No agent-stage runner and no driver.
  *
- * agent() has no cwd. Isolated apply lands on the *session* HEAD.
- * Therefore this script never `git switch`s the principal checkout.
- *
- * Two entries:
- *   principal → create ~/.omp/worktrees/<repo>/<type>-<issue>-<slug>, return
- *               need-relaunch (omp --cwd ω). Do not implement here.
- *   already in ω → run the pipeline. Session HEAD is the feature branch.
- *
- * Review = sibling agent() (reviewer, security-reviewer). No nested task.
- * NEVER pipeline() this chain.
+ * `ensureWorktree` creates ~/.omp/worktrees/<repo>/<type>-<issue>-<slug> from
+ * the principal and never `git switch`s that checkout.
  */
 
 export const PRINCIPALS = ['staging', 'main', 'master']
 const HOME = process.env.HOME || ''
-
-/** @typedef {{ issue: number, specPath: string, cwd: string, principal: string, branch: string, worktree: string, principalPath: string }} BuildContext */
 
 /** Hook vars that redirect git. Same set as check-principal-branch.sh git_probe. */
 export const GIT_HOOK_VARS = [
@@ -49,35 +40,6 @@ async function git(cwd, args) {
     throw new Error(`git ${args.join(' ')} failed (${code}): ${stderr || stdout}`)
   }
   return stdout.trim()
-}
-
-export function kebab(s) {
-  return String(s)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 48)
-}
-
-export function parseSpecMeta(text, { issue, specPath } = {}) {
-  const type = (text.match(/^type:\s*["']?(\w+)/m) || [])[1] || 'feat'
-  const title = (text.match(/^title:\s*["']?(.+?)["']?\s*$/m) || [])[1] || ''
-  const fmIssue = (text.match(/^issue:\s*(\d+)/m) || [])[1]
-  const fromName = specPath?.match(/(\d+)-(.+)-spec\.md$/)
-  const n = issue ?? (fmIssue ? Number(fmIssue) : null)
-  const slug = fromName?.[2] || kebab(title) || (n ? `issue-${n}` : 'wip')
-  return { type, slug, title, issue: n }
-}
-
-export async function readSpecMeta(specPath, issue) {
-  const text = await Bun.file(specPath).text()
-  return parseSpecMeta(text, { issue, specPath })
-}
-
-export async function findSpecForIssue(root, issue) {
-  const glob = new Bun.Glob(`artifacts/specs/${issue}-*-spec.md`)
-  for await (const p of glob.scan({ cwd: root, absolute: true })) return p
-  return null
 }
 
 const fetched = new Set()
@@ -122,15 +84,9 @@ export async function detectPrincipal(cwd) {
   return name
 }
 
-export async function repoName(cwd) {
+async function repoName(cwd) {
   const root = await git(cwd, ['rev-parse', '--show-toplevel'])
   return root.split('/').pop() || 'repo'
-}
-
-export async function isWorktree(cwd) {
-  const gitDir = await git(cwd, ['rev-parse', '--git-dir'])
-  const common = await git(cwd, ['rev-parse', '--git-common-dir'])
-  return gitDir !== common
 }
 
 /** Policy: no branch without an issue. Mint first, then <type>/<issue>-<slug>. */
@@ -148,20 +104,6 @@ export async function resolveNames({ cwd, type, slug, issue }) {
     branch: `${type}/${issue}-${slug}`,
     worktree: `${HOME}/.omp/worktrees/${name}/${type}-${issue}-${slug}`,
     principalPath: root,
-  }
-}
-
-export async function resolveNamesFromSpec({ cwd, issue, specPath }) {
-  const root = await git(cwd, ['rev-parse', '--show-toplevel'])
-  let spec = specPath || null
-  if (!spec && issue) spec = await findSpecForIssue(root, issue)
-  if (!spec) throw new Error('resolveNamesFromSpec: spec required')
-  const meta = await readSpecMeta(spec, issue)
-  if (!meta.issue) throw new Error('resolveNamesFromSpec: spec has no issue: — mint first')
-  return {
-    ...(await resolveNames({ cwd: root, type: meta.type, slug: meta.slug, issue: meta.issue })),
-    ...meta,
-    specPath: spec,
   }
 }
 
@@ -202,10 +144,8 @@ export async function ensureWorktree(principalPath, names) {
 /**
  * Commit dirty tree if any, then push the feature branch.
  *
- * Exported since #494: `/feature` mode 2 drives the deterministic steps — commit,
- * push, open, land — from skill prose, and prose cannot call a module-private
- * function. `run()` still calls it in-module (expand–contract: #497 deletes the
- * driver, not this).
+ * Exported since #494: `/feature` mode 2 drives commit and push from skill
+ * prose, which cannot call a module-private function.
  */
 export async function commitPush(cwd, branch, message) {
   const status = await git(cwd, ['status', '--porcelain'])
@@ -214,107 +154,6 @@ export async function commitPush(cwd, branch, message) {
     await git(cwd, ['commit', '-m', message])
   }
   await git(cwd, ['push', '-u', 'origin', branch])
-}
-
-/**
- * @param {BuildContext} ctx
- * @param {string} stage
- * @param {Record<string, unknown>} [extra]
- */
-async function runStage(ctx, stage, extra = {}) {
-  const { issue, specPath, cwd, principal, branch } = ctx
-  const planPath = `artifacts/plans/${issue}-plan.md`
-  const reviewPath = `artifacts/reviews/${issue}-review.md`
-
-  const prompts = {
-    plan: `# Target
-Issue #${issue}, spec: ${specPath}, cwd: ${cwd} (feature worktree on ${branch})
-
-# Change
-Read the spec. Write ${planPath} with phased steps tied to Acceptance. Seed todos (todo tool).
-Do not touch the principal checkout. Do not git switch.
-
-# Acceptance
-${planPath} exists. Reply one line: \`plan: ok\``,
-
-    implement: `# Target
-Issue #${issue}, plan: ${planPath}, spec: ${specPath}, cwd: ${cwd} (${branch})
-
-# Change
-Read spec + plan. Implement here. Root-cause only. Do not switch branch. Do not git commit or push.
-For every Acceptance criterion, exercise its public seam; if repository-executable automation can observe the outcome and no collected test protects it, add the smallest public-seam test asserting that outcome. Report the exact command and result.
-
-# Acceptance
-Acceptance met. Command + result reported. Reply one line: \`implement: ok\``,
-
-    pr: `# Target
-Issue #${issue}, spec: ${specPath}, cwd: ${cwd}
-
-# Change
-github pr_create. head=${branch} base=${principal}. Link #${issue}.
-The branch is already pushed. Do not create an empty PR.
-
-# Acceptance
-PR open. Reply one line: \`pr: <number>\``,
-
-    review: `# Target
-Issue #${issue}, spec: ${specPath}, cwd: ${cwd}, PR head ${branch}
-
-# Change
-You ARE the reviewer. Review the PR diff against spec Acceptance.
-Independently run collected tests covering Acceptance. Reject skipped/uncollected tests, name-only mappings, tautologies, implementation-mirroring, internal-seam assertions. Manual only when repo-executable code cannot observe the outcome — require technical blocker, procedure, observed result.
-Do not spawn subagents. Write ${reviewPath} with \`verdict: green|red\` and R₁ findings.
-
-# Acceptance
-Reply one line: \`review: green\` or \`review: red\``,
-
-    'review-sec': `# Target
-Issue #${issue}, spec: ${specPath}, cwd: ${cwd}
-
-# Change
-You ARE the security-reviewer. Audit the PR diff. Do not spawn subagents.
-Append ## Security to ${reviewPath}. End with \`review: green\` or \`review: red\`.
-
-# Acceptance
-Reply one line: \`review: green\` or \`review: red\``,
-
-    fix: `# Target
-Issue #${issue}, review: ${reviewPath}, spec: ${specPath}, cwd: ${cwd} (${branch})
-
-# Change
-Fix root causes (R₁) on this worktree. Do not switch branch. Do not git commit or push.
-
-# Acceptance
-Reply one line: \`fix: ok\``,
-  }
-
-  const prompt = prompts[stage]
-  if (!prompt) throw new Error(`Unknown stage: ${stage}`)
-
-  const opts = {
-    handle: true,
-    label: `build-${stage}-${issue}`,
-  }
-  if (extra.agent) opts.agent = extra.agent
-
-  const result = await agent(prompt, opts)
-  const text = (result?.text ?? result?.output ?? String(result)).trim()
-  return { text, result }
-}
-
-function parseVerdict(text) {
-  const m = String(text).match(/review:\s*(green|red)/i)
-  if (m) return m[1].toLowerCase()
-  if (/green/i.test(text) && !/red/i.test(text)) return 'green'
-  if (/red/i.test(text)) return 'red'
-  return 'red'
-}
-
-async function reviewPair(ctx) {
-  const a = await runStage(ctx, 'review', { agent: 'reviewer' })
-  const b = await runStage(ctx, 'review-sec', { agent: 'security-reviewer' })
-  const verdict = parseVerdict(a.text) === 'red' || parseVerdict(b.text) === 'red' ? 'red' : 'green'
-  return { verdict }
 }
 
 /**
@@ -474,11 +313,8 @@ async function findOpenPr(cwd, head, base, ghFn) {
 /**
  * Open the pull request for a feature branch — as a call, not as a sentence.
  *
- * `runStage(ctx, 'pr')` asks a subagent to open the PR and then recovers the number by
- * regexing `pr:\s*(\S+)` out of whatever it replied (`run()`, below). That number is an
- * agent's wording: a reply of `pr: opened!` yields the string `opened!`, which reaches
- * `landPr` as a PR id and fails there, one stage late. Here the number is the `number`
- * field of the client's own response, or nothing at all.
+ * The number is the `number` field of the client's own response, or nothing at
+ * all. A reply's wording is never parsed for a PR id.
  *
  * Client injection follows `landPr(cwd, pr, { gh })`: the tests drive a stub, never a
  * real `gh`, so no test can open, label or merge a real pull request.
@@ -1076,88 +912,5 @@ export function createReviewLoop({
       const message = [stop.message, ...notes].join('\n')
       return { removed, autoMergeDisabled, labels, message }
     },
-  }
-}
-
-/**
- * @param {{ issue: number, specPath: string, cwd: string }} input
- */
-export async function run({ issue, specPath, cwd }) {
-  const top = await git(cwd, ['rev-parse', '--show-toplevel'])
-  const names = await resolveNamesFromSpec({ cwd: top, issue, specPath })
-  const expectedBranch = names.branch
-  const head = await git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])
-  const ω = await isWorktree(cwd)
-
-  if (!ω || head !== expectedBranch) {
-    const created = await ensureWorktree(top, names)
-    return {
-      status: 'need-relaunch',
-      worktree: created.worktree,
-      branch: created.branch,
-      principal: created.principal,
-      cmd: `omp --cwd ${created.worktree}`,
-    }
-  }
-
-  const principal = await detectPrincipal(cwd)
-  const common = await git(cwd, ['rev-parse', '--git-common-dir'])
-  const principalPath = await git(common.replace(/\/\.git$/, '') || common, ['rev-parse', '--show-toplevel']).catch(
-    async () => {
-      const root = common.replace(/\/\.git$/, '')
-      return root || top
-    },
-  )
-
-  const ctx = {
-    issue,
-    specPath,
-    cwd,
-    principal,
-    branch: expectedBranch,
-    worktree: cwd,
-    principalPath,
-  }
-  const reviewPath = `artifacts/reviews/${issue}-review.md`
-
-  await runStage(ctx, 'plan')
-  await runStage(ctx, 'implement')
-  await commitPush(cwd, expectedBranch, `feat(#${issue}): implement`)
-
-  const { text: prText } = await runStage(ctx, 'pr')
-  const prMatch = prText.match(/pr:\s*(\S+)/i)
-  const pr = prMatch ? prMatch[1] : prText
-
-  let { verdict } = await reviewPair(ctx)
-  await commitPush(cwd, expectedBranch, `docs(#${issue}): review`)
-  if (verdict === 'red') {
-    await runStage(ctx, 'fix')
-    await commitPush(cwd, expectedBranch, `fix(#${issue}): review R1`)
-    ;({ verdict } = await reviewPair(ctx))
-    await commitPush(cwd, expectedBranch, `docs(#${issue}): review 2`)
-  }
-
-  if (verdict === 'red') {
-    return { status: 'red', reviewPath, branch: expectedBranch, worktree: cwd, pr }
-  }
-
-  const land = await landPr(cwd, pr)
-  if (land.status !== 'merged') {
-    return {
-      status: 'red',
-      reason: land.status,
-      watch: land.watch,
-      reviewPath,
-      branch: expectedBranch,
-      worktree: cwd,
-      pr,
-    }
-  }
-  return {
-    status: 'green',
-    pr,
-    branch: expectedBranch,
-    worktree: cwd,
-    cleanup: `git -C ${principalPath} worktree remove ${cwd} && git -C ${principalPath} branch -D ${expectedBranch}`,
   }
 }

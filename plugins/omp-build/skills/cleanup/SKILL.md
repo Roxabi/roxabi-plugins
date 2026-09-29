@@ -189,7 +189,7 @@ Never run any of these against the principal's path or its branch.
 
 ### 5b. Orphan worktree shells
 
-`git worktree list` only knows registered worktrees. After `git worktree remove`, leftovers stay behind in the two roots this plugin creates worktrees in — `~/.omp/worktrees/<repo>/` (`skills/build/workflow.js`) and `<principal>/.claude/worktrees/`:
+`git worktree list` only knows registered worktrees. After `git worktree remove`, leftovers stay behind in the two roots this plugin creates worktrees in — `~/.omp/worktrees/<repo>/` (`skills/feature/workflow.js`) and `<principal>/.claude/worktrees/`:
 
 | kind | Example | Safe cleanup |
 |------|---------|--------------|

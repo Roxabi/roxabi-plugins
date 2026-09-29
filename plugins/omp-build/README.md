@@ -12,7 +12,6 @@ OMP marketplace — catalogued in `.omp-plugin/marketplace.json` only (OMP-only 
 omp plugin marketplace add Roxabi/roxabi-plugins   # once per machine
 omp plugin marketplace update roxabi-marketplace   # after a catalog change lands
 omp plugin install omp-build@roxabi-marketplace
-ln -sfn ~/.omp/plugins/node_modules/omp-build/scripts/omp-wt.sh ~/.local/bin/omp-wt
 ```
 
 **Then arm the surfaces.** With the `claude-plugins` provider disabled, a marketplace install loads only `package.json#omp.extensions` — `skills/` and `agents/` stay dark, because the realpath filter that hides marketplace roots lives in the *installed* lane that both `omp-plugins` (skills/commands/hooks) and the agents gate read. Add the stable `node_modules` symlink to `extensions:` in `~/.omp/agent/config.yml`:
@@ -33,7 +32,6 @@ Alternative to the catalog install, from a checkout of `roxabi-plugins` (monorep
 ```bash
 # from repo root
 omp plugin link ./plugins/omp-build
-ln -sfn "$(pwd)/plugins/omp-build/scripts/omp-wt.sh" ~/.local/bin/omp-wt
 ```
 
 Requires `package.json` with an `omp` key. `omp.extensions` is the in-process lane — this plugin ships `./omp/index.ts` there (see [Guards](#guards)).
@@ -79,8 +77,7 @@ questions, `issue-triage` for issue writes, and bundled `dev-review` / `fix` for
 verification. `tdd` is used at agreed test-first seams. The old `grill-with-docs`,
 `to-spec`, `to-tickets` and `implement` skills are no longer prerequisites.
 
-`omp-wt` and `/build` belong to the legacy entry flow; `/feature` does not invoke
-them. The still-used PR/landing functions remain in `skills/build/workflow.js`.
+PR open, the review loop, and landing live in `skills/feature/workflow.js`.
 
 ## Slash commands
 
@@ -152,7 +149,6 @@ Spawn: `task` `{ agent: "R-adversarial" | "R-advisor" | "R-architect" | "R-devop
 
 | Skill | Lane |
 |---|---|
-| `build` | legacy `/build` entry; `workflow.js` still supplies feature's PR/landing functions |
 | `feature` | `/feature` (registered command) |
 | `dev-review` | model-invocable · the five-role review panel |
 | `fix` | model-invocable · applies the findings, inline |
