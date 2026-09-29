@@ -1,15 +1,16 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { migrateLabel } from '../../../issue-triage/skills/issue-triage/lib/migrate-labels'
-import { stageFixture } from './__fixtures__/feature-init/stage'
+import { FIXTURE_NAMES, stageFixture } from './__fixtures__/feature-init/stage'
 import {
   applyStack,
   type Facts,
   type Gh,
   hasSemctxGitHooks,
   IssueTriageMissing,
+  loadMigrateLabel,
   type MigrateLabel,
   migrateLabelCandidates,
   ownerRepoFromRemote,
@@ -20,12 +21,10 @@ import {
   semctxHooks,
 } from './feature-init'
 
-const NAMES = ['acme', 'kept', 'pr-only', 'hooks-ok']
-
 let staged = ''
 beforeAll(() => {
   staged = mkdtempSync(path.join(tmpdir(), 'omp-init-fixtures-'))
-  for (const name of NAMES) stageFixture(name, path.join(staged, name))
+  for (const name of FIXTURE_NAMES) stageFixture(name, path.join(staged, name))
 })
 afterAll(() => rmSync(staged, { recursive: true, force: true }))
 
@@ -67,11 +66,13 @@ function recordedGh(name: string, body: string | null = fixtureFile(name, 'gh/la
  * lefthook.yml. The integration suite proves each snapshot equals Bun.YAML.parse.
  */
 function recordedParseYaml(name: string): ParseYaml {
-  const text = fixtureFile(name, 'lefthook.yml')
-  const doc = JSON.parse(fixtureFile(name, 'lefthook.parsed.json'))
+  const answers = new Map<string, unknown>([
+    [fixtureFile(name, 'lefthook.yml'), JSON.parse(fixtureFile(name, 'lefthook.parsed.json'))],
+    [fixtureFile(name, '.dev/stack.yml'), JSON.parse(fixtureFile(name, 'stack.parsed.json'))],
+  ])
   return (input) => {
-    if (input !== text) throw new Error(`unexpected YAML input for fixture ${name}`)
-    return doc
+    if (!answers.has(input)) throw new Error(`unexpected YAML input for fixture ${name}`)
+    return answers.get(input)
   }
 }
 
@@ -113,6 +114,21 @@ describe('feature init on the fictional acme fixture', () => {
   it('decides label migration with issue-triage grammar', async () => {
     const facts = await factsFor('acme')
     expect(facts.legacyLabels).toEqual(['size: M', 'priority: high', 'ready-for-agent'])
+  })
+
+  it.each([
+    ['a character class holding a slash', "probes.some((r) => /^widget[/]build$/.test(r.name || ''))"],
+    ['an unbalanced group', "probes.some((r) => /(widget-build/.test(r.name || ''))"],
+  ])('skips a gate literal with %s and keeps the others', async (_row, line) => {
+    const dir = scratchCopy('acme')
+    const workflow = path.join(dir, '.github', 'workflows', 'merge-on-green.yml')
+    writeFileSync(workflow, `${readFileSync(workflow, 'utf8')}            const odd = ${line};\n`)
+    const facts = await factsIn(dir, 'acme')
+    expect(facts.gates).toEqual([
+      'widget-audit',
+      '(widget-build|widget-build-full)',
+      'Widget scan, nightly|widget-scan',
+    ])
   })
 
   it('prints gates: unknown when no gate can be parsed', async () => {
@@ -304,6 +320,7 @@ describe('semctx hook detection', () => {
     ['a scripts key', { scripts: { 'semctx-guard.sh': { runner: 'bash' } } }, true],
     ['a skipped script', { scripts: { 'semctx-guard.sh': { runner: 'bash', skip: true } } }, false],
     ['a job run', { jobs: [{ name: 'guard', run: 'semctx verify' }] }, true],
+    ['a job name', { jobs: [{ name: 'widget-semctx-guard', run: 'bash scripts/guard.sh' }] }, true],
     ['a job script', { jobs: [{ script: 'semctx-guard.sh', runner: 'bash' }] }, true],
     ['a skipped job', { jobs: [{ run: 'semctx verify', skip: true }] }, false],
     ['a nested group job', { jobs: [{ group: { jobs: [{ run: 'semctx verify' }] } }] }, true],
@@ -341,7 +358,31 @@ describe('semctx hook detection', () => {
     ).toBe('absent')
   })
 
+  it('merges a local override key by key, keeping the main commands', () => {
+    expect(withLefthook({ 'lefthook.yml': guarded, 'lefthook-local.yml': { 'pre-push': { parallel: true } } })).toBe(
+      'present',
+    )
+  })
+
+  it.each([
+    ['a list document', []],
+    ['a scalar document', 'widget'],
+  ])('reports %s as unreadable', (_row, doc) => {
+    expect(withLefthook({ 'lefthook.yml': doc })).toBe('unreadable')
+  })
+
+  it.each(['toml', 'json', 'jsonc'])('reports a lefthook.%s config as unknown, not absent', async (ext) => {
+    const dir = scratchCopy('pr-only')
+    rmSync(path.join(dir, 'lefthook.yml'))
+    writeFileSync(path.join(dir, `lefthook.${ext}`), '')
+    const facts = await factsIn(dir, 'pr-only')
+    expect(facts.hooks).toBe(`lefthook.${ext}`)
+    expect(plan(facts)).toContain(`semctx hooks unknown (lefthook.${ext})`)
+    expect(plan(facts)).not.toContain('semctx hooks')
+  })
+
   it('reports extends as unknown unless a local hook already runs semctx', () => {
+    expect(withLefthook({ 'lefthook.yml': { remotes: [{ git_url: 'x' }] } })).toBe('extends')
     expect(withLefthook({ 'lefthook.yml': { extends: ['shared/lefthook.yml'] } })).toBe('extends')
     expect(withLefthook({ 'lefthook.yml': { ...guarded, remotes: [{ git_url: 'x' }] } })).toBe('present')
   })
@@ -407,6 +448,24 @@ describe('an existing landing', () => {
     expect(plan(facts)).toContain('landing kept (existing)')
   })
 
+  it('reads the recorded stack answer, and keeps the landing quiet when the stack cannot be parsed', async () => {
+    expect((await factsFor('kept')).landingHidesChecks).toBe(false)
+    const dir = scratchCopy('kept')
+    const stack = readFileSync(path.join(dir, '.dev', 'stack.yml'), 'utf8')
+    const lefthook = recordedParseYaml('kept')
+    const facts = await readFacts(dir, {
+      gh: recordedGh('kept'),
+      gitRemoteUrl: originAcme,
+      migrateLabel,
+      parseYaml: (text) => {
+        if (text === stack) throw new Error('bad stack YAML')
+        return lefthook(text)
+      },
+    })
+    expect(facts.landingHidesChecks).toBe(false)
+    expect(plan(facts)).toContain('landing kept (existing)')
+  })
+
   it('falls back to the merge-on-green workflow when the landing names no mode', async () => {
     const { facts } = await keptWithLanding({ required_checks: ['widget-build'] })
     expect(facts.landingHidesChecks).toBe(true)
@@ -414,14 +473,41 @@ describe('an existing landing', () => {
 })
 
 describe('issue-triage lookup', () => {
-  it('tries this repository sibling before any node_modules', () => {
-    const candidates = migrateLabelCandidates(path.join(import.meta.dirname, 'feature-init.ts'))
-    expect(candidates[0]).toBe(
+  it('tries this repository sibling only, when no ancestor holds node_modules/omp-build', () => {
+    expect(migrateLabelCandidates(path.join(import.meta.dirname, 'feature-init.ts'))).toEqual([
       path.resolve(import.meta.dirname, '../../../issue-triage/skills/issue-triage/lib/migrate-labels.ts'),
-    )
-    expect(candidates.slice(1).every((file) => file.includes(`${path.sep}node_modules${path.sep}issue-triage`))).toBe(
-      true,
-    )
+    ])
+  })
+
+  it('stops the installed-layout walk at the first ancestor holding node_modules/omp-build', () => {
+    scratch = realpathSync(mkdtempSync(path.join(tmpdir(), 'omp-init-walk-')))
+    const plugins = path.join(scratch, 'plugins')
+    const file = path.join(plugins, 'cache', 'omp-build', 'skills', 'feature', 'feature-init.ts')
+    mkdirSync(path.dirname(file), { recursive: true })
+    writeFileSync(file, '')
+    mkdirSync(path.join(plugins, 'node_modules', 'omp-build'), { recursive: true })
+    mkdirSync(path.join(scratch, 'node_modules', 'omp-build'), { recursive: true })
+    const lib = path.join('issue-triage', 'skills', 'issue-triage', 'lib', 'migrate-labels.ts')
+    expect(migrateLabelCandidates(file)).toEqual([
+      path.join(plugins, 'cache', 'issue-triage', 'skills', 'issue-triage', 'lib', 'migrate-labels.ts'),
+      path.join(plugins, 'node_modules', lib),
+    ])
+  })
+
+  it('does not fall through to a later candidate after an import error', async () => {
+    scratch = realpathSync(mkdtempSync(path.join(tmpdir(), 'omp-init-fallthrough-')))
+    const file = path.join(scratch, 'plugins', 'omp-build', 'skills', 'feature', 'feature-init.ts')
+    mkdirSync(path.dirname(file), { recursive: true })
+    writeFileSync(file, '')
+    const lib = path.join('skills', 'issue-triage', 'lib', 'migrate-labels.ts')
+    const sibling = path.join(scratch, 'plugins', 'issue-triage', lib)
+    mkdirSync(path.dirname(sibling), { recursive: true })
+    writeFileSync(sibling, "throw new Error('widget grammar exploded')\n")
+    mkdirSync(path.join(scratch, 'node_modules', 'omp-build'), { recursive: true })
+    const installed = path.join(scratch, 'node_modules', 'issue-triage', lib)
+    mkdirSync(path.dirname(installed), { recursive: true })
+    writeFileSync(installed, 'export const migrateLabel = () => ({ add: null, remove: false })\n')
+    await expect(loadMigrateLabel(file)).rejects.toThrow('widget grammar exploded')
   })
 
   it('names why the grammar is unusable', async () => {

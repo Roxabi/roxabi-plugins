@@ -4,6 +4,9 @@ import path from 'node:path'
 /** Fictional target repositories for the feature-init tests. */
 export const FIXTURES = import.meta.dirname
 
+/** Every fixture repository under FIXTURES. */
+export const FIXTURE_NAMES = ['acme', 'kept', 'pr-only', 'hooks-ok'] as const
+
 /**
  * Copies fixture `name` to `dest` and writes the one invented merge gate as its
  * merge-on-green workflow, so the four copies cannot drift apart.

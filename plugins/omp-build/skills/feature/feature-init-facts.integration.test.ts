@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { hermeticGh } from './__fixtures__/feature-init/hermetic'
-import { FIXTURES, stageFixture } from './__fixtures__/feature-init/stage'
+import { FIXTURE_NAMES, FIXTURES, stageFixture } from './__fixtures__/feature-init/stage'
 
 const FEATURE_DIR = path.resolve(import.meta.dirname)
 const CLI = path.join(FEATURE_DIR, 'feature-init.ts')
@@ -38,7 +38,7 @@ function acmeRepo(dest: string, env: NodeJS.ProcessEnv): string {
 }
 
 /** omp-build and issue-triage installed as siblings under node_modules, both symlinked into a cache dir. */
-function installedCli(base: string, withIssueTriage: boolean): string {
+function installedCli(base: string, issueTriage: 'present' | 'absent' | 'broken'): string {
   const cache = path.join(base, 'cache')
   const ompBuild = path.join(cache, 'omp-build-0.0.0')
   const nodeModules = path.join(base, 'node_modules')
@@ -47,16 +47,20 @@ function installedCli(base: string, withIssueTriage: boolean): string {
   writeFileSync(path.join(ompBuild, 'package.json'), JSON.stringify({ name: 'omp-build', type: 'module' }))
   cpSync(CLI, path.join(ompBuild, 'skills', 'feature', 'feature-init.ts'))
   symlinkSync(ompBuild, path.join(nodeModules, 'omp-build'))
-  if (withIssueTriage) {
-    const issueTriage = path.join(cache, 'issue-triage-0.0.0')
-    const lib = path.join(issueTriage, 'skills', 'issue-triage', 'lib')
+  if (issueTriage !== 'absent') {
+    const installed = path.join(cache, 'issue-triage-0.0.0')
+    const lib = path.join(installed, 'skills', 'issue-triage', 'lib')
     mkdirSync(lib, { recursive: true })
-    writeFileSync(path.join(issueTriage, 'package.json'), JSON.stringify({ name: 'issue-triage', type: 'module' }))
-    cpSync(
-      path.join(ISSUE_TRIAGE_SRC, 'skills/issue-triage/lib/migrate-labels.ts'),
-      path.join(lib, 'migrate-labels.ts'),
-    )
-    symlinkSync(issueTriage, path.join(nodeModules, 'issue-triage'))
+    writeFileSync(path.join(installed, 'package.json'), JSON.stringify({ name: 'issue-triage', type: 'module' }))
+    if (issueTriage === 'broken') {
+      writeFileSync(path.join(lib, 'migrate-labels.ts'), "throw new Error('widget grammar exploded')\n")
+    } else {
+      cpSync(
+        path.join(ISSUE_TRIAGE_SRC, 'skills/issue-triage/lib/migrate-labels.ts'),
+        path.join(lib, 'migrate-labels.ts'),
+      )
+    }
+    symlinkSync(installed, path.join(nodeModules, 'issue-triage'))
   }
   return path.join(nodeModules, 'omp-build', 'skills', 'feature', 'feature-init.ts')
 }
@@ -66,7 +70,7 @@ describe('feature init installed layout', () => {
     root = mkdtempSync(path.join(tmpdir(), 'omp-init-installed-'))
     const gh = hermeticGh(root, { argv: ARGV, body: LABELS })
     const target = acmeRepo(path.join(root, 'target'), gh.env)
-    const result = spawnSync(REAL_BUN, [installedCli(root, true), '--dir', target, '--dry-run'], {
+    const result = spawnSync(REAL_BUN, [installedCli(root, 'present'), '--dir', target, '--dry-run'], {
       env: gh.env,
       encoding: 'utf8',
     })
@@ -79,7 +83,7 @@ describe('feature init installed layout', () => {
     root = mkdtempSync(path.join(tmpdir(), 'omp-init-blocked-'))
     const gh = hermeticGh(root, { argv: ARGV, body: LABELS })
     const target = acmeRepo(path.join(root, 'target'), gh.env)
-    const result = spawnSync(REAL_BUN, [installedCli(root, false), '--dir', target, '--dry-run'], {
+    const result = spawnSync(REAL_BUN, [installedCli(root, 'absent'), '--dir', target, '--dry-run'], {
       env: gh.env,
       encoding: 'utf8',
     })
@@ -87,6 +91,23 @@ describe('feature init installed layout', () => {
     expect(result.stderr).toContain(
       'init=blocked issue-triage missing (not found next to omp-build or in node_modules)',
     )
+    expect(result.stdout).toBe('')
+  })
+})
+
+describe('feature init with a broken issue-triage', () => {
+  it('exits 3 and names the load error, not a missing package', () => {
+    root = mkdtempSync(path.join(tmpdir(), 'omp-init-broken-'))
+    const gh = hermeticGh(root, { argv: ARGV, body: LABELS })
+    const target = acmeRepo(path.join(root, 'target'), gh.env)
+    const result = spawnSync(REAL_BUN, [installedCli(root, 'broken'), '--dir', target, '--dry-run'], {
+      env: gh.env,
+      encoding: 'utf8',
+    })
+    expect(result.status).toBe(3)
+    expect(result.stderr).toContain('init=blocked issue-triage missing (')
+    expect(result.stderr).toContain('widget grammar exploded')
+    expect(result.stderr).not.toContain('not found')
     expect(result.stdout).toBe('')
   })
 })
@@ -138,9 +159,19 @@ console.log(JSON.stringify({ doc, hooks: hasSemctxGitHooks(doc) }))
     return JSON.parse(out) as { doc: unknown; hooks: boolean }
   }
 
-  it.each(['acme', 'kept', 'pr-only', 'hooks-ok'])('%s: the unit snapshot equals Bun.YAML.parse', (name) => {
+  it.each(FIXTURE_NAMES)('%s: the unit snapshots equal Bun.YAML.parse', (name) => {
     const snapshot = JSON.parse(readFileSync(path.join(FIXTURES, name, 'lefthook.parsed.json'), 'utf8'))
     expect(underBun(name).doc).toEqual(snapshot)
+    const stack = execFileSync(
+      REAL_BUN,
+      [
+        '-e',
+        'console.log(JSON.stringify(Bun.YAML.parse(await Bun.file(process.argv[1]).text())))',
+        path.join(FIXTURES, name, '.dev', 'stack.yml'),
+      ],
+      { encoding: 'utf8' },
+    )
+    expect(JSON.parse(stack)).toEqual(JSON.parse(readFileSync(path.join(FIXTURES, name, 'stack.parsed.json'), 'utf8')))
   })
 
   it('finds semctx in a pre-push command and not in a manual pr: group', () => {

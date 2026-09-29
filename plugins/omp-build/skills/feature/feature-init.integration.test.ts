@@ -52,6 +52,7 @@ describe('feature init apply', () => {
     expect(first.stderr).not.toContain('skill://')
     const stamped = readFileSync(path.join(wt, '.dev', 'stack.yml'), 'utf8')
     expect(stamped).toContain('worktree:')
+    expect(stamped).not.toContain('landing:')
     const gitDir = execFileSync('git', ['rev-parse', '--git-dir'], { cwd: wt, env: ENV, encoding: 'utf8' }).trim()
     const marker = path.resolve(wt, gitDir, 'omp-build-feature-init')
     expect(existsSync(marker)).toBe(false)

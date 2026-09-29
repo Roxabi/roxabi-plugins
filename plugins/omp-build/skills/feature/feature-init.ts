@@ -17,36 +17,38 @@ const MIGRATE_LABELS = join('skills', 'issue-triage', 'lib', 'migrate-labels.ts'
 
 /**
  * Where issue-triage's migration grammar may live: this repository's sibling
- * plugin first, then `node_modules/issue-triage` in any ancestor of this file's
- * real path, which is the installed layout (`~/.omp/plugins/node_modules`).
- * Only absolute file paths are imported, never a bare specifier, so Bun has
- * nothing to auto-install from a registry.
+ * plugin first, then the installed layout. For the latter, the walk up this
+ * file's real path stops at the first ancestor holding `node_modules/omp-build`
+ * (`~/.omp/plugins`) and looks only at its `node_modules/issue-triage`, so an
+ * unrelated `node_modules` higher up (say `/tmp`) is never reached. Only
+ * absolute file paths are imported, never a bare specifier, so Bun has nothing
+ * to auto-install from a registry.
  */
 export function migrateLabelCandidates(from: string): string[] {
   const here = dirname(realpathSync(from))
   const out = [join(here, '..', '..', '..', 'issue-triage', MIGRATE_LABELS)]
   for (let dir = here; ; dir = dirname(dir)) {
-    out.push(join(dir, 'node_modules', 'issue-triage', MIGRATE_LABELS))
+    if (existsSync(join(dir, 'node_modules', 'omp-build'))) {
+      out.push(join(dir, 'node_modules', 'issue-triage', MIGRATE_LABELS))
+      break
+    }
     if (dirname(dir) === dir) break
   }
   return out
 }
 
-export async function loadMigrateLabel(): Promise<MigrateLabel> {
-  const candidates = migrateLabelCandidates(fileURLToPath(import.meta.url))
-  const found = candidates.filter((file) => existsSync(file))
-  if (!found.length) throw new IssueTriageMissing('not found next to omp-build or in node_modules')
-  const errors: string[] = []
-  for (const file of found) {
-    try {
-      const mod = await import(pathToFileURL(file).href)
-      if (typeof mod.migrateLabel === 'function') return mod.migrateLabel
-      errors.push(`${file}: no migrateLabel export`)
-    } catch (err) {
-      errors.push(`${file}: ${err instanceof Error ? err.message : String(err)}`)
-    }
+/** Imports the first candidate that exists. An import error there is final: no later candidate is tried. */
+export async function loadMigrateLabel(from: string = fileURLToPath(import.meta.url)): Promise<MigrateLabel> {
+  const file = migrateLabelCandidates(from).find((candidate) => existsSync(candidate))
+  if (!file) throw new IssueTriageMissing('not found next to omp-build or in node_modules')
+  let mod: { migrateLabel?: unknown }
+  try {
+    mod = await import(pathToFileURL(file).href)
+  } catch (err) {
+    throw new IssueTriageMissing(`${file}: ${err instanceof Error ? err.message : String(err)}`)
   }
-  throw new IssueTriageMissing(errors.join('; '))
+  if (typeof mod.migrateLabel !== 'function') throw new IssueTriageMissing(`${file}: no migrateLabel export`)
+  return mod.migrateLabel as MigrateLabel
 }
 
 export async function resolveMigrateLabel(
@@ -60,7 +62,7 @@ export async function resolveMigrateLabel(
 /** `ok`, or why the repository's labels are not known. */
 export type LabelsState = 'ok' | 'gh-failed' | 'no-origin' | 'non-github'
 /** Whether a lefthook git hook runs semctx, or why that cannot be told. */
-export type HooksState = 'present' | 'absent' | 'unreadable' | 'extends'
+export type HooksState = 'present' | 'absent' | 'unreadable' | 'extends' | `lefthook.${'toml' | 'json' | 'jsonc'}`
 
 export type Facts = {
   hasTracker: boolean
@@ -86,7 +88,7 @@ export type Facts = {
   codegraphConsent: boolean
 }
 
-const HOOK_LINES: Record<HooksState, string | null> = {
+const HOOK_LINES: Record<'present' | 'absent' | 'unreadable' | 'extends', string | null> = {
   present: null,
   absent: 'semctx hooks',
   unreadable: 'semctx hooks unknown (lefthook.yml unreadable)',
@@ -101,7 +103,9 @@ export function plan(facts: Facts): string[] {
   else if (facts.labelsState === 'non-github') lines.push('labels unknown (non-GitHub origin)')
   else if (facts.legacyLabels.length) lines.push('label migration')
   else if (!facts.hasTracker) lines.push('labels')
-  const hookLine = HOOK_LINES[facts.hooks]
+  const hookLine = facts.hooks.startsWith('lefthook.')
+    ? `semctx hooks unknown (${facts.hooks})`
+    : HOOK_LINES[facts.hooks as keyof typeof HOOK_LINES]
   if (facts.hasSemctx && hookLine) lines.push(hookLine)
   if (facts.hasSemctx && !facts.hasWorkingEmptyJob) lines.push('CI job semctx-working-empty')
   if (facts.activeContracts > 0) lines.push(`${facts.activeContracts} orphan contracts`)
@@ -250,6 +254,9 @@ export const LEFTHOOK_LOCAL = [
   '.config/lefthook-local.yaml',
 ]
 
+/** lefthook config formats this reader does not parse. */
+export const LEFTHOOK_FOREIGN = ['toml', 'json', 'jsonc'] as const
+
 export type ParseYaml = (text: string) => unknown
 
 export function bunYamlParse(text: string): unknown {
@@ -318,13 +325,21 @@ export function hasSemctxGitHooks(doc: unknown): boolean {
 
 /**
  * The semctx hook fact from the first main lefthook config and the first local
- * override. A config that cannot be parsed is `unreadable`. When nothing local
+ * override. A config that cannot be parsed, or is not a map, is `unreadable`; a
+ * TOML or JSON config, which is not read here, is reported by its extension. When nothing local
  * runs semctx but the config pulls in `extends`/`remotes`, the answer is
  * `extends`: those files are not read here.
  */
 export function semctxHooks(dir: string, parseYaml: ParseYaml): HooksState {
   const pick = (names: string[]) => names.map((name) => join(dir, name)).find((file) => existsSync(file))
-  const files = [pick(LEFTHOOK_MAIN), pick(LEFTHOOK_LOCAL)].filter((file): file is string => Boolean(file))
+  const main = pick(LEFTHOOK_MAIN)
+  if (!main) {
+    const foreign = LEFTHOOK_FOREIGN.find((ext) =>
+      [`lefthook.${ext}`, `.lefthook.${ext}`, `.config/lefthook.${ext}`].some((name) => existsSync(join(dir, name))),
+    )
+    if (foreign) return `lefthook.${foreign}`
+  }
+  const files = [main, pick(LEFTHOOK_LOCAL)].filter((file): file is string => Boolean(file))
   let doc: unknown = {}
   for (const file of files) {
     let parsed: unknown
