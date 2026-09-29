@@ -183,7 +183,7 @@ The issue stays the spec. If the contract and the issue diverge, the issue wins
 and the contract is re-derived. Repos without `.semctx/` skip this.
 
 ```javascript
-const { openPr, landPr, resumeReviewLoop } =
+const { openPr, landPr, resumeReviewLoop, applyCiWatchExit, disarmReviewedBeforePush } =
   await import(`${SKILL_DIR}/workflow.js`)
 ```
 
