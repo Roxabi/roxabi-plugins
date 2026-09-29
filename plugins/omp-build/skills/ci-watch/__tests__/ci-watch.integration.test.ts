@@ -239,6 +239,7 @@ EOF
       dir,
       `#!/usr/bin/env bash
 set -euo pipefail
+if [[ "$1" == "api" ]]; then echo '{"check_runs":[]}'; exit 0; fi
 n=0
 if [[ -f "$CI_WATCH_COUNT" ]]; then n=$(cat "$CI_WATCH_COUNT"); fi
 n=$((n + 1))
@@ -273,6 +274,7 @@ fi
       dir,
       `#!/usr/bin/env bash
 set -euo pipefail
+if [[ "$1" == "api" ]]; then echo '{"check_runs":[]}'; exit 0; fi
 n=0
 if [[ -f "$CI_WATCH_COUNT" ]]; then n=$(cat "$CI_WATCH_COUNT"); fi
 n=$((n + 1))
@@ -357,6 +359,7 @@ EOF
       dir,
       `#!/usr/bin/env bash
 set -euo pipefail
+if [[ "$1" == "api" ]]; then echo '{"check_runs":[]}'; exit 0; fi
 n=0
 if [[ -f "$CI_WATCH_COUNT" ]]; then n=$(cat "$CI_WATCH_COUNT"); fi
 n=$((n + 1))
@@ -445,5 +448,77 @@ exit 0
     expect(result.code).toBe(70)
     expect(result.stderr).toContain('empty gh pr view')
     expect(Date.now() - started).toBeLessThan(1500)
+  })
+
+  function evaluateOnlyGh(dir: string, annotations: string): void {
+    fakeGh(
+      dir,
+      `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1" == "api" ]]; then
+  echo "$*" >> "$CI_WATCH_API"
+  case "$*" in
+    *commits/abc/check-runs*) echo '{"total_count":2,"check_runs":[{"id":41,"name":"ci"},{"id":42,"name":"merge-on-green"}]}' ;;
+    *check-runs/42/annotations*) echo '${annotations}' ;;
+    *) exit 1 ;;
+  esac
+  exit 0
+fi
+n=0
+if [[ -f "$CI_WATCH_COUNT" ]]; then n=$(cat "$CI_WATCH_COUNT"); fi
+n=$((n + 1))
+echo "$n" > "$CI_WATCH_COUNT"
+if [[ "$n" -le 2 ]]; then
+  cat <<'EOF'
+{"state":"OPEN","mergeStateStatus":"BLOCKED","autoMergeRequest":null,"labels":[{"name":"reviewed"}],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"name":"merge-on-green","status":"COMPLETED","conclusion":"SUCCESS"}]}
+EOF
+else
+  cat <<'EOF'
+{"state":"MERGED","mergeStateStatus":"UNKNOWN","autoMergeRequest":null,"labels":[],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"name":"merge-on-green","status":"COMPLETED","conclusion":"SUCCESS"}]}
+EOF
+fi
+`,
+    )
+  }
+
+  it('exits 6 once green when the merge-on-green run reports kit-ci not configured', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-eval-only-'))
+    evaluateOnlyGh(
+      dir,
+      '[{"title":"kit-ci not configured","message":"Auto-merge OFF (evaluate-only)","annotation_level":"notice"}]',
+    )
+    const started = Date.now()
+    const result = runWatch(dir, { CI_WATCH_COUNT: join(dir, 'count'), CI_WATCH_API: join(dir, 'api') })
+    expect(result.code).toBe(6)
+    expect(result.stderr).toContain(
+      'evaluate-only: kit-ci App not configured — manual merge required (docs/kit/ci-app-setup.md)',
+    )
+    expect(readFileSync(join(dir, 'count'), 'utf8').trim()).toBe('2')
+    expect(Date.now() - started).toBeLessThan(10_000)
+  })
+
+  it('enters the merge phase unchanged when the merge-on-green run has no such annotation', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-eval-merge-'))
+    evaluateOnlyGh(dir, '[{"title":"something else","message":"x","annotation_level":"notice"}]')
+    const api = join(dir, 'api')
+    const result = runWatch(dir, { CI_WATCH_COUNT: join(dir, 'count'), CI_WATCH_API: api })
+    expect(result.code).toBe(0)
+    expect(readFileSync(join(dir, 'count'), 'utf8').trim()).toBe('3')
+    expect(readFileSync(api, 'utf8')).toContain('check-runs/42/annotations')
+  })
+
+  it('exits 70, not 6, when the annotations lookup fails', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-eval-fail-'))
+    fakeGh(
+      dir,
+      `#!/usr/bin/env bash
+if [[ "$1" == "api" && "$*" == *commits/abc/check-runs* ]]; then echo '{"check_runs":[{"id":42,"name":"merge-on-green"}]}'; exit 0; fi
+if [[ "$1" == "api" ]]; then exit 1; fi
+cat <<'EOF'
+{"state":"OPEN","mergeStateStatus":"BLOCKED","autoMergeRequest":null,"labels":[{"name":"reviewed"}],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}]}
+EOF
+`,
+    )
+    expect(runWatch(dir).code).toBe(70)
   })
 })

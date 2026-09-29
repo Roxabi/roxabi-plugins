@@ -37,6 +37,7 @@ Checks watched: every run on the PR head, or exactly `landing.required_checks` w
 | 3 | Another conclusion. Offending checks are printed on stderr as `name=conclusion`. Skipped and neutral are not this code, declared list or not. |
 | 4 | Green but unmerged. Under merge-on-green, the `reviewed` label disappearing is this code. |
 | 5 | Deadline. Undetermined — re-run to resume. |
+| 6 | Evaluate-only (merge-on-green only). Checks are green, but a `merge-on-green` check run on the PR head carries a `kit-ci not configured` annotation: the kit-ci App is not configured, so the workflow will not merge. Prints `evaluate-only: kit-ci App not configured — manual merge required (docs/kit/ci-app-setup.md)` on stderr. Maps to `evaluate-only`; the gate stays armed. |
 | 70 | Not a check verdict: usage, unknown flag, bad mode or timeout, missing `gh`/`jq`/`bun`, or a `gh`/`jq` failure. Maps to `watch-failed`; the gate stays armed. |
 
 ## Classifier

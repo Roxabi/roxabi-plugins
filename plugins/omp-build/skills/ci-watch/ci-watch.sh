@@ -9,12 +9,14 @@
 #   3  another conclusion (skipped and neutral are passing, declared list or not)
 #   4  green but unmerged (label revoked, closed, dirty)
 #   5  deadline — undetermined, re-run to resume
+#   6  evaluate-only — merge-on-green green, but its run says kit-ci is not configured
 #   70 not a check verdict (usage, missing tool, gh/jq failure) — do not disarm
 EXIT_FAIL=1
 EXIT_CANCELLED=2
 EXIT_OTHER=3
 EXIT_UNMERGED=4
 EXIT_DEADLINE=5
+EXIT_EVALUATE_ONLY=6
 EXIT_INTERNAL=70
 set -Eeuo pipefail
 trap 'exit "$EXIT_INTERNAL"' ERR
@@ -268,6 +270,21 @@ require_snapshot() {
   fi
 }
 
+# Count of `kit-ci not configured` annotations on the merge-on-green check runs
+# of a commit. The kit workflow emits that notice when it runs evaluate-only.
+# Called in an assignment, never an `if`, so a gh/jq failure still exits 70.
+kit_ci_unconfigured_of() {
+  local sha="$1" ids id count total=0
+  ids=$(gh api --paginate "repos/$REPO/commits/$sha/check-runs?check_name=merge-on-green" |
+    jq -rs '.[] | .check_runs[]? | select(.name == "merge-on-green") | .id')
+  for id in $ids; do
+    count=$(gh api --paginate "repos/$REPO/check-runs/$id/annotations" |
+      jq -s '[.[][]? | select(.title == "kit-ci not configured")] | length')
+    total=$((total + count))
+  done
+  echo "$total"
+}
+
 START=$SECONDS
 CONFIRMED_GREEN=0
 
@@ -318,6 +335,15 @@ while true; do
       ;;
   esac
 done
+
+if [[ "$MERGE_MODE" == "merge-on-green" ]]; then
+  head_sha=$(echo "$snapshot" | jq -r .headRefOid)
+  unconfigured=$(kit_ci_unconfigured_of "$head_sha")
+  if (( unconfigured > 0 )); then
+    echo "evaluate-only: kit-ci App not configured — manual merge required (docs/kit/ci-app-setup.md)" >&2
+    exit "$EXIT_EVALUATE_ONLY"
+  fi
+fi
 
 while true; do
   elapsed=$((SECONDS - START))

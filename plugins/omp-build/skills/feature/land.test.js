@@ -1,5 +1,18 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { applyCiWatchExit, disarmReviewedBeforePush, landPr, parseLanding, parseRequiredContexts } from './workflow.js'
+
+/** A checkout with the given files, relative path → content. */
+function checkout(files = {}) {
+  const dir = mkdtempSync(join(tmpdir(), 'land-'))
+  for (const [path, content] of Object.entries(files)) {
+    mkdirSync(join(dir, path, '..'), { recursive: true })
+    writeFileSync(join(dir, path), content)
+  }
+  return dir
+}
 
 describe('parseRequiredContexts', () => {
   it('parses classic contexts and checks', () => {
@@ -66,7 +79,7 @@ function mockLand({
     gh,
     calls,
     land: (requiredContexts, pr = 1) =>
-      landPr('/tmp/wt', pr, {
+      landPr(checkout(), pr, {
         requiredContexts,
         gh,
         now: () => t,
@@ -138,6 +151,49 @@ describe('landPr', () => {
     expect(result).toEqual({ status: 'auto-merge-failed', armed: true })
     expect(labeled(calls)).toBe(true)
   })
+
+  it('a merge-on-green workflow with no landing block watches merge-on-green, never asking the rules API', async () => {
+    const { calls, gh } = mockLand()
+    const cwd = checkout({
+      '.github/workflows/merge-on-green.yml': 'name: merge-on-green\n',
+      '.dev/stack.yml': 'runtime: bun\n',
+    })
+    const result = await landPr(cwd, 7, { gh })
+    expect(result).toEqual({
+      status: 'watching',
+      mode: 'merge-on-green',
+      watch: 'bash skill://ci-watch/ci-watch.sh 7 --merge-mode merge-on-green',
+    })
+    expect(labeled(calls)).toBe(true)
+    expect(calls.some((a) => a[0] === 'api')).toBe(false)
+  })
+
+  it('stack landing.mode native wins over the workflow file', async () => {
+    const { calls, gh } = mockLand()
+    const cwd = checkout({
+      '.github/workflows/merge-on-green.yml': 'name: merge-on-green\n',
+      '.dev/stack.yml': 'landing:\n  mode: native\n  required_checks: [ci]\n',
+    })
+    expect(await landPr(cwd, 7, { gh })).toMatchObject({ status: 'watching', mode: 'native' })
+    expect(calls.some((a) => a[1] === 'merge' && a.includes('--auto'))).toBe(true)
+  })
+
+  it('an explicit native landing still asks protection and rulesets', async () => {
+    const calls = []
+    const gh = async (_cwd, args) => {
+      calls.push(args)
+      if (args[0] === 'repo') return JSON.stringify({ nameWithOwner: 'acme/app' })
+      if (args[0] === 'pr' && args[1] === 'view') return JSON.stringify({ baseRefName: 'main' })
+      if (args[0] === 'api') throw new Error('HTTP 403')
+      return ''
+    }
+    const cwd = checkout({ '.github/workflows/merge-on-green.yml': 'name: merge-on-green\n' })
+    const result = await landPr(cwd, 7, { gh, landing: { mode: 'native', required_checks: [] } })
+    expect(result).toEqual({ status: 'no-required-checks' })
+    expect(calls).toContainEqual(['api', 'repos/acme/app/branches/main/protection/required_status_checks'])
+    expect(calls).toContainEqual(['api', 'repos/acme/app/rules/branches/main'])
+    expect(labeled(calls)).toBe(false)
+  })
 })
 
 describe('applyCiWatchExit', () => {
@@ -149,6 +205,14 @@ describe('applyCiWatchExit', () => {
   ])('exit %s → %s', async (code, status) => {
     const { gh, calls } = mockLand()
     expect(await applyCiWatchExit('/tmp/wt', 7, code, { mode: 'merge-on-green', gh })).toEqual({ status })
+    expect(calls).toEqual([])
+  })
+
+  it('exit 6 is evaluate-only and leaves the gate armed', async () => {
+    const { gh, calls } = mockLand()
+    expect(await applyCiWatchExit('/tmp/wt', 7, 6, { mode: 'merge-on-green', gh })).toEqual({
+      status: 'evaluate-only',
+    })
     expect(calls).toEqual([])
   })
 

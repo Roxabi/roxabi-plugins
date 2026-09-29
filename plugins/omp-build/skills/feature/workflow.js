@@ -3,6 +3,9 @@
  * `detectPrincipal` names the base when `landPr` has none. No worktree driver.
  */
 
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
 const PRINCIPALS = ['staging', 'main', 'master']
 
 /** Hook vars that redirect git. Same set as check-principal-branch.sh git_probe. */
@@ -436,12 +439,26 @@ export function parseLanding(stackText, { mergeOnGreenWorkflow = false } = {}) {
 }
 
 /**
+ * Landing of the checkout at `cwd`: `.dev/stack.yml` and the merge-on-green workflow file, through `parseLanding`.
+ *
+ * @param {string} cwd
+ */
+function readLanding(cwd) {
+  const stackPath = join(cwd, '.dev', 'stack.yml')
+  const stackText = existsSync(stackPath) ? readFileSync(stackPath, 'utf8') : ''
+  const mergeOnGreenWorkflow = existsSync(join(cwd, '.github', 'workflows', 'merge-on-green.yml'))
+  return parseLanding(stackText, { mergeOnGreenWorkflow })
+}
+
+/**
  * Arm `reviewed` and hand the wait to `/ci-watch`. No in-process poll.
+ * Without an explicit `landing`, the mode is read from `cwd`: stack
+ * `landing.mode`, else the merge-on-green workflow file, else native.
  * Native also enables merge-commit auto-merge. merge-on-green never returns
  * `no-required-checks` — the workflow, not the rules API, is the gate.
  */
 export async function landPr(cwd, pr, { gh: ghFn = gh, requiredContexts, landing } = {}) {
-  const resolved = landing ?? { mode: 'native', required_checks: [] }
+  const resolved = landing ?? readLanding(cwd)
   if (resolved.mode === 'native') {
     const required =
       requiredContexts !== undefined
@@ -473,10 +490,16 @@ async function watchPrState(cwd, pr, ghFn) {
   return JSON.parse(raw)
 }
 
-/** Map a `/ci-watch` exit. 0–3 re-read state: MERGED is merged, CLOSED or an unmerged 0 is stopped, otherwise 1–3 disarm. 4 stops. 5 is re-attachable. 70 and any other code leave the gate armed. */
+/**
+ * Map a `/ci-watch` exit. 4 stops. 5 is re-attachable. 6 is evaluate-only: the
+ * kit-ci App is not configured, so the gate stays armed and the operator merges
+ * by hand. 0–3 re-read state: MERGED is merged, CLOSED or an unmerged 0 is
+ * stopped, otherwise 1–3 disarm. 70 and any other code leave the gate armed.
+ */
 export async function applyCiWatchExit(cwd, pr, code, { mode = 'native', gh: ghFn = gh } = {}) {
   if (code === 4) return { status: 'stopped' }
   if (code === 5) return { status: 'timeout' }
+  if (code === 6) return { status: 'evaluate-only' }
   if (code === 0 || code === 1 || code === 2 || code === 3) {
     const view = await watchPrState(cwd, pr, ghFn)
     if (view?.state === 'MERGED') return { status: 'merged' }
