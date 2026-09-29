@@ -74,7 +74,7 @@ describe('--report-only', () => {
     expect(step2, 'Step 2 section').toBeDefined()
     expect(step2).toMatch(/REPORT_ONLY.*=.*true.*--no-fetch/)
     expect(step2).toMatch(/stale/)
-    for (const invocation of step2?.match(/bash skill:\/\/cleanup\/analyze-branches\.sh.*/g) ?? []) {
+    for (const invocation of step2?.match(/bash "\$\(realpath skill:\/\/cleanup\/analyze-branches\.sh\)".*/g) ?? []) {
       expect(invocation).toContain('$FETCH_ARG')
     }
   })

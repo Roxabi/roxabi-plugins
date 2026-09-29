@@ -75,7 +75,7 @@ If both set: `REPORT_ONLY` wins — no mutations.
 ### 1. Gather State
 
 ```bash
-bash skill://cleanup/gather-state.sh
+bash "$(realpath skill://cleanup/gather-state.sh)"
 ```
 
 Emits: `current`, branch list with tracking info, worktree list, **orphan worktree shells** (`---orphan-worktree-shells---` via `scan-orphan-worktree-shells.sh`), open PRs, closed PRs with pipeline labels, and queued/stuck CI runs. Unscoped — always full-repo; Steps 7–8 (label/CI sweeps) and the orphan-shell scan consume gather-state as-is regardless of `--scope` (see Options).
@@ -92,9 +92,9 @@ FETCH_ARG=""
 [ "$REPORT_ONLY" = true ] && FETCH_ARG="--no-fetch"
 
 if [ -n "$SCOPE" ]; then
-  bash skill://cleanup/analyze-branches.sh $FETCH_ARG --scope "$SCOPE"
+  bash "$(realpath skill://cleanup/analyze-branches.sh)" $FETCH_ARG --scope "$SCOPE"
 else
-  bash skill://cleanup/analyze-branches.sh $FETCH_ARG
+  bash "$(realpath skill://cleanup/analyze-branches.sh)" $FETCH_ARG
 fi
 ```
 
@@ -212,7 +212,7 @@ Orphan worktree shells
 
 If `REPORT_ONLY=true` → print table and skip deletion. Else → multi-select; always offer "Skip".
 
-**Defaults / `--yes` set:** only the rows `bash skill://cleanup/scan-orphan-worktree-shells.sh --yes-targets` emits — empty leftovers and content-without-`.git`. An `unregistered` row whose detail starts with `has .git` is shown in the full table but **never pre-selected** and **never deleted under `--yes`** (manual confirm only, like `probably_merged`).
+**Defaults / `--yes` set:** only the rows `bash "$(realpath skill://cleanup/scan-orphan-worktree-shells.sh)" --yes-targets` emits — empty leftovers and content-without-`.git`. An `unregistered` row whose detail starts with `has .git` is shown in the full table but **never pre-selected** and **never deleted under `--yes`** (manual confirm only, like `probably_merged`).
 
 #### 5b-execute (confirmed only)
 
