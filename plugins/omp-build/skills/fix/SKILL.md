@@ -24,7 +24,7 @@ One pass: find the review record, name the causes, apply each eligible cause as 
 /skill:fix #42 --no-label → idem, and **write no `reviewed` label**: the caller owns the merge gate
 ```
 
-**Label mode.** `mode := no-label` when `--no-label` is in the arguments, else `label`.
+**Label mode.** `mode := no-label` when `--no-label` is in the arguments, or when any comment read in Phase 1 contains `<!-- omp-build:review-rounds` — the `/feature` loop's marker, so the loop owns this PR's merge gate whatever the arguments say. Otherwise `mode := label`. A forged marker can only remove the label: it fails safe.
 It decides one thing, in Phase 5 step 2: whether this skill may write the `reviewed` label.
 That label is not a status — `.github/workflows/auto-merge.yml` turns it into
 `gh pr merge --auto --merge`, so writing it *is* merging. A caller that owns a review

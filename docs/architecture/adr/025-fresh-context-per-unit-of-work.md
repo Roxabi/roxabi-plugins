@@ -90,7 +90,9 @@ Adopt **Option C**.
    `shared-state-stop` unless the PR is merged (`/feature` § Ticket unit).
 4. **Fix rounds.** A review round — `/feature` §6.5, and a standalone `dev-review`
    **Fix now** on a PR — runs `fix` in a fresh agent with the caller's label mode:
-   `/feature` always passes `--no-label`, because its loop owns the merge gate.
+   `/feature` always passes `--no-label`, because its loop owns the merge gate,
+   and `fix` never labels a PR that carries the loop's `omp-build:review-rounds`
+   marker, whatever its arguments say.
    ADR-020 §7 still holds inside it: `fix` applies every cause inline, in the
    session that runs it, spawns no fixer and delegates no edit. That session is
    now the fresh one. No fixer role returns.
