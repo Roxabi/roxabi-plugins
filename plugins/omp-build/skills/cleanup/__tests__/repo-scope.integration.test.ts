@@ -1,4 +1,14 @@
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -578,7 +588,6 @@ describe('cleanup orphan scan repo scope (#622)', () => {
     expect(scan(principal, env, ['--yes-targets']).map(pathOf)).toEqual([outsideEmpty])
   })
 
-
   it('marks a chmod-000 child holding content as unreadable, never in --yes-targets', () => {
     if (typeof process.getuid === 'function' && process.getuid() === 0) return
     const { root, home, base } = tempRoot('unreadable')
@@ -599,6 +608,130 @@ describe('cleanup orphan scan repo scope (#622)', () => {
     } finally {
       chmodSync(locked, 0o700)
     }
+  })
+
+  it('rejects shell-metacharacter names as unsafe_name', () => {
+    const { root, home, base } = tempRoot('meta')
+    const repo = path.join(root, 'app')
+    initRepo(repo, home)
+    mkdirSync(path.join(base, 'app'), { recursive: true })
+    for (const name of ['bad`tick', 'bad$dir', 'bad"quote', 'bad\\slash']) {
+      mkdirSync(path.join(base, 'app', name))
+    }
+    const emptyOk = path.join(base, 'app', 'empty-ok')
+    mkdirSync(emptyOk)
+
+    const env = { HOME: home, OMP_WORKTREE_DIR: base }
+    const full = scan(repo, env)
+    const unsafe = full.filter((line) => line.includes('|unsafe_name|'))
+    expect(unsafe.length).toBe(4)
+    expect(scan(repo, env, ['--yes-targets']).map(pathOf)).toEqual([emptyOk])
+  })
+
+  it('X3: symlinked $HOME still finds the default ~/.omp/wt/<repo>/feat-x orphan', () => {
+    const { root } = tempRoot('x3')
+    const realHome = path.join(root, 'real-home')
+    const home = path.join(root, 'home')
+    mkdirSync(realHome)
+    rmSync(home, { recursive: true, force: true })
+    symlinkSync(realHome, home)
+    const repo = path.join(root, 'repo')
+    initRepo(repo, home)
+    const orphan = path.join(home, '.omp', 'wt', 'repo', 'feat-x')
+    mkdirSync(orphan, { recursive: true })
+
+    // No OMP_WORKTREE_DIR — default base is ~/.omp/wt
+    const yesTargets = scan(repo, { HOME: home }, ['--yes-targets'])
+    expect(yesTargets.map(pathOf).map((p) => realpathSync(p))).toContain(realpathSync(orphan))
+  })
+
+  it('X5: stack.yml base: ~/wt expands against $HOME', () => {
+    const { root, home } = tempRoot('x5')
+    const principal = path.join(root, 'app')
+    initRepo(principal, home)
+    mkdirSync(path.join(principal, '.dev'))
+    writeFileSync(path.join(principal, '.dev', 'stack.yml'), 'worktree:\n  base: ~/wt\n')
+    const orphan = path.join(home, 'wt', 'app', 'feat-tilde')
+    mkdirSync(orphan, { recursive: true })
+
+    expect(scan(principal, { HOME: home }, ['--yes-targets']).map(pathOf)).toEqual([orphan])
+  })
+
+  it('X7: an empty legacy ~/.omp/worktrees/<repo> root is empty_parent', () => {
+    const { root, home } = tempRoot('x7')
+    const principal = path.join(root, 'app')
+    initRepo(principal, home)
+    const legacy = path.join(home, '.omp', 'worktrees', 'app')
+    mkdirSync(legacy, { recursive: true })
+    // Keep feature root from producing siblings: point it at an empty elsewhere
+    const elsewhere = path.join(root, 'elsewhere')
+    mkdirSync(path.join(elsewhere, 'app'), { recursive: true })
+    writeFileSync(path.join(elsewhere, 'app', '.keep'), '')
+
+    const full = scan(principal, { HOME: home, OMP_WORKTREE_DIR: elsewhere })
+    expect(kinds(full, legacy)).toEqual(['empty_parent'])
+    expect(scan(principal, { HOME: home, OMP_WORKTREE_DIR: elsewhere }, ['--yes-targets']).map(pathOf)).toEqual([
+      legacy,
+    ])
+  })
+
+  it('X10/X11: a .venv-only child is unregistered, never in --yes-targets', () => {
+    const { root, home, base } = tempRoot('x11')
+    const repo = path.join(root, 'app')
+    initRepo(repo, home)
+    const venv = path.join(base, 'app', 'feat-venv')
+    mkdirSync(path.join(venv, '.venv', 'bin'), { recursive: true })
+    writeFileSync(path.join(venv, '.venv', 'bin', 'python'), '')
+    const emptyOk = path.join(base, 'app', 'empty-ok')
+    mkdirSync(emptyOk)
+
+    const env = { HOME: home, OMP_WORKTREE_DIR: base }
+    expect(kinds(scan(repo, env), venv)).toEqual(['unregistered'])
+    expect(scan(repo, env, ['--yes-targets']).map(pathOf)).toEqual([emptyOk])
+  })
+
+  it('falls back to python3 when PATH has a realpath that rejects -m', () => {
+    const { root, home, base } = tempRoot('nognu')
+    const realHome = path.join(root, 'real-home')
+    const homeLink = path.join(root, 'home-link')
+    mkdirSync(realHome)
+    symlinkSync(realHome, homeLink)
+    // Use the symlinked home so lexical vs physical still matters under the shim.
+    const repo = path.join(root, 'repo')
+    initRepo(repo, homeLink)
+    const orphan = path.join(base, 'repo', 'feat-shim')
+    mkdirSync(orphan, { recursive: true })
+    // Relative base under principal
+    mkdirSync(path.join(repo, 'tests'), { recursive: true })
+    mkdirSync(path.join(repo, '.dev'))
+    writeFileSync(path.join(repo, '.dev', 'stack.yml'), `worktree:\n  base: ${base}\n`)
+
+    const shimDir = path.join(root, 'shim')
+    mkdirSync(shimDir)
+    // realpath that accepts no -m / -ms flags
+    writeFileSync(
+      path.join(shimDir, 'realpath'),
+      [
+        '#!/bin/bash',
+        'for a in "$@"; do case "$a" in -m|-ms) echo realpath-no-m >&2; exit 1;; esac; done',
+        'exec /usr/bin/realpath "$@"',
+      ].join('\n') + '\n',
+    )
+    chmodSync(path.join(shimDir, 'realpath'), 0o755)
+
+    const env = { HOME: homeLink, PATH: `${shimDir}:${process.env.PATH}`, OMP_WORKTREE_DIR: base }
+    const yesTargets = scan(repo, env, ['--yes-targets'])
+    expect(yesTargets.map(pathOf)).toEqual([orphan])
+
+    // Relative base against principal still works under the shim
+    writeFileSync(path.join(repo, '.dev', 'stack.yml'), 'worktree:\n  base: ../wt-rel\n')
+    const relOrphan = path.join(root, 'wt-rel', 'repo', 'feat-rel')
+    mkdirSync(relOrphan, { recursive: true })
+    mkdirSync(path.join(repo, 'tests'), { recursive: true })
+    const yesRel = scan(path.join(repo, 'tests'), { HOME: homeLink, PATH: `${shimDir}:${process.env.PATH}` }, [
+      '--yes-targets',
+    ])
+    expect(yesRel.map(pathOf)).toEqual([relOrphan])
   })
 
   it('marks a regular file child as not_a_dir', () => {
