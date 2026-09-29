@@ -2,7 +2,7 @@ import { cpSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, syml
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { commonDir, git, initRepo, scan, scanStatus } from './fixture'
+import { commonDir, git, initRepo, scan, scanRaw, scanStatus } from './fixture'
 
 /**
  * #622: the orphan-shell scan feeds `rm -rf` (per-row confirm) and `rmdir`
@@ -206,6 +206,33 @@ describe('cleanup orphan scan repo scope (#622)', () => {
     const full = scan(repo, { HOME: home, OMP_WORKTREE_DIR: base })
     expect(kinds(full, copy)).toEqual(['inside_worktree'])
     expect(kinds(full, emptyOk)).toEqual(['empty_parent'])
+  })
+
+  it('cannot forge a row: control characters and pipes become one escaped unsafe_name row', () => {
+    const { root, home, base } = tempRoot('unsafe')
+    const repo = path.join(root, 'app')
+    initRepo(repo, home)
+    // Both empty: without the guard they are empty_parent, i.e. `rmdir` targets.
+    mkdirSync(path.join(base, 'app', 'bad|name'), { recursive: true })
+    mkdirSync(path.join(base, 'app', 'x\nsrc'))
+    const emptyOk = path.join(base, 'app', 'empty-ok')
+    mkdirSync(emptyOk)
+
+    const env = { HOME: home, OMP_WORKTREE_DIR: base }
+    const rawFull = scanRaw(repo, env)
+    const rawYes = scanRaw(repo, env, ['--yes-targets'])
+    const fullLines = rawFull.split('\n').filter((line) => line !== '')
+
+    // Every row is exactly three fields; a name can neither add a row nor a field.
+    for (const line of fullLines) expect(line.split('|')).toHaveLength(3)
+    expect(fullLines.some((line) => line.startsWith('src|') || pathOf(line) === 'src')).toBe(false)
+    const pipeRows = fullLines.filter((line) => line.includes('bad'))
+    expect(pipeRows.map((line) => line.split('|')[1])).toEqual(['unsafe_name'])
+    const nlRows = fullLines.filter((line) => line.includes('src'))
+    expect(nlRows.map((line) => line.split('|')[1])).toEqual(['unsafe_name'])
+    const yesLines = rawYes.split('\n').filter((line) => line !== '')
+    for (const line of yesLines) expect(line.startsWith('/')).toBe(true)
+    expect(yesLines.map(pathOf)).toEqual([emptyOk])
   })
 
   it('does not emit an empty legacy root inside the principal', () => {

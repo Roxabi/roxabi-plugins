@@ -198,7 +198,7 @@ Never run any of these against the principal's path or its branch.
 | `unregistered` (`has .git`) | half-removed worktree of **this** repo (gitdir proven ours) | per-row confirm only — **never** in `--yes-targets` |
 | `inside_worktree` / `nested_git` | path inside a git work tree (`rev-parse --show-toplevel` succeeds), or a `.git` within depth 4 | **not selectable** |
 | `symlink_root` / `symlink` / `dangling_git` / `not_a_dir` | symlink between anchor and root (children not listed), symlink child, dangling `.git`, non-directory | **not selectable** |
-| `unsafe_name` | path with control character or `\|` | **not selectable** |
+| `unsafe_name` | path with a control character or `\|`, shown `%q`-escaped with `\|` as `\x7c` | **not selectable** |
 
 Source: `gather-state.sh` → `---orphan-worktree-shells---` (`path|kind|detail`). Scope is **this repo only**: a child with `.git` is listed only when its `gitdir:` back-pointer resolves under this repo's absolute `git-common-dir`/worktrees. The principal, paths under it (outside `.claude/worktrees` and an in-principal feature base, each only while `git ls-files` finds nothing tracked there), anything under a registered worktree, and any child that **contains** the principal or a registered worktree are skipped. Each root is built lexically under a canonical trusted anchor (the principal, `$HOME`, or the configured / default base); a relative `worktree.base` resolves against the principal. Rows carry the lexical scanned entry; matching uses `realpath`.
 

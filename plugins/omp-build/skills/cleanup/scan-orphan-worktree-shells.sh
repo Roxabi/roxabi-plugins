@@ -144,13 +144,17 @@ is_protected() {
 
 origin=""
 
-# One row. A name with a control character or `|` is unsafe_name.
-# --yes-targets keeps empty_parent rows only.
+# One row. A name that could split the row (control character, `|`) is shown
+# %q-escaped with `|` spelled `\x7c`, as unsafe_name. --yes-targets keeps
+# empty_parent rows only.
 emit() {
   local p="$1" kind="$2" detail="$3"
-  if printf '%s' "$p" | grep -q '[[:cntrl:]|]'; then
+  if [[ $p == *[[:cntrl:]]* || $p == *'|'* ]]; then
+    p="$(printf '%q' "$p")"
+    p="${p//\\|/\\x7c}"
+    p="${p//|/\\x7c}"
     kind=unsafe_name
-    detail="control character or pipe in name"
+    detail="control character or pipe in name, shown escaped"
   fi
   if [ "$YES_TARGETS" = true ] && [ "$kind" != empty_parent ]; then
     return 0
