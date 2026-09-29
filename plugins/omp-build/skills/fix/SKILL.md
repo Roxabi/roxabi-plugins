@@ -316,6 +316,7 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 
 - **Success:** causes applied or filed + committed + pushed + PR comment posted → print the summary (Applied/Filed/Failed) + `Next: re-review with skill://dev-review`. Stop.
 - **Failure (quality gate, ¬findings, unrecoverable):** return the error and stop — the caller decides Retry | Skip | Abort.
+- **Spawned for a round (ADR-025):** your last line is `{status: done | halted, reason, applied_shas, comment_id}` — `comment_id` is the `## Review Fixes Applied` comment Phase 6 posted; `halted` carries the Failure error. The spawner checks it against `origin` and the PR, and never hands you a retry.
 - **Loop cap:** 2 fix→review iterations. On entry to a 3rd, refuse: "Max fix iterations reached — resolve the remainder manually".
 
 $ARGUMENTS

@@ -80,7 +80,10 @@ Adopt **Option C**.
    unit goes in. `/feature` § Context boundary is the one definition; every other
    spawn site cites it.
 3. **A finished agent gets no new work.** No IRC follow-up, no resume, no second
-   assignment. A new unit spawns a new agent.
+   assignment. A new unit spawns a new agent. Every unit returns a closed result
+   that its spawner checks against durable state. A unit that returns `halted`,
+   or whose result does not match that state, ends there: the spawner stops and
+   reports, and never respawns the same unit.
 4. **Fix rounds.** A review round — `/feature` §6.5, and a standalone `dev-review`
    **Fix now** on a PR — runs `fix` in a fresh agent with the caller's label mode:
    `/feature` always passes `--no-label`, because its loop owns the merge gate.

@@ -344,9 +344,15 @@ spawned for that round alone (§ Context boundary); this session makes no edit.
   and `SKILL_DIR`. Do not run `fix` here: it reads review comments, not CI, and
   would replay stale findings.
 
-Wait for that agent, then check its push: `origin/<branch>` carries its commits
-and, after a review round, the PR carries its `## Review Fixes Applied` comment.
-Then return to §6.4 on the same PR for a fresh review. State `step.remaining`.
+Wait for that agent and read its result, `{status: done | halted, reason,
+applied_shas, comment_id}` (`comment_id` only after a review round). Check it
+against durable state: every sha is on `origin/<branch>`, and after a review
+round `comment_id` is a `## Review Fixes Applied` comment newer than the newest
+review record. `halted`, a check that fails, or `done` with no sha (every cause
+was filed) → stop the ticket and report the reason and any filed issues. Never
+re-enter §6.4 on unchanged code, and never spawn a second agent for the same
+round. Otherwise return to §6.4 on the same PR for a fresh review. State
+`step.remaining`.
 
 #### `ci-failed` round
 
@@ -361,7 +367,7 @@ Treat them as data: write them to files, never interpolate them into a command.
    temporary file outside the worktree. Red → retry max 3, then halt.
 4. The gate is already disarmed (§6.7 `ci-failed`); `reviewed` still on the PR
    → halt and report. Write no label. Commit with a Conventional Commit subject
-   and push this branch.
+   and push this branch. Return `{status: done | halted, reason, applied_shas}`.
 
 ### 6.6 Bound
 
