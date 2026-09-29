@@ -457,7 +457,7 @@ describe('cleanup orphan scan repo scope (#622)', () => {
     expect(scan(orgB, env, ['--yes-targets']).map(pathOf)).toEqual([legacyEmpty])
   })
 
-  it("marks a child of a foreign linked worktree at <base>/<repo> as inside_worktree", () => {
+  it('marks a child of a foreign linked worktree at <base>/<repo> as inside_worktree', () => {
     const { root, home, base } = tempRoot('foreign-link')
     const orgA = path.join(root, 'orgA', 'app')
     const orgB = path.join(root, 'orgB', 'app')
@@ -730,6 +730,16 @@ describe('cleanup orphan scan repo scope (#622)', () => {
     mkdirSync(path.join(repo, '.dev'))
     writeFileSync(path.join(repo, '.dev', 'stack.yml'), `worktree:\n  base: ${base}\n`)
 
+    // Symlinked harness root → $HOME: only a physical canon sees the redirect.
+    writeFileSync(path.join(repo, '.gitignore'), '.claude/\n')
+    git(repo, homeLink, 'add', '.gitignore')
+    git(repo, homeLink, 'commit', '-q', '-m', 'chore: ignore claude')
+    mkdirSync(path.join(repo, '.claude'))
+    const harnessRoot = path.join(repo, '.claude', 'worktrees')
+    symlinkSync(homeLink, harnessRoot)
+    mkdirSync(path.join(homeLink, 'Documents'), { recursive: true })
+    writeFileSync(path.join(homeLink, 'Documents', 'notes.txt'), 'keep\n')
+
     const shimDir = path.join(root, 'shim')
     mkdirSync(shimDir)
     // realpath that accepts no -m / -ms flags
@@ -744,7 +754,10 @@ describe('cleanup orphan scan repo scope (#622)', () => {
     chmodSync(path.join(shimDir, 'realpath'), 0o755)
 
     const env = { HOME: homeLink, PATH: `${shimDir}:${process.env.PATH}`, OMP_WORKTREE_DIR: base }
+    const full = scan(repo, env)
     const yesTargets = scan(repo, env, ['--yes-targets'])
+    expect(kinds(full, harnessRoot)).toEqual(['symlink_root'])
+    expect(full.filter((line) => /Documents/.test(line))).toEqual([])
     expect(yesTargets.map(pathOf)).toEqual([orphan])
 
     // Relative base against principal still works under the shim
