@@ -68,7 +68,7 @@ describe('cleanup orphan scan repo scope (#622)', () => {
     expectAllowlisted(yesTargets)
   })
 
-  it('never lists the principal or its tracked descendants when base is the principal parent', () => {
+  it('never offers the principal or its tracked descendants when base is the principal parent (harness orphans stay per-row)', () => {
     const { root, home } = tempRoot('principal')
     const projects = path.join(root, 'projects')
     const principal = path.join(projects, 'app')
@@ -88,7 +88,7 @@ describe('cleanup orphan scan repo scope (#622)', () => {
     expect(full.filter((line) => pathOf(line) === principal)).toEqual([])
     expect(mentions(full, path.join(principal, 'src'))).toEqual([])
     expect(mentions(full, path.join(principal, 'node_modules'))).toEqual([])
-    expect(kinds(full, harness)).toEqual(['inside_worktree'])
+    expect(kinds(full, harness)).toEqual(['unregistered'])
     expect(yesTargets.map(pathOf)).toEqual([emptyOk])
   })
 
@@ -323,7 +323,7 @@ describe('cleanup orphan scan repo scope (#622)', () => {
     expect(scan(principal, env, ['--yes-targets']).map(pathOf)).toEqual([emptyOk])
   })
 
-  it('lists untracked in-principal feature-base children as inside_worktree, never selectable', () => {
+  it('lists untracked in-principal feature-base children as per-row kinds, never in --yes-targets', () => {
     const { root, home } = tempRoot('inprin')
     const principal = path.join(root, 'app')
     initRepo(principal, home)
@@ -339,8 +339,8 @@ describe('cleanup orphan scan repo scope (#622)', () => {
 
     const env = { HOME: home, OMP_WORKTREE_DIR: principal }
     const full = scan(principal, env)
-    expect(kinds(full, orphan)).toEqual(['inside_worktree'])
-    expect(kinds(full, emptyInPrincipal)).toEqual(['inside_worktree'])
+    expect(kinds(full, orphan)).toEqual(['unregistered'])
+    expect(kinds(full, emptyInPrincipal)).toEqual(['empty_untracked'])
     expect(mentions(full, nonExempt)).toEqual([])
     expect(scan(principal, env, ['--yes-targets']).map(pathOf)).toEqual([emptyOk])
   })
@@ -424,7 +424,7 @@ describe('cleanup orphan scan repo scope (#622)', () => {
     expect(scan(principal, { HOME: home }, ['--yes-targets']).map(pathOf)).toEqual([emptyOk])
   })
 
-  it('marks children of a same-named foreign checkout at <base>/<name> as inside_worktree', () => {
+  it("marks a foreign checkout's tracked src as inside_worktree; untracked empty is empty_untracked", () => {
     const { root, home, base } = tempRoot('foreign-co')
     const orgB = path.join(root, 'orgB', 'app')
     initRepo(orgB, home)
@@ -432,6 +432,8 @@ describe('cleanup orphan scan repo scope (#622)', () => {
     initRepo(foreignCheckout, home)
     mkdirSync(path.join(foreignCheckout, 'src'))
     writeFileSync(path.join(foreignCheckout, 'src', 'wip.ts'), 'export const wip = 1\n')
+    git(foreignCheckout, home, 'add', 'src')
+    git(foreignCheckout, home, 'commit', '-q', '-m', 'chore: src')
     mkdirSync(path.join(foreignCheckout, 'empty-in-foreign'))
     const legacyEmpty = path.join(home, '.omp', 'worktrees', 'app', 'empty-ok')
     mkdirSync(legacyEmpty, { recursive: true })
@@ -439,7 +441,7 @@ describe('cleanup orphan scan repo scope (#622)', () => {
     const env = { HOME: home, OMP_WORKTREE_DIR: base }
     const full = scan(orgB, env)
     expect(kinds(full, path.join(foreignCheckout, 'src'))).toEqual(['inside_worktree'])
-    expect(kinds(full, path.join(foreignCheckout, 'empty-in-foreign'))).toEqual(['inside_worktree'])
+    expect(kinds(full, path.join(foreignCheckout, 'empty-in-foreign'))).toEqual(['empty_untracked'])
     expect(scan(orgB, env, ['--yes-targets']).map(pathOf)).toEqual([legacyEmpty])
   })
 
@@ -496,6 +498,85 @@ describe('cleanup orphan scan repo scope (#622)', () => {
 
     const yesTargets = scan(path.join(principal, 'tests'), { HOME: home }, ['--yes-targets'])
     expect(yesTargets.map(pathOf)).toEqual([orphan])
+  })
+
+
+  it('lists a half-removed harness .git shell as unregistered (X14)', () => {
+    const { root, home } = tempRoot('x14')
+    const principal = path.join(root, 'app')
+    initRepo(principal, home)
+    const half = path.join(principal, '.claude', 'worktrees', 'feat-half')
+    mkdirSync(path.dirname(half), { recursive: true })
+    git(principal, home, 'worktree', 'add', '-q', half, '-b', 'feat/half')
+    rmSync(path.join(commonDir(principal, home), 'worktrees'), { recursive: true, force: true })
+    const emptyOk = path.join(home, '.omp', 'worktrees', 'app', 'empty-ok')
+    mkdirSync(emptyOk, { recursive: true })
+
+    const env = { HOME: home, OMP_WORKTREE_DIR: path.join(root, 'wt') }
+    const full = scan(principal, env)
+    expect(kinds(full, half)).toEqual(['unregistered'])
+    expect(full.some((line) => pathOf(line) === half && line.includes('has .git'))).toBe(true)
+    expect(scan(principal, env, ['--yes-targets']).map(pathOf)).toEqual([emptyOk])
+  })
+
+  it('lists empty and node_modules-only harness children as per-row kinds', () => {
+    const { root, home } = tempRoot('harness-orphans')
+    const principal = path.join(root, 'app')
+    initRepo(principal, home)
+    const empty = path.join(principal, '.claude', 'worktrees', 'orphan-empty')
+    mkdirSync(empty, { recursive: true })
+    const nm = path.join(principal, '.claude', 'worktrees', 'orphan-nm')
+    mkdirSync(path.join(nm, 'node_modules'), { recursive: true })
+    const emptyOk = path.join(home, '.omp', 'worktrees', 'app', 'empty-ok')
+    mkdirSync(emptyOk, { recursive: true })
+
+    const env = { HOME: home, OMP_WORKTREE_DIR: path.join(root, 'wt') }
+    const full = scan(principal, env)
+    expect(kinds(full, empty)).toEqual(['empty_untracked'])
+    expect(kinds(full, nm)).toEqual(['unregistered'])
+    expect(scan(principal, env, ['--yes-targets']).map(pathOf)).toEqual([emptyOk])
+  })
+
+  it('scans a gitignored in-principal feature base (ls-files empty -> exempt)', () => {
+    const { root, home } = tempRoot('gitignore-base')
+    const principal = path.join(root, 'app')
+    initRepo(principal, home)
+    writeFileSync(path.join(principal, '.gitignore'), 'app/\n')
+    git(principal, home, 'add', '.gitignore')
+    git(principal, home, 'commit', '-q', '-m', 'chore: ignore')
+    mkdirSync(path.join(principal, '.dev'))
+    writeFileSync(path.join(principal, '.dev', 'stack.yml'), 'worktree:\n  base: .\n')
+    const content = path.join(principal, 'app', 'feat-ig')
+    mkdirSync(path.join(content, 'node_modules'), { recursive: true })
+    const empty = path.join(principal, 'app', 'feat-ig-empty')
+    mkdirSync(empty, { recursive: true })
+    const emptyOk = path.join(home, '.omp', 'worktrees', 'app', 'empty-ok')
+    mkdirSync(emptyOk, { recursive: true })
+
+    const full = scan(principal, { HOME: home })
+    expect(kinds(full, content)).toEqual(['unregistered'])
+    expect(kinds(full, empty)).toEqual(['empty_untracked'])
+    expect(scan(principal, { HOME: home }, ['--yes-targets']).map(pathOf)).toEqual([emptyOk])
+  })
+
+  it('under a $HOME dotfiles repo with .gitignore=*, empty orphans are empty_untracked not --yes', () => {
+    const { root, home, base } = tempRoot('dotfiles')
+    initRepo(home, home)
+    writeFileSync(path.join(home, '.gitignore'), '*\n')
+    git(home, home, 'add', '-f', '.gitignore')
+    git(home, home, 'commit', '-q', '-m', 'chore: ignore-all')
+    const principal = path.join(root, 'projects', 'app')
+    initRepo(principal, home)
+    const legacyEmpty = path.join(home, '.omp', 'worktrees', 'app', 'feat-x')
+    mkdirSync(legacyEmpty, { recursive: true })
+    const outsideEmpty = path.join(base, 'app', 'outside-empty')
+    mkdirSync(outsideEmpty, { recursive: true })
+
+    const env = { HOME: home, OMP_WORKTREE_DIR: base }
+    const full = scan(principal, env)
+    expect(kinds(full, legacyEmpty)).toEqual(['empty_untracked'])
+    expect(kinds(full, outsideEmpty)).toEqual(['empty_parent'])
+    expect(scan(principal, env, ['--yes-targets']).map(pathOf)).toEqual([outsideEmpty])
   })
 
   it('marks a regular file child as not_a_dir', () => {

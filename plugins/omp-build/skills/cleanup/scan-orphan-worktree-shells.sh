@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # Usage: scan-orphan-worktree-shells.sh [--yes-targets]
 # Analyze-only — never deletes. Emits one line per entry: path|kind|detail
-#   kind ∈ empty_parent | unregistered | inside_worktree | nested_git |
-#          symlink | symlink_root | dangling_git | not_a_dir | unsafe_name
+#   kind ∈ empty_parent | empty_untracked | unregistered | inside_worktree |
+#          nested_git | symlink | symlink_root | dangling_git | not_a_dir |
+#          unsafe_name
 #
-# --yes-targets is an allowlist: it emits ONLY `empty_parent` rows — a real
-# directory (`[ -d ] && [ ! -L ]`), empty, not inside any git work tree, with no
-# symlink component between its trusted anchor and itself. 5b deletes those with
-# `rmdir` only, never `rm -rf`. Every other kind needs a per-row confirmation;
-# inside_worktree, nested_git, symlink, symlink_root, dangling_git, not_a_dir
-# and unsafe_name are not selectable at all.
+# --yes-targets is an allowlist: it emits ONLY `empty_parent` rows — a real,
+# directory (`[ -d ] && [ ! -L ]`),
+# empty, outside any git work tree, with no symlink component between its
+# trusted anchor and itself. 5b deletes those with `rmdir` only, never
+# `rm -rf`. Every other kind needs a per-row confirmation (or is not
+# selectable at all).
 #
 # Finds leftover worktree *shells* that `git worktree list` misses after
 # `git worktree remove`. It scans three roots, and nothing else:
@@ -148,6 +149,7 @@ is_protected() {
 }
 
 origin=""
+current_anchor=""
 
 # One row. A name that could split the row (control character, `|`) is shown
 # %q-escaped with `|` spelled `\x7c`, as unsafe_name. --yes-targets keeps
@@ -156,8 +158,8 @@ emit() {
   local p="$1" kind="$2" detail="$3"
   if [[ $p == *[[:cntrl:]]* || $p == *'|'* ]]; then
     p="$(printf '%q' "$p")"
-    p="${p//\\|/\\x7c}"
-    p="${p//|/\\x7c}"
+    p="${p//\|/\x7c}"
+    p="${p//|/\x7c}"
     kind=unsafe_name
     detail="control character or pipe in name, shown escaped"
   fi
@@ -195,12 +197,25 @@ dir_has_entries() {
   [ "${#e[@]}" -gt 0 ]
 }
 
-inside_worktree() {
-  git -C "$1" rev-parse --show-toplevel >/dev/null 2>&1
+# Live = owned by a work tree: the enclosing toplevel tracks something at or
+# under p, or is rooted at/below p. Mere enclosure (principal, $HOME dotfiles)
+# is not ownership.
+live_in_worktree() {
+  local p="$1" top tracked
+  top="$(git -C "$p" rev-parse --show-toplevel 2>/dev/null)" || return 1
+  case "$top" in
+    "$p"|"$p"/*) return 0 ;;
+  esac
+  tracked="$(git -C "$top" ls-files -- "$p" 2>/dev/null || true)"
+  [ -n "$tracked" ]
+}
+
+enclosing_toplevel() {
+  git -C "$1" rev-parse --show-toplevel 2>/dev/null
 }
 
 classify() {
-  local p="$1"
+  local p="$1" nested top
   is_protected "$(canon "$p")" && return 0
 
   if [ -L "$p" ]; then
@@ -218,19 +233,32 @@ classify() {
   if [ -e "$p/.git" ]; then
     # Another repository's checkout or worktree: never listed.
     belongs_to_this_repo "$(resolve_gitdir "$p")" || return 0
-    if inside_worktree "$p"; then
+    # Git still resolves this path as a work tree → live (e.g. a copy sharing
+    # a live gitdir). After worktrees/ is pruned, rev-parse fails → shell.
+    if enclosing_toplevel "$p" >/dev/null; then
       emit "$p" inside_worktree "live worktree of this repo at another registered path"
     else
       emit "$p" unregistered "has .git but not in git worktree list"
     fi
     return 0
   fi
-  if inside_worktree "$p"; then
-    emit "$p" inside_worktree "path is inside a git work tree"
+  if live_in_worktree "$p"; then
+    emit "$p" inside_worktree "owned by a git work tree (tracked or rooted here)"
     return 0
   fi
-  if [ -n "$(find "$p" -mindepth 1 -maxdepth 4 -name .git -print -quit 2>/dev/null || true)" ]; then
+  nested="$(find "$p" -mindepth 1 -maxdepth 4 -name .git -print -quit 2>/dev/null || true)"
+  if [ -n "$nested" ]; then
     emit "$p" nested_git "contains a .git within depth 4"
+    return 0
+  fi
+  # Under some work tree but not owned by it (untracked harness/feature child,
+  # $HOME dotfiles repo, foreign untracked child): per-row only — never --yes.
+  if top="$(enclosing_toplevel "$p")"; then
+    if dir_has_entries "$p"; then
+      emit "$p" unregistered "content without git registration"
+    else
+      emit "$p" empty_untracked "empty and untracked under enclosing work tree"
+    fi
     return 0
   fi
   if dir_has_entries "$p"; then
@@ -245,6 +273,7 @@ classify() {
 scan_root() {
   local root="$1" child children=()
   origin="$2"
+  current_anchor="$3"
   [ -e "$root" ] || [ -L "$root" ] || return 0
   if [ "$(canon "$root")" != "$root" ]; then
     emit "$root" symlink_root "symlink between trusted anchor and scan root — children not listed"
@@ -266,14 +295,21 @@ scan_root() {
 
 # --- 1) ~/.omp/worktrees/<repo>/ ---
 if [ -n "${OMP_WORKTREES_ROOT:-}" ]; then
-  legacy_root="$(canon "$(dirname -- "$OMP_WORKTREES_ROOT")")/$(basename -- "$OMP_WORKTREES_ROOT")"
+  legacy_anchor="$(canon "$(dirname -- "$OMP_WORKTREES_ROOT")")"
+  legacy_root="$legacy_anchor/$(basename -- "$OMP_WORKTREES_ROOT")"
 else
-  legacy_root="$(canon "$HOME")/.omp/worktrees"
+  legacy_anchor="$(canon "$HOME")"
+  legacy_root="$legacy_anchor/.omp/worktrees"
 fi
-scan_root "$legacy_root/$repo_name" "~/.omp/worktrees"
+scan_root "$legacy_root/$repo_name" "~/.omp/worktrees" "$legacy_anchor"
 
 # --- 2) <principal>/.claude/worktrees/ ---
-scan_root "$claude_root" ".claude/worktrees"
+scan_root "$claude_root" ".claude/worktrees" "$principal"
 
 # --- 3) <worktree base>/<repo>/ ---
-scan_root "$feature_root" "worktree-base"
+if [[ "$wt_base" == "$principal" || "$wt_base" == "$principal"/* ]]; then
+  feature_anchor="$principal"
+else
+  feature_anchor="$wt_base"
+fi
+scan_root "$feature_root" "worktree-base" "$feature_anchor"
