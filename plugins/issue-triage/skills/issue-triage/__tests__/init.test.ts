@@ -1,5 +1,17 @@
-import { describe, expect, it, vi } from 'vitest'
-import { contractAction, initIssues, parseContractLabels } from '../lib/init'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  contractAction,
+  contractFile,
+  contractReader,
+  initIssues,
+  parseContractLabels,
+  readContractFile,
+  repoToplevel,
+  secondPassIsNoop,
+} from '../lib/init'
 
 const CANONICAL = [
   'size:S',
@@ -35,11 +47,14 @@ describe('init', () => {
     })
     expect(writes).toEqual({ ensure: 0, update: 0, contract: 0 })
     expect(plan.repo).toBe('go-silex/extern-client-metalyde')
-    expect(plan.createLabels).toEqual(expect.arrayContaining(['size:S', 'reviewed', 'epic']))
-    expect(plan.createLabels).not.toContain('size: XS')
+    expect(plan.createLabels).toEqual([])
+    expect(plan.createLabels).not.toContain('epic')
+    expect(plan.createLabels).not.toContain('reviewed')
+    expect(plan.vocabulary).toBe('none')
     expect(plan.relabels).toEqual([{ number: 12, add: ['size:F-lite'], remove: ['size: M', 'ready-for-agent'] }])
     expect(plan.proseBlockedBy).toEqual([12])
     expect(plan.contract).toBe('skip-other-repo')
+    expect(plan.refused.join('\n')).toContain('refusing without an explicit vocabulary')
     vi.restoreAllMocks()
   })
 
@@ -137,8 +152,8 @@ describe('parseContractLabels', () => {
     expect(parseContractLabels(KIT_CONTRACT)).toEqual(KIT_LABELS)
   })
 
-  it('reads the template bullet list when there is no colour table', () => {
-    const template = '## Labels in use\n\n- `size:S`\n- `epic`\n'
+  it('reads the template bullet list as canonical names only', () => {
+    const template = '## Labels in use\n\n- `size:S`\n- `bug`\n- `wontfix`\n- `epic`\n'
     expect(parseContractLabels(template)).toEqual([
       { name: 'size:S', color: 'ededed' },
       { name: 'epic', color: 'ededed' },
@@ -200,5 +215,185 @@ describe('init keeps an authored contract', () => {
     expect(ensured.some((row) => row.name === 'size:S')).toBe(false)
     expect(ensured.some((row) => row.color === 'ededed')).toBe(false)
     vi.restoreAllMocks()
+  })
+})
+
+describe('init vocabulary refusals', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('reads the contract from the git toplevel when cwd is a subdirectory', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'init-sub-'))
+    const sub = path.join(root, 'apps')
+    mkdirSync(sub, { recursive: true })
+    mkdirSync(path.dirname(contractFile(root)), { recursive: true })
+    writeFileSync(contractFile(root), KIT_CONTRACT)
+    expect(repoToplevel(sub, () => root)).toBe(root)
+    expect(readContractFile(repoToplevel(sub, () => root))).toBe(KIT_CONTRACT)
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const plan = await initIssues(['--dry-run', '--repo', 'Acme/app'], {
+      cwdRepo: 'Acme/app',
+      listLabelNames: async () => ['size:S'],
+      listIssueLabelSets: async () => [],
+      ensureLabel: async () => 'created',
+      updateLabels: async () => {},
+      readContract: contractReader(sub, () => root),
+      writeContract: () => {
+        throw new Error('subdirectory must not write a contract')
+      },
+    })
+    expect(plan.contract).toBe('keep-existing')
+    expect(plan.createLabels).not.toContain('epic')
+    expect(plan.createLabels).not.toContain('reviewed')
+    expect(plan.vocabulary).toBe('table')
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  it('refuses --repo for another repository without using the local contract', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    let read = 0
+    const plan = await initIssues(['--dry-run', '--repo', 'Acme/other'], {
+      cwdRepo: 'Acme/app',
+      listLabelNames: async () => [],
+      listIssueLabelSets: async () => [],
+      ensureLabel: async () => 'created',
+      updateLabels: async () => {},
+      readContract: () => {
+        read += 1
+        return KIT_CONTRACT
+      },
+      writeContract: () => {
+        throw new Error('other repo must not write')
+      },
+    })
+    expect(read).toBe(0)
+    expect(plan.vocabulary).toBe('none')
+    expect(plan.createLabels).toEqual([])
+    await expect(
+      initIssues(['--repo', 'Acme/other'], {
+        cwdRepo: 'Acme/app',
+        listLabelNames: async () => [],
+        listIssueLabelSets: async () => [],
+        ensureLabel: async () => 'created',
+        updateLabels: async () => {},
+        readContract: () => KIT_CONTRACT,
+        writeContract: () => {
+          throw new Error('other repo must not write')
+        },
+      }),
+    ).rejects.toThrow(/refusing without an explicit vocabulary/)
+  })
+
+  it('refuses a contract that parses to no vocabulary instead of canonical labels', async () => {
+    const logs: string[] = []
+    vi.spyOn(console, 'log').mockImplementation((line?: unknown) => {
+      logs.push(String(line))
+    })
+    const plan = await initIssues(['--dry-run', '--repo', 'Acme/app'], {
+      cwdRepo: 'Acme/app',
+      listLabelNames: async () => [],
+      listIssueLabelSets: async () => [],
+      ensureLabel: async () => 'created',
+      updateLabels: async () => {},
+      readContract: () => 'prose only, no label table\n',
+      writeContract: () => {
+        throw new Error('unparsed contract must not be written')
+      },
+    })
+    expect(plan.vocabulary).toBe('none')
+    expect(plan.createLabels).toEqual([])
+    expect(plan.createLabels).not.toContain('epic')
+    expect(logs.join('\n')).toContain('vocabulary: none parsed from docs/agents/issue-tracker.md')
+    await expect(
+      initIssues(['--repo', 'Acme/app'], {
+        cwdRepo: 'Acme/app',
+        listLabelNames: async () => [],
+        listIssueLabelSets: async () => [],
+        ensureLabel: async () => 'created',
+        updateLabels: async () => {},
+        readContract: () => 'prose only\n',
+        writeContract: () => {
+          throw new Error('unparsed contract must not be written')
+        },
+      }),
+    ).rejects.toThrow(/vocabulary: none parsed/)
+  })
+
+  it('refuses a relabel target that is neither defined nor in the contract vocabulary', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const onlySize = `| Label | Colour |\n|---|---|\n| \`size:S\` | \`bfd4f2\` |\n`
+    await expect(
+      initIssues(['--repo', 'Acme/app'], {
+        cwdRepo: 'Acme/app',
+        listLabelNames: async () => ['size:S'],
+        listIssueLabelSets: async () => [{ number: 3, labels: ['priority: high'], body: '' }],
+        ensureLabel: async () => 'created',
+        updateLabels: async () => {
+          throw new Error('must not relabel before the target exists')
+        },
+        readContract: () => onlySize,
+        writeContract: () => {
+          throw new Error('must not write')
+        },
+      }),
+    ).rejects.toThrow(/P1-high: not in contract vocabulary, not on repo/)
+  })
+
+  it('reports a case mismatch instead of creating a second label', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const ensured: string[] = []
+    const plan = await initIssues(['--dry-run', '--repo', 'Acme/app'], {
+      cwdRepo: 'Acme/app',
+      listLabelNames: async () => ['p1-high'],
+      listIssueLabelSets: async () => [],
+      ensureLabel: async (name: string) => {
+        ensured.push(name)
+        return 'created'
+      },
+      updateLabels: async () => {},
+      readContract: () => '| Label | Colour |\n|---|---|\n| `P1-high` | `d93f0b` |\n',
+      writeContract: () => {
+        throw new Error('must not write')
+      },
+    })
+    expect(plan.createLabels).not.toContain('P1-high')
+    expect(plan.refused.join('\n')).toContain('label case mismatch: P1-high: repo has p1-high')
+    expect(ensured).toEqual([])
+  })
+
+  it('parses a GFM table whose columns are not indexes 1 and 2', () => {
+    const gfm = 'Colour | Note | Label\n--- | --- | ---\n`bfd4f2` | tier | `size:S`\n'
+    expect(parseContractLabels(gfm)).toEqual([{ name: 'size:S', color: 'bfd4f2' }])
+  })
+
+  it('a second run on the kit contract creates nothing and keeps the file', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const defined = KIT_LABELS.map((row) => row.name)
+    let writes = 0
+    let ensures = 0
+    const deps = {
+      cwdRepo: 'Acme/app',
+      listLabelNames: async () => defined,
+      listIssueLabelSets: async () => [],
+      ensureLabel: async () => {
+        ensures += 1
+        return 'created' as const
+      },
+      updateLabels: async () => {},
+      readContract: () => KIT_CONTRACT,
+      writeContract: () => {
+        writes += 1
+      },
+    }
+    const first = await initIssues(['--repo', 'Acme/app'], deps)
+    const second = await initIssues(['--repo', 'Acme/app'], deps)
+    expect(first.contract).toBe('keep-existing')
+    expect(second.contract).toBe('keep-existing')
+    expect(second.createLabels).toEqual([])
+    expect(writes).toBe(0)
+    expect(ensures).toBe(0)
+    expect(secondPassIsNoop([], defined, [], [], defined)).toBe(true)
+    expect(secondPassIsNoop([], defined, [], [])).toBe(false)
   })
 })

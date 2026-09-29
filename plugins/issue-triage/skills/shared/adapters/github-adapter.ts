@@ -263,7 +263,9 @@ export async function ensureLabel(
   color = 'ededed',
 ): Promise<'created' | 'present'> {
   const existing = await listLabelNames(repo)
-  if (existing.includes(name)) return 'present'
+  const match = existing.find((have) => have.toLowerCase() === name.toLowerCase())
+  if (match && match !== name) throw new Error(`label case mismatch: contract ${name}, repo ${match}`)
+  if (match) return 'present'
   await run(['gh', 'label', 'create', name, '--repo', repo, '--color', color])
   return 'created'
 }

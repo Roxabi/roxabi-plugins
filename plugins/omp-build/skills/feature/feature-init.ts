@@ -101,45 +101,8 @@ export function readFacts(dir: string, labels: string[] = []): Facts {
   }
 }
 
-export interface TrackerInitIo {
-  exec?: (dir: string) => string
-  writeOut?: (text: string) => void
-  writeErr?: (text: string) => void
-}
-
-function textOf(value: unknown): string {
-  if (typeof value === 'string') return value
-  if (value instanceof Uint8Array) return new TextDecoder().decode(value)
-  return ''
-}
-
-function writeText(write: (text: string) => void, text: string): void {
-  if (!text) return
-  write(text.endsWith('\n') ? text : `${text}\n`)
-}
-
-function defaultTrackerExec(dir: string): string {
-  return execFileSync('bun', ['skill://issue-triage/triage.ts', 'init'], {
-    cwd: dir,
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
-}
-
-/** Runs the contract writer only when the tracker file is absent, and never discards its output. */
-export function runTrackerInit(dir: string, facts: Pick<Facts, 'hasTracker'>, io: TrackerInitIo = {}): void {
-  if (facts.hasTracker) return
-  const exec = io.exec ?? defaultTrackerExec
-  const writeOut = io.writeOut ?? ((text: string) => process.stdout.write(text))
-  const writeErr = io.writeErr ?? ((text: string) => process.stderr.write(text))
-  try {
-    writeText(writeOut, exec(dir))
-  } catch (err) {
-    const failure = err as { stdout?: unknown; stderr?: unknown }
-    writeText(writeOut, textOf(failure.stdout))
-    writeText(writeErr, textOf(failure.stderr))
-  }
-}
+/** Agent-layer command. `skill://` is not resolvable in a child process. */
+export const TRACKER_INIT_NEXT = 'next: bun skill://issue-triage/triage.ts init'
 
 function isPrincipal(dir: string): boolean {
   const out = execFileSync('git', ['worktree', 'list', '--porcelain'], { cwd: dir, encoding: 'utf8' })
@@ -148,6 +111,7 @@ function isPrincipal(dir: string): boolean {
   const here = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: dir, encoding: 'utf8' }).trim()
   return here === first
 }
+
 function applyStack(dir: string, facts: Facts): void {
   const stackPath = join(dir, '.dev', 'stack.yml')
   let stack = existsSync(stackPath) ? readFileSync(stackPath, 'utf8') : 'schema_version: "1.0"\n'
@@ -158,9 +122,6 @@ function applyStack(dir: string, facts: Facts): void {
     stack += `\nlanding:\n  mode: merge-on-green\n  required_checks: [${facts.checks.join(', ')}]\n`
   }
   writeFileSync(stackPath, stack)
-  const gitDirRaw = execFileSync('git', ['rev-parse', '--git-dir'], { cwd: dir, encoding: 'utf8' }).trim()
-  const gitDir = isAbsolute(gitDirRaw) ? gitDirRaw : join(dir, gitDirRaw)
-  writeFileSync(join(gitDir, 'omp-build-feature-init'), new Date().toISOString())
 }
 
 if (import.meta.main) {
@@ -180,13 +141,11 @@ if (import.meta.main) {
   if (process.env.FEATURE_INIT_LABELS) labels = process.env.FEATURE_INIT_LABELS.split(',').filter(Boolean)
   const facts = readFacts(dir, labels)
   const lines = plan(facts)
+  console.log(TRACKER_INIT_NEXT)
   if (dry) {
     for (const line of lines) console.log(line)
     process.exit(0)
   }
-  // A missing CLI must not write issues by hand. Its output is still surfaced.
-  runTrackerInit(dir, facts)
   applyStack(dir, facts)
-  console.log('init=done')
   for (const line of lines) console.log(line)
 }

@@ -1,8 +1,8 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { plan, readFacts, runTrackerInit } from './feature-init'
+import { afterEach, describe, expect, it } from 'vitest'
+import { plan, readFacts, TRACKER_INIT_NEXT } from './feature-init'
 
 let root: string | undefined
 afterEach(() => {
@@ -67,52 +67,9 @@ describe('feature init plan', () => {
   })
 })
 
-describe('runTrackerInit', () => {
-  const absent = { hasTracker: false }
-  const present = { hasTracker: true }
-
-  it('does not invoke issue-triage init when the tracker contract exists', () => {
-    const exec = vi.fn(() => 'contract: write\n')
-    const out: string[] = []
-    runTrackerInit('/repo', present, {
-      exec,
-      writeOut: (text) => out.push(text),
-      writeErr: () => {},
-    })
-    expect(exec).not.toHaveBeenCalled()
-    expect(out).toEqual([])
-  })
-
-  it('surfaces issue-triage init stdout when the contract is absent', () => {
-    const exec = vi.fn(() => 'contract: write')
-    const out: string[] = []
-    const err: string[] = []
-    runTrackerInit('/repo', absent, {
-      exec,
-      writeOut: (text) => out.push(text),
-      writeErr: (text) => err.push(text),
-    })
-    expect(exec).toHaveBeenCalledOnce()
-    expect(exec).toHaveBeenCalledWith('/repo')
-    expect(out.join('')).toContain('contract: write')
-    expect(err).toEqual([])
-  })
-
-  it('surfaces issue-triage init stderr instead of discarding it', () => {
-    const exec = vi.fn(() => {
-      const error = new Error('missing cli') as Error & { stdout?: string; stderr?: string }
-      error.stdout = 'contract: write'
-      error.stderr = 'init failed'
-      throw error
-    })
-    const out: string[] = []
-    const err: string[] = []
-    runTrackerInit('/repo', absent, {
-      exec,
-      writeOut: (text) => out.push(text),
-      writeErr: (text) => err.push(text),
-    })
-    expect(out.join('')).toContain('contract: write')
-    expect(err.join('')).toContain('init failed')
+describe('tracker step', () => {
+  it('names the agent command and does not claim the step ran', () => {
+    expect(TRACKER_INIT_NEXT).toBe('next: bun skill://issue-triage/triage.ts init')
+    expect(TRACKER_INIT_NEXT).not.toContain('init=done')
   })
 })

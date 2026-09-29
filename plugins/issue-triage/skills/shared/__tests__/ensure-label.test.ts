@@ -59,4 +59,13 @@ describe('ensureLabel', () => {
     expect(create).not.toContain('ededed')
     expect(create.join(' ')).not.toContain('edit')
   })
+
+  it('reports a case mismatch instead of creating', async () => {
+    spawnSpy.mockReturnValueOnce(mockProcess('p1-high\n') as unknown as ReturnType<typeof Bun.spawn>)
+    await expect(ensureLabel('P1-high', 'Acme/app', 'd93f0b')).rejects.toThrow(
+      /label case mismatch: contract P1-high, repo p1-high/,
+    )
+    expect(spawnSpy).toHaveBeenCalledTimes(1)
+    expect((spawnSpy.mock.calls[0][0] as string[]).join(' ')).not.toContain('create')
+  })
 })

@@ -1,5 +1,5 @@
-import { execFileSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync, spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -38,38 +38,31 @@ function principal(): string {
   return repo
 }
 
-function fakeBun(): { log: string; env: NodeJS.ProcessEnv } {
-  if (!root) throw new Error('fixture missing')
-  const bin = path.join(root, 'bin')
-  const log = path.join(root, 'bun.log')
-  mkdirSync(bin)
-  writeFileSync(
-    path.join(bin, 'bun'),
-    `#!/bin/sh
-printf '%s\\n' "$*" >> ${JSON.stringify(log)}
-if [ "$1" = "skill://issue-triage/triage.ts" ]; then
-  echo "contract: keep-existing"
-  exit 0
-fi
-exec ${JSON.stringify(REAL_BUN)} "$@"
-`,
-  )
-  chmodSync(path.join(bin, 'bun'), 0o755)
-  return { log, env: { ...ENV, PATH: `${bin}:${process.env.PATH ?? ''}` } }
+function run(dir: string) {
+  return spawnSync(REAL_BUN, [CLI, '--dir', dir], { env: ENV, encoding: 'utf8' })
 }
 
 describe('feature init apply', () => {
-  it('writes once, then a second run is a no-op', () => {
+  it('writes the stack once and leaves a second run idempotent without claiming the tracker step', () => {
     root = mkdtempSync(path.join(tmpdir(), 'omp-init-apply-'))
     const repo = principal()
     const wt = path.join(root, 'wt')
     git(repo, 'worktree', 'add', '-q', wt, '-b', 'feat/init')
-    const first = execFileSync('bun', [CLI, '--dir', wt], { env: ENV, encoding: 'utf8' })
-    expect(first).toContain('init=done')
+    const first = run(wt)
+    expect(first.status).toBe(0)
+    expect(first.stdout).toContain('next: bun skill://issue-triage/triage.ts init')
+    expect(first.stdout).not.toContain('init=done')
+    expect(first.stderr).not.toContain('Module not found')
+    expect(first.stderr).not.toContain('skill://')
     const stamped = readFileSync(path.join(wt, '.dev', 'stack.yml'), 'utf8')
     expect(stamped).toContain('worktree:')
-    const second = execFileSync('bun', [CLI, '--dir', wt], { env: ENV, encoding: 'utf8' })
-    expect(second.trim()).toBe('init=noop')
+    const gitDir = execFileSync('git', ['rev-parse', '--git-dir'], { cwd: wt, env: ENV, encoding: 'utf8' }).trim()
+    const marker = path.resolve(wt, gitDir, 'omp-build-feature-init')
+    expect(existsSync(marker)).toBe(false)
+    const second = run(wt)
+    expect(second.status).toBe(0)
+    expect(second.stdout).toContain('next: bun skill://issue-triage/triage.ts init')
+    expect(second.stdout).not.toContain('init=done')
     expect(readFileSync(path.join(wt, '.dev', 'stack.yml'), 'utf8')).toBe(stamped)
   })
 
@@ -79,7 +72,9 @@ describe('feature init apply', () => {
     mkdirSync(path.join(repo, '.dev'))
     writeFileSync(path.join(repo, '.dev', 'stack.yml'), 'schema_version: "1.0"\n')
     git(repo, 'init', '-q', '-b', 'main')
-    expect(() => execFileSync('bun', [CLI, '--dir', repo], { env: ENV, encoding: 'utf8' })).toThrow(/init=refused/)
+    const result = run(repo)
+    expect(result.status).toBe(2)
+    expect(result.stderr).toContain('init=refused')
   })
 
   it('does not invoke init and leaves an existing contract byte-identical', () => {
@@ -92,26 +87,14 @@ describe('feature init apply', () => {
     git(repo, 'commit', '-q', '-m', 'docs: tracker contract')
     const wt = path.join(root, 'wt')
     git(repo, 'worktree', 'add', '-q', wt, '-b', 'feat/init')
-    const { log, env } = fakeBun()
-    const out = execFileSync(REAL_BUN, [CLI, '--dir', wt], { env, encoding: 'utf8' })
-    expect(out).toContain('init=done')
-    expect(out).not.toContain('contract:')
-    expect(existsSync(log) ? readFileSync(log, 'utf8') : '').not.toContain('skill://issue-triage/triage.ts')
+    const out = run(wt)
+    expect(out.status).toBe(0)
+    expect(out.stdout).toContain('next: bun skill://issue-triage/triage.ts init')
+    expect(out.stdout).not.toContain('init=done')
+    expect(out.stderr).not.toContain('Module not found')
     expect(readFileSync(path.join(wt, 'docs', 'agents', 'issue-tracker.md'), 'utf8')).toBe(contract)
     expect(
-      execFileSync('git', ['status', '--porcelain', '--', 'docs/agents'], { cwd: wt, env, encoding: 'utf8' }),
+      execFileSync('git', ['status', '--porcelain', '--', 'docs/agents'], { cwd: wt, env: ENV, encoding: 'utf8' }),
     ).toBe('')
-  })
-
-  it('surfaces issue-triage init output when the contract is absent', () => {
-    root = mkdtempSync(path.join(tmpdir(), 'omp-init-surface-'))
-    const repo = principal()
-    const wt = path.join(root, 'wt')
-    git(repo, 'worktree', 'add', '-q', wt, '-b', 'feat/init')
-    const { log, env } = fakeBun()
-    const out = execFileSync(REAL_BUN, [CLI, '--dir', wt], { env, encoding: 'utf8' })
-    expect(out).toContain('contract: keep-existing')
-    expect(out).toContain('init=done')
-    expect(readFileSync(log, 'utf8')).toContain('skill://issue-triage/triage.ts init')
   })
 })
