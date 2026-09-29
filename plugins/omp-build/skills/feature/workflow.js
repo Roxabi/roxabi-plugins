@@ -390,60 +390,52 @@ async function resolveRequiredContexts(cwd, pr, ghFn) {
 }
 
 /**
- * `landing.mode` from stack text. Absent mode: a merge-on-green workflow means
- * that mode; otherwise native protection/rulesets, as before.
+ * `landing` from stack text, parsed with `Bun.YAML`. Absent `landing.mode`: a
+ * merge-on-green workflow means that mode, otherwise native. Anything that is not
+ * a valid landing throws: invalid YAML, a non-map document or `landing`, a mode
+ * other than native/merge-on-green, `required_checks` not a list of names.
  *
  * @param {string} stackText
  * @param {{ mergeOnGreenWorkflow?: boolean }} [opts]
+ * @returns {{ mode: 'native' | 'merge-on-green', required_checks: string[] }}
  */
-export function parseLanding(stackText, { mergeOnGreenWorkflow = false } = {}) {
-  const lines = String(stackText || '').split('\n')
-  let inLanding = false
-  let inChecks = false
-  let mode = ''
-  const checks = []
-  for (const raw of lines) {
-    const line = raw.replace(/#.*$/, '')
-    if (!line.trim()) continue
-    const indent = line.length - line.trimStart().length
-    const text = line.trim()
-    if (indent === 0 && text.endsWith(':')) {
-      inLanding = text === 'landing:'
-      inChecks = false
-      continue
-    }
-    if (!inLanding) continue
-    if (indent === 2 && text.startsWith('mode:')) {
-      mode = text.slice(5).trim().replace(/['"]/g, '')
-      inChecks = false
-      continue
-    }
-    if (indent === 2 && text.startsWith('required_checks:')) {
-      inChecks = true
-      const inline = text.slice('required_checks:'.length).trim()
-      if (inline.startsWith('[') && inline.endsWith(']')) {
-        for (const item of inline.slice(1, -1).split(',')) {
-          const name = item.trim().replace(/['"]/g, '')
-          if (name) checks.push(name)
-        }
-        inChecks = false
-      }
-      continue
-    }
-    if (inChecks && text.startsWith('- ')) checks.push(text.slice(2).trim().replace(/['"]/g, ''))
+function parseLanding(stackText, { mergeOnGreenWorkflow = false } = {}) {
+  const fallback = mergeOnGreenWorkflow ? 'merge-on-green' : 'native'
+  if (!stackText.trim()) return { mode: fallback, required_checks: [] }
+  if (typeof Bun === 'undefined' || typeof Bun.YAML?.parse !== 'function') {
+    throw new Error('.dev/stack.yml: reading it needs bun >= 1.2.21 (Bun.YAML)')
   }
-  if (mode !== 'merge-on-green' && mode !== 'native') {
-    mode = mergeOnGreenWorkflow ? 'merge-on-green' : 'native'
+  let doc
+  try {
+    doc = Bun.YAML.parse(stackText)
+  } catch (e) {
+    throw new Error(`.dev/stack.yml is not valid YAML: ${e instanceof Error ? e.message : String(e)}`)
+  }
+  const isMap = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
+  if (doc == null) return { mode: fallback, required_checks: [] }
+  if (!isMap(doc)) throw new Error('.dev/stack.yml: the document is not a map')
+  const landing = doc.landing
+  if (landing == null) return { mode: fallback, required_checks: [] }
+  if (!isMap(landing)) throw new Error('.dev/stack.yml: landing is not a map')
+  const mode = landing.mode ?? fallback
+  if (mode !== 'native' && mode !== 'merge-on-green') {
+    throw new Error(`.dev/stack.yml: landing.mode must be native or merge-on-green, got ${JSON.stringify(mode)}`)
+  }
+  const checks = landing.required_checks ?? []
+  if (!Array.isArray(checks) || !checks.every((c) => typeof c === 'string' && c.length > 0)) {
+    throw new Error('.dev/stack.yml: landing.required_checks must be a list of check names')
   }
   return { mode, required_checks: checks }
 }
 
 /**
- * Landing of the checkout at `cwd`: `.dev/stack.yml` and the merge-on-green workflow file, through `parseLanding`.
+ * The one landing resolver: `<cwd>/.dev/stack.yml` (absent → no landing block)
+ * and `<cwd>/.github/workflows/merge-on-green.yml` as the mode fallback. `landPr`
+ * and `ci-watch.sh` both resolve through it. Throws on an invalid landing.
  *
  * @param {string} cwd
  */
-function readLanding(cwd) {
+export function readLanding(cwd) {
   const stackPath = join(cwd, '.dev', 'stack.yml')
   const stackText = existsSync(stackPath) ? readFileSync(stackPath, 'utf8') : ''
   const mergeOnGreenWorkflow = existsSync(join(cwd, '.github', 'workflows', 'merge-on-green.yml'))
@@ -452,13 +444,20 @@ function readLanding(cwd) {
 
 /**
  * Arm `reviewed` and hand the wait to `/ci-watch`. No in-process poll.
- * Without an explicit `landing`, the mode is read from `cwd`: stack
- * `landing.mode`, else the merge-on-green workflow file, else native.
+ * Without an explicit `landing`, the mode comes from `readLanding(cwd)`; an
+ * invalid landing returns `bad-landing` before any gh call.
  * Native also enables merge-commit auto-merge. merge-on-green never returns
  * `no-required-checks` — the workflow, not the rules API, is the gate.
  */
 export async function landPr(cwd, pr, { gh: ghFn = gh, requiredContexts, landing } = {}) {
-  const resolved = landing ?? readLanding(cwd)
+  let resolved = landing
+  if (!resolved) {
+    try {
+      resolved = readLanding(cwd)
+    } catch (e) {
+      return { status: 'bad-landing', error: e instanceof Error ? e.message : String(e) }
+    }
+  }
   if (resolved.mode === 'native') {
     const required =
       requiredContexts !== undefined

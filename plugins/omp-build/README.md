@@ -106,8 +106,9 @@ In the matching worktree: implement → `dev-review` → `fix --no-label` → la
 At most two fix rounds; a third red stops and `enforceStop` removes the `reviewed`
 label and disables native auto-merge. Every verdict and CI reopening is persisted
 (counts only, not the stop). Only an approved landing calls `landPr`, which resolves
-the landing mode (stack `landing.mode`, else `merge-on-green.yml`, else native), adds
-`reviewed`, arms native auto-merge, and hands the wait to `/ci-watch`. It does not
+the landing mode through `readLanding` — the resolver `/ci-watch` also uses (stack
+`landing.mode`, else `merge-on-green.yml`, else native; an invalid landing returns
+`bad-landing` before any gh call) — adds `reviewed`, arms native auto-merge, and hands the wait to `/ci-watch`. It does not
 poll. `applyCiWatchExit` re-reads the PR state and disarms on exits 1–3 (failed, cancelled, other conclusion); exit 6 returns `evaluate-only` (kit-ci App not configured, manual merge) and exit 70 or any other code returns `watch-failed`, both leaving the gate armed. No duplicate spec files or `validated` gate.
 
 ## Guards

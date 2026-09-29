@@ -218,8 +218,17 @@ EOF
     expect(code).toBe(1)
   })
 
-  function runWatch(dir: string, extraEnv: Record<string, string> = {}, cwd?: string, timeout = '30s') {
-    const args = ['7', '--interval', '0', '--timeout', timeout, '--merge-mode', 'merge-on-green', '--repo', 'acme/app']
+  /** `mode: null` passes no `--merge-mode`, so the script resolves it from `cwd`. */
+  function runWatch(
+    dir: string,
+    extraEnv: Record<string, string> = {},
+    cwd?: string,
+    timeout = '30s',
+    mode: string | null = 'merge-on-green',
+    extra: string[] = [],
+  ) {
+    const modeArgs = mode === null ? [] : ['--merge-mode', mode]
+    const args = ['7', '--interval', '0', '--timeout', timeout, ...modeArgs, '--repo', 'acme/app', ...extra]
     const env = { ...process.env, PATH: `${dir}:${process.env.PATH}`, ...extraEnv }
     try {
       const stdout = execFileSync(SCRIPT, args, { encoding: 'utf8', env, cwd })
@@ -448,6 +457,48 @@ exit 0
     expect(result.code).toBe(70)
     expect(result.stderr).toContain('empty gh pr view')
     expect(Date.now() - started).toBeLessThan(1500)
+  })
+
+  it('with no --merge-mode, a checkout holding only merge-on-green.yml watches in merge-on-green mode', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-mog-file-'))
+    const cwd = mkdtempSync(join(tmpdir(), 'ci-watch-mog-file-cwd-'))
+    mkdirSync(join(cwd, '.github', 'workflows'), { recursive: true })
+    writeFileSync(join(cwd, '.github', 'workflows', 'merge-on-green.yml'), 'name: merge-on-green\n')
+    // No `reviewed` label but auto-merge armed: merge-on-green says not eligible (4),
+    // native would keep watching until the MERGED snapshot (0).
+    fakeGh(
+      dir,
+      `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1" == "api" ]]; then echo '{"check_runs":[]}'; exit 0; fi
+n=0
+if [[ -f "$CI_WATCH_COUNT" ]]; then n=$(cat "$CI_WATCH_COUNT"); fi
+n=$((n + 1))
+echo "$n" > "$CI_WATCH_COUNT"
+if [[ "$n" -le 3 ]]; then
+  cat <<'EOF'
+{"state":"OPEN","mergeStateStatus":"BLOCKED","autoMergeRequest":{"mergeMethod":"MERGE"},"labels":[],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}]}
+EOF
+else
+  cat <<'EOF'
+{"state":"MERGED","mergeStateStatus":"UNKNOWN","autoMergeRequest":null,"labels":[],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}]}
+EOF
+fi
+`,
+    )
+    const result = runWatch(dir, { CI_WATCH_COUNT: join(dir, 'count') }, cwd, '30s', null)
+    expect(result.code).toBe(4)
+  })
+
+  it('exits 70 naming the problem when .dev/stack.yml is not valid YAML', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-bad-stack-'))
+    const cwd = mkdtempSync(join(tmpdir(), 'ci-watch-bad-stack-cwd-'))
+    mkdirSync(join(cwd, '.dev'))
+    writeFileSync(join(cwd, '.dev', 'stack.yml'), 'landing: [unclosed\n')
+    fakeGh(dir, '#!/usr/bin/env bash\nexit 1\n')
+    const result = runWatch(dir, {}, cwd)
+    expect(result.code).toBe(70)
+    expect(result.stderr).toContain('not valid YAML')
   })
 
   function evaluateOnlyGh(dir: string, annotations: string): void {

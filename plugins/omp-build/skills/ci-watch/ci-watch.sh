@@ -205,11 +205,22 @@ fi
 
 TIMEOUT=$(parse_duration "$TIMEOUT_RAW")
 
-if [[ -z "$MERGE_MODE" && -f .dev/stack.yml ]]; then
-  MERGE_MODE=$(bun -e 'const t=await Bun.file(".dev/stack.yml").text(); const d=Bun.YAML.parse(t); console.log(d?.landing?.mode ?? "")')
-fi
+# One landing resolver: feature/workflow.js readLanding, also used by landPr —
+# `landing.mode` in .dev/stack.yml, else merge-on-green when
+# .github/workflows/merge-on-green.yml exists, else native. Prints the mode, then
+# one required check per line. An invalid .dev/stack.yml exits 70.
+LANDING_JS="$(dirname "$(readlink -f "$0")")/../feature/workflow.js"
+LANDING=$(bun -e '
+const { readLanding } = await import(process.argv[1])
+try {
+  const landing = readLanding(process.cwd())
+  console.log([landing.mode, ...landing.required_checks].join("\n"))
+} catch (e) {
+  console.error(`Error: ${e instanceof Error ? e.message : e}`)
+  process.exit(1)
+}' "$LANDING_JS")
 if [[ -z "$MERGE_MODE" ]]; then
-  MERGE_MODE="native"
+  MERGE_MODE="${LANDING%%$'\n'*}"
 fi
 if [[ "$MERGE_MODE" != "merge-on-green" && "$MERGE_MODE" != "native" ]]; then
   echo "Error: --merge-mode must be merge-on-green or native, got $MERGE_MODE" >&2
@@ -217,8 +228,8 @@ if [[ "$MERGE_MODE" != "merge-on-green" && "$MERGE_MODE" != "native" ]]; then
 fi
 
 REQUIRED=""
-if [[ -f .dev/stack.yml ]]; then
-  REQUIRED=$(bun -e 'const t=await Bun.file(".dev/stack.yml").text(); const d=Bun.YAML.parse(t); const c=d?.landing?.required_checks; if (Array.isArray(c)) console.log(c.join("\n"))')
+if [[ "$LANDING" == *$'\n'* ]]; then
+  REQUIRED="${LANDING#*$'\n'}"
 fi
 
 

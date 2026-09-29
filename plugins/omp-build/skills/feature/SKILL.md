@@ -304,12 +304,13 @@ already 2 → stop). It never refunds or preserves an unspent round after reopen
 
 Only `step.action === 'land'` may reach this step. Obtain the operator's merge
 approval if not already explicit for this PR. Then `await landPr(cwd, pr)`
-resolves the landing mode itself from `cwd`: `landing.mode` in `.dev/stack.yml`,
+resolves the landing mode itself from `cwd` through `readLanding` — the same
+resolver `/ci-watch` uses: `landing.mode` in `.dev/stack.yml` (parsed as YAML),
 else merge-on-green when `.github/workflows/merge-on-green.yml` exists, else
-native. It adds `reviewed` and returns `{ status: 'watching', mode, watch }`;
-`watch` already carries `--merge-mode <mode>`. It does not poll. Native also
-enables merge-commit auto-merge. merge-on-green never returns
-`no-required-checks`.
+native. An invalid `landing` returns `bad-landing` before any gh call. Otherwise
+it adds `reviewed` and returns `{ status: 'watching', mode, watch }`; `watch`
+already carries `--merge-mode <mode>`. It does not poll. Native also enables
+merge-commit auto-merge. merge-on-green never returns `no-required-checks`.
 
 Run `watch` as an async bash job (`timeout: 0`). Map the exit with
 `applyCiWatchExit(cwd, pr, code, { mode: land.mode })`:
@@ -323,7 +324,7 @@ Run `watch` as an async bash job (`timeout: 0`). Map the exit with
 | 4 | stop and report; do not claim merged |
 | 5 | `timeout`; re-attach the same watch later |
 | 6 | `evaluate-only`: merge-on-green is green but its run reports `kit-ci not configured`; gate left armed |
-| 70 | usage, missing tool, or `gh`/`jq` failure → `watch-failed`; gate left armed |
+| 70 | usage, missing tool, invalid `.dev/stack.yml` landing, or `gh`/`jq` failure → `watch-failed`; gate left armed |
 
 Before any push that follows a `reviewed` label, call
 `disarmReviewedBeforePush(cwd, pr, { push })`. The label is removed before the
@@ -341,6 +342,7 @@ Neither a fix round nor another review action may write that label in this cycle
 | `ci-blocked` | Gate disarmed; stop, report the checks named on stderr; operator resolves the named checks or re-runs CI, then re-enters §6.7 |
 | `watch-failed` | Stop, report the code, gate left as is; do not claim merged |
 | `evaluate-only` | Stop; report "evaluate-only — manual merge required" and `docs/kit/ci-app-setup.md`. Gate left armed; the operator merges by hand. Do not claim merged; do not wait |
+| `bad-landing` | Stop; report `land.error` (the `.dev/stack.yml` problem). Nothing was labelled or armed. Fix the stack file, then re-enter §6.7 |
 | `no-required-checks` | Stop; report missing protection. Native only, when no required context was found (declared `landing.required_checks`, protection or rulesets) — merge-on-green does not return this |
 | `timeout` | Re-attach the watch. Do not claim merged |
 | `stopped` | Stop and report. Do not claim merged |
