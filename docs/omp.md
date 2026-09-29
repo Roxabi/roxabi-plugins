@@ -24,6 +24,8 @@ omp plugin install dev-core@roxabi-marketplace
 
 `--scope project` for one repo. Do not install `--scope user` until safety hooks are project-gated and verified.
 
+If `~/.local/bin/omp-wt` exists, `rm -f ~/.local/bin/omp-wt` — the script is retired; enter a worktree with `/move <path>`.
+
 A marketplace install exposes the registered slash commands below.
 Other skills resolve via `skill://` when the plugin is linked (`omp plugin link` / `-e`).
 
