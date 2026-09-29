@@ -98,14 +98,17 @@ Adopt **Option C**.
 5. **Epic goal.** ADR-024 decision 1 (§3) already makes a goal unattended: the
    operator's `/goal` is the standing Phase 8 choice and merge approval for every
    ticket of the epic. The goal session keeps the frontier, the base-CI read and
-   each ticket's outcome. It spawns one ticket unit at a time, in `blocked_by`
-   order, in the epic worktree, seeded with its role, the epic number and the
-   skill directory. The ticket unit runs `/feature` §6 to a terminal outcome
-   without asking: it follows the review loop's step, lands on green and waits on
-   its own CI watch. It returns one closed outcome — `merged`, `ticket-stopped` or
-   `shared-state-stop` — and the goal session confirms `merged` from PR state
-   before trusting it. The rest of ADR-024 decision 1 stands: the goal is still
-   the autonomy unit.
+   each ticket's outcome, and owns the hand-over of the epic worktree: before each
+   spawn it requires a clean tree and checks out the ticket's branch, created from
+   fresh `refs/remotes/origin/<base>` when it does not exist. It spawns one ticket
+   unit at a time, in `blocked_by` order, seeded with its role, the epic number,
+   the branch, the base and the skill directory. The ticket unit runs `/feature` §6
+   to a terminal outcome without asking, with every operator gate mapped per
+   `/feature` § Ticket unit: it follows the review loop's step, lands on green and
+   waits on its own CI watch. It returns one closed outcome — `merged`,
+   `ticket-stopped` or `shared-state-stop` — and the goal session confirms `merged`
+   from PR state before trusting it. The rest of ADR-024 decision 1 stands: the
+   goal is still the autonomy unit.
 6. **What enters a context.** A full-suite or test run writes its log to a
    temporary file outside the worktree and brings back its exit code and its
    failing section. Reads prefer line ranges and skip content already in the

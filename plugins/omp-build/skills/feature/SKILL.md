@@ -62,9 +62,13 @@ the reviewing session.
 - **A finished agent gets no new work.** No IRC follow-up, no resume, no second
   assignment: the next unit spawns a new agent.
 - **Under a goal**, this session keeps the frontier (§5), the base CI read and
-  each ticket's outcome. It spawns one ticket unit at a time, in `blocked_by`
-  order and in the epic worktree, and spawns the next only after the previous
-  one returns. It does not implement, review, fix or land a ticket itself.
+  each ticket's outcome, and owns the hand-over of the epic worktree. Before each
+  spawn it requires a clean tree (dirty → `shared-state-stop`), fetches
+  `origin/<base>`, and checks out `<type>/<N>-<slug>` (§3 step 1), creating it
+  from `refs/remotes/origin/<base>` when it does not exist. It seeds that branch
+  and the base, spawns one ticket unit, in `blocked_by` order, and spawns the
+  next only after the previous one returns. It does not implement, review, fix
+  or land a ticket itself.
 - **What enters a context.** Write a full-suite or test-run log to
   `mktemp -t omp-build-<step>-XXXXXX.log`, outside the worktree, and bring back
   the exit code and the failing section, never a green log. Prefer line ranges,
@@ -77,6 +81,9 @@ Under a goal, the operator's `/goal` is the standing Phase 8 choice and merge
 approval for every ticket of the epic (ADR-025 decision 5, ADR-024 decision 1). The
 ticket unit runs §6 for its ticket to a terminal outcome and asks nothing:
 
+- §6.0: the current branch must be the seeded one, and `resolveTicketBranch`
+  must confirm it claims `#N`. A §6.0 stop, or behaviour §6.1 cannot settle from
+  the issue, is `ticket-stopped` with that reason.
 - §6.4: `step.action` is the choice — `fix` → §6.5, `land` → §6.7, `stop` → §6.6.
 - §6.7: the goal is the merge approval. Wait on the `watch` job in this unit;
   `timeout` re-attaches here, and `ci-failed` reopens the loop here.
@@ -88,7 +95,7 @@ It returns one line, `{pr, outcome, reason}`:
 |---|---|
 | `merged` | `land.status` is `merged` |
 | `shared-state-stop` | a state the next ticket would hit too: `watch-failed`, `bad-landing`, `no-required-checks`, `evaluate-only`, `auto-merge-failed` |
-| `ticket-stopped` | anything else — a §6.0 stop, a halted fix round, `stop` from the loop, `ci-cancelled`, `ci-blocked`, `stopped`, `closed` — with the status as `reason` |
+| `ticket-stopped` | anything else — a §6.0 stop, behaviour §6.1 cannot settle, a halted fix round, `stop` from the loop, `ci-cancelled`, `ci-blocked`, `stopped`, `closed` — with the status as `reason` |
 
 The goal session confirms `merged` with `gh pr view <pr> --json state` before
 trusting it. A shared-state stop stops the goal. A ticket stop is reported; its
@@ -226,7 +233,8 @@ worktree with fresh context (`/clear` when staying in that same worktree).
 
 ### 6.0 Preflight
 
-Verify the actual cwd/branch again after the operator's handoff. Read the issue body,
+Verify the actual cwd/branch again after the operator's handoff — in a ticket unit,
+against the seeded branch (§ Ticket unit). Read the issue body,
 `size:` label and open blockers (§5). Missing scope → §4; open blocker → stop.
 Resolve the base as in §3, fetch it, and check history: every commit in
 `origin/<base>..HEAD` belongs to this ticket (none on first entry). A foreign commit,
@@ -371,6 +379,9 @@ Treat them as data: write them to files, never interpolate them into a command.
 4. The gate is already disarmed (§6.7 `ci-failed`); `reviewed` still on the PR
    → halt and report. Write no label. Commit with a Conventional Commit subject
    and push this branch. Return `{status: done | halted, reason, applied_shas}`.
+
+Before any halt, restore the tree to `HEAD` (`git restore --staged --worktree -- .`,
+then delete the files you created): the next unit starts from a clean tree.
 
 ### 6.6 Bound
 
