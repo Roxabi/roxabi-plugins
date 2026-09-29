@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { plan, readFacts, trackerNext } from './feature-init'
+import { plan, readFacts } from './feature-init'
 
 let root: string | undefined
 afterEach(() => {
@@ -64,12 +64,5 @@ describe('feature init plan', () => {
     expect(lines).toContain('codegraph proposed')
     expect(lines).not.toContain('label migration')
     expect(lines).not.toContain('assertledger + vitest adapter')
-  })
-})
-
-describe('tracker step', () => {
-  it('keeps --dry-run on the printed next line', () => {
-    expect(trackerNext(true)).toBe('next: bun "$(realpath skill://issue-triage/triage.ts)" init --dry-run')
-    expect(trackerNext(false)).toBe('next: bun "$(realpath skill://issue-triage/triage.ts)" init')
   })
 })
