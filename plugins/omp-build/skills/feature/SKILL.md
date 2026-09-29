@@ -23,10 +23,10 @@ use the current repository conventions, not a separate spec-file lifecycle.
   `.dev/stack.yml` declares `release.model: staging-train`. Never invoke either.
 
 `/feature init [--dry-run]` adopts a repository from a worktree, never the
-Principal. `--dry-run` prints the plan and writes nothing. A real run fills
-`landing` and `worktree` in `.dev/stack.yml` and prints
-`next: bun skill://issue-triage/triage.ts init`. It does not run that command
-and does not print `init=done`: `skill://` is resolved by the agent, not by a
+Principal. `--dry-run` prints the plan and writes nothing, and its next line
+includes `--dry-run`. A real run fills `landing` and `worktree` in
+`.dev/stack.yml` and prints `next: bun skill://issue-triage/triage.ts init`.
+It does not run that command and does not print `init=done`: `skill://` is resolved by the agent, not by a
 child process. Run the printed command. If it cannot be resolved, stop and
 name issue-triage. Do not resolve the CLI from a path inside the skill body.
 Do not write issues by hand. An existing `docs/agents/issue-tracker.md` is

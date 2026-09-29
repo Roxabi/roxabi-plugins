@@ -97,4 +97,18 @@ describe('feature init apply', () => {
       execFileSync('git', ['status', '--porcelain', '--', 'docs/agents'], { cwd: wt, env: ENV, encoding: 'utf8' }),
     ).toBe('')
   })
+
+  it('dry-run prints the tracker command with --dry-run and writes nothing', () => {
+    root = mkdtempSync(path.join(tmpdir(), 'omp-init-dry-'))
+    const repo = principal()
+    const wt = path.join(root, 'wt')
+    git(repo, 'worktree', 'add', '-q', wt, '-b', 'feat/init')
+    const before = readFileSync(path.join(wt, '.dev', 'stack.yml'), 'utf8')
+    const out = spawnSync(REAL_BUN, [CLI, '--dry-run', '--dir', wt], { env: ENV, encoding: 'utf8' })
+    const next = out.stdout.split('\n').find((line) => line.startsWith('next:'))
+    expect(out.status).toBe(0)
+    expect(next).toContain('--dry-run')
+    expect(next).toBe('next: bun skill://issue-triage/triage.ts init --dry-run')
+    expect(readFileSync(path.join(wt, '.dev', 'stack.yml'), 'utf8')).toBe(before)
+  })
 })

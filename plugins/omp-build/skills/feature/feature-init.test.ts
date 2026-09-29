@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { plan, readFacts, TRACKER_INIT_NEXT } from './feature-init'
+import { plan, readFacts, trackerNext } from './feature-init'
 
 let root: string | undefined
 afterEach(() => {
@@ -68,8 +68,8 @@ describe('feature init plan', () => {
 })
 
 describe('tracker step', () => {
-  it('names the agent command and does not claim the step ran', () => {
-    expect(TRACKER_INIT_NEXT).toBe('next: bun skill://issue-triage/triage.ts init')
-    expect(TRACKER_INIT_NEXT).not.toContain('init=done')
+  it('keeps --dry-run on the printed next line', () => {
+    expect(trackerNext(true)).toBe('next: bun skill://issue-triage/triage.ts init --dry-run')
+    expect(trackerNext(false)).toBe('next: bun skill://issue-triage/triage.ts init')
   })
 })

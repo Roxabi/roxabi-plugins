@@ -1,14 +1,16 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  classifyVocabulary,
   contractAction,
   contractFile,
   contractReader,
   initIssues,
   parseContractLabels,
   readContractFile,
+  relabelTargetsOutside,
   repoToplevel,
   secondPassIsNoop,
 } from '../lib/init'
@@ -395,5 +397,69 @@ describe('init vocabulary refusals', () => {
     expect(ensures).toBe(0)
     expect(secondPassIsNoop([], defined, [], [], defined)).toBe(true)
     expect(secondPassIsNoop([], defined, [], [])).toBe(false)
+  })
+
+  it('refuses an empty Label | Colour table and an empty Labels in use list', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const emptyTable = '| Label | Colour |\n|---|---|\n'
+    const emptyList = '## Labels in use\n\n(none)\n'
+    for (const contract of [emptyTable, emptyList]) {
+      const plan = await initIssues(['--dry-run', '--repo', 'Acme/app'], {
+        cwdRepo: 'Acme/app',
+        listLabelNames: async () => [],
+        listIssueLabelSets: async () => [],
+        ensureLabel: async () => 'created',
+        updateLabels: async () => {},
+        readContract: () => contract,
+        writeContract: () => {
+          throw new Error('empty vocabulary must not be written')
+        },
+      })
+      expect(plan.vocabulary).toBe('none')
+      expect(plan.createLabels).toEqual([])
+      await expect(
+        initIssues(['--repo', 'Acme/app'], {
+          cwdRepo: 'Acme/app',
+          listLabelNames: async () => [],
+          listIssueLabelSets: async () => [],
+          ensureLabel: async () => 'created',
+          updateLabels: async () => {},
+          readContract: () => contract,
+          writeContract: () => {
+            throw new Error('empty vocabulary must not be written')
+          },
+        }),
+      ).rejects.toThrow(/vocabulary: none parsed/)
+    }
+  })
+
+  it('treats inline-backtick label prose as none parsed', () => {
+    const prose = [
+      '# Issue tracker',
+      '',
+      '## Labels in use',
+      '',
+      'Tier: `size:S` `size:F-lite` `size:F-full` · `epic`',
+      'Priority: `P0-critical` `P1-high` `P2-medium` `P3-low`',
+      '',
+    ].join('\n')
+    expect(classifyVocabulary(prose)).toEqual({ source: 'none', labels: [] })
+  })
+
+  it('reads this repository contract as a vocabulary table', () => {
+    const contract = readFileSync(
+      path.resolve(import.meta.dirname, '../../../../../docs/agents/issue-tracker.md'),
+      'utf8',
+    )
+    const vocab = classifyVocabulary(contract)
+    expect(vocab.source).toBe('table')
+    expect(vocab.labels.map((l) => l.name)).toEqual(
+      expect.arrayContaining(['size:S', 'P1-high', 'epic', 'reviewed']),
+    )
+  })
+
+  it('matches relabel targets case-insensitively', () => {
+    expect(relabelTargetsOutside(['P1-high'], [], [{ number: 1, add: ['p1-high'], remove: [] }])).toEqual([])
+    expect(relabelTargetsOutside(['size:S'], [], [{ number: 1, add: ['P1-high'], remove: [] }])).toEqual(['P1-high'])
   })
 })

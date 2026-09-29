@@ -176,9 +176,9 @@ export function classifyVocabulary(markdown: string): {
   labels: ContractLabel[]
 } {
   const table = parseLabelTable(markdown)
-  if (table) return { source: 'table', labels: table }
+  if (table && table.length > 0) return { source: 'table', labels: table }
   const list = parseTemplateList(markdown)
-  if (list) return { source: 'template-list', labels: list }
+  if (list && list.length > 0) return { source: 'template-list', labels: list }
   return { source: 'none', labels: [] }
 }
 

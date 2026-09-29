@@ -104,6 +104,10 @@ export function readFacts(dir: string, labels: string[] = []): Facts {
 /** Agent-layer command. `skill://` is not resolvable in a child process. */
 export const TRACKER_INIT_NEXT = 'next: bun skill://issue-triage/triage.ts init'
 
+export function trackerNext(dry: boolean): string {
+  return dry ? `${TRACKER_INIT_NEXT} --dry-run` : TRACKER_INIT_NEXT
+}
+
 function isPrincipal(dir: string): boolean {
   const out = execFileSync('git', ['worktree', 'list', '--porcelain'], { cwd: dir, encoding: 'utf8' })
   const first = out.match(/^worktree (.+)$/m)?.[1]
@@ -141,7 +145,7 @@ if (import.meta.main) {
   if (process.env.FEATURE_INIT_LABELS) labels = process.env.FEATURE_INIT_LABELS.split(',').filter(Boolean)
   const facts = readFacts(dir, labels)
   const lines = plan(facts)
-  console.log(TRACKER_INIT_NEXT)
+  console.log(trackerNext(dry))
   if (dry) {
     for (const line of lines) console.log(line)
     process.exit(0)
