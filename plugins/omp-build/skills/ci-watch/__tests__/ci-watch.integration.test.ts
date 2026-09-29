@@ -303,6 +303,24 @@ EOF
     const result = runWatch(dir)
     expect(result.code).toBe(3)
     expect(result.stderr).toContain('coverage=BLOCKED')
-    expect(result.stderr.split('\n').filter((line) => line.length > 0).every((line) => !line.endsWith('='))).toBe(true)
+    expect(
+      result.stderr
+        .split('\n')
+        .filter((line) => line.length > 0)
+        .every((line) => !line.endsWith('=')),
+    ).toBe(true)
+  })
+
+  it('exits 70 when gh returns malformed JSON', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-bad-json-'))
+    fakeGh(
+      dir,
+      `#!/usr/bin/env bash
+echo '{'
+`,
+    )
+    const result = runWatch(dir)
+    expect(result.code).toBe(70)
+    expect([1, 2, 3, 4, 5]).not.toContain(result.code)
   })
 })

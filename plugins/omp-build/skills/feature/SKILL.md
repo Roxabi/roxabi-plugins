@@ -315,6 +315,7 @@ Run `watch` as an async bash job (`timeout: 0`). Map the exit with
 | 3 | remove `reviewed` (native: also disable auto-merge), `ci-blocked` |
 | 4 | stop and report; do not claim merged |
 | 5 | `timeout`; re-attach the same watch later |
+| 70 | `watch-failed`; gate left armed. Not a check verdict — do not disarm |
 
 Before any push that follows a `reviewed` label, call
 `disarmReviewedBeforePush(cwd, pr, { push })`. The label is removed before the

@@ -43,12 +43,24 @@ describe('evaluateRequiredRollup', () => {
   })
 })
 
-function mockLand({ rollupSequence = [], mergeThrows = null, disableThrows = null, timeout = 60_000 } = {}) {
+function mockLand({
+  rollupSequence = [],
+  mergeThrows = null,
+  disableThrows = null,
+  timeout = 60_000,
+  states = ['OPEN'],
+} = {}) {
   let t = 0
   const calls = []
   let poll = 0
+  let statePoll = 0
   const gh = async (_cwd, args) => {
     calls.push(args)
+    if (args[0] === 'pr' && args[1] === 'view' && args.includes('--json') && args.includes('state')) {
+      const state = states[Math.min(statePoll, states.length - 1)] ?? 'OPEN'
+      statePoll++
+      return JSON.stringify({ state })
+    }
     if (args[0] === 'pr' && args[1] === 'view') {
       const entry = rollupSequence[Math.min(poll, rollupSequence.length - 1)]
       poll++
@@ -181,7 +193,10 @@ describe('applyCiWatchExit', () => {
       status,
       disarmed: true,
     })
-    expect(calls).toEqual([['pr', 'edit', '7', '--remove-label', 'reviewed']])
+    expect(calls).toEqual([
+      ['pr', 'view', '7', '--json', 'state'],
+      ['pr', 'edit', '7', '--remove-label', 'reviewed'],
+    ])
   })
 
   it.each([
@@ -194,6 +209,7 @@ describe('applyCiWatchExit', () => {
       disarmed: true,
     })
     expect(calls).toEqual([
+      ['pr', 'view', '7', '--json', 'state'],
       ['pr', 'edit', '7', '--remove-label', 'reviewed'],
       ['pr', 'merge', '7', '--disable-auto'],
     ])
@@ -204,6 +220,37 @@ describe('applyCiWatchExit', () => {
     expect(await applyCiWatchExit('/tmp/wt', 7, 9, { mode: 'native', gh })).toEqual({
       status: 'watch-failed',
       code: 9,
+    })
+    expect(calls).toEqual([])
+  })
+
+  it('a merged PR is not disarmed', async () => {
+    const { gh, calls } = mockLand({ states: ['MERGED'] })
+    expect(await applyCiWatchExit('/tmp/wt', 7, 3, { mode: 'native', gh })).toEqual({ status: 'merged' })
+    expect(calls).toEqual([['pr', 'view', '7', '--json', 'state']])
+  })
+
+  it('a merge that wins during disable-auto is merged', async () => {
+    const { gh, calls } = mockLand({ disableThrows: 'already merged', states: ['OPEN', 'MERGED'] })
+    expect(await applyCiWatchExit('/tmp/wt', 7, 1, { mode: 'native', gh })).toEqual({ status: 'merged' })
+    expect(calls).toEqual([
+      ['pr', 'view', '7', '--json', 'state'],
+      ['pr', 'edit', '7', '--remove-label', 'reviewed'],
+      ['pr', 'merge', '7', '--disable-auto'],
+      ['pr', 'view', '7', '--json', 'state'],
+    ])
+  })
+
+  it('rethrown disable-auto failure when the PR is still open', async () => {
+    const { gh } = mockLand({ disableThrows: 'nope', states: ['OPEN', 'OPEN'] })
+    await expect(applyCiWatchExit('/tmp/wt', 7, 1, { mode: 'native', gh })).rejects.toThrow(/nope/)
+  })
+
+  it('exit 70 leaves the gate armed', async () => {
+    const { gh, calls } = mockLand()
+    expect(await applyCiWatchExit('/tmp/wt', 7, 70, { mode: 'native', gh })).toEqual({
+      status: 'watch-failed',
+      code: 70,
     })
     expect(calls).toEqual([])
   })

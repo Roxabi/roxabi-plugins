@@ -9,7 +9,9 @@
 #   3  another conclusion (skipped and neutral are passing, declared list or not)
 #   4  green but unmerged (label revoked, closed, dirty)
 #   5  deadline — undetermined, re-run to resume
-set -euo pipefail
+#   70 internal failure (gh or jq) — not a check verdict; do not disarm
+set -Eeuo pipefail
+trap 'exit 70' ERR
 
 EXIT_FAIL=1
 EXIT_CANCELLED=2
