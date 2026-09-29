@@ -1,0 +1,10 @@
+pre-push:
+  commands:
+    widget-semctx-guard:
+      run: bash scripts/widget/semctx-guard.sh pre-push
+    widget-test:
+      run: echo test
+pr:
+  commands:
+    widget-other:
+      run: echo not-a-git-hook

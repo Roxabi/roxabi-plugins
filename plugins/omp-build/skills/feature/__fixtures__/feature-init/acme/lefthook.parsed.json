@@ -1,0 +1,1 @@
+{"pre-commit":{"commands":{"lint":{"run":"bun run lint"}}},"pre-push":{"commands":{"test":{"run":"bun run test"}}}}

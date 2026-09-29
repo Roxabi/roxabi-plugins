@@ -1,0 +1,1 @@
+{"pre-commit":{"commands":{"lint":{"run":"bun run lint"}}},"pre-push":{"commands":{"test":{"run":"bun run test"}}},"pr":{"commands":{"semctx-pr":{"run":"bash scripts/acme-semctx-pr.sh"}},"scripts":{"semctx-manual.sh":{"runner":"bash"}}}}

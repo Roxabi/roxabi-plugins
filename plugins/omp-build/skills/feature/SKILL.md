@@ -34,6 +34,7 @@ left untouched by that command (`contract: keep-existing`). The command does
 not write the `omp-build-feature-init` marker, because the tracker step has
 not run. It does not index ccc or codegraph without consent already recorded
 there. Orphan semctx contracts are listed, not closed.
+Exit 3 with `init=blocked issue-triage missing` → stop and name issue-triage; nothing was written.
 
 ## 1. Route-specific prerequisites
 

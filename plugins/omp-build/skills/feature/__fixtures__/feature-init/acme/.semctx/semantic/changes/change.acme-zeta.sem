@@ -1,0 +1,3 @@
+change: acme-zeta
+  status: activated
+  statement: a status that only starts with active

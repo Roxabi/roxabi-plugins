@@ -2,19 +2,15 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, describe, expect, it } from 'vitest'
+import { hermeticGh } from './__fixtures__/feature-init/hermetic'
 
 const CLI = path.resolve(import.meta.dirname, 'feature-init.ts')
 const REAL_BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
-const ENV: NodeJS.ProcessEnv = {
-  ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))),
-  GIT_CONFIG_GLOBAL: '/dev/null',
-  GIT_CONFIG_SYSTEM: '/dev/null',
-  GIT_AUTHOR_NAME: 'Fixture',
-  GIT_AUTHOR_EMAIL: 'fixture@example.com',
-  GIT_COMMITTER_NAME: 'Fixture',
-  GIT_COMMITTER_EMAIL: 'fixture@example.com',
-}
+// A stub gh that always fails, an empty GH_CONFIG_DIR, no GH_* / GITHUB_TOKEN.
+const GH_ROOT = mkdtempSync(path.join(tmpdir(), 'omp-init-gh-'))
+const ENV: NodeJS.ProcessEnv = hermeticGh(GH_ROOT).env
+afterAll(() => rmSync(GH_ROOT, { recursive: true, force: true }))
 
 let root: string | undefined
 afterEach(() => {
