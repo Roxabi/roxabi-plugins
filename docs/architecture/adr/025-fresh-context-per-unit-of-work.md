@@ -1,6 +1,6 @@
 ---
 title: "ADR-025: Fresh context per unit of work"
-description: Amends ADR-020 §7 and ADR-024 decision 1 (§3) — a ticket, a fix round and any independent task each start in a fresh context seeded only with durable state; a finished agent gets no new work; fix still edits inline, inside its own fresh agent.
+description: Amends ADR-020 §7 and ADR-024 decision 1 (§3) — a ticket, each fix round and any work on another issue or PR start in a fresh context seeded with the unit's assignment and durable state only; a finished agent gets no new work; fix still edits inline, inside its own fresh agent; under a goal the ticket unit holds the goal's merge approval.
 status: accepted
 normative: true
 date: 2026-09-29
@@ -69,9 +69,11 @@ Lower the compaction trigger and keep one context per goal or per ticket.
 
 Adopt **Option C**.
 
-1. **Unit of work.** One ticket's delivery (`/feature` §6), one fix round —
-   a review round or `ci-failed` — and any task independent of the previous one.
-   Each starts in a fresh context.
+1. **Unit of work.** One ticket's delivery (`/feature` §6), one review fix round,
+   one `ci-failed` round, and any work on an issue or PR other than the current
+   unit's. Each starts in a fresh context. One exception: without a PR there is
+   no durable review record, so a standalone `dev-review` **Fix now** on a local
+   diff runs `fix` in the reviewing session.
 2. **Fresh context.** A new session — the assisted case, unchanged: the operator
    runs `/feature #N` after `/clear` — or an agent spawned for that unit alone.
    Its seed is at most the unit's assignment, verbatim, and durable data: issue

@@ -19,8 +19,8 @@ use the current repository conventions, not a separate spec-file lifecycle.
   dependency installation and implementation require the matching worktree.
 - Issue creation, labels and native relations belong to `skill://issue-triage`.
 - `dev-review` owns findings; `fix --no-label` applies them; §6.7 alone lands.
-- Every ticket, fix round and independent task starts in a fresh context
-  (§ Context boundary). A finished agent gets no new work.
+- Every ticket, fix round and piece of work on another issue or PR starts in a
+  fresh context (§ Context boundary). A finished agent gets no new work.
 - After confirmed merge, offer `/cleanup`. Offer `/promote` only when
   `.dev/stack.yml` declares `release.model: staging-train`. Never invoke either.
 
@@ -40,8 +40,10 @@ there. Orphan semctx contracts are listed, not closed.
 ## Context boundary
 
 One unit of work, one fresh context (ADR-025). The units are one ticket's §6,
-one fix round (§6.5, review or `ci-failed`), and any task independent of the
-previous one.
+one review fix round (§6.5), one `ci-failed` round (§6.5), and any work on an
+issue or PR other than the current unit's. Without a PR there is no durable
+review record: a standalone `dev-review` Fix now on a local diff runs `fix` in
+the reviewing session.
 
 - **Fresh** means a new session — assisted: the operator runs `/feature #N`
   after `/clear` — or an agent spawned for that unit alone.
