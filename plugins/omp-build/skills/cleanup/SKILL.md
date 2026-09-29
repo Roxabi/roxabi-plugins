@@ -19,7 +19,7 @@ Three steps in this body delete, and no others:
 | Step | Command | Backstop |
 |------|---------|----------|
 | 5 | `git worktree remove` · `git branch -d` · `git branch -D` | git itself: `-d` refuses an unmerged β, and the remote copy survives the mistake |
-| 5b-execute | `rmdir` · `rm -rf` on an orphan shell | none — outside git entirely; the guard is the registration + gitdir-ownership check in `scan-orphan-worktree-shells.sh`; `unregistered`+`.git` rows are never in the `--yes` set |
+| 5b-execute | `rmdir` · `rm -rf` on a **deletable** orphan shell | none — outside git entirely; the guard is registration + gitdir-ownership + lexical-emit / protected-path / safe-name checks in `scan-orphan-worktree-shells.sh`; `--yes` deletes only what `--yes-targets` emits |
 | 6e | `git push origin --delete` | **none** — no unmerged check exists on the remote side, and after it there is no copy left |
 
 Step 6e is the deletion that ends the work, so the evidence bar is set there and
@@ -191,12 +191,15 @@ Never run any of these against the principal's path or its branch.
 
 `git worktree list` only knows registered worktrees. After `git worktree remove`, leftovers stay behind in the three roots the scanner walks — `<worktree base>/<repo>/<slug>` (the `/feature` root: `OMP_WORKTREE_DIR`, else `.dev/stack.yml` `worktree.base`, else `~/.omp/wt`), `<principal>/.claude/worktrees/` (harness), and `~/.omp/worktrees/<repo>/` (legacy leftover of the retired `ensureWorktree`):
 
-| kind | Example | Safe cleanup |
-|------|---------|--------------|
-| `empty_parent` | `~/.omp/worktrees/roxabi-plugins/` empty | `rmdir` (or `rm -rf` if confirmed empty) |
-| `unregistered` | partial dir (e.g. only `node_modules`) under any of those roots and **not** in `git worktree list` | `rm -rf -- "<path>"` after confirm — **never** if the path is still a live registered ω; **never pre-selected / never under `--yes`** when detail starts with `has .git` |
+| kind | Example | Deletable? |
+|------|---------|------------|
+| `empty_parent` | empty leftover under a scan root | **yes** — `rmdir` (or `rm -rf` if confirmed empty); in `--yes-targets` |
+| `unregistered` (content without `.git`) | partial dir (e.g. only `node_modules`) not in `git worktree list` | **yes** after confirm; in `--yes-targets` |
+| `unregistered` (`has .git`) | half-removed worktree of **this** repo | shown only — **never** in `--yes-targets` |
+| `symlink` / `outside_root` / `dangling_git` | symlink child, canon leaves root, dangling `.git` | shown only — **never** in `--yes-targets` |
+| `unsafe_name` | path with control character or `\|` | shown only — **never** in `--yes-targets` |
 
-Source: `gather-state.sh` → `---orphan-worktree-shells---` (`path|kind|detail`). Scope is **this repo only**: a child with `.git` is listed only when its `gitdir:` back-pointer resolves under this repo's `git rev-parse --git-common-dir`/worktrees — basename under a shared `~/.omp/wt` (or other base) is not enough, so another same-named checkout's live worktree is never listed. The principal and paths under it (outside `.claude/worktrees`) are skipped, so a `worktree.base` pointed at the principal's parent cannot offer the principal's own tree for deletion.
+Source: `gather-state.sh` → `---orphan-worktree-shells---` (`path|kind|detail`). Scope is **this repo only**: a child with `.git` is listed only when its `gitdir:` back-pointer resolves under this repo's absolute `git-common-dir`/worktrees — basename under a shared `~/.omp/wt` is not enough. The principal, paths under it (outside `.claude/worktrees` and an in-principal feature base), and any child that **contains** the principal or a registered worktree are skipped. Emitted paths are the **lexical** scanned entries (absolute, under their root); matching uses `realpath`.
 
 #### 5b-present
 
@@ -212,7 +215,7 @@ Orphan worktree shells
 
 If `REPORT_ONLY=true` → print table and skip deletion. Else → multi-select; always offer "Skip".
 
-**Defaults / `--yes` set:** only the rows `bash "$(realpath skill://cleanup/scan-orphan-worktree-shells.sh)" --yes-targets` emits — empty leftovers and content-without-`.git`. An `unregistered` row whose detail starts with `has .git` is shown in the full table but **never pre-selected** and **never deleted under `--yes`** (manual confirm only, like `probably_merged`).
+**Defaults / `--yes` set:** **only** the rows `bash "$(realpath skill://cleanup/scan-orphan-worktree-shells.sh)" --yes-targets` emits (`empty_parent` + content-without-`.git`). Everything else in the full table is manual-confirm only (like `probably_merged`) — including `unregistered`+`.git`, `symlink`, `outside_root`, `dangling_git`, `unsafe_name`.
 
 #### 5b-execute (confirmed only)
 
@@ -220,12 +223,11 @@ If `REPORT_ONLY=true` → print table and skip deletion. Else → multi-select; 
 rmdir -- "<path>" 2>/dev/null || rm -rf -- "<path>"   # rmdir first; rm -rf only if user confirmed content orphans
 ```
 
-`<path>` is a value: quoted, after `--`, exactly the canonical path the scanner
-emitted. The scanner canonicalises both sides of its registration check
-(`realpath`), so a path reported here is the same spelling git has — a lexical
-near-miss (a symlinked `$HOME`) would otherwise name a **live** worktree here.
+`<path>` is a value: quoted, after `--`, exactly the **lexical** path the scanner
+emitted (the scanned entry under the root — never a symlink target outside it).
+Matching against the registry still uses `realpath`.
 
-**Safety:** never `rm -rf` a path that still appears in `git worktree list`. Never wipe a worktree root wholesale — only this repo's children. Never `--yes`-delete an `unregistered` row that still has `.git`.
+**Safety:** never `rm -rf` a path that still appears in `git worktree list`. Never wipe a worktree root wholesale — only this repo's children. `--yes` uses `--yes-targets` only.
 
 ### 6. Clean Remote Branches
 

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -231,5 +231,122 @@ describe('cleanup orphan scan repo scope (#622)', () => {
     const full = scan(repo, { HOME: home, OMP_WORKTREE_DIR: base })
     expect(full.map((line) => realpathSync(line.split('|')[0]))).toContain(realpathSync(stale))
     expect(full.some((line) => line.includes('has .git') && line.includes(stale))).toBe(true)
+  })
+
+  it('never puts a symlink child pointing outside the root into --yes-targets', () => {
+    root = realpathSync(mkdtempSync(path.join(tmpdir(), 'omp-build-622-symlink-')))
+    const home = path.join(root, 'home')
+    const base = path.join(root, 'wt')
+    const outside = path.join(root, 'important')
+    mkdirSync(home)
+    mkdirSync(outside)
+    writeFileSync(path.join(outside, 'secret.txt'), 'keep\n')
+    const repo = path.join(root, 'app')
+    initRepo(repo, home)
+
+    const linkChild = path.join(base, 'app', 'linkchild')
+    mkdirSync(path.dirname(linkChild), { recursive: true })
+    symlinkSync(outside, linkChild)
+
+    const contentOrphan = path.join(base, 'app', 'feat-ok')
+    mkdirSync(path.join(contentOrphan, 'node_modules'), { recursive: true })
+
+    const env = { HOME: home, OMP_WORKTREE_DIR: base }
+    const full = scan(repo, env)
+    const yesTargets = scan(repo, env, ['--yes-targets'])
+
+    // Lexical entry may appear as symlink kind — never the outside target, never --yes.
+    expect(yesTargets.some((line) => line.includes(outside) || line.includes(linkChild))).toBe(false)
+    expect(full.some((line) => line.startsWith(`${linkChild}|symlink|`))).toBe(true)
+    expect(yesTargets.map((line) => realpathSync(line.split('|')[0]))).toContain(realpathSync(contentOrphan))
+  })
+
+  it('never lists a base child that contains the principal', () => {
+    // Basename "app", base=projects → scan projects/app. Depth-1 child "org"
+    // contains the principal at projects/app/org/app — must not be deletable.
+    root = realpathSync(mkdtempSync(path.join(tmpdir(), 'omp-build-622-contains-')))
+    const home = path.join(root, 'home')
+    mkdirSync(home)
+    const projects = path.join(root, 'projects')
+    const principal = path.join(projects, 'app', 'org', 'app')
+    initRepo(principal, home)
+    const container = path.join(projects, 'app', 'org')
+    mkdirSync(path.join(container, 'extra'), { recursive: true })
+    writeFileSync(path.join(container, 'extra', 'x'), 'x\n')
+
+    const reported = scan(principal, { HOME: home, OMP_WORKTREE_DIR: projects })
+    const yesTargets = scan(principal, { HOME: home, OMP_WORKTREE_DIR: projects }, ['--yes-targets'])
+    expect(reported.some((line) => line.includes(container))).toBe(false)
+    expect(yesTargets.some((line) => line.includes(container))).toBe(false)
+  })
+
+  it('reports forged control/| names as unsafe_name and keeps them out of --yes-targets', () => {
+    root = realpathSync(mkdtempSync(path.join(tmpdir(), 'omp-build-622-unsafe-')))
+    const home = path.join(root, 'home')
+    const base = path.join(root, 'wt')
+    mkdirSync(home)
+    const repo = path.join(root, 'app')
+    initRepo(repo, home)
+
+    const pipeName = path.join(base, 'app', 'bad|name')
+    mkdirSync(pipeName, { recursive: true })
+    writeFileSync(path.join(pipeName, 'f'), 'x\n')
+
+    const nlName = path.join(base, 'app', 'bad\nname')
+    mkdirSync(nlName, { recursive: true })
+    writeFileSync(path.join(nlName, 'f'), 'x\n')
+
+    const env = { HOME: home, OMP_WORKTREE_DIR: base }
+    const full = scan(repo, env)
+    const yesTargets = scan(repo, env, ['--yes-targets'])
+
+    expect(full.some((line) => line.includes('|unsafe_name|'))).toBe(true)
+    expect(yesTargets.some((line) => line.includes('unsafe_name'))).toBe(false)
+    expect(yesTargets.some((line) => line.includes('bad|name') || line.includes('bad\nname'))).toBe(false)
+  })
+
+  it('does not emit an empty root inside the principal', () => {
+    root = realpathSync(mkdtempSync(path.join(tmpdir(), 'omp-build-622-empty-root-')))
+    const home = path.join(root, 'home')
+    mkdirSync(home)
+    const principal = path.join(root, 'app')
+    initRepo(principal, home)
+    // Empty .claude/worktrees is under principal but exempt as claude_root —
+    // an empty *legacy* root under principal is the case: point OMP_WORKTREES_ROOT
+    // inside principal.
+    const legacy = path.join(principal, '.omp-legacy', 'worktrees', 'app')
+    mkdirSync(legacy, { recursive: true })
+
+    const full = scan(principal, {
+      HOME: home,
+      OMP_WORKTREES_ROOT: path.join(principal, '.omp-legacy', 'worktrees'),
+      OMP_WORKTREE_DIR: path.join(root, 'wt-elsewhere'),
+    })
+    const yesTargets = scan(
+      principal,
+      {
+        HOME: home,
+        OMP_WORKTREES_ROOT: path.join(principal, '.omp-legacy', 'worktrees'),
+        OMP_WORKTREE_DIR: path.join(root, 'wt-elsewhere'),
+      },
+      ['--yes-targets'],
+    )
+    expect(full.some((line) => line.includes(legacy))).toBe(false)
+    expect(yesTargets.some((line) => line.includes(legacy))).toBe(false)
+  })
+
+  it('lists orphans under an in-principal worktree.base', () => {
+    root = realpathSync(mkdtempSync(path.join(tmpdir(), 'omp-build-622-inprin-')))
+    const home = path.join(root, 'home')
+    mkdirSync(home)
+    const principal = path.join(root, 'app')
+    initRepo(principal, home)
+    // OMP_WORKTREE_DIR = principal → feature_root = principal/app (exempt).
+    const orphan = path.join(principal, 'app', 'feat-in')
+    mkdirSync(path.join(orphan, 'node_modules'), { recursive: true })
+
+    const reported = scan(principal, { HOME: home, OMP_WORKTREE_DIR: principal })
+    expect(reported.map((line) => line.split('|')[0])).toContain(orphan)
+    expect(reported.some((line) => line.includes('content without git registration'))).toBe(true)
   })
 })
