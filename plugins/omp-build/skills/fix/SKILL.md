@@ -155,7 +155,7 @@ The tree must be clean before the first cause. Uncommitted changes → halt and 
 1. Re-read every cited file.
 2. Apply `r.fix` once, so every member callsite is covered. The fix line is the change. There is no alternate solution to pick.
 3. Sweep the touched files for the same-class anti-pattern: justify or fix any uncited hit of a class already on a member finding.
-4. Run lint + the tests covering the changed files, with their output written to a file. Bring back the exit code and the failing lines, never a green log. Red → retry max 3.
+4. Run lint + the tests covering the changed files, with their output in `mktemp -t omp-build-fix-XXXXXX.log`, outside the worktree: a log left in the tree fails the next round's clean-tree check. Bring back the exit code and the failing lines, never a green log. Red → retry max 3.
 
 succeeds → O_commit(r) → `[applied]`, keep the commit sha.
 fails after 3, or the only change that turns the tests green widens a denylist, adds a grep, or copies an inventory list → restore the tree to the last cause commit (`git restore --staged --worktree -- .`, then delete the files r created) → `[failed]`, file r, continue with the next cause. Earlier causes keep their commits.

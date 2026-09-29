@@ -106,9 +106,10 @@ Adopt **Option C**.
    `shared-state-stop` — and the goal session confirms `merged` from PR state
    before trusting it. The rest of ADR-024 decision 1 stands: the goal is still
    the autonomy unit.
-6. **What enters a context.** A full-suite run writes its log to a file and brings
-   back its exit code and its failing section. Files are read by line range; a file
-   whose current content is already in the context is not read again.
+6. **What enters a context.** A full-suite or test run writes its log to a
+   temporary file outside the worktree and brings back its exit code and its
+   failing section. Reads prefer line ranges and skip content already in the
+   context; a skill step that requires a full read wins.
 
 ## Consequences
 

@@ -65,10 +65,11 @@ the reviewing session.
   each ticket's outcome. It spawns one ticket unit at a time, in `blocked_by`
   order and in the epic worktree, and spawns the next only after the previous
   one returns. It does not implement, review, fix or land a ticket itself.
-- **What enters a context.** Run a full suite (`validate:full`, the whole test
-  run) with its log written to a file, and bring back the exit code and the
-  failing section, never a green log. Read files by line range. Do not re-read a
-  file whose current content is already in this context.
+- **What enters a context.** Write a full-suite or test-run log to
+  `mktemp -t omp-build-<step>-XXXXXX.log`, outside the worktree, and bring back
+  the exit code and the failing section, never a green log. Prefer line ranges,
+  and do not re-read a file whose current content is already in this context; a
+  skill step that requires a full read wins.
 
 ### Ticket unit
 
