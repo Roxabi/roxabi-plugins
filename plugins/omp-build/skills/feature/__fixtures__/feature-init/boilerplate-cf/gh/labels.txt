@@ -1,0 +1,18 @@
+bug
+documentation
+duplicate
+enhancement
+good first issue
+help wanted
+invalid
+question
+wontfix
+reviewed
+deps-automerge
+size:S
+size:F-full
+size:F-lite
+P0-critical
+P1-high
+P2-medium
+P3-low

@@ -1,0 +1,7 @@
+change change.brief-crea-selection-snapshot-filet
+  statement: Keep persisted Brief Créa selection snapshots openable when the model grows: fail-closed parse of the 4 JSON columns through getDraft/toDomain, plus the additive-field rule in backend standards.
+  status: active
+  provenance: agent
+  tag: brief-crea
+  tag: issue-337
+  tag: schema-drift

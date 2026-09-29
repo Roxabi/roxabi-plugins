@@ -1,0 +1,190 @@
+# Merge-on-green — go-silex Free plan (gosilex-ci App, label reviewed).
+# Adapté Metalyde : workflows "Lint & Test" + "Secret scan".
+#
+# Triggers (volontairement étroits — évite le spam de minutes Actions) :
+#   - label `reviewed` sur une PR vers staging|main
+#   - fin de Lint & Test / Secret scan (ré-évalue les PR reviewed ouvertes)
+#   - workflow_dispatch (secours)
+# Pas de : synchronize, reopened, closed, check_suite (trop bruyants).
+#
+# PR Dependabot : l'événement `pull_request` s'exécute avec le store de secrets
+# de Dependabot, où `CI_APP_PRIVATE_KEY` est absent — la mint de token y est
+# donc impossible par construction. Ce run sort vert sans merger, et c'est le
+# run `workflow_run` (contexte du dépôt de base, secrets complets) qui effectue
+# le merge. Ne pas « corriger » en dupliquant la clé dans le store Dependabot :
+# ça exposerait la clé de l'App à un contexte déclenché par une mise à jour de
+# dépendance, sans rien gagner.
+name: Merge on Green
+
+on:
+  pull_request:
+    types: [labeled]
+    branches: [main, staging]
+  workflow_run:
+    workflows: [Secret scan, "Lint & Test"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: PR number to evaluate (optional; blank = all reviewed open PRs)
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: write
+  checks: read
+  statuses: read
+
+concurrency:
+  group: merge-on-green-${{ github.event.pull_request.number || github.event.workflow_run.head_sha || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  merge-on-green:
+    name: merge-on-green
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Resolve gosilex-ci availability
+        id: cfg
+        env:
+          APP_ID: ${{ vars.CI_APP_ID }}
+          APP_KEY: ${{ secrets.CI_APP_PRIVATE_KEY }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          if [ -z "$APP_ID" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Manual merge required::gosilex-ci not configured."
+          elif [ -z "$APP_KEY" ]; then
+            # Contexte à secrets restreints (Dependabot a son propre store, les
+            # secrets Actions n'y sont pas exposés). Le merge est délégué au run
+            # `workflow_run`, qui s'exécute avec le contexte du dépôt de base et
+            # dispose donc de la clé. On sort vert : échouer ici afficherait un
+            # rouge permanent sur des PR dont la CI réelle est verte.
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Merge delegue::Secrets indisponibles (acteur $ACTOR) — merge evalue au run workflow_run."
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "gosilex-ci: App ID + cle presents → auto-merge enabled"
+          fi
+
+      - name: Mint app token (gosilex-ci)
+        id: app
+        if: steps.cfg.outputs.enabled == 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
+        with:
+          app-id: ${{ vars.CI_APP_ID }}
+          private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+
+      - name: Evaluate green PRs
+        id: evaluate
+        if: steps.cfg.outputs.enabled == 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const SELF_JOB = 'merge-on-green';
+            const REQUIRED_LABEL = 'reviewed';
+            const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+            const toMerge = [];
+
+            const candidates = new Set();
+            const dispatchPr = context.payload.inputs && context.payload.inputs.pr;
+            if (dispatchPr) {
+              candidates.add(parseInt(dispatchPr, 10));
+            } else if (context.payload.pull_request) {
+              candidates.add(context.payload.pull_request.number);
+            } else if (context.payload.check_suite) {
+              for (const pr of context.payload.check_suite.pull_requests || []) {
+                candidates.add(pr.number);
+              }
+            } else if (context.payload.workflow_run) {
+              for (const pr of context.payload.workflow_run.pull_requests || []) {
+                candidates.add(pr.number);
+              }
+            }
+            if (candidates.size === 0) {
+              const { data: open } = await github.rest.pulls.list({
+                owner: context.repo.owner, repo: context.repo.repo, state: 'open', per_page: 100,
+              });
+              for (const pr of open) {
+                if (pr.labels.some((l) => l.name === REQUIRED_LABEL)) candidates.add(pr.number);
+              }
+            }
+
+            for (const number of candidates) {
+              const tag = `PR #${number}`;
+              let pr;
+              for (let i = 0; i < 6; i++) {
+                ({ data: pr } = await github.rest.pulls.get({
+                  owner: context.repo.owner, repo: context.repo.repo, pull_number: number,
+                }));
+                if (pr.mergeable !== null || pr.state !== 'open') break;
+                await sleep(3000);
+              }
+              if (pr.state !== 'open') { core.info(`${tag}: not open — skip.`); continue; }
+              if (pr.draft) { core.info(`${tag}: draft — skip.`); continue; }
+              if (pr.merged) { core.info(`${tag}: already merged — skip.`); continue; }
+              if (!pr.labels.some((l) => l.name === REQUIRED_LABEL)) {
+                core.info(`${tag}: no '${REQUIRED_LABEL}' label — skip.`); continue;
+              }
+              if (pr.mergeable === false) { core.info(`${tag}: conflict — skip.`); continue; }
+              if (pr.mergeable === null) { core.info(`${tag}: mergeability computing — skip.`); continue; }
+
+              const sha = pr.head.sha;
+              const runs = await github.paginate(github.rest.checks.listForRef, {
+                owner: context.repo.owner, repo: context.repo.repo, ref: sha, per_page: 100,
+              });
+              const others = runs.filter((r) => r.name !== SELF_JOB);
+              if (others.length === 0) {
+                core.info(`${tag}: no check runs — skip.`);
+                continue;
+              }
+              const hasSecret = others.some((r) => /TruffleHog|Secret scan/i.test(r.name || ''));
+              const hasCi = others.some((r) =>
+                /validate-full|lint-typecheck-test|Lint, typecheck, test, build|^ci$/i.test(r.name || ''),
+              );
+              if (!hasSecret || !hasCi) {
+                core.info(`${tag}: missing checks (secret=${hasSecret}, ci=${hasCi}) — skip.`);
+                continue;
+              }
+              const pending = others.filter((r) => r.status !== 'completed');
+              const failed = others.filter(
+                (r) => r.status === 'completed' && !['success', 'neutral', 'skipped'].includes(r.conclusion),
+              );
+              if (pending.length) {
+                core.info(`${tag}: pending ${pending.map((r) => r.name).join(', ')} — skip.`);
+                continue;
+              }
+              if (failed.length) {
+                core.info(`${tag}: failed — skip.`);
+                continue;
+              }
+
+              core.info(`${tag}: reviewed + checks green → queue merge.`);
+              toMerge.push(number);
+            }
+
+            core.setOutput('to_merge', JSON.stringify(toMerge));
+
+      - name: Merge green PRs
+        if: >-
+          steps.cfg.outputs.enabled == 'true' &&
+          steps.app.outcome == 'success' &&
+          steps.evaluate.outputs.to_merge != '' &&
+          steps.evaluate.outputs.to_merge != '[]'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        env:
+          TO_MERGE: ${{ steps.evaluate.outputs.to_merge }}
+        with:
+          github-token: ${{ steps.app.outputs.token }}
+          script: |
+            const toMerge = JSON.parse(process.env.TO_MERGE || '[]');
+            for (const number of toMerge) {
+              await github.rest.pulls.merge({
+                owner: context.repo.owner, repo: context.repo.repo, pull_number: number,
+                merge_method: 'merge',
+              });
+              core.notice(`PR #${number}: merged by gosilex-ci.`);
+            }

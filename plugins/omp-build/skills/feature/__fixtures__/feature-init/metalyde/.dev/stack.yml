@@ -1,0 +1,101 @@
+# .dev/stack.yml — dev-core stack configuration (committed, no secrets)
+# SSOT for agents: paths, commands, formatter, test runner.
+# See also: AGENTS.md, ARCHITECTURE.md, docs/standards/
+schema_version: "1.0"
+name: metalyde-os
+
+runtime: node
+package_manager: npm
+node_version: "22.14.0"
+
+# Chemin B — Next.js full-stack (App Router). Backend = route handlers + services.
+backend:
+  framework: nextjs
+  orm: drizzle
+  path: src
+
+frontend:
+  framework: nextjs
+  path: src
+  ui_package: "@/components/ui"
+  ui_src: src/components/ui
+
+shared:
+  types: src/lib/types
+  ui: src/components
+  config: none
+
+build:
+  orchestrator: none
+  formatter: biome
+  formatter_config: biome.json
+  formatter_fix_cmd: "npx biome check --write"
+
+testing:
+  unit: vitest
+  e2e: playwright
+
+hooks:
+  tool: lefthook
+
+lsp:
+  enabled: true
+
+deploy:
+  platform: railway
+  # Inventory: BW gosilex/metalyde-main (prod) · gosilex/metalyde-staging · runtime: Railway env vars.
+  # Always pin environment: -e staging | -e production (never assume linked default).
+  # CLI: unset RAILWAY_TOKEN then railway login (OAuth). See docs/runbook-deploy-prod.md.
+  secrets_cmd: "railway variables set -e <staging|production> KEY=value"
+
+release:
+  model: staging-train
+  class: NONE
+  component: metalyde
+  version_files: []
+
+docs:
+  framework: none
+  path: docs
+  format: md
+
+# Live file-length SSoT: tools/qg.conf (tools/sync-quality-gates.sh).
+# ¬quality_gates: here — /R-release-setup would rewrite qg.conf.
+
+commands:
+  dev: npm run dev
+  build: npm run build
+  test: npm run test:run
+  lint: npm run lint
+  typecheck: npm run typecheck
+  format: npm run format
+  install: npm install
+  db_generate: npm run db:generate
+  db_migrate: npm run db:migrate
+  db_push: npm run db:push
+  db_studio: npm run db:studio
+  seed: npm run seed:demo
+  quality_gates: npm run quality-gates:check
+  test_e2e: npm run test:e2e
+
+artifacts:
+  analyses: artifacts/analyses
+  specs: artifacts/specs
+  frames: artifacts/frames
+  plans: artifacts/plans
+
+# Chemins avec contenu réel uniquement (pas de stubs pointeurs).
+standards:
+  backend: docs/standards/backend-patterns.md
+  frontend: docs/standards/frontend-patterns.md
+  testing: docs/standards/testing.md
+  code_review: docs/standards/code-review.md
+  architecture: ARCHITECTURE.md
+  configuration: README.md
+  deployment: docs/runbook-deploy-prod.md
+  troubleshooting: docs/runbook-staging.md
+  issue_management: AGENTS.md
+  dev_process: AGENTS.md
+  contributing: README.md
+  # Axial ADR also linked from ARCHITECTURE.md (grep: ^axial: true)
+  # docs/architecture/adr/001-axis-of-decomposition.md

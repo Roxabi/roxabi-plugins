@@ -1,0 +1,346 @@
+# Merge-on-green — Free private org cannot use native
+# `gh pr merge --auto` + branch protection (Team/Pro only).
+#
+# Pattern: operator `kit-ci` App (bouly-site / forge) — **no PAT**.
+# Align product consumers (narrow triggers — avoid Actions minute spam).
+#
+# Triggers (volontairement étroits) :
+#   - label `reviewed` (humain) ou `deps-automerge` (Dependabot patch/minor)
+#     sur une PR vers main (kit HEAD) ou staging|main (product consumers)
+#   - fin de CI / Secret scan (ré-évalue les PR reviewed / deps-automerge ouvertes)
+#   - workflow_dispatch (secours)
+#   - synchronize / reopened : **révocation de label uniquement** (job
+#     `revoke-reviewed-on-push`, skippé quand `reviewed` est absent). Aucune
+#     évaluation de merge : `merge-on-green` never runs on `pull_request_target`
+#     and, on `pull_request`, only on `action == 'labeled'`.
+#   - Dependabot/forks need `pull_request_target` to revoke (`pull_request`
+#     GITHUB_TOKEN is read-only). A 403 on that twin is expected and must not
+#     be a failed check. A real revoke failure (`setFailed` on `_target`) and a
+#     still-pending revoke both stay in `others` so `workflow_run` cannot merge
+#     a head that still carries a stale `reviewed`.
+# Pas de : closed, check_suite (trop bruyants).
+# Close linked issues → workflow dédié close-linked-issues.yml
+#
+# Merges when ALL hold:
+#   1. label `reviewed` (human sign-off, révoqué dès qu'un push change la tête) OR
+#      `deps-automerge` on a dependabot[bot] PR (patch/minor only)
+#   2. every check run on head SHA is completed + green
+#   3. PR mergeable, not draft
+#   4. the head is still the revision that was evaluated: `pulls.merge` is pinned with
+#      `sha:`. If the head moved in between, GitHub answers 409, nothing is merged and
+#      the job fails loudly — an unevaluated revision never rides on the old head's green.
+#
+# Still process, not protection (GitHub Free private): see docs/kit/testing.md § Merge residual.
+#
+# SPLIT-TOKEN:
+#   - Gate: GITHUB_TOKEN (checks:read)
+#   - Merge: GitHub App **kit-ci** → ephemeral token
+#       vars.CI_APP_ID
+#       secrets.CI_APP_PRIVATE_KEY
+#     Setup: docs/kit/ci-app-setup.md
+#
+# Gating workflows: Secret scan + CI (job name `ci`; alias `validate-full` for in-flight PRs)
+# + `semctx-working-empty` (PR tree of `.semctx/working/` = `.gitkeep` only).
+# Semctx (verify diff) is in the triggers but NOT in the required checks: it cannot
+# unblock a merge by itself; it only avoids a PR getting stuck if it finishes after
+# CI/Secret scan (evaluation skips on `pending`).
+name: Merge on Green
+
+on:
+  pull_request:
+    types: [labeled, synchronize, reopened]
+    branches: [main, staging]
+  pull_request_target:
+    types: [synchronize, reopened]
+    branches: [main, staging]
+  workflow_run:
+    workflows: [Secret scan, CI, Semctx]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: PR number to evaluate (optional; blank = all reviewed/deps-automerge open PRs)
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: read
+  # No GITHUB_TOKEN step writes issues here; the only label mutation is
+  # `revoke-reviewed-on-push`, which scopes its own `pull-requests: write`.
+  checks: read
+  statuses: read
+
+concurrency:
+  group: merge-on-green-${{ github.event.pull_request.number || github.event.workflow_run.head_sha || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  merge-on-green:
+    name: merge-on-green
+    # `synchronize` / `reopened` exist for the revocation job only — they must never
+    # start a merge evaluation. `pull_request_target` is revoke-only (Dependabot/forks).
+    if: >-
+      (github.event_name != 'pull_request' && github.event_name != 'pull_request_target') ||
+      (github.event_name == 'pull_request' && github.event.action == 'labeled')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Gate auto-merge on **non-secret var only**.
+      # Do NOT put secrets in `if:` — GitHub treats them unreliably there.
+      # Flag: vars.CI_APP_ID set → try mint + merge.
+      # Setup: docs/kit/ci-app-setup.md
+      - name: Resolve kit-ci availability
+        id: cfg
+        env:
+          APP_ID: ${{ vars.CI_APP_ID }}
+        run: |
+          if [ -n "$APP_ID" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "kit-ci: App ID present → auto-merge enabled"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=kit-ci not configured::Auto-merge OFF (evaluate-only). Human merge + quality CI still work. Install App + set org var CI_APP_ID and secret CI_APP_PRIVATE_KEY — docs/kit/ci-app-setup.md"
+            echo "::warning title=Manual merge required::Label reviewed will NOT auto-merge until kit-ci is set up."
+          fi
+
+      - name: Mint app token (kit-ci)
+        id: app
+        if: steps.cfg.outputs.enabled == 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CI_APP_ID }}
+          private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+
+      - name: Evaluate green PRs
+        id: evaluate
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const SELF_JOB = 'merge-on-green';
+            const MERGE_BASES = new Set(['main', 'staging']);
+            const HUMAN_LABEL = 'reviewed';
+            const DEPS_LABEL = 'deps-automerge';
+            const DEPS_ACTOR = 'dependabot[bot]';
+            const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+            const toMerge = [];
+            const authorized = (pr) => {
+              const names = new Set((pr.labels || []).map((l) => l.name));
+              if (names.has(HUMAN_LABEL)) return HUMAN_LABEL;
+              if (names.has(DEPS_LABEL) && pr.user && pr.user.login === DEPS_ACTOR) return DEPS_LABEL;
+              return null;
+            };
+
+            const candidates = new Set();
+            const dispatchPr = context.payload.inputs && context.payload.inputs.pr;
+            if (dispatchPr) {
+              candidates.add(parseInt(dispatchPr, 10));
+            } else if (context.payload.pull_request) {
+              candidates.add(context.payload.pull_request.number);
+            } else if (context.payload.workflow_run) {
+              for (const pr of context.payload.workflow_run.pull_requests || []) {
+                candidates.add(pr.number);
+              }
+            }
+            if (candidates.size === 0) {
+              const { data: open } = await github.rest.pulls.list({
+                owner: context.repo.owner, repo: context.repo.repo, state: 'open', per_page: 100,
+              });
+              for (const pr of open) {
+                if (!MERGE_BASES.has(pr.base.ref)) continue;
+                if (pr.labels.some((l) => l.name === HUMAN_LABEL || l.name === DEPS_LABEL)) candidates.add(pr.number);
+              }
+            }
+
+            for (const number of candidates) {
+              const tag = `PR #${number}`;
+              let pr;
+              for (let i = 0; i < 6; i++) {
+                ({ data: pr } = await github.rest.pulls.get({
+                  owner: context.repo.owner, repo: context.repo.repo, pull_number: number,
+                }));
+                if (pr.mergeable !== null || pr.state !== 'open') break;
+                await sleep(3000);
+              }
+              if (pr.state !== 'open') { core.info(`${tag}: not open (${pr.state}) — skip.`); continue; }
+              if (pr.draft)           { core.info(`${tag}: draft — skip.`); continue; }
+              if (pr.merged)          { core.info(`${tag}: already merged — skip.`); continue; }
+              if (!MERGE_BASES.has(pr.base.ref)) {
+                core.info(`${tag}: base '${pr.base.ref}' is not main|staging — skip.`); continue;
+              }
+
+              const reason = authorized(pr);
+              if (!reason) {
+                core.info(`${tag}: no '${HUMAN_LABEL}' / Dependabot '${DEPS_LABEL}' — skip.`); continue;
+              }
+              if (pr.mergeable === false) { core.info(`${tag}: conflict — skip.`); continue; }
+              if (pr.mergeable === null)  { core.info(`${tag}: mergeability computing — skip.`); continue; }
+
+              const sha = pr.head.sha;
+              const runs = await github.paginate(github.rest.checks.listForRef, {
+                owner: context.repo.owner, repo: context.repo.repo, ref: sha, per_page: 100,
+              });
+              // Fail-closed: require at least one completed non-self check.
+              // Keep `revoke-reviewed-on-push` in `others`: excluding it would
+              // let `workflow_run` merge a new head whose `reviewed` survived.
+              const others = runs.filter((r) => r.name !== SELF_JOB);
+              if (others.length === 0) {
+                core.info(`${tag}: no check runs on head — skip (fail-closed).`);
+                continue;
+              }
+              // Require secret-scan AND quality CI job name `ci` (alias validate-full for in-flight PRs)
+              // AND semctx-working-empty (PR attestation: .semctx/working/ = .gitkeep only).
+              const hasSecret = others.some((r) =>
+                /TruffleHog|Secret scan/i.test(r.name || ''),
+              );
+              const hasCi = others.some((r) =>
+                /^(ci|validate-full|lint-typecheck-test)$/i.test(r.name || ''),
+              );
+              const hasWorking = others.some((r) =>
+                /^(semctx-working-empty)$/i.test(r.name || ''),
+              );
+              if (!hasSecret || !hasCi || !hasWorking) {
+                core.info(
+                  `${tag}: missing required checks (secret=${hasSecret}, ci=${hasCi}, working=${hasWorking}) — skip.`,
+                );
+                continue;
+              }
+              const pending = others.filter((r) => r.status !== 'completed');
+              const failed = others.filter(
+                (r) => r.status === 'completed' && !['success', 'neutral', 'skipped'].includes(r.conclusion),
+              );
+              if (pending.length) {
+                core.info(`${tag}: pending ${pending.map((r) => r.name).join(', ')} — skip.`);
+                continue;
+              }
+              if (failed.length) {
+                core.info(`${tag}: failed ${failed.map((r) => `${r.name}=${r.conclusion}`).join(', ')} — skip.`);
+                continue;
+              }
+
+              const { data: combined } = await github.rest.repos.getCombinedStatusForRef({
+                owner: context.repo.owner, repo: context.repo.repo, ref: sha,
+              });
+              if (combined.total_count > 0 && combined.state !== 'success') {
+                core.info(`${tag}: combined status = ${combined.state} — skip.`); continue;
+              }
+
+              core.info(`${tag}: ${reason} + checks green on ${sha} → queue merge.`);
+              // Carry the *evaluated* revision, never re-read pr.head.sha at merge time.
+              toMerge.push({ number, sha });
+            }
+
+            core.setOutput('to_merge', JSON.stringify(toMerge));
+            if (toMerge.length === 0) core.info('No PRs ready to merge.');
+
+      - name: Merge green PRs
+        if: >-
+          steps.cfg.outputs.enabled == 'true' &&
+          steps.app.outcome == 'success' &&
+          steps.evaluate.outputs.to_merge != '' &&
+          steps.evaluate.outputs.to_merge != '[]'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          TO_MERGE: ${{ steps.evaluate.outputs.to_merge }}
+        with:
+          github-token: ${{ steps.app.outputs.token }}
+          script: |
+            // Entries are {number, sha}: `sha` is the revision the gate actually judged.
+            const toMerge = JSON.parse(process.env.TO_MERGE || '[]');
+            const stale = [];
+            for (const { number, sha } of toMerge) {
+              const tag = `PR #${number}`;
+              try {
+                // `sha:` pins the merge to that revision. A push landing between the
+                // evaluation and this call makes GitHub answer 409 instead of merging
+                // a head whose checks are still queued.
+                await github.rest.pulls.merge({
+                  owner: context.repo.owner, repo: context.repo.repo, pull_number: number,
+                  merge_method: 'merge', sha,
+                });
+                core.notice(`${tag}: merged ${sha} (merge commit) — authorized label + checks green (kit-ci).`);
+              } catch (e) {
+                if (e.status === 409) {
+                  stale.push(`${tag} (evaluated ${sha})`);
+                  core.warning(`${tag}: head moved after evaluation of ${sha} — merge refused (409). The new head is re-evaluated once its own checks complete.`);
+                  continue;
+                }
+                core.warning(`${tag}: merge failed: ${e.message}`);
+              }
+            }
+            if (stale.length) {
+              core.setFailed(
+                `Merge refused: evaluated revision is no longer the head — ${stale.join(', ')}. Nothing was merged.`,
+              );
+            }
+
+      - name: Summary
+        if: always()
+        env:
+          ENABLED: ${{ steps.cfg.outputs.enabled }}
+          TO_MERGE: ${{ steps.evaluate.outputs.to_merge }}
+        run: |
+          {
+            echo "## Merge on Green"
+            echo ""
+            if [ "$ENABLED" = "true" ]; then
+              echo "- **kit-ci:** configured (auto-merge ON)"
+            else
+              echo "- **kit-ci:** **not configured** (auto-merge OFF — manual merge)"
+              echo "- Setup: \`docs/kit/ci-app-setup.md\`"
+            fi
+            echo "- Candidates: \`${TO_MERGE:-[]}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # A `reviewed` label is a human statement about one specific tree, but nothing in
+  # `.github/` ever withdrew it: once labelled, every later push inherited the sign-off
+  # and the `workflow_run` trigger could land it as soon as CI went green again.
+  # New head ⇒ sign-off revoked; a human has to label the new tree.
+  #
+  # `deps-automerge` is deliberately left alone: it is machine-derived and
+  # `dependabot-automerge.yml` (pull_request_target: synchronize) re-asserts it on the
+  # very same event, so removing it here would be undone within seconds — and losing
+  # that race would only strand the Dependabot PR. Residual, unchanged by this job:
+  # `deps-automerge` survives a push onto a Dependabot branch.
+  #
+  # Safety: `pull_request_target` runs the workflow file from the *base* branch.
+  # No checkout of PR code — metadata + `issues.removeLabel` only. Same-repo PRs
+  # may fire both events; first revoke succeeds, second 404 is already handled.
+  revoke-reviewed-on-push:
+    name: revoke-reviewed-on-push
+    # No runner, no API call unless the stale sign-off is actually there.
+    if: >-
+      (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') &&
+      (github.event.action == 'synchronize' || github.event.action == 'reopened') &&
+      contains(github.event.pull_request.labels.*.name, 'reviewed')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Scoped to this job on purpose: the workflow stays read-only on pull requests.
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Revoke reviewed label
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const pr = context.payload.pull_request;
+            const name = 'reviewed';
+            const tag = `PR #${pr.number}`;
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner, repo: context.repo.repo, issue_number: pr.number, name,
+              });
+              core.notice(`${tag}: '${name}' revoked — head is now ${pr.head.sha}, re-review required.`);
+            } catch (e) {
+              // Already gone (human removed it first) is the intended end state.
+              if (e.status === 404) { core.info(`${tag}: '${name}' already absent.`); return; }
+              // Dependabot/fork `pull_request` cannot write — the `_target` twin does.
+              if (e.status === 403) {
+                core.notice(`${tag}: cannot revoke '${name}' (403) — read-only token on this trigger; not a failed check.`);
+                return;
+              }
+              // Loud failure: a surviving label is a stale sign-off on an unreviewed head.
+              core.setFailed(`${tag}: '${name}' could NOT be revoked (${e.status}): ${e.message}`);
+            }

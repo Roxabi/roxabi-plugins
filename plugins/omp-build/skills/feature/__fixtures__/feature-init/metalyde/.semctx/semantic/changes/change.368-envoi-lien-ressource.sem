@@ -1,0 +1,12 @@
+change change.368-envoi-lien-ressource
+  statement: Envoi du lien on client and commune resources: no triptych, no visibility mutation, Lien OS /resources/{id}.
+  status: active
+  provenance: agent
+  link: file:src/app/api/envoi-lien/http.ts
+  link: file:src/components/documents/DocRow.tsx
+  link: file:src/lib/services/envoiLien/execute.ts
+  link: file:src/lib/services/envoiLien/load.ts
+  link: file:src/lib/services/envoiLien/plan.ts
+  tag: 368
+  tag: envoi-lien
+  tag: lien-os

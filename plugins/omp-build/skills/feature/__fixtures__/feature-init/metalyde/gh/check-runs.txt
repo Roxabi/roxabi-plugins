@@ -1,0 +1,4 @@
+merge-on-green
+Label dependabot patch/minor reviewed
+ci
+trufflehog

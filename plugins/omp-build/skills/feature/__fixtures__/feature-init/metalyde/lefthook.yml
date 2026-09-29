@@ -1,0 +1,21 @@
+pre-commit:
+  parallel: false
+  commands:
+    lint:
+      run: npm run lint
+    typecheck:
+      run: npm run typecheck
+    file-length:
+      run: QG_FILE_MODE=staged bash tools/check_file_length.sh
+
+pre-push:
+  parallel: false
+  commands:
+    quality-gates:
+      run: npm run quality-gates:check
+    typecheck:
+      run: npm run typecheck
+    test:
+      run: npm run test:run
+    trufflehog:
+      run: bash tools/verify-secrets.sh

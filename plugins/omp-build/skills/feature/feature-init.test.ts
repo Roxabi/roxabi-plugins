@@ -1,75 +1,86 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
-import { plan, readFacts, trackerNext } from './feature-init'
+import { describe, expect, it } from 'vitest'
+import { type Gh, plan, readFacts } from './feature-init'
 
-let root: string | undefined
-afterEach(() => {
-  if (root) rmSync(root, { recursive: true, force: true })
-  root = undefined
-})
+// Verbatim copies of the target repos' files, and the `gh` answers recorded
+// from those repos (labels, head of the last merged PR, its check runs).
+const FIXTURES = path.resolve(import.meta.dirname, '__fixtures__', 'feature-init')
 
-function write(rel: string, body: string) {
-  if (!root) throw new Error('fixture missing')
-  const file = path.join(root, rel)
-  mkdirSync(path.dirname(file), { recursive: true })
-  writeFileSync(file, body)
+function recorded(repo: string, file: string): string {
+  return readFileSync(path.join(FIXTURES, repo, 'gh', file), 'utf8')
 }
 
-describe('feature init plan', () => {
-  it('lists the metalyde adoption gaps', () => {
-    root = mkdtempSync(path.join(tmpdir(), 'omp-init-metalyde-'))
-    write('.semctx/working/a/change.json', '{"status":"active"}\n')
-    write('.semctx/working/b/change.json', '{"status":"active"}\n')
-    write('.semctx/working/c/change.json', '{"status":"active"}\n')
-    write('.semctx/working/d/change.json', '{"status":"active"}\n')
-    write('.cocoindex_code/keep', '')
-    write('.codegraph/keep', '')
-    write('package.json', '{"devDependencies":{"vitest":"1"}}\n')
-    write('.dev/stack.yml', 'release:\n  model: staging-train\n')
-    write('.github/workflows/merge-on-green.yml', 'workflows: ["Secret scan", "Lint & Test"]\n/^ci$/\nhasSecret\n')
-    write('.github/workflows/secret-scan.yml', 'name: Secret scan\n')
-    const lines = plan(readFacts(root, ['XS', 'M', 'priority: high']))
-    expect(lines).toContain('tracker contract')
-    expect(lines).toContain('label migration')
-    expect(lines).toContain('semctx hooks')
-    expect(lines).toContain('CI job semctx-working-empty')
-    expect(lines).toContain('4 orphan contracts')
-    expect(lines).toContain('assertledger + vitest adapter')
-    expect(lines).toContain('landing = merge-on-green with ci + Secret scan')
-    expect(lines).toContain('worktree block')
-    expect(lines).toContain('release.post_merge asked')
-    expect(lines).not.toContain('codegraph proposed')
+function recordedGh(repo: string): Gh {
+  return (args) => {
+    if (args[0] === 'label') return recorded(repo, 'labels.txt')
+    if (args[0] === 'pr') return recorded(repo, 'merged-head.txt')
+    const head = recorded(repo, 'merged-head.txt').trim()
+    if (args[0] === 'api' && args[1] === `repos/{owner}/{repo}/commits/${head}/check-runs`) {
+      return recorded(repo, 'check-runs.txt')
+    }
+    return null
+  }
+}
+
+const offline: Gh = () => null
+
+function realRunNames(repo: string): string[] {
+  return recorded(repo, 'check-runs.txt').split('\n').filter(Boolean)
+}
+
+describe('feature init on the metalyde files', () => {
+  const dir = path.join(FIXTURES, 'metalyde')
+  const facts = readFacts(dir, recordedGh('metalyde'))
+
+  it('lists the adoption gaps', () => {
+    expect(plan(facts)).toEqual([
+      'tracker contract',
+      'label migration',
+      'semctx hooks',
+      'CI job semctx-working-empty',
+      '4 orphan contracts',
+      'assertledger + vitest adapter',
+      'landing = merge-on-green with trufflehog + ci',
+      'worktree block',
+      'release.post_merge asked',
+    ])
   })
 
-  it('lists the boilerplate-cf adoption gaps', () => {
-    root = mkdtempSync(path.join(tmpdir(), 'omp-init-cf-'))
-    write('.semctx/config.json', '{}\n')
-    write('lefthook.yml', 'pre-commit:\n  commands:\n    semctx:\n      run: semctx verify\n')
-    write('.github/workflows/ci.yml', 'semctx-working-empty:\n')
-    write('.cocoindex_code/keep', '')
-    write('package.json', '{"devDependencies":{"vitest":"1","assertledger":"1"}}\n')
-    write('.dev/stack.yml', 'release:\n  component: kit\n')
-    write(
-      '.github/workflows/merge-on-green.yml',
-      'workflows: [Secret scan, CI]\n/^ci$/\nsemctx-working-empty\nhasWorking\n',
-    )
-    write('.github/workflows/secret-scan.yml', 'jobs:\n  trufflehog:\n    name: TruffleHog\n')
-    const lines = plan(readFacts(root, []))
-    expect(lines).toContain('tracker contract')
-    expect(lines).toContain('labels')
-    expect(lines).toContain('landing = merge-on-green with ci + TruffleHog + semctx-working-empty')
-    expect(lines).toContain('release.model asked')
-    expect(lines).toContain('codegraph proposed')
-    expect(lines).not.toContain('label migration')
-    expect(lines).not.toContain('assertledger + vitest adapter')
+  it('requires only real check-run names', () => {
+    expect(facts.checks.length).toBeGreaterThan(0)
+    for (const name of facts.checks) expect(realRunNames('metalyde')).toContain(name)
+  })
+
+  it('watches every check when a gate has no real run, rather than dropping that gate', () => {
+    const noSecretRun: Gh = (args) => {
+      const answer = recordedGh('metalyde')(args)
+      return args[0] === 'api' && answer ? answer.replace(/^trufflehog\n/m, '') : answer
+    }
+    expect(readFacts(dir, noSecretRun).checks).toEqual([])
+  })
+
+  it('watches every check when GitHub cannot name the runs', () => {
+    const blind = readFacts(dir, offline)
+    expect(blind.checks).toEqual([])
+    expect(plan(blind)).toContain('landing = merge-on-green with every check')
+    expect(plan(blind)).not.toContain('label migration')
   })
 })
 
-describe('tracker step', () => {
-  it('keeps --dry-run on the printed next line', () => {
-    expect(trackerNext(true)).toBe('next: bun skill://issue-triage/triage.ts init --dry-run')
-    expect(trackerNext(false)).toBe('next: bun skill://issue-triage/triage.ts init')
+describe('feature init on the boilerplate-cf files', () => {
+  const dir = path.join(FIXTURES, 'boilerplate-cf')
+  const facts = readFacts(dir, recordedGh('boilerplate-cf'))
+
+  it('lists the adoption gaps', () => {
+    expect(plan(facts)).toEqual([
+      'codegraph proposed',
+      'landing = merge-on-green with TruffleHog + ci + semctx-working-empty',
+      'release.post_merge asked',
+    ])
+  })
+
+  it('requires only real check-run names', () => {
+    for (const name of facts.checks) expect(realRunNames('boilerplate-cf')).toContain(name)
   })
 })

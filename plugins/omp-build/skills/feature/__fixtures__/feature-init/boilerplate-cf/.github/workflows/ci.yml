@@ -1,0 +1,102 @@
+name: CI
+
+# Gate qualité (`bun run validate:full`). Ne déploie pas.
+#
+# Quand ça tourne :
+#   - pull_request → main (kit HEAD) or staging|main (product consumers that inherit this file)
+#   - push main / staging        = suite
+#   - workflow_dispatch          = secours manuel
+# Kit HEAD has no staging branch. Keep the staging trigger so products need not edit kit CI.
+# Draft PRs: no heavy CI (ready_for_review starts the gate).
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main, staging]
+  workflow_dispatch: {}
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+# Least privilege.
+permissions:
+  contents: read
+  checks: read
+  pull-requests: read
+
+jobs:
+  # PR attestation — check name `semctx-working-empty` is required by merge-on-green.
+  # Inspects git ls-tree of the PR head (or push SHA), not the runner workdir.
+  # Free private has no GitHub rulesets; write access bypasses this job
+  # (docs/kit/testing.md § Merge residual). Not a GitHub required check.
+  semctx-working-empty:
+    name: semctx-working-empty
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Semctx working empty
+        env:
+          SEMCTX_WORKING_TREE: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bash scripts/kit/check-semctx-working-empty.sh
+
+  quality:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    # Check display name `ci` — merge-on-green + checkup. Do not rename without both.
+    name: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      # Pin SHAs (supply-chain); tags float.
+      # fetch-depth 0: product zero-edit needs inheritance commit reachable (ADR-0009).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      # Kit origin: zero-edit kit mode (allowlist). Product: checker reads
+      # config/product/inheritance.json only (ADR-0009 / #107).
+      # See docs/kit/product-consumer-contract.md.
+      - name: Validate full
+        run: |
+          set -euo pipefail
+          # Preflight: inherited tip must be in history (checker never auto-fetches).
+          if [[ -f config/product/inheritance.json ]]; then
+            SHA="$(node -e "const j=require('./config/product/inheritance.json'); process.stdout.write(String(j.upstreamCommit||'').trim())")"
+            if ! git rev-parse --verify "${SHA}^{commit}" >/dev/null 2>&1; then
+              echo "::error::inheritance upstreamCommit ${SHA} not in history — deepen checkout or re-merge upstream"
+              exit 1
+            fi
+            echo "inheritance upstreamCommit=${SHA}"
+          fi
+          bun run validate:full
+
+      - name: Upload coverage summary
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-summary
+          path: |
+            coverage/coverage-summary.json
+            coverage/lcov.info
+            coverage/**/coverage-summary.json
+            coverage/**/lcov.info
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # Showcase CD = Cloudflare Builds (git pull), not GH deploy. See docs/kit/deploy-cloudflare.md.
+  # Browser e2e is local-only (Free CI minutes + flake risk).
+  # Local: bun run test:e2e:design-system (servers up) or bun run test:e2e:ci (one-shot).
+  # Not in validate:full / Lefthook. See docs/kit/testing.md CP-E2E.

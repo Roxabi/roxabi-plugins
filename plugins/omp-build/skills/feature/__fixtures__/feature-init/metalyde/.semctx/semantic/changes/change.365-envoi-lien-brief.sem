@@ -1,0 +1,10 @@
+change change.365-envoi-lien-brief
+  statement: Envoi du lien on Brief Créa: agency plan/execute seam, visibility triptych, OS mail without ops CC.
+  status: active
+  provenance: agent
+  link: file:src/app/api/envoi-lien/execute/route.ts
+  link: file:src/app/api/envoi-lien/plan/route.ts
+  link: file:src/lib/services/envoiLien/execute.ts
+  link: file:src/lib/services/envoiLien/plan.ts
+  tag: 365
+  tag: envoi-lien

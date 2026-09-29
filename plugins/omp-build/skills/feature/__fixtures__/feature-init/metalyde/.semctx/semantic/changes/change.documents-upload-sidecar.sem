@@ -1,0 +1,10 @@
+change change.documents-upload-sidecar
+  statement: Documents and default-documents uploads write ownership sidecars and roll back disk files if DB persist fails; runbook prod facts catch up to v0.5.1.
+  status: active
+  provenance: agent
+  link: file:docs/runbook-deploy-prod.md
+  link: file:src/app/api/default-documents/upload/route.ts
+  link: file:src/app/api/documents/upload/route.ts
+  link: file:src/lib/utils/fileUpload.ts
+  tag: runbook
+  tag: upload

@@ -1,0 +1,78 @@
+name: Lint & Test
+
+# Gate qualité. Ne déploie pas — les effets CD sont gatés sur la conclusion de ce workflow.
+#
+# Quand ça tourne :
+#   - pull_request → staging|main  = gate avant merge (ready only; draft skipped)
+#   - push staging|main            = suite sur tout push ; le CD est gaté sur sa conclusion
+#   - workflow_dispatch            = secours manuel
+# Pas de CI sur feat/* sans PR vers staging|main.
+# Draft PRs: no heavy CI (ready_for_review starts the gate).
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main, staging]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  checks: read
+  pull-requests: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  ci:
+    name: ci
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Quality gates
+        run: npm run quality-gates:check
+
+      - name: Lint (Biome)
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Tests + coverage (authz floors)
+        run: npm run test:coverage
+        # Single pass: suite + v8. Hard floors in vitest.config (authz + safeFetch/readaiSignature).
+        # No global % vanity gate.
+
+      - name: Upload coverage summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: coverage/lcov.info
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Build
+        run: npm run build
+        env:
+          # Build-time placeholders — secrets réels seulement en runtime Railway
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
+          BETTER_AUTH_SECRET: ci-build-secret-not-for-prod-32chars
+          BETTER_AUTH_URL: http://localhost:3000
+          DATABASE_URL: file:./src/dev.db

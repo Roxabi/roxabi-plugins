@@ -1,0 +1,42 @@
+bug
+documentation
+duplicate
+enhancement
+good first issue
+help wanted
+invalid
+question
+wontfix
+reviewed
+priority: high
+priority: medium
+priority: low
+size: S
+size: L
+size: M
+type: epic
+type: test
+type: chore
+size: XS
+type: feat
+type: docs
+type: fix
+type: refactor
+type: research
+dependencies
+spark
+spark/priority:p0
+spark/priority:p1
+spark/priority:p2
+spark/priority:p3
+spark/status:doing
+spark/status:done
+spark/status:new
+spark/status:rejected
+spark/status:todo
+spark/type:bug
+spark/type:feature
+spark/status:staging
+javascript
+ready-for-agent
+needs-triage

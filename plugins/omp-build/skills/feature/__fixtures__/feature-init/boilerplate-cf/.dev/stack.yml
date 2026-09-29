@@ -1,0 +1,136 @@
+schema_version: "1.0"
+# Product fills: name, backend.path, frontend.path, release.component.
+# On git merge upstream/main keep those scalars; take kit keys for everything else.
+name: cf-chemin-a
+runtime: bun
+package_manager: bun
+
+docs:
+  path: docs/kit
+  agent_entry: AGENTS.md        # agent instruction entrypoint (read explicitly, never imported)
+
+backend:
+  framework: hono
+  orm: drizzle
+  db: d1
+  path: apps/example-api
+frontend:
+  framework: vite
+  router: tanstack-router
+  path: apps/example-web
+  ui_package: packages/ui
+  ui_src: packages/ui/src
+  tanstack:
+    query: "@tanstack/react-query"
+    form: "@tanstack/react-form"
+    table: "@tanstack/react-table"
+    hotkeys: "@tanstack/react-hotkeys"
+    markdown: "@tanstack/markdown"
+shared:
+  types: packages/types
+  ui: packages/ui
+  auth: packages/auth
+  db: packages/db
+  core: packages/core
+  storage: packages/storage
+  email: packages/email
+  api_client: packages/api-client
+  i18n: packages/i18n
+  mcp: packages/mcp
+  flows: packages/flows
+  tasks: packages/tasks
+  comments: packages/comments
+build:
+  orchestrator: turbo
+  formatter: biome
+  formatter_config: biome.json
+  formatter_fix_cmd: "bun run lint:fix"
+testing:
+  unit: vitest
+  e2e: design-system-script
+  # Gate CI: bun run validate:full (.github/workflows/ci.yml job name validate-full).
+  # Merge-on-green: label reviewed + CI + Secret scan only (no check_suite spam).
+hooks:
+  tool: lefthook
+deploy:
+  platform: cloudflare
+  secrets_cmd: "wrangler secret put <KEY> --config apps/<app>/wrangler.toml"
+release:
+  model: trunk
+  component: roxabi-boilerplate-cf
+  version_files: []
+landing:
+  # Inherited. A product on native branch protection overrides this to native.
+  mode: merge-on-green
+commands:
+  dev: bun run dev
+  build: bun run build
+  test: bun run test
+  lint: bun run lint
+  typecheck: bun run typecheck
+  install: bun install
+  validate: bun run validate
+  validate_full: bun run validate:full
+  zero_edit: bun run zero-edit
+  db_migrate: bun run db:migrate
+  db_seed: bun run db:seed
+  build_kit: bun run build:kit
+  smoke_mcp: bun run smoke:mcp
+  quality_gates_check: bun run quality-gates:check
+  worktree_setup: scripts/kit/worktree-setup.sh
+  worktree_teardown: scripts/kit/worktree-teardown.sh
+quality_gates:
+  file_length:
+    enabled: true
+    max_lines: 300
+    metric: raw
+    roots: apps packages
+    exemptions_file: config/kit/file_exemptions.txt
+    product_exemptions_file: config/product/file_exemptions.txt
+  folder_size:
+    enabled: true
+    max_files: 40
+    roots: apps packages
+    exemptions_file: config/kit/folder_exemptions.txt
+    product_exemptions_file: config/product/folder_exemptions.txt
+  import_boundary:
+    exemptions_file: config/kit/import-boundary-exemptions.txt
+    product_exemptions_file: config/product/import-boundary-exemptions.txt
+artifacts:
+  analyses: artifacts/analyses
+  specs: artifacts/specs
+  frames: artifacts/frames
+  plans: artifacts/plans
+  goals: artifacts/goals
+standards:
+  agent_rules: AGENTS.md
+  stack: docs/kit/standards/stack.md
+  backend: docs/kit/standards/stack.md
+  frontend: docs/kit/standards/stack.md
+  testing: docs/kit/testing.md
+  code_review: docs/kit/processes/dev-process.md
+  product_contract: docs/kit/product-consumer-contract.md
+  observability: docs/kit/observability.md
+  architecture: docs/kit/architecture/
+  architecture_index: docs/kit/architecture/index.md
+  platform_direction: docs/kit/architecture/platform-direction.md
+  configuration: docs/kit/environments.md
+  deployment: docs/kit/deploy-cloudflare.md
+  dev_process: docs/kit/processes/dev-process.md
+  issue_management: docs/kit/processes/dev-process.md
+  contributing: README.md
+  docs_index: docs/kit/README.md
+  agent_entry: AGENTS.md
+
+# omp-build `/feature` bootstrap reads this block; dev-core reads
+# commands.worktree_setup. check-stack-contract requires
+# worktree.setup == "bash <commands.worktree_setup>" (roxabi-plugins#615
+# tracks the upstream fallback that writes setup: "" when the block is
+# absent). copy lists real files: worktree-setup.sh falls back to
+# *.example when the file is absent, so the principal's values win.
+worktree:
+  copy:
+    - .env
+    - apps/example-api/.dev.vars
+  seed: []
+  setup: bash scripts/kit/worktree-setup.sh

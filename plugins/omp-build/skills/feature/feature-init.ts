@@ -1,11 +1,30 @@
 #!/usr/bin/env bun
 import { execFileSync } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
+
+type MigrateLabel = (name: string) => { add: string | null; remove: boolean }
+
+/**
+ * issue-triage's migration grammar, loaded at run time. Installed plugins are
+ * siblings under `~/.omp/plugins/node_modules`, so the package name resolves
+ * there; in this repository the plugins are siblings under `plugins/`.
+ */
+async function loadMigrateLabel(): Promise<MigrateLabel> {
+  const rel = 'skills/issue-triage/lib/migrate-labels.ts'
+  try {
+    return (await import(`issue-triage/${rel}`)).migrateLabel
+  } catch {
+    return (await import(new URL(`../../../issue-triage/${rel}`, import.meta.url).href)).migrateLabel
+  }
+}
+
+export const migrateLabel: MigrateLabel = await loadMigrateLabel()
 
 export type Facts = {
   hasTracker: boolean
   labels: string[]
+  legacyLabels: string[]
   hasSemctx: boolean
   hasSemctxHooks: boolean
   hasWorkingEmptyJob: boolean
@@ -26,11 +45,8 @@ export type Facts = {
 export function plan(facts: Facts): string[] {
   const lines: string[] = []
   if (!facts.hasTracker) lines.push('tracker contract')
-  if (facts.labels.some((label) => /^(XS|S|M|L|XL)$/.test(label) || label.startsWith('priority:'))) {
-    lines.push('label migration')
-  } else if (!facts.hasTracker) {
-    lines.push('labels')
-  }
+  if (facts.legacyLabels.length) lines.push('label migration')
+  else if (!facts.hasTracker) lines.push('labels')
   if (facts.hasSemctx && !facts.hasSemctxHooks) lines.push('semctx hooks')
   if (facts.hasSemctx && !facts.hasWorkingEmptyJob) lines.push('CI job semctx-working-empty')
   if (facts.activeContracts > 0) lines.push(`${facts.activeContracts} orphan contracts`)
@@ -40,7 +56,8 @@ export function plan(facts: Facts): string[] {
   if (!facts.hasCcc && !facts.cccConsent) lines.push('ccc proposed')
   if (!facts.hasCodegraph && !facts.codegraphConsent) lines.push('codegraph proposed')
   if (facts.mergeOnGreen) {
-    lines.push(`landing = merge-on-green with ${facts.checks.join(' + ')}`)
+    const checks = facts.checks.length ? facts.checks.join(' + ') : 'every check'
+    lines.push(`landing = merge-on-green with ${checks}`)
   }
   if (!facts.hasWorktree) lines.push('worktree block')
   if (!facts.hasPostMerge) lines.push('release.post_merge asked')
@@ -48,51 +65,97 @@ export function plan(facts: Facts): string[] {
   return lines
 }
 
-function jobName(text: string): string | null {
-  const match = text.match(/^ {2}trufflehog:\n {4}name: TruffleHog/m) ?? text.match(/^ {4}name: TruffleHog/m)
-  return match ? 'TruffleHog' : null
-}
+/** Runs `gh` in the target repo; returns stdout, or null when gh cannot answer. */
+export type Gh = (args: string[]) => string | null
 
-export function readFacts(dir: string, labels: string[] = []): Facts {
-  const stackPath = join(dir, '.dev', 'stack.yml')
-  const stack = existsSync(stackPath) ? readFileSync(stackPath, 'utf8') : ''
-  const mergePath = join(dir, '.github', 'workflows', 'merge-on-green.yml')
-  const merge = existsSync(mergePath) ? readFileSync(mergePath, 'utf8') : ''
-  const secretPath = join(dir, '.github', 'workflows', 'secret-scan.yml')
-  const secret = existsSync(secretPath) ? readFileSync(secretPath, 'utf8') : ''
-  const ciPath = join(dir, '.github', 'workflows', 'ci.yml')
-  const ci = existsSync(ciPath) ? readFileSync(ciPath, 'utf8') : ''
-  const lefthook = existsSync(join(dir, 'lefthook.yml')) ? readFileSync(join(dir, 'lefthook.yml'), 'utf8') : ''
-  const pkg = existsSync(join(dir, 'package.json')) ? readFileSync(join(dir, 'package.json'), 'utf8') : ''
-  const checks: string[] = []
-  if (merge) {
-    if (/\^ci\$|\bname: ci\b|workflows: \[CI|Lint & Test/.test(merge)) checks.push('ci')
-    if (/Secret scan/.test(merge)) checks.push(jobName(secret) ?? 'Secret scan')
-    if (/semctx-working-empty/.test(merge) && /hasWorking|working=/.test(merge)) checks.push('semctx-working-empty')
-  }
-  let active = 0
-  const walk = (root: string) => {
-    if (!existsSync(root)) return
-    for (const name of readdirSync(root)) {
-      const path = join(root, name)
-      if (statSync(path).isDirectory()) walk(path)
-      else if (name.endsWith('.json') && readFileSync(path, 'utf8').includes('"active"')) active += 1
+export function realGh(dir: string): Gh {
+  return (args) => {
+    try {
+      return execFileSync('gh', args, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+    } catch {
+      return null
     }
   }
-  walk(join(dir, '.semctx', 'working'))
+}
+
+function lines(text: string | null): string[] | null {
+  if (text === null) return null
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+}
+
+/** The regex literals the merge-on-green gate tests check-run names with. */
+export function gateRegexes(workflow: string): RegExp[] {
+  const out: RegExp[] = []
+  for (const match of workflow.matchAll(/\.some\(\(r\)\s*=>\s*\/((?:\\.|[^/\n])+)\/([a-z]*)\.test\(r\.name/g)) {
+    out.push(new RegExp(match[1] ?? '', match[2]))
+  }
+  return out
+}
+
+/**
+ * Required checks = the real check-run names on the head of the last merged PR
+ * that satisfy each gate. Any gate without a matching real name, or no answer
+ * from GitHub, yields [] — which means watch every check.
+ */
+export function requiredChecks(workflow: string, runNames: string[] | null): string[] {
+  const gates = gateRegexes(workflow)
+  if (!gates.length || !runNames?.length) return []
+  const names = [...new Set(runNames)]
+  const picked: string[] = []
+  for (const gate of gates) {
+    const hits = names.filter((name) => gate.test(name))
+    if (!hits.length) return []
+    for (const hit of hits) if (!picked.includes(hit)) picked.push(hit)
+  }
+  return picked
+}
+
+function mergedHeadRuns(gh: Gh): string[] | null {
+  const head = lines(
+    gh(['pr', 'list', '--state', 'merged', '--limit', '1', '--json', 'headRefOid', '--jq', '.[0].headRefOid']),
+  )?.[0]
+  if (!head || !/^[0-9a-f]{40}$/.test(head)) return null
+  return lines(
+    gh(['api', `repos/{owner}/{repo}/commits/${head}/check-runs`, '--paginate', '--jq', '.check_runs[].name']),
+  )
+}
+
+function read(path: string): string {
+  return existsSync(path) ? readFileSync(path, 'utf8') : ''
+}
+
+function countActiveContracts(dir: string): number {
+  const root = join(dir, '.semctx', 'semantic', 'changes')
+  if (!existsSync(root)) return 0
+  return readdirSync(root).filter(
+    (name) => name.endsWith('.sem') && /^\s*status:\s*active\s*$/m.test(readFileSync(join(root, name), 'utf8')),
+  ).length
+}
+
+export function readFacts(dir: string, gh: Gh = realGh(dir)): Facts {
+  const stack = read(join(dir, '.dev', 'stack.yml'))
+  const merge = read(join(dir, '.github', 'workflows', 'merge-on-green.yml'))
+  const ci = read(join(dir, '.github', 'workflows', 'ci.yml'))
+  const lefthook = read(join(dir, 'lefthook.yml'))
+  const pkg = read(join(dir, 'package.json'))
+  const labels = lines(gh(['label', 'list', '--limit', '500', '--json', 'name', '--jq', '.[].name'])) ?? []
   return {
     hasTracker: existsSync(join(dir, 'docs', 'agents', 'issue-tracker.md')),
     labels,
+    legacyLabels: labels.filter((label) => migrateLabel(label).remove),
     hasSemctx: existsSync(join(dir, '.semctx')),
-    hasSemctxHooks: /semctx verify/.test(lefthook),
-    hasWorkingEmptyJob: /semctx-working-empty/.test(ci),
-    activeContracts: active,
-    hasAssertledger: /assertledger/.test(pkg),
-    vitest: /vitest/.test(pkg),
+    hasSemctxHooks: /^\s*run:.*\bsemctx/m.test(lefthook),
+    hasWorkingEmptyJob: /^\s*(name:\s*)?semctx-working-empty:?\s*$/m.test(ci),
+    activeContracts: countActiveContracts(dir),
+    hasAssertledger: /"assertledger"/.test(pkg),
+    vitest: /"vitest"/.test(pkg),
     hasCcc: existsSync(join(dir, '.cocoindex_code')),
     hasCodegraph: existsSync(join(dir, '.codegraph')),
     mergeOnGreen: Boolean(merge),
-    checks,
+    checks: merge ? requiredChecks(merge, mergedHeadRuns(gh)) : [],
     hasWorktree: /^worktree:/m.test(stack),
     hasPostMerge: /post_merge/.test(stack),
     hasReleaseModel: /^ {2}model:/m.test(stack),
@@ -141,9 +204,7 @@ if (import.meta.main) {
     console.log('init=noop')
     process.exit(0)
   }
-  let labels: string[] = []
-  if (process.env.FEATURE_INIT_LABELS) labels = process.env.FEATURE_INIT_LABELS.split(',').filter(Boolean)
-  const facts = readFacts(dir, labels)
+  const facts = readFacts(dir)
   const lines = plan(facts)
   console.log(trackerNext(dry))
   if (dry) {
