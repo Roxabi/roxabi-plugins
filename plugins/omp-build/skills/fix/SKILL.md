@@ -34,7 +34,7 @@ supposed to judge the fix.
 
 **You apply every fix yourself.** There is no `R-fixer` in this plugin (ADR-020 §7) and nothing replaces it: Phase 3 edits files inline, in this session, with the diff visible in the working tree. ¬spawn a fixer, ¬delegate the edit.
 
-On a PR, `/feature` §6.5 and `dev-review` **Fix now** run this skill in a fresh agent spawned for that round alone (ADR-025), seeded with the PR number, the branch and the worktree. That agent is you, and every rule here holds inside it. Take nothing from an earlier context: the review record on the PR is the input.
+On a PR, `/feature` §6.5 and `dev-review` **Fix now** run this skill in a fresh agent spawned for that round alone (ADR-025), seeded per `/feature` § Context boundary: the assignment, the PR number, the branch and the worktree. That agent is you, and every rule here holds inside it. Take nothing from an earlier context: the review record on the PR is the input. A `/feature` §6.5 round always carries `--no-label`: an assignment for `/feature` §6.5 without it → halt, never label mode.
 
 ## Pipeline
 

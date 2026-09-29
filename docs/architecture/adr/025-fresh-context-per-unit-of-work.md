@@ -73,15 +73,20 @@ Adopt **Option C**.
    a review round or `ci-failed` — and any task independent of the previous one.
    Each starts in a fresh context.
 2. **Fresh context.** A new session — the assisted case, unchanged: the operator
-   runs `/feature #N` after `/clear` — or an agent spawned for that unit alone,
-   seeded only with durable state: issue number, worktree path, branch, base and
-   PR number. No transcript, pasted finding or summary of another unit goes in.
+   runs `/feature #N` after `/clear` — or an agent spawned for that unit alone.
+   Its seed is at most the unit's assignment, verbatim, and durable data: issue
+   number, worktree path, branch, base, PR number, the skill directory and, under
+   a goal, the epic number. No transcript, pasted finding or summary of another
+   unit goes in. `/feature` § Context boundary is the one definition; every other
+   spawn site cites it.
 3. **A finished agent gets no new work.** No IRC follow-up, no resume, no second
    assignment. A new unit spawns a new agent.
-4. **Fix rounds.** `/feature` §6.5, and a standalone `dev-review` **Fix now** on a
-   PR, run `skill://fix #<pr>` in a fresh agent. ADR-020 §7 still holds inside it:
-   `fix` applies every cause inline, in the session that runs it, spawns no fixer
-   and delegates no edit. That session is now the fresh one. No fixer role returns.
+4. **Fix rounds.** A review round — `/feature` §6.5, and a standalone `dev-review`
+   **Fix now** on a PR — runs `fix` in a fresh agent with the caller's label mode:
+   `/feature` always passes `--no-label`, because its loop owns the merge gate.
+   ADR-020 §7 still holds inside it: `fix` applies every cause inline, in the
+   session that runs it, spawns no fixer and delegates no edit. That session is
+   now the fresh one. No fixer role returns.
    A `ci-failed` round runs `/feature`'s `ci-failed` round procedure, never
    `fix`: it reads the failed checks from GitHub, stages only what it changed,
    verifies before its push and writes no label.

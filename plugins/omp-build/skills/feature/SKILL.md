@@ -44,20 +44,25 @@ one fix round (§6.5, review or `ci-failed`), and any task independent of the
 previous one.
 
 - **Fresh** means a new session — assisted: the operator runs `/feature #N`
-  after `/clear` — or an agent spawned for that unit alone. Seed it with durable
-  state only: issue number, worktree path, branch, base and PR number. It reads
-  everything else from the issue,
-  the branch and the PR. Never paste another unit's transcript, findings or
-  summary into it.
+  after `/clear` — or an agent spawned for that unit alone.
+- **Seed**, the one definition every spawn site cites. At most: the unit's
+  assignment, verbatim from the table, and durable data — issue number, worktree
+  path, branch, base, PR number, `SKILL_DIR` and, under a goal, the epic number.
+  Each spawn site names its subset. Never another unit's transcript, findings or
+  summary: the agent reads everything else from the issue, the branch and the PR.
+
+  | Unit | Assignment, verbatim |
+  |---|---|
+  | ticket under a goal | `You are the ticket unit for #<N> under goal #<epic>: read $SKILL_DIR/SKILL.md and run §6 for #<N> per § Ticket unit.` |
+  | review fix round | `For /feature §6.5, read and execute skill://fix with arguments "#<pr> --no-label".` |
+  | `ci-failed` round | `Read $SKILL_DIR/SKILL.md and run § ci-failed round for PR #<pr>.` |
+
 - **A finished agent gets no new work.** No IRC follow-up, no resume, no second
   assignment: the next unit spawns a new agent.
 - **Under a goal**, this session keeps the frontier (§5), the base CI read and
   each ticket's outcome. It spawns one ticket unit at a time, in `blocked_by`
   order and in the epic worktree, and spawns the next only after the previous
-  one returns. The seed adds the epic number, `SKILL_DIR` and the assignment
-  "you are the ticket unit for `#N` under goal `#<epic>`: read
-  `$SKILL_DIR/SKILL.md` and run §6 for `#N` per § Ticket unit". This session
-  does not implement, review, fix or land a ticket itself.
+  one returns. It does not implement, review, fix or land a ticket itself.
 - **What enters a context.** Run a full suite (`validate:full`, the whole test
   run) with its log written to a file, and bring back the exit code and the
   failing section, never a green log. Read files by line range. Do not re-read a
@@ -329,16 +334,15 @@ red verdict spends a fix round whether or not the operator then fixes.
 `step.action === 'fix'`, by `step.reason`. Each round runs in a fresh agent
 spawned for that round alone (§ Context boundary); this session makes no edit.
 
-- review round (no reason) → spawn one agent in this worktree whose whole
-  assignment is to read and execute `skill://fix` with `#<pr> --no-label`.
-  Pass it the worktree path, the branch and the PR number, nothing else: `fix`
-  reads the review record from the PR. It applies one change per posted root
-  cause, inline, and does not stop for a per-finding choice. A cause it cannot
-  apply becomes a sibling issue.
-- `ci-failed` → spawn one agent in this worktree whose assignment is "read
-  `$SKILL_DIR/SKILL.md` and run § `ci-failed` round for PR `#<pr>`", with the
-  worktree path, the branch, the PR number and `SKILL_DIR`. Do not run `fix`
-  here: it reads review comments, not CI, and would replay stale findings.
+- review round (no reason) → spawn one agent in this worktree with the review
+  fix round assignment (§ Context boundary), the worktree path, the branch and
+  the PR number. `fix` reads the review record from the PR. It applies one
+  change per posted root cause, inline, and does not stop for a per-finding
+  choice. A cause it cannot apply becomes a sibling issue.
+- `ci-failed` → spawn one agent in this worktree with the `ci-failed` round
+  assignment (§ Context boundary), the worktree path, the branch, the PR number
+  and `SKILL_DIR`. Do not run `fix` here: it reads review comments, not CI, and
+  would replay stale findings.
 
 Wait for that agent, then check its push: `origin/<branch>` carries its commits
 and, after a review round, the PR carries its `## Review Fixes Applied` comment.
