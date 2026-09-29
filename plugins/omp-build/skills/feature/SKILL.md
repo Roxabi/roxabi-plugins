@@ -29,9 +29,10 @@ includes `--dry-run`. A real run fills `landing` and `worktree` in
 `.dev/stack.yml` and prints
 `next: T=$(realpath skill://issue-triage/triage.ts) && bun "$T" init`.
 It does not run that command and does not print `init=done`. Run the printed
-command as given — `T=$(realpath …) && bun "$T"` fails closed when the skill is
-missing (`realpath` is an OMP builtin). If it cannot be resolved, stop and name
-issue-triage. Do not resolve
+command as given — `T=$(realpath …) && bun "$T"` fails closed as the last
+command of a line, or with `|| { …; exit 1; }` on its own line when more
+commands follow (`realpath` is an OMP builtin). If it cannot be resolved, stop
+and name issue-triage. Do not resolve
 the CLI from a path inside the skill body. Do not write issues by hand. An
 existing `docs/agents/issue-tracker.md` is left untouched by that command
 (`contract: keep-existing`). The command does not write the
