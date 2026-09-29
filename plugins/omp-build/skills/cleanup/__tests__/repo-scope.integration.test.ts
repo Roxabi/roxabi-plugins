@@ -3,22 +3,12 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { FIXTURE_ENV, initRepo, scan, scanStatus } from './fixture'
 
 /**
  * #622: orphan-shell scan must not offer another same-named repo's live
  * worktree, the principal's own tree, or unregistered+.git rows under `--yes`.
  */
-const SCAN = path.resolve(import.meta.dirname, '..', 'scan-orphan-worktree-shells.sh')
-
-const FIXTURE_ENV: NodeJS.ProcessEnv = {
-  ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))),
-  GIT_CONFIG_GLOBAL: '/dev/null',
-  GIT_CONFIG_SYSTEM: '/dev/null',
-  GIT_AUTHOR_NAME: 'Fixture',
-  GIT_AUTHOR_EMAIL: 'fixture@example.com',
-  GIT_COMMITTER_NAME: 'Fixture',
-  GIT_COMMITTER_EMAIL: 'fixture@example.com',
-}
 
 let root: string | undefined
 
@@ -26,25 +16,6 @@ afterEach(() => {
   if (root) rmSync(root, { recursive: true, force: true })
   root = undefined
 })
-
-function initRepo(dir: string, home: string): void {
-  mkdirSync(dir, { recursive: true })
-  const git = (...args: string[]) =>
-    execFileSync('git', args, { cwd: dir, env: { ...FIXTURE_ENV, HOME: home }, stdio: 'ignore' })
-  git('init', '-q', '-b', 'main')
-  writeFileSync(path.join(dir, 'README.md'), 'base\n')
-  git('add', 'README.md')
-  git('commit', '-q', '-m', 'chore: base')
-}
-
-function scan(repo: string, env: NodeJS.ProcessEnv, args: string[] = []): string[] {
-  const out = execFileSync('bash', [SCAN, ...args], {
-    cwd: repo,
-    env: { ...FIXTURE_ENV, ...env },
-    encoding: 'utf8',
-  })
-  return out.split('\n').filter((line) => line.includes('|'))
-}
 
 describe('cleanup orphan scan repo scope (#622)', () => {
   it('never lists a live worktree of another same-named repository', () => {
@@ -348,5 +319,52 @@ describe('cleanup orphan scan repo scope (#622)', () => {
     const reported = scan(principal, { HOME: home, OMP_WORKTREE_DIR: principal })
     expect(reported.map((line) => line.split('|')[0])).toContain(orphan)
     expect(reported.some((line) => line.includes('content without git registration'))).toBe(true)
+  })
+
+  it('with base=principal, lists only exempt-base orphans — not other principal descendants', () => {
+    // Pins the under-principal descendant guard: OMP_WORKTREE_DIR=principal →
+    // feature_root=principal/app is exempt; principal/src must never appear.
+    // Deleting the descendant guard makes principal/src land in --yes-targets
+    // when the base is the principal's parent (AC2 path) or here when a scan
+    // root equals the principal.
+    root = realpathSync(mkdtempSync(path.join(tmpdir(), 'omp-build-622-desc-')))
+    const home = path.join(root, 'home')
+    mkdirSync(home)
+    const principal = path.join(root, 'app')
+    initRepo(principal, home)
+
+    const exemptOrphan = path.join(principal, 'app', 'src')
+    mkdirSync(path.join(exemptOrphan, 'node_modules'), { recursive: true })
+    writeFileSync(path.join(exemptOrphan, 'main.ts'), 'export {}\n')
+
+    const nonExempt = path.join(principal, 'src')
+    mkdirSync(nonExempt, { recursive: true })
+    writeFileSync(path.join(nonExempt, 'leak.ts'), 'export {}\n')
+
+    // Also exercise base=principal's parent so classify_child sees principal/src
+    // as a depth-1 child of the principal scan root.
+    const parent = root
+    const fullParent = scan(principal, { HOME: home, OMP_WORKTREE_DIR: parent })
+    const yesParent = scan(principal, { HOME: home, OMP_WORKTREE_DIR: parent }, ['--yes-targets'])
+    expect(fullParent.some((line) => line.includes(nonExempt))).toBe(false)
+    expect(yesParent.some((line) => line.includes(nonExempt))).toBe(false)
+
+    const full = scan(principal, { HOME: home, OMP_WORKTREE_DIR: principal })
+    const yesTargets = scan(principal, { HOME: home, OMP_WORKTREE_DIR: principal }, ['--yes-targets'])
+    // Exempt-base orphan still listed.
+    expect(full.map((line) => line.split('|')[0])).toContain(exemptOrphan)
+    expect(full.some((line) => line.includes(nonExempt))).toBe(false)
+    expect(yesTargets.some((line) => line.includes(nonExempt))).toBe(false)
+  })
+
+  it('rejects unknown arguments with exit 2', () => {
+    root = realpathSync(mkdtempSync(path.join(tmpdir(), 'omp-build-622-args-')))
+    const home = path.join(root, 'home')
+    mkdirSync(home)
+    const repo = path.join(root, 'app')
+    initRepo(repo, home)
+    const r = scanStatus(repo, { HOME: home, OMP_WORKTREE_DIR: path.join(root, 'wt') }, ['--yes-target'])
+    expect(r.status).toBe(2)
+    expect(r.stderr).toMatch(/unknown arg: --yes-target/)
   })
 })

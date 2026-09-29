@@ -41,6 +41,7 @@ YES_TARGETS=false
 for arg in "$@"; do
   case "$arg" in
     --yes-targets) YES_TARGETS=true ;;
+    *) echo "unknown arg: $arg" >&2; exit 2 ;;
   esac
 done
 
@@ -183,7 +184,10 @@ is_protected_path() {
   case "$principal" in
     "$p"/*) return 0 ;;
   esac
+  # Other registered worktrees (principal already handled above, including its
+  # exempt carve-outs — do not re-catch those as "under a registered path").
   for reg in "${!REGISTERED[@]}"; do
+    [ "$reg" = "$principal" ] && continue
     [ "$p" = "$reg" ] && return 0
     case "$p" in
       "$reg"/*) return 0 ;;
