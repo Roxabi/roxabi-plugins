@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest'
 const WORKFLOW = join(import.meta.dirname, 'workflow.js')
 const CI_WATCH = join(import.meta.dirname, '..', 'ci-watch', 'ci-watch.sh')
 const EVENT_AT = '2026-09-29T10:00:05Z'
+const BEFORE_AT = '2026-09-29T09:00:00Z'
 const EVENTS_JQ = '.[] | select(.event == "labeled" and .label.name == "reviewed") | .created_at'
 
 const DRIVER = `
@@ -23,20 +24,31 @@ if (fn === 'readLanding') {
   process.exit(0)
 }
 const calls = []
+let eventsPoll = 0
+const sleep = async () => {}
 const gh = async (_cwd, args) => {
   calls.push(args)
   if (args[0] === 'repo') return JSON.stringify({ nameWithOwner: 'acme/app' })
   if (args[0] === 'pr' && args[1] === 'view' && args.includes('baseRefName')) return JSON.stringify({ baseRefName: 'main' })
   if (args[0] === 'pr' && args[1] === 'view' && args.includes('labels')) return JSON.stringify({ labels: [] })
   if (args[0] === 'api' && String(args[1] ?? '').includes('/events')) {
+    eventsPoll++
     if (eventsMode === 'fail') throw new Error('HTTP 500')
     if (eventsMode === 'empty') return ''
-    return '2026-09-29T09:00:00Z\\n${EVENT_AT}\\n'
+    if (eventsMode === 'lag') {
+      // before + two stale post-add reads, then the new event
+      if (eventsPoll <= 3) return '${BEFORE_AT}'
+      return '${BEFORE_AT}\\n${EVENT_AT}\\n'
+    }
+    if (eventsMode === 'stuck') return '${BEFORE_AT}'
+    // ok: first call (before) empty, later the new event
+    if (eventsPoll === 1) return ''
+    return '${EVENT_AT}\\n'
   }
   if (args[0] === 'api') throw new Error('HTTP 403')
   return ''
 }
-console.log(JSON.stringify({ result: await landPr(cwd, Number(pr), { gh }), calls }))
+console.log(JSON.stringify({ result: await landPr(cwd, Number(pr), { gh, sleep }), calls }))
 `
 
 /** A checkout with the given files, relative path → content. */
@@ -67,6 +79,10 @@ const WORKFLOW_FILE = { '.github/workflows/merge-on-green.yml': 'name: merge-on-
 const PROTECTION = ['api', 'repos/acme/app/branches/main/protection/required_status_checks']
 const RULES = ['api', 'repos/acme/app/rules/branches/main']
 const EVENTS = ['api', 'repos/acme/app/issues/7/events', '--paginate', '--jq', EVENTS_JQ]
+const WATCH_FAILED = {
+  status: 'watch-failed',
+  error: 'could not read the labeled reviewed event after re-label — merge-on-green needs --since from GitHub',
+}
 
 describe('landPr through the checkout', () => {
   it('a merge-on-green workflow and a stack with no landing block watch merge-on-green, asking no rules API', () => {
@@ -75,7 +91,7 @@ describe('landPr through the checkout', () => {
     const script = watchScript(result.watch)
     expect(script.startsWith('/')).toBe(true)
     expect(existsSync(script)).toBe(true)
-    expect(result.watch).toBe(`bash '${script}' 7 --merge-mode merge-on-green --since ${EVENT_AT}`)
+    expect(result.watch).toBe(`bash '${script}' '7' --merge-mode merge-on-green --since ${EVENT_AT}`)
     // The absolute path is the real ci-watch.sh: a pure hook works from a cwd outside the plugin.
     const outside = mkdtempSync(join(tmpdir(), 'land-watch-cwd-'))
     expect(
@@ -85,8 +101,10 @@ describe('landPr through the checkout', () => {
         input: '[]',
       }).trim(),
     ).toBe('PENDING')
-    // The stub answers repo view, baseRefName and protection/rules api; a probe would show here.
+    // before events + labels + add + after events. Stub answers protection/rules; a probe would show.
     expect(calls).toEqual([
+      ['repo', 'view', '--json', 'nameWithOwner'],
+      EVENTS,
       ['pr', 'view', '7', '--json', 'labels'],
       ['pr', 'edit', '7', '--add-label', 'reviewed'],
       ['repo', 'view', '--json', 'nameWithOwner'],
@@ -94,16 +112,29 @@ describe('landPr through the checkout', () => {
     ])
   })
 
-  it('events read failing omits --since and still returns watching', () => {
+  it('events read failing returns watch-failed, never watching without --since', () => {
     const { result, calls } = land(checkout({ ...WORKFLOW_FILE, '.dev/stack.yml': 'runtime: bun\n' }), 'fail')
+    expect(result).toEqual(WATCH_FAILED)
+    expect(calls.some((a) => a[0] === 'pr' && a.includes('--add-label'))).toBe(true)
+    expect(calls.filter((a) => a[0] === 'api' && String(a[1]).includes('/events')).length).toBeGreaterThan(1)
+  })
+
+  it('events read empty returns watch-failed', () => {
+    const { result } = land(checkout({ ...WORKFLOW_FILE, '.dev/stack.yml': 'runtime: bun\n' }), 'empty')
+    expect(result).toEqual(WATCH_FAILED)
+  })
+
+  it('a lagging events API eventually yields watching with the newer --since', () => {
+    const { result, calls } = land(checkout({ ...WORKFLOW_FILE, '.dev/stack.yml': 'runtime: bun\n' }), 'lag')
     expect(result).toMatchObject({ status: 'watching', mode: 'merge-on-green' })
-    expect(result.watch).not.toContain('--since')
-    expect(calls).toEqual([
-      ['pr', 'view', '7', '--json', 'labels'],
-      ['pr', 'edit', '7', '--add-label', 'reviewed'],
-      ['repo', 'view', '--json', 'nameWithOwner'],
-      EVENTS,
-    ])
+    expect(result.watch).toContain(`--since ${EVENT_AT}`)
+    expect(calls.filter((a) => a[0] === 'api' && String(a[1]).includes('/events')).length).toBe(4)
+  })
+
+  it('retries that only ever see the pre-label time return watch-failed', () => {
+    const { result, calls } = land(checkout({ ...WORKFLOW_FILE, '.dev/stack.yml': 'runtime: bun\n' }), 'stuck')
+    expect(result).toEqual(WATCH_FAILED)
+    expect(calls.filter((a) => a[0] === 'api' && String(a[1]).includes('/events')).length).toBe(6)
   })
 
   it.each([
@@ -135,7 +166,7 @@ describe('landPr through the checkout', () => {
   it('a comment-only stack with the workflow file watches merge-on-green', () => {
     const { result, calls } = land(checkout({ ...WORKFLOW_FILE, '.dev/stack.yml': '# only a comment\n' }))
     expect(result).toMatchObject({ status: 'watching', mode: 'merge-on-green' })
-    expect(calls[0]).toEqual(['pr', 'view', '7', '--json', 'labels'])
+    expect(calls[0]).toEqual(['repo', 'view', '--json', 'nameWithOwner'])
   })
 })
 

@@ -675,6 +675,18 @@ next snap ${snapshots.length}
     expect(result.stderr).toContain(EVALUATE_ONLY)
   })
 
+  it('a fractional started_at in the same UTC second as --since is kept', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-eval-frac-'))
+    probeGh(dir, {
+      snapshots: [snapshot(), snapshot(), snapshot(), snapshot('MERGED')],
+      runs: [page({ id: 42, status: 'completed', started_at: '2026-09-29T10:00:00.500Z' })],
+      annotations: { 42: NOT_CONFIGURED },
+    })
+    const result = runWatch(dir, {}, undefined, '30s', 'merge-on-green', ['--since', SINCE])
+    expect(result.code).toBe(6)
+    expect(result.stderr).toContain(EVALUATE_ONLY)
+  })
+
   it('MERGED on the first merge-phase poll exits 0 without probing', () => {
     const dir = mkdtempSync(join(tmpdir(), 'ci-watch-eval-merged-'))
     probeGh(dir, {
@@ -688,11 +700,12 @@ next snap ${snapshots.length}
     expect(count(dir, 'snap')).toBe('3')
   })
 
-  it('exits 70 when the check-runs lookup fails', () => {
+  it('exits 70 when the check-runs lookup fails, without waiting out the deadline', () => {
     const dir = mkdtempSync(join(tmpdir(), 'ci-watch-eval-runs-fail-'))
-    writeFileSync(join(dir, 'snap.1.json'), snapshot())
-    writeFileSync(join(dir, 'snap.2.json'), snapshot())
-    writeFileSync(join(dir, 'snap.3.json'), snapshot())
+    // Enough OPEN merge-phase snaps that a swallowed failure would deadline (exit 5).
+    for (let i = 1; i <= 20; i++) {
+      writeFileSync(join(dir, `snap.${i}.json`), i <= 2 || i < 20 ? snapshot() : snapshot())
+    }
     fakeGh(
       dir,
       `#!/usr/bin/env bash
@@ -706,12 +719,15 @@ n=0
 if [[ -f "$d/snap.count" ]]; then n=$(cat "$d/snap.count"); fi
 n=$((n + 1))
 echo "$n" > "$d/snap.count"
+if (( n > 20 )); then n=20; fi
 cat "$d/snap.$n.json"
 `,
     )
-    const result = runWatch(dir, {}, undefined, '30s', 'merge-on-green', ['--since', SINCE])
+    const result = runWatch(dir, {}, undefined, '2s', 'merge-on-green', ['--since', SINCE])
     expect(result.code).toBe(70)
     expect(apiLog(dir)).toContain('commits/abc/check-runs')
+    // Check phase: 2 polls, then first merge probe fails the api — not a deadline loop.
+    expect(count(dir, 'snap')).toBe('3')
   })
 
   it('a completed run without the notice is configured: the probe stops and the merge path runs unchanged', () => {
