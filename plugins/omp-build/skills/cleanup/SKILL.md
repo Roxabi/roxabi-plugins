@@ -429,7 +429,7 @@ If `REPORT_ONLY=true`, prefix the header with `[report-only — no mutations per
 - **Deleted on the strength of a grep**: the failure this ordering exists to prevent — an unmerged, pushed β whose issue number appears in an unrelated commit on BASE, deleted from origin with no copy left. `safe_remote` therefore admits proofs only.
 - **Remote tracking branches**: Step 6 scans **all** remote β independently — always require explicit confirmation.
 - **Stale worktrees**: ω path ∉ disk → `git worktree prune`.
-- **Invoked from inside ω**: the orphan scan anchors both roots on the **principal** (first `git worktree list` entry), not on `git rev-parse --show-toplevel` — inside a linked worktree the latter names the ω itself, and every scan would report zero.
+- **Invoked from inside ω**: the orphan scan anchors its three roots on the **principal** (first `git worktree list` entry) — `<principal>/.claude/worktrees/` by path, the other two by its `basename` and `$principal/.dev/stack.yml` — never on `git rev-parse --show-toplevel`, which inside a linked worktree names the ω itself and would make every scan report zero.
 - **Symlinked `$HOME`**: git records the *resolved* worktree path, the scan root is built from `$HOME`. Compared lexically a live registered ω reads as an orphan and 5b-execute `rm -rf`s it, so `scan-orphan-worktree-shells.sh` canonicalises both sides (`realpath`) before comparing and emits canonical paths.
 - **Orphan shells after remove**: `git worktree remove` does not delete empty parent dirs. Step 5b + `scan-orphan-worktree-shells.sh` cover these.
 

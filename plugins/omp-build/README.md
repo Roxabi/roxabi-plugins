@@ -107,7 +107,7 @@ At most two fix rounds; a third red stops and `enforceStop` removes the `reviewe
 label and disables native auto-merge. Every verdict and CI reopening is persisted
 (counts only, not the stop). Only an approved landing calls `landPr`, which adds
 `reviewed`, arms native auto-merge, and hands the wait to `/ci-watch`. It does not
-poll. `applyCiWatchExit` maps the watch exit and disarms on a failing one. No duplicate spec files or `validated` gate.
+poll. `applyCiWatchExit` re-reads the PR state and disarms on exits 1–3 (failed, cancelled, other conclusion); exit 70 or any other code returns `watch-failed` and leaves the gate armed. No duplicate spec files or `validated` gate.
 
 ## Guards
 

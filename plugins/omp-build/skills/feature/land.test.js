@@ -25,12 +25,28 @@ describe('parseRequiredContexts', () => {
   })
 })
 
-function mockLand({ rollupSequence = [], mergeThrows = null, disableThrows = null, timeout = 60_000 } = {}) {
+function mockLand({
+  rollupSequence = [],
+  mergeThrows = null,
+  disableThrows = null,
+  timeout = 60_000,
+  states = ['OPEN'],
+  autoMerges = [null],
+} = {}) {
   let t = 0
   const calls = []
   let poll = 0
+  let statePoll = 0
   const gh = async (_cwd, args) => {
     calls.push(args)
+    const jsonAt = args.indexOf('--json')
+    const fields = jsonAt === -1 ? [] : String(args[jsonAt + 1] ?? '').split(',')
+    if (args[0] === 'pr' && args[1] === 'view' && fields.includes('state')) {
+      const state = states[Math.min(statePoll, states.length - 1)] ?? 'OPEN'
+      const autoMergeRequest = autoMerges[Math.min(statePoll, autoMerges.length - 1)] ?? null
+      statePoll++
+      return JSON.stringify({ state, autoMergeRequest })
+    }
     if (args[0] === 'pr' && args[1] === 'view') {
       const entry = rollupSequence[Math.min(poll, rollupSequence.length - 1)]
       poll++
@@ -125,14 +141,33 @@ describe('landPr', () => {
 })
 
 describe('applyCiWatchExit', () => {
+  const view = ['pr', 'view', '7', '--json', 'state,autoMergeRequest']
+
   it.each([
-    [0, 'merged'],
     [4, 'stopped'],
     [5, 'timeout'],
   ])('exit %s → %s', async (code, status) => {
     const { gh, calls } = mockLand()
     expect(await applyCiWatchExit('/tmp/wt', 7, code, { mode: 'merge-on-green', gh })).toEqual({ status })
-    expect(calls.some(removesLabel)).toBe(false)
+    expect(calls).toEqual([])
+  })
+
+  it('exit 0 on a merged PR is merged', async () => {
+    const { gh, calls } = mockLand({ states: ['MERGED'] })
+    expect(await applyCiWatchExit('/tmp/wt', 7, 0, { mode: 'native', gh })).toEqual({ status: 'merged' })
+    expect(calls).toEqual([view])
+  })
+
+  it('exit 0 on an unmerged PR is stopped', async () => {
+    const { gh, calls } = mockLand({ states: ['OPEN'] })
+    expect(await applyCiWatchExit('/tmp/wt', 7, 0, { mode: 'native', gh })).toEqual({ status: 'stopped' })
+    expect(calls).toEqual([view])
+  })
+
+  it.each([1, 2, 3])('exit %s on a closed PR is stopped without disarm', async (code) => {
+    const { gh, calls } = mockLand({ states: ['CLOSED'] })
+    expect(await applyCiWatchExit('/tmp/wt', 7, code, { mode: 'native', gh })).toEqual({ status: 'stopped' })
+    expect(calls).toEqual([view])
   })
 
   it('exit 1 on merge-on-green removes reviewed and does not disable auto-merge', async () => {
@@ -152,6 +187,95 @@ describe('applyCiWatchExit', () => {
       disarmed: true,
     })
     expect(call(calls, disablesAuto)).toBeGreaterThan(call(calls, removesLabel))
+  })
+
+  it.each([
+    [2, 'ci-cancelled'],
+    [3, 'ci-blocked'],
+  ])('exit %s on merge-on-green disarms reviewed only → %s', async (code, status) => {
+    const { gh, calls } = mockLand()
+    expect(await applyCiWatchExit('/tmp/wt', 7, code, { mode: 'merge-on-green', gh })).toEqual({
+      status,
+      disarmed: true,
+    })
+    expect(calls).toEqual([
+      ['pr', 'view', '7', '--json', 'state,autoMergeRequest'],
+      ['pr', 'edit', '7', '--remove-label', 'reviewed'],
+    ])
+  })
+
+  it.each([
+    [2, 'ci-cancelled'],
+    [3, 'ci-blocked'],
+  ])('exit %s on native removes the label then disables auto-merge → %s', async (code, status) => {
+    const { gh, calls } = mockLand()
+    expect(await applyCiWatchExit('/tmp/wt', 7, code, { mode: 'native', gh })).toEqual({
+      status,
+      disarmed: true,
+    })
+    expect(calls).toEqual([
+      ['pr', 'view', '7', '--json', 'state,autoMergeRequest'],
+      ['pr', 'edit', '7', '--remove-label', 'reviewed'],
+      ['pr', 'merge', '7', '--disable-auto'],
+    ])
+  })
+
+  it('an unmapped exit leaves the gate armed', async () => {
+    const { gh, calls } = mockLand()
+    expect(await applyCiWatchExit('/tmp/wt', 7, 9, { mode: 'native', gh })).toEqual({
+      status: 'watch-failed',
+      code: 9,
+    })
+    expect(calls).toEqual([])
+  })
+
+  it('a merged PR is not disarmed', async () => {
+    const { gh, calls } = mockLand({ states: ['MERGED'] })
+    expect(await applyCiWatchExit('/tmp/wt', 7, 3, { mode: 'native', gh })).toEqual({ status: 'merged' })
+    expect(calls).toEqual([['pr', 'view', '7', '--json', 'state,autoMergeRequest']])
+  })
+
+  it('a merge that wins during disable-auto is merged', async () => {
+    const { gh, calls } = mockLand({ disableThrows: 'already merged', states: ['OPEN', 'MERGED'] })
+    expect(await applyCiWatchExit('/tmp/wt', 7, 1, { mode: 'native', gh })).toEqual({ status: 'merged' })
+    expect(calls).toEqual([
+      ['pr', 'view', '7', '--json', 'state,autoMergeRequest'],
+      ['pr', 'edit', '7', '--remove-label', 'reviewed'],
+      ['pr', 'merge', '7', '--disable-auto'],
+      ['pr', 'view', '7', '--json', 'state,autoMergeRequest'],
+    ])
+  })
+
+  it('a disable-auto error with no auto-merge is already disarmed', async () => {
+    const { gh, calls } = mockLand({ disableThrows: 'already off', states: ['OPEN', 'OPEN'] })
+    expect(await applyCiWatchExit('/tmp/wt', 7, 2, { mode: 'native', gh })).toEqual({
+      status: 'ci-cancelled',
+      disarmed: true,
+    })
+    expect(calls).toEqual([
+      ['pr', 'view', '7', '--json', 'state,autoMergeRequest'],
+      ['pr', 'edit', '7', '--remove-label', 'reviewed'],
+      ['pr', 'merge', '7', '--disable-auto'],
+      ['pr', 'view', '7', '--json', 'state,autoMergeRequest'],
+    ])
+  })
+
+  it('rethrown disable-auto failure when auto-merge is still set', async () => {
+    const { gh } = mockLand({
+      disableThrows: 'nope',
+      states: ['OPEN', 'OPEN'],
+      autoMerges: [null, { enabledAt: 't' }],
+    })
+    await expect(applyCiWatchExit('/tmp/wt', 7, 1, { mode: 'native', gh })).rejects.toThrow(/nope/)
+  })
+
+  it('exit 70 leaves the gate armed', async () => {
+    const { gh, calls } = mockLand()
+    expect(await applyCiWatchExit('/tmp/wt', 7, 70, { mode: 'native', gh })).toEqual({
+      status: 'watch-failed',
+      code: 70,
+    })
+    expect(calls).toEqual([])
   })
 })
 

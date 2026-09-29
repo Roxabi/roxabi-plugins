@@ -23,11 +23,17 @@ use the current repository conventions, not a separate spec-file lifecycle.
   `.dev/stack.yml` declares `release.model: staging-train`. Never invoke either.
 
 `/feature init [--dry-run]` adopts a repository from a worktree, never the
-Principal. `--dry-run` prints the plan and writes nothing. A real run calls
-`bun skill://issue-triage/triage.ts init` for the tracker and labels, fills
-`landing` and `worktree` in `.dev/stack.yml`, and does not index ccc or
-codegraph without consent already recorded there. A second run is `init=noop`.
-Orphan semctx contracts are listed, not closed.
+Principal. `--dry-run` prints the plan and writes nothing, and its next line
+includes `--dry-run`. A real run fills `landing` and `worktree` in
+`.dev/stack.yml` and prints `next: bun skill://issue-triage/triage.ts init`.
+It does not run that command and does not print `init=done`: `skill://` is resolved by the agent, not by a
+child process. Run the printed command. If it cannot be resolved, stop and
+name issue-triage. Do not resolve the CLI from a path inside the skill body.
+Do not write issues by hand. An existing `docs/agents/issue-tracker.md` is
+left untouched by that command (`contract: keep-existing`). The command does
+not write the `omp-build-feature-init` marker, because the tracker step has
+not run. It does not index ccc or codegraph without consent already recorded
+there. Orphan semctx contracts are listed, not closed.
 
 ## 1. Route-specific prerequisites
 
@@ -308,10 +314,13 @@ Run `watch` as an async bash job (`timeout: 0`). Map the exit with
 
 | Exit | Result |
 |---|---|
-| 0 | `merged` |
+| 0 | re-read state: MERGED → `merged`; otherwise `stopped` (do not claim merged) |
 | 1 | remove `reviewed` (native: also disable auto-merge), `ci-failed`, then `loop.reopen('ci-failed')` |
+| 2 | remove `reviewed` (native: also disable auto-merge), `ci-cancelled` |
+| 3 | remove `reviewed` (native: also disable auto-merge), `ci-blocked` |
 | 4 | stop and report; do not claim merged |
 | 5 | `timeout`; re-attach the same watch later |
+| 70 | usage, missing tool, or `gh`/`jq` failure → `watch-failed`; gate left armed |
 
 Before any push that follows a `reviewed` label, call
 `disarmReviewedBeforePush(cwd, pr, { push })`. The label is removed before the
@@ -325,6 +334,9 @@ Neither a fix round nor another review action may write that label in this cycle
 | `watching` | Start the async `/ci-watch` job named in `land.watch` |
 | `merged` | Report issue + PR; offer the optional tail (§0), stop |
 | `ci-failed` | Gate already disarmed; `step = loop.reopen('ci-failed')`; `await loop.persist(cwd)`; follow §6.6 |
+| `ci-cancelled` | Gate disarmed; stop, report the cancelled checks; operator re-runs CI then re-enters §6.7 |
+| `ci-blocked` | Gate disarmed; stop, report the checks named on stderr; operator resolves the named checks or re-runs CI, then re-enters §6.7 |
+| `watch-failed` | Stop, report the code, gate left as is; do not claim merged |
 | `no-required-checks` | Stop; report missing protection. Native only — merge-on-green does not return this |
 | `timeout` | Re-attach the watch. Do not claim merged |
 | `stopped` | Stop and report. Do not claim merged |
