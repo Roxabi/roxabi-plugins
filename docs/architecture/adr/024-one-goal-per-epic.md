@@ -14,8 +14,8 @@ superseded_in_part_by: [ADR-025]
 > that OMP loses every executable check. Those sentences are qualified in
 > ADR-020. They are not still law.
 >
-> **Amended 2026-09-29 by [ADR-025](025-fresh-context-per-unit-of-work.md)** — §1:
-> the goal session keeps the frontier and each ticket's outcome; each ticket's §6
+> **Amended 2026-09-29 by [ADR-025](025-fresh-context-per-unit-of-work.md)** — decision 1 (§3):
+> the goal session keeps the frontier and each ticket's outcome; each ticket's `/feature` §6
 > runs in a fresh agent. The goal is still the autonomy unit.
 
 ## Context
@@ -147,4 +147,4 @@ ADR-020 no longer bind:
 
 ## References
 
-- Issue #576 · [ADR-020](020-omp-delivery-feature-cycle.md) · [ADR-025](025-fresh-context-per-unit-of-work.md) (amends §1) · Glossary `plugins/omp-build/CONTEXT.md`
+- Issue #576 · [ADR-020](020-omp-delivery-feature-cycle.md) · [ADR-025](025-fresh-context-per-unit-of-work.md) (amends decision 1, §3) · Glossary `plugins/omp-build/CONTEXT.md`

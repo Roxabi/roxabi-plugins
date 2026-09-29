@@ -154,7 +154,7 @@ Adopt **Option C**.
   not.
 - Adopting the Matt base means adopting its context hygiene (`/clear` between
   tickets). The frontier stop is the assisted case — no Epic goal. Under an
-  Epic goal, [ADR-024](024-one-goal-per-epic.md) §3 replaces it, and
+  Epic goal, [ADR-024](024-one-goal-per-epic.md) decision 1 (§3) replaces it, and
   [ADR-025](025-fresh-context-per-unit-of-work.md) restores the hygiene: each
   ticket and each fix round starts in a fresh context.
 - The OMP product loses the `R-pr` falsify oracle (`oracle_ok`,

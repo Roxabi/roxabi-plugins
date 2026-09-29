@@ -1,13 +1,13 @@
 ---
 title: "ADR-025: Fresh context per unit of work"
-description: Amends ADR-020 §7 and ADR-024 §1 — a ticket, a fix round and any independent task each start in a fresh context seeded only with durable state; a finished agent gets no new work; fix still edits inline, inside its own fresh agent.
+description: Amends ADR-020 §7 and ADR-024 decision 1 (§3) — a ticket, a fix round and any independent task each start in a fresh context seeded only with durable state; a finished agent gets no new work; fix still edits inline, inside its own fresh agent.
 status: accepted
 normative: true
 date: 2026-09-29
 ---
 
 > Amends [ADR-020](020-omp-delivery-feature-cycle.md) §7 (where `fix` runs) and
-> [ADR-024](024-one-goal-per-epic.md) §1 (where a ticket runs under an epic goal).
+> [ADR-024](024-one-goal-per-epic.md) decision 1 (§3 — where a ticket runs under an epic goal).
 > Restores the context hygiene that ADR-020's Negative priced and that ADR-024
 > removed without a replacement.
 
@@ -140,7 +140,7 @@ Adopt **Option C**.
 ## References
 
 - [ADR-020](020-omp-delivery-feature-cycle.md) §7 and Negative (context hygiene) ·
-  [ADR-024](024-one-goal-per-epic.md) §1 and Option A
+  [ADR-024](024-one-goal-per-epic.md) decision 1 (§3) and Option A
 - `plugins/omp-build/skills/feature/SKILL.md` § Context boundary, §6.5
 - `plugins/omp-build/skills/fix/SKILL.md` · `plugins/omp-build/CONTEXT.md`
   (Context boundary)

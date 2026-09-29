@@ -71,7 +71,7 @@ previous one.
 ### Ticket unit
 
 Under a goal, the operator's `/goal` is the standing Phase 8 choice and merge
-approval for every ticket of the epic (ADR-025 §5, ADR-024 decision 1). The
+approval for every ticket of the epic (ADR-025 decision 5, ADR-024 decision 1). The
 ticket unit runs §6 for its ticket to a terminal outcome and asks nothing:
 
 - §6.4: `step.action` is the choice — `fix` → §6.5, `land` → §6.7, `stop` → §6.6.
