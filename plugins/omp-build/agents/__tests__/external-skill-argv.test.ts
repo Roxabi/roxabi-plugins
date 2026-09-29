@@ -3,10 +3,16 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 /**
- * External programs do not resolve `skill://`. A body may hand that URL only to
- * the builtins `realpath`, `read`, or `cat` — and only in a fail-closed shape
- * (`T=$(realpath …) && …` or `T=$(realpath …) || { …; exit 1; }`). The inline
- * `"$(realpath skill://…)"` argv form and the `;` form both fail open (#619).
+ * External programs do not resolve `skill://`. In a shell context the only
+ * accepted use is a fail-closed realpath assignment:
+ *
+ *   NAME=$(realpath [-flags] ['']?skill://…['']?) && …
+ *   NAME=$(realpath …) || { …; exit N; }   # N ≥ 1; block may span lines
+ *   NAME="$(realpath …)" && … / || { … exit N; }
+ *
+ * Every other realpath / read / cat / bun / bash / … + skill:// is a hit —
+ * including `;`, a bare newline, inline `"$(realpath …)"`, `|| { …; }` with
+ * no exit, and `cat … | <shell>` (#619).
  *
  * Corpus: every `.md` under plugins/.
  */
@@ -20,12 +26,52 @@ const PLUGINS = path.join(REPO, 'plugins')
  */
 const ALLOWED = new Set(['plugins/omp-build/skills/cleanup/SKILL.md'])
 
-const SHELLISH = /\b(?:bun|bash|node|sh|bunx|npx|realpath|read|cat)\b|\$\(/
+/** Languages that are never shell, even when the fence body looks shellish. */
+const NON_SHELL_LANG = new Set([
+  'js',
+  'javascript',
+  'ts',
+  'typescript',
+  'tsx',
+  'jsx',
+  'json',
+  'yaml',
+  'yml',
+  'md',
+  'markdown',
+  'text',
+  'txt',
+  'diff',
+  'html',
+  'css',
+  'toml',
+  'xml',
+  'svg',
+  'py',
+  'python',
+  'go',
+  'rust',
+  'java',
+  'c',
+  'cpp',
+  'h',
+  'rb',
+  'ruby',
+  'sql',
+  'graphql',
+  'proto',
+  'dockerfile',
+  'makefile',
+  'ini',
+  'cfg',
+])
 
-/** `](skill://…)` markdown link targets are not shell argv. */
-function inMarkdownLink(text: string, index: number): boolean {
-  return text.slice(Math.max(0, index - 2), index) === ']('
-}
+/** Whole-word shell commands — hyphenated `read-*` / `node-*` must not match. */
+const CMD = String.raw`(?:bun|bash|node|sh|bunx|npx|realpath|read|cat)`
+const CMD_RE = new RegExp(String.raw`(?<![-\w])${CMD}(?![-\w])`)
+
+/** A resolvable skill path — requires a skill name (skips `skill://…` ellipses). */
+const SKILL_URL = /skill:\/\/[a-zA-Z0-9][\w./-]*/g
 
 function walk(dir: string, match: (rel: string) => boolean): string[] {
   const out: string[] = []
@@ -47,57 +93,188 @@ export function joinContinuations(text: string): string {
   return text.replace(/\\\r?\n/g, ' ')
 }
 
+/** Drop `# …` comment lines (and trailing `# …` on a line) before scanning. */
+export function stripShellComments(text: string): string {
+  return text
+    .split('\n')
+    .map((line) => {
+      if (/^\s*#/.test(line)) return ''
+      // Trailing comment — keep quoted `#` alone by only stripping when space-#.
+      const m = /^(?<code>(?:[^'"#]|'[^']*'|"[^"]*")*?)\s#(?<rest>.*)$/.exec(line)
+      return m?.groups?.code ?? line
+    })
+    .join('\n')
+}
+
 /**
- * Shell contexts that may hand argv to an external program: fenced bash/sh/shell
- * (or unlabelled fences that look shellish), plus inline code spans that look
- * shellish. Prose skill citations (`skill://fix`) are not shell contexts.
+ * Fail-closed realpath assignment. Captures each allowed `skill://` span so the
+ * scanner can skip exactly those occurrences.
+ *
+ * NAME=$(realpath [-e …] ['']?skill://…['']?) && …
+ * NAME="$(realpath …)" || { … exit N; }   with N ≥ 1
+ */
+const FAIL_CLOSED =
+  /\b[A-Za-z_][A-Za-z0-9_]*=(?:"\$\(\s*realpath\b[^)]*\)"|\$\(\s*realpath\b[^)]*\))\s*(?:&&|\|\|\s*\{(?:(?!\})[\s\S])*?\bexit\s+(?:[1-9]\d*)\b(?:(?!\})[\s\S])*?\})/g
+
+function allowedSkillRanges(text: string): Array<{ start: number; end: number }> {
+  const ranges: Array<{ start: number; end: number }> = []
+  for (const m of text.matchAll(FAIL_CLOSED)) {
+    const stmt = m[0]
+    const abs = m.index ?? 0
+    for (const u of stmt.matchAll(SKILL_URL)) {
+      const local = u.index ?? 0
+      // Only the realpath argument counts — skip URLs inside the ||{ printf } message
+      // by requiring they sit inside the $(realpath …) head.
+      const headEnd = stmt.search(/\)\s*(?:&&|\|\|)/)
+      if (headEnd >= 0 && local > headEnd) continue
+      ranges.push({ start: abs + local, end: abs + local + u[0].length })
+    }
+  }
+  return ranges
+}
+
+function inRange(ranges: Array<{ start: number; end: number }>, index: number): boolean {
+  return ranges.some((r) => index >= r.start && index < r.end)
+}
+
+/** `](skill://…)` markdown link targets are not shell argv. */
+function inMarkdownLink(text: string, index: number): boolean {
+  return text.slice(Math.max(0, index - 2), index) === ']('
+}
+
+/**
+ * Shell contexts: every fence spelling (``` / ~~~ / 4+ / titled / console) unless
+ * the language is known non-shell; indented code blocks; inline spans (joined
+ * across soft line breaks within a paragraph).
  */
 export function shellContexts(md: string): string[] {
   const out: string[] = []
-  const fence = /```([^\n]*)\r?\n([\s\S]*?)```/g
-  for (const m of md.matchAll(fence)) {
-    const lang = m[1].trim().toLowerCase()
-    const body = m[2]
-    if (lang === 'bash' || lang === 'sh' || lang === 'shell' || (!lang && SHELLISH.test(body))) {
-      if (body.includes('skill://')) out.push(joinContinuations(body))
+  const consumed: Array<{ start: number; end: number }> = []
+
+  // Fenced blocks: ``` or ~~~ of any length ≥ 3.
+  const fenceOpen = /^( {0,3})([`~]{3,})(.*)\r?$/gm
+  const lines = md.split('\n')
+  let i = 0
+  let offset = 0
+  while (i < lines.length) {
+    const line = lines[i]
+    fenceOpen.lastIndex = 0
+    const open = /^( {0,3})([`~]{3,})(.*)$/.exec(line)
+    if (!open) {
+      offset += line.length + 1
+      i++
+      continue
+    }
+    const tick = open[2][0]
+    const minLen = open[2].length
+    const info = open[3].trim()
+    const lang = (info.split(/\s+/)[0] ?? '').toLowerCase()
+    const bodyLines: string[] = []
+    const start = offset
+    offset += line.length + 1
+    i++
+    while (i < lines.length) {
+      const close = new RegExp(`^ {0,3}${tick}{${minLen},}\\s*$`).exec(lines[i])
+      if (close) {
+        offset += lines[i].length + 1
+        i++
+        break
+      }
+      bodyLines.push(lines[i])
+      offset += lines[i].length + 1
+      i++
+    }
+    consumed.push({ start, end: offset })
+    const body = bodyLines.join('\n')
+    if (!NON_SHELL_LANG.has(lang) && SKILL_URL.test(body)) {
+      SKILL_URL.lastIndex = 0
+      out.push(joinContinuations(stripShellComments(body)))
     }
   }
-  // Strip fences before scanning inline spans so ``` interiors are not re-read.
-  const withoutFences = md.replace(/```[^\n]*\r?\n[\s\S]*?```/g, '')
-  for (const m of withoutFences.matchAll(/`([^`\n]+)`/g)) {
-    const span = m[1]
-    if (span.includes('skill://') && SHELLISH.test(span)) out.push(joinContinuations(span))
+
+  // Indented code blocks (4 spaces or a tab), outside fences.
+  {
+    let j = 0
+    let off = 0
+    while (j < lines.length) {
+      const inFence = consumed.some((r) => off >= r.start && off < r.end)
+      if (inFence || !/^(?: {4}|\t)/.test(lines[j])) {
+        off += lines[j].length + 1
+        j++
+        continue
+      }
+      const block: string[] = []
+      const start = off
+      while (j < lines.length && (/^(?: {4}|\t)/.test(lines[j]) || lines[j].trim() === '')) {
+        if (consumed.some((r) => off >= r.start && off < r.end)) break
+        block.push(lines[j].replace(/^(?: {4}|\t)/, ''))
+        off += lines[j].length + 1
+        j++
+      }
+      consumed.push({ start, end: off })
+      const body = block.join('\n')
+      if (SKILL_URL.test(body)) {
+        SKILL_URL.lastIndex = 0
+        out.push(joinContinuations(stripShellComments(body)))
+      }
+    }
   }
+
+  // Blank out consumed fence/indent regions so their interiors are not re-read.
+  const chars = [...md]
+  for (const r of consumed) {
+    for (let k = r.start; k < r.end && k < chars.length; k++) {
+      if (chars[k] !== '\n') chars[k] = ' '
+    }
+  }
+  const remainder = chars.join('')
+
+  // Inline spans. Chains of spans separated only by whitespace / a soft line
+  // break (no other tokens) are joined — that is the soft-wrap split of one
+  // command across two spans. Spans separated by prose stay separate so a
+  // fail-closed form in one cell cannot absorb a citation in the next.
+  const spanRe = /`([^`]+)`/g
+  const matches = [...remainder.matchAll(spanRe)]
+  let s = 0
+  while (s < matches.length) {
+    let e = s
+    while (e + 1 < matches.length) {
+      const prev = matches[e]
+      const next = matches[e + 1]
+      const prevEnd = (prev.index ?? 0) + prev[0].length
+      const between = remainder.slice(prevEnd, next.index ?? 0)
+      if (!/^[ \t]*\n?[ \t]*$/.test(between)) break
+      e++
+    }
+    const joined = matches
+      .slice(s, e + 1)
+      .map((m) => m[1])
+      .join(' ')
+    if (SKILL_URL.test(joined)) {
+      SKILL_URL.lastIndex = 0
+      out.push(joinContinuations(joined))
+    }
+    s = e + 1
+  }
+
   return out
 }
 
 /**
- * Failures: every `skill://` in a shell context that is not a fail-closed
- * builtin argument (or a quoted printf/echo message / markdown link).
+ * Hits: every resolvable `skill://` in a shell fragment that is not inside a
+ * fail-closed realpath assignment (and not a citation / link / printf message).
  */
 export function skillArgvHits(fragment: string): string[] {
   const hits: string[] = []
-  const text = joinContinuations(fragment)
+  const text = joinContinuations(stripShellComments(fragment))
+  const allowed = allowedSkillRanges(text)
 
-  // `T=$(realpath skill://…); bun "$T"` — realpath miss does not stop bun.
-  if (/\$\(\s*realpath\s+skill:\/\/[^)]*\)\s*;/.test(text)) {
-    hits.push('semicolon-form: T=$(realpath skill://…); …')
-  }
-
-  // `bun "$(realpath skill://…)"` — miss becomes bun "" and exits 0.
-  if (/\b(?:bun|bash|node|sh|bunx|npx)\b[\s\S]{0,200}"\$\(\s*realpath\s+skill:\/\//.test(text)) {
-    hits.push('inline-fail-open: <prog> "$(realpath skill://…)"')
-  }
-
-  let from = 0
-  while (true) {
-    const i = text.indexOf('skill://', from)
-    if (i < 0) break
-    from = i + 8
-
+  SKILL_URL.lastIndex = 0
+  for (const m of text.matchAll(SKILL_URL)) {
+    const i = m.index ?? 0
     if (inMarkdownLink(text, i)) continue
+    if (inRange(allowed, i)) continue
 
-    // Local prefix: from the previous statement boundary to here.
     const boundary = Math.max(
       text.lastIndexOf('\n', i - 1),
       text.lastIndexOf(';', i - 1),
@@ -107,23 +284,13 @@ export function skillArgvHits(fragment: string): string[] {
     )
     const local = text.slice(boundary + 1, i)
 
-    // printf/echo messages may name the URL; they are not argv.
+    // printf/echo messages may name the URL.
     if (/\b(?:printf|echo)\b\s+['"][^'"]*$/.test(local)) continue
 
-    // Nested markdown/prose citation inside a larger shell string: `skill://…`
-    // (the opening backtick sits immediately before the URL).
-    if (/`$/.test(local)) continue
+    // Citation: no whole-word shell command before the URL in this statement.
+    if (!CMD_RE.test(local)) continue
 
-    // Allowed: realpath|read|cat immediately before the URL (optional quote).
-    if (/(?:^|[\s`$()])(?:realpath|read|cat)\s+["']?$/.test(local)) continue
-
-    // Quoted bare argv: bun 'skill://…' / bun "skill://…"
-    if (/(?:^|[\s;|&])(?:bun|bash|node|sh|bunx|npx)\b[\s\S]*["']$/.test(local)) {
-      hits.push(`quoted-argv: ${text.slice(Math.max(0, i - 24), i + 32).trim()}`)
-      continue
-    }
-
-    hits.push(`bare-or-other: ${text.slice(Math.max(0, i - 24), i + 32).trim()}`)
+    hits.push(text.slice(Math.max(0, i - 32), i + m[0].length + 16).trim())
   }
   return hits
 }
@@ -159,51 +326,151 @@ describe('external programs never take bare skill:// argv', () => {
   })
 })
 
-describe('skillArgvHits shapes', () => {
-  it('allows fail-closed T=$(realpath) && bun "$T"', () => {
+describe('skillArgvHits allowlist shapes', () => {
+  it('allows NAME=$(realpath) && …', () => {
     expect(skillArgvHits('T=$(realpath skill://issue-triage/triage.ts) && bun "$T" init')).toEqual([])
   })
 
-  it('allows T=$(realpath) || { REFUSE; exit 1; }', () => {
+  it('allows NAME=$(realpath -e) || { exit N; } spanning lines', () => {
     expect(
-      skillArgvHits(`T=$(realpath skill://promote/lib/finalize.ts) || {
+      skillArgvHits(`T=$(realpath -e skill://promote/lib/finalize.ts) || {
   printf 'REFUSE: cannot resolve skill://promote/lib/finalize.ts\\n'
   exit 1
 }`),
     ).toEqual([])
   })
 
-  it('allows read/cat builtins and markdown links', () => {
-    expect(skillArgvHits('read skill://dev-review/root-causes.md')).toEqual([])
-    expect(skillArgvHits('cat skill://ci-watch/ci-watch.sh')).toEqual([])
-    expect(skillArgvHits('see [x](skill://promote/price.sh) for pricing')).toEqual([])
+  it('allows NAME="$(realpath …)" && …', () => {
+    expect(skillArgvHits('T="$(realpath skill://ci-watch/ci-watch.sh)" && bash "$T"')).toEqual([])
   })
 
-  it("flags bun 'skill://'", () => {
+  it('allows quoted URL inside fail-closed && form', () => {
+    expect(skillArgvHits('T=$(realpath "skill://issue-triage/triage.ts") && bun "$T" init')).toEqual([])
+  })
+})
+
+describe('skillArgvHits fail-open variants (S7–S12, X1, newline, cat|bash)', () => {
+  it('S7: quoted semicolon form', () => {
+    expect(skillArgvHits('T="$(realpath skill://issue-triage/triage.ts)"; bun "$T" init')).not.toEqual([])
+  })
+
+  it('S8: quoted URL with semicolon', () => {
+    expect(skillArgvHits('T=$(realpath "skill://issue-triage/triage.ts"); bun "$T" init')).not.toEqual([])
+  })
+
+  it('S9: quoted inline realpath-as-argv', () => {
+    expect(skillArgvHits('bun "$(realpath "skill://issue-triage/triage.ts")" init')).not.toEqual([])
+    expect(skillArgvHits('bun "$(realpath skill://issue-triage/triage.ts)" init')).not.toEqual([])
+  })
+
+  it('S10: unquoted inline realpath-as-argv', () => {
+    expect(skillArgvHits('bun $(realpath skill://issue-triage/triage.ts) init')).not.toEqual([])
+  })
+
+  it('S12: || { … } with no exit', () => {
+    expect(
+      skillArgvHits(`T=$(realpath skill://promote/lib/finalize.ts) || {
+  printf 'REFUSE\\n'
+}`),
+    ).not.toEqual([])
+  })
+
+  it('X1: soft-wrapped bare form joined across a soft line break', () => {
+    const md = 'Run\n`bun`\n`skill://issue-triage/triage.ts init`\nnow.\n'
+    const ctx = shellContexts(md)
+    expect(ctx.some((c) => /bun.*skill:\/\//.test(c))).toBe(true)
+    expect(ctx.some((c) => skillArgvHits(c).length > 0)).toBe(true)
+  })
+
+  it('newline instead of ; or &&', () => {
+    expect(
+      skillArgvHits(`T=$(realpath skill://issue-triage/triage.ts)
+bun "$T" init`),
+    ).not.toEqual([])
+  })
+
+  it('cat skill:// | bash', () => {
+    expect(skillArgvHits('cat skill://ci-watch/ci-watch.sh | bash -s')).not.toEqual([])
+  })
+
+  it('bare bun / option+value / env-prefix / continuation', () => {
     expect(skillArgvHits("bun 'skill://issue-triage/triage.ts' init")).not.toEqual([])
-  })
-
-  it('flags option + value forms', () => {
     expect(skillArgvHits('bash -o pipefail skill://cleanup/gather-state.sh')).not.toEqual([])
-    expect(skillArgvHits('bun --cwd . skill://issue-triage/triage.ts init')).not.toEqual([])
-  })
-
-  it('joins continuations before scanning', () => {
+    expect(skillArgvHits('GITHUB_REPO=acme/x bun skill://issue-triage/triage.ts init')).not.toEqual([])
     expect(
       skillArgvHits(`bash \\
   skill://cleanup/gather-state.sh`),
     ).not.toEqual([])
   })
+})
 
-  it('flags env-prefixed bare forms', () => {
-    expect(skillArgvHits('GITHUB_REPO=acme/x bun skill://issue-triage/triage.ts init')).not.toEqual([])
+describe('shellContexts fence spellings', () => {
+  it('scans ~~~ / 4-backtick / titled / console fences', () => {
+    const md = `
+~~~
+bun skill://issue-triage/triage.ts init
+~~~
+
+\`\`\`\`bash
+bun skill://issue-triage/triage.ts init
+\`\`\`\`
+
+\`\`\`bash title="run"
+bun skill://issue-triage/triage.ts init
+\`\`\`
+
+\`\`\`console
+bun skill://issue-triage/triage.ts init
+\`\`\`
+`
+    const ctx = shellContexts(md)
+    expect(ctx.length).toBeGreaterThanOrEqual(4)
+    for (const c of ctx) expect(skillArgvHits(c).length).toBeGreaterThan(0)
   })
 
-  it('flags the inline fail-open realpath-as-argv form', () => {
-    expect(skillArgvHits('bun "$(realpath skill://issue-triage/triage.ts)" init')).not.toEqual([])
+  it('scans indented code blocks', () => {
+    const md = `
+Here is an indented block:
+
+    bun skill://issue-triage/triage.ts init
+
+Done.
+`
+    const ctx = shellContexts(md)
+    expect(ctx.some((c) => skillArgvHits(c).length > 0)).toBe(true)
   })
 
-  it('flags the semicolon fail-open form', () => {
-    expect(skillArgvHits('T=$(realpath skill://issue-triage/triage.ts); bun "$T" init')).not.toEqual([])
+  it('skips known non-shell fences', () => {
+    const md = '```ts\nconst x = "skill://issue-triage/triage.ts"\n```\n'
+    expect(shellContexts(md)).toEqual([])
+  })
+})
+
+describe('false positives stay clean', () => {
+  it('citation span with no command word', () => {
+    expect(skillArgvHits('skill://ci-watch/ci-watch.sh')).toEqual([])
+    expect(
+      shellContexts('See `skill://ci-watch/ci-watch.sh` for the path.').every((c) => skillArgvHits(c).length === 0),
+    ).toBe(true)
+  })
+
+  it('# comment lines inside fences', () => {
+    expect(
+      skillArgvHits(`# bun skill://issue-triage/triage.ts init
+T=$(realpath skill://issue-triage/triage.ts) && bun "$T" init`),
+    ).toEqual([])
+  })
+
+  it('hyphenated read-* / node-* names', () => {
+    expect(skillArgvHits('read-file skill://dev-review/root-causes.md')).toEqual([])
+    expect(skillArgvHits('node-modules skill://issue-triage/triage.ts')).toEqual([])
+  })
+
+  it('markdown links', () => {
+    expect(skillArgvHits('see [x](skill://promote/price.sh) for pricing')).toEqual([])
+  })
+
+  it('ellipsis anti-pattern docs are not resolvable skill URLs', () => {
+    expect(skillArgvHits('cat skill://… | bash -s')).toEqual([])
   })
 })
