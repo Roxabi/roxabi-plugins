@@ -24,7 +24,9 @@ use the current repository conventions, not a separate spec-file lifecycle.
 
 `/feature init [--dry-run]` adopts a repository from a worktree, never the
 Principal. `--dry-run` prints the plan and writes nothing. A real run calls
-`bun skill://issue-triage/triage.ts init` for the tracker and labels, fills
+`bun skill://issue-triage/triage.ts init` only when `docs/agents/issue-tracker.md`
+is absent, and prints that command's output. An existing contract is left
+untouched — init is not invoked, so it cannot rewrite the file. The run fills
 `landing` and `worktree` in `.dev/stack.yml`, and does not index ccc or
 codegraph without consent already recorded there. A second run is `init=noop`.
 Orphan semctx contracts are listed, not closed.

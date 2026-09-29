@@ -27,7 +27,7 @@ only through issue-triage.
 2. ∀ issue: determine Size, Priority, κ (see [Complexity Scoring](#complexity-scoring))
 3. Set values: `T set <number> --size <S> --priority <P>`
 4. Create issues: `T create --title "Title" [--body "Body"] [--label "bug,frontend"] [--size M] [--priority High] [--type feat] [--lane b] [--parent 163]`
-5. Adopt a repository: `bun skill://issue-triage/triage.ts init [--dry-run] [--repo owner/repo]`
+5. Adopt a repository: `bun skill://issue-triage/triage.ts init [--dry-run] [--repo owner/repo]`. Writes `docs/agents/issue-tracker.md` only when that file is absent. An existing contract is authoritative: init prints `contract: keep-existing` and never rewrites it. Labels are created from its `Label | Colour` table, or from the template list when that is the file; an existing label's colour is never changed. `epic` and `reviewed` are created only when the contract lists them.
 6. → ask userif unsure about Size ∨ Priority.
 
 ## Size Guidelines

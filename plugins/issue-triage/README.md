@@ -38,6 +38,12 @@ Triggers: `"triage"` | `"create issue"` | `"set size"` | `"set priority"` | `"bl
 /issue-triage create --title "..." --size S --priority Medium --type feat --lane b --parent 163
 ```
 
+Adopt a repository. `init` writes `docs/agents/issue-tracker.md` only when that file is absent. An existing contract is kept (`contract: keep-existing`) and is the label vocabulary: a `Label | Colour` table, or the template list. Missing labels are created in those colours; an existing label is never recoloured.
+
+```
+bun skill://issue-triage/triage.ts init [--dry-run] [--repo owner/repo]
+```
+
 `create` accepts the same field flags as `set`: `--size`, `--priority`, `--lane`, `--type`, plus `--parent`, `--add-child`, `--blocked-by`, `--blocks`.
 
 Cross-repo: prefix `GITHUB_REPO=<owner/repo>`, and use fully-qualified `OWNER/REPO#N` refs when that env is set.

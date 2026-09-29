@@ -254,12 +254,17 @@ export async function listLabelNames(repo: string = GITHUB_REPO): Promise<string
 
 /**
  * Create a label definition when it is missing. An existing name is left
- * untouched — including its color. Never deletes a definition.
+ * untouched — including its color. Never deletes a definition, never passes
+ * `--force`, never edits a colour.
  */
-export async function ensureLabel(name: string, repo: string = GITHUB_REPO): Promise<'created' | 'present'> {
+export async function ensureLabel(
+  name: string,
+  repo: string = GITHUB_REPO,
+  color = 'ededed',
+): Promise<'created' | 'present'> {
   const existing = await listLabelNames(repo)
   if (existing.includes(name)) return 'present'
-  await run(['gh', 'label', 'create', name, '--repo', repo, '--color', 'ededed'])
+  await run(['gh', 'label', 'create', name, '--repo', repo, '--color', color])
   return 'created'
 }
 

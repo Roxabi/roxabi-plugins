@@ -101,6 +101,46 @@ export function readFacts(dir: string, labels: string[] = []): Facts {
   }
 }
 
+export interface TrackerInitIo {
+  exec?: (dir: string) => string
+  writeOut?: (text: string) => void
+  writeErr?: (text: string) => void
+}
+
+function textOf(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (value instanceof Uint8Array) return new TextDecoder().decode(value)
+  return ''
+}
+
+function writeText(write: (text: string) => void, text: string): void {
+  if (!text) return
+  write(text.endsWith('\n') ? text : `${text}\n`)
+}
+
+function defaultTrackerExec(dir: string): string {
+  return execFileSync('bun', ['skill://issue-triage/triage.ts', 'init'], {
+    cwd: dir,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+}
+
+/** Runs the contract writer only when the tracker file is absent, and never discards its output. */
+export function runTrackerInit(dir: string, facts: Pick<Facts, 'hasTracker'>, io: TrackerInitIo = {}): void {
+  if (facts.hasTracker) return
+  const exec = io.exec ?? defaultTrackerExec
+  const writeOut = io.writeOut ?? ((text: string) => process.stdout.write(text))
+  const writeErr = io.writeErr ?? ((text: string) => process.stderr.write(text))
+  try {
+    writeText(writeOut, exec(dir))
+  } catch (err) {
+    const failure = err as { stdout?: unknown; stderr?: unknown }
+    writeText(writeOut, textOf(failure.stdout))
+    writeText(writeErr, textOf(failure.stderr))
+  }
+}
+
 function isPrincipal(dir: string): boolean {
   const out = execFileSync('git', ['worktree', 'list', '--porcelain'], { cwd: dir, encoding: 'utf8' })
   const first = out.match(/^worktree (.+)$/m)?.[1]
@@ -108,7 +148,6 @@ function isPrincipal(dir: string): boolean {
   const here = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: dir, encoding: 'utf8' }).trim()
   return here === first
 }
-
 function applyStack(dir: string, facts: Facts): void {
   const stackPath = join(dir, '.dev', 'stack.yml')
   let stack = existsSync(stackPath) ? readFileSync(stackPath, 'utf8') : 'schema_version: "1.0"\n'
@@ -145,11 +184,8 @@ if (import.meta.main) {
     for (const line of lines) console.log(line)
     process.exit(0)
   }
-  try {
-    execFileSync('bun', ['skill://issue-triage/triage.ts', 'init'], { cwd: dir, stdio: 'ignore' })
-  } catch {
-    // The plan names the tracker step. A missing CLI must not write issues by hand.
-  }
+  // A missing CLI must not write issues by hand. Its output is still surfaced.
+  runTrackerInit(dir, facts)
   applyStack(dir, facts)
   console.log('init=done')
   for (const line of lines) console.log(line)
