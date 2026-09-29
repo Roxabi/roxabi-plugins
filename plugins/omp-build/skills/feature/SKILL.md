@@ -23,11 +23,17 @@ use the current repository conventions, not a separate spec-file lifecycle.
   `.dev/stack.yml` declares `release.model: staging-train`. Never invoke either.
 
 `/feature init [--dry-run]` adopts a repository from a worktree, never the
-Principal. `--dry-run` prints the plan and writes nothing. A real run calls
-`bun skill://issue-triage/triage.ts init` for the tracker and labels, fills
-`landing` and `worktree` in `.dev/stack.yml`, and does not index ccc or
-codegraph without consent already recorded there. A second run is `init=noop`.
-Orphan semctx contracts are listed, not closed.
+Principal. `--dry-run` prints the plan and writes nothing, and its next line
+includes `--dry-run`. A real run fills `landing` and `worktree` in
+`.dev/stack.yml` and prints `next: bun skill://issue-triage/triage.ts init`.
+It does not run that command and does not print `init=done`: `skill://` is resolved by the agent, not by a
+child process. Run the printed command. If it cannot be resolved, stop and
+name issue-triage. Do not resolve the CLI from a path inside the skill body.
+Do not write issues by hand. An existing `docs/agents/issue-tracker.md` is
+left untouched by that command (`contract: keep-existing`). The command does
+not write the `omp-build-feature-init` marker, because the tracker step has
+not run. It does not index ccc or codegraph without consent already recorded
+there. Orphan semctx contracts are listed, not closed.
 
 ## 1. Route-specific prerequisites
 

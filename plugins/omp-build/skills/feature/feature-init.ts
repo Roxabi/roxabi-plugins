@@ -101,6 +101,13 @@ export function readFacts(dir: string, labels: string[] = []): Facts {
   }
 }
 
+/** Agent-layer command. `skill://` is not resolvable in a child process. */
+export const TRACKER_INIT_NEXT = 'next: bun skill://issue-triage/triage.ts init'
+
+export function trackerNext(dry: boolean): string {
+  return dry ? `${TRACKER_INIT_NEXT} --dry-run` : TRACKER_INIT_NEXT
+}
+
 function isPrincipal(dir: string): boolean {
   const out = execFileSync('git', ['worktree', 'list', '--porcelain'], { cwd: dir, encoding: 'utf8' })
   const first = out.match(/^worktree (.+)$/m)?.[1]
@@ -119,9 +126,6 @@ function applyStack(dir: string, facts: Facts): void {
     stack += `\nlanding:\n  mode: merge-on-green\n  required_checks: [${facts.checks.join(', ')}]\n`
   }
   writeFileSync(stackPath, stack)
-  const gitDirRaw = execFileSync('git', ['rev-parse', '--git-dir'], { cwd: dir, encoding: 'utf8' }).trim()
-  const gitDir = isAbsolute(gitDirRaw) ? gitDirRaw : join(dir, gitDirRaw)
-  writeFileSync(join(gitDir, 'omp-build-feature-init'), new Date().toISOString())
 }
 
 if (import.meta.main) {
@@ -141,16 +145,11 @@ if (import.meta.main) {
   if (process.env.FEATURE_INIT_LABELS) labels = process.env.FEATURE_INIT_LABELS.split(',').filter(Boolean)
   const facts = readFacts(dir, labels)
   const lines = plan(facts)
+  console.log(trackerNext(dry))
   if (dry) {
     for (const line of lines) console.log(line)
     process.exit(0)
   }
-  try {
-    execFileSync('bun', ['skill://issue-triage/triage.ts', 'init'], { cwd: dir, stdio: 'ignore' })
-  } catch {
-    // The plan names the tracker step. A missing CLI must not write issues by hand.
-  }
   applyStack(dir, facts)
-  console.log('init=done')
   for (const line of lines) console.log(line)
 }
