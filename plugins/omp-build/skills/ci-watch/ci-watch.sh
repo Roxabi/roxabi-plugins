@@ -9,12 +9,14 @@
 #   3  another conclusion (skipped and neutral are passing, declared list or not)
 #   4  green but unmerged (label revoked, closed, dirty)
 #   5  deadline — undetermined, re-run to resume
+#   6  evaluate-only — merge-on-green: the newest merge-on-green run (since --since, or the latest without it) says kit-ci is not configured
 #   70 not a check verdict (usage, missing tool, gh/jq failure) — do not disarm
 EXIT_FAIL=1
 EXIT_CANCELLED=2
 EXIT_OTHER=3
 EXIT_UNMERGED=4
 EXIT_DEADLINE=5
+EXIT_EVALUATE_ONLY=6
 EXIT_INTERNAL=70
 set -Eeuo pipefail
 trap 'exit "$EXIT_INTERNAL"' ERR
@@ -158,6 +160,7 @@ REPO=""
 TIMEOUT_RAW="30m"
 INTERVAL=15
 MERGE_MODE=""
+SINCE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -177,6 +180,14 @@ while [[ $# -gt 0 ]]; do
       REPO="$2"
       shift 2
       ;;
+    --since)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --since needs a UTC time, YYYY-MM-DDTHH:MM:SSZ" >&2
+        exit "$EXIT_INTERNAL"
+      fi
+      SINCE="$2"
+      shift 2
+      ;;
     --)
       shift
       break
@@ -193,7 +204,12 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$PR" ]]; then
-  echo "Usage: ci-watch.sh <pr> [--timeout 30m] [--merge-mode merge-on-green|native] [--repo owner/repo]" >&2
+  echo "Usage: ci-watch.sh <pr> [--timeout 30m] [--merge-mode merge-on-green|native] [--since <UTC time>] [--repo owner/repo]" >&2
+  exit "$EXIT_INTERNAL"
+fi
+
+if [[ -n "$SINCE" && ! "$SINCE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]; then
+  echo "Error: --since '$SINCE' is not a UTC time, YYYY-MM-DDTHH:MM:SSZ" >&2
   exit "$EXIT_INTERNAL"
 fi
 
@@ -203,11 +219,27 @@ fi
 
 TIMEOUT=$(parse_duration "$TIMEOUT_RAW")
 
-if [[ -z "$MERGE_MODE" && -f .dev/stack.yml ]]; then
-  MERGE_MODE=$(bun -e 'const t=await Bun.file(".dev/stack.yml").text(); const d=Bun.YAML.parse(t); console.log(d?.landing?.mode ?? "")')
+# One landing resolver: feature/workflow.js readLanding, also used by landPr —
+# `landing.mode` in .dev/stack.yml, else merge-on-green when
+# .github/workflows/merge-on-green.yml exists, else native. Prints the mode, then
+# one required check per line. An invalid .dev/stack.yml exits 70.
+# Needs this script's real path so `$0` finds the sibling (not a pipe or copy).
+LANDING_JS="$(dirname "$(readlink -f "$0")")/../feature/workflow.js"
+if [[ ! -f "$LANDING_JS" ]]; then
+  echo "ci-watch: run this script from its real path (realpath skill://ci-watch/ci-watch.sh) — cannot find ../feature/workflow.js" >&2
+  exit "$EXIT_INTERNAL"
 fi
+LANDING=$(bun -e '
+const { readLanding } = await import(process.argv[1])
+try {
+  const landing = readLanding(process.cwd())
+  console.log([landing.mode, ...landing.required_checks].join("\n"))
+} catch (e) {
+  console.error(`Error: ${e instanceof Error ? e.message : e}`)
+  process.exit(1)
+}' "$LANDING_JS")
 if [[ -z "$MERGE_MODE" ]]; then
-  MERGE_MODE="native"
+  MERGE_MODE="${LANDING%%$'\n'*}"
 fi
 if [[ "$MERGE_MODE" != "merge-on-green" && "$MERGE_MODE" != "native" ]]; then
   echo "Error: --merge-mode must be merge-on-green or native, got $MERGE_MODE" >&2
@@ -215,8 +247,8 @@ if [[ "$MERGE_MODE" != "merge-on-green" && "$MERGE_MODE" != "native" ]]; then
 fi
 
 REQUIRED=""
-if [[ -f .dev/stack.yml ]]; then
-  REQUIRED=$(bun -e 'const t=await Bun.file(".dev/stack.yml").text(); const d=Bun.YAML.parse(t); const c=d?.landing?.required_checks; if (Array.isArray(c)) console.log(c.join("\n"))')
+if [[ "$LANDING" == *$'\n'* ]]; then
+  REQUIRED="${LANDING#*$'\n'}"
 fi
 
 
@@ -265,6 +297,43 @@ require_snapshot() {
   if [[ -z "$1" ]]; then
     echo "empty gh pr view" >&2
     exit "$EXIT_INTERNAL"
+  fi
+}
+
+# What the kit's merge-on-green workflow resolved for this landing: the newest
+# non-skipped `merge-on-green` check run on the commit, started at or after
+# --since. A completed run with a `kit-ci not configured` annotation (the notice
+# the workflow emits when it runs evaluate-only) → unconfigured; completed
+# without it → configured; no such run yet, or not completed → pending.
+# Called in an assignment, never an `if`, so a gh/jq failure still exits 70.
+kit_ci_of() {
+  local sha="$1" run id status count
+  run=$(gh api --paginate "repos/$REPO/commits/$sha/check-runs?check_name=merge-on-green&filter=all" |
+    jq -rs --arg since "$SINCE" '
+      def trunc: sub("\\.[0-9]+Z$"; "Z");
+      [.[] | .check_runs[]?
+        | select(.name == "merge-on-green")
+        | select((.conclusion // "" | ascii_downcase) != "skipped")
+        | ((.started_at // "") | trunc) as $start
+        | select($since == "" or $start >= $since)
+        | . + {started_at: $start}]
+      | sort_by([.started_at, .id]) | last
+      | if . == null then "" else "\(.id) \(.status // "" | ascii_downcase)" end')
+  if [[ -z "$run" ]]; then
+    echo pending
+    return 0
+  fi
+  read -r id status <<<"$run"
+  if [[ "$status" != "completed" ]]; then
+    echo pending
+    return 0
+  fi
+  count=$(gh api --paginate "repos/$REPO/check-runs/$id/annotations" |
+    jq -s '[.[][]? | select(.title == "kit-ci not configured")] | length')
+  if (( count > 0 )); then
+    echo unconfigured
+  else
+    echo configured
   fi
 }
 
@@ -319,6 +388,13 @@ while true; do
   esac
 done
 
+# merge-on-green only: probe the kit-ci resolution on every merge-phase poll that
+# would keep watching, until the run of this landing has completed.
+KIT_CI=off
+if [[ "$MERGE_MODE" == "merge-on-green" ]]; then
+  KIT_CI=pending
+fi
+
 while true; do
   elapsed=$((SECONDS - START))
   snapshot=$(pr_json)
@@ -327,6 +403,18 @@ while true; do
   mss=$(echo "$snapshot" | jq -r .mergeStateStatus)
   eligible=$(eligible_of "$MERGE_MODE" "$snapshot")
   code=$(classify_merge_state "$state" "$mss" "$MERGE_MODE" "$eligible" "$elapsed" "$TIMEOUT")
+  if [[ "$code" == "WATCH" && "$KIT_CI" == "pending" ]]; then
+    head_sha=$(echo "$snapshot" | jq -r .headRefOid)
+    KIT_CI=$(kit_ci_of "$head_sha")
+    if [[ "$KIT_CI" == "unconfigured" ]]; then
+      if [[ -n "$SINCE" ]]; then
+        echo "evaluate-only: kit-ci App not configured — manual merge required (docs/kit/ci-app-setup.md)" >&2
+      else
+        echo "evaluate-only: the latest merge-on-green run was evaluate-only — configure kit-ci (docs/kit/ci-app-setup.md), then re-label reviewed" >&2
+      fi
+      exit "$EXIT_EVALUATE_ONLY"
+    fi
+  fi
   if [[ "$code" == "WATCH" ]]; then
     sleep "$INTERVAL"
     continue

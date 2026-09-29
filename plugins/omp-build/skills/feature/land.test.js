@@ -1,5 +1,18 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { applyCiWatchExit, disarmReviewedBeforePush, landPr, parseLanding, parseRequiredContexts } from './workflow.js'
+import { applyCiWatchExit, disarmReviewedBeforePush, landPr, parseRequiredContexts } from './workflow.js'
+
+/** A checkout with the given files, relative path → content. */
+function checkout(files = {}) {
+  const dir = mkdtempSync(join(tmpdir(), 'land-'))
+  for (const [path, content] of Object.entries(files)) {
+    mkdirSync(join(dir, path, '..'), { recursive: true })
+    writeFileSync(join(dir, path), content)
+  }
+  return dir
+}
 
 describe('parseRequiredContexts', () => {
   it('parses classic contexts and checks', () => {
@@ -25,6 +38,13 @@ describe('parseRequiredContexts', () => {
   })
 })
 
+const EVENT_AT = '2026-09-29T10:00:05Z'
+const BEFORE_AT = '2026-09-29T09:00:00Z'
+const EVENTS_JQ = '.[] | select(.event == "labeled" and .label.name == "reviewed") | .created_at'
+const EVENTS_CALL = ['api', 'repos/acme/app/issues/7/events', '--paginate', '--jq', EVENTS_JQ]
+/** Default: no prior label event, then the post-add time. */
+const EVENTS_FIRST = ['', EVENT_AT]
+
 function mockLand({
   rollupSequence = [],
   mergeThrows = null,
@@ -32,11 +52,17 @@ function mockLand({
   timeout = 60_000,
   states = ['OPEN'],
   autoMerges = [null],
+  labels = [],
+  /** One response per events call, last entry repeated. */
+  events = EVENTS_FIRST,
+  eventsThrow = null,
 } = {}) {
-  let t = 0
+  const t = 0
   const calls = []
   let poll = 0
   let statePoll = 0
+  let eventsPoll = 0
+  const eventPages = Array.isArray(events) ? events : [events]
   const gh = async (_cwd, args) => {
     calls.push(args)
     const jsonAt = args.indexOf('--json')
@@ -46,6 +72,16 @@ function mockLand({
       const autoMergeRequest = autoMerges[Math.min(statePoll, autoMerges.length - 1)] ?? null
       statePoll++
       return JSON.stringify({ state, autoMergeRequest })
+    }
+    if (args[0] === 'pr' && args[1] === 'view' && fields.includes('labels')) {
+      return JSON.stringify({ labels: labels.map((name) => ({ name })) })
+    }
+    if (args[0] === 'repo') return JSON.stringify({ nameWithOwner: 'acme/app' })
+    if (args[0] === 'api' && String(args[1] ?? '').includes('/events')) {
+      if (eventsThrow) throw new Error(eventsThrow)
+      const page = eventPages[Math.min(eventsPoll, eventPages.length - 1)]
+      eventsPoll++
+      return page
     }
     if (args[0] === 'pr' && args[1] === 'view') {
       const entry = rollupSequence[Math.min(poll, rollupSequence.length - 1)]
@@ -65,14 +101,14 @@ function mockLand({
   return {
     gh,
     calls,
+    /** Instant sleep so retries stay in-process and fast. */
+    sleep: async () => {},
     land: (requiredContexts, pr = 1) =>
-      landPr('/tmp/wt', pr, {
+      landPr(checkout(), pr, {
         requiredContexts,
         gh,
+        sleep: async () => {},
         now: () => t,
-        sleep: (ms) => {
-          t += ms
-        },
         timeout,
       }),
   }
@@ -86,16 +122,6 @@ const call = (calls, predicate) => calls.findIndex(predicate)
 const removesLabel = (a) => a[1] === 'edit' && a.includes('--remove-label') && a.includes('reviewed')
 const disablesAuto = (a) => a[1] === 'merge' && a.includes('--disable-auto')
 
-describe('parseLanding', () => {
-  it('absent mode with the workflow file is merge-on-green', () => {
-    expect(parseLanding('runtime: bun\n', { mergeOnGreenWorkflow: true }).mode).toBe('merge-on-green')
-  })
-
-  it('absent mode without the workflow file stays native', () => {
-    expect(parseLanding('runtime: bun\n').mode).toBe('native')
-  })
-})
-
 describe('landPr', () => {
   it('native required=[] → no-required-checks, never labels', async () => {
     const { calls, land } = mockLand()
@@ -105,17 +131,84 @@ describe('landPr', () => {
   })
 
   it('merge-on-green with declared checks never returns no-required-checks', async () => {
-    const { calls, gh } = mockLand()
+    const { calls, gh, sleep } = mockLand()
     const result = await landPr('/tmp/wt', 7, {
       gh,
+      sleep,
       requiredContexts: [],
       landing: { mode: 'merge-on-green', required_checks: ['ci'] },
     })
     expect(result.status).toBe('watching')
     expect(result.mode).toBe('merge-on-green')
     expect(result.watch).toContain('--merge-mode merge-on-green')
+    expect(result.watch).toContain(`--since ${EVENT_AT}`)
     expect(labeled(calls)).toBe(true)
     expect(calls.some((a) => a.includes('--auto'))).toBe(false)
+  })
+
+  it('merge-on-green re-entry with reviewed on the PR removes it, then re-adds it and reads a newer labeled event', async () => {
+    const { calls, gh, sleep } = mockLand({
+      labels: ['reviewed'],
+      events: [BEFORE_AT, `${BEFORE_AT}\n${EVENT_AT}\n`],
+    })
+    const result = await landPr(checkout({ '.github/workflows/merge-on-green.yml': 'name: merge-on-green\n' }), 7, {
+      gh,
+      sleep,
+    })
+    expect(calls).toEqual([
+      ['repo', 'view', '--json', 'nameWithOwner'],
+      EVENTS_CALL,
+      ['pr', 'view', '7', '--json', 'labels'],
+      ['pr', 'edit', '7', '--remove-label', 'reviewed'],
+      ['pr', 'edit', '7', '--add-label', 'reviewed'],
+      ['repo', 'view', '--json', 'nameWithOwner'],
+      EVENTS_CALL,
+    ])
+    expect(result.watch).toContain(`--since ${EVENT_AT}`)
+  })
+
+  it('merge-on-green returns watch-failed when the labeled-event read fails', async () => {
+    const { calls, gh, sleep } = mockLand({ eventsThrow: 'boom' })
+    const result = await landPr('/tmp/wt', 7, {
+      gh,
+      sleep,
+      landing: { mode: 'merge-on-green', required_checks: [] },
+    })
+    expect(result).toEqual({
+      status: 'watch-failed',
+      error: 'could not read the labeled reviewed event after re-label — merge-on-green needs --since from GitHub',
+    })
+    expect(calls.some((a) => a[0] === 'api' && String(a[1]).includes('/events'))).toBe(true)
+    expect(labeled(calls)).toBe(true)
+  })
+
+  it('merge-on-green waits through a lagging events API then watches with the newer --since', async () => {
+    const sleeps = []
+    const { calls, gh } = mockLand({
+      events: [BEFORE_AT, BEFORE_AT, BEFORE_AT, `${BEFORE_AT}\n${EVENT_AT}\n`],
+    })
+    const result = await landPr('/tmp/wt', 7, {
+      gh,
+      sleep: async (ms) => {
+        sleeps.push(ms)
+      },
+      landing: { mode: 'merge-on-green', required_checks: [] },
+    })
+    expect(result).toMatchObject({ status: 'watching', mode: 'merge-on-green' })
+    expect(result.watch).toContain(`--since ${EVENT_AT}`)
+    expect(sleeps.length).toBeGreaterThan(0)
+    expect(calls.filter((a) => a[0] === 'api' && String(a[1]).includes('/events')).length).toBe(4)
+  })
+
+  it('merge-on-green returns watch-failed when retries only ever see the pre-label time', async () => {
+    const { gh, sleep } = mockLand({ events: [BEFORE_AT] })
+    const result = await landPr('/tmp/wt', 7, {
+      gh,
+      sleep,
+      landing: { mode: 'merge-on-green', required_checks: [] },
+    })
+    expect(result.status).toBe('watch-failed')
+    expect(result.error).toMatch(/labeled reviewed event/)
   })
 
   it('native arms the label and auto-merge, then hands off the watch', async () => {
@@ -125,6 +218,7 @@ describe('landPr', () => {
       landing: { mode: 'native', required_checks: ['ci'] },
     })
     expect(result).toMatchObject({ status: 'watching', mode: 'native' })
+    expect(result.watch).not.toContain('--since')
     expect(labeled(calls)).toBe(true)
     expect(calls.some((a) => a[1] === 'merge' && a.includes('--auto'))).toBe(true)
   })
@@ -138,6 +232,23 @@ describe('landPr', () => {
     expect(result).toEqual({ status: 'auto-merge-failed', armed: true })
     expect(labeled(calls)).toBe(true)
   })
+
+  it('an explicit native landing still asks protection and rulesets', async () => {
+    const calls = []
+    const gh = async (_cwd, args) => {
+      calls.push(args)
+      if (args[0] === 'repo') return JSON.stringify({ nameWithOwner: 'acme/app' })
+      if (args[0] === 'pr' && args[1] === 'view') return JSON.stringify({ baseRefName: 'main' })
+      if (args[0] === 'api') throw new Error('HTTP 403')
+      return ''
+    }
+    const cwd = checkout({ '.github/workflows/merge-on-green.yml': 'name: merge-on-green\n' })
+    const result = await landPr(cwd, 7, { gh, landing: { mode: 'native', required_checks: [] } })
+    expect(result).toEqual({ status: 'no-required-checks' })
+    expect(calls).toContainEqual(['api', 'repos/acme/app/branches/main/protection/required_status_checks'])
+    expect(calls).toContainEqual(['api', 'repos/acme/app/rules/branches/main'])
+    expect(labeled(calls)).toBe(false)
+  })
 })
 
 describe('applyCiWatchExit', () => {
@@ -149,6 +260,14 @@ describe('applyCiWatchExit', () => {
   ])('exit %s → %s', async (code, status) => {
     const { gh, calls } = mockLand()
     expect(await applyCiWatchExit('/tmp/wt', 7, code, { mode: 'merge-on-green', gh })).toEqual({ status })
+    expect(calls).toEqual([])
+  })
+
+  it('exit 6 is evaluate-only and leaves the gate armed', async () => {
+    const { gh, calls } = mockLand()
+    expect(await applyCiWatchExit('/tmp/wt', 7, 6, { mode: 'merge-on-green', gh })).toEqual({
+      status: 'evaluate-only',
+    })
     expect(calls).toEqual([])
   })
 

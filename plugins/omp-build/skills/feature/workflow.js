@@ -3,6 +3,20 @@
  * `detectPrincipal` names the base when `landPr` has none. No worktree driver.
  */
 
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+/** @param {string} value */
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`
+}
+
+/** Absolute real path of `ci-watch.sh` next to this module — runnable without `skill://`. */
+function ciWatchSh() {
+  return realpathSync(fileURLToPath(new URL('../ci-watch/ci-watch.sh', import.meta.url)))
+}
+
 const PRINCIPALS = ['staging', 'main', 'master']
 
 /** Hook vars that redirect git. Same set as check-principal-branch.sh git_probe. */
@@ -387,61 +401,99 @@ async function resolveRequiredContexts(cwd, pr, ghFn) {
 }
 
 /**
- * `landing.mode` from stack text. Absent mode: a merge-on-green workflow means
- * that mode; otherwise native protection/rulesets, as before.
+ * `landing` from stack text, parsed with `Bun.YAML`. Absent `landing.mode`: a
+ * merge-on-green workflow means that mode, otherwise native. Anything that is not
+ * a valid landing throws: invalid YAML, a non-map document or `landing`, a mode
+ * other than native/merge-on-green, `required_checks` not a list of names.
  *
  * @param {string} stackText
  * @param {{ mergeOnGreenWorkflow?: boolean }} [opts]
+ * @returns {{ mode: 'native' | 'merge-on-green', required_checks: string[] }}
  */
-export function parseLanding(stackText, { mergeOnGreenWorkflow = false } = {}) {
-  const lines = String(stackText || '').split('\n')
-  let inLanding = false
-  let inChecks = false
-  let mode = ''
-  const checks = []
-  for (const raw of lines) {
-    const line = raw.replace(/#.*$/, '')
-    if (!line.trim()) continue
-    const indent = line.length - line.trimStart().length
-    const text = line.trim()
-    if (indent === 0 && text.endsWith(':')) {
-      inLanding = text === 'landing:'
-      inChecks = false
-      continue
-    }
-    if (!inLanding) continue
-    if (indent === 2 && text.startsWith('mode:')) {
-      mode = text.slice(5).trim().replace(/['"]/g, '')
-      inChecks = false
-      continue
-    }
-    if (indent === 2 && text.startsWith('required_checks:')) {
-      inChecks = true
-      const inline = text.slice('required_checks:'.length).trim()
-      if (inline.startsWith('[') && inline.endsWith(']')) {
-        for (const item of inline.slice(1, -1).split(',')) {
-          const name = item.trim().replace(/['"]/g, '')
-          if (name) checks.push(name)
-        }
-        inChecks = false
-      }
-      continue
-    }
-    if (inChecks && text.startsWith('- ')) checks.push(text.slice(2).trim().replace(/['"]/g, ''))
+function parseLanding(stackText, { mergeOnGreenWorkflow = false } = {}) {
+  const fallback = mergeOnGreenWorkflow ? 'merge-on-green' : 'native'
+  if (!stackText.trim()) return { mode: fallback, required_checks: [] }
+  if (typeof Bun === 'undefined' || typeof Bun.YAML?.parse !== 'function') {
+    throw new Error('.dev/stack.yml: reading it needs bun >= 1.2.21 (Bun.YAML)')
   }
-  if (mode !== 'merge-on-green' && mode !== 'native') {
-    mode = mergeOnGreenWorkflow ? 'merge-on-green' : 'native'
+  let doc
+  try {
+    doc = Bun.YAML.parse(stackText)
+  } catch (e) {
+    throw new Error(`.dev/stack.yml is not valid YAML: ${e instanceof Error ? e.message : String(e)}`)
+  }
+  const isMap = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
+  if (doc == null) return { mode: fallback, required_checks: [] }
+  if (!isMap(doc)) throw new Error('.dev/stack.yml: the document is not a map')
+  const landing = doc.landing
+  if (landing == null) return { mode: fallback, required_checks: [] }
+  if (!isMap(landing)) throw new Error('.dev/stack.yml: landing is not a map')
+  const mode = landing.mode ?? fallback
+  if (mode !== 'native' && mode !== 'merge-on-green') {
+    throw new Error(`.dev/stack.yml: landing.mode must be native or merge-on-green, got ${JSON.stringify(mode)}`)
+  }
+  const checks = landing.required_checks ?? []
+  if (!Array.isArray(checks) || !checks.every((c) => typeof c === 'string' && c.length > 0)) {
+    throw new Error('.dev/stack.yml: landing.required_checks must be a list of check names')
   }
   return { mode, required_checks: checks }
 }
 
 /**
- * Arm `reviewed` and hand the wait to `/ci-watch`. No in-process poll.
- * Native also enables merge-commit auto-merge. merge-on-green never returns
- * `no-required-checks` — the workflow, not the rules API, is the gate.
+ * The one landing resolver: `<cwd>/.dev/stack.yml` (absent → no landing block)
+ * and `<cwd>/.github/workflows/merge-on-green.yml` as the mode fallback. `landPr`
+ * and `ci-watch.sh` both resolve through it. Throws on an invalid landing.
+ *
+ * @param {string} cwd
  */
-export async function landPr(cwd, pr, { gh: ghFn = gh, requiredContexts, landing } = {}) {
-  const resolved = landing ?? { mode: 'native', required_checks: [] }
+export function readLanding(cwd) {
+  const stackPath = join(cwd, '.dev', 'stack.yml')
+  const stackText = existsSync(stackPath) ? readFileSync(stackPath, 'utf8') : ''
+  const mergeOnGreenWorkflow = existsSync(join(cwd, '.github', 'workflows', 'merge-on-green.yml'))
+  return parseLanding(stackText, { mergeOnGreenWorkflow })
+}
+
+/** Attempts to read a labeled-reviewed time newer than the pre-add snapshot. */
+const SINCE_ATTEMPTS = 5
+/** Delay between post-add events reads (tests inject a no-op `sleep`). */
+const SINCE_RETRY_MS = 200
+
+/**
+ * Arm `reviewed` and hand the wait to `/ci-watch`. No in-process poll.
+ * Without an explicit `landing`, the mode comes from `readLanding(cwd)`; an
+ * invalid landing returns `bad-landing` before any gh call.
+ * Native also enables merge-commit auto-merge. merge-on-green never returns
+ * `no-required-checks` — the workflow, not the rules API, is the gate. Under
+ * merge-on-green a `reviewed` already on the PR is removed and re-added, so a
+ * fresh labeled run exists. `--since` is always GitHub's `created_at` of that
+ * new labeled event (no local clock): read the pre-add time, re-label, then
+ * retry until a strictly newer time appears. If the event stays unreadable,
+ * return `watch-failed` — never watch without `--since` under merge-on-green.
+ * `watch` is `bash '<real path of ci-watch.sh>' …` — the OMP shell does not
+ * resolve `skill://` for a bare `bash` argv.
+ *
+ * @param {string} cwd
+ * @param {string | number} pr
+ * @param {{
+ *   gh?: (cwd: string, args: string[]) => Promise<string>,
+ *   requiredContexts?: string[],
+ *   landing?: { mode: string, required_checks: string[] },
+ *   sleep?: (ms: number) => Promise<void>,
+ * }} [opts]
+ */
+export async function landPr(
+  cwd,
+  pr,
+  { gh: ghFn = gh, requiredContexts, landing, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {},
+) {
+  let resolved = landing
+  if (!resolved) {
+    try {
+      resolved = readLanding(cwd)
+    } catch (e) {
+      return { status: 'bad-landing', error: e instanceof Error ? e.message : String(e) }
+    }
+  }
   if (resolved.mode === 'native') {
     const required =
       requiredContexts !== undefined
@@ -452,7 +504,25 @@ export async function landPr(cwd, pr, { gh: ghFn = gh, requiredContexts, landing
     if (required.length === 0) return { status: 'no-required-checks' }
   }
 
-  await ghFn(cwd, ['pr', 'edit', String(pr), '--add-label', 'reviewed'])
+  /** @type {string} */
+  let since = ''
+  if (resolved.mode === 'merge-on-green') {
+    const before = await labeledReviewedAt(cwd, pr, ghFn)
+    const { labels = [] } = JSON.parse(await ghFn(cwd, ['pr', 'view', String(pr), '--json', 'labels']))
+    if (labels.some((label) => label?.name === 'reviewed')) {
+      await ghFn(cwd, ['pr', 'edit', String(pr), '--remove-label', 'reviewed'])
+    }
+    await ghFn(cwd, ['pr', 'edit', String(pr), '--add-label', 'reviewed'])
+    since = await waitLabeledSince(cwd, pr, ghFn, before, sleep)
+    if (!since) {
+      return {
+        status: 'watch-failed',
+        error: 'could not read the labeled reviewed event after re-label — merge-on-green needs --since from GitHub',
+      }
+    }
+  } else {
+    await ghFn(cwd, ['pr', 'edit', String(pr), '--add-label', 'reviewed'])
+  }
   if (resolved.mode === 'native') {
     try {
       await ghFn(cwd, ['pr', 'merge', String(pr), '--auto', '--merge'])
@@ -461,11 +531,61 @@ export async function landPr(cwd, pr, { gh: ghFn = gh, requiredContexts, landing
       if (!/already enabled/i.test(msg)) return { status: 'auto-merge-failed', armed: true }
     }
   }
+  const sinceArg = since ? ` --since ${since}` : ''
   return {
     status: 'watching',
     mode: resolved.mode,
-    watch: `bash skill://ci-watch/ci-watch.sh ${pr} --merge-mode ${resolved.mode}`,
+    watch: `bash ${shellQuote(ciWatchSh())} ${shellQuote(String(pr))} --merge-mode ${resolved.mode}${sinceArg}`,
   }
+}
+
+/**
+ * GitHub's time of the newest `reviewed` label on the PR. Empty when the read
+ * fails or finds nothing.
+ *
+ * @param {string} cwd
+ * @param {string | number} pr
+ * @param {(cwd: string, args: string[]) => Promise<string>} ghFn
+ */
+async function labeledReviewedAt(cwd, pr, ghFn) {
+  try {
+    const { nameWithOwner } = JSON.parse(await ghFn(cwd, ['repo', 'view', '--json', 'nameWithOwner']))
+    const [owner, repo] = (nameWithOwner || '').split('/')
+    if (!owner || !repo) return ''
+    const out = await ghFn(cwd, [
+      'api',
+      `repos/${owner}/${repo}/issues/${pr}/events`,
+      '--paginate',
+      '--jq',
+      '.[] | select(.event == "labeled" and .label.name == "reviewed") | .created_at',
+    ])
+    const last = String(out).trim().split('\n').filter(Boolean).at(-1)
+    if (!last) return ''
+    const since = last.replace(/\.\d+Z$/, 'Z')
+    return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(since) ? since : ''
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * After re-label, wait for a labeled-reviewed time that is strictly newer than
+ * `before` (or any non-empty time when `before` was empty). Empty when retries
+ * exhaust.
+ *
+ * @param {string} cwd
+ * @param {string | number} pr
+ * @param {(cwd: string, args: string[]) => Promise<string>} ghFn
+ * @param {string} before
+ * @param {(ms: number) => Promise<void>} sleep
+ */
+async function waitLabeledSince(cwd, pr, ghFn, before, sleep) {
+  for (let attempt = 0; attempt < SINCE_ATTEMPTS; attempt++) {
+    if (attempt > 0) await sleep(SINCE_RETRY_MS)
+    const since = await labeledReviewedAt(cwd, pr, ghFn)
+    if (since && (before === '' || since > before)) return since
+  }
+  return ''
 }
 
 async function watchPrState(cwd, pr, ghFn) {
@@ -473,10 +593,16 @@ async function watchPrState(cwd, pr, ghFn) {
   return JSON.parse(raw)
 }
 
-/** Map a `/ci-watch` exit. 0–3 re-read state: MERGED is merged, CLOSED or an unmerged 0 is stopped, otherwise 1–3 disarm. 4 stops. 5 is re-attachable. 70 and any other code leave the gate armed. */
+/**
+ * Map a `/ci-watch` exit. 4 stops. 5 is re-attachable. 6 is evaluate-only: the
+ * kit-ci App is not configured, so the gate stays armed and the operator merges
+ * by hand. 0–3 re-read state: MERGED is merged, CLOSED or an unmerged 0 is
+ * stopped, otherwise 1–3 disarm. 70 and any other code leave the gate armed.
+ */
 export async function applyCiWatchExit(cwd, pr, code, { mode = 'native', gh: ghFn = gh } = {}) {
   if (code === 4) return { status: 'stopped' }
   if (code === 5) return { status: 'timeout' }
+  if (code === 6) return { status: 'evaluate-only' }
   if (code === 0 || code === 1 || code === 2 || code === 3) {
     const view = await watchPrState(cwd, pr, ghFn)
     if (view?.state === 'MERGED') return { status: 'merged' }
