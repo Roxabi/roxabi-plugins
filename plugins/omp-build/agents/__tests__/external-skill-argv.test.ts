@@ -3,16 +3,21 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 /**
- * External programs do not resolve `skill://`. In a shell context the only
- * accepted use is a fail-closed realpath assignment:
+ * Spelling sweep for `skill://` in shell contexts (#619).
+ *
+ * The sweep allows a URL only when it appears in this assignment grammar:
  *
  *   NAME=$(realpath [-flags] ['']?skill://…['']?) && …
  *   NAME=$(realpath …) || { …; exit N; }   # N ≥ 1; block may span lines
  *   NAME="$(realpath …)" && … / || { … exit N; }
  *
- * Every other realpath / read / cat / bun / bash / … + skill:// is a hit —
- * including `;`, a bare newline, inline `"$(realpath …)"`, `|| { …; }` with
- * no exit, and `cat … | <shell>` (#619).
+ * Any other `realpath` / `read` / `cat` / `bun` / `bash` / … + `skill://` in a
+ * scanned shell context is a hit — including `;`, a bare newline, inline
+ * `"$(realpath …)"`, `|| { …; }` with no exit, and `cat … | <shell>`.
+ *
+ * This is a spelling allowlist, not a control-flow proof. Fail-closed behaviour
+ * is proven by the executed sites: Filing, promote 9d, step 7, and the printed
+ * `next:` line — not by this sweep. Remaining spelling gaps go to a follow-up.
  *
  * Corpus: every `.md` under plugins/.
  */
@@ -152,13 +157,11 @@ export function shellContexts(md: string): string[] {
   const consumed: Array<{ start: number; end: number }> = []
 
   // Fenced blocks: ``` or ~~~ of any length ≥ 3.
-  const fenceOpen = /^( {0,3})([`~]{3,})(.*)\r?$/gm
   const lines = md.split('\n')
   let i = 0
   let offset = 0
   while (i < lines.length) {
     const line = lines[i]
-    fenceOpen.lastIndex = 0
     const open = /^( {0,3})([`~]{3,})(.*)$/.exec(line)
     if (!open) {
       offset += line.length + 1
@@ -246,9 +249,10 @@ export function shellContexts(md: string): string[] {
       if (!/^[ \t]*\n?[ \t]*$/.test(between)) break
       e++
     }
+    // CommonMark: a soft line break inside one span is a single space.
     const joined = matches
       .slice(s, e + 1)
-      .map((m) => m[1])
+      .map((m) => m[1].replace(/[ \t]*\r?\n[ \t]*/g, ' '))
       .join(' ')
     if (SKILL_URL.test(joined)) {
       SKILL_URL.lastIndex = 0
@@ -375,10 +379,17 @@ describe('skillArgvHits fail-open variants (S7–S12, X1, newline, cat|bash)', (
     ).not.toEqual([])
   })
 
-  it('X1: soft-wrapped bare form joined across a soft line break', () => {
+  it('X1: soft-wrapped bare form joined across two spans', () => {
     const md = 'Run\n`bun`\n`skill://issue-triage/triage.ts init`\nnow.\n'
     const ctx = shellContexts(md)
     expect(ctx.some((c) => /bun.*skill:\/\//.test(c))).toBe(true)
+    expect(ctx.some((c) => skillArgvHits(c).length > 0)).toBe(true)
+  })
+
+  it('X1 one-span: soft-wrapped bare form inside a single code span', () => {
+    const md = 'Run `bun\n  skill://issue-triage/triage.ts init` now.\n'
+    const ctx = shellContexts(md)
+    expect(ctx.some((c) => /bun skill:\/\//.test(c))).toBe(true)
     expect(ctx.some((c) => skillArgvHits(c).length > 0)).toBe(true)
   })
 
@@ -472,5 +483,10 @@ T=$(realpath skill://issue-triage/triage.ts) && bun "$T" init`),
 
   it('ellipsis anti-pattern docs are not resolvable skill URLs', () => {
     expect(skillArgvHits('cat skill://… | bash -s')).toEqual([])
+  })
+
+  it('wrapped fail-closed span stays clean', () => {
+    const md = 'Run `T=$(realpath skill://issue-triage/triage.ts) &&\n  bun "$T" init` now.\n'
+    expect(shellContexts(md).every((c) => skillArgvHits(c).length === 0)).toBe(true)
   })
 })
