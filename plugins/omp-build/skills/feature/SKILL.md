@@ -52,14 +52,39 @@ previous one.
 - **A finished agent gets no new work.** No IRC follow-up, no resume, no second
   assignment: the next unit spawns a new agent.
 - **Under a goal**, this session keeps the frontier (§5), the base CI read and
-  each ticket's reported PR and outcome. It delivers each actionable ticket, in
-  `blocked_by` order and in the epic worktree, by spawning one fresh agent that
-  reads `$SKILL_DIR/SKILL.md` (this body) and runs §6 for `#N`. It does not
-  implement, review or fix a ticket itself.
+  each ticket's outcome. It spawns one ticket unit at a time, in `blocked_by`
+  order and in the epic worktree, and spawns the next only after the previous
+  one returns. The seed adds the epic number, `SKILL_DIR` and the assignment
+  "you are the ticket unit for `#N` under goal `#<epic>`: read
+  `$SKILL_DIR/SKILL.md` and run §6 for `#N` per § Ticket unit". This session
+  does not implement, review, fix or land a ticket itself.
 - **What enters a context.** Run a full suite (`validate:full`, the whole test
   run) with its log written to a file, and bring back the exit code and the
   failing section, never a green log. Read files by line range. Do not re-read a
   file whose current content is already in this context.
+
+### Ticket unit
+
+Under a goal, the operator's `/goal` is the standing Phase 8 choice and merge
+approval for every ticket of the epic (ADR-025 §5, ADR-024 decision 1). The
+ticket unit runs §6 for its ticket to a terminal outcome and asks nothing:
+
+- §6.4: `step.action` is the choice — `fix` → §6.5, `land` → §6.7, `stop` → §6.6.
+- §6.7: the goal is the merge approval. Wait on the `watch` job in this unit;
+  `timeout` re-attaches here, and `ci-failed` reopens the loop here.
+- It never applies the goal-session rules above and never spawns a ticket unit.
+
+It returns one line, `{pr, outcome, reason}`:
+
+| `outcome` | When |
+|---|---|
+| `merged` | `land.status` is `merged` |
+| `shared-state-stop` | a state the next ticket would hit too: `watch-failed`, `bad-landing`, `no-required-checks`, `evaluate-only`, `auto-merge-failed` |
+| `ticket-stopped` | anything else — a §6.0 stop, a halted fix round, `stop` from the loop, `ci-cancelled`, `ci-blocked`, `stopped`, `closed` — with the status as `reason` |
+
+The goal session confirms `merged` with `gh pr view <pr> --json state` before
+trusting it. A shared-state stop stops the goal. A ticket stop is reported; its
+dependents are skipped and independent tickets continue.
 
 ## 1. Route-specific prerequisites
 
@@ -292,7 +317,8 @@ await loop.persist(cwd)
 Present the Phase 8 human choice constrained by `step`: **Fix now** routes through
 §6.5 only on `fix`; **Merge** routes through §6.7 only on `land`; **Stop** exits
 without fixing or merging. On `stop`, enforce §6.6 rather than offer another round.
-Never choose on the user's behalf or offer “Merge as-is” for a red verdict.
+Never choose on the user's behalf or offer “Merge as-is” for a red verdict. A
+ticket unit under a goal presents nothing: `step.action` is the choice (§ Ticket unit).
 The human's **Stop** simply exits; `enforceStop` is valid only when the loop itself
 returned `step.action === 'stop'`, not when the user declines an available fix.
 `record` has already counted the round when the choice is offered: say so, since a
@@ -338,7 +364,8 @@ already 2 → stop). It never refunds or preserves an unspent round after reopen
 ### 6.7 Land
 
 Only `step.action === 'land'` may reach this step. Obtain the operator's merge
-approval if not already explicit for this PR. Then `await landPr(cwd, pr)`
+approval if not already explicit for this PR; under a goal, the goal is that
+approval (§ Ticket unit). Then `await landPr(cwd, pr)`
 resolves the landing mode itself from `cwd` through `readLanding` — the same
 resolver `/ci-watch` uses: `landing.mode` in `.dev/stack.yml` (parsed as YAML),
 else merge-on-green when `.github/workflows/merge-on-green.yml` exists, else

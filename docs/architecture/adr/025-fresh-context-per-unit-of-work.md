@@ -83,10 +83,17 @@ Adopt **Option C**.
    PR, run `skill://fix #<pr>` in a fresh agent. ADR-020 §7 still holds inside it:
    `fix` applies every cause inline, in the session that runs it, spawns no fixer
    and delegates no edit. That session is now the fresh one. No fixer role returns.
-5. **Epic goal.** The goal session keeps the frontier, the base-CI read and each
-   ticket's reported PR and outcome. Each ticket's §6 runs in a fresh agent, in
-   `blocked_by` order, in the epic worktree. The rest of ADR-024 §1 stands: the
-   goal is still the autonomy unit.
+5. **Epic goal.** ADR-024 decision 1 (§3) already makes a goal unattended: the
+   operator's `/goal` is the standing Phase 8 choice and merge approval for every
+   ticket of the epic. The goal session keeps the frontier, the base-CI read and
+   each ticket's outcome. It spawns one ticket unit at a time, in `blocked_by`
+   order, in the epic worktree, seeded with its role, the epic number and the
+   skill directory. The ticket unit runs `/feature` §6 to a terminal outcome
+   without asking: it follows the review loop's step, lands on green and waits on
+   its own CI watch. It returns one closed outcome — `merged`, `ticket-stopped` or
+   `shared-state-stop` — and the goal session confirms `merged` from PR state
+   before trusting it. The rest of ADR-024 decision 1 stands: the goal is still
+   the autonomy unit.
 6. **What enters a context.** A full-suite run writes its log to a file and brings
    back its exit code and its failing section. Files are read by line range; a file
    whose current content is already in the context is not read again.
@@ -109,6 +116,9 @@ Adopt **Option C**.
 - Under a goal, a ticket agent spawns its reviewers and its fix agents one level
   down. That fits the default `task.maxRecursionDepth` of 2; a lower setting breaks
   the goal path.
+- Under a goal nothing asks the operator before a merge: the `/goal` is the
+  approval, written down here instead of left to the goal session's judgement.
+  Assisted `/feature` keeps the Phase 8 choice.
 
 ### Neutral
 
