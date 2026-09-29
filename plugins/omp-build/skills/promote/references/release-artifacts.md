@@ -37,7 +37,11 @@ rather than restated from memory. `release.model` is separate and optional
 ### 2b. Preview via price.sh
 
 ```bash
-PREVIEW=$(bash skill://promote/price.sh "$COMPONENT" origin/main origin/main origin/staging); RC=$?
+T=$(realpath skill://promote/price.sh) || {
+  printf 'REFUSE: cannot resolve skill://promote/price.sh\n'
+  exit 1
+}
+PREVIEW=$(bash "$T" "$COMPONENT" origin/main origin/main origin/staging); RC=$?
 ```
 
 | `price.sh` exit | Meaning | Action |

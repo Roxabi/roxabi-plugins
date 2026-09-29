@@ -78,7 +78,7 @@ Steps: pre-flight → version → changelog → commit → preview → create-pr
 ## Step 1 — Pre-flight
 
 ```bash
-bash skill://promote/preflight.sh
+T=$(realpath skill://promote/preflight.sh) && bash "$T"
 ```
 
 Emits: `commits_ahead`, `status`, commit log, diff stat, open PRs on staging, CI check results, `hotfix_density`, and a closing `---worktree---` line naming the branch still checked out.
@@ -331,12 +331,18 @@ EOF
 
 # 2) Create or update staging→main PR (harvest + inject mandatory)
 # Exit 1 if harvest degraded (exit 3 from collect) unless --allow-degraded after human review.
-PR_URL=$(bash skill://promote/create-promote-pr.sh \
+T=$(realpath skill://promote/create-promote-pr.sh) || {
+  printf 'REFUSE: cannot resolve skill://promote/create-promote-pr.sh\n'
+  exit 1
+}
+PR_URL=$(bash "$T" \
   --base main --head staging \
   --title "chore: promote staging to main ($VERSION)" \
   --body-file "$BODY_FILE")
+PR_RC=$?
 # Optional after reviewing WARNs: add --allow-degraded
 rm -f "$BODY_FILE"
+[ "$PR_RC" -eq 0 ] || exit "$PR_RC"
 ```
 
 **Does this auto-close?** For every `Closes #N` **listed in the promote body** after harvest: yes, when the promote PR **merges into `main`**. Harvest is **best-effort** (same-repo keyword adjacency only; open issues at harvest). Degraded harvest **REFUSE**s the PR create unless `--allow-degraded`. Cross-repo `owner/repo#N` is not re-emitted. Eyeball the Closes section before merge.
@@ -412,10 +418,18 @@ NEWEST=$(gh pr list --base main --head staging --state merged --limit 1 --json m
 
 # Derived version + BASE floor — BOTH from price.sh, the sole deriver (D10). --base-only reuses
 # the deriver's own floor predicate, so the gate and finalize never diverge from a second copy.
-DERIVED=$(bash skill://promote/price.sh "$COMPONENT" "${M}^1" "$M"); RC=$?
+T=$(realpath skill://promote/price.sh) || {
+  printf 'REFUSE: cannot resolve skill://promote/price.sh\n'
+  exit 1
+}
+DERIVED=$(bash "$T" "$COMPONENT" "${M}^1" "$M"); RC=$?
 { [ "$RC" -ge 1 ] && [ "$RC" -ne 10 ]; } && { echo "REFUSE: price.sh error ($RC)"; exit 1; }
 if [ "$RC" -eq 10 ]; then DERIVED=0.1.0; BASE=""; else       # first release — no floor
-  set +e; BASE=$(bash skill://promote/price.sh --base-only "$COMPONENT" "${M}^1"); BRC=$?; set -e
+  T=$(realpath skill://promote/price.sh) || {
+    printf 'REFUSE: cannot resolve skill://promote/price.sh\n'
+    exit 1
+  }
+  set +e; BASE=$(bash "$T" --base-only "$COMPONENT" "${M}^1"); BRC=$?; set -e
   { [ "$BRC" -ge 1 ] && [ "$BRC" -ne 10 ]; } && { echo "REFUSE: price.sh --base-only error ($BRC)"; exit 1; }
   [ "$BRC" -eq 10 ] && BASE=""
 fi
@@ -472,7 +486,13 @@ for _ in 1 2 3; do
     { [ "$TAG_AT" = "$M" ] && RELEASE_STATE=points-at-M; } || RELEASE_STATE=points-elsewhere
   else RELEASE_STATE=absent; fi
 
-  VERDICT=$(bun run skill://promote/lib/finalize.ts \
+  T=$(realpath skill://promote/lib/finalize.ts) || {
+    printf 'REFUSE: cannot resolve skill://promote/lib/finalize.ts\n'
+    exit 1
+  }
+  # Capture finalize's stdout even when it exits non-zero; empty/unknown ACTION
+  # still REFUSEs below — never treat a failed resolve or empty verdict as noop.
+  VERDICT=$(bun "$T" \
     --parent-count "$PARENT_COUNT" --is-promote "$IS_PROMOTE" \
     --derived "$DERIVED" --base "$BASE" \
     --witness-title "$TITLE_V" --witness-heading "$HEADING_V" --witness-file "$FILE_V" \
@@ -484,14 +504,18 @@ for _ in 1 2 3; do
     refuse)         printf '%s\n' "$VERDICT" | sed -n 's/^reason=/REFUSE: /p'; exit 1 ;;
     tag)            git tag -a "$VERSION" -m "Release $VERSION" "$M" && git push origin "$VERSION" ;;
     create-release) TITLE="${VERSION/\/v/ v}"; gh release create "$VERSION" --title "$TITLE" --notes "$CHANGELOG_CONTENT" ;;
-    noop|*)         break ;;
+    noop)           break ;;
+    *)              printf 'REFUSE: empty or unknown finalize action\n%s\n' "$VERDICT"; exit 1 ;;
   esac
 done
+[ "$ACTION" = noop ] || {
+  printf 'REFUSE: finalize did not converge\n'
+  exit 1
+}
 ```
 Re-running once **both** exist and point at `M` is a green no-op.
 
 Inform: "Release $VERSION finalized. Run `/cleanup` to clean branches."
-
 ## Merge method — merge commit only
 
 PRs merge via **merge commit**, never squash or rebase-merge.
