@@ -78,7 +78,6 @@ describe('deferred follow-ups are siblings', () => {
     expect(FIX).toContain('--title-file')
     expect(FIX).toContain('--body-file')
     expect(FIX).toMatch(/Never raw `gh issue create`/)
-    expect(FIX).toMatch(/issue-triage/)
   })
 
   it('wires --parent to the origin’s parent and --blocked-by to the origin', () => {

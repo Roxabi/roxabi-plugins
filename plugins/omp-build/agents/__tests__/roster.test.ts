@@ -130,8 +130,14 @@ describe('omp-build agent roster', () => {
     // #577/#619: the write path is `T=$(realpath skill://issue-triage/triage.ts) && bun "$T"`,
     // not a bare skill:// bun argv, not a plugin-root token, and not a Skill()
     // call. Those shapes are what the model follows into a stale copy.
+    // #627 rewrites cleanup's bash skill:// sites — exclude that body until it lands.
+    const EXTERNAL_SKILL_ARGV = /\b(?:bun|bash|node|sh|bunx|npx)\b(?:\s+(?:run|-\S+))*\s+"?skill:\/\//
     const invoked = sources
-      .filter(({ text }) => /\$\{CLAUDE_PLUGIN_ROOT\}/.test(text) || text.includes('Skill(skill:'))
+      .filter(({ file, text }) => {
+        if (/\$\{CLAUDE_PLUGIN_ROOT\}/.test(text) || text.includes('Skill(skill:')) return true
+        if (file === 'skills/cleanup/SKILL.md') return false
+        return EXTERNAL_SKILL_ARGV.test(text)
+      })
       .map(({ file }) => file)
     expect(invoked).toEqual([])
   })
