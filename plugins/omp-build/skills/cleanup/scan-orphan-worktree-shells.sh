@@ -26,7 +26,7 @@ if [ -z "$repo_root" ]; then
 fi
 
 # Registered worktree paths (absolute **and canonical**), and the principal — the
-# FIRST porcelain entry. Both scan roots hang off the principal, never off
+# FIRST porcelain entry. The scan roots hang off the principal, never off
 # `rev-parse --show-toplevel`: inside a linked worktree that returns the
 # worktree's own directory, so `<toplevel>/.claude/worktrees` would name a path
 # that does not exist and the scan would report zero orphans from every ω —

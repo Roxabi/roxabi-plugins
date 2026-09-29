@@ -105,9 +105,9 @@ In the matching worktree: implement → `dev-review` → `fix --no-label` → la
 `openPr` returns the PR number; `resumeReviewLoop` restores rounds from PR comments.
 At most two fix rounds; a third red stops and `enforceStop` removes the `reviewed`
 label and disables native auto-merge. Every verdict and CI reopening is persisted
-(counts only, not the stop). Only an approved landing calls `landPr`, which waits for
-green required checks before labelling and enabling auto-merge, and disarms both if a
-required check then fails or is skipped. No duplicate spec files or `validated` gate.
+(counts only, not the stop). Only an approved landing calls `landPr`, which adds
+`reviewed`, arms native auto-merge, and hands the wait to `/ci-watch`. It does not
+poll. `applyCiWatchExit` maps the watch exit and disarms on a failing one. No duplicate spec files or `validated` gate.
 
 ## Guards
 
@@ -156,6 +156,7 @@ Spawn: `task` `{ agent: "R-adversarial" | "R-advisor" | "R-architect" | "R-devop
 | `fix` | model-invocable · applies the findings, inline |
 | `promote` | `/promote` (registered command) · the optional tail |
 | `cleanup` | `/cleanup` (registered command) · the optional tail |
+| `ci-watch` | `/ci-watch` (registered command) · watches checks, then the merge |
 
 `dev-review` and `fix` are the #492 snapshot of dev-core's `dev-review`/`fix` pair, cut to this plugin's roster: five dispatchable roles, `R-tester` armed by changed-test evidence alone, and every finding applied in-session. They read their own bundled files through `skill://dev-review/<file>`. `lib.sh` is the exception: it sits one level up, in a non-skill directory, and `skill://` rejects `..`, so `dev-review` Phase 1 traverses from `$SKILL_DIR` instead. **Nothing in this plugin exports `SKILL_DIR`** — only the registered commands print a skill directory (`omp/index.ts`) — so that fence asserts the variable (`${SKILL_DIR:?…}`) and stops when it is unset, rather than sourcing `/../shared/lib.sh` and detecting a base branch against nothing. `cleanup/analyze-branches.sh` has no such problem: it is a script, so it resolves `../shared/lib.sh` from its own `BASH_SOURCE`.
 
@@ -164,9 +165,11 @@ Spawn: `task` `{ agent: "R-adversarial" | "R-advisor" | "R-architect" | "R-devop
 `/feature` offers `promote` only for `release.model: staging-train`, not trunk.
 Two behaviours changed in the copy: `promote/preflight.sh` is now read-only (dev-core's ran
 `git checkout staging && git pull` before asking the operator anything), and
-`cleanup/scan-orphan-worktree-shells.sh` scans `~/.omp/worktrees/<repo>/` and
-`<principal>/.claude/worktrees/` instead of the Grok roots this plugin never writes
-to. dev-core's `shared/references/release-convention.md` did not travel: its two
+`cleanup/scan-orphan-worktree-shells.sh` scans three roots: `~/.omp/worktrees/<repo>/`
+(legacy leftover of the retired `ensureWorktree`; still scanned; `/feature` does not write here),
+`<principal>/.claude/worktrees/` (harness-created worktrees), and `<worktree base>/<repo>/<slug>`
+(the `/feature` root; base is `OMP_WORKTREE_DIR`, else stack.yml `worktree.base`, else `~/.omp/wt`),
+instead of the Grok roots this plugin never writes to. dev-core's `shared/references/release-convention.md` did not travel: its two
 rules are inlined in `promote/SKILL.md` § Merge method.
 
 **The names are deliberately not `R-dev-review`/`R-fix`.** Skill discovery dedups by `name` across every provider, first-wins: while `dev-core` is still installed next to this plugin, identical names would make one of the two workflows shadow the other silently — and the shadowed one is the panel the operator thinks is running. Snapshotted agent bodies still call the workflow `/R-dev-review` in prose; that is a label, not an invocation, and the dispatch prompt in `skills/dev-review/SKILL.md` is the contract they actually obey.
