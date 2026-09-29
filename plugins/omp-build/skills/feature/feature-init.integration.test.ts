@@ -162,15 +162,49 @@ printf '[]\\n'
     expect(result.stdout).toContain('dry-run: true')
   })
 
-  it('exits non-zero when the printed next line targets an unresolvable skill', () => {
-    // The inline `bun "$(realpath …)"` form exits 0 on a miss (`bun ""` prints
-    // usage). The fail-closed `T=$(realpath …) && bun "$T"` form must not.
-    const cmd = EXPECTED_NEXT.replace(/^next:\s*/, '').replace(
-      'skill://issue-triage/triage.ts',
-      'skill://issue-triagex/triage.ts',
+  it('exits non-zero when the real printed next line hits a realpath miss', () => {
+    // Take `next:` from the real CLI — not a swapped literal — so a regression
+    // to the inline fail-open form (`bun "$(realpath …)"` → bun "" → rc=0) dies.
+    root = mkdtempSync(path.join(tmpdir(), 'omp-init-next-miss-'))
+    const repo = principal()
+    const wt = path.join(root, 'wt')
+    git(repo, 'worktree', 'add', '-q', wt, '-b', 'feat/init')
+    const out = spawnSync(REAL_BUN, [CLI, '--dry-run', '--dir', wt], { env: ENV, encoding: 'utf8' })
+    expect(out.status).toBe(0)
+    const next = out.stdout.split('\n').find((line) => line.startsWith('next:'))
+    if (next === undefined) throw new Error('missing next line')
+
+    const bin = path.join(root, 'bin')
+    mkdirSync(bin)
+    writeFileSync(
+      path.join(bin, 'realpath'),
+      `#!/usr/bin/env bash
+echo "realpath: $1: No such file or directory" >&2
+exit 1
+`,
+      { mode: 0o755 },
     )
-    const result = spawnSync('bash', ['-c', cmd], { env: ENV, encoding: 'utf8' })
+    const marker = path.join(root, 'bun-ran')
+    writeFileSync(
+      path.join(bin, 'bun'),
+      `#!/usr/bin/env bash
+printf 'ran\\n' > ${JSON.stringify(marker)}
+printf 'dry-run: true\\n'
+exit 0
+`,
+      { mode: 0o755 },
+    )
+
+    const result = spawnSync('bash', ['-c', next.replace(/^next:\s*/, '')], {
+      cwd: wt,
+      env: {
+        ...ENV,
+        PATH: `${bin}:/usr/bin:/bin`,
+      },
+      encoding: 'utf8',
+    })
     expect(result.status).not.toBe(0)
-    expect(`${result.stdout}\n${result.stderr}`).toMatch(/No such file or directory/)
+    expect(`${result.stdout}\n${result.stderr}`).not.toContain('dry-run:')
+    expect(() => readFileSync(marker, 'utf8')).toThrow()
   })
 })

@@ -127,17 +127,10 @@ describe('omp-build agent roster', () => {
       .filter(({ text }) => /\$\{CLAUDE_(PLUGIN_ROOT|SKILL_DIR)\}\S*\.md/.test(text.replace(STATED_ABSENT, '')))
       .map(({ file }) => file)
     expect(cited).toEqual([])
-    // #577/#619: the write path is `T=$(realpath skill://issue-triage/triage.ts) && bun "$T"`,
-    // not a bare skill:// bun argv, not a plugin-root token, and not a Skill()
-    // call. Those shapes are what the model follows into a stale copy.
-    // #627 rewrites cleanup's bash skill:// sites — exclude that body until it lands.
-    const EXTERNAL_SKILL_ARGV = /\b(?:bun|bash|node|sh|bunx|npx)\b(?:\s+(?:run|-\S+))*\s+"?skill:\/\//
+    // #577: no plugin-root token and no Skill() call — those shapes follow into a
+    // stale copy. Bare skill:// argv is the external-skill-argv sweep (#619).
     const invoked = sources
-      .filter(({ file, text }) => {
-        if (/\$\{CLAUDE_PLUGIN_ROOT\}/.test(text) || text.includes('Skill(skill:')) return true
-        if (file === 'skills/cleanup/SKILL.md') return false
-        return EXTERNAL_SKILL_ARGV.test(text)
-      })
+      .filter(({ text }) => /\$\{CLAUDE_PLUGIN_ROOT\}/.test(text) || text.includes('Skill(skill:'))
       .map(({ file }) => file)
     expect(invoked).toEqual([])
   })

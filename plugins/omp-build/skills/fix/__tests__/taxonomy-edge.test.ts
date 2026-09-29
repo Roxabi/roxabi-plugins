@@ -74,7 +74,9 @@ describe('deferred follow-ups are siblings', () => {
   // docs/agents/issue-tracker.md § "Deferred follow-ups are siblings": the
   // deferral takes the ORIGIN'S parent and is blocked by the origin. Parenting
   // it to the origin builds the nested cascade that rule exists to prevent.
-  it('routes the create through issue-triage, never raw gh', () => {
+  it('requires --title-file/--body-file and forbids raw gh issue create', () => {
+    // Routing through issue-triage is the Filing behaviour test + the plugin-wide
+    // external-skill-argv sweep — this pin only keeps the file-argv / no-raw-gh rules.
     expect(FIX).toContain('--title-file')
     expect(FIX).toContain('--body-file')
     expect(FIX).toMatch(/Never raw `gh issue create`/)

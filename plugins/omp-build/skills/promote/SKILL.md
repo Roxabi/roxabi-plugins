@@ -494,11 +494,14 @@ for _ in 1 2 3; do
     *)              printf 'REFUSE: empty or unknown finalize action\n%s\n' "$VERDICT"; exit 1 ;;
   esac
 done
+[ "$ACTION" = noop ] || {
+  printf 'REFUSE: finalize did not converge\n'
+  exit 1
+}
 ```
 Re-running once **both** exist and point at `M` is a green no-op.
 
 Inform: "Release $VERSION finalized. Run `/cleanup` to clean branches."
-
 ## Merge method — merge commit only
 
 PRs merge via **merge commit**, never squash or rebase-merge.
