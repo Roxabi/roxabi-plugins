@@ -52,6 +52,8 @@ the reviewing session.
   path, branch, base, PR number, `SKILL_DIR` and, under a goal, the epic number.
   Each spawn site names its subset. Never another unit's transcript, findings or
   summary: the agent reads everything else from the issue, the branch and the PR.
+  A spawn site outside this table — a §6.2 slice delegate, `dev-review`'s Fix
+  now — states its own assignment under the same ceiling.
 
   | Unit | Assignment, verbatim |
   |---|---|
@@ -65,8 +67,9 @@ the reviewing session.
   each ticket's outcome, and owns the hand-over of the epic worktree. Before each
   spawn it requires a clean tree (dirty → `shared-state-stop`), fetches
   `origin/<base>`, and checks out `<type>/<N>-<slug>` (§3 step 1), creating it
-  from `refs/remotes/origin/<base>` when it does not exist. It seeds that branch
-  and the base, spawns one ticket unit, in `blocked_by` order, and spawns the
+  from `refs/remotes/origin/<base>` when it does not exist. It seeds the issue
+  number, the epic number, the worktree path, that branch, the base and
+  `SKILL_DIR`, spawns one ticket unit, in `blocked_by` order, and spawns the
   next only after the previous one returns. It does not implement, review, fix
   or land a ticket itself.
 - **What enters a context.** Write a full-suite or test-run log to

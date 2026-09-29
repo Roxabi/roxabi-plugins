@@ -79,8 +79,9 @@ Adopt **Option C**.
    Its seed is at most the unit's assignment, verbatim, and durable data: issue
    number, worktree path, branch, base, PR number, the skill directory and, under
    a goal, the epic number. No transcript, pasted finding or summary of another
-   unit goes in. `/feature` § Context boundary is the one definition; every other
-   spawn site cites it.
+   unit goes in. `/feature` § Context boundary is the one definition. A spawn site
+   outside its table (a `/feature` §6.2 slice delegate, `dev-review` Fix now)
+   states its own assignment under the same ceiling.
 3. **A finished agent gets no new work.** No IRC follow-up, no resume, no second
    assignment. A new unit spawns a new agent. Every unit returns a closed result
    that its spawner checks against durable state. A unit that returns `halted`,
