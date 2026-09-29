@@ -74,15 +74,17 @@ Adopt **Option C**.
    Each starts in a fresh context.
 2. **Fresh context.** A new session — the assisted case, unchanged: the operator
    runs `/feature #N` after `/clear` — or an agent spawned for that unit alone,
-   seeded only with durable state: issue number, worktree path, branch, base, PR
-   number and, for `ci-failed`, the failed check names. No transcript, pasted
-   finding or summary of another unit goes in.
+   seeded only with durable state: issue number, worktree path, branch, base and
+   PR number. No transcript, pasted finding or summary of another unit goes in.
 3. **A finished agent gets no new work.** No IRC follow-up, no resume, no second
    assignment. A new unit spawns a new agent.
 4. **Fix rounds.** `/feature` §6.5, and a standalone `dev-review` **Fix now** on a
    PR, run `skill://fix #<pr>` in a fresh agent. ADR-020 §7 still holds inside it:
    `fix` applies every cause inline, in the session that runs it, spawns no fixer
    and delegates no edit. That session is now the fresh one. No fixer role returns.
+   A `ci-failed` round runs `/feature`'s `ci-failed` round procedure, never
+   `fix`: it reads the failed checks from GitHub, stages only what it changed,
+   verifies before its push and writes no label.
 5. **Epic goal.** ADR-024 decision 1 (§3) already makes a goal unattended: the
    operator's `/goal` is the standing Phase 8 choice and merge approval for every
    ticket of the epic. The goal session keeps the frontier, the base-CI read and
