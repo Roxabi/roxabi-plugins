@@ -289,6 +289,25 @@ EOF
     expect(result.stderr).not.toContain('Update behind PRs')
   })
 
+  it('exits 1 naming the failure when run list fails', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-run-list-'))
+    fakeGh(
+      dir,
+      `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1" == "run" && "$2" == "list" ]]; then exit 1; fi
+if [[ "$1" == "run" ]]; then exit 0; fi
+cat <<'EOF'
+{"state":"OPEN","mergeStateStatus":"BLOCKED","autoMergeRequest":null,"labels":[{"name":"reviewed"}],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"FAILURE"}]}
+EOF
+`,
+    )
+    const result = runWatch(dir)
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain('ci=FAILURE')
+    expect(result.stderr).toContain('failed-run logs unavailable')
+  })
+
   it('exits 2 naming a cancelled check beside a skipped one', () => {
     const dir = mkdtempSync(join(tmpdir(), 'ci-watch-cancel-'))
     fakeGh(

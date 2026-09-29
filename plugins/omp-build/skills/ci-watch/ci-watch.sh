@@ -281,7 +281,7 @@ while true; do
   case "$verdict" in
     FAIL)
       echo "$checks" | print_offending FAIL
-      dump_failed_logs "$(echo "$snapshot" | jq -r .headRefOid)"
+      dump_failed_logs "$(echo "$snapshot" | jq -r .headRefOid)" || echo "failed-run logs unavailable" >&2
       exit "$EXIT_FAIL"
       ;;
     CANCEL)
