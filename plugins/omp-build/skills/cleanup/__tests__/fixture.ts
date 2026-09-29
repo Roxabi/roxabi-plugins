@@ -15,23 +15,35 @@ export const FIXTURE_ENV: NodeJS.ProcessEnv = {
 
 export const SCAN = path.resolve(import.meta.dirname, '..', 'scan-orphan-worktree-shells.sh')
 
-export function initRepo(dir: string, home: string): void {
-  mkdirSync(dir, { recursive: true })
-  const git = (...args: string[]) =>
-    execFileSync('git', args, { cwd: dir, env: { ...FIXTURE_ENV, HOME: home }, stdio: 'ignore' })
-  git('init', '-q', '-b', 'main')
-  writeFileSync(path.join(dir, 'README.md'), 'base\n')
-  git('add', 'README.md')
-  git('commit', '-q', '-m', 'chore: base')
+export function git(cwd: string, home: string, ...args: string[]): string {
+  return execFileSync('git', args, { cwd, env: { ...FIXTURE_ENV, HOME: home }, encoding: 'utf8' })
 }
 
-export function scan(repo: string, env: NodeJS.ProcessEnv, args: string[] = []): string[] {
-  const out = execFileSync('bash', [SCAN, ...args], {
+export function initRepo(dir: string, home: string): void {
+  mkdirSync(dir, { recursive: true })
+  git(dir, home, 'init', '-q', '-b', 'main')
+  writeFileSync(path.join(dir, 'README.md'), 'base\n')
+  git(dir, home, 'add', 'README.md')
+  git(dir, home, 'commit', '-q', '-m', 'chore: base')
+}
+
+export function commonDir(repo: string, home: string): string {
+  return git(repo, home, 'rev-parse', '--path-format=absolute', '--git-common-dir').trim()
+}
+
+/** Scanner stdout, byte for byte — row forgery is only visible here. */
+export function scanRaw(repo: string, env: NodeJS.ProcessEnv, args: string[] = []): string {
+  return execFileSync('bash', [SCAN, ...args], {
     cwd: repo,
     env: { ...FIXTURE_ENV, ...env },
     encoding: 'utf8',
   })
-  return out.split('\n').filter((line) => line.includes('|'))
+}
+
+export function scan(repo: string, env: NodeJS.ProcessEnv, args: string[] = []): string[] {
+  return scanRaw(repo, env, args)
+    .split('\n')
+    .filter((line) => line.includes('|'))
 }
 
 export function scanStatus(
@@ -40,12 +52,7 @@ export function scanStatus(
   args: string[] = [],
 ): { status: number; stdout: string; stderr: string } {
   try {
-    const stdout = execFileSync('bash', [SCAN, ...args], {
-      cwd: repo,
-      env: { ...FIXTURE_ENV, ...env },
-      encoding: 'utf8',
-    })
-    return { status: 0, stdout, stderr: '' }
+    return { status: 0, stdout: scanRaw(repo, env, args), stderr: '' }
   } catch (err) {
     const e = err as { status?: number; stdout?: string; stderr?: string }
     return { status: e.status ?? 1, stdout: e.stdout ?? '', stderr: e.stderr ?? '' }

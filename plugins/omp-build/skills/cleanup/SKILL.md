@@ -19,7 +19,7 @@ Three steps in this body delete, and no others:
 | Step | Command | Backstop |
 |------|---------|----------|
 | 5 | `git worktree remove` · `git branch -d` · `git branch -D` | git itself: `-d` refuses an unmerged β, and the remote copy survives the mistake |
-| 5b-execute | `rmdir` · `rm -rf` on a **deletable** orphan shell | none — outside git entirely; the guard is registration + gitdir-ownership + lexical-emit / protected-path / safe-name checks in `scan-orphan-worktree-shells.sh`; `--yes` deletes only what `--yes-targets` emits |
+| 5b-execute | `rmdir` on allowlisted `empty_parent`; `rm -rf` only after per-row confirm on content orphans | none — outside git entirely; `--yes` is an allowlist (`--yes-targets` → `rmdir` only) |
 | 6e | `git push origin --delete` | **none** — no unmerged check exists on the remote side, and after it there is no copy left |
 
 Step 6e is the deletion that ends the work, so the evidence bar is set there and
@@ -193,13 +193,14 @@ Never run any of these against the principal's path or its branch.
 
 | kind | Example | Deletable? |
 |------|---------|------------|
-| `empty_parent` | empty leftover under a scan root | **yes** — `rmdir` (or `rm -rf` if confirmed empty); in `--yes-targets` |
-| `unregistered` (content without `.git`) | partial dir (e.g. only `node_modules`) not in `git worktree list` | **yes** after confirm; in `--yes-targets` |
-| `unregistered` (`has .git`) | half-removed worktree of **this** repo | shown only — **never** in `--yes-targets` |
-| `symlink` / `outside_root` / `dangling_git` | symlink child, canon leaves root, dangling `.git` | shown only — **never** in `--yes-targets` |
-| `unsafe_name` | path with control character or `\|` | shown only — **never** in `--yes-targets` |
+| `empty_parent` | proven-empty real directory, not inside any git work tree, no symlink below its trusted anchor | **`--yes` allowlist** — `rmdir` only; never `rm -rf` |
+| `unregistered` (content without `.git`) | partial dir (e.g. only `node_modules`) | per-row confirm only — **never** in `--yes-targets` |
+| `unregistered` (`has .git`) | half-removed worktree of **this** repo (gitdir proven ours) | per-row confirm only — **never** in `--yes-targets` |
+| `inside_worktree` / `nested_git` | path inside a git work tree (`rev-parse --show-toplevel` succeeds), or a `.git` within depth 4 | **not selectable** |
+| `symlink_root` / `symlink` / `dangling_git` / `not_a_dir` | symlink between anchor and root (children not listed), symlink child, dangling `.git`, non-directory | **not selectable** |
+| `unsafe_name` | path with control character or `\|` | **not selectable** |
 
-Source: `gather-state.sh` → `---orphan-worktree-shells---` (`path|kind|detail`). Scope is **this repo only**: a child with `.git` is listed only when its `gitdir:` back-pointer resolves under this repo's absolute `git-common-dir`/worktrees — basename under a shared `~/.omp/wt` is not enough. The principal, paths under it (outside `.claude/worktrees` and an in-principal feature base), and any child that **contains** the principal or a registered worktree are skipped. Emitted paths are the **lexical** scanned entries (absolute, under their root); matching uses `realpath`.
+Source: `gather-state.sh` → `---orphan-worktree-shells---` (`path|kind|detail`). Scope is **this repo only**: a child with `.git` is listed only when its `gitdir:` back-pointer resolves under this repo's absolute `git-common-dir`/worktrees. The principal, paths under it (outside `.claude/worktrees` and an in-principal feature base, each only while `git ls-files` finds nothing tracked there), anything under a registered worktree, and any child that **contains** the principal or a registered worktree are skipped. Each root is built lexically under a canonical trusted anchor (the principal, `$HOME`, or the configured / default base); a relative `worktree.base` resolves against the principal. Rows carry the lexical scanned entry; matching uses `realpath`.
 
 #### 5b-present
 
@@ -207,27 +208,31 @@ Source: `gather-state.sh` → `---orphan-worktree-shells---` (`path|kind|detail`
 Orphan worktree shells
 ══════════════════════
 
-  Path                                              │ Kind          │ Detail
-  ~/.omp/worktrees/roxabi-plugins                   │ empty_parent  │ empty worktree parent
-  <principal>/.claude/worktrees/495-optional-tail   │ unregistered  │ content without git registration
+  Path                                              │ Kind             │ Detail
+  ~/.omp/worktrees/roxabi-plugins                   │ empty_parent     │ empty leftover after worktree remove
+  <principal>/.claude/worktrees/495-optional-tail   │ inside_worktree  │ path is inside a git work tree
   (none found)
 ```
 
 If `REPORT_ONLY=true` → print table and skip deletion. Else → multi-select; always offer "Skip".
 
-**Defaults / `--yes` set:** **only** the rows `bash "$(realpath skill://cleanup/scan-orphan-worktree-shells.sh)" --yes-targets` emits (`empty_parent` + content-without-`.git`). Everything else in the full table is manual-confirm only (like `probably_merged`) — including `unregistered`+`.git`, `symlink`, `outside_root`, `dangling_git`, `unsafe_name`.
+**Defaults / `--yes` set:** **only** the rows `bash "$(realpath skill://cleanup/scan-orphan-worktree-shells.sh)" --yes-targets` emits — an allowlist of `empty_parent` rows (proven-empty real directories, not inside any git work tree, no symlink component below the trusted anchor). Everything else needs per-row confirmation, including content without `.git`. `inside_worktree`, `nested_git`, `symlink_root`, `symlink`, `dangling_git`, `not_a_dir`, and `unsafe_name` are **not selectable** — never offered, even per row.
 
 #### 5b-execute (confirmed only)
 
 ```bash
-rmdir -- "<path>" 2>/dev/null || rm -rf -- "<path>"   # rmdir first; rm -rf only if user confirmed content orphans
+# --yes / defaults — every --yes-targets row:
+rmdir -- "<path>"
+
+# Per-row confirmed `unregistered` row only (never under --yes):
+rm -rf -- "<path>"
 ```
 
-`<path>` is a value: quoted, after `--`, exactly the **lexical** path the scanner
-emitted (the scanned entry under the root — never a symlink target outside it).
-Matching against the registry still uses `realpath`.
+`<path>` is a value: quoted, after `--`, exactly the path the scanner emitted.
+`--yes` runs **`rmdir` only**: it refuses a non-empty directory, so a row that
+gained content since the scan fails instead of being wiped.
 
-**Safety:** never `rm -rf` a path that still appears in `git worktree list`. Never wipe a worktree root wholesale — only this repo's children. `--yes` uses `--yes-targets` only.
+**Safety:** never `rm -rf` a path that still appears in `git worktree list`. Never wipe a worktree root wholesale — only this repo's children. `--yes` uses `--yes-targets` only (`rmdir`). Matches on canonical paths; emits the lexical scanned entry.
 
 ### 6. Clean Remote Branches
 
@@ -434,7 +439,7 @@ If `REPORT_ONLY=true`, prefix the header with `[report-only — no mutations per
 - **Remote tracking branches**: Step 6 scans **all** remote β independently — always require explicit confirmation.
 - **Stale worktrees**: ω path ∉ disk → `git worktree prune`.
 - **Invoked from inside ω**: the orphan scan anchors its three roots on the **principal** (first `git worktree list` entry) — `<principal>/.claude/worktrees/` by path, the other two by its `basename` and `$principal/.dev/stack.yml` — never on `git rev-parse --show-toplevel`, which inside a linked worktree names the ω itself and would make every scan report zero.
-- **Symlinked `$HOME`**: git records the *resolved* worktree path, the scan root is built from `$HOME`. Compared lexically a live registered ω reads as an orphan and 5b-execute `rm -rf`s it, so `scan-orphan-worktree-shells.sh` canonicalises both sides (`realpath`) before comparing and emits canonical paths.
+- **Symlinked `$HOME`**: git records the *resolved* worktree path, the scan root is built from `$HOME`. Compared lexically a live registered ω reads as an orphan and 5b-execute `rm -rf`s it, so `scan-orphan-worktree-shells.sh` matches on canonical paths (`realpath`) and emits the lexical scanned entry.
 - **Orphan shells after remove**: `git worktree remove` does not delete empty parent dirs. Step 5b + `scan-orphan-worktree-shells.sh` cover these.
 
 ## Chain Position

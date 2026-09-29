@@ -1,13 +1,14 @@
-import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { FIXTURE_ENV, initRepo, scan, scanStatus } from './fixture'
+import { commonDir, git, initRepo, scan, scanStatus } from './fixture'
 
 /**
- * #622: orphan-shell scan must not offer another same-named repo's live
- * worktree, the principal's own tree, or unregistered+.git rows under `--yes`.
+ * #622: the orphan-shell scan feeds `rm -rf` (per-row confirm) and `rmdir`
+ * (`--yes`). It must never offer another repository's work, the operator's
+ * tracked files, or a path reached through a symlink, and `--yes-targets` must
+ * name nothing but proven-empty real directories.
  */
 
 let root: string | undefined
@@ -17,93 +18,90 @@ afterEach(() => {
   root = undefined
 })
 
+function tempRoot(tag: string): { root: string; home: string; base: string } {
+  root = realpathSync(mkdtempSync(path.join(tmpdir(), `omp-build-622-${tag}-`)))
+  const home = path.join(root, 'home')
+  mkdirSync(home)
+  return { root, home, base: path.join(root, 'wt') }
+}
+
+const pathOf = (line: string) => line.split('|')[0]
+/** Kinds of the rows naming exactly `p`. */
+const kinds = (lines: string[], p: string) =>
+  lines.map((line) => line.split('|')).flatMap(([rowPath, kind]) => (rowPath === p ? [kind] : []))
+/** Rows naming `p` or anything below it. */
+const mentions = (lines: string[], p: string) =>
+  lines.filter((line) => pathOf(line) === p || pathOf(line).startsWith(`${p}/`))
+
+/** The `--yes` contract: every row is an empty_parent naming an empty, symlink-free real dir. */
+function expectAllowlisted(yesTargets: string[]): void {
+  for (const line of yesTargets) {
+    expect(line.split('|')[1]).toBe('empty_parent')
+    expect(realpathSync(pathOf(line))).toBe(pathOf(line))
+    expect(readdirSync(pathOf(line))).toEqual([])
+  }
+}
+
 describe('cleanup orphan scan repo scope (#622)', () => {
   it('never lists a live worktree of another same-named repository', () => {
-    // Shared ~/.omp/wt/<basename>/ — orgA and orgB both check out "app".
-    // Scanning from orgB must not offer orgA's live worktree for rm -rf.
-    root = realpathSync(mkdtempSync(path.join(tmpdir(), 'omp-build-622-same-')))
-    const home = path.join(root, 'home')
-    const base = path.join(root, 'wt')
-    mkdirSync(home)
+    const { root, home, base } = tempRoot('same')
     const orgA = path.join(root, 'orgA', 'app')
     const orgB = path.join(root, 'orgB', 'app')
     initRepo(orgA, home)
     initRepo(orgB, home)
-
     const foreignLive = path.join(base, 'app', 'feat-7-operator-work')
     mkdirSync(path.dirname(foreignLive), { recursive: true })
-    execFileSync('git', ['worktree', 'add', '-q', foreignLive, '-b', 'feat/7-operator-work'], {
-      cwd: orgA,
-      env: { ...FIXTURE_ENV, HOME: home },
-      stdio: 'ignore',
-    })
+    git(orgA, home, 'worktree', 'add', '-q', foreignLive, '-b', 'feat/7-operator-work')
     writeFileSync(path.join(foreignLive, 'NOTES.md'), 'uncommitted\n')
+    const ourContent = path.join(base, 'app', 'feat-9-leftover')
+    mkdirSync(path.join(ourContent, 'node_modules'), { recursive: true })
+    const ourEmpty = path.join(base, 'app', 'feat-9-empty')
+    mkdirSync(ourEmpty)
 
-    // Real orphan of orgB still reported (content without .git).
-    const ourOrphan = path.join(base, 'app', 'feat-9-leftover')
-    mkdirSync(path.join(ourOrphan, 'node_modules'), { recursive: true })
+    const env = { HOME: home, OMP_WORKTREE_DIR: base }
+    const full = scan(orgB, env)
+    const yesTargets = scan(orgB, env, ['--yes-targets'])
 
-    const reported = scan(orgB, { HOME: home, OMP_WORKTREE_DIR: base })
-    const paths = reported.map((line) => line.split('|')[0])
-
-    expect(paths.map((p) => realpathSync(p))).not.toContain(realpathSync(foreignLive))
-    expect(reported.some((line) => line.includes(foreignLive))).toBe(false)
-    expect(paths.map((p) => realpathSync(p))).toContain(realpathSync(ourOrphan))
+    expect(mentions(full, foreignLive)).toEqual([])
+    expect(kinds(full, ourContent)).toEqual(['unregistered'])
+    expect(yesTargets.map(pathOf)).toEqual([ourEmpty])
+    expectAllowlisted(yesTargets)
   })
 
-  it('never lists the principal or its descendants when base is the principal parent', () => {
-    root = realpathSync(mkdtempSync(path.join(tmpdir(), 'omp-build-622-principal-')))
-    const home = path.join(root, 'home')
+  it('never lists the principal or its tracked descendants when base is the principal parent', () => {
+    const { root, home } = tempRoot('principal')
     const projects = path.join(root, 'projects')
-    mkdirSync(home)
     const principal = path.join(projects, 'app')
     initRepo(principal, home)
-    mkdirSync(path.join(principal, 'src'), { recursive: true })
+    mkdirSync(path.join(principal, 'src'))
     writeFileSync(path.join(principal, 'src', 'main.ts'), 'export {}\n')
     mkdirSync(path.join(principal, 'node_modules', 'leftpad'), { recursive: true })
+    const harness = path.join(principal, '.claude', 'worktrees', '495-optional-tail')
+    mkdirSync(path.join(harness, 'node_modules'), { recursive: true })
+    const emptyOk = path.join(home, '.omp', 'worktrees', 'app', 'empty-ok')
+    mkdirSync(emptyOk, { recursive: true })
 
-    // Harness orphan under .claude/worktrees must still surface.
-    const claudeOrphan = path.join(principal, '.claude', 'worktrees', '495-optional-tail')
-    mkdirSync(path.join(claudeOrphan, 'node_modules'), { recursive: true })
+    const env = { HOME: home, OMP_WORKTREE_DIR: projects }
+    const full = scan(principal, env)
+    const yesTargets = scan(principal, env, ['--yes-targets'])
 
-    const reported = scan(principal, { HOME: home, OMP_WORKTREE_DIR: projects })
-    const paths = reported.map((line) => realpathSync(line.split('|')[0]))
-
-    expect(paths).not.toContain(realpathSync(principal))
-    expect(paths).not.toContain(realpathSync(path.join(principal, 'src')))
-    expect(paths).not.toContain(realpathSync(path.join(principal, 'node_modules')))
-    expect(paths).toContain(realpathSync(claudeOrphan))
+    expect(full.filter((line) => pathOf(line) === principal)).toEqual([])
+    expect(mentions(full, path.join(principal, 'src'))).toEqual([])
+    expect(mentions(full, path.join(principal, 'node_modules'))).toEqual([])
+    expect(kinds(full, harness)).toEqual(['inside_worktree'])
+    expect(yesTargets.map(pathOf)).toEqual([emptyOk])
   })
 
-  it('omits unregistered-with-.git from --yes-targets while still listing them fully', () => {
-    // Half-removed worktree of THIS repo: directory + gitdir file survive, admin
-    // entry gone → unregistered with .git belonging to us.
-    root = realpathSync(mkdtempSync(path.join(tmpdir(), 'omp-build-622-yes-')))
-    const home = path.join(root, 'home')
-    const base = path.join(root, 'wt')
-    mkdirSync(home)
+  it('--yes-targets allowlists only proven-empty dirs: content and half-removed worktrees stay out', () => {
+    const { root, home, base } = tempRoot('yes')
     const repo = path.join(root, 'app')
     initRepo(repo, home)
-
     const staleGit = path.join(base, 'app', 'feat-3-stale-git')
     mkdirSync(path.dirname(staleGit), { recursive: true })
-    execFileSync('git', ['worktree', 'add', '-q', staleGit, '-b', 'feat/3-stale-git'], {
-      cwd: repo,
-      env: { ...FIXTURE_ENV, HOME: home },
-      stdio: 'ignore',
-    })
-    // Drop registration without deleting the worktree directory — prune the
-    // whole worktrees/ dir as git does, not just the one entry.
-    const common = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], {
-      cwd: repo,
-      env: { ...FIXTURE_ENV, HOME: home },
-      encoding: 'utf8',
-    }).trim()
-    rmSync(path.join(common, 'worktrees'), { recursive: true, force: true })
-
+    git(repo, home, 'worktree', 'add', '-q', staleGit, '-b', 'feat/3-stale-git')
+    rmSync(path.join(commonDir(repo, home), 'worktrees'), { recursive: true, force: true })
     const emptyOrphan = path.join(base, 'app', 'feat-4-empty')
-    mkdirSync(emptyOrphan, { recursive: true })
-
+    mkdirSync(emptyOrphan)
     const contentOrphan = path.join(base, 'app', 'feat-5-content')
     mkdirSync(path.join(contentOrphan, 'node_modules'), { recursive: true })
 
@@ -111,260 +109,310 @@ describe('cleanup orphan scan repo scope (#622)', () => {
     const full = scan(repo, env)
     const yesTargets = scan(repo, env, ['--yes-targets'])
 
-    const fullPaths = full.map((line) => realpathSync(line.split('|')[0]))
-    const yesPaths = yesTargets.map((line) => realpathSync(line.split('|')[0]))
-
-    expect(fullPaths).toContain(realpathSync(staleGit))
-    expect(full.some((line) => line.includes('has .git') && line.includes(staleGit))).toBe(true)
-
-    // Pre-select / --yes set: empty + content-without-git only.
-    expect(yesPaths).not.toContain(realpathSync(staleGit))
-    expect(yesTargets.some((line) => line.includes('has .git'))).toBe(false)
-    expect(yesPaths).toContain(realpathSync(emptyOrphan))
-    expect(yesPaths).toContain(realpathSync(contentOrphan))
+    expect(full.some((line) => pathOf(line) === staleGit && line.includes('has .git'))).toBe(true)
+    expect(kinds(full, contentOrphan)).toEqual(['unregistered'])
+    expect(yesTargets.map(pathOf)).toEqual([emptyOrphan])
+    expectAllowlisted(yesTargets)
   })
 
   it('ownership proof holds when scanning from a subdirectory of the principal', () => {
-    // Plain `--git-common-dir` is cwd-relative; joining it to $repo_root from
-    // <repo>/src made ours_worktrees wrong — this repo's half-removed vanished
-    // and a foreign same-named live worktree could reappear.
-    root = realpathSync(mkdtempSync(path.join(tmpdir(), 'omp-build-622-subdir-')))
-    const home = path.join(root, 'home')
-    const base = path.join(root, 'wt')
-    mkdirSync(home)
+    const { root, home, base } = tempRoot('subdir')
     const orgA = path.join(root, 'orgA', 'app')
     const orgB = path.join(root, 'orgB', 'app')
     initRepo(orgA, home)
     initRepo(orgB, home)
-    mkdirSync(path.join(orgB, 'src'), { recursive: true })
-
+    mkdirSync(path.join(orgB, 'src'))
     const foreignLive = path.join(base, 'app', 'feat-7-foreign')
     mkdirSync(path.dirname(foreignLive), { recursive: true })
-    execFileSync('git', ['worktree', 'add', '-q', foreignLive, '-b', 'feat/7-foreign'], {
-      cwd: orgA,
-      env: { ...FIXTURE_ENV, HOME: home },
-      stdio: 'ignore',
-    })
-
+    git(orgA, home, 'worktree', 'add', '-q', foreignLive, '-b', 'feat/7-foreign')
     const oursStale = path.join(base, 'app', 'feat-8-ours-stale')
-    execFileSync('git', ['worktree', 'add', '-q', oursStale, '-b', 'feat/8-ours-stale'], {
-      cwd: orgB,
-      env: { ...FIXTURE_ENV, HOME: home },
-      stdio: 'ignore',
-    })
-    const common = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], {
-      cwd: orgB,
-      env: { ...FIXTURE_ENV, HOME: home },
-      encoding: 'utf8',
-    }).trim()
-    rmSync(path.join(common, 'worktrees'), { recursive: true, force: true })
+    git(orgB, home, 'worktree', 'add', '-q', oursStale, '-b', 'feat/8-ours-stale')
+    rmSync(path.join(commonDir(orgB, home), 'worktrees'), { recursive: true, force: true })
 
-    const reported = scan(path.join(orgB, 'src'), { HOME: home, OMP_WORKTREE_DIR: base })
-    const paths = reported.map((line) => line.split('|')[0])
+    const full = scan(path.join(orgB, 'src'), { HOME: home, OMP_WORKTREE_DIR: base })
 
-    expect(reported.some((line) => line.includes(foreignLive))).toBe(false)
-    expect(paths.map((p) => realpathSync(p))).toContain(realpathSync(oursStale))
-    expect(reported.some((line) => line.includes('has .git') && line.includes(oursStale))).toBe(true)
+    expect(mentions(full, foreignLive)).toEqual([])
+    expect(full.some((line) => pathOf(line) === oursStale && line.includes('has .git'))).toBe(true)
   })
 
   it('lists a relative-paths half-removed worktree after worktrees/ is fully pruned', () => {
-    root = realpathSync(mkdtempSync(path.join(tmpdir(), 'omp-build-622-rel-')))
-    const home = path.join(root, 'home')
-    const base = path.join(root, 'wt')
-    mkdirSync(home)
+    const { root, home, base } = tempRoot('rel')
     const repo = path.join(root, 'app')
     initRepo(repo, home)
-    execFileSync('git', ['config', 'worktree.useRelativePaths', 'true'], {
-      cwd: repo,
-      env: { ...FIXTURE_ENV, HOME: home },
-      stdio: 'ignore',
-    })
-
+    git(repo, home, 'config', 'worktree.useRelativePaths', 'true')
     const stale = path.join(base, 'app', 'feat-rel-stale')
     mkdirSync(path.dirname(stale), { recursive: true })
-    execFileSync('git', ['worktree', 'add', '--relative-paths', '-q', stale, '-b', 'feat/rel-stale'], {
-      cwd: repo,
-      env: { ...FIXTURE_ENV, HOME: home },
-      stdio: 'ignore',
-    })
-    // Confirm the back-pointer is relative, then prune the whole admin dir.
-    const gitdirLine = execFileSync('head', ['-n1', path.join(stale, '.git')], { encoding: 'utf8' }).trim()
-    expect(gitdirLine.startsWith('gitdir:')).toBe(true)
-    expect(gitdirLine.includes('..')).toBe(true)
-
-    const common = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], {
-      cwd: repo,
-      env: { ...FIXTURE_ENV, HOME: home },
-      encoding: 'utf8',
-    }).trim()
-    rmSync(path.join(common, 'worktrees'), { recursive: true, force: true })
+    git(repo, home, 'worktree', 'add', '--relative-paths', '-q', stale, '-b', 'feat/rel-stale')
+    rmSync(path.join(commonDir(repo, home), 'worktrees'), { recursive: true, force: true })
 
     const full = scan(repo, { HOME: home, OMP_WORKTREE_DIR: base })
-    expect(full.map((line) => realpathSync(line.split('|')[0]))).toContain(realpathSync(stale))
-    expect(full.some((line) => line.includes('has .git') && line.includes(stale))).toBe(true)
+    expect(full.some((line) => pathOf(line) === stale && line.includes('has .git'))).toBe(true)
   })
 
-  it('never puts a symlink child pointing outside the root into --yes-targets', () => {
-    root = realpathSync(mkdtempSync(path.join(tmpdir(), 'omp-build-622-symlink-')))
-    const home = path.join(root, 'home')
-    const base = path.join(root, 'wt')
+  it('shows a symlink child as symlink and never follows it', () => {
+    const { root, home, base } = tempRoot('symlink')
     const outside = path.join(root, 'important')
-    mkdirSync(home)
     mkdirSync(outside)
-    writeFileSync(path.join(outside, 'secret.txt'), 'keep\n')
     const repo = path.join(root, 'app')
     initRepo(repo, home)
-
     const linkChild = path.join(base, 'app', 'linkchild')
     mkdirSync(path.dirname(linkChild), { recursive: true })
     symlinkSync(outside, linkChild)
-
-    const contentOrphan = path.join(base, 'app', 'feat-ok')
-    mkdirSync(path.join(contentOrphan, 'node_modules'), { recursive: true })
+    const emptyOrphan = path.join(base, 'app', 'feat-empty')
+    mkdirSync(emptyOrphan)
 
     const env = { HOME: home, OMP_WORKTREE_DIR: base }
     const full = scan(repo, env)
     const yesTargets = scan(repo, env, ['--yes-targets'])
 
-    // Lexical entry may appear as symlink kind — never the outside target, never --yes.
-    expect(yesTargets.some((line) => line.includes(outside) || line.includes(linkChild))).toBe(false)
-    expect(full.some((line) => line.startsWith(`${linkChild}|symlink|`))).toBe(true)
-    expect(yesTargets.map((line) => realpathSync(line.split('|')[0]))).toContain(realpathSync(contentOrphan))
+    expect(kinds(full, linkChild)).toEqual(['symlink'])
+    expect(mentions(full, outside)).toEqual([])
+    expect(yesTargets.map(pathOf)).toEqual([emptyOrphan])
   })
 
   it('never lists a base child that contains the principal', () => {
-    // Basename "app", base=projects → scan projects/app. Depth-1 child "org"
-    // contains the principal at projects/app/org/app — must not be deletable.
-    root = realpathSync(mkdtempSync(path.join(tmpdir(), 'omp-build-622-contains-')))
-    const home = path.join(root, 'home')
-    mkdirSync(home)
+    const { root, home } = tempRoot('contains')
     const projects = path.join(root, 'projects')
     const principal = path.join(projects, 'app', 'org', 'app')
     initRepo(principal, home)
     const container = path.join(projects, 'app', 'org')
-    mkdirSync(path.join(container, 'extra'), { recursive: true })
+    mkdirSync(path.join(container, 'extra'))
     writeFileSync(path.join(container, 'extra', 'x'), 'x\n')
+    const emptySibling = path.join(projects, 'app', 'empty-ok')
+    mkdirSync(emptySibling)
 
-    const reported = scan(principal, { HOME: home, OMP_WORKTREE_DIR: projects })
-    const yesTargets = scan(principal, { HOME: home, OMP_WORKTREE_DIR: projects }, ['--yes-targets'])
-    expect(reported.some((line) => line.includes(container))).toBe(false)
-    expect(yesTargets.some((line) => line.includes(container))).toBe(false)
+    const env = { HOME: home, OMP_WORKTREE_DIR: projects }
+    const full = scan(principal, env)
+    expect(mentions(full, container)).toEqual([])
+    expect(scan(principal, env, ['--yes-targets']).map(pathOf)).toEqual([emptySibling])
   })
 
-  it('reports forged control/| names as unsafe_name and keeps them out of --yes-targets', () => {
-    root = realpathSync(mkdtempSync(path.join(tmpdir(), 'omp-build-622-unsafe-')))
-    const home = path.join(root, 'home')
-    const base = path.join(root, 'wt')
-    mkdirSync(home)
+  it('marks a copy of a live worktree of this repo as inside_worktree, never rm -rf-able', () => {
+    // Its `.git` names this repo's live `worktrees/<id>`: ownership is proven,
+    // but git still resolves it as a work tree, so it is live work, not a shell.
+    const { root, home, base } = tempRoot('copy')
     const repo = path.join(root, 'app')
     initRepo(repo, home)
+    const live = path.join(root, 'elsewhere', 'feat-2-live')
+    mkdirSync(path.dirname(live), { recursive: true })
+    git(repo, home, 'worktree', 'add', '-q', live, '-b', 'feat/2-live')
+    const copy = path.join(base, 'app', 'feat-2-copy')
+    mkdirSync(copy, { recursive: true })
+    cpSync(path.join(live, '.git'), path.join(copy, '.git'))
+    writeFileSync(path.join(copy, 'wip.md'), 'wip\n')
+    const emptyOk = path.join(base, 'app', 'empty-ok')
+    mkdirSync(emptyOk)
 
-    const pipeName = path.join(base, 'app', 'bad|name')
-    mkdirSync(pipeName, { recursive: true })
-    writeFileSync(path.join(pipeName, 'f'), 'x\n')
-
-    const nlName = path.join(base, 'app', 'bad\nname')
-    mkdirSync(nlName, { recursive: true })
-    writeFileSync(path.join(nlName, 'f'), 'x\n')
-
-    const env = { HOME: home, OMP_WORKTREE_DIR: base }
-    const full = scan(repo, env)
-    const yesTargets = scan(repo, env, ['--yes-targets'])
-
-    expect(full.some((line) => line.includes('|unsafe_name|'))).toBe(true)
-    expect(yesTargets.some((line) => line.includes('unsafe_name'))).toBe(false)
-    expect(yesTargets.some((line) => line.includes('bad|name') || line.includes('bad\nname'))).toBe(false)
+    const full = scan(repo, { HOME: home, OMP_WORKTREE_DIR: base })
+    expect(kinds(full, copy)).toEqual(['inside_worktree'])
+    expect(kinds(full, emptyOk)).toEqual(['empty_parent'])
   })
 
-  it('does not emit an empty root inside the principal', () => {
-    root = realpathSync(mkdtempSync(path.join(tmpdir(), 'omp-build-622-empty-root-')))
-    const home = path.join(root, 'home')
-    mkdirSync(home)
+  it('does not emit an empty legacy root inside the principal', () => {
+    const { root, home } = tempRoot('empty-root')
     const principal = path.join(root, 'app')
     initRepo(principal, home)
-    // Empty .claude/worktrees is under principal but exempt as claude_root —
-    // an empty *legacy* root under principal is the case: point OMP_WORKTREES_ROOT
-    // inside principal.
     const legacy = path.join(principal, '.omp-legacy', 'worktrees', 'app')
     mkdirSync(legacy, { recursive: true })
+    const emptyOk = path.join(root, 'wt-elsewhere', 'app', 'empty-ok')
+    mkdirSync(emptyOk, { recursive: true })
 
-    const full = scan(principal, {
+    const env = {
       HOME: home,
       OMP_WORKTREES_ROOT: path.join(principal, '.omp-legacy', 'worktrees'),
       OMP_WORKTREE_DIR: path.join(root, 'wt-elsewhere'),
-    })
-    const yesTargets = scan(
-      principal,
-      {
-        HOME: home,
-        OMP_WORKTREES_ROOT: path.join(principal, '.omp-legacy', 'worktrees'),
-        OMP_WORKTREE_DIR: path.join(root, 'wt-elsewhere'),
-      },
-      ['--yes-targets'],
-    )
-    expect(full.some((line) => line.includes(legacy))).toBe(false)
-    expect(yesTargets.some((line) => line.includes(legacy))).toBe(false)
+    }
+    expect(mentions(scan(principal, env), legacy)).toEqual([])
+    expect(scan(principal, env, ['--yes-targets']).map(pathOf)).toEqual([emptyOk])
   })
 
-  it('lists orphans under an in-principal worktree.base', () => {
-    root = realpathSync(mkdtempSync(path.join(tmpdir(), 'omp-build-622-inprin-')))
-    const home = path.join(root, 'home')
-    mkdirSync(home)
+  it('lists untracked in-principal feature-base children as inside_worktree, never selectable', () => {
+    const { root, home } = tempRoot('inprin')
     const principal = path.join(root, 'app')
     initRepo(principal, home)
-    // OMP_WORKTREE_DIR = principal → feature_root = principal/app (exempt).
     const orphan = path.join(principal, 'app', 'feat-in')
     mkdirSync(path.join(orphan, 'node_modules'), { recursive: true })
+    const emptyInPrincipal = path.join(principal, 'app', 'feat-empty')
+    mkdirSync(emptyInPrincipal)
+    const nonExempt = path.join(principal, 'src')
+    mkdirSync(nonExempt)
+    writeFileSync(path.join(nonExempt, 'leak.ts'), 'export {}\n')
+    const emptyOk = path.join(home, '.omp', 'worktrees', 'app', 'empty-ok')
+    mkdirSync(emptyOk, { recursive: true })
 
-    const reported = scan(principal, { HOME: home, OMP_WORKTREE_DIR: principal })
-    expect(reported.map((line) => line.split('|')[0])).toContain(orphan)
-    expect(reported.some((line) => line.includes('content without git registration'))).toBe(true)
+    const env = { HOME: home, OMP_WORKTREE_DIR: principal }
+    const full = scan(principal, env)
+    expect(kinds(full, orphan)).toEqual(['inside_worktree'])
+    expect(kinds(full, emptyInPrincipal)).toEqual(['inside_worktree'])
+    expect(mentions(full, nonExempt)).toEqual([])
+    expect(scan(principal, env, ['--yes-targets']).map(pathOf)).toEqual([emptyOk])
   })
 
-  it('with base=principal, lists only exempt-base orphans — not other principal descendants', () => {
-    // Pins the under-principal descendant guard: OMP_WORKTREE_DIR=principal →
-    // feature_root=principal/app is exempt; principal/src must never appear.
-    // Deleting the descendant guard makes principal/src land in --yes-targets
-    // when the base is the principal's parent (AC2 path) or here when a scan
-    // root equals the principal.
-    root = realpathSync(mkdtempSync(path.join(tmpdir(), 'omp-build-622-desc-')))
-    const home = path.join(root, 'home')
-    mkdirSync(home)
+  it('never lists a tracked in-principal feature base or tracked harness root', () => {
+    const { root, home } = tempRoot('tracked-base')
     const principal = path.join(root, 'app')
     initRepo(principal, home)
+    const tracked = path.join(principal, 'app')
+    mkdirSync(path.join(tracked, 'pkg'), { recursive: true })
+    writeFileSync(path.join(tracked, 'pkg', '__init__.py'), '')
+    const trackedHarness = path.join(principal, '.claude', 'worktrees', 'kept')
+    mkdirSync(trackedHarness, { recursive: true })
+    writeFileSync(path.join(trackedHarness, 'README.md'), 'tracked\n')
+    git(principal, home, 'add', 'app', '.claude')
+    git(principal, home, 'commit', '-q', '-m', 'chore: package')
+    mkdirSync(path.join(principal, '.claude', 'worktrees', 'untracked-empty'))
+    mkdirSync(path.join(tracked, 'untracked-empty'))
+    mkdirSync(path.join(principal, '.dev'))
+    writeFileSync(path.join(principal, '.dev', 'stack.yml'), 'worktree:\n  base: .\n')
+    const emptyOk = path.join(home, '.omp', 'worktrees', 'app', 'empty-ok')
+    mkdirSync(emptyOk, { recursive: true })
 
-    const exemptOrphan = path.join(principal, 'app', 'src')
-    mkdirSync(path.join(exemptOrphan, 'node_modules'), { recursive: true })
-    writeFileSync(path.join(exemptOrphan, 'main.ts'), 'export {}\n')
-
-    const nonExempt = path.join(principal, 'src')
-    mkdirSync(nonExempt, { recursive: true })
-    writeFileSync(path.join(nonExempt, 'leak.ts'), 'export {}\n')
-
-    // Also exercise base=principal's parent so classify_child sees principal/src
-    // as a depth-1 child of the principal scan root.
-    const parent = root
-    const fullParent = scan(principal, { HOME: home, OMP_WORKTREE_DIR: parent })
-    const yesParent = scan(principal, { HOME: home, OMP_WORKTREE_DIR: parent }, ['--yes-targets'])
-    expect(fullParent.some((line) => line.includes(nonExempt))).toBe(false)
-    expect(yesParent.some((line) => line.includes(nonExempt))).toBe(false)
-
-    const full = scan(principal, { HOME: home, OMP_WORKTREE_DIR: principal })
-    const yesTargets = scan(principal, { HOME: home, OMP_WORKTREE_DIR: principal }, ['--yes-targets'])
-    // Exempt-base orphan still listed.
-    expect(full.map((line) => line.split('|')[0])).toContain(exemptOrphan)
-    expect(full.some((line) => line.includes(nonExempt))).toBe(false)
-    expect(yesTargets.some((line) => line.includes(nonExempt))).toBe(false)
+    const full = scan(principal, { HOME: home })
+    expect(mentions(full, principal)).toEqual([])
+    expect(kinds(full, emptyOk)).toEqual(['empty_parent'])
   })
 
   it('rejects unknown arguments with exit 2', () => {
-    root = realpathSync(mkdtempSync(path.join(tmpdir(), 'omp-build-622-args-')))
-    const home = path.join(root, 'home')
-    mkdirSync(home)
+    const { root, home, base } = tempRoot('args')
     const repo = path.join(root, 'app')
     initRepo(repo, home)
-    const r = scanStatus(repo, { HOME: home, OMP_WORKTREE_DIR: path.join(root, 'wt') }, ['--yes-target'])
+    const r = scanStatus(repo, { HOME: home, OMP_WORKTREE_DIR: base }, ['--yes-target'])
     expect(r.status).toBe(2)
     expect(r.stderr).toMatch(/unknown arg: --yes-target/)
+  })
+
+  it('reports a tracked .claude/worktrees -> ../../.. as symlink_root and lists nothing from $HOME', () => {
+    const { home, base } = tempRoot('symroot')
+    mkdirSync(path.join(home, 'Documents'))
+    writeFileSync(path.join(home, 'Documents', 'notes.txt'), 'keep\n')
+    mkdirSync(path.join(home, 'Pictures'))
+    const principal = path.join(home, 'projects', 'app')
+    initRepo(principal, home)
+    mkdirSync(path.join(principal, '.claude'))
+    const harnessRoot = path.join(principal, '.claude', 'worktrees')
+    symlinkSync(path.join('..', '..', '..'), harnessRoot)
+    git(principal, home, 'add', '.claude/worktrees')
+    git(principal, home, 'commit', '-q', '-m', 'chore: link')
+    expect(realpathSync(harnessRoot)).toBe(home)
+    const emptyOk = path.join(base, 'app', 'empty-ok')
+    mkdirSync(emptyOk, { recursive: true })
+
+    const env = { HOME: home, OMP_WORKTREE_DIR: base }
+    const full = scan(principal, env)
+    const yesTargets = scan(principal, env, ['--yes-targets'])
+
+    expect(kinds(full, harnessRoot)).toEqual(['symlink_root'])
+    expect(mentions(full, harnessRoot).map(pathOf)).toEqual([harnessRoot])
+    expect(full.filter((line) => /Documents|Pictures/.test(line))).toEqual([])
+    expect(yesTargets.map(pathOf)).toEqual([emptyOk])
+  })
+
+  it('reports a feature base reached through a tracked in-principal symlink as symlink_root', () => {
+    const { root, home, base } = tempRoot('symbase')
+    const principal = path.join(root, 'app')
+    initRepo(principal, home)
+    mkdirSync(path.join(base, 'app', 'Pictures'), { recursive: true })
+    symlinkSync(base, path.join(principal, 'wt-link'))
+    git(principal, home, 'add', 'wt-link')
+    git(principal, home, 'commit', '-q', '-m', 'chore: link')
+    mkdirSync(path.join(principal, '.dev'))
+    writeFileSync(path.join(principal, '.dev', 'stack.yml'), 'worktree:\n  base: wt-link\n')
+    const emptyOk = path.join(home, '.omp', 'worktrees', 'app', 'empty-ok')
+    mkdirSync(emptyOk, { recursive: true })
+
+    const full = scan(principal, { HOME: home })
+    const featureRoot = path.join(principal, 'wt-link', 'app')
+    expect(kinds(full, featureRoot)).toEqual(['symlink_root'])
+    expect(mentions(full, featureRoot).map(pathOf)).toEqual([featureRoot])
+    expect(scan(principal, { HOME: home }, ['--yes-targets']).map(pathOf)).toEqual([emptyOk])
+  })
+
+  it('marks children of a same-named foreign checkout at <base>/<name> as inside_worktree', () => {
+    const { root, home, base } = tempRoot('foreign-co')
+    const orgB = path.join(root, 'orgB', 'app')
+    initRepo(orgB, home)
+    const foreignCheckout = path.join(base, 'app')
+    initRepo(foreignCheckout, home)
+    mkdirSync(path.join(foreignCheckout, 'src'))
+    writeFileSync(path.join(foreignCheckout, 'src', 'wip.ts'), 'export const wip = 1\n')
+    mkdirSync(path.join(foreignCheckout, 'empty-in-foreign'))
+    const legacyEmpty = path.join(home, '.omp', 'worktrees', 'app', 'empty-ok')
+    mkdirSync(legacyEmpty, { recursive: true })
+
+    const env = { HOME: home, OMP_WORKTREE_DIR: base }
+    const full = scan(orgB, env)
+    expect(kinds(full, path.join(foreignCheckout, 'src'))).toEqual(['inside_worktree'])
+    expect(kinds(full, path.join(foreignCheckout, 'empty-in-foreign'))).toEqual(['inside_worktree'])
+    expect(scan(orgB, env, ['--yes-targets']).map(pathOf)).toEqual([legacyEmpty])
+  })
+
+  it('marks a content-only parent of a nested foreign worktree as nested_git', () => {
+    const { root, home, base } = tempRoot('nested')
+    const orgA = path.join(root, 'orgA', 'app')
+    const orgB = path.join(root, 'orgB', 'app')
+    initRepo(orgA, home)
+    initRepo(orgB, home)
+    const parent = path.join(base, 'app', 'feat')
+    const nestedLive = path.join(parent, '7-live')
+    mkdirSync(parent, { recursive: true })
+    git(orgA, home, 'worktree', 'add', '-q', nestedLive, '-b', 'feat/7-live')
+    writeFileSync(path.join(nestedLive, 'NOTES.md'), 'wip\n')
+    const emptyOk = path.join(base, 'app', 'empty-ok')
+    mkdirSync(emptyOk)
+
+    const env = { HOME: home, OMP_WORKTREE_DIR: base }
+    const full = scan(orgB, env)
+    expect(kinds(full, parent)).toEqual(['nested_git'])
+    expect(scan(orgB, env, ['--yes-targets']).map(pathOf)).toEqual([emptyOk])
+  })
+
+  it('base `..` from <principal>/tests lists nothing under the principal, even a tracked <repo>/<repo>/', () => {
+    const { root, home } = tempRoot('dotdot')
+    const principal = path.join(root, 'projects', 'foo')
+    initRepo(principal, home)
+    mkdirSync(path.join(principal, 'tests'))
+    const trackedNested = path.join(principal, 'foo')
+    mkdirSync(path.join(trackedNested, 'sub'), { recursive: true })
+    writeFileSync(path.join(trackedNested, '__init__.py'), '')
+    writeFileSync(path.join(trackedNested, 'sub', 'x.py'), 'x = 1\n')
+    git(principal, home, 'add', 'foo')
+    git(principal, home, 'commit', '-q', '-m', 'chore: nested')
+    mkdirSync(path.join(principal, '.dev'))
+    writeFileSync(path.join(principal, '.dev', 'stack.yml'), 'worktree:\n  base: ..\n')
+    const emptyOk = path.join(home, '.omp', 'worktrees', 'foo', 'empty-ok')
+    mkdirSync(emptyOk, { recursive: true })
+
+    const full = scan(path.join(principal, 'tests'), { HOME: home })
+    expect(mentions(full, principal)).toEqual([])
+    expect(kinds(full, emptyOk)).toEqual(['empty_parent'])
+  })
+
+  it('resolves a relative worktree.base against the principal, not the cwd', () => {
+    const { root, home } = tempRoot('relbase')
+    const principal = path.join(root, 'projects', 'foo')
+    initRepo(principal, home)
+    mkdirSync(path.join(principal, 'tests'))
+    mkdirSync(path.join(principal, '.dev'))
+    writeFileSync(path.join(principal, '.dev', 'stack.yml'), 'worktree:\n  base: ../wt\n')
+    const orphan = path.join(root, 'projects', 'wt', 'foo', 'feat-1-empty')
+    mkdirSync(orphan, { recursive: true })
+
+    const yesTargets = scan(path.join(principal, 'tests'), { HOME: home }, ['--yes-targets'])
+    expect(yesTargets.map(pathOf)).toEqual([orphan])
+  })
+
+  it('marks a regular file child as not_a_dir', () => {
+    const { root, home, base } = tempRoot('file')
+    const repo = path.join(root, 'app')
+    initRepo(repo, home)
+    mkdirSync(path.join(base, 'app'), { recursive: true })
+    const fileChild = path.join(base, 'app', 'README.orphan')
+    writeFileSync(fileChild, '')
+    const emptyOk = path.join(base, 'app', 'empty-ok')
+    mkdirSync(emptyOk)
+
+    const env = { HOME: home, OMP_WORKTREE_DIR: base }
+    expect(kinds(scan(repo, env), fileChild)).toEqual(['not_a_dir'])
+    expect(scan(repo, env, ['--yes-targets']).map(pathOf)).toEqual([emptyOk])
   })
 })
