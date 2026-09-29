@@ -70,6 +70,13 @@ canon() {
   realpath -- "$1" 2>/dev/null || printf '%s\n' "$1"
 }
 
+# Ownership proof only: must not fall back to a raw lexical string. `realpath -m`
+# canonicalises even when the final component is missing (git prune removed the
+# admin entry under worktrees/, or the whole worktrees/ dir).
+canon_m() {
+  realpath -m -- "$1"
+}
+
 declare -A REGISTERED=()
 principal=""
 while IFS= read -r line; do
@@ -85,15 +92,14 @@ done < <(git worktree list --porcelain 2>/dev/null || true)
 
 # Absolute common dir + its worktrees/ — the only place a linked worktree's
 # `gitdir:` back-pointer may land if it belongs to this repository.
-common_dir="$(git rev-parse --git-common-dir 2>/dev/null || true)"
-case "$common_dir" in
-  '') common_dir="" ;;
-  /*) ;;
-  *) common_dir="$repo_root/$common_dir" ;;
-esac
-[ -n "$common_dir" ] && common_dir="$(canon "$common_dir")"
+# `--path-format=absolute` is required: plain `--git-common-dir` is relative to
+# the cwd, and joining that to `$repo_root` is wrong from any subdirectory.
+common_dir="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
 ours_worktrees=""
-[ -n "$common_dir" ] && ours_worktrees="$(canon "$common_dir/worktrees" 2>/dev/null || printf '%s\n' "$common_dir/worktrees")"
+if [ -n "$common_dir" ]; then
+  common_dir="$(canon_m "$common_dir")"
+  ours_worktrees="$(canon_m "$common_dir/worktrees")"
+fi
 
 claude_root="$(canon "$principal/.claude/worktrees")"
 
@@ -129,6 +135,7 @@ is_skipped_principal_path() {
 
 # Resolve a linked worktree's `gitdir:` back-pointer to a canonical path.
 # Empty when `.git` is a directory (full checkout) or the file is unparseable.
+# Uses canon_m so a relative gitdir still matches after git prunes worktrees/.
 resolve_gitdir() {
   local child="$1" gd
   [ -f "$child/.git" ] || return 0
@@ -138,7 +145,7 @@ resolve_gitdir() {
     /*) ;;
     *) gd="$child/$gd" ;;
   esac
-  canon "$gd"
+  canon_m "$gd"
 }
 
 # True when gitdir lives under this repo's <common-dir>/worktrees/.

@@ -121,15 +121,14 @@ describe('cleanup orphan scan repo scope (#622)', () => {
       env: { ...FIXTURE_ENV, HOME: home },
       stdio: 'ignore',
     })
-    // Drop registration without deleting the worktree directory.
-    const common = execFileSync('git', ['rev-parse', '--git-common-dir'], {
+    // Drop registration without deleting the worktree directory — prune the
+    // whole worktrees/ dir as git does, not just the one entry.
+    const common = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], {
       cwd: repo,
       env: { ...FIXTURE_ENV, HOME: home },
       encoding: 'utf8',
     }).trim()
-    const commonAbs = path.isAbsolute(common) ? common : path.join(repo, common)
-    const admin = path.join(commonAbs, 'worktrees', path.basename(staleGit))
-    rmSync(admin, { recursive: true, force: true })
+    rmSync(path.join(common, 'worktrees'), { recursive: true, force: true })
 
     const emptyOrphan = path.join(base, 'app', 'feat-4-empty')
     mkdirSync(emptyOrphan, { recursive: true })
@@ -152,5 +151,85 @@ describe('cleanup orphan scan repo scope (#622)', () => {
     expect(yesTargets.some((line) => line.includes('has .git'))).toBe(false)
     expect(yesPaths).toContain(realpathSync(emptyOrphan))
     expect(yesPaths).toContain(realpathSync(contentOrphan))
+  })
+
+  it('ownership proof holds when scanning from a subdirectory of the principal', () => {
+    // Plain `--git-common-dir` is cwd-relative; joining it to $repo_root from
+    // <repo>/src made ours_worktrees wrong — this repo's half-removed vanished
+    // and a foreign same-named live worktree could reappear.
+    root = realpathSync(mkdtempSync(path.join(tmpdir(), 'omp-build-622-subdir-')))
+    const home = path.join(root, 'home')
+    const base = path.join(root, 'wt')
+    mkdirSync(home)
+    const orgA = path.join(root, 'orgA', 'app')
+    const orgB = path.join(root, 'orgB', 'app')
+    initRepo(orgA, home)
+    initRepo(orgB, home)
+    mkdirSync(path.join(orgB, 'src'), { recursive: true })
+
+    const foreignLive = path.join(base, 'app', 'feat-7-foreign')
+    mkdirSync(path.dirname(foreignLive), { recursive: true })
+    execFileSync('git', ['worktree', 'add', '-q', foreignLive, '-b', 'feat/7-foreign'], {
+      cwd: orgA,
+      env: { ...FIXTURE_ENV, HOME: home },
+      stdio: 'ignore',
+    })
+
+    const oursStale = path.join(base, 'app', 'feat-8-ours-stale')
+    execFileSync('git', ['worktree', 'add', '-q', oursStale, '-b', 'feat/8-ours-stale'], {
+      cwd: orgB,
+      env: { ...FIXTURE_ENV, HOME: home },
+      stdio: 'ignore',
+    })
+    const common = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], {
+      cwd: orgB,
+      env: { ...FIXTURE_ENV, HOME: home },
+      encoding: 'utf8',
+    }).trim()
+    rmSync(path.join(common, 'worktrees'), { recursive: true, force: true })
+
+    const reported = scan(path.join(orgB, 'src'), { HOME: home, OMP_WORKTREE_DIR: base })
+    const paths = reported.map((line) => line.split('|')[0])
+
+    expect(reported.some((line) => line.includes(foreignLive))).toBe(false)
+    expect(paths.map((p) => realpathSync(p))).toContain(realpathSync(oursStale))
+    expect(reported.some((line) => line.includes('has .git') && line.includes(oursStale))).toBe(true)
+  })
+
+  it('lists a relative-paths half-removed worktree after worktrees/ is fully pruned', () => {
+    root = realpathSync(mkdtempSync(path.join(tmpdir(), 'omp-build-622-rel-')))
+    const home = path.join(root, 'home')
+    const base = path.join(root, 'wt')
+    mkdirSync(home)
+    const repo = path.join(root, 'app')
+    initRepo(repo, home)
+    execFileSync('git', ['config', 'worktree.useRelativePaths', 'true'], {
+      cwd: repo,
+      env: { ...FIXTURE_ENV, HOME: home },
+      stdio: 'ignore',
+    })
+
+    const stale = path.join(base, 'app', 'feat-rel-stale')
+    mkdirSync(path.dirname(stale), { recursive: true })
+    execFileSync('git', ['worktree', 'add', '--relative-paths', '-q', stale, '-b', 'feat/rel-stale'], {
+      cwd: repo,
+      env: { ...FIXTURE_ENV, HOME: home },
+      stdio: 'ignore',
+    })
+    // Confirm the back-pointer is relative, then prune the whole admin dir.
+    const gitdirLine = execFileSync('head', ['-n1', path.join(stale, '.git')], { encoding: 'utf8' }).trim()
+    expect(gitdirLine.startsWith('gitdir:')).toBe(true)
+    expect(gitdirLine.includes('..')).toBe(true)
+
+    const common = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], {
+      cwd: repo,
+      env: { ...FIXTURE_ENV, HOME: home },
+      encoding: 'utf8',
+    }).trim()
+    rmSync(path.join(common, 'worktrees'), { recursive: true, force: true })
+
+    const full = scan(repo, { HOME: home, OMP_WORKTREE_DIR: base })
+    expect(full.map((line) => realpathSync(line.split('|')[0]))).toContain(realpathSync(stale))
+    expect(full.some((line) => line.includes('has .git') && line.includes(stale))).toBe(true)
   })
 })
