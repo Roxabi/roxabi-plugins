@@ -158,7 +158,7 @@ trap 'rm -rf "$REVIEW_TMP"' EXIT
 printf '%s\n' "${DELTA_FILES[@]}" > "$REVIEW_TMP/delta.txt"
 gh issue view "$issue_num" --json body --jq .body > "$REVIEW_TMP/spec.md"   # optional
 # single-chunk
-bash skill://dev-review/roster.sh \
+bash "$(realpath skill://dev-review/roster.sh)" \
   --diff-list "$REVIEW_TMP/delta.txt" \
   --tier "$TIER" \
   --chunks "$CHUNKS" \
@@ -166,7 +166,7 @@ bash skill://dev-review/roster.sh \
   --json
 # multi-chunk — repeat --chunk-list for every chunk
 printf '%s\n' "${CHUNK_I_FILES[@]}" > "$REVIEW_TMP/chunk_${i}.txt"
-bash skill://dev-review/roster.sh \
+bash "$(realpath skill://dev-review/roster.sh)" \
   --diff-list "$REVIEW_TMP/delta.txt" \
   --chunk-list "$REVIEW_TMP/chunk_0.txt" \
   --chunk-list "$REVIEW_TMP/chunk_1.txt" \

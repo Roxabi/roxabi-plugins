@@ -41,7 +41,7 @@ Triggers: `"triage"` | `"create issue"` | `"set size"` | `"set priority"` | `"bl
 Adopt a repository. `init` writes `docs/agents/issue-tracker.md` only when that file is absent, at the git toplevel. An existing contract is kept (`contract: keep-existing`) and is the label vocabulary: a `Label | Colour` table, or canonical names in the template list. A contract that does not parse prints `vocabulary: none parsed from docs/agents/issue-tracker.md` and exits non-zero. `--repo` other than the local repo is refused. Missing labels are created in the contract's colours; an existing label is never recoloured, and a case mismatch is reported instead of created.
 
 ```
-bun skill://issue-triage/triage.ts init [--dry-run] [--repo owner/repo]
+bun "$(realpath skill://issue-triage/triage.ts)" init [--dry-run] [--repo owner/repo]
 ```
 
 `create` accepts the same field flags as `set`: `--size`, `--priority`, `--lane`, `--type`, plus `--parent`, `--add-child`, `--blocked-by`, `--blocks`.

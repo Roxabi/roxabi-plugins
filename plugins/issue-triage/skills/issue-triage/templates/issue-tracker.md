@@ -4,7 +4,7 @@ Issues and specs for this repo live as GitHub issues in `{{REPO}}`.
 Infer the repo from `git remote -v`; `gh` does this automatically inside a clone.
 
 **Reads use `gh` directly. issue-triage is the only writer of labels and
-relations** — `bun skill://issue-triage/triage.ts`. Nothing else writes them.
+relations** — `bun "$(realpath skill://issue-triage/triage.ts)"`. Nothing else writes them.
 Not `gh issue create`, not `gh issue edit --add-label`, not a `Blocked by:` line in a body.
 
 ## Relations

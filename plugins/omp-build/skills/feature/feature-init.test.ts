@@ -69,7 +69,7 @@ describe('feature init plan', () => {
 
 describe('tracker step', () => {
   it('keeps --dry-run on the printed next line', () => {
-    expect(trackerNext(true)).toBe('next: bun skill://issue-triage/triage.ts init --dry-run')
-    expect(trackerNext(false)).toBe('next: bun skill://issue-triage/triage.ts init')
+    expect(trackerNext(true)).toBe('next: bun "$(realpath skill://issue-triage/triage.ts)" init --dry-run')
+    expect(trackerNext(false)).toBe('next: bun "$(realpath skill://issue-triage/triage.ts)" init')
   })
 })

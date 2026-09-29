@@ -22,18 +22,21 @@ use the current repository conventions, not a separate spec-file lifecycle.
 - After confirmed merge, offer `/cleanup`. Offer `/promote` only when
   `.dev/stack.yml` declares `release.model: staging-train`. Never invoke either.
 
-`/feature init [--dry-run]` adopts a repository from a worktree, never the
+`/feature init [--dry-run]` runs `bun "$SKILL_DIR/feature-init.ts"` (with
+`--dry-run` when requested). It adopts a repository from a worktree, never the
 Principal. `--dry-run` prints the plan and writes nothing, and its next line
 includes `--dry-run`. A real run fills `landing` and `worktree` in
-`.dev/stack.yml` and prints `next: bun skill://issue-triage/triage.ts init`.
-It does not run that command and does not print `init=done`: `skill://` is resolved by the agent, not by a
-child process. Run the printed command. If it cannot be resolved, stop and
-name issue-triage. Do not resolve the CLI from a path inside the skill body.
-Do not write issues by hand. An existing `docs/agents/issue-tracker.md` is
-left untouched by that command (`contract: keep-existing`). The command does
-not write the `omp-build-feature-init` marker, because the tracker step has
-not run. It does not index ccc or codegraph without consent already recorded
-there. Orphan semctx contracts are listed, not closed.
+`.dev/stack.yml` and prints
+`next: bun "$(realpath skill://issue-triage/triage.ts)" init`.
+It does not run that command and does not print `init=done`. Run the printed
+command as given — `realpath` is an OMP builtin, so the child `bun` receives a
+real path. If it cannot be resolved, stop and name issue-triage. Do not resolve
+the CLI from a path inside the skill body. Do not write issues by hand. An
+existing `docs/agents/issue-tracker.md` is left untouched by that command
+(`contract: keep-existing`). The command does not write the
+`omp-build-feature-init` marker, because the tracker step has not run. It does
+not index ccc or codegraph without consent already recorded there. Orphan
+semctx contracts are listed, not closed.
 
 ## 1. Route-specific prerequisites
 
@@ -44,7 +47,7 @@ repository-documented commands; do not guess an installer or release model.
 | Route | Read before executing |
 |---|---|
 | Frame | `skill://grilling`, `skill://issue-triage` |
-| Build | `skill://dev-review`, `skill://fix`; `bun skill://issue-triage/triage.ts` before a deferral |
+| Build | `skill://dev-review`, `skill://fix`; `bun "$(realpath skill://issue-triage/triage.ts)"` before a deferral |
 | Agreed test-first work | `skill://tdd` |
 
 Check only the selected route. A missing required skill stops that route with its
@@ -128,7 +131,7 @@ Failure is a shared-state stop: `goal drop` + report. A repo without
    For τ ≠ `size:S`, write a **decision brief** into the issue body before
    publishing: what, why, chosen solution, pros, cons, and rejected alternatives.
    Skip the brief for `size:S`.
-   Publish with `bun skill://issue-triage/triage.ts create`, or `set` to amend
+   Publish with `bun "$(realpath skill://issue-triage/triage.ts)" create`, or `set` to amend
    an existing issue. Titles and bodies you did not write go through
    `--title-file` and `--body-file`. If that command cannot be resolved, stop
    and name issue-triage. Do not resolve the CLI from a path inside the skill body.
@@ -137,7 +140,7 @@ Failure is a shared-state stop: `goal drop` + report. A repo without
    project's glossary and ADR conventions when warranted. The issue remains the
    spec home; no `artifacts/specs` or `status: validated` gate.
 4. Split only when needed into independently landable tickets. Through
-   `bun skill://issue-triage/triage.ts create`, each gets `--size`, `--priority`,
+   `bun "$(realpath skill://issue-triage/triage.ts)" create`, each gets `--size`, `--priority`,
    `--type`; add `--parent` only for actual decomposition and `--blocked-by` only
    for actual dependencies.
    Every newly created ticket gets its branch proposal immediately; a declined

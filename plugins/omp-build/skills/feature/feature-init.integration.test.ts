@@ -5,7 +5,9 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 const CLI = path.resolve(import.meta.dirname, 'feature-init.ts')
+const TRIAGE = path.resolve(import.meta.dirname, '../../../issue-triage/skills/issue-triage/triage.ts')
 const REAL_BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
+const EXPECTED_NEXT = 'next: bun "$(realpath skill://issue-triage/triage.ts)" init'
 const ENV: NodeJS.ProcessEnv = {
   ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))),
   GIT_CONFIG_GLOBAL: '/dev/null',
@@ -50,9 +52,8 @@ describe('feature init apply', () => {
     git(repo, 'worktree', 'add', '-q', wt, '-b', 'feat/init')
     const first = run(wt)
     expect(first.status).toBe(0)
-    expect(first.stdout).toContain('next: bun skill://issue-triage/triage.ts init')
+    expect(first.stdout).toContain(EXPECTED_NEXT)
     expect(first.stdout).not.toContain('init=done')
-    expect(first.stderr).not.toContain('Module not found')
     expect(first.stderr).not.toContain('skill://')
     const stamped = readFileSync(path.join(wt, '.dev', 'stack.yml'), 'utf8')
     expect(stamped).toContain('worktree:')
@@ -61,7 +62,7 @@ describe('feature init apply', () => {
     expect(existsSync(marker)).toBe(false)
     const second = run(wt)
     expect(second.status).toBe(0)
-    expect(second.stdout).toContain('next: bun skill://issue-triage/triage.ts init')
+    expect(second.stdout).toContain(EXPECTED_NEXT)
     expect(second.stdout).not.toContain('init=done')
     expect(readFileSync(path.join(wt, '.dev', 'stack.yml'), 'utf8')).toBe(stamped)
   })
@@ -89,9 +90,8 @@ describe('feature init apply', () => {
     git(repo, 'worktree', 'add', '-q', wt, '-b', 'feat/init')
     const out = run(wt)
     expect(out.status).toBe(0)
-    expect(out.stdout).toContain('next: bun skill://issue-triage/triage.ts init')
+    expect(out.stdout).toContain(EXPECTED_NEXT)
     expect(out.stdout).not.toContain('init=done')
-    expect(out.stderr).not.toContain('Module not found')
     expect(readFileSync(path.join(wt, 'docs', 'agents', 'issue-tracker.md'), 'utf8')).toBe(contract)
     expect(
       execFileSync('git', ['status', '--porcelain', '--', 'docs/agents'], { cwd: wt, env: ENV, encoding: 'utf8' }),
@@ -108,7 +108,60 @@ describe('feature init apply', () => {
     const next = out.stdout.split('\n').find((line) => line.startsWith('next:'))
     expect(out.status).toBe(0)
     expect(next).toContain('--dry-run')
-    expect(next).toBe('next: bun skill://issue-triage/triage.ts init --dry-run')
+    expect(next).toBe(`${EXPECTED_NEXT} --dry-run`)
     expect(readFileSync(path.join(wt, '.dev', 'stack.yml'), 'utf8')).toBe(before)
+  })
+
+  it('executes the printed next line through bash with a realpath stub (fails on bare skill:// argv)', () => {
+    root = mkdtempSync(path.join(tmpdir(), 'omp-init-next-run-'))
+    const repo = principal()
+    const wt = path.join(root, 'wt')
+    git(repo, 'worktree', 'add', '-q', wt, '-b', 'feat/init')
+    const out = spawnSync(REAL_BUN, [CLI, '--dry-run', '--dir', wt], { env: ENV, encoding: 'utf8' })
+    expect(out.status).toBe(0)
+    const next = out.stdout.split('\n').find((line) => line.startsWith('next:'))
+    expect(next).toBe(`${EXPECTED_NEXT} --dry-run`)
+    expect(next).not.toMatch(/bun skill:\/\//)
+    if (next === undefined) throw new Error('missing next line')
+
+    const bin = path.join(root, 'bin')
+    mkdirSync(bin)
+    writeFileSync(
+      path.join(bin, 'realpath'),
+      `#!/usr/bin/env bash
+set -euo pipefail
+if [ "\${1-}" = "skill://issue-triage/triage.ts" ]; then
+  printf '%s\\n' ${JSON.stringify(TRIAGE)}
+  exit 0
+fi
+exec /usr/bin/realpath "$@"
+`,
+      { mode: 0o755 },
+    )
+    writeFileSync(
+      path.join(bin, 'gh'),
+      `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$*" == *auth*token* ]]; then printf 'stub-token\\n'; exit 0; fi
+if [[ "$*" == *label*list* ]]; then printf '[]\\n'; exit 0; fi
+if [[ "$*" == *issue*list* ]]; then printf '[]\\n'; exit 0; fi
+printf '[]\\n'
+`,
+      { mode: 0o755 },
+    )
+
+    const cmd = next.replace(/^next:\s*/, '')
+    const result = spawnSync('bash', ['-lc', cmd], {
+      cwd: wt,
+      env: {
+        ...ENV,
+        PATH: `${bin}:${path.dirname(REAL_BUN)}:${process.env.PATH ?? ''}`,
+        GITHUB_REPO: 'acme/fixture',
+      },
+      encoding: 'utf8',
+    })
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain('dry-run: true')
+    expect(result.stderr).not.toContain('Module not found')
   })
 })
