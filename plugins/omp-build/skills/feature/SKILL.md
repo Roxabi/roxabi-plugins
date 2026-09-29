@@ -330,7 +330,7 @@ Neither a fix round nor another review action may write that label in this cycle
 | `merged` | Report issue + PR; offer the optional tail (§0), stop |
 | `ci-failed` | Gate already disarmed; `step = loop.reopen('ci-failed')`; `await loop.persist(cwd)`; follow §6.6 |
 | `ci-cancelled` | Gate disarmed; stop, report the cancelled checks; operator re-runs CI then re-enters §6.7 |
-| `ci-blocked` | Gate disarmed; stop, report the checks named on stderr |
+| `ci-blocked` | Gate disarmed; stop, report the checks named on stderr; operator resolves the named checks or re-runs CI, then re-enters §6.7 |
 | `watch-failed` | Stop, report the code, gate left as is; do not claim merged |
 | `no-required-checks` | Stop; report missing protection. Native only — merge-on-green does not return this |
 | `timeout` | Re-attach the watch. Do not claim merged |
