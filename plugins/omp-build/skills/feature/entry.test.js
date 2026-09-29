@@ -68,6 +68,17 @@ describe('resolveEntry — on the Principal', () => {
       branchTicket: null,
     })
   })
+
+  it('refuses a base branch on the Principal instead of throwing', () => {
+    expect(resolveEntry({ cwd: PRINCIPAL, principalPath: PRINCIPAL, branch: 'staging' })).toEqual({
+      action: 'refuse',
+      reason: 'principal',
+      cwd: PRINCIPAL,
+      branch: 'staging',
+      ticket: null,
+      branchTicket: null,
+    })
+  })
 })
 
 describe('resolveEntry — inside a worktree', () => {
