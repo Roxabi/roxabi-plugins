@@ -52,8 +52,40 @@ describe('non-verdict exits', () => {
     expect(exitOf(['7', '--repo', 'acme/app', '--since'])).toBe(70)
   })
 
+  it.each(['--timeout', '--interval', '--merge-mode', '--repo'] as const)(
+    '%s without a value exits 70, not the FAIL code',
+    (flag) => {
+      expect(exitOf(['7', flag])).toBe(70)
+    },
+  )
+
   it('--since that is not a UTC second exits 70', () => {
     expect(exitOf(['7', '--since', '2026-09-29T10:00:00.123Z', '--repo', 'acme/app'])).toBe(70)
+  })
+
+  it('no PR exits 70', () => {
+    expect(exitOf([])).toBe(70)
+  })
+
+  it('a missing jq on PATH exits 70', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-no-jq-'))
+    // Symlink bash/gh/bun into an otherwise empty PATH — no jq. Assert the
+    // specific stderr so a later gh failure cannot satisfy this test.
+    for (const cmd of ['bash', 'gh', 'bun'] as const) {
+      const real = execFileSync('/bin/bash', ['-lc', `command -v ${cmd}`], { encoding: 'utf8' }).trim()
+      execFileSync('/bin/ln', ['-s', real, join(dir, cmd)])
+    }
+    try {
+      execFileSync(SCRIPT, ['7', '--repo', 'acme/app'], {
+        encoding: 'utf8',
+        env: { ...process.env, PATH: dir },
+      })
+      expect.unreachable('expected exit 70')
+    } catch (error) {
+      const failed = error as { status?: number; stderr?: string }
+      expect(failed.status).toBe(70)
+      expect(String(failed.stderr ?? '')).toContain("'jq' is required but not found on PATH")
+    }
   })
 })
 
@@ -148,6 +180,68 @@ describe('checks-of', () => {
     ])
     expect(classifyRollup([{ context: 'coverage', state: 'BLOCKED' }])).toBe('OTHER')
   })
+
+  it('keeps the newest run per workflow+name — a green re-run outranks a stale cancel', () => {
+    expect(
+      JSON.parse(
+        checksOf([
+          {
+            name: 'Validate PR Title',
+            status: 'COMPLETED',
+            conclusion: 'CANCELLED',
+            workflowName: 'PR',
+            startedAt: '2026-09-29T10:00:00Z',
+          },
+          {
+            name: 'Validate PR Title',
+            status: 'COMPLETED',
+            conclusion: 'SUCCESS',
+            workflowName: 'PR',
+            startedAt: '2026-09-29T10:00:05Z',
+          },
+        ]),
+      ),
+    ).toEqual([{ name: 'Validate PR Title', status: 'COMPLETED', conclusion: 'SUCCESS' }])
+    expect(
+      classifyRollup([
+        {
+          name: 'Validate PR Title',
+          status: 'COMPLETED',
+          conclusion: 'CANCELLED',
+          workflowName: 'PR',
+          startedAt: '2026-09-29T10:00:00Z',
+        },
+        {
+          name: 'Validate PR Title',
+          status: 'COMPLETED',
+          conclusion: 'SUCCESS',
+          workflowName: 'PR',
+          startedAt: '2026-09-29T10:00:05Z',
+        },
+      ]),
+    ).toBe('GREEN')
+  })
+
+  it('ranks an in-progress re-run ahead of a completed stale cancel', () => {
+    expect(
+      classifyRollup([
+        {
+          name: 'ci',
+          status: 'COMPLETED',
+          conclusion: 'CANCELLED',
+          workflowName: 'CI',
+          startedAt: '2026-09-29T10:00:00Z',
+        },
+        {
+          name: 'ci',
+          status: 'IN_PROGRESS',
+          conclusion: '',
+          workflowName: 'CI',
+          startedAt: '2026-09-29T10:00:05Z',
+        },
+      ]),
+    ).toBe('PENDING')
+  })
 })
 
 describe('watch with a stubbed gh', () => {
@@ -156,6 +250,37 @@ describe('watch with a stubbed gh', () => {
     writeFileSync(path, body)
     chmodSync(path, 0o755)
   }
+
+  it('CLOSED during the check phase exits 4, not the deadline', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-closed-'))
+    fakeGh(
+      dir,
+      `#!/usr/bin/env bash
+cat <<'EOF'
+{"state":"CLOSED","mergeStateStatus":"UNKNOWN","autoMergeRequest":null,"labels":[],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"IN_PROGRESS","conclusion":""}]}
+EOF
+`,
+    )
+    const result = runWatch(dir, {}, undefined, '2s', 'native')
+    expect(result.code).toBe(4)
+    expect(result.stdout.trim()).toBe('closed')
+  })
+
+  it('a leading-zero timeout is decimal — 09 seconds still deadlines', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-octal-'))
+    fakeGh(
+      dir,
+      `#!/usr/bin/env bash
+cat <<'EOF'
+{"state":"OPEN","mergeStateStatus":"BLOCKED","autoMergeRequest":{"enabledAt":"t"},"labels":[{"name":"reviewed"}],"headRefOid":"abc","statusCheckRollup":[{"name":"ci","status":"IN_PROGRESS","conclusion":""}]}
+EOF
+`,
+    )
+    // Without 10#, bash reads 09 as invalid octal inside (( )), the deadline never
+    // fires, and the watch would hang. With the fix it exits 5 after ~9s.
+    const result = runWatch(dir, {}, undefined, '09', 'native')
+    expect(result.code).toBe(5)
+  })
 
   it('sees a late run that appears after a green poll, then the merge', () => {
     const dir = mkdtempSync(join(tmpdir(), 'ci-watch-'))

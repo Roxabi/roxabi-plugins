@@ -324,14 +324,15 @@ Run `watch` as an async bash job (`timeout: 0`). Map the exit with
 
 | Exit | Result |
 |---|---|
-| 0 | re-read state: MERGED → `merged`; otherwise `stopped` (do not claim merged) |
-| 1 | remove `reviewed` (native: also disable auto-merge), `ci-failed`, then `loop.reopen('ci-failed')` |
-| 2 | remove `reviewed` (native: also disable auto-merge), `ci-cancelled` |
-| 3 | remove `reviewed` (native: also disable auto-merge), `ci-blocked` |
-| 4 | stop and report; do not claim merged |
+| 0 | re-read state: MERGED → `merged`; CLOSED or otherwise unmerged → `stopped` (do not claim merged) |
+| 1 | re-read state first (MERGED → `merged`, CLOSED → `stopped`); otherwise remove `reviewed` (native: also disable auto-merge), `ci-failed`, then `loop.reopen('ci-failed')` |
+| 2 | re-read state first (MERGED → `merged`, CLOSED → `stopped`); otherwise remove `reviewed` (native: also disable auto-merge), `ci-cancelled` |
+| 3 | re-read state first (MERGED → `merged`, CLOSED → `stopped`); otherwise remove `reviewed` (native: also disable auto-merge), `ci-blocked` |
+| 4 | stop and report; do not claim merged (includes CLOSED during the check phase) |
 | 5 | `timeout`; re-attach the same watch later |
 | 6 | `evaluate-only`: merge-on-green is green but its run for this landing (started at or after `--since`, or the latest run without `--since`) reports `kit-ci not configured`; gate left armed |
 | 70 | usage, missing tool, invalid `.dev/stack.yml` landing, or `gh`/`jq` failure → `watch-failed`; gate left armed |
+| other | any other code (bad argv that somehow returned 1, job killed 124/137/143, …) → `watch-failed`; gate left armed |
 
 Before any push that follows a `reviewed` label, call
 `disarmReviewedBeforePush(cwd, pr, { push })`. The label is removed before the
