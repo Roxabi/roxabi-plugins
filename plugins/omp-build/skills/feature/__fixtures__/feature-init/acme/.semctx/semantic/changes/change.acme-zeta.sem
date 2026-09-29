@@ -1,3 +1,3 @@
 change: acme-zeta
-  status: activated
-  statement: a status that only starts with active
+  status: active-draft
+  statement: a draft that is not active yet

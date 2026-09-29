@@ -1,3 +1,3 @@
 change: acme-epsilon
   status: verified
-  statement: the words status: active appear here mid-line only
+  note: was status: active

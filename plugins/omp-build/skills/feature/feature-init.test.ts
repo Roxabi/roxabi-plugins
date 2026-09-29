@@ -99,7 +99,8 @@ describe('feature init on the fictional acme fixture', () => {
   })
 
   it('counts a contract only on an anchored status: active line of a .sem file', async () => {
-    // Decoys: `status: active` mid-line, `status: activated`, and a non-.sem file.
+    // Decoys: `note: was status: active` (only ^ rejects it), `status: active-draft` (only $ rejects it),
+    // and a non-.sem file.
     expect((await factsFor('acme')).activeContracts).toBe(3)
   })
 
@@ -366,9 +367,16 @@ describe('semctx hook detection', () => {
 })
 
 describe('an existing landing', () => {
-  async function keptWithLanding(landing: unknown) {
+  /** `kept` in a scratch copy, its stack.yml carrying `onDisk` lines, parsed as `landing`. */
+  async function keptWithLanding(landing: unknown, onDisk = '') {
     const dir = scratchCopy('kept')
-    const stack = readFileSync(path.join(dir, '.dev', 'stack.yml'), 'utf8')
+    const stackPath = path.join(dir, '.dev', 'stack.yml')
+    if (onDisk) {
+      const text = readFileSync(stackPath, 'utf8')
+      if (!text.includes('  mode: merge-on-green\n')) throw new Error('kept fixture has no merge-on-green landing')
+      writeFileSync(stackPath, text.replace('  mode: merge-on-green\n', `  mode: merge-on-green\n${onDisk}`))
+    }
+    const stack = readFileSync(stackPath, 'utf8')
     const lefthook = recordedParseYaml('kept')
     const facts = await readFacts(dir, {
       gh: recordedGh('kept'),
@@ -380,7 +388,11 @@ describe('an existing landing', () => {
   }
 
   it('flags a merge-on-green required_checks list that hides other checks, and writes nothing', async () => {
-    const { dir, stack, facts } = await keptWithLanding({ mode: 'merge-on-green', required_checks: ['widget-build'] })
+    const { dir, stack, facts } = await keptWithLanding(
+      { mode: 'merge-on-green', required_checks: ['widget-build'] },
+      '  required_checks: [widget-build]\n',
+    )
+    expect(stack).toContain('  required_checks: [widget-build]\n')
     expect(plan(facts)).toContain('landing kept (existing; required_checks hides other checks)')
     applyStack(dir, facts)
     expect(readFileSync(path.join(dir, '.dev', 'stack.yml'), 'utf8')).toBe(stack)
