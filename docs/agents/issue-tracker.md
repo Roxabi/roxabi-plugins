@@ -5,7 +5,8 @@ Infer the repo from `git remote -v`; `gh` does this automatically inside a clone
 
 **Reads use `gh` directly. Every write that creates an issue, sets a label, or
 creates a relation goes through the `issue-triage` skill** — see
-[Relations and labels](#relations-and-labels). Authority: ADR-020 §6.
+[Relations and labels](#relations-and-labels). CI workflows are the one exception:
+[Issues filed by CI](#issues-filed-by-ci). Authority: ADR-020 §6.
 
 ## Read conventions
 
