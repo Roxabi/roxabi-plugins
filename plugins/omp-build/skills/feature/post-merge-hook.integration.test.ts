@@ -346,6 +346,27 @@ describe('runPostMergeHook', () => {
     expect(worktrees(clone)).toEqual([clone])
   })
 
+  it('kills a background child that ignores SIGTERM once the hook exits', () => {
+    const stubborn = `sh -c 'trap "" TERM; echo $$ > "$1"; while :; do sleep 0.1; done' sh "$1" &`
+    const { clone, outside } = seed({
+      'scripts/post-merge.sh': { exec: `#!/bin/sh\n${stubborn}\nsleep 0.3\necho done\n` },
+      '.dev/stack.yml': stackYml(['./scripts/post-merge.sh', proofPath()]),
+    })
+
+    const { result } = runHook(clone, outside)
+    const orphan = Number(readFileSync(proofPath(), 'utf8'))
+    const gone = exited(orphan)
+    try {
+      process.kill(orphan, 'SIGKILL')
+    } catch {
+      /* already gone */
+    }
+
+    expect(gone).toBe(true)
+    expect(result).toMatchObject({ result: 'ok', code: 0 })
+    expect(worktrees(clone)).toEqual([clone])
+  })
+
   it('ignores a registered worktree whose directory is gone', () => {
     const { clone, outside, originSha } = seed({
       'scripts/post-merge.sh': { exec: HOOK },

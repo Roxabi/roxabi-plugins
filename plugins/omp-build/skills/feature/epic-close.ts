@@ -133,16 +133,37 @@ function runArgv(
   }, timeoutMs)
   let settled = false
   let grace: NodeJS.Timeout | undefined
+  const groupAlive = () => {
+    try {
+      if (!child.pid) return false
+      process.kill(-child.pid, 0)
+      return true
+    } catch {
+      return false
+    }
+  }
   const settle = (code: number | null, extra = '') => {
     if (settled) return
     settled = true
     clearTimeout(timer)
     clearTimeout(grace)
-    // The hook is done: nothing it started outlives it in a checkout about to be removed.
-    signal('SIGTERM')
     child.stdout?.destroy()
     child.stderr?.destroy()
-    resolve({ code, output: `${output}${extra}`, timedOut })
+    const result = { code, output: `${output}${extra}`, timedOut }
+    // The hook is done: nothing it started outlives it in a checkout about to be
+    // removed. SIGTERM the group, then SIGKILL whatever ignores it for 2 s.
+    signal('SIGTERM')
+    let waited = 0
+    const reap = () => {
+      if (!groupAlive()) return resolve(result)
+      if (waited >= 2000) {
+        signal('SIGKILL')
+        return resolve(result)
+      }
+      waited += 50
+      setTimeout(reap, 50)
+    }
+    reap()
   }
   child.on('error', (error) => settle(null, error.message))
   // `close` follows `exit` once the pipes drain; a grandchild holding them open
