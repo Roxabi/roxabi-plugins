@@ -27,7 +27,8 @@ updates:
   # updates, and GitHub's dependency graph does not parse bun.lock.
   # That surrenders a capability this repo had ALREADY switched off:
   # dependabot_security_updates is `disabled` at the repository level, and the
-  # alert ledger shows fixed=0, dismissed=0 — nothing was ever auto-remediated.
+  # alert ledger showed fixed=0, dismissed=0 as of 2026-09-22 — nothing was ever
+  # auto-remediated (the 11 residual alerts were dismissed by hand on 2026-09-30).
   # There is NO platform-side detection: GitHub's dependency graph lists no
   # manifest for this repo, workflow files included (observed 2026-09-30; cause
   # open, #648). Detection is `bun audit`, npm packages only, run weekly by

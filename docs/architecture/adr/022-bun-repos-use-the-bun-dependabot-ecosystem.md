@@ -88,8 +88,9 @@ What that actually costs this repo, measured:
 - `dependabot_security_updates` is **`disabled`** at the repository level, and
   was already disabled before this change. The bun ecosystem's missing security
   updates therefore surrender a capability the repo had **already switched
-  off**. Corroborated by the alert ledger: `fixed: 0`, `dismissed: 0` — no
-  alert has ever been auto-remediated here.
+  off**. Corroborated by the alert ledger as of 2026-09-22: `fixed: 0`,
+  `dismissed: 0` — no alert had ever been auto-remediated here. (The 11
+  residual alerts were dismissed by hand on 2026-09-30, see the outcome below.)
 - The repo has **zero runtime dependencies** and eight dev dependencies, and is
   `private: true`. Nothing here ships to a user.
 - The weekly version updater groups minor and patch across all patterns, so a
@@ -104,26 +105,26 @@ Two claims from the first version are **withdrawn**:
   the **vendor name**. The true count of Dependabot security PRs is **zero**.
 - *"Dependabot alerts still fire: the dependency graph parses `package.json` as
   a manifest, so detection survives at range precision."* Unverified, and not
-  supported by what is observable. All 11 open alerts carry
-  `manifest_path: package-lock.json` — the deleted file — and none has been
-  updated since the deletion. `GET /dependency-graph/sbom` returns 404.
+  supported by what was observable on 2026-09-22: all 11 then-open alerts
+  carried `manifest_path: package-lock.json` — the deleted file — and none had
+  been updated since the deletion. `GET /dependency-graph/sbom` returned 404.
 
-So the honest residual is not "detection degraded but working". It is
-**detection is currently unproven**: the visible alerts are residue from a file
-that no longer exists, and whether GitHub re-derives them from `package.json`
-after a re-scan has not been observed.
+So the honest residual, as written on 2026-09-22, was not "detection degraded
+but working". It was **detection unproven**: the visible alerts were residue from
+a file that no longer existed, and whether GitHub would re-derive them from
+`package.json` after a re-scan had not been observed. **Resolved 2026-09-30
+(#645):** observed — there is no platform-side detection; see the outcome below.
 
-`bun audit` remains available and reported 28 advisories on this tree when this
-ADR was written (1 low after #644), all
-transitive dev tooling (`vitest → vite → esbuild/nanoid/postcss`,
-`commitlint → ajv → fast-uri`, `commitlint → cosmiconfig → js-yaml`). It is the
-detection path that does not depend on GitHub parsing a lockfile it does not
-support.
+`bun audit` remains available. It reported 28 advisories on this tree when this
+ADR was written (1 low after #644), all transitive dev tooling
+(`vitest → vite → esbuild/nanoid/postcss`, `commitlint → ajv → fast-uri`,
+`commitlint → cosmiconfig → js-yaml`). It is the detection path that does not
+depend on GitHub parsing a lockfile it does not support.
 
-**Open follow-up — resolved 2026-09-30 (#645):** re-read the alert set once GitHub has re-scanned `main`. If
-the 11 stale alerts disappear without being replaced by `package.json`-attributed
-ones, this repo has no platform-side detection and `bun audit` should be wired
-into CI on a schedule.
+**Open follow-up (resolved 2026-09-30, #645):** the alert set was to be re-read
+once GitHub had re-scanned `main`. If the 11 stale alerts disappeared without
+being replaced by `package.json`-attributed ones, this repo had no platform-side
+detection and `bun audit` was to be wired into CI on a schedule.
 
 Outcome, observed 2026-09-30: after eight days the 11 alerts still carried
 `manifest_path: package-lock.json`, none had been updated since 2026-09-13, and
