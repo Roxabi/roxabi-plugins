@@ -273,7 +273,11 @@ function appendStepSummary(env: NodeJS.ProcessEnv, text: string): void {
   }
 }
 
-export function main(argv: readonly string[], env: NodeJS.ProcessEnv = process.env): number {
+export function main(
+  argv: readonly string[],
+  env: NodeJS.ProcessEnv = process.env,
+  ignored: readonly Ignore[] = IGNORED,
+): number {
   try {
     const path = reportPath(argv)
     const audit = Bun.spawnSync([process.execPath, 'audit', '--json'], {
@@ -294,7 +298,7 @@ export function main(argv: readonly string[], env: NodeJS.ProcessEnv = process.e
       throw new AuditOutputError(`bun audit exited ${audit.exitCode} with ${advisories.length} advisory(ies)`)
     }
 
-    const result = classify(advisories, IGNORED, skippedPackages(stderr))
+    const result = classify(advisories, ignored, skippedPackages(stderr))
     if (result.findings.length === 0 && result.stale.length === 0 && result.unaudited.length === 0) {
       const summary = `Dependency audit: clean — ${result.suppressed.length} ignored advisory(ies) (bun ${Bun.version}).\n`
       writeSync(1, summary)
@@ -304,7 +308,7 @@ export function main(argv: readonly string[], env: NodeJS.ProcessEnv = process.e
 
     // The report file is the workflow's input: write it first, inside the try. The step
     // summary is display only and must never change the code the workflow routes on.
-    const report = renderReport(result, IGNORED, runMeta(env))
+    const report = renderReport(result, ignored, runMeta(env))
     if (path) writeFileSync(path, report)
     else writeSync(1, report)
     appendStepSummary(env, report)

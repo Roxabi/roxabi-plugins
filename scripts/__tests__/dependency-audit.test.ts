@@ -169,9 +169,11 @@ describe('main', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
+  // Route tests pass their own ignore list: the shipped IGNORED must never be the reason
+  // a route test passes. Only the next test is tied to it, on purpose.
   it('exits 10 on a finding and writes a report whose first line is the marker', () => {
     bunAudit(JSON.stringify({ 'js-yaml': [JS_YAML], esbuild: [ESBUILD] }), 1)
-    expect(main(['--report', report], {})).toBe(10)
+    expect(main(['--report', report], {}, [IGNORE])).toBe(10)
     const [first] = readFileSync(report, 'utf8').split('\n')
     expect(first).toMatch(/^<!-- dependency-audit: .+ -->$/)
     expect(first).not.toContain('g7r4')
@@ -183,9 +185,9 @@ describe('main', () => {
     expect(existsSync(report)).toBe(false)
   })
 
-  it('exits 10 on an empty tree while the shipped IGNORED still holds an entry for it', () => {
+  it('exits 10 on an empty tree while an ignore still holds an entry for it', () => {
     bunAudit('{}', 0)
-    expect(main(['--report', report], {})).toBe(10)
+    expect(main(['--report', report], {}, [IGNORE])).toBe(10)
     expect(readFileSync(report, 'utf8')).toContain('### Stale ignores')
   })
 
@@ -198,25 +200,26 @@ describe('main', () => {
     ['an exit code bun audit never uses', JSON.stringify({ 'js-yaml': [JS_YAML] }), 3, null],
   ])('exits 2 on %s and writes no report', (_, stdout, code, signal) => {
     bunAudit(stdout, code, '', signal)
-    expect(main(['--report', report], {})).toBe(2)
+    expect(main(['--report', report], {}, [IGNORE])).toBe(2)
     expect(existsSync(report)).toBe(false)
   })
 
-  it('exits 10 when bun skipped a package, even though its exit code and JSON say clean', () => {
-    bunAudit('{}', 0, SKIP_WARNING)
-    expect(main(['--report', report], {})).toBe(10)
+  it('exits 10 when bun skipped a package, even though everything it did audit is accepted', () => {
+    // The reproduced false clean: bun exits 1 on an accepted advisory and reports the skip on stderr only.
+    bunAudit(JSON.stringify({ esbuild: [ESBUILD] }), 1, SKIP_WARNING)
+    expect(main(['--report', report], {}, [IGNORE])).toBe(10)
     expect(readFileSync(report, 'utf8')).toContain('- @foo/bar')
   })
 
   it('still exits 10 and writes the report when the step summary cannot be written', () => {
     bunAudit(JSON.stringify({ 'js-yaml': [JS_YAML], esbuild: [ESBUILD] }), 1)
     const env = { GITHUB_STEP_SUMMARY: join(dir, 'missing-dir', 'summary.md') }
-    expect(main(['--report', report], env)).toBe(10)
+    expect(main(['--report', report], env, [IGNORE])).toBe(10)
     expect(readFileSync(report, 'utf8')).toMatch(/^<!-- dependency-audit: /)
   })
 
   it('exits 2 on a bad argument without running bun audit', () => {
-    expect(main(['--nope'], {})).toBe(2)
+    expect(main(['--nope'], {}, [IGNORE])).toBe(2)
     expect(spawn).not.toHaveBeenCalled()
   })
 })
