@@ -113,6 +113,15 @@ describe('marker', () => {
     expect(marker(classify([], [], ['@foo/bar']))).not.toBe('')
   })
 
+  it('changes with the stale entry or the skipped package it reports', () => {
+    const stale = marker(classify([], [IGNORE]))
+    expect(marker(classify([], [{ ...IGNORE, ghsa: 'GHSA-aaaa-bbbb-cccc' }]))).not.toBe(stale)
+    expect(marker(classify([], [{ ...IGNORE, package: 'vite' }]))).not.toBe(stale)
+    const skipped = marker(classify([], [], ['@foo/bar']))
+    expect(marker(classify([], [], ['@foo/baz']))).not.toBe(skipped)
+    expect(skipped).not.toBe(stale)
+  })
+
   it('changes when the same advisory reaches one more package', () => {
     const one = marker(classify(advisories({ esbuild: [ESBUILD_OTHER] }), []))
     const two = marker(classify(advisories({ esbuild: [ESBUILD_OTHER], vite: [ESBUILD_OTHER] }), []))
@@ -178,7 +187,8 @@ describe('main', () => {
     bunAudit(JSON.stringify({ 'js-yaml': [JS_YAML], esbuild: [ESBUILD] }), 1)
     expect(main(['--report', report], {}, [IGNORE])).toBe(10)
     const [first] = readFileSync(report, 'utf8').split('\n')
-    expect(first).toMatch(/^<!-- dependency-audit: .+ -->$/)
+    const found = classify(advisories({ 'js-yaml': [JS_YAML], esbuild: [ESBUILD] }), [IGNORE])
+    expect(first).toBe(`<!-- dependency-audit: ${marker(found)} -->`)
     expect(first).not.toContain('g7r4')
   })
 
