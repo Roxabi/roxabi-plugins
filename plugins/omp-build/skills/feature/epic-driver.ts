@@ -45,7 +45,6 @@ import {
   readMarker,
   refuseForeignCommits,
   resolveTicketBranch,
-  reviewExhausted,
   STICKY_STOPS,
   type Step,
   stopClass,
@@ -55,7 +54,7 @@ import {
   ticketOfSubject,
 } from './epic'
 import { type HookResult, runPostMergeHook } from './epic-close'
-import { disarmReviewedBeforePush, MAX_FIX_ROUNDS, parseReviewRounds, readLanding } from './workflow.js'
+import { disarmReviewedBeforePush, interpretReviewHistory, readLanding } from './workflow.js'
 
 class Refused extends Error {}
 class Assisted extends Error {}
@@ -151,11 +150,6 @@ type EpicData = {
 type RollupData = {
   repository: { object: { statusCheckRollup: { contexts: { nodes: CheckNode[] } } | null } | null }
 }
-type ReviewState = {
-  rounds: { reviews: number; fixes: number } | null
-  lastVerdict: 'green' | 'red' | null
-  reviewStop: boolean
-}
 
 const PR_FIELDS = `number state baseRefName headRefName headRefOid mergedAt isCrossRepository
   mergeCommit { oid parents(first: 1) { nodes { oid } } }
@@ -201,9 +195,13 @@ function repoName(repo: string): { owner: string; name: string; full: string } {
   return { owner, name, full }
 }
 
-/** Rounds, latest verdict and the #637 stop marker, from this account's PR comments. */
-function reviewStates(repo: string, owner: string, name: string, viewer: string, numbers: number[]) {
-  const out = new Map<number, ReviewState>()
+/**
+ * The PRs whose review loop has stopped, per `interpretReviewHistory` — the one
+ * reading of a PR's review records (#637) that `landPr` and `resumeReviewLoop`
+ * also use. `comments(last: 100)` in creation order, as that reader expects.
+ */
+function stoppedReviews(repo: string, owner: string, name: string, viewer: string, numbers: number[]): Set<number> {
+  const out = new Set<number>()
   if (!numbers.length) return out
   const fields = numbers
     .map((n) => `p${n}: pullRequest(number: ${n}) { comments(last: 100) { nodes { body author { login } } } }`)
@@ -214,24 +212,15 @@ function reviewStates(repo: string, owner: string, name: string, viewer: string,
     { owner, name },
   )
   for (const n of numbers) {
-    const bodies = ours(data.repository[`p${n}`]?.comments.nodes ?? [], viewer)
-    const counts = bodies.filter((body) => /^<!--\s*omp-build:review-rounds\s/.test(body))
-    const record = bodies.filter((body) => /^<!--\s*omp-build:code-review\s*-->/.test(body)).at(-1) ?? ''
-    const verdict = /\*\*Verdict:\s*([^*]+)\*\*/.exec(record)?.[1]?.trim() ?? ''
-    out.set(n, {
-      rounds: parseReviewRounds(counts.map((body) => body.split('\n', 1)[0]).join('\n')),
-      lastVerdict: /^request changes/i.test(verdict) ? 'red' : /^approve/i.test(verdict) ? 'green' : null,
-      reviewStop: counts.some((body) =>
-        body.split('\n').some((line) => /^<!--\s*omp-build:review-stop\s+reason=[a-z0-9-]+\s*-->$/.test(line.trim())),
-      ),
-    })
+    const nodes = data.repository[`p${n}`]?.comments.nodes ?? []
+    const history = nodes.map((c) => ({ body: c.body ?? '', author: c.author }))
+    if (interpretReviewHistory(history, { me: viewer }).stopReason) out.add(n)
   }
   return out
 }
 
-function prFacts(raw: RawPr, review: Map<number, ReviewState>): PrFacts {
+function prFacts(raw: RawPr, stopped: Set<number>): PrFacts {
   const labels = raw.labels.nodes.map((label) => label.name)
-  const state = review.get(raw.number)
   return {
     number: raw.number,
     state: raw.state,
@@ -242,7 +231,7 @@ function prFacts(raw: RawPr, review: Map<number, ReviewState>): PrFacts {
     mergeSha: raw.mergeCommit?.oid ?? null,
     baseSha: raw.mergeCommit?.parents.nodes[0]?.oid ?? null,
     armed: labels.includes('reviewed') || raw.autoMergeRequest !== null,
-    exhausted: state ? reviewExhausted(state, MAX_FIX_ROUNDS) : false,
+    exhausted: stopped.has(raw.number),
   }
 }
 
@@ -365,7 +354,7 @@ function gather(repo: string, epic: number, run: string, base: string, { git: wi
         .map((pr) => pr.number),
     ),
   ]
-  const review = reviewStates(repo, owner, name, viewer, open)
+  const stopped = stoppedReviews(repo, owner, name, viewer, open)
   const numbers = nodes.map((node) => node.number)
   const refs = withGit ? branchRefs(repo, base, numbers) : new Map<number, BranchFacts[]>()
 
@@ -384,7 +373,7 @@ function gather(repo: string, epic: number, run: string, base: string, { git: wi
     stops: ours(node.comments.nodes, viewer)
       .map(parseGoalStop)
       .filter((stop) => stop !== null),
-    prs: (rawPrs.get(node.number) ?? []).map((pr) => prFacts(pr, review)),
+    prs: (rawPrs.get(node.number) ?? []).map((pr) => prFacts(pr, stopped)),
     branches: refs.get(node.number) ?? [],
   }))
 

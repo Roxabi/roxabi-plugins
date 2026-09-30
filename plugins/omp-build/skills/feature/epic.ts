@@ -272,19 +272,6 @@ export function landOutcome(
   }
 }
 
-/**
- * The review bound is spent on this PR (fail closed): the #637 stop marker, or
- * every fix round used and the latest review record red.
- */
-export function reviewExhausted(
-  pr: { rounds: { reviews: number; fixes: number } | null; lastVerdict: 'green' | 'red' | null; reviewStop: boolean },
-  maxFixRounds: number,
-): boolean {
-  if (pr.reviewStop) return true
-  const rounds = pr.rounds
-  return Boolean(rounds && rounds.fixes >= maxFixRounds && rounds.reviews > rounds.fixes && pr.lastVerdict === 'red')
-}
-
 // ── Facts ─────────────────────────────────────────────────────────────────────
 
 export type PrFacts = {
@@ -299,7 +286,7 @@ export type PrFacts = {
   baseSha: string | null
   /** `reviewed` label or native auto-merge on. */
   armed: boolean
-  /** Review bound spent (`reviewExhausted`). */
+  /** The review loop has stopped on this PR (`interpretReviewHistory` in `workflow.js`). */
   exhausted: boolean
 }
 

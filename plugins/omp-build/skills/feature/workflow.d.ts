@@ -5,8 +5,6 @@
 
 type Gh = (cwd: string, args: string[]) => Promise<string>
 
-export declare const MAX_FIX_ROUNDS: 2
-
 export declare function readLanding(cwd: string): {
   mode: 'native' | 'merge-on-green'
   required_checks: string[]
@@ -18,4 +16,8 @@ export declare function disarmReviewedBeforePush(
   deps?: { gh?: Gh; push?: () => Promise<void> | void },
 ): Promise<{ disarmed: true }>
 
-export declare function parseReviewRounds(text: string): { reviews: number; fixes: number; stopReason?: string } | null
+/** The one reading of a PR's review records: counts, and the stop when the loop has stopped. */
+export declare function interpretReviewHistory(
+  comments: { body: string; author: { login: string } | null }[],
+  options: { me: string; maxFixRounds?: number },
+): { reviews: number; fixes: number; stopReason?: string }

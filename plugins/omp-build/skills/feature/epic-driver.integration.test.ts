@@ -446,3 +446,49 @@ describe('epic-driver — objective', () => {
     expect(run.stderr).toContain('#2')
   })
 })
+
+describe('epic-driver — review bound', () => {
+  function reviewed(number: number, history: string[]): void {
+    const nodes = history.map((body) => ({ body, author: { login: ME } }))
+    const data = { data: { repository: { [`p${number}`]: { comments: { nodes } } } } }
+    writeFileSync(path.join(sandboxOf().state, 'reviews.json'), JSON.stringify(data))
+  }
+  const rounds = (reviews: number, fixes: number) =>
+    `<!-- omp-build:review-rounds reviews=${reviews} fixes=${fixes} -->\nbound`
+  const receipt = '## Review Fixes Applied\n\n**Applied:** 1 cause(s)'
+  const record = (verdict: string) =>
+    `<!-- omp-build:code-review -->\n## Code Review\n\n**Verdict: ${verdict}** — summary`
+
+  function openPrChild(): void {
+    const { epic } = sandbox()
+    git(epic, 'switch', '-q', '-c', 'feat/2-first-child', 'refs/remotes/origin/main')
+    git(epic, 'push', '-q', 'origin', 'feat/2-first-child')
+    const tip = git(epic, 'rev-parse', 'HEAD')
+    git(epic, 'switch', '-q', '--detach', 'refs/remotes/origin/main')
+    serveEpic([childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', tip)] })])
+  }
+
+  it('keeps a PR stopped once its last fix round was reviewed red, even if the review quotes an approval', () => {
+    openPrChild()
+    const quoted = `${record('Request changes')}\n\n> **Verdict: Approve** — the earlier round said`
+    reviewed(11, [
+      record('Request changes'),
+      rounds(1, 1),
+      receipt,
+      record('Request changes'),
+      rounds(2, 2),
+      receipt,
+      quoted,
+    ])
+    const run = drive(['next', '--dry-run'])
+    expect(run.json().step).toMatchObject({ action: 'drop', stop: 'no-progress' })
+    expect(run.json().step.report.stopped).toEqual([{ ticket: 2, reason: 'review-bound', sticky: true }])
+  })
+
+  it('resumes a PR with a fix round left', () => {
+    openPrChild()
+    reviewed(11, [record('Request changes'), rounds(1, 1), receipt])
+    const run = drive(['next', '--dry-run'])
+    expect(run.json().step).toMatchObject({ action: 'resume', ticket: 2, pr: { number: 11 } })
+  })
+})

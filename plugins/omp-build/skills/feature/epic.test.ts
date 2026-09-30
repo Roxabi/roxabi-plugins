@@ -25,7 +25,6 @@ import {
   readMarker,
   refuseForeignCommits,
   resolveTicketBranch,
-  reviewExhausted,
   stopClass,
   ticketOfBranch,
   ticketOfSubject,
@@ -101,12 +100,6 @@ function facts(children: ChildFacts[], over: Partial<Facts> = {}): Facts {
 }
 
 type Case = { name: string; facts: Facts; step: Record<string, unknown>; report?: Partial<Report> }
-/** What `reviewExhausted` reads off a PR. */
-type ReviewState = {
-  rounds: { reviews: number; fixes: number } | null
-  lastVerdict: 'green' | 'red' | null
-  reviewStop: boolean
-}
 
 function decides({ facts: input, step, report }: Case) {
   const got = nextStep(input)
@@ -838,23 +831,6 @@ describe('stop classes', () => {
     expect(outcome).toEqual(expected)
     // The stop it names is recorded and classified by the same table.
     if ('stop' in outcome) expect(stopClass(outcome.stop)).toBe(outcome.class)
-  })
-
-  it.each<[string, ReviewState, boolean]>([
-    ['every fix round used and red', { rounds: { reviews: 3, fixes: 2 }, lastVerdict: 'red', reviewStop: false }, true],
-    ['beyond the bound and red', { rounds: { reviews: 4, fixes: 3 }, lastVerdict: 'red', reviewStop: false }, true],
-    [
-      'every fix round used, green',
-      { rounds: { reviews: 3, fixes: 2 }, lastVerdict: 'green', reviewStop: false },
-      false,
-    ],
-    ['last fix not reviewed yet', { rounds: { reviews: 2, fixes: 2 }, lastVerdict: 'red', reviewStop: false }, false],
-    ['a fix round left', { rounds: { reviews: 2, fixes: 1 }, lastVerdict: 'red', reviewStop: false }, false],
-    ['no verdict', { rounds: { reviews: 3, fixes: 2 }, lastVerdict: null, reviewStop: false }, false],
-    ['no rounds marker', { rounds: null, lastVerdict: 'red', reviewStop: false }, false],
-    ['the #637 review-stop marker', { rounds: null, lastVerdict: null, reviewStop: true }, true],
-  ])('reviewExhausted: %s', (_name, input, expected) => {
-    expect(reviewExhausted(input, 2)).toBe(expected)
   })
 })
 
