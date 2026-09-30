@@ -160,12 +160,15 @@ describe('renderReport', () => {
       ...ESBUILD_OTHER,
       // No GHSA at the end, so there is no id to link: the url itself must not become one.
       url: 'https://evil.example/[GHSA-aaaa-bbbb-cccc](https://evil.example)',
-      title: 'ping @octocat ![x](https://evil.example/i.png) `` fence',
+      // A `\` before a `|` must not cancel its escape. GFM treats a `|` right after a `\` as
+      // cell text however many `\` precede it: checked against GitHub's renderer, this row
+      // keeps five cells and shows the title as one code span, `\|` included.
+      title: 'ping @octocat ![x](https://evil.example/i.png) `` fence \\| [x](https://evil.example)',
     }
     const report = renderReport(classify(advisories({ '@foo/bar': [hostile] }), [], ['@foo/baz']), [], META)
     expect(rows(report)).toEqual([
       '| ` @foo/bar ` | high | ` https://evil.example/[GHSA-aaaa-bbbb-cccc](https://evil.example) ` | ' +
-        '``` ping @octocat ![x](https://evil.example/i.png) `` fence ``` | ` >=0.27.3 <0.28.1 ` |',
+        '``` ping @octocat ![x](https://evil.example/i.png) `` fence \\\\| [x](https://evil.example) ``` | ` >=0.27.3 <0.28.1 ` |',
     ])
     expect(report).toContain('\n- ` @foo/baz `\n')
   })

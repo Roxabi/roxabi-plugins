@@ -197,6 +197,7 @@ export interface RunMeta {
  * image, @-mention, autolink or HTML — so an advisory can neither pose as a GHSA link nor
  * ping anyone. The fence is one backtick longer than any run inside, so none closes it
  * early; `|` stays escaped because GFM splits table cells before it parses code spans.
+ * A `\` needs no escape of its own: GFM reads a `|` right after any `\` as cell text.
  */
 function code(text: string): string {
   const flat = text.replace(/\s+/g, ' ').trim().replace(/\|/g, '\\|')
