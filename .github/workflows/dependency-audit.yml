@@ -68,11 +68,12 @@ jobs:
           bun install --frozen-lockfile --lockfile-only --ignore-scripts || code=2
           if [ "$code" -eq 0 ]; then bun scripts/dependency-audit.ts --report "$REPORT" || code=$?; fi
           echo "code=$code" >> "$GITHUB_OUTPUT"
+          # `delivered` tells the last step to close the failure issue. It is written only once
+          # the result is on GitHub (clean, or the security issue filed, commented or unchanged),
+          # so a failed gh call, a timeout or a cancel leaves it unset and the failure is filed.
+          if [ "$code" -eq 0 ]; then echo 'delivered=true' >> "$GITHUB_OUTPUT"; exit 0; fi
           current=''
           if [ "$code" -eq 10 ]; then current=$(sed -n 's/^<!-- dependency-audit: \(.*\) -->$/\1/p' "$REPORT"); fi
-          # Trusted: clean, or a report that carries its marker. The last step reads this.
-          if [ "$code" -eq 0 ] || [ -n "$current" ]; then echo 'trusted=true' >> "$GITHUB_OUTPUT"; fi
-          if [ "$code" -eq 0 ]; then exit 0; fi
           if [ -z "$current" ]; then
             echo "The audit cannot be trusted (exit $code); the last step files the failure issue." >&2
             if [ "$code" -eq 10 ]; then exit 2; fi
@@ -105,16 +106,18 @@ jobs:
               gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body-file "$REPORT"
             fi
           fi
+          echo 'delivered=true' >> "$GITHUB_OUTPUT"
           exit 1
       # Its own step, so the failure issue also covers a failed checkout or setup-bun, a
-      # timed-out audit step and a cancelled run, not only an untrusted exit. Needs only gh
-      # and jq. Never a security issue: an audit that did not run proves nothing.
+      # timed-out audit step, a security issue that could not be written and a cancelled
+      # run, not only an untrusted exit. Needs only gh and jq. Never a security issue: an
+      # audit that did not run proves nothing.
       - name: File, update or close the audit-failed issue
         if: always()
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          TRUSTED: ${{ steps.audit.outputs.trusted }}
+          DELIVERED: ${{ steps.audit.outputs.delivered }}
           CODE: ${{ steps.audit.outputs.code }}
           FAILED_TITLE: 'dependency audit: audit failed'
         run: |
@@ -125,18 +128,18 @@ jobs:
           run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           open=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --label dependencies --limit 100 \
             --json number,title | jq -r --arg t "$TITLE" 'first(.[] | select(.title == $t) | .number) // empty')
-          if [ "$TRUSTED" = true ]; then
+          if [ "$DELIVERED" = true ]; then
             if [ -n "$open" ]; then
               gh issue close "$open" --repo "$GITHUB_REPOSITORY" \
-                --comment "The audit produced a trustworthy result again: $run_url"
+                --comment "A run delivered its result again (clean, or filed as the security issue): $run_url"
             fi
             exit 0
           fi
           outcome="exit ${CODE:-none: the audit step did not finish}"
           if [ -z "$open" ]; then
-            printf '%s\n' "The dependency audit did not produce a trustworthy result ($outcome), so nothing was audited." \
+            printf '%s\n' "The dependency audit run did not deliver a result ($outcome): either the audit could not be trusted, so nothing was audited, or its report could not be filed as the security issue." \
               '' "Run: $run_url — its log shows which step failed. Exit codes: \`scripts/dependency-audit.ts\`." \
-              '' 'The next trustworthy run on this ref closes this issue.' > "$RUNNER_TEMP/audit-failed.md"
+              '' 'The next run on this ref that delivers its result closes this issue.' > "$RUNNER_TEMP/audit-failed.md"
             gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" \
               --label dependencies --body-file "$RUNNER_TEMP/audit-failed.md"
           else

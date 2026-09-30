@@ -13,18 +13,20 @@
  * Exit codes — the workflow routes on these, never on bun's own:
  *   0   clean: no finding, no stale ignore, every package audited. Nothing is filed.
  *   10  action required: report written (findings, stale ignores and/or unaudited
- *       packages). The workflow files or updates the `security` issue. An unaudited
- *       package is an incomplete audit, not a vulnerability; it is routed here on
- *       purpose, because reading it as clean is the false clean this script exists to stop.
+ *       packages). The workflow files or updates the `security` issue; if that write
+ *       fails, it files the "audit failed" issue below instead. An unaudited package is
+ *       an incomplete audit, not a vulnerability; it is routed here on purpose, because
+ *       reading it as clean is the false clean this script exists to stop.
  *   2   the audit cannot be trusted: no report. The workflow files the non-security
  *       "dependency audit: audit failed" issue and the run stays red; any other
  *       non-zero code is routed the same way, and so is a run that fails or is
- *       cancelled before this script finishes. The next trustworthy run closes it.
+ *       cancelled before this script finishes. The next run that delivers its result
+ *       (clean, or filed as the security issue) closes it.
  *
  * Still no signal: a scheduled run GitHub drops or disables (the schedule is
  * best-effort, and turns off after 60 days without repository activity), a run whose
- * issue-writing step cannot reach GitHub, and a registry that answers `{}` for
- * packages it never audited.
+ * last step cannot write to GitHub, and a registry that answers `{}` for packages it
+ * never audited.
  *
  * Why bun's exit code is not enough: `bun audit --json` exits 1 both on findings
  * and on an error (a missing lockfile prints nothing on stdout), and `--ignore`
