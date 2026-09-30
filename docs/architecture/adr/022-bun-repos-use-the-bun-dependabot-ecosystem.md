@@ -152,9 +152,14 @@ The audit's policy, settled on #645 and to be carried by #646:
   advisory has left the tree, or whose severity changed, is reported, not kept.
 - **Scheduled, never a PR check.** A new advisory against an unchanged lockfile
   must not turn unrelated PRs red.
-- **A finding files or updates one `security` issue and fails the run.** An audit
-  that cannot be trusted never files a security issue; it files one non-security
-  "audit failed" issue instead, so the detection cannot go dark silently.
+- **Action required files or updates one `security` issue and fails the run**:
+  a finding, a stale ignore, or a package bun could not audit. Partial coverage
+  counts as action required on purpose — read as clean, it is a false clean. An
+  audit that cannot be trusted (no parseable result consistent with bun's exit
+  code) never files a security issue; it files one non-security "audit failed"
+  issue, and the run stays red. Still silent: a scheduled run GitHub drops or
+  disables, a failure before the audit step, and a registry that answers `{}` for
+  packages it never audited. The exit codes are in `scripts/dependency-audit.ts`.
 - The issues are public, like the repo. That is acceptable while every dependency
   is dev-only; revisit together with the runtime-dependency trigger below.
 

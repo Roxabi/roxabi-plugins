@@ -10,9 +10,19 @@
  * `bun run audit:deps`.
  *
  * Exit codes — the workflow routes on these, never on bun's own:
- *   0   clean: no finding, no stale ignore, every package audited
- *   10  action required: report written (findings, stale ignores and/or unaudited packages)
- *   2   the audit cannot be trusted: nothing is reported, nothing is filed
+ *   0   clean: no finding, no stale ignore, every package audited. Nothing is filed.
+ *   10  action required: report written (findings, stale ignores and/or unaudited
+ *       packages). The workflow files or updates the `security` issue. An unaudited
+ *       package is an incomplete audit, not a vulnerability; it is routed here on
+ *       purpose, because reading it as clean is the false clean this script exists to stop.
+ *   2   the audit cannot be trusted: no report. The workflow files the non-security
+ *       "dependency audit: audit failed" issue and the run stays red; any other
+ *       non-zero code is routed the same way.
+ *
+ * Still no signal: a scheduled run GitHub drops or disables (the schedule is
+ * best-effort, and turns off after 60 days without repository activity), a failure
+ * before this script runs, and a registry that answers `{}` for packages it never
+ * audited.
  *
  * Why bun's exit code is not enough: `bun audit --json` exits 1 both on findings
  * and on an error (a missing lockfile prints nothing on stdout), and `--ignore`
