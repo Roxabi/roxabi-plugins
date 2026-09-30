@@ -1004,53 +1004,81 @@ describe('classifyBaseCi', () => {
   })
   const status = (context: string, state: string): CheckNode => ({ __typename: 'StatusContext', context, state })
 
-  it.each<[string, CheckNode[], string[], string, string[]]>([
-    ['no check → none', [], [], 'none', []],
+  it.each<[string, CheckNode[], string[], string, string[], string[]]>([
+    ['no check → none', [], [], 'none', [], []],
     [
       'every check passing, skipped or neutral → green',
       [run('a', 'SUCCESS', '1'), run('b', 'SKIPPED', '1'), run('c', 'NEUTRAL', '1')],
       [],
       'green',
       [],
+      [],
     ],
-    ['a completed failure → red', [run('a', 'FAILURE', '1')], [], 'red', ['a']],
+    ['a completed failure → red', [run('a', 'FAILURE', '1')], [], 'red', ['a'], []],
     [
       'timed_out and startup_failure are red',
       [run('a', 'TIMED_OUT', '1'), run('b', 'STARTUP_FAILURE', '1')],
       [],
       'red',
       ['a', 'b'],
+      [],
     ],
-    ['a green re-run outranks a stale failure', [run('a', 'FAILURE', '1'), run('a', 'SUCCESS', '2')], [], 'green', []],
     [
-      'a pending re-run outranks a completed failure',
+      'a green re-run outranks a stale failure',
+      [run('a', 'FAILURE', '1'), run('a', 'SUCCESS', '2')],
+      [],
+      'green',
+      [],
+      [],
+    ],
+    [
+      'a pending re-run outranks a completed failure, reported by name',
       [run('a', 'FAILURE', '2'), run('a', null, '1')],
       [],
       'pending',
       [],
+      ['a'],
     ],
-    ['cancelled is reported pending, never red', [run('a', 'CANCELLED', '1')], [], 'pending', []],
-    ['a status context in error is red', [status('ci/legacy', 'ERROR')], [], 'red', ['ci/legacy']],
-    ['a pending status context is pending', [status('ci/legacy', 'PENDING')], [], 'pending', []],
+    [
+      'cancelled is reported pending with its conclusion, never red',
+      [run('a', 'CANCELLED', '1')],
+      [],
+      'pending',
+      [],
+      ['a=cancelled'],
+    ],
+    ['a status context in error is red', [status('ci/legacy', 'ERROR')], [], 'red', ['ci/legacy'], []],
+    ['a pending status context is pending', [status('ci/legacy', 'PENDING')], [], 'pending', [], ['ci/legacy']],
     [
       'a red check outside the declared set is ignored',
       [run('lint', 'FAILURE', '1'), run('test', 'SUCCESS', '1')],
       ['test'],
       'green',
       [],
+      [],
     ],
-    ['a declared check that never ran → none', [run('lint', 'SUCCESS', '1')], ['test'], 'none', []],
+    [
+      'a pending check outside the declared set is not reported',
+      [run('lint', null, '1'), run('test', 'SUCCESS', '1')],
+      ['test'],
+      'green',
+      [],
+      [],
+    ],
+    ['a declared check that never ran → none', [run('lint', 'SUCCESS', '1')], ['test'], 'none', [], []],
     [
       'the same name in two workflows is two checks',
       [run('build', 'SUCCESS', '1'), run('build', 'FAILURE', '1', 'Release')],
       [],
       'red',
       ['build'],
+      [],
     ],
-  ])('%s', (_name, nodes, required, state, failed) => {
+  ])('%s', (_name, nodes, required, state, failed, pending) => {
     const ci = classifyBaseCi(nodes, required)
     expect(ci.state).toBe(state)
     expect(ci.failed).toEqual(failed)
+    expect(ci.pending).toEqual(pending)
   })
 })
 
