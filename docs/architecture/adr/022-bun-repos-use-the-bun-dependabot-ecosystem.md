@@ -141,10 +141,11 @@ graph parses is not a proven remedy (#648). The 11 were dismissed as
 finding, a stale ignore or an unaudited package; it covers npm packages only.
 Generated bun repos are not covered: #646.
 
-**Revisit this ADR if the repo gains a runtime dependency, is published, or
-stops being private.** Those are the conditions under which platform-side
-detection starts mattering, and at that point a graph-supported lockfile is
-worth more than bun-native lock maintenance.
+**Revisit this ADR if the repo gains a runtime dependency, or its package.json
+loses `private: true` (is published to npm).** "Private" here means the npm
+package, not the GitHub repo, which is public. Those are the conditions under
+which platform-side detection starts mattering; whether a graph-supported
+lockfile would then restore it depends on #648.
 
 ### Operational
 

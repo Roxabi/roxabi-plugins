@@ -34,9 +34,10 @@ updates:
   # open, #648). Detection is `bun audit`, npm packages only, run weekly by
   # .github/workflows/dependency-audit.yml, which files a `security` issue.
   # Accepted because this repo has zero runtime dependencies, eight dev
-  # dependencies, and is private. Revisit — and move back to a graph-supported
-  # lockfile — if it gains a runtime dependency, is published, or stops being
-  # private. See ADR-022.
+  # dependencies, and a package.json that is `private: true` (never published to
+  # npm; the GitHub repo itself is public, which this does not depend on).
+  # Revisit if it gains a runtime dependency or loses `private: true`. A
+  # graph-parsed lockfile is not a proven remedy while #648 is open. See ADR-022.
   - package-ecosystem: bun
     directory: /
     schedule:
