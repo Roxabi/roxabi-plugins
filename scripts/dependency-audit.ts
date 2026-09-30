@@ -107,17 +107,19 @@ export function parseAudit(stdout: string): Advisory[] {
   }
 
   const advisories: Advisory[] = []
+  // Registry text goes into messages JSON-quoted: a raw newline would start a new line in
+  // the Actions log, which the runner parses as a workflow command.
   for (const [pkg, entries] of Object.entries(data)) {
     if (!Array.isArray(entries) || entries.length === 0) {
-      throw new AuditOutputError(`bun audit entry "${pkg}" is not a non-empty array of advisories`)
+      throw new AuditOutputError(`bun audit entry ${JSON.stringify(pkg)} is not a non-empty array of advisories`)
     }
     for (const entry of entries) {
       if (typeof entry !== 'object' || entry === null) {
-        throw new AuditOutputError(`bun audit entry "${pkg}" holds a non-object advisory`)
+        throw new AuditOutputError(`bun audit entry ${JSON.stringify(pkg)} holds a non-object advisory`)
       }
       const { url, title, severity, vulnerable_versions } = entry as Record<string, unknown>
       if (typeof url !== 'string' || typeof title !== 'string' || !isSeverity(severity)) {
-        throw new AuditOutputError(`bun audit advisory for "${pkg}" lacks a url, a title or a known severity`)
+        throw new AuditOutputError(`bun audit advisory for ${JSON.stringify(pkg)} lacks a url, a title or a known severity`)
       }
       advisories.push({
         package: pkg,

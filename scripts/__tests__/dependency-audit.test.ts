@@ -60,6 +60,25 @@ describe('parseAudit', () => {
   ])('refuses %s', (_, stdout) => {
     expect(() => parseAudit(stdout)).toThrow(AuditOutputError)
   })
+
+  it.each([
+    ['not an array', 5],
+    ['a non-object advisory', [5]],
+    ['an advisory without fields', [{}]],
+  ])('keeps a registry-chosen package name on one log line when the entry is %s', (_, entry) => {
+    // A raw newline would start a log line of the registry's choosing, which the Actions
+    // runner reads as a workflow command.
+    const thrown = (() => {
+      try {
+        parseAudit(JSON.stringify({ 'x\n::warning::pwned\ny': entry }))
+      } catch (error) {
+        return error
+      }
+    })()
+    expect(thrown).toBeInstanceOf(AuditOutputError)
+    expect((thrown as Error).message).toContain('x\\n::warning::pwned\\ny')
+    expect((thrown as Error).message).not.toContain('\n')
+  })
 })
 
 describe('classify', () => {
