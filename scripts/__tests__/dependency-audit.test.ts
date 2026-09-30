@@ -174,7 +174,7 @@ describe('renderReport', () => {
     expect(report).not.toMatch(/^## injected/m)
   })
 
-  it('renders registry text as inert code: no link, image or mention, even with no GHSA to link', () => {
+  it('renders registry text and the ref as inert code: no link, image or mention, even with no GHSA to link', () => {
     const hostile = {
       ...ESBUILD_OTHER,
       // No GHSA at the end, so there is no id to link: the url itself must not become one.
@@ -184,12 +184,14 @@ describe('renderReport', () => {
       // keeps five cells and shows the title as one code span, `\|` included.
       title: 'ping @octocat ![x](https://evil.example/i.png) `` fence \\| [x](https://evil.example)',
     }
-    const report = renderReport(classify(advisories({ '@foo/bar': [hostile] }), [], ['@foo/baz']), [], META)
+    const ref = 'feat/`x` [y](https://evil.example)'
+    const report = renderReport(classify(advisories({ '@foo/bar': [hostile] }), [], ['@foo/baz']), [], { ...META, ref })
     expect(rows(report)).toEqual([
       '| ` @foo/bar ` | high | ` https://evil.example/[GHSA-aaaa-bbbb-cccc](https://evil.example) ` | ' +
         '``` ping @octocat ![x](https://evil.example/i.png) `` fence \\\\| [x](https://evil.example) ``` | ` >=0.27.3 <0.28.1 ` |',
     ])
     expect(report).toContain('\n- ` @foo/baz `\n')
+    expect(report).toContain('\nRef `` feat/`x` [y](https://evil.example) `` · ` 01234567 ` · bun test\n')
   })
 })
 

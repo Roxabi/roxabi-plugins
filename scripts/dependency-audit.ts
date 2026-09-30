@@ -119,7 +119,9 @@ export function parseAudit(stdout: string): Advisory[] {
       }
       const { url, title, severity, vulnerable_versions } = entry as Record<string, unknown>
       if (typeof url !== 'string' || typeof title !== 'string' || !isSeverity(severity)) {
-        throw new AuditOutputError(`bun audit advisory for ${JSON.stringify(pkg)} lacks a url, a title or a known severity`)
+        throw new AuditOutputError(
+          `bun audit advisory for ${JSON.stringify(pkg)} lacks a url, a title or a known severity`,
+        )
       }
       advisories.push({
         package: pkg,
@@ -265,7 +267,8 @@ export function renderReport(c: Classified, ignored: readonly Ignore[], meta: Ru
   }
 
   lines.push(
-    `Ref \`${meta.ref}\` · \`${meta.sha.slice(0, 8)}\` · bun ${meta.bunVersion}${meta.runUrl ? ` · [run](${meta.runUrl})` : ''}`,
+    // The ref is a branch name anyone who can dispatch picks, and git allows backticks in it.
+    `Ref ${code(meta.ref)} · ${code(meta.sha.slice(0, 8))} · bun ${meta.bunVersion}${meta.runUrl ? ` · [run](${meta.runUrl})` : ''}`,
     '',
   )
   return lines.join('\n')
