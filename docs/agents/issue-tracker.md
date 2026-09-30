@@ -98,6 +98,16 @@ closed — read `issue_dependencies_summary.blocked_by` (open blockers only), no
 label. Applying `ready-for-agent` would be a second, hand-maintained copy of a
 fact GitHub already computes.
 
+### Issues filed by CI
+
+Two workflows create issues with `gh issue create`, not through `issue-triage`,
+because CI has no skill runtime: `.github/workflows/dependency-audit.yml`
+(`security` + `dependencies`) and `.github/workflows/upstream-watch.yml`. They
+arrive **without** a `size:` label. Whoever picks one up sets the tier first —
+`/issue-triage set <n> --size <tier>` — before `/feature`, so the review does not
+fall back to `F-lite`. Keep the labels and the title the workflow wrote: it finds
+its open issue by them, and a relabelled or renamed issue gets a duplicate.
+
 ## When a skill says "publish to the issue tracker"
 
 Create a GitHub issue through `issue-triage`, with a `size:` label and whatever
@@ -127,7 +137,9 @@ Type: `bug` `enhancement` `feature` `refactor` `docs` `documentation` `chore`
 `research` `test`
 Area: `dev-core` `marketplace` `forge` `backend` `frontend` `api` `infra`
 `design` `init` `review` `dependencies` `javascript` `github_actions` `security`
-(`security` + `dependencies`: written by `.github/workflows/dependency-audit.yml`)
+(`security`: written by `.github/workflows/dependency-audit.yml` on its issue, as its
+dedup key — never removed by hand · `dependencies` `javascript` `github_actions`:
+Dependabot PR labels; `dependencies` also marks the audit's issues)
 Tier: `size:S` `size:F-lite` `size:F-full` · `epic`
 Priority: `P0-critical` `P1-high` `P2-medium` `P3-low` (legacy `priority:P2`,
 `priority:P3`, `priority: low` exist; prefer the `PN-` form)
