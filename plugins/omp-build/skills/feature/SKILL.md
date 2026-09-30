@@ -140,8 +140,10 @@ contains `/feature #E` with one `run=<id>` and one `base=<branch>`, and the tick
 is a sub-issue of E — the driver acts on nothing else. Otherwise `/feature` stays
 assisted and unchanged: `/feature #E` in the epic worktree prints the line from
 `bun "$SKILL_DIR/epic-driver.ts" objective --epic E` and stops.
-Every other driver call carries the gate as `--goal-status <status> --goal-objective '<objective>'`
-(`<gate>` below); the driver re-checks it and exits 3 when it fails.
+Every other driver call carries the gate as `--goal-status <status> --goal-objective-file <file>`
+(`<gate>` below); the driver re-checks it and exits 3 when it fails. Free text never
+reaches a command line: write the objective, and each `--detail-file`, with the
+`write` tool into a `mktemp -d` directory and pass the path.
 
 Under the gate three things are pre-authorized, and nothing else: the Phase 8
 choice follows `step.action`, the goal is the merge approval, and deleting a
@@ -156,7 +158,7 @@ recorded exactly like the `stop` subcommand does.
 | `step.action` | Do |
 |---|---|
 | `start` / `resume` | The driver fetched, checked the tree and base CI, switched to `step.branch` (new from `refs/remotes/origin/<base>`, or the existing one), validated it with `resolveTicketBranch` and `refuseForeignCommits`, and disarmed an armed PR. Run §6 for `step.ticket` in this worktree: §6.0 without the operator handoff or the history check, then §6.1–§6.7. `resume` with `step.pr` continues that PR at §6.4. |
-| `final-review`, `stage: review` | R-architect and R-adversarial, read-only, on `git diff <step.range>`. Then `bun "$D" review --epic E <gate> --verdict clean\|blocking --range <step.range> --detail '<findings>'`. |
+| `final-review`, `stage: review` | R-architect and R-adversarial, read-only, on `git diff <step.range>`. Then `bun "$D" review --epic E <gate> --verdict clean\|blocking --range <step.range> --detail-file <findings file>`. |
 | `final-review`, `stage: fix-ticket` | One fix ticket through issue-triage: `create --parent "#E" --type fix --size … --priority … --body-file <f>`, body's first line `<!-- omp-build:epic-fix -->`, an `## Acceptance criteria` heading holding the blocking findings. The next `next` starts it. Non-blocking findings are follow-up siblings. |
 | `post-merge` | `bun --no-env-file "$D" hook --epic E <gate> --repo <epic worktree>`, with the bash `cwd` outside the repository (`$SKILL_DIR`): the runner must load nothing from the epic worktree. |
 | `complete` | `bun "$D" report --epic E <gate> --outcome complete`, print it, `goal({op:"complete"})`, offer `/cleanup`. |
@@ -176,7 +178,7 @@ recorded exactly like the `stop` subcommand does.
 | issue-triage CLI unresolvable | Shared-state stop: the `drop` row, `--reason tracker-unresolvable` |
 | driver exit 1 | Shared-state stop: the `drop` row, `--reason driver-error` (`hook-failed` for `hook`) |
 
-A ticket stop is `bun "$D" stop --epic E <gate> --ticket N --reason <r> --detail '<what happened>'`.
+A ticket stop is `bun "$D" stop --epic E <gate> --ticket N --reason <r> --detail-file <file>` (what happened).
 It refuses a dirty tree: first commit the ticket's work on its branch, locally,
 as `wip: goal-stop <r> (#N)`. It disarms the PR (`reviewed` removed, auto-merge
 disabled), detaches HEAD, keeps the branch and writes the `goal-stop` marker on

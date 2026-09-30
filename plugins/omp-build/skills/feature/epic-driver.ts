@@ -8,14 +8,15 @@
  *
  *   objective --epic E                                  the /goal line (assisted, read-only)
  *   next      --epic E <gate> [--dry-run]               the next action; switches to the child branch
- *   stop      --epic E <gate> --ticket N --reason R     record a ticket stop (disarms the PR first)
- *   review    --epic E <gate> --verdict V --range A..B  record the final epic review
+ *   stop      --epic E <gate> --ticket N --reason R [--detail-file F]     record a ticket stop (disarms first)
+ *   review    --epic E <gate> --verdict V --range A..B [--detail-file F]  record the final epic review
  *   hook      --epic E <gate> --repo <worktree>         run release.post_merge (cwd outside the repo)
  *   report    --epic E <gate> --outcome complete|drop   post the goal report (drop disarms every PR)
  *
- * <gate> is `--goal-status <status> --goal-objective <objective>` from
+ * <gate> is `--goal-status <status> --goal-objective-file <file>` from
  * `goal({op:"get"})`: nothing but `objective` runs unless the goal is active and
- * names the epic; the run id and the base come from that objective.
+ * names the epic; the run id and the base come from that objective. Free text
+ * (objective, detail) is read from a file, `-` for stdin — never an argv word.
  * Exit: 0 done · 1 failed (shared-state stop) · 2 refused · 3 assisted (no gate).
  */
 import { execFileSync } from 'node:child_process'
@@ -764,6 +765,19 @@ async function report(repo: string, epic: number, run: string, base: string, out
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
+/**
+ * Free text — the goal objective, a stop or review detail — never travels as an
+ * argv word the caller had to quote: it is read from a file, or stdin for `-`.
+ */
+function textFile(path: string | undefined, flag: string): string {
+  if (path === undefined) return ''
+  try {
+    return readFileSync(path === '-' ? 0 : path, 'utf8').trim()
+  } catch (error) {
+    throw new Refused(`${flag} ${path}: ${error instanceof Error ? error.message : error}`)
+  }
+}
+
 async function main(argv: string[]): Promise<string> {
   const { positionals, values } = parseArgs({
     args: argv,
@@ -772,11 +786,11 @@ async function main(argv: string[]): Promise<string> {
       epic: { type: 'string' },
       repo: { type: 'string' },
       'goal-status': { type: 'string' },
-      'goal-objective': { type: 'string' },
+      'goal-objective-file': { type: 'string' },
       'dry-run': { type: 'boolean', default: false },
       ticket: { type: 'string' },
       reason: { type: 'string', default: '' },
-      detail: { type: 'string', default: '' },
+      'detail-file': { type: 'string' },
       verdict: { type: 'string', default: '' },
       range: { type: 'string', default: '' },
       outcome: { type: 'string', default: '' },
@@ -788,7 +802,11 @@ async function main(argv: string[]): Promise<string> {
   if (!Number.isInteger(epic) || epic <= 0) throw new Refused('--epic <N> is required')
   if (command === 'objective') return objective(repo, epic)
 
-  const authorized = goalRun({ status: values['goal-status'], objective: values['goal-objective'] }, epic)
+  const goal = {
+    status: values['goal-status'],
+    objective: textFile(values['goal-objective-file'], '--goal-objective-file'),
+  }
+  const authorized = goalRun(goal, epic)
   if (!authorized) {
     throw new Assisted(
       `no active goal names /feature #${epic} with one run= and one base= (status ${values['goal-status'] ?? 'none'})`,
@@ -796,13 +814,14 @@ async function main(argv: string[]): Promise<string> {
   }
   const { run, base } = authorized
   const ticket = Number((values.ticket ?? '').replace(/^#/, ''))
+  const detail = textFile(values['detail-file'], '--detail-file')
   switch (command) {
     case 'next':
       return JSON.stringify(await next(repo, epic, run, base, values['dry-run'] ?? false), null, 2)
     case 'stop':
-      return JSON.stringify(await stop(repo, epic, run, base, ticket, values.reason, values.detail), null, 2)
+      return JSON.stringify(await stop(repo, epic, run, base, ticket, values.reason, detail), null, 2)
     case 'review':
-      return JSON.stringify(review(repo, epic, run, base, values.verdict, values.range, values.detail), null, 2)
+      return JSON.stringify(review(repo, epic, run, base, values.verdict, values.range, detail), null, 2)
     case 'hook': {
       const outcome = await hook(repo, epic, run, base)
       if (outcome.result === 'failed') throw new Error(`hook-failed ${JSON.stringify(outcome)}`)
