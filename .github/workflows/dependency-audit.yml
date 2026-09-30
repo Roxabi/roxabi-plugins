@@ -17,11 +17,12 @@ permissions:
   contents: read
   issues: write
 
-# Per ref, like the issue titles: a pending run in a group is cancelled when a newer one
-# queues, even without cancel-in-progress, so a shared group would let branch dispatches
-# drop main's weekly run. Runs on one ref stay serialised.
+# Keyed on the ref's short name, exactly like the issue titles, so any two runs that can
+# write the same issue (a branch and a tag of one name included) are serialised. Not
+# repo-wide: a pending run in a group is cancelled when a newer one queues, even without
+# cancel-in-progress, so a shared group would let branch dispatches drop main's weekly run.
 concurrency:
-  group: dependency-audit-${{ github.ref }}
+  group: dependency-audit-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
