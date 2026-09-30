@@ -735,3 +735,20 @@ describe('epic-driver — disarm modes', () => {
     expect(writes()).toEqual([`comment 2 <!-- omp-build:goal-stop run=${RUN} reason=proof-blocked -->`])
   })
 })
+
+describe('epic-driver — report', () => {
+  it('reports the hook result that completed the goal, even from an earlier run', () => {
+    const { range, merged } = landedEpic()
+    const merge = range.split('..')[1]
+    const earlier = { body: `<!-- omp-build:post-merge run=run00000 result=ok sha=${merge} -->\nok`, author: ME }
+    serveEpic(
+      [childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] })],
+      [reviewMarker('clean', range), earlier],
+    )
+
+    const run = drive(['report', '--outcome', 'complete'])
+
+    expect(run.code).toBe(0)
+    expect(run.stdout).toContain(`| Post-merge hook | ok at \`${merge}\` (run \`run00000\`) |`)
+  })
+})

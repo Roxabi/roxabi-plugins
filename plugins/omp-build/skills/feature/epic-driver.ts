@@ -34,6 +34,7 @@ import {
   formatMarker,
   generateObjective,
   goalRun,
+  hookStatus,
   mergedLocalBranches,
   nextStep,
   type PrFacts,
@@ -680,7 +681,7 @@ async function report(repo: string, epic: number, run: string, base: string, out
     if (Object.keys(disarmed).length) ({ facts, epicComments } = gather(repo, epic, run, base))
   }
   const summary = summarize(facts)
-  const hookRun = facts.hooks.filter((h) => h.run === run).at(-1)
+  const hook = hookStatus(facts).record
   const list = (items: number[]) => (items.length ? items.map((n) => `#${n}`).join(', ') : '—')
   const text = [
     formatMarker('goal-report', { run }),
@@ -692,7 +693,7 @@ async function report(repo: string, epic: number, run: string, base: string, out
     `| Closed without a merged PR | ${list(summary.closed)} |`,
     `| Stopped | ${summary.stopped.map((s) => `#${s.ticket} \`${s.reason}\`${s.sticky ? ' (sticky)' : ''}`).join(', ') || '—'} |`,
     `| Skipped (open blocker) | ${summary.skipped.map((s) => `#${s.ticket} by ${list(s.blockers)}`).join(', ') || '—'} |`,
-    `| Post-merge hook | ${hookRun ? `${hookRun.result} at \`${hookRun.sha}\`` : 'not run'} |`,
+    `| Post-merge hook | ${hook ? `${hook.result} at \`${hook.sha}\`${hook.run === run ? '' : ` (run \`${hook.run}\`)`}` : 'not run'} |`,
     `| Base CI | ${summary.baseCi.state}${summary.baseCi.failed.length ? ` (failed: ${summary.baseCi.failed.join(', ')})` : ''} |`,
     ...(Object.keys(disarmed).length
       ? [

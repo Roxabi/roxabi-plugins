@@ -13,6 +13,7 @@ import {
   goalRun,
   type HookRecord,
   hasScope,
+  hookStatus,
   landOutcome,
   mergedLocalBranches,
   nextStep,
@@ -1050,5 +1051,34 @@ describe('classifyBaseCi', () => {
     const ci = classifyBaseCi(nodes, required)
     expect(ci.state).toBe(state)
     expect(ci.failed).toEqual(failed)
+  })
+})
+
+describe('hookStatus', () => {
+  const at = sha('f')
+  const record = (run: string, result: HookRecord['result'], on = at): HookRecord => ({ run, result, sha: on })
+  it.each<[string, HookRecord[], 'done' | 'failed' | 'pending', HookRecord | null]>([
+    ['no record → pending', [], 'pending', null],
+    ['this run ok → done, with that record', [record(RUN, 'started'), record(RUN, 'ok')], 'done', record(RUN, 'ok')],
+    ['this run skipped → done', [record(RUN, 'skipped')], 'done', record(RUN, 'skipped')],
+    ['this run failed → failed', [record(RUN, 'started'), record(RUN, 'failed')], 'failed', record(RUN, 'failed')],
+    [
+      'this run started with no result → failed, never run twice',
+      [record(RUN, 'started')],
+      'failed',
+      record(RUN, 'started'),
+    ],
+    [
+      'an earlier run ok at the same base → done, with that record',
+      [record(EARLIER, 'ok')],
+      'done',
+      record(EARLIER, 'ok'),
+    ],
+    ['an earlier run ok at another base → pending', [record(EARLIER, 'ok', sha('e'))], 'pending', null],
+    ['an earlier run failed → pending (a new run retries it)', [record(EARLIER, 'failed')], 'pending', null],
+  ])('%s', (_name, hooks, state, shown) => {
+    const status = hookStatus({ run: RUN, baseSha: at, hooks })
+    expect(status.state).toBe(state)
+    expect(status.record).toEqual(shown)
   })
 })

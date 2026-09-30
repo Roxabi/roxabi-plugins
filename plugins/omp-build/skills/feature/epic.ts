@@ -765,16 +765,32 @@ export function nextStep(facts: Facts): Step {
     }
   }
 
-  const ours = facts.hooks.filter((hook) => hook.run === run).at(-1)
-  if (ours?.result === 'failed')
-    return { action: 'drop', stop: 'hook-failed', reason: 'the post-merge hook failed', report }
-  if (ours?.result === 'started') {
-    return { action: 'drop', stop: 'hook-failed', reason: 'the post-merge hook started and left no result', report }
-  }
-  if (ours) return { action: 'complete', reason: `post-merge hook ${ours.result}`, report }
-  const same = facts.hooks.find(
-    (hook) => hook.sha === facts.baseSha && (hook.result === 'ok' || hook.result === 'skipped'),
-  )
-  if (same) return { action: 'complete', reason: `post-merge hook ${same.result} at ${facts.baseSha}`, report }
+  const hook = hookStatus(facts)
+  if (hook.state === 'failed') return { action: 'drop', stop: 'hook-failed', reason: hook.detail, report }
+  if (hook.state === 'done') return { action: 'complete', reason: hook.detail, report }
   return { action: 'post-merge', reason: `final review clean at ${end}`, report }
+}
+
+/**
+ * Where the post-merge hook stands, for the next step and for the report alike.
+ * This run's own record decides first: failed, or started with no result, is a
+ * failure (never run twice). Then any run's ok or skipped at the same base commit
+ * counts as done. Anything else has not run.
+ */
+export function hookStatus(facts: Pick<Facts, 'run' | 'baseSha' | 'hooks'>): {
+  state: 'done' | 'failed' | 'pending'
+  record: HookRecord | null
+  detail: string
+} {
+  const ours = facts.hooks.filter((hook) => hook.run === facts.run).at(-1) ?? null
+  if (ours?.result === 'failed') return { state: 'failed', record: ours, detail: 'the post-merge hook failed' }
+  if (ours?.result === 'started') {
+    return { state: 'failed', record: ours, detail: 'the post-merge hook started and left no result' }
+  }
+  if (ours) return { state: 'done', record: ours, detail: `post-merge hook ${ours.result}` }
+  const same =
+    facts.hooks.find((hook) => hook.sha === facts.baseSha && (hook.result === 'ok' || hook.result === 'skipped')) ??
+    null
+  if (same) return { state: 'done', record: same, detail: `post-merge hook ${same.result} at ${facts.baseSha}` }
+  return { state: 'pending', record: null, detail: 'post-merge hook not run' }
 }
