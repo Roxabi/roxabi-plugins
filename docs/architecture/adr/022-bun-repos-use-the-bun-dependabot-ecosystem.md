@@ -23,8 +23,10 @@ date: 2026-09-22
 > dependencies get alerts, and `bun.lock` is not established as the cause
 > (#648). `bun audit` now runs weekly here (`.github/workflows/dependency-audit.yml`,
 > `scripts/dependency-audit.ts`) and files a `security` issue; it covers npm
-> packages only. This covers **this repo only**: bun repos the generator
-> scaffolds still have no detection until #646.
+> packages only. This covers **this repo only**. Generated bun repos get no
+> `bun audit` until #646; whether they get platform detection was not
+> established here — a same-org bun repo, roxabi-circle, lists 28 graph manifests
+> and has an alert attributed to `package.json`.
 
 ## Context
 
