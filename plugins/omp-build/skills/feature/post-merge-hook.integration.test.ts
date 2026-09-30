@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -352,6 +353,42 @@ describe('runPostMergeHook', () => {
     expect(result).toMatchObject({ result: 'skipped', sha: originSha })
     expect(started).toEqual([])
     expect(worktrees(clone)).toEqual([clone])
+  })
+
+  it('fails, not skips, when the stack exists but its object cannot be read', () => {
+    const { clone, outside, originSha } = seed({
+      'scripts/post-merge.sh': { exec: HOOK },
+      '.dev/stack.yml': stackYml(['./scripts/post-merge.sh', proofPath()]),
+    })
+    const blob = git(clone, 'rev-parse', `${originSha}:.dev/stack.yml`)
+    git(clone, 'repack', '-a', '-d', '-q')
+    const packs = join(clone, '.git', 'objects', 'pack')
+    // Unpack everything but that blob, so the tree still names an object the repository lacks.
+    for (const pack of readdirSync(packs).filter((name) => name.endsWith('.pack'))) {
+      const data = readFileSync(join(packs, pack))
+      rmSync(join(packs, pack))
+      rmSync(join(packs, pack.replace(/\.pack$/, '.idx')))
+      execFileSync('git', ['unpack-objects', '-q'], { cwd: clone, env: ENV, input: data })
+    }
+    rmSync(join(clone, '.git', 'objects', blob.slice(0, 2), blob.slice(2)))
+
+    const { result, started } = runHook(clone, outside)
+
+    expect(result).toMatchObject({ result: 'failed', sha: originSha })
+    expect(started).toEqual([])
+  })
+
+  it('fails when .dev/stack.yml is a gitlink, not a file', () => {
+    const { clone, outside } = seed({})
+    git(clone, 'update-index', '--add', '--cacheinfo', `160000,${'1'.repeat(40)},.dev/stack.yml`)
+    git(clone, 'commit', '--quiet', '-m', 'gitlink')
+    git(clone, 'push', '--quiet', 'origin', 'HEAD:main')
+    git(clone, 'fetch', '--quiet', 'origin')
+
+    const { result, started } = runHook(clone, outside)
+
+    expect(result).toMatchObject({ result: 'failed' })
+    expect(started).toEqual([])
   })
 
   it('fails when refs/remotes/origin/<base> is missing', () => {

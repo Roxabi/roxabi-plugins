@@ -198,11 +198,16 @@ export async function runPostMergeHook(
     return failed(null, `refs/remotes/origin/${base} is missing`)
   }
 
+  // Only absence skips. A stack that exists but cannot be read (a missing object,
+  // a gitlink, a blob a partial clone failed to fetch) fails: it is not "no hook".
+  const listed = git(repo, ['ls-tree', '--format=%(objecttype)', sha, '--', '.dev/stack.yml'])
+  if (listed === '') return { result: 'skipped', sha, detail: `no .dev/stack.yml at ${sha} — hook skipped` }
+  if (listed !== 'blob') return failed(sha, `.dev/stack.yml at ${sha} is a ${listed}, not a file`)
   let text: string
   try {
-    text = git(repo, ['show', `${sha}:.dev/stack.yml`])
-  } catch {
-    return { result: 'skipped', sha, detail: `no .dev/stack.yml at ${sha} — hook skipped` }
+    text = git(repo, ['cat-file', 'blob', `${sha}:.dev/stack.yml`])
+  } catch (error) {
+    return failed(sha, `.dev/stack.yml at ${sha} cannot be read: ${error instanceof Error ? error.message : error}`)
   }
   let doc: unknown
   try {
