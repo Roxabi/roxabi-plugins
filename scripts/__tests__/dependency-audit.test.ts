@@ -160,7 +160,8 @@ describe('main', () => {
   let report: string
   let spawn: ReturnType<typeof vi.spyOn>
 
-  const bunAudit = (stdout: string, exitCode: number | null, stderr = '', signalCode: string | null = null) =>
+  // bun 1.4.0 leaves signalCode undefined on a child that exited, and sets it on a signal.
+  const bunAudit = (stdout: string, exitCode: number | null, stderr = '', signalCode?: string) =>
     spawn.mockReturnValue({
       stdout: Buffer.from(stdout),
       stderr: Buffer.from(stderr),
@@ -205,12 +206,12 @@ describe('main', () => {
   })
 
   it.each([
-    ['an empty stdout', '', 1, null],
-    ['a non-audit JSON body', '{"error":"rate limited"}', 0, null],
-    ['an empty report with exit 1', '{}', 1, null],
-    ['advisories with exit 0', JSON.stringify({ 'js-yaml': [JS_YAML] }), 0, null],
+    ['an empty stdout', '', 1, undefined],
+    ['a non-audit JSON body', '{"error":"rate limited"}', 0, undefined],
+    ['an empty report with exit 1', '{}', 1, undefined],
+    ['advisories with exit 0', JSON.stringify({ 'js-yaml': [JS_YAML] }), 0, undefined],
     ['a child killed after flushing its JSON', JSON.stringify({ 'js-yaml': [JS_YAML] }), null, 'SIGTERM'],
-    ['an exit code bun audit never uses', JSON.stringify({ 'js-yaml': [JS_YAML] }), 3, null],
+    ['an exit code bun audit never uses', JSON.stringify({ 'js-yaml': [JS_YAML] }), 3, undefined],
   ])('exits 2 on %s and writes no report', (_, stdout, code, signal) => {
     bunAudit(stdout, code, '', signal)
     expect(main(['--report', report], {}, [IGNORE])).toBe(2)
@@ -229,6 +230,17 @@ describe('main', () => {
     const env = { GITHUB_STEP_SUMMARY: join(dir, 'missing-dir', 'summary.md') }
     expect(main(['--report', report], env, [IGNORE])).toBe(10)
     expect(readFileSync(report, 'utf8')).toMatch(/^<!-- dependency-audit: /)
+  })
+
+  it('runs `audit --json` on the running bun, bounded below the job cap', () => {
+    bunAudit('{}', 0)
+    main(['--report', report], {}, [])
+    const [argv, options] = spawn.mock.calls[0]
+    expect(argv).toEqual([process.execPath, 'audit', '--json'])
+    // A hung audit must end in the script's exit 2 (which files the failure issue), not
+    // in the job's 10-minute kill, which files nothing.
+    expect(options.timeout).toBeGreaterThan(0)
+    expect(options.timeout).toBeLessThan(10 * 60_000)
   })
 
   it('exits 2 on a bad argument without running bun audit', () => {
