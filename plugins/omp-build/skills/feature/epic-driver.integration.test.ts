@@ -492,3 +492,22 @@ describe('epic-driver — review bound', () => {
     expect(run.json().step).toMatchObject({ action: 'resume', ticket: 2, pr: { number: 11 } })
   })
 })
+
+describe('epic-driver — eventual consistency', () => {
+  it('stops after one re-read when the PR merged but the facts still show it open and armed', () => {
+    const { epic } = sandbox()
+    git(epic, 'switch', '-q', '-c', 'feat/2-first-child', 'refs/remotes/origin/main')
+    git(epic, 'push', '-q', 'origin', 'feat/2-first-child')
+    const tip = git(epic, 'rev-parse', 'HEAD')
+    git(epic, 'switch', '-q', '--detach', 'refs/remotes/origin/main')
+    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
+    serveEpic([childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', tip, armed)] })])
+    servePr(11, { state: 'MERGED', labels: ['reviewed'], autoMerge: false })
+
+    const run = drive(['next'])
+
+    expect(run.code).toBe(1)
+    expect(run.stderr).toContain('merged, yet the facts still show it open')
+    expect(writes()).toEqual([])
+  })
+})

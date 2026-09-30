@@ -525,7 +525,7 @@ type NextOut = {
   disarmed: Disarm | null
 }
 
-async function next(repo: string, epic: number, run: string, base: string, dry: boolean): Promise<NextOut> {
+async function next(repo: string, epic: number, run: string, base: string, dry: boolean, reread = 0): Promise<NextOut> {
   if (!dry) {
     refusePrincipal(repo)
     git(repo, ['fetch', '--prune', 'origin', '+refs/heads/*:refs/remotes/origin/*'])
@@ -600,7 +600,12 @@ async function next(repo: string, epic: number, run: string, base: string, dry: 
     }
     if (step.action === 'resume' && step.pr?.armed) {
       disarmed = await disarm(repo, step.pr.number)
-      if (disarmed === 'merged') return next(repo, epic, run, base, dry)
+      // The PR merged between the read and the disarm: read GitHub once more. A second
+      // time means the facts still say OPEN while the PR says MERGED — stop, do not spin.
+      if (disarmed === 'merged') {
+        if (reread > 0) throw new Error(`PR #${step.pr.number} merged, yet the facts still show it open`)
+        return next(repo, epic, run, base, dry, reread + 1)
+      }
     }
   }
   return { run, base, step, recorded, cleaned, disarmed }
