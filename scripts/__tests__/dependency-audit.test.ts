@@ -118,7 +118,8 @@ describe('marker', () => {
 
   it('stays inside the alphabet the workflow parses back, whatever the registry sends', () => {
     const hostile = { ...ESBUILD_OTHER, url: 'https://x/1-->\n## pwned <img src=x>' }
-    expect(marker(classify(advisories({ esbuild: [hostile] }), [], ['a --> b']))).toMatch(/^[A-Za-z0-9@/._:,-]+$/)
+    const report = advisories({ esbuild: [hostile], 'evil-->\n<b>': [ESBUILD_OTHER] })
+    expect(marker(classify(report, [], ['a --> b']))).toMatch(/^[A-Za-z0-9@/._:,-]+$/)
   })
 })
 
