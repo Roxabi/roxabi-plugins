@@ -248,6 +248,13 @@ describe('nextStep', () => {
         step: { action: 'stop', ticket: 1, stop: 'branch-mismatch' },
       },
       {
+        name: 'an open PR plus a stray second branch → resume on the PR head',
+        facts: facts([
+          child(1, { prs: [pr(1)], branches: [branch(head(1)), branch('fix/1-stray', { local: false })] }),
+        ]),
+        step: { action: 'resume', ticket: 1, branch: head(1), pr: { number: 101 } },
+      },
+      {
         name: 'an open PR whose head is on no branch → branch-mismatch',
         facts: facts([child(1, { prs: [pr(1)] })]),
         step: { action: 'stop', ticket: 1, stop: 'branch-mismatch' },
@@ -358,6 +365,15 @@ describe('nextStep', () => {
         name: 'merged from a branch claiming another ticket → not done',
         facts: facts([
           child(1, { prs: [landed(1, T1, sha('1'), sha('2'), { head: 'feat/9-other' })] }),
+          child(2, { blockedBy: [on(1)] }),
+        ]),
+        step: { action: 'start', ticket: 1 },
+        report: { merged: [] },
+      },
+      {
+        name: 'MERGED with no merge commit → not done',
+        facts: facts([
+          child(1, { prs: [landed(1, T1, sha('1'), sha('2'), { mergeSha: null })] }),
           child(2, { blockedBy: [on(1)] }),
         ]),
         step: { action: 'start', ticket: 1 },
