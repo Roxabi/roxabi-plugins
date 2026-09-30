@@ -189,8 +189,16 @@ export interface RunMeta {
   bunVersion: string
 }
 
-function cell(text: string): string {
-  return text.replace(/\s+/g, ' ').replace(/\|/g, '\\|').replace(/</g, '&lt;').trim()
+/**
+ * Registry text as one inline code span. GitHub renders nothing inside one — no link,
+ * image, @-mention, autolink or HTML — so an advisory can neither pose as a GHSA link nor
+ * ping anyone. The fence is one backtick longer than any run inside, so none closes it
+ * early; `|` stays escaped because GFM splits table cells before it parses code spans.
+ */
+function code(text: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim().replace(/\|/g, '\\|')
+  const fence = '`'.repeat(Math.max(0, ...(flat.match(/`+/g) ?? []).map((run) => run.length)) + 1)
+  return `${fence} ${flat} ${fence}`
 }
 
 export function renderReport(c: Classified, ignored: readonly Ignore[], meta: RunMeta): string {
@@ -209,12 +217,10 @@ export function renderReport(c: Classified, ignored: readonly Ignore[], meta: Ru
     )
     for (const a of findings) {
       const accepted = ignored.find((i) => matches(a, i))
-      const title = accepted ? `${a.title} (ignored at ${accepted.severity}, re-rated)` : a.title
+      const title = code(a.title) + (accepted ? ` (ignored at ${accepted.severity}, re-rated)` : '')
       // Link built from the parsed id, never from the advisory's own url field.
-      const advisory = a.ghsa ? `[${a.ghsa}](https://github.com/advisories/${a.ghsa})` : cell(a.url)
-      lines.push(
-        `| ${cell(a.package)} | ${a.severity} | ${advisory} | ${cell(title)} | ${cell(a.vulnerableVersions)} |`,
-      )
+      const advisory = a.ghsa ? `[${a.ghsa}](https://github.com/advisories/${a.ghsa})` : code(a.url)
+      lines.push(`| ${code(a.package)} | ${a.severity} | ${advisory} | ${title} | ${code(a.vulnerableVersions)} |`)
     }
     lines.push(
       '',
@@ -232,7 +238,7 @@ export function renderReport(c: Classified, ignored: readonly Ignore[], meta: Ru
       '',
       'bun skipped these because their registry did not answer the audit request. They may carry advisories:',
       '',
-      ...c.unaudited.map((u) => `- ${cell(u)}`),
+      ...c.unaudited.map((u) => `- ${code(u)}`),
       '',
     )
   }

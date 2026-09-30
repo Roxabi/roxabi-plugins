@@ -136,22 +136,35 @@ describe('marker', () => {
 })
 
 describe('renderReport', () => {
-  it('escapes table cells and builds the advisory link from the GHSA, never from the url field', () => {
+  const META = { ref: 'main', sha: '0123456789', runUrl: null, bunVersion: 'test' }
+  const rows = (report: string) => report.split('\n').filter((l) => l.startsWith('| ') && !l.startsWith('| Package'))
+
+  it('builds the advisory link from the GHSA, never from the url field, and keeps each row one row', () => {
     const hostile = {
       ...ESBUILD_OTHER,
       url: 'javascript:alert(1)/GHSA-aaaa-bbbb-cccc',
       title: 'a | b <img src=x>\n## injected',
     }
-    const report = renderReport(classify(advisories({ esbuild: [hostile] }), []), [], {
-      ref: 'main',
-      sha: '0123456789',
-      runUrl: null,
-      bunVersion: 'test',
-    })
+    const report = renderReport(classify(advisories({ esbuild: [hostile] }), []), [], META)
     expect(report).toContain('[GHSA-aaaa-bbbb-cccc](https://github.com/advisories/GHSA-aaaa-bbbb-cccc)')
-    expect(report).toContain('a \\| b &lt;img src=x> ## injected')
+    expect(report).toContain('| ` a \\| b <img src=x> ## injected ` |')
     expect(report).not.toContain('javascript:')
     expect(report).not.toMatch(/^## injected/m)
+  })
+
+  it('renders registry text as inert code: no link, image or mention, even with no GHSA to link', () => {
+    const hostile = {
+      ...ESBUILD_OTHER,
+      // No GHSA at the end, so there is no id to link: the url itself must not become one.
+      url: 'https://evil.example/[GHSA-aaaa-bbbb-cccc](https://evil.example)',
+      title: 'ping @octocat ![x](https://evil.example/i.png) `` fence',
+    }
+    const report = renderReport(classify(advisories({ '@foo/bar': [hostile] }), [], ['@foo/baz']), [], META)
+    expect(rows(report)).toEqual([
+      '| ` @foo/bar ` | high | ` https://evil.example/[GHSA-aaaa-bbbb-cccc](https://evil.example) ` | ' +
+        '``` ping @octocat ![x](https://evil.example/i.png) `` fence ``` | ` >=0.27.3 <0.28.1 ` |',
+    ])
+    expect(report).toContain('\n- ` @foo/baz `\n')
   })
 })
 
@@ -222,7 +235,7 @@ describe('main', () => {
     // The reproduced false clean: bun exits 1 on an accepted advisory and reports the skip on stderr only.
     bunAudit(JSON.stringify({ esbuild: [ESBUILD] }), 1, SKIP_WARNING)
     expect(main(['--report', report], {}, [IGNORE])).toBe(10)
-    expect(readFileSync(report, 'utf8')).toContain('\n- @foo/bar\n- @foo/baz\n- @foo/qux\n')
+    expect(readFileSync(report, 'utf8')).toContain('\n- ` @foo/bar `\n- ` @foo/baz `\n- ` @foo/qux `\n')
   })
 
   it('still exits 10 and writes the report when the step summary cannot be written', () => {

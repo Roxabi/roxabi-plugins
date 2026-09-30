@@ -71,6 +71,6 @@ describe('dependency-audit.ts as a process', () => {
       JSON.stringify({ lockfileVersion: 1, workspaces: { '': { name: 'x', dependencies: deps } }, packages }),
     )
     expect(await runScript()).toBe(10)
-    expect(readFileSync(join(dir, 'report.md'), 'utf8')).toContain('\n- @foo/bar\n- @foo/baz\n- @foo/qux\n')
+    expect(readFileSync(join(dir, 'report.md'), 'utf8')).toContain('\n- ` @foo/bar `\n- ` @foo/baz `\n- ` @foo/qux `\n')
   })
 })
