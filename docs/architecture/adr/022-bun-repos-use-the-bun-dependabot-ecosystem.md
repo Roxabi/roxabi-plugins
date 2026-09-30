@@ -15,6 +15,18 @@ date: 2026-09-22
 > Resolves Roxabi/roxabi-plugins#518.
 >
 > Applies to every repo the workflow generator scaffolds with `stack: bun`.
+>
+> **Amended 2026-09-30 by #645** — the open follow-up in § Accepted cost is
+> resolved: this repo has no platform-side detection. GitHub's dependency graph
+> lists no manifest for it at all — not `package.json`, not even the workflow
+> files (cli/cli, as a control, lists 19) — so neither npm nor GitHub Actions
+> dependencies get alerts, and `bun.lock` is not established as the cause
+> (#648). `bun audit` now runs weekly here (`.github/workflows/dependency-audit.yml`,
+> `scripts/dependency-audit.ts`) and files a `security` issue; it covers npm
+> packages only. This covers **this repo only**. Generated bun repos get no
+> `bun audit` until #646; whether they get platform detection was not
+> established here — a same-org bun repo, roxabi-circle, lists 28 graph manifests
+> and has an alert attributed to `package.json`.
 
 ## Context
 
@@ -78,8 +90,9 @@ What that actually costs this repo, measured:
 - `dependabot_security_updates` is **`disabled`** at the repository level, and
   was already disabled before this change. The bun ecosystem's missing security
   updates therefore surrender a capability the repo had **already switched
-  off**. Corroborated by the alert ledger: `fixed: 0`, `dismissed: 0` — no
-  alert has ever been auto-remediated here.
+  off**. Corroborated by the alert ledger as of 2026-09-22: `fixed: 0`,
+  `dismissed: 0` — no alert had ever been auto-remediated here. (The 11
+  residual alerts were dismissed by hand on 2026-09-30, see the outcome below.)
 - The repo has **zero runtime dependencies** and eight dev dependencies, and is
   `private: true`. Nothing here ships to a user.
 - The weekly version updater groups minor and patch across all patterns, so a
@@ -94,30 +107,75 @@ Two claims from the first version are **withdrawn**:
   the **vendor name**. The true count of Dependabot security PRs is **zero**.
 - *"Dependabot alerts still fire: the dependency graph parses `package.json` as
   a manifest, so detection survives at range precision."* Unverified, and not
-  supported by what is observable. All 11 open alerts carry
-  `manifest_path: package-lock.json` — the deleted file — and none has been
-  updated since the deletion. `GET /dependency-graph/sbom` returns 404.
+  supported by what was observable on 2026-09-22: all 11 then-open alerts
+  carried `manifest_path: package-lock.json` — the deleted file — and none had
+  been updated since the deletion. `GET /dependency-graph/sbom` returned 404.
 
-So the honest residual is not "detection degraded but working". It is
-**detection is currently unproven**: the visible alerts are residue from a file
-that no longer exists, and whether GitHub re-derives them from `package.json`
-after a re-scan has not been observed.
+So the honest residual, as written on 2026-09-22, was not "detection degraded
+but working". It was **detection unproven**: the visible alerts were residue from
+a file that no longer existed, and whether GitHub would re-derive them from
+`package.json` after a re-scan had not been observed. **Resolved 2026-09-30
+(#645):** observed — there is no platform-side detection; see the outcome below.
 
-`bun audit` remains available and reports 28 advisories on this tree, all
-transitive dev tooling (`vitest → vite → esbuild/nanoid/postcss`,
-`commitlint → ajv → fast-uri`, `commitlint → cosmiconfig → js-yaml`). It is the
-detection path that does not depend on GitHub parsing a lockfile it does not
-support.
+`bun audit` remains available. It reported 28 advisories on this tree when this
+ADR was written (1 low after #644), all transitive dev tooling
+(`vitest → vite → esbuild/nanoid/postcss`, `commitlint → ajv → fast-uri`,
+`commitlint → cosmiconfig → js-yaml`). It is the detection path that does not
+depend on GitHub parsing a lockfile it does not support.
 
-**Open follow-up:** re-read the alert set once GitHub has re-scanned `main`. If
-the 11 stale alerts disappear without being replaced by `package.json`-attributed
-ones, this repo has no platform-side detection and `bun audit` should be wired
-into CI on a schedule.
+**Open follow-up (resolved 2026-09-30, #645):** the alert set was to be re-read
+once GitHub had re-scanned `main`. If the 11 stale alerts disappeared without
+being replaced by `package.json`-attributed ones, this repo had no platform-side
+detection and `bun audit` was to be wired into CI on a schedule.
 
-**Revisit this ADR if the repo gains a runtime dependency, is published, or
-stops being private.** Those are the conditions under which platform-side
-detection starts mattering, and at that point a graph-supported lockfile is
-worth more than bun-native lock maintenance.
+Outcome, observed 2026-09-30: after eight days the 11 alerts still carried
+`manifest_path: package-lock.json`, none had been updated since 2026-09-13, and
+no alert attributed to `package.json` or `bun.lock` appeared. The condition
+above assumed the graph re-scans; it did not. `dependencyGraphManifests` returns
+**0** for this repo — the workflow files included, which the graph parses in any
+repo (cli/cli: 19) — with vulnerability alerts enabled and
+`GET /dependency-graph/sbom` at 404. The graph is therefore not processing this
+repo at all: "`bun.lock` is unsupported" does not explain an empty inventory,
+GitHub Actions dependencies are undetected too, and returning to a lockfile the
+graph parses is not a proven remedy (#648). The 11 were dismissed as
+`inaccurate` once #644 moved every flagged package past its vulnerable range.
+`bun audit` now runs weekly in this repo and files a `security` issue on a
+finding, a stale ignore or an unaudited package; it covers npm packages only.
+Generated bun repos are not covered: #646.
+
+The audit's policy, settled on #645 and to be carried by #646:
+
+- **Every severity counts.** `--audit-level=moderate` was rejected: it would hide
+  every future low permanently to cover one temporary gap.
+- **Accepted advisories are explicit.** `IGNORED` in `scripts/dependency-audit.ts`
+  records each entry's reason, severity and removal condition. An entry whose
+  advisory has left the tree, or whose severity changed, is reported, not kept.
+- **Scheduled, never a PR check.** A new advisory against an unchanged lockfile
+  must not turn unrelated PRs red.
+- **Only a lock that matches the manifest is audited.** `bun audit` reads
+  `bun.lock` alone, so a dependency missing from it would never be audited. The
+  run first checks, without installing or running scripts, that `bun.lock`
+  matches `package.json` (`bun install --frozen-lockfile --lockfile-only
+  --ignore-scripts`); a mismatch is routed as an audit that cannot be trusted.
+- **Action required files or updates one `security` issue and fails the run**:
+  a finding, a stale ignore, or a package bun could not audit. Partial coverage
+  counts as action required on purpose — read as clean, it is a false clean. An
+  audit that cannot be trusted (a lock that disagrees with `package.json`, or no
+  parseable result consistent with bun's exit code), or that did not finish,
+  never files a security issue; it files one non-security "audit failed" issue,
+  and so does a run whose security issue could not be written. The next run that
+  delivers its result (clean, or filed) closes it; a failing run stays red. Still
+  silent: a scheduled run GitHub drops or disables, a run whose last step cannot
+  write to GitHub, and a registry that answers `{}` for packages it never audited.
+  The exit codes are in `scripts/dependency-audit.ts`.
+- The issues are public, like the repo. That is acceptable while every dependency
+  is dev-only; revisit together with the runtime-dependency trigger below.
+
+**Revisit this ADR if the repo gains a runtime dependency, or its package.json
+loses `private: true` (is published to npm).** "Private" here means the npm
+package, not the GitHub repo, which is public. Those are the conditions under
+which platform-side detection starts mattering; whether a graph-supported
+lockfile would then restore it depends on #648.
 
 ### Operational
 

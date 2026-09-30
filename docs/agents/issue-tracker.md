@@ -5,7 +5,8 @@ Infer the repo from `git remote -v`; `gh` does this automatically inside a clone
 
 **Reads use `gh` directly. Every write that creates an issue, sets a label, or
 creates a relation goes through the `issue-triage` skill** — see
-[Relations and labels](#relations-and-labels). Authority: ADR-020 §6.
+[Relations and labels](#relations-and-labels). CI workflows are the one exception:
+[Issues filed by CI](#issues-filed-by-ci). Authority: ADR-020 §6.
 
 ## Read conventions
 
@@ -98,6 +99,23 @@ closed — read `issue_dependencies_summary.blocked_by` (open blockers only), no
 label. Applying `ready-for-agent` would be a second, hand-maintained copy of a
 fact GitHub already computes.
 
+### Issues filed by CI
+
+Workflows create issues with `gh issue create`, not through `issue-triage`,
+because CI has no skill runtime. They arrive **without** a `size:` label. Whoever
+picks one up sets the tier first — `/issue-triage set <n> --size <tier>` — before
+`/feature`, so the review does not fall back to `F-lite`.
+
+- `.github/workflows/dependency-audit.yml` files two issues. The finding issue
+  carries `security` + `dependencies` and is found again by `security` + its exact
+  title. The "audit failed" issue carries `dependencies` only and is found by
+  `dependencies` + its exact title; each failing run comments on it, and the next
+  run on its ref that delivers its result (clean, or filed) closes it. Keep those
+  labels and titles: a relabelled or renamed issue gets a duplicate on the next run.
+- `.github/workflows/upstream-watch.yml` is meant to file drift issues, but files
+  none today: its `upstream-update` label does not exist, and the failure is masked
+  behind a green run (#649).
+
 ## When a skill says "publish to the issue tracker"
 
 Create a GitHub issue through `issue-triage`, with a `size:` label and whatever
@@ -126,7 +144,11 @@ requests.
 Type: `bug` `enhancement` `feature` `refactor` `docs` `documentation` `chore`
 `research` `test`
 Area: `dev-core` `marketplace` `forge` `backend` `frontend` `api` `infra`
-`design` `init` `review` `dependencies` `javascript` `github_actions`
+`design` `init` `review` `dependencies` `javascript` `github_actions` `security`
+(`security`: a human triage label, and the dedup key of dependency-audit's finding
+issue · `dependencies` `javascript` `github_actions`: Dependabot PR labels;
+`dependencies` is also the dedup key of dependency-audit's "audit failed" issue —
+never remove either label from the workflow's issues)
 Tier: `size:S` `size:F-lite` `size:F-full` · `epic`
 Priority: `P0-critical` `P1-high` `P2-medium` `P3-low` (legacy `priority:P2`,
 `priority:P3`, `priority: low` exist; prefer the `PN-` form)

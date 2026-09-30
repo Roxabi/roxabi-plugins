@@ -1,0 +1,148 @@
+name: Dependency Audit
+
+# Dependency-vulnerability detection for this repo's npm packages (#645, ADR-022).
+# GitHub's dependency graph lists no manifest for this repo (#648) and the bun
+# Dependabot ecosystem has no security updates, so nothing else raises alerts;
+# GitHub Actions dependencies stay undetected until #648. Scheduled, never a PR
+# check: a new advisory against an unchanged lockfile must not turn unrelated PRs red.
+
+on:
+  schedule:
+    # Minute 17, not 0: GitHub may drop queued scheduled runs under top-of-hour load, and a
+    # dropped run leaves no failure behind.
+    - cron: '17 8 * * 1'  # Mondays 08:17 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+# Keyed on the ref's short name, exactly like the issue titles, so any two runs that can
+# write the same issue (a branch and a tag of one name included) are serialised. Not
+# repo-wide: a pending run in a group is cancelled when a newer one queues, even without
+# cancel-in-progress, so a shared group would let branch dispatches drop main's weekly run.
+concurrency:
+  group: dependency-audit-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: bun audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2.2.0
+        with:
+          # The script's contract with `bun audit --json` (shape, exit pairing, skip warning)
+          # was verified on 1.4.0; a bun bump here is a reviewed diff. An exact version needs
+          # no tag lookup, so the action gets no token — it never sees the issues:write one.
+          bun-version: 1.4.0
+          token: ''
+      # No full `bun install`: the script imports nothing, and no dependency postinstall
+      # may run next to an issues:write token. Nothing installed also keeps the bun pin
+      # above meaningful: with no node_modules/.bin, `bun` is setup-bun's, and the script
+      # runs as a file, not through `bun run`, which would put node_modules/.bin first on
+      # PATH. bun audit reads bun.lock only, so the step first checks, without installing
+      # or running scripts, that bun.lock matches package.json: a dependency missing from
+      # the lock would never be audited.
+      - name: Audit, then file or update the security issue
+        id: audit
+        # Below the job's 10 minutes, so that a hung step fails alone and the last step still
+        # reports it; the script bounds `bun audit` itself at 2 minutes.
+        timeout-minutes: 6
+        # Explicit `shell: bash` runs `bash -eo pipefail`; the default is `bash -e` without
+        # pipefail, where a failed `gh issue list | jq` reads as "no open issue" and files a
+        # duplicate.
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPORT: ${{ runner.temp }}/dependency-audit.md
+          BASE_TITLE: 'dependency audit: action required'
+        run: |
+          # Exit codes are scripts/dependency-audit.ts's: 0 clean, 10 report written,
+          # anything else means the audit cannot be trusted.
+          code=0
+          # A lock that disagrees with package.json cannot be trusted: route it like exit 2.
+          bun install --frozen-lockfile --lockfile-only --ignore-scripts || code=2
+          if [ "$code" -eq 0 ]; then bun scripts/dependency-audit.ts --report "$REPORT" || code=$?; fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          # `delivered` tells the last step to close the failure issue. It is written only once
+          # the result is on GitHub (clean, or the security issue filed, commented or unchanged),
+          # so a failed gh call, a timeout or a cancel leaves it unset and the failure is filed.
+          if [ "$code" -eq 0 ]; then echo 'delivered=true' >> "$GITHUB_OUTPUT"; exit 0; fi
+          current=''
+          if [ "$code" -eq 10 ]; then current=$(sed -n 's/^<!-- dependency-audit: \(.*\) -->$/\1/p' "$REPORT"); fi
+          if [ -z "$current" ]; then
+            echo "The audit cannot be trusted (exit $code); the last step files the failure issue." >&2
+            if [ "$code" -eq 10 ]; then exit 2; fi
+            exit "$code"
+          fi
+
+          # One canonical issue per default branch. A dispatch on any other ref files under its
+          # own title, so a branch experiment never writes to, or lingers on, main's issue.
+          default=$(gh repo view "$GITHUB_REPOSITORY" --json defaultBranchRef --jq .defaultBranchRef.name)
+          suffix=''
+          if [ "$GITHUB_REF_NAME" != "$default" ]; then suffix=" ($GITHUB_REF_NAME)"; fi
+          TITLE="$BASE_TITLE$suffix"
+
+          number=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --label security --limit 100 \
+            --json number,title | jq -r --arg t "$TITLE" 'first(.[] | select(.title == $t) | .number) // empty')
+          if [ -z "$number" ]; then
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" \
+              --label security --label dependencies --body-file "$REPORT"
+          else
+            # Only the workflow's own text is trusted: anyone can comment on a public issue,
+            # and a forged marker would silence the next change. A null body is skipped.
+            previous=$(gh issue view "$number" --repo "$GITHUB_REPOSITORY" --json author,body,comments \
+              | jq -r 'def mine: (.author.login // "") | IN("github-actions", "app/github-actions", "github-actions[bot]");
+                  [(select(mine) | .body), (.comments[] | select(mine) | .body)]
+                  | map(select(type == "string") | capture("<!-- dependency-audit: (?<m>[A-Za-z0-9@/._:,-]*) -->") | .m)
+                  | last // ""')
+            if [ "$previous" = "$current" ]; then
+              echo "Unchanged since the last report on #$number: no new comment."
+            else
+              gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body-file "$REPORT"
+            fi
+          fi
+          echo 'delivered=true' >> "$GITHUB_OUTPUT"
+          exit 1
+      # Its own step, so the failure issue also covers a failed checkout or setup-bun, a
+      # timed-out audit step, a security issue that could not be written and a cancelled
+      # run, not only an untrusted exit. Needs only gh and jq. Never a security issue: an
+      # audit that did not run proves nothing.
+      - name: File, update or close the audit-failed issue
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DELIVERED: ${{ steps.audit.outputs.delivered }}
+          CODE: ${{ steps.audit.outputs.code }}
+          FAILED_TITLE: 'dependency audit: audit failed'
+        run: |
+          default=$(gh repo view "$GITHUB_REPOSITORY" --json defaultBranchRef --jq .defaultBranchRef.name)
+          suffix=''
+          if [ "$GITHUB_REF_NAME" != "$default" ]; then suffix=" ($GITHUB_REF_NAME)"; fi
+          TITLE="$FAILED_TITLE$suffix"
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          open=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --label dependencies --limit 100 \
+            --json number,title | jq -r --arg t "$TITLE" 'first(.[] | select(.title == $t) | .number) // empty')
+          if [ "$DELIVERED" = true ]; then
+            if [ -n "$open" ]; then
+              gh issue close "$open" --repo "$GITHUB_REPOSITORY" \
+                --comment "A run delivered its result again (clean, or filed as the security issue): $run_url"
+            fi
+            exit 0
+          fi
+          outcome="exit ${CODE:-none: the audit step did not finish}"
+          if [ -z "$open" ]; then
+            printf '%s\n' "The dependency audit run did not deliver a result ($outcome): either the audit could not be trusted, so nothing was audited, or its report could not be filed as the security issue." \
+              '' "Run: $run_url — its log shows which step failed. Exit codes: \`scripts/dependency-audit.ts\`." \
+              '' 'The next run on this ref that delivers its result closes this issue.' > "$RUNNER_TEMP/audit-failed.md"
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" \
+              --label dependencies --body-file "$RUNNER_TEMP/audit-failed.md"
+          else
+            gh issue comment "$open" --repo "$GITHUB_REPOSITORY" --body "Still failing ($outcome): $run_url"
+          fi

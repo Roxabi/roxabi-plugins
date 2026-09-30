@@ -27,14 +27,17 @@ updates:
   # updates, and GitHub's dependency graph does not parse bun.lock.
   # That surrenders a capability this repo had ALREADY switched off:
   # dependabot_security_updates is `disabled` at the repository level, and the
-  # alert ledger shows fixed=0, dismissed=0 — nothing was ever auto-remediated.
-  # Platform-side DETECTION is currently unproven: the open alerts still carry
-  # manifest_path=package-lock.json, a file that no longer exists. `bun audit`
-  # is the detection path that does not depend on GitHub parsing bun.lock.
+  # alert ledger showed fixed=0, dismissed=0 as of 2026-09-22 — nothing was ever
+  # auto-remediated (the 11 residual alerts were dismissed by hand on 2026-09-30).
+  # There is NO platform-side detection: GitHub's dependency graph lists no
+  # manifest for this repo, workflow files included (observed 2026-09-30; cause
+  # open, #648). Detection is `bun audit`, npm packages only, run weekly by
+  # .github/workflows/dependency-audit.yml, which files a `security` issue.
   # Accepted because this repo has zero runtime dependencies, eight dev
-  # dependencies, and is private. Revisit — and move back to a graph-supported
-  # lockfile — if it gains a runtime dependency, is published, or stops being
-  # private. See ADR-022.
+  # dependencies, and a package.json that is `private: true` (never published to
+  # npm; the GitHub repo itself is public, which this does not depend on).
+  # Revisit if it gains a runtime dependency or loses `private: true`. A
+  # graph-parsed lockfile is not a proven remedy while #648 is open. See ADR-022.
   - package-ecosystem: bun
     directory: /
     schedule:
