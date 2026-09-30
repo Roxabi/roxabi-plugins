@@ -224,7 +224,18 @@ function bodyFor(body, issue) {
  * @returns {Promise<number | null>}
  */
 async function findOpenPr(cwd, head, base, ghFn = gh) {
-  const raw = await ghFn(cwd, ['pr', 'list', '--head', head, '--base', base, '--state', 'open', '--json', 'number'])
+  const raw = await ghFn(cwd, [
+    'pr',
+    'list',
+    '--head',
+    head,
+    '--base',
+    base,
+    '--state',
+    'open',
+    '--json',
+    'number,isCrossRepository',
+  ])
   let data
   try {
     data = JSON.parse(raw)
@@ -234,6 +245,8 @@ async function findOpenPr(cwd, head, base, ghFn = gh) {
   if (!Array.isArray(data)) {
     throw new Error(`openPr: \`gh pr list --head ${head}\` returned no array — ${preview(raw)}`)
   }
+  // `--head` matches a fork's branch of the same name; a fork PR is never this branch's PR.
+  data = data.filter((entry) => entry?.isCrossRepository !== true)
   const numbers = data.map((entry) => entry?.number).filter((n) => Number.isInteger(n) && n > 0)
   if (numbers.length !== data.length) {
     throw new Error(`openPr: \`gh pr list --head ${head}\` returned an entry with no PR number — ${preview(raw)}`)

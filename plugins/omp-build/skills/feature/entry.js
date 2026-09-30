@@ -1,5 +1,5 @@
 /**
- * `/feature` entry resolution (ADR-020 §3, #493).
+ * `/feature` entry resolution (ADR-020 §3, #493; epic route #620).
  *
  * Pure by construction: no fs, no git, no network, no clock. Every input the
  * decision needs arrives as a parameter, so `/feature` cannot decide *where it is*
@@ -11,6 +11,7 @@
  *   - `principalPath`  the first `git worktree list --porcelain` entry
  *   - `branch`         the branch checked out at `cwd`, or nothing
  *   - `ticket`         the tracker issue the operator named, or nothing
+ *   - `children`       the ticket's sub-issue numbers, or nothing
  *
  * Path inputs are compared as strings, never resolved: this module may not touch
  * the filesystem, so it cannot undo a symlink, a case-variant spelling, or a
@@ -20,17 +21,17 @@
  * would frame, or implement, on the Principal itself.
  */
 
+import { resolveTicketBranch, ticketOfBranch } from './epic'
+
 /** Operator forms accepted for a ticket: `493`, `'493'`, `'#493'`. */
 const TICKET_RE = /^#?(\d+)$/
-
-/** Branch convention: `<type>/<issue>-<slug>`. */
-const BRANCH_TICKET_RE = /^[^/]+\/(\d+)(?:-|$)/
 
 /**
  * @typedef {{ action: 'frame', cwd: string, branch: string | null, ticket: null }} FrameEntry
  * @typedef {{ action: 'build', cwd: string, branch: string, ticket: number }} BuildEntry
+ * @typedef {{ action: 'epic', cwd: string, branch: string | null, ticket: number, children: number[] }} EpicEntry
  * @typedef {{ action: 'refuse', reason: 'branch-mismatch' | 'principal', cwd: string, branch: string | null, ticket: number | null, branchTicket: number | null }} RefuseEntry
- * @typedef {FrameEntry | BuildEntry | RefuseEntry} Entry
+ * @typedef {FrameEntry | BuildEntry | EpicEntry | RefuseEntry} Entry
  */
 
 /**
@@ -85,14 +86,15 @@ function normalizeTicket(ticket) {
 }
 
 /**
- * The issue a branch name claims, or `null` when it claims none.
- * @param {string | null} branch
- * @returns {number | null}
+ * @param {unknown} children
+ * @returns {number[]}
  */
-function ticketOfBranch(branch) {
-  if (branch === null) return null
-  const match = BRANCH_TICKET_RE.exec(branch)
-  return match ? Number(match[1]) : null
+function normalizeChildren(children) {
+  if (children === null || children === undefined) return []
+  if (!Array.isArray(children) || !children.every((n) => Number.isInteger(n) && n > 0)) {
+    throw new TypeError(`resolveEntry: children must be a list of issue numbers, got ${JSON.stringify(children)}`)
+  }
+  return children
 }
 
 /**
@@ -123,6 +125,7 @@ export function isPrincipal(cwd, principalPath) {
  * | `cwd` is the Principal | `refuse` — reason `principal`; never implement here |
  * | in ω, no ticket | `frame` — mode 1: grill → spec → tickets → frontier |
  * | in ω, ticket, branch claims that ticket | `build` — mode 2 (#494) |
+ * | in ω, ticket with sub-issues, HEAD detached or on a branch claiming one of them | `epic` — the Epic goal (#620) |
  * | in ω, ticket, branch claims another one or none | `refuse` — never implement #N on #M's branch |
  *
  * The last row is the one worth stating out loud: implementing #N inside the
@@ -130,15 +133,18 @@ export function isPrincipal(cwd, principalPath) {
  * branch that does not carry the ticket is therefore never built on — including a
  * detached HEAD (`branch: null`) and a branch that does not follow the convention,
  * because neither *proves* it is the right place. `refuse` reports both numbers
- * and lets the caller phrase the corrective move.
+ * and lets the caller phrase the corrective move. The `epic` row is the one
+ * exception: an epic worktree is detached between children and on a child's
+ * branch during one, and the Epic goal, not this route, decides what runs there.
  *
- * @param {{ cwd: string, principalPath: string, branch?: string | null, ticket?: string | number | null }} input
+ * @param {{ cwd: string, principalPath: string, branch?: string | null, ticket?: string | number | null, children?: number[] | null }} input
  * @returns {Entry}
  */
-export function resolveEntry({ cwd, principalPath, branch = null, ticket = null } = {}) {
+export function resolveEntry({ cwd, principalPath, branch = null, ticket = null, children = null } = {}) {
   const here = normalizePath(cwd, 'cwd')
   const principal = normalizePath(principalPath, 'principalPath')
   const issue = normalizeTicket(ticket)
+  const subIssues = normalizeChildren(children)
   const head = typeof branch === 'string' && branch.trim() !== '' ? branch.trim() : null
 
   if (isPrincipal(here, principal)) {
@@ -155,9 +161,9 @@ export function resolveEntry({ cwd, principalPath, branch = null, ticket = null 
   if (issue === null) return { action: 'frame', cwd: here, branch: head, ticket: null }
 
   const branchTicket = ticketOfBranch(head)
-  if (branchTicket !== issue) {
-    return { action: 'refuse', reason: 'branch-mismatch', cwd: here, branch: head, ticket: issue, branchTicket }
+  if (branchTicket === issue) return { action: 'build', cwd: here, branch: head, ticket: issue }
+  if (subIssues.length && (head === null || 'ticket' in resolveTicketBranch(head, subIssues))) {
+    return { action: 'epic', cwd: here, branch: head, ticket: issue, children: subIssues }
   }
-
-  return { action: 'build', cwd: here, branch: head, ticket: issue }
+  return { action: 'refuse', reason: 'branch-mismatch', cwd: here, branch: head, ticket: issue, branchTicket }
 }

@@ -243,7 +243,18 @@ const INPUT = { issue: 494, branch: 'feat/494-feature-back-half', base: 'staging
  * without `number` each turn "one already open" into "none open", and the next answer is
  * a duplicate PR. So the argv is asserted element by element, not just its effect.
  */
-const LOOKUP = ['pr', 'list', '--head', INPUT.branch, '--base', INPUT.base, '--state', 'open', '--json', 'number']
+const LOOKUP = [
+  'pr',
+  'list',
+  '--head',
+  INPUT.branch,
+  '--base',
+  INPUT.base,
+  '--state',
+  'open',
+  '--json',
+  'number,isCrossRepository',
+]
 
 function created(calls) {
   return calls.filter((args) => args[0] === 'api')
@@ -288,6 +299,13 @@ describe('openPr', () => {
     const { gh, calls } = mockGh({ list: JSON.stringify([{ number: 640 }, { number: 400 }]) })
     expect(await openPr('/tmp/wt', INPUT, { gh })).toEqual({ number: 400, status: 'existing' })
     expect(calls).toEqual([LOOKUP])
+  })
+
+  it('never reuses a fork PR that carries the same head name', async () => {
+    // `--head` matches a fork's branch too: reusing it would review and land a stranger's commits.
+    const { gh, calls } = mockGh({ list: JSON.stringify([{ number: 401, isCrossRepository: true }]) })
+    expect(await openPr('/tmp/wt', INPUT, { gh })).toMatchObject({ status: 'created' })
+    expect(created(calls)).toHaveLength(1)
   })
 
   it('re-reads on GitHub\u2019s own 422, classified on the exit payload', async () => {

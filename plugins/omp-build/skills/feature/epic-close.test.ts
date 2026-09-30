@@ -1,10 +1,8 @@
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { epicDiffRange, postMergeHook } from './epic-close'
+import { epicDiffRange, postMergeArgv } from './epic-close'
 
-describe('epic close', () => {
-  it('computes the cumulative range from the merged children', () => {
+describe('epicDiffRange', () => {
+  it('spans the first merged child base to the last merge commit, skipping unmerged children', () => {
     expect(
       epicDiffRange([
         { number: 1, baseSha: 'base1', mergeSha: 'm1' },
@@ -15,21 +13,44 @@ describe('epic close', () => {
   })
 
   it('refuses a range when nothing has merged', () => {
-    expect(epicDiffRange([{ number: 1, baseSha: 'base1', mergeSha: null }])).toEqual({
-      error: 'no merged children',
-    })
+    expect(epicDiffRange([{ number: 1, baseSha: 'base1', mergeSha: null }])).toEqual({ error: 'no merged children' })
+    expect(epicDiffRange([])).toEqual({ error: 'no merged children' })
+  })
+})
+
+describe('postMergeArgv', () => {
+  const stack = (postMerge: unknown) => ({ release: { model: 'trunk', post_merge: postMerge } })
+
+  it.each<[string, unknown]>([
+    ['an empty stack.yml', null],
+    ['no release section', { runtime: 'bun' }],
+    ['release: null', { release: null }],
+    ['no post_merge', { release: { model: 'trunk' } }],
+    ['post_merge: null', stack(null)],
+  ])('skips the hook on %s', (_name, doc) => {
+    expect(postMergeArgv(doc)).toEqual({ skip: expect.any(String) })
   })
 
-  it('skips the hook when release.post_merge is absent and says so', () => {
-    expect(postMergeHook(null)).toEqual({ skip: 'no release.post_merge — hook skipped' })
-    expect(postMergeHook('  ')).toEqual({ skip: 'no release.post_merge — hook skipped' })
-    expect(postMergeHook('make smoke')).toEqual({ run: 'make smoke' })
+  it.each<[string, unknown]>([
+    ['a string (it would need a shell)', stack('./scripts/post-merge.sh --flag')],
+    ['an empty list', stack([])],
+    ['a non-string element', stack(['./scripts/post-merge.sh', 3])],
+    ['an empty argv[0]', stack([''])],
+    ['a nested list', stack([['./scripts/post-merge.sh']])],
+    ['a map', stack({ run: './scripts/post-merge.sh' })],
+    ['a PATH lookup: bun', stack(['bun', 'run', 'post-merge'])],
+    ['a PATH lookup: make', stack(['make'])],
+    ['an absolute argv[0]', stack(['/usr/bin/make', 'post-merge'])],
+    ['a stack that is not a map', 'release: x'],
+    ['a release that is not a map', { release: 'trunk' }],
+  ])('refuses %s', (_name, doc) => {
+    expect(postMergeArgv(doc)).toEqual({ error: expect.any(String) })
   })
 
-  it('states the final review and the hook as epic completion conditions', () => {
-    const skill = readFileSync(fileURLToPath(new URL('./SKILL.md', import.meta.url)), 'utf-8')
-    expect(skill).toContain('final epic review')
-    expect(skill).toContain('release.post_merge')
-    expect(skill).toContain('goal drop')
-  })
+  it.each([[['./scripts/post-merge.sh', '--flag', 'two words']], [['scripts/post-merge.sh']]])(
+    'accepts a relative path inside the repository: %j',
+    (argv) => {
+      expect(postMergeArgv(stack(argv))).toEqual({ argv })
+    },
+  )
 })

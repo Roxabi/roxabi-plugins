@@ -21,6 +21,8 @@ use the current repository conventions, not a separate spec-file lifecycle.
 - `dev-review` owns findings; `fix` applies them; §6.7 alone lands.
 - After confirmed merge, offer `/cleanup`. Offer `/promote` only when
   `.dev/stack.yml` declares `release.model: staging-train`. Never invoke either.
+  Under the Epic goal the loop deletes each merged child's local branch itself and
+  offers `/cleanup` once, when the goal ends (§ Epic goal).
 
 `/feature init [--dry-run]` runs `bun "$SKILL_DIR/feature-init.ts"` (with
 `--dry-run` when requested). It adopts a repository from a worktree, never the
@@ -71,13 +73,15 @@ const { isPrincipal, resolveEntry } = await import(`${SKILL_DIR}/entry.js`)
 |---|---|
 | No issue number yet | §4: frame in conversation; no local file edits on the Principal |
 | Issue exists, session on Principal | Read it, then §3 immediately |
-| Issue exists, linked worktree | Call `resolveEntry({ cwd, principalPath, branch, ticket: issue })` |
+| Issue exists, linked worktree | Call `resolveEntry({ cwd, principalPath, branch, ticket: issue, children })`, `children` from `gh api --paginate 'repos/{owner}/{repo}/issues/<N>/sub_issues' --jq '.[].number'` |
 | `action: build` | Incomplete scope → §4; actionable ticket → §6 |
+| `action: epic` | The issue has sub-issues and HEAD is detached or on a child's branch → § Epic goal (gate first) |
 | `action: refuse` | Principal, or a ticket/branch mismatch — name it; §3, never implement here |
 
 Use `isPrincipal(cwd, principalPath)` before `resolveEntry`. On the Principal it
 returns `{ action: 'refuse', reason: 'principal' }` — do not implement there. A branch for #N is not a branch for #M, including an epic's
-branch versus a child's. Read the ticket before deciding whether its scope is ready.
+branch versus a child's; only the `epic` route runs an epic, and only through its driver.
+Read the ticket before deciding whether its scope is ready.
 
 ## 3. Issue → worktree → operator `/move`
 
@@ -94,7 +98,10 @@ or a batch of tickets. Reuse an already tracked issue instead of minting a dupli
 3. Create the worktree from fresh `origin/<base>`, never from HEAD and never via `/wt`.
    The base must be clean and up to date. Otherwise report the mismatch and print
    no `/move` line until it holds. Never branch from an unrelated ticket, and never
-   move or stash the operator's changes.
+   move or stash the operator's changes. For an epic, create it **detached**, with
+   no epic branch: `git fetch origin '+refs/heads/<base>:refs/remotes/origin/<base>'`,
+   then `git worktree add --detach <path> refs/remotes/origin/<base>`. Each child
+   gets its own branch inside it, from the driver.
 4. Present the concrete branch, base and next operator action:
 
    > Issue #N créée. Worktree `<path>`.
@@ -104,7 +111,10 @@ or a batch of tickets. Reuse an already tracked issue instead of minting a dupli
    For an existing issue, say “Issue #N sélectionnée”. **The proposal is not a
    branch-creation receipt.** Only report creation after observing the branch.
 5. Stop for the operator. Print `/move <path>` and, for an epic, the generated
-   `/goal` line. Do not switch the Principal's branch or implement while waiting.
+   `/goal` line: `bun "$SKILL_DIR/epic-driver.ts" objective --epic <E>` prints it
+   once every open child is framed, and prints none while one is not (that child
+   goes to §4). `/feature #E` in the epic worktree prints it too. Do not switch the
+   Principal's branch or implement while waiting.
    If they defer, continue only read-only exploration and tracker framing.
 
 These rules are agent discipline: the plugin's guard blocks moving the Principal's
@@ -115,15 +125,91 @@ worktree, print `/move <path>`, then `/feature #N`. For a branch without a
 worktree, create it at `<worktree base>/<repo>/<slug>` from `origin/<base>` and
 print `/move`. Do not ask the operator to type `/wt`.
 
-## Epic completion
+## Epic goal
 
-After the last child lands, run a final epic review: R-architect and R-adversarial,
-read-only, on the cumulative diff from `epicDiffRange`. A blocking finding becomes
-one fix ticket under the epic, through issue-triage, delivered in the same goal,
-at most one round. Anything else is a follow-up sibling.
-Then run `release.post_merge` once. It must succeed for the goal to complete.
-Failure is a shared-state stop: `goal drop` + report. A repo without
-`release.post_merge` skips the hook and says so. No per-ticket deploy.
+`$SKILL_DIR/epic-driver.ts` is the transition contract for an epic under `/goal`
+(its pure core is `epic.ts`). The goal session calls it before every ticket and
+never relies on its memory of earlier tickets: every fact it acts on is re-read
+from GitHub and git, so a compaction or a new `/goal` resumes from that state.
+A goal reaches this body through the `skill:` URL its objective names; `SKILL_DIR`
+is then the `realpath` of that URL.
+
+**Gate.** Call `goal({op:"get"})`. This section applies only when all three hold:
+its status is `active` (paused or budget-limited do not count), its objective
+contains `/feature #E` with one `run=<id>` and one `base=<branch>`, and the ticket
+is a sub-issue of E — the driver acts on nothing else. Otherwise `/feature` stays
+assisted and unchanged: `/feature #E` in the epic worktree prints the line from
+`bun "$SKILL_DIR/epic-driver.ts" objective --epic E` and stops.
+Every other driver call carries the gate as `--goal-status <status> --goal-objective-file <file>`
+(`<gate>` below); the driver re-checks it and exits 3 when it fails. Free text never
+reaches a command line: write the objective, and each `--detail-file`, with the
+`write` tool into a `mktemp -d` directory and pass the path.
+
+Under the gate three things are pre-authorized, and nothing else: the Phase 8
+choice follows `step.action`, the goal is the merge approval, and deleting a
+merged child's local branch plus running the post-merge hook need no question.
+
+**Loop.** With `D="$SKILL_DIR/epic-driver.ts"`, repeat `bun "$D" next --epic E <gate>`
+and act on its JSON `step.action`. Print `step.report` (merged, stopped, skipped,
+pending base checks) and each entry of `recorded`: the ticket stops the driver
+proved itself (no scope, branch mismatch, foreign commit), each already disarmed and
+recorded exactly like the `stop` subcommand does.
+
+| `step.action` | Do |
+|---|---|
+| `start` / `resume` | The driver fetched, checked the tree and base CI, switched to `step.branch` (new from `refs/remotes/origin/<base>`, or the existing one), validated it with `resolveTicketBranch` and `refuseForeignCommits`, and disarmed an armed PR. Run §6 for `step.ticket` in this worktree: §6.0 without the operator handoff or the history check, then §6.1–§6.7. The PR is `step.pr?.number ?? null`, never discovered by branch name (a branch name also matches fork PRs): `resume` with `step.pr` continues that PR at §6.4, and no `step.pr` means a new PR through `openPr`. |
+| `final-review`, `stage: review` | R-architect and R-adversarial, read-only, on `git diff <step.range>`. Then `bun "$D" review --epic E <gate> --verdict clean\|blocking --range <step.range> --detail-file <findings file>`. |
+| `final-review`, `stage: fix-ticket` | One fix ticket through issue-triage: `create --parent "#E" --type fix --size … --priority … --body-file <f>`, body's first line `<!-- omp-build:epic-fix -->`, an `## Acceptance criteria` heading holding the blocking findings. The next `next` starts it. Non-blocking findings are follow-up siblings. |
+| `post-merge` | `bun --no-env-file "$D" hook --epic E <gate> --repo <epic worktree>`, with the bash `cwd` outside the repository (`$SKILL_DIR`): the runner must load nothing from the epic worktree. |
+| `complete` | `bun "$D" report --epic E <gate> --outcome complete`, print it, `goal({op:"complete"})`, offer `/cleanup`. |
+| `drop` | `bun "$D" report --epic E <gate> --outcome drop --reason <step.stop>`, print it, `goal({op:"drop"})`. |
+
+**Inside a child**, map each outcome, then call `next` again (`landOutcome` in `epic.ts`):
+
+| Outcome | Do |
+|---|---|
+| `land.status` `watching` | Run `land.watch` as in §6.7, map its exit with `applyCiWatchExit`, then this table |
+| `land.status` `merged` | Nothing: `next` re-reads the PR (MERGED into the base, head claiming the child, tip equal), detaches and deletes the local branch |
+| `ci-failed` | §6.6 `loop.reopen('ci-failed')` |
+| `timeout`, `ci-cancelled`, `ci-blocked`, `stopped`, `closed` | Ticket stop `--reason <status>`. A timeout is never re-attached under a goal |
+| review loop `stop`, any reason | `enforceStop`, then ticket stop `--reason review-bound` |
+| proof gate BLOCKED | Ticket stop `--reason proof-blocked` |
+| `watch-failed`, `bad-landing`, `no-required-checks`, `evaluate-only`, `auto-merge-failed`, any other status | Shared-state stop: the `drop` row, `--reason <status>` |
+| issue-triage CLI unresolvable | Shared-state stop: the `drop` row, `--reason tracker-unresolvable` |
+| driver exit 1 | Shared-state stop: the `drop` row, `--reason driver-error` (`hook-failed` for `hook`) |
+
+A ticket stop is `bun "$D" stop --epic E <gate> --ticket N --reason <r> --detail-file <file>` (what happened).
+It refuses a dirty tree: first commit the ticket's work on its branch, locally,
+as `wip: goal-stop <r> (#N)`. It disarms the PR (`reviewed` removed, auto-merge
+disabled), detaches HEAD, keeps the branch and writes the `goal-stop` marker on
+the child. A shared-state stop is the `drop` row above; `report --outcome drop`
+disarms every armed child PR. No stopped ticket stays armed.
+
+| Class | Triggers | Effect |
+|---|---|---|
+| Ticket stop | review loop stop; proof BLOCKED; foreign commit, branch mismatch; child without scope; `timeout`; `ci-cancelled`; `ci-blocked`; `stopped`; `closed` | report, `goal-stop` marker; dependents skipped by their open blocker edge; independent children continue |
+| Shared-state stop | base CI red; dirty tree between tickets; `watch-failed`; `bad-landing`; `no-required-checks`; `evaluate-only`; `auto-merge-failed`; tracker CLI unresolvable; post-merge hook failure; final review still blocking after its fix round | disarm, report, `goal({op:"drop"})` |
+| No progress | no actionable child while children remain open | report, `goal({op:"drop"})` |
+
+A stop marker holds for its run: a new `/goal` line (new `run=`) retries the
+child. `review-bound` holds across runs, as does an open PR whose review bound is
+spent. Base checks pending or absent do not stop the loop; they are reported.
+
+**Final epic review and hook.** Once every child is closed or merged into the
+base, the review above runs on the cumulative range from `epicDiffRange`. A
+blocking verdict gets one fix ticket, delivered in the same goal; still blocking
+after it merged is a shared-state stop. The ticket counts that round across runs.
+Then `release.post_merge` runs once, per ADR-024 §1: read from
+`refs/remotes/origin/<base>`, a YAML list executed as argv with no shell, in a
+temporary detached checkout of that commit, removed afterwards; `argv[0]` is a
+path inside it (`./scripts/…`). A string value, a PATH lookup or an escaping
+symlink fails it; its failure is a shared-state stop. An absent hook is skipped
+and the report says so. No per-ticket deploy. A resume skips a review whose
+latest verdict is clean for the current range, and a hook that already succeeded
+at the same base commit.
+
+Without an active goal naming the epic, nothing in this section runs on its own:
+the final review and the hook are the operator's call.
 
 ## 4. Frame — agreed scope in the issue
 
@@ -148,6 +234,9 @@ Failure is a shared-state stop: `goal drop` + report. A repo without
    for actual dependencies.
    Every newly created ticket gets its branch proposal immediately; a declined
    proposal does not authorize creating branches for the rest of the batch.
+   A child that is not framed yet carries a heading containing "needs framing"
+   (`## Needs framing`, any case). Framed means a `size:` label, an acceptance or
+   criteria heading, and no such heading: only then does the Epic goal start it.
 
 Scope changes require re-evaluating the issue tier under the tracker contract.
 Post-review deferrals are siblings under the origin's parent, blocked by the origin;
@@ -168,12 +257,14 @@ Branch preparation does not authorize implementing a blocked ticket.
 After framing, print ready ticket numbers and their branch/worktree handoffs from
 §3. Stop before implementation: the operator starts `/feature #N` in the matching
 worktree with fresh context (`/clear` when staying in that same worktree).
+Under the Epic goal the session does not stop here: the driver picks the next child.
 
 ## 6. Build — implement → review → fix → land
 
 ### 6.0 Preflight
 
-Verify the actual cwd/branch again after the operator's handoff. Read the issue body,
+Verify the actual cwd/branch again after the operator's handoff (under the Epic goal,
+the driver has already switched to the child's branch and checked its history). Read the issue body,
 `size:` label and open blockers (§5). Missing scope → §4; open blocker → stop.
 Resolve the base as in §3, fetch it, and check history: every commit in
 `origin/<base>..HEAD` belongs to this ticket (none on first entry). A foreign commit,
@@ -196,6 +287,7 @@ contract or repeat the implementation/proof/push stages.
 ```javascript
 const { openPr, landPr, resumeReviewLoop, applyCiWatchExit, disarmReviewedBeforePush, resolveReviewPr } =
   await import(`${SKILL_DIR}/workflow.js`)
+// Under the Epic goal: `let pr = step.pr?.number ?? null` — the driver's PR, never a discovery.
 let pr = await resolveReviewPr(cwd)
 let loop = pr === null ? null : await resumeReviewLoop(cwd, { pr })
 ```
@@ -231,8 +323,10 @@ Re-entry on an existing PR skips §§6.1–6.3 and retains its PR/loop from pref
 
 ### 6.3 Commit, push, open or resume
 
-Stage only task-owned files, commit with a Conventional Commit subject and push
-this branch. Preserve unrelated work; never stage the whole checkout indiscriminately.
+Stage only task-owned files, commit with a Conventional Commit subject ending with
+`(#N)`, the ticket's number, and push this branch. The Epic goal refuses a branch
+commit that claims no ticket, or another one. Preserve unrelated work; never stage
+the whole checkout indiscriminately.
 Use the base resolved in §3, including when already inside a worktree on entry.
 
 ```javascript
@@ -293,7 +387,8 @@ Present the Phase 8 human choice constrained by `step`: **Fix now** routes throu
 §6.5 only on `fix`; **Merge** routes through §6.7 only on `land`; on `stop`,
 follow §6.6 (enforceStop already ran above + escalation dossier) rather than offer
 another round.
-Never choose on the user's behalf or offer “Merge as-is” for a red verdict.
+Never choose on the user's behalf or offer “Merge as-is” for a red verdict — except
+under the Epic goal, where the choice follows `step.action` with no prompt.
 The human's **Stop** while a fix is still available simply exits; `enforceStop` is
 valid only when the loop itself returned `step.action === 'stop'`. A **Stop** at
 the second fix offer (`fixes=2`) means the next resume escalates (derived
@@ -326,7 +421,7 @@ review. State `step.remaining`.
 |---|---|
 | `fix` | §6.5 |
 | `land` | §6.7 |
-| `stop` | `await loop.enforceStop(cwd)` first (when a PR exists), then publish/display the escalation dossier from `skill://dev-review` Phase 8; print both results and stop. No PR → never `persist`/`enforceStop`; keep `stopReason` locally and display the dossier |
+| `stop` | `await loop.enforceStop(cwd)` first (when a PR exists), then publish/display the escalation dossier from `skill://dev-review` Phase 8; print both results and stop. No PR → never `persist`/`enforceStop`; keep `stopReason` locally and display the dossier. Epic goal: then ticket stop `review-bound` |
 
 The bound, recovery policy and dossier live in `dev-review` Phase 8.
 `record` and `reopen` spend rounds; `persist` records nonterminal steps;
@@ -338,7 +433,9 @@ strict current history has no stop. Helpers never unlock a stop.
 ### 6.7 Land
 
 Only `step.action === 'land'` may reach this step. Obtain the operator's merge
-approval if not already explicit for this PR. Then `await landPr(cwd, pr)`
+approval if not already explicit for this PR; under the Epic goal the goal is that
+approval, and each `land.status` maps through § Epic goal instead of the table
+below. Then `await landPr(cwd, pr)`
 resolves the landing mode itself from `cwd` through `readLanding` — the same
 resolver `/ci-watch` uses: `landing.mode` in `.dev/stack.yml` (parsed as YAML),
 else merge-on-green when `.github/workflows/merge-on-green.yml` exists, else
@@ -393,10 +490,10 @@ Neither a fix round nor another review action may write that label in this cycle
 | `evaluate-only` | Stop; report "evaluate-only — manual merge required" and `docs/kit/ci-app-setup.md`. Gate left armed; the operator merges by hand. Do not claim merged; do not wait |
 | `bad-landing` | Stop; report `land.error` (the `.dev/stack.yml` problem). Nothing was labelled or armed. Fix the stack file, then re-enter §6.7 |
 | `no-required-checks` | Stop; report missing protection. Native only, when no required context was found (declared `landing.required_checks`, protection or rulesets) — merge-on-green does not return this |
-| `timeout` | Re-attach the watch. Do not claim merged |
+| `timeout` | Re-attach the watch. Do not claim merged. Epic goal: ticket stop, no re-attach |
 | `stopped` | Stop and report. Do not claim merged |
 | `auto-merge-failed` | Stop; inspect and report actual PR/label/auto-merge state, never claim merged |
 | `closed` | Stop; report closure |
 
 Errors stop with their evidence. No manual mid-CI merge and no automatic release
-or worktree deletion.
+or worktree deletion; the Epic goal deletes merged children's local branches, never a worktree.

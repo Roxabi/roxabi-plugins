@@ -177,6 +177,56 @@ describe('resolveEntry — branch mismatch', () => {
   })
 })
 
+describe('resolveEntry — epic route', () => {
+  const EPIC = { cwd: OMEGA, principalPath: PRINCIPAL, ticket: 575, children: [577, 578] }
+
+  it('routes an epic with sub-issues from a detached epic worktree', () => {
+    expect(resolveEntry({ ...EPIC, branch: null })).toEqual({
+      action: 'epic',
+      cwd: OMEGA,
+      branch: null,
+      ticket: 575,
+      children: [577, 578],
+    })
+  })
+
+  it('routes it from a branch that claims one of its children', () => {
+    expect(resolveEntry({ ...EPIC, branch: 'fix/578-landing' }).action).toBe('epic')
+  })
+
+  it('refuses a branch that claims a ticket outside the epic', () => {
+    expect(resolveEntry({ ...EPIC, branch: 'feat/5770-decoy' })).toEqual({
+      action: 'refuse',
+      reason: 'branch-mismatch',
+      cwd: OMEGA,
+      branch: 'feat/5770-decoy',
+      ticket: 575,
+      branchTicket: 5770,
+    })
+  })
+
+  it('never routes an epic on the Principal', () => {
+    expect(resolveEntry({ ...EPIC, cwd: PRINCIPAL, branch: null })).toMatchObject({
+      action: 'refuse',
+      reason: 'principal',
+    })
+  })
+
+  it('keeps the assisted routes when the ticket has no sub-issues', () => {
+    for (const children of [undefined, null, []]) {
+      expect(resolveEntry({ ...EPIC, children, branch: null }).action).toBe('refuse')
+      expect(resolveEntry({ ...EPIC, children, branch: 'feat/577-x' }).action).toBe('refuse')
+    }
+    expect(resolveEntry({ ...EPIC, branch: 'feat/575-epic' }).action).toBe('build')
+  })
+
+  it('rejects children that are not issue numbers', () => {
+    for (const children of ['577', [577, '578'], [0], [4.5]]) {
+      expect(() => resolveEntry({ ...EPIC, children, branch: null })).toThrow(/children must be a list/)
+    }
+  })
+})
+
 describe('resolveEntry — rejected inputs', () => {
   it('requires cwd and principalPath', () => {
     expect(() => resolveEntry({ principalPath: PRINCIPAL, branch: 'feat/493-x' })).toThrow(/cwd is required/)
