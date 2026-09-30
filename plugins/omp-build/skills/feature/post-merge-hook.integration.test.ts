@@ -216,9 +216,10 @@ describe('runPostMergeHook', () => {
     expect(worktrees(clone)).toEqual([clone])
   })
 
-  it.each<{ name: string; files: (proof: string) => Record<string, Entry> }>([
+  it.each<{ name: string; why: RegExp; files: (proof: string) => Record<string, Entry> }>([
     {
       name: 'a string value',
+      why: /is a string/,
       files: (proof) => ({
         'scripts/post-merge.sh': { exec: HOOK },
         '.dev/stack.yml': stackYml(`./scripts/post-merge.sh ${proof}`),
@@ -226,6 +227,7 @@ describe('runPostMergeHook', () => {
     },
     {
       name: 'a PATH-lookup argv[0]',
+      why: /PATH lookup/,
       files: (proof) => ({
         'scripts/post-merge.sh': { exec: HOOK },
         '.dev/stack.yml': stackYml(['sh', './scripts/post-merge.sh', proof]),
@@ -233,6 +235,7 @@ describe('runPostMergeHook', () => {
     },
     {
       name: 'an absolute argv[0]',
+      why: /is absolute/,
       files: (proof) => ({
         'scripts/post-merge.sh': { exec: HOOK },
         '.dev/stack.yml': stackYml(['/bin/sh', './scripts/post-merge.sh', proof]),
@@ -240,6 +243,7 @@ describe('runPostMergeHook', () => {
     },
     {
       name: 'a symlink escaping to a system binary',
+      why: /outside the checkout/,
       files: (proof) => ({
         'scripts/post-merge.sh': { exec: HOOK },
         'scripts/run': { link: '/bin/sh' },
@@ -248,6 +252,7 @@ describe('runPostMergeHook', () => {
     },
     {
       name: 'a symlink escaping to a script outside the checkout',
+      why: /outside the checkout/,
       files: (proof) => {
         write(scratch, { 'elsewhere.sh': { exec: HOOK } })
         return {
@@ -258,18 +263,20 @@ describe('runPostMergeHook', () => {
     },
     {
       name: 'an argv[0] missing from the commit',
+      why: /does not exist/,
       files: (proof) => ({ '.dev/stack.yml': stackYml(['./scripts/post-merge.sh', proof]) }),
     },
     {
       name: 'a stack.yml that is not YAML',
+      why: /not valid YAML/,
       files: () => ({ 'scripts/post-merge.sh': { exec: HOOK }, '.dev/stack.yml': 'release: [unclosed\n' }),
     },
-  ])('fails on $name without running anything', ({ files }) => {
+  ])('fails on $name without running anything', ({ why, files }) => {
     const { clone, outside } = seed(files(proofPath()))
 
     const { result, started } = runHook(clone, outside)
 
-    expect(result.result).toBe('failed')
+    expect(result).toMatchObject({ result: 'failed', detail: expect.stringMatching(why) })
     expect(started).toEqual([])
     expect(existsSync(proofPath())).toBe(false)
     expect(worktrees(clone)).toEqual([clone])

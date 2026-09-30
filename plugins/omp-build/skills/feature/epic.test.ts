@@ -669,12 +669,17 @@ describe('generateObjective', () => {
     expect(result).toEqual({ error: 'cycle: 1, 2' })
   })
 
-  it('refuses when an open child lacks scope, naming only those, and ignores a closed or merged one', () => {
+  it('refuses when an open child lacks scope, naming only those', () => {
     expect(
       generate([child(1), child(2, { labels: [] }), child(3, { body: '## Acceptance\n## Needs framing\n' })]),
     ).toEqual({ error: 'missing scope: 2, 3', missing: [2, 3] })
+  })
+
+  it('ignores a closed child without scope', () => {
     expect(generate([child(1, { state: 'CLOSED', labels: [], body: '' }), child(2)])).toMatchObject({ order: [2] })
-    // Staging-train: merged into the base with the issue still open is done, not unframed.
+  })
+
+  it('ignores a merged child still open under staging-train, and names only the unframed one', () => {
     const merged = child(4, { labels: [], body: '', prs: [landed(4, T1, sha('1'), sha('2'))] })
     expect(generate([merged, child(5, { labels: [] })])).toEqual({ error: 'missing scope: 5', missing: [5] })
   })
@@ -980,7 +985,7 @@ describe('baseFromStack', () => {
     expect(baseFromStack(doc, main)).toEqual(expected)
   })
 
-  it('asks for the default branch only under trunk, and refuses one git would misread', () => {
+  it('asks for the default branch only under trunk', () => {
     let asked = 0
     const count = () => {
       asked++
@@ -988,8 +993,12 @@ describe('baseFromStack', () => {
     }
     baseFromStack({ release: { model: 'staging-train' } }, count)
     expect(asked).toBe(0)
-    expect(baseFromStack({ release: { model: 'trunk' } }, () => 'main~1')).toMatchObject({ error: expect.any(String) })
-    expect(baseFromStack({ release: { model: 'trunk' } }, () => '')).toMatchObject({ error: expect.any(String) })
+    baseFromStack({ release: { model: 'trunk' } }, count)
+    expect(asked).toBe(1)
+  })
+
+  it.each(['main~1', '', 'a..b'])('refuses a default branch git would misread (%j)', (answer) => {
+    expect(baseFromStack({ release: { model: 'trunk' } }, () => answer)).toMatchObject({ error: expect.any(String) })
   })
 })
 

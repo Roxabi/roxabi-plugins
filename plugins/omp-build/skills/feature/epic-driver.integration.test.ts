@@ -343,10 +343,16 @@ describe('epic-driver — stop', () => {
     return epic
   }
 
-  it('refuses a reason that is not a ticket stop, and a dirty tree', () => {
-    const epic = armedChild()
+  it('refuses a reason that is not a ticket stop', () => {
+    armedChild()
     servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
     expect(drive(['stop', '--ticket', '2', '--reason', 'base-ci-red']).code).toBe(2)
+    expect(writes()).toEqual([])
+  })
+
+  it('refuses a dirty tree', () => {
+    const epic = armedChild()
+    servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
     writeFileSync(path.join(epic, 'wip.txt'), 'wip\n')
     expect(drive(['stop', '--ticket', '2', '--reason', 'timeout']).code).toBe(1)
     expect(writes()).toEqual([])
