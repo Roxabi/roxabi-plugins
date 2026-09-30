@@ -38,9 +38,12 @@ jobs:
           bun-version: 1.4.0
           token: ''
       # No full `bun install`: the script imports nothing, and no dependency postinstall
-      # may run next to an issues:write token. bun audit reads bun.lock only, so the step
-      # first checks, without installing or running scripts, that bun.lock matches
-      # package.json: a dependency missing from the lock would never be audited.
+      # may run next to an issues:write token. Nothing installed also keeps the bun pin
+      # above meaningful: with no node_modules/.bin, `bun` is setup-bun's, and the script
+      # runs as a file, not through `bun run`, which would put node_modules/.bin first on
+      # PATH. bun audit reads bun.lock only, so the step first checks, without installing
+      # or running scripts, that bun.lock matches package.json: a dependency missing from
+      # the lock would never be audited.
       - name: Audit, then file or update the security issue
         id: audit
         # Below the job's 10 minutes, so that a hung step fails alone and the last step still
@@ -60,7 +63,7 @@ jobs:
           code=0
           # A lock that disagrees with package.json cannot be trusted: route it like exit 2.
           bun install --frozen-lockfile --lockfile-only --ignore-scripts || code=2
-          if [ "$code" -eq 0 ]; then bun run audit:deps --report "$REPORT" || code=$?; fi
+          if [ "$code" -eq 0 ]; then bun scripts/dependency-audit.ts --report "$REPORT" || code=$?; fi
           echo "code=$code" >> "$GITHUB_OUTPUT"
           current=''
           if [ "$code" -eq 10 ]; then current=$(sed -n 's/^<!-- dependency-audit: \(.*\) -->$/\1/p' "$REPORT"); fi

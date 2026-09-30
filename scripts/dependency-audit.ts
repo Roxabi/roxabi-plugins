@@ -7,7 +7,8 @@
  * Dependabot ecosystem has no security updates, so `bun audit` is the only
  * detection for npm packages.
  * `.github/workflows/dependency-audit.yml` runs this weekly. Locally:
- * `bun run audit:deps`.
+ * `bun scripts/dependency-audit.ts` (a file, not a package.json script: `bun run` would
+ * put node_modules/.bin first on PATH, and the audit must run on the bun you chose).
  *
  * Exit codes — the workflow routes on these, never on bun's own:
  *   0   clean: no finding, no stale ignore, every package audited. Nothing is filed.
