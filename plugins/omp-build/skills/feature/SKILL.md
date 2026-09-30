@@ -157,7 +157,7 @@ recorded exactly like the `stop` subcommand does.
 
 | `step.action` | Do |
 |---|---|
-| `start` / `resume` | The driver fetched, checked the tree and base CI, switched to `step.branch` (new from `refs/remotes/origin/<base>`, or the existing one), validated it with `resolveTicketBranch` and `refuseForeignCommits`, and disarmed an armed PR. Run §6 for `step.ticket` in this worktree: §6.0 without the operator handoff or the history check, then §6.1–§6.7. `resume` with `step.pr` continues that PR at §6.4. |
+| `start` / `resume` | The driver fetched, checked the tree and base CI, switched to `step.branch` (new from `refs/remotes/origin/<base>`, or the existing one), validated it with `resolveTicketBranch` and `refuseForeignCommits`, and disarmed an armed PR. Run §6 for `step.ticket` in this worktree: §6.0 without the operator handoff or the history check, then §6.1–§6.7. The PR is `step.pr?.number ?? null`, never discovered by branch name (a branch name also matches fork PRs): `resume` with `step.pr` continues that PR at §6.4, and no `step.pr` means a new PR through `openPr`. |
 | `final-review`, `stage: review` | R-architect and R-adversarial, read-only, on `git diff <step.range>`. Then `bun "$D" review --epic E <gate> --verdict clean\|blocking --range <step.range> --detail-file <findings file>`. |
 | `final-review`, `stage: fix-ticket` | One fix ticket through issue-triage: `create --parent "#E" --type fix --size … --priority … --body-file <f>`, body's first line `<!-- omp-build:epic-fix -->`, an `## Acceptance criteria` heading holding the blocking findings. The next `next` starts it. Non-blocking findings are follow-up siblings. |
 | `post-merge` | `bun --no-env-file "$D" hook --epic E <gate> --repo <epic worktree>`, with the bash `cwd` outside the repository (`$SKILL_DIR`): the runner must load nothing from the epic worktree. |
@@ -287,6 +287,7 @@ contract or repeat the implementation/proof/push stages.
 ```javascript
 const { openPr, landPr, resumeReviewLoop, applyCiWatchExit, disarmReviewedBeforePush, resolveReviewPr } =
   await import(`${SKILL_DIR}/workflow.js`)
+// Under the Epic goal: `let pr = step.pr?.number ?? null` — the driver's PR, never a discovery.
 let pr = await resolveReviewPr(cwd)
 let loop = pr === null ? null : await resumeReviewLoop(cwd, { pr })
 ```

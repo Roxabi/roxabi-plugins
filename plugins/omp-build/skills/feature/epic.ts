@@ -654,8 +654,21 @@ export function nextStep(facts: Facts): Step {
       }
     }
     const name = pr?.head ?? names[0] ?? null
+    // A closed, unmerged PR keeps its review budget with its head: reusing that head for a
+    // new PR would start the bound again. It needs a superseding branch, chosen by a human.
+    const head = name ?? branchFor(target)
+    const closed = target.prs.find((candidate) => candidate.state === 'CLOSED' && candidate.head === head)
+    if (closed) {
+      return {
+        action: 'stop',
+        ticket,
+        stop: 'branch-mismatch',
+        reason: `PR #${closed.number} on ${head} was closed unmerged; a new PR needs a superseding branch`,
+        report,
+      }
+    }
     if (name === null) {
-      return { action: 'start', ticket, branch: branchFor(target), reason: `#${ticket} is next in order`, report }
+      return { action: 'start', ticket, branch: head, reason: `#${ticket} is next in order`, report }
     }
     const branch = target.branches.find((candidate) => candidate.name === name)
     if (!branch) {
