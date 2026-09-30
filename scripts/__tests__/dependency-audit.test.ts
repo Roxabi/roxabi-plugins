@@ -196,6 +196,13 @@ describe('main', () => {
     expect(readFileSync(report, 'utf8')).toContain('- @foo/bar')
   })
 
+  it('still exits 10 and writes the report when the step summary cannot be written', () => {
+    bunAudit(JSON.stringify({ 'js-yaml': [JS_YAML], esbuild: [ESBUILD] }), 1)
+    const env = { GITHUB_STEP_SUMMARY: join(dir, 'missing-dir', 'summary.md') }
+    expect(main(['--report', report], env)).toBe(10)
+    expect(readFileSync(report, 'utf8')).toMatch(/^<!-- dependency-audit: /)
+  })
+
   it('exits 2 on a bad argument without running bun audit', () => {
     expect(main(['--nope'], {})).toBe(2)
     expect(spawn).not.toHaveBeenCalled()

@@ -21,7 +21,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { appendFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, writeFileSync, writeSync } from 'node:fs'
 
 export type Severity = 'low' | 'moderate' | 'high' | 'critical'
 
@@ -254,6 +254,17 @@ function runMeta(env: NodeJS.ProcessEnv): RunMeta {
 /** One bulk audit request; the job's own 10-minute cap is the backstop, not the bound. */
 const AUDIT_TIMEOUT_MS = 120_000
 
+function appendStepSummary(env: NodeJS.ProcessEnv, text: string): void {
+  if (!env.GITHUB_STEP_SUMMARY) return
+  try {
+    appendFileSync(env.GITHUB_STEP_SUMMARY, text)
+  } catch (error) {
+    console.error(
+      `dependency-audit: step summary not written: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+}
+
 export function main(argv: readonly string[], env: NodeJS.ProcessEnv = process.env): number {
   try {
     const path = reportPath(argv)
@@ -278,15 +289,17 @@ export function main(argv: readonly string[], env: NodeJS.ProcessEnv = process.e
     const result = classify(advisories, IGNORED, skippedPackages(stderr))
     if (result.findings.length === 0 && result.stale.length === 0 && result.unaudited.length === 0) {
       const summary = `Dependency audit: clean — ${result.suppressed.length} ignored advisory(ies) (bun ${Bun.version}).\n`
-      if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, summary)
-      process.stdout.write(summary)
+      writeSync(1, summary)
+      appendStepSummary(env, summary)
       return 0
     }
 
+    // The report file is the workflow's input: write it first, inside the try. The step
+    // summary is display only and must never change the code the workflow routes on.
     const report = renderReport(result, IGNORED, runMeta(env))
-    if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, report)
     if (path) writeFileSync(path, report)
-    else process.stdout.write(report)
+    else writeSync(1, report)
+    appendStepSummary(env, report)
     console.error(
       `dependency-audit: ${result.findings.length} finding(s), ${result.stale.length} stale ignore(s), ${result.unaudited.length} unaudited`,
     )
@@ -297,4 +310,5 @@ export function main(argv: readonly string[], env: NodeJS.ProcessEnv = process.e
   }
 }
 
-if (import.meta.main) process.exit(main(process.argv.slice(2)))
+// exitCode, not exit(): exit() can cut a piped stdout short.
+if (import.meta.main) process.exitCode = main(process.argv.slice(2))
