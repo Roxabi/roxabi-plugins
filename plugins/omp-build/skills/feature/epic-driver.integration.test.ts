@@ -30,7 +30,8 @@ set -u
 S="$DRIVER_STATE"
 log() { printf '%s\\n' "$*" >> "$S/writes.log"; }
 case "$1 \${2:-}" in
-  "repo view") echo "o/r" ;;
+  "repo view")
+    if [[ "$*" == *defaultBranchRef* ]]; then echo "develop"; else echo "o/r"; fi ;;
   "api graphql")
     q="$*"
     if [[ "$q" == *subIssues* ]]; then
@@ -785,5 +786,67 @@ describe('epic-driver — base CI', () => {
     expect(run.json().step).toMatchObject({ action: 'start', ticket: 2 })
     expect(run.json().step.report.baseCi).toMatchObject({ state: 'green', failed: [] })
     expect(git(epic, 'branch', '--show-current')).toBe('feat/2-first-child')
+  })
+})
+
+describe('epic-driver — remaining branches', () => {
+  it('resumes a branch that exists only on origin, tracking it', () => {
+    const { epic } = sandbox()
+    git(epic, 'switch', '-q', '-c', 'feat/2-first-child', 'refs/remotes/origin/main')
+    writeFileSync(path.join(epic, 'one.txt'), 'one\n')
+    git(epic, 'add', 'one.txt')
+    git(epic, 'commit', '-qm', 'feat(x): first child (#2)')
+    git(epic, 'push', '-q', 'origin', 'feat/2-first-child')
+    const tip = git(epic, 'rev-parse', 'HEAD')
+    git(epic, 'switch', '-q', '--detach', 'refs/remotes/origin/main')
+    git(epic, 'branch', '-q', '-D', 'feat/2-first-child')
+    serveEpic([childNode(2, 'feat(x): first child')])
+
+    const run = drive(['next'])
+
+    expect(run.json().step).toMatchObject({ action: 'resume', ticket: 2, branch: 'feat/2-first-child' })
+    expect(git(epic, 'rev-parse', 'HEAD')).toBe(tip)
+    expect(git(epic, 'rev-parse', '--abbrev-ref', '@{u}')).toBe('origin/feat/2-first-child')
+  })
+
+  it('asks GitHub for the default branch when origin/HEAD is not set', () => {
+    const { principal, epic } = sandbox()
+    git(principal, 'remote', 'set-head', 'origin', '-d')
+    serveEpic([childNode(2, 'feat(x): first child')])
+    const run = drive(['objective'], { cwd: epic })
+    expect(run.code).toBe(0)
+    expect(run.stdout).toContain('base=develop')
+  })
+
+  it('prints the order and the children held by a blocker outside the epic', () => {
+    const { epic } = sandbox()
+    const outside = { number: 900, state: 'OPEN', repository: { nameWithOwner: 'o/r' } }
+    const held = childNode(4, 'feat(z): held')
+    held.blockedBy = { nodes: [outside] } as typeof held.blockedBy
+    serveEpic([childNode(3, 'feat(y): second', { blockedBy: [[2, 'OPEN']] }), childNode(2, 'feat(x): first'), held])
+    const run = drive(['objective'], { cwd: epic })
+    expect(run.stdout).toContain('order: #2 → #3')
+    expect(run.stdout).toContain('blocked: #4 by #900')
+  })
+
+  it('refuses to stop a ticket that is not a sub-issue', () => {
+    sandbox()
+    serveEpic([childNode(2, 'feat(x): first child')])
+    expect(drive(['stop', '--ticket', '7', '--reason', 'timeout']).code).toBe(2)
+    expect(writes()).toEqual([])
+  })
+
+  it.each([
+    ['stop', '--ticket', '2', '--reason', 'timeout'],
+    ['review', '--verdict', 'clean', '--range', `${'a'.repeat(40)}..${'b'.repeat(40)}`],
+    ['hook'],
+    ['report', '--outcome', 'drop', '--reason', 'x'],
+  ])('refuses %s on the Principal', (...args) => {
+    const { principal } = sandbox()
+    serveEpic([childNode(2, 'feat(x): first child')])
+    const run = drive(args, { cwd: principal })
+    expect(run.code).toBe(2)
+    expect(run.stderr).toContain('Principal')
+    expect(writes()).toEqual([])
   })
 })
