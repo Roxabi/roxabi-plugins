@@ -92,6 +92,7 @@ function facts(children: ChildFacts[], over: Partial<Facts> = {}): Facts {
     baseSha: sha('f'),
     tree: { clean: true, branch: null },
     baseCi: { state: 'green', failed: [], pending: [] },
+    landingError: null,
     children,
     reviews: [],
     hooks: [],
@@ -428,6 +429,16 @@ describe('nextStep', () => {
         facts: facts([child(1)], { baseCi: { state: 'red', failed: ['test'], pending: [] } }),
         step: { action: 'drop', stop: 'base-ci-red' },
         report: { baseCi: { state: 'red', failed: ['test'], pending: [] } },
+      },
+      {
+        name: 'an unreadable landing → drop bad-landing, whatever the children',
+        facts: facts([child(1)], { landingError: 'landing.mode must be native or merge-on-green' }),
+        step: { action: 'drop', stop: 'bad-landing' },
+      },
+      {
+        name: 'an unreadable landing drops even once every child is done',
+        facts: facts([child(1, { state: 'CLOSED' })], { landingError: 'bad' }),
+        step: { action: 'drop', stop: 'bad-landing' },
       },
       {
         name: 'a pending base → proceed and report it',

@@ -551,3 +551,27 @@ describe('epic-driver — hook', () => {
     expect(comments().join('\n')).not.toContain('s3cr3t-value')
   })
 })
+
+describe('epic-driver — unreadable landing', () => {
+  it('drops on it, and the drop still disarms and reports', () => {
+    const { epic } = sandbox('release:\n  model: trunk\nlanding:\n  mode: squash\n')
+    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
+    serveEpic([
+      childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', 'c'.repeat(40), armed)] }),
+    ])
+    servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+
+    const next = drive(['next'])
+    expect(next.code).toBe(0)
+    expect(next.json().step).toMatchObject({ action: 'drop', stop: 'bad-landing' })
+    expect(git(epic, 'branch', '--show-current')).toBe('')
+
+    const report = drive(['report', '--outcome', 'drop', '--reason', 'bad-landing'])
+    expect(report.code).toBe(0)
+    expect(writes()).toEqual([
+      'edit 11 --remove-label reviewed',
+      'merge 11 --disable-auto',
+      `comment 1 <!-- omp-build:goal-report run=${RUN} -->`,
+    ])
+  })
+})

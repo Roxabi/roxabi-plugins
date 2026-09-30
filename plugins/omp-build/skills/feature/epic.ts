@@ -330,6 +330,8 @@ export type Facts = {
   baseSha: string
   tree: { clean: boolean; branch: string | null }
   baseCi: BaseCi
+  /** Why `.dev/stack.yml` `landing` cannot be read, or `null`. A shared-state stop. */
+  landingError: string | null
   children: ChildFacts[]
   /** Oldest first. */
   reviews: EpicReview[]
@@ -584,6 +586,7 @@ export function generateObjective(input: {
 export function nextStep(facts: Facts): Step {
   const report = summarize(facts)
   const { base, run } = facts
+  if (facts.landingError) return { action: 'drop', stop: 'bad-landing', reason: facts.landingError, report }
   const byNumber = new Map(facts.children.map((child) => [child.number, child]))
   const pending = facts.children.filter((child) => !isDone(child, base))
   const actionable = pending.filter((child) => !stopOf(child, run) && openBlockers(child, byNumber, base).length === 0)

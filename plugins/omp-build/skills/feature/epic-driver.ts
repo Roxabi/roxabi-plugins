@@ -40,7 +40,6 @@ import {
   parseEpicReview,
   parseGoalStop,
   parsePostMerge,
-  type Report,
   readMarker,
   refuseForeignCommits,
   resolveTicketBranch,
@@ -295,7 +294,7 @@ function branchRefs(repo: string, base: string, children: number[]): Map<number,
 }
 
 /** The base HEAD's check rollup, reduced by `classifyBaseCi` with the landing's check set. */
-function baseCi(repo: string, owner: string, name: string, sha: string): BaseCi {
+function baseCi(repo: string, owner: string, name: string, sha: string, required: string[]): BaseCi {
   const data = graphql<RollupData>(
     repo,
     `query($owner: String!, $name: String!, $sha: GitObjectID!) { repository(owner: $owner, name: $name) {
@@ -306,7 +305,6 @@ function baseCi(repo: string, owner: string, name: string, sha: string): BaseCi 
       } } } } } } }`,
     { owner, name, sha },
   )
-  const required: string[] = readLanding(repo).required_checks
   return classifyBaseCi(data.repository.object?.statusCheckRollup?.contexts.nodes ?? [], required)
 }
 
@@ -378,13 +376,25 @@ function gather(repo: string, epic: number, run: string, base: string, { git: wi
 
   const epicComments = ours(issue.comments.nodes, viewer)
   const baseSha = withGit ? git(repo, ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${base}^{commit}`]) : ''
+  // An unreadable landing is a fact, not a throw: the drop it causes must still disarm and report.
+  let landing: { required_checks: string[] } | null = null
+  let landingError: string | null = null
+  try {
+    landing = readLanding(repo)
+  } catch (error) {
+    landingError = error instanceof Error ? error.message : String(error)
+  }
   const facts: Facts = {
     epic,
     run,
     base,
     baseSha,
     tree: withGit ? tree(repo) : { clean: true, branch: null },
-    baseCi: withGit ? baseCi(repo, owner, name, baseSha) : { state: 'none', failed: [], pending: [] },
+    baseCi:
+      withGit && landing
+        ? baseCi(repo, owner, name, baseSha, landing.required_checks)
+        : { state: 'none', failed: [], pending: [] },
+    landingError,
     children,
     reviews: epicComments.map(parseEpicReview).filter((entry) => entry !== null),
     hooks: epicComments.map(parsePostMerge).filter((entry) => entry !== null),
@@ -527,18 +537,6 @@ async function next(repo: string, epic: number, run: string, base: string, dry: 
     refusePrincipal(repo)
     git(repo, ['fetch', '--prune', 'origin', '+refs/heads/*:refs/remotes/origin/*'])
   }
-  let landing: string | null = null
-  try {
-    readLanding(repo)
-  } catch (error) {
-    landing = error instanceof Error ? error.message : String(error)
-  }
-  if (landing) {
-    const report: Report = summarize(gather(repo, epic, run, base, { git: false }).facts)
-    const step: Step = { action: 'drop', stop: 'bad-landing', reason: landing, report }
-    return { run, base, step, recorded: [], cleaned: [], disarmed: null }
-  }
-
   let { facts } = gather(repo, epic, run, base)
   // Confirm and clean each merged child: MERGED into the base, from a branch
   // claiming it, whose local tip is exactly the merged head.
