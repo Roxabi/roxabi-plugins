@@ -511,3 +511,43 @@ describe('epic-driver — eventual consistency', () => {
     expect(writes()).toEqual([])
   })
 })
+
+describe('epic-driver — hook', () => {
+  it('posts the hook result without its output, which reaches only the caller', () => {
+    const { principal, epic, root } = sandbox()
+    mkdirSync(path.join(principal, 'scripts'))
+    writeFileSync(path.join(principal, 'scripts', 'post-merge.sh'), '#!/bin/sh\necho "token=s3cr3t-value"\n')
+    chmodSync(path.join(principal, 'scripts', 'post-merge.sh'), 0o755)
+    writeFileSync(
+      path.join(principal, '.dev', 'stack.yml'),
+      'release:\n  model: trunk\n  post_merge:\n    - ./scripts/post-merge.sh\n',
+    )
+    const base = git(principal, 'rev-parse', 'HEAD')
+    git(principal, 'add', '.')
+    git(principal, 'commit', '-qm', 'chore: hook (#2)')
+    git(principal, 'push', '-q', 'origin', 'main')
+    const merge = git(principal, 'rev-parse', 'HEAD')
+    git(epic, 'fetch', '-q', 'origin')
+    const merged = prNode(10, 'feat/2-first-child', 'c'.repeat(40), {
+      state: 'MERGED',
+      mergedAt: '2026-09-30T10:00:00Z',
+      mergeCommit: { oid: merge, parents: { nodes: [{ oid: base }] } },
+    })
+    const review = `<!-- omp-build:epic-review run=${RUN} verdict=clean range=${base}..${merge} -->\nclean`
+    serveEpic(
+      [childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] })],
+      [{ body: review, author: ME }],
+    )
+
+    // The runner refuses a cwd inside the repository; the caller runs it from outside.
+    const run = drive(['hook', '--repo', epic], { cwd: root })
+
+    expect(run.code).toBe(0)
+    expect(run.json()).toMatchObject({ result: 'ok', sha: merge, output: expect.stringContaining('s3cr3t-value') })
+    expect(writes()).toEqual([
+      `comment 1 <!-- omp-build:post-merge run=${RUN} result=started sha=${merge} -->`,
+      `comment 1 <!-- omp-build:post-merge run=${RUN} result=ok sha=${merge} -->`,
+    ])
+    expect(comments().join('\n')).not.toContain('s3cr3t-value')
+  })
+})
