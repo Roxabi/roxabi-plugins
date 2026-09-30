@@ -28,8 +28,10 @@ const review = (verdict) => '<!-- omp-build:code-review -->\\n## Code Review\\n\
 const rounds = (reviews, fixes) => '<!-- omp-build:review-rounds reviews=' + reviews + ' fixes=' + fixes + ' -->\\nReview bound.'
 const RECEIPT = '## Review Fixes Applied\\n\\n**Applied:** 1 cause(s)'
 // approved: a first-round green and its persisted count. stopped: a third red after two completed rounds.
+// unapproved: a receipted fix that no review has judged yet.
 const HISTORIES = {
   approved: [review('Approve (clean)'), rounds(1, 0)],
+  unapproved: [review('Request changes'), rounds(1, 1), RECEIPT],
   stopped: [
     review('Request changes'), rounds(1, 1), RECEIPT,
     review('Request changes'), rounds(2, 2), RECEIPT,
@@ -127,11 +129,17 @@ const RULES = ['api', 'repos/acme/app/rules/branches/main']
 const EVENTS = ['api', 'repos/acme/app/issues/7/events', '--paginate', '--jq', EVENTS_JQ]
 const IDENTITY = ['api', 'user', '--jq', '.login']
 const COMMENTS = ['pr', 'view', '7', '--json', 'comments']
-const LIST = ['pr', 'list', '--head', BRANCH, '--state', 'open', '--json', 'number']
+const LIST = ['pr', 'list', '--head', BRANCH, '--state', 'all', '--json', 'number,state']
 const STACK = { ...WORKFLOW_FILE, '.dev/stack.yml': 'runtime: bun\n' }
 const WATCH_FAILED = {
   status: 'watch-failed',
   error: 'could not read the labeled reviewed event after re-label — merge-on-green needs --since from GitHub',
+}
+
+/** The calls were the review-history read — login and comments, in either order — and nothing else. */
+function onlyHistoryRead(calls) {
+  expect(calls).toHaveLength(2)
+  expect(calls).toEqual(expect.arrayContaining([IDENTITY, COMMENTS]))
 }
 
 describe('landPr through the checkout', () => {
@@ -209,54 +217,73 @@ describe('landPr through the checkout', () => {
     ['required_checks not a list', 'landing:\n  required_checks: ci\n', /required_checks must be a list/],
     ['a non-string check', 'landing:\n  required_checks: [1]\n', /required_checks must be a list/],
     ['an empty check name', 'landing:\n  required_checks: [""]\n', /required_checks must be a list/],
-  ])('%s → bad-landing with no gh call', (_case, stack, error) => {
+  ])('%s → bad-landing after the history read, before any gate write', (_case, stack, error) => {
     const { result, calls } = land(checkout({ ...WORKFLOW_FILE, '.dev/stack.yml': stack }))
     expect(result.status).toBe('bad-landing')
     expect(result.error).toMatch(error)
-    expect(calls).toEqual([])
+    onlyHistoryRead(calls)
   })
 
   it('a comment-only stack with the workflow file watches merge-on-green', () => {
-    const { result, calls } = land(checkout({ ...WORKFLOW_FILE, '.dev/stack.yml': '# only a comment\n' }))
+    const { result } = land(checkout({ ...WORKFLOW_FILE, '.dev/stack.yml': '# only a comment\n' }))
     expect(result).toMatchObject({ status: 'watching', mode: 'merge-on-green' })
-    expect(calls.slice(0, 3)).toEqual([IDENTITY, COMMENTS, ['repo', 'view', '--json', 'nameWithOwner']])
   })
 })
 
 describe('landPr review gate through the checkout', () => {
-  it.each([
+  const CONFIGS = [
     ['merge-on-green', STACK],
     ['native with no required contexts', { '.dev/stack.yml': 'landing:\n  mode: native\n' }],
-  ])('a stopped history under %s is review-stopped and never armed', (_mode, files) => {
+    ['an invalid landing', { '.dev/stack.yml': 'landing:\n  mode: auto\n' }],
+  ]
+
+  it.each(CONFIGS)('a stopped history under %s is review-stopped and never armed', (_mode, files) => {
     const { result, calls } = land(checkout(files), 'ok', { history: 'stopped' })
     expect(result).toMatchObject({
       status: 'review-stopped',
       reason: 'review-bound',
       reviews: 3,
       fixes: 2,
-      stop: { prState: 'OPEN', published: true },
+      stop: { prState: 'OPEN', guaranteed: true, published: true },
     })
     expect(calls.some((a) => a[0] === 'pr' && a.includes('--add-label'))).toBe(false)
     expect(calls.some((a) => a[0] === 'pr' && a[1] === 'merge' && a.includes('--auto'))).toBe(false)
   })
 
-  it('an omitted PR on a branch with no open PR is no-pr, and nothing else is asked', () => {
-    const { result, calls } = land(onBranch(STACK), 'ok', { pr: '' })
+  it.each(CONFIGS)('an unapproved history under %s is not-approved after the history read alone', (_mode, files) => {
+    const { result, calls } = land(checkout(files), 'ok', { history: 'unapproved' })
+    expect(result).toEqual({ status: 'not-approved', reviews: 1, fixes: 1 })
+    onlyHistoryRead(calls)
+  })
+
+  it.each([
+    ['no PR', '[]'],
+    ['only a merged PR', JSON.stringify([{ number: 6, state: 'MERGED' }])],
+  ])('an omitted PR on a branch with %s is no-pr, and nothing else is asked', (_label, prList) => {
+    const { result, calls } = land(onBranch(STACK), 'ok', { pr: '', prList })
     expect(result).toEqual({ status: 'no-pr' })
     expect(calls).toEqual([LIST])
   })
 
   it('an omitted PR resolves to the branch’s one open PR, whose history the gate reads', () => {
-    const { result, calls } = land(onBranch(STACK), 'ok', { pr: '', prList: JSON.stringify([{ number: 7 }]) })
+    const prList = JSON.stringify([{ number: 7, state: 'OPEN' }])
+    const { result, calls } = land(onBranch(STACK), 'ok', { pr: '', prList })
     expect(result).toMatchObject({ status: 'watching', mode: 'merge-on-green' })
-    expect(calls.slice(0, 3)).toEqual([LIST, IDENTITY, COMMENTS])
+    expect(calls[0]).toEqual(LIST)
+    expect(calls).toContainEqual(COMMENTS)
   })
 
-  it('an omitted PR with two open PRs for the branch fails, and nothing is armed', () => {
-    const { result, error, calls } = land(onBranch(STACK), 'ok', {
-      pr: '',
-      prList: JSON.stringify([{ number: 7 }, { number: 8 }]),
-    })
+  it.each([
+    [
+      'two open PRs',
+      [
+        { number: 7, state: 'OPEN' },
+        { number: 8, state: 'OPEN' },
+      ],
+    ],
+    ['only a closed PR, whose budget a new PR would reset', [{ number: 7, state: 'CLOSED' }]],
+  ])('an omitted PR on a branch with %s fails, and nothing is armed', (_label, prs) => {
+    const { result, error, calls } = land(onBranch(STACK), 'ok', { pr: '', prList: JSON.stringify(prs) })
     expect(result).toBeUndefined()
     expect(error).toEqual(expect.any(String))
     expect(calls).toEqual([LIST])

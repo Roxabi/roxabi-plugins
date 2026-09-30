@@ -477,7 +477,7 @@ point here; do not invent a parallel stop policy.
 before presenting this decision. That caller already owns the loop (initialized
 before this nested review) and records the bounded round once:
 `record` → (`stop` ? `enforceStop` : `persist`) → human choice → `assertFixAllowed`
-→ `fix --no-label` or gated landing. Skip the standalone actions below; never
+→ `fix` or gated landing. Skip the standalone actions below; never
 choose on the operator's behalf. Nested review must not initialize, `record`, or
 `persist` again.
 
@@ -491,17 +491,19 @@ exists. Local-only reviews keep the same counts/stop in their local record.
 `await loop.assertFixAllowed(cwd, step)` after its allocation is persisted.
 It checks fresh attributable history, not just the cached loop, and consumes
 the live step once. A valid second live allocation is allowed; resuming that
-same incomplete allocation is not. `landPr(cwd, pr)` independently re-reads the
-stop before arming. Both sinks disarm on an observed stop; grant refusal carries
-`error.stop`, landing returns `review-stopped` with `stop`. Print that evidence
-and publish the dossier, without a second enforcement call. Discovery/read
-errors authorize nothing: report and exit. No caller may bypass either sink.
+same incomplete allocation is not. If durable history does not prove this live
+allocation, it stops permanently as `history-stale` rather than refunding it.
+`landPr(cwd, pr)` independently rejects stops and returns `not-approved` unless
+an approving review follows the latest correction/allocation. Stop refusals
+disarm and carry `error.stop` / `land.stop`; print that evidence and publish the
+dossier, without a second enforcement call. Discovery/read errors authorize
+nothing: report and exit. No caller may bypass either sink.
 
 ### Human choice (constrained by `step`)
 
 - **`fix`** → Q: **Fix now** / **Stop**. Fix now → await
   `loop.assertFixAllowed(cwd, step)` once. For a review fix, run
-  `skill://fix #<pr> --no-label` (omit `#<pr>` for local-only).
+  `skill://fix #<pr>` (omit `#<pr>` for local-only).
   For `step.reason === 'ci-failed'`, follow `/feature` §6.5's inline CI correction
   from failed-check logs, not the previous review. Re-review with the same loop.
   **Stop** keeps the allocated round spent; at `fixes=2` the next resume escalates.
@@ -593,7 +595,7 @@ explicit human-selected supersede.
 1. Fresh agents only — ¬implementation context
 2. ¬approve PRs on GitHub; ¬enable auto-merge outside a green `land` step through `landPr`
 3. Merge = merge commit only, ¬squash; merge executes via the gate (label + auto-merge), never manually mid-CI
-4. ¬fix code — findings only. Fixing = `skill://fix` with `--no-label` on every review-driven path
+4. ¬fix code — findings only. Fixing = `skill://fix` after the executable grant
 5. ∃ PR → must post the Phase 4 body
 6. Human decides at Phase 8 — ¬proceed without Q
 7. ¬merge with residual blockers at any round; warnings-only may use normal gated landing
@@ -602,7 +604,7 @@ explicit human-selected supersede.
 
 - **Phase:** Verify
 - **Predecessor:** implement
-- **Successor:** conditional — green `land` → gated landing | red `fix` → `skill://fix --no-label` | `stop` → escalation dossier + human guidance
+- **Successor:** conditional — green `land` → gated landing | red `fix` → `skill://fix` | `stop` → escalation dossier + human guidance
 - **Class:** verdict (branching based on findings)
 - **Loop cap:** max 2 automatic fix→review rounds via `createReviewLoop`. Residual blockers after those rounds → stop + dossier; never Merge-as-is with blockers.
 

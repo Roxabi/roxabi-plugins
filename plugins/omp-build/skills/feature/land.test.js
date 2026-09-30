@@ -196,9 +196,9 @@ describe('landPr', () => {
       gh,
       sleep,
     })
-    expect(calls).toEqual([
-      IDENTITY,
-      ['pr', 'view', '7', '--json', 'comments'],
+    // After the review-history read: the pre-add time, remove, re-add, then the newer time.
+    const historyRead = [IDENTITY, ['pr', 'view', '7', '--json', 'comments']]
+    expect(calls.filter((args) => !historyRead.some((read) => same(args, read)))).toEqual([
       ['repo', 'view', '--json', 'nameWithOwner'],
       EVENTS_CALL,
       ['pr', 'view', '7', '--json', 'labels'],
@@ -360,41 +360,102 @@ const STOPPED = [
   ['#636 as it stands: a review record and a prose dossier', PR_636, 'history-ambiguous'],
 ]
 
-describe.each([
-  ['native with declared checks', { landing: { mode: 'native', required_checks: ['ci'] } }],
-  ['native with zero required contexts', { landing: { mode: 'native', required_checks: [] }, requiredContexts: [] }],
-  ['merge-on-green', { landing: { mode: 'merge-on-green', required_checks: [] } }],
-])('landPr — the review gate before arming (%s)', (_mode, options) => {
+/** A gate someone armed on the PR before `landPr` ran. */
+const ARMED = { labels: ['reviewed', 'size:F-lite'], autoMerge: { mergeMethod: 'MERGE' } }
+/** An OPEN PR's enforced stop when every step succeeded. */
+const DISARMED = {
+  prState: 'OPEN',
+  guaranteed: true,
+  published: true,
+  removed: true,
+  autoMergeDisabled: true,
+  disarmErrors: [],
+}
+const NATIVE = { landing: { mode: 'native', required_checks: ['ci'] } }
+
+/** @param {{ calls: unknown[][], pr: { labels: Set<string>, autoMerge: unknown } }} fake */
+function expectDisarmedNeverArmed(fake) {
+  expect(fake.calls.some(armsLabel)).toBe(false)
+  expect(fake.calls.some(enablesAuto)).toBe(false)
+  expect([...fake.pr.labels]).toEqual(['size:F-lite'])
+  expect(fake.pr.autoMerge).toBe(null)
+}
+
+describe('landPr — a stopped history is enforced before any landing step', () => {
   it.each(STOPPED)('%s: review-stopped, the gate disarmed, nothing armed', async (_label, comments, reason) => {
     const strict = interpretReviewHistory(comments, { me: ME })
     expect(strict.stopReason).toBe(reason)
-    const fake = gatePr({ comments, labels: ['reviewed', 'size:F-lite'], autoMerge: { mergeMethod: 'MERGE' } })
-    const result = await landPr('/tmp/wt', 7, { gh: fake.gh, sleep: async () => {}, ...options })
+    const fake = gatePr({ comments, ...ARMED })
+    const result = await landPr('/tmp/wt', 7, { gh: fake.gh, ...NATIVE })
     expect(result).toMatchObject({
       status: 'review-stopped',
       reason,
       reviews: strict.reviews,
       fixes: strict.fixes,
-      stop: { prState: 'OPEN', published: true, removed: true, autoMergeDisabled: true, disarmErrors: [] },
+      stop: DISARMED,
     })
-    expect(result.watch).toBeUndefined()
-    expect(fake.calls.some(armsLabel)).toBe(false)
-    expect(fake.calls.some(enablesAuto)).toBe(false)
-    expect([...fake.pr.labels]).toEqual(['size:F-lite'])
-    expect(fake.pr.autoMerge).toBe(null)
+    expectDisarmedNeverArmed(fake)
     expect(interpretReviewHistory(fake.pr.comments, { me: ME }).stopReason).toBe(reason)
   })
 
-  it.each(['MERGED', 'CLOSED'])('a %s PR with a stopped history: review-stopped, no gate change', async (state) => {
-    const fake = gatePr({ comments: PR_636, labels: ['reviewed'], autoMerge: { mergeMethod: 'MERGE' }, state })
+  it.each([
+    ['native with zero required contexts', { landing: { mode: 'native', required_checks: [] }, requiredContexts: [] }],
+    ['merge-on-green', { landing: { mode: 'merge-on-green', required_checks: [] } }],
+  ])('%s: the stop comes first, the gate disarmed, nothing armed', async (_mode, options) => {
+    const fake = gatePr({ comments: PR_636, ...ARMED })
     const result = await landPr('/tmp/wt', 7, { gh: fake.gh, sleep: async () => {}, ...options })
-    expect(result).toMatchObject({
-      status: 'review-stopped',
-      stop: { prState: state, published: false, removed: false, autoMergeDisabled: false },
-    })
-    expect(fake.pr.comments).toEqual(PR_636)
+    expect(result).toMatchObject({ status: 'review-stopped', reason: 'history-ambiguous', stop: DISARMED })
+    expectDisarmedNeverArmed(fake)
+  })
+})
+
+describe('landPr — only an approval of the latest correction arms', () => {
+  it.each([
+    ['no review record at all', [], { reviews: 0, fixes: 0 }],
+    [
+      'a first red whose allocation is not persisted yet',
+      [byMe(accounting(0, 0)), byMe(RED)],
+      { reviews: 1, fixes: 0 },
+    ],
+    [
+      'a newer red after the green',
+      [byMe(GREEN), byMe(accounting(1, 0)), byMe(RED), byMe(accounting(2, 1))],
+      { reviews: 2, fixes: 1 },
+    ],
+    [
+      'a fix receipted but not re-reviewed',
+      [byMe(RED), byMe(accounting(1, 1)), byMe(RECEIPT)],
+      { reviews: 1, fixes: 1 },
+    ],
+    [
+      'a correction receipted after the approval',
+      [byMe(RED), byMe(accounting(1, 1)), byMe(GREEN), byMe(accounting(2, 1)), byMe(RECEIPT)],
+      { reviews: 2, fixes: 1 },
+    ],
+    [
+      'a CI-fix allocation after the approval, not yet re-reviewed',
+      [byMe(RED), byMe(accounting(1, 1)), byMe(RECEIPT), byMe(GREEN), byMe(accounting(2, 1)), byMe(accounting(2, 2))],
+      { reviews: 2, fixes: 2 },
+    ],
+    [
+      'an approval posted by another account',
+      [byMe(RED), byMe(accounting(1, 1)), byMe(RECEIPT), { author: { login: 'attacker' }, body: GREEN }],
+      { reviews: 1, fixes: 1 },
+    ],
+  ])('%s: not-approved, and no gate write', async (_label, comments, counts) => {
+    const fake = gatePr({ comments })
+    const result = await landPr('/tmp/wt', 7, { gh: fake.gh, ...NATIVE })
+    expect(result).toEqual({ status: 'not-approved', ...counts })
+    expect(fake.calls.some((args) => args[1] === 'edit' || args[1] === 'merge' || args[1] === 'comment')).toBe(false)
+    expect(fake.pr.labels.size).toBe(0)
+    expect(fake.pr.autoMerge).toBe(null)
+  })
+
+  it.each(['Approve', 'Approve with comments'])('arms on an %s verdict as well', async (verdict) => {
+    const fake = gatePr({ comments: [byMe(review(verdict)), byMe(accounting(1, 0))] })
+    const result = await landPr('/tmp/wt', 7, { gh: fake.gh, ...NATIVE })
+    expect(result).toMatchObject({ status: 'watching', mode: 'native' })
     expect(fake.pr.labels.has('reviewed')).toBe(true)
-    expect(fake.pr.autoMerge).toEqual({ mergeMethod: 'MERGE' })
   })
 })
 

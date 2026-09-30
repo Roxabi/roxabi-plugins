@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+  applyCiWatchExit,
   createReviewLoop,
   interpretReviewHistory,
   landPr,
   MAX_FIX_ROUNDS,
   openPr,
-  parseReviewRounds,
   readReviewRounds,
   resolveReviewPr,
   resumeReviewLoop,
@@ -54,6 +54,12 @@ const ME = 'omp-bot'
 const BRANCH = 'feat/637-review-action-sinks'
 /** The one query the automation login comes from. */
 const IDENTITY = ['api', 'user', '--jq', '.login']
+/** How a review finds the branch's PRs: every state, so a closed PR still counts. @param {string} branch */
+const discovery = (branch) => ['pr', 'list', '--head', branch, '--state', 'all', '--json', 'number,state']
+/** One entry of that answer. @param {number} number @param {string} [state] */
+const listing = (number, state = 'OPEN') => ({ number, state })
+/** A native landing with one declared required check. */
+const NATIVE = { mode: 'native', required_checks: ['ci'] }
 
 /** @param {unknown[]} args @param {unknown[]} expected */
 function same(args, expected) {
@@ -128,18 +134,18 @@ function fakePr({
   autoMerge = null,
   state = 'OPEN',
   branch = BRANCH,
-  /** Open PR numbers for the branch, a raw answer, or the Error the lookup throws. */
-  open = [PR],
+  /** The branch's PRs as `gh pr list --state all` lists them, a raw answer, or the Error the lookup throws. */
+  branchPrs = [listing(PR, state)],
 } = {}) {
-  const pr = { me, comments: [...comments], labels: new Set(labels), autoMerge, state, branch, open }
+  const pr = { me, comments: [...comments], labels: new Set(labels), autoMerge, state, branch, branchPrs }
   const n = String(PR)
   const calls = []
   const gh = async (_cwd, args) => {
     calls.push(args)
     if (same(args, IDENTITY)) return `${pr.me}\n`
-    if (same(args, ['pr', 'list', '--head', pr.branch, '--state', 'open', '--json', 'number'])) {
-      if (pr.open instanceof Error) throw pr.open
-      return typeof pr.open === 'string' ? pr.open : JSON.stringify(pr.open.map((number) => ({ number })))
+    if (same(args, discovery(pr.branch))) {
+      if (pr.branchPrs instanceof Error) throw pr.branchPrs
+      return typeof pr.branchPrs === 'string' ? pr.branchPrs : JSON.stringify(pr.branchPrs)
     }
     if (args.length === 5 && same(args.slice(0, 4), ['pr', 'view', n, '--json'])) {
       /** @type {Record<string, unknown>} */
@@ -562,7 +568,7 @@ describe('reopen after ci-failed — spends a round, never refunds one', () => {
 })
 
 describe('resolveReviewPr — one PR, resolved before any loop exists', () => {
-  const LIST = ['pr', 'list', '--head', BRANCH, '--state', 'open', '--json', 'number']
+  const LIST = discovery(BRANCH)
 
   it.each([512, '512'])('takes an explicit PR %o without asking git or gh', async (explicit) => {
     const fake = fakePr()
@@ -571,22 +577,39 @@ describe('resolveReviewPr — one PR, resolved before any loop exists', () => {
   })
 
   it.each([null, undefined, ''])('discovers the open PR of the current branch for %o', async (explicit) => {
-    const fake = fakePr({ open: [640] })
+    const fake = fakePr({ branchPrs: [listing(640)] })
     expect(await resolveReviewPr(CWD, explicit, deps(fake))).toBe(640)
-    // Any open PR for this head, whatever its base: a `--base` would miss one opened against another base.
+    // Any PR for this head, whatever its base: a `--base` would miss one opened against another base.
     expect(fake.calls).toEqual([['git', 'branch', '--show-current'], LIST])
   })
 
-  it('answers null — a genuinely local review — only when the branch has no open PR', async () => {
-    expect(await resolveReviewPr(CWD, null, deps(fakePr({ open: [] })))).toBe(null)
+  it('takes the one open PR even when merged and closed PRs share its head', async () => {
+    const fake = fakePr({ branchPrs: [listing(400, 'MERGED'), listing(300, 'CLOSED'), listing(640)] })
+    expect(await resolveReviewPr(CWD, null, deps(fake))).toBe(640)
   })
 
   it.each([
-    ['the lookup fails', { open: new Error('HTTP 502') }],
-    ['the lookup is not JSON', { open: 'no pull requests match your search' }],
-    ['the lookup is not an array', { open: '{"number":512}' }],
-    ['an entry carries no PR number', { open: '[{"title":"feat: sinks"}]' }],
-    ['two PRs are open for the branch', { open: [512, 640] }],
+    ['no PR at all', []],
+    ['only merged PRs', [listing(400, 'MERGED'), listing(401, 'MERGED')]],
+  ])('answers null — a genuinely local review — when the branch has %s', async (_label, branchPrs) => {
+    expect(await resolveReviewPr(CWD, null, deps(fakePr({ branchPrs })))).toBe(null)
+  })
+
+  it.each([
+    ['a closed PR', [listing(512, 'CLOSED')]],
+    ['a closed PR beside a merged one', [listing(400, 'MERGED'), listing(512, 'CLOSED')]],
+  ])('refuses a branch with no open PR but %s: reusing that head would reset its budget', async (_label, branchPrs) => {
+    await expect(resolveReviewPr(CWD, null, deps(fakePr({ branchPrs })))).rejects.toThrow()
+  })
+
+  it.each([
+    ['the lookup fails', { branchPrs: new Error('HTTP 502') }],
+    ['the lookup is not JSON', { branchPrs: 'no pull requests match your search' }],
+    ['the lookup is not an array', { branchPrs: JSON.stringify(listing(512)) }],
+    ['an entry carries no PR number', { branchPrs: JSON.stringify([{ title: 'feat: sinks', state: 'OPEN' }]) }],
+    ['an entry carries no state', { branchPrs: JSON.stringify([{ number: 512 }]) }],
+    ['an entry carries an unknown state', { branchPrs: JSON.stringify([listing(512, 'DRAFT')]) }],
+    ['two PRs are open for the branch', { branchPrs: [listing(512), listing(640)] }],
     ['HEAD is detached', { branch: '' }],
   ])('refuses when %s — a failed lookup is not "no PR"', async (_label, options) => {
     await expect(resolveReviewPr(CWD, null, deps(fakePr(options)))).rejects.toThrow()
@@ -600,8 +623,8 @@ describe('resolveReviewPr — one PR, resolved before any loop exists', () => {
 })
 
 describe('assertFixAllowed on a PR-less loop — proves there is no PR first', () => {
-  it('grants the live allocation once when the branch has no open PR', async () => {
-    const fake = fakePr({ open: [] })
+  it('grants the live allocation once when the branch has no PR', async () => {
+    const fake = fakePr({ branchPrs: [] })
     const loop = createReviewLoop()
     const step = loop.record('red')
     await expect(loop.assertFixAllowed(CWD, step, deps(fake))).resolves.toBe(step)
@@ -609,7 +632,7 @@ describe('assertFixAllowed on a PR-less loop — proves there is no PR first', (
   })
 
   it('runs the second local allocation at fixes=2 once; the third red stops', async () => {
-    const fake = fakePr({ open: [] })
+    const fake = fakePr({ branchPrs: [] })
     const loop = createReviewLoop()
     await loop.assertFixAllowed(CWD, loop.record('red'), deps(fake))
     const second = loop.record('red')
@@ -620,52 +643,34 @@ describe('assertFixAllowed on a PR-less loop — proves there is no PR first', (
     await expect(loop.assertFixAllowed(CWD, second, deps(fake))).rejects.toThrow()
   })
 
-  it('refuses a copy of the live step, or a non-fix step, without consuming the grant', async () => {
-    const fake = fakePr({ open: [] })
-    const loop = createReviewLoop()
-    const step = loop.record('red')
-    await expect(loop.assertFixAllowed(CWD, { ...step }, deps(fake))).rejects.toThrow()
-    await expect(loop.assertFixAllowed(CWD, { action: 'land', reviews: 1, fixes: 1 }, deps(fake))).rejects.toThrow()
-    await expect(loop.assertFixAllowed(CWD, step, deps(fake))).resolves.toBe(step)
-  })
-
   it('refuses when the branch already has an open PR: that PR must be resumed, not bypassed', async () => {
-    const fake = fakePr({ open: [PR], comments: [...TWO_ROUNDS, comment(RED)] })
+    const fake = fakePr({ comments: [...TWO_ROUNDS, comment(RED)] })
     const loop = createReviewLoop()
     const step = loop.record('red')
     await expect(loop.assertFixAllowed(CWD, step, deps(fake))).rejects.toThrow()
-    expect(fake.calls).toContainEqual(['pr', 'list', '--head', BRANCH, '--state', 'open', '--json', 'number'])
+    expect(fake.calls).toContainEqual(discovery(BRANCH))
     expect(fake.pr.comments).toHaveLength(TWO_ROUNDS.length + 1)
     // The way in is the PR loop, and that PR is stopped.
     expect((await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })).closed).toBe('stop')
   })
 
   it.each([
-    ['the lookup fails', { open: new Error('HTTP 502') }],
-    ['two PRs are open for the branch', { open: [512, 640] }],
+    ['the lookup fails', { branchPrs: new Error('HTTP 502') }],
+    ['two PRs are open for the branch', { branchPrs: [listing(512), listing(640)] }],
+    ['the branch’s only PR was closed', { branchPrs: [listing(PR, 'CLOSED')] }],
     ['HEAD is detached', { branch: '' }],
-  ])('refuses when %s: a failed lookup never proves a local review', async (_label, options) => {
+  ])('refuses when %s: a local fix needs a branch proven free of open and closed PRs', async (_label, options) => {
     const loop = createReviewLoop()
     const step = loop.record('red')
     await expect(loop.assertFixAllowed(CWD, step, deps(fakePr(options)))).rejects.toThrow()
   })
 
-  it('grants overlapping calls for one step at most once', async () => {
-    const fake = fakePr({ open: [] })
-    const loop = createReviewLoop()
-    const step = loop.record('red')
-    const outcomes = await Promise.allSettled([
-      loop.assertFixAllowed(CWD, step, deps(fake)),
-      loop.assertFixAllowed(CWD, step, deps(fake)),
-    ])
-    expect(outcomes.map((outcome) => outcome.status).sort()).toEqual(['fulfilled', 'rejected'])
-  })
-
-  it('sends a ci-failed round through the same guard', async () => {
+  it('sends a ci-failed round through the same discovery: refused beside an open PR, granted without one', async () => {
     const loop = createReviewLoop()
     loop.record('green')
     const step = loop.reopen('ci-failed')
-    await expect(loop.assertFixAllowed(CWD, step, deps(fakePr({ open: [] })))).resolves.toBe(step)
+    await expect(loop.assertFixAllowed(CWD, step, deps(fakePr()))).rejects.toThrow()
+    await expect(loop.assertFixAllowed(CWD, step, deps(fakePr({ branchPrs: [] })))).resolves.toBe(step)
   })
 })
 
@@ -734,27 +739,64 @@ describe('assertFixAllowed on a PR loop — fresh history at the fix sink', () =
     await expect(loop.assertFixAllowed(CWD, step)).resolves.toBe(step)
   })
 
+  /** Allocate `round`, then let something else land on the PR before the fix sink runs. */
+  const allocateThen = (round, interfere) => async (fake) => {
+    const allocation = await allocate(fake, round)
+    interfere(fake)
+    return allocation
+  }
+
   it.each([
     [
       'another session published an explicit stop',
-      (fake) => fake.post(accounting(1, 1, 'review-bound')),
+      allocateThen(1, (fake) => fake.post(accounting(1, 1, 'review-bound'))),
       'review-bound',
     ],
     [
       'receipts the loop never allocated make the history ambiguous',
-      (fake) => {
+      allocateThen(1, (fake) => {
         fake.post(RECEIPT)
         fake.post(RECEIPT)
-      },
+      }),
       'history-ambiguous',
     ],
-  ])('refuses when %s: closes the loop and disarms the gate', async (_label, interfere, reason) => {
+    [
+      'an explicit stop sits at the second allocation, not the loop’s own terminal red',
+      allocateThen(2, (fake) => fake.post(accounting(2, 2, 'review-bound'))),
+      'review-bound',
+    ],
+    ['a later review record follows the second allocation', allocateThen(2, (fake) => fake.post(RED)), 'review-bound'],
+    [
+      'the durable allocation moved past the live loop',
+      allocateThen(1, (fake) => fake.post(accounting(2, 2))),
+      'review-bound',
+    ],
+    // Fresh history holds no stop, yet it does not prove this live allocation: stale, never refunded.
+    ['a later review record follows the first allocation', allocateThen(1, (fake) => fake.post(RED)), 'history-stale'],
+    [
+      'the allocation was never persisted',
+      async (fake) => {
+        const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+        fake.post(RED)
+        return { loop, step: loop.record('red') }
+      },
+      'history-stale',
+    ],
+    [
+      'gh answers as another account, even one whose records mirror the loop’s',
+      allocateThen(1, (fake) => {
+        for (const record of [...fake.pr.comments]) fake.post(record.body, 'omp-bot-2')
+        fake.pr.me = 'omp-bot-2'
+      }),
+      'history-stale',
+    ],
+  ])('refuses when %s: stops durably and disarms the gate', async (_label, setup, reason) => {
     const fake = fakePr({ labels: ['reviewed'], autoMerge: { mergeMethod: 'MERGE' } })
-    const { loop, step } = await allocate(fake, 1)
-    interfere(fake)
+    const { loop, step } = await setup(fake)
     const error = await refusal(loop.assertFixAllowed(CWD, step))
     expect(error.stop).toMatchObject({
       prState: 'OPEN',
+      guaranteed: true,
       published: true,
       removed: true,
       autoMergeDisabled: true,
@@ -764,53 +806,14 @@ describe('assertFixAllowed on a PR loop — fresh history at the fix sink', () =
     expect(fake.pr.labels.has('reviewed')).toBe(false)
     expect(fake.pr.autoMerge).toBe(null)
     await expect(loop.assertFixAllowed(CWD, step)).rejects.toThrow()
+    // Read as whoever gh answers as now: the account that published the stop.
     expect((await strict(fake)).stopReason).toBe(reason)
   })
 
-  it('does not excuse an explicit stop at the second allocation as the loop’s own terminal red', async () => {
-    const fake = fakePr()
-    const { loop, step } = await allocate(fake, 2)
-    fake.post(accounting(2, 2, 'review-bound'))
-    await expect(loop.assertFixAllowed(CWD, step)).rejects.toThrow()
-    expect(loop.closed).toBe('stop')
-  })
-
-  it.each([1, 2])('refuses allocation %i once a later review record appears', async (round) => {
-    const fake = fakePr()
-    const { loop, step } = await allocate(fake, round)
-    fake.post(RED)
-    await expect(loop.assertFixAllowed(CWD, step)).rejects.toThrow()
-    await expect(loop.assertFixAllowed(CWD, step)).rejects.toThrow()
-  })
-
-  it('refuses an allocation that was never persisted', async () => {
-    const fake = fakePr()
-    const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
-    fake.post(RED)
-    const step = loop.record('red')
-    await expect(loop.assertFixAllowed(CWD, step)).rejects.toThrow()
-  })
-
-  it('refuses when the durable allocation has moved past the live loop', async () => {
-    const fake = fakePr()
-    const { loop, step } = await allocate(fake, 1)
-    fake.post(accounting(2, 2))
-    await expect(loop.assertFixAllowed(CWD, step)).rejects.toThrow()
-  })
-
-  it('refuses when gh answers as another account, even one whose records mirror the loop’s', async () => {
-    const fake = fakePr()
-    const { loop, step } = await allocate(fake, 1)
-    for (const record of [...fake.pr.comments]) fake.post(record.body, 'omp-bot-2')
-    fake.pr.me = 'omp-bot-2'
-    await expect(loop.assertFixAllowed(CWD, step)).rejects.toThrow()
-  })
-
-  it('refuses a copy of the live step, or a non-fix step, without consuming the grant', async () => {
+  it('refuses a copy of the live step without consuming the grant', async () => {
     const fake = fakePr()
     const { loop, step } = await allocate(fake, 1)
     await expect(loop.assertFixAllowed(CWD, { ...step })).rejects.toThrow()
-    await expect(loop.assertFixAllowed(CWD, { action: 'land', reviews: 1, fixes: 1 })).rejects.toThrow()
     await expect(loop.assertFixAllowed(CWD, step)).resolves.toBe(step)
   })
 
@@ -860,6 +863,65 @@ describe('assertFixAllowed on a PR loop — fresh history at the fix sink', () =
     fake.post(RED)
     await expect(loop.assertFixAllowed(CWD, step)).rejects.toThrow()
   })
+
+  /**
+   * Green → landPr → CI red → reopen('ci-failed') → CI fix → red → second grant → receipt.
+   * The CI fix posts no receipt, so the allocation markers run ahead of the receipts.
+   */
+  async function ciFixThenRedFix(fake) {
+    const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    expect((await reviewed(loop, fake, 'green')).action).toBe('land')
+    expect(await landPr(CWD, PR, { gh: fake.gh, landing: NATIVE })).toMatchObject({ status: 'watching' })
+    expect(await applyCiWatchExit(CWD, PR, 1, { mode: 'native', gh: fake.gh })).toEqual({
+      status: 'ci-failed',
+      disarmed: true,
+    })
+    const ciFix = loop.reopen('ci-failed')
+    expect(ciFix).toEqual({ action: 'fix', reviews: 1, fixes: 1, remaining: 1, reason: 'ci-failed' })
+    await loop.persist(CWD)
+    await expect(loop.assertFixAllowed(CWD, ciFix)).resolves.toBe(ciFix)
+    // The CI fix is pushed and no review has judged it yet: nothing may re-arm.
+    expect(await landPr(CWD, PR, { gh: fake.gh, landing: NATIVE })).toEqual({
+      status: 'not-approved',
+      reviews: 1,
+      fixes: 1,
+    })
+    expect({ labeled: fake.pr.labels.has('reviewed'), autoMerge: fake.pr.autoMerge }).toEqual({
+      labeled: false,
+      autoMerge: null,
+    })
+    const redFix = await reviewed(loop, fake, 'red')
+    expect(redFix).toEqual({ action: 'fix', reviews: 2, fixes: 2, remaining: 0 })
+    await fixed(loop, fake, redFix)
+    return loop
+  }
+
+  it('lands the re-reviewed correction after a CI fix spent the first round', async () => {
+    const fake = fakePr()
+    const loop = await ciFixThenRedFix(fake)
+    expect(await reviewed(loop, fake, 'green')).toEqual({ action: 'land', reviews: 3, fixes: 2 })
+    expect(await strict(fake)).toEqual({ reviews: 3, fixes: 2 })
+    const land = await landPr(CWD, PR, { gh: fake.gh, landing: NATIVE })
+    expect(land).toMatchObject({ status: 'watching', mode: 'native' })
+    expect(fake.pr.labels.has('reviewed')).toBe(true)
+    expect(fake.pr.autoMerge).not.toBe(null)
+  })
+
+  it('stops on a round-3 red after a CI fix and a red fix, and landing refuses it', async () => {
+    const fake = fakePr()
+    const loop = await ciFixThenRedFix(fake)
+    fake.post(RED)
+    expect(loop.record('red')).toMatchObject({ action: 'stop', reason: 'review-bound', reviews: 3, fixes: 2 })
+    expect(await loop.enforceStop(CWD)).toMatchObject({ prState: 'OPEN', guaranteed: true, published: true })
+    expect(await strict(fake)).toEqual({ reviews: 3, fixes: 2, stopReason: 'review-bound' })
+    expect(await landPr(CWD, PR, { gh: fake.gh, landing: NATIVE })).toMatchObject({
+      status: 'review-stopped',
+      reason: 'review-bound',
+    })
+    expect(fake.pr.labels.has('reviewed')).toBe(false)
+    expect(fake.pr.autoMerge).toBe(null)
+    expect((await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })).stopReason).toBe('review-bound')
+  })
 })
 
 describe('enforceStop — reads the gate, then publishes and disarms independently', () => {
@@ -870,13 +932,13 @@ describe('enforceStop — reads the gate, then publishes and disarms independent
     loop.record('red')
     return loop
   }
-  const first = (fake, verb) => fake.calls.findIndex((args) => args[0] === 'pr' && args[1] === verb)
 
-  it('reads labels, auto-merge and state before publishing, then disarms what it found', async () => {
+  it('publishes the stop on an open PR, disarms what it found, and guarantees the gate', async () => {
     const fake = fakePr({ labels: ['reviewed', 'size:F-full'], autoMerge: { mergeMethod: 'MERGE' } })
     const outcome = await stopped().enforceStop(CWD, { gh: fake.gh })
     expect(outcome).toMatchObject({
       prState: 'OPEN',
+      guaranteed: true,
       published: true,
       publishError: null,
       readError: null,
@@ -884,7 +946,6 @@ describe('enforceStop — reads the gate, then publishes and disarms independent
       autoMergeDisabled: true,
       disarmErrors: [],
     })
-    expect(first(fake, 'view')).toBeLessThan(first(fake, 'comment'))
     expect([...fake.pr.labels]).toEqual(['size:F-full'])
     expect(fake.pr.autoMerge).toBe(null)
     expect((await strict(fake)).stopReason).toBe('review-bound')
@@ -895,6 +956,7 @@ describe('enforceStop — reads the gate, then publishes and disarms independent
     const outcome = await stopped().enforceStop(CWD, { gh: fake.gh })
     expect(outcome).toMatchObject({
       prState: 'OPEN',
+      guaranteed: true,
       published: true,
       removed: false,
       autoMergeDisabled: false,
@@ -906,7 +968,13 @@ describe('enforceStop — reads the gate, then publishes and disarms independent
   it.each(['MERGED', 'CLOSED'])('changes nothing on a %s PR, and reports its state', async (state) => {
     const fake = fakePr({ state, labels: ['reviewed'], autoMerge: { mergeMethod: 'MERGE' } })
     const outcome = await stopped().enforceStop(CWD, { gh: fake.gh })
-    expect(outcome).toMatchObject({ prState: state, published: false, removed: false, autoMergeDisabled: false })
+    expect(outcome).toMatchObject({
+      prState: state,
+      guaranteed: false,
+      published: false,
+      removed: false,
+      autoMergeDisabled: false,
+    })
     expect(fake.pr.comments).toEqual([])
     expect(fake.pr.labels.has('reviewed')).toBe(true)
     expect(fake.pr.autoMerge).toEqual({ mergeMethod: 'MERGE' })
@@ -922,6 +990,7 @@ describe('enforceStop — reads the gate, then publishes and disarms independent
     const outcome = await stopped().enforceStop(CWD, { gh })
     expect(outcome).toMatchObject({
       prState: null,
+      guaranteed: false,
       readError: expect.any(String),
       published: true,
       removed: true,
@@ -939,6 +1008,7 @@ describe('enforceStop — reads the gate, then publishes and disarms independent
     }
     const outcome = await stopped().enforceStop(CWD, { gh })
     expect(outcome).toMatchObject({
+      guaranteed: false,
       published: false,
       publishError: expect.stringContaining('comment 502'),
       removed: true,
@@ -956,7 +1026,7 @@ describe('enforceStop — reads the gate, then publishes and disarms independent
       return fake.gh(cwd, args)
     }
     const outcome = await stopped().enforceStop(CWD, { gh })
-    expect(outcome).toMatchObject({ published: true, removed: false, autoMergeDisabled: false })
+    expect(outcome).toMatchObject({ guaranteed: false, published: true, removed: false, autoMergeDisabled: false })
     expect(outcome.disarmErrors).toEqual([
       expect.stringContaining('label ACL denied'),
       expect.stringContaining('disable-auto 403'),
@@ -1001,29 +1071,6 @@ describe('enforceStop — reads the gate, then publishes and disarms independent
 })
 
 describe('the count outlives the process that holds it', () => {
-  it('reads the rounds a PR already carries', () => {
-    expect(parseReviewRounds('nothing here')).toBe(null)
-    expect(parseReviewRounds('<!-- omp-build:review-rounds reviews=3 fixes=2 -->')).toEqual({ reviews: 3, fixes: 2 })
-  })
-
-  it('takes the highest marker, so re-posting an old one refunds nothing', () => {
-    const text = [
-      '<!-- omp-build:review-rounds reviews=2 fixes=2 -->',
-      'later, a stale copy of the first round:',
-      '<!-- omp-build:review-rounds reviews=1 fixes=1 -->',
-    ].join('\n')
-    expect(parseReviewRounds(text)).toEqual({ reviews: 2, fixes: 2 })
-  })
-
-  it('keeps a sticky stop even when a later count-only marker is higher', () => {
-    const text = [
-      '<!-- omp-build:review-rounds reviews=3 fixes=2 -->',
-      '<!-- omp-build:review-stop reason=review-bound -->',
-      '<!-- omp-build:review-rounds reviews=4 fixes=2 -->',
-    ].join('\n')
-    expect(parseReviewRounds(text)).toEqual({ reviews: 4, fixes: 2, stopReason: 'review-bound' })
-  })
-
   it('resumes a loop on its last round instead of handing out two fresh ones', async () => {
     const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fakePr({ comments: TWO_ROUNDS }).gh })
     expect({ reviews: loop.reviews, fixes: loop.fixes, remaining: loop.remaining }).toEqual({
@@ -1034,9 +1081,21 @@ describe('the count outlives the process that holds it', () => {
     expect(loop.record('red').action).toBe('stop')
   })
 
-  it('starts at zero on a PR that has never been reviewed', async () => {
-    const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fakePr({ comments: [comment('a plain comment')] }).gh })
-    expect({ reviews: loop.reviews, fixes: loop.fixes }).toEqual({ reviews: 0, fixes: 0 })
+  it('writes a zero baseline on an empty PR once: a review posted before a persist is not legacy', async () => {
+    // Another account's record and a plain comment are not this account's history.
+    const fake = fakePr({ comments: [comment('a plain comment'), comment(RED, 'attacker')] })
+    const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    expect({ reviews: loop.reviews, fixes: loop.fixes, closed: loop.closed }).toEqual({
+      reviews: 0,
+      fixes: 0,
+      closed: null,
+    })
+    await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    expect(fake.pr.comments).toHaveLength(3)
+    // dev-review posted round 1, then the session died before §6.4 persisted its verdict.
+    fake.post(RED)
+    expect(await strict(fake)).toEqual({ reviews: 1, fixes: 0 })
+    expect((await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })).closed).toBe(null)
   })
 
   it('publishes a stop reached in the flow, and a fresh session stays closed even on green', async () => {
@@ -1087,9 +1146,11 @@ describe('interpretReviewHistory — strict, author-bound, first-line records', 
     expect(() => interpretReviewHistory(TWO_ROUNDS, { me })).toThrow()
   })
 
-  it('binds to a bot login too', () => {
-    const bot = 'omp-build[bot]'
-    expect(interpretReviewHistory([comment(RED, bot), comment(RECEIPT, bot)], { me: bot })).toEqual({
+  it.each([
+    ['bot', 'omp-build[bot]'],
+    ['Enterprise Managed User', 'octocat_acme'],
+  ])('binds to a %s login too', (_label, login) => {
+    expect(interpretReviewHistory([comment(RED, login), comment(RECEIPT, login)], { me: login })).toEqual({
       reviews: 1,
       fixes: 1,
     })

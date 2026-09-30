@@ -1,6 +1,6 @@
 ---
 name: fix
-argument-hint: '[#PR] [--no-label]'
+argument-hint: '[#PR]'
 description: >-
   OMP-only — apply one fix per common root cause from a review, inline, no per-finding choice.
   Triggers: "fix findings" | "fix review" | "apply fixes" | "fix these" | "apply review comments" | "apply the review" | "fix the review issues" | "address review feedback" | "fix PR comments".
@@ -20,16 +20,14 @@ One pass: find the review record, name the causes, apply each eligible cause as 
 
 ```
 /skill:fix             → the latest dev-review output in this conversation
-/skill:fix #42         → the review record on PR #42; enter the shared review-loop accounting first
-/skill:fix #42 --no-label → idem; `--no-label` is required for every review-driven fix
+/skill:fix #42         → the review record on PR #42, after the caller's executable grant
 ```
 
 **No `reviewed` from a review-driven fix.** A review-driven fix — nested under
 `/feature` / standalone Phase 8, or a direct `/fix #PR` after a **caller-owned**
 live allocation — never writes the `reviewed` label. That label is not a status:
 `.github/workflows/auto-merge.yml` turns it into `gh pr merge --auto --merge`, so
-writing it *is* merging. Callers pass `--no-label`; Phase 5 also refuses to label
-whenever a review record / round marker exists on the PR.
+writing it *is* merging. Phase 5 never writes it; only an approved `landPr` arms.
 
 **Authorization precedes edits.** Follow `dev-review` Phase 8's executable action
 contract: the caller awaits `loop.assertFixAllowed(cwd, step)` exactly once,
@@ -236,9 +234,7 @@ New findings surfaced during falsification → **parking lot**: file as a candid
    « fix appliqué, pas de label : le gate appartient à landPr / l'appelant » — and
    continue to Phase 6. A label here would merge before the re-review that judges
    this fix; see `skill://dev-review` Phase 8.
-3. Legacy `mode = label` without a review record on a PR is outside this skill's
-   review-fix contract — still write nothing and name that the merge gate is not
-   owned here.
+3. No option enables labelling here: automatic landing belongs to `landPr` alone.
 
 ## Phase 6 — Post Follow-Up Comment
 
@@ -303,7 +299,7 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 | Quality gate fails 3× on the push | Halt, commits stay local |
 | ¬∃ PR | Skip Phase 6, local only, no label |
 | ∄ SOURCE_PARENT | Filed issue is top-level — ¬parent it to the origin |
-| review-driven / `--no-label` / review record present | Phase 5 writes no `reviewed`; landing owns the gate |
+| review-driven fix | Phase 5 writes no `reviewed`; landing owns the gate |
 | sticky stop (`loop.closed === 'stop'`) / ambiguous history | Halt before edits; publish/display Phase 8 dossier |
 
 ## Safety Rules

@@ -18,7 +18,7 @@ use the current repository conventions, not a separate spec-file lifecycle.
 - Read-only exploration and tracker framing may start on the Principal. File edits,
   dependency installation and implementation require the matching worktree.
 - Issue creation, labels and native relations belong to `skill://issue-triage`.
-- `dev-review` owns findings; `fix --no-label` applies them; §6.7 alone lands.
+- `dev-review` owns findings; `fix` applies them; §6.7 alone lands.
 - After confirmed merge, offer `/cleanup`. Offer `/promote` only when
   `.dev/stack.yml` declares `release.model: staging-train`. Never invoke either.
 
@@ -306,7 +306,7 @@ red verdict **spends/allocates** a fix round whether or not the operator then fi
 `step.action === 'fix'`, by `step.reason`:
 
 - review round (no reason) → `await loop.assertFixAllowed(cwd, step)`, then execute
-  `skill://fix` with `#<pr> --no-label`. Nested fix consumes this caller-owned
+  `skill://fix` with `#<pr>`. Nested fix consumes this caller-owned
   allocated step and must not call `record('red')` again. It applies one change per
   posted root cause, inline, and does not stop for a per-finding choice. A cause it
   cannot apply becomes a sibling issue.
@@ -342,11 +342,12 @@ approval if not already explicit for this PR. Then `await landPr(cwd, pr)`
 resolves the landing mode itself from `cwd` through `readLanding` — the same
 resolver `/ci-watch` uses: `landing.mode` in `.dev/stack.yml` (parsed as YAML),
 else merge-on-green when `.github/workflows/merge-on-green.yml` exists, else
-native. Invalid configuration returns `bad-landing` before any gh call.
-`landPr` independently reads current review state: a stop returns `review-stopped`
-with disarm evidence, before any arming. Otherwise it adds `reviewed` — under
-merge-on-green a pre-existing label is removed first so a fresh labeled run exists —
-and returns
+native. Before reading configuration, `landPr` independently reads current review
+state: a stop returns `review-stopped` with disarm evidence; no approving review
+after the latest correction/allocation returns `not-approved`. Invalid
+configuration then returns `bad-landing` before arming. Otherwise it adds
+`reviewed` — under merge-on-green a pre-existing label is removed first so a
+fresh labeled run exists — and returns
 `{ status: 'watching', mode, watch }`. `watch` is the absolute real path of
 `ci-watch.sh` (derived from this module), carrying `--merge-mode <mode>` and,
 under merge-on-green, always `--since <GitHub labeled time>` of that new event.
@@ -382,6 +383,7 @@ Neither a fix round nor another review action may write that label in this cycle
 |---|---|
 | `review-stopped` | Print `land.stop`, publish the `dev-review` Phase 8 dossier and exit; no watch, fix or merge |
 | `no-pr` | Stop; no PR was resolved and no gate was armed |
+| `not-approved` | Stop; no current approving review covers the latest correction. Review again; do not merge |
 | `watching` | Start the async `/ci-watch` job named in `land.watch` |
 | `merged` | Report issue + PR; offer the optional tail (§0), stop |
 | `ci-failed` | Gate already disarmed; `step = loop.reopen('ci-failed')`; if `step.action === 'stop'` → `enforceStop` then dossier (do not `persist` separately); else `await loop.persist(cwd)` and follow §6.6 |

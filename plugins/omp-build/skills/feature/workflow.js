@@ -258,13 +258,27 @@ export async function resolveReviewPr(cwd, explicitPr, { gh: ghFn = gh, git: git
   }
   const branch = (await gitFn(cwd, ['branch', '--show-current'])).trim()
   if (!branch) throw new Error('resolveReviewPr: cannot discover a PR from a detached HEAD')
-  const raw = await ghFn(cwd, ['pr', 'list', '--head', branch, '--state', 'open', '--json', 'number'])
+  const raw = await ghFn(cwd, ['pr', 'list', '--head', branch, '--state', 'all', '--json', 'number,state'])
   const entries = JSON.parse(raw)
-  if (!Array.isArray(entries) || entries.some((entry) => !Number.isSafeInteger(entry?.number) || entry.number <= 0)) {
+  if (
+    !Array.isArray(entries) ||
+    entries.some(
+      (entry) =>
+        !Number.isSafeInteger(entry?.number) ||
+        entry.number <= 0 ||
+        !['OPEN', 'CLOSED', 'MERGED'].includes(entry.state),
+    )
+  ) {
     throw new Error('resolveReviewPr: invalid PR discovery response')
   }
-  if (entries.length > 1) throw new Error('resolveReviewPr: multiple open PRs for this branch; pass the PR number')
-  return entries[0]?.number ?? null
+  const open = entries.filter((entry) => entry.state === 'OPEN')
+  if (open.length > 1) throw new Error('resolveReviewPr: multiple open PRs for this branch; pass the PR number')
+  if (open.length === 1) return open[0].number
+  // A closed PR keeps its review budget. Reusing its head would reset that budget.
+  if (entries.some((entry) => entry.state === 'CLOSED')) {
+    throw new Error('resolveReviewPr: this branch has a closed PR; use an explicit superseding branch')
+  }
+  return null
 }
 
 /**
@@ -483,8 +497,9 @@ const SINCE_RETRY_MS = 200
 
 /**
  * Arm `reviewed` and hand the wait to `/ci-watch`. No in-process poll.
- * Without an explicit `landing`, the mode comes from `readLanding(cwd)`; an
- * invalid landing returns `bad-landing` before any gh call.
+ * First resolve the PR and read attributable review history. A stop is enforced;
+ * no approving review after the latest correction/allocation returns `not-approved`.
+ * Only then resolve landing mode; invalid landing returns `bad-landing` before arming.
  * Native also enables merge-commit auto-merge. merge-on-green never returns
  * `no-required-checks` — the workflow, not the rules API, is the gate. Under
  * merge-on-green a `reviewed` already on the PR is removed and re-added, so a
@@ -509,6 +524,16 @@ export async function landPr(
   pr,
   { gh: ghFn = gh, requiredContexts, landing, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {},
 ) {
+  pr = await resolveReviewPr(cwd, pr, { gh: ghFn })
+  if (pr === null) return { status: 'no-pr' }
+  const history = await readReviewHistory(cwd, pr, { gh: ghFn })
+  const spent = history.rounds
+  if (spent.stopReason) {
+    const stop = await createReviewLoop({ pr, ...spent, gh: ghFn }).enforceStop(cwd)
+    return { status: 'review-stopped', reason: spent.stopReason, reviews: spent.reviews, fixes: spent.fixes, stop }
+  }
+  // Only an approving review of the latest completed/allocated correction may arm.
+  if (!history.approvedForLanding) return { status: 'not-approved', reviews: spent.reviews, fixes: spent.fixes }
   let resolved = landing
   if (!resolved) {
     try {
@@ -516,13 +541,6 @@ export async function landPr(
     } catch (e) {
       return { status: 'bad-landing', error: e instanceof Error ? e.message : String(e) }
     }
-  }
-  pr = await resolveReviewPr(cwd, pr, { gh: ghFn })
-  if (pr === null) return { status: 'no-pr' }
-  const spent = await readReviewRounds(cwd, pr, { gh: ghFn })
-  if (spent.stopReason) {
-    const stop = await createReviewLoop({ pr, ...spent, gh: ghFn }).enforceStop(cwd)
-    return { status: 'review-stopped', reason: spent.stopReason, reviews: spent.reviews, fixes: spent.fixes, stop }
   }
   if (resolved.mode === 'native') {
     const required =
@@ -737,7 +755,7 @@ function reviewVerdict(body) {
 
 function reviewIdentity(me) {
   const who = typeof me === 'string' ? me.trim() : ''
-  if (!/^[A-Za-z0-9][A-Za-z0-9-]{0,38}(?:\[bot\])?$/.test(who)) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9-]{0,38}(?:_[A-Za-z0-9]+)?(?:\[bot\])?$/.test(who)) {
     throw new TypeError('interpretReviewHistory: expected a bare automation login')
   }
   return who
@@ -767,6 +785,7 @@ function analyzeReviewHistory(comments, { me, maxFixRounds = MAX_FIX_ROUNDS } = 
   let latestReview = -1
   let latestReceipt = -1
   let latestVerdict = null
+  let latestAllocation = -1
   // GitHub supplies creation order. Only first-line records by this account count.
   for (let order = 0; order < comments.length; order++) {
     const entry = comments[order]
@@ -780,6 +799,7 @@ function analyzeReviewHistory(comments, { me, maxFixRounds = MAX_FIX_ROUNDS } = 
       const parsed = parseReviewRounds(entry.body)
       hasMarker = true
       markerReviews = Math.max(markerReviews, parsed.reviews)
+      if (parsed.fixes > markerFixes) latestAllocation = order
       markerFixes = Math.max(markerFixes, parsed.fixes)
       explicitStop ??= parsed.stopReason
     } else if (CODE_REVIEW_FIRST_LINE.test(first)) {
@@ -820,7 +840,21 @@ function analyzeReviewHistory(comments, { me, maxFixRounds = MAX_FIX_ROUNDS } = 
     rounds.stopReason = 'review-bound'
     stopOrigin = 'terminal-red'
   }
-  return { rounds, me: who, hasMarker, markerReviews, markerFixes, codeReviews, latestVerdict, stopOrigin }
+  const approvedForLanding =
+    latestVerdict?.startsWith('Approve') === true && latestReview > latestReceipt && latestReview > latestAllocation
+  const empty = !hasMarker && codeReviews === 0 && receipts === 0
+  return {
+    rounds,
+    me: who,
+    hasMarker,
+    markerReviews,
+    markerFixes,
+    codeReviews,
+    latestVerdict,
+    stopOrigin,
+    approvedForLanding,
+    empty,
+  }
 }
 
 /** Current durable counts and stop, independent of the caller's cached loop. */
@@ -857,7 +891,10 @@ export async function resumeReviewLoop(cwd, { pr, maxFixRounds = MAX_FIX_ROUNDS,
   }
   pr = await resolveReviewPr(cwd, pr, { gh: ghFn })
   const history = await readReviewHistory(cwd, pr, { gh: ghFn, maxFixRounds })
-  return buildReviewLoop({ pr, maxFixRounds, ...history.rounds, gh: ghFn }, history)
+  const loop = buildReviewLoop({ pr, maxFixRounds, ...history.rounds, gh: ghFn }, history)
+  // Baseline before the first posted review: a crash cannot turn it into legacy history.
+  if (history.empty) await loop.persist(cwd, { gh: ghFn })
+  return loop
 }
 
 /**
@@ -929,7 +966,7 @@ function buildReviewLoop(
     if (reason === 'history-ambiguous')
       return 'Review history cannot be proven; counts are conservative, not a confirmed exhausted budget.'
     if (reason === 'history-stale')
-      return 'Review history changed since this loop was initialized; no correction is authorized.'
+      return 'Durable review history does not match this live allocation; no correction is authorized.'
     return reason === 'ci-failed'
       ? `A required check failed after the panel approved, and no fix round is left: ${reviews} reviews, ${fixes} fix rounds spent/allocated.`
       : `Review bound reached: ${reviews} reviews, ${fixes} fix rounds spent/allocated, still red.`
@@ -1062,7 +1099,7 @@ function buildReviewLoop(
           (step.reason === 'ci-failed'
             ? fresh.latestVerdict?.startsWith('Approve')
             : fresh.latestVerdict === 'Request changes')
-        const ownsDerivedStop = sameAllocation && !step.reason && fresh.stopOrigin === 'terminal-red'
+        const ownsDerivedStop = sameAllocation && fresh.stopOrigin === 'terminal-red'
         if (!sameAllocation || (fresh.rounds.stopReason && !ownsDerivedStop)) {
           reviews = Math.max(reviews, fresh.rounds.reviews)
           fixes = Math.max(fixes, fresh.rounds.fixes)
@@ -1181,6 +1218,7 @@ function buildReviewLoop(
       if (prState === 'MERGED' || prState === 'CLOSED') {
         return {
           prState,
+          guaranteed: false,
           removed: false,
           autoMergeDisabled: false,
           labels,
@@ -1265,6 +1303,7 @@ function buildReviewLoop(
       }
       return {
         prState,
+        guaranteed,
         removed,
         autoMergeDisabled,
         labels,

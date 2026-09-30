@@ -101,20 +101,23 @@ the prompt listing while `skill://<name>` and `/skill:<name>` still reach it
 It does not hand the operator a `/wt` line. Existing worktrees are entered by
 `/move <path>`, not recreated.
 
-In the matching worktree: implement → `dev-review` → `fix --no-label` → land.
+In the matching worktree: implement → `dev-review` → `fix` → land.
 `resolveReviewPr` binds an explicit number or the current branch before review
-initialization; lookup failure is never treated as a local review. Existing PRs
-resume directly into review, without another implementation pass.
+initialization; lookup failure is never treated as a local review. A closed PR
+on the branch refuses implicit reuse, so its budget cannot be reset. Existing
+PRs resume directly into review; empty history receives a baseline marker.
 
 `workflow.js` enforces the review bound at the action sinks:
 - `resumeReviewLoop` restores attributable counts/stops and private provenance;
   only a newly recorded verdict or CI reopening allocates a live fix step.
 - `await loop.assertFixAllowed(cwd, step)` checks current durable history and
   consumes that allocation once. It allows its own second live allocation, but
-  rejects resumed grants, newer stops, identity drift and additional reviews.
+  rejects resumed grants, newer stops, identity drift and additional reviews;
+  an unproven live allocation stops as `history-stale` rather than refunding it.
 - `landPr(cwd, pr)` independently checks current history before either landing
-  mode can arm. A stop returns `review-stopped` with disarm evidence, even when
-  the caller never initialized a loop. Unreadable history authorizes nothing.
+  mode can arm. A stop returns `review-stopped` with disarm evidence; without an
+  approving review after the latest correction/allocation it returns
+  `not-approved`. Unreadable history authorizes nothing.
 - `enforceStop` observes PR state before independently publishing and disarming.
   CLOSED/MERGED PRs receive no effects; partial failures are reported explicitly.
 
