@@ -677,6 +677,11 @@ describe('goalRun', () => {
     ['active, run with punctuation', active('/feature #575 run=run0000! base=main'), null],
     ['active, no base=', active(`/feature #575 run=${RUN}`), null],
     ['active, base with ..', active(`/feature #575 run=${RUN} base=main..x`), null],
+    ['active, two base=', active(`/feature #575 run=${RUN} base=main base=staging`), null],
+    ['active, base with ~ (a revision, not a branch)', active(`/feature #575 run=${RUN} base=main~1`), null],
+    ['active, base with ^', active(`/feature #575 run=${RUN} base=main^`), null],
+    ['active, base with @{', active(`/feature #575 run=${RUN} base=main@{1}`), null],
+    ['active, base with :', active(`/feature #575 run=${RUN} base=main:x`), null],
     ['active, generated objective', active(objective), { run: RUN, base: BASE }],
     [
       'active, hand-written objective',
