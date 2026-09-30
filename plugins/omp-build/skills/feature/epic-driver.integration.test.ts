@@ -575,3 +575,103 @@ describe('epic-driver — unreadable landing', () => {
     ])
   })
 })
+
+/**
+ * Child #2 merged into origin/main by PR #10, whose commit also ships a hook that
+ * leaves a proof file. Returns the cumulative range the final review is about.
+ */
+function landedEpic(): { range: string; merged: ReturnType<typeof prNode>; proof: string } {
+  const { principal, epic, root } = sandbox()
+  const proof = path.join(root, 'hook-ran')
+  mkdirSync(path.join(principal, 'scripts'))
+  writeFileSync(path.join(principal, 'scripts', 'post-merge.sh'), `#!/bin/sh\ntouch '${proof}'\n`)
+  chmodSync(path.join(principal, 'scripts', 'post-merge.sh'), 0o755)
+  writeFileSync(
+    path.join(principal, '.dev', 'stack.yml'),
+    'release:\n  model: trunk\n  post_merge:\n    - ./scripts/post-merge.sh\n',
+  )
+  const base = git(principal, 'rev-parse', 'HEAD')
+  git(principal, 'add', '.')
+  git(principal, 'commit', '-qm', 'feat(x): first child (#2)')
+  git(principal, 'push', '-q', 'origin', 'main')
+  const merge = git(principal, 'rev-parse', 'HEAD')
+  git(epic, 'fetch', '-q', 'origin')
+  const merged = prNode(10, 'feat/2-first-child', 'c'.repeat(40), {
+    state: 'MERGED',
+    mergedAt: '2026-09-30T10:00:00Z',
+    mergeCommit: { oid: merge, parents: { nodes: [{ oid: base }] } },
+  })
+  return { range: `${base}..${merge}`, merged, proof }
+}
+
+const reviewMarker = (verdict: 'clean' | 'blocking', range: string): Comment => ({
+  body: `<!-- omp-build:epic-review run=${RUN} verdict=${verdict} range=${range} -->\n${verdict}`,
+  author: ME,
+})
+
+describe('epic-driver — final review and hook refusals', () => {
+  it('refuses a clean review while the one fix ticket is still owed', () => {
+    const { range, merged } = landedEpic()
+    serveEpic(
+      [childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] })],
+      [reviewMarker('blocking', range)],
+    )
+    expect(drive(['next', '--dry-run']).json().step).toMatchObject({ action: 'final-review', stage: 'fix-ticket' })
+
+    const run = drive(['review', '--verdict', 'clean', '--range', range])
+    expect(run.code).toBe(2)
+    expect(writes()).toEqual([])
+  })
+
+  it('refuses a review of a range the driver did not ask for', () => {
+    const { range, merged } = landedEpic()
+    serveEpic([childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] })])
+    const [from] = range.split('..')
+    const run = drive(['review', '--verdict', 'clean', '--range', `${from}..${'d'.repeat(40)}`])
+    expect(run.code).toBe(2)
+    expect(writes()).toEqual([])
+    expect(drive(['review', '--verdict', 'clean', '--range', range]).code).toBe(0)
+  })
+
+  it('refuses to run the hook before the final review is clean', () => {
+    const { merged, proof } = landedEpic()
+    serveEpic([childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] })])
+    const run = drive(['hook', '--repo', sandboxOf().epic], { cwd: sandboxOf().root })
+    expect(run.code).toBe(2)
+    expect(writes()).toEqual([])
+    expect(() => readFileSync(proof)).toThrow()
+  })
+
+  it('counts the fix round only for an epic-fix child this account wrote', () => {
+    const { range, merged } = landedEpic()
+    const fix = (author: string) => ({
+      ...childNode(3, 'fix(x): epic review', { state: 'CLOSED' }),
+      body: '<!-- omp-build:epic-fix -->\n## Acceptance criteria\n- [ ] fixed\n',
+      author: { login: author },
+    })
+    const done = childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] })
+    serveEpic([done, fix('mallory')], [reviewMarker('blocking', range)])
+    expect(drive(['next', '--dry-run']).json().step).toMatchObject({ action: 'final-review', stage: 'fix-ticket' })
+    serveEpic([done, fix(ME)], [reviewMarker('blocking', range)])
+    expect(drive(['next', '--dry-run']).json().step).toMatchObject({ action: 'drop', stop: 'final-review-blocking' })
+  })
+})
+
+describe('epic-driver — fork PRs', () => {
+  it('ignores a fork PR carrying the child branch name, found through a cross-reference', () => {
+    const { epic } = sandbox()
+    const fork = prNode(66, 'feat/2-first-child', 'e'.repeat(40), {
+      isCrossRepository: true,
+      labels: { nodes: [{ name: 'reviewed' }] },
+    })
+    const node = childNode(2, 'feat(x): first child')
+    node.timelineItems = { nodes: [{ source: fork }] } as typeof node.timelineItems
+    serveEpic([node])
+
+    const run = drive(['next'])
+    expect(run.code).toBe(0)
+    expect(run.json().recorded).toEqual([])
+    expect(run.json().step).toMatchObject({ action: 'start', ticket: 2, branch: 'feat/2-first-child' })
+    expect(git(epic, 'branch', '--show-current')).toBe('feat/2-first-child')
+  })
+})
