@@ -64,14 +64,14 @@
     },
     {
       "name": "issue-triage",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "description": "Triage/create GitHub issues \u2014 size/priority/lane/type labels, blocked-by deps, parent/child. Labels + native relations, no Projects V2.",
       "source": "./plugins/issue-triage",
       "category": "development"
     },
     {
       "name": "omp-build",
-      "version": "0.6.0",
+      "version": "0.7.0",
       "description": "OMP-only feature cycle \u2014 frame, GitHub issue, worktree, implement, bounded review/fix, land.",
       "source": "./plugins/omp-build",
       "category": "development"
