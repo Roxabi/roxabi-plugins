@@ -10,6 +10,10 @@
  * `bun scripts/dependency-audit.ts` (a file, not a package.json script: `bun run` would
  * put node_modules/.bin first on PATH, and the audit must run on the bun you chose).
  *
+ * The workflow runs this only on a `bun.lock` that matches `package.json`: `bun audit`
+ * reads the lock alone, so a dependency missing from it would never be audited. A
+ * mismatch is routed like exit 2.
+ *
  * Exit codes — the workflow routes on these, never on bun's own:
  *   0   clean: no finding, no stale ignore, every package audited. Nothing is filed.
  *   10  action required: report written (findings, stale ignores and/or unaudited

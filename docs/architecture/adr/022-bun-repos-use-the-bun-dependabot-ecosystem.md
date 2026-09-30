@@ -152,17 +152,22 @@ The audit's policy, settled on #645 and to be carried by #646:
   advisory has left the tree, or whose severity changed, is reported, not kept.
 - **Scheduled, never a PR check.** A new advisory against an unchanged lockfile
   must not turn unrelated PRs red.
+- **Only a lock that matches the manifest is audited.** `bun audit` reads
+  `bun.lock` alone, so a dependency missing from it would never be audited. The
+  run first checks, without installing or running scripts, that `bun.lock`
+  matches `package.json` (`bun install --frozen-lockfile --lockfile-only
+  --ignore-scripts`); a mismatch is routed as an audit that cannot be trusted.
 - **Action required files or updates one `security` issue and fails the run**:
   a finding, a stale ignore, or a package bun could not audit. Partial coverage
   counts as action required on purpose — read as clean, it is a false clean. An
-  audit that cannot be trusted (no parseable result consistent with bun's exit
-  code), or that did not finish, never files a security issue; it files one
-  non-security "audit failed" issue, and so does a run whose security issue could
-  not be written. The next run that delivers its result (clean, or filed) closes
-  it; a failing run stays red. Still silent: a scheduled run GitHub drops or
-  disables, a run whose last step cannot write to GitHub, and a registry that
-  answers `{}` for packages it never audited. The exit codes are in
-  `scripts/dependency-audit.ts`.
+  audit that cannot be trusted (a lock that disagrees with `package.json`, or no
+  parseable result consistent with bun's exit code), or that did not finish,
+  never files a security issue; it files one non-security "audit failed" issue,
+  and so does a run whose security issue could not be written. The next run that
+  delivers its result (clean, or filed) closes it; a failing run stays red. Still
+  silent: a scheduled run GitHub drops or disables, a run whose last step cannot
+  write to GitHub, and a registry that answers `{}` for packages it never audited.
+  The exit codes are in `scripts/dependency-audit.ts`.
 - The issues are public, like the repo. That is acceptable while every dependency
   is dev-only; revisit together with the runtime-dependency trigger below.
 
