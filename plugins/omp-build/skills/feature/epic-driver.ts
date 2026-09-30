@@ -713,8 +713,10 @@ async function hook(repo: string, epic: number, run: string, base: string): Prom
     outcome = { result: 'failed', sha: null, detail: error instanceof Error ? error.message : String(error) }
   }
   const sha = outcome.sha ?? facts.baseSha
-  const tail = outcome.output ? `\n\n\`\`\`\n${outcome.output.slice(-3000)}\n\`\`\`` : ''
-  mark(outcome.result, sha, `Post-merge hook **${outcome.result}** at \`${sha}\`: ${outcome.detail}${tail}`)
+  // Result, exit code and sha only: the hook's output can carry the session's secrets,
+  // and the tracker is public. The output reaches the chat through the JSON below.
+  const code = outcome.code === undefined ? '' : ` (exit ${outcome.code})`
+  mark(outcome.result, sha, `Post-merge hook **${outcome.result}**${code} at \`${sha}\`.`)
   return outcome
 }
 
