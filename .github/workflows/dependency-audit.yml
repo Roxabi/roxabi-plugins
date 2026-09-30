@@ -8,7 +8,9 @@ name: Dependency Audit
 
 on:
   schedule:
-    - cron: '0 8 * * 1'  # Mondays 08:00 UTC
+    # Minute 17, not 0: GitHub may drop queued scheduled runs under top-of-hour load, and a
+    # dropped run leaves no failure behind.
+    - cron: '17 8 * * 1'  # Mondays 08:17 UTC
   workflow_dispatch: {}
 
 permissions:
