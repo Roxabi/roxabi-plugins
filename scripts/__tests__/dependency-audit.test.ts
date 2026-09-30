@@ -261,15 +261,16 @@ describe('main', () => {
     expect(readFileSync(report, 'utf8')).toMatch(/^<!-- dependency-audit: /)
   })
 
-  it('runs `audit --json` on the running bun, bounded below the job cap', () => {
+  it('runs `audit --json` on the running bun, bounded well inside the audit step cap', () => {
     bunAudit('{}', 0)
     main(['--report', report], {}, [])
     const [argv, options] = spawn.mock.calls[0]
     expect(argv).toEqual([process.execPath, 'audit', '--json'])
-    // A hung audit must end in the script's exit 2 (which files the failure issue), not
-    // in the job's 10-minute kill, which files nothing.
-    expect(options.timeout).toBeGreaterThan(0)
-    expect(options.timeout).toBeLessThan(10 * 60_000)
+    // A hung audit must end in the script's exit 2, so the failure issue carries an exit
+    // code. The audit step's 6-minute cap is only the backstop, and the lock check and the
+    // issue writes share it: at most half of it. At least a minute for one bulk request.
+    expect(options.timeout).toBeGreaterThanOrEqual(60_000)
+    expect(options.timeout).toBeLessThanOrEqual(3 * 60_000)
   })
 
   it('exits 2 on a bad argument without running bun audit', () => {

@@ -280,7 +280,10 @@ function runMeta(env: NodeJS.ProcessEnv): RunMeta {
   }
 }
 
-/** One bulk audit request; the job's own 10-minute cap is the backstop, not the bound. */
+/**
+ * One bulk audit request. Well inside the audit step's 6-minute cap, so a hung audit ends
+ * in exit 2 and the failure issue carries an exit code; the step cap is only the backstop.
+ */
 const AUDIT_TIMEOUT_MS = 120_000
 
 function appendStepSummary(env: NodeJS.ProcessEnv, text: string): void {
