@@ -1,7 +1,7 @@
 {
   "name": "roxabi-marketplace",
   "version": "1.0.0",
-  "description": "Open-source Oh My Pi plugins by Roxabi — context engineering tools for teams.",
+  "description": "Open-source Oh My Pi plugins by Roxabi \u2014 context engineering tools for teams.",
   "owner": {
     "name": "Roxabi",
     "url": "https://github.com/Roxabi"
@@ -15,14 +15,14 @@
     },
     {
       "name": "1b1",
-      "description": "Walk through a list of items one by one — brief, decide, execute, repeat.",
+      "description": "Walk through a list of items one by one \u2014 brief, decide, execute, repeat.",
       "source": "./plugins/1b1",
       "category": "workflow"
     },
     {
       "name": "dev-core",
       "version": "0.3.0",
-      "description": "Full development workflow — frame, shape, plan, implement, review, ship. Includes /dev-init project setup orchestrator. Opinionated Roxabi process: lifecycle skills, specialized agents, and safety hooks.",
+      "description": "Full development workflow \u2014 frame, shape, plan, implement, review, ship. Includes /dev-init project setup orchestrator. Opinionated Roxabi process: lifecycle skills, specialized agents, and safety hooks.",
       "source": "./plugins/dev-core",
       "category": "development"
     },
@@ -52,26 +52,27 @@
     },
     {
       "name": "linkedin-apply",
-      "description": "Scrape LinkedIn job offers and score them against your profile with Claude LLM — APPLY / REVIEW / SKIP decisions with 4-dimension scoring.",
+      "description": "Scrape LinkedIn job offers and score them against your profile with Claude LLM \u2014 APPLY / REVIEW / SKIP decisions with 4-dimension scoring.",
       "source": "./plugins/linkedin-apply",
       "category": "productivity"
     },
     {
       "name": "gitnexus",
-      "description": "GitNexus CLI integration — code knowledge graph tools (impact analysis, symbol context, query). CLI-only alternative to MCP for minimal token overhead.",
+      "description": "GitNexus CLI integration \u2014 code knowledge graph tools (impact analysis, symbol context, query). CLI-only alternative to MCP for minimal token overhead.",
       "source": "./plugins/gitnexus",
       "category": "development"
     },
     {
       "name": "issue-triage",
-      "description": "Triage/create GitHub issues — size/priority/lane/type labels, blocked-by deps, parent/child. Labels + native relations, no Projects V2.",
+      "version": "0.1.2",
+      "description": "Triage/create GitHub issues \u2014 size/priority/lane/type labels, blocked-by deps, parent/child. Labels + native relations, no Projects V2.",
       "source": "./plugins/issue-triage",
       "category": "development"
     },
     {
       "name": "omp-build",
-      "version": "0.4.0",
-      "description": "OMP-only feature cycle — issue, branch proposal and operator /wt, then implement, bounded review/fix, land.",
+      "version": "0.7.0",
+      "description": "OMP-only feature cycle \u2014 frame, GitHub issue, worktree, implement, bounded review/fix, land.",
       "source": "./plugins/omp-build",
       "category": "development"
     }

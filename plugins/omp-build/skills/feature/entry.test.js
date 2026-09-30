@@ -5,69 +5,79 @@ const PRINCIPAL = '/home/dev/roxabi-plugins'
 const OMEGA = '/home/dev/.omp/worktrees/roxabi-plugins/feat-493-entry'
 
 describe('resolveEntry — on the Principal', () => {
-  it('hops, carrying the exact relocation command — the ω directory, not the branch', () => {
+  it('refuses, and does not name a relocation command', () => {
     expect(
       resolveEntry({
         cwd: PRINCIPAL,
         principalPath: PRINCIPAL,
         branch: 'feat/493-feature-front-half',
         ticket: null,
-        worktreePath: OMEGA,
       }),
     ).toEqual({
-      action: 'hop',
+      action: 'refuse',
       reason: 'principal',
       cwd: PRINCIPAL,
       branch: 'feat/493-feature-front-half',
       ticket: null,
-      command: `omp --cwd ${OMEGA}`,
+      branchTicket: 493,
     })
   })
 
-  it('hops with a ticket too — the Principal is never implemented on', () => {
-    const entry = resolveEntry({
+  it('refuses with a ticket too — the Principal is never implemented on', () => {
+    expect(
+      resolveEntry({
+        cwd: PRINCIPAL,
+        principalPath: PRINCIPAL,
+        branch: 'feat/493-feature-front-half',
+        ticket: '#493',
+      }),
+    ).toEqual({
+      action: 'refuse',
+      reason: 'principal',
       cwd: PRINCIPAL,
-      principalPath: PRINCIPAL,
       branch: 'feat/493-feature-front-half',
-      ticket: '#493',
-      worktreePath: OMEGA,
+      ticket: 493,
+      branchTicket: 493,
     })
-    expect(entry.action).toBe('hop')
-    expect(entry.ticket).toBe(493)
   })
 
-  it('reads through a trailing slash, and echoes neither it nor an untrimmed branch', () => {
+  it('refuses a trailing-slash Principal rather than framing', () => {
     expect(
       resolveEntry({
         cwd: `${PRINCIPAL}/`,
         principalPath: PRINCIPAL,
         branch: '  feat/493-x  ',
-        worktreePath: `${OMEGA}/`,
       }),
     ).toEqual({
-      action: 'hop',
+      action: 'refuse',
       reason: 'principal',
       cwd: PRINCIPAL,
       branch: 'feat/493-x',
       ticket: null,
-      command: `omp --cwd ${OMEGA}`,
+      branchTicket: 493,
     })
   })
 
-  it('refuses to name a relocation command it does not have', () => {
-    expect(() => resolveEntry({ cwd: PRINCIPAL, principalPath: PRINCIPAL, branch: null })).toThrow(/branch is required/)
+  it('refuses with no branch', () => {
+    expect(resolveEntry({ cwd: PRINCIPAL, principalPath: PRINCIPAL, branch: null })).toEqual({
+      action: 'refuse',
+      reason: 'principal',
+      cwd: PRINCIPAL,
+      branch: null,
+      ticket: null,
+      branchTicket: null,
+    })
   })
 
-  it('refuses to hop without the ω directory the command has to name', () => {
-    expect(() => resolveEntry({ cwd: PRINCIPAL, principalPath: PRINCIPAL, branch: 'feat/493-x' })).toThrow(
-      /worktreePath is required/,
-    )
-  })
-
-  it('refuses a base branch as the hop target', () => {
-    expect(() =>
-      resolveEntry({ cwd: PRINCIPAL, principalPath: PRINCIPAL, branch: 'staging', worktreePath: OMEGA }),
-    ).toThrow(/base branch/)
+  it('refuses a base branch on the Principal instead of throwing', () => {
+    expect(resolveEntry({ cwd: PRINCIPAL, principalPath: PRINCIPAL, branch: 'staging' })).toEqual({
+      action: 'refuse',
+      reason: 'principal',
+      cwd: PRINCIPAL,
+      branch: 'staging',
+      ticket: null,
+      branchTicket: null,
+    })
   })
 })
 
@@ -167,6 +177,56 @@ describe('resolveEntry — branch mismatch', () => {
   })
 })
 
+describe('resolveEntry — epic route', () => {
+  const EPIC = { cwd: OMEGA, principalPath: PRINCIPAL, ticket: 575, children: [577, 578] }
+
+  it('routes an epic with sub-issues from a detached epic worktree', () => {
+    expect(resolveEntry({ ...EPIC, branch: null })).toEqual({
+      action: 'epic',
+      cwd: OMEGA,
+      branch: null,
+      ticket: 575,
+      children: [577, 578],
+    })
+  })
+
+  it('routes it from a branch that claims one of its children', () => {
+    expect(resolveEntry({ ...EPIC, branch: 'fix/578-landing' }).action).toBe('epic')
+  })
+
+  it('refuses a branch that claims a ticket outside the epic', () => {
+    expect(resolveEntry({ ...EPIC, branch: 'feat/5770-decoy' })).toEqual({
+      action: 'refuse',
+      reason: 'branch-mismatch',
+      cwd: OMEGA,
+      branch: 'feat/5770-decoy',
+      ticket: 575,
+      branchTicket: 5770,
+    })
+  })
+
+  it('never routes an epic on the Principal', () => {
+    expect(resolveEntry({ ...EPIC, cwd: PRINCIPAL, branch: null })).toMatchObject({
+      action: 'refuse',
+      reason: 'principal',
+    })
+  })
+
+  it('keeps the assisted routes when the ticket has no sub-issues', () => {
+    for (const children of [undefined, null, []]) {
+      expect(resolveEntry({ ...EPIC, children, branch: null }).action).toBe('refuse')
+      expect(resolveEntry({ ...EPIC, children, branch: 'feat/577-x' }).action).toBe('refuse')
+    }
+    expect(resolveEntry({ ...EPIC, branch: 'feat/575-epic' }).action).toBe('build')
+  })
+
+  it('rejects children that are not issue numbers', () => {
+    for (const children of ['577', [577, '578'], [0], [4.5]]) {
+      expect(() => resolveEntry({ ...EPIC, children, branch: null })).toThrow(/children must be a list/)
+    }
+  })
+})
+
 describe('resolveEntry — rejected inputs', () => {
   it('requires cwd and principalPath', () => {
     expect(() => resolveEntry({ principalPath: PRINCIPAL, branch: 'feat/493-x' })).toThrow(/cwd is required/)
@@ -187,22 +247,23 @@ describe('resolveEntry — rejected inputs', () => {
       'C:\\dev\\roxabi-plugins',
       `${PRINCIPAL}\\sub`,
     ]) {
-      expect(() => resolveEntry({ cwd, principalPath: PRINCIPAL, branch: 'feat/493-x', worktreePath: OMEGA })).toThrow(
+      expect(() => resolveEntry({ cwd, principalPath: PRINCIPAL, branch: 'feat/493-x' })).toThrow(
         /cwd must be an absolute, normalised POSIX path/,
       )
     }
     // Repeated *trailing* slashes are the one tolerated denormalisation, so this
     // one must land on the Principal rather than throw — and above all not frame.
-    expect(
-      resolveEntry({ cwd: `${PRINCIPAL}//`, principalPath: PRINCIPAL, branch: 'feat/493-x', worktreePath: OMEGA })
-        .action,
-    ).toBe('hop')
-    expect(() =>
-      resolveEntry({ cwd: PRINCIPAL, principalPath: `${PRINCIPAL}/.`, branch: 'feat/493-x', worktreePath: OMEGA }),
-    ).toThrow(/principalPath must be an absolute, normalised POSIX path/)
-    expect(() =>
-      resolveEntry({ cwd: PRINCIPAL, principalPath: PRINCIPAL, branch: 'feat/493-x', worktreePath: '~/omega' }),
-    ).toThrow(/worktreePath must be an absolute, normalised POSIX path/)
+    expect(resolveEntry({ cwd: `${PRINCIPAL}//`, principalPath: PRINCIPAL, branch: 'feat/493-x' })).toEqual({
+      action: 'refuse',
+      reason: 'principal',
+      cwd: PRINCIPAL,
+      branch: 'feat/493-x',
+      ticket: null,
+      branchTicket: 493,
+    })
+    expect(() => resolveEntry({ cwd: PRINCIPAL, principalPath: `${PRINCIPAL}/.`, branch: 'feat/493-x' })).toThrow(
+      /principalPath must be an absolute, normalised POSIX path/,
+    )
   })
 
   it('rejects a ticket that is not an issue number', () => {

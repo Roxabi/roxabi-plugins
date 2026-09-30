@@ -12,8 +12,9 @@ OMP marketplace — catalogued in `.omp-plugin/marketplace.json` only (OMP-only 
 omp plugin marketplace add Roxabi/roxabi-plugins   # once per machine
 omp plugin marketplace update roxabi-marketplace   # after a catalog change lands
 omp plugin install omp-build@roxabi-marketplace
-ln -sfn ~/.omp/plugins/node_modules/omp-build/scripts/omp-wt.sh ~/.local/bin/omp-wt
 ```
+
+If `~/.local/bin/omp-wt` exists, `rm -f ~/.local/bin/omp-wt` — the script is retired; enter a worktree with `/move <path>`.
 
 **Then arm the surfaces.** With the `claude-plugins` provider disabled, a marketplace install loads only `package.json#omp.extensions` — `skills/` and `agents/` stay dark, because the realpath filter that hides marketplace roots lives in the *installed* lane that both `omp-plugins` (skills/commands/hooks) and the agents gate read. Add the stable `node_modules` symlink to `extensions:` in `~/.omp/agent/config.yml`:
 
@@ -33,7 +34,6 @@ Alternative to the catalog install, from a checkout of `roxabi-plugins` (monorep
 ```bash
 # from repo root
 omp plugin link ./plugins/omp-build
-ln -sfn "$(pwd)/plugins/omp-build/scripts/omp-wt.sh" ~/.local/bin/omp-wt
 ```
 
 Requires `package.json` with an `omp` key. `omp.extensions` is the in-process lane — this plugin ships `./omp/index.ts` there (see [Guards](#guards)).
@@ -64,9 +64,11 @@ Symlinking into `~/.omp/agent/agents/` is not supported — use `link` (or the c
 ```
 
 At the end of framing an epic, the agent creates `<worktree base>/<repo>/<epic-slug>`
-from fresh `origin/<base>` and prints `/move <path>` then the generated `/goal` line.
-It does not switch the Principal. A single ticket outside a goal uses the same
-`/move`; assisted mode, no `/goal`.
+**detached** at fresh `refs/remotes/origin/<base>` (no epic branch) and prints
+`/move <path>`. Once every child is framed, `/feature #E` in that worktree prints the
+generated `/goal` line (`skills/feature/epic-driver.ts objective`), carrying the
+epic, a `run=` id and the base. It does not switch the Principal. A single ticket
+outside a goal uses the same `/move`; assisted mode, no `/goal`.
 
 After entering the matching worktree, run `/feature #42` again. Incomplete scope
 returns to framing; an actionable, unblocked issue proceeds to implementation.
@@ -79,8 +81,31 @@ questions, `issue-triage` for issue writes, and bundled `dev-review` / `fix` for
 verification. `tdd` is used at agreed test-first seams. The old `grill-with-docs`,
 `to-spec`, `to-tickets` and `implement` skills are no longer prerequisites.
 
-`omp-wt` and `/build` belong to the legacy entry flow; `/feature` does not invoke
-them. The still-used PR/landing functions remain in `skills/build/workflow.js`.
+PR open, the review loop, and landing live in `skills/feature/workflow.js`.
+
+### Epic flow under `/goal`
+
+With a goal active whose objective names `/feature #E`, the session runs the epic
+unattended in the epic worktree. Before every ticket it asks the driver
+(`skills/feature/epic-driver.ts next`) for the one next action, from GitHub and git
+state alone:
+
+```text
+next → start/resume child (branch from origin/<base>) → implement → dev-review → fix → land
+     → merge confirmed: detach, delete the local branch → next …
+     → every child closed or merged → final epic review (R-architect + R-adversarial)
+     → release.post_merge (argv, clean checkout of origin/<base>) → report → goal complete
+```
+
+Children run in `blocked_by` order. A **ticket stop** (review bound spent, watch
+timeout, cancelled or blocked checks, proof blocked, no scope, foreign commit…) is
+recorded on the child as a `goal-stop` marker, its PR disarmed; its dependents are
+skipped and independent children continue. A **shared-state stop** (base CI red,
+dirty tree, landing or tracker failure, hook failure, final review still blocking
+after its one fix ticket) disarms every child PR, reports on the epic and drops the
+goal. A new `/goal` line resumes: merged children are skipped, open PRs resumed,
+stops of earlier runs retried except a spent review bound. Without an active goal
+naming the epic, `/feature` is unchanged.
 
 ## Slash commands
 
@@ -98,17 +123,46 @@ is **not** a second gate: omp normalises it to `hide`, which omits the skill fro
 the prompt listing while `skill://<name>` and `/skill:<name>` still reach it
 (omp 18.2.9). Requires a **restart** (extension module), not `/reload-plugins`.
 
-`/feature` prints `/move` and, for an epic, `/goal`, immediately after framing.
+`/feature` prints `/move` immediately after framing and, for an epic, the `/goal` line once its children are framed.
 It does not hand the operator a `/wt` line. Existing worktrees are entered by
 `/move <path>`, not recreated.
 
-In the matching worktree: implement → `dev-review` → `fix --no-label` → land.
-`openPr` returns the PR number; `resumeReviewLoop` restores rounds from PR comments.
-At most two fix rounds; a third red stops and `enforceStop` removes the `reviewed`
-label and disables native auto-merge. Every verdict and CI reopening is persisted
-(counts only, not the stop). Only an approved landing calls `landPr`, which waits for
-green required checks before labelling and enabling auto-merge, and disarms both if a
-required check then fails or is skipped. No duplicate spec files or `validated` gate.
+In the matching worktree: implement → `dev-review` → `fix` → land.
+`resolveReviewPr` binds an explicit number or the current branch before review
+initialization; lookup failure is never treated as a local review. A closed PR
+on the branch refuses implicit reuse, so its budget cannot be reset. Existing
+PRs resume directly into review; empty history receives a baseline marker.
+
+`workflow.js` enforces the review bound at the action sinks:
+- `resumeReviewLoop` restores attributable counts/stops and private provenance;
+  only a newly recorded verdict or CI reopening allocates a live fix step.
+- `await loop.assertFixAllowed(cwd, step)` checks current durable history and
+  consumes that allocation once. It allows its own second live allocation, but
+  rejects resumed grants, newer stops, identity drift and additional reviews;
+  an unproven live allocation stops as `history-stale` rather than refunding it.
+- `landPr(cwd, pr)` independently checks current history before either landing
+  mode can arm. A stop returns `review-stopped` with disarm evidence; without an
+  approving review after the latest correction/allocation it returns
+  `not-approved`. Unreadable history authorizes nothing.
+- `enforceStop` observes PR state before independently publishing and disarming.
+  CLOSED/MERGED PRs receive no effects; partial failures are reported explicitly.
+
+History is per automation identity, not a tamper-proof ledger. Foreign records
+are ignored; deletion/editing of the account's comments is not detected. Empty
+history starts at zero; review-only legacy history without accounting/receipts
+(such as #636) is ambiguous, not proof of zero spent rounds. A terminal stop
+remains sticky through later greens. Two completed fixes followed by an
+unambiguous green remain eligible for landing.
+
+The canonical choices, escalation dossier and human-approved superseding-PR
+procedure live in `skills/dev-review/SKILL.md` Phase 8. Skills route through the
+sinks; they do not own separate enforcement rules.
+
+Landing resolves mode from `readLanding`: stack `landing.mode`, else
+`merge-on-green.yml`, else native. It returns the absolute `/ci-watch` command,
+including GitHub's fresh labeled-event time under merge-on-green. Native also
+enables auto-merge. `applyCiWatchExit` observes the result and disarms failures;
+neither review nor fix labels a PR. No duplicate spec files or `validated` gate.
 
 ## Guards
 
@@ -152,12 +206,12 @@ Spawn: `task` `{ agent: "R-adversarial" | "R-advisor" | "R-architect" | "R-devop
 
 | Skill | Lane |
 |---|---|
-| `build` | legacy `/build` entry; `workflow.js` still supplies feature's PR/landing functions |
 | `feature` | `/feature` (registered command) |
 | `dev-review` | model-invocable · the five-role review panel |
 | `fix` | model-invocable · applies the findings, inline |
 | `promote` | `/promote` (registered command) · the optional tail |
 | `cleanup` | `/cleanup` (registered command) · the optional tail |
+| `ci-watch` | `/ci-watch` (registered command) · watches checks, then the merge |
 
 `dev-review` and `fix` are the #492 snapshot of dev-core's `dev-review`/`fix` pair, cut to this plugin's roster: five dispatchable roles, `R-tester` armed by changed-test evidence alone, and every finding applied in-session. They read their own bundled files through `skill://dev-review/<file>`. `lib.sh` is the exception: it sits one level up, in a non-skill directory, and `skill://` rejects `..`, so `dev-review` Phase 1 traverses from `$SKILL_DIR` instead. **Nothing in this plugin exports `SKILL_DIR`** — only the registered commands print a skill directory (`omp/index.ts`) — so that fence asserts the variable (`${SKILL_DIR:?…}`) and stops when it is unset, rather than sourcing `/../shared/lib.sh` and detecting a base branch against nothing. `cleanup/analyze-branches.sh` has no such problem: it is a script, so it resolves `../shared/lib.sh` from its own `BASH_SOURCE`.
 
@@ -166,9 +220,11 @@ Spawn: `task` `{ agent: "R-adversarial" | "R-advisor" | "R-architect" | "R-devop
 `/feature` offers `promote` only for `release.model: staging-train`, not trunk.
 Two behaviours changed in the copy: `promote/preflight.sh` is now read-only (dev-core's ran
 `git checkout staging && git pull` before asking the operator anything), and
-`cleanup/scan-orphan-worktree-shells.sh` scans `~/.omp/worktrees/<repo>/` and
-`<principal>/.claude/worktrees/` instead of the Grok roots this plugin never writes
-to. dev-core's `shared/references/release-convention.md` did not travel: its two
+`cleanup/scan-orphan-worktree-shells.sh` scans three roots: `~/.omp/worktrees/<repo>/`
+(legacy leftover of the retired `ensureWorktree`; still scanned; `/feature` does not write here),
+`<principal>/.claude/worktrees/` (harness-created worktrees), and `<worktree base>/<repo>/<slug>`
+(the `/feature` root; base is `OMP_WORKTREE_DIR`, else stack.yml `worktree.base`, else `~/.omp/wt`),
+instead of the Grok roots this plugin never writes to. dev-core's `shared/references/release-convention.md` did not travel: its two
 rules are inlined in `promote/SKILL.md` § Merge method.
 
 **The names are deliberately not `R-dev-review`/`R-fix`.** Skill discovery dedups by `name` across every provider, first-wins: while `dev-core` is still installed next to this plugin, identical names would make one of the two workflows shadow the other silently — and the shadowed one is the panel the operator thinks is running. Snapshotted agent bodies still call the workflow `/R-dev-review` in prose; that is a label, not an invocation, and the dispatch prompt in `skills/dev-review/SKILL.md` is the contract they actually obey.

@@ -132,3 +132,17 @@ Priority: `P0-critical` `P1-high` `P2-medium` `P3-low` (legacy `priority:P2`,
 `priority:P3`, `priority: low` exist; prefer the `PN-` form)
 Pipeline: `reviewed` (gates auto-merge) · `autorelease: pending` /
 `autorelease: tagged` (written by release automation, never by hand)
+
+Tracker vocabulary (what `issue-triage init` creates when missing; it never recolours an existing label):
+
+| Label | Colour |
+|---|---|
+| `size:S` | bfd4f2 |
+| `size:F-lite` | fbca04 |
+| `size:F-full` | d93f0b |
+| `P0-critical` | b60205 |
+| `P1-high` | d93f0b |
+| `P2-medium` | fbca04 |
+| `P3-low` | 0e8a16 |
+| `epic` | ededed |
+| `reviewed` | ededed |

@@ -1,5 +1,5 @@
 /**
- * `/feature` entry resolution (ADR-020 §3, #493).
+ * `/feature` entry resolution (ADR-020 §3, #493; epic route #620).
  *
  * Pure by construction: no fs, no git, no network, no clock. Every input the
  * decision needs arrives as a parameter, so `/feature` cannot decide *where it is*
@@ -9,13 +9,9 @@
  * The caller supplies the facts:
  *   - `cwd`            the session's working directory, absolute and normalised
  *   - `principalPath`  the first `git worktree list --porcelain` entry
- *   - `branch`         the feature branch this invocation is about: inside ω it is
- *                      the branch checked out at `cwd`; on the Principal it is the
- *                      branch of the ω `/feature` has just created
+ *   - `branch`         the branch checked out at `cwd`, or nothing
  *   - `ticket`         the tracker issue the operator named, or nothing
- *   - `worktreePath`   on the Principal only: the ω directory `ensureWorktree`
- *                      just returned (`resolved.worktree`). The hop command names
- *                      a *directory*, so without it there is no command to print
+ *   - `children`       the ticket's sub-issue numbers, or nothing
  *
  * Path inputs are compared as strings, never resolved: this module may not touch
  * the filesystem, so it cannot undo a symlink, a case-variant spelling, or a
@@ -25,18 +21,17 @@
  * would frame, or implement, on the Principal itself.
  */
 
+import { resolveTicketBranch, ticketOfBranch } from './epic'
+
 /** Operator forms accepted for a ticket: `493`, `'493'`, `'#493'`. */
 const TICKET_RE = /^#?(\d+)$/
 
-/** Branch convention: `<type>/<issue>-<slug>` — `resolveNames` in `../build/workflow.js`. */
-const BRANCH_TICKET_RE = /^[^/]+\/(\d+)(?:-|$)/
-
 /**
- * @typedef {{ action: 'hop', reason: 'principal', cwd: string, branch: string, ticket: number | null, command: string }} HopEntry
  * @typedef {{ action: 'frame', cwd: string, branch: string | null, ticket: null }} FrameEntry
  * @typedef {{ action: 'build', cwd: string, branch: string, ticket: number }} BuildEntry
- * @typedef {{ action: 'refuse', reason: 'branch-mismatch', cwd: string, branch: string | null, ticket: number, branchTicket: number | null }} RefuseEntry
- * @typedef {HopEntry | FrameEntry | BuildEntry | RefuseEntry} Entry
+ * @typedef {{ action: 'epic', cwd: string, branch: string | null, ticket: number, children: number[] }} EpicEntry
+ * @typedef {{ action: 'refuse', reason: 'branch-mismatch' | 'principal', cwd: string, branch: string | null, ticket: number | null, branchTicket: number | null }} RefuseEntry
+ * @typedef {FrameEntry | BuildEntry | EpicEntry | RefuseEntry} Entry
  */
 
 /**
@@ -91,14 +86,15 @@ function normalizeTicket(ticket) {
 }
 
 /**
- * The issue a branch name claims, or `null` when it claims none.
- * @param {string | null} branch
- * @returns {number | null}
+ * @param {unknown} children
+ * @returns {number[]}
  */
-function ticketOfBranch(branch) {
-  if (branch === null) return null
-  const match = BRANCH_TICKET_RE.exec(branch)
-  return match ? Number(match[1]) : null
+function normalizeChildren(children) {
+  if (children === null || children === undefined) return []
+  if (!Array.isArray(children) || !children.every((n) => Number.isInteger(n) && n > 0)) {
+    throw new TypeError(`resolveEntry: children must be a list of issue numbers, got ${JSON.stringify(children)}`)
+  }
+  return children
 }
 
 /**
@@ -126,64 +122,48 @@ export function isPrincipal(cwd, principalPath) {
  *
  * | Situation | Action |
  * |---|---|
- * | `cwd` is the Principal | `hop` — carries `command`, the exact relocation line |
+ * | `cwd` is the Principal | `refuse` — reason `principal`; never implement here |
  * | in ω, no ticket | `frame` — mode 1: grill → spec → tickets → frontier |
  * | in ω, ticket, branch claims that ticket | `build` — mode 2 (#494) |
+ * | in ω, ticket with sub-issues, HEAD detached or on a branch claiming one of them | `epic` — the Epic goal (#620) |
  * | in ω, ticket, branch claims another one or none | `refuse` — never implement #N on #M's branch |
  *
  * The last row is the one worth stating out loud: implementing #N inside the
  * worktree of #M puts #N's commits on #M's branch and into #M's PR, silently. A
  * branch that does not carry the ticket is therefore never built on — including a
  * detached HEAD (`branch: null`) and a branch that does not follow the convention,
- * because neither *proves* it is the right place. The corrective move is a hop the
- * caller cannot name here (the target's slug lives in the tracker, not in these
- * inputs), so `refuse` reports both numbers and lets the caller phrase it.
+ * because neither *proves* it is the right place. `refuse` reports both numbers
+ * and lets the caller phrase the corrective move. The `epic` row is the one
+ * exception: an epic worktree is detached between children and on a child's
+ * branch during one, and the Epic goal, not this route, decides what runs there.
  *
- * @param {{ cwd: string, principalPath: string, branch?: string | null, ticket?: string | number | null, worktreePath?: string | null }} input
+ * @param {{ cwd: string, principalPath: string, branch?: string | null, ticket?: string | number | null, children?: number[] | null }} input
  * @returns {Entry}
  */
-export function resolveEntry({ cwd, principalPath, branch = null, ticket = null, worktreePath = null } = {}) {
+export function resolveEntry({ cwd, principalPath, branch = null, ticket = null, children = null } = {}) {
   const here = normalizePath(cwd, 'cwd')
   const principal = normalizePath(principalPath, 'principalPath')
   const issue = normalizeTicket(ticket)
+  const subIssues = normalizeChildren(children)
   const head = typeof branch === 'string' && branch.trim() !== '' ? branch.trim() : null
 
   if (isPrincipal(here, principal)) {
-    if (head === null) {
-      throw new TypeError('resolveEntry: branch is required on the Principal — create ω first, then hop to its branch')
-    }
-    if (!head.includes('/')) {
-      throw new TypeError(`resolveEntry: "${head}" is a base branch, not ω — hopping there lands back on the Principal`)
-    }
-    // Refuse-by-default, like every other row: a hop whose command is missing is
-    // a hop that cannot be printed, and printing nothing leaves the operator on
-    // the Principal believing they were moved.
-    if (worktreePath === null || worktreePath === undefined || worktreePath === '') {
-      throw new TypeError(
-        'resolveEntry: worktreePath is required on the Principal — the relocation command names ω’s directory, which only `ensureWorktree` knows',
-      )
-    }
-    const worktree = normalizePath(worktreePath, 'worktreePath')
-    // `omp --cwd <dir>`, not `/wt`: that command always mints a fresh branch and
-    // hard-refuses an existing one, and it lands in `~/.omp/wt/<sanitised>-<hash>`
-    // — never in the ω `ensureWorktree` just built and installed. Same answer as
-    // `skills/build/SKILL.md` (`need-relaunch`) and `scripts/omp-wt.mjs`.
     return {
-      action: 'hop',
+      action: 'refuse',
       reason: 'principal',
       cwd: here,
       branch: head,
       ticket: issue,
-      command: `omp --cwd ${worktree}`,
+      branchTicket: ticketOfBranch(head),
     }
   }
 
   if (issue === null) return { action: 'frame', cwd: here, branch: head, ticket: null }
 
   const branchTicket = ticketOfBranch(head)
-  if (branchTicket !== issue) {
-    return { action: 'refuse', reason: 'branch-mismatch', cwd: here, branch: head, ticket: issue, branchTicket }
+  if (branchTicket === issue) return { action: 'build', cwd: here, branch: head, ticket: issue }
+  if (subIssues.length && (head === null || 'ticket' in resolveTicketBranch(head, subIssues))) {
+    return { action: 'epic', cwd: here, branch: head, ticket: issue, children: subIssues }
   }
-
-  return { action: 'build', cwd: here, branch: head, ticket: issue }
+  return { action: 'refuse', reason: 'branch-mismatch', cwd: here, branch: head, ticket: issue, branchTicket }
 }

@@ -27,7 +27,7 @@ only through issue-triage.
 2. ∀ issue: determine Size, Priority, κ (see [Complexity Scoring](#complexity-scoring))
 3. Set values: `T set <number> --size <S> --priority <P>`
 4. Create issues: `T create --title "Title" [--body "Body"] [--label "bug,frontend"] [--size M] [--priority High] [--type feat] [--lane b] [--parent 163]`
-5. Adopt a repository: `bun skill://issue-triage/triage.ts init [--dry-run] [--repo owner/repo]`
+5. Adopt a repository: `T init [--dry-run] [--repo owner/repo]`. Writes `docs/agents/issue-tracker.md` only when that file is absent, and only at the git toplevel — not the process cwd. An existing contract is authoritative: init prints `contract: keep-existing` and never rewrites it. Labels come from its `Label | Colour` table (a leading pipe is optional), or from canonical names in the template list; `bug` and other non-canonical snapshot entries are not a vocabulary. `epic` and `reviewed` are created only when that vocabulary lists them. An existing label is never recoloured; a case mismatch is reported, not created. A contract that parses to no vocabulary prints `vocabulary: none parsed from docs/agents/issue-tracker.md` and exits non-zero. `--repo` other than the local repo is refused: the local file is not that repo's vocabulary. A relabel target outside the vocabulary and the repo labels is refused before any write.
 6. → ask userif unsure about Size ∨ Priority.
 
 ## Size Guidelines

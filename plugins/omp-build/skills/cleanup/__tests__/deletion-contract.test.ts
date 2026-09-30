@@ -36,9 +36,7 @@ describe('executed deletion templates', () => {
     const unquoted = DELETION_LINES.filter((line) => /<[a-z-]+>/.test(line)).filter(
       (line) => !/--\s+"<[a-z-]+>"/.test(line),
     )
-    // `rmdir -- "<path>" 2>/dev/null || rm -rf -- "<path>"` is one line carrying
-    // two templates; each half must satisfy the rule, hence the filter runs on
-    // the whole line and the failure prints it verbatim.
+    // The filter runs on the whole line, so a failure prints it verbatim.
     expect(unquoted).toEqual([])
   })
 
@@ -74,8 +72,47 @@ describe('--report-only', () => {
     expect(step2, 'Step 2 section').toBeDefined()
     expect(step2).toMatch(/REPORT_ONLY.*=.*true.*--no-fetch/)
     expect(step2).toMatch(/stale/)
-    for (const invocation of step2?.match(/bash skill:\/\/cleanup\/analyze-branches\.sh.*/g) ?? []) {
+    const invocations = step2?.match(/bash "\$T".*/g) ?? []
+    expect(invocations.length).toBeGreaterThan(0)
+    for (const invocation of invocations) {
       expect(invocation).toContain('$FETCH_ARG')
     }
+    expect(step2).toMatch(/T=\$\(realpath skill:\/\/cleanup\/analyze-branches\.sh\) \|\| \{[\s\S]*?\bexit 1\b/)
+  })
+})
+
+describe('5b orphan shells', () => {
+  it('takes the --yes set from --yes-targets and deletes it with rmdir, never rm -rf', () => {
+    // The scanner's allowlist only protects anything if the executed layer uses
+    // it: defaults and `--yes` must come from `--yes-targets`, and the command
+    // they run must be one that refuses a non-empty directory.
+    const step5b = /### 5b\. Orphan worktree shells[\s\S]*?\n### /.exec(SKILL)?.[0]
+    expect(step5b, 'Step 5b section').toBeDefined()
+
+    const defaults = /^\*\*Defaults \/ `--yes` set:\*\* (.*)$/m.exec(step5b!)?.[1]
+    expect(defaults, 'Defaults sentence').toBeDefined()
+    expect(defaults!.startsWith('**only** the rows')).toBe(true)
+    expect(defaults).toMatch(/scan-orphan-worktree-shells\.sh\) && bash "\$T" --yes-targets/)
+
+    const fence = /#### 5b-execute[\s\S]*?```bash\n([\s\S]*?)```/.exec(step5b!)?.[1]
+    expect(fence, '5b-execute fence').toBeDefined()
+    const yesBlock = /# --yes \/ defaults[^\n]*\n([\s\S]*?)(?=\n# |$)/.exec(fence!)?.[1]
+    expect(
+      (yesBlock ?? '')
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean),
+    ).toEqual(['rmdir -- "<path>"'])
+
+    const perRow = fence!
+      .split(/# Per-row/)
+      .slice(1)
+      .join('# Per-row')
+    expect(perRow).toMatch(/rm -rf -- "<path>"/)
+    const yesOnly = fence!.split(/# Per-row/)[0]
+    expect(yesOnly).not.toMatch(/rm -rf/)
+
+    const fallback = DELETION_LINES.filter((line) => /rmdir/.test(line) && /rm -rf/.test(line))
+    expect(fallback).toEqual([])
   })
 })

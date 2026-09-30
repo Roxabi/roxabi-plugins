@@ -16,6 +16,18 @@ _Avoid_: build, /build, /dev, /R-dev, omp-wt
 The `/goal` in the operator's session that delivers one epic. The autonomy unit of `/feature`.
 _Avoid_: a per-ticket stop, an autonomy level stored on the issue, one goal per ticket
 
+**Goal run**:
+One `/goal` line for an Epic goal, named by the `run=<id>` in its objective. Only an active goal whose objective names the epic authorizes the loop. Stops are recorded per run; a new `/goal` line is a new run.
+_Avoid_: a session, a paused goal, the run as a counter of attempts
+
+**Ticket stop**:
+A child the Goal run stops on — review bound spent, proof blocked, foreign commit or branch mismatch, no scope, a watch that timed out, cancelled or blocked checks, an unmerged or closed PR. Recorded as a `goal-stop` marker on the child; its PR is disarmed, its dependents are skipped, independent children continue. A spent review bound stays stopped across runs; any other ticket stop is retried by the next run.
+_Avoid_: a goal drop, a skipped dependent, a stop held in session memory
+
+**Shared-state stop**:
+A failure that makes every remaining child unsafe — base CI red, a dirty tree between tickets, a landing or tracker failure, a failed post-merge hook, a final review still blocking after its fix round. Every armed child PR is disarmed, the goal is reported and dropped.
+_Avoid_: a ticket stop, skipping the ticket, waiting on pending base CI
+
 **Spec**:
 The GitHub issue body: agreed scope, acceptance criteria, invariants and exclusions. The SSoT for what to build.
 _Avoid_: artifacts/specs, validated, /R-spec
@@ -37,21 +49,27 @@ Work that satisfies one ticket's acceptance criteria inside its matching Worktre
 _Avoid_: an external `implement` skill as a prerequisite, implementation on the Principal
 
 **Land**:
-After a green review loop: the `reviewed` label, then the landing mode declared in `.dev/stack.yml`, followed by `/ci-watch`. That mode is read from the base ref, not from the epic worktree. An unregistered `/ci-watch` is a stop: remove `reviewed` and disable auto-merge. The label is not a completed landing.
-_Avoid_: R-ci-watch, gh pr merge while checks run, a raw delay inside `landPr`
+The authorized transition from a green review to the repository's merge gate.
+A current review stop prevents automatic landing even if an earlier review was green.
+Arming the gate is not evidence that the PR merged.
+_Avoid_: manual merge while checks run, treating a label as a completed landing
 
 **Post-merge hook**:
 The repository's declared command that runs once the epic has landed, not after each ticket.
 _Avoid_: a per-ticket deploy, a release cut
 
 **Review bound**:
-At most two review→fix rounds per PR, counted by `createReviewLoop` and resumed from
-the PR by `resumeReviewLoop`. The third red returns `stop`; `enforceStop` then removes
-`reviewed` and disables auto-merge, so the PR really is unlabelled and unmerged.
-A CI failure after a green verdict re-enters through `reopen('ci-failed')`, which
-spends a round rather than refunding one.
-_Avoid_: "one more review", a second loop on the same PR, a round counter held in
-prose, a `reviewed` label written by anything but the landing step
+At most two automatic review→fix rounds per PR and automation identity.
+A remaining blocker after those rounds stops automatic corrections and landing.
+The stop survives a new session and a later green. A final green after two
+completed fixes is eligible only if no stop has already occurred.
+An allocation is spent before the Fix/Stop choice and is executable only once;
+reconstructing history never recreates its permission. CI corrections spend the
+same budget. Unprovable history requires human guidance, not a reset.
+After escalation, resumption means an explicitly selected superseding PR under
+a revised plan, or the operator finishing by hand; the stopped PR stays intact.
+_Avoid_: one more automatic retry, replaying an incomplete allocation, moving
+unchanged work to another PR to reset the count, merging with blockers
 
 **Snapshot**:
 A frozen copy of selected `dev-core` files inside `omp-build`. No resync. Claude's `dev-core` evolves alone.
@@ -94,8 +112,8 @@ A durable linked git checkout (ω) that isolates delivery from the Principal. Cr
 _Avoid_: branch; Isolation (ephemeral `task.isolated` sandbox); `/wt`
 
 **Epic worktree**:
-The one Worktree an epic is delivered from. Each ticket inside it is its own branch and its own PR.
-_Avoid_: one worktree per ticket, the Principal, Isolation
+The one Worktree an epic is delivered from, created **detached** at `refs/remotes/origin/<base>`, with no epic branch. Each child gets its own branch inside it, from the base, and its own PR; after a confirmed merge HEAD is detached there again and the child's local branch deleted.
+_Avoid_: one worktree per ticket, an epic branch, the Principal, Isolation
 
 **Bootstrap**:
 The prepared state of an Epic worktree, taken once from what the repository declares, before its first ticket.
