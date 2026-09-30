@@ -500,6 +500,32 @@ function recordStop(repo: string, run: string, ticket: number, reason: string, d
   )
 }
 
+/**
+ * The one way a ticket stops, whoever proved it: disarm every open PR of the
+ * child, detach HEAD from its branch (kept), then write the `goal-stop` marker.
+ * A PR that merged before its disarm is no stop: `merged` names it, no marker.
+ */
+async function ticketStop(
+  repo: string,
+  run: string,
+  base: string,
+  child: ChildFacts,
+  reason: string,
+  detail: string,
+): Promise<{ merged: number | null; disarmed: Record<number, Disarm> }> {
+  const disarmed: Record<number, Disarm> = {}
+  for (const pr of child.prs.filter((p) => p.state === 'OPEN')) {
+    disarmed[pr.number] = await disarm(repo, pr.number)
+    if (disarmed[pr.number] === 'merged') return { merged: pr.number, disarmed }
+  }
+  const here = tree(repo)
+  if (here.clean && ticketOfBranch(here.branch) === child.number) {
+    git(repo, ['switch', '--detach', `refs/remotes/origin/${base}`])
+  }
+  recordStop(repo, run, child.number, reason, detail)
+  return { merged: null, disarmed }
+}
+
 // ── Subcommands ───────────────────────────────────────────────────────────────
 
 function releaseBase(repo: string): string {
@@ -543,7 +569,7 @@ type NextOut = {
   run: string
   base: string
   step: Step
-  recorded: { ticket: number; stop: string }[]
+  recorded: { ticket: number; stop: string; disarmed?: Record<number, Disarm> }[]
   cleaned: string[]
   disarmed: Disarm | null
 }
@@ -583,14 +609,25 @@ async function next(repo: string, epic: number, run: string, base: string, dry: 
     facts = gather(repo, epic, run, base).facts
   }
 
-  const recorded: { ticket: number; stop: string }[] = []
+  const recorded: { ticket: number; stop: string; disarmed?: Record<number, Disarm> }[] = []
+  const handled = new Set<number>()
   let step = nextStep(facts)
   while (step.action === 'stop') {
     const { ticket, stop, reason } = step
-    if (recorded.some((entry) => entry.ticket === ticket)) throw new Error(`#${ticket} stopped twice in one call`)
-    if (!dry) recordStop(repo, run, ticket, stop, reason)
-    recorded.push({ ticket, stop })
-    facts.children.find((child) => child.number === ticket)?.stops.push({ run, reason: stop })
+    if (handled.has(ticket)) throw new Error(`#${ticket} came back as a stop twice in one call`)
+    handled.add(ticket)
+    const child = facts.children.find((c) => c.number === ticket) as ChildFacts
+    if (dry) {
+      recorded.push({ ticket, stop })
+      child.stops.push({ run, reason: stop })
+    } else {
+      const outcome = await ticketStop(repo, run, base, child, stop, reason)
+      if (outcome.merged === null) {
+        recorded.push({ ticket, stop, disarmed: outcome.disarmed })
+        child.stops.push({ run, reason: stop })
+        facts.tree = tree(repo)
+      } else facts = gather(repo, epic, run, base).facts
+    }
     step = nextStep(facts)
   }
 
@@ -635,14 +672,9 @@ async function stop(
   const { facts } = gather(repo, epic, run, base)
   const child = facts.children.find((c) => c.number === ticket)
   if (!child) throw new Refused(`#${ticket} is not a sub-issue of #${epic}`)
-  const disarmed: Record<number, Disarm> = {}
-  for (const pr of child.prs.filter((p) => p.state === 'OPEN')) {
-    disarmed[pr.number] = await disarm(repo, pr.number)
-    if (disarmed[pr.number] === 'merged') return { ticket, merged: pr.number, disarmed }
-  }
-  if (ticketOfBranch(facts.tree.branch) === ticket) git(repo, ['switch', '--detach', `refs/remotes/origin/${base}`])
-  recordStop(repo, run, ticket, reason, detail)
-  return { ticket, stop: reason, sticky: STICKY_STOPS.includes(reason), disarmed }
+  const outcome = await ticketStop(repo, run, base, child, reason, detail)
+  if (outcome.merged !== null) return { ticket, merged: outcome.merged, disarmed: outcome.disarmed }
+  return { ticket, stop: reason, sticky: STICKY_STOPS.includes(reason), disarmed: outcome.disarmed }
 }
 
 function review(repo: string, epic: number, run: string, base: string, verdict: string, range: string, detail: string) {

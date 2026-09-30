@@ -150,7 +150,8 @@ merged child's local branch plus running the post-merge hook need no question.
 **Loop.** With `D="$SKILL_DIR/epic-driver.ts"`, repeat `bun "$D" next --epic E <gate>`
 and act on its JSON `step.action`. Print `step.report` (merged, stopped, skipped,
 pending base checks) and each entry of `recorded`: the ticket stops the driver
-proved and recorded itself (no scope, branch mismatch, foreign commit).
+proved itself (no scope, branch mismatch, foreign commit), each already disarmed and
+recorded exactly like the `stop` subcommand does.
 
 | `step.action` | Do |
 |---|---|
