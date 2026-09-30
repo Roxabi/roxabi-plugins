@@ -17,11 +17,14 @@ date: 2026-09-22
 > Applies to every repo the workflow generator scaffolds with `stack: bun`.
 >
 > **Amended 2026-09-30 by #645** — the open follow-up in § Accepted cost is
-> resolved. GitHub never re-derived alerts from `package.json`, so this repo had
-> no platform-side detection. `bun audit` now runs weekly here
-> (`.github/workflows/dependency-audit.yml`, `scripts/dependency-audit.ts`) and
-> files a `security` issue. This covers **this repo only**: bun repos the
-> generator scaffolds still have no detection until #646.
+> resolved: this repo has no platform-side detection. GitHub's dependency graph
+> lists no manifest for it at all — not `package.json`, not even the workflow
+> files (cli/cli, as a control, lists 19) — so neither npm nor GitHub Actions
+> dependencies get alerts, and `bun.lock` is not established as the cause
+> (#648). `bun audit` now runs weekly here (`.github/workflows/dependency-audit.yml`,
+> `scripts/dependency-audit.ts`) and files a `security` issue; it covers npm
+> packages only. This covers **this repo only**: bun repos the generator
+> scaffolds still have no detection until #646.
 
 ## Context
 
@@ -123,13 +126,19 @@ ones, this repo has no platform-side detection and `bun audit` should be wired
 into CI on a schedule.
 
 Outcome, observed 2026-09-30: after eight days the 11 alerts still carried
-`manifest_path: package-lock.json`, none had been updated since 2026-09-13, no
-alert attributed to `package.json` or `bun.lock` appeared, and
-`GET /dependency-graph/sbom` still returned 404. The 11 were dismissed as
+`manifest_path: package-lock.json`, none had been updated since 2026-09-13, and
+no alert attributed to `package.json` or `bun.lock` appeared. The condition
+above assumed the graph re-scans; it did not. `dependencyGraphManifests` returns
+**0** for this repo — the workflow files included, which the graph parses in any
+repo (cli/cli: 19) — with vulnerability alerts enabled and
+`GET /dependency-graph/sbom` at 404. The graph is therefore not processing this
+repo at all: "`bun.lock` is unsupported" does not explain an empty inventory,
+GitHub Actions dependencies are undetected too, and returning to a lockfile the
+graph parses is not a proven remedy (#648). The 11 were dismissed as
 `inaccurate` once #644 moved every flagged package past its vulnerable range.
-`bun audit` now runs weekly in this repo (`.github/workflows/dependency-audit.yml`)
-and files a `security` issue on a finding or a stale ignore. Generated bun repos
-are not covered: #646.
+`bun audit` now runs weekly in this repo and files a `security` issue on a
+finding, a stale ignore or an unaudited package; it covers npm packages only.
+Generated bun repos are not covered: #646.
 
 **Revisit this ADR if the repo gains a runtime dependency, is published, or
 stops being private.** Those are the conditions under which platform-side

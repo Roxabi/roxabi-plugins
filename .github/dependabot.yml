@@ -28,10 +28,10 @@ updates:
   # That surrenders a capability this repo had ALREADY switched off:
   # dependabot_security_updates is `disabled` at the repository level, and the
   # alert ledger shows fixed=0, dismissed=0 — nothing was ever auto-remediated.
-  # There is NO platform-side detection: GitHub never re-derived alerts from
-  # package.json once package-lock.json was gone (observed 2026-09-30, #645).
-  # Detection is `bun audit`, run weekly by .github/workflows/dependency-audit.yml
-  # (scripts/dependency-audit.ts), which files a `security` issue on a finding.
+  # There is NO platform-side detection: GitHub's dependency graph lists no
+  # manifest for this repo, workflow files included (observed 2026-09-30; cause
+  # open, #648). Detection is `bun audit`, npm packages only, run weekly by
+  # .github/workflows/dependency-audit.yml, which files a `security` issue.
   # Accepted because this repo has zero runtime dependencies, eight dev
   # dependencies, and is private. Revisit — and move back to a graph-supported
   # lockfile — if it gains a runtime dependency, is published, or stops being

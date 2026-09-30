@@ -1,9 +1,10 @@
 name: Dependency Audit
 
-# The only dependency-vulnerability detection this repo has (#645, ADR-022):
-# GitHub's dependency graph does not parse bun.lock, and the bun Dependabot
-# ecosystem has no security updates. Scheduled, never a PR check: a new advisory
-# against an unchanged lockfile must not turn unrelated PRs red.
+# Dependency-vulnerability detection for this repo's npm packages (#645, ADR-022).
+# GitHub's dependency graph lists no manifest for this repo (#648) and the bun
+# Dependabot ecosystem has no security updates, so nothing else raises alerts;
+# GitHub Actions dependencies stay undetected until #648. Scheduled, never a PR
+# check: a new advisory against an unchanged lockfile must not turn unrelated PRs red.
 
 on:
   schedule:

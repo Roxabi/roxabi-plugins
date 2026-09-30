@@ -3,8 +3,9 @@
 /**
  * Dependency vulnerability audit for this repo (#645, ADR-022).
  *
- * GitHub's dependency graph does not parse bun.lock, and the bun Dependabot
- * ecosystem has no security updates, so `bun audit` is the only detection.
+ * GitHub's dependency graph lists no manifest for this repo (#648) and the bun
+ * Dependabot ecosystem has no security updates, so `bun audit` is the only
+ * detection for npm packages.
  * `.github/workflows/dependency-audit.yml` runs this weekly. Locally:
  * `bun run audit:deps`.
  *
