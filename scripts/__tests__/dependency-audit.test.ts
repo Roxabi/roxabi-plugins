@@ -212,6 +212,17 @@ describe('main', () => {
     expect(existsSync(report)).toBe(false)
   })
 
+  it('routes on the ignore list it is given, not the shipped one', () => {
+    // Under the shipped IGNORED, which does not accept js-yaml, the first call would exit 10;
+    // so would the second, while IGNORED holds any entry.
+    const acceptYaml: Ignore = { ...IGNORE, ghsa: 'GHSA-2883-xcg3-v3hh', package: 'js-yaml', severity: 'high' }
+    bunAudit(JSON.stringify({ 'js-yaml': [JS_YAML] }), 1)
+    expect(main(['--report', report], {}, [acceptYaml])).toBe(0)
+    bunAudit('{}', 0)
+    expect(main(['--report', report], {}, [])).toBe(0)
+    expect(existsSync(report)).toBe(false)
+  })
+
   it('exits 10 on an empty tree while an ignore still holds an entry for it', () => {
     bunAudit('{}', 0)
     expect(main(['--report', report], {}, [IGNORE])).toBe(10)
