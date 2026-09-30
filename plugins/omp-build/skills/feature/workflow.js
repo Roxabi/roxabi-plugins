@@ -220,10 +220,10 @@ function bodyFor(body, issue) {
  * @param {string} cwd
  * @param {string} head
  * @param {string} base
- * @param {(cwd: string, args: string[]) => Promise<string>} ghFn
+ * @param {(cwd: string, args: string[]) => Promise<string>} [ghFn]
  * @returns {Promise<number | null>}
  */
-async function findOpenPr(cwd, head, base, ghFn) {
+async function findOpenPr(cwd, head, base, ghFn = gh) {
   const raw = await ghFn(cwd, ['pr', 'list', '--head', head, '--base', base, '--state', 'open', '--json', 'number'])
   let data
   try {
@@ -242,6 +242,29 @@ async function findOpenPr(cwd, head, base, ghFn) {
   // Degenerate but possible (a PR reopened against the same pair): the oldest is the
   // one the branch's history belongs to, and picking it is deterministic.
   return Math.min(...numbers)
+}
+
+/**
+ * Bind a review to one PR before constructing its loop. Discovery failure is not
+ * a local review. `git`/`gh` are injected only at the process adapter seam.
+ */
+export async function resolveReviewPr(cwd, explicitPr, { gh: ghFn = gh, git: gitFn = git } = {}) {
+  if (explicitPr !== undefined && explicitPr !== null && explicitPr !== '') {
+    const number = Number(explicitPr)
+    if (!/^[1-9]\d*$/.test(String(explicitPr)) || !Number.isSafeInteger(number)) {
+      throw new TypeError('resolveReviewPr: expected a positive PR number')
+    }
+    return number
+  }
+  const branch = (await gitFn(cwd, ['branch', '--show-current'])).trim()
+  if (!branch) throw new Error('resolveReviewPr: cannot discover a PR from a detached HEAD')
+  const raw = await ghFn(cwd, ['pr', 'list', '--head', branch, '--state', 'open', '--json', 'number'])
+  const entries = JSON.parse(raw)
+  if (!Array.isArray(entries) || entries.some((entry) => !Number.isSafeInteger(entry?.number) || entry.number <= 0)) {
+    throw new Error('resolveReviewPr: invalid PR discovery response')
+  }
+  if (entries.length > 1) throw new Error('resolveReviewPr: multiple open PRs for this branch; pass the PR number')
+  return entries[0]?.number ?? null
 }
 
 /**
@@ -494,6 +517,13 @@ export async function landPr(
       return { status: 'bad-landing', error: e instanceof Error ? e.message : String(e) }
     }
   }
+  pr = await resolveReviewPr(cwd, pr, { gh: ghFn })
+  if (pr === null) return { status: 'no-pr' }
+  const spent = await readReviewRounds(cwd, pr, { gh: ghFn })
+  if (spent.stopReason) {
+    const stop = await createReviewLoop({ pr, ...spent, gh: ghFn }).enforceStop(cwd)
+    return { status: 'review-stopped', reason: spent.stopReason, reviews: spent.reviews, fixes: spent.fixes, stop }
+  }
   if (resolved.mode === 'native') {
     const required =
       requiredContexts !== undefined
@@ -638,7 +668,7 @@ export async function disarmReviewedBeforePush(cwd, pr, { gh: ghFn = gh, push } 
   return { disarmed: true }
 }
 
-/** ADR-020 §3 / #488: at most two review→fix rounds. The third red stops. */
+/** ADR-020 §3 / #488 / #633: at most two review→fix rounds. Residual blockers after those rounds stop. */
 export const MAX_FIX_ROUNDS = 2
 
 /**
@@ -647,61 +677,176 @@ export const MAX_FIX_ROUNDS = 2
  * `createReviewLoop` on its own is a counter in one agent's process: it binds an agent
  * that keeps the handle and nothing else, and ADR-020 names that agent untrustworthy.
  * So the count is also written on the PR, in a line a machine can read back — a PR
- * comment carrying `<!-- omp-build:review-rounds reviews=N fixes=M -->`. A fresh loop
- * built with `resumeReviewLoop` starts from what the PR says, not from zero.
+ * comment carrying `<!-- omp-build:review-rounds reviews=N fixes=M -->`, and when the
+ * loop has stopped, a sticky `<!-- omp-build:review-stop reason=… -->` beside it.
+ * A fresh loop built with `resumeReviewLoop` starts from what the PR says, not from zero.
  */
 const ROUNDS_MARKER = /<!--\s*omp-build:review-rounds\s+reviews=(\d+)\s+fixes=(\d+)\s*-->/g
+const STOP_MARKER = /<!--\s*omp-build:review-stop\s+reason=([a-z0-9-]+)\s*-->/g
+const ROUNDS_FIRST_LINE = /^<!--\s*omp-build:review-rounds\s+reviews=\d+\s+fixes=\d+\s*-->\s*$/
+const CODE_REVIEW_FIRST_LINE = /^<!--\s*omp-build:code-review\s*-->\s*$/
+const FIX_RECEIPT_FIRST_LINE = /^## Review Fixes Applied\s*$/
+const VERDICT_LINE = /^\*\*Verdict:\s*(Request changes|Approve with comments|Approve \(clean\)|Approve)\*\*(?:\s.*)?$/
 
 /**
- * The highest round counts any marker in `text` carries, or `null` when there is none.
- *
- * Highest, not last: the marker is evidence that rounds were spent, so re-posting an
- * older one must not hand a round back.
- *
- * @param {string} text
- * @returns {{ reviews: number, fixes: number } | null}
+ * @param {string} body
+ * @returns {string}
  */
-export function parseReviewRounds(text) {
-  let found = null
-  for (const [, reviews, fixes] of String(text ?? '').matchAll(ROUNDS_MARKER)) {
-    const seen = { reviews: Number(reviews), fixes: Number(fixes) }
-    found = found ? { reviews: Math.max(found.reviews, seen.reviews), fixes: Math.max(found.fixes, seen.fixes) } : seen
-  }
-  return found
+function commentFirstLine(body) {
+  const line = String(body ?? '').split('\n')[0] ?? ''
+  return line.trimEnd()
 }
 
 /**
- * Read the rounds already spent on `pr`. `{ reviews: 0, fixes: 0 }` when the PR carries
- * no marker — that is a PR whose first review has not happened yet.
+ * Highest round counts and any sticky stop reason in `text`, or `null` when there is no
+ * rounds marker and no stop marker.
  *
- * Fails closed, like `findOpenPr`: a response that is not the promised shape throws
- * rather than reading as "no rounds spent", because "no rounds spent" is the answer that
- * refunds the bound.
+ * Highest counts, not latest: re-posting an older count must not hand a round back.
+ * Any observed stop is sticky: a later count-only comment cannot erase it.
  *
- * @param {string} cwd
- * @param {number | string} pr
- * @param {{ gh?: (cwd: string, args: string[]) => Promise<string> }} [deps]
- * @returns {Promise<{ reviews: number, fixes: number }>}
+ * @param {string} text
+ * @returns {{ reviews: number, fixes: number, stopReason?: string } | null}
  */
-export async function readReviewRounds(cwd, pr, { gh: ghFn = gh } = {}) {
+export function parseReviewRounds(text) {
+  const source = String(text ?? '')
+  let found = null
+  for (const [, reviews, fixes] of source.matchAll(ROUNDS_MARKER)) {
+    const seen = { reviews: Number(reviews), fixes: Number(fixes) }
+    found = found ? { reviews: Math.max(found.reviews, seen.reviews), fixes: Math.max(found.fixes, seen.fixes) } : seen
+  }
+  /** @type {string | undefined} */
+  let stopReason
+  for (const [, reason] of source.matchAll(STOP_MARKER)) {
+    stopReason = stopReason ?? reason
+  }
+  if (!found && stopReason === undefined) return null
+  const result = found ?? { reviews: 0, fixes: 0 }
+  return stopReason === undefined ? result : { ...result, stopReason }
+}
+
+/** A review can quote another verdict; conflicting or malformed declarations are unknown. */
+function reviewVerdict(body) {
+  let verdict = null
+  for (const [line] of body.matchAll(/^\*\*Verdict:[^\n]*/gm)) {
+    const match = line.trimEnd().match(VERDICT_LINE)
+    if (!match || (verdict !== null && verdict !== match[1])) return null
+    verdict = match[1]
+  }
+  return verdict
+}
+
+function reviewIdentity(me) {
+  const who = typeof me === 'string' ? me.trim() : ''
+  if (!/^[A-Za-z0-9][A-Za-z0-9-]{0,38}(?:\[bot\])?$/.test(who)) {
+    throw new TypeError('interpretReviewHistory: expected a bare automation login')
+  }
+  return who
+}
+
+/**
+ * Strict public interpretation: no switch can suppress a stop.
+ * Private evidence also distinguishes an owned live allocation from later records.
+ */
+export function interpretReviewHistory(comments, options) {
+  return analyzeReviewHistory(comments, options).rounds
+}
+
+function analyzeReviewHistory(comments, { me, maxFixRounds = MAX_FIX_ROUNDS } = {}) {
+  if (!Array.isArray(comments)) throw new TypeError('interpretReviewHistory: comments must be an array')
+  const who = reviewIdentity(me)
+  if (!Number.isInteger(maxFixRounds) || maxFixRounds < 0 || maxFixRounds > MAX_FIX_ROUNDS) {
+    throw new TypeError(`interpretReviewHistory: maxFixRounds must be an integer in 0..${MAX_FIX_ROUNDS}`)
+  }
+  let markerReviews = 0
+  let markerFixes = 0
+  let hasMarker = false
+  let explicitStop
+  let historicalStop
+  let receipts = 0
+  let codeReviews = 0
+  let latestReview = -1
+  let latestReceipt = -1
+  let latestVerdict = null
+  // GitHub supplies creation order. Only first-line records by this account count.
+  for (let order = 0; order < comments.length; order++) {
+    const entry = comments[order]
+    if (typeof entry !== 'object' || entry === null) {
+      throw new TypeError('interpretReviewHistory: each comment must be an object')
+    }
+    if (entry.author?.login !== who) continue
+    if (typeof entry.body !== 'string') throw new TypeError('interpretReviewHistory: comment body must be a string')
+    const first = commentFirstLine(entry.body)
+    if (ROUNDS_FIRST_LINE.test(first)) {
+      const parsed = parseReviewRounds(entry.body)
+      hasMarker = true
+      markerReviews = Math.max(markerReviews, parsed.reviews)
+      markerFixes = Math.max(markerFixes, parsed.fixes)
+      explicitStop ??= parsed.stopReason
+    } else if (CODE_REVIEW_FIRST_LINE.test(first)) {
+      codeReviews++
+      latestReview = order
+      latestVerdict = reviewVerdict(entry.body)
+      // Only a review arriving after the budget was spent is permanently terminal.
+      // The red which allocates fix two precedes its marker; it is not this case.
+      if (Math.max(markerFixes, receipts) >= maxFixRounds) {
+        if (latestVerdict === null) historicalStop ??= 'history-ambiguous'
+        else if (latestVerdict === 'Request changes') historicalStop ??= 'review-bound'
+      }
+    } else if (FIX_RECEIPT_FIRST_LINE.test(first)) {
+      receipts++
+      latestReceipt = order
+    }
+  }
+  const rounds = {
+    reviews: Math.max(markerReviews, codeReviews, receipts),
+    fixes: Math.max(markerFixes, receipts),
+  }
+  let stopOrigin = null
+  if (explicitStop) {
+    rounds.stopReason = explicitStop
+    stopOrigin = 'explicit'
+  } else if (historicalStop) {
+    rounds.stopReason = historicalStop
+    stopOrigin = 'historical'
+  } else if (
+    (hasMarker && receipts > markerFixes) ||
+    (!hasMarker && ((codeReviews > 0 && receipts === 0) || receipts > codeReviews)) ||
+    (latestReview > latestReceipt && latestVerdict === null)
+  ) {
+    // Review-only records (including #636) do not prove how many fixes ran.
+    rounds.stopReason = 'history-ambiguous'
+    stopOrigin = 'ambiguous'
+  } else if (rounds.fixes >= maxFixRounds && latestReview > latestReceipt && latestVerdict === 'Request changes') {
+    rounds.stopReason = 'review-bound'
+    stopOrigin = 'terminal-red'
+  }
+  return { rounds, me: who, hasMarker, markerReviews, markerFixes, codeReviews, latestVerdict, stopOrigin }
+}
+
+/** Current durable counts and stop, independent of the caller's cached loop. */
+export async function readReviewRounds(cwd, pr, deps = {}) {
+  return (await readReviewHistory(cwd, pr, deps)).rounds
+}
+
+async function readReviewHistory(cwd, pr, { gh: ghFn = gh, maxFixRounds = MAX_FIX_ROUNDS } = {}) {
+  const me = reviewIdentity(await ghFn(cwd, ['api', 'user', '--jq', '.login']))
   const raw = await ghFn(cwd, ['pr', 'view', String(pr), '--json', 'comments'])
   let data
   try {
     data = JSON.parse(raw)
   } catch {
-    throw new Error(`createReviewLoop: \`gh pr view ${pr} --json comments\` returned no JSON — ${preview(raw)}`)
+    throw new Error(`createReviewLoop: gh pr view ${pr} returned no JSON — ${preview(raw)}`)
   }
-  if (!Array.isArray(data?.comments)) {
-    throw new Error(`createReviewLoop: \`gh pr view ${pr} --json comments\` carried no comments — ${preview(raw)}`)
-  }
-  const bodies = data.comments.map((c) => (typeof c?.body === 'string' ? c.body : '')).join('\n')
-  return parseReviewRounds(bodies) ?? { reviews: 0, fixes: 0 }
+  if (!Array.isArray(data?.comments)) throw new Error('createReviewLoop: PR response carried no comments')
+  return analyzeReviewHistory(data.comments, { me, maxFixRounds })
 }
 
 /**
  * The loop for a PR that may already have spent rounds — the constructor to use in
  * `/feature` §6.4, so that re-entering mode 2 (or re-creating the loop mid-session)
- * **resumes** the bound instead of restarting it.
+ * **resumes** the bound instead of restarting it. A sticky stopReason reopens closed.
+ * A resumed loop never carries a live fix grant — only a fresh `record`/`reopen` in this
+ * process allocates one.
  *
  * @param {string} cwd
  * @param {{ pr: number | string, maxFixRounds?: number, gh?: (cwd: string, args: string[]) => Promise<string> }} options
@@ -710,49 +855,45 @@ export async function resumeReviewLoop(cwd, { pr, maxFixRounds = MAX_FIX_ROUNDS,
   if (pr === null || pr === undefined || pr === '') {
     throw new TypeError(`resumeReviewLoop: pr is required — there is nothing to resume from, got ${JSON.stringify(pr)}`)
   }
-  const spent = await readReviewRounds(cwd, pr, { gh: ghFn })
-  return createReviewLoop({ pr, maxFixRounds, ...spent, gh: ghFn })
+  pr = await resolveReviewPr(cwd, pr, { gh: ghFn })
+  const history = await readReviewHistory(cwd, pr, { gh: ghFn, maxFixRounds })
+  return buildReviewLoop({ pr, maxFixRounds, ...history.rounds, gh: ghFn }, history)
 }
 
 /**
- * The review→fix bound, as a counter rather than a sentence.
+ * Pure local review counter. A PR-bound fix must use resumeReviewLoop so its
+ * authorization has private, observed provenance, not caller-provided counts.
+ * Record/reopen allocate; persist saves that allocation; awaited assertFixAllowed
+ * checks fresh history and consumes it. Neither reconstruction nor a new session
+ * creates a live allocation.
  *
- * The bound is the one rule of mode 2 a driver made of prose cannot be trusted with:
- * "at most two rounds" read from a skill body is a number an agent carries in its head
- * across three reviews, several fix passes and a compaction. So the count lives here.
- * The loop object is created once, before the first review, and it — not the agent —
- * decides what happens after each verdict. `land` is reachable only through it, and
- * only from a green verdict.
- *
- * Rounds, on the ticket's wording: review → red → fix → review → red → fix → review.
- * Two fix rounds; the third red returns `stop`, and `stop` means the PR keeps no
- * `reviewed` label and no auto-merge — `landPr` is never called. `enforceStop` makes
- * that true of the PR rather than of this object: the `reviewed` label is the only
- * observable consequence the loop has, so on `stop` it is read back and removed.
- *
- * ```js
- * const loop = await resumeReviewLoop(cwd, { pr })   // resumes rounds already spent
- * let step = loop.record(verdict)                    // after every dev-review verdict
- * await loop.persist(cwd)                            // the count, on the PR
- * while (step.action === 'fix') { …run fix, re-review… ; step = loop.record(verdict); await loop.persist(cwd) }
- * if (step.action === 'land') {
- *   const land = await landPr(cwd, pr)
- *   if (land.status === 'ci-failed') step = loop.reopen('ci-failed')   // costs a round
- * } else print((await loop.enforceStop(cwd)).message)
- * ```
- *
- * @param {{ pr?: number | string | null, maxFixRounds?: number, reviews?: number, fixes?: number, gh?: (cwd: string, args: string[]) => Promise<string> }} [options]
+ * @param {{
+ *   pr?: number | string | null,
+ *   maxFixRounds?: number,
+ *   reviews?: number,
+ *   fixes?: number,
+ *   stopReason?: string,
+ *   gh?: (cwd: string, args: string[]) => Promise<string>,
+ * }} [options]
  */
-export function createReviewLoop({
-  pr = null,
-  maxFixRounds = MAX_FIX_ROUNDS,
-  reviews: seedReviews = 0,
-  fixes: seedFixes = 0,
-  gh: ghDefault = gh,
-} = {}) {
-  if (!Number.isInteger(maxFixRounds) || maxFixRounds < 0) {
+export function createReviewLoop(options = {}) {
+  return buildReviewLoop(options)
+}
+
+function buildReviewLoop(
+  {
+    pr = null,
+    maxFixRounds = MAX_FIX_ROUNDS,
+    reviews: seedReviews = 0,
+    fixes: seedFixes = 0,
+    stopReason: seedStopReason,
+    gh: ghDefault = gh,
+  } = {},
+  provenance = null,
+) {
+  if (!Number.isInteger(maxFixRounds) || maxFixRounds < 0 || maxFixRounds > MAX_FIX_ROUNDS) {
     throw new TypeError(
-      `createReviewLoop: maxFixRounds must be a non-negative integer, got ${JSON.stringify(maxFixRounds)}`,
+      `createReviewLoop: maxFixRounds must be an integer in 0..${MAX_FIX_ROUNDS}, got ${JSON.stringify(maxFixRounds)}`,
     )
   }
   for (const [label, seed] of [
@@ -763,28 +904,49 @@ export function createReviewLoop({
       throw new TypeError(`createReviewLoop: ${label} must be a non-negative integer, got ${JSON.stringify(seed)}`)
     }
   }
+  if (seedStopReason !== undefined && seedStopReason !== null) {
+    if (typeof seedStopReason !== 'string' || !/^[a-z0-9-]+$/.test(seedStopReason)) {
+      throw new TypeError(
+        `createReviewLoop: stopReason must be a kebab-case reason string, got ${JSON.stringify(seedStopReason)}`,
+      )
+    }
+  }
   const subject = pr === null || pr === undefined || pr === '' ? 'The PR' : `PR #${pr}`
   let reviews = seedReviews
   let fixes = seedFixes
   /** @type {'land' | 'stop' | null} */
-  let closed = null
+  let closed = seedStopReason ? 'stop' : null
   /** @type {string} */
-  let closedReason = 'review-bound'
+  let closedReason = seedStopReason || 'review-bound'
+  let pendingStep = null
+  let expectedCodeReviews = provenance?.codeReviews ?? 0
+
+  const STOP_GUIDANCE =
+    'Publish the escalation dossier (dev-review Phase 8), then wait for recorded human guidance selecting a revised diagnostic or design plan. Automation on this PR is finished: resumption is either a NEW superseding PR from a revised ticket, or the operator finishing this PR by hand. Generic retry, counter reset, or a new session does not resume the automatic loop. The bound is per automation account; records by other accounts, and edited/deleted comments of that account, are not detected.'
+
+  /** @param {string} reason */
+  function stopWhy(reason) {
+    if (reason === 'history-ambiguous')
+      return 'Review history cannot be proven; counts are conservative, not a confirmed exhausted budget.'
+    if (reason === 'history-stale')
+      return 'Review history changed since this loop was initialized; no correction is authorized.'
+    return reason === 'ci-failed'
+      ? `A required check failed after the panel approved, and no fix round is left: ${reviews} reviews, ${fixes} fix rounds spent/allocated.`
+      : `Review bound reached: ${reviews} reviews, ${fixes} fix rounds spent/allocated, still red.`
+  }
 
   /** @param {string} reason */
   function stopStep(reason) {
     closed = 'stop'
     closedReason = reason
-    const why =
-      reason === 'ci-failed'
-        ? `A required check failed after the panel approved, and no fix round is left: ${reviews} reviews, ${fixes} fix rounds.`
-        : `Review bound reached: ${reviews} reviews, ${fixes} fix rounds, still red.`
+    pendingStep = null
     return {
       action: /** @type {'stop'} */ ('stop'),
       reason,
       reviews,
       fixes,
-      message: `${why} ${subject} stays unlabelled and unmerged — no \`reviewed\` label, no auto-merge. Read the findings on the PR, then fix by hand or close it.`,
+      // Gate disarm claim belongs only on enforceStop's fully successful path.
+      message: `${stopWhy(reason)} ${STOP_GUIDANCE}`,
     }
   }
 
@@ -798,7 +960,18 @@ export function createReviewLoop({
     return String(pr)
   }
 
-  return {
+  function persistBody() {
+    const lines = [`<!-- omp-build:review-rounds reviews=${reviews} fixes=${fixes} -->`]
+    if (closed === 'stop') {
+      lines.push(`<!-- omp-build:review-stop reason=${closedReason} -->`)
+    }
+    lines.push(
+      `Review bound: ${reviews} review(s), ${fixes} of ${maxFixRounds} fix round(s) spent (\`/feature\` §6.6).`,
+    )
+    return lines.join('\n')
+  }
+
+  const loop = {
     get reviews() {
       return reviews
     },
@@ -808,8 +981,18 @@ export function createReviewLoop({
     get closed() {
       return closed
     },
+    get stopReason() {
+      return closed === 'stop' ? closedReason : undefined
+    },
     get remaining() {
       return Math.max(0, maxFixRounds - fixes)
+    },
+    /**
+     * True only while this live process holds an unconsumed allocation from
+     * `record('red')` / `reopen('ci-failed')`. Always false on a resumed loop.
+     */
+    get pendingFix() {
+      return pendingStep !== null
     },
     /**
      * Record one `dev-review` verdict and get the next move.
@@ -818,6 +1001,10 @@ export function createReviewLoop({
      * missing value or a third word throws: reading a verdict out of prose is the
      * failure this slice exists to remove, and a defaulted verdict would either burn
      * a round for free or land an unreviewed PR.
+     *
+     * A red verdict allocates/spends a fix round before the operator's Fix choice.
+     * Choosing Stop does not refund that allocation. The returned fix step is the only
+     * live permission for `assertFixAllowed` in this process — single-use via `pendingFix`.
      *
      * @param {string} verdict
      * @returns {{ action: 'land' | 'fix' | 'stop', reviews: number, fixes: number, remaining?: number, reason?: string, message?: string }}
@@ -833,13 +1020,61 @@ export function createReviewLoop({
         throw new TypeError(`createReviewLoop: verdict must be "green" or "red", got ${JSON.stringify(verdict)}`)
       }
       reviews += 1
+      expectedCodeReviews++
       if (v === 'green') {
         closed = 'land'
+        pendingStep = null
         return { action: 'land', reviews, fixes }
       }
-      if (fixes >= maxFixRounds) return stopStep('review-bound')
+      if (fixes >= maxFixRounds) {
+        return stopStep('review-bound')
+      }
       fixes += 1
-      return { action: 'fix', reviews, fixes, remaining: maxFixRounds - fixes }
+      pendingStep = Object.freeze({ action: 'fix', reviews, fixes, remaining: maxFixRounds - fixes })
+      return pendingStep
+    },
+    /**
+     * Authorize the live step against fresh durable history, then consume it once.
+     * Only this process's own second red allocation may explain a derived stop.
+     * An explicit/ambiguous stop, different account, or additional review never can.
+     */
+    async assertFixAllowed(cwd, step, { gh: ghFn = ghDefault, git: gitFn = git } = {}) {
+      const checkLive = () => {
+        if (closed === 'stop') throw new Error(`assertFixAllowed: loop is stopped (${closedReason})`)
+        if (!pendingStep) throw new Error('assertFixAllowed: no live unconsumed fix allocation')
+        if (step !== pendingStep) throw new Error('assertFixAllowed: step does not match the live allocation')
+      }
+      checkLive()
+      if (pr === null || pr === undefined || pr === '') {
+        if (await resolveReviewPr(cwd, null, { gh: ghFn, git: gitFn })) {
+          throw new Error('assertFixAllowed: PR discovered; resume the PR loop before fixing')
+        }
+      } else {
+        if (!provenance) throw new Error('assertFixAllowed: PR fixes require resumeReviewLoop provenance')
+        const fresh = await readReviewHistory(cwd, pr, { gh: ghFn, maxFixRounds })
+        const sameAllocation =
+          fresh.me === provenance.me &&
+          fresh.hasMarker &&
+          fresh.markerReviews === reviews &&
+          fresh.markerFixes === fixes &&
+          fresh.rounds.fixes === fixes &&
+          fresh.codeReviews === expectedCodeReviews &&
+          (step.reason === 'ci-failed'
+            ? fresh.latestVerdict?.startsWith('Approve')
+            : fresh.latestVerdict === 'Request changes')
+        const ownsDerivedStop = sameAllocation && !step.reason && fresh.stopOrigin === 'terminal-red'
+        if (!sameAllocation || (fresh.rounds.stopReason && !ownsDerivedStop)) {
+          reviews = Math.max(reviews, fresh.rounds.reviews)
+          fixes = Math.max(fixes, fresh.rounds.fixes)
+          stopStep(fresh.rounds.stopReason || 'history-stale')
+          const stop = await loop.enforceStop(cwd, { gh: ghFn })
+          throw Object.assign(new Error(`assertFixAllowed: stopped (${closedReason})`), { stop })
+        }
+      }
+      // Two overlapping awaits must not execute the same step twice.
+      checkLive()
+      pendingStep = null
+      return step
     },
     /**
      * The one way back out of `land`: the panel approved, `landPr` came back
@@ -861,81 +1096,185 @@ export function createReviewLoop({
       }
       if (closed !== 'land') {
         throw new Error(
-          `createReviewLoop: reopen("ci-failed") only follows a green verdict that closed the loop with "land", not ${JSON.stringify(closed)}`,
+          closed === 'stop'
+            ? `createReviewLoop: reopen("ci-failed") cannot lift a sticky stop — automation on this PR is finished`
+            : `createReviewLoop: reopen("ci-failed") only follows a green verdict that closed the loop with "land", not ${JSON.stringify(closed)}`,
         )
       }
       closed = null
-      if (fixes >= maxFixRounds) return stopStep('ci-failed')
+      if (fixes >= maxFixRounds) {
+        return stopStep('ci-failed')
+      }
       fixes += 1
-      return { action: 'fix', reviews, fixes, remaining: maxFixRounds - fixes, reason: 'ci-failed' }
+      pendingStep = Object.freeze({
+        action: 'fix',
+        reviews,
+        fixes,
+        remaining: maxFixRounds - fixes,
+        reason: 'ci-failed',
+      })
+      return pendingStep
     },
     /**
      * Write the rounds spent onto the PR, so the bound survives this process.
      *
-     * Called after every `record`. What it buys: a re-entry, a compaction or a crash
-     * resumes through `resumeReviewLoop` at the count the PR carries. What it does not
-     * buy: anything against an agent that never calls it — a skipped `persist` leaves
-     * the count in memory only, which is why §6.6 states it as a step rather than a
-     * guarantee.
+     * Called after every `record` / `reopen`. Persists counts and, when closed is
+     * `stop`, the sticky stop reason beside them. A re-entry resumes through
+     * `resumeReviewLoop` at that state. Helpers here do **not** unlock a sticky stop —
+     * automation on a stopped PR is finished; resumption is a NEW superseding PR or
+     * the operator finishing by hand.
      *
      * @param {string} cwd
      * @param {{ gh?: (cwd: string, args: string[]) => Promise<string> }} [deps]
      */
     async persist(cwd, { gh: ghFn = ghDefault } = {}) {
       const number = requirePr('persist')
-      const body = `<!-- omp-build:review-rounds reviews=${reviews} fixes=${fixes} -->\nReview bound: ${reviews} review(s), ${fixes} of ${maxFixRounds} fix round(s) spent (\`/feature\` §6.6).`
-      await ghFn(cwd, ['pr', 'comment', number, '--body', body])
-      return { reviews, fixes }
+      await ghFn(cwd, ['pr', 'comment', number, '--body', persistBody()])
+      return closed === 'stop' ? { reviews, fixes, stopReason: closedReason } : { reviews, fixes }
     },
     /**
      * Make `stop` true of the PR, not just of this object.
      *
-     * `stop` promises "no `reviewed` label, no auto-merge". Two signals carry that
-     * promise: the label, which `.github/workflows/auto-merge.yml` turns into
-     * `gh pr merge --auto --merge`, and GitHub's native `autoMergeRequest`, which
-     * outlives the label once enabled. Anything that armed them earlier — a fix round
-     * run in labelling mode, a `dev-review` Phase 8 "Merge as-is", a human — would merge
-     * a PR the loop just refused. So on `stop` both are read back and disarmed, label
-     * first, before the operator is told nothing merged.
+     * Read PR state, then publish the stop and disarm independently. Closed/merged
+     * PRs receive no effects. Read failure still attempts publication and both
+     * disarms, but reports uncertainty. Dossier publication is caller-owned.
      *
      * @param {string} cwd
      * @param {{ gh?: (cwd: string, args: string[]) => Promise<string> }} [deps]
-     * @returns {Promise<{ removed: boolean, autoMergeDisabled: boolean, labels: string[], message: string }>}
+     * @returns {Promise<object>}
      */
     async enforceStop(cwd, { gh: ghFn = ghDefault } = {}) {
       if (closed !== 'stop') {
         throw new Error(`createReviewLoop: enforceStop only follows a stop, not ${JSON.stringify(closed)}`)
       }
       const number = requirePr('enforceStop')
-      const raw = await ghFn(cwd, ['pr', 'view', number, '--json', 'labels,autoMergeRequest'])
-      let data
+      /** @type {string | null} */
+      let publishError = null
+      let published = false
+
+      /** @type {string | null} */
+      let readError = null
+      /** @type {string[]} */
+      let labels = []
+      let autoMergeWasEnabled = false
+      let readOk = false
+      let prState = null
       try {
-        data = JSON.parse(raw)
-      } catch {
-        throw new Error(
-          `createReviewLoop: \`gh pr view ${number} --json labels,autoMergeRequest\` returned no JSON — ${preview(raw)}`,
-        )
+        const raw = await ghFn(cwd, ['pr', 'view', number, '--json', 'labels,autoMergeRequest,state'])
+        let data
+        try {
+          data = JSON.parse(raw)
+        } catch {
+          throw new Error(`createReviewLoop: gh pr view ${number} returned no JSON — ${preview(raw)}`)
+        }
+        if (!Array.isArray(data?.labels)) {
+          throw new Error(`createReviewLoop: gh pr view ${number} carried no labels — ${preview(raw)}`)
+        }
+        if (!['OPEN', 'CLOSED', 'MERGED'].includes(data.state)) throw new Error('enforceStop: unknown PR state')
+        prState = data.state
+        labels = data.labels.map((l) => (typeof l?.name === 'string' ? l.name : '')).filter(Boolean)
+        autoMergeWasEnabled = Boolean(data.autoMergeRequest)
+        readOk = true
+      } catch (e) {
+        readError = e instanceof Error ? e.message : String(e)
       }
-      if (!Array.isArray(data?.labels)) {
-        throw new Error(
-          `createReviewLoop: \`gh pr view ${number} --json labels,autoMergeRequest\` carried no labels — ${preview(raw)}`,
-        )
+      if (prState === 'MERGED' || prState === 'CLOSED') {
+        return {
+          prState,
+          removed: false,
+          autoMergeDisabled: false,
+          labels,
+          published: false,
+          publishError: null,
+          readError: null,
+          disarmErrors: [],
+          message: `${subject} is ${prState}; no gate changes made.`,
+        }
       }
-      const labels = data.labels.map((l) => (typeof l?.name === 'string' ? l.name : '')).filter(Boolean)
-      const stop = stopStep(closedReason)
+      try {
+        await ghFn(cwd, ['pr', 'comment', number, '--body', persistBody()])
+        published = true
+      } catch (e) {
+        publishError = e instanceof Error ? e.message : String(e)
+      }
+
+      /** @type {string[]} */
+      const disarmErrors = []
       let removed = false
-      if (labels.includes('reviewed')) {
-        await ghFn(cwd, ['pr', 'edit', number, '--remove-label', 'reviewed'])
-        removed = true
+      let autoMergeDisabled = false
+
+      const tryRemoveReviewed = async () => {
+        try {
+          await ghFn(cwd, ['pr', 'edit', number, '--remove-label', 'reviewed'])
+          removed = true
+        } catch (e) {
+          disarmErrors.push(`remove-label reviewed: ${e instanceof Error ? e.message : String(e)}`)
+        }
       }
-      const autoMergeDisabled = Boolean(data.autoMergeRequest)
-      if (autoMergeDisabled) await ghFn(cwd, ['pr', 'merge', number, '--disable-auto'])
-      const notes = [
-        removed && `A \`reviewed\` label was already on ${subject} — removed, so auto-merge cannot pick it up.`,
-        autoMergeDisabled && `Auto-merge was enabled on ${subject} — disabled.`,
-      ].filter(Boolean)
-      const message = [stop.message, ...notes].join('\n')
-      return { removed, autoMergeDisabled, labels, message }
+      const tryDisableAuto = async () => {
+        try {
+          await ghFn(cwd, ['pr', 'merge', number, '--disable-auto'])
+          autoMergeDisabled = true
+        } catch (e) {
+          disarmErrors.push(`disable-auto: ${e instanceof Error ? e.message : String(e)}`)
+        }
+      }
+
+      if (!readOk) {
+        // Read-back failed — still attempt both disarms; never claim guaranteed.
+        await tryRemoveReviewed()
+        await tryDisableAuto()
+      } else {
+        if (labels.includes('reviewed')) await tryRemoveReviewed()
+        if (autoMergeWasEnabled) await tryDisableAuto()
+      }
+
+      const guaranteed = published && readOk && disarmErrors.length === 0
+      /** @type {string[]} */
+      const parts = [
+        guaranteed
+          ? `${stopWhy(closedReason)} ${subject}'s automatic merge gate is disarmed (observed OPEN before disarm). ${STOP_GUIDANCE}`
+          : `${stopWhy(closedReason)} ${subject}'s gate state is not guaranteed — publication and/or disarm did not fully succeed. ${STOP_GUIDANCE}`,
+      ]
+      if (publishError) {
+        parts.push(
+          `Durable stop marker was NOT published on ${subject}: ${publishError}. Durable stop across sessions is not guaranteed.`,
+        )
+      }
+      if (readError) {
+        parts.push(
+          `Label/auto-merge read-back failed on ${subject}: ${readError}. Disarm was still attempted; gate state is not guaranteed.`,
+        )
+      }
+      if (removed) {
+        parts.push(
+          readOk
+            ? `A \`reviewed\` label was already on ${subject} — removed, so auto-merge cannot pick it up.`
+            : `remove-label attempted (prior state unknown)`,
+        )
+      }
+      if (autoMergeDisabled) {
+        parts.push(
+          readOk ? `Auto-merge was enabled on ${subject} — disabled.` : `disable-auto attempted (prior state unknown)`,
+        )
+      }
+      if (disarmErrors.length > 0) {
+        parts.push(
+          `Disarm incomplete on ${subject}: ${disarmErrors.join('; ')}. Gate is not guaranteed unlabelled and unmerged.`,
+        )
+      }
+      return {
+        prState,
+        removed,
+        autoMergeDisabled,
+        labels,
+        message: parts.join('\n'),
+        disarmErrors,
+        publishError,
+        published,
+        readError,
+      }
     },
   }
+  return loop
 }

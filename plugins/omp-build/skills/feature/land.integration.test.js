@@ -13,7 +13,7 @@ const BEFORE_AT = '2026-09-29T09:00:00Z'
 const EVENTS_JQ = '.[] | select(.event == "labeled" and .label.name == "reviewed") | .created_at'
 
 const DRIVER = `
-const [mod, fn, cwd, pr, eventsMode] = process.argv.slice(1)
+const [mod, fn, cwd, pr, eventsMode, historyMode, prList] = process.argv.slice(1)
 const { landPr, readLanding } = await import(mod)
 if (fn === 'readLanding') {
   try {
@@ -23,14 +23,40 @@ if (fn === 'readLanding') {
   }
   process.exit(0)
 }
+const ME = 'omp-bot'
+const review = (verdict) => '<!-- omp-build:code-review -->\\n## Code Review\\n\\n**Verdict: ' + verdict + '** — summary'
+const rounds = (reviews, fixes) => '<!-- omp-build:review-rounds reviews=' + reviews + ' fixes=' + fixes + ' -->\\nReview bound.'
+const RECEIPT = '## Review Fixes Applied\\n\\n**Applied:** 1 cause(s)'
+// approved: a first-round green and its persisted count. stopped: a third red after two completed rounds.
+const HISTORIES = {
+  approved: [review('Approve (clean)'), rounds(1, 0)],
+  stopped: [
+    review('Request changes'), rounds(1, 1), RECEIPT,
+    review('Request changes'), rounds(2, 2), RECEIPT,
+    review('Request changes'),
+  ],
+}
+const comments = HISTORIES[historyMode].map((body) => ({ author: { login: ME }, body }))
 const calls = []
 let eventsPoll = 0
 const sleep = async () => {}
+const same = (args, expected) => args.length === expected.length && expected.every((arg, i) => args[i] === arg)
 const gh = async (_cwd, args) => {
   calls.push(args)
+  if (same(args, ['api', 'user', '--jq', '.login'])) return ME + '\\n'
+  if (args[0] === 'pr' && args[1] === 'list') return prList
   if (args[0] === 'repo') return JSON.stringify({ nameWithOwner: 'acme/app' })
-  if (args[0] === 'pr' && args[1] === 'view' && args.includes('baseRefName')) return JSON.stringify({ baseRefName: 'main' })
-  if (args[0] === 'pr' && args[1] === 'view' && args.includes('labels')) return JSON.stringify({ labels: [] })
+  if (args[0] === 'pr' && args[1] === 'view') {
+    const view = {}
+    for (const field of String(args[4]).split(',')) {
+      if (field === 'comments') view.comments = comments
+      if (field === 'labels') view.labels = []
+      if (field === 'autoMergeRequest') view.autoMergeRequest = null
+      if (field === 'state') view.state = 'OPEN'
+      if (field === 'baseRefName') view.baseRefName = 'main'
+    }
+    return JSON.stringify(view)
+  }
   if (args[0] === 'api' && String(args[1] ?? '').includes('/events')) {
     eventsPoll++
     if (eventsMode === 'fail') throw new Error('HTTP 500')
@@ -48,7 +74,12 @@ const gh = async (_cwd, args) => {
   if (args[0] === 'api') throw new Error('HTTP 403')
   return ''
 }
-console.log(JSON.stringify({ result: await landPr(cwd, Number(pr), { gh, sleep }), calls }))
+try {
+  const result = await landPr(cwd, pr === '' ? undefined : Number(pr), { gh, sleep })
+  console.log(JSON.stringify({ result, calls }))
+} catch (e) {
+  console.log(JSON.stringify({ error: e.message, calls }))
+}
 `
 
 /** A checkout with the given files, relative path → content. */
@@ -61,12 +92,27 @@ function checkout(files = {}) {
   return dir
 }
 
-function land(cwd, eventsMode = 'ok') {
-  return JSON.parse(execFileSync('bun', ['-e', DRIVER, WORKFLOW, 'landPr', cwd, '7', eventsMode], { encoding: 'utf8' }))
+/** `pr: ''` omits the PR, so landPr discovers it from the checkout's branch. */
+function land(cwd, eventsMode = 'ok', { pr = '7', history = 'approved', prList = '[]' } = {}) {
+  return JSON.parse(
+    execFileSync('bun', ['-e', DRIVER, WORKFLOW, 'landPr', cwd, pr, eventsMode, history, prList], { encoding: 'utf8' }),
+  )
 }
 
 function readLanding(cwd) {
   return JSON.parse(execFileSync('bun', ['-e', DRIVER, WORKFLOW, 'readLanding', cwd], { encoding: 'utf8' }))
+}
+
+const BRANCH = 'feat/637-review-action-sinks'
+
+/** A checkout that is a git repository on BRANCH (unborn — `branch --show-current` needs no commit). */
+function onBranch(files) {
+  const dir = checkout(files)
+  // Hook-inherited GIT_* would point git at the caller's repository instead of this one.
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
+  execFileSync('git', ['init', '-q'], { cwd: dir, env })
+  execFileSync('git', ['symbolic-ref', 'HEAD', `refs/heads/${BRANCH}`], { cwd: dir, env })
+  return dir
 }
 
 /** Pull the shell-quoted path out of `bash '<path>' …`. */
@@ -79,6 +125,10 @@ const WORKFLOW_FILE = { '.github/workflows/merge-on-green.yml': 'name: merge-on-
 const PROTECTION = ['api', 'repos/acme/app/branches/main/protection/required_status_checks']
 const RULES = ['api', 'repos/acme/app/rules/branches/main']
 const EVENTS = ['api', 'repos/acme/app/issues/7/events', '--paginate', '--jq', EVENTS_JQ]
+const IDENTITY = ['api', 'user', '--jq', '.login']
+const COMMENTS = ['pr', 'view', '7', '--json', 'comments']
+const LIST = ['pr', 'list', '--head', BRANCH, '--state', 'open', '--json', 'number']
+const STACK = { ...WORKFLOW_FILE, '.dev/stack.yml': 'runtime: bun\n' }
 const WATCH_FAILED = {
   status: 'watch-failed',
   error: 'could not read the labeled reviewed event after re-label — merge-on-green needs --since from GitHub',
@@ -101,8 +151,11 @@ describe('landPr through the checkout', () => {
         input: '[]',
       }).trim(),
     ).toBe('PENDING')
-    // before events + labels + add + after events. Stub answers protection/rules; a probe would show.
+    // review gate (identity + comments), then before events + labels + add + after events.
+    // Stub answers protection/rules; a probe would show.
     expect(calls).toEqual([
+      IDENTITY,
+      COMMENTS,
       ['repo', 'view', '--json', 'nameWithOwner'],
       EVENTS,
       ['pr', 'view', '7', '--json', 'labels'],
@@ -166,7 +219,47 @@ describe('landPr through the checkout', () => {
   it('a comment-only stack with the workflow file watches merge-on-green', () => {
     const { result, calls } = land(checkout({ ...WORKFLOW_FILE, '.dev/stack.yml': '# only a comment\n' }))
     expect(result).toMatchObject({ status: 'watching', mode: 'merge-on-green' })
-    expect(calls[0]).toEqual(['repo', 'view', '--json', 'nameWithOwner'])
+    expect(calls.slice(0, 3)).toEqual([IDENTITY, COMMENTS, ['repo', 'view', '--json', 'nameWithOwner']])
+  })
+})
+
+describe('landPr review gate through the checkout', () => {
+  it.each([
+    ['merge-on-green', STACK],
+    ['native with no required contexts', { '.dev/stack.yml': 'landing:\n  mode: native\n' }],
+  ])('a stopped history under %s is review-stopped and never armed', (_mode, files) => {
+    const { result, calls } = land(checkout(files), 'ok', { history: 'stopped' })
+    expect(result).toMatchObject({
+      status: 'review-stopped',
+      reason: 'review-bound',
+      reviews: 3,
+      fixes: 2,
+      stop: { prState: 'OPEN', published: true },
+    })
+    expect(calls.some((a) => a[0] === 'pr' && a.includes('--add-label'))).toBe(false)
+    expect(calls.some((a) => a[0] === 'pr' && a[1] === 'merge' && a.includes('--auto'))).toBe(false)
+  })
+
+  it('an omitted PR on a branch with no open PR is no-pr, and nothing else is asked', () => {
+    const { result, calls } = land(onBranch(STACK), 'ok', { pr: '' })
+    expect(result).toEqual({ status: 'no-pr' })
+    expect(calls).toEqual([LIST])
+  })
+
+  it('an omitted PR resolves to the branch’s one open PR, whose history the gate reads', () => {
+    const { result, calls } = land(onBranch(STACK), 'ok', { pr: '', prList: JSON.stringify([{ number: 7 }]) })
+    expect(result).toMatchObject({ status: 'watching', mode: 'merge-on-green' })
+    expect(calls.slice(0, 3)).toEqual([LIST, IDENTITY, COMMENTS])
+  })
+
+  it('an omitted PR with two open PRs for the branch fails, and nothing is armed', () => {
+    const { result, error, calls } = land(onBranch(STACK), 'ok', {
+      pr: '',
+      prList: JSON.stringify([{ number: 7 }, { number: 8 }]),
+    })
+    expect(result).toBeUndefined()
+    expect(error).toEqual(expect.any(String))
+    expect(calls).toEqual([LIST])
   })
 })
 

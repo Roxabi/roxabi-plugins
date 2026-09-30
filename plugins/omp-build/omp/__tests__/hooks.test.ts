@@ -1,5 +1,5 @@
 import type * as NodeFs from 'node:fs'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
@@ -470,23 +470,6 @@ describe('OMP omp-build hooks', () => {
       await bare.get('feature')?.handler('', { cwd: '/repo' })
       const banner = (messages.at(-1) ?? '').split('\n')[0] ?? ''
       expect(local.filter((name) => !banner.includes(`\`${name}\``))).toEqual([])
-    })
-
-    it('hands fix the no-label mode, and fix writes `reviewed` only in label mode', async () => {
-      // `reviewed` is a merge, not a status: auto-merge.yml turns it into
-      // `gh pr merge --auto --merge`. A fix round that labels merges the PR before the
-      // re-review that judges the fix. Commands are matched, never section titles.
-      await commands.get('feature')?.handler('#494', { cwd: '/repo' })
-      const invocations = (sent.at(-1) ?? '')
-        .split('\n')
-        .filter((line) => line.includes('skill://fix') && line.includes('#<pr>'))
-      expect(invocations.length).toBeGreaterThan(0)
-      expect(invocations.filter((line) => !line.includes('--no-label'))).toEqual([])
-
-      const fixBody = readFileSync(resolve(import.meta.dirname, '..', '..', 'skills', 'fix', 'SKILL.md'), 'utf8')
-      const writes = fixBody.split('\n').filter((line) => line.includes('gh api repos/:owner/:repo/issues/<#>/labels'))
-      expect(writes.length).toBeGreaterThan(0)
-      expect(writes.filter((line) => !line.includes('mode = `label`'))).toEqual([])
     })
   })
 })

@@ -2,7 +2,13 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { applyCiWatchExit, disarmReviewedBeforePush, landPr, parseRequiredContexts } from './workflow.js'
+import {
+  applyCiWatchExit,
+  disarmReviewedBeforePush,
+  interpretReviewHistory,
+  landPr,
+  parseRequiredContexts,
+} from './workflow.js'
 
 /** A checkout with the given files, relative path → content. */
 function checkout(files = {}) {
@@ -45,6 +51,37 @@ const EVENTS_CALL = ['api', 'repos/acme/app/issues/7/events', '--paginate', '--j
 /** Default: no prior label event, then the post-add time. */
 const EVENTS_FIRST = ['', EVENT_AT]
 
+const ME = 'omp-bot'
+/** The one query the automation login comes from. */
+const IDENTITY = ['api', 'user', '--jq', '.login']
+/** @param {unknown[]} args @param {unknown[]} expected */
+const same = (args, expected) => args.length === expected.length && expected.every((arg, i) => args[i] === arg)
+/** A review record as dev-review posts it: the marker on the first line, the verdict last. @param {string} verdict */
+const review = (verdict) => `<!-- omp-build:code-review -->\n## Code Review\n\n**Verdict: ${verdict}** — summary`
+const RED = review('Request changes')
+const GREEN = review('Approve (clean)')
+const RECEIPT = '## Review Fixes Applied\n\n**Applied:** 1 cause(s)'
+/** What the loop persists. @param {number} reviews @param {number} fixes @param {string} [stop] */
+const accounting = (reviews, fixes, stop) =>
+  [
+    `<!-- omp-build:review-rounds reviews=${reviews} fixes=${fixes} -->`,
+    ...(stop === undefined ? [] : [`<!-- omp-build:review-stop reason=${stop} -->`]),
+    `Review bound: ${reviews} review(s), ${fixes} of 2 fix round(s) spent.`,
+  ].join('\n')
+/** @param {string} body */
+const byMe = (body) => ({ author: { login: ME }, body })
+/** A first-round approval: the review record, then the count the loop persisted — what a green landing follows. */
+const APPROVED = [byMe(GREEN), byMe(accounting(1, 0))]
+/** Two completed rounds: each red persisted as an allocation, each fix receipted. */
+const TWO_ROUNDS = [byMe(RED), byMe(accounting(1, 1)), byMe(RECEIPT), byMe(RED), byMe(accounting(2, 2)), byMe(RECEIPT)]
+/** PR #636 as it stands: one review record and a prose dossier — no counters, no receipts. */
+const PR_636 = [
+  byMe(
+    '<!-- omp-build:code-review -->\n## Code Review\n\nRound 3 (final).\n\n**Verdict: Request changes** — 1 blocking finding in 1 root cause (RC-1).',
+  ),
+  byMe('## Human intervention required — review did not converge\n\nThe PR applies its own rule to itself.'),
+]
+
 function mockLand({
   rollupSequence = [],
   mergeThrows = null,
@@ -56,6 +93,8 @@ function mockLand({
   /** One response per events call, last entry repeated. */
   events = EVENTS_FIRST,
   eventsThrow = null,
+  /** The PR's comments, as the review gate reads them. */
+  comments = APPROVED,
 } = {}) {
   const t = 0
   const calls = []
@@ -67,6 +106,8 @@ function mockLand({
     calls.push(args)
     const jsonAt = args.indexOf('--json')
     const fields = jsonAt === -1 ? [] : String(args[jsonAt + 1] ?? '').split(',')
+    if (same(args, IDENTITY)) return `${ME}\n`
+    if (args[0] === 'pr' && args[1] === 'view' && same(fields, ['comments'])) return JSON.stringify({ comments })
     if (args[0] === 'pr' && args[1] === 'view' && fields.includes('state')) {
       const state = states[Math.min(statePoll, states.length - 1)] ?? 'OPEN'
       const autoMergeRequest = autoMerges[Math.min(statePoll, autoMerges.length - 1)] ?? null
@@ -156,6 +197,8 @@ describe('landPr', () => {
       sleep,
     })
     expect(calls).toEqual([
+      IDENTITY,
+      ['pr', 'view', '7', '--json', 'comments'],
       ['repo', 'view', '--json', 'nameWithOwner'],
       EVENTS_CALL,
       ['pr', 'view', '7', '--json', 'labels'],
@@ -237,6 +280,8 @@ describe('landPr', () => {
     const calls = []
     const gh = async (_cwd, args) => {
       calls.push(args)
+      if (same(args, IDENTITY)) return `${ME}\n`
+      if (same(args, ['pr', 'view', '7', '--json', 'comments'])) return JSON.stringify({ comments: APPROVED })
       if (args[0] === 'repo') return JSON.stringify({ nameWithOwner: 'acme/app' })
       if (args[0] === 'pr' && args[1] === 'view') return JSON.stringify({ baseRefName: 'main' })
       if (args[0] === 'api') throw new Error('HTTP 403')
@@ -248,6 +293,162 @@ describe('landPr', () => {
     expect(calls).toContainEqual(['api', 'repos/acme/app/branches/main/protection/required_status_checks'])
     expect(calls).toContainEqual(['api', 'repos/acme/app/rules/branches/main'])
     expect(labeled(calls)).toBe(false)
+  })
+})
+
+/**
+ * A PR whose gate follows the calls made on it: labels, native auto-merge, labeled events,
+ * comments by author. Only exact argv is answered; anything else throws.
+ */
+function gatePr({ comments, labels = [], autoMerge = null, state = 'OPEN' }) {
+  const pr = { comments: [...comments], labels: new Set(labels), autoMerge, state, labeledAt: [] }
+  const calls = []
+  const gh = async (_cwd, args) => {
+    calls.push(args)
+    if (same(args, IDENTITY)) return `${ME}\n`
+    if (args.length === 5 && same(args.slice(0, 4), ['pr', 'view', '7', '--json'])) {
+      /** @type {Record<string, unknown>} */
+      const view = {}
+      for (const field of args[4].split(',')) {
+        if (field === 'comments') view.comments = pr.comments
+        else if (field === 'labels') view.labels = [...pr.labels].map((name) => ({ name }))
+        else if (field === 'autoMergeRequest') view.autoMergeRequest = pr.autoMerge
+        else if (field === 'state') view.state = pr.state
+        else throw new Error(`unexpected field: ${field}`)
+      }
+      return JSON.stringify(view)
+    }
+    if (args.length === 5 && same(args.slice(0, 4), ['pr', 'comment', '7', '--body'])) {
+      pr.comments.push(byMe(args[4]))
+      return ''
+    }
+    if (same(args, ['pr', 'edit', '7', '--remove-label', 'reviewed'])) {
+      pr.labels.delete('reviewed')
+      return ''
+    }
+    if (same(args, ['pr', 'edit', '7', '--add-label', 'reviewed'])) {
+      pr.labels.add('reviewed')
+      pr.labeledAt.push(EVENT_AT)
+      return ''
+    }
+    if (same(args, ['pr', 'merge', '7', '--disable-auto'])) {
+      pr.autoMerge = null
+      return ''
+    }
+    if (same(args, ['pr', 'merge', '7', '--auto', '--merge'])) {
+      pr.autoMerge = { mergeMethod: 'MERGE' }
+      return ''
+    }
+    if (same(args, ['repo', 'view', '--json', 'nameWithOwner'])) return JSON.stringify({ nameWithOwner: 'acme/app' })
+    if (same(args, EVENTS_CALL)) return pr.labeledAt.join('\n')
+    throw new Error(`unexpected gh call: ${args.join(' ')}`)
+  }
+  return { gh, calls, pr }
+}
+
+const armsLabel = (a) => a[1] === 'edit' && a.includes('--add-label')
+const enablesAuto = (a) => a[1] === 'merge' && a.includes('--auto')
+
+const STOPPED = [
+  [
+    'an explicit stop, under a later green',
+    [...TWO_ROUNDS, byMe(RED), byMe(accounting(3, 2, 'review-bound')), byMe(GREEN), byMe(accounting(4, 2))],
+    'review-bound',
+  ],
+  ['a terminal red followed by a later green', [...TWO_ROUNDS, byMe(RED), byMe(GREEN)], 'review-bound'],
+  ['a second allocation never receipted', TWO_ROUNDS.slice(0, 5), 'review-bound'],
+  ['#636 as it stands: a review record and a prose dossier', PR_636, 'history-ambiguous'],
+]
+
+describe.each([
+  ['native with declared checks', { landing: { mode: 'native', required_checks: ['ci'] } }],
+  ['native with zero required contexts', { landing: { mode: 'native', required_checks: [] }, requiredContexts: [] }],
+  ['merge-on-green', { landing: { mode: 'merge-on-green', required_checks: [] } }],
+])('landPr — the review gate before arming (%s)', (_mode, options) => {
+  it.each(STOPPED)('%s: review-stopped, the gate disarmed, nothing armed', async (_label, comments, reason) => {
+    const strict = interpretReviewHistory(comments, { me: ME })
+    expect(strict.stopReason).toBe(reason)
+    const fake = gatePr({ comments, labels: ['reviewed', 'size:F-lite'], autoMerge: { mergeMethod: 'MERGE' } })
+    const result = await landPr('/tmp/wt', 7, { gh: fake.gh, sleep: async () => {}, ...options })
+    expect(result).toMatchObject({
+      status: 'review-stopped',
+      reason,
+      reviews: strict.reviews,
+      fixes: strict.fixes,
+      stop: { prState: 'OPEN', published: true, removed: true, autoMergeDisabled: true, disarmErrors: [] },
+    })
+    expect(result.watch).toBeUndefined()
+    expect(fake.calls.some(armsLabel)).toBe(false)
+    expect(fake.calls.some(enablesAuto)).toBe(false)
+    expect([...fake.pr.labels]).toEqual(['size:F-lite'])
+    expect(fake.pr.autoMerge).toBe(null)
+    expect(interpretReviewHistory(fake.pr.comments, { me: ME }).stopReason).toBe(reason)
+  })
+
+  it.each(['MERGED', 'CLOSED'])('a %s PR with a stopped history: review-stopped, no gate change', async (state) => {
+    const fake = gatePr({ comments: PR_636, labels: ['reviewed'], autoMerge: { mergeMethod: 'MERGE' }, state })
+    const result = await landPr('/tmp/wt', 7, { gh: fake.gh, sleep: async () => {}, ...options })
+    expect(result).toMatchObject({
+      status: 'review-stopped',
+      stop: { prState: state, published: false, removed: false, autoMergeDisabled: false },
+    })
+    expect(fake.pr.comments).toEqual(PR_636)
+    expect(fake.pr.labels.has('reviewed')).toBe(true)
+    expect(fake.pr.autoMerge).toEqual({ mergeMethod: 'MERGE' })
+  })
+})
+
+describe('landPr — a green history after spent rounds still lands in both modes', () => {
+  const LANDABLE = [
+    ['a final green after two fixes', [...TWO_ROUNDS, byMe(GREEN), byMe(accounting(3, 2))]],
+    [
+      'legacy receipts for two fixes, then a green, no counters',
+      [byMe(RED), byMe(RECEIPT), byMe(RED), byMe(RECEIPT), byMe(GREEN)],
+    ],
+  ]
+
+  it.each(LANDABLE)('native: %s arms the label and auto-merge', async (_label, comments) => {
+    const fake = gatePr({ comments })
+    const result = await landPr('/tmp/wt', 7, { gh: fake.gh, landing: { mode: 'native', required_checks: ['ci'] } })
+    expect(result).toMatchObject({ status: 'watching', mode: 'native' })
+    expect(fake.pr.labels.has('reviewed')).toBe(true)
+    expect(fake.pr.autoMerge).not.toBe(null)
+    expect(fake.pr.comments).toEqual(comments)
+  })
+
+  it.each(LANDABLE)('merge-on-green: %s arms the label and watches from its event', async (_label, comments) => {
+    const fake = gatePr({ comments })
+    const result = await landPr('/tmp/wt', 7, {
+      gh: fake.gh,
+      sleep: async () => {},
+      landing: { mode: 'merge-on-green', required_checks: [] },
+    })
+    expect(result).toMatchObject({ status: 'watching', mode: 'merge-on-green' })
+    expect(result.watch).toContain(`--since ${EVENT_AT}`)
+    expect(fake.pr.labels.has('reviewed')).toBe(true)
+    expect(fake.pr.autoMerge).toBe(null)
+  })
+})
+
+describe('landPr — an unreadable review history never arms', () => {
+  const COMMENTS = ['pr', 'view', '7', '--json', 'comments']
+
+  it.each([
+    ['a JSON-shaped identity', IDENTITY, '{"login":"omp-bot"}'],
+    ['an empty identity', IDENTITY, ''],
+    ['comments that are not JSON', COMMENTS, 'gh: could not find pull request'],
+    ['a response carrying no comments', COMMENTS, JSON.stringify({ labels: [] })],
+    ['a failed comments read', COMMENTS, new Error('HTTP 502')],
+  ])('%s rejects before any gate write', async (_label, query, answer) => {
+    const fake = gatePr({ comments: APPROVED })
+    const gh = async (cwd, args) => {
+      if (!same(args, query)) return fake.gh(cwd, args)
+      if (answer instanceof Error) throw answer
+      return answer
+    }
+    await expect(landPr('/tmp/wt', 7, { gh, landing: { mode: 'native', required_checks: ['ci'] } })).rejects.toThrow()
+    expect(fake.calls.some((args) => args[1] === 'edit' || args[1] === 'merge' || args[1] === 'comment')).toBe(false)
+    expect(fake.pr.labels.size).toBe(0)
   })
 })
 
