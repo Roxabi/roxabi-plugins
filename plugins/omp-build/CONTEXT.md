@@ -16,6 +16,18 @@ _Avoid_: build, /build, /dev, /R-dev, omp-wt
 The `/goal` in the operator's session that delivers one epic. The autonomy unit of `/feature`.
 _Avoid_: a per-ticket stop, an autonomy level stored on the issue, one goal per ticket
 
+**Goal run**:
+One `/goal` line for an Epic goal, named by the `run=<id>` in its objective. Only an active goal whose objective names the epic authorizes the loop. Stops are recorded per run; a new `/goal` line is a new run.
+_Avoid_: a session, a paused goal, the run as a counter of attempts
+
+**Ticket stop**:
+A child the Goal run stops on — review bound spent, proof blocked, foreign commit or branch mismatch, no scope, a watch that timed out, cancelled or blocked checks, an unmerged or closed PR. Recorded as a `goal-stop` marker on the child; its PR is disarmed, its dependents are skipped, independent children continue. A spent review bound stays stopped across runs; any other ticket stop is retried by the next run.
+_Avoid_: a goal drop, a skipped dependent, a stop held in session memory
+
+**Shared-state stop**:
+A failure that makes every remaining child unsafe — base CI red, a dirty tree between tickets, a landing or tracker failure, a failed post-merge hook, a final review still blocking after its fix round. Every armed child PR is disarmed, the goal is reported and dropped.
+_Avoid_: a ticket stop, skipping the ticket, waiting on pending base CI
+
 **Spec**:
 The GitHub issue body: agreed scope, acceptance criteria, invariants and exclusions. The SSoT for what to build.
 _Avoid_: artifacts/specs, validated, /R-spec
@@ -94,8 +106,8 @@ A durable linked git checkout (ω) that isolates delivery from the Principal. Cr
 _Avoid_: branch; Isolation (ephemeral `task.isolated` sandbox); `/wt`
 
 **Epic worktree**:
-The one Worktree an epic is delivered from. Each ticket inside it is its own branch and its own PR.
-_Avoid_: one worktree per ticket, the Principal, Isolation
+The one Worktree an epic is delivered from, created **detached** at `refs/remotes/origin/<base>`, with no epic branch. Each child gets its own branch inside it, from the base, and its own PR; after a confirmed merge HEAD is detached there again and the child's local branch deleted.
+_Avoid_: one worktree per ticket, an epic branch, the Principal, Isolation
 
 **Bootstrap**:
 The prepared state of an Epic worktree, taken once from what the repository declares, before its first ticket.

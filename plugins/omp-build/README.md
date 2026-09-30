@@ -64,9 +64,11 @@ Symlinking into `~/.omp/agent/agents/` is not supported — use `link` (or the c
 ```
 
 At the end of framing an epic, the agent creates `<worktree base>/<repo>/<epic-slug>`
-from fresh `origin/<base>` and prints `/move <path>` then the generated `/goal` line.
-It does not switch the Principal. A single ticket outside a goal uses the same
-`/move`; assisted mode, no `/goal`.
+**detached** at fresh `refs/remotes/origin/<base>` (no epic branch) and prints
+`/move <path>`. Once every child is framed, `/feature #E` in that worktree prints the
+generated `/goal` line (`skills/feature/epic-driver.ts objective`), carrying the
+epic, a `run=` id and the base. It does not switch the Principal. A single ticket
+outside a goal uses the same `/move`; assisted mode, no `/goal`.
 
 After entering the matching worktree, run `/feature #42` again. Incomplete scope
 returns to framing; an actionable, unblocked issue proceeds to implementation.
@@ -80,6 +82,30 @@ verification. `tdd` is used at agreed test-first seams. The old `grill-with-docs
 `to-spec`, `to-tickets` and `implement` skills are no longer prerequisites.
 
 PR open, the review loop, and landing live in `skills/feature/workflow.js`.
+
+### Epic flow under `/goal`
+
+With a goal active whose objective names `/feature #E`, the session runs the epic
+unattended in the epic worktree. Before every ticket it asks the driver
+(`skills/feature/epic-driver.ts next`) for the one next action, from GitHub and git
+state alone:
+
+```text
+next → start/resume child (branch from origin/<base>) → implement → dev-review → fix → land
+     → merge confirmed: detach, delete the local branch → next …
+     → every child closed or merged → final epic review (R-architect + R-adversarial)
+     → release.post_merge (argv, clean checkout of origin/<base>) → report → goal complete
+```
+
+Children run in `blocked_by` order. A **ticket stop** (review bound spent, watch
+timeout, cancelled or blocked checks, proof blocked, no scope, foreign commit…) is
+recorded on the child as a `goal-stop` marker, its PR disarmed; its dependents are
+skipped and independent children continue. A **shared-state stop** (base CI red,
+dirty tree, landing or tracker failure, hook failure, final review still blocking
+after its one fix ticket) disarms every child PR, reports on the epic and drops the
+goal. A new `/goal` line resumes: merged children are skipped, open PRs resumed,
+stops of earlier runs retried except a spent review bound. Without an active goal
+naming the epic, `/feature` is unchanged.
 
 ## Slash commands
 
@@ -97,7 +123,7 @@ is **not** a second gate: omp normalises it to `hide`, which omits the skill fro
 the prompt listing while `skill://<name>` and `/skill:<name>` still reach it
 (omp 18.2.9). Requires a **restart** (extension module), not `/reload-plugins`.
 
-`/feature` prints `/move` and, for an epic, `/goal`, immediately after framing.
+`/feature` prints `/move` immediately after framing and, for an epic, the `/goal` line once its children are framed.
 It does not hand the operator a `/wt` line. Existing worktrees are entered by
 `/move <path>`, not recreated.
 

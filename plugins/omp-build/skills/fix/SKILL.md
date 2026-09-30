@@ -60,7 +60,8 @@ Let:
   R := root causes | r ∈ R := {id, title, mechanism, fix, findings[]}
   ME := `gh api user --jq .login`
   MARK := `<!-- omp-build:code-review -->` — the first line of every review `dev-review` posts
-  O_commit(r) { stage only the files r changed (¬`git add -A`) → commit `fix(<scope>): <r.id> <r.title>` }
+  T := the ticket the PR head branch claims (`<type>/<N>-<slug>` → N), or none
+  O_commit(r) { stage only the files r changed (¬`git add -A`) → commit `fix(<scope>): <r.id> <r.title> (#T)` — ` (#T)` only when T exists; the epic goal refuses a branch commit that claims no ticket }
   O_push { lint + tests (max 3 retries) → `git push` }
   D_subsumption := {d ∈ D | d.tag = "subsumption-violation"}
 
