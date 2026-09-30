@@ -9,8 +9,8 @@
  * `bun run audit:deps`.
  *
  * Exit codes — the workflow routes on these, never on bun's own:
- *   0   clean: no finding and no stale ignore
- *   10  action required: report written (findings and/or stale ignores)
+ *   0   clean: no finding, no stale ignore, every package audited
+ *   10  action required: report written (findings, stale ignores and/or unaudited packages)
  *   2   the audit cannot be trusted: nothing is reported, nothing is filed
  *
  * Why bun's exit code is not enough: `bun audit --json` exits 1 both on findings
@@ -20,6 +20,7 @@
  * makes a stale entry detectable.
  */
 
+import { createHash } from 'node:crypto'
 import { appendFileSync, writeFileSync } from 'node:fs'
 
 export type Severity = 'low' | 'moderate' | 'high' | 'critical'
@@ -116,9 +117,15 @@ export interface Classified {
   findings: Advisory[]
   suppressed: Advisory[]
   stale: Ignore[]
+  /** What bun says it skipped: packages whose registry did not answer the audit request. */
+  unaudited: string[]
 }
 
-export function classify(advisories: readonly Advisory[], ignored: readonly Ignore[]): Classified {
+export function classify(
+  advisories: readonly Advisory[],
+  ignored: readonly Ignore[],
+  unaudited: readonly string[] = [],
+): Classified {
   const findings: Advisory[] = []
   const suppressed: Advisory[] = []
   for (const advisory of advisories) {
@@ -126,13 +133,33 @@ export function classify(advisories: readonly Advisory[], ignored: readonly Igno
     ;(accepted ? suppressed : findings).push(advisory)
   }
   const stale = ignored.filter((i) => !advisories.some((a) => matches(a, i)))
-  return { findings, suppressed, stale }
+  return { findings, suppressed, stale, unaudited: [...unaudited] }
 }
 
 /** Order-independent identity of a report: the workflow comments only when it changes. */
 export function marker(c: Classified): string {
-  const ids = [...c.findings.map((a) => `${a.ghsa ?? a.url}:${a.severity}`), ...c.stale.map((i) => `stale:${i.ghsa}`)]
+  const ids = [
+    ...c.findings.map((a) => `${a.ghsa ?? a.url}:${a.severity}`),
+    ...c.stale.map((i) => `stale:${i.ghsa}`),
+    ...c.unaudited.map((u) => `unaudited:${createHash('sha256').update(u).digest('hex').slice(0, 12)}`),
+  ]
   return [...new Set(ids)].sort().join(',')
+}
+
+const ESC = String.fromCharCode(27)
+const ANSI = new RegExp(`${ESC}\\[[0-9;]*m`, 'g')
+const SKIPPED = /did not answer the audit request(?: \([^)]*\))?; skipped (.+)$/
+
+/**
+ * Packages bun could not audit. bun reports them only as a stderr warning (a registry
+ * that did not answer the audit request); they change neither its exit code nor its JSON,
+ * so without this a skipped package reads as a clean one.
+ */
+function skippedPackages(stderr: string): string[] {
+  return stderr
+    .replace(ANSI, '')
+    .split('\n')
+    .flatMap((line) => SKIPPED.exec(line.trim())?.[1] ?? [])
 }
 
 export interface RunMeta {
@@ -179,6 +206,17 @@ export function renderReport(c: Classified, ignored: readonly Ignore[], meta: Ru
     lines.push('No vulnerable package.', '')
   }
 
+  if (c.unaudited.length > 0) {
+    lines.push(
+      '### Unaudited packages',
+      '',
+      'bun skipped these because their registry did not answer the audit request. They may carry advisories:',
+      '',
+      ...c.unaudited.map((u) => `- ${cell(u)}`),
+      '',
+    )
+  }
+
   if (c.stale.length > 0) {
     lines.push(
       '### Stale ignores',
@@ -213,24 +251,32 @@ function runMeta(env: NodeJS.ProcessEnv): RunMeta {
   }
 }
 
+/** One bulk audit request; the job's own 10-minute cap is the backstop, not the bound. */
+const AUDIT_TIMEOUT_MS = 120_000
+
 export function main(argv: readonly string[], env: NodeJS.ProcessEnv = process.env): number {
   try {
     const path = reportPath(argv)
-    const audit = Bun.spawnSync([process.execPath, 'audit', '--json'], { stdout: 'pipe', stderr: 'pipe' })
-    let advisories: Advisory[]
-    try {
-      advisories = parseAudit(audit.stdout.toString())
-    } catch (error) {
-      process.stderr.write(audit.stderr.toString())
-      throw error
+    const audit = Bun.spawnSync([process.execPath, 'audit', '--json'], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+      timeout: AUDIT_TIMEOUT_MS,
+    })
+    const stderr = audit.stderr.toString()
+    process.stderr.write(stderr)
+    // bun audit finishes with 0 (nothing found) or 1 (findings, or an error it prints).
+    // A signal — the timeout included — can leave already-flushed JSON behind: not finished.
+    if (audit.signalCode || (audit.exitCode !== 0 && audit.exitCode !== 1)) {
+      throw new AuditOutputError(`bun audit did not finish: ${audit.signalCode ?? `exit ${audit.exitCode}`}`)
     }
+    const advisories = parseAudit(audit.stdout.toString())
     // bun exits 0 exactly when it reports nothing. Any other pairing means one of the two lies.
     if ((advisories.length === 0) !== (audit.exitCode === 0)) {
       throw new AuditOutputError(`bun audit exited ${audit.exitCode} with ${advisories.length} advisory(ies)`)
     }
 
-    const result = classify(advisories, IGNORED)
-    if (result.findings.length === 0 && result.stale.length === 0) {
+    const result = classify(advisories, IGNORED, skippedPackages(stderr))
+    if (result.findings.length === 0 && result.stale.length === 0 && result.unaudited.length === 0) {
       const summary = `Dependency audit: clean — ${result.suppressed.length} ignored advisory(ies) (bun ${Bun.version}).\n`
       if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, summary)
       process.stdout.write(summary)
@@ -241,7 +287,9 @@ export function main(argv: readonly string[], env: NodeJS.ProcessEnv = process.e
     if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, report)
     if (path) writeFileSync(path, report)
     else process.stdout.write(report)
-    console.error(`dependency-audit: ${result.findings.length} finding(s), ${result.stale.length} stale ignore(s)`)
+    console.error(
+      `dependency-audit: ${result.findings.length} finding(s), ${result.stale.length} stale ignore(s), ${result.unaudited.length} unaudited`,
+    )
     return 10
   } catch (error) {
     console.error(`dependency-audit: ${error instanceof Error ? error.message : String(error)}`)
