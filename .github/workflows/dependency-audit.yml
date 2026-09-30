@@ -53,7 +53,7 @@ jobs:
           # Exit codes are scripts/dependency-audit.ts's: 0 clean, 10 report written,
           # anything else means the audit cannot be trusted.
           code=0
-          bun run scripts/dependency-audit.ts --report "$REPORT" || code=$?
+          bun run audit:deps --report "$REPORT" || code=$?
           if [ "$code" -eq 0 ]; then exit 0; fi
 
           # One canonical issue per default branch. A dispatch on any other ref files under its
