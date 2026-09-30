@@ -136,14 +136,21 @@ export function classify(
   return { findings, suppressed, stale, unaudited: [...unaudited] }
 }
 
-/** Order-independent identity of a report: the workflow comments only when it changes. */
+/**
+ * Order-independent identity of a report: the workflow comments only when it changes.
+ * Built from a restricted alphabet — registry text never reaches it verbatim, because the
+ * workflow parses it back out of an HTML comment.
+ */
 export function marker(c: Classified): string {
   const ids = [
-    ...c.findings.map((a) => `${a.ghsa ?? a.url}:${a.severity}`),
-    ...c.stale.map((i) => `stale:${i.ghsa}`),
+    ...c.findings.map(
+      (a) =>
+        `${a.package}:${a.ghsa ?? `url-${createHash('sha256').update(a.url).digest('hex').slice(0, 12)}`}:${a.severity}`,
+    ),
+    ...c.stale.map((i) => `stale:${i.package}:${i.ghsa}`),
     ...c.unaudited.map((u) => `unaudited:${createHash('sha256').update(u).digest('hex').slice(0, 12)}`),
   ]
-  return [...new Set(ids)].sort().join(',')
+  return [...new Set(ids.map((id) => id.replace(/[^A-Za-z0-9@/._:-]/g, '_')))].sort().join(',')
 }
 
 const ESC = String.fromCharCode(27)

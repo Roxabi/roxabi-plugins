@@ -63,8 +63,13 @@ jobs:
             gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" \
               --label security --label dependencies --body-file "$REPORT"
           else
-            previous=$(gh issue view "$number" --repo "$GITHUB_REPOSITORY" --json body,comments \
-              | jq -r '[(.body, .comments[].body) | capture("<!-- dependency-audit: (?<m>[^>]*) -->").m] | last // ""')
+            # Only the workflow's own text is trusted: anyone can comment on a public issue,
+            # and a forged marker would silence the next change. A null body is skipped.
+            previous=$(gh issue view "$number" --repo "$GITHUB_REPOSITORY" --json author,body,comments \
+              | jq -r 'def mine: (.author.login // "") | IN("github-actions", "app/github-actions", "github-actions[bot]");
+                  [(select(mine) | .body), (.comments[] | select(mine) | .body)]
+                  | map(select(type == "string") | capture("<!-- dependency-audit: (?<m>[A-Za-z0-9@/._:,-]*) -->") | .m)
+                  | last // ""')
             if [ "$previous" = "$current" ]; then
               echo "Unchanged since the last report on #$number: no new comment."
             else

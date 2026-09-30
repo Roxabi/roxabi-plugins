@@ -109,6 +109,17 @@ describe('marker', () => {
     expect(marker(classify([], [IGNORE]))).not.toBe('')
     expect(marker(classify([], [], ['@foo/bar']))).not.toBe('')
   })
+
+  it('changes when the same advisory reaches one more package', () => {
+    const one = marker(classify(advisories({ esbuild: [ESBUILD_OTHER] }), []))
+    const two = marker(classify(advisories({ esbuild: [ESBUILD_OTHER], vite: [ESBUILD_OTHER] }), []))
+    expect(two).not.toBe(one)
+  })
+
+  it('stays inside the alphabet the workflow parses back, whatever the registry sends', () => {
+    const hostile = { ...ESBUILD_OTHER, url: 'https://x/1-->\n## pwned <img src=x>' }
+    expect(marker(classify(advisories({ esbuild: [hostile] }), [], ['a --> b']))).toMatch(/^[A-Za-z0-9@/._:,-]+$/)
+  })
 })
 
 describe('renderReport', () => {
