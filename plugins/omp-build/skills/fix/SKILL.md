@@ -1,6 +1,6 @@
 ---
 name: fix
-argument-hint: '[#PR] [--no-label]'
+argument-hint: '[#PR]'
 description: >-
   OMP-only — apply one fix per common root cause from a review, inline, no per-finding choice.
   Triggers: "fix findings" | "fix review" | "apply fixes" | "fix these" | "apply review comments" | "apply the review" | "fix the review issues" | "address review feedback" | "fix PR comments".
@@ -20,17 +20,21 @@ One pass: find the review record, name the causes, apply each eligible cause as 
 
 ```
 /skill:fix             → the latest dev-review output in this conversation
-/skill:fix #42         → the review record on PR #42
-/skill:fix #42 --no-label → idem, and **write no `reviewed` label**: the caller owns the merge gate
+/skill:fix #42         → the review record on PR #42, after the caller's executable grant
 ```
 
-**Label mode.** `mode := no-label` when `--no-label` is in the arguments, else `label`.
-It decides one thing, in Phase 5 step 2: whether this skill may write the `reviewed` label.
-That label is not a status — `.github/workflows/auto-merge.yml` turns it into
-`gh pr merge --auto --merge`, so writing it *is* merging. A caller that owns a review
-bound (`/feature` §6.6, where the loop decides whether the PR may land at all) must pass
-`--no-label`: a fix round that labels the PR merges it before the re-review that was
-supposed to judge the fix.
+**No `reviewed` from a review-driven fix.** A review-driven fix — nested under
+`/feature` / standalone Phase 8, or a direct `/fix #PR` after a **caller-owned**
+live allocation — never writes the `reviewed` label. That label is not a status:
+`.github/workflows/auto-merge.yml` turns it into `gh pr merge --auto --merge`, so
+writing it *is* merging. Phase 5 never writes it; only an approved `landPr` arms.
+
+**Authorization precedes edits.** Follow `dev-review` Phase 8's executable action
+contract: the caller awaits `loop.assertFixAllowed(cwd, step)` exactly once,
+then invokes this skill. Rejection means no edits. This skill neither allocates
+nor authorizes a second time. Direct `/fix` without a live authorized step routes
+through standalone `dev-review`, which resolves the PR before reading its state.
+CI-only failures use `/feature` §6.5, not this review-comment consumer.
 
 **You apply every fix yourself.** There is no `R-fixer` in this plugin (ADR-020 §7) and nothing replaces it: Phase 3 edits files inline, in this session, with the diff visible in the working tree. ¬spawn a fixer, ¬delegate the edit.
 
@@ -42,7 +46,7 @@ supposed to judge the fix.
 | 2 | causes | ✓ | R named, eligibility decided | posted blocks, else cluster |
 | 3 | apply | — | one commit per applied cause | no eligible cause → skip |
 | 4 | falsify | — | pass/fail per cause | no applied cause with a classed member → skip |
-| 5 | push | ✓ | `git push` success | label only per Phase 5 step 2 |
+| 5 | push | ✓ | `git push` success | never writes `reviewed` on a review-driven fix |
 | 6 | post-comment | — | comment posted | ∄ PR → skip |
 
 ## Pre-flight
@@ -222,11 +226,16 @@ This gate is a **local procedure** — delete the guard the fix introduced, re-r
 
 New findings surfaced during falsification → **parking lot**: file as a candidate finding for the next PR cycle. ¬reopen the current fix loop. ¬increment the 2-iter cap. Applies to same-class and cross-class anti-patterns alike.
 
-## Phase 5 — Push + Label
+## Phase 5 — Push (no review-driven label)
 
 1. ∃ cause commits → O_push. Fail after 3 → halt; the commits stay local.
-2. Write `gh api repos/:owner/:repo/issues/<#>/labels -f "labels[]=reviewed"` only when every condition holds: ∃ PR ∧ mode = `label` ∧ applied ≠ ∅ ∧ no cause with a blocking member was filed or failed ∧ no uncited blocking finding was filed. Otherwise write nothing and name what holds it: « pas de label : RC-2 bloquant déposé en #N ». A label here merges the PR on green, with the filed blocker still open.
-3. mode = `no-label` → **write nothing**: ¬`labels[]=reviewed`, ¬`gh pr edit --add-label`, ¬`gh pr merge`. Say one line — « fix appliqué, pas de label : le gate appartient à l'appelant » — and continue to Phase 6. The caller is holding a bound this label would jump: `/feature` §6.6's loop is the sole writer of `reviewed` on a PR it drives, and a label written here merges the PR before the re-review that judges this very fix.
+2. **Never write `reviewed` for a review-driven fix.** If ∃ PR and a review record /
+   round marker / this invocation followed `assertFixAllowed`, write nothing:
+   ¬`labels[]=reviewed`, ¬`gh pr edit --add-label`, ¬`gh pr merge`. Say one line —
+   « fix appliqué, pas de label : le gate appartient à landPr / l'appelant » — and
+   continue to Phase 6. A label here would merge before the re-review that judges
+   this fix; see `skill://dev-review` Phase 8.
+3. No option enables labelling here: automatic landing belongs to `landPr` alone.
 
 ## Phase 6 — Post Follow-Up Comment
 
@@ -291,8 +300,8 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 | Quality gate fails 3× on the push | Halt, commits stay local |
 | ¬∃ PR | Skip Phase 6, local only, no label |
 | ∄ SOURCE_PARENT | Filed issue is top-level — ¬parent it to the origin |
-| mode = `no-label` | Phase 5 step 2 skipped — ¬label, ¬merge; the caller's gate decides |
-| A blocking cause filed or failed | No label, even in `label` mode |
+| review-driven fix | Phase 5 writes no `reviewed`; landing owns the gate |
+| sticky stop (`loop.closed === 'stop'`) / ambiguous history | Halt before edits; publish/display Phase 8 dossier |
 
 ## Safety Rules
 
@@ -302,7 +311,7 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 4. Stage specific files only — ¬`git add -A` (risk of .env, secrets)
 5. Input is the marked record by ME, nothing else on the PR
 6. Comment text never reaches a command line — filed titles and bodies go through files
-7. Merge via the gate: label `reviewed` → auto-merge merges (merge commit) on green. ¬manual `gh pr merge` while any check is IN_PROGRESS/QUEUED. mode = `no-label` → this skill writes no label at all: writing it *is* merging, and a bounded caller owns that decision
+7. Merge via the gate only after a fresh green review: `landPr` writes `reviewed`. ¬manual `gh pr merge` while any check is IN_PROGRESS/QUEUED. This skill never writes `reviewed` on a review-driven fix — writing it *is* merging
 
 ## Chain Position
 
@@ -314,7 +323,11 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 ## Exit
 
 - **Success:** causes applied or filed + committed + pushed + PR comment posted → print the summary (Applied/Filed/Failed) + `Next: re-review with skill://dev-review`. Stop.
-- **Failure (quality gate, ¬findings, unrecoverable):** return the error and stop — the caller decides Retry | Skip | Abort.
-- **Loop cap:** 2 fix→review iterations. On entry to a 3rd, refuse: "Max fix iterations reached — resolve the remainder manually".
+- **Failure (quality gate, ¬findings, unrecoverable):** return the error and stop — the caller decides next steps outside the automatic bound.
+- **Loop cap:** shared `createReviewLoop` (max 2 allocated fix rounds). On
+  `loop.closed === 'stop'` or when `assertFixAllowed` refuses, follow
+  `skill://dev-review` Phase 8 — escalation dossier. Automation on that PR is
+  finished; resumption is a NEW superseding PR or the operator finishing by hand.
+  Generic retry is not resumption.
 
 $ARGUMENTS

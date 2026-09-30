@@ -2,6 +2,7 @@ import type * as NodeFs from 'node:fs'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   evalGuard,
@@ -318,6 +319,19 @@ describe('OMP omp-build hooks', () => {
       expect(existsSync(join(printed ?? '', 'entry.js'))).toBe(true)
     })
 
+    /** Every name a fence destructures is a function the module it imports exports. */
+    async function expectFunctionExports(specifier: string, names: string) {
+      // Dynamic on purpose: the specifier is read out of the body under test.
+      const module = await import(specifier)
+      const wanted = names
+        .split(',')
+        .map((name) => name.trim())
+        .filter(Boolean)
+      expect(Object.fromEntries(wanted.map((name) => [name, typeof module[name]]))).toEqual(
+        Object.fromEntries(wanted.map((name) => [name, 'function'])),
+      )
+    }
+
     it('destructures only exported functions from every module it tells the model to import', async () => {
       // The body runs `const { … } = await import(`${SKILL_DIR}/…`)` in a live session.
       // The modules' own tests import their functions directly, so a renamed or dropped
@@ -327,17 +341,19 @@ describe('OMP omp-build hooks', () => {
       const printed = /\[Skill directory: (.+)]/.exec(message)?.[1] ?? ''
       const fences = [...message.matchAll(/const \{([^}]+)\} =\s*await import\(`\$\{SKILL_DIR\}\/([^`]+)`\)/g)]
       expect(fences.length).toBeGreaterThan(0)
-      for (const [, names, rel] of fences) {
-        // Dynamic on purpose: the specifier is read out of the body under test.
-        const module = await import(resolve(printed, rel))
-        const wanted = names
-          .split(',')
-          .map((name) => name.trim())
-          .filter(Boolean)
-        expect(Object.fromEntries(wanted.map((name) => [name, typeof module[name]]))).toEqual(
-          Object.fromEntries(wanted.map((name) => [name, 'function'])),
-        )
-      }
+      for (const [, names, rel] of fences) await expectFunctionExports(resolve(printed, rel), names)
+    })
+
+    it('destructures only exported functions from the feature module dev-review imports by real path', async () => {
+      // dev-review is read through skill://, with its own directory as SKILL_DIR, and reaches
+      // the feature module one level up: `pathToFileURL(join(SKILL_DIR, '../feature/…')).href`.
+      const reviewDir = resolve(skillDir, '..', 'dev-review')
+      const body = readFileSync(join(reviewDir, 'SKILL.md'), 'utf8')
+      const fences = [
+        ...body.matchAll(/const \{([^}]+)\} =\s*await import\(pathToFileURL\(join\(SKILL_DIR, '([^']+)'\)\)\.href\)/g),
+      ]
+      expect(fences.length).toBeGreaterThan(0)
+      for (const [, names, rel] of fences) await expectFunctionExports(pathToFileURL(join(reviewDir, rel)).href, names)
     })
 
     it('says so in the conversation when its own body cannot be read', async () => {
@@ -470,23 +486,6 @@ describe('OMP omp-build hooks', () => {
       await bare.get('feature')?.handler('', { cwd: '/repo' })
       const banner = (messages.at(-1) ?? '').split('\n')[0] ?? ''
       expect(local.filter((name) => !banner.includes(`\`${name}\``))).toEqual([])
-    })
-
-    it('hands fix the no-label mode, and fix writes `reviewed` only in label mode', async () => {
-      // `reviewed` is a merge, not a status: auto-merge.yml turns it into
-      // `gh pr merge --auto --merge`. A fix round that labels merges the PR before the
-      // re-review that judges the fix. Commands are matched, never section titles.
-      await commands.get('feature')?.handler('#494', { cwd: '/repo' })
-      const invocations = (sent.at(-1) ?? '')
-        .split('\n')
-        .filter((line) => line.includes('skill://fix') && line.includes('#<pr>'))
-      expect(invocations.length).toBeGreaterThan(0)
-      expect(invocations.filter((line) => !line.includes('--no-label'))).toEqual([])
-
-      const fixBody = readFileSync(resolve(import.meta.dirname, '..', '..', 'skills', 'fix', 'SKILL.md'), 'utf8')
-      const writes = fixBody.split('\n').filter((line) => line.includes('gh api repos/:owner/:repo/issues/<#>/labels'))
-      expect(writes.length).toBeGreaterThan(0)
-      expect(writes.filter((line) => !line.includes('mode = `label`'))).toEqual([])
     })
   })
 })
