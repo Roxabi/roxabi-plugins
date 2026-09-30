@@ -26,7 +26,10 @@ import { parseArgs } from 'node:util'
 import {
   type BaseCi,
   type BranchFacts,
+  baseFromStack,
+  type CheckNode,
   type ChildFacts,
+  classifyBaseCi,
   type Facts,
   formatMarker,
   generateObjective,
@@ -145,18 +148,8 @@ type EpicData = {
     } | null
   }
 }
-type RollupNode =
-  | {
-      __typename: 'CheckRun'
-      name: string
-      status: string | null
-      conclusion: string | null
-      startedAt: string | null
-      checkSuite: { workflowRun: { workflow: { name: string } } | null } | null
-    }
-  | { __typename: 'StatusContext'; context: string; state: string }
 type RollupData = {
-  repository: { object: { statusCheckRollup: { contexts: { nodes: RollupNode[] } } | null } | null }
+  repository: { object: { statusCheckRollup: { contexts: { nodes: CheckNode[] } } | null } | null }
 }
 type ReviewState = {
   rounds: { reviews: number; fixes: number } | null
@@ -313,11 +306,7 @@ function branchRefs(repo: string, base: string, children: number[]): Map<number,
   return out
 }
 
-/**
- * The base HEAD's checks, filtered like `/ci-watch` filters a PR: the declared
- * `landing.required_checks`, or every check. Re-runs collapse to the newest.
- * Only failure / timed_out / startup_failure is red; pending or none proceeds.
- */
+/** The base HEAD's check rollup, reduced by `classifyBaseCi` with the landing's check set. */
 function baseCi(repo: string, owner: string, name: string, sha: string): BaseCi {
   const data = graphql<RollupData>(
     repo,
@@ -329,41 +318,8 @@ function baseCi(repo: string, owner: string, name: string, sha: string): BaseCi 
       } } } } } } }`,
     { owner, name, sha },
   )
-  const latest = new Map<string, { name: string; status: string; conclusion: string; rank: string }>()
-  for (const node of data.repository.object?.statusCheckRollup?.contexts.nodes ?? []) {
-    const state = node.__typename === 'StatusContext' ? node.state.toLowerCase() : ''
-    const check =
-      node.__typename === 'CheckRun'
-        ? {
-            key: `${node.checkSuite?.workflowRun?.workflow.name ?? ''}/${node.name}`,
-            name: node.name,
-            status: (node.status ?? '').toLowerCase(),
-            conclusion: (node.conclusion ?? '').toLowerCase(),
-            started: node.startedAt ?? '',
-          }
-        : {
-            key: `/${node.context}`,
-            name: node.context,
-            status: state === 'pending' || state === 'expected' ? 'in_progress' : 'completed',
-            conclusion: state === 'error' ? 'failure' : state,
-            started: '',
-          }
-    // Same ranking as ci-watch: completed before pending, then the newest start.
-    const rank = `${check.status === 'completed' ? 0 : 1}${check.started}`
-    const seen = latest.get(check.key)
-    if (!seen || rank >= seen.rank) latest.set(check.key, { ...check, rank })
-  }
   const required: string[] = readLanding(repo).required_checks
-  const checks = [...latest.values()].filter((check) => !required.length || required.includes(check.name))
-  const failed = checks
-    .filter((c) => c.conclusion === 'failure' || c.conclusion === 'timed_out' || c.conclusion === 'startup_failure')
-    .map((c) => c.name)
-  const pending = checks
-    .filter((c) => !failed.includes(c.name))
-    .filter((c) => c.status !== 'completed' || !['success', 'skipped', 'neutral'].includes(c.conclusion))
-    .map((c) => (c.status === 'completed' ? `${c.name}=${c.conclusion}` : c.name))
-  const state = failed.length ? 'red' : !checks.length ? 'none' : pending.length ? 'pending' : 'green'
-  return { state, failed, pending }
+  return classifyBaseCi(data.repository.object?.statusCheckRollup?.contexts.nodes ?? [], required)
 }
 
 type Gathered = { facts: Facts; epicComments: string[] }
@@ -538,16 +494,15 @@ async function ticketStop(
 function releaseBase(repo: string): string {
   const path = join(repo, '.dev', 'stack.yml')
   if (!existsSync(path)) throw new Refused('.dev/stack.yml is missing: no release.model to derive the base from')
-  const doc: unknown = Bun.YAML.parse(readFileSync(path, 'utf8'))
-  const release = doc && typeof doc === 'object' && 'release' in doc ? doc.release : null
-  const model = release && typeof release === 'object' && 'model' in release ? release.model : null
-  if (model === 'staging-train') return 'staging'
-  if (model !== 'trunk') throw new Refused(`release.model is ${JSON.stringify(model)}, not trunk or staging-train`)
-  try {
-    return git(repo, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']).replace(/^origin\//, '')
-  } catch {
-    return gh(repo, ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'])
-  }
+  const resolved = baseFromStack(Bun.YAML.parse(readFileSync(path, 'utf8')), () => {
+    try {
+      return git(repo, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']).replace(/^origin\//, '')
+    } catch {
+      return gh(repo, ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'])
+    }
+  })
+  if ('error' in resolved) throw new Refused(resolved.error)
+  return resolved.base
 }
 
 function objective(repo: string, epic: number): string {

@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   type BranchFacts,
+  baseFromStack,
   branchFor,
+  type CheckNode,
   type ChildFacts,
+  classifyBaseCi,
   type Facts,
   formatMarker,
   type Goal,
@@ -930,5 +933,96 @@ describe('markers', () => {
     ],
   ])('rejects %s', (_name, parse) => {
     expect(parse()).toBeNull()
+  })
+})
+
+describe('baseFromStack', () => {
+  const main = () => 'main'
+  it.each<[string, unknown, { base: string } | { error: string }]>([
+    ['trunk → the default branch', { release: { model: 'trunk' } }, { base: 'main' }],
+    [
+      'staging-train → staging, whatever the default branch',
+      { release: { model: 'staging-train' } },
+      { base: 'staging' },
+    ],
+    ['an unknown model is refused', { release: { model: 'promote' } }, { error: expect.stringContaining('promote') }],
+    ['no release.model is refused', { release: {} }, { error: expect.stringContaining('undefined') }],
+    ['release not a map is refused', { release: 'trunk' }, { error: expect.any(String) }],
+    ['an empty document is refused', null, { error: expect.any(String) }],
+  ])('%s', (_name, doc, expected) => {
+    expect(baseFromStack(doc, main)).toEqual(expected)
+  })
+
+  it('asks for the default branch only under trunk, and refuses one git would misread', () => {
+    let asked = 0
+    const count = () => {
+      asked++
+      return 'main'
+    }
+    baseFromStack({ release: { model: 'staging-train' } }, count)
+    expect(asked).toBe(0)
+    expect(baseFromStack({ release: { model: 'trunk' } }, () => 'main~1')).toMatchObject({ error: expect.any(String) })
+    expect(baseFromStack({ release: { model: 'trunk' } }, () => '')).toMatchObject({ error: expect.any(String) })
+  })
+})
+
+describe('classifyBaseCi', () => {
+  const run = (name: string, conclusion: string | null, started: string, workflow = 'CI'): CheckNode => ({
+    __typename: 'CheckRun',
+    name,
+    status: conclusion === null ? 'IN_PROGRESS' : 'COMPLETED',
+    conclusion,
+    startedAt: started,
+    checkSuite: { workflowRun: { workflow: { name: workflow } } },
+  })
+  const status = (context: string, state: string): CheckNode => ({ __typename: 'StatusContext', context, state })
+
+  it.each<[string, CheckNode[], string[], string, string[]]>([
+    ['no check → none', [], [], 'none', []],
+    [
+      'every check passing, skipped or neutral → green',
+      [run('a', 'SUCCESS', '1'), run('b', 'SKIPPED', '1'), run('c', 'NEUTRAL', '1')],
+      [],
+      'green',
+      [],
+    ],
+    ['a completed failure → red', [run('a', 'FAILURE', '1')], [], 'red', ['a']],
+    [
+      'timed_out and startup_failure are red',
+      [run('a', 'TIMED_OUT', '1'), run('b', 'STARTUP_FAILURE', '1')],
+      [],
+      'red',
+      ['a', 'b'],
+    ],
+    ['a green re-run outranks a stale failure', [run('a', 'FAILURE', '1'), run('a', 'SUCCESS', '2')], [], 'green', []],
+    [
+      'a pending re-run outranks a completed failure',
+      [run('a', 'FAILURE', '2'), run('a', null, '1')],
+      [],
+      'pending',
+      [],
+    ],
+    ['cancelled is reported pending, never red', [run('a', 'CANCELLED', '1')], [], 'pending', []],
+    ['a status context in error is red', [status('ci/legacy', 'ERROR')], [], 'red', ['ci/legacy']],
+    ['a pending status context is pending', [status('ci/legacy', 'PENDING')], [], 'pending', []],
+    [
+      'a red check outside the declared set is ignored',
+      [run('lint', 'FAILURE', '1'), run('test', 'SUCCESS', '1')],
+      ['test'],
+      'green',
+      [],
+    ],
+    ['a declared check that never ran → none', [run('lint', 'SUCCESS', '1')], ['test'], 'none', []],
+    [
+      'the same name in two workflows is two checks',
+      [run('build', 'SUCCESS', '1'), run('build', 'FAILURE', '1', 'Release')],
+      [],
+      'red',
+      ['build'],
+    ],
+  ])('%s', (_name, nodes, required, state, failed) => {
+    const ci = classifyBaseCi(nodes, required)
+    expect(ci.state).toBe(state)
+    expect(ci.failed).toEqual(failed)
   })
 })
