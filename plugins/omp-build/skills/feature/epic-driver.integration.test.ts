@@ -675,3 +675,34 @@ describe('epic-driver — fork PRs', () => {
     expect(git(epic, 'branch', '--show-current')).toBe('feat/2-first-child')
   })
 })
+
+describe('epic-driver — disarm modes', () => {
+  function child2Pr(armed: Record<string, unknown>): void {
+    const { epic } = sandbox()
+    git(epic, 'switch', '-q', '-c', 'feat/2-first-child', 'refs/remotes/origin/main')
+    git(epic, 'push', '-q', 'origin', 'feat/2-first-child')
+    const tip = git(epic, 'rev-parse', 'HEAD')
+    serveEpic([childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', tip, armed)] })])
+  }
+
+  it('removes a merge-on-green label with no auto-merge to disable', () => {
+    child2Pr({ labels: { nodes: [{ name: 'reviewed' }] } })
+    servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: false })
+    const run = drive(['stop', '--ticket', '2', '--reason', 'ci-blocked'])
+    expect(run.code).toBe(0)
+    expect(run.json().disarmed).toEqual({ 11: 'disarmed' })
+    expect(writes()).toEqual([
+      'edit 11 --remove-label reviewed',
+      `comment 2 <!-- omp-build:goal-stop run=${RUN} reason=ci-blocked -->`,
+    ])
+  })
+
+  it('touches nothing on a PR that was never armed', () => {
+    child2Pr({})
+    servePr(11, { state: 'OPEN', labels: [], autoMerge: false })
+    const run = drive(['stop', '--ticket', '2', '--reason', 'proof-blocked'])
+    expect(run.code).toBe(0)
+    expect(run.json().disarmed).toEqual({ 11: 'unarmed' })
+    expect(writes()).toEqual([`comment 2 <!-- omp-build:goal-stop run=${RUN} reason=proof-blocked -->`])
+  })
+})
