@@ -171,13 +171,14 @@ const SKIPPED = /did not answer the audit request(?: \([^)]*\))?; skipped (.+)$/
 /**
  * Packages bun could not audit. bun reports them only as a stderr warning (a registry
  * that did not answer the audit request); they change neither its exit code nor its JSON,
- * so without this a skipped package reads as a clean one.
+ * so without this a skipped package reads as a clean one. bun writes one line per
+ * registry and joins its packages with `, ` — npm names contain neither.
  */
 function skippedPackages(stderr: string): string[] {
   return stderr
     .replace(ANSI, '')
     .split('\n')
-    .flatMap((line) => SKIPPED.exec(line.trim())?.[1] ?? [])
+    .flatMap((line) => SKIPPED.exec(line.trim())?.[1].split(', ') ?? [])
 }
 
 export interface RunMeta {

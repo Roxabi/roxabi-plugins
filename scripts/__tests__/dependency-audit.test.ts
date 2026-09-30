@@ -34,7 +34,10 @@ const IGNORE: Ignore = {
   reason: 'test',
   removeWhen: 'test',
 }
-const SKIP_WARNING = 'warn: http://127.0.0.1:48645 did not answer the audit request (404); skipped @foo/bar\n'
+// bun 1.4.0's real warning (FORCE_COLOR=1): one line per registry, its packages joined by ', '.
+const SKIP_WARNING =
+  '\u001b[33mwarn\u001b[0m\u001b[2m:\u001b[0m http://127.0.0.1:48646 did not answer the audit request (404); ' +
+  'skipped @foo/bar, @foo/baz, @foo/qux\n'
 
 const advisories = (report: Record<string, unknown[]>): Advisory[] => parseAudit(JSON.stringify(report))
 
@@ -208,7 +211,7 @@ describe('main', () => {
     // The reproduced false clean: bun exits 1 on an accepted advisory and reports the skip on stderr only.
     bunAudit(JSON.stringify({ esbuild: [ESBUILD] }), 1, SKIP_WARNING)
     expect(main(['--report', report], {}, [IGNORE])).toBe(10)
-    expect(readFileSync(report, 'utf8')).toContain('- @foo/bar')
+    expect(readFileSync(report, 'utf8')).toContain('\n- @foo/bar\n- @foo/baz\n- @foo/qux\n')
   })
 
   it('still exits 10 and writes the report when the step summary cannot be written', () => {
