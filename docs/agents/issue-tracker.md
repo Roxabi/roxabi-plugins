@@ -108,8 +108,9 @@ picks one up sets the tier first — `/issue-triage set <n> --size <tier>` — b
 - `.github/workflows/dependency-audit.yml` files two issues. The finding issue
   carries `security` + `dependencies` and is found again by `security` + its exact
   title. The "audit failed" issue carries `dependencies` only and is found by
-  `dependencies` + its exact title. Keep those labels and titles: a relabelled or
-  renamed issue gets a duplicate on the next run.
+  `dependencies` + its exact title; each failing run comments on it, and the next
+  trustworthy run on its ref closes it. Keep those labels and titles: a relabelled
+  or renamed issue gets a duplicate on the next run.
 - `.github/workflows/upstream-watch.yml` is meant to file drift issues, but files
   none today: its `upstream-update` label does not exist, and the failure is masked
   behind a green run (#649).
