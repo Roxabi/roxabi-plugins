@@ -37,8 +37,10 @@ jobs:
           # no tag lookup, so the action gets no token — it never sees the issues:write one.
           bun-version: 1.4.0
           token: ''
-      # No `bun install`: bun audit reads package.json + bun.lock only and the script
-      # imports nothing, so no dependency postinstall runs next to an issues:write token.
+      # No full `bun install`: the script imports nothing, and no dependency postinstall
+      # may run next to an issues:write token. bun audit reads bun.lock only, so the step
+      # first checks, without installing or running scripts, that bun.lock matches
+      # package.json: a dependency missing from the lock would never be audited.
       - name: Audit, then file or update the issue
         # Explicit `shell: bash` runs `bash -eo pipefail`; the default is `bash -e` without
         # pipefail, where a failed `gh issue list | jq` reads as "no open issue" and files a
@@ -53,7 +55,9 @@ jobs:
           # Exit codes are scripts/dependency-audit.ts's: 0 clean, 10 report written,
           # anything else means the audit cannot be trusted.
           code=0
-          bun run audit:deps --report "$REPORT" || code=$?
+          # A lock that disagrees with package.json cannot be trusted: route it like exit 2.
+          bun install --frozen-lockfile --lockfile-only --ignore-scripts || code=2
+          if [ "$code" -eq 0 ]; then bun run audit:deps --report "$REPORT" || code=$?; fi
           if [ "$code" -eq 0 ]; then exit 0; fi
 
           # One canonical issue per default branch. A dispatch on any other ref files under its
