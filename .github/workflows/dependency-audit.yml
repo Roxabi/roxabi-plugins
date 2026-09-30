@@ -1,0 +1,68 @@
+name: Dependency Audit
+
+# The only dependency-vulnerability detection this repo has (#645, ADR-022):
+# GitHub's dependency graph does not parse bun.lock, and the bun Dependabot
+# ecosystem has no security updates. Scheduled, never a PR check: a new advisory
+# against an unchanged lockfile must not turn unrelated PRs red.
+
+on:
+  schedule:
+    - cron: '0 8 * * 1'  # Mondays 08:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: dependency-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: bun audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2
+      # No `bun install`: bun audit reads package.json + bun.lock only and the script
+      # imports nothing, so no dependency postinstall runs next to an issues:write token.
+      - name: Audit, then file or update the issue
+        # Explicit `shell: bash` runs `bash -eo pipefail`; the default is `bash -e` without
+        # pipefail, where a failed `gh issue list | jq` reads as "no open issue" and files a
+        # duplicate.
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPORT: ${{ runner.temp }}/dependency-audit.md
+          TITLE: 'dependency audit: action required'
+        run: |
+          # Exit codes are scripts/dependency-audit.ts's: 0 clean, 10 report written,
+          # anything else means the audit cannot be trusted: red, nothing filed.
+          code=0
+          bun run scripts/dependency-audit.ts --report "$REPORT" || code=$?
+          if [ "$code" -ne 10 ]; then exit "$code"; fi
+          current=$(sed -n 's/^<!-- dependency-audit: \(.*\) -->$/\1/p' "$REPORT")
+          if [ -z "$current" ]; then
+            echo '::error::dependency-audit exited 10 without a report marker'
+            exit 2
+          fi
+
+          number=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --label security --limit 100 \
+            --json number,title | jq -r --arg t "$TITLE" 'first(.[] | select(.title == $t) | .number) // empty')
+          if [ -z "$number" ]; then
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" \
+              --label security --label dependencies --body-file "$REPORT"
+          else
+            previous=$(gh issue view "$number" --repo "$GITHUB_REPOSITORY" --json body,comments \
+              | jq -r '[(.body, .comments[].body) | capture("<!-- dependency-audit: (?<m>[^>]*) -->").m] | last // ""')
+            if [ "$previous" = "$current" ]; then
+              echo "Unchanged since the last report on #$number: no new comment."
+            else
+              gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body-file "$REPORT"
+            fi
+          fi
+          exit 1

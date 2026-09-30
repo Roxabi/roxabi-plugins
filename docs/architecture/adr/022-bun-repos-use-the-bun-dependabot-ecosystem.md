@@ -15,6 +15,13 @@ date: 2026-09-22
 > Resolves Roxabi/roxabi-plugins#518.
 >
 > Applies to every repo the workflow generator scaffolds with `stack: bun`.
+>
+> **Amended 2026-09-30 by #645** — the open follow-up in § Accepted cost is
+> resolved. GitHub never re-derived alerts from `package.json`, so this repo had
+> no platform-side detection. `bun audit` now runs weekly here
+> (`.github/workflows/dependency-audit.yml`, `scripts/dependency-audit.ts`) and
+> files a `security` issue. This covers **this repo only**: bun repos the
+> generator scaffolds still have no detection until #646.
 
 ## Context
 
@@ -103,16 +110,26 @@ So the honest residual is not "detection degraded but working". It is
 that no longer exists, and whether GitHub re-derives them from `package.json`
 after a re-scan has not been observed.
 
-`bun audit` remains available and reports 28 advisories on this tree, all
+`bun audit` remains available and reported 28 advisories on this tree when this
+ADR was written (1 low after #644), all
 transitive dev tooling (`vitest → vite → esbuild/nanoid/postcss`,
 `commitlint → ajv → fast-uri`, `commitlint → cosmiconfig → js-yaml`). It is the
 detection path that does not depend on GitHub parsing a lockfile it does not
 support.
 
-**Open follow-up:** re-read the alert set once GitHub has re-scanned `main`. If
+**Open follow-up — resolved 2026-09-30 (#645):** re-read the alert set once GitHub has re-scanned `main`. If
 the 11 stale alerts disappear without being replaced by `package.json`-attributed
 ones, this repo has no platform-side detection and `bun audit` should be wired
 into CI on a schedule.
+
+Outcome, observed 2026-09-30: after eight days the 11 alerts still carried
+`manifest_path: package-lock.json`, none had been updated since 2026-09-13, no
+alert attributed to `package.json` or `bun.lock` appeared, and
+`GET /dependency-graph/sbom` still returned 404. The 11 were dismissed as
+`inaccurate` once #644 moved every flagged package past its vulnerable range.
+`bun audit` now runs weekly in this repo (`.github/workflows/dependency-audit.yml`)
+and files a `security` issue on a finding or a stale ignore. Generated bun repos
+are not covered: #646.
 
 **Revisit this ADR if the repo gains a runtime dependency, is published, or
 stops being private.** Those are the conditions under which platform-side

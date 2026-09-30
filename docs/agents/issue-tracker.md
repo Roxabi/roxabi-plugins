@@ -126,7 +126,8 @@ requests.
 Type: `bug` `enhancement` `feature` `refactor` `docs` `documentation` `chore`
 `research` `test`
 Area: `dev-core` `marketplace` `forge` `backend` `frontend` `api` `infra`
-`design` `init` `review` `dependencies` `javascript` `github_actions`
+`design` `init` `review` `dependencies` `javascript` `github_actions` `security`
+(`security` + `dependencies`: written by `.github/workflows/dependency-audit.yml`)
 Tier: `size:S` `size:F-lite` `size:F-full` · `epic`
 Priority: `P0-critical` `P1-high` `P2-medium` `P3-low` (legacy `priority:P2`,
 `priority:P3`, `priority: low` exist; prefer the `PN-` form)
