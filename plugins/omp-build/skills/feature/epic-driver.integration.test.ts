@@ -752,3 +752,38 @@ describe('epic-driver — report', () => {
     expect(run.stdout).toContain(`| Post-merge hook | ok at \`${merge}\` (run \`run00000\`) |`)
   })
 })
+
+describe('epic-driver — base CI', () => {
+  function serveRollup(nodes: unknown[]): void {
+    const data = { data: { repository: { object: { statusCheckRollup: { contexts: { nodes } } } } } }
+    writeFileSync(path.join(sandboxOf().state, 'rollup.json'), JSON.stringify(data))
+  }
+  const check = (name: string, conclusion: string) => ({
+    __typename: 'CheckRun',
+    name,
+    status: 'COMPLETED',
+    conclusion,
+    startedAt: '2026-09-30T09:00:00Z',
+    checkSuite: { workflowRun: { workflow: { name: 'CI' } } },
+  })
+
+  it('drops on a red base before switching to any child', () => {
+    const { epic } = sandbox()
+    serveEpic([childNode(2, 'feat(x): first child')])
+    serveRollup([check('test', 'FAILURE'), check('lint', 'SUCCESS')])
+    const run = drive(['next'])
+    expect(run.json().step).toMatchObject({ action: 'drop', stop: 'base-ci-red' })
+    expect(run.json().step.report.baseCi).toMatchObject({ state: 'red', failed: ['test'] })
+    expect(git(epic, 'branch', '--show-current')).toBe('')
+  })
+
+  it('reads only the check set the landing declares', () => {
+    const { epic } = sandbox('release:\n  model: trunk\nlanding:\n  required_checks: [lint]\n')
+    serveEpic([childNode(2, 'feat(x): first child')])
+    serveRollup([check('test', 'FAILURE'), check('lint', 'SUCCESS')])
+    const run = drive(['next'])
+    expect(run.json().step).toMatchObject({ action: 'start', ticket: 2 })
+    expect(run.json().step.report.baseCi).toMatchObject({ state: 'green', failed: [] })
+    expect(git(epic, 'branch', '--show-current')).toBe('feat/2-first-child')
+  })
+})
