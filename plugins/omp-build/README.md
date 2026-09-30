@@ -101,15 +101,42 @@ the prompt listing while `skill://<name>` and `/skill:<name>` still reach it
 It does not hand the operator a `/wt` line. Existing worktrees are entered by
 `/move <path>`, not recreated.
 
-In the matching worktree: implement → `dev-review` → `fix --no-label` → land.
-`openPr` returns the PR number; `resumeReviewLoop` restores rounds from PR comments.
-At most two fix rounds; a third red stops and `enforceStop` removes the `reviewed`
-label and disables native auto-merge. Every verdict and CI reopening is persisted
-(counts only, not the stop). Only an approved landing calls `landPr`, which resolves
-the landing mode through `readLanding` — the resolver `/ci-watch` also uses (stack
-`landing.mode`, else `merge-on-green.yml`, else native; an invalid landing returns
-`bad-landing` before any gh call) — adds `reviewed` (re-adding it under merge-on-green), arms native auto-merge, and hands the wait to `/ci-watch` via an absolute `watch` path that always carries GitHub's new label time as `--since` under merge-on-green (unreadable event → `watch-failed`). It does not
-poll. `applyCiWatchExit` re-reads the PR state and disarms on exits 1–3 (failed, cancelled, other conclusion); exit 6 returns `evaluate-only` (the merge-on-green run of this landing reports the kit-ci App not configured; manual merge) and exit 70 or any other code returns `watch-failed`, both leaving the gate armed. No duplicate spec files or `validated` gate.
+In the matching worktree: implement → `dev-review` → `fix` → land.
+`resolveReviewPr` binds an explicit number or the current branch before review
+initialization; lookup failure is never treated as a local review. A closed PR
+on the branch refuses implicit reuse, so its budget cannot be reset. Existing
+PRs resume directly into review; empty history receives a baseline marker.
+
+`workflow.js` enforces the review bound at the action sinks:
+- `resumeReviewLoop` restores attributable counts/stops and private provenance;
+  only a newly recorded verdict or CI reopening allocates a live fix step.
+- `await loop.assertFixAllowed(cwd, step)` checks current durable history and
+  consumes that allocation once. It allows its own second live allocation, but
+  rejects resumed grants, newer stops, identity drift and additional reviews;
+  an unproven live allocation stops as `history-stale` rather than refunding it.
+- `landPr(cwd, pr)` independently checks current history before either landing
+  mode can arm. A stop returns `review-stopped` with disarm evidence; without an
+  approving review after the latest correction/allocation it returns
+  `not-approved`. Unreadable history authorizes nothing.
+- `enforceStop` observes PR state before independently publishing and disarming.
+  CLOSED/MERGED PRs receive no effects; partial failures are reported explicitly.
+
+History is per automation identity, not a tamper-proof ledger. Foreign records
+are ignored; deletion/editing of the account's comments is not detected. Empty
+history starts at zero; review-only legacy history without accounting/receipts
+(such as #636) is ambiguous, not proof of zero spent rounds. A terminal stop
+remains sticky through later greens. Two completed fixes followed by an
+unambiguous green remain eligible for landing.
+
+The canonical choices, escalation dossier and human-approved superseding-PR
+procedure live in `skills/dev-review/SKILL.md` Phase 8. Skills route through the
+sinks; they do not own separate enforcement rules.
+
+Landing resolves mode from `readLanding`: stack `landing.mode`, else
+`merge-on-green.yml`, else native. It returns the absolute `/ci-watch` command,
+including GitHub's fresh labeled-event time under merge-on-green. Native also
+enables auto-merge. `applyCiWatchExit` observes the result and disarms failures;
+neither review nor fix labels a PR. No duplicate spec files or `validated` gate.
 
 ## Guards
 

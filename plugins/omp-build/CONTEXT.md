@@ -37,21 +37,27 @@ Work that satisfies one ticket's acceptance criteria inside its matching Worktre
 _Avoid_: an external `implement` skill as a prerequisite, implementation on the Principal
 
 **Land**:
-After a green review loop: the `reviewed` label, then the landing mode declared in `.dev/stack.yml`, followed by `/ci-watch`. That mode is read from the base ref, not from the epic worktree. An unregistered `/ci-watch` is a stop: remove `reviewed` and disable auto-merge. The label is not a completed landing.
-_Avoid_: R-ci-watch, gh pr merge while checks run, a raw delay inside `landPr`
+The authorized transition from a green review to the repository's merge gate.
+A current review stop prevents automatic landing even if an earlier review was green.
+Arming the gate is not evidence that the PR merged.
+_Avoid_: manual merge while checks run, treating a label as a completed landing
 
 **Post-merge hook**:
 The repository's declared command that runs once the epic has landed, not after each ticket.
 _Avoid_: a per-ticket deploy, a release cut
 
 **Review bound**:
-At most two review→fix rounds per PR, counted by `createReviewLoop` and resumed from
-the PR by `resumeReviewLoop`. The third red returns `stop`; `enforceStop` then removes
-`reviewed` and disables auto-merge, so the PR really is unlabelled and unmerged.
-A CI failure after a green verdict re-enters through `reopen('ci-failed')`, which
-spends a round rather than refunding one.
-_Avoid_: "one more review", a second loop on the same PR, a round counter held in
-prose, a `reviewed` label written by anything but the landing step
+At most two automatic review→fix rounds per PR and automation identity.
+A remaining blocker after those rounds stops automatic corrections and landing.
+The stop survives a new session and a later green. A final green after two
+completed fixes is eligible only if no stop has already occurred.
+An allocation is spent before the Fix/Stop choice and is executable only once;
+reconstructing history never recreates its permission. CI corrections spend the
+same budget. Unprovable history requires human guidance, not a reset.
+After escalation, resumption means an explicitly selected superseding PR under
+a revised plan, or the operator finishing by hand; the stopped PR stays intact.
+_Avoid_: one more automatic retry, replaying an incomplete allocation, moving
+unchanged work to another PR to reset the count, merging with blockers
 
 **Snapshot**:
 A frozen copy of selected `dev-core` files inside `omp-build`. No resync. Claude's `dev-core` evolves alone.

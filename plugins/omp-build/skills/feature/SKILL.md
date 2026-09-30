@@ -18,7 +18,7 @@ use the current repository conventions, not a separate spec-file lifecycle.
 - Read-only exploration and tracker framing may start on the Principal. File edits,
   dependency installation and implementation require the matching worktree.
 - Issue creation, labels and native relations belong to `skill://issue-triage`.
-- `dev-review` owns findings; `fix --no-label` applies them; §6.7 alone lands.
+- `dev-review` owns findings; `fix` applies them; §6.7 alone lands.
 - After confirmed merge, offer `/cleanup`. Offer `/promote` only when
   `.dev/stack.yml` declares `release.model: staging-train`. Never invoke either.
 
@@ -189,17 +189,23 @@ when the principal already has one — a copied DB embeds an absolute path), run
 principal and never copies `*.example` in place of a missing real file.
 Agent-created worktrees live at `<worktree base>/<repo>/<slug>`, where the base
 is `OMP_WORKTREE_DIR`, else `.dev/stack.yml` `worktree.base`, else `~/.omp/wt`.
-When `.semctx/` exists, derive a change contract from the issue body — goal,
-invariants, required evidence, open unknowns — and open it in `.semctx/working/`.
-The issue stays the spec. If the contract and the issue diverge, the issue wins
-and the contract is re-derived. Repos without `.semctx/` skip this.
+Resolve the review target before opening a semantic contract. An existing PR
+resumes its already-implemented change directly at §6.4; it does not open a new
+contract or repeat the implementation/proof/push stages.
 
 ```javascript
-const { openPr, landPr, resumeReviewLoop, applyCiWatchExit, disarmReviewedBeforePush } =
+const { openPr, landPr, resumeReviewLoop, applyCiWatchExit, disarmReviewedBeforePush, resolveReviewPr } =
   await import(`${SKILL_DIR}/workflow.js`)
+let pr = await resolveReviewPr(cwd)
+let loop = pr === null ? null : await resumeReviewLoop(cwd, { pr })
 ```
 
-These bundled functions remain the PR/landing seam.
+Discovery/read errors stop with evidence; never substitute a local loop.
+If `loop?.closed === 'stop'`, run `enforceStop`, publish the canonical dossier
+(`dev-review` Phase 8), and exit before any edit. Otherwise an existing `pr`
+continues at §6.4 using this same `pr` and `loop`.
+For a new PR only, when `.semctx/` exists, derive/open the change contract from the
+issue (goal, invariants, evidence, unknowns); the issue stays the spec. Then §6.1.
 
 ### 6.1 Plan against acceptance criteria
 
@@ -208,6 +214,7 @@ Reuse repository patterns. Agree any uncertain behavior before implementation.
 After that mapping, spawn R-architect and R-adversarial read-only on the plan —
 one round. A blocking plan finding amends the plan before any code. This review
 never calls the review loop: it spends no fix round and writes no PR marker.
+
 
 ### 6.2 Implement and verify
 
@@ -220,6 +227,7 @@ check it with the OMP `browser`, and record the steps, URL and observed result
 in the PR. If `.dev/stack.yml` declares `commands.test_e2e`, that command is the
 proof — do not record `ui-manual-only`.
 When a contract is open, record each piece of evidence on it as it is produced.
+Re-entry on an existing PR skips §§6.1–6.3 and retains its PR/loop from preflight.
 
 ### 6.3 Commit, push, open or resume
 
@@ -228,12 +236,20 @@ this branch. Preserve unrelated work; never stage the whole checkout indiscrimin
 Use the base resolved in §3, including when already inside a worktree on entry.
 
 ```javascript
-const { number: pr, status } = await openPr(cwd, {
+const opened = await openPr(cwd, {
   issue, branch, base,
   title: '<Conventional Commit subject>',
   body: '<changes, verification, and criterion→evidence matrix>',
 })
-const loop = await resumeReviewLoop(cwd, { pr })
+pr = opened.number
+loop = await resumeReviewLoop(cwd, { pr })
+if (loop.closed === 'stop') {
+  // Sticky / derived / history-ambiguous stop — disarm again if needed,
+  // publish/display the Phase 8 dossier, and exit. Do not record a new verdict.
+  // Escalation keys only on `loop.closed === 'stop'` (derived by `interpretReviewHistory`).
+  print((await loop.enforceStop(cwd)).message)
+  return
+}
 ```
 
 `openPr` returns the numeric PR and `created | existing`, and supplies the closing
@@ -264,27 +280,42 @@ Translate the panel's verdict before calling the loop:
 
 ```javascript
 let step = loop.record(verdict)
-await loop.persist(cwd)
+if (step.action === 'stop') {
+  const stop = await loop.enforceStop(cwd) // BEFORE dossier; publishes durable stop + disarms
+  print(stop.message)
+  // publish/display Phase 8 escalation dossier, then return — do not persist separately
+} else {
+  await loop.persist(cwd)
+}
 ```
 
 Present the Phase 8 human choice constrained by `step`: **Fix now** routes through
-§6.5 only on `fix`; **Merge** routes through §6.7 only on `land`; **Stop** exits
-without fixing or merging. On `stop`, enforce §6.6 rather than offer another round.
+§6.5 only on `fix`; **Merge** routes through §6.7 only on `land`; on `stop`,
+follow §6.6 (enforceStop already ran above + escalation dossier) rather than offer
+another round.
 Never choose on the user's behalf or offer “Merge as-is” for a red verdict.
-The human's **Stop** simply exits; `enforceStop` is valid only when the loop itself
-returned `step.action === 'stop'`, not when the user declines an available fix.
+The human's **Stop** while a fix is still available simply exits; `enforceStop` is
+valid only when the loop itself returned `step.action === 'stop'`. A **Stop** at
+the second fix offer (`fixes=2`) means the next resume escalates (derived
+`review-bound` once the allocating review sits after the last receipt).
 `record` has already counted the round when the choice is offered: say so, since a
-red verdict spends a fix round whether or not the operator then fixes.
+red verdict **spends/allocates** a fix round whether or not the operator then fixes.
 
 ### 6.5 Fix
 
 `step.action === 'fix'`, by `step.reason`:
 
-- review round (no reason) → execute `skill://fix` with `#<pr> --no-label`. It applies
-  one change per posted root cause, inline, and does not stop for a per-finding choice.
-  A cause it cannot apply becomes a sibling issue.
-- `ci-failed` → fix inline from the failed checks (`land.failed`) and their logs.
-  `fix` reads review comments, not CI: running it here replays stale findings.
+- review round (no reason) → `await loop.assertFixAllowed(cwd, step)`, then execute
+  `skill://fix` with `#<pr>`. Nested fix consumes this caller-owned
+  allocated step and must not call `record('red')` again. It applies one change per
+  posted root cause, inline, and does not stop for a per-finding choice. A cause it
+  cannot apply becomes a sibling issue.
+- `ci-failed` → `await loop.assertFixAllowed(cwd, step)`, then fix inline from the failed checks
+  (`land.failed`) and their logs. `fix` reads review comments, not CI: running it
+  here replays stale findings.
+
+Both routes follow `dev-review` Phase 8's executable action contract. A rejected
+grant stops before editing; print `error.stop` when present and publish the dossier.
 
 Verify and commit/push the fixes, then return to §6.4 on the same PR for a fresh
 review. State `step.remaining`.
@@ -295,16 +326,14 @@ review. State `step.remaining`.
 |---|---|
 | `fix` | §6.5 |
 | `land` | §6.7 |
-| `stop` | `await loop.enforceStop(cwd)`; print its result and stop |
+| `stop` | `await loop.enforceStop(cwd)` first (when a PR exists), then publish/display the escalation dossier from `skill://dev-review` Phase 8; print both results and stop. No PR → never `persist`/`enforceStop`; keep `stopReason` locally and display the dossier |
 
-At most two fix rounds; a third red stops. Persist every verdict and CI reopening;
-resume from the PR on re-entry, never reset its spent rounds. `enforceStop` removes
-the `reviewed` label and disables native auto-merge; it cannot reverse a completed merge.
-The PR marker stores counts, not the stop itself: a re-entry after a stop resumes an
-open loop, so report the exhausted bound rather than start another round unasked.
-Nothing on a stopped path invokes landing or the optional tail.
-`loop.reopen('ci-failed')` **spends one fix round immediately** (0 → 1, 1 → 2;
-already 2 → stop). It never refunds or preserves an unspent round after reopening.
+The bound, recovery policy and dossier live in `dev-review` Phase 8.
+`record` and `reopen` spend rounds; `persist` records nonterminal steps;
+`enforceStop` records terminal ones and disarms OPEN PRs. A sink observing a newer
+stop already enforces it: report its result and publish the dossier, not a second
+enforcement call. A final green after two completed fixes may land only when
+strict current history has no stop. Helpers never unlock a stop.
 
 ### 6.7 Land
 
@@ -313,9 +342,12 @@ approval if not already explicit for this PR. Then `await landPr(cwd, pr)`
 resolves the landing mode itself from `cwd` through `readLanding` — the same
 resolver `/ci-watch` uses: `landing.mode` in `.dev/stack.yml` (parsed as YAML),
 else merge-on-green when `.github/workflows/merge-on-green.yml` exists, else
-native. An invalid `landing` returns `bad-landing` before any gh call. Otherwise
-it adds `reviewed` — under merge-on-green, a `reviewed` already on the PR is
-removed first so a fresh labeled run exists — and returns
+native. Before reading configuration, `landPr` independently reads current review
+state: a stop returns `review-stopped` with disarm evidence; no approving review
+after the latest correction/allocation returns `not-approved`. Invalid
+configuration then returns `bad-landing` before arming. Otherwise it adds
+`reviewed` — under merge-on-green a pre-existing label is removed first so a
+fresh labeled run exists — and returns
 `{ status: 'watching', mode, watch }`. `watch` is the absolute real path of
 `ci-watch.sh` (derived from this module), carrying `--merge-mode <mode>` and,
 under merge-on-green, always `--since <GitHub labeled time>` of that new event.
@@ -349,9 +381,12 @@ Neither a fix round nor another review action may write that label in this cycle
 
 | `land.status` | Action |
 |---|---|
+| `review-stopped` | Print `land.stop`, publish the `dev-review` Phase 8 dossier and exit; no watch, fix or merge |
+| `no-pr` | Stop; no PR was resolved and no gate was armed |
+| `not-approved` | Stop; no current approving review covers the latest correction. Review again; do not merge |
 | `watching` | Start the async `/ci-watch` job named in `land.watch` |
 | `merged` | Report issue + PR; offer the optional tail (§0), stop |
-| `ci-failed` | Gate already disarmed; `step = loop.reopen('ci-failed')`; `await loop.persist(cwd)`; follow §6.6 |
+| `ci-failed` | Gate already disarmed; `step = loop.reopen('ci-failed')`; if `step.action === 'stop'` → `enforceStop` then dossier (do not `persist` separately); else `await loop.persist(cwd)` and follow §6.6 |
 | `ci-cancelled` | Gate disarmed; stop, report the cancelled checks; operator re-runs CI then re-enters §6.7 |
 | `ci-blocked` | Gate disarmed; stop, report the checks named on stderr; operator resolves the named checks or re-runs CI, then re-enters §6.7 |
 | `watch-failed` | Stop; report the code or `land.error` (including when the labeled `reviewed` event could not be read after re-label under merge-on-green). Gate left as is; do not claim merged |
