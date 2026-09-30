@@ -33,7 +33,9 @@ case "$1 \${2:-}" in
   "repo view") echo "o/r" ;;
   "api graphql")
     q="$*"
-    if [[ "$q" == *subIssues* ]]; then cat "$S/epic.json"
+    if [[ "$q" == *subIssues* ]]; then
+      n=$(( $(cat "$S/reads" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$S/reads"
+      if [[ -f "$S/epic.json.$n" ]]; then cat "$S/epic.json.$n"; else cat "$S/epic.json"; fi
     elif [[ "$q" == *statusCheckRollup* ]]; then
       if [[ -f "$S/rollup.json" ]]; then cat "$S/rollup.json"
       else echo '{"data":{"repository":{"object":{"statusCheckRollup":null}}}}'; fi
@@ -494,7 +496,9 @@ describe('epic-driver — review bound', () => {
 })
 
 describe('epic-driver — eventual consistency', () => {
-  it('stops after one re-read when the PR merged but the facts still show it open and armed', () => {
+  const reads = () => Number(readFileSync(path.join(sandboxOf().state, 'reads'), 'utf8'))
+
+  function armedOnOrigin(): string {
     const { epic } = sandbox()
     git(epic, 'switch', '-q', '-c', 'feat/2-first-child', 'refs/remotes/origin/main')
     git(epic, 'push', '-q', 'origin', 'feat/2-first-child')
@@ -503,11 +507,36 @@ describe('epic-driver — eventual consistency', () => {
     const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
     serveEpic([childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', tip, armed)] })])
     servePr(11, { state: 'MERGED', labels: ['reviewed'], autoMerge: false })
+    return tip
+  }
+
+  it('reads GitHub once more when the PR merged during its disarm, and moves on', () => {
+    const tip = armedOnOrigin()
+    const { state } = sandboxOf()
+    const merged = prNode(11, 'feat/2-first-child', tip, {
+      state: 'MERGED',
+      mergedAt: '2026-09-30T10:00:00Z',
+      mergeCommit: { oid: 'd'.repeat(40), parents: { nodes: [{ oid: 'a'.repeat(40) }] } },
+    })
+    // The first read is the stale one; every later read shows the merge.
+    writeFileSync(path.join(state, 'epic.json.1'), readFileSync(path.join(state, 'epic.json')))
+    serveEpic([childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] })])
+
+    const run = drive(['next'])
+
+    expect(run.code).toBe(0)
+    expect(run.json().step).toMatchObject({ action: 'final-review', stage: 'review' })
+    expect(reads()).toBeGreaterThanOrEqual(2)
+  })
+
+  it('stops after exactly one re-read when the facts stay stale', () => {
+    armedOnOrigin()
 
     const run = drive(['next'])
 
     expect(run.code).toBe(1)
     expect(run.stderr).toContain('merged, yet the facts still show it open')
+    expect(reads()).toBe(2)
     expect(writes()).toEqual([])
   })
 })
