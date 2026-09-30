@@ -255,6 +255,21 @@ describe('nextStep', () => {
         step: { action: 'resume', ticket: 1, branch: head(1), pr: { number: 101 } },
       },
       {
+        name: 'a closed unmerged PR on the existing branch → branch-mismatch, never a second PR on that head',
+        facts: facts([child(1, { prs: [pr(1, { state: 'CLOSED' })], branches: [branch(head(1))] })]),
+        step: { action: 'stop', ticket: 1, stop: 'branch-mismatch' },
+      },
+      {
+        name: 'a closed unmerged PR on the head a start would create → branch-mismatch',
+        facts: facts([child(1, { prs: [pr(1, { state: 'CLOSED', head: branchFor(child(1)) })] })]),
+        step: { action: 'stop', ticket: 1, stop: 'branch-mismatch' },
+      },
+      {
+        name: 'a closed PR on another head does not block the start',
+        facts: facts([child(1, { prs: [pr(1, { state: 'CLOSED', head: 'feat/1-abandoned' })] })]),
+        step: { action: 'start', ticket: 1, branch: branchFor(child(1)) },
+      },
+      {
         name: 'an open PR whose head is on no branch → branch-mismatch',
         facts: facts([child(1, { prs: [pr(1)] })]),
         step: { action: 'stop', ticket: 1, stop: 'branch-mismatch' },
