@@ -34,7 +34,6 @@ import {
   formatMarker,
   generateObjective,
   goalRun,
-  hasScope,
   mergedLocalBranches,
   nextStep,
   type PrFacts,
@@ -501,10 +500,8 @@ function objective(repo: string, epic: number): string {
   const { facts } = gather(repo, epic, run, base, { git: false })
   const result = generateObjective({ epic, run, base, children: facts.children })
   if ('error' in result) {
-    const unscoped = facts.children.filter((c) => c.state === 'OPEN' && !hasScope(c)).map((c) => `#${c.number}`)
-    throw new Refused(
-      `objective=refused ${result.error}${unscoped.length ? ` — frame ${unscoped.join(', ')} (§4)` : ''}`,
-    )
+    const frame = result.missing?.length ? ` — frame ${result.missing.map((n) => `#${n}`).join(', ')} (§4)` : ''
+    throw new Refused(`objective=refused ${result.error}${frame}`)
   }
   return [
     `/goal ${result.objective}`,

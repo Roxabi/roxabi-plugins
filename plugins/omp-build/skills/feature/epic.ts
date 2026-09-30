@@ -533,12 +533,14 @@ export function generateObjective(input: {
   run: string
   base: string
   children: ChildFacts[]
-}): { objective: string; order: number[]; blocked: { ticket: number; blockers: number[] }[] } | { error: string } {
+}):
+  | { objective: string; order: number[]; blocked: { ticket: number; blockers: number[] }[] }
+  | { error: string; missing?: number[] } {
   const { epic, run, base, children } = input
   if (!RUN_ID.test(run)) return { error: `bad run id ${run}` }
   const open = children.filter((child) => !isDone(child, base))
   const missing = open.filter((child) => !hasScope(child)).map((child) => child.number)
-  if (missing.length) return { error: `missing scope: ${missing.join(', ')}` }
+  if (missing.length) return { error: `missing scope: ${missing.join(', ')}`, missing }
 
   const byNumber = new Map(children.map((child) => [child.number, child]))
   const blocked = new Map<number, number[]>()

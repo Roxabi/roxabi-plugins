@@ -642,11 +642,14 @@ describe('generateObjective', () => {
     expect(result).toEqual({ error: 'cycle: 1, 2' })
   })
 
-  it('refuses when an open child lacks scope, and ignores a closed one', () => {
+  it('refuses when an open child lacks scope, naming only those, and ignores a closed or merged one', () => {
     expect(
       generate([child(1), child(2, { labels: [] }), child(3, { body: '## Acceptance\n## Needs framing\n' })]),
-    ).toEqual({ error: 'missing scope: 2, 3' })
+    ).toEqual({ error: 'missing scope: 2, 3', missing: [2, 3] })
     expect(generate([child(1, { state: 'CLOSED', labels: [], body: '' }), child(2)])).toMatchObject({ order: [2] })
+    // Staging-train: merged into the base with the issue still open is done, not unframed.
+    const merged = child(4, { labels: [], body: '', prs: [landed(4, T1, sha('1'), sha('2'))] })
+    expect(generate([merged, child(5, { labels: [] })])).toEqual({ error: 'missing scope: 5', missing: [5] })
   })
 
   it('refuses a run id the gate would not accept', () => {
