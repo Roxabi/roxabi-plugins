@@ -299,9 +299,25 @@ describe('runPostMergeHook', () => {
     const { result, started } = runHook(clone, outside, { timeoutMs: 300 })
     const elapsed = performance.now() - began
 
-    expect(result).toMatchObject({ result: 'failed', code: null })
+    expect(result).toMatchObject({ result: 'failed', code: null, detail: expect.stringMatching(/timed out/) })
     expect(elapsed).toBeLessThan(4000)
     expect(started).toHaveLength(1)
+    expect(exited(Number(readFileSync(proofPath(), 'utf8')))).toBe(true)
+    expect(worktrees(clone)).toEqual([clone])
+  })
+
+  it('escalates to SIGKILL when the hook ignores SIGTERM', () => {
+    const { clone, outside } = seed({
+      'scripts/post-merge.sh': { exec: '#!/bin/sh\ntrap \'\' TERM\necho $$ > "$1"\nwhile :; do sleep 0.1; done\n' },
+      '.dev/stack.yml': stackYml(['./scripts/post-merge.sh', proofPath()]),
+    })
+
+    const began = performance.now()
+    const { result } = runHook(clone, outside, { timeoutMs: 300 })
+    const elapsed = performance.now() - began
+
+    expect(result).toMatchObject({ result: 'failed', detail: expect.stringMatching(/timed out/) })
+    expect(elapsed).toBeLessThan(8000)
     expect(exited(Number(readFileSync(proofPath(), 'utf8')))).toBe(true)
     expect(worktrees(clone)).toEqual([clone])
   })
@@ -315,11 +331,15 @@ describe('runPostMergeHook', () => {
     const began = performance.now()
     const { result } = runHook(clone, outside)
     const elapsed = performance.now() - began
+    const orphan = Number(readFileSync(proofPath(), 'utf8'))
+    // Nothing the hook started outlives it: the group is signalled once the hook exits.
+    const gone = exited(orphan)
     try {
-      process.kill(Number(readFileSync(proofPath(), 'utf8')), 'SIGKILL')
+      process.kill(orphan, 'SIGKILL')
     } catch {
       /* already gone */
     }
+    expect(gone).toBe(true)
 
     expect(result).toMatchObject({ result: 'ok', sha: originSha, code: 0, output: expect.stringContaining('done') })
     expect(elapsed).toBeLessThan(4000)
