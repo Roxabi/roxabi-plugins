@@ -119,6 +119,8 @@ type RawPr = {
   autoMergeRequest: { enabledAt: string } | null
   labels: { nodes: { name: string }[] }
   repository: { nameWithOwner: string }
+  /** A fork PR: its head lives outside this repository, so no local ref proves what it lands. */
+  isCrossRepository: boolean
 }
 type RawChild = {
   number: number
@@ -161,7 +163,7 @@ type ReviewState = {
   reviewStop: boolean
 }
 
-const PR_FIELDS = `number state baseRefName headRefName headRefOid mergedAt
+const PR_FIELDS = `number state baseRefName headRefName headRefOid mergedAt isCrossRepository
   mergeCommit { oid parents(first: 1) { nodes { oid } } }
   autoMergeRequest { enabledAt } labels(first: 30) { nodes { name } } repository { nameWithOwner }`
 
@@ -282,14 +284,16 @@ function branchRefs(repo: string, base: string, children: number[]): Map<number,
   const out = new Map<number, BranchFacts[]>()
   for (const [name, { local, remote }] of byName) {
     const ticket = ticketOfBranch(name) ?? 0
-    const tip = local ?? remote ?? ''
-    const commits = git(repo, ['log', '--no-merges', '--format=%H%x09%s', `refs/remotes/origin/${base}..${tip}`])
-      .split('\n')
-      .filter(Boolean)
-      .map((line) => {
-        const at = line.indexOf('\t')
-        return { sha: line.slice(0, at), ticket: ticketOfSubject(line.slice(at + 1)) }
-      })
+    // Both tips are checked: the local one is what gets pushed, the origin one is what a PR lands.
+    const commits = [...new Set([local, remote].filter((sha) => sha !== null))].flatMap((sha) =>
+      git(repo, ['log', '--no-merges', '--format=%H%x09%s', `refs/remotes/origin/${base}..${sha}`])
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => {
+          const at = line.indexOf('\t')
+          return { sha: line.slice(0, at), ticket: ticketOfSubject(line.slice(at + 1)) }
+        }),
+    )
     const verdict = refuseForeignCommits(commits, ticket)
     const holder = checkedOut.get(name)
     out.set(ticket, [
@@ -297,7 +301,8 @@ function branchRefs(repo: string, base: string, children: number[]): Map<number,
       {
         name,
         local: local !== null,
-        tip,
+        tip: local ?? remote ?? '',
+        remoteTip: remote,
         foreign: 'error' in verdict ? verdict.error.replace(/^foreign commit /, '') : null,
         // A branch held by a worktree whose directory is gone is still checked out there.
         elsewhere: holder && (!existsSync(holder) || realpathSync(holder) !== here) ? holder : null,
@@ -388,7 +393,8 @@ function gather(repo: string, epic: number, run: string, base: string, { git: wi
       ...node.timelineItems.nodes.map((item) => item?.source),
     ]
     for (const pr of sources) {
-      if (isPr(pr) && pr.repository.nameWithOwner === full && ticketOfBranch(pr.headRefName) === node.number) {
+      const same = isPr(pr) && pr.repository.nameWithOwner === full && !pr.isCrossRepository
+      if (same && ticketOfBranch(pr.headRefName) === node.number) {
         found.set(pr.number, pr)
       }
     }

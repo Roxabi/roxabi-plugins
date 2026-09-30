@@ -58,7 +58,7 @@ function child(number: number, over: Partial<ChildFacts> = {}): ChildFacts {
 }
 
 function branch(name: string, over: Partial<BranchFacts> = {}): BranchFacts {
-  return { name, local: true, tip: sha('a'), foreign: null, elsewhere: null, ...over }
+  return { name, local: true, tip: sha('a'), remoteTip: sha('a'), foreign: null, elsewhere: null, ...over }
 }
 
 /** An open PR from the child's branch into the base. */
@@ -265,6 +265,21 @@ describe('nextStep', () => {
         name: 'a foreign commit on the branch → foreign-commit',
         facts: facts([child(1, { prs: [pr(1)], branches: [branch(head(1), { foreign: sha('9') })] })]),
         step: { action: 'stop', ticket: 1, stop: 'foreign-commit' },
+      },
+      {
+        name: 'an open PR whose head is not the origin tip the guard checked → branch-mismatch',
+        facts: facts([child(1, { prs: [pr(1, { headSha: sha('f') })], branches: [branch(head(1))] })]),
+        step: { action: 'stop', ticket: 1, stop: 'branch-mismatch' },
+      },
+      {
+        name: 'an open PR on a branch never pushed → branch-mismatch',
+        facts: facts([child(1, { prs: [pr(1)], branches: [branch(head(1), { remoteTip: null })] })]),
+        step: { action: 'stop', ticket: 1, stop: 'branch-mismatch' },
+      },
+      {
+        name: 'a local branch ahead of origin without a PR is resumed',
+        facts: facts([child(1, { branches: [branch(head(1), { tip: sha('c'), remoteTip: sha('a') })] })]),
+        step: { action: 'resume', ticket: 1, branch: head(1), pr: null },
       },
       {
         name: 'no size label → no-scope',

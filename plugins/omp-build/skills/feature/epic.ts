@@ -306,8 +306,11 @@ export type PrFacts = {
 export type BranchFacts = {
   name: string
   local: boolean
+  /** The local tip when the branch is local, else the origin tip. */
   tip: string
-  /** First commit in `origin/<base>..tip` that does not claim the child, or `null`. */
+  /** `refs/remotes/origin/<name>`, or `null` when it was never pushed. */
+  remoteTip: string | null
+  /** First commit in `origin/<base>..` the local or origin tip that does not claim the child, or `null`. */
   foreign: string | null
   /** Another worktree that has it checked out, or `null`. */
   elsewhere: string | null
@@ -607,6 +610,15 @@ export function nextStep(facts: Facts): Step {
         ticket,
         stop: 'branch-mismatch',
         reason: `${name} is checked out in another worktree, ${branch.elsewhere}`,
+        report,
+      }
+    }
+    if (pr && pr.headSha !== branch.remoteTip) {
+      return {
+        action: 'stop',
+        ticket,
+        stop: 'branch-mismatch',
+        reason: `PR #${pr.number} head ${pr.headSha} is not origin/${name} (${branch.remoteTip ?? 'absent'})`,
         report,
       }
     }
