@@ -43,6 +43,9 @@ jobs:
       # package.json: a dependency missing from the lock would never be audited.
       - name: Audit, then file or update the security issue
         id: audit
+        # Below the job's 10 minutes, so that a hung step fails alone and the last step still
+        # reports it; the script bounds `bun audit` itself at 2 minutes.
+        timeout-minutes: 6
         # Explicit `shell: bash` runs `bash -eo pipefail`; the default is `bash -e` without
         # pipefail, where a failed `gh issue list | jq` reads as "no open issue" and files a
         # duplicate.
@@ -97,9 +100,9 @@ jobs:
             fi
           fi
           exit 1
-      # Its own step, so a failure before the audit (checkout, setup-bun), a cancellation or
-      # a timeout is reported too, not only an untrusted exit. Needs only gh and jq. Never a
-      # security issue: an audit that did not run proves nothing about the dependencies.
+      # Its own step, so the failure issue also covers a failed checkout or setup-bun, a
+      # timed-out audit step and a cancelled run, not only an untrusted exit. Needs only gh
+      # and jq. Never a security issue: an audit that did not run proves nothing.
       - name: File, update or close the audit-failed issue
         if: always()
         shell: bash
