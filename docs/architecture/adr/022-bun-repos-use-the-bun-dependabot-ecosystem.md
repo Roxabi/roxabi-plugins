@@ -141,6 +141,21 @@ graph parses is not a proven remedy (#648). The 11 were dismissed as
 finding, a stale ignore or an unaudited package; it covers npm packages only.
 Generated bun repos are not covered: #646.
 
+The audit's policy, settled on #645 and to be carried by #646:
+
+- **Every severity counts.** `--audit-level=moderate` was rejected: it would hide
+  every future low permanently to cover one temporary gap.
+- **Accepted advisories are explicit.** `IGNORED` in `scripts/dependency-audit.ts`
+  records each entry's reason, severity and removal condition. An entry whose
+  advisory has left the tree, or whose severity changed, is reported, not kept.
+- **Scheduled, never a PR check.** A new advisory against an unchanged lockfile
+  must not turn unrelated PRs red.
+- **A finding files or updates one `security` issue and fails the run.** An audit
+  that cannot be trusted never files a security issue; it files one non-security
+  "audit failed" issue instead, so the detection cannot go dark silently.
+- The issues are public, like the repo. That is acceptable while every dependency
+  is dev-only; revisit together with the runtime-dependency trigger below.
+
 **Revisit this ADR if the repo gains a runtime dependency, or its package.json
 loses `private: true` (is published to npm).** "Private" here means the npm
 package, not the GitHub repo, which is public. Those are the conditions under
