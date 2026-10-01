@@ -307,6 +307,15 @@ function appendStepSummary(env: NodeJS.ProcessEnv, text: string): void {
   }
 }
 
+/** Display only, like the step summary: a closed or full stdout must not turn 0 or 10 into 2. */
+function writeStdout(text: string): void {
+  try {
+    writeSync(1, text)
+  } catch (error) {
+    console.error(`dependency-audit: stdout not written: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
 export function main(
   argv: readonly string[],
   env: NodeJS.ProcessEnv = process.env,
@@ -335,16 +344,16 @@ export function main(
     const result = classify(advisories, ignored, skippedPackages(stderr))
     if (result.findings.length === 0 && result.stale.length === 0 && result.unaudited.length === 0) {
       const summary = `Dependency audit: clean — ${result.suppressed.length} ignored advisory(ies) (bun ${Bun.version}).\n`
-      writeSync(1, summary)
+      writeStdout(summary)
       appendStepSummary(env, summary)
       return 0
     }
 
-    // The report file is the workflow's input: write it first, inside the try. The step
-    // summary is display only and must never change the code the workflow routes on.
+    // The report file is the workflow's input: write it first, inside the try. Stdout and
+    // the step summary are display only and must never change the code the workflow routes on.
     const report = renderReport(result, ignored, runMeta(env))
     if (path) writeFileSync(path, report)
-    else writeSync(1, report)
+    else writeStdout(report)
     appendStepSummary(env, report)
     console.error(
       `dependency-audit: ${result.findings.length} finding(s), ${result.stale.length} stale ignore(s), ${result.unaudited.length} unaudited`,
