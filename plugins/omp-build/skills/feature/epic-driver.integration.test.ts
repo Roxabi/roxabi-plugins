@@ -28,21 +28,27 @@ const ME = 'operator'
 const GH_STUB = `#!/usr/bin/env bash
 set -u
 S="$DRIVER_STATE"
-log() { printf '%s\\n' "$*" >> "$S/writes.log"; }
+log() { printf '%s\\n' "$*" >> "$S/writes.log"; printf '%s\\n' "$*" >> "$S/trace.log"; }
+query() { printf 'query %s\\n' "$1" >> "$S/trace.log"; }
 case "$1 \${2:-}" in
   "repo view")
     if [[ "$*" == *defaultBranchRef* ]]; then echo "develop"; else echo "o/r"; fi ;;
   "api graphql")
     q="$*"
     if [[ "$q" == *subIssues* ]]; then
+      query subIssues
       n=$(( $(cat "$S/reads" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$S/reads"
       if [[ -f "$S/epic.json.$n" ]]; then cat "$S/epic.json.$n"; else cat "$S/epic.json"; fi
     elif [[ "$q" == *statusCheckRollup* ]]; then
+      query statusCheckRollup
       if [[ -f "$S/rollup.json" ]]; then cat "$S/rollup.json"
       else echo '{"data":{"repository":{"object":{"statusCheckRollup":null}}}}'; fi
-    elif [[ -f "$S/reviews.json" ]]; then cat "$S/reviews.json"
-    else echo '{"data":{"repository":{}}}'; fi ;;
+    elif [[ -f "$S/reviews.json" ]]; then
+      query reviews
+      cat "$S/reviews.json"
+    else query other; echo '{"data":{"repository":{}}}'; fi ;;
   "issue comment")
+    if [[ -f "$S/comment.fail" ]]; then echo "comment failed" >&2; exit 1; fi
     n=$(ls "$S" | grep -c '^comment-' || true)
     cat > "$S/comment-$n.md"
     log "comment $3 $(head -1 "$S/comment-$n.md")" ;;
@@ -207,7 +213,14 @@ function drive(args: string[], { cwd = sandboxOf().epic, status = 'active', epic
     writeFileSync(file, objective || `Deliver epic #${epic} (/feature #${epic} run=${RUN} base=main).`)
     gate.push('--goal-status', status, '--goal-objective-file', file)
   }
-  const out = spawnSync(REAL_BUN, [DRIVER, ...args, '--epic', String(epic), ...gate], { cwd, env, encoding: 'utf8' })
+  const command = env.DRIVER_STRACE
+    ? ['strace', '-f', '-e', 'trace=openat,write', '-o', env.DRIVER_STRACE, REAL_BUN]
+    : [REAL_BUN]
+  const out = spawnSync(command[0], [...command.slice(1), DRIVER, ...args, '--epic', String(epic), ...gate], {
+    cwd,
+    env,
+    encoding: 'utf8',
+  })
   return { code: out.status, stdout: out.stdout, stderr: out.stderr, json: () => JSON.parse(out.stdout) }
 }
 
@@ -854,5 +867,342 @@ describe('epic-driver — remaining branches', () => {
     expect(run.code).toBe(2)
     expect(run.stderr).toContain('Principal')
     expect(writes()).toEqual([])
+  })
+})
+
+/**
+ * A stopped child whose PR stayed armed, plus an independent child the goal can start.
+ * `earlier` is a durable goal-stop from another run; the viewer wrote it.
+ */
+function stoppedArmedAndIndependent(sticky = false): string {
+  const { epic } = sandbox()
+  const earlier = {
+    body: `<!-- omp-build:goal-stop run=run00000 reason=review-bound -->\nstopped`,
+    author: ME,
+  }
+  const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
+  serveEpic([
+    childNode(2, 'feat(x): first child', {
+      comments: [earlier],
+      prs: [prNode(10, 'feat/2-first-child', 'a'.repeat(40), armed)],
+    }),
+    childNode(3, 'fix(y): second child'),
+  ])
+  servePr(10, { state: 'OPEN', labels: ['reviewed'], autoMerge: true }, sticky)
+  return epic
+}
+
+describe('epic-driver — reconcile a stopped armed PR', () => {
+  it('disarms a stopped child before starting an independent one, and lists it under reconciled', () => {
+    const epic = stoppedArmedAndIndependent()
+    const run = drive(['next'])
+    expect(run.code).toBe(0)
+    expect(run.json().step).toMatchObject({ action: 'start', ticket: 3, branch: 'fix/3-second-child' })
+    expect(run.json().disarmed).toBeNull()
+    expect(run.json().reconciled).toEqual([{ ticket: 2, pr: 10, disarmed: 'disarmed' }])
+    expect(writes()).toEqual(['edit 10 --remove-label reviewed', 'merge 10 --disable-auto'])
+    expect(git(epic, 'branch', '--show-current')).toBe('fix/3-second-child')
+  })
+
+  it('returns a drop and creates no branch when that disarm fails', () => {
+    const epic = stoppedArmedAndIndependent(true)
+    const run = drive(['next'])
+    expect(run.code).toBe(0)
+    expect(run.json().step.action).toBe('drop')
+    expect(run.json().step.stop).toBe('driver-error')
+    expect(run.json().step.reason).toContain('#10')
+    expect(git(epic, 'branch', '--show-current')).toBe('')
+    expect(git(epic, 'branch', '--list', 'fix/3-second-child')).toBe('')
+  })
+
+  it('returns a drop and creates no branch when the stopped PR already merged', () => {
+    const epic = stoppedArmedAndIndependent()
+    servePr(10, { state: 'MERGED', labels: [], autoMerge: false })
+    const run = drive(['next'])
+    expect(run.code).toBe(0)
+    expect(run.json().step.action).toBe('drop')
+    expect(run.json().step.stop).toBe('driver-error')
+    expect(run.json().step.reason).toContain('#10')
+    expect(run.json().reconciled).toEqual([{ ticket: 2, pr: 10, disarmed: 'merged' }])
+    expect(git(epic, 'branch', '--show-current')).toBe('')
+    expect(git(epic, 'branch', '--list', 'fix/3-second-child')).toBe('')
+  })
+
+  it('disarms the later stopped PR when the first disarm fails, and creates no branch', () => {
+    const epic = sandbox().epic
+    const earlier = { body: '<!-- omp-build:goal-stop run=run00000 reason=review-bound -->\nstopped', author: ME }
+    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
+    serveEpic([
+      childNode(2, 'feat(x): first child', {
+        comments: [earlier],
+        prs: [prNode(10, 'feat/2-first-child', 'a'.repeat(40), armed)],
+      }),
+      childNode(3, 'fix(y): second child'),
+      childNode(4, 'chore(z): third child', {
+        comments: [earlier],
+        prs: [prNode(14, 'chore/4-third-child', 'b'.repeat(40), armed)],
+      }),
+    ])
+    servePr(10, { state: 'OPEN', labels: ['reviewed'], autoMerge: true }, true)
+    servePr(14, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    const run = drive(['next'])
+    expect(run.code).toBe(0)
+    expect(run.json().step.action).toBe('drop')
+    expect(run.json().step.reason).toContain('#10')
+    expect(writes()).toEqual([
+      'edit 10 --remove-label reviewed',
+      'merge 10 --disable-auto',
+      'edit 14 --remove-label reviewed',
+      'merge 14 --disable-auto',
+    ])
+    expect(git(epic, 'branch', '--list', 'fix/3-second-child')).toBe('')
+  })
+
+  it('returns a drop and creates no branch when the epic query already says the stopped PR merged', () => {
+    const { epic } = sandbox()
+    serveEpic([
+      childNode(2, 'feat(x): first child', {
+        comments: [{ body: '<!-- omp-build:goal-stop run=run00000 reason=review-bound -->\nstopped', author: ME }],
+        prs: [
+          prNode(10, 'feat/2-first-child', 'a'.repeat(40), {
+            state: 'MERGED',
+            mergedAt: '2026-10-01T00:00:00Z',
+            mergeCommit: { oid: 'e'.repeat(40), parents: { nodes: [{ oid: 'f'.repeat(40) }] } },
+          }),
+        ],
+      }),
+      childNode(3, 'fix(y): second child'),
+    ])
+    servePr(10, { state: 'MERGED', labels: [], autoMerge: false })
+    const run = drive(['next'])
+    expect(run.code).toBe(0)
+    expect(run.json().step.action).toBe('drop')
+    expect(run.json().step.stop).toBe('driver-error')
+    expect(run.json().step.reason).toContain('#10')
+    expect(writes()).toEqual([])
+    expect(git(epic, 'branch', '--list', 'fix/3-second-child')).toBe('')
+  })
+
+  it('returns a drop and creates no branch when the epic query says MERGED and mergeCommit is null', () => {
+    const { epic } = sandbox()
+    serveEpic([
+      childNode(2, 'feat(x): first child', {
+        comments: [{ body: '<!-- omp-build:goal-stop run=run00000 reason=review-bound -->\nstopped', author: ME }],
+        prs: [
+          prNode(10, 'feat/2-first-child', 'a'.repeat(40), {
+            state: 'MERGED',
+            mergedAt: '2026-10-01T00:00:00Z',
+            mergeCommit: null,
+          }),
+        ],
+      }),
+      childNode(3, 'fix(y): second child'),
+    ])
+    servePr(10, { state: 'MERGED', labels: [], autoMerge: false })
+    const run = drive(['next'])
+    expect(run.code).toBe(0)
+    expect(run.json().step.action).toBe('drop')
+    expect(run.json().step.stop).toBe('driver-error')
+    expect(run.json().step.reason).toContain('#10')
+    expect(writes()).toEqual([])
+    expect(git(epic, 'branch', '--list', 'fix/3-second-child')).toBe('')
+  })
+
+  it('dry-run reports the PR it would disarm and makes no write', () => {
+    const epic = stoppedArmedAndIndependent()
+    const run = drive(['next', '--dry-run'])
+    expect(run.code).toBe(0)
+    expect(run.json().step).toMatchObject({ action: 'start', ticket: 3 })
+    expect(run.json().reconciled).toEqual([{ ticket: 2, pr: 10, disarmed: 'dry-run' }])
+    expect(writes()).toEqual([])
+    expect(git(epic, 'branch', '--show-current')).toBe('')
+    expect(git(epic, 'branch', '--list', 'fix/3-second-child')).toBe('')
+  })
+
+  it('disarms both open armed PRs of one stopped child', () => {
+    const epic = sandbox().epic
+    const earlier = { body: '<!-- omp-build:goal-stop run=run00000 reason=review-bound -->\nstopped', author: ME }
+    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
+    serveEpic([
+      childNode(2, 'feat(x): first child', {
+        comments: [earlier],
+        prs: [
+          prNode(10, 'feat/2-first-child', 'a'.repeat(40), armed),
+          prNode(14, 'feat/2-other-child', 'b'.repeat(40), armed),
+        ],
+      }),
+      childNode(3, 'fix(y): second child'),
+    ])
+    servePr(10, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    servePr(14, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    const run = drive(['next'])
+    expect(run.code).toBe(0)
+    expect(run.json().step).toMatchObject({ action: 'start', ticket: 3 })
+    expect(run.json().reconciled).toEqual([
+      { ticket: 2, pr: 10, disarmed: 'disarmed' },
+      { ticket: 2, pr: 14, disarmed: 'disarmed' },
+    ])
+    expect(writes()).toEqual([
+      'edit 10 --remove-label reviewed',
+      'merge 10 --disable-auto',
+      'edit 14 --remove-label reviewed',
+      'merge 14 --disable-auto',
+    ])
+    expect(git(epic, 'branch', '--show-current')).toBe('fix/3-second-child')
+  })
+})
+
+describe('epic-driver — drop disarms without the dashboard', () => {
+  it('disarms every armed PR when the base-CI rollup query fails', () => {
+    sandbox()
+    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
+    serveEpic([
+      childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', 'c'.repeat(40), armed)] }),
+    ])
+    servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    writeFileSync(
+      path.join(sandboxOf().state, 'rollup.json'),
+      JSON.stringify({ data: null, errors: [{ message: 'statusCheckRollup failed' }] }),
+    )
+    const run = drive(['report', '--outcome', 'drop', '--reason', 'driver-error'])
+    expect(run.code).toBe(0)
+    expect(writes()).toEqual([
+      'edit 11 --remove-label reviewed',
+      'merge 11 --disable-auto',
+      `comment 1 <!-- omp-build:goal-report run=${RUN} -->`,
+    ])
+    expect(run.stdout).toContain('| Base CI | unread |')
+    expect(run.stdout).not.toContain('| Base CI | none |')
+    expect(run.stdout).not.toContain('| Base CI | green |')
+    expect(comments()[0]).toContain('| Base CI | unread |')
+  })
+
+  it('disarms every armed PR when the landing cannot be read', () => {
+    sandbox('release:\n  model: trunk\nlanding:\n  mode: squash\n')
+    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
+    serveEpic([
+      childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', 'c'.repeat(40), armed)] }),
+    ])
+    servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    const straceLog = path.join(sandboxOf().state, 'strace.log')
+    sandboxOf().env.DRIVER_STRACE = straceLog
+    const run = drive(['report', '--outcome', 'drop', '--reason', 'bad-landing'])
+    expect(run.code).toBe(0)
+    expect(writes()).toEqual([
+      'edit 11 --remove-label reviewed',
+      'merge 11 --disable-auto',
+      `comment 1 <!-- omp-build:goal-report run=${RUN} -->`,
+    ])
+    const seen = readFileSync(straceLog, 'utf8').split('\n')
+    const editAt = seen.findIndex((line) => line.includes('edit 11'))
+    const readAt = seen.findIndex((line) => line.includes('stack.yml'))
+    const rollupAt = seen.findIndex((line) => line.includes('statusCheckRollup'))
+    expect(editAt).toBeGreaterThanOrEqual(0)
+    expect(readAt).toBeGreaterThan(editAt)
+    expect(rollupAt === -1 || rollupAt > editAt).toBe(true)
+    expect(run.stdout).toContain('| Base CI | unread |')
+    expect(run.stdout).not.toContain('| Base CI | none |')
+    expect(run.stdout).not.toContain('| Base CI | green |')
+  })
+
+  it('disarms when git rev-parse of the base fails', () => {
+    const epic = sandbox()
+    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
+    serveEpic([
+      childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', 'c'.repeat(40), armed)] }),
+    ])
+    servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    git(epic.epic, 'update-ref', '-d', 'refs/remotes/origin/main')
+    const run = drive(['report', '--outcome', 'drop', '--reason', 'driver-error'])
+    expect(run.code).toBe(0)
+    expect(writes().slice(0, 2)).toEqual(['edit 11 --remove-label reviewed', 'merge 11 --disable-auto'])
+  })
+
+  it('disarms when the review-comments query fails', () => {
+    sandbox()
+    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
+    serveEpic([
+      childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', 'c'.repeat(40), armed)] }),
+    ])
+    servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    writeFileSync(
+      path.join(sandboxOf().state, 'reviews.json'),
+      JSON.stringify({ data: null, errors: [{ message: 'reviews failed' }] }),
+    )
+    const run = drive(['report', '--outcome', 'drop', '--reason', 'driver-error'])
+    expect(run.code).toBe(0)
+    expect(writes().slice(0, 2)).toEqual(['edit 11 --remove-label reviewed', 'merge 11 --disable-auto'])
+  })
+
+  it('does not list an open unarmed PR or a closed armed PR as disarmed', () => {
+    sandbox()
+    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
+    const quiet = { labels: { nodes: [] }, autoMergeRequest: null }
+    serveEpic([
+      childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', 'c'.repeat(40), armed)] }),
+      childNode(3, 'fix(y): second child', { prs: [prNode(12, 'fix/3-second-child', 'd'.repeat(40), quiet)] }),
+      childNode(4, 'chore(z): third child', {
+        prs: [prNode(13, 'chore/4-third-child', 'e'.repeat(40), { ...armed, state: 'CLOSED' })],
+      }),
+    ])
+    servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    servePr(12, { state: 'OPEN', labels: [], autoMerge: false })
+    servePr(13, { state: 'CLOSED', labels: ['reviewed'], autoMerge: true })
+    const run = drive(['report', '--outcome', 'drop', '--reason', 'driver-error'])
+    expect(run.code).toBe(0)
+    expect(writes()).toEqual([
+      'edit 11 --remove-label reviewed',
+      'merge 11 --disable-auto',
+      `comment 1 <!-- omp-build:goal-report run=${RUN} -->`,
+    ])
+    expect(run.stdout).toContain('| Disarmed | #11 disarmed |')
+    expect(run.stdout).not.toContain('#12')
+    expect(run.stdout).not.toContain('#13')
+  })
+
+  it('disarms the second PR when the first disarm fails, and exits non-zero naming the PR still armed', () => {
+    sandbox()
+    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
+    serveEpic([
+      childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', 'c'.repeat(40), armed)] }),
+      childNode(3, 'fix(y): second child', { prs: [prNode(12, 'fix/3-second-child', 'd'.repeat(40), armed)] }),
+    ])
+    servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true }, true)
+    servePr(12, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    const run = drive(['report', '--outcome', 'drop', '--reason', 'driver-error'])
+    expect(run.code).not.toBe(0)
+    expect(run.stderr).toContain('#11')
+    expect(writes()).toEqual([
+      'edit 11 --remove-label reviewed',
+      'merge 11 --disable-auto',
+      'edit 12 --remove-label reviewed',
+      'merge 12 --disable-auto',
+      `comment 1 <!-- omp-build:goal-report run=${RUN} -->`,
+    ])
+    expect(JSON.parse(readFileSync(path.join(sandboxOf().state, 'pr', '12.json'), 'utf8')).labels).toEqual([])
+    expect(JSON.parse(readFileSync(path.join(sandboxOf().state, 'pr', '11.json'), 'utf8')).labels).toEqual([
+      { name: 'reviewed' },
+    ])
+  })
+
+  it('names the PR still armed when posting the report fails', () => {
+    sandbox()
+    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
+    serveEpic([
+      childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', 'c'.repeat(40), armed)] }),
+      childNode(3, 'fix(y): second child', { prs: [prNode(12, 'fix/3-second-child', 'd'.repeat(40), armed)] }),
+    ])
+    servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true }, true)
+    servePr(12, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    writeFileSync(path.join(sandboxOf().state, 'comment.fail'), '')
+    const run = drive(['report', '--outcome', 'drop', '--reason', 'driver-error'])
+    expect(run.code).not.toBe(0)
+    expect(run.stderr).toContain('#11')
+    expect(writes()).toEqual([
+      'edit 11 --remove-label reviewed',
+      'merge 11 --disable-auto',
+      'edit 12 --remove-label reviewed',
+      'merge 12 --disable-auto',
+    ])
   })
 })

@@ -107,6 +107,8 @@ goal. A new `/goal` line resumes: merged children are skipped, open PRs resumed,
 stops of earlier runs retried except a spent review bound. Without an active goal
 naming the epic, `/feature` is unchanged.
 
+Every `next` re-disarms a stopped child's armed PR before it moves on (`reconciled`); a failed disarm, or a PR that already merged, is a drop and creates no branch. `report --outcome drop` disarms without reading base CI or the landing, and exits non-zero naming any PR still armed. If that command fails, print the error, then drop the goal.
+
 ## Slash commands
 
 | Command | Lane |

@@ -151,9 +151,10 @@ merged child's local branch plus running the post-merge hook need no question.
 
 **Loop.** With `D="$SKILL_DIR/epic-driver.ts"`, repeat `bun "$D" next --epic E <gate>`
 and act on its JSON `step.action`. Print `step.report` (merged, stopped, skipped,
-pending base checks) and each entry of `recorded`: the ticket stops the driver
-proved itself (no scope, branch mismatch, foreign commit), each already disarmed and
-recorded exactly like the `stop` subcommand does.
+pending base checks), each entry of `reconciled` (a stopped child's armed PR the
+driver disarmed, or would disarm under `--dry-run`), and each entry of `recorded`:
+the ticket stops the driver proved itself (no scope, branch mismatch, foreign commit),
+each already disarmed and recorded exactly like the `stop` subcommand does.
 
 | `step.action` | Do |
 |---|---|
@@ -162,7 +163,7 @@ recorded exactly like the `stop` subcommand does.
 | `final-review`, `stage: fix-ticket` | One fix ticket through issue-triage: `create --parent "#E" --type fix --size … --priority … --body-file <f>`, body's first line `<!-- omp-build:epic-fix -->`, an `## Acceptance criteria` heading holding the blocking findings. The next `next` starts it. Non-blocking findings are follow-up siblings. |
 | `post-merge` | `bun --no-env-file "$D" hook --epic E <gate> --repo <epic worktree>`, with the bash `cwd` outside the repository (`$SKILL_DIR`): the runner must load nothing from the epic worktree. |
 | `complete` | `bun "$D" report --epic E <gate> --outcome complete`, print it, `goal({op:"complete"})`, offer `/cleanup`. |
-| `drop` | `bun "$D" report --epic E <gate> --outcome drop --reason <step.stop>`, print it, `goal({op:"drop"})`. |
+| `drop` | `bun "$D" report --epic E <gate> --outcome drop --reason <step.stop>`, print it, `goal({op:"drop"})`. If that command fails, print the error, then `goal({op:"drop"})`. A failing drop still drops the goal. |
 
 **Inside a child**, map each outcome, then call `next` again (`landOutcome` in `epic.ts`):
 
@@ -182,8 +183,15 @@ A ticket stop is `bun "$D" stop --epic E <gate> --ticket N --reason <r> --detail
 It refuses a dirty tree: first commit the ticket's work on its branch, locally,
 as `wip: goal-stop <r> (#N)`. It disarms the PR (`reviewed` removed, auto-merge
 disabled), detaches HEAD, keeps the branch and writes the `goal-stop` marker on
-the child. A shared-state stop is the `drop` row above; `report --outcome drop`
-disarms every armed child PR. No stopped ticket stays armed.
+the child. A shared-state stop is the `drop` row above. `report --outcome drop`
+reads only the children and PRs: it disarms every open armed child PR without
+reading base CI or the landing, and one failed disarm does not stop the others.
+If a PR is still armed it exits non-zero and names it; the report is still posted,
+with base CI marked unread when the full read fails or the landing cannot be read. `next` re-disarms every open
+armed PR of a stopped child before the first `nextStep` and lists them under
+`reconciled`. If that disarm fails, or the PR already merged, `next` returns a `drop` (`driver-error`) and
+creates no branch. `--dry-run` reports the PR and writes nothing. No stopped
+ticket stays armed.
 
 | Class | Triggers | Effect |
 |---|---|---|
