@@ -155,6 +155,10 @@ describe('parseSpdxExpression', () => {
 describe('isLicenseAllowed', () => {
   const allowed = ['MIT', 'Apache-2.0', 'ISC']
 
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   it('returns false for null license', () => {
     expect(isLicenseAllowed(null, allowed)).toBe(false)
   })
@@ -215,17 +219,21 @@ describe('isLicenseAllowed', () => {
 
   // ─── Recursion / complexity guard ───────────────────────────────────────────
 
-  it('50 000 nested parens: does not throw and returns false', () => {
+  it('50 000 nested parens: does not throw, returns false, and says why', () => {
+    const warn = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
     const bomb = `${'('.repeat(50000)}MIT${')'.repeat(50000)}`
     expect(() => isLicenseAllowed(bomb, ['MIT'])).not.toThrow()
     expect(isLicenseAllowed(bomb, ['MIT'])).toBe(false)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('expression too complex to evaluate safely'))
   })
 
-  it('>20 open-parens (moderately nested, not 50k): returns false without throwing', () => {
+  it('>20 open-parens (moderately nested, not 50k): returns false without throwing, and says why', () => {
+    const warn = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
     // 21 levels of nesting — exceeds the paren cap
     const expr = `${'('.repeat(21)}MIT${')'.repeat(21)}`
     expect(() => isLicenseAllowed(expr, ['MIT'])).not.toThrow()
     expect(isLicenseAllowed(expr, ['MIT'])).toBe(false)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('expression too complex to evaluate safely'))
   })
 
   it('regression: normal nested expression within cap still evaluates correctly', () => {
