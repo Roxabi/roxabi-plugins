@@ -56,22 +56,30 @@ const SPAWNERS = ['exec', 'execFile', 'execFileSync', 'execSync', 'fork', 'spawn
 
 let forks = 0
 
+type Spawn = (this: unknown, ...args: unknown[]) => unknown
+
 /**
- * Wraps a spawn entry point so the call is counted, keeping every own property
- * of the original.
+ * Wraps a spawn entry point around `call`, keeping every own property of the
+ * original.
  *
  * `util.promisify` dispatches on the `promisify.custom` symbol, which is how
  * `promisify(exec)` resolves to `{ stdout, stderr }` instead of the bare first
  * callback argument. A wrapper that drops it would quietly change the shape of
  * a live consumer's result (see promote/lib/hotfix-density.ts).
  */
-function counted<T extends object>(original: T): T {
+function wrap<T extends object>(original: T, call: (original: Spawn, self: unknown, args: unknown[]) => unknown): T {
   const wrapper = function (this: unknown, ...args: unknown[]) {
-    forks++
-    return (original as (...a: unknown[]) => unknown).apply(this, args)
+    return call(original as unknown as Spawn, this, args)
   }
   Object.defineProperties(wrapper, Object.getOwnPropertyDescriptors(original))
   return wrapper as unknown as T
+}
+
+function counted<T extends object>(original: T): T {
+  return wrap(original, (fn, self, args) => {
+    forks++
+    return fn.apply(self, args)
+  })
 }
 
 // Patching needs write access to the module's exports, which the namespace
@@ -87,28 +95,40 @@ for (const name of SPAWNERS) {
 /**
  * Keeps a sync child's stderr off the run output.
  *
- * `execSync` / `execFileSync` given no `stdio` copy the child's stderr onto
- * this worker's stderr once it exits. vitest does not attribute that write, so
- * under a git hook every fixture that provokes an expected error — a usage
- * error, a refused bootstrap, a malformed `.dev/stack.yml` — printed it as bare
- * text that read like a real failure. Defaulting `stdio` to `pipe` drops only
- * that copy: the child's stderr still lands on the error a failing call throws
- * (`error.stderr`, and its message), the one place a test can read it. An
- * explicit `stdio` is left as given.
+ * `execSync` / `execFileSync` copy the child's stderr onto this worker's
+ * stderr once it exits, exactly when `!options.stdio` (lib/child_process.js).
+ * vitest does not attribute that write, so under a git hook every fixture that
+ * provokes an expected error — a usage error, a refused bootstrap, a malformed
+ * `.dev/stack.yml` — printed it as bare text that read like a real failure.
+ * In that case `stdio` becomes `pipe`, which `spawnSync` already used, so only
+ * the copy goes: a failing call keeps the child's stderr on the error it throws
+ * (`error.stderr`), and a zero-exit call drops it. A test that reads a
+ * succeeding child's stderr uses `spawnSync` or passes an explicit `stdio`,
+ * which is left as given.
+ *
+ * The options are found where Node looks for them; anything Node rejects is
+ * left for Node to reject.
  */
-for (const [name, optionsAt] of [
-  ['execSync', (_args: unknown[]) => 1],
-  // execFileSync(file, args?, options?) also accepts execFileSync(file, options).
-  ['execFileSync', (args: unknown[]) => (args[1] === undefined || Array.isArray(args[1]) ? 2 : 1)],
-] as const) {
-  const original = patchable[name] as (...args: unknown[]) => unknown
-  patchable[name] = function (this: unknown, ...args: unknown[]) {
-    const at = optionsAt(args)
-    const options = args[at] as { stdio?: unknown } | null | undefined
-    if (options?.stdio === undefined) args[at] = { ...options, stdio: 'pipe' }
-    return original.apply(this, args)
-  }
-}
+const piped = (options: unknown) => ({ ...(options as object), stdio: 'pipe' })
+const quiet = (options: unknown) => !(options as { stdio?: unknown } | null | undefined)?.stdio
+
+// execSync(command, options?): a function there is a callback; anything else is spread into the options.
+patchable.execSync = wrap(patchable.execSync, (fn, self, args) => {
+  if (typeof args[1] === 'function') args[1] = piped(undefined)
+  else if (quiet(args[1])) args[1] = piped(args[1])
+  return fn.apply(self, args)
+})
+
+// execFileSync(file, args?, options?): a non-array object in the args slot is the options,
+// and a function there makes Node discard the options slot.
+patchable.execFileSync = wrap(patchable.execFileSync, (fn, self, args) => {
+  const second = args[1]
+  if (typeof second === 'function') return fn.call(self, args[0], piped(undefined))
+  const at = second !== null && typeof second === 'object' && !Array.isArray(second) ? 1 : 2
+  const options = args[at]
+  if ((options == null || typeof options === 'object') && quiet(options)) args[at] = piped(options)
+  return fn.apply(self, args)
+})
 
 /**
  * Bun global shim for Vitest (Node.js worker) environment.
