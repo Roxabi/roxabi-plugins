@@ -184,12 +184,13 @@ function collapsed(checks: Check[]): Check[] {
 function green(state: State, sha: string): boolean {
   if (!state.requiredChecks.length) return false
   const checks = state.checks[sha] ?? []
+  const rows = collapsed(checks)
   return state.requiredChecks.every((name) => {
-    const check = collapsed(checks).find((item) => item.name === name)
+    const matching = rows.filter((item) => item.name === name)
     return (
-      check !== undefined &&
-      check.status.toLowerCase() === 'completed' &&
-      Object.hasOwn(PASSING, check.conclusion.toLowerCase())
+      matching.every(
+        (check) => check.status.toLowerCase() === 'completed' && Object.hasOwn(PASSING, check.conclusion.toLowerCase()),
+      ) && matching.length > 0
     )
   })
 }

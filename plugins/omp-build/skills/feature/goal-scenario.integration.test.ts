@@ -366,6 +366,27 @@ describe('stateful gh — one continuous goal', () => {
     const red = gh(['pr', 'view', String(openedA.number), '--json', 'state'])
     expect(JSON.parse(red.stdout).state).toBe('OPEN')
     writeSim((state) => {
+      state.checks[shaA] = [
+        {
+          name: 'ci',
+          status: 'completed',
+          conclusion: 'success',
+          workflowName: 'ci',
+          startedAt: '2026-01-01T00:02:00Z',
+        },
+        {
+          name: 'ci',
+          status: 'completed',
+          conclusion: 'failure',
+          workflowName: 'other',
+          startedAt: '2026-01-01T00:02:00Z',
+        },
+      ]
+    })
+    const otherRed = gh(['pr', 'view', String(openedA.number), '--json', 'state'])
+    expect(JSON.parse(otherRed.stdout).state).toBe('OPEN')
+
+    writeSim((state) => {
       delete state.checks[shaA]
     })
 
