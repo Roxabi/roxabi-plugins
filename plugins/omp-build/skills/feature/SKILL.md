@@ -423,8 +423,8 @@ red verdict **spends/allocates** a fix round whether or not the operator then fi
 - review round (no reason) → `await loop.assertFixAllowed(cwd, step)`, then execute
   `skill://fix` with `#<pr>`. Nested fix consumes this caller-owned
   allocated step and must not call `record('red')` again. It applies one change per
-  posted root cause, inline, and does not stop for a per-finding choice. A cause it
-  cannot apply becomes a sibling issue.
+  well-formed posted root cause that contains a blocking finding. A block missing a non-empty `mechanism:`, `fix:`, or `findings:` line is not applied; its blocking cited findings are filed per finding. It does not stop for a per-finding choice. Non-blocking causes are not applied; they go into one sibling follow-up, blocked by the origin. A blocking cause it
+  cannot apply becomes its own sibling issue.
 - `ci-failed` → `await loop.assertFixAllowed(cwd, step)`, then fix inline from the failed checks
   (`land.failed`) and their logs. `fix` reads review comments, not CI: running it
   here replays stale findings.
