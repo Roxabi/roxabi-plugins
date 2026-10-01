@@ -661,9 +661,10 @@ function main(): void {
   try {
     const repoRoot = resolveRepoRoot()
 
-    // 1. Validate node_modules exists
+    // 1. Validate node_modules exists. Tool errors go to stderr in every mode: --json
+    // keeps stdout for the report, and a caller must still learn why it got no report.
     if (!existsSync(join(repoRoot, 'node_modules'))) {
-      if (!jsonMode) console.error('Error: Run `bun install` first')
+      console.error('Error: Run `bun install` first')
       process.exit(1)
     }
 
@@ -688,7 +689,7 @@ function main(): void {
     // 8. Exit with appropriate code
     process.exit(report.summary.violations > 0 ? 1 : 0)
   } catch (error) {
-    if (!jsonMode) console.error(`Error: ${error instanceof Error ? error.message : error}`)
+    console.error(`Error: ${error instanceof Error ? error.message : error}`)
     process.exit(2)
   }
 }

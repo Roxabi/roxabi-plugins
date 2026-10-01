@@ -664,7 +664,8 @@ describe('CLI — subprocess integration', () => {
     expect(report.violations).toHaveLength(1)
   })
 
-  it('exits 2 when policy file is missing (tool error)', () => {
+  // --json keeps stdout for the report: a tool error leaves it empty, and stderr says why.
+  it('exits 2 when policy file is missing (tool error), and says why in --json mode', () => {
     // Set up node_modules but no .license-policy.json
     fs.writeFileSync(path.join(tmpDir, 'package.json'), JSON.stringify({ name: 'test', version: '0.0.0' }))
     const nm = path.join(tmpDir, 'node_modules')
@@ -675,6 +676,28 @@ describe('CLI — subprocess integration', () => {
     fs.copyFileSync(scriptSrc, path.join(toolsDir, 'licenseChecker.ts'))
     const result = run(path.join(toolsDir, 'licenseChecker.ts'), ['--json'])
     expect(result.exitCode).toBe(2)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toContain('No .license-policy.json found at repo root')
+  })
+
+  it('exits 2 on a policy of the wrong shape, and says why in --json mode', () => {
+    const scriptPath = setupProject({ allowedLicenses: ['MIT'], overrides: {} }, [
+      { name: 'compliant', version: '1.0.0', license: 'MIT' },
+    ])
+    fs.writeFileSync(path.join(tmpDir, '.license-policy.json'), JSON.stringify({ allowlist: ['MIT'], overrides: 'x' }))
+    const result = run(scriptPath, ['--json'])
+    expect(result.exitCode).toBe(2)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toContain('"overrides" must be an object')
+  })
+
+  it('exits 1 with no node_modules, and says why in --json mode', () => {
+    const scriptPath = setupProject({ allowedLicenses: ['MIT'], overrides: {} }, [])
+    fs.rmSync(path.join(tmpDir, 'node_modules'), { recursive: true })
+    const result = run(scriptPath, ['--json'])
+    expect(result.exitCode).toBe(1)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toContain('Run `bun install` first')
   })
 })
 
