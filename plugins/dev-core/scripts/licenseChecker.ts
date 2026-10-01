@@ -364,8 +364,8 @@ type SpdxToken = '(' | ')' | 'AND' | 'OR' | string
 function tokenizeSpdx(expr: string): SpdxToken[] {
   // Split on whitespace first, then reassemble WITH pairs as single atoms.
   // Note: WITH must appear between two atoms (e.g. "Apache-2.0 WITH LLVM-exception").
-  // Grouped forms like "(A) WITH B" are NOT valid SPDX — the paren/length cap in
-  // isLicenseAllowed() acts as the safety net for such malformed expressions.
+  // Grouped forms like "(A) WITH B" are NOT valid SPDX — evaluateSpdxExpression()
+  // rejects them, as it rejects every expression it cannot consume whole.
   const raw = expr.replace(/\(/g, ' ( ').replace(/\)/g, ' ) ').trim().split(/\s+/).filter(Boolean)
 
   const tokens: SpdxToken[] = []
@@ -393,10 +393,14 @@ function isAtomAllowed(atom: string, allowedLicenses: string[]): boolean {
   return allowedLicenses.includes(normalized)
 }
 
-// Recursive-descent: OR → AND → primary
+// Recursive-descent: OR → AND → primary. A malformed expression — an unclosed or
+// stray paren, a missing operand, two atoms with no operator between them — is
+// disallowed: parsing it partially would evaluate only its well-formed prefix, so
+// "MIT GPL-3.0" or "MIT) AND GPL-3.0" would pass an MIT-only allowlist.
 function evaluateSpdxExpression(expr: string, allowedLicenses: string[]): boolean {
   const tokens = tokenizeSpdx(expr)
   let pos = 0
+  let malformed = false
 
   function parseOr(): boolean {
     let result = parseAnd()
@@ -419,19 +423,25 @@ function evaluateSpdxExpression(expr: string, allowedLicenses: string[]): boolea
   }
 
   function parsePrimary(): boolean {
-    if (pos >= tokens.length) return false
     const t = tokens[pos]
-    if (t === '(') {
-      pos++ // consume '('
-      const result = parseOr()
-      if (pos < tokens.length && tokens[pos] === ')') pos++ // consume ')'
-      return result
+    if (t === undefined || t === ')' || t === 'AND' || t === 'OR') {
+      malformed = true // an operand is missing; the token is left for the caller
+      return false
     }
     pos++
+    if (t === '(') {
+      const result = parseOr()
+      if (tokens[pos] === ')') pos++
+      else malformed = true
+      return result
+    }
     return isAtomAllowed(t, allowedLicenses)
   }
 
-  return parseOr()
+  const result = parseOr()
+  if (!malformed && pos === tokens.length) return result
+  process.stderr.write(`license-check: malformed SPDX expression, treating as disallowed: ${expr.slice(0, 60)}...\n`)
+  return false
 }
 
 export function isLicenseAllowed(license: string | null, allowedLicenses: string[]): boolean {

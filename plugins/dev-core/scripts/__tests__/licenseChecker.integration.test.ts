@@ -240,6 +240,30 @@ describe('isLicenseAllowed', () => {
     // (MIT OR Apache-2.0) AND BSD-2-Clause — 1 open-paren, well under cap
     expect(isLicenseAllowed('(MIT OR Apache-2.0) AND BSD-2-Clause', ['MIT', 'BSD-2-Clause'])).toBe(true)
   })
+
+  // ─── Malformed expressions fail closed ──────────────────────────────────────
+  // Each one has an allowed prefix, so a parser that stops early would allow it.
+
+  it.each([
+    ['juxtaposed atoms', 'MIT GPL-3.0'],
+    ['stray close paren', 'MIT) AND GPL-3.0'],
+    ['stray close paren before OR', 'MIT ) OR GPL-3.0'],
+    ['unclosed group', '(MIT OR GPL-3.0'],
+    ['trailing operator', 'MIT OR'],
+    ['grouped WITH', '(MIT) WITH GPL-3.0'],
+  ])('%s: "%s" is disallowed, and says why', (_shape, expr) => {
+    const warn = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
+    expect(isLicenseAllowed(expr, ['MIT'])).toBe(false)
+    expect(warn).toHaveBeenCalledOnce()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('malformed SPDX expression'))
+  })
+
+  it('a well-formed compound expression is evaluated without a warning', () => {
+    const warn = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
+    expect(isLicenseAllowed('(MIT OR GPL-3.0) AND (Apache-2.0 WITH LLVM-exception OR ISC)', ['MIT', 'ISC'])).toBe(true)
+    expect(isLicenseAllowed('MIT AND GPL-3.0', ['MIT'])).toBe(false)
+    expect(warn).not.toHaveBeenCalled()
+  })
 })
 
 // ─── detectLicense ───────────────────────────────────────────────────────────
