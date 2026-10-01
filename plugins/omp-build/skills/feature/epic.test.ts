@@ -1131,13 +1131,14 @@ describe('armedStoppedPrs', () => {
           prs: [pr(3, { number: 12, armed: true, state: 'CLOSED' })],
         }),
         child(4, { prs: [pr(4, { number: 14, armed: true })] }),
-        child(5, { stops: [{ run: EARLIER, reason: 'timeout' }], prs: [pr(5, { number: 15, armed: false })] }),
-        child(6, { stops: [{ run: RUN, reason: 'proof-blocked' }], prs: [pr(6, { number: 16, armed: true })] }),
+        child(5, { stops: [{ run: RUN, reason: 'timeout' }], prs: [pr(5, { number: 15, armed: false })] }),
+        child(6, { stops: [{ run: EARLIER, reason: 'timeout' }], prs: [pr(6, { number: 16, armed: true })] }),
+        child(7, { stops: [{ run: RUN, reason: 'proof-blocked' }], prs: [pr(7, { number: 17, armed: true })] }),
       ]),
     )
     expect(listed).toEqual([
       { ticket: 2, pr: 10 },
-      { ticket: 6, pr: 16 },
+      { ticket: 7, pr: 17 },
     ])
   })
 })
