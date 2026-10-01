@@ -841,6 +841,34 @@ describe('assertFixAllowed on a PR loop — fresh history at the fix sink', () =
     await expect(loop.assertFixAllowed(CWD, step)).resolves.toBe(step)
   })
 
+  it('throws a recoverable error when record lands during the history read', async () => {
+    const fake = fakePr({ labels: ['reviewed'], autoMerge: { mergeMethod: 'MERGE' } })
+    const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    fake.post(RED)
+    const step = loop.record('red')
+    await loop.persist(CWD)
+    let drifted = false
+    const gh = async (cwd, args) => {
+      if (!drifted && args[0] === 'pr' && args[1] === 'view') {
+        drifted = true
+        fake.post(RED)
+        loop.record('red')
+      }
+      return fake.gh(cwd, args)
+    }
+    const before = fake.pr.comments.map((entry) => entry.body)
+    const error = await refusal(loop.assertFixAllowed(CWD, step, { gh }))
+    expect(error.message).toContain('persist')
+    expect(error.stop).toBeUndefined()
+    expect(loop.closed).toBe(null)
+    expect(loop.pendingFix).toBe(true)
+    expect(fake.pr.labels.has('reviewed')).toBe(true)
+    expect(fake.pr.autoMerge).not.toBe(null)
+    expect(fake.pr.comments.slice(0, before.length).map((entry) => entry.body)).toEqual(before)
+    expect(fake.pr.comments.at(-1).body).toBe(RED)
+    expect(fake.pr.comments.some((entry) => entry.body.includes('review-stop'))).toBe(false)
+  })
+
   it('stops when the review is missing between persist and the grant', async () => {
     const fake = fakePr({ labels: ['reviewed'], autoMerge: { mergeMethod: 'MERGE' } })
     const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })

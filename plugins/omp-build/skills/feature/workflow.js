@@ -1140,7 +1140,20 @@ function buildReviewLoop(
           )
         }
         if (!provenance) throw new Error('assertFixAllowed: PR fixes require resumeReviewLoop provenance')
+        const identity = { pendingStep, reviews, fixes, closed, expectedCodeReviews, allocationPersisted }
         const fresh = await readReviewHistory(cwd, pr, { gh: ghFn, maxFixRounds })
+        if (
+          pendingStep !== identity.pendingStep ||
+          reviews !== identity.reviews ||
+          fixes !== identity.fixes ||
+          closed !== identity.closed ||
+          expectedCodeReviews !== identity.expectedCodeReviews ||
+          allocationPersisted !== identity.allocationPersisted
+        ) {
+          throw new Error(
+            'assertFixAllowed: the live allocation changed during the history read — call persist before assertFixAllowed',
+          )
+        }
         const sameAllocation =
           fresh.me === provenance.me &&
           fresh.hasMarker &&
