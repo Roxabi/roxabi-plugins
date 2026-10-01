@@ -615,15 +615,7 @@ export async function landPr(
     return !isCommitSha(again) || again !== history.reviewedHead
   }
   const moved = () => ({ status: 'not-approved', reviews: spent.reviews, fixes: spent.fixes, reason: 'head-moved' })
-  const pin = [
-    'pr',
-    'merge',
-    String(pr),
-    '--auto',
-    '--merge',
-    '--match-head-commit',
-    history.reviewedHead,
-  ]
+  const pin = ['pr', 'merge', String(pr), '--auto', '--merge', '--match-head-commit', history.reviewedHead]
 
   /** @type {string} */
   let since = ''
