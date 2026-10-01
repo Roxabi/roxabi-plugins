@@ -28,20 +28,25 @@ const ME = 'operator'
 const GH_STUB = `#!/usr/bin/env bash
 set -u
 S="$DRIVER_STATE"
-log() { printf '%s\\n' "$*" >> "$S/writes.log"; }
+log() { printf '%s\\n' "$*" >> "$S/writes.log"; printf '%s\\n' "$*" >> "$S/trace.log"; }
+query() { printf 'query %s\\n' "$1" >> "$S/trace.log"; }
 case "$1 \${2:-}" in
   "repo view")
     if [[ "$*" == *defaultBranchRef* ]]; then echo "develop"; else echo "o/r"; fi ;;
   "api graphql")
     q="$*"
     if [[ "$q" == *subIssues* ]]; then
+      query subIssues
       n=$(( $(cat "$S/reads" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$S/reads"
       if [[ -f "$S/epic.json.$n" ]]; then cat "$S/epic.json.$n"; else cat "$S/epic.json"; fi
     elif [[ "$q" == *statusCheckRollup* ]]; then
+      query statusCheckRollup
       if [[ -f "$S/rollup.json" ]]; then cat "$S/rollup.json"
       else echo '{"data":{"repository":{"object":{"statusCheckRollup":null}}}}'; fi
-    elif [[ -f "$S/reviews.json" ]]; then cat "$S/reviews.json"
-    else echo '{"data":{"repository":{}}}'; fi ;;
+    elif [[ -f "$S/reviews.json" ]]; then
+      query reviews
+      cat "$S/reviews.json"
+    else query other; echo '{"data":{"repository":{}}}'; fi ;;
   "issue comment")
     n=$(ls "$S" | grep -c '^comment-' || true)
     cat > "$S/comment-$n.md"
@@ -207,7 +212,14 @@ function drive(args: string[], { cwd = sandboxOf().epic, status = 'active', epic
     writeFileSync(file, objective || `Deliver epic #${epic} (/feature #${epic} run=${RUN} base=main).`)
     gate.push('--goal-status', status, '--goal-objective-file', file)
   }
-  const out = spawnSync(REAL_BUN, [DRIVER, ...args, '--epic', String(epic), ...gate], { cwd, env, encoding: 'utf8' })
+  const command = env.DRIVER_STRACE
+    ? ['strace', '-f', '-e', 'trace=openat,write', '-o', env.DRIVER_STRACE, REAL_BUN]
+    : [REAL_BUN]
+  const out = spawnSync(command[0], [...command.slice(1), DRIVER, ...args, '--epic', String(epic), ...gate], {
+    cwd,
+    env,
+    encoding: 'utf8',
+  })
   return { code: out.status, stdout: out.stdout, stderr: out.stderr, json: () => JSON.parse(out.stdout) }
 }
 
@@ -959,6 +971,8 @@ describe('epic-driver — drop disarms without the dashboard', () => {
       childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', 'c'.repeat(40), armed)] }),
     ])
     servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    const straceLog = path.join(sandboxOf().state, 'strace.log')
+    sandboxOf().env.DRIVER_STRACE = straceLog
     const run = drive(['report', '--outcome', 'drop', '--reason', 'bad-landing'])
     expect(run.code).toBe(0)
     expect(writes()).toEqual([
@@ -966,9 +980,29 @@ describe('epic-driver — drop disarms without the dashboard', () => {
       'merge 11 --disable-auto',
       `comment 1 <!-- omp-build:goal-report run=${RUN} -->`,
     ])
+    const seen = readFileSync(straceLog, 'utf8').split('\n')
+    const editAt = seen.findIndex((line) => line.includes('edit 11'))
+    const readAt = seen.findIndex((line) => line.includes('stack.yml'))
+    const rollupAt = seen.findIndex((line) => line.includes('statusCheckRollup'))
+    expect(editAt).toBeGreaterThanOrEqual(0)
+    expect(readAt).toBeGreaterThan(editAt)
+    expect(rollupAt === -1 || rollupAt > editAt).toBe(true)
     expect(run.stdout).toContain('| Base CI | unread |')
     expect(run.stdout).not.toContain('| Base CI | none |')
     expect(run.stdout).not.toContain('| Base CI | green |')
+  })
+
+  it('disarms when git rev-parse of the base fails', () => {
+    const epic = sandbox()
+    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
+    serveEpic([
+      childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', 'c'.repeat(40), armed)] }),
+    ])
+    servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    git(epic.epic, 'update-ref', '-d', 'refs/remotes/origin/main')
+    const run = drive(['report', '--outcome', 'drop', '--reason', 'driver-error'])
+    expect(run.code).toBe(0)
+    expect(writes().slice(0, 2)).toEqual(['edit 11 --remove-label reviewed', 'merge 11 --disable-auto'])
   })
 
   it('disarms the second PR when the first disarm fails, and exits non-zero naming the PR still armed', () => {
