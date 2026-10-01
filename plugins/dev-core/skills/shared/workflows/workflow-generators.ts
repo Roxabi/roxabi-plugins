@@ -219,18 +219,12 @@ jobs:
           PR_NUMBER: \${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
-          armed=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json autoMergeRequest --jq 'if .autoMergeRequest != null then "true" else "false" end')
-          labeled=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json labels --jq 'any(.labels[]; .name == "reviewed")')
-          if [ "$armed" = "true" ]; then
-            gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --disable-auto
-          fi
-          if [ "$labeled" = "true" ]; then
-            gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --remove-label reviewed
-          fi
-          if [ "$armed" = "true" ] || [ "$labeled" = "true" ]; then
-            echo "::error::head moved after review — auto-merge disarmed"
-            exit 1
-          fi
+          # Writes first. A failed view must not skip the disarm, and both
+          # writes are idempotent when auto-merge is already off or the label is gone.
+          gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --disable-auto
+          gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --remove-label reviewed
+          echo "::error::head moved after review — auto-merge disarmed"
+          exit 1
 
 ${labeledMint}
 
@@ -300,7 +294,7 @@ ${labeledMint}
             echo "::error::refusing to enable auto-merge without the reviewed commit"
             exit 1
           fi
-          SHA=$(printf '%s' "$comments" | jq -r --arg reviewer "$REVIEWER" --arg head "$HEAD_SHA" '
+          if ! SHA=$(printf '%s' "$comments" | jq -r --arg reviewer "$REVIEWER" --arg head "$HEAD_SHA" '
             (
               [.comments[]
                 | select(.author.login == $reviewer)
@@ -316,7 +310,11 @@ ${labeledMint}
               | select($verdicts | length == 1)
               | select($verdicts[0] | test("^\\\\*\\\\*Verdict: Approve( \\\\(clean\\\\)| with comments)?\\\\*\\\\*([[:space:]].*)?$"))
               | $sha
-            ) // ""')
+            ) // ""'); then
+            disarm
+            echo "::error::refusing to enable auto-merge without the reviewed commit"
+            exit 1
+          fi
           fi
           if [ "$SHA" != "$HEAD_SHA" ] || [ "\${#SHA}" -ne 40 ]; then
             disarm

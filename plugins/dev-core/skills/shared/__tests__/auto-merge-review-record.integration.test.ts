@@ -53,17 +53,36 @@ case "$*" in
     printf '%s' "\${GH_COMMENTS:-[]}"
     exit 0
     ;;
-  *autoMergeRequest*)
+  *autoMergeRequest*|*'--json labels'*)
+    if [ "\${GH_VIEW_FAIL:-}" = 1 ]; then
+      echo 'view failed' >&2
+      exit 1
+    fi
     printf '%s\\n' "\${GH_ARMED:-false}"
-    exit 0
-    ;;
-  *'--json labels'*)
-    printf '%s\\n' "\${GH_LABELED:-false}"
     exit 0
     ;;
 esac
 echo "unexpected gh: $*" >&2
 exit 1
+`,
+  )
+  chmodSync(path, 0o755)
+}
+
+function stubJq(dir: string): void {
+  const path = join(dir, 'jq')
+  writeFileSync(
+    path,
+    `#!/bin/bash
+if [ "\${GH_JQ_VERDICT_FAIL:-}" = 1 ]; then
+  for arg in "$@"; do
+    if [ "$arg" = -r ]; then
+      printf '%s\\n' '${HEAD}'
+      exit 1
+    fi
+  done
+fi
+exec /usr/bin/jq "$@"
 `,
   )
   chmodSync(path, 0o755)
@@ -76,6 +95,7 @@ function runScript(
   const dir = mkdtempSync(join(tmpdir(), 'auto-merge-gh-'))
   try {
     stubGh(dir)
+    stubJq(dir)
     const log = join(dir, 'log')
     writeFileSync(log, '')
     const proc = spawnSync('bash', ['-c', script], {
@@ -175,25 +195,32 @@ describe('dependabot exemption when the record gate is on', () => {
   })
 
   it('a synchronize still disarms, including when the label is already gone', () => {
-    const disarm = stepBlock(yml(), 'Disarm auto-merge on a moved head')
+    const generated = yml()
+    const disarm = stepBlock(generated, 'Disarm auto-merge on a moved head')
     expect(disarm).toContain('always()')
     expect(disarm).toContain("github.event.action == 'synchronize'")
-    expect(yml().indexOf('Disarm auto-merge on a moved head')).toBeLessThan(yml().indexOf('Mint app token'))
-    const armedOnly = runScript(stepScript(yml(), 'Disarm auto-merge on a moved head'), {
+    expect(generated.indexOf('Disarm auto-merge on a moved head')).toBeLessThan(generated.indexOf('Mint app token'))
+    const viewFails = runScript(stepScript(generated, 'Disarm auto-merge on a moved head'), {
       ACTION: 'synchronize',
-      GH_ARMED: 'true',
-      GH_LABELED: 'false',
+      GH_VIEW_FAIL: '1',
     })
-    expect(armedOnly.status).not.toBe(0)
-    expect(armedOnly.log).toContain('--disable-auto')
-    expect(armedOnly.log).not.toContain('--remove-label')
-    const both = runScript(stepScript(yml(), 'Disarm auto-merge on a moved head'), {
-      ACTION: 'synchronize',
-      GH_ARMED: 'true',
-      GH_LABELED: 'true',
+    expect(viewFails.status).not.toBe(0)
+    expect(viewFails.log).toContain('--disable-auto')
+    expect(viewFails.log.indexOf('--disable-auto')).toBeLessThan(viewFails.log.indexOf('--remove-label reviewed'))
+    expect(viewFails.log).not.toContain('--auto --merge')
+  })
+
+  it('a verdict jq that emits a sha and exits non-zero disarms', () => {
+    const ran = runScript(stepScript(yml(), 'Enable auto-merge (merge commit)'), {
+      ACTION: 'labeled',
+      AUTHOR: 'someone',
+      GH_COMMENTS: '[[]]',
+      GH_JQ_VERDICT_FAIL: '1',
     })
-    expect(both.status).not.toBe(0)
-    expect(both.log.indexOf('--disable-auto')).toBeLessThan(both.log.indexOf('--remove-label reviewed'))
+    expect(ran.status).not.toBe(0)
+    expect(ran.log).toContain('--disable-auto')
+    expect(ran.log.indexOf('--disable-auto')).toBeLessThan(ran.log.indexOf('--remove-label reviewed'))
+    expect(ran.log).not.toContain('--auto --merge')
   })
 })
 
