@@ -85,7 +85,7 @@ Steps: gather-changes → secret-scan → spec-compliance → multi-domain-revie
    SKILL_DIR="${SKILL_DIR:?dev-review Phase 1: skill directory not announced — export SKILL_DIR to this skill's directory and re-run}"
    BASE=$(. "$SKILL_DIR/../shared/lib.sh" && detect_base_branch)
    ```
-2. When a PR is bound, snapshot the reviewed commit before any diff: `REVIEWED_HEAD=$(gh pr view "$PR" --json headRefOid --jq .headRefOid)`. A local-only review snapshots `git rev-parse HEAD` and posts no head line. Then PR# → `gh pr diff <#>` | else → `git diff origin/${BASE}...HEAD`. Re-read that oid immediately after the diff. If it differs from the snapshot, discard the diff and stop: the head moved, re-run the review. Do not judge a diff whose commit is not the snapshot.
+2. When a PR is bound, snapshot the reviewed commit before any diff: `REVIEWED_HEAD=$(gh pr view "$PR" --json headRefOid --jq .headRefOid)`, then diff that PR (`gh pr diff "$PR"`), never the local tree. A local-only review (no PR bound) snapshots `git rev-parse HEAD`, diffs `git diff origin/${BASE}...HEAD`, and posts no head line. Re-read the snapshotted oid immediately after the diff. If it differs, discard the diff and stop: the head moved, re-run the review. Do not judge a diff whose commit is not the snapshot.
 3. Δ = `git diff --name-only origin/${BASE}...HEAD` (or `gh pr diff <#> --name-only`)
 4. ∀ f ∈ Δ: read full (skip binaries, note)
 5. |Δ| = 0 → halt
