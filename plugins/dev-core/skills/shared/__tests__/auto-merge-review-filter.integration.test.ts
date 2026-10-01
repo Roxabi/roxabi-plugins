@@ -104,7 +104,11 @@ describe('fleet auto-merge review filter', () => {
     expect(runReviewFilter([{ author: ME, body: reviewRecord('Approve', `${HEAD}a`) }])).toBe('')
     expect(runReviewFilter([{ author: ME, body: reviewRecord('Approve', HEAD.toUpperCase()) }])).toBe('')
     expect(runReviewFilter([{ author: ME, body: `note\n${reviewRecord('Approve', HEAD)}` }])).toBe('')
+  })
+
+  it('refuses an Approve of a different head', () => {
     expect(runReviewFilter([{ author: ME, body: reviewRecord('Approve', OTHER) }])).toBe('')
+    expect(runReviewFilter([{ author: ME, body: reviewRecord('Approve', HEAD) }])).toBe(HEAD)
   })
 
   it('a Request changes on a later page suppresses an Approve on the first page', () => {
