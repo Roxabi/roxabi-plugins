@@ -86,14 +86,19 @@ Steps: gather-changes → secret-scan → spec-compliance → multi-domain-revie
    BASE=$(. "$SKILL_DIR/../shared/lib.sh" && detect_base_branch)
    ```
 2. When a PR is bound, snapshot the reviewed commit before any diff: `REVIEWED_HEAD=$(gh pr view "$PR" --json headRefOid --jq .headRefOid)`, then diff that PR (`gh pr diff "$PR"`), never the local tree. A local-only review (no PR bound) snapshots `git rev-parse HEAD`, diffs `git diff origin/${BASE}...HEAD`, and posts no head line. Re-read the snapshotted oid immediately after the diff. If it differs, discard the diff and stop: the head moved, re-run the review. Do not judge a diff whose commit is not the snapshot.
-3. Δ = `git diff --name-only origin/${BASE}...HEAD` (or `gh pr diff <#> --name-only`)
+3. Δ names come from that same diff. A bound PR uses `gh pr diff "$PR" --name-only`, never `git diff` of the local tree. A local-only review uses `git diff --name-only origin/${BASE}...HEAD`.
 4. ∀ f ∈ Δ: read full (skip binaries, note)
 5. |Δ| = 0 → halt
 6. |Δ| > 50 → warn, suggest split
 
 ## Phase 1.5 — Secret Scan
 
+The scan reads the diff step 2 judged. A bound PR pipes `gh pr diff "$PR"`; a local-only review pipes `git diff origin/${BASE}...HEAD`.
+
 ```bash
+# bound PR — never `git diff` of the local tree
+gh pr diff "$PR" | grep -iE '(password|passwd|secret|api[_-]?key|auth[_-]?token|access[_-]?token|private[_-]?key)\s*[:=]\s*["\x27`][^"\x27`]{8,}' | head -20
+# local-only review
 git diff origin/${BASE}...HEAD | grep -iE '(password|passwd|secret|api[_-]?key|auth[_-]?token|access[_-]?token|private[_-]?key)\s*[:=]\s*["\x27`][^"\x27`]{8,}' | head -20
 ```
 
