@@ -141,10 +141,14 @@ function runScript(
     stubJq(dir)
     const log = join(dir, 'log')
     writeFileSync(log, '')
+    const inherited = { ...process.env }
+    delete inherited.GITHUB_ACTIONS
+    delete inherited.GH_TOKEN
+    delete inherited.GITHUB_TOKEN
     const proc = spawnSync('bash', ['-c', script], {
       encoding: 'utf8',
       env: {
-        ...process.env,
+        ...inherited,
         PATH: `${dir}:${process.env.PATH ?? ''}`,
         GH_LOG: log,
         PR_NUMBER: '652',
