@@ -401,4 +401,113 @@ describe('check-skill-version.sh', () => {
     expect(stdout).toContain('plugins/dual/.claude-plugin/plugin.json')
     expect(stdout).not.toContain('.omp-plugin/marketplace.json')
   })
+
+  it('exits 1 naming the catalogue when HEAD is unbumped even if the worktree file is bumped', () => {
+    const { work, bare } = setupOriginWithPlugin({
+      pluginName: 'omp-build',
+      pluginJson: false,
+      catalogue: { documentVersion: '9.9.9', entryVersion: '0.7.0' },
+    })
+    workDir = work
+    bareDir = bare
+    commitSkillChange(work, 'omp-build', '# skill v2 (dirty catalogue)\n')
+    bumpCatalogueEntry(work, 'omp-build', '0.8.0')
+
+    const { code, stdout } = runScriptCapture(CHECK_SKILL_VERSION, work)
+
+    expect(code).toBe(1)
+    expect(stdout).toContain('still 0.7.0')
+    expect(stdout).toContain('.omp-plugin/marketplace.json')
+  })
+
+  it('exits 1 naming the catalogue when a later row is bumped and the first row has no version', () => {
+    const { work, bare } = setupOriginWithPlugin({
+      pluginName: 'omp-build',
+      pluginJson: false,
+      catalogue: { documentVersion: '9.9.9', entryVersion: '0.7.0' },
+    })
+    workDir = work
+    bareDir = bare
+    const catalogPath = path.join(work, '.omp-plugin', 'marketplace.json')
+    const catalog = JSON.parse(fs.readFileSync(catalogPath, 'utf8')) as {
+      plugins: Array<Record<string, string>>
+    }
+    catalog.plugins = [
+      { name: 'omp-build', source: './plugins/omp-build' },
+      { name: 'omp-build', source: './plugins/decoy', version: '0.8.0' },
+    ]
+    fs.writeFileSync(catalogPath, JSON.stringify(catalog))
+    commitSkillChange(work, 'omp-build', '# skill v2 (duplicate rows)\n')
+
+    const { code, stdout } = runScriptCapture(CHECK_SKILL_VERSION, work)
+
+    expect(code).toBe(1)
+    expect(stdout).toContain('.omp-plugin/marketplace.json')
+    expect(stdout).not.toContain('still 0.8.0')
+  })
+
+  it('exits 1 naming the catalogue when the pushed catalogue JSON does not parse', () => {
+    const { work, bare } = setupOriginWithPlugin({
+      pluginName: 'omp-build',
+      pluginJson: false,
+      catalogue: { documentVersion: '9.9.9', entryVersion: '0.7.0' },
+    })
+    workDir = work
+    bareDir = bare
+    fs.writeFileSync(path.join(work, '.omp-plugin', 'marketplace.json'), '{not json')
+    commitSkillChange(work, 'omp-build', '# skill v2 (bad json)\n')
+
+    const { code, stdout, stderr } = runScriptCapture(CHECK_SKILL_VERSION, work)
+
+    expect(code).toBe(1)
+    expect(stdout).toContain('.omp-plugin/marketplace.json')
+    expect(stderr).not.toMatch(/SKIP: omp-build has no version in/)
+  })
+
+  it('exits 1 naming the catalogue when origin/main catalogue JSON does not parse', () => {
+    const { work, bare } = setupOriginWithPlugin({
+      pluginName: 'omp-build',
+      pluginJson: false,
+      catalogue: { documentVersion: '9.9.9', entryVersion: '0.7.0' },
+    })
+    workDir = work
+    bareDir = bare
+    fs.writeFileSync(path.join(work, '.omp-plugin', 'marketplace.json'), '{not json')
+    git('git add -A', work)
+    git('git -c user.email=t@t -c user.name=t commit -q -m "break catalogue"', work)
+    git('git push -q origin HEAD:main', work)
+    fs.writeFileSync(
+      path.join(work, '.omp-plugin', 'marketplace.json'),
+      JSON.stringify({
+        name: 'fixture-marketplace',
+        version: '9.9.9',
+        plugins: [{ name: 'omp-build', version: '0.7.0', source: './plugins/omp-build' }],
+      }),
+    )
+    commitSkillChange(work, 'omp-build', '# skill v2 (base unreadable)\n')
+
+    const { code, stdout } = runScriptCapture(CHECK_SKILL_VERSION, work)
+
+    expect(code).toBe(1)
+    expect(stdout).toContain('.omp-plugin/marketplace.json')
+    expect(stdout).not.toContain('still 0.7.0')
+  })
+
+  it('exits 1 naming the catalogue when the pushed version is only whitespace', () => {
+    const { work, bare } = setupOriginWithPlugin({
+      pluginName: 'omp-build',
+      pluginJson: false,
+      catalogue: { documentVersion: '9.9.9', entryVersion: '0.7.0' },
+    })
+    workDir = work
+    bareDir = bare
+    bumpCatalogueEntry(work, 'omp-build', '   ')
+    commitSkillChange(work, 'omp-build', '# skill v2 (blank version)\n')
+
+    const { code, stdout, stderr } = runScriptCapture(CHECK_SKILL_VERSION, work)
+
+    expect(code).toBe(1)
+    expect(stdout).toContain('.omp-plugin/marketplace.json')
+    expect(stderr).not.toMatch(/SKIP: omp-build has no version in/)
+  })
 })

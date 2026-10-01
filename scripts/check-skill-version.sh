@@ -19,6 +19,45 @@ fi
 changed=$(git diff --name-only origin/main...HEAD -- 'plugins/*/skills/**' 'plugins/*/commands/**')
 mapfile -t plugins < <(printf '%s\n' "$changed" | sed -nE 's#^plugins/([^/]+)/.*#\1#p' | sort -u)
 fail=0
+# Status of the catalogue row OMP keeps for name at rev.
+# ABSENT | PARSE | DUPLICATE | MISSING | BAD | VERSION:<token>
+# A missing blob or a successful parse with no version field is MISSING/ABSENT.
+# Parse failure, a second case-insensitive name match, or a present version that
+# is not a cache token is not a SKIP.
+omp_row_status() {
+  local rev="$1" name="$2" blob parsed ver
+  if ! blob=$(git show "${rev}:.omp-plugin/marketplace.json" 2>/dev/null); then
+    printf 'ABSENT'
+    return 0
+  fi
+  if ! parsed=$(printf '%s\n' "$blob" | jq -r --arg name "$name" '
+    [.plugins[]? | select((.name // "" | ascii_downcase) == ($name | ascii_downcase))]
+    | if length > 1 then "DUPLICATE"
+      elif length == 0 then "MISSING"
+      elif (.[0].version == null) then "MISSING"
+      else "VERSION:" + (.[0].version | tostring)
+      end
+  '); then
+    printf 'PARSE'
+    return 0
+  fi
+  case "$parsed" in
+    VERSION:*)
+      ver="${parsed#VERSION:}"
+      if ! printf '%s' "$ver" | grep -Eq '^[A-Za-z0-9._+-]{1,128}$' || printf '%s' "$ver" | grep -q '\.\.'; then
+        printf 'BAD'
+        return 0
+      fi
+      ;;
+  esac
+  printf '%s' "$parsed"
+}
+
+omp_fail() {
+  echo "$1: $2 — bump .omp-plugin/marketplace.json"
+  fail=1
+}
+
 for p in "${plugins[@]}"; do
   [ -n "$p" ] || continue
   pj="plugins/$p/.claude-plugin/plugin.json"
@@ -37,22 +76,33 @@ for p in "${plugins[@]}"; do
     fi
   fi
 
-  # OMP cache key is the catalogue row, not the document version at the top of the file.
-  omp=".omp-plugin/marketplace.json"
-  cur_omp=""
-  if [ -f "$omp" ]; then
-    cur_omp=$(jq -r --arg name "$p" '[.plugins[]? | select(.name == $name) | .version // empty][0] // empty' "$omp" 2>/dev/null || true)
-    cur_omp=$(printf '%s' "$cur_omp" | tr -d '[:space:]')
-  fi
-  if [ -z "$cur_omp" ]; then
-    echo "SKIP: $p has no version in .omp-plugin/marketplace.json — OMP bump gate inert for this plugin" >&2
-  else
-    base_omp=$(git show "origin/main:$omp" 2>/dev/null | jq -r --arg name "$p" '[.plugins[]? | select(.name == $name) | .version // empty][0] // empty' 2>/dev/null || true)
-    base_omp=$(printf '%s' "$base_omp" | tr -d '[:space:]')
-    if [ "$base_omp" = "$cur_omp" ]; then
-      echo "$p: skills/commands changed without version bump (still $cur_omp) — bump .omp-plugin/marketplace.json"
-      fail=1
-    fi
-  fi
+  # OMP cache key is the first kept catalogue row of the commit being pushed,
+  # not the worktree file and not the document version.
+  cur_status=$(omp_row_status HEAD "$p")
+  case "$cur_status" in
+    PARSE) omp_fail "$p" "cannot parse .omp-plugin/marketplace.json" ;;
+    DUPLICATE) omp_fail "$p" "duplicate plugins[] rows in .omp-plugin/marketplace.json" ;;
+    BAD) omp_fail "$p" "catalogue version is not a cache token in .omp-plugin/marketplace.json" ;;
+    ABSENT | MISSING)
+      echo "SKIP: $p has no version in .omp-plugin/marketplace.json — OMP bump gate inert for this plugin" >&2
+      ;;
+    VERSION:*)
+      cur_omp="${cur_status#VERSION:}"
+      base_status=$(omp_row_status origin/main "$p")
+      case "$base_status" in
+        PARSE) omp_fail "$p" "cannot parse origin/main:.omp-plugin/marketplace.json" ;;
+        DUPLICATE) omp_fail "$p" "duplicate plugins[] rows in origin/main:.omp-plugin/marketplace.json" ;;
+        BAD) omp_fail "$p" "origin/main catalogue version is not a cache token in .omp-plugin/marketplace.json" ;;
+        ABSENT | MISSING) ;;
+        VERSION:*)
+          base_omp="${base_status#VERSION:}"
+          if [ "$base_omp" = "$cur_omp" ]; then
+            echo "$p: skills/commands changed without version bump (still $cur_omp) — bump .omp-plugin/marketplace.json"
+            fail=1
+          fi
+          ;;
+      esac
+      ;;
+  esac
 done
 [ "$fail" -eq 0 ]
