@@ -24,7 +24,7 @@ if (fn === 'readLanding') {
   process.exit(0)
 }
 const ME = 'omp-bot'
-const review = (verdict) => '<!-- omp-build:code-review -->\\n## Code Review\\n\\n**Verdict: ' + verdict + '** — summary'
+const review = (verdict) => '<!-- omp-build:code-review -->\\n<!-- omp-build:review-head sha=0123456789abcdef0123456789abcdef01234567 -->\\n## Code Review\\n\\n**Verdict: ' + verdict + '** — summary'
 const rounds = (reviews, fixes) => '<!-- omp-build:review-rounds reviews=' + reviews + ' fixes=' + fixes + ' -->\\nReview bound.'
 const RECEIPT = '## Review Fixes Applied\\n\\n**Applied:** 1 cause(s)'
 // approved: a first-round green and its persisted count. stopped: a third red after two completed rounds.
@@ -56,6 +56,7 @@ const gh = async (_cwd, args) => {
       if (field === 'autoMergeRequest') view.autoMergeRequest = null
       if (field === 'state') view.state = 'OPEN'
       if (field === 'baseRefName') view.baseRefName = 'main'
+      if (field === 'headRefOid') view.headRefOid = '0123456789abcdef0123456789abcdef01234567'
     }
     return JSON.stringify(view)
   }
@@ -129,7 +130,7 @@ const RULES = ['api', 'repos/acme/app/rules/branches/main']
 const EVENTS = ['api', 'repos/acme/app/issues/7/events', '--paginate', '--jq', EVENTS_JQ]
 const IDENTITY = ['api', 'user', '--jq', '.login']
 const COMMENTS = ['pr', 'view', '7', '--json', 'comments']
-const LIST = ['pr', 'list', '--head', BRANCH, '--state', 'all', '--json', 'number,state']
+const LIST = ['pr', 'list', '--head', BRANCH, '--state', 'all', '--json', 'number,state,isCrossRepository']
 const STACK = { ...WORKFLOW_FILE, '.dev/stack.yml': 'runtime: bun\n' }
 const WATCH_FAILED = {
   status: 'watch-failed',
@@ -164,6 +165,7 @@ describe('landPr through the checkout', () => {
     expect(calls).toEqual([
       IDENTITY,
       COMMENTS,
+      ['pr', 'view', '7', '--json', 'headRefOid'],
       ['repo', 'view', '--json', 'nameWithOwner'],
       EVENTS,
       ['pr', 'view', '7', '--json', 'labels'],
@@ -217,11 +219,12 @@ describe('landPr through the checkout', () => {
     ['required_checks not a list', 'landing:\n  required_checks: ci\n', /required_checks must be a list/],
     ['a non-string check', 'landing:\n  required_checks: [1]\n', /required_checks must be a list/],
     ['an empty check name', 'landing:\n  required_checks: [""]\n', /required_checks must be a list/],
-  ])('%s → bad-landing after the history read, before any gate write', (_case, stack, error) => {
+  ])('%s → bad-landing after the head check, before any gate write', (_case, stack, error) => {
     const { result, calls } = land(checkout({ ...WORKFLOW_FILE, '.dev/stack.yml': stack }))
     expect(result.status).toBe('bad-landing')
     expect(result.error).toMatch(error)
-    onlyHistoryRead(calls)
+    expect(calls).toEqual([IDENTITY, COMMENTS, ['pr', 'view', '7', '--json', 'headRefOid']])
+    expect(calls.some((a) => a[1] === 'edit' || a[1] === 'merge')).toBe(false)
   })
 
   it('a comment-only stack with the workflow file watches merge-on-green', () => {
@@ -258,7 +261,7 @@ describe('landPr review gate through the checkout', () => {
 
   it.each([
     ['no PR', '[]'],
-    ['only a merged PR', JSON.stringify([{ number: 6, state: 'MERGED' }])],
+    ['only a merged PR', JSON.stringify([{ number: 6, state: 'MERGED', isCrossRepository: false }])],
   ])('an omitted PR on a branch with %s is no-pr, and nothing else is asked', (_label, prList) => {
     const { result, calls } = land(onBranch(STACK), 'ok', { pr: '', prList })
     expect(result).toEqual({ status: 'no-pr' })
@@ -266,7 +269,7 @@ describe('landPr review gate through the checkout', () => {
   })
 
   it('an omitted PR resolves to the branch’s one open PR, whose history the gate reads', () => {
-    const prList = JSON.stringify([{ number: 7, state: 'OPEN' }])
+    const prList = JSON.stringify([{ number: 7, state: 'OPEN', isCrossRepository: false }])
     const { result, calls } = land(onBranch(STACK), 'ok', { pr: '', prList })
     expect(result).toMatchObject({ status: 'watching', mode: 'merge-on-green' })
     expect(calls[0]).toEqual(LIST)
@@ -277,11 +280,11 @@ describe('landPr review gate through the checkout', () => {
     [
       'two open PRs',
       [
-        { number: 7, state: 'OPEN' },
-        { number: 8, state: 'OPEN' },
+        { number: 7, state: 'OPEN', isCrossRepository: false },
+        { number: 8, state: 'OPEN', isCrossRepository: false },
       ],
     ],
-    ['only a closed PR, whose budget a new PR would reset', [{ number: 7, state: 'CLOSED' }]],
+    ['only a closed PR, whose budget a new PR would reset', [{ number: 7, state: 'CLOSED', isCrossRepository: false }]],
   ])('an omitted PR on a branch with %s fails, and nothing is armed', (_label, prs) => {
     const { result, error, calls } = land(onBranch(STACK), 'ok', { pr: '', prList: JSON.stringify(prs) })
     expect(result).toBeUndefined()

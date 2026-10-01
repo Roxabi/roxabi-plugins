@@ -409,7 +409,7 @@ Verdict is computed from the complete deduplicated F and fails closed on blocker
 
 ### Render once
 
-Build one body. Its first line is exactly `<!-- omp-build:code-review -->`: that marker is how `skill://fix` finds the record, together with the comment author. Then, in this order:
+Build one body. Its first line is exactly `<!-- omp-build:code-review -->`: that marker is how `skill://fix` finds the record, together with the comment author. When a PR exists, line 2 is exactly `<!-- omp-build:review-head sha=<40 lowercase hex> -->`, the `headRefOid` read before posting (`gh pr view "$PR" --json headRefOid --jq .headRefOid`). A sha anywhere else is not the reviewed commit. A local-only body has no line 2. Then, in this order:
 
 1. `## Code Review`, then `## Spec` — render Σ from Phase 2, one row per criterion in σ order: `✓` met / `✗` missing, quoting `criterion_text`. σ ∄ → `no spec available — spec axis not evaluated`.
 2. `## Standards` — the orchestrator reads `skill://dev-review/review-smells.md` once, walks Δ against the baseline, and emits at most one `possible <Smell>` row per smell. Render the receipt in `## Standards (judgement pass — {n} smells walked, {k} fired)`. These rows never enter F, carry `Class:`, or affect verdict.
@@ -437,6 +437,7 @@ Build one body. Its first line is exactly `<!-- omp-build:code-review -->`: that
 
 ```markdown
 <!-- omp-build:code-review -->
+<!-- omp-build:review-head sha=0123456789abcdef0123456789abcdef01234567 -->
 ## Code Review
 
 ## Spec
@@ -465,6 +466,8 @@ Roster capped by max_agents: R-devops
 
 **Verdict: Request changes** — 1 blocking finding
 ```
+
+`landPr` arms only when that line 2 names the PR's current `headRefOid`. A record with no head line does not arm: PRs reviewed before this line existed need one re-review. Native auto-merge is pinned with `--match-head-commit` of that sha. Merge-on-green is label-driven: a push by another actor after `reviewed` is applied is not refused by GitHub.
 
 **→ immediately continue to Phase 8.**
 

@@ -441,7 +441,13 @@ resolver `/ci-watch` uses: `landing.mode` in `.dev/stack.yml` (parsed as YAML),
 else merge-on-green when `.github/workflows/merge-on-green.yml` exists, else
 native. Before reading configuration, `landPr` independently reads current review
 state: a stop returns `review-stopped` with disarm evidence; no approving review
-after the latest correction/allocation returns `not-approved`. Invalid
+after the latest correction/allocation returns `not-approved`. An approval arms
+only the commit its record names: line 2 must be
+`<!-- omp-build:review-head sha=<40 lowercase hex> -->` and must equal the PR's
+current `headRefOid`. A record with no head line returns `not-approved` with
+reason `no-review-head` and writes nothing — a PR reviewed before this line
+existed needs one re-review. A different or unreadable head returns
+`not-approved` with reason `head-moved`, also with no write. Invalid
 configuration then returns `bad-landing` before arming. Otherwise it adds
 `reviewed` — under merge-on-green a pre-existing label is removed first so a
 fresh labeled run exists — and returns
@@ -452,7 +458,11 @@ If the labeled event cannot be read after re-label, `landPr` returns
 `watch-failed` — never watches without `--since` under merge-on-green. Run that
 string as given — the OMP shell does not resolve `skill://` for a bare `bash`
 argv. It does not poll. Native also enables
-merge-commit auto-merge. merge-on-green never returns `no-required-checks`.
+merge-commit auto-merge and requests it with `--match-head-commit` of the
+reviewed sha, so GitHub refuses a different head at enable time. That pin is
+not a later-push lease, and merge-on-green has no equivalent: once `reviewed`
+is applied, a push by another actor is not refused by GitHub. merge-on-green
+never returns `no-required-checks`.
 
 Run `watch` as an async bash job (`timeout: 0`). Map the exit with
 `applyCiWatchExit(cwd, pr, code, { mode: land.mode })`:
