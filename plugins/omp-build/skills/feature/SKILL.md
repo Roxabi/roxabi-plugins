@@ -161,8 +161,8 @@ each already disarmed and recorded exactly like the `stop` subcommand does.
 | `start` / `resume` | The driver fetched, checked the tree and base CI, switched to `step.branch` (new from `refs/remotes/origin/<base>`, or the existing one), validated it with `resolveTicketBranch` and `refuseForeignCommits`, and disarmed an armed PR. Run §6 for `step.ticket` in this worktree: §6.0 without the operator handoff or the history check, then §6.1–§6.7. The PR is `step.pr?.number ?? null`, never discovered by branch name (a branch name also matches fork PRs): `resume` with `step.pr` continues that PR at §6.4, and no `step.pr` means a new PR through `openPr`. |
 | `final-review`, `stage: review` | R-architect and R-adversarial, read-only, on `git diff <step.range>`. Then `bun "$D" review --epic E <gate> --verdict clean\|blocking --range <step.range> --detail-file <findings file>`. |
 | `final-review`, `stage: fix-ticket` | One fix ticket through issue-triage: `create --parent "#E" --type fix --size … --priority … --body-file <f>`, body's first line `<!-- omp-build:epic-fix -->`, an `## Acceptance criteria` heading holding the blocking findings. The next `next` starts it. Non-blocking findings are follow-up siblings. |
-| `post-merge` | `bun --no-env-file "$D" hook --epic E <gate> --repo <epic worktree>`, with the bash `cwd` outside the repository (`$SKILL_DIR`): the runner must load nothing from the epic worktree. |
-| `complete` | `bun "$D" report --epic E <gate> --outcome complete`, print it, `goal({op:"complete"})`, offer `/cleanup`. |
+| `post-merge` | Only after a clean final review, a clean tree, and base CI green or absent. This run's hook `ok` or `skipped` at another commit is `drop hook-stale`, not another run. Then `bun --no-env-file "$D" hook --epic E <gate> --repo <epic worktree>`, with the bash `cwd` outside the repository (`$SKILL_DIR`): the runner must load nothing from the epic worktree. |
+| `complete` | `bun "$D" report --epic E <gate> --outcome complete` refuses unless `next` is `complete`. Print it, `goal({op:"complete"})`, offer `/cleanup`. |
 | `drop` | `bun "$D" report --epic E <gate> --outcome drop --reason <step.stop>`, print it, `goal({op:"drop"})`. If that command fails, print the error, then `goal({op:"drop"})`. A failing drop still drops the goal. |
 
 **Inside a child**, map each outcome, then call `next` again (`landOutcome` in `epic.ts`):
@@ -196,25 +196,37 @@ ticket stays armed.
 | Class | Triggers | Effect |
 |---|---|---|
 | Ticket stop | review loop stop; proof BLOCKED; foreign commit, branch mismatch; child without scope; `timeout`; `ci-cancelled`; `ci-blocked`; `stopped`; `closed` | report, `goal-stop` marker; dependents skipped by their open blocker edge; independent children continue |
-| Shared-state stop | base CI red; dirty tree between tickets; `watch-failed`; `bad-landing`; `no-required-checks`; `evaluate-only`; `auto-merge-failed`; tracker CLI unresolvable; post-merge hook failure; final review still blocking after its fix round | disarm, report, `goal({op:"drop"})` |
+| Shared-state stop | base CI red; `base-ci-pending` at finalization; dirty tree between tickets, before the hook, or before a none-merged complete; `hook-stale`; `watch-failed`; `bad-landing`; `no-required-checks`; `evaluate-only`; `auto-merge-failed`; tracker CLI unresolvable; post-merge hook failure; final review still blocking after its fix round | disarm, report, `goal({op:"drop"})` |
 | No progress | no actionable child while children remain open | report, `goal({op:"drop"})` |
 
 A stop marker holds for its run: a new `/goal` line (new `run=`) retries the
 child. `review-bound` holds across runs, as does an open PR whose review bound is
-spent. Base checks pending or absent do not stop the loop; they are reported.
+spent. Before a ticket, base checks that are pending or absent do not stop the loop; they are reported. At finalization, pending drops as `base-ci-pending` and absent does not.
 
 **Final epic review and hook.** Once every child is closed or merged into the
-base, the review above runs on the cumulative range from `epicDiffRange`. A
-blocking verdict gets one fix ticket, delivered in the same goal; still blocking
-after it merged is a shared-state stop. The ticket counts that round across runs.
-Then `release.post_merge` runs once, per ADR-024 §1: read from
+base, the review above runs on the cumulative range from `epicDiffRange`. A red
+base, a pending base, or a dirty tree does not hold that review or its fix ticket.
+A blocking verdict gets one fix ticket, delivered in the same goal; still blocking
+after it merged is a shared-state stop, even on a red base. The ticket counts that
+round across runs. After a clean review the goal finalizes only on a clean tree
+and base CI green or absent. Otherwise it drops `dirty-tree`, `base-ci-red`, or
+`base-ci-pending`. `base-ci-pending` is the pending bucket (in progress, cancelled,
+`action_required`): the reason names the checks, and a new `/goal` line reaches the
+hook only once the rollup is no longer pending. The same tree and CI drops apply
+when every child closed and none merged. A failed or stale hook record drops there
+too (`hook-failed`, `hook-stale`); otherwise that path completes with no review and
+no hook. Then `release.post_merge` runs once, per ADR-024 §1: read from
 `refs/remotes/origin/<base>`, a YAML list executed as argv with no shell, in a
 temporary detached checkout of that commit, removed afterwards; `argv[0]` is a
 path inside it (`./scripts/…`). A string value, a PATH lookup or an escaping
 symlink fails it; its failure is a shared-state stop. An absent hook is skipped
 and the report says so. No per-ticket deploy. A resume skips a review whose
-latest verdict is clean for the current range, and a hook that already succeeded
-at the same base commit.
+latest verdict is clean for the current range. This run's hook `ok` or `skipped`
+counts as done only at the current base commit; at another commit the goal drops
+`hook-stale` and does not run the hook again. A later run treats an earlier `ok`
+at another commit as not done — that relaunch is the operator's new `/goal` line,
+not an automatic re-run. Any run's `ok` or `skipped` at the current base still
+counts as done.
 
 Without an active goal naming the epic, nothing in this section runs on its own:
 the final review and the hook are the operator's call.

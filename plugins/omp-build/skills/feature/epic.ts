@@ -131,10 +131,12 @@ export function objectiveText(epic: number, run: string, base: string): string {
     'Read skill://feature, section Epic goal, and call its driver (epic-driver.ts next) before every ticket;',
     'follow the one action it returns and never rely on memory of earlier tickets.',
     'Ticket stop: report it, the driver records it, dependents are skipped, independent children continue.',
-    'Shared-state stop (base CI red, dirty tree between tickets, landing or tracker failure, post-merge hook failure,',
-    'final review still blocking after its fix round, no progress): report, then goal drop.',
-    `Complete when every child is closed or merged into ${base}, the final epic review is clean,`,
-    'and the post-merge hook succeeded or was skipped: report, then goal complete.',
+    'Shared-state stop (base CI red, base CI not yet green at finalization, a dirty tree, a hook ok or skipped',
+    'at another commit, landing or tracker failure, post-merge hook failure, final review still blocking after its',
+    'fix round, no progress): report, then goal drop. A new run retries those stops except a spent review bound.',
+    'Complete with nothing merged when the tree is clean and base CI is green or absent: no review, no hook.',
+    `Complete otherwise when every child is closed or merged into ${base}, the final review is clean, the tree is clean,`,
+    'base CI is green or absent, and the post-merge hook is ok or skipped at the current base commit.',
   ].join(' ')
 }
 
@@ -213,6 +215,7 @@ export const TICKET_STOPS = [
 /** Disarm every in-flight PR, report, `goal({op:"drop"})`. */
 export const SHARED_STOPS = [
   'base-ci-red',
+  'base-ci-pending',
   'dirty-tree',
   'watch-failed',
   'bad-landing',
@@ -221,6 +224,7 @@ export const SHARED_STOPS = [
   'auto-merge-failed',
   'tracker-unresolvable',
   'hook-failed',
+  'hook-stale',
   'final-review-blocking',
   'unknown-land-status',
   'driver-error',
@@ -768,7 +772,16 @@ export function nextStep(facts: Facts): Step {
     .map((child) => ({ child, pr: mergedPr(child, base) }))
     .filter((entry): entry is { child: ChildFacts; pr: PrFacts } => entry.pr !== null)
     .sort((a, b) => (a.pr.mergedAt ?? '').localeCompare(b.pr.mergedAt ?? ''))
-  if (!merged.length) return { action: 'complete', reason: 'every child closed and none merged', report }
+  if (!merged.length) {
+    const blocked = finalizationBlock(facts, report)
+    if (blocked) return blocked
+    // No hook runs here. A record that already failed, or that belongs to another
+    // commit, still must not report the goal complete.
+    const hook = hookStatus(facts)
+    if (hook.state === 'failed') return { action: 'drop', stop: 'hook-failed', reason: hook.detail, report }
+    if (hook.state === 'stale') return { action: 'drop', stop: 'hook-stale', reason: hook.detail, report }
+    return { action: 'complete', reason: 'every child closed and none merged', report }
+  }
   const first = merged[0]?.pr
   if (!first?.baseSha) {
     return { action: 'drop', stop: 'driver-error', reason: `PR #${first?.number} has no merge base`, report }
@@ -800,20 +813,25 @@ export function nextStep(facts: Facts): Step {
     }
   }
 
+  const blocked = finalizationBlock(facts, report)
+  if (blocked) return blocked
   const hook = hookStatus(facts)
   if (hook.state === 'failed') return { action: 'drop', stop: 'hook-failed', reason: hook.detail, report }
+  if (hook.state === 'stale') return { action: 'drop', stop: 'hook-stale', reason: hook.detail, report }
   if (hook.state === 'done') return { action: 'complete', reason: hook.detail, report }
   return { action: 'post-merge', reason: `final review clean at ${end}`, report }
 }
 
 /**
  * Where the post-merge hook stands, for the next step and for the report alike.
- * This run's own record decides first: failed, or started with no result, is a
- * failure (never run twice). Then any run's ok or skipped at the same base commit
- * counts as done. Anything else has not run.
+ * This run's last record decides a failure first: failed, or started with no
+ * result, is never run twice. Then any run's ok or skipped at the current base
+ * commit counts as done. This run's own ok or skipped at another commit is
+ * stale: the hook is not run again in this run. A later run still treats an
+ * earlier ok at another commit as not done.
  */
 export function hookStatus(facts: Pick<Facts, 'run' | 'baseSha' | 'hooks'>): {
-  state: 'done' | 'failed' | 'pending'
+  state: 'done' | 'failed' | 'pending' | 'stale'
   record: HookRecord | null
   detail: string
 } {
@@ -822,10 +840,49 @@ export function hookStatus(facts: Pick<Facts, 'run' | 'baseSha' | 'hooks'>): {
   if (ours?.result === 'started') {
     return { state: 'failed', record: ours, detail: 'the post-merge hook started and left no result' }
   }
-  if (ours) return { state: 'done', record: ours, detail: `post-merge hook ${ours.result}` }
   const same =
     facts.hooks.find((hook) => hook.sha === facts.baseSha && (hook.result === 'ok' || hook.result === 'skipped')) ??
     null
   if (same) return { state: 'done', record: same, detail: `post-merge hook ${same.result} at ${facts.baseSha}` }
+  if (ours && ours.sha !== facts.baseSha) {
+    return {
+      state: 'stale',
+      record: ours,
+      detail: `post-merge hook ${ours.result} at ${ours.sha}, not the current base ${facts.baseSha}`,
+    }
+  }
   return { state: 'pending', record: null, detail: 'post-merge hook not run' }
+}
+
+/**
+ * Finalization only — the none-merged complete, and the hook decision after a
+ * clean review. Not the ticket-start policy: there a dirty tree on the target's
+ * own branch resumes, and a pending base proceeds.
+ */
+function finalizationBlock(facts: Facts, report: Report): Step | null {
+  if (!facts.tree.clean) {
+    return {
+      action: 'drop',
+      stop: 'dirty-tree',
+      reason: `the epic worktree is dirty on ${facts.tree.branch ?? 'a detached HEAD'} and the goal cannot complete`,
+      report,
+    }
+  }
+  if (facts.baseCi.state === 'red') {
+    return {
+      action: 'drop',
+      stop: 'base-ci-red',
+      reason: `base ${facts.base} is red: ${facts.baseCi.failed.join(', ')}`,
+      report,
+    }
+  }
+  if (facts.baseCi.state === 'pending') {
+    return {
+      action: 'drop',
+      stop: 'base-ci-pending',
+      reason: `base ${facts.base} is not green: ${facts.baseCi.pending.join(', ')}`,
+      report,
+    }
+  }
+  return null
 }
