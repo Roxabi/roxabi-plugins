@@ -86,6 +86,13 @@ describe('a sync child process run by a test', () => {
     expect(call).toThrow(expect.objectContaining({ code: 'ETIMEDOUT' }))
   })
 
+  it.each([
+    ['execFileSync(file, args, [])', () => run.execFileSync(script, [], [])],
+    ["execFileSync(file, args, 'x')", () => run.execFileSync(script, [], 'x')],
+  ])('%s is rejected, as Node rejects it', (_, call) => {
+    expect(call).toThrow(expect.objectContaining({ code: 'ERR_INVALID_ARG_TYPE' }))
+  })
+
   it('keeps the stderr of a failing child on the error it throws, and off the run output', () => {
     let error: (Error & { status?: number; stderr?: Buffer }) | undefined
     try {

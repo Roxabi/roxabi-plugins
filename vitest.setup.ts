@@ -126,7 +126,9 @@ patchable.execFileSync = wrap(patchable.execFileSync, (fn, self, args) => {
   if (typeof second === 'function') return fn.call(self, args[0], piped(undefined))
   const at = second !== null && typeof second === 'object' && !Array.isArray(second) ? 1 : 2
   const options = args[at]
-  if ((options == null || typeof options === 'object') && quiet(options)) args[at] = piped(options)
+  if ((options == null || (typeof options === 'object' && !Array.isArray(options))) && quiet(options)) {
+    args[at] = piped(options)
+  }
   return fn.apply(self, args)
 })
 
