@@ -295,6 +295,31 @@ describe('main', () => {
     expect(readFileSync(report, 'utf8')).toMatch(/^<!-- dependency-audit: /)
   })
 
+  // A closed pipe (`… | head`) or a full non-blocking stdout makes writeSync throw.
+  const stdoutFails = () =>
+    vi.mocked(writeSync).mockImplementation(() => {
+      throw Object.assign(new Error('EPIPE: broken pipe, write'), { code: 'EPIPE' })
+    })
+
+  it('keeps exit 0 and says so when the clean summary cannot reach stdout', () => {
+    bunAudit('{}', 0)
+    stdoutFails()
+    expect(main(['--report', report], {}, [])).toBe(0)
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('stdout not written: EPIPE'))
+  })
+
+  it('keeps exit 10 and says so when the report, with no --report, cannot reach stdout', () => {
+    bunAudit(JSON.stringify({ 'js-yaml': [JS_YAML] }), 1)
+    stdoutFails()
+    expect(main([], {}, [IGNORE])).toBe(10)
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('stdout not written: EPIPE'))
+  })
+
+  it('exits 2 when the report file, the workflow input, cannot be written', () => {
+    bunAudit(JSON.stringify({ 'js-yaml': [JS_YAML] }), 1)
+    expect(main(['--report', join(dir, 'missing-dir', 'report.md')], {}, [IGNORE])).toBe(2)
+  })
+
   it('runs `audit --json` on the running bun, bounded well inside the audit step cap', () => {
     bunAudit('{}', 0)
     main(['--report', report], {}, [])
