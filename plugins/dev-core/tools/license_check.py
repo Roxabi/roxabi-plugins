@@ -28,7 +28,8 @@ malformed or too complex is disallowed. An operand may be several words
 joins several classifiers with ";": every part must be allowed. A package
 whose license is UNKNOWN is reported apart and fails the check too.
 
-Exit code: 0 = compliant, 1 = violations or UNKNOWN licenses found, 2 = tool error.
+Exit code: 0 = compliant, 1 = violations or UNKNOWN licenses found, 2 = tool error
+(pip-licenses missing or failing, or a .license-policy.json of the wrong shape).
 
 Setup:
   Add pip-licenses to dev dependencies:
@@ -53,6 +54,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import NoReturn
 
 # SPDX identifiers and common display names considered safe for commercial use.
 # Adjust for your project's requirements.
@@ -114,13 +116,32 @@ MAX_OPEN_PARENS = 20
 _OPERATORS = ("(", ")", "AND", "OR", "WITH")
 
 
+def _invalid_policy(policy_path: Path, reason: str) -> NoReturn:
+    print(f"[license-check] {policy_path}: {reason}", file=sys.stderr)
+    sys.exit(2)
+
+
 def load_policy(policy_path: Path) -> dict:
-    if policy_path.exists():
-        try:
-            return json.loads(policy_path.read_text())
-        except json.JSONDecodeError as e:
-            print(f"[license-check] Warning: could not parse {policy_path}: {e}", file=sys.stderr)
-    return {"allowlist": [], "overrides": {}}
+    if not policy_path.exists():
+        return {"allowlist": [], "overrides": {}}
+    try:
+        policy = json.loads(policy_path.read_text())
+    except json.JSONDecodeError as e:
+        print(f"[license-check] Warning: could not parse {policy_path}: {e}", file=sys.stderr)
+        return {"allowlist": [], "overrides": {}}
+    if not isinstance(policy, dict):
+        _invalid_policy(policy_path, "must be a JSON object")
+    # Either key is matched with `name in ...`: on a string that is a substring test,
+    # so "xevil-gplx" would allow evil-gpl.
+    allowlist = policy.get("allowlist")
+    allowlist = [] if allowlist is None else allowlist
+    if not isinstance(allowlist, list) or not all(isinstance(name, str) for name in allowlist):
+        _invalid_policy(policy_path, '"allowlist" must be an array of package names')
+    overrides = policy.get("overrides")
+    overrides = {} if overrides is None else overrides
+    if not isinstance(overrides, dict) or not all(isinstance(value, str) for value in overrides.values()):
+        _invalid_policy(policy_path, '"overrides" must be an object mapping package names to licenses')
+    return {"allowlist": allowlist, "overrides": overrides}
 
 
 def get_packages() -> list[dict]:

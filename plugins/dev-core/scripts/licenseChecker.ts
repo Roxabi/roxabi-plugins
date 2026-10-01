@@ -57,7 +57,7 @@ interface RawLicensePolicy {
   allowlist?: unknown
   /** Legacy key from original TS checker. */
   allowedLicenses?: unknown
-  overrides?: Record<string, string>
+  overrides?: unknown
 }
 
 export interface PackageEntry {
@@ -89,7 +89,11 @@ export function loadPolicy(repoRoot: string): LicensePolicy {
     throw new Error('No .license-policy.json found at repo root')
   }
   const raw = readFileSync(policyPath, 'utf-8')
-  const policy = JSON.parse(raw) as RawLicensePolicy
+  const parsed: unknown = JSON.parse(raw)
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error('.license-policy.json must be a JSON object')
+  }
+  const policy = parsed as RawLicensePolicy
   // A string here would turn the allowlist check into substring matching:
   // "MIT-0 Apache-2.0".includes('MIT') allows MIT.
   const key = policy.allowlist != null ? 'allowlist' : 'allowedLicenses'
@@ -97,9 +101,18 @@ export function loadPolicy(repoRoot: string): LicensePolicy {
   if (!Array.isArray(allowedLicenses) || allowedLicenses.some((id) => typeof id !== 'string')) {
     throw new Error(`.license-policy.json: "${key}" must be an array of license ids`)
   }
+  // Any other shape would fail later as a bare TypeError on `key in overrides`.
+  const overrides = policy.overrides ?? {}
+  if (
+    typeof overrides !== 'object' ||
+    Array.isArray(overrides) ||
+    Object.values(overrides).some((license) => typeof license !== 'string')
+  ) {
+    throw new Error('.license-policy.json: "overrides" must be an object mapping name@version to a license id')
+  }
   return {
     allowedLicenses,
-    overrides: policy.overrides ?? {},
+    overrides: overrides as Record<string, string>,
   }
 }
 

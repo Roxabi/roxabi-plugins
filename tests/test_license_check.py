@@ -139,3 +139,35 @@ def test_the_policy_covers_an_unknown_license_by_name(lc, monkeypatch, capsys, t
     )
     assert code == 0
     assert report['unresolved'] == []
+
+
+@pytest.mark.parametrize(
+    ('policy', 'field'),
+    [
+        # a string would turn `name in allowlist` into a substring test
+        ({'allowlist': 'xevil-gplx'}, '"allowlist"'),
+        ({'allowlist': 7}, '"allowlist"'),
+        ({'allowlist': ['ok', 7]}, '"allowlist"'),
+        ({'overrides': 'xevil-gplx'}, '"overrides"'),
+        ({'overrides': 7}, '"overrides"'),
+        ({'overrides': ['evil-gpl']}, '"overrides"'),
+        ({'overrides': {'evil-gpl': 7}}, '"overrides"'),
+        (['evil-gpl'], 'must be a JSON object'),
+        ('evil-gpl', 'must be a JSON object'),
+    ],
+)
+def test_a_policy_of_the_wrong_shape_is_a_tool_error_naming_the_field(lc, capsys, tmp_path, policy, field):
+    policy_path = tmp_path / '.license-policy.json'
+    policy_path.write_text(json.dumps(policy), encoding='utf-8')
+    with pytest.raises(SystemExit) as exit_info:
+        lc.load_policy(policy_path)
+    assert exit_info.value.code == 2
+    err = capsys.readouterr().err
+    assert str(policy_path) in err
+    assert field in err
+
+
+def test_null_fields_read_as_absent(lc, tmp_path):
+    policy_path = tmp_path / '.license-policy.json'
+    policy_path.write_text(json.dumps({'allowlist': None, 'overrides': None}), encoding='utf-8')
+    assert lc.load_policy(policy_path) == {'allowlist': [], 'overrides': {}}

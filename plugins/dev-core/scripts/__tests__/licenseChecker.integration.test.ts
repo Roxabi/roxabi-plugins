@@ -112,6 +112,25 @@ describe('loadPolicy', () => {
     fs.writeFileSync(path.join(tmpDir, '.license-policy.json'), JSON.stringify(policy))
     expect(() => loadPolicy(tmpDir)).toThrow(`"${key}" must be an array of license ids`)
   })
+
+  it.each([
+    ['a string', 'foo@1.0.0'],
+    ['a number', 7],
+    ['an array', ['foo@1.0.0']],
+    ['a map to a non-string', { 'foo@1.0.0': 7 }],
+  ])('throws when "overrides" is %s: %j', (_, overrides) => {
+    fs.writeFileSync(path.join(tmpDir, '.license-policy.json'), JSON.stringify({ allowlist: ['MIT'], overrides }))
+    expect(() => loadPolicy(tmpDir)).toThrow('"overrides" must be an object mapping name@version to a license id')
+  })
+
+  it.each([
+    ['null', null],
+    ['an array', ['MIT']],
+    ['a string', 'MIT'],
+  ])('throws when the policy is %s', (_, policy) => {
+    fs.writeFileSync(path.join(tmpDir, '.license-policy.json'), JSON.stringify(policy))
+    expect(() => loadPolicy(tmpDir)).toThrow('.license-policy.json must be a JSON object')
+  })
 })
 
 // ─── parseSpdxExpression ─────────────────────────────────────────────────────
