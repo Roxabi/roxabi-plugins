@@ -8,7 +8,7 @@ version: 0.1.0
 
 # Git Cleanup
 
-Let: β := branch | ω := worktree | π := open PR | Π := protected branch (main/master/staging) | safe(β) ⟺ proven_merged(β) ∧ ¬π(β) | proven_merged(β) := regular_merge(β) ∨ verified_squash(β) | regular_merge(β) := `BASE..β` is empty | verified_squash(β) := gh reports a MERGED PR on β **and** that PR's head SHA is an ancestor of its merge commit | hinted(β) := a commit message on BASE contains `#N` or β's name — **not** a proof, since any commit may type the number | N := scope issue number (∅ if unscoped) | orphan_shell := leftover path under `~/.omp/worktrees/<repo>/` (legacy leftover of the retired `ensureWorktree`), `<principal>/.claude/worktrees/` (harness-created worktrees), or `<worktree base>/<repo>/<slug>` (the `/feature` root; base is `OMP_WORKTREE_DIR`, else stack.yml `worktree.base`, else `~/.omp/wt`) that is **not** in `git worktree list` | principal := the first `git worktree list` entry, pinned to Π by `hooks/principal-branch-pre.cjs` and the `tool_call` guard in `omp/index.ts`
+Let: β := branch | ω := worktree | π := open PR | Π := protected branch (main/master/staging, or deploy/* — a CD production branch is an ancestor of the base by construction, so it always looks merged) | safe(β) ⟺ proven_merged(β) ∧ ¬π(β) | proven_merged(β) := regular_merge(β) ∨ verified_squash(β) | regular_merge(β) := `BASE..β` is empty | verified_squash(β) := gh reports a MERGED PR on β **and** that PR's head SHA is an ancestor of its merge commit | hinted(β) := a commit message on BASE contains `#N` or β's name — **not** a proof, since any commit may type the number | N := scope issue number (∅ if unscoped) | orphan_shell := leftover path under `~/.omp/worktrees/<repo>/` (legacy leftover of the retired `ensureWorktree`), `<principal>/.claude/worktrees/` (harness-created worktrees), or `<worktree base>/<repo>/<slug>` (the `/feature` root; base is `OMP_WORKTREE_DIR`, else stack.yml `worktree.base`, else `~/.omp/wt`) that is **not** in `git worktree list` | principal := the first `git worktree list` entry, pinned to main/master/staging by `hooks/principal-branch-pre.cjs` and the `tool_call` guard in `omp/index.ts`
 
 Safely clean local β, ω, and remote branches with **mandatory merge-status verification** before any deletion. End-of-session sweep also strips stuck pipeline labels from closed PRs, cancels long-queued CI runs, and surfaces **orphan worktree shells** that git no longer tracks.
 
@@ -127,11 +127,16 @@ verdict, not a checkmark.
 
 Emits section markers: `---local-branches---`, `---remote-branches---`, `---worktrees---`, `---safe-local---`, `---safe-remote---`, `---probably-local---`, `---probably-remote---`, plus a human `---summary-table---`. **Analyze-only** — it carries no deletion path at all.
 
-**The principal is structurally out of reach.** Protected branches are dropped
-*before* classification, so the branch checked out in the principal — pinned to
-main/master/staging by the freeze guard — never enters `local_branches`, and
-therefore can never appear in `safe_local`. A branch checked out in the invoking
-worktree is labelled `current` for the same reason.
+**Protected branches never reach a deletion list.** They are dropped *before*
+classification, so they never enter `local_branches` or the remote listing, and
+therefore can never appear in `safe_local`, `safe_remote`, `probably_local`, or
+`probably_remote`. That set is main/master/staging, plus `deploy/*`: a CD
+production branch (Cloudflare builds `deploy/<branch>`, fast-forwarded from the
+base) is an ancestor of the base by construction, so merge detection always
+calls it merged. The branch checked out in the principal — pinned to
+main/master/staging by the freeze guard — is in that set, so it never enters
+`local_branches`. A branch checked out in the invoking worktree is labelled
+`current` for the same reason.
 
 The script's one write is `git fetch --prune origin` (skipped by `--no-fetch`): it
 drops `refs/remotes/*` entries whose upstream is already gone. That is a mirror
@@ -366,7 +371,7 @@ If `REPORT_ONLY=true` → print table and **stop this step** (zero mutations).
 #### 8c. Confirm and cancel
 
 → present multi-select
-- Present stuck runs as candidates; runs on protected branches (main/master/staging) shown as informational — NEVER auto-cancel
+- Present stuck runs as candidates; runs on protected branches (main/master/staging, or deploy/*) shown as informational — NEVER auto-cancel
 - "Skip / Cancel none" always available
 
 If `YES=true` → proceed without prompt (still skips protected branches).
@@ -423,7 +428,7 @@ If `REPORT_ONLY=true`, prefix the header with `[report-only — no mutations per
 
 ## Safety Rules
 
-1. **NEVER delete `main`, `master`, or `staging`**
+1. **NEVER delete `main`, `master`, `staging`, or any `deploy/*` branch** — a CD production branch is an ancestor of the base by construction, so it always looks merged
 2. **NEVER delete the current branch**
 3. **NEVER touch the principal worktree or the branch checked out in it**
 4. **NEVER delete a branch with an open PR** unless explicitly confirmed
@@ -436,7 +441,7 @@ If `REPORT_ONLY=true`, prefix the header with `[report-only — no mutations per
 11. **NEVER delete remote branches automatically** — always require explicit confirmation per branch
 12. **ALWAYS scan all remote branches** for stale merged branches, not just locally deleted ones
 13. **`--report-only` = zero mutations** — no label edits, no run cancels, no branch deletes, and no `git fetch` (Step 2 runs with `--no-fetch`)
-14. **NEVER auto-cancel runs on protected branches** (main/master/staging) — show as info only
+14. **NEVER auto-cancel runs on protected branches** (main/master/staging, or deploy/*) — show as info only
 15. **Degrade gracefully on `gh` permission errors** — report failure and continue; never abort entire sweep
 
 ## Edge Cases
