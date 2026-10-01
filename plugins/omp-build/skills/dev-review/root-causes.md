@@ -1,6 +1,6 @@
 # Root causes
 
-The unit of a fix. A finding is a symptom. A root cause is the shared mechanism behind one or more actionable findings. `dev-review` names them after dedup, before it posts. `fix` applies one change per cause that contains a blocking finding. A cause with none is deferred, not applied. The plan is the decision.
+The unit of a fix. A finding is a symptom. A root cause is the shared mechanism behind one or more actionable findings. `dev-review` names them after dedup, before it posts. `fix` applies one change per well-formed cause that contains a blocking finding. A block missing a non-empty `mechanism:`, `fix:`, or `findings:` line is not applied, even when it contains a blocking finding. A well-formed cause with none is deferred, not applied. The plan is the decision.
 
 Two readers: `dev-review` Phase 4 writes the section, `fix` Phase 2 reads it. Both reach this file as `skill://dev-review/root-causes.md`.
 

@@ -14,7 +14,7 @@ version: 0.2.0
 I := ∀ blocking r → applied ∨ filed (issue ∃) ∧ (deferred set = ∅ ∨ one deferral issue ∃) ∧ ∀ uncited blocking f → filed ∧ ∀ uncited non-blocking f → in that deferral ∨ already deferred ∧ PR comment posted
 V := `gh pr view {N} --comments | grep "## Review Fixes Applied"`
 
-One pass: find the review record, name the causes, apply each eligible blocking cause as its own commit, defer every non-blocking cause into one issue, push once when a cause was committed.
+One pass: find the review record, name the causes, apply each eligible well-formed blocking cause as its own commit, defer every non-blocking cause into one issue, push once when a cause was committed. A malformed block is never a commit.
 
 **⚠ Continuous pipeline. The cause plan is the decision — apply it in this turn. Stop only on: unrecoverable failure or Phase 6 completion.**
 
@@ -130,7 +130,7 @@ Read `skill://dev-review/root-causes.md`.
 
 Partition. Each cause, and each uncited actionable finding, goes in exactly one bucket. Do not apply a non-blocking cause, and do not file it on its own.
 
-- apply — `blocking(r)` and every eligibility condition below holds. One commit.
+- apply — the block is well-formed (non-empty `mechanism:`, `fix:`, and `findings:` lines) and `blocking(r)` and every eligibility condition below holds. A block missing any of those three lines never enters apply, even when `blocking(r)` and the three eligibility conditions hold. One commit.
 - file — `blocking(r)` and a condition fails, or the apply or the falsification later fails, or the block is malformed and a cited finding satisfies `blocks(f)`, or an uncited finding satisfies `blocks(f)`. Today's per-cause or per-finding filing. Not the deferral issue.
 - defer — not `blocking(r)`, including when an eligibility condition would also fail, plus every uncited finding that does not satisfy `blocks(f)`, plus cited findings of a malformed block that do not satisfy `blocks(f)`. One issue for the whole set. Not applied.
 
@@ -321,7 +321,7 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 | `## Root causes` is exactly `none` | "No actionable findings", halt |
 | `## Root causes` has a line outside `### RC-` blocks | Halt — malformed record |
 | A block misses `mechanism:`, `fix:` or `findings:` | Not applied. Cited findings that satisfy `blocks(f)` are filed per finding. Cited findings that do not are deferred in the one issue |
-| Record has `### RC-` blocks | Use those blocks; do not recluster. Apply only the apply bucket. Defer every block with no blocking member |
+| Record has `### RC-` blocks | Use those blocks; do not recluster. Apply only the apply bucket. A malformed block is not in that bucket. Defer every well-formed block with no blocking member |
 | Conversation finding list, no section | Cluster with `skill://dev-review/root-causes.md` |
 | Actionable finding cited by no cause | `blocks(f)` → file it. Otherwise defer it. Do not ask |
 | A member has C(f) := 0 | A blocking cause is filed, not applied. A non-blocking cause is deferred, not filed on its own |
@@ -329,7 +329,7 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 | Cited path outside the repository | A blocking cause is filed, not applied. A non-blocking cause is deferred |
 | Cause already under Filed, or a still-non-blocking cause already under Deferred | `already filed → #N` or `already deferred → #N`. A prior deferral does not suppress filing a blocking cause that is ineligible or failed |
 | All causes non-blocking | Commit nothing. File exactly one follow-up listing them. Receipt reports deferred → #N. No push |
-| Mixed causes | Apply the blocking eligible ones. One deferral issue holds every non-blocking cause and uncited non-blocking finding |
+| Mixed causes | Apply the well-formed blocking eligible ones. A malformed block is not applied. One deferral issue holds every non-blocking cause and uncited non-blocking finding |
 | Dirty tree before an apply | Halt, name the changes. An empty apply bucket does not halt |
 | Apply fails after 3 | Restore to the last cause commit, `[failed]`, file, continue |
 | Falsification fails twice | Revert that cause's commits, `[failed]`, file |
