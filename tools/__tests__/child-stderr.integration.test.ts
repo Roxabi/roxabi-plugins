@@ -25,4 +25,10 @@ describe('a sync child process run by a test', () => {
     const echoed = write.mock.calls.map(([chunk]) => String(chunk)).filter((chunk) => chunk.includes('child-'))
     expect(echoed).toEqual([])
   })
+
+  it('keeps an explicit stdio as given', () => {
+    // An inherited stdout is not captured, so the call returns null; a defaulted `pipe` would return a Buffer.
+    expect(execFileSync('sh', ['-c', 'true'], { stdio: ['pipe', 'inherit', 'pipe'] })).toBeNull()
+    expect(execSync('true', { stdio: ['pipe', 'inherit', 'pipe'] })).toBeNull()
+  })
 })
