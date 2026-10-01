@@ -927,6 +927,31 @@ describe('epic-driver — reconcile a stopped armed PR', () => {
     expect(git(epic, 'branch', '--list', 'fix/3-second-child')).toBe('')
   })
 
+  it('returns a drop and creates no branch when the epic query already says the stopped PR merged', () => {
+    const { epic } = sandbox()
+    serveEpic([
+      childNode(2, 'feat(x): first child', {
+        comments: [{ body: '<!-- omp-build:goal-stop run=run00000 reason=review-bound -->\nstopped', author: ME }],
+        prs: [
+          prNode(10, 'feat/2-first-child', 'a'.repeat(40), {
+            state: 'MERGED',
+            mergedAt: '2026-10-01T00:00:00Z',
+            mergeCommit: { oid: 'e'.repeat(40), parents: { nodes: [{ oid: 'f'.repeat(40) }] } },
+          }),
+        ],
+      }),
+      childNode(3, 'fix(y): second child'),
+    ])
+    servePr(10, { state: 'MERGED', labels: [], autoMerge: false })
+    const run = drive(['next'])
+    expect(run.code).toBe(0)
+    expect(run.json().step.action).toBe('drop')
+    expect(run.json().step.stop).toBe('driver-error')
+    expect(run.json().step.reason).toContain('#10')
+    expect(writes()).toEqual([])
+    expect(git(epic, 'branch', '--list', 'fix/3-second-child')).toBe('')
+  })
+
   it('dry-run reports the PR it would disarm and makes no write', () => {
     const epic = stoppedArmedAndIndependent()
     const run = drive(['next', '--dry-run'])

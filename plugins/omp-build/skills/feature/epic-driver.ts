@@ -37,6 +37,7 @@ import {
   goalRun,
   hookStatus,
   mergedLocalBranches,
+  mergedStoppedPrs,
   nextStep,
   type PrFacts,
   parseEpicReview,
@@ -611,6 +612,23 @@ async function next(repo: string, epic: number, run: string, base: string, dry: 
         disarmed: null,
         reconciled,
       }
+    }
+  }
+  const landed = mergedStoppedPrs(facts)
+  if (landed.length) {
+    return {
+      run,
+      base,
+      step: {
+        action: 'drop',
+        stop: 'driver-error',
+        reason: landed.map((entry) => `PR #${entry.pr} already merged`).join('; '),
+        report: summarize(facts),
+      },
+      recorded,
+      cleaned,
+      disarmed: null,
+      reconciled,
     }
   }
   const handled = new Set<number>()

@@ -471,6 +471,17 @@ export function armedStoppedPrs(facts: Facts): { ticket: number; pr: number }[] 
   return found
 }
 
+/** PRs already merged into base for children `stopOf` reports stopped. */
+export function mergedStoppedPrs(facts: Facts): { ticket: number; pr: number }[] {
+  const found: { ticket: number; pr: number }[] = []
+  for (const child of [...facts.children].sort((a, b) => a.number - b.number)) {
+    if (!stopOf(child, facts.run)) continue
+    const landed = mergedPr(child, facts.base)
+    if (landed) found.push({ ticket: child.number, pr: landed.number })
+  }
+  return found
+}
+
 function openBlockers(child: ChildFacts, byNumber: Map<number, ChildFacts>, base: string): number[] {
   return child.blockedBy
     .filter((blocker) => {
