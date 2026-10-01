@@ -295,9 +295,10 @@ describe('main', () => {
     expect(readFileSync(report, 'utf8')).toMatch(/^<!-- dependency-audit: /)
   })
 
-  // A closed pipe (`… | head`) or a full non-blocking stdout makes writeSync throw.
+  // A closed pipe (`… | head`) or a full non-blocking stdout makes writeSync throw. Once:
+  // beforeEach only clears the module mock, so a lasting implementation would leak.
   const stdoutFails = () =>
-    vi.mocked(writeSync).mockImplementation(() => {
+    vi.mocked(writeSync).mockImplementationOnce(() => {
       throw Object.assign(new Error('EPIPE: broken pipe, write'), { code: 'EPIPE' })
     })
 
