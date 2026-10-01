@@ -102,6 +102,35 @@ describe('loadPolicy', () => {
     const result = loadPolicy(tmpDir)
     expect(result.allowedLicenses).toEqual(['MIT'])
   })
+
+  it.each([
+    ['allowlist', { allowlist: 'MIT-0 Apache-2.0' }],
+    ['allowlist', { allowlist: ['MIT', 42] }],
+    ['allowedLicenses', { allowedLicenses: 'MIT-0' }],
+    ['allowlist', { allowlist: { MIT: true }, allowedLicenses: ['MIT'] }],
+  ])('throws when "%s" is not an array of license ids: %j', (key, policy) => {
+    fs.writeFileSync(path.join(tmpDir, '.license-policy.json'), JSON.stringify(policy))
+    expect(() => loadPolicy(tmpDir)).toThrow(`"${key}" must be an array of license ids`)
+  })
+
+  it.each([
+    ['a string', 'foo@1.0.0'],
+    ['a number', 7],
+    ['an array', ['foo@1.0.0']],
+    ['a map to a non-string', { 'foo@1.0.0': 7 }],
+  ])('throws when "overrides" is %s: %j', (_, overrides) => {
+    fs.writeFileSync(path.join(tmpDir, '.license-policy.json'), JSON.stringify({ allowlist: ['MIT'], overrides }))
+    expect(() => loadPolicy(tmpDir)).toThrow('"overrides" must be an object mapping name@version to a license id')
+  })
+
+  it.each([
+    ['null', null],
+    ['an array', ['MIT']],
+    ['a string', 'MIT'],
+  ])('throws when the policy is %s', (_, policy) => {
+    fs.writeFileSync(path.join(tmpDir, '.license-policy.json'), JSON.stringify(policy))
+    expect(() => loadPolicy(tmpDir)).toThrow('.license-policy.json must be a JSON object')
+  })
 })
 
 // ─── parseSpdxExpression ─────────────────────────────────────────────────────
@@ -154,6 +183,10 @@ describe('parseSpdxExpression', () => {
 
 describe('isLicenseAllowed', () => {
   const allowed = ['MIT', 'Apache-2.0', 'ISC']
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
 
   it('returns false for null license', () => {
     expect(isLicenseAllowed(null, allowed)).toBe(false)
@@ -215,22 +248,52 @@ describe('isLicenseAllowed', () => {
 
   // ─── Recursion / complexity guard ───────────────────────────────────────────
 
-  it('50 000 nested parens: does not throw and returns false', () => {
+  it('50 000 nested parens: does not throw, returns false, and says why', () => {
+    const warn = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
     const bomb = `${'('.repeat(50000)}MIT${')'.repeat(50000)}`
     expect(() => isLicenseAllowed(bomb, ['MIT'])).not.toThrow()
     expect(isLicenseAllowed(bomb, ['MIT'])).toBe(false)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('expression too complex to evaluate safely'))
   })
 
-  it('>20 open-parens (moderately nested, not 50k): returns false without throwing', () => {
+  it('>20 open-parens (moderately nested, not 50k): returns false without throwing, and says why', () => {
+    const warn = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
     // 21 levels of nesting — exceeds the paren cap
     const expr = `${'('.repeat(21)}MIT${')'.repeat(21)}`
     expect(() => isLicenseAllowed(expr, ['MIT'])).not.toThrow()
     expect(isLicenseAllowed(expr, ['MIT'])).toBe(false)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('expression too complex to evaluate safely'))
   })
 
   it('regression: normal nested expression within cap still evaluates correctly', () => {
     // (MIT OR Apache-2.0) AND BSD-2-Clause — 1 open-paren, well under cap
     expect(isLicenseAllowed('(MIT OR Apache-2.0) AND BSD-2-Clause', ['MIT', 'BSD-2-Clause'])).toBe(true)
+  })
+
+  // ─── Malformed expressions fail closed ──────────────────────────────────────
+  // Each one has an allowed prefix, so a parser that stops early would allow it.
+
+  it.each([
+    ['juxtaposed atoms', 'MIT GPL-3.0'],
+    ['stray close paren', 'MIT) AND GPL-3.0'],
+    ['stray close paren before OR', 'MIT ) OR GPL-3.0'],
+    ['unclosed group', '(MIT OR GPL-3.0'],
+    ['trailing operator', 'MIT OR'],
+    ['operator as operand', 'MIT OR AND'],
+    ['close paren as operand', 'MIT OR )'],
+    ['grouped WITH', '(MIT) WITH GPL-3.0'],
+  ])('%s: "%s" is disallowed, and says why', (_shape, expr) => {
+    const warn = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
+    expect(isLicenseAllowed(expr, ['MIT'])).toBe(false)
+    expect(warn).toHaveBeenCalledOnce()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('malformed SPDX expression'))
+  })
+
+  it('a well-formed compound expression is evaluated without a warning', () => {
+    const warn = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
+    expect(isLicenseAllowed('(MIT OR GPL-3.0) AND (Apache-2.0 WITH LLVM-exception OR ISC)', ['MIT', 'ISC'])).toBe(true)
+    expect(isLicenseAllowed('MIT AND GPL-3.0', ['MIT'])).toBe(false)
+    expect(warn).not.toHaveBeenCalled()
   })
 })
 
@@ -601,7 +664,8 @@ describe('CLI — subprocess integration', () => {
     expect(report.violations).toHaveLength(1)
   })
 
-  it('exits 2 when policy file is missing (tool error)', () => {
+  // --json keeps stdout for the report: a tool error leaves it empty, and stderr says why.
+  it('exits 2 when policy file is missing (tool error), and says why in --json mode', () => {
     // Set up node_modules but no .license-policy.json
     fs.writeFileSync(path.join(tmpDir, 'package.json'), JSON.stringify({ name: 'test', version: '0.0.0' }))
     const nm = path.join(tmpDir, 'node_modules')
@@ -612,6 +676,28 @@ describe('CLI — subprocess integration', () => {
     fs.copyFileSync(scriptSrc, path.join(toolsDir, 'licenseChecker.ts'))
     const result = run(path.join(toolsDir, 'licenseChecker.ts'), ['--json'])
     expect(result.exitCode).toBe(2)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toContain('No .license-policy.json found at repo root')
+  })
+
+  it('exits 2 on a policy of the wrong shape, and says why in --json mode', () => {
+    const scriptPath = setupProject({ allowedLicenses: ['MIT'], overrides: {} }, [
+      { name: 'compliant', version: '1.0.0', license: 'MIT' },
+    ])
+    fs.writeFileSync(path.join(tmpDir, '.license-policy.json'), JSON.stringify({ allowlist: ['MIT'], overrides: 'x' }))
+    const result = run(scriptPath, ['--json'])
+    expect(result.exitCode).toBe(2)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toContain('"overrides" must be an object')
+  })
+
+  it('exits 1 with no node_modules, and says why in --json mode', () => {
+    const scriptPath = setupProject({ allowedLicenses: ['MIT'], overrides: {} }, [])
+    fs.rmSync(path.join(tmpDir, 'node_modules'), { recursive: true })
+    const result = run(scriptPath, ['--json'])
+    expect(result.exitCode).toBe(1)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toContain('Run `bun install` first')
   })
 })
 

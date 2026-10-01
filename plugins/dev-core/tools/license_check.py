@@ -5,6 +5,10 @@ Python equivalent of tools/licenseChecker.ts for uv/pip projects.
 Scans installed packages, checks licenses against an allowlist, and reports
 violations. Uses pip-licenses for package introspection.
 
+Plugin source of truth: plugins/dev-core/tools/license_check.py. /R-ci-setup
+copies it to tools/license_check.py; in roxabi-plugins, tools/validate_plugins.py
+fails when that copy differs from this file.
+
 Usage:
   uv run tools/license_check.py
   uv run tools/license_check.py --json
@@ -16,7 +20,16 @@ Usage:
 GPL package, the script must exit 1, and the work tree is never modified.
 Exits 0 only when that invocation exits 1.
 
-Exit code: 0 = compliant, 1 = violations found, 2 = tool error.
+A license is allowed when it is one of SAFE_LICENSES, or an SPDX expression
+over them, evaluated as licenseChecker.ts does: AND binds tighter than OR,
+parentheses group, "X WITH Y" is one operand, and an expression that is
+malformed or too complex is disallowed. An operand may be several words
+("MIT License"), since pip-licenses reports classifier names. pip-licenses
+joins several classifiers with ";": every part must be allowed. A package
+whose license is UNKNOWN is reported apart and fails the check too.
+
+Exit code: 0 = compliant, 1 = violations or UNKNOWN licenses found, 2 = tool error
+(pip-licenses missing or failing, or a .license-policy.json of the wrong shape).
 
 Setup:
   Add pip-licenses to dev dependencies:
@@ -36,10 +49,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import NoReturn
 
 # SPDX identifiers and common display names considered safe for commercial use.
 # Adjust for your project's requirements.
@@ -70,6 +85,7 @@ SAFE_LICENSES: set[str] = {
     "Python Software Foundation License",
     "PSF",
     "PSFL",
+    "PSF-2.0",
     "Python Software Foundation",
     # Mozilla
     "Mozilla Public License 2.0 (MPL 2.0)",
@@ -92,14 +108,40 @@ SAFE_LICENSES: set[str] = {
     "Artistic License",
 }
 
+# Package metadata is untrusted: a deeply nested expression must not exhaust the
+# recursion. Same bounds as licenseChecker.ts.
+MAX_EXPRESSION_LENGTH = 512
+MAX_OPEN_PARENS = 20
+
+_OPERATORS = ("(", ")", "AND", "OR", "WITH")
+
+
+def _invalid_policy(policy_path: Path, reason: str) -> NoReturn:
+    print(f"[license-check] {policy_path}: {reason}", file=sys.stderr)
+    sys.exit(2)
+
 
 def load_policy(policy_path: Path) -> dict:
-    if policy_path.exists():
-        try:
-            return json.loads(policy_path.read_text())
-        except json.JSONDecodeError as e:
-            print(f"[license-check] Warning: could not parse {policy_path}: {e}", file=sys.stderr)
-    return {"allowlist": [], "overrides": {}}
+    if not policy_path.exists():
+        return {"allowlist": [], "overrides": {}}
+    try:
+        policy = json.loads(policy_path.read_text())
+    except json.JSONDecodeError as e:
+        print(f"[license-check] Warning: could not parse {policy_path}: {e}", file=sys.stderr)
+        return {"allowlist": [], "overrides": {}}
+    if not isinstance(policy, dict):
+        _invalid_policy(policy_path, "must be a JSON object")
+    # Either key is matched with `name in ...`: on a string that is a substring test,
+    # so "xevil-gplx" would allow evil-gpl.
+    allowlist = policy.get("allowlist")
+    allowlist = [] if allowlist is None else allowlist
+    if not isinstance(allowlist, list) or not all(isinstance(name, str) for name in allowlist):
+        _invalid_policy(policy_path, '"allowlist" must be an array of package names')
+    overrides = policy.get("overrides")
+    overrides = {} if overrides is None else overrides
+    if not isinstance(overrides, dict) or not all(isinstance(value, str) for value in overrides.values()):
+        _invalid_policy(policy_path, '"overrides" must be an object mapping package names to licenses')
+    return {"allowlist": allowlist, "overrides": overrides}
 
 
 def get_packages() -> list[dict]:
@@ -123,15 +165,122 @@ def get_packages() -> list[dict]:
         sys.exit(2)
 
 
+def _tokenize(expr: str) -> list[str]:
+    """Parentheses, operators, and operands; consecutive other words form one operand."""
+    tokens: list[str] = []
+    words: list[str] = []
+    for word in re.findall(r"[()]|[^\s()]+", expr):
+        if word in _OPERATORS:
+            if words:
+                tokens.append(" ".join(words))
+                words = []
+            tokens.append(word)
+        else:
+            words.append(word)
+    if words:
+        tokens.append(" ".join(words))
+    return tokens
+
+
+def _is_operand_allowed(operand: str) -> bool:
+    # A trailing "+" means "or later": GPL-2.0+ is judged as GPL-2.0.
+    return (operand[:-1] if operand.endswith("+") else operand) in SAFE_LICENSES
+
+
+def _evaluate_spdx(expr: str) -> bool:
+    """Recursive descent: OR, then AND, then an operand or a parenthesised group.
+
+    A malformed expression (a stray or unclosed paren, a missing operand, WITH
+    without an operand on each side) is disallowed: evaluating only its
+    well-formed prefix would let "MIT) AND GPL-3.0" pass.
+    """
+    tokens = _tokenize(expr)
+    pos = 0
+    malformed = False
+
+    def peek(offset: int = 0) -> str | None:
+        return tokens[pos + offset] if pos + offset < len(tokens) else None
+
+    def parse_or() -> bool:
+        nonlocal pos
+        result = parse_and()
+        while peek() == "OR":
+            pos += 1
+            right = parse_and()
+            result = result or right
+        return result
+
+    def parse_and() -> bool:
+        nonlocal pos
+        result = parse_primary()
+        while peek() == "AND":
+            pos += 1
+            right = parse_primary()
+            result = result and right
+        return result
+
+    def parse_primary() -> bool:
+        nonlocal pos, malformed
+        token = peek()
+        if token is None or token in (")", "AND", "OR", "WITH"):
+            malformed = True  # an operand is missing; the token is left for the caller
+            return False
+        pos += 1
+        if token == "(":
+            result = parse_or()
+            if peek() == ")":
+                pos += 1
+            else:
+                malformed = True
+            return result
+        if peek() == "WITH":
+            exception = peek(1)
+            if exception is None or exception in _OPERATORS:
+                malformed = True
+                return False
+            pos += 2
+            return _is_operand_allowed(f"{token} WITH {exception}")
+        return _is_operand_allowed(token)
+
+    result = parse_or()
+    if not malformed and pos == len(tokens):
+        return result
+    # A classifier name such as "GNU General Public License v3 (GPLv3)" does not parse
+    # either; only a string with an operator in it was written as an expression.
+    if any(token in ("AND", "OR", "WITH") for token in tokens):
+        print(
+            f"[license-check] malformed SPDX expression, treating as disallowed: {expr[:60]!r}",
+            file=sys.stderr,
+        )
+    return False
+
+
+def is_license_allowed(license_str: str) -> bool:
+    """Return True if the license string is a safe license or evaluates to one."""
+    if license_str in SAFE_LICENSES:
+        return True
+    if len(license_str) > MAX_EXPRESSION_LENGTH or license_str.count("(") > MAX_OPEN_PARENS:
+        print(
+            f"[license-check] expression too complex to evaluate safely, treating as disallowed: {license_str[:60]!r}",
+            file=sys.stderr,
+        )
+        return False
+    parts = [part.strip() for part in license_str.split(";") if part.strip()]
+    if not parts:
+        return False
+    if len(parts) > 1 or parts[0] != license_str:
+        return all(is_license_allowed(part) for part in parts)
+    return _evaluate_spdx(license_str)
+
+
+def is_covered_by_policy(name: str, policy: dict) -> bool:
+    """Return True if the policy names the package explicitly."""
+    return name in policy.get("overrides", {}) or name in policy.get("allowlist", [])
+
+
 def is_compliant(name: str, license_str: str, policy: dict) -> bool:
     """Return True if the package is considered license-compliant."""
-    overrides: dict = policy.get("overrides", {})
-    if name in overrides:
-        return True  # explicitly whitelisted with override
-    allowlist: list = policy.get("allowlist", [])
-    if name in allowlist:
-        return True  # explicitly whitelisted by name
-    return license_str in SAFE_LICENSES
+    return is_covered_by_policy(name, policy) or is_license_allowed(license_str)
 
 
 def self_test() -> int:
@@ -191,19 +340,21 @@ def main() -> None:
     if args.self_test:
         sys.exit(self_test())
 
-
     policy = load_policy(Path(args.policy))
     packages = get_packages()
 
     violations: list[dict] = []
     compliant: list[dict] = []
+    unknown: list[dict] = []
 
     for pkg in packages:
         name = pkg.get("Name", "")
         version = pkg.get("Version", "")
-        license_str = pkg.get("License", "UNKNOWN")
+        license_str = pkg.get("License") or "UNKNOWN"
         entry = {"name": name, "version": version, "license": license_str}
-        if is_compliant(name, license_str, policy):
+        if license_str == "UNKNOWN" and not is_covered_by_policy(name, policy):
+            unknown.append(entry)
+        elif is_compliant(name, license_str, policy):
             compliant.append(entry)
         else:
             violations.append(entry)
@@ -212,8 +363,10 @@ def main() -> None:
         "total": len(packages),
         "compliant": len(compliant),
         "violations": len(violations),
+        "unknown": len(unknown),
         "packages": compliant,
         "violating": violations,
+        "unresolved": unknown,
     }
 
     if args.output:
@@ -232,10 +385,14 @@ def main() -> None:
             print()
             print("  Add to .license-policy.json to allow:")
             print('  { "allowlist": [' + ", ".join(f'"{v["name"]}"' for v in violations) + "] }")
-        else:
+        if unknown:
+            print(f"  ⚠️  {len(unknown)} package(s) with UNKNOWN license:")
+            for u in unknown:
+                print(f"     {u['name']} ({u['version']}) — add to allowlist if safe")
+        if not violations and not unknown:
             print(f"  ✅ All {len(compliant)} packages are compliant")
 
-    sys.exit(1 if violations else 0)
+    sys.exit(1 if violations or unknown else 0)
 
 
 if __name__ == "__main__":

@@ -51,13 +51,13 @@ export interface LicensePolicy {
   overrides: Record<string, string>
 }
 
-/** Raw shape of .license-policy.json on disk — either key accepted. */
+/** Raw shape of .license-policy.json on disk — either key accepted, neither trusted until loadPolicy checks it. */
 interface RawLicensePolicy {
   /** Canonical key used by Python checker and new deployments. */
-  allowlist?: string[]
+  allowlist?: unknown
   /** Legacy key from original TS checker. */
-  allowedLicenses?: string[]
-  overrides?: Record<string, string>
+  allowedLicenses?: unknown
+  overrides?: unknown
 }
 
 export interface PackageEntry {
@@ -89,10 +89,30 @@ export function loadPolicy(repoRoot: string): LicensePolicy {
     throw new Error('No .license-policy.json found at repo root')
   }
   const raw = readFileSync(policyPath, 'utf-8')
-  const policy = JSON.parse(raw) as RawLicensePolicy
+  const parsed: unknown = JSON.parse(raw)
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error('.license-policy.json must be a JSON object')
+  }
+  const policy = parsed as RawLicensePolicy
+  // A string here would turn the allowlist check into substring matching:
+  // "MIT-0 Apache-2.0".includes('MIT') allows MIT.
+  const key = policy.allowlist != null ? 'allowlist' : 'allowedLicenses'
+  const allowedLicenses = policy[key] ?? []
+  if (!Array.isArray(allowedLicenses) || allowedLicenses.some((id) => typeof id !== 'string')) {
+    throw new Error(`.license-policy.json: "${key}" must be an array of license ids`)
+  }
+  // Any other shape would fail later as a bare TypeError on `key in overrides`.
+  const overrides = policy.overrides ?? {}
+  if (
+    typeof overrides !== 'object' ||
+    Array.isArray(overrides) ||
+    Object.values(overrides).some((license) => typeof license !== 'string')
+  ) {
+    throw new Error('.license-policy.json: "overrides" must be an object mapping name@version to a license id')
+  }
   return {
-    allowedLicenses: policy.allowlist ?? policy.allowedLicenses ?? [],
-    overrides: policy.overrides ?? {},
+    allowedLicenses,
+    overrides: overrides as Record<string, string>,
   }
 }
 
@@ -364,8 +384,8 @@ type SpdxToken = '(' | ')' | 'AND' | 'OR' | string
 function tokenizeSpdx(expr: string): SpdxToken[] {
   // Split on whitespace first, then reassemble WITH pairs as single atoms.
   // Note: WITH must appear between two atoms (e.g. "Apache-2.0 WITH LLVM-exception").
-  // Grouped forms like "(A) WITH B" are NOT valid SPDX — the paren/length cap in
-  // isLicenseAllowed() acts as the safety net for such malformed expressions.
+  // Grouped forms like "(A) WITH B" are NOT valid SPDX — evaluateSpdxExpression()
+  // rejects them, as it rejects every expression it cannot consume whole.
   const raw = expr.replace(/\(/g, ' ( ').replace(/\)/g, ' ) ').trim().split(/\s+/).filter(Boolean)
 
   const tokens: SpdxToken[] = []
@@ -393,10 +413,14 @@ function isAtomAllowed(atom: string, allowedLicenses: string[]): boolean {
   return allowedLicenses.includes(normalized)
 }
 
-// Recursive-descent: OR → AND → primary
+// Recursive-descent: OR → AND → primary. A malformed expression — an unclosed or
+// stray paren, a missing operand, two atoms with no operator between them — is
+// disallowed: parsing it partially would evaluate only its well-formed prefix, so
+// "MIT GPL-3.0" or "MIT) AND GPL-3.0" would pass an MIT-only allowlist.
 function evaluateSpdxExpression(expr: string, allowedLicenses: string[]): boolean {
   const tokens = tokenizeSpdx(expr)
   let pos = 0
+  let malformed = false
 
   function parseOr(): boolean {
     let result = parseAnd()
@@ -419,19 +443,25 @@ function evaluateSpdxExpression(expr: string, allowedLicenses: string[]): boolea
   }
 
   function parsePrimary(): boolean {
-    if (pos >= tokens.length) return false
     const t = tokens[pos]
-    if (t === '(') {
-      pos++ // consume '('
-      const result = parseOr()
-      if (pos < tokens.length && tokens[pos] === ')') pos++ // consume ')'
-      return result
+    if (t === undefined || t === ')' || t === 'AND' || t === 'OR') {
+      malformed = true // an operand is missing; the token is left for the caller
+      return false
     }
     pos++
+    if (t === '(') {
+      const result = parseOr()
+      if (tokens[pos] === ')') pos++
+      else malformed = true
+      return result
+    }
     return isAtomAllowed(t, allowedLicenses)
   }
 
-  return parseOr()
+  const result = parseOr()
+  if (!malformed && pos === tokens.length) return result
+  process.stderr.write(`license-check: malformed SPDX expression, treating as disallowed: ${expr.slice(0, 60)}...\n`)
+  return false
 }
 
 export function isLicenseAllowed(license: string | null, allowedLicenses: string[]): boolean {
@@ -631,9 +661,10 @@ function main(): void {
   try {
     const repoRoot = resolveRepoRoot()
 
-    // 1. Validate node_modules exists
+    // 1. Validate node_modules exists. Tool errors go to stderr in every mode: --json
+    // keeps stdout for the report, and a caller must still learn why it got no report.
     if (!existsSync(join(repoRoot, 'node_modules'))) {
-      if (!jsonMode) console.error('Error: Run `bun install` first')
+      console.error('Error: Run `bun install` first')
       process.exit(1)
     }
 
@@ -658,7 +689,7 @@ function main(): void {
     // 8. Exit with appropriate code
     process.exit(report.summary.violations > 0 ? 1 : 0)
   } catch (error) {
-    if (!jsonMode) console.error(`Error: ${error instanceof Error ? error.message : error}`)
+    console.error(`Error: ${error instanceof Error ? error.message : error}`)
     process.exit(2)
   }
 }

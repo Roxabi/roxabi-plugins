@@ -61,7 +61,7 @@ Config ∄ → ⚠️. Config ∃ ∧ hook ∄ → ⚠️ "needs `{install-cmd}`
 **License compliance (Python):** Only if python ∧ script ∃ ∧ pip-licenses installed. `uv run tools/license_check.py --json`:
 - exit 0 → ✅ "all N compliant"
 - exit 1 → parse `violating`+`unresolved`: ⚠️ "N violations". `.license-policy.json` ∄ → auto-fixable (generate). ∃ → ⚠️ "update policy".
-- exit 2 → ⚠️ "pip-licenses may not be installed"
+- exit 2 → ⚠️ stderr's `[license-check]` line: pip-licenses missing or failing, or `.license-policy.json` of the wrong shape (the field it names)
 
 **License checker (JS):** Only if runtime ∈ {bun,node,deno}. `tools/licenseChecker.ts` ∃ → ✅ | ⚠️. `.license-policy.json` ∃ → ✅ | ⚠️.
 

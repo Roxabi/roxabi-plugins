@@ -20,6 +20,8 @@ Checks:
   inventories (compress read-back goldens, issue #311)
 - Catalogued `.claude-plugin/marketplace.json` plugin names appear in root
   `README.md` (link-only plugins are exempt)
+- tools/license_check.py, which lefthook runs, is byte-identical to its plugin
+  source plugins/dev-core/tools/license_check.py
 
 
 Usage:
@@ -45,6 +47,10 @@ LINK_ONLY_PLUGIN_NAMES = frozenset()
 MARKETPLACE_JSON = REPO_ROOT / '.claude-plugin' / 'marketplace.json'
 OMP_MARKETPLACE_JSON = REPO_ROOT / '.omp-plugin' / 'marketplace.json'
 README_MD = REPO_ROOT / 'README.md'
+# /R-ci-setup copies the plugin's Python license gate into a project; this repo runs
+# its own copy from lefthook, so the copy must stay the plugin file byte for byte.
+LICENSE_CHECK_SOURCE = PLUGINS_DIR / 'dev-core' / 'tools' / 'license_check.py'
+LICENSE_CHECK_COPY = REPO_ROOT / 'tools' / 'license_check.py'
 
 
 # Plugin name → max physical lines of its skills/*/SKILL.md (issue #309 Decision 5)
@@ -206,6 +212,22 @@ def check_vendored_paths() -> list[str]:
             f'vendored path helper: {rel} — import from roxabi_sdk.paths instead'
         )
     return errors
+
+
+def check_license_checker_copy(source=None, copy=None) -> list[str]:
+    """tools/license_check.py must be the plugin's license gate, byte for byte.
+
+    The two files were edited apart once: the copy evaluated compound SPDX and the
+    UNKNOWN bucket, the source had --self-test, and a re-copy would have lost either.
+    """
+    source = Path(source) if source is not None else LICENSE_CHECK_SOURCE
+    copy = Path(copy) if copy is not None else LICENSE_CHECK_COPY
+    for path in (source, copy):
+        if not path.is_file():
+            return [f'license checker not found at {path}']
+    if source.read_bytes() != copy.read_bytes():
+        return [f'{copy} differs from its source {source} — copy the source over it']
+    return []
 
 
 def check_tempfile_convention() -> list[str]:
@@ -911,6 +933,7 @@ def main(argv: list[str] | None = None) -> int:
         ('Notation legends', check_notation_legends),
         ('Golden inventories', check_golden_inventories),
         ('Marketplace README catalog', check_marketplace_readme_catalog),
+        ('License checker copy', check_license_checker_copy),
         ('OMP catalog versions', check_omp_catalog),
     ]
 
