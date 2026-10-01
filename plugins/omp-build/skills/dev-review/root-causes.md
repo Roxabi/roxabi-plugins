@@ -1,6 +1,6 @@
 # Root causes
 
-The unit of a fix. A finding is a symptom. A root cause is the shared mechanism behind one or more actionable findings. `dev-review` names them after dedup, before it posts. `fix` applies one change per cause. The plan is the decision.
+The unit of a fix. A finding is a symptom. A root cause is the shared mechanism behind one or more actionable findings. `dev-review` names them after dedup, before it posts. `fix` applies one change per cause that contains a blocking finding. A cause with none is deferred, not applied. The plan is the decision.
 
 Two readers: `dev-review` Phase 4 writes the section, `fix` Phase 2 reads it. Both reach this file as `skill://dev-review/root-causes.md`.
 
@@ -53,4 +53,4 @@ none
 
 `fix` is Solution 1 of the strongest member, widened so every member callsite is covered. A fix line that only widens a denylist, adds a grep, or copies an inventory list is not a fix, whatever the members' classes. Name the oracle or single source of truth that must change.
 
-Number `RC-1` upward. Do not reuse a number. Every cause has a non-empty `mechanism:`, `fix:` and `findings:`. An actionable finding that still has no mechanism and no fix stays out of this section; `fix` files it.
+Number `RC-1` upward. Do not reuse a number. Every cause has a non-empty `mechanism:`, `fix:` and `findings:`. An actionable finding that still has no mechanism and no fix stays out of this section; `fix` files it when it satisfies `blocks(f)`, and defers it into the single non-blocking follow-up otherwise.

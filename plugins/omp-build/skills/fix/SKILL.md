@@ -2,7 +2,7 @@
 name: fix
 argument-hint: '[#PR]'
 description: >-
-  OMP-only — apply one fix per common root cause from a review, inline, no per-finding choice.
+  OMP-only — apply one fix per blocking root cause from a review, inline, no per-finding choice.
   Triggers: "fix findings" | "fix review" | "apply fixes" | "fix these" | "apply review comments" | "apply the review" | "fix the review issues" | "address review feedback" | "fix PR comments".
 version: 0.2.0
 ---
@@ -11,10 +11,10 @@ version: 0.2.0
 
 ## Success
 
-I := ∀ r ∈ R → applied ∨ filed (issue ∃) ∧ ∀ uncited actionable f → filed ∧ PR comment posted
+I := ∀ blocking r → applied ∨ filed (issue ∃) ∧ (deferred set = ∅ ∨ one deferral issue ∃) ∧ ∀ uncited blocking f → filed ∧ ∀ uncited non-blocking f → in that deferral ∨ already deferred ∧ PR comment posted
 V := `gh pr view {N} --comments | grep "## Review Fixes Applied"`
 
-One pass: find the review record, name the causes, apply each eligible cause as its own commit, push once.
+One pass: find the review record, name the causes, apply each eligible blocking cause as its own commit, defer every non-blocking cause into one issue, push once when a cause was committed.
 
 **⚠ Continuous pipeline. The cause plan is the decision — apply it in this turn. Stop only on: unrecoverable failure or Phase 6 completion.**
 
@@ -36,7 +36,7 @@ nor authorizes a second time. Direct `/fix` without a live authorized step route
 through standalone `dev-review`, which resolves the PR before reading its state.
 CI-only failures use `/feature` §6.5, not this review-comment consumer.
 
-**You apply every fix yourself.** There is no `R-fixer` in this plugin (ADR-020 §7) and nothing replaces it: Phase 3 edits files inline, in this session, with the diff visible in the working tree. ¬spawn a fixer, ¬delegate the edit.
+**You apply every blocking fix yourself.** There is no `R-fixer` in this plugin (ADR-020 §7) and nothing replaces it: Phase 3 edits files inline, in this session, with the diff visible in the working tree. ¬spawn a fixer, ¬delegate the edit. A cause with no blocking member is not applied.
 
 ## Pipeline
 
@@ -44,14 +44,14 @@ CI-only failures use `/feature` §6.5, not this review-comment consumer.
 |-------|----|----------|---------------|-------|
 | 1 | gather | ✓ | record found, F + R_posted parsed | the marked review record only |
 | 2 | causes | ✓ | R named, eligibility decided | posted blocks, else cluster |
-| 3 | apply | — | one commit per applied cause | no eligible cause → skip |
+| 3 | apply | — | one commit per applied cause | empty apply bucket → no commit; defer and file still run |
 | 4 | falsify | — | pass/fail per cause | no applied cause with a classed member → skip |
-| 5 | push | ✓ | `git push` success | never writes `reviewed` on a review-driven fix |
+| 5 | push | ✓ | `git push` success when a cause was committed | no cause commit → skip the push; never writes `reviewed` on a review-driven fix |
 | 6 | post-comment | — | comment posted | ∄ PR → skip |
 
 ## Pre-flight
 
-Success: ∀ r ∈ R → applied ∨ filed ∧ PR comment posted
+Success: ∀ blocking r → applied ∨ filed ∧ deferred set in one issue or empty ∧ PR comment posted
 Evidence: `gh pr view {N} --comments | grep "## Review Fixes Applied"`
 Steps: gather → causes → apply → falsify → push → post-comment
 ¬clear → STOP + ask: "Do you have review findings to fix?"
@@ -60,7 +60,8 @@ Let:
   F := actionable findings of the record | f ∈ F | C(f) ∈ [0,100] ∩ ℤ — confidence
   cat(f) ∈ {issue, suggestion, todo, nitpick, thought, question, praise}
   actionable := {issue, suggestion, todo, nitpick}
-  blocks(f) := label ∈ {issue:, issue(blocking):, todo:, suggestion(blocking):} ∨ Source: recall — the predicate `dev-review` Phase 4 uses
+  blocks(f) := label ∈ {issue:, issue(blocking):, todo:, suggestion(blocking):} ∨ Source: recall — the predicate `dev-review` Phase 4 uses, on the posted label after its missing-test rewrite. A posted `suggestion:` does not satisfy it.
+  blocking(r) := ∃ f ∈ r.findings: blocks(f) — one member is enough; not every member
   R := root causes | r ∈ R := {id, title, mechanism, fix, findings[]}
   ME := `gh api user --jq .login`
   MARK := `<!-- omp-build:code-review -->` — the first line of every review `dev-review` posts
@@ -127,33 +128,41 @@ Read `skill://dev-review/root-causes.md`.
 - R_posted = ∅ ∧ actionable F ≠ ∅ → cluster F with those rules. Read cited lines before a join the text does not already make obvious.
 - actionable F = ∅ ∧ R = ∅ → "No actionable findings", halt.
 
-An actionable finding of the record cited by no block in R is uncited: file it (Phase 3 § Filing), do not invent a second cause, do not ask.
+Partition. Each cause, and each uncited actionable finding, goes in exactly one bucket. Do not apply a non-blocking cause, and do not file it on its own.
 
-**Eligibility.** ∀ r ∈ R, apply r only when every condition holds; otherwise file it and name the failed condition:
+- apply — `blocking(r)` and every eligibility condition below holds. One commit.
+- file — `blocking(r)` and a condition fails, or the apply or the falsification later fails, or the block is malformed and a cited finding satisfies `blocks(f)`, or an uncited finding satisfies `blocks(f)`. Today's per-cause or per-finding filing. Not the deferral issue.
+- defer — not `blocking(r)`, including when an eligibility condition would also fail, plus every uncited finding that does not satisfy `blocks(f)`, plus cited findings of a malformed block that do not satisfy `blocks(f)`. One issue for the whole set. Not applied.
+
+An actionable finding of the record cited by no block in R is uncited. It is filed when it satisfies `blocks(f)`; otherwise it joins the deferral. Do not invent a cause. Do not ask.
+
+**Eligibility of an apply.** These three conditions gate the apply bucket only. A non-blocking cause is deferred even when one of them fails:
 
 - every member finding passed Phase 1 validation — none has C(f) := 0
 - `r.fix` does not widen a denylist, add a grep, or copy an inventory / `validate:full` list — checked on the fix line itself, whatever the members' classes
 - every cited path resolves inside the repository root (`git rev-parse --show-toplevel`)
 
-**Already filed.** Before filing, read `### Filed` in the earlier `## Review Fixes Applied` comments by ME on this PR. A cause whose mechanism is already filed there is reported `already filed → #N`, not filed again.
+**Already filed.** Before filing or deferring, read `### Filed` and `### Deferred` in the earlier `## Review Fixes Applied` comments by ME on this PR. A cause whose mechanism is already listed there is reported `already filed → #N` or `already deferred → #N`, not filed again. An uncited non-blocking finding already listed at the same file:line is not listed again. Create the deferral issue only when the remaining deferred set is non-empty. A deferred cause is reported under `### Deferred`, never under `### Filed`.
 
 Print the plan, then continue. This print is not a gate.
 
 ```
 ── Causes ──
-RC-1 — missing roster SSoT (3 findings) → apply
-RC-2 — bare except in auth.ts (1 finding) → file: a member failed validation
-Uncited actionable: N → file
+RC-1 — missing roster SSoT (3 findings, 1 blocking) → apply
+RC-2 — extra test for a working fix (2 findings) → defer: no blocking member
+RC-3 — bare except in auth.ts (1 finding) → file: a member failed validation
+Uncited non-blocking: N → defer
+Uncited blocking: M → file
 Not causes: K (praise, thought, question)
 ```
 
 ## Phase 3 — Apply Causes (inline, one commit each)
 
-No eligible cause → skip to Phase 5.
+No cause in the apply bucket → commit nothing. The defer and file steps below still run, then Phase 5, which pushes only when a cause commit exists.
 
-The tree must be clean before the first cause. Uncommitted changes → halt and name them: a restore below must never touch the operator's work.
+The tree must be clean before the first applied cause. Uncommitted changes → halt and name them when the apply bucket is non-empty: a restore below must never touch the operator's work. An empty apply bucket does not halt on a dirty tree.
 
-∀ eligible r ∈ R, in order, **inline in this session**:
+∀ r in the apply bucket, in order, **inline in this session**:
 
 1. Re-read every cited file.
 2. Apply `r.fix` once, so every member callsite is covered. The fix line is the change. There is no alternate solution to pick.
@@ -167,14 +176,16 @@ fails after 3, or the only change that turns the tests green widens a denylist, 
 ── Apply ──
   1. [applied] RC-1 — missing roster SSoT — 3f2a1c0
   2. [failed → filed] RC-2 — bare except in auth.ts — test failure
-Applied: N | Filed: M
+Applied: N | Deferred: D | Filed: M
 ```
 
 ### Filing — the follow-up is a sibling, never a child
 
-File a cause that is ineligible or failed, and an actionable finding no cause cites. This is the skill's decision. Create the follow-up with `T=$(realpath skill://issue-triage/triage.ts) && bun "$T" create --title-file … --body-file …`. If that command cannot be resolved, stop and name issue-triage. Never raw `gh issue create`: issue mutations go through that CLI so blocked-by and parent are wired atomically, and a `Blocked by: #12` line in a body is invisible to `gh issue view` and to the frontier query.
+Two dispositions, one wiring. A non-blocking cause is not filed on its own: it joins the single deferral below. Today's filing is only an ineligible or failed blocking cause, an uncited finding that satisfies `blocks(f)`, or a cited finding of a malformed block that satisfies `blocks(f)`. Each of those gets its own issue. Create every follow-up with `T=$(realpath skill://issue-triage/triage.ts) && bun "$T" create --title-file … --body-file …`. If that command cannot be resolved, stop and name issue-triage. Never raw `gh issue create`: issue mutations go through that CLI so blocked-by and parent are wired atomically, and a `Blocked by: #12` line in a body is invisible to `gh issue view` and to the frontier query.
 
 **Comment text never reaches a command line.** Titles and bodies come from PR comments, which anyone can write. Write them with the `write` tool into a mktemp dir and pass the files; a double-quoted `$(…)` or backtick in an argument runs in the operator's shell.
+
+**Deferral — one issue per run.** Every cause that is not `blocking(r)`, every uncited finding that does not satisfy `blocks(f)`, and every cited finding of a malformed block that does not satisfy `blocks(f)`, and that is not already deferred or filed, goes into exactly one follow-up. They are not applied. One `create`, not one per cause. The title file is the bundle title `Deferred non-blocking review findings`. The body file lists every deferred mechanism, its fix line, and its findings, plus each uncited non-blocking finding, and includes `**Origin:** PR #<N>`. Same `--blocked-by` / `--parent` / `--size` / `--type` wiring as the bullets under the fence. Empty set after the already-deferred filter → no issue. Do not use the per-cause sentence `could not be applied` for this issue. Do not copy a non-blocking member of an applied cause into it.
 
 ```bash
 FILE_DIR=$(mktemp -d -t "omp-build-fix-file-XXXXXX")
@@ -208,6 +219,23 @@ So the filed issue takes the **origin's** parent, not the origin:
 {mechanism + member findings}
 
 **Action:** {the fix line, or the eligibility condition that failed}
+```
+
+Deferral body, one issue for the whole set. Not the per-cause template above:
+
+```markdown
+**Origin:** PR #<N> review <comment-id> (deferred: non-blocking; not applied this round).
+
+## Deferred causes
+
+### RC-2 — <title>
+- mechanism: <why>
+- fix: <the fix line, not applied>
+- findings: `path:line`
+
+## Uncited non-blocking findings
+
+- `suggestion:` <description> — `path:line`
 ```
 
 ## Phase 4 — Falsification Gate (per cause)
@@ -254,6 +282,7 @@ Write the summary (below) to `"$BODY"` → `gh pr comment "$PR" --body-file "$BO
 ## Review Fixes Applied
 
 **Applied:** N cause(s)
+**Deferred (non-blocking):** D cause(s) + U uncited finding(s) → #456
 **Filed (sibling issues):** J cause(s)
 **Already filed:** A cause(s)
 **Failed:** L cause(s)
@@ -262,6 +291,11 @@ Write the summary (below) to `"$BODY"` → `gh pr comment "$PR" --body-file "$BO
 
 ### Applied
 - [applied] RC-1 — missing roster SSoT — `3f2a1c0`
+
+### Deferred
+_(omit section when nothing was deferred this run; the summary line is then `**Deferred (non-blocking):** 0`)_
+- RC-2 — mechanism: the tests assert a fix that already passes — deferred, not applied — #456
+- uncited `suggestion:` polish the name — `ui.ts:12` — #456
 
 ### Filed
 - RC-2 — a member failed validation — #123 (sibling of #120, blocked-by #120)
@@ -286,18 +320,20 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 | No marked record by ME on the PR | Halt — run dev-review first |
 | `## Root causes` is exactly `none` | "No actionable findings", halt |
 | `## Root causes` has a line outside `### RC-` blocks | Halt — malformed record |
-| A block misses `mechanism:`, `fix:` or `findings:` | Not applied; its findings are filed |
-| Record has `### RC-` blocks | Apply those blocks; do not recluster |
+| A block misses `mechanism:`, `fix:` or `findings:` | Not applied. Cited findings that satisfy `blocks(f)` are filed per finding. Cited findings that do not are deferred in the one issue |
+| Record has `### RC-` blocks | Use those blocks; do not recluster. Apply only the apply bucket. Defer every block with no blocking member |
 | Conversation finding list, no section | Cluster with `skill://dev-review/root-causes.md` |
-| Actionable finding cited by no cause | File it, continue |
-| A member has C(f) := 0 | Cause is filed, not applied |
-| Fix line widens a denylist / adds a grep / copies an inventory | Cause is filed, not applied |
-| Cited path outside the repository | Cause is filed, not applied |
-| Cause already filed in an earlier round | `already filed → #N`, no new issue |
-| Dirty tree before Phase 3 | Halt, name the changes |
+| Actionable finding cited by no cause | `blocks(f)` → file it. Otherwise defer it. Do not ask |
+| A member has C(f) := 0 | A blocking cause is filed, not applied. A non-blocking cause is deferred, not filed on its own |
+| Fix line widens a denylist / adds a grep / copies an inventory | A blocking cause is filed, not applied. A non-blocking cause is deferred |
+| Cited path outside the repository | A blocking cause is filed, not applied. A non-blocking cause is deferred |
+| Cause already filed or deferred in an earlier round | `already filed → #N` or `already deferred → #N`, no new issue |
+| All causes non-blocking | Commit nothing. File exactly one follow-up listing them. Receipt reports deferred → #N. No push |
+| Mixed causes | Apply the blocking eligible ones. One deferral issue holds every non-blocking cause and uncited non-blocking finding |
+| Dirty tree before an apply | Halt, name the changes. An empty apply bucket does not halt |
 | Apply fails after 3 | Restore to the last cause commit, `[failed]`, file, continue |
 | Falsification fails twice | Revert that cause's commits, `[failed]`, file |
-| Quality gate fails 3× on the push | Halt, commits stay local |
+| Quality gate fails 3× on the push | Halt, commits stay local. No cause commit → the push is skipped, not failed |
 | ¬∃ PR | Skip Phase 6, local only, no label |
 | ∄ SOURCE_PARENT | Filed issue is top-level — ¬parent it to the origin |
 | review-driven fix | Phase 5 writes no `reviewed`; landing owns the gate |
@@ -322,7 +358,7 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 
 ## Exit
 
-- **Success:** causes applied or filed + committed + pushed + PR comment posted → print the summary (Applied/Filed/Failed) + `Next: re-review with skill://dev-review`. Stop.
+- **Success:** blocking causes applied or filed, non-blocking causes deferred in one issue or already deferred, receipt posted. A run that applied nothing is success without a commit or a push. Print Applied / Deferred / Filed / Failed + `Next: re-review with skill://dev-review`. Stop.
 - **Failure (quality gate, ¬findings, unrecoverable):** return the error and stop — the caller decides next steps outside the automatic bound.
 - **Loop cap:** shared `createReviewLoop` (max 2 allocated fix rounds). On
   `loop.closed === 'stop'` or when `assertFixAllowed` refuses, follow
