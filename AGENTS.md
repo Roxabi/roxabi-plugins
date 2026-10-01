@@ -84,6 +84,7 @@ Keep all READMEs current. Adding/modifying/removing a plugin → update:
 - Single quotes, no semicolons (any JS/TS ∈ plugins)
 - Markdown: ATX headings (`#`), tables for structured data, code blocks for commands
 - A test that forks a process MUST be named `*.integration.test.*` — 30s budget, not the 5s unit default (#502); `vitest.setup.ts` counts real forks and fails the build if one lands in `unit`
+- Tests run without git's repo-location env (`vitest.setup.ts` strips `git rev-parse --local-env-vars`), so a hook's `GIT_DIR` cannot redirect a git fixture; a run that changes the repo's `core.bare` fails (`vitest.global-setup.ts`)
 
 ## Gotchas
 
