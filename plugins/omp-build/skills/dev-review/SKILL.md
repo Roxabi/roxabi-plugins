@@ -330,7 +330,7 @@ task(
 )
 ```
 
-Workers run in parallel. Collect their findings into Phase 4. A missing or weak test among them is not finally labelled until Phase 4 step 3b. Single-chunk reviews skip this recall phase, not that rewrite.
+Workers run in parallel. Collect their findings into Phase 4. A missing or weak test among them is not finally labelled until Phase 4 step 3b. The worker's `Source: recall` is an emission mark, not an input to `blocks(f)` after that step. Single-chunk reviews skip this recall phase, not that rewrite.
 
 ### Review dimensions
 correctness | security | performance | architecture | tests | readability | observability
@@ -401,14 +401,14 @@ One phase owns the final finding set, the single rendered review, and the option
    - same file:line + issue → keep max C
    - one finding per `(file, class)` → keep max C
    - findings sharing file:line and intersecting class sets after subsumption → merge with max C, subsumed class stripping, and unioned `Raw callsites`
-3. **Classify:** normal findings follow their category label. A finding with `Source: recall` is normalized to `issue(blocking):` unless step 3b downgrades it.
-3b. **Missing or weak test — last label write.** After collection, dedup, and the recall normalization, before the verdict and before root causes, rewrite a finding whose subject is a missing or weak test. That includes an agent `issue:`, a recall finding (the recall worker's required `issue(blocking):` is not final), and a Phase 2 unmet-criterion finding whose only gap is that test. It does not include a missing SC→Test matrix, and it does not include an unmet criterion whose gap is the behaviour itself. Keep the finding. It stays blocking, labelled `issue:`, only when the behaviour it leaves unproven is an acceptance criterion of the issue with no other evidence in the PR, or a safety invariant (a path that merges, releases or deploys, deletes, publishes, grants permission, or stops or disarms an automated action). Otherwise relabel it `suggestion:` and clear `Source: recall`. `blocks(f)` is evaluated on this post-rewrite label. A cleared source does not keep the finding blocking. `suggestion:` is not in `blocks(f)`.
+3. **Classify:** normal findings follow their category label. Before step 3b, a finding with `Source: recall` is normalized to `issue(blocking):`. That normalization is not re-applied after step 3b. A surviving `Source: recall` line does not restore a blocking label.
+3b. **Missing or weak test — last label write.** After collection, dedup, and the recall normalization, before the verdict and before root causes, rewrite a finding whose subject is a missing or weak test. That includes an agent `issue:`, a recall finding (the recall worker's required `issue(blocking):` is not final), and a Phase 2 unmet-criterion finding whose only gap is that test. It does not include a missing SC→Test matrix, and it does not include an unmet criterion whose gap is the behaviour itself. Keep the finding. It stays blocking, labelled `issue:`, only when the behaviour it leaves unproven is an acceptance criterion of the issue with no other evidence in the PR, or a safety invariant (a path that merges, releases or deploys, deletes, publishes, grants permission, or stops or disarms an automated action). Otherwise relabel it `suggestion:`. Clear `Source: recall` when it is present. That relabel is the last label write. A surviving `Source: recall` line does not re-enter `blocks(f)`. After this step `blocks(f)` is the label set only, so a downgraded finding does not block whether or not that line survived.
 4. **Keep by default:** after deterministic dedup, every finding remains in F. Confidence controls ordering. A validation zero (C := 0) also makes the finding's cause ineligible for auto-apply in `skill://fix`. No confidence threshold, agent judgement, or second LLM pass may remove a finding. Blocking findings are never filtered.
 5. **Sort and group:** C descending within Blockers → Warnings → Suggestions → Praise, using the label → group table above. `suggestion:` is a Warning, not a Suggestion.
 6. **Name root causes.** Read `skill://dev-review/root-causes.md`. R := causes over actionable findings, after reading cited lines where a join is not already obvious. praise, thought, question never enter R. This step writes no code.
 7. **Disclose roster allocation** in the review output whenever non-empty: `capped[]` (the per-chunk union) and `warnings[]`.
 
-`blocks(f) := label ∈ {issue:, issue(blocking):, todo:, suggestion(blocking):} ∨ source(f)=recall`. Evaluated after step 3b. A downgraded missing-test finding is `suggestion:` with `Source: recall` cleared, so it does not satisfy `blocks(f)`.
+`blocks(f) := label ∈ {issue:, issue(blocking):, todo:, suggestion(blocking):}`. Evaluated after step 3b. After step 3b, `blocks(f)` is the label set only. A downgraded finding does not block whether or not a `Source: recall` line survived.
 
 ### Verdict
 
