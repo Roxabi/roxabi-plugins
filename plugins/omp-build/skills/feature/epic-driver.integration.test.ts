@@ -1060,6 +1060,22 @@ describe('epic-driver — drop disarms without the dashboard', () => {
     expect(writes().slice(0, 2)).toEqual(['edit 11 --remove-label reviewed', 'merge 11 --disable-auto'])
   })
 
+  it('disarms when the review-comments query fails', () => {
+    sandbox()
+    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
+    serveEpic([
+      childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', 'c'.repeat(40), armed)] }),
+    ])
+    servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    writeFileSync(
+      path.join(sandboxOf().state, 'reviews.json'),
+      JSON.stringify({ data: null, errors: [{ message: 'reviews failed' }] }),
+    )
+    const run = drive(['report', '--outcome', 'drop', '--reason', 'driver-error'])
+    expect(run.code).toBe(0)
+    expect(writes().slice(0, 2)).toEqual(['edit 11 --remove-label reviewed', 'merge 11 --disable-auto'])
+  })
+
   it('does not list an open unarmed PR or a closed armed PR as disarmed', () => {
     sandbox()
     const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }

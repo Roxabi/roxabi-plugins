@@ -322,7 +322,7 @@ function gather(
   epic: number,
   run: string,
   base: string,
-  { git: withGit = true, dashboard = true } = {},
+  { git: withGit = true, dashboard = true, reviews = true } = {},
 ): Gathered {
   const { owner, name, full } = repoName(repo)
   const data = graphql<EpicData>(repo, EPIC_QUERY, { owner, name, epic })
@@ -360,7 +360,7 @@ function gather(
         .map((pr) => pr.number),
     ),
   ]
-  const stopped = stoppedReviews(repo, owner, name, viewer, open)
+  const stopped = reviews ? stoppedReviews(repo, owner, name, viewer, open) : new Set<number>()
   const numbers = nodes.map((node) => node.number)
   const refs = withGit ? branchRefs(repo, base, numbers) : new Map<number, BranchFacts[]>()
 
@@ -731,7 +731,7 @@ async function report(
     const step = nextStep(facts)
     if (step.action !== 'complete') throw new Refused(`the goal is not complete (next: ${step.action})`)
   } else {
-    const light = gather(repo, epic, run, base, { git: false, dashboard: false })
+    const light = gather(repo, epic, run, base, { git: false, dashboard: false, reviews: false })
     const armed = light.facts.children
       .flatMap((child) => child.prs)
       .filter((pr) => pr.state === 'OPEN' && pr.armed)
