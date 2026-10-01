@@ -411,10 +411,17 @@ Never choose on the user's behalf or offer “Merge as-is” for a red verdict �
 under the Epic goal, where the choice follows `step.action` with no prompt.
 The human's **Stop** while a fix is still available simply exits; `enforceStop` is
 valid only when the loop itself returned `step.action === 'stop'`. A **Stop** at
-the second fix offer (`fixes=2`) means the next resume escalates (derived
-`review-bound` once the allocating review sits after the last receipt).
-`record` has already counted the round when the choice is offered: say so, since a
-red verdict **spends/allocates** a fix round whether or not the operator then fixes.
+the second fix offer (`fixes=2`) simply exits. It does not escalate: the
+allocating review precedes its marker and its receipt, so the next resume stays
+open until that receipt is posted. A later red review after that receipt is the
+derived `review-bound`. A crash between the fix push and the receipt is the same
+open allocation, never a sticky stop.
+`resumeReviewLoop` already counts one review posted after the last marker.
+`record` acknowledges that review when the verdict matches it, and does not
+count it again. More than one unrecorded review is `history-ambiguous`: no live
+grant. `record` has already counted the round when the choice is offered: say so,
+since a red verdict **spends/allocates** a fix round whether or not the operator
+then fixes.
 
 ### 6.5 Fix
 
@@ -432,8 +439,9 @@ red verdict **spends/allocates** a fix round whether or not the operator then fi
 Both routes follow `dev-review` Phase 8's executable action contract. A rejected
 grant stops before editing; print `error.stop` when present and publish the dossier.
 
-Verify and commit/push the fixes, then return to §6.4 on the same PR for a fresh
-review. State `step.remaining`.
+Verify and commit/push the fixes, and post `## Review Fixes Applied` in that same
+step. A receipt failure after a successful push stops; do not return to §6.4 until
+the receipt is on the PR. State `step.remaining`.
 
 ### 6.6 Bound
 

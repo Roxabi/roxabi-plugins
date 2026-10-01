@@ -154,9 +154,11 @@ PRs resume directly into review; empty history receives a baseline marker.
 History is per automation identity, not a tamper-proof ledger. Foreign records
 are ignored; deletion/editing of the account's comments is not detected. Empty
 history starts at zero; review-only legacy history without accounting/receipts
-(such as #636) is ambiguous, not proof of zero spent rounds. A terminal stop
-remains sticky through later greens. Two completed fixes followed by an
-unambiguous green remain eligible for landing.
+(such as #636) is ambiguous, not proof of zero spent rounds. A review posted
+after the last marker is already counted; recording it does not count it twice,
+and more than one unrecorded review is ambiguous. An allocated fix whose receipt
+is not posted yet stays open. A terminal stop remains sticky through later greens.
+Two completed fixes followed by an unambiguous green remain eligible for landing.
 
 The canonical choices, escalation dossier and human-approved superseding-PR
 procedure live in `skills/dev-review/SKILL.md` Phase 8. Skills route through the

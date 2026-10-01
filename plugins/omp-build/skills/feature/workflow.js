@@ -843,18 +843,31 @@ function analyzeReviewHistory(comments, { me, maxFixRounds = MAX_FIX_ROUNDS } = 
     stopOrigin = 'historical'
   } else if (
     (hasMarker && receipts > markerFixes) ||
+    (hasMarker && codeReviews > markerReviews + 1) ||
     (!hasMarker && ((codeReviews > 0 && receipts === 0) || receipts > codeReviews)) ||
     (latestReview > latestReceipt && latestVerdict === null)
   ) {
     // Review-only records (including #636) do not prove how many fixes ran.
+    // More than one code review ahead of the last marker is not one crashed record.
     rounds.stopReason = 'history-ambiguous'
     stopOrigin = 'ambiguous'
-  } else if (rounds.fixes >= maxFixRounds && latestReview > latestReceipt && latestVerdict === 'Request changes') {
+  } else if (
+    rounds.fixes >= maxFixRounds &&
+    latestReceipt > latestAllocation &&
+    latestReview > latestReceipt &&
+    latestVerdict === 'Request changes'
+  ) {
+    // The allocating review precedes its marker and its receipt. It is not terminal.
+    // A red that follows the receipt of the exhausted allocation is.
     rounds.stopReason = 'review-bound'
     stopOrigin = 'terminal-red'
   }
+  const allocationReceipted = markerFixes === 0 || latestReceipt > latestAllocation
   const approvedForLanding =
-    latestVerdict?.startsWith('Approve') === true && latestReview > latestReceipt && latestReview > latestAllocation
+    allocationReceipted &&
+    latestVerdict?.startsWith('Approve') === true &&
+    latestReview > latestReceipt &&
+    latestReview > latestAllocation
   const empty = !hasMarker && codeReviews === 0 && receipts === 0
   return {
     rounds,
@@ -969,6 +982,10 @@ function buildReviewLoop(
   /** @type {string} */
   let closedReason = seedStopReason || 'review-bound'
   let pendingStep = null
+  // A resume after the review was posted already counted it. `record` acknowledges
+  // that one review; a second unrecorded review never becomes a live grant.
+  const postedAhead = provenance ? provenance.codeReviews - provenance.markerReviews : 0
+  let acknowledged = false
   let expectedCodeReviews = provenance?.codeReviews ?? 0
 
   const STOP_GUIDANCE =
@@ -1069,8 +1086,17 @@ function buildReviewLoop(
       if (v !== 'green' && v !== 'red') {
         throw new TypeError(`createReviewLoop: verdict must be "green" or "red", got ${JSON.stringify(verdict)}`)
       }
-      reviews += 1
-      expectedCodeReviews++
+      if (!acknowledged && postedAhead > 1) return stopStep('history-ambiguous')
+      const acknowledging = !acknowledged && postedAhead === 1
+      if (acknowledging) {
+        acknowledged = true
+        const posted = provenance?.latestVerdict
+        const matches = v === 'red' ? posted === 'Request changes' : posted?.startsWith('Approve') === true
+        if (!matches) return stopStep('history-stale')
+      } else {
+        reviews += 1
+        expectedCodeReviews++
+      }
       if (v === 'green') {
         closed = 'land'
         pendingStep = null

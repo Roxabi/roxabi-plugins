@@ -63,6 +63,11 @@ At most two automatic review→fix rounds per PR and automation identity.
 A remaining blocker after those rounds stops automatic corrections and landing.
 The stop survives a new session and a later green. A final green after two
 completed fixes is eligible only if no stop has already occurred.
+One review posted after the last marker is already counted; recording it
+acknowledges that review and does not count it twice. More than one unrecorded
+review is unprovable. An allocated fix whose receipt is not posted yet is still
+open: it is not a spent stop. The stop is a later red after that receipt, or an
+explicit stop marker.
 An allocation is spent before the Fix/Stop choice and is executable only once;
 reconstructing history never recreates its permission. CI corrections spend the
 same budget. Unprovable history requires human guidance, not a reset.

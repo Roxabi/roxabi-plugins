@@ -105,6 +105,12 @@ describe('fix applies root causes, one decision per cause', () => {
     expect(ids).toEqual(['gather', 'causes', 'apply', 'falsify', 'push', 'post-comment'])
   })
 
+  it('posts the receipt in the same step as the push (#662)', () => {
+    expect(FIX).toContain('Phase 5 and Phase 6 are one step.')
+    expect(FIX).toContain('If the push succeeded and `gh pr comment` fails, stop.')
+    expect(FIX).toContain('Do not post the receipt for a push that did not land.')
+  })
+
   it('applies posted causes as the review joined them, with no solution menu', () => {
     expect(FIX).toContain('R := R_posted. The review owned the joins. Do not split or merge those blocks.')
     expect(FIX).toContain('The fix line is the change. There is no alternate solution to pick.')
