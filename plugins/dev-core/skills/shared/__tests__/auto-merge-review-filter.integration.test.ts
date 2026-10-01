@@ -146,4 +146,19 @@ describe('fleet auto-merge review filter', () => {
       ]),
     ).toBe('')
   })
+
+  it('a non-array page refuses to reshape', () => {
+    const yml = generateAutoMergeYml()
+    const marker = "jq -c '"
+    const open = yml.indexOf(marker)
+    if (open < 0) throw new Error('comment reshape is not in the generated workflow')
+    const reshape = yml.slice(open + marker.length, yml.indexOf("')", open))
+    const pages = JSON.stringify([
+      [{ user: { login: ME }, body: reviewRecord('Approve', HEAD), created_at: '2026-01-01T00:00:00Z' }],
+      {},
+    ])
+    const shaped = spawnSync('jq', ['-c', reshape], { input: pages, encoding: 'utf8' })
+    expect(shaped.status).not.toBe(0)
+    expect(shaped.stderr).toContain('incomplete comment pages')
+  })
 })
