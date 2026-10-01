@@ -49,7 +49,13 @@ function stubGh(dir: string): void {
     `#!/bin/bash
 printf '%s\\n' "$*" >> "$GH_LOG"
 case "$*" in
-  *'--disable-auto'*) exit 0 ;;
+  *'--disable-auto'*)
+    if [ "\${GH_DISABLE_NOT_ENABLED:-}" = 1 ]; then
+      echo 'GraphQL: Auto merge is not enabled for this pull request (disablePullRequestAutoMerge)' >&2
+      exit 1
+    fi
+    exit 0
+    ;;
   *'--remove-label'*) exit 0 ;;
   *'pr comment'*) exit 0 ;;
   *'--auto'*)
@@ -77,7 +83,11 @@ case "$*" in
       echo 'view failed' >&2
       exit 1
     fi
-    printf '%s\\n' "\${GH_ARMED:-false}"
+    if [ "\${GH_STILL_ARMED:-}" = 1 ]; then
+      printf '%s\\n' '{"enabledAt":"x","mergeMethod":"MERGE"}'
+      exit 0
+    fi
+    printf '%s\\n' "\${GH_ARMED:-null}"
     exit 0
     ;;
 esac
@@ -244,6 +254,7 @@ describe('dependabot exemption when the record gate is on', () => {
     expect(ran.log).toContain('--disable-auto')
     expect(ran.log).toContain('--remove-label reviewed')
     expect(ran.log.indexOf('--disable-auto')).toBeLessThan(ran.log.indexOf('--remove-label reviewed'))
+    expect(ran.log).not.toContain('--auto --merge')
   })
 
   it('still refuses a dependabot semver-major bump', () => {
@@ -335,8 +346,46 @@ describe('dependabot exemption when the record gate is on', () => {
     const second = ran.log.indexOf('--auto --merge', first + 1)
     expect(first).toBeLessThan(disabled)
     expect(disabled).toBeLessThan(second)
-    expect(ran.log).toContain(`--match-head-commit ${HEAD}`)
-    expect(ran.log).not.toContain('--remove-label')
+    const afterDisable = ran.log.slice(disabled)
+    const retryAt = afterDisable.indexOf('--auto --merge')
+    expect(retryAt).toBeGreaterThan(0)
+    const retryLine = afterDisable.slice(retryAt, afterDisable.indexOf('\n', retryAt))
+    expect(retryLine).toContain(`--match-head-commit ${HEAD}`)
+    expect(ran.log.match(new RegExp(`--match-head-commit ${HEAD}`, 'g'))).toHaveLength(2)
+    expect(ran.log.slice(0, disabled)).toContain(`--match-head-commit ${HEAD}`)
+  })
+
+  it('a not-enabled disable still removes the label, and a still-set follow-up aborts', () => {
+    const sync = runScript(stepScript(yml(), 'Disarm auto-merge on a moved head'), {
+      ACTION: 'synchronize',
+      GH_DISABLE_NOT_ENABLED: '1',
+    })
+    expect(sync.status).not.toBe(0)
+    expect(sync.log).toContain('--disable-auto')
+    expect(sync.log).toContain('--remove-label reviewed')
+    expect(sync.log.indexOf('--disable-auto')).toBeLessThan(sync.log.indexOf('--remove-label reviewed'))
+    expect(`${sync.stdout}\n${sync.stderr}`).not.toContain('auto-merge still armed')
+
+    const enable = runScript(stepScript(yml(), 'Enable auto-merge (merge commit)'), {
+      ACTION: 'labeled',
+      AUTHOR: 'someone',
+      GH_COMMENTS_FAIL: '1',
+      GH_DISABLE_NOT_ENABLED: '1',
+    })
+    expect(enable.status).not.toBe(0)
+    expect(enable.log).toContain('--disable-auto')
+    expect(enable.log).toContain('--remove-label reviewed')
+    expect(enable.log.indexOf('--disable-auto')).toBeLessThan(enable.log.indexOf('--remove-label reviewed'))
+    expect(enable.log).not.toContain('--auto --merge')
+
+    const still = runScript(stepScript(yml(), 'Disarm auto-merge on a moved head'), {
+      ACTION: 'synchronize',
+      GH_DISABLE_NOT_ENABLED: '1',
+      GH_STILL_ARMED: '1',
+    })
+    expect(still.status).not.toBe(0)
+    expect(still.log).toContain('--remove-label reviewed')
+    expect(`${still.stdout}\n${still.stderr}`).toContain('auto-merge still armed')
   })
 })
 

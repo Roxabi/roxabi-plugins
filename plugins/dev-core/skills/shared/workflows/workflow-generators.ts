@@ -166,6 +166,36 @@ ${APP_MINT_STEP}
 `
 }
 
+/** Disable auto-merge, then drop `reviewed`. `gh pr merge --disable-auto` errors
+ *  when auto-merge is already off; that not-enabled error is success, so the
+ *  label is always removed. Abort only if a follow-up read shows
+ *  `autoMergeRequest` still set, or the read itself fails. */
+function idempotentDisarm(indent: string): string {
+  const lines = [
+    'set +e',
+    'disable_out=$(gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --disable-auto 2>&1)',
+    'disable_code=$?',
+    'set -e',
+    'if [ "$disable_code" -ne 0 ]; then',
+    '  printf \'%s\\n\' "$disable_out" >&2',
+    "  if ! printf '%s' \"$disable_out\" | grep -qi 'not enabled'; then",
+    '    echo "::error::failed to disable auto-merge"',
+    '    exit 1',
+    '  fi',
+    'fi',
+    'gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --remove-label reviewed',
+    'if ! armed=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json autoMergeRequest --jq \'.autoMergeRequest\'); then',
+    '  echo "::error::could not confirm auto-merge is off"',
+    '  exit 1',
+    'fi',
+    'if [ "$armed" != "null" ]; then',
+    '    echo "::error::auto-merge still armed after disarm"',
+    '    exit 1',
+    'fi',
+  ]
+  return lines.map((line) => `${indent}${line}`).join('\n')
+}
+
 /** Opt-in: enable only from the latest omp-build review of this head.
  *  dependabot[bot] skips the record only. */
 function generateReviewedHeadAutoMergeYml(branches: string): string {
@@ -219,10 +249,10 @@ jobs:
           PR_NUMBER: \${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
-          # Writes first. A failed view must not skip the disarm, and both
-          # writes are idempotent when auto-merge is already off or the label is gone.
-          gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --disable-auto
-          gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --remove-label reviewed
+          # Writes first. A not-enabled disable is success, so the label is always
+          # removed. A failed view must not skip those writes. Abort only if a
+          # follow-up read shows autoMergeRequest still set.
+${idempotentDisarm('          ')}
           echo "::error::head moved after review — auto-merge disarmed"
           exit 1
 
@@ -266,8 +296,7 @@ ${labeledMint}
         run: |
           set -euo pipefail
           disarm() {
-            gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --disable-auto
-            gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --remove-label reviewed
+${idempotentDisarm('            ')}
           }
           # synchronize is a new head. Do not re-enable from a comment.
           if [ "$ACTION" != "labeled" ]; then
