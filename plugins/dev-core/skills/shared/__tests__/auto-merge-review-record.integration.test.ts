@@ -56,6 +56,8 @@ fi
 printf '%s\\n' "$*" >> "$GH_LOG"
 case "$*" in
   *'--disable-auto'*)
+    # Non-draft: disablePullRequestAutoMerge exits 0 even when auto-merge is already off.
+    # GH_DISABLE_NOT_ENABLED is not that case. GH_DISABLE_CANT is a draft.
     if [ "\${GH_DISABLE_CANT:-}" = 1 ]; then
       echo "GraphQL: Can't disable auto-merge for this pull request. (disablePullRequestAutoMerge)" >&2
       exit 1
@@ -498,13 +500,14 @@ describe('moved-head disarm token and exit (#676)', () => {
     }
     const disarm = stepBlock(gated(), 'Disarm auto-merge on a moved head')
     expect(stepEnv(disarm).GH_TOKEN).toBe('$' + '{{ github.token }}')
+    expect(stepEnv(disarm).PR_AUTO_MERGE).toBe('$' + '{{ toJSON(github.event.pull_request.auto_merge) }}')
     expect(disarm).not.toContain('Actions default token')
     expect(disarm).not.toContain('No GH_TOKEN')
   })
 
   it('a synchronize with no auto-merge and no reviewed label exits 0 with no error annotation', () => {
     const ran = runDeclared(gated(), 'Disarm auto-merge on a moved head', {
-      GH_DISABLE_NOT_ENABLED: '1',
+      PR_AUTO_MERGE: 'null',
       PR_LABELS: '[]',
     })
     expect(ran.status).toBe(0)
@@ -517,6 +520,7 @@ describe('moved-head disarm token and exit (#676)', () => {
     const draft = runDeclared(gated(), 'Disarm auto-merge on a moved head', {
       GH_DISABLE_CANT: '1',
       GH_VIEW_EMPTY: '1',
+      PR_AUTO_MERGE: 'null',
       PR_LABELS: '[]',
     })
     expect(draft.status).toBe(0)
@@ -525,6 +529,7 @@ describe('moved-head disarm token and exit (#676)', () => {
     const still = runDeclared(gated(), 'Disarm auto-merge on a moved head', {
       GH_DISABLE_CANT: '1',
       GH_STILL_ARMED: '1',
+      PR_AUTO_MERGE: 'null',
       PR_LABELS: '[]',
     })
     expect(still.status).toBe(1)
@@ -532,13 +537,30 @@ describe('moved-head disarm token and exit (#676)', () => {
   })
 
   it('a synchronize on an armed or labeled PR disarms and exits 1 with the annotation', () => {
-    const armed = runDeclared(gated(), 'Disarm auto-merge on a moved head', { PR_LABELS: '[]' })
+    const payload = JSON.stringify({
+      enabled_by: { login: 'omp-bot' },
+      merge_method: 'merge',
+      commit_title: null,
+      commit_message: null,
+    })
+    const armed = runDeclared(gated(), 'Disarm auto-merge on a moved head', {
+      PR_AUTO_MERGE: payload,
+      PR_LABELS: '[]',
+    })
     expect(armed.status).toBe(1)
     expect(`${armed.stdout}\n${armed.stderr}`).toContain('::error::head moved after review — auto-merge disarmed')
     expect(armed.log).toContain('--disable-auto')
+    expect(armed.log).not.toContain('--remove-label reviewed')
+
+    const pretty = runDeclared(gated(), 'Disarm auto-merge on a moved head', {
+      PR_AUTO_MERGE: JSON.stringify(JSON.parse(payload), null, 2),
+      PR_LABELS: '[]',
+    })
+    expect(pretty.status).toBe(1)
+    expect(`${pretty.stdout}\n${pretty.stderr}`).toContain('::error::head moved after review — auto-merge disarmed')
 
     const labeled = runDeclared(gated(), 'Disarm auto-merge on a moved head', {
-      GH_DISABLE_NOT_ENABLED: '1',
+      PR_AUTO_MERGE: 'null',
       PR_LABELS: JSON.stringify([{ name: 'reviewed' }]),
     })
     expect(labeled.status).toBe(1)
