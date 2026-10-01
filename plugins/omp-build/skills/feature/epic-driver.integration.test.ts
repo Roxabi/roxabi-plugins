@@ -1005,6 +1005,32 @@ describe('epic-driver — drop disarms without the dashboard', () => {
     expect(writes().slice(0, 2)).toEqual(['edit 11 --remove-label reviewed', 'merge 11 --disable-auto'])
   })
 
+  it('does not list an open unarmed PR or a closed armed PR as disarmed', () => {
+    sandbox()
+    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
+    const quiet = { labels: { nodes: [] }, autoMergeRequest: null }
+    serveEpic([
+      childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', 'c'.repeat(40), armed)] }),
+      childNode(3, 'fix(y): second child', { prs: [prNode(12, 'fix/3-second-child', 'd'.repeat(40), quiet)] }),
+      childNode(4, 'chore(z): third child', {
+        prs: [prNode(13, 'chore/4-third-child', 'e'.repeat(40), { ...armed, state: 'CLOSED' })],
+      }),
+    ])
+    servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    servePr(12, { state: 'OPEN', labels: [], autoMerge: false })
+    servePr(13, { state: 'CLOSED', labels: ['reviewed'], autoMerge: true })
+    const run = drive(['report', '--outcome', 'drop', '--reason', 'driver-error'])
+    expect(run.code).toBe(0)
+    expect(writes()).toEqual([
+      'edit 11 --remove-label reviewed',
+      'merge 11 --disable-auto',
+      `comment 1 <!-- omp-build:goal-report run=${RUN} -->`,
+    ])
+    expect(run.stdout).toContain('| Disarmed | #11 disarmed |')
+    expect(run.stdout).not.toContain('#12')
+    expect(run.stdout).not.toContain('#13')
+  })
+
   it('disarms the second PR when the first disarm fails, and exits non-zero naming the PR still armed', () => {
     sandbox()
     const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
