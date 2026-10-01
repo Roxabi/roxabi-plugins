@@ -12,16 +12,16 @@ version: 0.1.0
 
 ## Success
 
-I := F collected ∧ R named ∧ verdict posted (PR ∃) ∧ Phase 8 decision made
-V := `gh pr view {N} --comments | grep "## Code Review"` ∧ verdict ∈ {Approve, Request changes}
+I := F collected ∧ R named ∧ verdict posted (PR ∃) ∧ Phase 8 decision made ∧ (PR ∃ → the posted line 2 is the pre-post `REVIEWED_HEAD` snapshot, and the post-time `headRefOid` equals that snapshot; a different head is not posted)
+V := `gh pr view {N} --comments | grep "## Code Review"` ∧ verdict ∈ {Approve, Request changes} ∧ the posted line 2 is `<!-- omp-build:review-head sha=<40 lowercase hex> -->` of that snapshot. A post-time `headRefOid` that differs → do not post.
 
 Review branch/PR via fresh agents → Conventional Comments → root causes → findings + verdict.
 
 **⚠ Flow: single continuous pipeline (Phases 1→4 + 8). ¬stop between phases. Decision response → immediately execute next phase. Stop only on: |Δ|=0, explicit Cancel, roster `review_halt`, or Phase 8 completion.**
 
 ```
-/skill:dev-review          → diff origin/${BASE}...HEAD  (BASE = staging|main|master, first that exists)
-/skill:dev-review #42      → gh pr diff 42
+/skill:dev-review          → snapshot `git rev-parse HEAD`, then diff origin/${BASE}...HEAD  (BASE = staging|main|master, first that exists)
+/skill:dev-review #42      → snapshot `gh pr view 42 --json headRefOid` before `gh pr diff 42`. Do not post if a re-read differs.
 ```
 
 Let:
@@ -47,8 +47,8 @@ Let:
 
 ## Pre-flight
 
-Success: F collected ∧ R named ∧ verdict posted ∧ Phase 8 decision made
-Evidence: `gh pr view {N} --comments | grep "## Code Review"`
+Success: F collected ∧ R named ∧ verdict posted ∧ Phase 8 decision made ∧ (PR ∃ → posted line 2 is the pre-post snapshot, and a different post-time head is not posted)
+Evidence: `gh pr view {N} --comments | grep "## Code Review"` ∧ posted line 2 is the snapshot sha
 Steps: gather-changes → secret-scan → spec-compliance → multi-domain-review → merge-render-post → next-step
 ¬clear → STOP + ask: "Which branch/PR to review?"
 
@@ -85,15 +85,20 @@ Steps: gather-changes → secret-scan → spec-compliance → multi-domain-revie
    SKILL_DIR="${SKILL_DIR:?dev-review Phase 1: skill directory not announced — export SKILL_DIR to this skill's directory and re-run}"
    BASE=$(. "$SKILL_DIR/../shared/lib.sh" && detect_base_branch)
    ```
-2. PR# → `gh pr diff <#>` | else → `git diff origin/${BASE}...HEAD`
-3. Δ = `git diff --name-only origin/${BASE}...HEAD` (or `gh pr diff <#> --name-only`)
-4. ∀ f ∈ Δ: read full (skip binaries, note)
+2. When a PR is bound, snapshot the reviewed commit before any diff: `REVIEWED_HEAD=$(gh pr view "$PR" --json headRefOid --jq .headRefOid)`, then diff that PR (`gh pr diff "$PR"`), never the local tree. Do not `git diff` the worktree. A local-only review (no PR bound) snapshots `git rev-parse HEAD`, diffs `git diff origin/${BASE}...HEAD`, and posts no head line. Re-read the snapshotted oid immediately after the diff. If it differs, discard the diff and stop: the head moved, re-run the review. Do not judge a diff whose commit is not the snapshot.
+3. Δ names come from that same diff. A bound PR uses `gh pr diff "$PR" --name-only`, never `git diff` of the local tree. A local-only review uses `git diff --name-only origin/${BASE}...HEAD`.
+4. ∀ f ∈ Δ: read the file body from the snapshot — `git show "$REVIEWED_HEAD:$f"` when a PR is bound, the worktree file only when no PR is bound. Never the worktree when a PR is bound. Skip binaries, note.
 5. |Δ| = 0 → halt
 6. |Δ| > 50 → warn, suggest split
 
 ## Phase 1.5 — Secret Scan
 
+The scan reads the diff step 2 judged. A bound PR pipes `gh pr diff "$PR"`; a local-only review pipes `git diff origin/${BASE}...HEAD`.
+
 ```bash
+# bound PR — never `git diff` of the local tree
+gh pr diff "$PR" | grep -iE '(password|passwd|secret|api[_-]?key|auth[_-]?token|access[_-]?token|private[_-]?key)\s*[:=]\s*["\x27`][^"\x27`]{8,}' | head -20
+# local-only review
 git diff origin/${BASE}...HEAD | grep -iE '(password|passwd|secret|api[_-]?key|auth[_-]?token|access[_-]?token|private[_-]?key)\s*[:=]\s*["\x27`][^"\x27`]{8,}' | head -20
 ```
 
@@ -120,6 +125,8 @@ git diff origin/${BASE}...HEAD | grep -iE '(password|passwd|secret|api[_-]?key|a
 In a repo with `.semctx/`, that matrix is the proof section `/feature` generated
 from the closed change contract. The issue body remains the spec if they diverge.
 5a. **UI proof.** When Δ touches `frontend.path` or `shared.ui` and `.dev/stack.yml` declares `commands.test_e2e`, a `ui-manual-only` row is an `issue(blocking):` — the e2e command is the proof, not a hand check. Without an e2e command, `ui-manual-only` is legal only when the PR body records an agent browser check: steps, URL, observed result. The NO TEST enum itself is unchanged.
+
+A finding emitted in steps 4–5a whose only gap is a missing or weak test is not finally labelled in this phase. Phase 4 step 3b rewrites that label. A missing SC→Test matrix stays `issue(blocking):`. An unmet criterion whose gap is the behaviour itself, not the test, stays `issue(blocking):`.
 
 ### τ comes from the `size:` label — nothing else
 
@@ -328,7 +335,7 @@ task(
 )
 ```
 
-Workers run in parallel. Collect their blocking findings into Phase 4. Single-chunk reviews skip Phase 3b.
+Workers run in parallel. Collect their findings into Phase 4. A missing or weak test among them is not finally labelled until Phase 4 step 3b. The worker's `Source: recall` is an emission mark, not an input to `blocks(f)` after that step. Single-chunk reviews skip this recall phase, not that rewrite.
 
 ### Review dimensions
 correctness | security | performance | architecture | tests | readability | observability
@@ -379,22 +386,34 @@ C(f) = min(diagnostic_certainty, fix_certainty)
 | Architecture | `thought:` / `question:` | ✗ |
 | Good work | `praise:` | ✗ |
 
+**Missing or weak test.** A missing test, a test that still passes when the guard is removed, a tautology, or a coverage gap is blocking only when the behaviour it leaves unproven is an acceptance criterion of the issue with no other evidence in the PR, or a safety invariant: a path that merges, releases or deploys, deletes, publishes, grants permission, or stops or disarms an automated action. Otherwise the label is `suggestion:`, which does not satisfy `blocks(f)`.
+
+Label → group, matched exactly (do not prefix-match `suggestion:` onto `suggestion(blocking):`):
+
+| Group | Labels |
+|-------|--------|
+| Blockers | `issue:`, `issue(blocking):`, `todo:`, `suggestion(blocking):` |
+| Warnings | `suggestion:`, `suggestion(non-blocking):`, `nitpick:` |
+| Suggestions | `thought:`, `question:` |
+| Praise | `praise:` |
+
 ## Phase 4 — Merge, Render & Post
 
 One phase owns the final finding set, the single rendered review, and the optional PR comment. Findings are never re-rendered in a second presentation step.
 
-1. **Collect F** from Phase 2 spec compliance, per-chunk agents, and isolated recall workers. Every unmet criterion's `issue(blocking):` enters F so a missing spec criterion cannot coexist with `Approve (clean)`.
+1. **Collect F** from Phase 2 spec compliance, per-chunk agents, and isolated recall workers. Every unmet criterion's `issue(blocking):` enters F so a missing spec criterion cannot coexist with `Approve (clean)`. A missing or weak test that step 3b rewrites to `suggestion:` is a Warning: it does not by itself force `Request changes`, and it does not yield `Approve (clean)`.
 2. **Deterministic dedup — both keys always apply:**
    - same file:line + issue → keep max C
    - one finding per `(file, class)` → keep max C
    - findings sharing file:line and intersecting class sets after subsumption → merge with max C, subsumed class stripping, and unioned `Raw callsites`
-3. **Classify:** normal findings follow their category label. A finding with `Source: recall` is always blocking; normalize its label to `issue(blocking):`.
+3. **Classify:** normal findings follow their category label. Before step 3b, a finding with `Source: recall` is normalized to `issue(blocking):`. That normalization is not re-applied after step 3b. A surviving `Source: recall` line does not restore a blocking label.
+3b. **Missing or weak test — last label write.** After collection, dedup, and the recall normalization, before the verdict and before root causes, rewrite a finding whose subject is a missing or weak test. That includes an agent `issue:`, a recall finding (the recall worker's required `issue(blocking):` is not final), and a Phase 2 unmet-criterion finding whose only gap is that test. It does not include a missing SC→Test matrix, and it does not include an unmet criterion whose gap is the behaviour itself. Keep the finding. It stays blocking, labelled `issue:`, only when the behaviour it leaves unproven is an acceptance criterion of the issue with no other evidence in the PR, or a safety invariant (a path that merges, releases or deploys, deletes, publishes, grants permission, or stops or disarms an automated action). Otherwise relabel it `suggestion:`. Clear `Source: recall` when it is present. That relabel is the last label write. A surviving `Source: recall` line does not re-enter `blocks(f)`. After this step `blocks(f)` is the label set only, so a downgraded finding does not block whether or not that line survived.
 4. **Keep by default:** after deterministic dedup, every finding remains in F. Confidence controls ordering. A validation zero (C := 0) also makes the finding's cause ineligible for auto-apply in `skill://fix`. No confidence threshold, agent judgement, or second LLM pass may remove a finding. Blocking findings are never filtered.
-5. **Sort and group:** C descending within Blockers → Warnings → Suggestions → Praise.
+5. **Sort and group:** C descending within Blockers → Warnings → Suggestions → Praise, using the label → group table above. `suggestion:` is a Warning, not a Suggestion.
 6. **Name root causes.** Read `skill://dev-review/root-causes.md`. R := causes over actionable findings, after reading cited lines where a join is not already obvious. praise, thought, question never enter R. This step writes no code.
 7. **Disclose roster allocation** in the review output whenever non-empty: `capped[]` (the per-chunk union) and `warnings[]`.
 
-`blocks(f) := label ∈ {issue:, issue(blocking):, todo:, suggestion(blocking):} ∨ source(f)=recall`.
+`blocks(f) := label ∈ {issue:, issue(blocking):, todo:, suggestion(blocking):}`. Evaluated after step 3b. After step 3b, `blocks(f)` is the label set only. A downgraded finding does not block whether or not a `Source: recall` line survived.
 
 ### Verdict
 
@@ -407,9 +426,11 @@ Verdict is computed from the complete deduplicated F and fails closed on blocker
 | Suggestions/praise only | Approve |
 | F = ∅ | Approve (clean) |
 
+No blocker and Warnings nonempty → `Approve with comments`, even when praise, thought, or question are also present. Those do not demote the verdict to `Approve`, and they do not make it `Request changes`. The four rows above are unchanged. Round accounting is unchanged: only `Request changes` is red.
+
 ### Render once
 
-Build one body. Its first line is exactly `<!-- omp-build:code-review -->`: that marker is how `skill://fix` finds the record, together with the comment author. Then, in this order:
+Build one body. Its first line is exactly `<!-- omp-build:code-review -->`: that marker is how `skill://fix` finds the record, together with the comment author. When a PR exists, line 2 is exactly `<!-- omp-build:review-head sha=<40 lowercase hex> -->` naming the Phase 1 `REVIEWED_HEAD` snapshot, never a fresh read and never a worktree oid. Immediately before `gh pr comment`, re-read `headRefOid`. If it differs from `REVIEWED_HEAD`, do not post — not an approval, not a request for changes, and not a head line for the new oid. Stop and say the head moved; the review has to be re-run against the new commit. A sha anywhere else is not the reviewed commit. A local-only body has no line 2. Then, in this order:
 
 1. `## Code Review`, then `## Spec` — render Σ from Phase 2, one row per criterion in σ order: `✓` met / `✗` missing, quoting `criterion_text`. σ ∄ → `no spec available — spec axis not evaluated`.
 2. `## Standards` — the orchestrator reads `skill://dev-review/review-smells.md` once, walks Δ against the baseline, and emits at most one `possible <Smell>` row per smell. Render the receipt in `## Standards (judgement pass — {n} smells walked, {k} fired)`. These rows never enter F, carry `Class:`, or affect verdict.
@@ -437,6 +458,7 @@ Build one body. Its first line is exactly `<!-- omp-build:code-review -->`: that
 
 ```markdown
 <!-- omp-build:code-review -->
+<!-- omp-build:review-head sha=0123456789abcdef0123456789abcdef01234567 -->
 ## Code Review
 
 ## Spec
@@ -466,6 +488,8 @@ Roster capped by max_agents: R-devops
 **Verdict: Request changes** — 1 blocking finding
 ```
 
+`landPr` arms only when that line 2 names the PR's current `headRefOid`. A record with no head line does not arm: PRs reviewed before this line existed need one re-review. Native auto-merge is pinned with `--match-head-commit` of that sha. Merge-on-green is label-driven: a push by another actor after `reviewed` is applied is not refused by GitHub.
+
 **→ immediately continue to Phase 8.**
 
 ## Phase 8 — Next Step (canonical escalation)
@@ -491,8 +515,11 @@ exists. Local-only reviews keep the same counts/stop in their local record.
 `await loop.assertFixAllowed(cwd, step)` after its allocation is persisted.
 It checks fresh attributable history, not just the cached loop, and consumes
 the live step once. A valid second live allocation is allowed; resuming that
-same incomplete allocation is not. If durable history does not prove this live
-allocation, it stops permanently as `history-stale` rather than refunding it.
+same incomplete allocation is not. Calling it before `persist` throws a
+recoverable error that names `persist` and writes nothing; the allocation stays
+live. If the durable history diverges from this persisted allocation, it stops
+permanently as `history-stale` rather than refunding it. Only that divergence
+makes a stop sticky.
 `landPr(cwd, pr)` independently rejects stops and returns `not-approved` unless
 an approving review follows the latest correction/allocation. Stop refusals
 disarm and carry `error.stop` / `land.stop`; print that evidence and publish the
@@ -506,7 +533,7 @@ nothing: report and exit. No caller may bypass either sink.
   `skill://fix #<pr>` (omit `#<pr>` for local-only).
   For `step.reason === 'ci-failed'`, follow `/feature` §6.5's inline CI correction
   from failed-check logs, not the previous review. Re-review with the same loop.
-  **Stop** keeps the allocated round spent; at `fixes=2` the next resume escalates.
+  **Stop** keeps the allocated round spent. At `fixes=2` the next resume stays open until the receipt is posted; a later red after that receipt escalates.
 - **`land`** → Q: **Merge** / **Stop**. Merge → obtain explicit approval if needed,
   then follow **`skill://feature` §6.7 in full** with this same `loop`: `landPr` (sole
   writer of `reviewed`; no raw label shortcuts), run the returned `watch`, map exits
@@ -588,7 +615,7 @@ explicit human-selected supersede.
 | roster capped (max_agents, per chunk) | disclosed when ≠ ∅ (Phase 4) |
 | oracle warnings ≠ ∅ | echoed into output; review_halt → HALT |
 | sticky `stopReason` on resume (`loop.closed === 'stop'`) | enforceStop (PR) + dossier; ¬record; ¬Fix; ¬Merge |
-| terminal-red derived by `interpretReviewHistory` (exhausted fixes + latest me-authored code-review after latest receipt is Request changes) | `loop.closed === 'stop'` → same as sticky stop; ¬pendingFix; ¬replay |
+| terminal-red derived by `interpretReviewHistory` (exhausted fixes, the allocation's receipt posted, then a later me-authored Request changes) | `loop.closed === 'stop'` → same as sticky stop; ¬pendingFix; ¬replay |
 
 ## Safety Rules
 

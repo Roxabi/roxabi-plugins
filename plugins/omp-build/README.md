@@ -94,15 +94,17 @@ state alone:
 next → start/resume child (branch from origin/<base>) → implement → dev-review → fix → land
      → merge confirmed: detach, delete the local branch → next …
      → every child closed or merged → final epic review (R-architect + R-adversarial)
-     → release.post_merge (argv, clean checkout of origin/<base>) → report → goal complete
+     → clean tree and base CI green or none → release.post_merge at that base commit
+     → report → goal complete
 ```
 
 Children run in `blocked_by` order. A **ticket stop** (review bound spent, watch
 timeout, cancelled or blocked checks, proof blocked, no scope, foreign commit…) is
 recorded on the child as a `goal-stop` marker, its PR disarmed; its dependents are
 skipped and independent children continue. A **shared-state stop** (base CI red,
-dirty tree, landing or tracker failure, hook failure, final review still blocking
-after its one fix ticket) disarms every child PR, reports on the epic and drops the
+`base-ci-pending` at finalization, a dirty tree, `hook-stale`, landing or tracker
+failure, hook failure, final review still blocking after its one fix ticket)
+disarms every child PR, reports on the epic and drops the
 goal. A new `/goal` line resumes: merged children are skipped, open PRs resumed,
 stops of earlier runs retried except a spent review bound. Without an active goal
 naming the epic, `/feature` is unchanged.
@@ -141,20 +143,28 @@ PRs resume directly into review; empty history receives a baseline marker.
 - `await loop.assertFixAllowed(cwd, step)` checks current durable history and
   consumes that allocation once. It allows its own second live allocation, but
   rejects resumed grants, newer stops, identity drift and additional reviews;
-  an unproven live allocation stops as `history-stale` rather than refunding it.
+  an allocation this process has not yet persisted throws until `persist`; durable
+  history that does not prove the persisted allocation stops as `history-stale`
+  rather than refunding it.
 - `landPr(cwd, pr)` independently checks current history before either landing
   mode can arm. A stop returns `review-stopped` with disarm evidence; without an
-  approving review after the latest correction/allocation it returns
-  `not-approved`. Unreadable history authorizes nothing.
+  approving review of the current head after the latest correction/allocation it
+  returns `not-approved`. A missing or malformed line-2 sha is `no-review-head`;
+  a different or unreadable head is `head-moved`. Unreadable history authorizes nothing.
+  Native auto-merge is requested with `--match-head-commit`. Merge-on-green is
+  label-driven: a later push by another actor is not refused by GitHub. A review
+  posted before the head line existed needs one re-review before it can land.
 - `enforceStop` observes PR state before independently publishing and disarming.
   CLOSED/MERGED PRs receive no effects; partial failures are reported explicitly.
 
 History is per automation identity, not a tamper-proof ledger. Foreign records
 are ignored; deletion/editing of the account's comments is not detected. Empty
 history starts at zero; review-only legacy history without accounting/receipts
-(such as #636) is ambiguous, not proof of zero spent rounds. A terminal stop
-remains sticky through later greens. Two completed fixes followed by an
-unambiguous green remain eligible for landing.
+(such as #636) is ambiguous, not proof of zero spent rounds. A review posted
+after the last marker is already counted; recording it does not count it twice,
+and more than one unrecorded review is ambiguous. An allocated fix whose receipt
+is not posted yet stays open. A terminal stop remains sticky through later greens.
+Two completed fixes followed by an unambiguous green remain eligible for landing.
 
 The canonical choices, escalation dossier and human-approved superseding-PR
 procedure live in `skills/dev-review/SKILL.md` Phase 8. Skills route through the
@@ -210,12 +220,12 @@ Spawn: `task` `{ agent: "R-adversarial" | "R-advisor" | "R-architect" | "R-devop
 |---|---|
 | `feature` | `/feature` (registered command) |
 | `dev-review` | model-invocable · the five-role review panel |
-| `fix` | model-invocable · applies the findings, inline |
+| `fix` | model-invocable · applies blocking causes, inline; non-blocking causes deferred |
 | `promote` | `/promote` (registered command) · the optional tail |
 | `cleanup` | `/cleanup` (registered command) · the optional tail |
 | `ci-watch` | `/ci-watch` (registered command) · watches checks, then the merge |
 
-`dev-review` and `fix` are the #492 snapshot of dev-core's `dev-review`/`fix` pair, cut to this plugin's roster: five dispatchable roles, `R-tester` armed by changed-test evidence alone, and every finding applied in-session. They read their own bundled files through `skill://dev-review/<file>`. `lib.sh` is the exception: it sits one level up, in a non-skill directory, and `skill://` rejects `..`, so `dev-review` Phase 1 traverses from `$SKILL_DIR` instead. **Nothing in this plugin exports `SKILL_DIR`** — only the registered commands print a skill directory (`omp/index.ts`) — so that fence asserts the variable (`${SKILL_DIR:?…}`) and stops when it is unset, rather than sourcing `/../shared/lib.sh` and detecting a base branch against nothing. `cleanup/analyze-branches.sh` has no such problem: it is a script, so it resolves `../shared/lib.sh` from its own `BASH_SOURCE`.
+`dev-review` and `fix` are the #492 snapshot of dev-core's `dev-review`/`fix` pair, cut to this plugin's roster: five dispatchable roles, `R-tester` armed by changed-test evidence alone, and blocking causes applied in-session; non-blocking causes deferred to one sibling issue. They read their own bundled files through `skill://dev-review/<file>`. `lib.sh` is the exception: it sits one level up, in a non-skill directory, and `skill://` rejects `..`, so `dev-review` Phase 1 traverses from `$SKILL_DIR` instead. **Nothing in this plugin exports `SKILL_DIR`** — only the registered commands print a skill directory (`omp/index.ts`) — so that fence asserts the variable (`${SKILL_DIR:?…}`) and stops when it is unset, rather than sourcing `/../shared/lib.sh` and detecting a base branch against nothing. `cleanup/analyze-branches.sh` has no such problem: it is a script, so it resolves `../shared/lib.sh` from its own `BASH_SOURCE`.
 
 `promote` and `cleanup` are the #495 snapshot of dev-core's tail. They are
 **offered after land, never automatic, and never inside the review→fix loop**.

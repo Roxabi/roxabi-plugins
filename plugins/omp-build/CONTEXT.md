@@ -25,7 +25,7 @@ A child the Goal run stops on - review bound spent, proof blocked, foreign commi
 _Avoid_: a goal drop, a skipped dependent, a stop held in session memory
 
 **Shared-state stop**:
-A failure that makes every remaining child unsafe — base CI red, a dirty tree between tickets, a landing or tracker failure, a failed post-merge hook, a final review still blocking after its fix round. Every armed child PR is disarmed, the goal is reported and dropped.
+A failure that makes every remaining child unsafe — base CI red, base CI pending at finalization (`base-ci-pending`), a dirty tree between tickets or before the goal completes, a hook `ok` or `skipped` at another commit (`hook-stale`), a landing or tracker failure, a failed post-merge hook, a final review still blocking after its fix round. Every armed child PR is disarmed, the goal is reported and dropped. Finalization (the hook, and `complete`) also requires a clean tree and base CI green or absent; a red or pending base does not hold the final review.
 _Avoid_: a ticket stop, skipping the ticket, waiting on pending base CI
 
 **Spec**:
@@ -55,14 +55,21 @@ Arming the gate is not evidence that the PR merged.
 _Avoid_: manual merge while checks run, treating a label as a completed landing
 
 **Post-merge hook**:
-The repository's declared command that runs once the epic has landed, not after each ticket.
-_Avoid_: a per-ticket deploy, a release cut
+The repository's declared command that runs once the epic has landed, not after each ticket. This run's `ok` or `skipped` counts only at the current base commit; at another commit the goal drops `hook-stale` and does not run the hook again.
+_Avoid_: a per-ticket deploy, a release cut, re-running this run's hook on a moved base
 
 **Review bound**:
 At most two automatic review→fix rounds per PR and automation identity.
 A remaining blocker after those rounds stops automatic corrections and landing.
 The stop survives a new session and a later green. A final green after two
 completed fixes is eligible only if no stop has already occurred.
+One review posted after the last marker is already counted; recording it
+acknowledges that review and does not count it twice. More than one unrecorded
+review is unprovable. An allocated fix whose receipt is not posted yet is still
+open: it is not a spent stop. The stop is a later red after that receipt, or an
+explicit stop marker. Only a divergence of the durable history makes that stop
+sticky. A step this process skipped (`persist` after the allocation) throws and
+leaves the allocation live; it writes no stop.
 An allocation is spent before the Fix/Stop choice and is executable only once;
 reconstructing history never recreates its permission. CI corrections spend the
 same budget. Unprovable history requires human guidance, not a reset.
@@ -136,16 +143,16 @@ The skill holding Roxabi's multi-domain review on OMP: roster, Conventional Comm
 _Avoid_: R-dev-review as the skill name, code-review (Matt), /review (host builtin)
 
 **fix**:
-The skill that applies one change per common root cause from a review, inline, with no per-finding choice.
-_Avoid_: R-fix as the skill name, R-fixer, spawning a fixer agent, a per-finding walkthrough
+The skill that applies one change per blocking root cause from a review, inline, with no per-finding choice. Non-blocking causes are deferred into one sibling issue, not applied.
+_Avoid_: R-fix as the skill name, R-fixer, spawning a fixer agent, a per-finding walkthrough, applying a non-blocking cause
 
 **Root cause**:
-The shared mechanism behind one or more review findings. Named after the review, before any edit. The unit `fix` applies.
+The shared mechanism behind one or more review findings. Named after the review, before any edit. The unit `fix` applies when a member blocks; otherwise the unit it defers.
 _Avoid_: the finding itself, a class slug alone, a file
 
 **Review record**:
-The one PR comment `fix` reads: first line `<!-- omp-build:code-review -->`, authored by the account running `fix`, newest wins. Root causes and findings both come from it.
-_Avoid_: scraping every PR comment, matching `## Code Review` as a substring
+The one PR comment `fix` reads: first line `<!-- omp-build:code-review -->`, authored by the account running `fix`, newest wins. Root causes and findings both come from it. Line 2, when a PR was reviewed, is `<!-- omp-build:review-head sha=<40 lowercase hex> -->` — the commit that approval names. `fix` does not read it. `landPr` arms only when it matches the PR's current `headRefOid`; a record without it does not arm, so a PR reviewed before the line existed needs one re-review. Native auto-merge is then pinned with `--match-head-commit`. Merge-on-green remains label-driven: a push by another actor after `reviewed` is applied is not refused by GitHub.
+_Avoid_: scraping every PR comment, matching `## Code Review` as a substring, reading a sha from prose or from any line but line 2
 
 **Panel**:
 The five dispatchable review roles: the `R-adversarial` floor plus at most two specialists the roster proved relevant.

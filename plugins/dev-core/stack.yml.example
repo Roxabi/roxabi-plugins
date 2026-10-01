@@ -63,6 +63,12 @@ deploy:
   platform: vercel                # vercel | railway | fly | aws | none
   secrets_cmd: "vercel env add"   # command to add a secret to the deployment platform
 
+# CI merge workflow written by /init and /R-ci-setup.
+# Absent block → auto-merge, record gate off (fleet default).
+ci:
+  merge: auto-merge               # auto-merge | merge-on-green
+  review_record: false            # true → enable only from the latest omp-build review of this head. dependabot[bot] is exempt from the record only. A rebase still disarms — re-label after it.
+
 # Release model — /promote reads this block (single-component repos).
 # `class` is grep-derived (by who consumes the tag), never judged:
 #   PRODUCER = another repo pins this one via [tool.uv.sources] → pin-swap resolves SHA→tag
