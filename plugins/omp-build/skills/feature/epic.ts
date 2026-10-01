@@ -740,6 +740,11 @@ export function nextStep(facts: Facts): Step {
   if (!merged.length) {
     const blocked = finalizationBlock(facts, report)
     if (blocked) return blocked
+    // No hook runs here. A record that already failed, or that belongs to another
+    // commit, still must not report the goal complete.
+    const hook = hookStatus(facts)
+    if (hook.state === 'failed') return { action: 'drop', stop: 'hook-failed', reason: hook.detail, report }
+    if (hook.state === 'stale') return { action: 'drop', stop: 'hook-stale', reason: hook.detail, report }
     return { action: 'complete', reason: 'every child closed and none merged', report }
   }
   const first = merged[0]?.pr

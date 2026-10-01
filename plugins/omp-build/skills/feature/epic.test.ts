@@ -509,6 +509,16 @@ describe('nextStep', () => {
         step: { action: 'drop', stop: 'dirty-tree' },
       },
       {
+        name: 'nothing merged, this run ok at another commit → drop hook-stale, not complete',
+        facts: facts([child(1, { state: 'CLOSED' })], { hooks: [hook('ok', sha('a'))] }),
+        step: { action: 'drop', stop: 'hook-stale' },
+      },
+      {
+        name: 'nothing merged, this run hook failed → drop hook-failed, not complete',
+        facts: facts([child(1, { state: 'CLOSED' })], { hooks: [hook('failed', sha('f'))] }),
+        step: { action: 'drop', stop: 'hook-failed' },
+      },
+      {
         name: 'every child closed, none merged, no base checks → complete',
         facts: facts([child(1, { state: 'CLOSED' })], { baseCi: { state: 'none', failed: [], pending: [] } }),
         step: { action: 'complete' },

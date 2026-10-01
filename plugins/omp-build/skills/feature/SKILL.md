@@ -205,7 +205,8 @@ and base CI green or absent. Otherwise it drops `dirty-tree`, `base-ci-red`, or
 `base-ci-pending`. `base-ci-pending` is the pending bucket (in progress, cancelled,
 `action_required`): the reason names the checks, and a new `/goal` line reaches the
 hook only once the rollup is no longer pending. The same tree and CI drops apply
-when every child closed and none merged, which then completes with no review and
+when every child closed and none merged. A failed or stale hook record drops there
+too (`hook-failed`, `hook-stale`); otherwise that path completes with no review and
 no hook. Then `release.post_merge` runs once, per ADR-024 §1: read from
 `refs/remotes/origin/<base>`, a YAML list executed as argv with no shell, in a
 temporary detached checkout of that commit, removed afterwards; `argv[0]` is a
