@@ -14,8 +14,11 @@
 # `rm -rf` outside git entirely. So `safe_delete` here means *proven* merged
 # (see branch_merged): a grep hit produces `probably_merged`, which is never
 # pre-selected and never enters `safe_remote`. A branch that is protected
-# (main/master/staging) or checked out here can never reach `safe_delete` — see
-# classify_branch.
+# (main/master/staging, or deploy/*) or checked out here can never reach
+# `safe_delete`, `safe_local`, `safe_remote`, `probably_local`, or
+# `probably_remote` — see is_protected. deploy/* is protected because a CD
+# production branch is an ancestor of the base by construction, so it always
+# looks merged.
 #
 # One caveat, stated because "never deletes" must be exactly true: unless
 # --no-fetch is passed, this runs `git fetch --prune origin`, which drops
@@ -95,6 +98,8 @@ else
   BASE_REF=""
 fi
 
+# Exact names only. The deploy/ prefix is decided in is_protected, which is
+# also what the remote listing calls — do not add a second name list.
 PROTECTED_JSON='["main","master","staging"]'
 
 PR_LIMIT=1000
@@ -138,6 +143,12 @@ worktree_for_branch() {
 
 is_protected() {
   local branch="$1"
+  # deploy/* is a CD production branch: Cloudflare builds deploy/<branch>,
+  # fast-forwarded from the base, so it is an ancestor by construction and
+  # merge detection always calls it merged. The prefix lives only here.
+  case "$branch" in
+    deploy/*) return 0 ;;
+  esac
   echo "$PROTECTED_JSON" | jq -e --arg br "$branch" 'index($br) != null' >/dev/null 2>&1
 }
 
@@ -370,6 +381,9 @@ while IFS= read -r branch_name; do
 done < <(git branch --format='%(refname:short)' 2>/dev/null || true)
 
 remote_branches_json='[]'
+# Symbolic HEAD is not a branch. Protected names are not repeated in the
+# listing below: the only check is is_protected (exact main/master/staging,
+# prefix deploy/).
 while IFS= read -r remote_ref; do
   [ -z "$remote_ref" ] && continue
   branch_name="${remote_ref#origin/}"
@@ -381,7 +395,13 @@ while IFS= read -r remote_ref; do
   fi
   entry="$(classify_branch "remote" "$branch_name" "$remote_ref")"
   remote_branches_json="$(echo "$remote_branches_json" | jq --argjson entry "$entry" '. + [$entry]')"
-done < <(git branch -r 2>/dev/null | sed 's/^[[:space:]]*//' | grep -vE 'origin/HEAD|origin/main$|origin/master$|origin/staging$' || true)
+done < <(git branch -r 2>/dev/null | sed 's/^[[:space:]]*//' | while IFS= read -r ref; do
+  case "$ref" in
+    ""|*origin/HEAD*) continue ;;
+  esac
+  is_protected "${ref#origin/}" && continue
+  printf '%s\n' "$ref"
+done || true)
 
 # `safe_*` selects on the proven action only. The hinted ones travel in their own
 # lists so Step 4 / Step 6d can show them without a caller having to re-derive

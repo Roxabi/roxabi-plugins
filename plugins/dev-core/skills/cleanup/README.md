@@ -30,7 +30,7 @@ Triggers: `"cleanup"` | `"clean branches"` | `"cleanup worktrees"` | `"remove st
 
 ## Safety rules
 
-- Never deletes `main`, `master`, or `staging`
+- Never deletes `main`, `master`, `staging`, or any `deploy/*` branch (a CD production branch is an ancestor of the base by construction, so it always looks merged)
 - Never deletes the current branch
 - Never deletes a branch with an open PR (unless explicitly confirmed)
 - Never deletes an unmerged branch without a separate explicit confirmation

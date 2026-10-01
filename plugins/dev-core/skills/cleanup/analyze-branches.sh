@@ -2,6 +2,9 @@
 # Usage: analyze-branches.sh [--json] [--no-fetch] [--scope <#N>]
 # Analyzes local and remote branches for /R-cleanup merge-status verification.
 # Analyze-only — never deletes branches, worktrees, or remotes.
+# A branch that is protected (main/master/staging, or deploy/*) can never reach
+# safe_delete. deploy/* is a CD production branch and an ancestor of the base
+# by construction, so it always looks merged — see is_protected.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -72,6 +75,8 @@ else
   BASE_REF=""
 fi
 
+# Exact names only. The deploy/ prefix is decided in is_protected, which is
+# also what the remote listing calls — do not add a second name list.
 PROTECTED_JSON='["main","master","staging"]'
 
 PR_LIMIT=1000
@@ -113,6 +118,12 @@ worktree_for_branch() {
 
 is_protected() {
   local branch="$1"
+  # deploy/* is a CD production branch: Cloudflare builds deploy/<branch>,
+  # fast-forwarded from the base, so it is an ancestor by construction and
+  # merge detection always calls it merged. The prefix lives only here.
+  case "$branch" in
+    deploy/*) return 0 ;;
+  esac
   echo "$PROTECTED_JSON" | jq -e --arg br "$branch" 'index($br) != null' >/dev/null 2>&1
 }
 
@@ -300,6 +311,9 @@ while IFS= read -r branch_name; do
 done < <(git branch --format='%(refname:short)' 2>/dev/null || true)
 
 remote_branches_json='[]'
+# Symbolic HEAD is not a branch. Protected names are not repeated in the
+# listing below: the only check is is_protected (exact main/master/staging,
+# prefix deploy/).
 while IFS= read -r remote_ref; do
   [ -z "$remote_ref" ] && continue
   branch_name="${remote_ref#origin/}"
@@ -311,7 +325,13 @@ while IFS= read -r remote_ref; do
   fi
   entry="$(classify_branch "remote" "$branch_name" "$remote_ref")"
   remote_branches_json="$(echo "$remote_branches_json" | jq --argjson entry "$entry" '. + [$entry]')"
-done < <(git branch -r 2>/dev/null | sed 's/^[[:space:]]*//' | grep -vE 'origin/HEAD|origin/main$|origin/master$|origin/staging$' || true)
+done < <(git branch -r 2>/dev/null | sed 's/^[[:space:]]*//' | while IFS= read -r ref; do
+  case "$ref" in
+    ""|*origin/HEAD*) continue ;;
+  esac
+  is_protected "${ref#origin/}" && continue
+  printf '%s\n' "$ref"
+done || true)
 
 safe_local_json="$(echo "$local_branches_json" | jq '[.[] | select(.action == "safe_delete") | .name]')"
 safe_remote_json="$(echo "$remote_branches_json" | jq '[.[] | select(.action == "safe_delete") | .name]')"

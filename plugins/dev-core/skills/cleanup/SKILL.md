@@ -8,7 +8,7 @@ allowed-tools: Bash, Read, EnterWorktree, ExitWorktree, ToolSearch
 
 # Git Cleanup
 
-Let: β := branch | ω := worktree | π := open PR | Π := protected branch (main/master/staging) | safe(β) ⟺ fully_merged(β) ∧ ¬π(β) | merged(β) := regular_merge(β) ∨ squash_merge(β) | N := scope issue number (∅ if unscoped) | orphan_shell := leftover path under `~/.grok/worktrees/<slug>/` or `.claude/worktrees/` that is **not** in `git worktree list` (empty parent, unregistered content, or `worktrees.db` row with missing path) | principal := main checkout (must remain on Π — feature work lives only in ω; see harness-worktree.md)
+Let: β := branch | ω := worktree | π := open PR | Π := protected branch (main/master/staging, or deploy/* — a CD production branch is an ancestor of the base by construction, so it always looks merged) | safe(β) ⟺ fully_merged(β) ∧ ¬π(β) | merged(β) := regular_merge(β) ∨ squash_merge(β) | N := scope issue number (∅ if unscoped) | orphan_shell := leftover path under `~/.grok/worktrees/<slug>/` or `.claude/worktrees/` that is **not** in `git worktree list` (empty parent, unregistered content, or `worktrees.db` row with missing path) | principal := main checkout (must remain on main/master/staging — feature work lives only in ω; see harness-worktree.md)
 
 **Stack:** Read `.dev/stack.yml` first — every `{field}` placeholder below resolves from it. ¬∃ → output: "`.dev/stack.yml` not found — run `/R-env-setup` to generate it." and stop.
 
@@ -77,7 +77,7 @@ The script analyzes ∀ β ∉ {Π, current branch} (∧ β ∈ scope N, if set)
 | Has worktree? | `git worktree list --porcelain` | Remove worktree first |
 | Last commit age | `git log -1 --format="%cr"` | Info only |
 
-Emits section markers: `---local-branches---`, `---remote-branches---`, `---worktrees---`, `---safe-local---`, `---safe-remote---`, plus a human `---summary-table---`. **Analyze-only** — never deletes.
+Emits section markers: `---local-branches---`, `---remote-branches---`, `---worktrees---`, `---safe-local---`, `---safe-remote---`, plus a human `---summary-table---`. **Analyze-only** — never deletes. Π is dropped before classification, so a `deploy/*` branch — an ancestor of the base by construction — never enters `local_branches`, the remote listing, or `safe_*`.
 
 ### 3. Present Summary Table
 
@@ -282,7 +282,7 @@ If `REPORT_ONLY=true` → print table and **stop this step** (zero mutations).
 #### 8c. Confirm and cancel
 
 → present multi-select
-- Present stuck runs as candidates; runs on protected branches (main/master/staging) shown as informational — NEVER auto-cancel
+- Present stuck runs as candidates; runs on protected branches (main/master/staging, or deploy/*) shown as informational — NEVER auto-cancel
 - "Skip / Cancel none" always available
 
 If `YES=true` → proceed without prompt (still skips protected branches).
@@ -340,7 +340,7 @@ If `REPORT_ONLY=true`, prefix the header with `[report-only — no mutations per
 
 ## Safety Rules
 
-1. **NEVER delete `main`, `master`, or `staging`**
+1. **NEVER delete `main`, `master`, `staging`, or any `deploy/*` branch** — a CD production branch is an ancestor of the base by construction, so it always looks merged
 2. **NEVER delete the current branch**
 3. **NEVER delete a branch with an open PR** unless explicitly confirmed
 4. **NEVER delete an unmerged branch** without a separate, explicit confirmation
@@ -350,7 +350,7 @@ If `REPORT_ONLY=true`, prefix the header with `[report-only — no mutations per
 8. **NEVER delete remote branches automatically** — always require explicit confirmation per branch
 9. **ALWAYS scan all remote branches** for stale merged branches, not just locally deleted ones
 10. **`--report-only` = zero mutations** — no label edits, no run cancels, no branch deletes
-11. **NEVER auto-cancel runs on protected branches** (main/master/staging) — show as info only
+11. **NEVER auto-cancel runs on protected branches** (main/master/staging, or deploy/*) — show as info only
 12. **Degrade gracefully on `gh` permission errors** — report failure and continue; never abort entire sweep
 
 ## Edge Cases
