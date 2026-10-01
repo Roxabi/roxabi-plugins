@@ -47,9 +47,19 @@ function stubGh(dir: string): void {
   writeFileSync(
     path,
     `#!/bin/bash
+if [ "\${GITHUB_ACTIONS:-}" = true ] && [ -z "\${GH_TOKEN:-}" ] && [ -z "\${GITHUB_TOKEN:-}" ]; then
+  printf '%s\\n' 'gh: To use GitHub CLI in a GitHub Actions workflow, set the GH_TOKEN environment variable. Example:' >&2
+  printf '%s\\n' '  env:' >&2
+  printf '%s\\n' '    GH_TOKEN: \${{ github.token }}' >&2
+  exit 4
+fi
 printf '%s\\n' "$*" >> "$GH_LOG"
 case "$*" in
   *'--disable-auto'*)
+    if [ "\${GH_DISABLE_CANT:-}" = 1 ]; then
+      echo "GraphQL: Can't disable auto-merge for this pull request. (disablePullRequestAutoMerge)" >&2
+      exit 1
+    fi
     if [ "\${GH_DISABLE_NOT_ENABLED:-}" = 1 ]; then
       echo 'GraphQL: Auto merge is not enabled for this pull request (disablePullRequestAutoMerge)' >&2
       exit 1
@@ -82,6 +92,10 @@ case "$*" in
     if [ "\${GH_VIEW_FAIL:-}" = 1 ]; then
       echo 'view failed' >&2
       exit 1
+    fi
+    if [ "\${GH_VIEW_EMPTY:-}" = 1 ]; then
+      printf '\\n'
+      exit 0
     fi
     if [ "\${GH_STILL_ARMED:-}" = 1 ]; then
       printf '%s\\n' '{"enabledAt":"x","mergeMethod":"MERGE"}'
@@ -127,10 +141,14 @@ function runScript(
     stubJq(dir)
     const log = join(dir, 'log')
     writeFileSync(log, '')
+    const inherited = { ...process.env }
+    delete inherited.GITHUB_ACTIONS
+    delete inherited.GH_TOKEN
+    delete inherited.GITHUB_TOKEN
     const proc = spawnSync('bash', ['-c', script], {
       encoding: 'utf8',
       env: {
-        ...process.env,
+        ...inherited,
         PATH: `${dir}:${process.env.PATH ?? ''}`,
         GH_LOG: log,
         PR_NUMBER: '652',
@@ -296,10 +314,12 @@ describe('dependabot exemption when the record gate is on', () => {
     const viewFails = runScript(stepScript(generated, 'Disarm auto-merge on a moved head'), {
       ACTION: 'synchronize',
       GH_VIEW_FAIL: '1',
+      PR_LABELS: '[]',
     })
     expect(viewFails.status).not.toBe(0)
     expect(viewFails.log).toContain('--disable-auto')
-    expect(viewFails.log.indexOf('--disable-auto')).toBeLessThan(viewFails.log.indexOf('--remove-label reviewed'))
+    expect(viewFails.log).not.toContain('--remove-label reviewed')
+    expect(viewFails.stdout).toContain('could not confirm auto-merge is off')
     expect(viewFails.log).not.toContain('--auto --merge')
   })
 
@@ -359,11 +379,13 @@ describe('dependabot exemption when the record gate is on', () => {
     const sync = runScript(stepScript(yml(), 'Disarm auto-merge on a moved head'), {
       ACTION: 'synchronize',
       GH_DISABLE_NOT_ENABLED: '1',
+      PR_LABELS: JSON.stringify([{ name: 'reviewed' }]),
     })
     expect(sync.status).not.toBe(0)
     expect(sync.log).toContain('--disable-auto')
     expect(sync.log).toContain('--remove-label reviewed')
     expect(sync.log.indexOf('--disable-auto')).toBeLessThan(sync.log.indexOf('--remove-label reviewed'))
+    expect(`${sync.stdout}\n${sync.stderr}`).toContain('head moved after review — auto-merge disarmed')
     expect(`${sync.stdout}\n${sync.stderr}`).not.toContain('auto-merge still armed')
 
     const enable = runScript(stepScript(yml(), 'Enable auto-merge (merge commit)'), {
@@ -382,10 +404,146 @@ describe('dependabot exemption when the record gate is on', () => {
       ACTION: 'synchronize',
       GH_DISABLE_NOT_ENABLED: '1',
       GH_STILL_ARMED: '1',
+      PR_LABELS: JSON.stringify([{ name: 'reviewed' }]),
     })
     expect(still.status).not.toBe(0)
     expect(still.log).toContain('--remove-label reviewed')
     expect(`${still.stdout}\n${still.stderr}`).toContain('auto-merge still armed')
+  })
+})
+
+const REFUSAL = 'To use GitHub CLI in a GitHub Actions workflow, set the GH_TOKEN environment variable'
+
+function stepEnv(block: string): Record<string, string> {
+  const at = block.search(/\n {8}env:\n/)
+  if (at < 0) return {}
+  const env: Record<string, string> = {}
+  for (const line of block
+    .slice(at + 1)
+    .split('\n')
+    .slice(1)) {
+    if (!/^ {10}[A-Z0-9_]+:/.test(line)) break
+    const match = line.match(/^ {10}([A-Z0-9_]+):\s*(.*)$/)
+    if (!match) break
+    env[match[1]] = match[2]
+  }
+  return env
+}
+
+function runnableSteps(yml: string): string[] {
+  return [...yml.matchAll(/^ {6}- name: (.+)$/gm)]
+    .map((match) => match[1].trim())
+    .filter((name) => {
+      const block = stepBlock(yml, name)
+      return block.includes('\n        run:') || block.includes('\n        run: |')
+    })
+}
+
+function stepCommand(yml: string, name: string): string {
+  const block = stepBlock(yml, name)
+  if (block.includes('run: |')) return stepScript(yml, name)
+  const line = block.match(/\n {8}run: (.+)/)
+  if (!line) throw new Error(`step ${name} has no run`)
+  return `${line[1]}\n`
+}
+
+function runDeclared(
+  yml: string,
+  name: string,
+  overrides: Record<string, string> = {},
+): { status: number; stdout: string; stderr: string; log: string } {
+  const dir = mkdtempSync(join(tmpdir(), 'auto-merge-declared-'))
+  try {
+    stubGh(dir)
+    stubJq(dir)
+    const log = join(dir, 'log')
+    writeFileSync(log, '')
+    const proc = spawnSync('bash', ['-c', stepCommand(yml, name)], {
+      encoding: 'utf8',
+      env: {
+        PATH: `${dir}:/usr/bin:/bin`,
+        HOME: dir,
+        GH_CONFIG_DIR: dir,
+        GITHUB_ACTIONS: 'true',
+        GITHUB_REPOSITORY: 'Roxabi/roxabi-plugins',
+        GITHUB_REF_NAME: 'main',
+        GH_LOG: log,
+        ...stepEnv(stepBlock(yml, name)),
+        ...overrides,
+      },
+    })
+    return {
+      status: proc.status ?? 1,
+      stdout: proc.stdout ?? '',
+      stderr: proc.stderr ?? '',
+      log: readFileSync(log, 'utf8'),
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+describe('moved-head disarm token and exit (#676)', () => {
+  const gated = () => generateAutoMergeYml({ ...BASE, reviewRecord: true })
+
+  it('runs each generated gh step with only that step env, and refuses when GH_TOKEN is unset', () => {
+    for (const yml of [gated(), generateAutoMergeYml()]) {
+      const steps = runnableSteps(yml)
+      expect(steps.length).toBeGreaterThan(0)
+      for (const name of steps) {
+        const ran = runDeclared(yml, name)
+        expect(ran.status, name).not.toBe(4)
+        expect(`${ran.stdout}\n${ran.stderr}`, name).not.toContain(REFUSAL)
+      }
+    }
+    const disarm = stepBlock(gated(), 'Disarm auto-merge on a moved head')
+    expect(stepEnv(disarm).GH_TOKEN).toBe('$' + '{{ github.token }}')
+    expect(disarm).not.toContain('Actions default token')
+    expect(disarm).not.toContain('No GH_TOKEN')
+  })
+
+  it('a synchronize with no auto-merge and no reviewed label exits 0 with no error annotation', () => {
+    const ran = runDeclared(gated(), 'Disarm auto-merge on a moved head', {
+      GH_DISABLE_NOT_ENABLED: '1',
+      PR_LABELS: '[]',
+    })
+    expect(ran.status).toBe(0)
+    expect(`${ran.stdout}\n${ran.stderr}`).not.toContain('::error::')
+    expect(ran.log).toContain('--disable-auto')
+    expect(ran.log).not.toContain('--remove-label reviewed')
+  })
+
+  it('a draft that cannot disable auto-merge and has no label exits 0, and a still-armed follow-up aborts', () => {
+    const draft = runDeclared(gated(), 'Disarm auto-merge on a moved head', {
+      GH_DISABLE_CANT: '1',
+      GH_VIEW_EMPTY: '1',
+      PR_LABELS: '[]',
+    })
+    expect(draft.status).toBe(0)
+    expect(`${draft.stdout}\n${draft.stderr}`).not.toContain('::error::')
+
+    const still = runDeclared(gated(), 'Disarm auto-merge on a moved head', {
+      GH_DISABLE_CANT: '1',
+      GH_STILL_ARMED: '1',
+      PR_LABELS: '[]',
+    })
+    expect(still.status).toBe(1)
+    expect(`${still.stdout}\n${still.stderr}`).toContain('auto-merge still armed')
+  })
+
+  it('a synchronize on an armed or labeled PR disarms and exits 1 with the annotation', () => {
+    const armed = runDeclared(gated(), 'Disarm auto-merge on a moved head', { PR_LABELS: '[]' })
+    expect(armed.status).toBe(1)
+    expect(`${armed.stdout}\n${armed.stderr}`).toContain('::error::head moved after review — auto-merge disarmed')
+    expect(armed.log).toContain('--disable-auto')
+
+    const labeled = runDeclared(gated(), 'Disarm auto-merge on a moved head', {
+      GH_DISABLE_NOT_ENABLED: '1',
+      PR_LABELS: JSON.stringify([{ name: 'reviewed' }]),
+    })
+    expect(labeled.status).toBe(1)
+    expect(`${labeled.stdout}\n${labeled.stderr}`).toContain('::error::head moved after review — auto-merge disarmed')
+    expect(labeled.log.indexOf('--disable-auto')).toBeLessThan(labeled.log.indexOf('--remove-label reviewed'))
   })
 })
 

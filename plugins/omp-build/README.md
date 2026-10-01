@@ -143,7 +143,9 @@ PRs resume directly into review; empty history receives a baseline marker.
 - `await loop.assertFixAllowed(cwd, step)` checks current durable history and
   consumes that allocation once. It allows its own second live allocation, but
   rejects resumed grants, newer stops, identity drift and additional reviews;
-  an unproven live allocation stops as `history-stale` rather than refunding it.
+  an allocation this process has not yet persisted throws until `persist`; durable
+  history that does not prove the persisted allocation stops as `history-stale`
+  rather than refunding it.
 - `landPr(cwd, pr)` independently checks current history before either landing
   mode can arm. A stop returns `review-stopped` with disarm evidence; without an
   approving review of the current head after the latest correction/allocation it
