@@ -223,6 +223,24 @@ function bodyFor(body, issue) {
  * @param {(cwd: string, args: string[]) => Promise<string>} [ghFn]
  * @returns {Promise<number | null>}
  */
+/**
+ * Same-repository entries of a `gh pr list` answer. A fork (`isCrossRepository:
+ * true`) is never this branch's PR. Any other flag value is not a discovery
+ * response: missing, null, or a string must not be read as same-repository.
+ * Does not filter by state.
+ *
+ * @param {unknown[]} entries
+ * @param {string} caller
+ */
+function sameRepositoryPrs(entries, caller) {
+  for (const entry of entries) {
+    if (typeof entry?.isCrossRepository !== 'boolean') {
+      throw new Error(`${caller}: invalid PR discovery response`)
+    }
+  }
+  return entries.filter((entry) => entry.isCrossRepository === false)
+}
+
 async function findOpenPr(cwd, head, base, ghFn = gh) {
   const raw = await ghFn(cwd, [
     'pr',
@@ -246,15 +264,15 @@ async function findOpenPr(cwd, head, base, ghFn = gh) {
     throw new Error(`openPr: \`gh pr list --head ${head}\` returned no array — ${preview(raw)}`)
   }
   // `--head` matches a fork's branch of the same name; a fork PR is never this branch's PR.
-  data = data.filter((entry) => entry?.isCrossRepository !== true)
-  const numbers = data.map((entry) => entry?.number).filter((n) => Number.isInteger(n) && n > 0)
-  if (numbers.length !== data.length) {
+  // Number shape is checked first so a malformed entry keeps its existing error.
+  if (data.some((entry) => !Number.isInteger(entry?.number) || entry.number <= 0)) {
     throw new Error(`openPr: \`gh pr list --head ${head}\` returned an entry with no PR number — ${preview(raw)}`)
   }
-  if (numbers.length === 0) return null
+  data = sameRepositoryPrs(data, 'openPr')
+  if (data.length === 0) return null
   // Degenerate but possible (a PR reopened against the same pair): the oldest is the
   // one the branch's history belongs to, and picking it is deterministic.
-  return Math.min(...numbers)
+  return Math.min(...data.map((entry) => entry.number))
 }
 
 /**
@@ -271,11 +289,27 @@ export async function resolveReviewPr(cwd, explicitPr, { gh: ghFn = gh, git: git
   }
   const branch = (await gitFn(cwd, ['branch', '--show-current'])).trim()
   if (!branch) throw new Error('resolveReviewPr: cannot discover a PR from a detached HEAD')
-  const raw = await ghFn(cwd, ['pr', 'list', '--head', branch, '--state', 'all', '--json', 'number,state'])
-  const entries = JSON.parse(raw)
+  const raw = await ghFn(cwd, [
+    'pr',
+    'list',
+    '--head',
+    branch,
+    '--state',
+    'all',
+    '--json',
+    'number,state,isCrossRepository',
+  ])
+  let entries
+  try {
+    entries = JSON.parse(raw)
+  } catch {
+    throw new Error('resolveReviewPr: invalid PR discovery response')
+  }
+  if (!Array.isArray(entries)) throw new Error('resolveReviewPr: invalid PR discovery response')
+  // Forks are dropped before open/closed logic, so a closed fork cannot reset this branch's budget.
+  const sameRepo = sameRepositoryPrs(entries, 'resolveReviewPr')
   if (
-    !Array.isArray(entries) ||
-    entries.some(
+    sameRepo.some(
       (entry) =>
         !Number.isSafeInteger(entry?.number) ||
         entry.number <= 0 ||
@@ -284,11 +318,11 @@ export async function resolveReviewPr(cwd, explicitPr, { gh: ghFn = gh, git: git
   ) {
     throw new Error('resolveReviewPr: invalid PR discovery response')
   }
-  const open = entries.filter((entry) => entry.state === 'OPEN')
+  const open = sameRepo.filter((entry) => entry.state === 'OPEN')
   if (open.length > 1) throw new Error('resolveReviewPr: multiple open PRs for this branch; pass the PR number')
   if (open.length === 1) return open[0].number
   // A closed PR keeps its review budget. Reusing its head would reset that budget.
-  if (entries.some((entry) => entry.state === 'CLOSED')) {
+  if (sameRepo.some((entry) => entry.state === 'CLOSED')) {
     throw new Error('resolveReviewPr: this branch has a closed PR; use an explicit superseding branch')
   }
   return null
@@ -512,7 +546,10 @@ const SINCE_RETRY_MS = 200
  * Arm `reviewed` and hand the wait to `/ci-watch`. No in-process poll.
  * First resolve the PR and read attributable review history. A stop is enforced;
  * no approving review after the latest correction/allocation returns `not-approved`.
- * Only then resolve landing mode; invalid landing returns `bad-landing` before arming.
+ * An approval arms only when its line-2 head is the PR's `headRefOid` (both 40 lowercase hex).
+ * `no-review-head` is a record with no valid head line; `head-moved` is a different or
+ * unreadable oid. Neither writes. Native auto-merge is then requested with
+ * `--match-head-commit` of that reviewed sha — an enable-time pin, not a later-push lease.
  * Native also enables merge-commit auto-merge. merge-on-green never returns
  * `no-required-checks` — the workflow, not the rules API, is the gate. Under
  * merge-on-green a `reviewed` already on the PR is removed and re-added, so a
@@ -545,8 +582,16 @@ export async function landPr(
     const stop = await createReviewLoop({ pr, ...spent, gh: ghFn }).enforceStop(cwd)
     return { status: 'review-stopped', reason: spent.stopReason, reviews: spent.reviews, fixes: spent.fixes, stop }
   }
-  // Only an approving review of the latest completed/allocated correction may arm.
+  // Only an approving review of the latest completed/allocated correction may arm,
+  // and only for the commit that record names. Read the head before any landing step.
   if (!history.approvedForLanding) return { status: 'not-approved', reviews: spent.reviews, fixes: spent.fixes }
+  const currentHead = await readHeadRefOid(cwd, pr, ghFn)
+  if (!isCommitSha(history.reviewedHead)) {
+    return { status: 'not-approved', reviews: spent.reviews, fixes: spent.fixes, reason: 'no-review-head' }
+  }
+  if (!isCommitSha(currentHead) || currentHead !== history.reviewedHead) {
+    return { status: 'not-approved', reviews: spent.reviews, fixes: spent.fixes, reason: 'head-moved' }
+  }
   let resolved = landing
   if (!resolved) {
     try {
@@ -565,11 +610,20 @@ export async function landPr(
     if (required.length === 0) return { status: 'no-required-checks' }
   }
 
+  const headMoved = async () => {
+    const again = await readHeadRefOid(cwd, pr, ghFn)
+    return !isCommitSha(again) || again !== history.reviewedHead
+  }
+  const moved = () => ({ status: 'not-approved', reviews: spent.reviews, fixes: spent.fixes, reason: 'head-moved' })
+  const pin = ['pr', 'merge', String(pr), '--auto', '--merge', '--match-head-commit', history.reviewedHead]
+
   /** @type {string} */
   let since = ''
   if (resolved.mode === 'merge-on-green') {
     const before = await labeledReviewedAt(cwd, pr, ghFn)
     const { labels = [] } = JSON.parse(await ghFn(cwd, ['pr', 'view', String(pr), '--json', 'labels']))
+    // Re-read immediately before the write. The earlier check is not a lease.
+    if (await headMoved()) return moved()
     if (labels.some((label) => label?.name === 'reviewed')) {
       await ghFn(cwd, ['pr', 'edit', String(pr), '--remove-label', 'reviewed'])
     }
@@ -582,15 +636,35 @@ export async function landPr(
       }
     }
   } else {
-    await ghFn(cwd, ['pr', 'edit', String(pr), '--add-label', 'reviewed'])
-  }
-  if (resolved.mode === 'native') {
+    // The pin is the merge authority. The label comes after it, so a failed
+    // or unpinned enable never leaves `reviewed` for the fleet workflow.
+    if (await headMoved()) return moved()
     try {
-      await ghFn(cwd, ['pr', 'merge', String(pr), '--auto', '--merge'])
+      await ghFn(cwd, pin)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      if (!/already enabled/i.test(msg)) return { status: 'auto-merge-failed', armed: true }
+      if (!/already enabled/i.test(msg)) return { status: 'auto-merge-failed', armed: false }
+      try {
+        await ghFn(cwd, ['pr', 'merge', String(pr), '--disable-auto'])
+      } catch {
+        return { status: 'auto-merge-failed', armed: true }
+      }
+      if (await headMoved()) return moved()
+      try {
+        await ghFn(cwd, pin)
+      } catch {
+        return { status: 'auto-merge-failed', armed: false }
+      }
     }
+    if (await headMoved()) {
+      try {
+        await ghFn(cwd, ['pr', 'merge', String(pr), '--disable-auto'])
+      } catch {
+        return { status: 'auto-merge-failed', armed: true }
+      }
+      return moved()
+    }
+    await ghFn(cwd, ['pr', 'edit', String(pr), '--add-label', 'reviewed'])
   }
   const sinceArg = since ? ` --since ${since}` : ''
   return {
@@ -718,6 +792,43 @@ const ROUNDS_FIRST_LINE = /^<!--\s*omp-build:review-rounds\s+reviews=\d+\s+fixes
 const CODE_REVIEW_FIRST_LINE = /^<!--\s*omp-build:code-review\s*-->\s*$/
 const FIX_RECEIPT_FIRST_LINE = /^## Review Fixes Applied\s*$/
 const VERDICT_LINE = /^\*\*Verdict:\s*(Request changes|Approve with comments|Approve \(clean\)|Approve)\*\*(?:\s.*)?$/
+/** Line 2 only. A sha anywhere else in the body is not the reviewed commit. */
+const REVIEW_HEAD_LINE = /^<!-- omp-build:review-head sha=([0-9a-f]{40}) -->$/
+
+/** @param {string | null} body */
+function reviewHeadOf(body) {
+  if (typeof body !== 'string') return null
+  const line = body.split('\n')[1] ?? ''
+  const match = line.trimEnd().match(REVIEW_HEAD_LINE)
+  return match ? match[1] : null
+}
+
+/** @param {unknown} value */
+function isCommitSha(value) {
+  return typeof value === 'string' && /^[0-9a-f]{40}$/.test(value)
+}
+
+/**
+ * The PR head, or whatever the view returned. A non-JSON answer throws: an
+ * unreadable head authorizes nothing and must not be folded into `head-moved`.
+ *
+ * @param {string} cwd
+ * @param {string | number} pr
+ * @param {(cwd: string, args: string[]) => Promise<string>} ghFn
+ */
+async function readHeadRefOid(cwd, pr, ghFn) {
+  const raw = await ghFn(cwd, ['pr', 'view', String(pr), '--json', 'headRefOid'])
+  let data
+  try {
+    data = JSON.parse(raw)
+  } catch {
+    throw new Error(`landPr: gh pr view ${pr} returned no JSON — ${preview(raw)}`)
+  }
+  if (typeof data !== 'object' || data === null) {
+    throw new Error(`landPr: gh pr view ${pr} returned no JSON — ${preview(raw)}`)
+  }
+  return data.headRefOid
+}
 
 /**
  * @param {string} body
@@ -782,7 +893,7 @@ export function interpretReviewHistory(comments, options) {
   return analyzeReviewHistory(comments, options).rounds
 }
 
-function analyzeReviewHistory(comments, { me, maxFixRounds = MAX_FIX_ROUNDS } = {}) {
+export function analyzeReviewHistory(comments, { me, maxFixRounds = MAX_FIX_ROUNDS } = {}) {
   if (!Array.isArray(comments)) throw new TypeError('interpretReviewHistory: comments must be an array')
   const who = reviewIdentity(me)
   if (!Number.isInteger(maxFixRounds) || maxFixRounds < 0 || maxFixRounds > MAX_FIX_ROUNDS) {
@@ -798,6 +909,7 @@ function analyzeReviewHistory(comments, { me, maxFixRounds = MAX_FIX_ROUNDS } = 
   let latestReview = -1
   let latestReceipt = -1
   let latestVerdict = null
+  let latestReviewBody = null
   let latestAllocation = -1
   // GitHub supplies creation order. Only first-line records by this account count.
   for (let order = 0; order < comments.length; order++) {
@@ -819,6 +931,7 @@ function analyzeReviewHistory(comments, { me, maxFixRounds = MAX_FIX_ROUNDS } = 
       codeReviews++
       latestReview = order
       latestVerdict = reviewVerdict(entry.body)
+      latestReviewBody = entry.body
       // Only a review arriving after the budget was spent is permanently terminal.
       // The red which allocates fix two precedes its marker; it is not this case.
       if (Math.max(markerFixes, receipts) >= maxFixRounds) {
@@ -879,8 +992,36 @@ function analyzeReviewHistory(comments, { me, maxFixRounds = MAX_FIX_ROUNDS } = 
     latestVerdict,
     stopOrigin,
     approvedForLanding,
+    reviewedHead: reviewHeadOf(latestReviewBody),
     empty,
   }
+}
+
+/** Issue-comment pages, every page. `gh pr view --json comments` is a silent first 100. */
+export function commentPageArgs(pr) {
+  return ['api', '--paginate', '--slurp', `repos/{owner}/{repo}/issues/${pr}/comments`]
+}
+
+/** @param {string} raw @param {number | string} pr */
+function commentsFromPages(raw, pr) {
+  let pages
+  try {
+    pages = JSON.parse(raw)
+  } catch {
+    throw new Error(`createReviewLoop: comment pages for ${pr} returned no JSON — ${preview(raw)}`)
+  }
+  if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) {
+    throw new Error(`createReviewLoop: comment pages for ${pr} are incomplete`)
+  }
+  const entries = pages.flat()
+  entries.sort((a, b) => String(a?.created_at ?? '').localeCompare(String(b?.created_at ?? '')))
+  return entries.map((entry) => {
+    if (typeof entry?.body !== 'string') {
+      throw new Error(`createReviewLoop: a comment page entry for ${pr} has no body`)
+    }
+    const login = entry?.user?.login
+    return { author: { login: typeof login === 'string' ? login : '' }, body: entry.body }
+  })
 }
 
 /** Current durable counts and stop, independent of the caller's cached loop. */
@@ -890,15 +1031,8 @@ export async function readReviewRounds(cwd, pr, deps = {}) {
 
 async function readReviewHistory(cwd, pr, { gh: ghFn = gh, maxFixRounds = MAX_FIX_ROUNDS } = {}) {
   const me = reviewIdentity(await ghFn(cwd, ['api', 'user', '--jq', '.login']))
-  const raw = await ghFn(cwd, ['pr', 'view', String(pr), '--json', 'comments'])
-  let data
-  try {
-    data = JSON.parse(raw)
-  } catch {
-    throw new Error(`createReviewLoop: gh pr view ${pr} returned no JSON — ${preview(raw)}`)
-  }
-  if (!Array.isArray(data?.comments)) throw new Error('createReviewLoop: PR response carried no comments')
-  return analyzeReviewHistory(data.comments, { me, maxFixRounds })
+  const raw = await ghFn(cwd, commentPageArgs(pr))
+  return analyzeReviewHistory(commentsFromPages(raw, pr), { me, maxFixRounds })
 }
 
 /**
