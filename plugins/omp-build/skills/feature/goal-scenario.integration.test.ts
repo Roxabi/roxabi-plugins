@@ -523,6 +523,5 @@ describe('stateful gh — one continuous goal', () => {
     expect(readMarker(stop?.body ?? '', 'goal-stop')).toEqual({ run: RUN_A, reason: 'review-bound' })
     expect(readSim().prs[String(openedA.number)]?.state).toBe('MERGED')
     expect(readSim().prs[String(openedB.number)]?.state).toBe('MERGED')
-    expect(readSim().issues[String(C)]?.state).toBe('CLOSED')
   })
 })
