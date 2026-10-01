@@ -93,6 +93,10 @@ case "$*" in
       echo 'view failed' >&2
       exit 1
     fi
+    if [ "\${GH_VIEW_EMPTY:-}" = 1 ]; then
+      printf '\\n'
+      exit 0
+    fi
     if [ "\${GH_STILL_ARMED:-}" = 1 ]; then
       printf '%s\\n' '{"enabledAt":"x","mergeMethod":"MERGE"}'
       exit 0
@@ -508,6 +512,7 @@ describe('moved-head disarm token and exit (#676)', () => {
   it('a draft that cannot disable auto-merge and has no label exits 0, and a still-armed follow-up aborts', () => {
     const draft = runDeclared(gated(), 'Disarm auto-merge on a moved head', {
       GH_DISABLE_CANT: '1',
+      GH_VIEW_EMPTY: '1',
       PR_LABELS: '[]',
     })
     expect(draft.status).toBe(0)

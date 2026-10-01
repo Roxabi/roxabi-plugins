@@ -188,7 +188,7 @@ function idempotentDisarm(indent: string): string {
     '  echo "::error::could not confirm auto-merge is off"',
     '  exit 1',
     'fi',
-    'if [ "$armed" != "null" ]; then',
+    'if [ -n "$armed" ] && [ "$armed" != "null" ]; then',
     '    echo "::error::auto-merge still armed after disarm"',
     '    exit 1',
     'fi',
@@ -285,7 +285,7 @@ jobs:
             echo "::error::could not confirm auto-merge is off"
             exit 1
           fi
-          if [ "$still" != "null" ]; then
+          if [ -n "$still" ] && [ "$still" != "null" ]; then
               echo "::error::auto-merge still armed after disarm"
               exit 1
           fi
