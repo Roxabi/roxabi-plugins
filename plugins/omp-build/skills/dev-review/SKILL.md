@@ -85,7 +85,7 @@ Steps: gather-changes → secret-scan → spec-compliance → multi-domain-revie
    SKILL_DIR="${SKILL_DIR:?dev-review Phase 1: skill directory not announced — export SKILL_DIR to this skill's directory and re-run}"
    BASE=$(. "$SKILL_DIR/../shared/lib.sh" && detect_base_branch)
    ```
-2. PR# → `gh pr diff <#>` | else → `git diff origin/${BASE}...HEAD`
+2. When a PR is bound, snapshot the reviewed commit before any diff: `REVIEWED_HEAD=$(gh pr view "$PR" --json headRefOid --jq .headRefOid)`. A local-only review snapshots `git rev-parse HEAD` and posts no head line. Then PR# → `gh pr diff <#>` | else → `git diff origin/${BASE}...HEAD`. Re-read that oid immediately after the diff. If it differs from the snapshot, discard the diff and stop: the head moved, re-run the review. Do not judge a diff whose commit is not the snapshot.
 3. Δ = `git diff --name-only origin/${BASE}...HEAD` (or `gh pr diff <#> --name-only`)
 4. ∀ f ∈ Δ: read full (skip binaries, note)
 5. |Δ| = 0 → halt
@@ -409,7 +409,7 @@ Verdict is computed from the complete deduplicated F and fails closed on blocker
 
 ### Render once
 
-Build one body. Its first line is exactly `<!-- omp-build:code-review -->`: that marker is how `skill://fix` finds the record, together with the comment author. When a PR exists, line 2 is exactly `<!-- omp-build:review-head sha=<40 lowercase hex> -->`, the `headRefOid` read before posting (`gh pr view "$PR" --json headRefOid --jq .headRefOid`). A sha anywhere else is not the reviewed commit. A local-only body has no line 2. Then, in this order:
+Build one body. Its first line is exactly `<!-- omp-build:code-review -->`: that marker is how `skill://fix` finds the record, together with the comment author. When a PR exists, line 2 is exactly `<!-- omp-build:review-head sha=<40 lowercase hex> -->` naming the Phase 1 `REVIEWED_HEAD` snapshot, never a fresh read. Immediately before posting, re-read `headRefOid`. If it differs, do not post an approval and do not write a head line for the new oid: stop and say the head moved; the review has to be re-run. A sha anywhere else is not the reviewed commit. A local-only body has no line 2. Then, in this order:
 
 1. `## Code Review`, then `## Spec` — render Σ from Phase 2, one row per criterion in σ order: `✓` met / `✗` missing, quoting `criterion_text`. σ ∄ → `no spec available — spec axis not evaluated`.
 2. `## Standards` — the orchestrator reads `skill://dev-review/review-smells.md` once, walks Δ against the baseline, and emits at most one `possible <Smell>` row per smell. Render the receipt in `## Standards (judgement pass — {n} smells walked, {k} fired)`. These rows never enter F, carry `Class:`, or affect verdict.
