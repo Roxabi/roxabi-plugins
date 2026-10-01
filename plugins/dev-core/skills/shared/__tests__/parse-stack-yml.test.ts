@@ -119,6 +119,9 @@ deploy:
     expect(parseStackYml('ci:\n  review_record: true\n').ciReviewRecord).toBe(true)
     expect(parseStackYml('ci:\n  merge: auto-merge\n  review_record: false\n').ciReviewRecord).toBe(false)
     expect(parseStackYml('runtime: bun\n').ciReviewRecord).toBe(false)
+    for (const value of ['yes', 'True', '"true"', '1']) {
+      expect(parseStackYml(`ci:\n  review_record: ${value}\n`).ciReviewRecord).toBe(false)
+    }
   })
 
   it('platform=none returns null', () => {
