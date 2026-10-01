@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   applyCiWatchExit,
+  commentPageArgs,
   createReviewLoop,
   interpretReviewHistory,
   landPr,
@@ -55,9 +56,18 @@ const BRANCH = 'feat/637-review-action-sinks'
 /** The one query the automation login comes from. */
 const IDENTITY = ['api', 'user', '--jq', '.login']
 /** How a review finds the branch's PRs: every state, so a closed PR still counts. @param {string} branch */
-const discovery = (branch) => ['pr', 'list', '--head', branch, '--state', 'all', '--json', 'number,state']
-/** One entry of that answer. @param {number} number @param {string} [state] */
-const listing = (number, state = 'OPEN') => ({ number, state })
+const discovery = (branch) => [
+  'pr',
+  'list',
+  '--head',
+  branch,
+  '--state',
+  'all',
+  '--json',
+  'number,state,isCrossRepository',
+]
+/** One entry of that answer. @param {number} number @param {string} [state] @param {boolean} [cross] */
+const listing = (number, state = 'OPEN', cross = false) => ({ number, state, isCrossRepository: cross })
 /** A native landing with one declared required check. */
 const NATIVE = { mode: 'native', required_checks: ['ci'] }
 
@@ -79,6 +89,7 @@ function comment(body, author = ME) {
 function review(verdict, { before } = {}) {
   return [
     '<!-- omp-build:code-review -->',
+    '<!-- omp-build:review-head sha=0123456789abcdef0123456789abcdef01234567 -->',
     '## Code Review',
     '',
     '## Spec',
@@ -137,7 +148,16 @@ function fakePr({
   /** The branch's PRs as `gh pr list --state all` lists them, a raw answer, or the Error the lookup throws. */
   branchPrs = [listing(PR, state)],
 } = {}) {
-  const pr = { me, comments: [...comments], labels: new Set(labels), autoMerge, state, branch, branchPrs }
+  const pr = {
+    me,
+    comments: [...comments],
+    labels: new Set(labels),
+    autoMerge,
+    state,
+    branch,
+    branchPrs,
+    headRefOid: '0123456789abcdef0123456789abcdef01234567',
+  }
   const n = String(PR)
   const calls = []
   const gh = async (_cwd, args) => {
@@ -147,6 +167,15 @@ function fakePr({
       if (pr.branchPrs instanceof Error) throw pr.branchPrs
       return typeof pr.branchPrs === 'string' ? pr.branchPrs : JSON.stringify(pr.branchPrs)
     }
+    if (same(args, commentPageArgs(n))) {
+      return JSON.stringify([
+        pr.comments.map((entry, index) => ({
+          user: { login: entry.author.login },
+          body: entry.body,
+          created_at: `2026-01-01T00:00:${String(index).padStart(2, '0')}Z`,
+        })),
+      ])
+    }
     if (args.length === 5 && same(args.slice(0, 4), ['pr', 'view', n, '--json'])) {
       /** @type {Record<string, unknown>} */
       const view = {}
@@ -155,6 +184,7 @@ function fakePr({
         else if (field === 'labels') view.labels = [...pr.labels].map((name) => ({ name }))
         else if (field === 'autoMergeRequest') view.autoMergeRequest = pr.autoMerge
         else if (field === 'state') view.state = pr.state
+        else if (field === 'headRefOid') view.headRefOid = pr.headRefOid
         else throw new Error(`unexpected field: ${field}`)
       }
       return JSON.stringify(view)
@@ -176,6 +206,14 @@ function fakePr({
       return ''
     }
     if (same(args, ['pr', 'merge', n, '--auto', '--merge'])) {
+      pr.autoMerge = { mergeMethod: 'MERGE' }
+      return ''
+    }
+    if (
+      args.length === 7 &&
+      same(args.slice(0, 5), ['pr', 'merge', n, '--auto', '--merge']) &&
+      args[5] === '--match-head-commit'
+    ) {
       pr.autoMerge = { mergeMethod: 'MERGE' }
       return ''
     }
@@ -289,14 +327,18 @@ describe('openPr', () => {
   })
 
   it('reuses the PR already open for that head, and opens nothing', async () => {
-    // Re-running mode 2 after a crash must not put a second PR on one branch.
-    const { gh, calls } = mockGh({ list: JSON.stringify([{ number: 400 }]) })
+    const { gh, calls } = mockGh({ list: JSON.stringify([{ number: 400, isCrossRepository: false }]) })
     expect(await openPr('/tmp/wt', INPUT, { gh })).toEqual({ number: 400, status: 'existing' })
     expect(calls).toEqual([LOOKUP])
   })
 
   it('picks the oldest when the head somehow carries two open PRs', async () => {
-    const { gh, calls } = mockGh({ list: JSON.stringify([{ number: 640 }, { number: 400 }]) })
+    const { gh, calls } = mockGh({
+      list: JSON.stringify([
+        { number: 640, isCrossRepository: false },
+        { number: 400, isCrossRepository: false },
+      ]),
+    })
     expect(await openPr('/tmp/wt', INPUT, { gh })).toEqual({ number: 400, status: 'existing' })
     expect(calls).toEqual([LOOKUP])
   })
@@ -308,10 +350,22 @@ describe('openPr', () => {
     expect(created(calls)).toHaveLength(1)
   })
 
+  it.each([
+    ['an omitted flag', { number: 401 }],
+    ['a null flag', { number: 401, isCrossRepository: null }],
+    ['a string flag', { number: 401, isCrossRepository: 'false' }],
+  ])('throws and creates nothing when a positive number has %s', async (_label, entry) => {
+    // `true` is dropped by both a strict boolean check and `!== true`. These three
+    // are kept by the loose filter, so replacing the shared guard reuses the entry.
+    const { gh, calls } = mockGh({ list: JSON.stringify([entry]) })
+    await expect(openPr('/tmp/wt', INPUT, { gh })).rejects.toThrow(/invalid PR discovery response/)
+    expect(created(calls)).toHaveLength(0)
+  })
+
   it('re-reads on GitHub\u2019s own 422, classified on the exit payload', async () => {
     // The realistic client failure: `gh` exits non-zero with the API's JSON body.
     const { gh, calls } = mockGh({
-      list: ['[]', JSON.stringify([{ number: 402 }])],
+      list: ['[]', JSON.stringify([{ number: 402, isCrossRepository: false }])],
       createThrows: {
         message: 'gh api --method POST repos/{owner}/{repo}/pulls … failed (1)',
         exitCode: 1,
@@ -330,7 +384,7 @@ describe('openPr', () => {
     // there: the failure has to propagate.
     const input = { ...INPUT, title: 'fix: a pull request already exists on re-entry' }
     const { gh, calls } = mockGh({
-      list: ['[]', JSON.stringify([{ number: 403 }])],
+      list: ['[]', JSON.stringify([{ number: 403, isCrossRepository: false }])],
       createThrows:
         'gh api --method POST … -f title=fix: a pull request already exists on re-entry failed (1): HTTP 403 — resource not accessible by integration',
     })
@@ -341,7 +395,7 @@ describe('openPr', () => {
   it('does not read the race out of the body it was handed', async () => {
     const body = 'Re-entry is safe: a pull request already exists for this head, and openPr reuses it.'
     const { gh, calls } = mockGh({
-      list: ['[]', JSON.stringify([{ number: 404 }])],
+      list: ['[]', JSON.stringify([{ number: 404, isCrossRepository: false }])],
       createThrows: {
         message: 'gh api --method POST … failed (1): gh: Not Found (HTTP 404)',
         stderr: 'gh: Not Found (HTTP 404)',
@@ -353,7 +407,7 @@ describe('openPr', () => {
 
   it('re-reads instead of failing when another opener wins the race', async () => {
     const { gh, calls } = mockGh({
-      list: ['[]', JSON.stringify([{ number: 401 }])],
+      list: ['[]', JSON.stringify([{ number: 401, isCrossRepository: false }])],
       createThrows: 'gh api failed (1): A pull request already exists for Roxabi:feat/494-feature-back-half.',
     })
     expect(await openPr('/tmp/wt', INPUT, { gh })).toEqual({ number: 401, status: 'existing' })
@@ -624,13 +678,25 @@ describe('resolveReviewPr — one PR, resolved before any loop exists', () => {
     ['the lookup fails', { branchPrs: new Error('HTTP 502') }],
     ['the lookup is not JSON', { branchPrs: 'no pull requests match your search' }],
     ['the lookup is not an array', { branchPrs: JSON.stringify(listing(512)) }],
-    ['an entry carries no PR number', { branchPrs: JSON.stringify([{ title: 'feat: sinks', state: 'OPEN' }]) }],
-    ['an entry carries no state', { branchPrs: JSON.stringify([{ number: 512 }]) }],
     ['an entry carries an unknown state', { branchPrs: JSON.stringify([listing(512, 'DRAFT')]) }],
     ['two PRs are open for the branch', { branchPrs: [listing(512), listing(640)] }],
     ['HEAD is detached', { branch: '' }],
   ])('refuses when %s — a failed lookup is not "no PR"', async (_label, options) => {
     await expect(resolveReviewPr(CWD, null, deps(fakePr(options)))).rejects.toThrow()
+  })
+
+  it('an entry with no state but a same-repository flag is an invalid discovery response', async () => {
+    const fake = fakePr({ branchPrs: JSON.stringify([{ number: 512, isCrossRepository: false }]) })
+    await expect(resolveReviewPr(CWD, null, deps(fake))).rejects.toThrow(/invalid PR discovery response/)
+  })
+
+  it.each([
+    ['no PR number', { title: 'feat: sinks', state: 'OPEN', isCrossRepository: false }],
+    ['a zero', { number: 0, state: 'OPEN', isCrossRepository: false }],
+    ['a non-integer', { number: '12', state: 'OPEN', isCrossRepository: false }],
+  ])('refuses an entry with %s once the fork flag is present', async (_label, entry) => {
+    const fake = fakePr({ branchPrs: JSON.stringify([entry]) })
+    await expect(resolveReviewPr(CWD, null, deps(fake))).rejects.toThrow(/invalid PR discovery response/)
   })
 
   it.each([0, -3, 'abc', 1.5])('refuses an explicit %o instead of discovering some other PR', async (explicit) => {
@@ -1277,10 +1343,30 @@ describe('the count outlives the process that holds it', () => {
     ['with comments that are not a list', JSON.stringify({ comments: null })],
   ])('fails closed on a comments answer %s rather than reading "no rounds spent"', async (_label, answer) => {
     const fake = fakePr()
-    const view = ['pr', 'view', String(PR), '--json', 'comments']
+    const view = commentPageArgs(PR)
     const gh = async (cwd, args) => (same(args, view) ? answer : fake.gh(cwd, args))
     await expect(readReviewRounds(CWD, PR, { gh })).rejects.toThrow()
     await expect(resumeReviewLoop(CWD, { pr: PR, gh })).rejects.toThrow()
+  })
+
+  it('a Request changes on a later page suppresses an Approve of the current head', async () => {
+    const first = [comment(GREEN), comment(accounting(1, 0))]
+    const fake = fakePr({ comments: first })
+    const pages = [
+      first.map((entry, index) => ({
+        user: { login: ME },
+        body: entry.body,
+        created_at: `2026-01-01T00:00:0${index}Z`,
+      })),
+      [{ user: { login: ME }, body: RED, created_at: '2026-01-01T00:00:09Z' }],
+    ]
+    const truncated = ['pr', 'view', String(PR), '--json', 'comments']
+    const gh = async (cwd, args) => {
+      if (same(args, commentPageArgs(PR))) return JSON.stringify(pages)
+      if (same(args, truncated)) return JSON.stringify({ comments: first })
+      return fake.gh(cwd, args)
+    }
+    await expect(landPr(CWD, PR, { gh, landing: NATIVE })).resolves.toMatchObject({ status: 'not-approved' })
   })
 
   it.each([
@@ -1474,6 +1560,43 @@ describe('interpretReviewHistory — strict, author-bound, first-line records', 
     ],
   ])('returns history-ambiguous for %s, never refunding a counted round', (_label, comments, counts) => {
     expect(interpretReviewHistory(comments, { me: ME })).toMatchObject({ ...counts, stopReason: 'history-ambiguous' })
+  })
+})
+
+describe('resolveReviewPr — a fork PR is not this branch’s PR', () => {
+  it('ignores a fork on a same-named branch and returns the same-repository PR', async () => {
+    const fake = fakePr({
+      branchPrs: [
+        { number: 999, state: 'OPEN', isCrossRepository: true },
+        { number: 640, state: 'OPEN', isCrossRepository: false },
+      ],
+    })
+    expect(await resolveReviewPr(CWD, null, deps(fake))).toBe(640)
+  })
+
+  it('returns null when the only open PR is a fork', async () => {
+    const fake = fakePr({ branchPrs: [{ number: 999, state: 'OPEN', isCrossRepository: true }] })
+    expect(await resolveReviewPr(CWD, null, deps(fake))).toBe(null)
+  })
+
+  it('does not treat a closed fork as this branch’s closed PR', async () => {
+    const fake = fakePr({ branchPrs: [{ number: 999, state: 'CLOSED', isCrossRepository: true }] })
+    expect(await resolveReviewPr(CWD, null, deps(fake))).toBe(null)
+  })
+
+  it('refuses a listing that omits the fork flag', async () => {
+    const fake = fakePr({ branchPrs: [{ number: 640, state: 'OPEN' }] })
+    await expect(resolveReviewPr(CWD, null, deps(fake))).rejects.toThrow(/invalid PR discovery response/)
+  })
+
+  it('does not treat a closed same-repository PR as the branch when a fork is open', async () => {
+    const fake = fakePr({
+      branchPrs: [
+        { number: 999, state: 'OPEN', isCrossRepository: true },
+        { number: 640, state: 'CLOSED', isCrossRepository: false },
+      ],
+    })
+    await expect(resolveReviewPr(CWD, null, deps(fake))).rejects.toThrow(/closed PR/)
   })
 })
 

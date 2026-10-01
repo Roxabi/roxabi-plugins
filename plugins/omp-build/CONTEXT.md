@@ -151,8 +151,8 @@ The shared mechanism behind one or more review findings. Named after the review,
 _Avoid_: the finding itself, a class slug alone, a file
 
 **Review record**:
-The one PR comment `fix` reads: first line `<!-- omp-build:code-review -->`, authored by the account running `fix`, newest wins. Root causes and findings both come from it.
-_Avoid_: scraping every PR comment, matching `## Code Review` as a substring
+The one PR comment `fix` reads: first line `<!-- omp-build:code-review -->`, authored by the account running `fix`, newest wins. Root causes and findings both come from it. Line 2, when a PR was reviewed, is `<!-- omp-build:review-head sha=<40 lowercase hex> -->` — the commit that approval names. `fix` does not read it. `landPr` arms only when it matches the PR's current `headRefOid`; a record without it does not arm, so a PR reviewed before the line existed needs one re-review. Native auto-merge is then pinned with `--match-head-commit`. Merge-on-green remains label-driven: a push by another actor after `reviewed` is applied is not refused by GitHub.
+_Avoid_: scraping every PR comment, matching `## Code Review` as a substring, reading a sha from prose or from any line but line 2
 
 **Panel**:
 The five dispatchable review roles: the `R-adversarial` floor plus at most two specialists the roster proved relevant.
