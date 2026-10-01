@@ -340,6 +340,18 @@ describe('openPr', () => {
     expect(created(calls)).toHaveLength(1)
   })
 
+  it.each([
+    ['an omitted flag', { number: 401 }],
+    ['a null flag', { number: 401, isCrossRepository: null }],
+    ['a string flag', { number: 401, isCrossRepository: 'false' }],
+  ])('throws and creates nothing when a positive number has %s', async (_label, entry) => {
+    // `true` is dropped by both a strict boolean check and `!== true`. These three
+    // are kept by the loose filter, so replacing the shared guard reuses the entry.
+    const { gh, calls } = mockGh({ list: JSON.stringify([entry]) })
+    await expect(openPr('/tmp/wt', INPUT, { gh })).rejects.toThrow(/invalid PR discovery response/)
+    expect(created(calls)).toHaveLength(0)
+  })
+
   it('re-reads on GitHub\u2019s own 422, classified on the exit payload', async () => {
     // The realistic client failure: `gh` exits non-zero with the API's JSON body.
     const { gh, calls } = mockGh({
