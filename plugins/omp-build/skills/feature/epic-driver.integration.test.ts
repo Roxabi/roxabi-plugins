@@ -993,6 +993,38 @@ describe('epic-driver — reconcile a stopped armed PR', () => {
     expect(git(epic, 'branch', '--show-current')).toBe('')
     expect(git(epic, 'branch', '--list', 'fix/3-second-child')).toBe('')
   })
+
+  it('disarms both open armed PRs of one stopped child', () => {
+    const epic = sandbox().epic
+    const earlier = { body: '<!-- omp-build:goal-stop run=run00000 reason=review-bound -->\nstopped', author: ME }
+    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
+    serveEpic([
+      childNode(2, 'feat(x): first child', {
+        comments: [earlier],
+        prs: [
+          prNode(10, 'feat/2-first-child', 'a'.repeat(40), armed),
+          prNode(14, 'feat/2-other-child', 'b'.repeat(40), armed),
+        ],
+      }),
+      childNode(3, 'fix(y): second child'),
+    ])
+    servePr(10, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    servePr(14, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    const run = drive(['next'])
+    expect(run.code).toBe(0)
+    expect(run.json().step).toMatchObject({ action: 'start', ticket: 3 })
+    expect(run.json().reconciled).toEqual([
+      { ticket: 2, pr: 10, disarmed: 'disarmed' },
+      { ticket: 2, pr: 14, disarmed: 'disarmed' },
+    ])
+    expect(writes()).toEqual([
+      'edit 10 --remove-label reviewed',
+      'merge 10 --disable-auto',
+      'edit 14 --remove-label reviewed',
+      'merge 14 --disable-auto',
+    ])
+    expect(git(epic, 'branch', '--show-current')).toBe('fix/3-second-child')
+  })
 })
 
 describe('epic-driver — drop disarms without the dashboard', () => {
