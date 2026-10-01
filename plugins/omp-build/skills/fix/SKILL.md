@@ -166,7 +166,7 @@ The tree must be clean before the first applied cause. Uncommitted changes → h
 
 1. Re-read every cited file.
 2. Apply `r.fix` once, so every member callsite is covered. The fix line is the change. There is no alternate solution to pick.
-3. Sweep the touched files for the same-class anti-pattern. The sweep may justify a hit of a class already on a member finding. It must not edit a file:line cited by a deferred cause or listed as an uncited non-blocking finding. An uncited hit outside that set may be fixed.
+3. Sweep the touched files for the same-class anti-pattern. The sweep may justify a hit of a class already on a member finding. It must not edit a file:line cited by a deferred cause, listed as an uncited non-blocking finding, or cited by a malformed block, whether that finding is filed per finding or listed in the deferral. An uncited hit outside that set may be fixed.
 4. Run lint + the tests covering the changed files. Red → retry max 3.
 
 succeeds → O_commit(r) → `[applied]`, keep the commit sha.
