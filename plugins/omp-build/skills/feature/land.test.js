@@ -758,6 +758,21 @@ describe('landPr — an approval arms only the commit it reviewed', () => {
     expect(noWrite(fake.calls)).toBe(false)
   })
 
+  it.each([
+    ['a 39-hex line 2', `${REVIEWED_HEAD.slice(0, 39)}`],
+    ['a 41-hex line 2', `${REVIEWED_HEAD}a`],
+    ['a line 2 with a prefix', `note ${headLine(REVIEWED_HEAD)}`],
+    ['a line 2 with trailing text', `${headLine(REVIEWED_HEAD)} extra`],
+  ])('%s does not arm, even when the embedded sha is the current head', async (_label, line2) => {
+    const body = `<!-- omp-build:code-review -->\n${line2}\n## Code Review\n\n**Verdict: Approve (clean)** — summary`
+    const { analyzeReviewHistory } = await import('./workflow.js')
+    expect(analyzeReviewHistory([byMe(body)], { me: ME }).reviewedHead).toBe(null)
+    const fake = gatePr({ comments: [byMe(body), byMe(accounting(1, 0))], headRefOid: REVIEWED_HEAD })
+    const result = await landPr('/tmp/wt', 7, { gh: fake.gh, ...NATIVE })
+    expect(result).toEqual({ status: 'not-approved', reviews: 1, fixes: 0, reason: 'no-review-head' })
+    expect(noWrite(fake.calls)).toBe(false)
+  })
+
   it('an approving review of the current head arms, and native auto-merge is pinned to that commit', async () => {
     const fake = gatePr({
       comments: [byMe(boundReview('Approve (clean)', REVIEWED_HEAD)), byMe(accounting(1, 0))],
