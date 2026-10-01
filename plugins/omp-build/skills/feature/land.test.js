@@ -70,8 +70,14 @@ const accounting = (reviews, fixes, stop) =>
   ].join('\n')
 /** @param {string} body */
 const byMe = (body) => ({ author: { login: ME }, body })
-/** A first-round approval: the review record, then the count the loop persisted — what a green landing follows. */
-const APPROVED = [byMe(GREEN), byMe(accounting(1, 0))]
+/** A first-round approval of a named commit, then the count the loop persisted. */
+const APPROVED_HEAD = '0123456789abcdef0123456789abcdef01234567'
+const APPROVED = [
+  byMe(
+    `<!-- omp-build:code-review -->\n<!-- omp-build:review-head sha=${APPROVED_HEAD} -->\n## Code Review\n\n**Verdict: Approve (clean)** — summary`,
+  ),
+  byMe(accounting(1, 0)),
+]
 /** Two completed rounds: each red persisted as an allocation, each fix receipted. */
 const TWO_ROUNDS = [byMe(RED), byMe(accounting(1, 1)), byMe(RECEIPT), byMe(RED), byMe(accounting(2, 2)), byMe(RECEIPT)]
 /** PR #636 as it stands: one review record and a prose dossier — no counters, no receipts. */
@@ -107,6 +113,9 @@ function mockLand({
     const jsonAt = args.indexOf('--json')
     const fields = jsonAt === -1 ? [] : String(args[jsonAt + 1] ?? '').split(',')
     if (same(args, IDENTITY)) return `${ME}\n`
+    if (args[0] === 'pr' && args[1] === 'view' && same(fields, ['headRefOid'])) {
+      return JSON.stringify({ headRefOid: APPROVED_HEAD })
+    }
     if (args[0] === 'pr' && args[1] === 'view' && same(fields, ['comments'])) return JSON.stringify({ comments })
     if (args[0] === 'pr' && args[1] === 'view' && fields.includes('state')) {
       const state = states[Math.min(statePoll, states.length - 1)] ?? 'OPEN'
@@ -197,7 +206,11 @@ describe('landPr', () => {
       sleep,
     })
     // After the review-history read: the pre-add time, remove, re-add, then the newer time.
-    const historyRead = [IDENTITY, ['pr', 'view', '7', '--json', 'comments']]
+    const historyRead = [
+      IDENTITY,
+      ['pr', 'view', '7', '--json', 'comments'],
+      ['pr', 'view', '7', '--json', 'headRefOid'],
+    ]
     expect(calls.filter((args) => !historyRead.some((read) => same(args, read)))).toEqual([
       ['repo', 'view', '--json', 'nameWithOwner'],
       EVENTS_CALL,
@@ -266,14 +279,14 @@ describe('landPr', () => {
     expect(calls.some((a) => a[1] === 'merge' && a.includes('--auto'))).toBe(true)
   })
 
-  it('native auto-merge boom returns auto-merge-failed after arming', async () => {
+  it('native auto-merge boom returns auto-merge-failed without the label', async () => {
     const { calls, gh } = mockLand({ mergeThrows: 'boom' })
     const result = await landPr('/tmp/wt', 7, {
       gh,
       landing: { mode: 'native', required_checks: ['ci'] },
     })
-    expect(result).toEqual({ status: 'auto-merge-failed', armed: true })
-    expect(labeled(calls)).toBe(true)
+    expect(result).toEqual({ status: 'auto-merge-failed', armed: false })
+    expect(labeled(calls)).toBe(false)
   })
 
   it('an explicit native landing still asks protection and rulesets', async () => {
@@ -282,6 +295,9 @@ describe('landPr', () => {
       calls.push(args)
       if (same(args, IDENTITY)) return `${ME}\n`
       if (same(args, ['pr', 'view', '7', '--json', 'comments'])) return JSON.stringify({ comments: APPROVED })
+      if (same(args, ['pr', 'view', '7', '--json', 'headRefOid'])) {
+        return JSON.stringify({ headRefOid: APPROVED_HEAD })
+      }
       if (args[0] === 'repo') return JSON.stringify({ nameWithOwner: 'acme/app' })
       if (args[0] === 'pr' && args[1] === 'view') return JSON.stringify({ baseRefName: 'main' })
       if (args[0] === 'api') throw new Error('HTTP 403')
@@ -300,8 +316,8 @@ describe('landPr', () => {
  * A PR whose gate follows the calls made on it: labels, native auto-merge, labeled events,
  * comments by author. Only exact argv is answered; anything else throws.
  */
-function gatePr({ comments, labels = [], autoMerge = null, state = 'OPEN' }) {
-  const pr = { comments: [...comments], labels: new Set(labels), autoMerge, state, labeledAt: [] }
+function gatePr({ comments, labels = [], autoMerge = null, state = 'OPEN', headRefOid = null }) {
+  const pr = { comments: [...comments], labels: new Set(labels), autoMerge, state, labeledAt: [], headRefOid }
   const calls = []
   const gh = async (_cwd, args) => {
     calls.push(args)
@@ -314,6 +330,7 @@ function gatePr({ comments, labels = [], autoMerge = null, state = 'OPEN' }) {
         else if (field === 'labels') view.labels = [...pr.labels].map((name) => ({ name }))
         else if (field === 'autoMergeRequest') view.autoMergeRequest = pr.autoMerge
         else if (field === 'state') view.state = pr.state
+        else if (field === 'headRefOid') view.headRefOid = pr.headRefOid
         else throw new Error(`unexpected field: ${field}`)
       }
       return JSON.stringify(view)
@@ -336,6 +353,15 @@ function gatePr({ comments, labels = [], autoMerge = null, state = 'OPEN' }) {
       return ''
     }
     if (same(args, ['pr', 'merge', '7', '--auto', '--merge'])) {
+      pr.autoMerge = { mergeMethod: 'MERGE' }
+      return ''
+    }
+    if (
+      args.length === 7 &&
+      same(args.slice(0, 5), ['pr', 'merge', '7', '--auto', '--merge']) &&
+      args[5] === '--match-head-commit' &&
+      args[6] === pr.headRefOid
+    ) {
       pr.autoMerge = { mergeMethod: 'MERGE' }
       return ''
     }
@@ -452,7 +478,10 @@ describe('landPr — only an approval of the latest correction arms', () => {
   })
 
   it.each(['Approve', 'Approve with comments'])('arms on an %s verdict as well', async (verdict) => {
-    const fake = gatePr({ comments: [byMe(review(verdict)), byMe(accounting(1, 0))] })
+    const fake = gatePr({
+      comments: [byMe(boundReview(verdict, REVIEWED_HEAD)), byMe(accounting(1, 0))],
+      headRefOid: REVIEWED_HEAD,
+    })
     const result = await landPr('/tmp/wt', 7, { gh: fake.gh, ...NATIVE })
     expect(result).toMatchObject({ status: 'watching', mode: 'native' })
     expect(fake.pr.labels.has('reviewed')).toBe(true)
@@ -461,15 +490,18 @@ describe('landPr — only an approval of the latest correction arms', () => {
 
 describe('landPr — a green history after spent rounds still lands in both modes', () => {
   const LANDABLE = [
-    ['a final green after two fixes', [...TWO_ROUNDS, byMe(GREEN), byMe(accounting(3, 2))]],
+    [
+      'a final green after two fixes',
+      [...TWO_ROUNDS, byMe(boundReview('Approve (clean)', REVIEWED_HEAD)), byMe(accounting(3, 2))],
+    ],
     [
       'legacy receipts for two fixes, then a green, no counters',
-      [byMe(RED), byMe(RECEIPT), byMe(RED), byMe(RECEIPT), byMe(GREEN)],
+      [byMe(RED), byMe(RECEIPT), byMe(RED), byMe(RECEIPT), byMe(boundReview('Approve (clean)', REVIEWED_HEAD))],
     ],
   ]
 
   it.each(LANDABLE)('native: %s arms the label and auto-merge', async (_label, comments) => {
-    const fake = gatePr({ comments })
+    const fake = gatePr({ comments, headRefOid: REVIEWED_HEAD })
     const result = await landPr('/tmp/wt', 7, { gh: fake.gh, landing: { mode: 'native', required_checks: ['ci'] } })
     expect(result).toMatchObject({ status: 'watching', mode: 'native' })
     expect(fake.pr.labels.has('reviewed')).toBe(true)
@@ -478,7 +510,7 @@ describe('landPr — a green history after spent rounds still lands in both mode
   })
 
   it.each(LANDABLE)('merge-on-green: %s arms the label and watches from its event', async (_label, comments) => {
-    const fake = gatePr({ comments })
+    const fake = gatePr({ comments, headRefOid: REVIEWED_HEAD })
     const result = await landPr('/tmp/wt', 7, {
       gh: fake.gh,
       sleep: async () => {},
@@ -671,5 +703,224 @@ describe('disarmReviewedBeforePush', () => {
       },
     })
     expect(removedBeforePush).toBe(true)
+  })
+})
+
+const REVIEWED_HEAD = '0123456789abcdef0123456789abcdef01234567'
+const MOVED_HEAD = 'fedcba9876543210fedcba9876543210fedcba98'
+/** Line 2 of a review record, the only place a reviewed commit is read. @param {string} sha */
+const headLine = (sha) => `<!-- omp-build:review-head sha=${sha} -->`
+/** @param {string} verdict @param {string} sha */
+const boundReview = (verdict, sha) =>
+  `<!-- omp-build:code-review -->\n${headLine(sha)}\n## Code Review\n\n**Verdict: ${verdict}** — summary`
+const noWrite = (calls) => calls.some((args) => args[1] === 'edit' || args[1] === 'merge' || args[1] === 'comment')
+
+describe('landPr — an approval arms only the commit it reviewed', () => {
+  it('a push after an approving review is not-approved and writes nothing', async () => {
+    const fake = gatePr({
+      comments: [byMe(boundReview('Approve (clean)', REVIEWED_HEAD)), byMe(accounting(1, 0))],
+      headRefOid: MOVED_HEAD,
+    })
+    const result = await landPr('/tmp/wt', 7, { gh: fake.gh, ...NATIVE })
+    expect(result).toEqual({ status: 'not-approved', reviews: 1, fixes: 0, reason: 'head-moved' })
+    expect(noWrite(fake.calls)).toBe(false)
+  })
+
+  it('a head that moves after the approval check and before the write is not armed', async () => {
+    const fake = gatePr({
+      comments: [byMe(boundReview('Approve (clean)', REVIEWED_HEAD)), byMe(accounting(1, 0))],
+      headRefOid: REVIEWED_HEAD,
+    })
+    const gh = async (cwd, args) => {
+      const result = await fake.gh(cwd, args)
+      if (args[1] === 'view' && args[4] === 'headRefOid') fake.pr.headRefOid = MOVED_HEAD
+      return result
+    }
+    const result = await landPr('/tmp/wt', 7, { gh, ...NATIVE })
+    expect(result).toEqual({ status: 'not-approved', reviews: 1, fixes: 0, reason: 'head-moved' })
+    expect(noWrite(fake.calls)).toBe(false)
+  })
+
+  it('an already-enabled auto-merge is re-pinned before the label', async () => {
+    const fake = gatePr({
+      comments: [byMe(boundReview('Approve (clean)', REVIEWED_HEAD)), byMe(accounting(1, 0))],
+      headRefOid: REVIEWED_HEAD,
+    })
+    let enables = 0
+    const gh = async (cwd, args) => {
+      if (args[1] === 'merge' && args.includes('--auto')) {
+        enables++
+        if (enables === 1) throw new Error('GraphQL: Auto merge is already enabled')
+      }
+      return fake.gh(cwd, args)
+    }
+    const result = await landPr('/tmp/wt', 7, { gh, ...NATIVE })
+    expect(result).toMatchObject({ status: 'watching', mode: 'native' })
+    const pinAt = fake.calls.findIndex((args) => args.includes('--match-head-commit') && args.at(-1) === REVIEWED_HEAD)
+    const labelAt = fake.calls.findIndex(armsLabel)
+    expect(fake.calls.some((args) => args.includes('--disable-auto'))).toBe(true)
+    expect(pinAt).toBeGreaterThanOrEqual(0)
+    expect(labelAt).toBeGreaterThan(pinAt)
+  })
+
+  it('a failed re-pin of an already-enabled auto-merge adds no label', async () => {
+    const fake = gatePr({
+      comments: [byMe(boundReview('Approve (clean)', REVIEWED_HEAD)), byMe(accounting(1, 0))],
+      headRefOid: REVIEWED_HEAD,
+    })
+    let enables = 0
+    const gh = async (cwd, args) => {
+      if (args[1] === 'merge' && args.includes('--auto')) {
+        enables++
+        if (enables === 1) throw new Error('already enabled')
+        throw new Error('pin refused')
+      }
+      return fake.gh(cwd, args)
+    }
+    const result = await landPr('/tmp/wt', 7, { gh, ...NATIVE })
+    expect(result).toEqual({ status: 'auto-merge-failed', armed: false })
+    expect(fake.calls.some(armsLabel)).toBe(false)
+  })
+
+  it('an unreadable current head is head-moved, not an approval of nothing', async () => {
+    const fake = gatePr({
+      comments: [byMe(boundReview('Approve (clean)', REVIEWED_HEAD)), byMe(accounting(1, 0))],
+      headRefOid: null,
+    })
+    const result = await landPr('/tmp/wt', 7, { gh: fake.gh, ...NATIVE })
+    expect(result).toEqual({ status: 'not-approved', reviews: 1, fixes: 0, reason: 'head-moved' })
+    expect(noWrite(fake.calls)).toBe(false)
+  })
+
+  it('a non-JSON head view throws and writes nothing', async () => {
+    const fake = gatePr({
+      comments: [byMe(boundReview('Approve (clean)', REVIEWED_HEAD)), byMe(accounting(1, 0))],
+      headRefOid: REVIEWED_HEAD,
+    })
+    const gh = async (cwd, args) => {
+      if (args[1] === 'view' && args[4] === 'headRefOid') return 'not json'
+      return fake.gh(cwd, args)
+    }
+    await expect(landPr('/tmp/wt', 7, { gh, ...NATIVE })).rejects.toThrow(/no JSON/)
+    expect(noWrite(fake.calls)).toBe(false)
+  })
+
+  it('a review record with no head line does not arm', async () => {
+    const fake = gatePr({ comments: [byMe(GREEN), byMe(accounting(1, 0))], headRefOid: REVIEWED_HEAD })
+    const result = await landPr('/tmp/wt', 7, { gh: fake.gh, ...NATIVE })
+    expect(result).toEqual({ status: 'not-approved', reviews: 1, fixes: 0, reason: 'no-review-head' })
+    expect(noWrite(fake.calls)).toBe(false)
+  })
+
+  it('a missing head oid beside a record with no head line does not arm', async () => {
+    const fake = gatePr({ comments: [byMe(GREEN), byMe(accounting(1, 0))], headRefOid: null })
+    const result = await landPr('/tmp/wt', 7, { gh: fake.gh, ...NATIVE })
+    expect(result).toEqual({ status: 'not-approved', reviews: 1, fixes: 0, reason: 'no-review-head' })
+    expect(noWrite(fake.calls)).toBe(false)
+  })
+
+  it('a head marker quoted in the findings, with line 2 absent, does not arm', async () => {
+    const quoted = `<!-- omp-build:code-review -->\n## Code Review\n\n${headLine(REVIEWED_HEAD)}\n\n**Verdict: Approve (clean)** — summary`
+    const fake = gatePr({ comments: [byMe(quoted), byMe(accounting(1, 0))], headRefOid: REVIEWED_HEAD })
+    const result = await landPr('/tmp/wt', 7, { gh: fake.gh, ...NATIVE })
+    expect(result).toEqual({ status: 'not-approved', reviews: 1, fixes: 0, reason: 'no-review-head' })
+    expect(noWrite(fake.calls)).toBe(false)
+  })
+
+  it.each([
+    ['a 39-hex sha inside the marker', headLine(REVIEWED_HEAD.slice(0, 39))],
+    ['a 41-hex sha inside the marker', headLine(`${REVIEWED_HEAD}a`)],
+    ['a line 2 with a prefix', `note ${headLine(REVIEWED_HEAD)}`],
+    ['a line 2 with trailing text', `${headLine(REVIEWED_HEAD)} extra`],
+  ])('%s does not arm, even when the embedded sha is the current head', async (_label, line2) => {
+    const body = `<!-- omp-build:code-review -->\n${line2}\n## Code Review\n\n**Verdict: Approve (clean)** — summary`
+    const { analyzeReviewHistory } = await import('./workflow.js')
+    expect(analyzeReviewHistory([byMe(body)], { me: ME }).reviewedHead).toBe(null)
+    const fake = gatePr({ comments: [byMe(body), byMe(accounting(1, 0))], headRefOid: REVIEWED_HEAD })
+    const result = await landPr('/tmp/wt', 7, { gh: fake.gh, ...NATIVE })
+    expect(result).toEqual({ status: 'not-approved', reviews: 1, fixes: 0, reason: 'no-review-head' })
+    expect(noWrite(fake.calls)).toBe(false)
+  })
+
+  it('an approving review of the current head arms, and native auto-merge is pinned to that commit', async () => {
+    const fake = gatePr({
+      comments: [byMe(boundReview('Approve (clean)', REVIEWED_HEAD)), byMe(accounting(1, 0))],
+      headRefOid: REVIEWED_HEAD,
+    })
+    const result = await landPr('/tmp/wt', 7, { gh: fake.gh, ...NATIVE })
+    expect(result).toMatchObject({ status: 'watching', mode: 'native' })
+    expect(fake.calls).toContainEqual(['pr', 'merge', '7', '--auto', '--merge', '--match-head-commit', REVIEWED_HEAD])
+    expect(fake.pr.labels.has('reviewed')).toBe(true)
+  })
+
+  it('exposes the reviewed head of the latest record, null when line 2 is absent or malformed', async () => {
+    const { analyzeReviewHistory } = await import('./workflow.js')
+    const parsed = analyzeReviewHistory(
+      [byMe(boundReview('Approve', REVIEWED_HEAD)), byMe(boundReview('Request changes', MOVED_HEAD))],
+      { me: ME },
+    )
+    expect(parsed.reviewedHead).toBe(MOVED_HEAD)
+    expect(analyzeReviewHistory([byMe(GREEN)], { me: ME }).reviewedHead).toBe(null)
+    expect(
+      analyzeReviewHistory([byMe(boundReview('Approve', REVIEWED_HEAD.toUpperCase()))], { me: ME }).reviewedHead,
+    ).toBe(null)
+  })
+  /**
+   * @param {{ pr: { headRefOid: string | null }, calls: string[][] }} fake
+   * @param {{ moveAt: number, firstMerge?: 'already-enabled', disableThrows?: boolean }} spec
+   */
+  function movingHead(fake, { moveAt, firstMerge, disableThrows = false }) {
+    let reads = 0
+    let merges = 0
+    return async (cwd, args) => {
+      if (args[1] === 'view' && args[4] === 'headRefOid') {
+        reads += 1
+        if (reads >= moveAt) fake.pr.headRefOid = MOVED_HEAD
+      }
+      if (disableThrows && args.includes('--disable-auto')) throw new Error('disable failed')
+      if (firstMerge === 'already-enabled' && args[1] === 'merge' && args.includes('--auto')) {
+        merges += 1
+        if (merges === 1) throw new Error('already enabled')
+      }
+      return fake.gh(cwd, args)
+    }
+  }
+
+  const approvedGate = () =>
+    gatePr({
+      comments: [byMe(boundReview('Approve (clean)', REVIEWED_HEAD)), byMe(accounting(1, 0))],
+      headRefOid: REVIEWED_HEAD,
+    })
+
+  it('a head that moves after the pin is not-approved, auto-merge disabled, and unlabeled', async () => {
+    const fake = approvedGate()
+    const result = await landPr('/tmp/wt', 7, { gh: movingHead(fake, { moveAt: 3 }), ...NATIVE })
+    expect(result).toEqual({ status: 'not-approved', reviews: 1, fixes: 0, reason: 'head-moved' })
+    expect(fake.calls.some(disablesAuto)).toBe(true)
+    expect(fake.calls.some(armsLabel)).toBe(false)
+    expect(fake.pr.labels.has('reviewed')).toBe(false)
+  })
+
+  it('a head that moves between disable and the second enable is not labeled', async () => {
+    const fake = approvedGate()
+    const result = await landPr('/tmp/wt', 7, {
+      gh: movingHead(fake, { moveAt: 3, firstMerge: 'already-enabled' }),
+      ...NATIVE,
+    })
+    expect(result).toEqual({ status: 'not-approved', reviews: 1, fixes: 0, reason: 'head-moved' })
+    expect(fake.calls.filter((args) => args[1] === 'merge' && args.includes('--auto'))).toHaveLength(0)
+    expect(fake.calls.some(disablesAuto)).toBe(true)
+    expect(fake.calls.some(armsLabel)).toBe(false)
+  })
+
+  it('disable-auto throwing after the pin moves returns auto-merge-failed and no label', async () => {
+    const fake = approvedGate()
+    const result = await landPr('/tmp/wt', 7, {
+      gh: movingHead(fake, { moveAt: 3, disableThrows: true }),
+      ...NATIVE,
+    })
+    expect(result).toEqual({ status: 'auto-merge-failed', armed: true })
+    expect(fake.calls.some(armsLabel)).toBe(false)
+    expect(fake.pr.labels.has('reviewed')).toBe(false)
   })
 })

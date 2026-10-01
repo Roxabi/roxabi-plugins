@@ -13,15 +13,16 @@ export { normalizeWorkflowOpts, triggerBranches }
 
 // --- Content generators ---
 
-/** Generic auto-merge workflow: enables native auto-merge on 'reviewed' label,
- *  updates behind PRs on push, closes linked issues on merge. */
+/** Generic auto-merge workflow: enables native auto-merge on a labeled
+ *  `reviewed` only for that review's commit, disarms on synchronize, and
+ *  closes linked issues on merge. */
 export function generateAutoMergeYml(opts?: WorkflowOpts): string {
   const branches = triggerBranches(opts)
   return `# Auto-merge PRs that have been reviewed and passed all required checks.
 # Enables GitHub's native auto-merge (\`gh pr merge --auto --merge\`) once the
-# "reviewed" label is present; GitHub then waits for the required status
-# checks before merging.
-# Uses merge commit (not squash) to preserve history — required for staging→main promotions.
+# "reviewed" label is applied, pinned to the commit that review named.
+# synchronize disarms instead of re-enabling. Reviewed PRs are not retargeted.
+# GitHub then waits for the required status checks before merging.
 #
 # Dependabot guard: semver-major bumps are never auto-merged — they require
 # manual validation before merge.
@@ -79,21 +80,64 @@ ${APP_MINT_STEP}
           echo "::error::semver-major dependency bump — auto-merge refused"
           exit 1
 
-      - name: Update branch (lazy sync for late joiners)
-        if: contains(github.event.pull_request.labels.*.name, 'reviewed')
-        env:
-          GH_TOKEN: \${{ steps.app.outputs.token }}
-          PR_NUMBER: \${{ github.event.pull_request.number }}
-          PR_HEAD_SHA: \${{ github.event.pull_request.head.sha }}
-        run: |
-          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/update-branch" \\
-            --method PUT -f expected_head_sha="$PR_HEAD_SHA" || true
-
       - name: Enable auto-merge (merge commit)
-        run: gh pr merge "$PR_NUMBER" --auto --merge --repo "$GITHUB_REPOSITORY"
         env:
           GH_TOKEN: \${{ steps.app.outputs.token }}
           PR_NUMBER: \${{ github.event.pull_request.number }}
+          HEAD_SHA: \${{ github.event.pull_request.head.sha }}
+          REVIEWER: \${{ github.event.sender.login }}
+          ACTION: \${{ github.event.action }}
+        run: |
+          set -euo pipefail
+          disarm() {
+            gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --remove-label reviewed
+            gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --disable-auto
+          }
+          # synchronize is a new head. Do not re-enable from a comment.
+          if [ "$ACTION" != "labeled" ]; then
+            disarm
+            echo "::error::head moved after review — auto-merge disarmed"
+            exit 1
+          fi
+          if ! comments=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json comments); then
+            disarm
+            echo "::error::refusing to enable auto-merge without the reviewed commit"
+            exit 1
+          fi
+          SHA=$(printf '%s' "$comments" | jq -r --arg reviewer "$REVIEWER" --arg head "$HEAD_SHA" '
+            [.comments[]
+              | select(.author.login == $reviewer)
+              | .body
+              | select(split("\\n")[0] == "<!-- omp-build:code-review -->")
+              | select(split("\\n")[1] | test("^<!-- omp-build:review-head sha=[0-9a-f]{40} -->$"))
+              | select(split("\\n") | any(test("^\\\\*\\\\*Verdict: Approve( \\\\(clean\\\\)| with comments)?\\\\*\\\\*")))
+              | split("\\n")[1]
+              | capture("^<!-- omp-build:review-head sha=(?<sha>[0-9a-f]{40}) -->$").sha
+              | select(. == $head)
+            ] | last // ""')
+          if [ "$SHA" != "$HEAD_SHA" ] || [ "\${#SHA}" -ne 40 ]; then
+            disarm
+            echo "::error::refusing to enable auto-merge without the reviewed commit"
+            exit 1
+          fi
+          set +e
+          out=$(gh pr merge "$PR_NUMBER" --auto --merge --repo "$GITHUB_REPOSITORY" --match-head-commit "$SHA" 2>&1)
+          code=$?
+          set -e
+          if [ "$code" -ne 0 ]; then
+            printf '%s\\n' "$out" >&2
+            if ! printf '%s' "$out" | grep -qi 'already enabled'; then
+              disarm
+              echo "::error::refusing to enable auto-merge without the reviewed commit"
+              exit 1
+            fi
+            gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --disable-auto
+            if ! gh pr merge "$PR_NUMBER" --auto --merge --repo "$GITHUB_REPOSITORY" --match-head-commit "$SHA"; then
+              disarm
+              echo "::error::refusing to enable auto-merge without the reviewed commit"
+              exit 1
+            fi
+          fi
 
   update-behind-prs:
     name: Update behind PRs
@@ -101,26 +145,11 @@ ${APP_MINT_STEP}
     if: github.event_name == 'push'
     timeout-minutes: 5
     steps:
-${APP_MINT_STEP}
-
-      - name: Update all reviewed PRs targeting this branch
+      - name: Leave reviewed PRs on the commit that was reviewed
         run: |
-          BRANCH="\${GITHUB_REF_NAME}"
-          PRS=$(gh pr list --repo "$GITHUB_REPOSITORY" --base "$BRANCH" --label reviewed --state open --json number,headRefOid --jq '.[]')
-          if [ -z "$PRS" ]; then
-            echo "No reviewed PRs targeting $BRANCH"
-            exit 0
-          fi
-          echo "$PRS" | while IFS= read -r pr; do
-            NUM=$(echo "$pr" | jq -r .number)
-            SHA=$(echo "$pr" | jq -r .headRefOid)
-            echo "Updating PR #$NUM..."
-            gh api "repos/\${{ github.repository }}/pulls/$NUM/update-branch" \\
-              --method PUT -f expected_head_sha="$SHA" || true
-          done
-        env:
-          GH_TOKEN: \${{ steps.app.outputs.token }}
-
+          set -euo pipefail
+          echo "reviewed PRs are not retargeted — a new head needs a new review"
+          exit 0
   close-linked-issues:
     name: Close linked issues
     runs-on: ubuntu-latest

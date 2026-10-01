@@ -461,18 +461,35 @@ resolver `/ci-watch` uses: `landing.mode` in `.dev/stack.yml` (parsed as YAML),
 else merge-on-green when `.github/workflows/merge-on-green.yml` exists, else
 native. Before reading configuration, `landPr` independently reads current review
 state: a stop returns `review-stopped` with disarm evidence; no approving review
-after the latest correction/allocation returns `not-approved`. Invalid
-configuration then returns `bad-landing` before arming. Otherwise it adds
-`reviewed` — under merge-on-green a pre-existing label is removed first so a
-fresh labeled run exists — and returns
+after the latest correction/allocation returns `not-approved`. An approval arms
+only the commit its record names: line 2 must be
+`<!-- omp-build:review-head sha=<40 lowercase hex> -->` and must equal the PR's
+current `headRefOid`. A record with no head line returns `not-approved` with
+reason `no-review-head` and writes nothing — a PR reviewed before this line
+existed needs one re-review. A different or unreadable head returns
+`not-approved` with reason `head-moved`, also with no write. Invalid
+configuration then returns `bad-landing` before arming. Immediately before every
+write it re-reads `headRefOid`; a different or unreadable head returns
+`not-approved` with reason `head-moved` and writes nothing. Under merge-on-green
+it then adds `reviewed` — a pre-existing label is removed first so a fresh
+labeled run exists — and returns
 `{ status: 'watching', mode, watch }`. `watch` is the absolute real path of
 `ci-watch.sh` (derived from this module), carrying `--merge-mode <mode>` and,
 under merge-on-green, always `--since <GitHub labeled time>` of that new event.
 If the labeled event cannot be read after re-label, `landPr` returns
 `watch-failed` — never watches without `--since` under merge-on-green. Run that
 string as given — the OMP shell does not resolve `skill://` for a bare `bash`
-argv. It does not poll. Native also enables
-merge-commit auto-merge. merge-on-green never returns `no-required-checks`.
+argv. It does not poll. Native enables the pinned auto-merge
+(`--match-head-commit` of the reviewed sha) before adding `reviewed`.
+`already enabled` is not success: auto-merge is disabled and enabled again with
+that pin, or `landPr` returns `auto-merge-failed` without the label. The fleet
+workflow enables only on `labeled`, and only when the event head equals the
+line-2 sha of the latest automation-account Approve record. On `synchronize` it
+disables auto-merge and removes `reviewed` instead of re-enabling from a
+comment, and it does not `update-branch` a reviewed PR. merge-on-green has no
+equivalent pin: once `reviewed` is applied, a push by another actor is not
+refused by GitHub.
+merge-on-green never returns `no-required-checks`.
 
 Run `watch` as an async bash job (`timeout: 0`). Map the exit with
 `applyCiWatchExit(cwd, pr, code, { mode: land.mode })`:
