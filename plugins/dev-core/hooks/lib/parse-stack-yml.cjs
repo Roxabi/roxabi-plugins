@@ -232,6 +232,25 @@ function parseCiMerge(text) {
 }
 
 /**
+ * Parse `ci.review_record` from stack.yml text.
+ * Only the exact token `true` opts in. Absent block, absent key, or any other
+ * value is false — the fleet default.
+ *
+ * @param {string} text
+ * @returns {boolean}
+ */
+function parseCiReviewRecord(text) {
+  if (!text) return false
+  const section = text.match(/^ci:\s*$/m)
+  if (!section) return false
+  const after = text.slice(section.index + 'ci:'.length)
+  const nextTop = after.match(/\n\S/)
+  const block = nextTop ? after.slice(0, nextTop.index) : after
+  const match = block.match(/^\s+review_record:\s*(\S+)/m)
+  return match ? match[1] === 'true' : false
+}
+
+/**
  * Parse the top-level `release:` block from stack.yml text (Model B / #371).
  *
  * Expected shape:
@@ -317,6 +336,7 @@ function parseStandards(text) {
  *   testingUnit: string|null,
  *   testingE2e: string|null,
  *   ciMerge: string|null,
+ *   ciReviewRecord: boolean,
  *   release: {model: string|null, component: string|null}|null
  * }}
  */
@@ -337,6 +357,7 @@ function parseStackYml(text) {
     testingUnit: parseTestingUnit(text),
     testingE2e: parseTestingE2e(text),
     ciMerge: parseCiMerge(text),
+    ciReviewRecord: parseCiReviewRecord(text),
     release: parseRelease(text),
   }
 }

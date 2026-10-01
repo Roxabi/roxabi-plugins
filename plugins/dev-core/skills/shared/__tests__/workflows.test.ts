@@ -83,6 +83,7 @@ describe('generateAutoMergeYml', () => {
       test: 'vitest',
       deploy: 'none',
       release: { model: 'trunk', component: 'roxabi-plugins' },
+      reviewRecord: true,
     })
     const committed = fs.readFileSync(
       path.resolve(import.meta.dirname, '../../../../../.github/workflows/auto-merge.yml'),
@@ -105,7 +106,7 @@ describe('generateAutoMergeYml', () => {
   })
 
   it('selects synchronize when the label list is empty', () => {
-    const yml = generateAutoMergeYml()
+    const yml = generateAutoMergeYml({ stack: 'bun', test: 'vitest', deploy: 'none', reviewRecord: true })
     const jobIf = yml.slice(yml.indexOf('name: Enable auto-merge'), yml.indexOf('timeout-minutes: 5'))
     const clause =
       "(github.event.action == 'synchronize' || contains(github.event.pull_request.labels.*.name, 'reviewed'))"
@@ -114,7 +115,7 @@ describe('generateAutoMergeYml', () => {
   })
 
   it('the synchronize step disables auto-merge before it removes the label', () => {
-    const yml = generateAutoMergeYml()
+    const yml = generateAutoMergeYml({ stack: 'bun', test: 'vitest', deploy: 'none', reviewRecord: true })
     const disarmAt = yml.indexOf('- name: Disarm auto-merge on a moved head')
     const nextStep = yml.indexOf('\n      - name:', disarmAt + 1)
     const step = yml.slice(disarmAt, nextStep)
@@ -124,7 +125,7 @@ describe('generateAutoMergeYml', () => {
   })
 
   it('a mint failure is not the only disarm of a moved head', () => {
-    const yml = generateAutoMergeYml()
+    const yml = generateAutoMergeYml({ stack: 'bun', test: 'vitest', deploy: 'none', reviewRecord: true })
     const disarmAt = yml.indexOf('- name: Disarm auto-merge on a moved head')
     const mintAt = yml.indexOf('- name: Mint app token')
     expect(disarmAt).toBeGreaterThanOrEqual(0)
@@ -135,7 +136,7 @@ describe('generateAutoMergeYml', () => {
   })
 
   it('names a fixed configured automation account, not the label actor', () => {
-    const yml = generateAutoMergeYml()
+    const yml = generateAutoMergeYml({ stack: 'bun', test: 'vitest', deploy: 'none', reviewRecord: true })
     expect(yml).not.toContain('github.event.sender')
     expect(yml).toContain('vars.OMP_BUILD_AUTOMATION_LOGIN')
   })

@@ -2,6 +2,7 @@
 # Enables GitHub's native auto-merge (`gh pr merge --auto --merge`) once the
 # latest code-review record by vars.OMP_BUILD_AUTOMATION_LOGIN names this head.
 # synchronize disarms first, with the default token, even if that label is gone.
+# dependabot[bot] skips the record only. A rebase still disarms — re-label after it.
 # Reviewed PRs are not retargeted.
 #
 # Dependabot guard: semver-major bumps are never auto-merged — they require
@@ -100,6 +101,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           REVIEWER: ${{ vars.OMP_BUILD_AUTOMATION_LOGIN }}
           ACTION: ${{ github.event.action }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
           set -euo pipefail
           disarm() {
@@ -112,6 +114,9 @@ jobs:
             echo "::error::head moved after review — auto-merge disarmed"
             exit 1
           fi
+          if [ "$AUTHOR" = "dependabot[bot]" ]; then
+            SHA="$HEAD_SHA"
+          else
           if ! pages=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments"); then
             disarm
             echo "::error::refusing to enable auto-merge without the reviewed commit"
@@ -145,6 +150,7 @@ jobs:
               | select($verdicts[0] | test("^\\*\\*Verdict: Approve( \\(clean\\)| with comments)?\\*\\*([[:space:]].*)?$"))
               | $sha
             ) // ""')
+          fi
           if [ "$SHA" != "$HEAD_SHA" ] || [ "${#SHA}" -ne 40 ]; then
             disarm
             echo "::error::refusing to enable auto-merge without the reviewed commit"

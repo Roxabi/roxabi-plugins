@@ -40,6 +40,9 @@ release:
   component: roxabi-plugins       # tag prefix → roxabi-plugins/vX.Y.Z (continues the existing release-please tag sequence)
   version_files: []               # auto-stamp deferred (D4) — the git tag is the sole version surface
 
+ci:
+  review_record: true             # opt in to the reviewed-head auto-merge gate (#652). Absent or false is the fleet default.
+
 docs:
   framework: none
   path: docs

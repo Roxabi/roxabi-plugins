@@ -5,6 +5,11 @@ import { generateAutoMergeYml } from '../workflows/workflow-generators'
 const HEAD = 'a'.repeat(40)
 const OTHER = 'b'.repeat(40)
 const ME = 'omp-bot'
+const GATED = { stack: 'bun' as const, test: 'vitest' as const, deploy: 'none' as const, reviewRecord: true as const }
+
+function gatedYml(): string {
+  return generateAutoMergeYml(GATED)
+}
 
 function reviewRecord(verdict: string, sha: string, extra = ''): string {
   return [
@@ -32,11 +37,10 @@ function runReviewFilter(comments: Array<{ author: string; body: string }>, head
   const payload = JSON.stringify({
     comments: comments.map((comment) => ({ author: { login: comment.author }, body: comment.body })),
   })
-  const proc = spawnSync(
-    'jq',
-    ['-r', '--arg', 'reviewer', ME, '--arg', 'head', head, reviewFilter(generateAutoMergeYml())],
-    { input: payload, encoding: 'utf8' },
-  )
+  const proc = spawnSync('jq', ['-r', '--arg', 'reviewer', ME, '--arg', 'head', head, reviewFilter(gatedYml())], {
+    input: payload,
+    encoding: 'utf8',
+  })
   if (proc.status !== 0) throw new Error(proc.stderr || 'jq failed')
   return proc.stdout.trim()
 }
@@ -116,7 +120,7 @@ describe('fleet auto-merge review filter', () => {
     expect(runReviewFilter([{ author: ME, body: trailing }])).toBe('')
     expect(runReviewFilter([{ author: ME, body: otherFirst }])).toBe('')
     expect(runReviewFilter([{ author: ME, body: looseVerdict }])).toBe('')
-    expect(reviewFilter(generateAutoMergeYml())).toContain('[0-9a-f]{40}')
+    expect(reviewFilter(gatedYml())).toContain('[0-9a-f]{40}')
   })
 
   it('refuses an Approve of a different head', () => {
@@ -125,7 +129,7 @@ describe('fleet auto-merge review filter', () => {
   })
 
   it('a Request changes on a later page suppresses an Approve on the first page', () => {
-    const yml = generateAutoMergeYml()
+    const yml = gatedYml()
     expect(yml).toContain('gh api --paginate --slurp')
     expect(yml).not.toContain('gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json comments')
     const marker = "jq -c '"
@@ -148,7 +152,7 @@ describe('fleet auto-merge review filter', () => {
   })
 
   it('a non-array page refuses to reshape', () => {
-    const yml = generateAutoMergeYml()
+    const yml = gatedYml()
     const marker = "jq -c '"
     const open = yml.indexOf(marker)
     if (open < 0) throw new Error('comment reshape is not in the generated workflow')
@@ -159,6 +163,7 @@ describe('fleet auto-merge review filter', () => {
     ])
     const shaped = spawnSync('jq', ['-c', reshape], { input: pages, encoding: 'utf8' })
     expect(shaped.status).not.toBe(0)
+    expect(shaped.stdout).toBe('')
     expect(shaped.stderr).toContain('incomplete comment pages')
   })
 })
