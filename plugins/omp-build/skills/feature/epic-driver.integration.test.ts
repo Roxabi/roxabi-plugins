@@ -48,6 +48,7 @@ case "$1 \${2:-}" in
       cat "$S/reviews.json"
     else query other; echo '{"data":{"repository":{}}}'; fi ;;
   "issue comment")
+    if [[ -f "$S/comment.fail" ]]; then echo "comment failed" >&2; exit 1; fi
     n=$(ls "$S" | grep -c '^comment-' || true)
     cat > "$S/comment-$n.md"
     log "comment $3 $(head -1 "$S/comment-$n.md")" ;;
@@ -1124,6 +1125,27 @@ describe('epic-driver — drop disarms without the dashboard', () => {
     expect(JSON.parse(readFileSync(path.join(sandboxOf().state, 'pr', '12.json'), 'utf8')).labels).toEqual([])
     expect(JSON.parse(readFileSync(path.join(sandboxOf().state, 'pr', '11.json'), 'utf8')).labels).toEqual([
       { name: 'reviewed' },
+    ])
+  })
+
+  it('names the PR still armed when posting the report fails', () => {
+    sandbox()
+    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
+    serveEpic([
+      childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', 'c'.repeat(40), armed)] }),
+      childNode(3, 'fix(y): second child', { prs: [prNode(12, 'fix/3-second-child', 'd'.repeat(40), armed)] }),
+    ])
+    servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true }, true)
+    servePr(12, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    writeFileSync(path.join(sandboxOf().state, 'comment.fail'), '')
+    const run = drive(['report', '--outcome', 'drop', '--reason', 'driver-error'])
+    expect(run.code).not.toBe(0)
+    expect(run.stderr).toContain('#11')
+    expect(writes()).toEqual([
+      'edit 11 --remove-label reviewed',
+      'merge 11 --disable-auto',
+      'edit 12 --remove-label reviewed',
+      'merge 12 --disable-auto',
     ])
   })
 })

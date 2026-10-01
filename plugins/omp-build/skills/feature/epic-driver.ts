@@ -778,7 +778,20 @@ async function report(
     ...(stillArmed.length ? [`| Still armed | ${list(stillArmed)} |`] : []),
   ].join('\n')
   const posted = !epicComments.some((body) => readMarker(body, 'goal-report')?.run === run)
-  if (posted) comment(repo, epic, text)
+  const named = stillArmed.length ? `still armed: ${stillArmed.map((pr) => `#${pr}`).join(', ')}` : ''
+  if (named) {
+    console.log(text)
+    console.error(named)
+  }
+  if (posted) {
+    try {
+      comment(repo, epic, text)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      throw new Error(named ? `${named}; comment failed: ${message}` : message)
+    }
+  }
+  if (named) throw new Error(named)
   return { posted, text, stillArmed }
 }
 
