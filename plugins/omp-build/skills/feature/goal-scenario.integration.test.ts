@@ -370,13 +370,23 @@ describe('stateful gh — one continuous goal', () => {
     })
 
     git(epic, ['switch', '-q', '-c', BRANCH_C])
-    commitAndPush(BRANCH_C, 'feat(c): abandoned (#4)', 'c.txt')
+    const shaC = commitAndPush(BRANCH_C, 'feat(c): abandoned (#4)', 'c.txt')
     const openedC = callWorkflow<{ number: number; status: string }>('openPr', epic, {
       issue: C,
       branch: BRANCH_C,
       base: 'main',
       title: 'feat(c): child c',
     })
+    markGreen(shaC)
+    if (!box) throw new Error('no sandbox')
+    const originUnarmed = git(box.origin, ['rev-parse', 'refs/heads/main'])
+    const unarmed = gh(['pr', 'view', String(openedC.number), '--json', 'state'])
+    expect(JSON.parse(unarmed.stdout).state).toBe('OPEN')
+    expect(git(box.origin, ['rev-parse', 'refs/heads/main'])).toBe(originUnarmed)
+    writeSim((state) => {
+      delete state.checks[shaC]
+    })
+
     expect(gh(['pr', 'edit', String(openedC.number), '--add-label', 'reviewed']).status).toBe(0)
     git(epic, ['switch', '-q', BRANCH_A])
     const stopped = drive(['stop', '--ticket', String(C), '--reason', 'review-bound'], RUN_A)
