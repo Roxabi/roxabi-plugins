@@ -18,11 +18,15 @@ export { normalizeWorkflowOpts, triggerBranches }
  *  closes linked issues on merge. */
 export function generateAutoMergeYml(opts?: WorkflowOpts): string {
   const branches = triggerBranches(opts)
+  const labeledMint = APP_MINT_STEP.replace(
+    '        id: app\n',
+    "        id: app\n        if: github.event.action == 'labeled'\n",
+  )
   return `# Auto-merge PRs that have been reviewed and passed all required checks.
 # Enables GitHub's native auto-merge (\`gh pr merge --auto --merge\`) once the
-# "reviewed" label is applied, pinned to the commit that review named.
-# synchronize disarms instead of re-enabling. Reviewed PRs are not retargeted.
-# GitHub then waits for the required status checks before merging.
+# latest code-review record by vars.OMP_BUILD_AUTOMATION_LOGIN names this head.
+# synchronize disarms first, with the default token, even if that label is gone.
+# Reviewed PRs are not retargeted.
 #
 # Dependabot guard: semver-major bumps are never auto-merged — they require
 # manual validation before merge.
@@ -49,11 +53,34 @@ jobs:
     name: Enable auto-merge
     runs-on: ubuntu-latest
     if: >-
+      github.event_name == 'pull_request' &&
       github.event.action != 'closed' &&
-      contains(github.event.pull_request.labels.*.name, 'reviewed')
+      (github.event.action == 'synchronize' || contains(github.event.pull_request.labels.*.name, 'reviewed'))
     timeout-minutes: 5
     steps:
-${APP_MINT_STEP}
+      # Moved head: disable auto-merge before the label. No GH_TOKEN — gh uses
+      # the Actions default token, so a mint failure cannot leave the merge armed.
+      # always() keeps the step reachable if a prior step failed.
+      - name: Disarm auto-merge on a moved head
+        if: always() && github.event.action == 'synchronize'
+        env:
+          PR_NUMBER: \${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          armed=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json autoMergeRequest --jq 'if .autoMergeRequest != null then "true" else "false" end')
+          labeled=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json labels --jq 'any(.labels[]; .name == "reviewed")')
+          if [ "$armed" = "true" ]; then
+            gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --disable-auto
+          fi
+          if [ "$labeled" = "true" ]; then
+            gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --remove-label reviewed
+          fi
+          if [ "$armed" = "true" ] || [ "$labeled" = "true" ]; then
+            echo "::error::head moved after review — auto-merge disarmed"
+            exit 1
+          fi
+
+${labeledMint}
 
       # Read the real update-type from Dependabot's metadata rather than parsing the
       # PR title: grouped PRs are titled "bump the <group> group…" with no versions,
@@ -62,13 +89,14 @@ ${APP_MINT_STEP}
       # For a grouped PR, fetch-metadata reports the HIGHEST update-type in the group.
       - name: Fetch dependabot metadata
         id: dependabot-meta
-        if: github.event.pull_request.user.login == 'dependabot[bot]'
+        if: github.event.action == 'labeled' && github.event.pull_request.user.login == 'dependabot[bot]'
         uses: ${ACTION_PINS.dependabotFetchMetadata}
         with:
           github-token: \${{ steps.app.outputs.token }}
 
       - name: Block dependabot semver-major bumps
         if: >-
+          github.event.action == 'labeled' &&
           github.event.pull_request.user.login == 'dependabot[bot]' &&
           steps.dependabot-meta.outputs.update-type == 'version-update:semver-major'
         env:
@@ -81,17 +109,18 @@ ${APP_MINT_STEP}
           exit 1
 
       - name: Enable auto-merge (merge commit)
+        if: github.event.action == 'labeled'
         env:
           GH_TOKEN: \${{ steps.app.outputs.token }}
           PR_NUMBER: \${{ github.event.pull_request.number }}
           HEAD_SHA: \${{ github.event.pull_request.head.sha }}
-          REVIEWER: \${{ github.event.sender.login }}
+          REVIEWER: \${{ vars.OMP_BUILD_AUTOMATION_LOGIN }}
           ACTION: \${{ github.event.action }}
         run: |
           set -euo pipefail
           disarm() {
-            gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --remove-label reviewed
             gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --disable-auto
+            gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --remove-label reviewed
           }
           # synchronize is a new head. Do not re-enable from a comment.
           if [ "$ACTION" != "labeled" ]; then
@@ -105,16 +134,22 @@ ${APP_MINT_STEP}
             exit 1
           fi
           SHA=$(printf '%s' "$comments" | jq -r --arg reviewer "$REVIEWER" --arg head "$HEAD_SHA" '
-            [.comments[]
-              | select(.author.login == $reviewer)
-              | .body
-              | select(split("\\n")[0] == "<!-- omp-build:code-review -->")
-              | select(split("\\n")[1] | test("^<!-- omp-build:review-head sha=[0-9a-f]{40} -->$"))
-              | select(split("\\n") | any(test("^\\\\*\\\\*Verdict: Approve( \\\\(clean\\\\)| with comments)?\\\\*\\\\*")))
-              | split("\\n")[1]
-              | capture("^<!-- omp-build:review-head sha=(?<sha>[0-9a-f]{40}) -->$").sha
-              | select(. == $head)
-            ] | last // ""')
+            (
+              [.comments[]
+                | select(.author.login == $reviewer)
+                | .body
+                | select(split("\\n")[0] == "<!-- omp-build:code-review -->")
+              ] | last // empty
+              | . as $body
+              | ($body | split("\\n")[1]) as $line2
+              | select($line2 | strings | test("^<!-- omp-build:review-head sha=[0-9a-f]{40} -->$"))
+              | ($line2 | capture("^<!-- omp-build:review-head sha=(?<sha>[0-9a-f]{40}) -->$").sha) as $sha
+              | select($sha == $head)
+              | ($body | [split("\\n")[] | select(test("^\\\\*\\\\*Verdict: "))]) as $verdicts
+              | select($verdicts | length == 1)
+              | select($verdicts[0] | test("^\\\\*\\\\*Verdict: Approve( \\\\(clean\\\\)| with comments)?\\\\*\\\\*([[:space:]].*)?$"))
+              | $sha
+            ) // ""')
           if [ "$SHA" != "$HEAD_SHA" ] || [ "\${#SHA}" -ne 40 ]; then
             disarm
             echo "::error::refusing to enable auto-merge without the reviewed commit"

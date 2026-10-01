@@ -96,6 +96,40 @@ describe('generateAutoMergeYml', () => {
     expect(yml).toContain('Verdict: Approve')
     expect(yml).not.toContain('startswith')
   })
+
+  it('disarms on synchronize even when reviewed is already absent', () => {
+    const yml = generateAutoMergeYml()
+    const jobIf = yml.slice(yml.indexOf('name: Enable auto-merge'), yml.indexOf('timeout-minutes: 5'))
+    expect(jobIf).toMatch(/github\.event\.action == 'synchronize'\s*\|\|/)
+  })
+
+  it('disables auto-merge before it touches the reviewed label', () => {
+    const yml = generateAutoMergeYml()
+    const runs = yml.split(/^ {8}run: \|$/m).slice(1)
+    const touching = runs.filter((run) => run.includes('--remove-label reviewed'))
+    expect(touching.length).toBeGreaterThan(0)
+    for (const run of touching) {
+      expect(run.indexOf('--disable-auto')).toBeGreaterThanOrEqual(0)
+      expect(run.indexOf('--disable-auto')).toBeLessThan(run.indexOf('--remove-label reviewed'))
+    }
+  })
+
+  it('a mint failure is not the only disarm of a moved head', () => {
+    const yml = generateAutoMergeYml()
+    const disarmAt = yml.indexOf('- name: Disarm auto-merge on a moved head')
+    const mintAt = yml.indexOf('- name: Mint app token')
+    expect(disarmAt).toBeGreaterThanOrEqual(0)
+    expect(disarmAt).toBeLessThan(mintAt)
+    const step = yml.slice(disarmAt, mintAt)
+    expect(/if:\s*always\(\)/.test(step)).toBe(true)
+    expect(step).not.toContain('steps.app.outputs.token')
+  })
+
+  it('names a fixed configured automation account, not the label actor', () => {
+    const yml = generateAutoMergeYml()
+    expect(yml).not.toContain('github.event.sender')
+    expect(yml).toContain('vars.OMP_BUILD_AUTOMATION_LOGIN')
+  })
 })
 
 const trunkOpts = {
