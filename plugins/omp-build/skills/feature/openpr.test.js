@@ -668,12 +668,16 @@ describe('resolveReviewPr — one PR, resolved before any loop exists', () => {
     ['the lookup fails', { branchPrs: new Error('HTTP 502') }],
     ['the lookup is not JSON', { branchPrs: 'no pull requests match your search' }],
     ['the lookup is not an array', { branchPrs: JSON.stringify(listing(512)) }],
-    ['an entry carries no state', { branchPrs: JSON.stringify([{ number: 512 }]) }],
     ['an entry carries an unknown state', { branchPrs: JSON.stringify([listing(512, 'DRAFT')]) }],
     ['two PRs are open for the branch', { branchPrs: [listing(512), listing(640)] }],
     ['HEAD is detached', { branch: '' }],
   ])('refuses when %s — a failed lookup is not "no PR"', async (_label, options) => {
     await expect(resolveReviewPr(CWD, null, deps(fakePr(options)))).rejects.toThrow()
+  })
+
+  it('an entry with no state but a same-repository flag is an invalid discovery response', async () => {
+    const fake = fakePr({ branchPrs: JSON.stringify([{ number: 512, isCrossRepository: false }]) })
+    await expect(resolveReviewPr(CWD, null, deps(fake))).rejects.toThrow(/invalid PR discovery response/)
   })
 
   it.each([
