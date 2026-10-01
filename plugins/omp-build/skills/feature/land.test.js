@@ -792,6 +792,19 @@ describe('landPr — an approval arms only the commit it reviewed', () => {
     expect(noWrite(fake.calls)).toBe(false)
   })
 
+  it('a non-JSON head view throws and writes nothing', async () => {
+    const fake = gatePr({
+      comments: [byMe(boundReview('Approve (clean)', REVIEWED_HEAD)), byMe(accounting(1, 0))],
+      headRefOid: REVIEWED_HEAD,
+    })
+    const gh = async (cwd, args) => {
+      if (args[1] === 'view' && args[4] === 'headRefOid') return 'not json'
+      return fake.gh(cwd, args)
+    }
+    await expect(landPr('/tmp/wt', 7, { gh, ...NATIVE })).rejects.toThrow(/no JSON/)
+    expect(noWrite(fake.calls)).toBe(false)
+  })
+
   it('a review record with no head line does not arm', async () => {
     const fake = gatePr({ comments: [byMe(GREEN), byMe(accounting(1, 0))], headRefOid: REVIEWED_HEAD })
     const result = await landPr('/tmp/wt', 7, { gh: fake.gh, ...NATIVE })
