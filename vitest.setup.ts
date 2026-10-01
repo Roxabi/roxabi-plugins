@@ -85,6 +85,32 @@ for (const name of SPAWNERS) {
 }
 
 /**
+ * Keeps a sync child's stderr off the run output.
+ *
+ * `execSync` / `execFileSync` given no `stdio` copy the child's stderr onto
+ * this worker's stderr once it exits. vitest does not attribute that write, so
+ * under a git hook every fixture that provokes an expected error — a usage
+ * error, a refused bootstrap, a malformed `.dev/stack.yml` — printed it as bare
+ * text that read like a real failure. Defaulting `stdio` to `pipe` drops only
+ * that copy: the child's stderr still lands on the error a failing call throws
+ * (`error.stderr`, and its message), the one place a test can read it. An
+ * explicit `stdio` is left as given.
+ */
+for (const [name, optionsAt] of [
+  ['execSync', (_args: unknown[]) => 1],
+  // execFileSync(file, args?, options?) also accepts execFileSync(file, options).
+  ['execFileSync', (args: unknown[]) => (args[1] === undefined || Array.isArray(args[1]) ? 2 : 1)],
+] as const) {
+  const original = patchable[name] as (...args: unknown[]) => unknown
+  patchable[name] = function (this: unknown, ...args: unknown[]) {
+    const at = optionsAt(args)
+    const options = args[at] as { stdio?: unknown } | null | undefined
+    if (options?.stdio === undefined) args[at] = { ...options, stdio: 'pipe' }
+    return original.apply(this, args)
+  }
+}
+
+/**
  * Bun global shim for Vitest (Node.js worker) environment.
  *
  * Tests that spy on Bun.spawnSync / Bun.spawn via vi.spyOn need Bun to be

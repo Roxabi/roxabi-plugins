@@ -1,4 +1,5 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import type * as NodeFs from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -17,6 +18,13 @@ import {
 // costly bugs are a false clean (an unreadable audit, a skipped package, or an ignore that
 // hides too much) and a false alarm (an ignored advisory reported, or the same report
 // re-posted weekly). `bun audit` itself is spied: a unit test must not fork (#502).
+
+// `main` writes its clean summary straight to fd 1, past vitest's console capture: the
+// write is mocked so a test reads it instead of the run printing it.
+vi.mock('node:fs', async (importOriginal) => ({
+  ...(await importOriginal<typeof NodeFs>()),
+  writeSync: vi.fn(),
+}))
 
 const ESBUILD = {
   id: 1120680,
@@ -214,6 +222,7 @@ describe('main', () => {
     report = join(dir, 'report.md')
     spawn = vi.spyOn(Bun, 'spawnSync')
     vi.spyOn(process.stderr, 'write').mockReturnValue(true)
+    vi.mocked(writeSync).mockClear()
     vi.spyOn(console, 'error').mockImplementation(() => {})
   })
 
@@ -237,6 +246,7 @@ describe('main', () => {
     bunAudit(JSON.stringify({ esbuild: [ESBUILD] }), 1)
     expect(main(['--report', report], {})).toBe(0)
     expect(existsSync(report)).toBe(false)
+    expect(writeSync).toHaveBeenCalledWith(1, expect.stringMatching(/^Dependency audit: clean — 1 ignored advisory/))
   })
 
   it('routes on the ignore list it is given, not the shipped one', () => {
