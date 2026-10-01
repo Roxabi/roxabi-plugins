@@ -522,7 +522,7 @@ nothing: report and exit. No caller may bypass either sink.
   `skill://fix #<pr>` (omit `#<pr>` for local-only).
   For `step.reason === 'ci-failed'`, follow `/feature` §6.5's inline CI correction
   from failed-check logs, not the previous review. Re-review with the same loop.
-  **Stop** keeps the allocated round spent; at `fixes=2` the next resume escalates.
+  **Stop** keeps the allocated round spent. At `fixes=2` the next resume stays open until the receipt is posted; a later red after that receipt escalates.
 - **`land`** → Q: **Merge** / **Stop**. Merge → obtain explicit approval if needed,
   then follow **`skill://feature` §6.7 in full** with this same `loop`: `landPr` (sole
   writer of `reviewed`; no raw label shortcuts), run the returned `watch`, map exits
@@ -604,7 +604,7 @@ explicit human-selected supersede.
 | roster capped (max_agents, per chunk) | disclosed when ≠ ∅ (Phase 4) |
 | oracle warnings ≠ ∅ | echoed into output; review_halt → HALT |
 | sticky `stopReason` on resume (`loop.closed === 'stop'`) | enforceStop (PR) + dossier; ¬record; ¬Fix; ¬Merge |
-| terminal-red derived by `interpretReviewHistory` (exhausted fixes + latest me-authored code-review after latest receipt is Request changes) | `loop.closed === 'stop'` → same as sticky stop; ¬pendingFix; ¬replay |
+| terminal-red derived by `interpretReviewHistory` (exhausted fixes, the allocation's receipt posted, then a later me-authored Request changes) | `loop.closed === 'stop'` → same as sticky stop; ¬pendingFix; ¬replay |
 
 ## Safety Rules
 

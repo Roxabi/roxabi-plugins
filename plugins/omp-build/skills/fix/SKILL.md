@@ -260,18 +260,24 @@ New findings surfaced during falsification → **parking lot**: file as a candid
 
 ## Phase 5 — Push (no review-driven label)
 
-1. ∃ cause commits → O_push. Fail after 3 → halt; the commits stay local.
+Phase 5 and Phase 6 are one step. Do not end the turn, yield, or compact between
+the push and the receipt. A crash leaves the head unchanged, or the head moved
+and `## Review Fixes Applied` already posted.
+
+1. ∃ cause commits → O_push. Fail after 3 → halt; the commits stay local. Do not post the receipt for a push that did not land.
 2. **Never write `reviewed` for a review-driven fix.** If ∃ PR and a review record /
    round marker / this invocation followed `assertFixAllowed`, write nothing:
    ¬`labels[]=reviewed`, ¬`gh pr edit --add-label`, ¬`gh pr merge`. Say one line —
    « fix appliqué, pas de label : le gate appartient à landPr / l'appelant » — and
-   continue to Phase 6. A label here would merge before the re-review that judges
-   this fix; see `skill://dev-review` Phase 8.
+   post the receipt in this same step. A label here would merge before the re-review
+   that judges this fix; see `skill://dev-review` Phase 8.
 3. No option enables labelling here: automatic landing belongs to `landPr` alone.
 
 ## Phase 6 — Post Follow-Up Comment
 
-∄ PR → skip.
+∄ PR → skip. This comment is the rest of the push step, not a later session.
+If the push succeeded and `gh pr comment` fails, stop. Do not re-review, and do
+not push again. The next resume waits for this receipt.
 
 Write the body into a mktemp dir — never a fixed `/tmp` path:
 ```bash

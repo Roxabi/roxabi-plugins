@@ -704,15 +704,17 @@ describe('assertFixAllowed on a PR loop — fresh history at the fix sink', () =
     expect(await strict(fake)).toEqual({ reviews: 1, fixes: 1 })
   })
 
-  it('grants the live second red at fixes=2 once, while the same history resumed stays stopped', async () => {
+  it('grants the live second red at fixes=2 once; a resume does not replay it', async () => {
     const fake = fakePr()
     const { loop, step } = await allocate(fake, 2)
     expect(step).toEqual({ action: 'fix', reviews: 2, fixes: 2, remaining: 0 })
 
+    // The allocation is persisted and the receipt is not posted yet. That is not a
+    // terminal red: the resume has no live grant, and it is not sticky-stopped.
     const resumed = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
     expect({ closed: resumed.closed, stopReason: resumed.stopReason, pendingFix: resumed.pendingFix }).toEqual({
-      closed: 'stop',
-      stopReason: 'review-bound',
+      closed: null,
+      stopReason: undefined,
       pendingFix: false,
     })
     await expect(resumed.assertFixAllowed(CWD, step)).rejects.toThrow()
@@ -784,12 +786,13 @@ describe('assertFixAllowed on a PR loop — fresh history at the fix sink', () =
       'review-bound',
     ],
     ['a later review record follows the second allocation', allocateThen(2, (fake) => fake.post(RED)), 'review-bound'],
+    // Fresh history holds no stop, yet it does not prove this live allocation: stale, never refunded.
+    // A marker that claims the budget, with no red after that allocation's receipt, is not a terminal red.
     [
       'the durable allocation moved past the live loop',
       allocateThen(1, (fake) => fake.post(accounting(2, 2))),
-      'review-bound',
+      'history-stale',
     ],
-    // Fresh history holds no stop, yet it does not prove this live allocation: stale, never refunded.
     ['a later review record follows the first allocation', allocateThen(1, (fake) => fake.post(RED)), 'history-stale'],
     [
       'the allocation was never persisted',
@@ -1226,12 +1229,11 @@ describe('interpretReviewHistory — strict, author-bound, first-line records', 
     expect(loop.record('green').action).toBe('land')
   })
 
-  it('derives review-bound when the second allocation was never receipted', () => {
-    // Any exit between allocating and receipting fix #2: fail closed, no replay.
+  it('does not derive review-bound when the second allocation was never receipted', () => {
+    // The allocating review precedes its marker. A missing receipt is not a later red.
     expect(interpretReviewHistory(TWO_ROUNDS.slice(0, 5), { me: ME })).toEqual({
       reviews: 2,
       fixes: 2,
-      stopReason: 'review-bound',
     })
   })
 
@@ -1332,5 +1334,116 @@ describe('interpretReviewHistory — strict, author-bound, first-line records', 
     ],
   ])('returns history-ambiguous for %s, never refunding a counted round', (_label, comments, counts) => {
     expect(interpretReviewHistory(comments, { me: ME })).toMatchObject({ ...counts, stopReason: 'history-ambiguous' })
+  })
+})
+
+describe('a posted review not yet recorded is counted once (#662)', () => {
+  /** Baseline marker, then a review posted with no `record` yet. */
+  async function postedUnrecorded(body = RED) {
+    const fake = fakePr()
+    await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    fake.post(body)
+    const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    return { fake, loop }
+  }
+
+  it('grants the fix when resumed after the review and before record', async () => {
+    const { fake, loop } = await postedUnrecorded()
+    expect({ reviews: loop.reviews, fixes: loop.fixes, closed: loop.closed }).toEqual({
+      reviews: 1,
+      fixes: 0,
+      closed: null,
+    })
+    const step = loop.record('red')
+    expect(step).toEqual({ action: 'fix', reviews: 1, fixes: 1, remaining: 1 })
+    await loop.persist(CWD)
+    await expect(loop.assertFixAllowed(CWD, step)).resolves.toBe(step)
+    expect(loop.closed).toBe(null)
+    expect(await strict(fake)).toEqual({ reviews: 1, fixes: 1 })
+  })
+
+  it('counts the second posted review once, so the last fix round is not lost', async () => {
+    const fake = fakePr()
+    const first = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    await fixed(first, fake, await reviewed(first, fake, 'red'))
+    fake.post(RED)
+    const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    const step = loop.record('red')
+    expect(step).toEqual({ action: 'fix', reviews: 2, fixes: 2, remaining: 0 })
+    await loop.persist(CWD)
+    await expect(loop.assertFixAllowed(CWD, step)).resolves.toBe(step)
+    expect(await strict(fake)).toEqual({ reviews: 2, fixes: 2 })
+  })
+
+  it('lands a posted green without spending an extra review', async () => {
+    const { loop } = await postedUnrecorded(GREEN)
+    expect(loop.record('green')).toEqual({ action: 'land', reviews: 1, fixes: 0 })
+  })
+
+  it('still increments when every posted review is already recorded', async () => {
+    const fake = fakePr()
+    const first = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    await fixed(first, fake, await reviewed(first, fake, 'red'))
+    const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    expect({ reviews: loop.reviews, fixes: loop.fixes }).toEqual({ reviews: 1, fixes: 1 })
+    const step = await reviewed(loop, fake, 'red')
+    expect(step).toEqual({ action: 'fix', reviews: 2, fixes: 2, remaining: 0 })
+    await expect(loop.assertFixAllowed(CWD, step)).resolves.toBe(step)
+  })
+
+  it('fails closed when more than one review is posted after the last marker', async () => {
+    const fake = fakePr()
+    await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    fake.post(RED)
+    fake.post(RED)
+    expect(interpretReviewHistory(fake.pr.comments, { me: ME })).toEqual({
+      reviews: 2,
+      fixes: 0,
+      stopReason: 'history-ambiguous',
+    })
+    const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    expect(loop.stopReason).toBe('history-ambiguous')
+  })
+
+  it('does not count a review by another account, or a forged marker, as the unrecorded review', async () => {
+    const fake = fakePr()
+    await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    fake.post(RED, 'attacker')
+    fake.post(accounting(2, 2), 'attacker')
+    const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    expect({ reviews: loop.reviews, fixes: loop.fixes, closed: loop.closed }).toEqual({
+      reviews: 0,
+      fixes: 0,
+      closed: null,
+    })
+    fake.post(RED)
+    const step = loop.record('red')
+    expect(step).toEqual({ action: 'fix', reviews: 1, fixes: 1, remaining: 1 })
+    await loop.persist(CWD)
+    await expect(loop.assertFixAllowed(CWD, step)).resolves.toBe(step)
+  })
+
+  it('does not sticky-stop a granted fix whose receipt is not posted yet', async () => {
+    const fake = fakePr()
+    const { loop, step } = await allocate(fake, 2)
+    await loop.assertFixAllowed(CWD, step)
+    const resumed = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    expect({ closed: resumed.closed, stopReason: resumed.stopReason, pendingFix: resumed.pendingFix }).toEqual({
+      closed: null,
+      stopReason: undefined,
+      pendingFix: false,
+    })
+    expect(interpretReviewHistory(fake.pr.comments, { me: ME })).toEqual({ reviews: 2, fixes: 2 })
+  })
+
+  it('still stops when a red review follows the receipt of the exhausted allocation', async () => {
+    const comments = [...TWO_ROUNDS, comment(RED)]
+    expect(interpretReviewHistory(comments, { me: ME })).toEqual({
+      reviews: 3,
+      fixes: 2,
+      stopReason: 'review-bound',
+    })
+    const resumed = await resumeReviewLoop(CWD, { pr: PR, gh: fakePr({ comments }).gh })
+    expect(resumed.stopReason).toBe('review-bound')
   })
 })
