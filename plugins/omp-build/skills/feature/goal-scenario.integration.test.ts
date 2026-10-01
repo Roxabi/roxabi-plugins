@@ -345,6 +345,29 @@ describe('stateful gh — one continuous goal', () => {
     expect(prOf(BRANCH_A).state).toBe('OPEN')
     expect(prOf(BRANCH_A).labels).toContain('reviewed')
     expect(prOf(BRANCH_A).autoMerge).not.toBeNull()
+    writeSim((state) => {
+      state.checks[shaA] = [
+        {
+          name: 'ci',
+          status: 'completed',
+          conclusion: 'success',
+          workflowName: 'ci',
+          startedAt: '2026-01-01T00:00:00Z',
+        },
+        {
+          name: 'ci',
+          status: 'completed',
+          conclusion: 'failure',
+          workflowName: 'ci',
+          startedAt: '2026-01-01T00:01:00Z',
+        },
+      ]
+    })
+    const red = gh(['pr', 'view', String(openedA.number), '--json', 'state'])
+    expect(JSON.parse(red.stdout).state).toBe('OPEN')
+    writeSim((state) => {
+      delete state.checks[shaA]
+    })
 
     git(epic, ['switch', '-q', '-c', BRANCH_C])
     commitAndPush(BRANCH_C, 'feat(c): abandoned (#4)', 'c.txt')

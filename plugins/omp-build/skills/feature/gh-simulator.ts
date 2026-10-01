@@ -155,12 +155,32 @@ function stamp(state: State): string {
 function armed(pr: Pull): boolean {
   return pr.autoMerge !== null || pr.labels.includes('reviewed')
 }
+function collapsed(checks: Check[]): Check[] {
+  const groups = new Map<string, Check[]>()
+  for (const check of checks) {
+    const key = `${check.workflowName}\0${check.name}`
+    const rows = groups.get(key) ?? []
+    rows.push(check)
+    groups.set(key, rows)
+  }
+  return [...groups.values()].flatMap((rows) => {
+    const winner = [...rows]
+      .sort((a, b) => {
+        const rank = (check: Check) => (check.status.toLowerCase() === 'completed' ? 0 : 1)
+        const byStatus = rank(a) - rank(b)
+        if (byStatus !== 0) return byStatus
+        return a.startedAt < b.startedAt ? -1 : a.startedAt > b.startedAt ? 1 : 0
+      })
+      .at(-1)
+    return winner ? [winner] : []
+  })
+}
 
 function green(state: State, sha: string): boolean {
   if (!state.requiredChecks.length) return false
   const checks = state.checks[sha] ?? []
   return state.requiredChecks.every((name) => {
-    const check = checks.find((item) => item.name === name)
+    const check = collapsed(checks).find((item) => item.name === name)
     return (
       check !== undefined &&
       check.status.toLowerCase() === 'completed' &&
@@ -407,7 +427,7 @@ function graphql(state: State, query: string, vars: Record<string, string>): unk
   }
   if (query.includes('statusCheckRollup')) {
     const sha = vars.sha ?? ''
-    const nodes = (state.checks[sha] ?? []).map((check) => ({
+    const nodes = collapsed(state.checks[sha] ?? []).map((check) => ({
       __typename: 'CheckRun',
       name: check.name,
       status: check.status.toLowerCase(),
