@@ -887,6 +887,34 @@ describe('assertFixAllowed on a PR loop — fresh history at the fix sink', () =
     await expect(loop.assertFixAllowed(CWD, step)).resolves.toBe(step)
   })
 
+  it('leaves the allocation unpersisted when record lands during persist', async () => {
+    const fake = fakePr({ labels: ['reviewed'], autoMerge: { mergeMethod: 'MERGE' } })
+    const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    fake.post(RED)
+    loop.record('red')
+    let during
+    const gh = async (cwd, args) => {
+      if (!during && args[0] === 'pr' && args[1] === 'comment') {
+        fake.post(RED)
+        during = loop.record('red')
+      }
+      return fake.gh(cwd, args)
+    }
+    await loop.persist(CWD, { gh })
+    const written = fake.pr.comments.map((entry) => entry.body)
+    expect(written.some((body) => body.includes('reviews=1'))).toBe(true)
+    expect(written.some((body) => body.includes('reviews=2'))).toBe(false)
+    const error = await refusal(loop.assertFixAllowed(CWD, during))
+    expect(error.message).toContain('persist')
+    expect(error.stop).toBeUndefined()
+    expect(loop.closed).toBe(null)
+    expect(loop.pendingFix).toBe(true)
+    expect(fake.pr.labels.has('reviewed')).toBe(true)
+    expect(fake.pr.autoMerge).not.toBe(null)
+    await loop.persist(CWD)
+    await expect(loop.assertFixAllowed(CWD, during)).resolves.toBe(during)
+  })
+
   it('stops when the review is missing between persist and the grant', async () => {
     const fake = fakePr({ labels: ['reviewed'], autoMerge: { mergeMethod: 'MERGE' } })
     const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
