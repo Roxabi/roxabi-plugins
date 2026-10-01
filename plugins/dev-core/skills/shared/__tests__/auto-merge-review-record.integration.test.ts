@@ -343,14 +343,14 @@ describe('dependabot exemption when the record gate is on', () => {
 describe('dev-init workflows --local', () => {
   const initTs = join(import.meta.dirname, '../../dev-init/init.ts')
 
-  function written(stack: string): string {
+  function written(stack: string, extra: string[] = []): string {
     const dir = mkdtempSync(join(tmpdir(), 'init-review-record-'))
     try {
       mkdirSync(join(dir, '.dev'))
       writeFileSync(join(dir, '.dev/stack.yml'), stack)
       const proc = spawnSync(
         'bun',
-        [initTs, 'workflows', '--local', '--stack', 'bun', '--test', 'vitest', '--deploy', 'none'],
+        [initTs, 'workflows', '--local', '--stack', 'bun', '--test', 'vitest', '--deploy', 'none', ...extra],
         { cwd: dir, encoding: 'utf8' },
       )
       if (proc.status !== 0) throw new Error(proc.stderr || proc.stdout || 'init workflows failed')
@@ -370,6 +370,18 @@ describe('dev-init workflows --local', () => {
     const yml = written('ci:\n  review_record: true\n')
     expect(yml).toContain('OMP_BUILD_AUTOMATION_LOGIN')
     expect(yml).toContain('AUTHOR')
+    expect(yml).not.toContain('update-branch')
+  })
+
+  it('a false flag overrides a stack that opts in', () => {
+    const yml = written('ci:\n  review_record: true\n', ['--review-record', 'false'])
+    expect(yml).not.toContain('OMP_BUILD_AUTOMATION_LOGIN')
+    expect(yml).toContain('update-branch')
+  })
+
+  it('a true flag opts in when the stack has no key', () => {
+    const yml = written('runtime: bun\n', ['--review-record', 'true'])
+    expect(yml).toContain('OMP_BUILD_AUTOMATION_LOGIN')
     expect(yml).not.toContain('update-branch')
   })
 })
