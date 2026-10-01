@@ -403,6 +403,11 @@ if (step.action === 'stop') {
 }
 ```
 
+Only a divergence of the durable history can make a stop sticky. A caller-order
+mistake this process can see — `assertFixAllowed` before `persist`, a reused
+step, or `record` on a stopped loop — throws and writes nothing. The allocation
+stays live; `persist`, then `assertFixAllowed`, still grants it.
+
 Present the Phase 8 human choice constrained by `step`: **Fix now** routes through
 §6.5 only on `fix`; **Merge** routes through §6.7 only on `land`; on `stop`,
 follow §6.6 (enforceStop already ran above + escalation dossier) rather than offer
