@@ -137,8 +137,9 @@ describe('generateAutoMergeYml', () => {
 
   it('names a fixed configured automation account, not the label actor', () => {
     const yml = generateAutoMergeYml({ stack: 'bun', test: 'vitest', deploy: 'none', reviewRecord: true })
+    expect(yml).toContain('REVIEWER: ${{ vars.OMP_BUILD_AUTOMATION_LOGIN }}')
     expect(yml).not.toContain('github.event.sender')
-    expect(yml).toContain('vars.OMP_BUILD_AUTOMATION_LOGIN')
+    expect(yml).not.toContain('github.actor')
   })
 })
 
