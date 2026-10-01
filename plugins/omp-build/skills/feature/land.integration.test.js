@@ -13,7 +13,7 @@ const BEFORE_AT = '2026-09-29T09:00:00Z'
 const EVENTS_JQ = '.[] | select(.event == "labeled" and .label.name == "reviewed") | .created_at'
 
 const DRIVER = `
-const [mod, fn, cwd, pr, eventsMode, historyMode, prList] = process.argv.slice(1)
+const [mod, fn, cwd, pr, eventsMode, historyMode, prList, headMode] = process.argv.slice(1)
 const { landPr, readLanding } = await import(mod)
 if (fn === 'readLanding') {
   try {
@@ -41,6 +41,7 @@ const HISTORIES = {
 const comments = HISTORIES[historyMode].map((body) => ({ author: { login: ME }, body }))
 const calls = []
 let eventsPoll = 0
+let headReads = 0
 const sleep = async () => {}
 const same = (args, expected) => args.length === expected.length && expected.every((arg, i) => args[i] === arg)
 const gh = async (_cwd, args) => {
@@ -56,7 +57,13 @@ const gh = async (_cwd, args) => {
       if (field === 'autoMergeRequest') view.autoMergeRequest = null
       if (field === 'state') view.state = 'OPEN'
       if (field === 'baseRefName') view.baseRefName = 'main'
-      if (field === 'headRefOid') view.headRefOid = '0123456789abcdef0123456789abcdef01234567'
+      if (field === 'headRefOid') {
+        headReads++
+        view.headRefOid =
+          headMode === 'moved' && headReads > 1
+            ? 'fedcba9876543210fedcba9876543210fedcba98'
+            : '0123456789abcdef0123456789abcdef01234567'
+      }
     }
     return JSON.stringify(view)
   }
@@ -96,9 +103,11 @@ function checkout(files = {}) {
 }
 
 /** `pr: ''` omits the PR, so landPr discovers it from the checkout's branch. */
-function land(cwd, eventsMode = 'ok', { pr = '7', history = 'approved', prList = '[]' } = {}) {
+function land(cwd, eventsMode = 'ok', { pr = '7', history = 'approved', prList = '[]', head = '' } = {}) {
   return JSON.parse(
-    execFileSync('bun', ['-e', DRIVER, WORKFLOW, 'landPr', cwd, pr, eventsMode, history, prList], { encoding: 'utf8' }),
+    execFileSync('bun', ['-e', DRIVER, WORKFLOW, 'landPr', cwd, pr, eventsMode, history, prList, head], {
+      encoding: 'utf8',
+    }),
   )
 }
 
@@ -175,6 +184,11 @@ describe('landPr through the checkout', () => {
       ['repo', 'view', '--json', 'nameWithOwner'],
       EVENTS,
     ])
+  })
+  it('a head that moves after the labels view is not-approved and writes nothing', () => {
+    const { result, calls } = land(checkout(STACK), 'ok', { head: 'moved' })
+    expect(result).toEqual({ status: 'not-approved', reviews: 1, fixes: 0, reason: 'head-moved' })
+    expect(calls.some((args) => args[1] === 'edit')).toBe(false)
   })
 
   it('events read failing returns watch-failed, never watching without --since', () => {
