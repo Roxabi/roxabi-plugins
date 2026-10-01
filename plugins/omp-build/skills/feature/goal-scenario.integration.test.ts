@@ -370,21 +370,61 @@ describe('stateful gh — one continuous goal', () => {
         {
           name: 'ci',
           status: 'completed',
-          conclusion: 'success',
-          workflowName: 'ci',
+          conclusion: 'failure',
+          workflowName: 'other',
           startedAt: '2026-01-01T00:02:00Z',
         },
         {
           name: 'ci',
           status: 'completed',
-          conclusion: 'failure',
-          workflowName: 'other',
-          startedAt: '2026-01-01T00:02:00Z',
+          conclusion: 'success',
+          workflowName: 'ci',
+          startedAt: '2026-01-01T00:03:00Z',
         },
       ]
     })
     const otherRed = gh(['pr', 'view', String(openedA.number), '--json', 'state'])
     expect(JSON.parse(otherRed.stdout).state).toBe('OPEN')
+    writeSim((state) => {
+      state.checks[shaA] = [
+        {
+          name: 'ci',
+          status: 'completed',
+          conclusion: 'failure',
+          workflowName: 'ci',
+          startedAt: '2026-01-01T00:05:00Z',
+        },
+        {
+          name: 'ci',
+          status: 'completed',
+          conclusion: 'success',
+          workflowName: 'ci',
+          startedAt: '2026-01-01T00:04:00Z',
+        },
+      ]
+    })
+    const older = gh(['pr', 'view', String(openedA.number), '--json', 'state'])
+    expect(JSON.parse(older.stdout).state).toBe('OPEN')
+    writeSim((state) => {
+      state.checks[shaA] = [
+        {
+          name: 'ci',
+          status: 'in_progress',
+          conclusion: '',
+          workflowName: 'ci',
+          startedAt: '2026-01-01T00:06:00Z',
+        },
+        {
+          name: 'ci',
+          status: 'completed',
+          conclusion: 'success',
+          workflowName: 'ci',
+          startedAt: '2026-01-01T00:07:00Z',
+        },
+      ]
+    })
+    const pending = gh(['pr', 'view', String(openedA.number), '--json', 'state'])
+    expect(JSON.parse(pending.stdout).state).toBe('OPEN')
 
     writeSim((state) => {
       delete state.checks[shaA]
