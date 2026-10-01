@@ -3,6 +3,40 @@ import { createRequire } from 'node:module'
 import { afterAll, expect } from 'vitest'
 
 /**
+ * Strips the repository-location env git hands to hooks, before any test runs.
+ *
+ * A pre-push hook fired from a linked worktree exports
+ * GIT_DIR=<repo>/.git/worktrees/<id>, and lefthook runs this suite under it. A
+ * fixture that passes that env on to git then works on the real repository,
+ * not its temp dir: `git init` reinitialises the worktree's git dir, takes it
+ * for a bare repository (the path does not end in `/.git`) and writes
+ * `core.bare = true` into the config every worktree shares; `git commit` lands
+ * fixture commits on the branch being pushed. Clearing the variables here
+ * covers every test, including the next one written without its own scrub.
+ *
+ * The list is `git rev-parse --local-env-vars` (git 2.55).
+ */
+for (const name of [
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+  'GIT_CONFIG',
+  'GIT_CONFIG_PARAMETERS',
+  'GIT_CONFIG_COUNT',
+  'GIT_OBJECT_DIRECTORY',
+  'GIT_DIR',
+  'GIT_WORK_TREE',
+  'GIT_IMPLICIT_WORK_TREE',
+  'GIT_GRAFT_FILE',
+  'GIT_INDEX_FILE',
+  'GIT_NO_REPLACE_OBJECTS',
+  'GIT_REPLACE_REF_BASE',
+  'GIT_PREFIX',
+  'GIT_SHALLOW_FILE',
+  'GIT_COMMON_DIR',
+]) {
+  delete process.env[name]
+}
+
+/**
  * Counts the processes a test file really forks, and fails a unit test that
  * forks any.
  *

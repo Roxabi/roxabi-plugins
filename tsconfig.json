@@ -13,6 +13,7 @@
   "include": [
     "vitest.config.ts",
     "vitest.setup.ts",
+    "vitest.global-setup.ts",
     "plugins/dev-core/**/*.ts",
     "plugins/issue-triage/**/*.ts",
     "plugins/omp-build/**/*.ts",

@@ -24,6 +24,8 @@ export default defineConfig({
   test: {
     exclude,
     setupFiles: ['./vitest.setup.ts'],
+    // Root-only: vitest runs a root globalSetup once per run, not per project.
+    globalSetup: ['./vitest.global-setup.ts'],
     env: {
       // Prevent config.ts from throwing during module evaluation.
       // Tests that need a different value override via process.env or vi.mock.
