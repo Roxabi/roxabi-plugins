@@ -425,7 +425,6 @@ describe('stateful gh — one continuous goal', () => {
     const originMain = git(box.origin, ['rev-parse', 'refs/heads/main'])
     expect(originMain).toBe(mergedA.mergeCommit?.oid)
     expect(git(box.origin, ['rev-parse', `${originMain}^2`])).toBe(shaA)
-    expect(git(box.origin, ['merge-base', '--is-ancestor', shaA, originMain])).toBe('')
 
     const rollupA = gh([
       'api',
