@@ -76,6 +76,14 @@ describe('generateAutoMergeYml', () => {
     expect(yml).toContain('gh pr merge --auto --merge')
     expect(yml).not.toContain('merge queue')
   })
+
+  it('pins auto-merge to the reviewed commit and does not update-branch after the label', () => {
+    const yml = generateAutoMergeYml()
+    const enable = yml.slice(yml.indexOf('  auto-merge:'), yml.indexOf('  update-behind-prs:'))
+    expect(enable).toContain('--match-head-commit')
+    expect(enable).toContain('omp-build:review-head')
+    expect(enable).not.toContain('update-branch')
+  })
 })
 
 const trunkOpts = {

@@ -279,14 +279,14 @@ describe('landPr', () => {
     expect(calls.some((a) => a[1] === 'merge' && a.includes('--auto'))).toBe(true)
   })
 
-  it('native auto-merge boom returns auto-merge-failed after arming', async () => {
+  it('native auto-merge boom returns auto-merge-failed without the label', async () => {
     const { calls, gh } = mockLand({ mergeThrows: 'boom' })
     const result = await landPr('/tmp/wt', 7, {
       gh,
       landing: { mode: 'native', required_checks: ['ci'] },
     })
-    expect(result).toEqual({ status: 'auto-merge-failed', armed: true })
-    expect(labeled(calls)).toBe(true)
+    expect(result).toEqual({ status: 'auto-merge-failed', armed: false })
+    expect(labeled(calls)).toBe(false)
   })
 
   it('an explicit native landing still asks protection and rulesets', async () => {
@@ -724,6 +724,62 @@ describe('landPr — an approval arms only the commit it reviewed', () => {
     const result = await landPr('/tmp/wt', 7, { gh: fake.gh, ...NATIVE })
     expect(result).toEqual({ status: 'not-approved', reviews: 1, fixes: 0, reason: 'head-moved' })
     expect(noWrite(fake.calls)).toBe(false)
+  })
+
+  it('a head that moves after the approval check and before the write is not armed', async () => {
+    const fake = gatePr({
+      comments: [byMe(boundReview('Approve (clean)', REVIEWED_HEAD)), byMe(accounting(1, 0))],
+      headRefOid: REVIEWED_HEAD,
+    })
+    const gh = async (cwd, args) => {
+      const result = await fake.gh(cwd, args)
+      if (args[1] === 'view' && args[4] === 'headRefOid') fake.pr.headRefOid = MOVED_HEAD
+      return result
+    }
+    const result = await landPr('/tmp/wt', 7, { gh, ...NATIVE })
+    expect(result).toEqual({ status: 'not-approved', reviews: 1, fixes: 0, reason: 'head-moved' })
+    expect(noWrite(fake.calls)).toBe(false)
+  })
+
+  it('an already-enabled auto-merge is re-pinned before the label', async () => {
+    const fake = gatePr({
+      comments: [byMe(boundReview('Approve (clean)', REVIEWED_HEAD)), byMe(accounting(1, 0))],
+      headRefOid: REVIEWED_HEAD,
+    })
+    let enables = 0
+    const gh = async (cwd, args) => {
+      if (args[1] === 'merge' && args.includes('--auto')) {
+        enables++
+        if (enables === 1) throw new Error('GraphQL: Auto merge is already enabled')
+      }
+      return fake.gh(cwd, args)
+    }
+    const result = await landPr('/tmp/wt', 7, { gh, ...NATIVE })
+    expect(result).toMatchObject({ status: 'watching', mode: 'native' })
+    const pinAt = fake.calls.findIndex((args) => args.includes('--match-head-commit') && args.at(-1) === REVIEWED_HEAD)
+    const labelAt = fake.calls.findIndex(armsLabel)
+    expect(fake.calls.some((args) => args.includes('--disable-auto'))).toBe(true)
+    expect(pinAt).toBeGreaterThanOrEqual(0)
+    expect(labelAt).toBeGreaterThan(pinAt)
+  })
+
+  it('a failed re-pin of an already-enabled auto-merge adds no label', async () => {
+    const fake = gatePr({
+      comments: [byMe(boundReview('Approve (clean)', REVIEWED_HEAD)), byMe(accounting(1, 0))],
+      headRefOid: REVIEWED_HEAD,
+    })
+    let enables = 0
+    const gh = async (cwd, args) => {
+      if (args[1] === 'merge' && args.includes('--auto')) {
+        enables++
+        if (enables === 1) throw new Error('already enabled')
+        throw new Error('pin refused')
+      }
+      return fake.gh(cwd, args)
+    }
+    const result = await landPr('/tmp/wt', 7, { gh, ...NATIVE })
+    expect(result).toEqual({ status: 'auto-merge-failed', armed: false })
+    expect(fake.calls.some(armsLabel)).toBe(false)
   })
 
   it('an unreadable current head is head-moved, not an approval of nothing', async () => {

@@ -160,7 +160,8 @@ describe('landPr through the checkout', () => {
         input: '[]',
       }).trim(),
     ).toBe('PENDING')
-    // review gate (identity + comments), then before events + labels + add + after events.
+    // review gate (identity + comments), head, then before events + labels,
+    // a fresh head read, then the label.
     // Stub answers protection/rules; a probe would show.
     expect(calls).toEqual([
       IDENTITY,
@@ -169,6 +170,7 @@ describe('landPr through the checkout', () => {
       ['repo', 'view', '--json', 'nameWithOwner'],
       EVENTS,
       ['pr', 'view', '7', '--json', 'labels'],
+      ['pr', 'view', '7', '--json', 'headRefOid'],
       ['pr', 'edit', '7', '--add-label', 'reviewed'],
       ['repo', 'view', '--json', 'nameWithOwner'],
       EVENTS,

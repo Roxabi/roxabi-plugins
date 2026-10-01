@@ -610,11 +610,28 @@ export async function landPr(
     if (required.length === 0) return { status: 'no-required-checks' }
   }
 
+  const headMoved = async () => {
+    const again = await readHeadRefOid(cwd, pr, ghFn)
+    return !isCommitSha(again) || again !== history.reviewedHead
+  }
+  const moved = () => ({ status: 'not-approved', reviews: spent.reviews, fixes: spent.fixes, reason: 'head-moved' })
+  const pin = [
+    'pr',
+    'merge',
+    String(pr),
+    '--auto',
+    '--merge',
+    '--match-head-commit',
+    history.reviewedHead,
+  ]
+
   /** @type {string} */
   let since = ''
   if (resolved.mode === 'merge-on-green') {
     const before = await labeledReviewedAt(cwd, pr, ghFn)
     const { labels = [] } = JSON.parse(await ghFn(cwd, ['pr', 'view', String(pr), '--json', 'labels']))
+    // Re-read immediately before the write. The earlier check is not a lease.
+    if (await headMoved()) return moved()
     if (labels.some((label) => label?.name === 'reviewed')) {
       await ghFn(cwd, ['pr', 'edit', String(pr), '--remove-label', 'reviewed'])
     }
@@ -627,15 +644,35 @@ export async function landPr(
       }
     }
   } else {
-    await ghFn(cwd, ['pr', 'edit', String(pr), '--add-label', 'reviewed'])
-  }
-  if (resolved.mode === 'native') {
+    // The pin is the merge authority. The label comes after it, so a failed
+    // or unpinned enable never leaves `reviewed` for the fleet workflow.
+    if (await headMoved()) return moved()
     try {
-      await ghFn(cwd, ['pr', 'merge', String(pr), '--auto', '--merge', '--match-head-commit', history.reviewedHead])
+      await ghFn(cwd, pin)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      if (!/already enabled/i.test(msg)) return { status: 'auto-merge-failed', armed: true }
+      if (!/already enabled/i.test(msg)) return { status: 'auto-merge-failed', armed: false }
+      try {
+        await ghFn(cwd, ['pr', 'merge', String(pr), '--disable-auto'])
+      } catch {
+        return { status: 'auto-merge-failed', armed: true }
+      }
+      if (await headMoved()) return moved()
+      try {
+        await ghFn(cwd, pin)
+      } catch {
+        return { status: 'auto-merge-failed', armed: false }
+      }
     }
+    if (await headMoved()) {
+      try {
+        await ghFn(cwd, ['pr', 'merge', String(pr), '--disable-auto'])
+      } catch {
+        return { status: 'auto-merge-failed', armed: true }
+      }
+      return moved()
+    }
+    await ghFn(cwd, ['pr', 'edit', String(pr), '--add-label', 'reviewed'])
   }
   const sinceArg = since ? ` --since ${since}` : ''
   return {
