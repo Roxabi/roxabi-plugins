@@ -128,7 +128,18 @@ ${labeledMint}
             echo "::error::head moved after review — auto-merge disarmed"
             exit 1
           fi
-          if ! comments=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json comments); then
+          if ! pages=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments"); then
+            disarm
+            echo "::error::refusing to enable auto-merge without the reviewed commit"
+            exit 1
+          fi
+          if ! comments=$(printf '%s' "$pages" | jq -c '
+            if (type != "array") or any(type != "array") then
+              error("incomplete comment pages")
+            else
+              {comments: ([.[][]] | sort_by(.created_at // "") | map({author: {login: (.user.login // "")}, body: (.body // "")}))}
+            end
+          '); then
             disarm
             echo "::error::refusing to enable auto-merge without the reviewed commit"
             exit 1

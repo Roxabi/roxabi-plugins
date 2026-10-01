@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   applyCiWatchExit,
+  commentPageArgs,
   disarmReviewedBeforePush,
   interpretReviewHistory,
   landPr,
@@ -113,6 +114,20 @@ function mockLand({
     const jsonAt = args.indexOf('--json')
     const fields = jsonAt === -1 ? [] : String(args[jsonAt + 1] ?? '').split(',')
     if (same(args, IDENTITY)) return `${ME}\n`
+    if (
+      args[0] === 'api' &&
+      args[1] === '--paginate' &&
+      args[2] === '--slurp' &&
+      String(args[3]).endsWith('/comments')
+    ) {
+      return JSON.stringify([
+        comments.map((entry, index) => ({
+          user: { login: entry.author.login },
+          body: entry.body,
+          created_at: `2026-01-01T00:00:${String(index).padStart(2, '0')}Z`,
+        })),
+      ])
+    }
     if (args[0] === 'pr' && args[1] === 'view' && same(fields, ['headRefOid'])) {
       return JSON.stringify({ headRefOid: APPROVED_HEAD })
     }
@@ -206,11 +221,7 @@ describe('landPr', () => {
       sleep,
     })
     // After the review-history read: the pre-add time, remove, re-add, then the newer time.
-    const historyRead = [
-      IDENTITY,
-      ['pr', 'view', '7', '--json', 'comments'],
-      ['pr', 'view', '7', '--json', 'headRefOid'],
-    ]
+    const historyRead = [IDENTITY, commentPageArgs(7), ['pr', 'view', '7', '--json', 'headRefOid']]
     expect(calls.filter((args) => !historyRead.some((read) => same(args, read)))).toEqual([
       ['repo', 'view', '--json', 'nameWithOwner'],
       EVENTS_CALL,
@@ -294,7 +305,14 @@ describe('landPr', () => {
     const gh = async (_cwd, args) => {
       calls.push(args)
       if (same(args, IDENTITY)) return `${ME}\n`
-      if (same(args, ['pr', 'view', '7', '--json', 'comments'])) return JSON.stringify({ comments: APPROVED })
+      if (same(args, commentPageArgs(7)))
+        return JSON.stringify([
+          APPROVED.map((entry) => ({
+            user: { login: entry.author.login },
+            body: entry.body,
+            created_at: '2026-01-01T00:00:00Z',
+          })),
+        ])
       if (same(args, ['pr', 'view', '7', '--json', 'headRefOid'])) {
         return JSON.stringify({ headRefOid: APPROVED_HEAD })
       }
@@ -322,6 +340,20 @@ function gatePr({ comments, labels = [], autoMerge = null, state = 'OPEN', headR
   const gh = async (_cwd, args) => {
     calls.push(args)
     if (same(args, IDENTITY)) return `${ME}\n`
+    if (
+      args[0] === 'api' &&
+      args[1] === '--paginate' &&
+      args[2] === '--slurp' &&
+      String(args[3]).endsWith('/comments')
+    ) {
+      return JSON.stringify([
+        pr.comments.map((entry, index) => ({
+          user: { login: entry.author.login },
+          body: entry.body,
+          created_at: `2026-01-01T00:00:${String(index).padStart(2, '0')}Z`,
+        })),
+      ])
+    }
     if (args.length === 5 && same(args.slice(0, 4), ['pr', 'view', '7', '--json'])) {
       /** @type {Record<string, unknown>} */
       const view = {}
@@ -525,7 +557,7 @@ describe('landPr — a green history after spent rounds still lands in both mode
 })
 
 describe('landPr — an unreadable review history never arms', () => {
-  const COMMENTS = ['pr', 'view', '7', '--json', 'comments']
+  const COMMENTS = commentPageArgs(7)
 
   it.each([
     ['a JSON-shaped identity', IDENTITY, '{"login":"omp-bot"}'],

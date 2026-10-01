@@ -81,6 +81,9 @@ const gh = async (_cwd, args) => {
     if (eventsPoll === 1) return ''
     return '${EVENT_AT}\\n'
   }
+  if (same(args, ['api', '--paginate', '--slurp', 'repos/{owner}/{repo}/issues/7/comments'])) {
+    return JSON.stringify([comments.map((entry, index) => ({ user: { login: entry.author.login }, body: entry.body, created_at: '2026-01-01T00:00:0' + index + 'Z' }))])
+  }
   if (args[0] === 'api') throw new Error('HTTP 403')
   return ''
 }
@@ -138,7 +141,7 @@ const PROTECTION = ['api', 'repos/acme/app/branches/main/protection/required_sta
 const RULES = ['api', 'repos/acme/app/rules/branches/main']
 const EVENTS = ['api', 'repos/acme/app/issues/7/events', '--paginate', '--jq', EVENTS_JQ]
 const IDENTITY = ['api', 'user', '--jq', '.login']
-const COMMENTS = ['pr', 'view', '7', '--json', 'comments']
+const COMMENTS = ['api', '--paginate', '--slurp', 'repos/{owner}/{repo}/issues/7/comments']
 const LIST = ['pr', 'list', '--head', BRANCH, '--state', 'all', '--json', 'number,state,isCrossRepository']
 const STACK = { ...WORKFLOW_FILE, '.dev/stack.yml': 'runtime: bun\n' }
 const WATCH_FAILED = {

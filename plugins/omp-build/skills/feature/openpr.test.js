@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   applyCiWatchExit,
+  commentPageArgs,
   createReviewLoop,
   interpretReviewHistory,
   landPr,
@@ -165,6 +166,15 @@ function fakePr({
     if (same(args, discovery(pr.branch))) {
       if (pr.branchPrs instanceof Error) throw pr.branchPrs
       return typeof pr.branchPrs === 'string' ? pr.branchPrs : JSON.stringify(pr.branchPrs)
+    }
+    if (same(args, commentPageArgs(n))) {
+      return JSON.stringify([
+        pr.comments.map((entry, index) => ({
+          user: { login: entry.author.login },
+          body: entry.body,
+          created_at: `2026-01-01T00:00:${String(index).padStart(2, '0')}Z`,
+        })),
+      ])
     }
     if (args.length === 5 && same(args.slice(0, 4), ['pr', 'view', n, '--json'])) {
       /** @type {Record<string, unknown>} */
@@ -1193,10 +1203,30 @@ describe('the count outlives the process that holds it', () => {
     ['with comments that are not a list', JSON.stringify({ comments: null })],
   ])('fails closed on a comments answer %s rather than reading "no rounds spent"', async (_label, answer) => {
     const fake = fakePr()
-    const view = ['pr', 'view', String(PR), '--json', 'comments']
+    const view = commentPageArgs(PR)
     const gh = async (cwd, args) => (same(args, view) ? answer : fake.gh(cwd, args))
     await expect(readReviewRounds(CWD, PR, { gh })).rejects.toThrow()
     await expect(resumeReviewLoop(CWD, { pr: PR, gh })).rejects.toThrow()
+  })
+
+  it('a Request changes on a later page suppresses an Approve of the current head', async () => {
+    const first = [comment(GREEN), comment(accounting(1, 0))]
+    const fake = fakePr({ comments: first })
+    const pages = [
+      first.map((entry, index) => ({
+        user: { login: ME },
+        body: entry.body,
+        created_at: `2026-01-01T00:00:0${index}Z`,
+      })),
+      [{ user: { login: ME }, body: RED, created_at: '2026-01-01T00:00:09Z' }],
+    ]
+    const truncated = ['pr', 'view', String(PR), '--json', 'comments']
+    const gh = async (cwd, args) => {
+      if (same(args, commentPageArgs(PR))) return JSON.stringify(pages)
+      if (same(args, truncated)) return JSON.stringify({ comments: first })
+      return fake.gh(cwd, args)
+    }
+    await expect(landPr(CWD, PR, { gh, landing: NATIVE })).resolves.toMatchObject({ status: 'not-approved' })
   })
 
   it.each([

@@ -106,4 +106,27 @@ describe('fleet auto-merge review filter', () => {
     expect(runReviewFilter([{ author: ME, body: `note\n${reviewRecord('Approve', HEAD)}` }])).toBe('')
     expect(runReviewFilter([{ author: ME, body: reviewRecord('Approve', OTHER) }])).toBe('')
   })
+
+  it('a Request changes on a later page suppresses an Approve on the first page', () => {
+    const yml = generateAutoMergeYml()
+    expect(yml).toContain('gh api --paginate --slurp')
+    expect(yml).not.toContain('gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json comments')
+    const marker = "jq -c '"
+    const open = yml.indexOf(marker)
+    if (open < 0) throw new Error('comment reshape is not in the generated workflow')
+    const reshape = yml.slice(open + marker.length, yml.indexOf("')", open))
+    const pages = JSON.stringify([
+      [{ user: { login: ME }, body: reviewRecord('Approve', HEAD), created_at: '2026-01-01T00:00:00Z' }],
+      [{ user: { login: ME }, body: reviewRecord('Request changes', HEAD), created_at: '2026-01-01T00:00:01Z' }],
+    ])
+    const shaped = spawnSync('jq', ['-c', reshape], { input: pages, encoding: 'utf8' })
+    if (shaped.status !== 0) throw new Error(shaped.stderr || 'reshape failed')
+    expect(JSON.parse(shaped.stdout).comments.at(-1).body).toContain('Request changes')
+    expect(
+      runReviewFilter([
+        { author: ME, body: reviewRecord('Approve', HEAD) },
+        { author: ME, body: reviewRecord('Request changes', HEAD) },
+      ]),
+    ).toBe('')
+  })
 })

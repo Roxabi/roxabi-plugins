@@ -997,6 +997,33 @@ export function analyzeReviewHistory(comments, { me, maxFixRounds = MAX_FIX_ROUN
   }
 }
 
+/** Issue-comment pages, every page. `gh pr view --json comments` is a silent first 100. */
+export function commentPageArgs(pr) {
+  return ['api', '--paginate', '--slurp', `repos/{owner}/{repo}/issues/${pr}/comments`]
+}
+
+/** @param {string} raw @param {number | string} pr */
+function commentsFromPages(raw, pr) {
+  let pages
+  try {
+    pages = JSON.parse(raw)
+  } catch {
+    throw new Error(`createReviewLoop: comment pages for ${pr} returned no JSON — ${preview(raw)}`)
+  }
+  if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) {
+    throw new Error(`createReviewLoop: comment pages for ${pr} are incomplete`)
+  }
+  const entries = pages.flat()
+  entries.sort((a, b) => String(a?.created_at ?? '').localeCompare(String(b?.created_at ?? '')))
+  return entries.map((entry) => {
+    if (typeof entry?.body !== 'string') {
+      throw new Error(`createReviewLoop: a comment page entry for ${pr} has no body`)
+    }
+    const login = entry?.user?.login
+    return { author: { login: typeof login === 'string' ? login : '' }, body: entry.body }
+  })
+}
+
 /** Current durable counts and stop, independent of the caller's cached loop. */
 export async function readReviewRounds(cwd, pr, deps = {}) {
   return (await readReviewHistory(cwd, pr, deps)).rounds
@@ -1004,15 +1031,8 @@ export async function readReviewRounds(cwd, pr, deps = {}) {
 
 async function readReviewHistory(cwd, pr, { gh: ghFn = gh, maxFixRounds = MAX_FIX_ROUNDS } = {}) {
   const me = reviewIdentity(await ghFn(cwd, ['api', 'user', '--jq', '.login']))
-  const raw = await ghFn(cwd, ['pr', 'view', String(pr), '--json', 'comments'])
-  let data
-  try {
-    data = JSON.parse(raw)
-  } catch {
-    throw new Error(`createReviewLoop: gh pr view ${pr} returned no JSON — ${preview(raw)}`)
-  }
-  if (!Array.isArray(data?.comments)) throw new Error('createReviewLoop: PR response carried no comments')
-  return analyzeReviewHistory(data.comments, { me, maxFixRounds })
+  const raw = await ghFn(cwd, commentPageArgs(pr))
+  return analyzeReviewHistory(commentsFromPages(raw, pr), { me, maxFixRounds })
 }
 
 /**
