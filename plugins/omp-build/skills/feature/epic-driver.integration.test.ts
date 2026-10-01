@@ -927,6 +927,36 @@ describe('epic-driver — reconcile a stopped armed PR', () => {
     expect(git(epic, 'branch', '--list', 'fix/3-second-child')).toBe('')
   })
 
+  it('disarms the later stopped PR when the first disarm fails, and creates no branch', () => {
+    const epic = sandbox().epic
+    const earlier = { body: '<!-- omp-build:goal-stop run=run00000 reason=review-bound -->\nstopped', author: ME }
+    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
+    serveEpic([
+      childNode(2, 'feat(x): first child', {
+        comments: [earlier],
+        prs: [prNode(10, 'feat/2-first-child', 'a'.repeat(40), armed)],
+      }),
+      childNode(3, 'fix(y): second child'),
+      childNode(4, 'chore(z): third child', {
+        comments: [earlier],
+        prs: [prNode(14, 'chore/4-third-child', 'b'.repeat(40), armed)],
+      }),
+    ])
+    servePr(10, { state: 'OPEN', labels: ['reviewed'], autoMerge: true }, true)
+    servePr(14, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    const run = drive(['next'])
+    expect(run.code).toBe(0)
+    expect(run.json().step.action).toBe('drop')
+    expect(run.json().step.reason).toContain('#10')
+    expect(writes()).toEqual([
+      'edit 10 --remove-label reviewed',
+      'merge 10 --disable-auto',
+      'edit 14 --remove-label reviewed',
+      'merge 14 --disable-auto',
+    ])
+    expect(git(epic, 'branch', '--list', 'fix/3-second-child')).toBe('')
+  })
+
   it('returns a drop and creates no branch when the epic query already says the stopped PR merged', () => {
     const { epic } = sandbox()
     serveEpic([

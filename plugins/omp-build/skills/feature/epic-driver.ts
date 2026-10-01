@@ -571,58 +571,30 @@ async function next(repo: string, epic: number, run: string, base: string, dry: 
 
   const recorded: { ticket: number; stop: string; disarmed?: Record<number, Disarm> }[] = []
   const reconciled: { ticket: number; pr: number; disarmed: Disarm | 'dry-run' }[] = []
+  const problems: string[] = []
   for (const entry of armedStoppedPrs(facts)) {
     if (dry) {
       reconciled.push({ ticket: entry.ticket, pr: entry.pr, disarmed: 'dry-run' })
       continue
     }
-    let what: Disarm
     try {
-      what = await disarm(repo, entry.pr)
+      const what = await disarm(repo, entry.pr)
+      reconciled.push({ ticket: entry.ticket, pr: entry.pr, disarmed: what })
+      if (what === 'merged') problems.push(`PR #${entry.pr} merged before it could be disarmed`)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      return {
-        run,
-        base,
-        step: {
-          action: 'drop',
-          stop: 'driver-error',
-          reason: `PR #${entry.pr} stayed armed: ${message}`,
-          report: summarize(facts),
-        },
-        recorded,
-        cleaned,
-        disarmed: null,
-        reconciled,
-      }
-    }
-    reconciled.push({ ticket: entry.ticket, pr: entry.pr, disarmed: what })
-    if (what === 'merged') {
-      return {
-        run,
-        base,
-        step: {
-          action: 'drop',
-          stop: 'driver-error',
-          reason: `PR #${entry.pr} merged before it could be disarmed`,
-          report: summarize(facts),
-        },
-        recorded,
-        cleaned,
-        disarmed: null,
-        reconciled,
-      }
+      problems.push(`PR #${entry.pr} stayed armed: ${message}`)
     }
   }
-  const landed = mergedStoppedPrs(facts)
-  if (landed.length) {
+  for (const entry of mergedStoppedPrs(facts)) problems.push(`PR #${entry.pr} already merged`)
+  if (problems.length) {
     return {
       run,
       base,
       step: {
         action: 'drop',
         stop: 'driver-error',
-        reason: landed.map((entry) => `PR #${entry.pr} already merged`).join('; '),
+        reason: problems.join('; '),
         report: summarize(facts),
       },
       recorded,
