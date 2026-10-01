@@ -15,10 +15,11 @@ const USAGE = `Init CLI — router that delegates to subcommand modules.
 Usage:
   bun init.ts prereqs [--json]
   bun init.ts discover [--json]
-  bun init.ts workflows (--owner <owner> --repo <repo> | --local) --stack <bun|node|python> --test <vitest|jest|pytest|bun|none> --deploy <vercel|cloudflare|none> [--merge auto-merge|merge-on-green] [--e2e playwright|none] [--lint true|false] [--typecheck true|false] [--test-command <cmd>] [--branch <branch>] [--force] [--release-model trunk|staging-train] [--release-component <name>]
+  bun init.ts workflows (--owner <owner> --repo <repo> | --local) --stack <bun|node|python> --test <vitest|jest|pytest|bun|none> --deploy <vercel|cloudflare|none> [--merge auto-merge|merge-on-green] [--e2e playwright|none] [--lint true|false] [--typecheck true|false] [--test-command <cmd>] [--branch <branch>] [--force] [--release-model trunk|staging-train] [--release-component <name>] [--review-record true|false]
       --owner + --repo push via the GitHub REST API; --local writes into ./.github instead
       (offline use — no gh auth, no remote). The two are mutually exclusive.
       --release-model defaults from ${STACK_YML} when present, else staging-train.
+      --review-record defaults from ${STACK_YML} ci.review_record (exact true), else false.
   bun init.ts push-workflows --owner <owner> --repo <repo> [--branch <branch>] [--force] [--release-model trunk|staging-train]
   bun init.ts push-context-lint --owner <owner> --repo <repo> [--branch <branch>] [--release-model trunk|staging-train]  # context-lint.yml only (always updates)
   bun init.ts protect-branches --repo <owner/repo>
@@ -49,6 +50,14 @@ function releaseFromCwd(): NonNullable<WorkflowOpts['release']> {
     { model: parseFlag('--release-model', ''), component: parseFlag('--release-component', '') },
     stackRelease,
   )
+}
+
+function reviewRecordFromCwd(): boolean {
+  const flagged = parseFlag('--review-record', '')
+  if (flagged === 'true') return true
+  if (flagged === 'false') return false
+  if (!existsSync(STACK_YML)) return false
+  return parseStackYml(readFileSync(STACK_YML, 'utf8')).ciReviewRecord === true
 }
 
 if (command === '--help' || command === '-h' || hasFlag('--help') || hasFlag('-h')) {
@@ -95,6 +104,7 @@ switch (command) {
       lint,
       typecheck,
       release: releaseFromCwd(),
+      reviewRecord: reviewRecordFromCwd(),
     }
     // Local write is opt-in, never the fallback for missing flags — a typo'd --owner
     // must not silently rewrite the current repo's .github/.
@@ -132,6 +142,7 @@ switch (command) {
       test: 'none',
       deploy: 'none',
       release: releaseFromCwd(),
+      reviewRecord: reviewRecordFromCwd(),
     })
     console.log(JSON.stringify({ pushed: result }, null, 2))
     break

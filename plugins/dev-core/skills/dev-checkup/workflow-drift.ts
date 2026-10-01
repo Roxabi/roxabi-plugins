@@ -55,6 +55,7 @@ export function checkWorkflowDrift(): Check[] {
     release: stack.release
       ? { model: stack.release.model, component: stack.release.component ?? undefined }
       : undefined,
+    reviewRecord: stack.reviewRecord,
   })
   const expected: Record<string, string> = {
     'ci.yml': generateCiYml(opts),

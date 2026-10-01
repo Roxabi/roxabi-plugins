@@ -12,16 +12,16 @@ version: 0.1.0
 
 ## Success
 
-I := F collected ∧ R named ∧ verdict posted (PR ∃) ∧ Phase 8 decision made
-V := `gh pr view {N} --comments | grep "## Code Review"` ∧ verdict ∈ {Approve, Request changes}
+I := F collected ∧ R named ∧ verdict posted (PR ∃) ∧ Phase 8 decision made ∧ (PR ∃ → the posted line 2 is the pre-post `REVIEWED_HEAD` snapshot, and the post-time `headRefOid` equals that snapshot; a different head is not posted)
+V := `gh pr view {N} --comments | grep "## Code Review"` ∧ verdict ∈ {Approve, Request changes} ∧ the posted line 2 is `<!-- omp-build:review-head sha=<40 lowercase hex> -->` of that snapshot. A post-time `headRefOid` that differs → do not post.
 
 Review branch/PR via fresh agents → Conventional Comments → root causes → findings + verdict.
 
 **⚠ Flow: single continuous pipeline (Phases 1→4 + 8). ¬stop between phases. Decision response → immediately execute next phase. Stop only on: |Δ|=0, explicit Cancel, roster `review_halt`, or Phase 8 completion.**
 
 ```
-/skill:dev-review          → diff origin/${BASE}...HEAD  (BASE = staging|main|master, first that exists)
-/skill:dev-review #42      → gh pr diff 42
+/skill:dev-review          → snapshot `git rev-parse HEAD`, then diff origin/${BASE}...HEAD  (BASE = staging|main|master, first that exists)
+/skill:dev-review #42      → snapshot `gh pr view 42 --json headRefOid` before `gh pr diff 42`. Do not post if a re-read differs.
 ```
 
 Let:
@@ -47,8 +47,8 @@ Let:
 
 ## Pre-flight
 
-Success: F collected ∧ R named ∧ verdict posted ∧ Phase 8 decision made
-Evidence: `gh pr view {N} --comments | grep "## Code Review"`
+Success: F collected ∧ R named ∧ verdict posted ∧ Phase 8 decision made ∧ (PR ∃ → posted line 2 is the pre-post snapshot, and a different post-time head is not posted)
+Evidence: `gh pr view {N} --comments | grep "## Code Review"` ∧ posted line 2 is the snapshot sha
 Steps: gather-changes → secret-scan → spec-compliance → multi-domain-review → merge-render-post → next-step
 ¬clear → STOP + ask: "Which branch/PR to review?"
 
@@ -85,15 +85,20 @@ Steps: gather-changes → secret-scan → spec-compliance → multi-domain-revie
    SKILL_DIR="${SKILL_DIR:?dev-review Phase 1: skill directory not announced — export SKILL_DIR to this skill's directory and re-run}"
    BASE=$(. "$SKILL_DIR/../shared/lib.sh" && detect_base_branch)
    ```
-2. PR# → `gh pr diff <#>` | else → `git diff origin/${BASE}...HEAD`
-3. Δ = `git diff --name-only origin/${BASE}...HEAD` (or `gh pr diff <#> --name-only`)
-4. ∀ f ∈ Δ: read full (skip binaries, note)
+2. When a PR is bound, snapshot the reviewed commit before any diff: `REVIEWED_HEAD=$(gh pr view "$PR" --json headRefOid --jq .headRefOid)`, then diff that PR (`gh pr diff "$PR"`), never the local tree. Do not `git diff` the worktree. A local-only review (no PR bound) snapshots `git rev-parse HEAD`, diffs `git diff origin/${BASE}...HEAD`, and posts no head line. Re-read the snapshotted oid immediately after the diff. If it differs, discard the diff and stop: the head moved, re-run the review. Do not judge a diff whose commit is not the snapshot.
+3. Δ names come from that same diff. A bound PR uses `gh pr diff "$PR" --name-only`, never `git diff` of the local tree. A local-only review uses `git diff --name-only origin/${BASE}...HEAD`.
+4. ∀ f ∈ Δ: read the file body from the snapshot — `git show "$REVIEWED_HEAD:$f"` when a PR is bound, the worktree file only when no PR is bound. Never the worktree when a PR is bound. Skip binaries, note.
 5. |Δ| = 0 → halt
 6. |Δ| > 50 → warn, suggest split
 
 ## Phase 1.5 — Secret Scan
 
+The scan reads the diff step 2 judged. A bound PR pipes `gh pr diff "$PR"`; a local-only review pipes `git diff origin/${BASE}...HEAD`.
+
 ```bash
+# bound PR — never `git diff` of the local tree
+gh pr diff "$PR" | grep -iE '(password|passwd|secret|api[_-]?key|auth[_-]?token|access[_-]?token|private[_-]?key)\s*[:=]\s*["\x27`][^"\x27`]{8,}' | head -20
+# local-only review
 git diff origin/${BASE}...HEAD | grep -iE '(password|passwd|secret|api[_-]?key|auth[_-]?token|access[_-]?token|private[_-]?key)\s*[:=]\s*["\x27`][^"\x27`]{8,}' | head -20
 ```
 
@@ -425,7 +430,7 @@ No blocker and Warnings nonempty → `Approve with comments`, even when praise, 
 
 ### Render once
 
-Build one body. Its first line is exactly `<!-- omp-build:code-review -->`: that marker is how `skill://fix` finds the record, together with the comment author. Then, in this order:
+Build one body. Its first line is exactly `<!-- omp-build:code-review -->`: that marker is how `skill://fix` finds the record, together with the comment author. When a PR exists, line 2 is exactly `<!-- omp-build:review-head sha=<40 lowercase hex> -->` naming the Phase 1 `REVIEWED_HEAD` snapshot, never a fresh read and never a worktree oid. Immediately before `gh pr comment`, re-read `headRefOid`. If it differs from `REVIEWED_HEAD`, do not post — not an approval, not a request for changes, and not a head line for the new oid. Stop and say the head moved; the review has to be re-run against the new commit. A sha anywhere else is not the reviewed commit. A local-only body has no line 2. Then, in this order:
 
 1. `## Code Review`, then `## Spec` — render Σ from Phase 2, one row per criterion in σ order: `✓` met / `✗` missing, quoting `criterion_text`. σ ∄ → `no spec available — spec axis not evaluated`.
 2. `## Standards` — the orchestrator reads `skill://dev-review/review-smells.md` once, walks Δ against the baseline, and emits at most one `possible <Smell>` row per smell. Render the receipt in `## Standards (judgement pass — {n} smells walked, {k} fired)`. These rows never enter F, carry `Class:`, or affect verdict.
@@ -453,6 +458,7 @@ Build one body. Its first line is exactly `<!-- omp-build:code-review -->`: that
 
 ```markdown
 <!-- omp-build:code-review -->
+<!-- omp-build:review-head sha=0123456789abcdef0123456789abcdef01234567 -->
 ## Code Review
 
 ## Spec
@@ -481,6 +487,8 @@ Roster capped by max_agents: R-devops
 
 **Verdict: Request changes** — 1 blocking finding
 ```
+
+`landPr` arms only when that line 2 names the PR's current `headRefOid`. A record with no head line does not arm: PRs reviewed before this line existed need one re-review. Native auto-merge is pinned with `--match-head-commit` of that sha. Merge-on-green is label-driven: a push by another actor after `reviewed` is applied is not refused by GitHub.
 
 **→ immediately continue to Phase 8.**
 

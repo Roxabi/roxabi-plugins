@@ -13,10 +13,17 @@ export { normalizeWorkflowOpts, triggerBranches }
 
 // --- Content generators ---
 
-/** Generic auto-merge workflow: enables native auto-merge on 'reviewed' label,
- *  updates behind PRs on push, closes linked issues on merge. */
+/** Generic auto-merge workflow. `reviewRecord` is opt-in (`ci.review_record`
+ *  in stack.yml). Absent or false keeps the fleet default: enable on the
+ *  `reviewed` label. True enables only from the latest omp-build review of
+ *  this head; dependabot[bot] is exempt from that record only. */
 export function generateAutoMergeYml(opts?: WorkflowOpts): string {
   const branches = triggerBranches(opts)
+  return opts?.reviewRecord === true ? generateReviewedHeadAutoMergeYml(branches) : generateLabelAutoMergeYml(branches)
+}
+
+/** Fleet default: enable on the reviewed label. Matches origin/main when reviewRecord is off. */
+function generateLabelAutoMergeYml(branches: string): string {
   return `# Auto-merge PRs that have been reviewed and passed all required checks.
 # Enables GitHub's native auto-merge (\`gh pr merge --auto --merge\`) once the
 # "reviewed" label is present; GitHub then waits for the required status
@@ -121,6 +128,258 @@ ${APP_MINT_STEP}
         env:
           GH_TOKEN: \${{ steps.app.outputs.token }}
 
+  close-linked-issues:
+    name: Close linked issues
+    runs-on: ubuntu-latest
+    if: github.event.action == 'closed' && github.event.pull_request.merged == true
+    timeout-minutes: 5
+    steps:
+      - name: Close issues referenced with closing keywords
+        uses: ${ACTION_PINS.githubScript}
+        with:
+          script: |
+            const body = context.payload.pull_request.body || '';
+            const pattern = /(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\\s+#(\\d+)/gi;
+            const issues = new Set();
+            let match;
+            while ((match = pattern.exec(body)) !== null) {
+              issues.add(parseInt(match[1]));
+            }
+            if (issues.size === 0) {
+              core.info('No closing keywords found in PR body');
+              return;
+            }
+            for (const number of issues) {
+              try {
+                await github.rest.issues.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: number,
+                  state: 'closed',
+                  state_reason: 'completed',
+                });
+                core.info(\`Closed issue #\${number}\`);
+              } catch (error) {
+                core.warning(\`Failed to close issue #\${number}: \${error.message}\`);
+              }
+            }
+`
+}
+
+/** Disable auto-merge, then drop `reviewed`. `gh pr merge --disable-auto` errors
+ *  when auto-merge is already off; that not-enabled error is success, so the
+ *  label is always removed. Abort only if a follow-up read shows
+ *  `autoMergeRequest` still set, or the read itself fails. */
+function idempotentDisarm(indent: string): string {
+  const lines = [
+    'set +e',
+    'disable_out=$(gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --disable-auto 2>&1)',
+    'disable_code=$?',
+    'set -e',
+    'if [ "$disable_code" -ne 0 ]; then',
+    '  printf \'%s\\n\' "$disable_out" >&2',
+    "  if ! printf '%s' \"$disable_out\" | grep -qi 'not enabled'; then",
+    '    echo "::error::failed to disable auto-merge"',
+    '    exit 1',
+    '  fi',
+    'fi',
+    'gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --remove-label reviewed',
+    'if ! armed=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json autoMergeRequest --jq \'.autoMergeRequest\'); then',
+    '  echo "::error::could not confirm auto-merge is off"',
+    '  exit 1',
+    'fi',
+    'if [ "$armed" != "null" ]; then',
+    '    echo "::error::auto-merge still armed after disarm"',
+    '    exit 1',
+    'fi',
+  ]
+  return lines.map((line) => `${indent}${line}`).join('\n')
+}
+
+/** Opt-in: enable only from the latest omp-build review of this head.
+ *  dependabot[bot] skips the record only. */
+function generateReviewedHeadAutoMergeYml(branches: string): string {
+  const labeledMint = APP_MINT_STEP.replace(
+    '        id: app\n',
+    "        id: app\n        if: github.event.action == 'labeled'\n",
+  )
+  return `# Auto-merge PRs that have been reviewed and passed all required checks.
+# Enables GitHub's native auto-merge (\`gh pr merge --auto --merge\`) once the
+# latest code-review record by vars.OMP_BUILD_AUTOMATION_LOGIN names this head.
+# synchronize disarms first, with the default token, even if that label is gone.
+# dependabot[bot] skips the record only. A rebase still disarms — re-label after it.
+# Reviewed PRs are not retargeted.
+#
+# Dependabot guard: semver-major bumps are never auto-merged — they require
+# manual validation before merge.
+#
+# Also closes linked issues after merge, because GITHUB_TOKEN-initiated
+# auto-merges don't trigger GitHub's native "Closes #X" issue closure.
+name: Auto Merge
+
+on:
+  pull_request:
+    types: [labeled, synchronize, closed]
+  check_suite:
+    types: [completed]
+  push:
+    branches: ${branches}
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  auto-merge:
+    name: Enable auto-merge
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.action != 'closed' &&
+      (github.event.action == 'synchronize' || contains(github.event.pull_request.labels.*.name, 'reviewed'))
+    timeout-minutes: 5
+    steps:
+      # Moved head: disable auto-merge before the label. No GH_TOKEN — gh uses
+      # the Actions default token, so a mint failure cannot leave the merge armed.
+      # always() keeps the step reachable if a prior step failed.
+      - name: Disarm auto-merge on a moved head
+        if: always() && github.event.action == 'synchronize'
+        env:
+          PR_NUMBER: \${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          # Writes first. A not-enabled disable is success, so the label is always
+          # removed. A failed view must not skip those writes. Abort only if a
+          # follow-up read shows autoMergeRequest still set.
+${idempotentDisarm('          ')}
+          echo "::error::head moved after review — auto-merge disarmed"
+          exit 1
+
+${labeledMint}
+
+      # Read the real update-type from Dependabot's metadata rather than parsing the
+      # PR title: grouped PRs are titled "bump the <group> group…" with no versions,
+      # so a title regex never fires for a major hidden in a group, and it can also
+      # misread a SHA-pinned action bump ("from 08eba0b to 8f4b7f8") as a major.
+      # For a grouped PR, fetch-metadata reports the HIGHEST update-type in the group.
+      - name: Fetch dependabot metadata
+        id: dependabot-meta
+        if: github.event.action == 'labeled' && github.event.pull_request.user.login == 'dependabot[bot]'
+        uses: ${ACTION_PINS.dependabotFetchMetadata}
+        with:
+          github-token: \${{ steps.app.outputs.token }}
+
+      - name: Block dependabot semver-major bumps
+        if: >-
+          github.event.action == 'labeled' &&
+          github.event.pull_request.user.login == 'dependabot[bot]' &&
+          steps.dependabot-meta.outputs.update-type == 'version-update:semver-major'
+        env:
+          GH_TOKEN: \${{ steps.app.outputs.token }}
+          PR_NUMBER: \${{ github.event.pull_request.number }}
+        run: |
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \\
+            --body "Auto-merge refused: **semver-major** bump. Manual validation required (e2e / boot the artifact), then merge by hand."
+          echo "::error::semver-major dependency bump — auto-merge refused"
+          exit 1
+
+      - name: Enable auto-merge (merge commit)
+        if: github.event.action == 'labeled'
+        env:
+          GH_TOKEN: \${{ steps.app.outputs.token }}
+          PR_NUMBER: \${{ github.event.pull_request.number }}
+          HEAD_SHA: \${{ github.event.pull_request.head.sha }}
+          REVIEWER: \${{ vars.OMP_BUILD_AUTOMATION_LOGIN }}
+          ACTION: \${{ github.event.action }}
+          AUTHOR: \${{ github.event.pull_request.user.login }}
+        run: |
+          set -euo pipefail
+          disarm() {
+${idempotentDisarm('            ')}
+          }
+          # synchronize is a new head. Do not re-enable from a comment.
+          if [ "$ACTION" != "labeled" ]; then
+            disarm
+            echo "::error::head moved after review — auto-merge disarmed"
+            exit 1
+          fi
+          if [ "$AUTHOR" = "dependabot[bot]" ]; then
+            SHA="$HEAD_SHA"
+          else
+          if ! pages=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments"); then
+            disarm
+            echo "::error::refusing to enable auto-merge without the reviewed commit"
+            exit 1
+          fi
+          if ! comments=$(printf '%s' "$pages" | jq -c '
+            if (type != "array") or any(type != "array") then
+              error("incomplete comment pages")
+            else
+              {comments: ([.[][]] | sort_by(.created_at // "") | map({author: {login: (.user.login // "")}, body: (.body // "")}))}
+            end
+          '); then
+            disarm
+            echo "::error::refusing to enable auto-merge without the reviewed commit"
+            exit 1
+          fi
+          if ! SHA=$(printf '%s' "$comments" | jq -r --arg reviewer "$REVIEWER" --arg head "$HEAD_SHA" '
+            (
+              [.comments[]
+                | select(.author.login == $reviewer)
+                | .body
+                | select(split("\\n")[0] == "<!-- omp-build:code-review -->")
+              ] | last // empty
+              | . as $body
+              | ($body | split("\\n")[1]) as $line2
+              | select($line2 | strings | test("^<!-- omp-build:review-head sha=[0-9a-f]{40} -->$"))
+              | ($line2 | capture("^<!-- omp-build:review-head sha=(?<sha>[0-9a-f]{40}) -->$").sha) as $sha
+              | select($sha == $head)
+              | ($body | [split("\\n")[] | select(test("^\\\\*\\\\*Verdict: "))]) as $verdicts
+              | select($verdicts | length == 1)
+              | select($verdicts[0] | test("^\\\\*\\\\*Verdict: Approve( \\\\(clean\\\\)| with comments)?\\\\*\\\\*([[:space:]].*)?$"))
+              | $sha
+            ) // ""'); then
+            disarm
+            echo "::error::refusing to enable auto-merge without the reviewed commit"
+            exit 1
+          fi
+          fi
+          if [ "$SHA" != "$HEAD_SHA" ] || [ "\${#SHA}" -ne 40 ]; then
+            disarm
+            echo "::error::refusing to enable auto-merge without the reviewed commit"
+            exit 1
+          fi
+          set +e
+          out=$(gh pr merge "$PR_NUMBER" --auto --merge --repo "$GITHUB_REPOSITORY" --match-head-commit "$SHA" 2>&1)
+          code=$?
+          set -e
+          if [ "$code" -ne 0 ]; then
+            printf '%s\\n' "$out" >&2
+            if ! printf '%s' "$out" | grep -qi 'already enabled'; then
+              disarm
+              echo "::error::refusing to enable auto-merge without the reviewed commit"
+              exit 1
+            fi
+            gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --disable-auto
+            if ! gh pr merge "$PR_NUMBER" --auto --merge --repo "$GITHUB_REPOSITORY" --match-head-commit "$SHA"; then
+              disarm
+              echo "::error::refusing to enable auto-merge without the reviewed commit"
+              exit 1
+            fi
+          fi
+
+  update-behind-prs:
+    name: Update behind PRs
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    timeout-minutes: 5
+    steps:
+      - name: Leave reviewed PRs on the commit that was reviewed
+        run: |
+          set -euo pipefail
+          echo "reviewed PRs are not retargeted — a new head needs a new review"
+          exit 0
   close-linked-issues:
     name: Close linked issues
     runs-on: ubuntu-latest
@@ -447,6 +706,8 @@ export function workflowOptsFromStack(stack: {
   merge?: 'auto-merge' | 'merge-on-green'
   /** release.model + release.component (#371). Only `trunk` activates trunk mode. */
   release?: { model?: string; component?: string }
+  /** ci.review_record. Only exact true opts into the reviewed-head gate. */
+  reviewRecord?: boolean
 }): WorkflowOpts {
   const runtime = (stack.runtime ?? 'bun') as WorkflowOpts['stack']
   const unit = stack.unit ?? (stack.test && !stack.commands?.test ? stack.test : undefined)
@@ -473,5 +734,6 @@ export function workflowOptsFromStack(stack: {
     lint: Boolean(stack.commands?.lint),
     typecheck: Boolean(stack.commands?.typecheck),
     release,
+    reviewRecord: stack.reviewRecord === true,
   })
 }
