@@ -263,7 +263,11 @@ jobs:
           armed=0
           if [ "$disable_code" -ne 0 ]; then
             printf '%s\\n' "$disable_out" >&2
-            if ! printf '%s' "$disable_out" | grep -qi 'not enabled'; then
+            # "not enabled" is a ready PR that was never armed. A draft answers
+            # "Can't disable auto-merge" instead. The follow-up read still
+            # aborts if autoMergeRequest is set.
+            if ! printf '%s' "$disable_out" | grep -qi 'not enabled' \\
+              && ! printf '%s' "$disable_out" | grep -qi "can't disable auto-merge"; then
               echo "::error::failed to disable auto-merge"
               exit 1
             fi

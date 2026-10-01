@@ -56,6 +56,10 @@ fi
 printf '%s\\n' "$*" >> "$GH_LOG"
 case "$*" in
   *'--disable-auto'*)
+    if [ "\${GH_DISABLE_CANT:-}" = 1 ]; then
+      echo "GraphQL: Can't disable auto-merge for this pull request. (disablePullRequestAutoMerge)" >&2
+      exit 1
+    fi
     if [ "\${GH_DISABLE_NOT_ENABLED:-}" = 1 ]; then
       echo 'GraphQL: Auto merge is not enabled for this pull request (disablePullRequestAutoMerge)' >&2
       exit 1
@@ -499,6 +503,23 @@ describe('moved-head disarm token and exit (#676)', () => {
     expect(`${ran.stdout}\n${ran.stderr}`).not.toContain('::error::')
     expect(ran.log).toContain('--disable-auto')
     expect(ran.log).not.toContain('--remove-label reviewed')
+  })
+
+  it('a draft that cannot disable auto-merge and has no label exits 0, and a still-armed follow-up aborts', () => {
+    const draft = runDeclared(gated(), 'Disarm auto-merge on a moved head', {
+      GH_DISABLE_CANT: '1',
+      PR_LABELS: '[]',
+    })
+    expect(draft.status).toBe(0)
+    expect(`${draft.stdout}\n${draft.stderr}`).not.toContain('::error::')
+
+    const still = runDeclared(gated(), 'Disarm auto-merge on a moved head', {
+      GH_DISABLE_CANT: '1',
+      GH_STILL_ARMED: '1',
+      PR_LABELS: '[]',
+    })
+    expect(still.status).toBe(1)
+    expect(`${still.stdout}\n${still.stderr}`).toContain('auto-merge still armed')
   })
 
   it('a synchronize on an armed or labeled PR disarms and exits 1 with the annotation', () => {
