@@ -106,6 +106,19 @@ describe('fleet auto-merge review filter', () => {
     expect(runReviewFilter([{ author: ME, body: `note\n${reviewRecord('Approve', HEAD)}` }])).toBe('')
   })
 
+  it('rejects an equal-head record whose line 2 or verdict is not anchored', () => {
+    const headLine = `<!-- omp-build:review-head sha=${HEAD} -->`
+    const prefixed = ['<!-- omp-build:code-review -->', `note ${headLine}`, '**Verdict: Approve**'].join('\n')
+    const trailing = ['<!-- omp-build:code-review -->', `${headLine} trailing`, '**Verdict: Approve**'].join('\n')
+    const otherFirst = ['not the marker', headLine, '**Verdict: Approve**'].join('\n')
+    const looseVerdict = ['<!-- omp-build:code-review -->', headLine, '**Verdict: Approve**not'].join('\n')
+    expect(runReviewFilter([{ author: ME, body: prefixed }])).toBe('')
+    expect(runReviewFilter([{ author: ME, body: trailing }])).toBe('')
+    expect(runReviewFilter([{ author: ME, body: otherFirst }])).toBe('')
+    expect(runReviewFilter([{ author: ME, body: looseVerdict }])).toBe('')
+    expect(reviewFilter(generateAutoMergeYml())).toContain('[0-9a-f]{40}')
+  })
+
   it('refuses an Approve of a different head', () => {
     expect(runReviewFilter([{ author: ME, body: reviewRecord('Approve', OTHER) }])).toBe('')
     expect(runReviewFilter([{ author: ME, body: reviewRecord('Approve', HEAD) }])).toBe(HEAD)

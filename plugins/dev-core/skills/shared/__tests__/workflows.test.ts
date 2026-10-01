@@ -104,21 +104,23 @@ describe('generateAutoMergeYml', () => {
     expect(yml).not.toContain('startswith')
   })
 
-  it('disarms on synchronize even when reviewed is already absent', () => {
+  it('selects synchronize when the label list is empty', () => {
     const yml = generateAutoMergeYml()
     const jobIf = yml.slice(yml.indexOf('name: Enable auto-merge'), yml.indexOf('timeout-minutes: 5'))
-    expect(jobIf).toMatch(/github\.event\.action == 'synchronize'\s*\|\|/)
+    const clause =
+      "(github.event.action == 'synchronize' || contains(github.event.pull_request.labels.*.name, 'reviewed'))"
+    expect(jobIf).toContain(clause)
+    expect(jobIf.replace(clause, '')).not.toContain("labels.*.name, 'reviewed'")
   })
 
-  it('disables auto-merge before it touches the reviewed label', () => {
+  it('the synchronize step disables auto-merge before it removes the label', () => {
     const yml = generateAutoMergeYml()
-    const runs = yml.split(/^ {8}run: \|$/m).slice(1)
-    const touching = runs.filter((run) => run.includes('--remove-label reviewed'))
-    expect(touching.length).toBeGreaterThan(0)
-    for (const run of touching) {
-      expect(run.indexOf('--disable-auto')).toBeGreaterThanOrEqual(0)
-      expect(run.indexOf('--disable-auto')).toBeLessThan(run.indexOf('--remove-label reviewed'))
-    }
+    const disarmAt = yml.indexOf('- name: Disarm auto-merge on a moved head')
+    const nextStep = yml.indexOf('\n      - name:', disarmAt + 1)
+    const step = yml.slice(disarmAt, nextStep)
+    const run = step.slice(step.indexOf('run: |'))
+    expect(run).toContain('gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --disable-auto')
+    expect(run.indexOf('--disable-auto')).toBeLessThan(run.indexOf('--remove-label reviewed'))
   })
 
   it('a mint failure is not the only disarm of a moved head', () => {
