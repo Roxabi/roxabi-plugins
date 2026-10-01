@@ -146,8 +146,12 @@ PRs resume directly into review; empty history receives a baseline marker.
   an unproven live allocation stops as `history-stale` rather than refunding it.
 - `landPr(cwd, pr)` independently checks current history before either landing
   mode can arm. A stop returns `review-stopped` with disarm evidence; without an
-  approving review after the latest correction/allocation it returns
-  `not-approved`. Unreadable history authorizes nothing.
+  approving review of the current head after the latest correction/allocation it
+  returns `not-approved`. A missing or malformed line-2 sha is `no-review-head`;
+  a different or unreadable head is `head-moved`. Unreadable history authorizes nothing.
+  Native auto-merge is requested with `--match-head-commit`. Merge-on-green is
+  label-driven: a later push by another actor is not refused by GitHub. A review
+  posted before the head line existed needs one re-review before it can land.
 - `enforceStop` observes PR state before independently publishing and disarming.
   CLOSED/MERGED PRs receive no effects; partial failures are reported explicitly.
 

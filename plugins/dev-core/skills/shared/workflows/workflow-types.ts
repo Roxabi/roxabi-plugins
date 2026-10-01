@@ -24,6 +24,9 @@ export interface WorkflowOpts {
   typecheck?: boolean
   /** Release mode + component. Absent → staging-train (existing behavior). */
   release?: WorkflowRelease
+  /** Bind auto-merge enable to the latest omp-build review of this head.
+   *  Absent → false, the fleet default (label only). Set from `ci.review_record`. */
+  reviewRecord?: boolean
 }
 
 export function normalizeWorkflowOpts(opts: WorkflowOpts): Required<WorkflowOpts> {
@@ -37,6 +40,7 @@ export function normalizeWorkflowOpts(opts: WorkflowOpts): Required<WorkflowOpts
     lint: opts.lint ?? true,
     typecheck: opts.typecheck ?? true,
     release: opts.release ?? { model: 'staging-train', component: '' },
+    reviewRecord: opts.reviewRecord ?? false,
   }
 }
 

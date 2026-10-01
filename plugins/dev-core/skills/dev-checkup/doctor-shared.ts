@@ -94,6 +94,8 @@ export interface StackInfo {
   /** σ.release — Model B (#371). null when no `release:` block. `model` is
    * defaulted to 'staging-train' here, so an absent key never reads as trunk. */
   release: { model: string; component: string | null } | null
+  /** ci.review_record. False when absent — fleet default, label-only auto-merge. */
+  reviewRecord: boolean
 }
 
 export function readStackYml(): StackInfo {
@@ -115,6 +117,7 @@ export function readStackYml(): StackInfo {
       release: stack.release
         ? { model: stack.release.model ?? 'staging-train', component: stack.release.component }
         : null,
+      reviewRecord: stack.ciReviewRecord === true,
     }
   } catch {
     return {
@@ -129,6 +132,7 @@ export function readStackYml(): StackInfo {
       test: null,
       unit: null,
       release: null,
+      reviewRecord: false,
     }
   }
 }

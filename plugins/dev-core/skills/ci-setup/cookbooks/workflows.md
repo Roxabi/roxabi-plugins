@@ -39,7 +39,7 @@ Standard set: `ci.yml`, `secret-scan.yml`, `dependabot-automerge.yml`, `pr-title
    - `e2e` ← `testing.e2e: playwright` → `playwright`, else `none`
    - `release-model` ← `release.model` (`trunk` | `staging-train`; default `staging-train`)
    - `release-component` ← `release.component` (préfixe du tag `<component>/vX.Y.Z` ; scope le plancher release-consistency)
-
+   - `review-record` ← `ci.review_record` exact `true`, else `false`. Absent keeps the fleet default: enable on the `reviewed` label, no omp-build record. `true` is this repo's opt-in only.
 4. ∃ missing → Ask: **Set up CI/CD** | **Skip**.
 
 5. yes:
@@ -62,7 +62,8 @@ Standard set: `ci.yml`, `secret-scan.yml`, `dependabot-automerge.yml`, `pr-title
        --lint <true|false> --typecheck <true|false> \
        --test-command "<commands.test from σ, if set>" \
        --release-model <σ.release.model or staging-train> \
-       --release-component "<σ.release.component>"
+       --release-component "<σ.release.component>" \
+       --review-record <true only when σ.ci.review_record is true, else false>
      ```
      > **Top-up par défaut** : les fichiers déjà présents sur le repo sont **skippés** — les repos font évoluer leur `ci.yml` bien au-delà du template (multi-job, e2e, etc.). Ajouter `--force` UNIQUEMENT pour régénérer volontairement, après diff explicite des fichiers qui seraient écrasés.
      > **Trunk mode (`release.model: trunk`)** : depuis ADR-021 le générateur n'émet **aucun** workflow de release. `trunk` ne décrit plus qu'un flux de branches (pas de `staging`, les features atterrissent sur `main`) ; une release est coupée en poussant un tag annoté `<component>/vX.Y.Z`, et le workflow qui la publie est écrit à la main dans le repo — ni généré, ni byte-gaté (N11 est mort avec le tagger). Passer `--release-model` + `--release-component` depuis σ (le CLI lit aussi σ si les flags sont omis) : le component reste requis, il scope le plancher release-consistency et le préfixe du tag.

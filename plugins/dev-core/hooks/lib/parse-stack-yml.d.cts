@@ -26,6 +26,7 @@ export interface StackYml {
   testingUnit: string | null
   testingE2e: string | null
   ciMerge: string | null
+  ciReviewRecord: boolean
   release: StackRelease | null
 }
 

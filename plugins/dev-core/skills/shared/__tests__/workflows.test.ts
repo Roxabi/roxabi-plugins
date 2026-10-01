@@ -67,7 +67,7 @@ describe('generateAutoMergeYml', () => {
 
     expect(blockRegion).toContain(`steps.${fetchId}.outputs.update-type == 'version-update:semver-major'`)
     // Scoped to the Block step only — the whole YAML also has a legitimate
-    // `exit 0` elsewhere (update-behind-prs' empty-PR-list check).
+    // `exit 0` in update-behind-prs, which no longer retargets a reviewed PR.
     expect(blockRegion).toContain('exit 1')
   })
   it('documents native auto-merge, not a merge queue', () => {
@@ -75,6 +75,71 @@ describe('generateAutoMergeYml', () => {
     expect(yml).toContain('native auto-merge')
     expect(yml).toContain('gh pr merge --auto --merge')
     expect(yml).not.toContain('merge queue')
+  })
+
+  it('commits the generated auto-merge script, and a later push is not a lease', () => {
+    const yml = generateAutoMergeYml({
+      stack: 'bun',
+      test: 'vitest',
+      deploy: 'none',
+      release: { model: 'trunk', component: 'roxabi-plugins' },
+      reviewRecord: true,
+    })
+    const committed = fs.readFileSync(
+      path.resolve(import.meta.dirname, '../../../../../.github/workflows/auto-merge.yml'),
+      'utf8',
+    )
+    // The committed workflow is the generator output, not a slice that ends
+    // before update-behind-prs. A retarget or an unauthenticated pin fails here.
+    expect(yml).toBe(committed)
+    expect(yml).toContain('branches: [main]\n')
+    expect(yml).not.toContain('branches: [main, staging]')
+    expect(yml).not.toContain('update-branch')
+    expect(yml).not.toContain('|| true')
+    expect(yml).toContain('[ "$ACTION" != "labeled" ]')
+    expect(yml).toContain('--disable-auto')
+    expect(yml).toContain('--remove-label reviewed')
+    expect(yml).toContain('author.login == $reviewer')
+    expect(yml).toContain('github.event.pull_request.head.sha')
+    expect(yml).toContain('Verdict: Approve')
+    expect(yml).not.toContain('startswith')
+  })
+
+  it('selects synchronize when the label list is empty', () => {
+    const yml = generateAutoMergeYml({ stack: 'bun', test: 'vitest', deploy: 'none', reviewRecord: true })
+    const jobIf = yml.slice(yml.indexOf('name: Enable auto-merge'), yml.indexOf('timeout-minutes: 5'))
+    const clause =
+      "(github.event.action == 'synchronize' || contains(github.event.pull_request.labels.*.name, 'reviewed'))"
+    expect(jobIf).toContain(clause)
+    expect(jobIf.replace(clause, '')).not.toContain("labels.*.name, 'reviewed'")
+  })
+
+  it('the synchronize step disables auto-merge before it removes the label', () => {
+    const yml = generateAutoMergeYml({ stack: 'bun', test: 'vitest', deploy: 'none', reviewRecord: true })
+    const disarmAt = yml.indexOf('- name: Disarm auto-merge on a moved head')
+    const nextStep = yml.indexOf('\n      - name:', disarmAt + 1)
+    const step = yml.slice(disarmAt, nextStep)
+    const run = step.slice(step.indexOf('run: |'))
+    expect(run).toContain('gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --disable-auto')
+    expect(run.indexOf('--disable-auto')).toBeLessThan(run.indexOf('--remove-label reviewed'))
+  })
+
+  it('a mint failure is not the only disarm of a moved head', () => {
+    const yml = generateAutoMergeYml({ stack: 'bun', test: 'vitest', deploy: 'none', reviewRecord: true })
+    const disarmAt = yml.indexOf('- name: Disarm auto-merge on a moved head')
+    const mintAt = yml.indexOf('- name: Mint app token')
+    expect(disarmAt).toBeGreaterThanOrEqual(0)
+    expect(disarmAt).toBeLessThan(mintAt)
+    const step = yml.slice(disarmAt, mintAt)
+    expect(/if:\s*always\(\)/.test(step)).toBe(true)
+    expect(step).not.toContain('steps.app.outputs.token')
+  })
+
+  it('names a fixed configured automation account, not the label actor', () => {
+    const yml = generateAutoMergeYml({ stack: 'bun', test: 'vitest', deploy: 'none', reviewRecord: true })
+    expect(yml).toContain(`REVIEWER: \${{ vars.OMP_BUILD_AUTOMATION_LOGIN }}`)
+    expect(yml).not.toContain('github.event.sender')
+    expect(yml).not.toContain('github.actor')
   })
 })
 
