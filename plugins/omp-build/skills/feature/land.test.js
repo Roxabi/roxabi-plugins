@@ -865,4 +865,62 @@ describe('landPr — an approval arms only the commit it reviewed', () => {
       analyzeReviewHistory([byMe(boundReview('Approve', REVIEWED_HEAD.toUpperCase()))], { me: ME }).reviewedHead,
     ).toBe(null)
   })
+  /**
+   * @param {{ pr: { headRefOid: string | null }, calls: string[][] }} fake
+   * @param {{ moveAt: number, firstMerge?: 'already-enabled', disableThrows?: boolean }} spec
+   */
+  function movingHead(fake, { moveAt, firstMerge, disableThrows = false }) {
+    let reads = 0
+    let merges = 0
+    return async (cwd, args) => {
+      if (args[1] === 'view' && args[4] === 'headRefOid') {
+        reads += 1
+        if (reads >= moveAt) fake.pr.headRefOid = MOVED_HEAD
+      }
+      if (disableThrows && args.includes('--disable-auto')) throw new Error('disable failed')
+      if (firstMerge === 'already-enabled' && args[1] === 'merge' && args.includes('--auto')) {
+        merges += 1
+        if (merges === 1) throw new Error('already enabled')
+      }
+      return fake.gh(cwd, args)
+    }
+  }
+
+  const approvedGate = () =>
+    gatePr({
+      comments: [byMe(boundReview('Approve (clean)', REVIEWED_HEAD)), byMe(accounting(1, 0))],
+      headRefOid: REVIEWED_HEAD,
+    })
+
+  it('a head that moves after the pin is not-approved, auto-merge disabled, and unlabeled', async () => {
+    const fake = approvedGate()
+    const result = await landPr('/tmp/wt', 7, { gh: movingHead(fake, { moveAt: 3 }), ...NATIVE })
+    expect(result).toEqual({ status: 'not-approved', reviews: 1, fixes: 0, reason: 'head-moved' })
+    expect(fake.calls.some(disablesAuto)).toBe(true)
+    expect(fake.calls.some(armsLabel)).toBe(false)
+    expect(fake.pr.labels.has('reviewed')).toBe(false)
+  })
+
+  it('a head that moves between disable and the second enable is not labeled', async () => {
+    const fake = approvedGate()
+    const result = await landPr('/tmp/wt', 7, {
+      gh: movingHead(fake, { moveAt: 3, firstMerge: 'already-enabled' }),
+      ...NATIVE,
+    })
+    expect(result).toEqual({ status: 'not-approved', reviews: 1, fixes: 0, reason: 'head-moved' })
+    expect(fake.calls.filter((args) => args[1] === 'merge' && args.includes('--auto'))).toHaveLength(0)
+    expect(fake.calls.some(disablesAuto)).toBe(true)
+    expect(fake.calls.some(armsLabel)).toBe(false)
+  })
+
+  it('disable-auto throwing after the pin moves returns auto-merge-failed and no label', async () => {
+    const fake = approvedGate()
+    const result = await landPr('/tmp/wt', 7, {
+      gh: movingHead(fake, { moveAt: 3, disableThrows: true }),
+      ...NATIVE,
+    })
+    expect(result).toEqual({ status: 'auto-merge-failed', armed: true })
+    expect(fake.calls.some(armsLabel)).toBe(false)
+    expect(fake.pr.labels.has('reviewed')).toBe(false)
+  })
 })
