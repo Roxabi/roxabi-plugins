@@ -17,7 +17,7 @@ on:
   check_suite:
     types: [completed]
   push:
-    branches: [main, staging]
+    branches: [main]
 
 permissions:
   contents: write

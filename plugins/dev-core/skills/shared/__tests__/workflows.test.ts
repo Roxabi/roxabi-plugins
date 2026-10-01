@@ -78,7 +78,12 @@ describe('generateAutoMergeYml', () => {
   })
 
   it('commits the generated auto-merge script, and a later push is not a lease', () => {
-    const yml = generateAutoMergeYml()
+    const yml = generateAutoMergeYml({
+      stack: 'bun',
+      test: 'vitest',
+      deploy: 'none',
+      release: { model: 'trunk', component: 'roxabi-plugins' },
+    })
     const committed = fs.readFileSync(
       path.resolve(import.meta.dirname, '../../../../../.github/workflows/auto-merge.yml'),
       'utf8',
@@ -86,6 +91,8 @@ describe('generateAutoMergeYml', () => {
     // The committed workflow is the generator output, not a slice that ends
     // before update-behind-prs. A retarget or an unauthenticated pin fails here.
     expect(yml).toBe(committed)
+    expect(yml).toContain('branches: [main]\n')
+    expect(yml).not.toContain('branches: [main, staging]')
     expect(yml).not.toContain('update-branch')
     expect(yml).not.toContain('|| true')
     expect(yml).toContain('[ "$ACTION" != "labeled" ]')
