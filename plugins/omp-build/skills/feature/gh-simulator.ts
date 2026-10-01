@@ -86,6 +86,13 @@ function statePath(): string {
   return path
 }
 
+function persist(state: State): void {
+  const path = statePath()
+  const tmp = `${path}.tmp`
+  writeFileSync(tmp, JSON.stringify(state, null, 2))
+  renameSync(tmp, path)
+}
+
 function withState<T>(fn: (state: State) => T): T {
   const path = statePath()
   const lock = `${path}.lock`
@@ -102,9 +109,7 @@ function withState<T>(fn: (state: State) => T): T {
   try {
     const state = JSON.parse(readFileSync(path, 'utf8')) as State
     const result = fn(state)
-    const tmp = `${path}.tmp`
-    writeFileSync(tmp, JSON.stringify(state, null, 2))
-    renameSync(tmp, path)
+    persist(state)
     return result
   } finally {
     rmSync(lock, { recursive: true, force: true })
@@ -233,6 +238,7 @@ function mergeIntoOrigin(state: State, pr: Pull): void {
       const issue = state.issues[String(number)]
       if (issue && issue.state === 'OPEN') issue.state = 'CLOSED'
     }
+    persist(state)
   } finally {
     try {
       git(state.origin, ['worktree', 'remove', '--force', scratch])
@@ -251,7 +257,13 @@ function settle(state: State, pr: Pull): void {
 }
 
 function settleAll(state: State): void {
-  for (const pr of Object.values(state.prs)) settle(state, pr)
+  for (const pr of Object.values(state.prs)) {
+    try {
+      settle(state, pr)
+    } catch {
+      // A conflict on one PR must not drop a sibling merge already persisted.
+    }
+  }
 }
 
 function prNode(state: State, pr: Pull): Record<string, unknown> {
