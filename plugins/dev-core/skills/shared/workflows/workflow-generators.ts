@@ -188,7 +188,7 @@ function idempotentDisarm(indent: string): string {
     '  echo "::error::could not confirm auto-merge is off"',
     '  exit 1',
     'fi',
-    'if [ "$armed" != "null" ]; then',
+    'if [ -n "$armed" ] && [ "$armed" != "null" ]; then',
     '    echo "::error::auto-merge still armed after disarm"',
     '    exit 1',
     'fi',
@@ -206,7 +206,7 @@ function generateReviewedHeadAutoMergeYml(branches: string): string {
   return `# Auto-merge PRs that have been reviewed and passed all required checks.
 # Enables GitHub's native auto-merge (\`gh pr merge --auto --merge\`) once the
 # latest code-review record by vars.OMP_BUILD_AUTOMATION_LOGIN names this head.
-# synchronize disarms first, with the default token, even if that label is gone.
+# synchronize disarms first, with the job token, even if that label is gone.
 # dependabot[bot] skips the record only. A rebase still disarms — re-label after it.
 # Reviewed PRs are not retargeted.
 #
@@ -240,21 +240,60 @@ jobs:
       (github.event.action == 'synchronize' || contains(github.event.pull_request.labels.*.name, 'reviewed'))
     timeout-minutes: 5
     steps:
-      # Moved head: disable auto-merge before the label. No GH_TOKEN — gh uses
-      # the Actions default token, so a mint failure cannot leave the merge armed.
+      # Moved head: disable auto-merge before dropping a reviewed label.
+      # GH_TOKEN is the job token (pull-requests: write), not the app token,
+      # so a mint failure cannot leave the merge armed.
       # always() keeps the step reachable if a prior step failed.
       - name: Disarm auto-merge on a moved head
         if: always() && github.event.action == 'synchronize'
         env:
+          GH_TOKEN: \${{ github.token }}
           PR_NUMBER: \${{ github.event.pull_request.number }}
+          PR_LABELS: \${{ toJSON(github.event.pull_request.labels) }}
         run: |
           set -euo pipefail
-          # Writes first. A not-enabled disable is success, so the label is always
-          # removed. A failed view must not skip those writes. Abort only if a
-          # follow-up read shows autoMergeRequest still set.
-${idempotentDisarm('          ')}
-          echo "::error::head moved after review — auto-merge disarmed"
-          exit 1
+          # Writes first. A not-enabled disable is success. Drop reviewed only
+          # when the event carried it. A failed view must not skip those writes.
+          # Abort only if a follow-up read shows autoMergeRequest still set.
+          # Exit 1 only when this head was armed or labeled.
+          set +e
+          disable_out=$(gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --disable-auto 2>&1)
+          disable_code=$?
+          set -e
+          armed=0
+          if [ "$disable_code" -ne 0 ]; then
+            printf '%s\\n' "$disable_out" >&2
+            # "not enabled" is a ready PR that was never armed. A draft answers
+            # "Can't disable auto-merge" instead. The follow-up read still
+            # aborts if autoMergeRequest is set.
+            if ! printf '%s' "$disable_out" | grep -qi 'not enabled' \\
+              && ! printf '%s' "$disable_out" | grep -qi "can't disable auto-merge"; then
+              echo "::error::failed to disable auto-merge"
+              exit 1
+            fi
+          else
+            armed=1
+          fi
+          labeled=0
+          if printf '%s' "$PR_LABELS" | jq -e 'any(.[]; .name == "reviewed")' >/dev/null; then
+            labeled=1
+          fi
+          if [ "$labeled" -eq 1 ]; then
+            gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --remove-label reviewed
+          fi
+          if ! still=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json autoMergeRequest --jq '.autoMergeRequest'); then
+            echo "::error::could not confirm auto-merge is off"
+            exit 1
+          fi
+          if [ -n "$still" ] && [ "$still" != "null" ]; then
+              echo "::error::auto-merge still armed after disarm"
+              exit 1
+          fi
+          if [ "$armed" -eq 1 ] || [ "$labeled" -eq 1 ]; then
+            echo "::error::head moved after review — auto-merge disarmed"
+            exit 1
+          fi
+
 
 ${labeledMint}
 
