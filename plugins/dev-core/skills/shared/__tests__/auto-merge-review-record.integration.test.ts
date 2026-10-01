@@ -150,6 +150,57 @@ describe('auto-merge review record is opt-in', () => {
 describe('dependabot exemption when the record gate is on', () => {
   const yml = () => generateAutoMergeYml({ ...BASE, reviewRecord: true })
 
+  function record(verdict: string, sha: string): string {
+    return [
+      '<!-- omp-build:code-review -->',
+      `<!-- omp-build:review-head sha=${sha} -->`,
+      '## Code Review',
+      `**Verdict: ${verdict}**`,
+    ].join('\n')
+  }
+
+  function pages(comments: Array<{ body: string; at: string }>): string {
+    return JSON.stringify([
+      comments.map((comment) => ({
+        user: { login: 'omp-bot' },
+        body: comment.body,
+        created_at: comment.at,
+      })),
+    ])
+  }
+
+  it('enables from a successful Approve page and disarms on a later Request changes', () => {
+    const approved = runScript(stepScript(yml(), 'Enable auto-merge (merge commit)'), {
+      ACTION: 'labeled',
+      AUTHOR: 'someone',
+      GH_COMMENTS: pages([{ body: record('Approve', HEAD), at: '2026-01-01T00:00:00Z' }]),
+    })
+    expect(approved.status).toBe(0)
+    expect(approved.log).toContain('--auto --merge')
+    expect(approved.log).toContain(`--match-head-commit ${HEAD}`)
+    expect(approved.log).not.toContain('--remove-label')
+
+    const suppressed = runScript(stepScript(yml(), 'Enable auto-merge (merge commit)'), {
+      ACTION: 'labeled',
+      AUTHOR: 'someone',
+      GH_COMMENTS: pages([
+        { body: record('Approve', HEAD), at: '2026-01-01T00:00:00Z' },
+        { body: record('Request changes', HEAD), at: '2026-01-01T00:00:01Z' },
+      ]),
+    })
+    expect(suppressed.status).not.toBe(0)
+    expect(suppressed.log).not.toContain('--auto --merge')
+    expect(suppressed.log.indexOf('--disable-auto')).toBeLessThan(suppressed.log.indexOf('--remove-label reviewed'))
+
+    const empty = runScript(stepScript(yml(), 'Enable auto-merge (merge commit)'), {
+      ACTION: 'labeled',
+      AUTHOR: 'someone',
+      GH_COMMENTS: '[[]]',
+    })
+    expect(empty.status).not.toBe(0)
+    expect(empty.log).not.toContain('--auto --merge')
+  })
+
   it('enables a non-major dependabot PR without a review record', () => {
     const ran = runScript(stepScript(yml(), 'Enable auto-merge (merge commit)'), {
       ACTION: 'labeled',
