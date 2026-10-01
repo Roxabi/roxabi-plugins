@@ -10,6 +10,10 @@ set -euo pipefail
 # Constraints (documented): plugin rename may not fire on the renaming push;
 # commands/ dir is forward-compatible (absent today); requires fetched origin/main.
 # Preflight skips (explicit, not silent): jq absent -> SKIP; origin/main unreachable -> SKIP.
+# The OMP blob is classified by Bun JSON.parse, the parser that builds the cache
+# key. jq is not the authority: it accepts a BOM, NaN, Infinity, and a leading +.
+# A present version must be a single-line semver, and a change exits 0 only when
+# Bun.semver.order(head, base) > 0. The shell never sees an unproven version.
 command -v jq >/dev/null 2>&1 || { echo "SKIP: check-skill-version requires jq (not found)" >&2; exit 0; }
 git fetch origin main --quiet 2>/dev/null || true
 if ! git rev-parse --verify --quiet origin/main >/dev/null; then
@@ -19,38 +23,87 @@ fi
 changed=$(git diff --name-only origin/main...HEAD -- 'plugins/*/skills/**' 'plugins/*/commands/**')
 mapfile -t plugins < <(printf '%s\n' "$changed" | sed -nE 's#^plugins/([^/]+)/.*#\1#p' | sort -u)
 fail=0
-# Status of the catalogue row OMP keeps for name at rev.
-# ABSENT | PARSE | DUPLICATE | MISSING | BAD | VERSION:<token>
-# A missing blob or a successful parse with no version field is MISSING/ABSENT.
-# Parse failure, a second case-insensitive name match, or a present version that
-# is not a cache token is not a SKIP.
+
+# Classify one catalogue blob on stdin. Prints one status word:
+# PARSE | DUPLICATE | MISSING | BAD | VERSION:<semver>
+# VERSION is printed only after the value is a single-line semver, so command
+# substitution cannot strip a newline out of the token.
+omp_classify_blob() {
+  local name="$1" status
+  if ! command -v bun >/dev/null 2>&1; then
+    printf 'PARSE'
+    return 0
+  fi
+  if ! status=$(OMP_PLUGIN_NAME="$name" bun -e '
+const name = process.env.OMP_PLUGIN_NAME ?? ""
+const bytes = new Uint8Array(await new Response(Bun.stdin).arrayBuffer())
+const emit = (code) => {
+  console.log(code)
+  process.exit(0)
+}
+if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) emit("PARSE")
+const raw = new TextDecoder("utf-8", { ignoreBOM: true }).decode(bytes)
+if (raw.charCodeAt(0) === 0xfeff) emit("PARSE")
+let doc
+try {
+  doc = JSON.parse(raw)
+} catch {
+  emit("PARSE")
+}
+if (doc === null || typeof doc !== "object" || Array.isArray(doc) || !Array.isArray(doc.plugins)) {
+  emit("PARSE")
+}
+const want = name.toLowerCase()
+const rows = doc.plugins.filter(
+  (row) =>
+    row &&
+    typeof row === "object" &&
+    !Array.isArray(row) &&
+    String(row.name ?? "").toLowerCase() === want,
+)
+if (rows.length > 1) emit("DUPLICATE")
+if (rows.length === 0) emit("MISSING")
+const version = rows[0].version
+if (version === undefined || version === null) emit("MISSING")
+if (typeof version !== "string" || version.length === 0 || /[\r\n]/.test(version)) emit("BAD")
+const semver =
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/
+if (!semver.test(version)) emit("BAD")
+emit("VERSION:" + version)
+'); then
+    printf 'PARSE'
+    return 0
+  fi
+  case "$status" in
+    PARSE | DUPLICATE | MISSING | BAD | VERSION:*) printf '%s' "$status" ;;
+    *) printf 'PARSE' ;;
+  esac
+}
+
+# ABSENT only when git show fails. An empty or whitespace blob is PARSE.
 omp_row_status() {
-  local rev="$1" name="$2" blob parsed ver
+  local rev="$1" name="$2" blob
   if ! blob=$(git show "${rev}:.omp-plugin/marketplace.json" 2>/dev/null); then
     printf 'ABSENT'
     return 0
   fi
-  if ! parsed=$(printf '%s\n' "$blob" | jq -r --arg name "$name" '
-    [.plugins[]? | select((.name // "" | ascii_downcase) == ($name | ascii_downcase))]
-    | if length > 1 then "DUPLICATE"
-      elif length == 0 then "MISSING"
-      elif (.[0].version == null) then "MISSING"
-      else "VERSION:" + (.[0].version | tostring)
-      end
-  '); then
-    printf 'PARSE'
-    return 0
-  fi
-  case "$parsed" in
-    VERSION:*)
-      ver="${parsed#VERSION:}"
-      if ! printf '%s' "$ver" | grep -Eq '^[A-Za-z0-9._+-]{1,128}$' || printf '%s' "$ver" | grep -q '\.\.'; then
-        printf 'BAD'
-        return 0
-      fi
-      ;;
-  esac
-  printf '%s' "$parsed"
+  printf '%s' "$blob" | omp_classify_blob "$name"
+}
+
+# Exit 0 only when OMP would install head over base. A throw, or order <= 0, fails.
+omp_is_upgrade() {
+  local head="$1" base="$2"
+  OMP_HEAD_VER="$head" OMP_BASE_VER="$base" bun -e '
+const head = process.env.OMP_HEAD_VER
+const base = process.env.OMP_BASE_VER
+let order
+try {
+  order = Bun.semver.order(head, base)
+} catch {
+  process.exit(1)
+}
+if (typeof order !== "number" || !(order > 0)) process.exit(1)
+'
 }
 
 omp_fail() {
@@ -76,13 +129,13 @@ for p in "${plugins[@]}"; do
     fi
   fi
 
-  # OMP cache key is the first kept catalogue row of the commit being pushed,
+  # OMP cache key is the catalogue row of the commit being pushed,
   # not the worktree file and not the document version.
   cur_status=$(omp_row_status HEAD "$p")
   case "$cur_status" in
     PARSE) omp_fail "$p" "cannot parse .omp-plugin/marketplace.json" ;;
     DUPLICATE) omp_fail "$p" "duplicate plugins[] rows in .omp-plugin/marketplace.json" ;;
-    BAD) omp_fail "$p" "catalogue version is not a cache token in .omp-plugin/marketplace.json" ;;
+    BAD) omp_fail "$p" "catalogue version is not a single-line semver in .omp-plugin/marketplace.json" ;;
     ABSENT | MISSING)
       echo "SKIP: $p has no version in .omp-plugin/marketplace.json — OMP bump gate inert for this plugin" >&2
       ;;
@@ -92,17 +145,21 @@ for p in "${plugins[@]}"; do
       case "$base_status" in
         PARSE) omp_fail "$p" "cannot parse origin/main:.omp-plugin/marketplace.json" ;;
         DUPLICATE) omp_fail "$p" "duplicate plugins[] rows in origin/main:.omp-plugin/marketplace.json" ;;
-        BAD) omp_fail "$p" "origin/main catalogue version is not a cache token in .omp-plugin/marketplace.json" ;;
+        BAD) omp_fail "$p" "origin/main catalogue version is not a single-line semver in .omp-plugin/marketplace.json" ;;
         ABSENT | MISSING) ;;
         VERSION:*)
           base_omp="${base_status#VERSION:}"
           if [ "$base_omp" = "$cur_omp" ]; then
             echo "$p: skills/commands changed without version bump (still $cur_omp) — bump .omp-plugin/marketplace.json"
             fail=1
+          elif ! omp_is_upgrade "$cur_omp" "$base_omp"; then
+            omp_fail "$p" "catalogue version is not a newer semver OMP will install in .omp-plugin/marketplace.json"
           fi
           ;;
+        *) omp_fail "$p" "cannot parse origin/main:.omp-plugin/marketplace.json" ;;
       esac
       ;;
+    *) omp_fail "$p" "cannot parse .omp-plugin/marketplace.json" ;;
   esac
 done
 [ "$fail" -eq 0 ]

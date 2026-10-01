@@ -197,6 +197,46 @@ describe('check-skill-version.sh', () => {
     fs.writeFileSync(catalogPath, JSON.stringify(catalog))
   }
 
+  function catalogueBytes(version: string): string {
+    return JSON.stringify({
+      name: 'fixture-marketplace',
+      version: '9.9.9',
+      plugins: [{ name: 'omp-build', version, source: './plugins/omp-build' }],
+    })
+  }
+
+  function writeCatalogue(work: string, bytes: string): void {
+    fs.writeFileSync(path.join(work, '.omp-plugin', 'marketplace.json'), bytes)
+  }
+
+  function pushAsMain(work: string, message: string): void {
+    git('git add -A', work)
+    git(`git -c user.email=t@t -c user.name=t commit -q -m "${message}"`, work)
+    git('git push -q origin HEAD:main', work)
+  }
+
+  function expectRejectedCatalogue(bytes: string, side: 'head' | 'base'): void {
+    const { work, bare } = setupOriginWithPlugin({
+      pluginName: 'omp-build',
+      pluginJson: false,
+      catalogue: { documentVersion: '9.9.9', entryVersion: '0.7.0' },
+    })
+    workDir = work
+    bareDir = bare
+    if (side === 'base') {
+      writeCatalogue(work, bytes)
+      pushAsMain(work, 'break base catalogue')
+      writeCatalogue(work, catalogueBytes('0.8.0'))
+    } else {
+      writeCatalogue(work, bytes)
+    }
+    commitSkillChange(work, 'omp-build', `# skill v2 (${side} catalogue rejected)\n`)
+    const { code, stdout, stderr } = runScriptCapture(CHECK_SKILL_VERSION, work)
+    expect(code).toBe(1)
+    expect(stdout).toContain('.omp-plugin/marketplace.json')
+    expect(stderr).not.toMatch(/SKIP: omp-build has no version in/)
+  }
+
   it('exits 1 when a plugin has an unchanged version and skills/ changed on HEAD vs origin/main', () => {
     // Arrange — plugin "foo" has version "1.0.0" on origin/main, unchanged on HEAD
     const { work, bare } = setupOriginWithPlugin({ pluginName: 'foo', version: '1.0.0' })
@@ -503,6 +543,107 @@ describe('check-skill-version.sh', () => {
     bareDir = bare
     bumpCatalogueEntry(work, 'omp-build', '   ')
     commitSkillChange(work, 'omp-build', '# skill v2 (blank version)\n')
+
+    const { code, stdout, stderr } = runScriptCapture(CHECK_SKILL_VERSION, work)
+
+    expect(code).toBe(1)
+    expect(stdout).toContain('.omp-plugin/marketplace.json')
+    expect(stderr).not.toMatch(/SKIP: omp-build has no version in/)
+  })
+
+  it.each([
+    ['empty', ''],
+    ['whitespace-only', ' \t\n'],
+    [
+      'a second JSON value',
+      `${JSON.stringify({
+        name: 'fixture-marketplace',
+        plugins: [{ name: 'omp-build', version: '0.7.0' }],
+      })}${JSON.stringify({
+        name: 'fixture-marketplace',
+        plugins: [{ name: 'omp-build', version: '0.8.0' }],
+      })}`,
+    ],
+    [
+      'a leading BOM',
+      `\uFEFF${JSON.stringify({
+        name: 'fixture-marketplace',
+        plugins: [{ name: 'omp-build', version: '0.8.0' }],
+      })}`,
+    ],
+    ['NaN', '{"plugins":[{"name":"omp-build","version":"0.8.0"}],"x":NaN}'],
+    ['Infinity', '{"plugins":[{"name":"omp-build","version":"0.8.0"}],"x":Infinity}'],
+    ['a leading plus', '{"plugins":[{"name":"omp-build","version":"0.8.0"}],"x":+1}'],
+    [
+      'a trailing newline in the version',
+      JSON.stringify({
+        plugins: [{ name: 'omp-build', version: '0.8.0\n' }],
+      }),
+    ],
+    [
+      'an embedded newline in the version',
+      JSON.stringify({
+        plugins: [{ name: 'omp-build', version: '0.7.0\nbad!!' }],
+      }),
+    ],
+    [
+      'a version split across a newline',
+      JSON.stringify({
+        plugins: [{ name: 'omp-build', version: '0.7.\n.0' }],
+      }),
+    ],
+    [
+      'a v-prefixed version',
+      JSON.stringify({
+        plugins: [{ name: 'omp-build', version: 'v0.8.0' }],
+      }),
+    ],
+  ])('exits 1 naming the catalogue when HEAD catalogue is %s', (_label, bytes) => {
+    expectRejectedCatalogue(bytes, 'head')
+  })
+
+  it.each([
+    ['empty', ''],
+    ['whitespace-only', ' \t\n'],
+    [
+      'a second JSON value',
+      `${JSON.stringify({
+        plugins: [{ name: 'omp-build', version: '0.7.0' }],
+      })}${JSON.stringify({
+        plugins: [{ name: 'omp-build', version: '0.8.0' }],
+      })}`,
+    ],
+    [
+      'a leading BOM',
+      `\uFEFF${JSON.stringify({
+        plugins: [{ name: 'omp-build', version: '0.7.0' }],
+      })}`,
+    ],
+    ['NaN', '{"plugins":[{"name":"omp-build","version":"0.7.0"}],"x":NaN}'],
+    [
+      'a trailing newline in the version',
+      JSON.stringify({
+        plugins: [{ name: 'omp-build', version: '0.7.0\n' }],
+      }),
+    ],
+  ])('exits 1 naming the catalogue when origin/main catalogue is %s and HEAD is a bumped semver', (_label, bytes) => {
+    expectRejectedCatalogue(bytes, 'base')
+  })
+
+  it.each([
+    ['a prerelease', '0.8.0-rc.1'],
+    ['build metadata only', '0.8.0+build.1'],
+    ['a downgrade', '0.7.9'],
+  ])('exits 1 naming the catalogue when the version change is %s', (_label, version) => {
+    const { work, bare } = setupOriginWithPlugin({
+      pluginName: 'omp-build',
+      pluginJson: false,
+      catalogue: { documentVersion: '9.9.9', entryVersion: '0.8.0' },
+    })
+    workDir = work
+    bareDir = bare
+    writeCatalogue(work, catalogueBytes(version))
+    commitSkillChange(work, 'omp-build', '# skill v2 (not an upgrade)\n')
 
     const { code, stdout, stderr } = runScriptCapture(CHECK_SKILL_VERSION, work)
 
