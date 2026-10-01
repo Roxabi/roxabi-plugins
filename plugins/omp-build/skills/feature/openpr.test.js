@@ -914,13 +914,15 @@ describe('assertFixAllowed on a PR loop — fresh history at the fix sink', () =
     const step = loop.record('red')
     await loop.persist(CWD)
     let drifted = false
+    const pages = commentPageArgs(PR)
     const gh = async (cwd, args) => {
-      if (!drifted && args[0] === 'pr' && args[1] === 'view') {
+      const result = await fake.gh(cwd, args)
+      if (!drifted && same(args, pages)) {
         drifted = true
         fake.post(RED)
         loop.record('red')
       }
-      return fake.gh(cwd, args)
+      return result
     }
     const before = fake.pr.comments.map((entry) => entry.body)
     const error = await refusal(loop.assertFixAllowed(CWD, step, { gh }))
