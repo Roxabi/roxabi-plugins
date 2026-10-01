@@ -515,8 +515,11 @@ exists. Local-only reviews keep the same counts/stop in their local record.
 `await loop.assertFixAllowed(cwd, step)` after its allocation is persisted.
 It checks fresh attributable history, not just the cached loop, and consumes
 the live step once. A valid second live allocation is allowed; resuming that
-same incomplete allocation is not. If durable history does not prove this live
-allocation, it stops permanently as `history-stale` rather than refunding it.
+same incomplete allocation is not. Calling it before `persist` throws a
+recoverable error that names `persist` and writes nothing; the allocation stays
+live. If the durable history diverges from this persisted allocation, it stops
+permanently as `history-stale` rather than refunding it. Only that divergence
+makes a stop sticky.
 `landPr(cwd, pr)` independently rejects stops and returns `not-approved` unless
 an approving review follows the latest correction/allocation. Stop refusals
 disarm and carry `error.stop` / `land.stop`; print that evidence and publish the

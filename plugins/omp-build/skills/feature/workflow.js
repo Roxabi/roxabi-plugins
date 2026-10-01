@@ -1116,6 +1116,11 @@ function buildReviewLoop(
   /** @type {string} */
   let closedReason = seedStopReason || 'review-bound'
   let pendingStep = null
+  // True once the in-memory counts match a marker this process wrote, or the
+  // durable history it resumed from. `record` / `reopen` clear it; only a
+  // successful `persist` of those same counts sets it again. A skipped persist
+  // is visible in this process and must not be read as durable divergence.
+  let allocationPersisted = true
   // A resume after the review was posted already counted it. `record` acknowledges
   // that one review; a second unrecorded review never becomes a live grant.
   const postedAhead = provenance ? provenance.codeReviews - provenance.markerReviews : 0
@@ -1231,6 +1236,7 @@ function buildReviewLoop(
         reviews += 1
         expectedCodeReviews++
       }
+      allocationPersisted = false
       if (v === 'green') {
         closed = 'land'
         pendingStep = null
@@ -1245,8 +1251,10 @@ function buildReviewLoop(
     },
     /**
      * Authorize the live step against fresh durable history, then consume it once.
-     * Only this process's own second red allocation may explain a derived stop.
-     * An explicit/ambiguous stop, different account, or additional review never can.
+     * A skipped `persist` throws a recoverable error and writes nothing: only a
+     * divergence of the durable history stops the loop. Only this process's own
+     * second red allocation may explain a derived stop. An explicit/ambiguous
+     * stop, different account, or additional review never can.
      */
     async assertFixAllowed(cwd, step, { gh: ghFn = ghDefault, git: gitFn = git } = {}) {
       const checkLive = () => {
@@ -1260,8 +1268,26 @@ function buildReviewLoop(
           throw new Error('assertFixAllowed: PR discovered; resume the PR loop before fixing')
         }
       } else {
+        if (!allocationPersisted) {
+          throw new Error(
+            'assertFixAllowed: call persist before assertFixAllowed — this live allocation is not on the PR yet',
+          )
+        }
         if (!provenance) throw new Error('assertFixAllowed: PR fixes require resumeReviewLoop provenance')
+        const identity = { pendingStep, reviews, fixes, closed, expectedCodeReviews, allocationPersisted }
         const fresh = await readReviewHistory(cwd, pr, { gh: ghFn, maxFixRounds })
+        if (
+          pendingStep !== identity.pendingStep ||
+          reviews !== identity.reviews ||
+          fixes !== identity.fixes ||
+          closed !== identity.closed ||
+          expectedCodeReviews !== identity.expectedCodeReviews ||
+          allocationPersisted !== identity.allocationPersisted
+        ) {
+          throw new Error(
+            'assertFixAllowed: the live allocation changed during the history read — call persist before assertFixAllowed',
+          )
+        }
         const sameAllocation =
           fresh.me === provenance.me &&
           fresh.hasMarker &&
@@ -1316,6 +1342,7 @@ function buildReviewLoop(
         return stopStep('ci-failed')
       }
       fixes += 1
+      allocationPersisted = false
       pendingStep = Object.freeze({
         action: 'fix',
         reviews,
@@ -1339,7 +1366,13 @@ function buildReviewLoop(
      */
     async persist(cwd, { gh: ghFn = ghDefault } = {}) {
       const number = requirePr('persist')
+      const written = { reviews, fixes, closed }
       await ghFn(cwd, ['pr', 'comment', number, '--body', persistBody()])
+      // A record that landed during the write is not on the PR. Leave the
+      // allocation unpersisted so the caller writes it before a grant.
+      if (reviews === written.reviews && fixes === written.fixes && closed === written.closed) {
+        allocationPersisted = true
+      }
       return closed === 'stop' ? { reviews, fixes, stopReason: closedReason } : { reviews, fixes }
     },
     /**

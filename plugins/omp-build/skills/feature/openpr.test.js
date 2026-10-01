@@ -861,15 +861,6 @@ describe('assertFixAllowed on a PR loop — fresh history at the fix sink', () =
     ],
     ['a later review record follows the first allocation', allocateThen(1, (fake) => fake.post(RED)), 'history-stale'],
     [
-      'the allocation was never persisted',
-      async (fake) => {
-        const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
-        fake.post(RED)
-        return { loop, step: loop.record('red') }
-      },
-      'history-stale',
-    ],
-    [
       'gh answers as another account, even one whose records mirror the loop’s',
       allocateThen(1, (fake) => {
         for (const record of [...fake.pr.comments]) fake.post(record.body, 'omp-bot-2')
@@ -895,6 +886,157 @@ describe('assertFixAllowed on a PR loop — fresh history at the fix sink', () =
     await expect(loop.assertFixAllowed(CWD, step)).rejects.toThrow()
     // Read as whoever gh answers as now: the account that published the stop.
     expect((await strict(fake)).stopReason).toBe(reason)
+  })
+
+  it('throws a recoverable error naming persist when the allocation was recorded but not persisted', async () => {
+    const fake = fakePr({ labels: ['reviewed'], autoMerge: { mergeMethod: 'MERGE' } })
+    const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    fake.post(RED)
+    const step = loop.record('red')
+    const before = fake.pr.comments.map((entry) => entry.body)
+    const error = await refusal(loop.assertFixAllowed(CWD, step))
+    expect(error).toBeInstanceOf(Error)
+    expect(error.message).toContain('persist')
+    expect(error.stop).toBeUndefined()
+    expect(loop.closed).toBe(null)
+    expect(loop.pendingFix).toBe(true)
+    expect(fake.pr.comments.map((entry) => entry.body)).toEqual(before)
+    expect(fake.pr.labels.has('reviewed')).toBe(true)
+    expect(fake.pr.autoMerge).not.toBe(null)
+    await loop.persist(CWD)
+    await expect(loop.assertFixAllowed(CWD, step)).resolves.toBe(step)
+  })
+
+  it('throws a recoverable error when record lands during the history read', async () => {
+    const fake = fakePr({ labels: ['reviewed'], autoMerge: { mergeMethod: 'MERGE' } })
+    const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    fake.post(RED)
+    const step = loop.record('red')
+    await loop.persist(CWD)
+    let drifted = false
+    const pages = commentPageArgs(PR)
+    const gh = async (cwd, args) => {
+      const result = await fake.gh(cwd, args)
+      if (!drifted && same(args, pages)) {
+        drifted = true
+        fake.post(RED)
+        loop.record('red')
+      }
+      return result
+    }
+    const before = fake.pr.comments.map((entry) => entry.body)
+    const error = await refusal(loop.assertFixAllowed(CWD, step, { gh }))
+    expect(error.message).toContain('persist')
+    expect(error.stop).toBeUndefined()
+    expect(loop.closed).toBe(null)
+    expect(loop.pendingFix).toBe(true)
+    expect(fake.pr.labels.has('reviewed')).toBe(true)
+    expect(fake.pr.autoMerge).not.toBe(null)
+    expect(fake.pr.comments.slice(0, before.length).map((entry) => entry.body)).toEqual(before)
+    expect(fake.pr.comments.at(-1).body).toBe(RED)
+    expect(fake.pr.comments.some((entry) => entry.body.includes('review-stop'))).toBe(false)
+  })
+
+  it('throws a recoverable error when a ci-failed allocation was not persisted', async () => {
+    const fake = fakePr({ labels: ['reviewed'], autoMerge: { mergeMethod: 'MERGE' } })
+    const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    expect((await reviewed(loop, fake, 'green')).action).toBe('land')
+    const step = loop.reopen('ci-failed')
+    const before = fake.pr.comments.map((entry) => entry.body)
+    const error = await refusal(loop.assertFixAllowed(CWD, step))
+    expect(error.message).toContain('persist')
+    expect(error.stop).toBeUndefined()
+    expect(loop.closed).toBe(null)
+    expect(loop.pendingFix).toBe(true)
+    expect(fake.pr.comments.map((entry) => entry.body)).toEqual(before)
+    expect(fake.pr.labels.has('reviewed')).toBe(true)
+    expect(fake.pr.autoMerge).not.toBe(null)
+    await loop.persist(CWD)
+    await expect(loop.assertFixAllowed(CWD, step)).resolves.toBe(step)
+  })
+
+  it('leaves the allocation unpersisted when record lands during persist', async () => {
+    const fake = fakePr({ labels: ['reviewed'], autoMerge: { mergeMethod: 'MERGE' } })
+    const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    fake.post(RED)
+    loop.record('red')
+    let during
+    const gh = async (cwd, args) => {
+      if (!during && args[0] === 'pr' && args[1] === 'comment') {
+        fake.post(RED)
+        during = loop.record('red')
+      }
+      return fake.gh(cwd, args)
+    }
+    await loop.persist(CWD, { gh })
+    const written = fake.pr.comments.map((entry) => entry.body)
+    expect(written.some((body) => body.includes('reviews=1'))).toBe(true)
+    expect(written.some((body) => body.includes('reviews=2'))).toBe(false)
+    const error = await refusal(loop.assertFixAllowed(CWD, during))
+    expect(error.message).toContain('persist')
+    expect(error.stop).toBeUndefined()
+    expect(loop.closed).toBe(null)
+    expect(loop.pendingFix).toBe(true)
+    expect(fake.pr.labels.has('reviewed')).toBe(true)
+    expect(fake.pr.autoMerge).not.toBe(null)
+    await loop.persist(CWD)
+    await expect(loop.assertFixAllowed(CWD, during)).resolves.toBe(during)
+  })
+
+  it('stops when the review is missing between persist and the grant', async () => {
+    const fake = fakePr({ labels: ['reviewed'], autoMerge: { mergeMethod: 'MERGE' } })
+    const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    fake.post(RED)
+    const step = loop.record('red')
+    await loop.persist(CWD)
+    const reviewAt = fake.pr.comments.findIndex((entry) => entry.body.startsWith('<!-- omp-build:code-review -->'))
+    fake.pr.comments.splice(reviewAt, 1)
+    const error = await refusal(loop.assertFixAllowed(CWD, step))
+    expect(error.stop).toMatchObject({ published: true, removed: true, autoMergeDisabled: true })
+    expect(loop.stopReason).toBe('history-stale')
+    expect(fake.pr.labels.has('reviewed')).toBe(false)
+    expect((await strict(fake)).stopReason).toBe('history-stale')
+  })
+
+  it('lists caller-order errors and writes nothing for each', async () => {
+    const missing = fakePr({ labels: ['reviewed'], autoMerge: { mergeMethod: 'MERGE' } })
+    const missingLoop = await resumeReviewLoop(CWD, { pr: PR, gh: missing.gh })
+    missing.post(RED)
+    const missingStep = missingLoop.record('red')
+    const missingBefore = missing.pr.comments.map((entry) => entry.body)
+    const missingError = await refusal(missingLoop.assertFixAllowed(CWD, missingStep))
+
+    const reused = fakePr()
+    const { loop: reusedLoop, step: reusedStep } = await allocate(reused, 1)
+    const reusedBefore = reused.pr.comments.length
+    const reusedError = await refusal(reusedLoop.assertFixAllowed(CWD, { ...reusedStep }))
+
+    const stopped = fakePr({ comments: [...TWO_ROUNDS, comment(RED)] })
+    const stoppedBefore = stopped.pr.comments.length
+    const stoppedLoop = await resumeReviewLoop(CWD, { pr: PR, gh: stopped.gh })
+    let stoppedError
+    try {
+      stoppedLoop.record('red')
+    } catch (error) {
+      stoppedError = error
+    }
+
+    expect([missingError.message, reusedError.message, stoppedError.message]).toEqual([
+      'assertFixAllowed: call persist before assertFixAllowed — this live allocation is not on the PR yet',
+      'assertFixAllowed: step does not match the live allocation',
+      'createReviewLoop: the loop already closed with "stop" after 3 reviews — a further verdict has nowhere to go',
+    ])
+    expect(missingError.stop).toBeUndefined()
+    expect(reusedError.stop).toBeUndefined()
+    expect(missing.pr.comments.map((entry) => entry.body)).toEqual(missingBefore)
+    expect(missing.pr.labels.has('reviewed')).toBe(true)
+    expect(missing.pr.autoMerge).not.toBe(null)
+    expect(missingLoop.closed).toBe(null)
+    expect(missingLoop.pendingFix).toBe(true)
+    expect(reused.pr.comments).toHaveLength(reusedBefore)
+    expect(reusedLoop.pendingFix).toBe(true)
+    expect(stopped.pr.comments).toHaveLength(stoppedBefore)
+    expect(stoppedLoop.closed).toBe('stop')
   })
 
   it('refuses a copy of the live step without consuming the grant', async () => {

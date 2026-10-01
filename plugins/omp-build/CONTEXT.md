@@ -67,7 +67,9 @@ One review posted after the last marker is already counted; recording it
 acknowledges that review and does not count it twice. More than one unrecorded
 review is unprovable. An allocated fix whose receipt is not posted yet is still
 open: it is not a spent stop. The stop is a later red after that receipt, or an
-explicit stop marker.
+explicit stop marker. Only a divergence of the durable history makes that stop
+sticky. A step this process skipped (`persist` after the allocation) throws and
+leaves the allocation live; it writes no stop.
 An allocation is spent before the Fix/Stop choice and is executable only once;
 reconstructing history never recreates its permission. CI corrections spend the
 same budget. Unprovable history requires human guidance, not a reset.
