@@ -471,13 +471,22 @@ export function armedStoppedPrs(facts: Facts): { ticket: number; pr: number }[] 
   return found
 }
 
-/** PRs already merged into base for children `stopOf` reports stopped. */
+/**
+ * Stopped children's PRs the epic query already shows MERGED onto this base,
+ * from a branch claiming the ticket. `mergeSha` is not required: a rebase leaves
+ * `mergeCommit` null, and the PR has still landed. `mergedPr` stays the landing
+ * predicate (a child is done only with a merge commit).
+ */
 export function mergedStoppedPrs(facts: Facts): { ticket: number; pr: number }[] {
   const found: { ticket: number; pr: number }[] = []
   for (const child of [...facts.children].sort((a, b) => a.number - b.number)) {
     if (!stopOf(child, facts.run)) continue
-    const landed = mergedPr(child, facts.base)
-    if (landed) found.push({ ticket: child.number, pr: landed.number })
+    const merged = child.prs
+      .filter(
+        (item) => item.state === 'MERGED' && item.base === facts.base && ticketOfBranch(item.head) === child.number,
+      )
+      .sort((a, b) => a.number - b.number)
+    for (const pr of merged) found.push({ ticket: child.number, pr: pr.number })
   }
   return found
 }

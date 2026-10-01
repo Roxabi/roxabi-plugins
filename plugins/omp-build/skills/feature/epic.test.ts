@@ -17,6 +17,7 @@ import {
   hookStatus,
   landOutcome,
   mergedLocalBranches,
+  mergedStoppedPrs,
   nextStep,
   objectiveText,
   type PrFacts,
@@ -1140,5 +1141,24 @@ describe('armedStoppedPrs', () => {
       { ticket: 2, pr: 10 },
       { ticket: 7, pr: 17 },
     ])
+  })
+})
+
+describe('mergedStoppedPrs', () => {
+  it('lists a stopped child PR that is MERGED onto this base even when mergeSha is null', () => {
+    const listed = mergedStoppedPrs(
+      facts([
+        child(2, {
+          stops: [{ run: EARLIER, reason: 'review-bound' }],
+          prs: [pr(2, { number: 10, state: 'MERGED', mergeSha: null })],
+        }),
+        child(3, {
+          stops: [{ run: EARLIER, reason: 'review-bound' }],
+          prs: [pr(3, { number: 12, state: 'MERGED', base: 'other', mergeSha: null })],
+        }),
+        child(4, { prs: [pr(4, { number: 14, state: 'MERGED', mergeSha: null })] }),
+      ]),
+    )
+    expect(listed).toEqual([{ ticket: 2, pr: 10 }])
   })
 })
