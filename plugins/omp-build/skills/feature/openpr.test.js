@@ -656,13 +656,21 @@ describe('resolveReviewPr — one PR, resolved before any loop exists', () => {
     ['the lookup fails', { branchPrs: new Error('HTTP 502') }],
     ['the lookup is not JSON', { branchPrs: 'no pull requests match your search' }],
     ['the lookup is not an array', { branchPrs: JSON.stringify(listing(512)) }],
-    ['an entry carries no PR number', { branchPrs: JSON.stringify([{ title: 'feat: sinks', state: 'OPEN' }]) }],
     ['an entry carries no state', { branchPrs: JSON.stringify([{ number: 512 }]) }],
     ['an entry carries an unknown state', { branchPrs: JSON.stringify([listing(512, 'DRAFT')]) }],
     ['two PRs are open for the branch', { branchPrs: [listing(512), listing(640)] }],
     ['HEAD is detached', { branch: '' }],
   ])('refuses when %s — a failed lookup is not "no PR"', async (_label, options) => {
     await expect(resolveReviewPr(CWD, null, deps(fakePr(options)))).rejects.toThrow()
+  })
+
+  it.each([
+    ['no PR number', { title: 'feat: sinks', state: 'OPEN', isCrossRepository: false }],
+    ['a zero', { number: 0, state: 'OPEN', isCrossRepository: false }],
+    ['a non-integer', { number: '12', state: 'OPEN', isCrossRepository: false }],
+  ])('refuses an entry with %s once the fork flag is present', async (_label, entry) => {
+    const fake = fakePr({ branchPrs: JSON.stringify([entry]) })
+    await expect(resolveReviewPr(CWD, null, deps(fake))).rejects.toThrow(/invalid PR discovery response/)
   })
 
   it.each([0, -3, 'abc', 1.5])('refuses an explicit %o instead of discovering some other PR', async (explicit) => {
