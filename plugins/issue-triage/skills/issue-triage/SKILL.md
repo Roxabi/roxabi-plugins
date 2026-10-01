@@ -24,7 +24,7 @@ only through issue-triage.
 ## Instructions
 
 1. List all open issues: `T` / `T list` | List untriaged only: `T list --untriaged`
-2. ∀ issue: determine Size, Priority, κ (see [Complexity Scoring](#complexity-scoring))
+2. ∀ issue: determine Size, κ (see [Complexity Scoring](#complexity-scoring)) and Priority (see [Priority Guidelines](#priority-guidelines))
 3. Set values: `T set <number> --size <S> --priority <P>`
 4. Create issues: `T create --title "Title" [--body "Body"] [--label "bug,frontend"] [--size M] [--priority High] [--type feat] [--lane b] [--parent 163]`
 5. Adopt a repository: `T init [--dry-run] [--repo owner/repo]`. Writes `docs/agents/issue-tracker.md` only when that file is absent, and only at the git toplevel — not the process cwd. An existing contract is authoritative: init prints `contract: keep-existing` and never rewrites it. Labels come from its `Label | Colour` table (a leading pipe is optional), or from canonical names in the template list; `bug` and other non-canonical snapshot entries are not a vocabulary. `epic` and `reviewed` are created only when that vocabulary lists them. An existing label is never recoloured; a case mismatch is reported, not created. A contract that parses to no vocabulary prints `vocabulary: none parsed from docs/agents/issue-tracker.md` and exits non-zero. `--repo` other than the local repo is refused: the local file is not that repo's vocabulary. A relabel target outside the vocabulary and the repo labels is refused before any write.
@@ -44,12 +44,23 @@ only through issue-triage.
 
 ## Priority Guidelines
 
-| Priority | Description | Action |
-|----------|-------------|--------|
-| **Urgent** (P0) | Blocking or critical | Do immediately |
-| **High** (P1) | Important for current milestone | Do this sprint |
-| **Medium** (P2) | Should be done soon | Plan for next sprint |
-| **Low** (P3) | Nice to have | Backlog |
+The project contract (`docs/agents/issue-tracker.md`) binds this rubric to the repository (which epic is the milestone, what counts as shipped) and wins where it differs.
+
+| Priority | When | Action |
+|----------|------|--------|
+| **Urgent** (P0) | Blocking now: the default branch or a release is blocked, or a security incident is live | Do immediately |
+| **High** (P1) | The milestone in progress, or a shipped check that lies (see below) | Do this sprint |
+| **Medium** (P2) | A real defect or debt that does not lie: a check that refuses too much or names the wrong cause, a misleading doc, a correctness gap outside the milestone | Plan for next sprint |
+| **Low** (P3) | Backlog: test hardening, deferred non-blocking findings, slices of a parked epic | Backlog |
+
+P1 has two independent triggers; either one is enough:
+
+1. **Milestone.** The open `epic` that carries P1 needs the ticket to close or to keep its promise. Being that epic's child is not enough: a deferred non-blocking finding under it stays P2 or P3.
+2. **A shipped check that lies.** A gate, guard, verifier or success predicate in shipped code reports a pass when it should fail or stop: a wrong-green gate, a fail-open verifier, a guard that no longer halts. This holds whatever the milestone. A check that fails closed (it refuses too much, or names the wrong cause) is P2.
+
+An epic caps its feature slices, not its defects: a feature child sits at or below its epic, and a child that matches trigger 2 is P1 under any epic.
+
+Every priority change carries a comment that names the trigger and the evidence, so the next triage can tell a decision from drift.
 
 ## Commands
 
