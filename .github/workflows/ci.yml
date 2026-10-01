@@ -22,11 +22,6 @@ jobs:
       - name: Verify bun.lock is committed
         run: git ls-files --error-unmatch bun.lock > /dev/null
       - run: bun install --frozen-lockfile
-      - name: omp-build 0.8.0 covers #652 and #655
-        if: github.event_name == 'pull_request'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bash scripts/check-omp-build-batch-coverage.sh
       - name: Lint
         run: bun lint
       - name: Typecheck

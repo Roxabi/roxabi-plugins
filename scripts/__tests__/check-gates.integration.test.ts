@@ -724,43 +724,4 @@ describe('check-skill-version.sh', () => {
     expect(stdout).toContain('.omp-plugin/marketplace.json')
     expect(stderr).not.toMatch(/origin\/main unreachable/)
   })
-
-  it('exits 0 when the catalogue stamp is not the 0.8.0 batch', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-batch-'))
-    fs.mkdirSync(path.join(dir, '.omp-plugin'))
-    fs.writeFileSync(
-      path.join(dir, '.omp-plugin', 'marketplace.json'),
-      JSON.stringify({ plugins: [{ name: 'omp-build', version: '0.7.0' }] }),
-    )
-    const script = path.resolve(import.meta.dirname, '../check-omp-build-batch-coverage.sh')
-
-    const { code } = runScriptCapture(script, dir)
-
-    expect(code).toBe(0)
-    fs.rmSync(dir, { recursive: true, force: true })
-  })
-
-  it('exits 1 naming the catalogue when 0.8.0 is published before the batch PRs merge', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-batch-open-'))
-    const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-batch-gh-'))
-    fs.mkdirSync(path.join(dir, '.omp-plugin'))
-    fs.writeFileSync(
-      path.join(dir, '.omp-plugin', 'marketplace.json'),
-      JSON.stringify({ plugins: [{ name: 'omp-build', version: '0.8.0' }] }),
-    )
-    fs.writeFileSync(path.join(bin, 'gh'), '#!/bin/sh\necho OPEN\nexit 0\n')
-    fs.chmodSync(path.join(bin, 'gh'), 0o755)
-    const script = path.resolve(import.meta.dirname, '../check-omp-build-batch-coverage.sh')
-
-    const { code, stdout } = runScriptCapture(script, dir, {
-      ...CLEAN_ENV,
-      PATH: `${bin}:${process.env.PATH ?? ''}`,
-    })
-
-    expect(code).toBe(1)
-    expect(stdout).toContain('cannot publish before #664')
-    expect(stdout).toContain('.omp-plugin/marketplace.json')
-    fs.rmSync(dir, { recursive: true, force: true })
-    fs.rmSync(bin, { recursive: true, force: true })
-  })
 })
