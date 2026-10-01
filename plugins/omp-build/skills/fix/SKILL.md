@@ -11,7 +11,7 @@ version: 0.2.0
 
 ## Success
 
-I := ∀ blocking r → applied ∨ filed (issue ∃) ∧ (deferred set = ∅ ∨ one deferral issue ∃) ∧ ∀ uncited blocking f → filed ∧ ∀ uncited non-blocking f → in that deferral ∨ already deferred ∧ PR comment posted
+I := ∀ blocking r → applied ∨ filed (issue ∃) ∧ (deferred set = ∅ ∨ one deferral issue ∃) ∧ ∀ uncited blocking f → filed ∧ ∀ uncited non-blocking f → in that deferral ∨ already deferred ∧ ∀ cited non-blocking finding of a malformed block → in that deferral ∨ already deferred ∧ PR comment posted
 V := `gh pr view {N} --comments | grep "## Review Fixes Applied"`
 
 One pass: find the review record, name the causes, apply each eligible well-formed blocking cause as its own commit, defer every non-blocking cause into one issue, push once when a cause was committed. A malformed block is never a commit.
@@ -185,7 +185,7 @@ Two dispositions, one wiring. A non-blocking cause is not filed on its own: it j
 
 **Comment text never reaches a command line.** Titles and bodies come from PR comments, which anyone can write. Write them with the `write` tool into a mktemp dir and pass the files; a double-quoted `$(…)` or backtick in an argument runs in the operator's shell.
 
-**Deferral — one issue per run.** Every cause that is not `blocking(r)`, every uncited finding that does not satisfy `blocks(f)`, and every cited finding of a malformed block that does not satisfy `blocks(f)`, and that is not already deferred or filed, goes into exactly one follow-up. They are not applied. One `create`, not one per cause. The title file is the bundle title `Deferred non-blocking review findings`. The body file lists every deferred mechanism, its fix line, and its findings, plus each uncited non-blocking finding, and includes `**Origin:** PR #<N>`. Same `--blocked-by` / `--parent` / `--size` / `--type` wiring as the bullets under the fence. Empty set after the already-deferred filter → no issue. Do not use the per-cause sentence `could not be applied` for this issue. Do not copy a non-blocking member of an applied cause into it.
+**Deferral — one issue per run.** Every cause that is not `blocking(r)`, every uncited finding that does not satisfy `blocks(f)`, and every cited finding of a malformed block that does not satisfy `blocks(f)`, and that is not already deferred or filed, goes into exactly one follow-up. They are not applied. One `create`, not one per cause. The title file is the bundle title `Deferred non-blocking review findings`. The body file lists every deferred mechanism, its fix line, and its findings, plus each uncited non-blocking finding, plus each cited non-blocking finding of a malformed block, and includes `**Origin:** PR #<N>`. Same `--blocked-by` / `--parent` / `--size` / `--type` wiring as the bullets under the fence. Empty set after the already-deferred filter → no issue. Do not use the per-cause sentence `could not be applied` for this issue. Do not copy a non-blocking member of an applied cause into it.
 
 ```bash
 FILE_DIR=$(mktemp -d -t "omp-build-fix-file-XXXXXX")
@@ -236,6 +236,10 @@ Deferral body, one issue for the whole set. Not the per-cause template above:
 ## Uncited non-blocking findings
 
 - `suggestion:` <description> — `path:line`
+
+## Cited non-blocking findings of a malformed block
+
+- `suggestion:` <description> — `path:line` — cited by malformed RC-<n>
 ```
 
 ## Phase 4 — Falsification Gate (per cause)
@@ -282,7 +286,7 @@ Write the summary (below) to `"$BODY"` → `gh pr comment "$PR" --body-file "$BO
 ## Review Fixes Applied
 
 **Applied:** N cause(s)
-**Deferred (non-blocking):** D cause(s) + U uncited finding(s) → #456
+**Deferred (non-blocking):** D cause(s) + U uncited finding(s) + M cited non-blocking finding(s) of a malformed block → #456
 **Filed (sibling issues):** J cause(s)
 **Already filed:** A cause(s)
 **Failed:** L cause(s)
@@ -296,6 +300,7 @@ Write the summary (below) to `"$BODY"` → `gh pr comment "$PR" --body-file "$BO
 _(omit section when nothing was deferred this run; the summary line is then `**Deferred (non-blocking):** 0`)_
 - RC-2 — mechanism: the tests assert a fix that already passes — deferred, not applied — #456
 - uncited `suggestion:` polish the name — `ui.ts:12` — #456
+- malformed-block cited `suggestion:` `b.ts:2` — #456
 
 ### Filed
 - RC-2 — a member failed validation — #123 (sibling of #120, blocked-by #120)
@@ -329,7 +334,7 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 | Cited path outside the repository | A blocking cause is filed, not applied. A non-blocking cause is deferred |
 | Cause already under Filed, or a still-non-blocking cause already under Deferred | `already filed → #N` or `already deferred → #N`. A prior deferral does not suppress filing a blocking cause that is ineligible or failed |
 | All causes non-blocking | Commit nothing. File exactly one follow-up listing them. Receipt reports deferred → #N. No push |
-| Mixed causes | Apply the well-formed blocking eligible ones. A malformed block is not applied. One deferral issue holds every non-blocking cause and uncited non-blocking finding |
+| Mixed causes | Apply the well-formed blocking eligible ones. A malformed block is not applied. One deferral issue holds every non-blocking cause, every uncited non-blocking finding, and every cited non-blocking finding of a malformed block |
 | Dirty tree before an apply | Halt, name the changes. An empty apply bucket does not halt |
 | Apply fails after 3 | Restore to the last cause commit, `[failed]`, file, continue |
 | Falsification fails twice | Revert that cause's commits, `[failed]`, file |
