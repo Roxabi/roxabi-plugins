@@ -25,7 +25,7 @@ A child the Goal run stops on — review bound spent, proof blocked, foreign com
 _Avoid_: a goal drop, a skipped dependent, a stop held in session memory
 
 **Shared-state stop**:
-A failure that makes every remaining child unsafe — base CI red, a dirty tree between tickets, a landing or tracker failure, a failed post-merge hook, a final review still blocking after its fix round. Every armed child PR is disarmed, the goal is reported and dropped.
+A failure that makes every remaining child unsafe — base CI red, base CI pending at finalization (`base-ci-pending`), a dirty tree between tickets or before the goal completes, a hook `ok` or `skipped` at another commit (`hook-stale`), a landing or tracker failure, a failed post-merge hook, a final review still blocking after its fix round. Every armed child PR is disarmed, the goal is reported and dropped. Finalization (the hook, and `complete`) also requires a clean tree and base CI green or absent; a red or pending base does not hold the final review.
 _Avoid_: a ticket stop, skipping the ticket, waiting on pending base CI
 
 **Spec**:
@@ -55,8 +55,8 @@ Arming the gate is not evidence that the PR merged.
 _Avoid_: manual merge while checks run, treating a label as a completed landing
 
 **Post-merge hook**:
-The repository's declared command that runs once the epic has landed, not after each ticket.
-_Avoid_: a per-ticket deploy, a release cut
+The repository's declared command that runs once the epic has landed, not after each ticket. This run's `ok` or `skipped` counts only at the current base commit; at another commit the goal drops `hook-stale` and does not run the hook again.
+_Avoid_: a per-ticket deploy, a release cut, re-running this run's hook on a moved base
 
 **Review bound**:
 At most two automatic review→fix rounds per PR and automation identity.

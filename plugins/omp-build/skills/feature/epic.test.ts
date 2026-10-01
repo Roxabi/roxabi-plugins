@@ -490,6 +490,30 @@ describe('nextStep', () => {
         report: { merged: [], closed: [1, 2] },
       },
       {
+        name: 'every child closed, none merged, red base → drop base-ci-red',
+        facts: facts([child(1, { state: 'CLOSED' }), child(2, { state: 'CLOSED' })], {
+          baseCi: { state: 'red', failed: ['test'], pending: [] },
+        }),
+        step: { action: 'drop', stop: 'base-ci-red' },
+      },
+      {
+        name: 'every child closed, none merged, pending base → drop base-ci-pending',
+        facts: facts([child(1, { state: 'CLOSED' })], {
+          baseCi: { state: 'pending', failed: [], pending: ['build'] },
+        }),
+        step: { action: 'drop', stop: 'base-ci-pending' },
+      },
+      {
+        name: 'every child closed, none merged, dirty tree → drop dirty-tree',
+        facts: facts([child(1, { state: 'CLOSED' })], { tree: { clean: false, branch: null } }),
+        step: { action: 'drop', stop: 'dirty-tree' },
+      },
+      {
+        name: 'every child closed, none merged, no base checks → complete',
+        facts: facts([child(1, { state: 'CLOSED' })], { baseCi: { state: 'none', failed: [], pending: [] } }),
+        step: { action: 'complete' },
+      },
+      {
         name: 'no review → review the first base .. last merge, by mergedAt',
         facts: facts(DONE),
         step: { action: 'final-review', stage: 'review', range: RANGE },
@@ -499,6 +523,24 @@ describe('nextStep', () => {
         name: 'a red base does not hold the final review',
         facts: facts(DONE, { baseCi: { state: 'red', failed: ['test'], pending: [] } }),
         step: { action: 'final-review', stage: 'review', range: RANGE },
+      },
+      {
+        name: 'a pending base does not hold the final review',
+        facts: facts(DONE, { baseCi: { state: 'pending', failed: [], pending: ['build'] } }),
+        step: { action: 'final-review', stage: 'review', range: RANGE },
+      },
+      {
+        name: 'a dirty tree does not hold the final review',
+        facts: facts(DONE, { tree: { clean: false, branch: null } }),
+        step: { action: 'final-review', stage: 'review', range: RANGE },
+      },
+      {
+        name: 'a red base does not hold the fix ticket',
+        facts: facts(DONE, {
+          reviews: [review('blocking', RANGE)],
+          baseCi: { state: 'red', failed: ['test'], pending: [] },
+        }),
+        step: { action: 'final-review', stage: 'fix-ticket', range: RANGE },
       },
       {
         name: 'a clean review from an earlier run at the current range end → hook',
@@ -609,6 +651,78 @@ describe('nextStep', () => {
       {
         name: 'failed in an earlier run → run it again',
         facts: reviewed([hook('failed', sha('f'), EARLIER)]),
+        step: { action: 'post-merge' },
+      },
+      {
+        name: 'clean review, base CI red → drop base-ci-red, the hook does not run',
+        facts: facts(DONE, {
+          reviews: [review('clean', RANGE)],
+          baseCi: { state: 'red', failed: ['test'], pending: [] },
+        }),
+        step: { action: 'drop', stop: 'base-ci-red' },
+        report: { baseCi: { state: 'red', failed: ['test'], pending: [] } },
+      },
+      {
+        name: 'clean review, base CI pending → drop base-ci-pending',
+        facts: facts(DONE, {
+          reviews: [review('clean', RANGE)],
+          baseCi: { state: 'pending', failed: [], pending: ['build=cancelled'] },
+        }),
+        step: { action: 'drop', stop: 'base-ci-pending' },
+      },
+      {
+        name: 'clean review, dirty tree → drop dirty-tree',
+        facts: facts(DONE, { reviews: [review('clean', RANGE)], tree: { clean: false, branch: null } }),
+        step: { action: 'drop', stop: 'dirty-tree' },
+      },
+      {
+        name: 'hook already ok at the current base, then the base goes red → drop, not complete',
+        facts: facts(DONE, {
+          reviews: [review('clean', RANGE)],
+          hooks: [hook('ok', sha('f'))],
+          baseCi: { state: 'red', failed: ['test'], pending: [] },
+        }),
+        step: { action: 'drop', stop: 'base-ci-red' },
+      },
+      {
+        name: 'hook already ok at the current base, dirty tree → drop, not complete',
+        facts: facts(DONE, {
+          reviews: [review('clean', RANGE)],
+          hooks: [hook('ok', sha('f'))],
+          tree: { clean: false, branch: null },
+        }),
+        step: { action: 'drop', stop: 'dirty-tree' },
+      },
+      {
+        name: 'hook already ok at the current base, base CI pending → drop, not complete',
+        facts: facts(DONE, {
+          reviews: [review('clean', RANGE)],
+          hooks: [hook('ok', sha('f'))],
+          baseCi: { state: 'pending', failed: [], pending: ['build'] },
+        }),
+        step: { action: 'drop', stop: 'base-ci-pending' },
+      },
+      {
+        name: 'this run ok at another commit → drop hook-stale, not a re-run',
+        facts: reviewed([hook('ok', sha('a'))]),
+        step: { action: 'drop', stop: 'hook-stale' },
+      },
+      {
+        name: 'this run skipped at another commit → drop hook-stale, not a re-run',
+        facts: reviewed([hook('skipped', sha('a'))]),
+        step: { action: 'drop', stop: 'hook-stale' },
+      },
+      {
+        name: 'an earlier ok at the current base still completes when this run recorded ok elsewhere',
+        facts: reviewed([hook('ok', sha('f'), EARLIER), hook('ok', sha('a'))]),
+        step: { action: 'complete' },
+      },
+      {
+        name: 'base CI none after a clean review still runs the hook',
+        facts: facts(DONE, {
+          reviews: [review('clean', RANGE)],
+          baseCi: { state: 'none', failed: [], pending: [] },
+        }),
         step: { action: 'post-merge' },
       },
     ])('$name', decides)
@@ -854,6 +968,8 @@ describe('stop classes', () => {
     ['auto-merge-failed', 'auto-merge-failed', 'shared'],
     ['tracker CLI unresolvable', 'tracker-unresolvable', 'shared'],
     ['post-merge hook failure', 'hook-failed', 'shared'],
+    ['base CI pending at finalization', 'base-ci-pending', 'shared'],
+    ['hook recorded at another commit', 'hook-stale', 'shared'],
     ['final review blocking after its fix round', 'final-review-blocking', 'shared'],
     ['frontier empty while children remain open', 'no-progress', 'no-progress'],
     ['an unknown reason', 'banana', null],
@@ -1094,7 +1210,7 @@ describe('classifyBaseCi', () => {
 describe('hookStatus', () => {
   const at = sha('f')
   const record = (run: string, result: HookRecord['result'], on = at): HookRecord => ({ run, result, sha: on })
-  it.each<[string, HookRecord[], 'done' | 'failed' | 'pending', HookRecord | null]>([
+  it.each<[string, HookRecord[], 'done' | 'failed' | 'pending' | 'stale', HookRecord | null]>([
     ['no record → pending', [], 'pending', null],
     ['this run ok → done, with that record', [record(RUN, 'started'), record(RUN, 'ok')], 'done', record(RUN, 'ok')],
     ['this run skipped → done', [record(RUN, 'skipped')], 'done', record(RUN, 'skipped')],
@@ -1113,6 +1229,25 @@ describe('hookStatus', () => {
     ],
     ['an earlier run ok at another base → pending', [record(EARLIER, 'ok', sha('e'))], 'pending', null],
     ['an earlier run failed → pending (a new run retries it)', [record(EARLIER, 'failed')], 'pending', null],
+    [
+      'this run ok at another base → stale, with that record',
+      [record(RUN, 'ok', sha('e'))],
+      'stale',
+      record(RUN, 'ok', sha('e')),
+    ],
+    [
+      'this run skipped at another base → stale',
+      [record(RUN, 'skipped', sha('e'))],
+      'stale',
+      record(RUN, 'skipped', sha('e')),
+    ],
+    [
+      'an earlier ok at this base is done even when this run is ok elsewhere',
+      [record(EARLIER, 'ok'), record(RUN, 'ok', sha('e'))],
+      'done',
+      record(EARLIER, 'ok'),
+    ],
+    ['an earlier skipped at this base → done', [record(EARLIER, 'skipped')], 'done', record(EARLIER, 'skipped')],
   ])('%s', (_name, hooks, state, shown) => {
     const status = hookStatus({ run: RUN, baseSha: at, hooks })
     expect(status.state).toBe(state)

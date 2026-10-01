@@ -94,15 +94,17 @@ state alone:
 next → start/resume child (branch from origin/<base>) → implement → dev-review → fix → land
      → merge confirmed: detach, delete the local branch → next …
      → every child closed or merged → final epic review (R-architect + R-adversarial)
-     → release.post_merge (argv, clean checkout of origin/<base>) → report → goal complete
+     → clean tree and base CI green or none → release.post_merge at that base commit
+     → report → goal complete
 ```
 
 Children run in `blocked_by` order. A **ticket stop** (review bound spent, watch
 timeout, cancelled or blocked checks, proof blocked, no scope, foreign commit…) is
 recorded on the child as a `goal-stop` marker, its PR disarmed; its dependents are
 skipped and independent children continue. A **shared-state stop** (base CI red,
-dirty tree, landing or tracker failure, hook failure, final review still blocking
-after its one fix ticket) disarms every child PR, reports on the epic and drops the
+`base-ci-pending` at finalization, a dirty tree, `hook-stale`, landing or tracker
+failure, hook failure, final review still blocking after its one fix ticket)
+disarms every child PR, reports on the epic and drops the
 goal. A new `/goal` line resumes: merged children are skipped, open PRs resumed,
 stops of earlier runs retried except a spent review bound. Without an active goal
 naming the epic, `/feature` is unchanged.
