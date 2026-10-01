@@ -108,9 +108,22 @@ describe('a sync child process run by a test', () => {
     expect(echoed()).toEqual([])
   })
 
-  it('keeps an explicit stdio as given', () => {
-    // An inherited stdout is not captured, so the call returns null; a defaulted `pipe` would return a Buffer.
-    expect(execFileSync('sh', ['-c', 'true'], { stdio: ['pipe', 'inherit', 'pipe'] })).toBeNull()
-    expect(execSync('true', { stdio: ['pipe', 'inherit', 'pipe'] })).toBeNull()
+  // An ignored stdout is not captured, so the call returns null; a stdio overridden to `pipe` returns a Buffer.
+  it.each([
+    ['execFileSync(file, options)', () => run.execFileSync(script, { stdio: 'ignore' })],
+    ['execFileSync(file, null, options)', () => run.execFileSync(script, null, { stdio: 'ignore' })],
+    ['execFileSync(file, undefined, options)', () => run.execFileSync(script, undefined, { stdio: 'ignore' })],
+    ['execFileSync(file, args, options)', () => run.execFileSync(script, [], { stdio: 'ignore' })],
+    ['execSync(command, options)', () => run.execSync(script, { stdio: 'ignore' })],
+  ])('%s keeps an explicit stdio as given', (_, call) => {
+    expect(call()).toBeNull()
+  })
+
+  // An ignored stderr leaves nothing on the error; a stderr slot overridden to `pipe` fills it.
+  it.each([
+    ['execFileSync', () => run.execFileSync(script, ['fail'], { stdio: ['pipe', 'pipe', 'ignore'] })],
+    ['execSync', () => run.execSync([script, 'fail'].join(' '), { stdio: ['pipe', 'pipe', 'ignore'] })],
+  ])('%s keeps an explicit stderr slot as given on a failing call', (_, call) => {
+    expect(call).toThrow(expect.objectContaining({ status: 3, stderr: null }))
   })
 })
