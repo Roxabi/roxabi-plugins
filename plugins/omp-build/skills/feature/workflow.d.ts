@@ -21,3 +21,20 @@ export declare function interpretReviewHistory(
   comments: { body: string; author: { login: string } | null }[],
   options: { me: string; maxFixRounds?: number },
 ): { reviews: number; fixes: number; stopReason?: string }
+
+export declare function openPr(
+  cwd: string,
+  input: { issue: number; branch: string; base: string; title: string; body?: string },
+): Promise<{ number: number; status: 'created' | 'existing' }>
+
+export declare function landPr(
+  cwd: string,
+  pr: number | string,
+): Promise<{ status: string; mode?: string; watch?: string; reason?: string }>
+
+export declare function applyCiWatchExit(
+  cwd: string,
+  pr: number | string,
+  code: number,
+  opts?: { mode?: string },
+): Promise<{ status: string }>
