@@ -869,6 +869,24 @@ describe('assertFixAllowed on a PR loop — fresh history at the fix sink', () =
     expect(fake.pr.comments.some((entry) => entry.body.includes('review-stop'))).toBe(false)
   })
 
+  it('throws a recoverable error when a ci-failed allocation was not persisted', async () => {
+    const fake = fakePr({ labels: ['reviewed'], autoMerge: { mergeMethod: 'MERGE' } })
+    const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    expect((await reviewed(loop, fake, 'green')).action).toBe('land')
+    const step = loop.reopen('ci-failed')
+    const before = fake.pr.comments.map((entry) => entry.body)
+    const error = await refusal(loop.assertFixAllowed(CWD, step))
+    expect(error.message).toContain('persist')
+    expect(error.stop).toBeUndefined()
+    expect(loop.closed).toBe(null)
+    expect(loop.pendingFix).toBe(true)
+    expect(fake.pr.comments.map((entry) => entry.body)).toEqual(before)
+    expect(fake.pr.labels.has('reviewed')).toBe(true)
+    expect(fake.pr.autoMerge).not.toBe(null)
+    await loop.persist(CWD)
+    await expect(loop.assertFixAllowed(CWD, step)).resolves.toBe(step)
+  })
+
   it('stops when the review is missing between persist and the grant', async () => {
     const fake = fakePr({ labels: ['reviewed'], autoMerge: { mergeMethod: 'MERGE' } })
     const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
