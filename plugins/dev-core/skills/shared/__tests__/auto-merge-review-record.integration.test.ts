@@ -18,6 +18,14 @@ function stepBlock(yml: string, name: string): string {
   return yml.slice(start, end)
 }
 
+function stepIf(block: string): string {
+  const folded = block.match(/if: >-\n((?: {10}\S.*\n)+)/)
+  if (folded) return folded[1].replace(/^ {10}/gm, '').trim()
+  const line = block.match(/if: (.+)/)
+  if (!line) throw new Error('step has no if')
+  return line[1].trim()
+}
+
 function stepScript(yml: string, name: string): string {
   const block = stepBlock(yml, name)
   const runAt = block.indexOf('run: |')
@@ -230,7 +238,19 @@ describe('dependabot exemption when the record gate is on', () => {
   it('still refuses a dependabot semver-major bump', () => {
     const generated = yml()
     const block = stepBlock(generated, 'Block dependabot semver-major bumps')
-    expect(block).toContain("github.event.pull_request.user.login == 'dependabot[bot]'")
+    const fetchId = stepBlock(generated, 'Fetch dependabot metadata').match(/\n\s+id: (\S+)/)?.[1]
+    expect(fetchId).toBeTruthy()
+    expect(stepIf(block)).toBe(
+      [
+        "github.event.action == 'labeled' &&",
+        "github.event.pull_request.user.login == 'dependabot[bot]' &&",
+        `steps.${fetchId}.outputs.update-type == 'version-update:semver-major'`,
+      ].join('\n'),
+    )
+    expect(block).not.toContain('continue-on-error')
+    const enableIf = stepIf(stepBlock(generated, 'Enable auto-merge (merge commit)'))
+    expect(enableIf).toBe("github.event.action == 'labeled'")
+    expect(enableIf).not.toMatch(/\b(success|failure|cancelled|always)\s*\(/)
     expect(block).toContain("steps.dependabot-meta.outputs.update-type == 'version-update:semver-major'")
     expect(generated.indexOf('Block dependabot semver-major bumps')).toBeLessThan(
       generated.indexOf('Enable auto-merge (merge commit)'),
@@ -248,7 +268,7 @@ describe('dependabot exemption when the record gate is on', () => {
   it('a synchronize still disarms, including when the label is already gone', () => {
     const generated = yml()
     const disarm = stepBlock(generated, 'Disarm auto-merge on a moved head')
-    expect(disarm).toContain('always()')
+    expect(stepIf(disarm)).toBe("always() && github.event.action == 'synchronize'")
     expect(disarm).toContain("github.event.action == 'synchronize'")
     expect(generated.indexOf('Disarm auto-merge on a moved head')).toBeLessThan(generated.indexOf('Mint app token'))
     const viewFails = runScript(stepScript(generated, 'Disarm auto-merge on a moved head'), {
