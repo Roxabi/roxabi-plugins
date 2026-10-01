@@ -9,41 +9,46 @@ set -euo pipefail
 # A missing version on one surface is a visible SKIP and does not hide the other.
 # Constraints (documented): plugin rename may not fire on the renaming push;
 # commands/ dir is forward-compatible (absent today); requires fetched origin/main.
-# Preflight skips (explicit, not silent): jq absent -> SKIP; origin/main unreachable -> SKIP.
-# The OMP blob is classified by Bun JSON.parse, the parser that builds the cache
-# key. jq is not the authority: it accepts a BOM, NaN, Infinity, and a leading +.
-# A present version must be a single-line semver, and a change exits 0 only when
-# Bun.semver.order(head, base) > 0. The shell never sees an unproven version.
-command -v jq >/dev/null 2>&1 || { echo "SKIP: check-skill-version requires jq (not found)" >&2; exit 0; }
-git fetch origin main --quiet 2>/dev/null || true
+# Preflight: jq absence skips only the Claude plugin.json branch. The OMP
+# catalogue check always runs. A failed fetch with a local origin/main is not
+# a proven baseline, so the catalogue comparison is unverified and exits 1.
+# origin/main missing entirely stays a visible SKIP (nothing to compare).
+export GIT_TERMINAL_PROMPT=0
+have_jq=0
+command -v jq >/dev/null 2>&1 && have_jq=1
+fetch_ok=0
+if timeout 30 git fetch origin main --quiet; then
+  fetch_ok=1
+fi
 if ! git rev-parse --verify --quiet origin/main >/dev/null; then
   echo "SKIP: check-skill-version (origin/main unreachable — cannot compare versions)" >&2
   exit 0
+fi
+if [ "$fetch_ok" -ne 1 ]; then
+  echo "cannot verify origin/main:.omp-plugin/marketplace.json — fetch failed"
+  exit 1
 fi
 changed=$(git diff --name-only origin/main...HEAD -- 'plugins/*/skills/**' 'plugins/*/commands/**')
 mapfile -t plugins < <(printf '%s\n' "$changed" | sed -nE 's#^plugins/([^/]+)/.*#\1#p' | sort -u)
 fail=0
 
-# Classify one catalogue blob on stdin. Prints one status word:
-# PARSE | DUPLICATE | MISSING | BAD | VERSION:<semver>
-# VERSION is printed only after the value is a single-line semver, so command
-# substitution cannot strip a newline out of the token.
-omp_classify_blob() {
-  local name="$1" status
-  if ! command -v bun >/dev/null 2>&1; then
-    printf 'PARSE'
+# ABSENT only when the blob is missing. Stream the bytes into the classifier:
+# capturing them in a shell variable strips NUL before Bun.JSON.parse.
+omp_row_status() {
+  local rev="$1" name="$2" status
+  if ! git cat-file -e "${rev}:.omp-plugin/marketplace.json" 2>/dev/null; then
+    printf 'ABSENT'
     return 0
   fi
-  if ! status=$(OMP_PLUGIN_NAME="$name" bun -e '
+  if ! status=$(git show "${rev}:.omp-plugin/marketplace.json" | OMP_PLUGIN_NAME="$name" bun -e '
 const name = process.env.OMP_PLUGIN_NAME ?? ""
 const bytes = new Uint8Array(await new Response(Bun.stdin).arrayBuffer())
 const emit = (code) => {
   console.log(code)
   process.exit(0)
 }
-if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) emit("PARSE")
 const raw = new TextDecoder("utf-8", { ignoreBOM: true }).decode(bytes)
-if (raw.charCodeAt(0) === 0xfeff) emit("PARSE")
+if (raw.includes("\u0000") || raw.charCodeAt(0) === 0xfeff) emit("PARSE")
 let doc
 try {
   doc = JSON.parse(raw)
@@ -80,16 +85,6 @@ emit("VERSION:" + version)
   esac
 }
 
-# ABSENT only when git show fails. An empty or whitespace blob is PARSE.
-omp_row_status() {
-  local rev="$1" name="$2" blob
-  if ! blob=$(git show "${rev}:.omp-plugin/marketplace.json" 2>/dev/null); then
-    printf 'ABSENT'
-    return 0
-  fi
-  printf '%s' "$blob" | omp_classify_blob "$name"
-}
-
 # Exit 0 only when OMP would install head over base. A throw, or order <= 0, fails.
 omp_is_upgrade() {
   local head="$1" base="$2"
@@ -114,7 +109,9 @@ omp_fail() {
 for p in "${plugins[@]}"; do
   [ -n "$p" ] || continue
   pj="plugins/$p/.claude-plugin/plugin.json"
-  if [ ! -f "$pj" ]; then
+  if [ "$have_jq" -ne 1 ]; then
+    echo "SKIP: $p Claude plugin.json check needs jq (not found) — OMP catalogue check still runs" >&2
+  elif [ ! -f "$pj" ]; then
     echo "SKIP: $p has no .claude-plugin/plugin.json — no version gate" >&2
   else
     cur=$(jq -r '.version // empty' "$pj" 2>/dev/null || true)

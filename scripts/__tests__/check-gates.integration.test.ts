@@ -1,4 +1,4 @@
-import { execSync, spawnSync } from 'node:child_process'
+import { execFileSync, execSync, spawnSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -34,8 +34,12 @@ function runScript(scriptPath: string, cwd: string): number {
   }
 }
 
-function runScriptCapture(scriptPath: string, cwd: string): { code: number; stderr: string; stdout: string } {
-  const result = spawnSync('bash', [scriptPath], { cwd, env: CLEAN_ENV })
+function runScriptCapture(
+  scriptPath: string,
+  cwd: string,
+  env: NodeJS.ProcessEnv = CLEAN_ENV,
+): { code: number; stderr: string; stdout: string } {
+  const result = spawnSync('bash', [scriptPath], { cwd, env })
   return {
     code: result.status ?? 1,
     stderr: result.stderr ? result.stderr.toString() : '',
@@ -650,5 +654,113 @@ describe('check-skill-version.sh', () => {
     expect(code).toBe(1)
     expect(stdout).toContain('.omp-plugin/marketplace.json')
     expect(stderr).not.toMatch(/SKIP: omp-build has no version in/)
+  })
+
+  it.each(['head', 'base'] as const)('exits 1 naming the catalogue when a trailing NUL is on %s', (side) => {
+    const { work, bare } = setupOriginWithPlugin({
+      pluginName: 'omp-build',
+      pluginJson: false,
+      catalogue: { documentVersion: '9.9.9', entryVersion: '0.7.0' },
+    })
+    workDir = work
+    bareDir = bare
+    const nul = Buffer.concat([Buffer.from(catalogueBytes(side === 'head' ? '0.8.0' : '0.7.0')), Buffer.from([0])])
+    fs.writeFileSync(path.join(work, '.omp-plugin', 'marketplace.json'), nul)
+    if (side === 'base') {
+      pushAsMain(work, 'nul on base')
+      writeCatalogue(work, catalogueBytes('0.8.0'))
+    }
+    commitSkillChange(work, 'omp-build', '# skill v2 (nul catalogue)\n')
+
+    const { code, stdout, stderr } = runScriptCapture(CHECK_SKILL_VERSION, work)
+
+    expect(code).toBe(1)
+    expect(stdout).toContain('.omp-plugin/marketplace.json')
+    expect(stderr).not.toMatch(/SKIP: omp-build has no version in/)
+  })
+
+  it('exits 1 naming the catalogue when jq is absent and the catalogue does not parse', () => {
+    const { work, bare } = setupOriginWithPlugin({
+      pluginName: 'omp-build',
+      pluginJson: false,
+      catalogue: { documentVersion: '9.9.9', entryVersion: '0.7.0' },
+    })
+    workDir = work
+    bareDir = bare
+    fs.writeFileSync(path.join(work, '.omp-plugin', 'marketplace.json'), '{not json')
+    commitSkillChange(work, 'omp-build', '# skill v2 (no jq)\n')
+    const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-no-jq-'))
+    for (const tool of ['bash', 'git', 'bun', 'sed', 'sort', 'timeout']) {
+      const src = execFileSync('which', [tool], { encoding: 'utf8', env: CLEAN_ENV }).trim()
+      fs.symlinkSync(src, path.join(bin, tool))
+    }
+
+    const { code, stdout, stderr } = runScriptCapture(CHECK_SKILL_VERSION, work, {
+      ...CLEAN_ENV,
+      PATH: bin,
+    })
+
+    expect(code).toBe(1)
+    expect(stdout).toContain('.omp-plugin/marketplace.json')
+    expect(stderr).not.toMatch(/SKIP: check-skill-version requires jq/)
+    fs.rmSync(bin, { recursive: true, force: true })
+  })
+
+  it('exits 1 naming the catalogue when fetch fails and a stale origin/main remains', () => {
+    const { work, bare } = setupOriginWithPlugin({
+      pluginName: 'omp-build',
+      pluginJson: false,
+      catalogue: { documentVersion: '9.9.9', entryVersion: '0.7.0' },
+    })
+    workDir = work
+    bareDir = bare
+    writeCatalogue(work, catalogueBytes('0.8.0'))
+    commitSkillChange(work, 'omp-build', '# skill v2 (stale base)\n')
+    git('git remote set-url origin /nonexistent/gate-fetch-fail', work)
+
+    const { code, stdout, stderr } = runScriptCapture(CHECK_SKILL_VERSION, work)
+
+    expect(code).toBe(1)
+    expect(stdout).toContain('.omp-plugin/marketplace.json')
+    expect(stderr).not.toMatch(/origin\/main unreachable/)
+  })
+
+  it('exits 0 when the catalogue stamp is not the 0.8.0 batch', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-batch-'))
+    fs.mkdirSync(path.join(dir, '.omp-plugin'))
+    fs.writeFileSync(
+      path.join(dir, '.omp-plugin', 'marketplace.json'),
+      JSON.stringify({ plugins: [{ name: 'omp-build', version: '0.7.0' }] }),
+    )
+    const script = path.resolve(import.meta.dirname, '../check-omp-build-batch-coverage.sh')
+
+    const { code } = runScriptCapture(script, dir)
+
+    expect(code).toBe(0)
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('exits 1 naming the catalogue when 0.8.0 is published before the batch PRs merge', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-batch-open-'))
+    const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-batch-gh-'))
+    fs.mkdirSync(path.join(dir, '.omp-plugin'))
+    fs.writeFileSync(
+      path.join(dir, '.omp-plugin', 'marketplace.json'),
+      JSON.stringify({ plugins: [{ name: 'omp-build', version: '0.8.0' }] }),
+    )
+    fs.writeFileSync(path.join(bin, 'gh'), '#!/bin/sh\necho OPEN\nexit 0\n')
+    fs.chmodSync(path.join(bin, 'gh'), 0o755)
+    const script = path.resolve(import.meta.dirname, '../check-omp-build-batch-coverage.sh')
+
+    const { code, stdout } = runScriptCapture(script, dir, {
+      ...CLEAN_ENV,
+      PATH: `${bin}:${process.env.PATH ?? ''}`,
+    })
+
+    expect(code).toBe(1)
+    expect(stdout).toContain('cannot publish before #664')
+    expect(stdout).toContain('.omp-plugin/marketplace.json')
+    fs.rmSync(dir, { recursive: true, force: true })
+    fs.rmSync(bin, { recursive: true, force: true })
   })
 })
