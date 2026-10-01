@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  armedStoppedPrs,
   type BranchFacts,
   baseFromStack,
   branchFor,
@@ -1117,5 +1118,26 @@ describe('hookStatus', () => {
     const status = hookStatus({ run: RUN, baseSha: at, hooks })
     expect(status.state).toBe(state)
     expect(status.record).toEqual(shown)
+  })
+})
+
+describe('armedStoppedPrs', () => {
+  it('lists only open armed PRs of children stopped this run or by a sticky marker', () => {
+    const listed = armedStoppedPrs(
+      facts([
+        child(2, { stops: [{ run: EARLIER, reason: 'review-bound' }], prs: [pr(2, { number: 10, armed: true })] }),
+        child(3, {
+          stops: [{ run: RUN, reason: 'timeout' }],
+          prs: [pr(3, { number: 12, armed: true, state: 'CLOSED' })],
+        }),
+        child(4, { prs: [pr(4, { number: 14, armed: true })] }),
+        child(5, { stops: [{ run: EARLIER, reason: 'timeout' }], prs: [pr(5, { number: 15, armed: false })] }),
+        child(6, { stops: [{ run: RUN, reason: 'proof-blocked' }], prs: [pr(6, { number: 16, armed: true })] }),
+      ]),
+    )
+    expect(listed).toEqual([
+      { ticket: 2, pr: 10 },
+      { ticket: 6, pr: 16 },
+    ])
   })
 })

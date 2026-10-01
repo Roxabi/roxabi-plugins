@@ -856,3 +856,143 @@ describe('epic-driver — remaining branches', () => {
     expect(writes()).toEqual([])
   })
 })
+
+/**
+ * A stopped child whose PR stayed armed, plus an independent child the goal can start.
+ * `earlier` is a durable goal-stop from another run; the viewer wrote it.
+ */
+function stoppedArmedAndIndependent(sticky = false): string {
+  const { epic } = sandbox()
+  const earlier = {
+    body: `<!-- omp-build:goal-stop run=run00000 reason=review-bound -->\nstopped`,
+    author: ME,
+  }
+  const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
+  serveEpic([
+    childNode(2, 'feat(x): first child', {
+      comments: [earlier],
+      prs: [prNode(10, 'feat/2-first-child', 'a'.repeat(40), armed)],
+    }),
+    childNode(3, 'fix(y): second child'),
+  ])
+  servePr(10, { state: 'OPEN', labels: ['reviewed'], autoMerge: true }, sticky)
+  return epic
+}
+
+describe('epic-driver — reconcile a stopped armed PR', () => {
+  it('disarms a stopped child before starting an independent one, and lists it under reconciled', () => {
+    const epic = stoppedArmedAndIndependent()
+    const run = drive(['next'])
+    expect(run.code).toBe(0)
+    expect(run.json().step).toMatchObject({ action: 'start', ticket: 3, branch: 'fix/3-second-child' })
+    expect(run.json().disarmed).toBeNull()
+    expect(run.json().reconciled).toEqual([{ ticket: 2, pr: 10, disarmed: 'disarmed' }])
+    expect(writes()).toEqual(['edit 10 --remove-label reviewed', 'merge 10 --disable-auto'])
+    expect(git(epic, 'branch', '--show-current')).toBe('fix/3-second-child')
+  })
+
+  it('returns a drop and creates no branch when that disarm fails', () => {
+    const epic = stoppedArmedAndIndependent(true)
+    const run = drive(['next'])
+    expect(run.code).toBe(0)
+    expect(run.json().step.action).toBe('drop')
+    expect(run.json().step.stop).toBe('driver-error')
+    expect(run.json().step.reason).toContain('#10')
+    expect(git(epic, 'branch', '--show-current')).toBe('')
+    expect(git(epic, 'branch', '--list', 'fix/3-second-child')).toBe('')
+  })
+
+  it('returns a drop and creates no branch when the stopped PR already merged', () => {
+    const epic = stoppedArmedAndIndependent()
+    servePr(10, { state: 'MERGED', labels: [], autoMerge: false })
+    const run = drive(['next'])
+    expect(run.code).toBe(0)
+    expect(run.json().step.action).toBe('drop')
+    expect(run.json().step.stop).toBe('driver-error')
+    expect(run.json().step.reason).toContain('#10')
+    expect(run.json().reconciled).toEqual([{ ticket: 2, pr: 10, disarmed: 'merged' }])
+    expect(git(epic, 'branch', '--show-current')).toBe('')
+    expect(git(epic, 'branch', '--list', 'fix/3-second-child')).toBe('')
+  })
+
+  it('dry-run reports the PR it would disarm and makes no write', () => {
+    const epic = stoppedArmedAndIndependent()
+    const run = drive(['next', '--dry-run'])
+    expect(run.code).toBe(0)
+    expect(run.json().step).toMatchObject({ action: 'start', ticket: 3 })
+    expect(run.json().reconciled).toEqual([{ ticket: 2, pr: 10, disarmed: 'dry-run' }])
+    expect(writes()).toEqual([])
+    expect(git(epic, 'branch', '--show-current')).toBe('')
+    expect(git(epic, 'branch', '--list', 'fix/3-second-child')).toBe('')
+  })
+})
+
+describe('epic-driver — drop disarms without the dashboard', () => {
+  it('disarms every armed PR when the base-CI rollup query fails', () => {
+    sandbox()
+    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
+    serveEpic([
+      childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', 'c'.repeat(40), armed)] }),
+    ])
+    servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    writeFileSync(
+      path.join(sandboxOf().state, 'rollup.json'),
+      JSON.stringify({ data: null, errors: [{ message: 'statusCheckRollup failed' }] }),
+    )
+    const run = drive(['report', '--outcome', 'drop', '--reason', 'driver-error'])
+    expect(run.code).toBe(0)
+    expect(writes()).toEqual([
+      'edit 11 --remove-label reviewed',
+      'merge 11 --disable-auto',
+      `comment 1 <!-- omp-build:goal-report run=${RUN} -->`,
+    ])
+    expect(run.stdout).toContain('| Base CI | unread |')
+    expect(run.stdout).not.toContain('| Base CI | none |')
+    expect(run.stdout).not.toContain('| Base CI | green |')
+    expect(comments()[0]).toContain('| Base CI | unread |')
+  })
+
+  it('disarms every armed PR when the landing cannot be read', () => {
+    sandbox('release:\n  model: trunk\nlanding:\n  mode: squash\n')
+    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
+    serveEpic([
+      childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', 'c'.repeat(40), armed)] }),
+    ])
+    servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    const run = drive(['report', '--outcome', 'drop', '--reason', 'bad-landing'])
+    expect(run.code).toBe(0)
+    expect(writes()).toEqual([
+      'edit 11 --remove-label reviewed',
+      'merge 11 --disable-auto',
+      `comment 1 <!-- omp-build:goal-report run=${RUN} -->`,
+    ])
+    expect(run.stdout).toContain('| Base CI | unread |')
+    expect(run.stdout).not.toContain('| Base CI | none |')
+    expect(run.stdout).not.toContain('| Base CI | green |')
+  })
+
+  it('disarms the second PR when the first disarm fails, and exits non-zero naming the PR still armed', () => {
+    sandbox()
+    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
+    serveEpic([
+      childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', 'c'.repeat(40), armed)] }),
+      childNode(3, 'fix(y): second child', { prs: [prNode(12, 'fix/3-second-child', 'd'.repeat(40), armed)] }),
+    ])
+    servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true }, true)
+    servePr(12, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    const run = drive(['report', '--outcome', 'drop', '--reason', 'driver-error'])
+    expect(run.code).not.toBe(0)
+    expect(run.stderr).toContain('#11')
+    expect(writes()).toEqual([
+      'edit 11 --remove-label reviewed',
+      'merge 11 --disable-auto',
+      'edit 12 --remove-label reviewed',
+      'merge 12 --disable-auto',
+      `comment 1 <!-- omp-build:goal-report run=${RUN} -->`,
+    ])
+    expect(JSON.parse(readFileSync(path.join(sandboxOf().state, 'pr', '12.json'), 'utf8')).labels).toEqual([])
+    expect(JSON.parse(readFileSync(path.join(sandboxOf().state, 'pr', '11.json'), 'utf8')).labels).toEqual([
+      { name: 'reviewed' },
+    ])
+  })
+})
