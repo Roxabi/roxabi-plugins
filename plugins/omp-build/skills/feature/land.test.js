@@ -815,8 +815,8 @@ describe('landPr — an approval arms only the commit it reviewed', () => {
   })
 
   it.each([
-    ['a 39-hex line 2', `${REVIEWED_HEAD.slice(0, 39)}`],
-    ['a 41-hex line 2', `${REVIEWED_HEAD}a`],
+    ['a 39-hex sha inside the marker', headLine(REVIEWED_HEAD.slice(0, 39))],
+    ['a 41-hex sha inside the marker', headLine(`${REVIEWED_HEAD}a`)],
     ['a line 2 with a prefix', `note ${headLine(REVIEWED_HEAD)}`],
     ['a line 2 with trailing text', `${headLine(REVIEWED_HEAD)} extra`],
   ])('%s does not arm, even when the embedded sha is the current head', async (_label, line2) => {
