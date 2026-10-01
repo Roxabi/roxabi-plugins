@@ -52,7 +52,18 @@ case "$*" in
   *'--disable-auto'*) exit 0 ;;
   *'--remove-label'*) exit 0 ;;
   *'pr comment'*) exit 0 ;;
-  *'--auto'*) exit 0 ;;
+  *'--auto'*)
+    if [ "\${GH_AUTO_FAIL:-}" = 1 ]; then
+      n=$(cat "$GH_LOG.auto" 2>/dev/null || echo 0)
+      n=$((n + 1))
+      printf '%s' "$n" > "$GH_LOG.auto"
+      if [ "$n" -eq 1 ]; then
+        echo "\${GH_AUTO_MSG:-refused}" >&2
+        exit 1
+      fi
+    fi
+    exit 0
+    ;;
   *'--paginate'*|*'issues/'*)
     if [ "\${GH_COMMENTS_FAIL:-}" = 1 ]; then
       echo 'comments unavailable' >&2
@@ -292,6 +303,40 @@ describe('dependabot exemption when the record gate is on', () => {
     expect(ran.log).toContain('--disable-auto')
     expect(ran.log.indexOf('--disable-auto')).toBeLessThan(ran.log.indexOf('--remove-label reviewed'))
     expect(ran.log).not.toContain('--auto --merge')
+  })
+
+  it('a refused pin disarms and does not re-enable', () => {
+    const ran = runScript(stepScript(yml(), 'Enable auto-merge (merge commit)'), {
+      ACTION: 'labeled',
+      AUTHOR: 'someone',
+      GH_COMMENTS: pages([{ body: record('Approve', HEAD), at: '2026-01-01T00:00:00Z' }]),
+      GH_AUTO_FAIL: '1',
+      GH_AUTO_MSG: 'refused',
+    })
+    expect(ran.status).not.toBe(0)
+    expect(ran.log.match(/--auto --merge/g)).toHaveLength(1)
+    expect(ran.log.indexOf('--auto --merge')).toBeLessThan(ran.log.indexOf('--disable-auto'))
+    expect(ran.log).toContain('--remove-label reviewed')
+  })
+
+  it('an already-enabled pin is disabled and re-enabled on the reviewed head', () => {
+    const ran = runScript(stepScript(yml(), 'Enable auto-merge (merge commit)'), {
+      ACTION: 'labeled',
+      AUTHOR: 'someone',
+      GH_COMMENTS: pages([{ body: record('Approve', HEAD), at: '2026-01-01T00:00:00Z' }]),
+      GH_AUTO_FAIL: '1',
+      GH_AUTO_MSG: 'already enabled',
+    })
+    expect(ran.status).toBe(0)
+    const merges = ran.log.match(/--auto --merge/g) ?? []
+    expect(merges).toHaveLength(2)
+    const first = ran.log.indexOf('--auto --merge')
+    const disabled = ran.log.indexOf('--disable-auto')
+    const second = ran.log.indexOf('--auto --merge', first + 1)
+    expect(first).toBeLessThan(disabled)
+    expect(disabled).toBeLessThan(second)
+    expect(ran.log).toContain(`--match-head-commit ${HEAD}`)
+    expect(ran.log).not.toContain('--remove-label')
   })
 })
 
