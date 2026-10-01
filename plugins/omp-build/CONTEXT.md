@@ -21,7 +21,7 @@ One `/goal` line for an Epic goal, named by the `run=<id>` in its objective. Onl
 _Avoid_: a session, a paused goal, the run as a counter of attempts
 
 **Ticket stop**:
-A child the Goal run stops on — review bound spent, proof blocked, foreign commit or branch mismatch, no scope, a watch that timed out, cancelled or blocked checks, an unmerged or closed PR. Recorded as a `goal-stop` marker on the child; its PR is disarmed, its dependents are skipped, independent children continue. A spent review bound stays stopped across runs; any other ticket stop is retried by the next run.
+A child the Goal run stops on - review bound spent, proof blocked, foreign commit or branch mismatch, no scope, a watch that timed out, cancelled or blocked checks, an unmerged or closed PR. Recorded as a `goal-stop` marker on the child; its PR is disarmed, its dependents are skipped, independent children continue. A later `next` re-disarms an armed PR of a stopped child before it continues; a failed re-disarm, or a PR that already merged, drops the goal and creates no branch. A spent review bound stays stopped across runs; any other ticket stop is retried by the next run.
 _Avoid_: a goal drop, a skipped dependent, a stop held in session memory
 
 **Shared-state stop**:

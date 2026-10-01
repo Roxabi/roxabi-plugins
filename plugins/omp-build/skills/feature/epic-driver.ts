@@ -24,6 +24,7 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import {
+  armedStoppedPrs,
   type BaseCi,
   type BranchFacts,
   baseFromStack,
@@ -36,6 +37,7 @@ import {
   goalRun,
   hookStatus,
   mergedLocalBranches,
+  mergedStoppedPrs,
   nextStep,
   type PrFacts,
   parseEpicReview,
@@ -315,7 +317,13 @@ type Gathered = { facts: Facts; epicComments: string[] }
  * Everything `nextStep` reads. `git: false` leaves the worktree out (for
  * `objective`, which may run anywhere); `run` and `base` come from the gate.
  */
-function gather(repo: string, epic: number, run: string, base: string, { git: withGit = true } = {}): Gathered {
+function gather(
+  repo: string,
+  epic: number,
+  run: string,
+  base: string,
+  { git: withGit = true, dashboard = true, reviews = true } = {},
+): Gathered {
   const { owner, name, full } = repoName(repo)
   const data = graphql<EpicData>(repo, EPIC_QUERY, { owner, name, epic })
   const viewer = data.viewer.login
@@ -352,7 +360,7 @@ function gather(repo: string, epic: number, run: string, base: string, { git: wi
         .map((pr) => pr.number),
     ),
   ]
-  const stopped = stoppedReviews(repo, owner, name, viewer, open)
+  const stopped = reviews ? stoppedReviews(repo, owner, name, viewer, open) : new Set<number>()
   const numbers = nodes.map((node) => node.number)
   const refs = withGit ? branchRefs(repo, base, numbers) : new Map<number, BranchFacts[]>()
 
@@ -378,12 +386,15 @@ function gather(repo: string, epic: number, run: string, base: string, { git: wi
   const epicComments = ours(issue.comments.nodes, viewer)
   const baseSha = withGit ? git(repo, ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${base}^{commit}`]) : ''
   // An unreadable landing is a fact, not a throw: the drop it causes must still disarm and report.
+  // A drop reads children and PRs first (`dashboard: false`) and does not touch landing or base CI.
   let landing: { required_checks: string[] } | null = null
   let landingError: string | null = null
-  try {
-    landing = readLanding(repo)
-  } catch (error) {
-    landingError = error instanceof Error ? error.message : String(error)
+  if (dashboard) {
+    try {
+      landing = readLanding(repo)
+    } catch (error) {
+      landingError = error instanceof Error ? error.message : String(error)
+    }
   }
   const facts: Facts = {
     epic,
@@ -391,8 +402,9 @@ function gather(repo: string, epic: number, run: string, base: string, { git: wi
     base,
     baseSha,
     tree: withGit ? tree(repo) : { clean: true, branch: null },
-    baseCi:
-      withGit && landing
+    baseCi: !dashboard
+      ? { state: 'unread', failed: [], pending: [] }
+      : withGit && landing
         ? baseCi(repo, owner, name, baseSha, landing.required_checks)
         : { state: 'none', failed: [], pending: [] },
     landingError,
@@ -531,6 +543,7 @@ type NextOut = {
   recorded: { ticket: number; stop: string; disarmed?: Record<number, Disarm> }[]
   cleaned: string[]
   disarmed: Disarm | null
+  reconciled: { ticket: number; pr: number; disarmed: Disarm | 'dry-run' }[]
 }
 
 async function next(repo: string, epic: number, run: string, base: string, dry: boolean, reread = 0): Promise<NextOut> {
@@ -557,6 +570,39 @@ async function next(repo: string, epic: number, run: string, base: string, dry: 
   }
 
   const recorded: { ticket: number; stop: string; disarmed?: Record<number, Disarm> }[] = []
+  const reconciled: { ticket: number; pr: number; disarmed: Disarm | 'dry-run' }[] = []
+  const problems: string[] = []
+  for (const entry of armedStoppedPrs(facts)) {
+    if (dry) {
+      reconciled.push({ ticket: entry.ticket, pr: entry.pr, disarmed: 'dry-run' })
+      continue
+    }
+    try {
+      const what = await disarm(repo, entry.pr)
+      reconciled.push({ ticket: entry.ticket, pr: entry.pr, disarmed: what })
+      if (what === 'merged') problems.push(`PR #${entry.pr} merged before it could be disarmed`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      problems.push(`PR #${entry.pr} stayed armed: ${message}`)
+    }
+  }
+  for (const entry of mergedStoppedPrs(facts)) problems.push(`PR #${entry.pr} already merged`)
+  if (problems.length) {
+    return {
+      run,
+      base,
+      step: {
+        action: 'drop',
+        stop: 'driver-error',
+        reason: problems.join('; '),
+        report: summarize(facts),
+      },
+      recorded,
+      cleaned,
+      disarmed: null,
+      reconciled,
+    }
+  }
   const handled = new Set<number>()
   let step = nextStep(facts)
   while (step.action === 'stop') {
@@ -604,7 +650,7 @@ async function next(repo: string, epic: number, run: string, base: string, dry: 
       }
     }
   }
-  return { run, base, step, recorded, cleaned, disarmed }
+  return { run, base, step, recorded, cleaned, disarmed, reconciled }
 }
 
 async function stop(
@@ -666,19 +712,46 @@ async function hook(repo: string, epic: number, run: string, base: string): Prom
   return outcome
 }
 
-async function report(repo: string, epic: number, run: string, base: string, outcome: string, reason: string) {
+async function report(
+  repo: string,
+  epic: number,
+  run: string,
+  base: string,
+  outcome: string,
+  reason: string,
+): Promise<{ posted: boolean; text: string; stillArmed: number[] }> {
   if (outcome !== 'complete' && outcome !== 'drop') throw new Refused(`--outcome must be complete or drop: ${outcome}`)
   refusePrincipal(repo)
-  let { facts, epicComments } = gather(repo, epic, run, base)
   const disarmed: Record<number, Disarm> = {}
+  const stillArmed: number[] = []
+  let facts: Facts
+  let epicComments: string[]
   if (outcome === 'complete') {
+    ;({ facts, epicComments } = gather(repo, epic, run, base))
     const step = nextStep(facts)
     if (step.action !== 'complete') throw new Refused(`the goal is not complete (next: ${step.action})`)
   } else {
-    for (const pr of facts.children.flatMap((child) => child.prs).filter((p) => p.state === 'OPEN' && p.armed)) {
-      disarmed[pr.number] = await disarm(repo, pr.number)
+    const light = gather(repo, epic, run, base, { git: false, dashboard: false, reviews: false })
+    const armed = light.facts.children
+      .flatMap((child) => child.prs)
+      .filter((pr) => pr.state === 'OPEN' && pr.armed)
+      .sort((a, b) => a.number - b.number)
+    for (const pr of armed) {
+      try {
+        disarmed[pr.number] = await disarm(repo, pr.number)
+      } catch {
+        stillArmed.push(pr.number)
+      }
     }
-    if (Object.keys(disarmed).length) ({ facts, epicComments } = gather(repo, epic, run, base))
+    try {
+      ;({ facts, epicComments } = gather(repo, epic, run, base))
+      if (facts.landingError) {
+        facts = { ...facts, baseCi: { state: 'unread', failed: [], pending: [] } }
+      }
+    } catch {
+      facts = { ...light.facts, baseCi: { state: 'unread', failed: [], pending: [] } }
+      epicComments = light.epicComments
+    }
   }
   const summary = summarize(facts)
   const hook = hookStatus(facts).record
@@ -702,10 +775,24 @@ async function report(repo: string, epic: number, run: string, base: string, out
             .join(', ')} |`,
         ]
       : []),
+    ...(stillArmed.length ? [`| Still armed | ${list(stillArmed)} |`] : []),
   ].join('\n')
   const posted = !epicComments.some((body) => readMarker(body, 'goal-report')?.run === run)
-  if (posted) comment(repo, epic, text)
-  return { posted, text }
+  const named = stillArmed.length ? `still armed: ${stillArmed.map((pr) => `#${pr}`).join(', ')}` : ''
+  if (named) {
+    console.log(text)
+    console.error(named)
+  }
+  if (posted) {
+    try {
+      comment(repo, epic, text)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      throw new Error(named ? `${named}; comment failed: ${message}` : message)
+    }
+  }
+  if (named) throw new Error(named)
+  return { posted, text, stillArmed }
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
@@ -772,8 +859,14 @@ async function main(argv: string[]): Promise<string> {
       if (outcome.result === 'failed') throw new Error(`hook-failed ${JSON.stringify(outcome)}`)
       return JSON.stringify(outcome, null, 2)
     }
-    case 'report':
-      return (await report(repo, epic, run, base, values.outcome, values.reason)).text
+    case 'report': {
+      const out = await report(repo, epic, run, base, values.outcome, values.reason)
+      if (out.stillArmed.length) {
+        console.log(out.text)
+        throw new Error(`still armed: ${out.stillArmed.map((pr) => `#${pr}`).join(', ')}`)
+      }
+      return out.text
+    }
     default:
       throw new Refused(`unknown subcommand ${command ?? '(none)'}: objective | next | stop | review | hook | report`)
   }

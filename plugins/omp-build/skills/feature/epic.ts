@@ -322,7 +322,7 @@ export type ChildFacts = {
   branches: BranchFacts[]
 }
 
-export type BaseCi = { state: 'red' | 'green' | 'pending' | 'none'; failed: string[]; pending: string[] }
+export type BaseCi = { state: 'red' | 'green' | 'pending' | 'none' | 'unread'; failed: string[]; pending: string[] }
 export type EpicReview = { run: string; verdict: 'clean' | 'blocking'; range: string }
 export type HookRecord = { run: string; result: 'started' | 'ok' | 'skipped' | 'failed'; sha: string }
 
@@ -458,6 +458,41 @@ function stopOf(child: ChildFacts, run: string): { reason: string; sticky: boole
   if (child.prs.some((pr) => pr.state === 'OPEN' && pr.exhausted)) return { reason: 'review-bound', sticky: true }
   const current = child.stops.filter((stop) => stop.run === run).at(-1)
   return current ? { reason: current.reason, sticky: false } : null
+}
+
+/** Open, armed PRs of children `stopOf` reports stopped, sticky or this run. */
+export function armedStoppedPrs(facts: Facts): { ticket: number; pr: number }[] {
+  const found: { ticket: number; pr: number }[] = []
+  for (const child of [...facts.children].sort((a, b) => a.number - b.number)) {
+    if (!stopOf(child, facts.run)) continue
+    const openArmed = child.prs
+      .filter((item) => item.state === 'OPEN' && item.armed)
+      .sort((a, b) => a.number - b.number)
+    for (const pr of openArmed) {
+      found.push({ ticket: child.number, pr: pr.number })
+    }
+  }
+  return found
+}
+
+/**
+ * Stopped children's PRs the epic query already shows MERGED onto this base,
+ * from a branch claiming the ticket. `mergeSha` is not required: a rebase leaves
+ * `mergeCommit` null, and the PR has still landed. `mergedPr` stays the landing
+ * predicate (a child is done only with a merge commit).
+ */
+export function mergedStoppedPrs(facts: Facts): { ticket: number; pr: number }[] {
+  const found: { ticket: number; pr: number }[] = []
+  for (const child of [...facts.children].sort((a, b) => a.number - b.number)) {
+    if (!stopOf(child, facts.run)) continue
+    const merged = child.prs
+      .filter(
+        (item) => item.state === 'MERGED' && item.base === facts.base && ticketOfBranch(item.head) === child.number,
+      )
+      .sort((a, b) => a.number - b.number)
+    for (const pr of merged) found.push({ ticket: child.number, pr: pr.number })
+  }
+  return found
 }
 
 function openBlockers(child: ChildFacts, byNumber: Map<number, ChildFacts>, base: string): number[] {
