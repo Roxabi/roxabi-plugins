@@ -51,12 +51,12 @@ export interface LicensePolicy {
   overrides: Record<string, string>
 }
 
-/** Raw shape of .license-policy.json on disk — either key accepted. */
+/** Raw shape of .license-policy.json on disk — either key accepted, neither trusted until loadPolicy checks it. */
 interface RawLicensePolicy {
   /** Canonical key used by Python checker and new deployments. */
-  allowlist?: string[]
+  allowlist?: unknown
   /** Legacy key from original TS checker. */
-  allowedLicenses?: string[]
+  allowedLicenses?: unknown
   overrides?: Record<string, string>
 }
 
@@ -90,8 +90,15 @@ export function loadPolicy(repoRoot: string): LicensePolicy {
   }
   const raw = readFileSync(policyPath, 'utf-8')
   const policy = JSON.parse(raw) as RawLicensePolicy
+  // A string here would turn the allowlist check into substring matching:
+  // "MIT-0 Apache-2.0".includes('MIT') allows MIT.
+  const key = policy.allowlist != null ? 'allowlist' : 'allowedLicenses'
+  const allowedLicenses = policy[key] ?? []
+  if (!Array.isArray(allowedLicenses) || allowedLicenses.some((id) => typeof id !== 'string')) {
+    throw new Error(`.license-policy.json: "${key}" must be an array of license ids`)
+  }
   return {
-    allowedLicenses: policy.allowlist ?? policy.allowedLicenses ?? [],
+    allowedLicenses,
     overrides: policy.overrides ?? {},
   }
 }

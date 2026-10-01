@@ -102,6 +102,16 @@ describe('loadPolicy', () => {
     const result = loadPolicy(tmpDir)
     expect(result.allowedLicenses).toEqual(['MIT'])
   })
+
+  it.each([
+    ['allowlist', { allowlist: 'MIT-0 Apache-2.0' }],
+    ['allowlist', { allowlist: ['MIT', 42] }],
+    ['allowedLicenses', { allowedLicenses: 'MIT-0' }],
+    ['allowlist', { allowlist: { MIT: true }, allowedLicenses: ['MIT'] }],
+  ])('throws when "%s" is not an array of license ids: %j', (key, policy) => {
+    fs.writeFileSync(path.join(tmpDir, '.license-policy.json'), JSON.stringify(policy))
+    expect(() => loadPolicy(tmpDir)).toThrow(`"${key}" must be an array of license ids`)
+  })
 })
 
 // ─── parseSpdxExpression ─────────────────────────────────────────────────────
