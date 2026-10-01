@@ -45,29 +45,30 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_LABELS: ${{ toJSON(github.event.pull_request.labels) }}
+          PR_AUTO_MERGE: ${{ toJSON(github.event.pull_request.auto_merge) }}
         run: |
           set -euo pipefail
-          # Writes first. A not-enabled disable is success. Drop reviewed only
-          # when the event carried it. A failed view must not skip those writes.
+          # Writes first. A not-enabled or can't-disable error is success; any
+          # other disable failure aborts. Drop reviewed only when the event
+          # carried it. A failed view must not skip those writes.
           # Abort only if a follow-up read shows autoMergeRequest still set.
-          # Exit 1 only when this head was armed or labeled.
+          # armed is the event payload, not the disable exit code: on a
+          # non-draft PR disable succeeds even when auto-merge is off.
+          # Exit 1 only when that payload was non-null or the event carried reviewed.
           set +e
           disable_out=$(gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --disable-auto 2>&1)
           disable_code=$?
           set -e
-          armed=0
           if [ "$disable_code" -ne 0 ]; then
             printf '%s\n' "$disable_out" >&2
-            # "not enabled" is a ready PR that was never armed. A draft answers
-            # "Can't disable auto-merge" instead. The follow-up read still
-            # aborts if autoMergeRequest is set.
+            # "not enabled" and a draft "Can't disable auto-merge" are not
+            # disable failures. The follow-up read still aborts if
+            # autoMergeRequest is set.
             if ! printf '%s' "$disable_out" | grep -qi 'not enabled' \
               && ! printf '%s' "$disable_out" | grep -qi "can't disable auto-merge"; then
               echo "::error::failed to disable auto-merge"
               exit 1
             fi
-          else
-            armed=1
           fi
           labeled=0
           if printf '%s' "$PR_LABELS" | jq -e 'any(.[]; .name == "reviewed")' >/dev/null; then
@@ -83,6 +84,10 @@ jobs:
           if [ -n "$still" ] && [ "$still" != "null" ]; then
               echo "::error::auto-merge still armed after disarm"
               exit 1
+          fi
+          armed=0
+          if [ -n "${PR_AUTO_MERGE:-}" ] && [ "${PR_AUTO_MERGE:-}" != "null" ]; then
+            armed=1
           fi
           if [ "$armed" -eq 1 ] || [ "$labeled" -eq 1 ]; then
             echo "::error::head moved after review — auto-merge disarmed"
