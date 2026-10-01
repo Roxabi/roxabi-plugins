@@ -158,9 +158,11 @@ PRs resume directly into review; empty history receives a baseline marker.
 History is per automation identity, not a tamper-proof ledger. Foreign records
 are ignored; deletion/editing of the account's comments is not detected. Empty
 history starts at zero; review-only legacy history without accounting/receipts
-(such as #636) is ambiguous, not proof of zero spent rounds. A terminal stop
-remains sticky through later greens. Two completed fixes followed by an
-unambiguous green remain eligible for landing.
+(such as #636) is ambiguous, not proof of zero spent rounds. A review posted
+after the last marker is already counted; recording it does not count it twice,
+and more than one unrecorded review is ambiguous. An allocated fix whose receipt
+is not posted yet stays open. A terminal stop remains sticky through later greens.
+Two completed fixes followed by an unambiguous green remain eligible for landing.
 
 The canonical choices, escalation dossier and human-approved superseding-PR
 procedure live in `skills/dev-review/SKILL.md` Phase 8. Skills route through the
@@ -216,12 +218,12 @@ Spawn: `task` `{ agent: "R-adversarial" | "R-advisor" | "R-architect" | "R-devop
 |---|---|
 | `feature` | `/feature` (registered command) |
 | `dev-review` | model-invocable · the five-role review panel |
-| `fix` | model-invocable · applies the findings, inline |
+| `fix` | model-invocable · applies blocking causes, inline; non-blocking causes deferred |
 | `promote` | `/promote` (registered command) · the optional tail |
 | `cleanup` | `/cleanup` (registered command) · the optional tail |
 | `ci-watch` | `/ci-watch` (registered command) · watches checks, then the merge |
 
-`dev-review` and `fix` are the #492 snapshot of dev-core's `dev-review`/`fix` pair, cut to this plugin's roster: five dispatchable roles, `R-tester` armed by changed-test evidence alone, and every finding applied in-session. They read their own bundled files through `skill://dev-review/<file>`. `lib.sh` is the exception: it sits one level up, in a non-skill directory, and `skill://` rejects `..`, so `dev-review` Phase 1 traverses from `$SKILL_DIR` instead. **Nothing in this plugin exports `SKILL_DIR`** — only the registered commands print a skill directory (`omp/index.ts`) — so that fence asserts the variable (`${SKILL_DIR:?…}`) and stops when it is unset, rather than sourcing `/../shared/lib.sh` and detecting a base branch against nothing. `cleanup/analyze-branches.sh` has no such problem: it is a script, so it resolves `../shared/lib.sh` from its own `BASH_SOURCE`.
+`dev-review` and `fix` are the #492 snapshot of dev-core's `dev-review`/`fix` pair, cut to this plugin's roster: five dispatchable roles, `R-tester` armed by changed-test evidence alone, and blocking causes applied in-session; non-blocking causes deferred to one sibling issue. They read their own bundled files through `skill://dev-review/<file>`. `lib.sh` is the exception: it sits one level up, in a non-skill directory, and `skill://` rejects `..`, so `dev-review` Phase 1 traverses from `$SKILL_DIR` instead. **Nothing in this plugin exports `SKILL_DIR`** — only the registered commands print a skill directory (`omp/index.ts`) — so that fence asserts the variable (`${SKILL_DIR:?…}`) and stops when it is unset, rather than sourcing `/../shared/lib.sh` and detecting a base branch against nothing. `cleanup/analyze-branches.sh` has no such problem: it is a script, so it resolves `../shared/lib.sh` from its own `BASH_SOURCE`.
 
 `promote` and `cleanup` are the #495 snapshot of dev-core's tail. They are
 **offered after land, never automatic, and never inside the review→fix loop**.

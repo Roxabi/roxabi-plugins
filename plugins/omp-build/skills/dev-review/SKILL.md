@@ -126,6 +126,8 @@ In a repo with `.semctx/`, that matrix is the proof section `/feature` generated
 from the closed change contract. The issue body remains the spec if they diverge.
 5a. **UI proof.** When Δ touches `frontend.path` or `shared.ui` and `.dev/stack.yml` declares `commands.test_e2e`, a `ui-manual-only` row is an `issue(blocking):` — the e2e command is the proof, not a hand check. Without an e2e command, `ui-manual-only` is legal only when the PR body records an agent browser check: steps, URL, observed result. The NO TEST enum itself is unchanged.
 
+A finding emitted in steps 4–5a whose only gap is a missing or weak test is not finally labelled in this phase. Phase 4 step 3b rewrites that label. A missing SC→Test matrix stays `issue(blocking):`. An unmet criterion whose gap is the behaviour itself, not the test, stays `issue(blocking):`.
+
 ### τ comes from the `size:` label — nothing else
 
 ```bash
@@ -333,7 +335,7 @@ task(
 )
 ```
 
-Workers run in parallel. Collect their blocking findings into Phase 4. Single-chunk reviews skip Phase 3b.
+Workers run in parallel. Collect their findings into Phase 4. A missing or weak test among them is not finally labelled until Phase 4 step 3b. The worker's `Source: recall` is an emission mark, not an input to `blocks(f)` after that step. Single-chunk reviews skip this recall phase, not that rewrite.
 
 ### Review dimensions
 correctness | security | performance | architecture | tests | readability | observability
@@ -384,22 +386,34 @@ C(f) = min(diagnostic_certainty, fix_certainty)
 | Architecture | `thought:` / `question:` | ✗ |
 | Good work | `praise:` | ✗ |
 
+**Missing or weak test.** A missing test, a test that still passes when the guard is removed, a tautology, or a coverage gap is blocking only when the behaviour it leaves unproven is an acceptance criterion of the issue with no other evidence in the PR, or a safety invariant: a path that merges, releases or deploys, deletes, publishes, grants permission, or stops or disarms an automated action. Otherwise the label is `suggestion:`, which does not satisfy `blocks(f)`.
+
+Label → group, matched exactly (do not prefix-match `suggestion:` onto `suggestion(blocking):`):
+
+| Group | Labels |
+|-------|--------|
+| Blockers | `issue:`, `issue(blocking):`, `todo:`, `suggestion(blocking):` |
+| Warnings | `suggestion:`, `suggestion(non-blocking):`, `nitpick:` |
+| Suggestions | `thought:`, `question:` |
+| Praise | `praise:` |
+
 ## Phase 4 — Merge, Render & Post
 
 One phase owns the final finding set, the single rendered review, and the optional PR comment. Findings are never re-rendered in a second presentation step.
 
-1. **Collect F** from Phase 2 spec compliance, per-chunk agents, and isolated recall workers. Every unmet criterion's `issue(blocking):` enters F so a missing spec criterion cannot coexist with `Approve (clean)`.
+1. **Collect F** from Phase 2 spec compliance, per-chunk agents, and isolated recall workers. Every unmet criterion's `issue(blocking):` enters F so a missing spec criterion cannot coexist with `Approve (clean)`. A missing or weak test that step 3b rewrites to `suggestion:` is a Warning: it does not by itself force `Request changes`, and it does not yield `Approve (clean)`.
 2. **Deterministic dedup — both keys always apply:**
    - same file:line + issue → keep max C
    - one finding per `(file, class)` → keep max C
    - findings sharing file:line and intersecting class sets after subsumption → merge with max C, subsumed class stripping, and unioned `Raw callsites`
-3. **Classify:** normal findings follow their category label. A finding with `Source: recall` is always blocking; normalize its label to `issue(blocking):`.
+3. **Classify:** normal findings follow their category label. Before step 3b, a finding with `Source: recall` is normalized to `issue(blocking):`. That normalization is not re-applied after step 3b. A surviving `Source: recall` line does not restore a blocking label.
+3b. **Missing or weak test — last label write.** After collection, dedup, and the recall normalization, before the verdict and before root causes, rewrite a finding whose subject is a missing or weak test. That includes an agent `issue:`, a recall finding (the recall worker's required `issue(blocking):` is not final), and a Phase 2 unmet-criterion finding whose only gap is that test. It does not include a missing SC→Test matrix, and it does not include an unmet criterion whose gap is the behaviour itself. Keep the finding. It stays blocking, labelled `issue:`, only when the behaviour it leaves unproven is an acceptance criterion of the issue with no other evidence in the PR, or a safety invariant (a path that merges, releases or deploys, deletes, publishes, grants permission, or stops or disarms an automated action). Otherwise relabel it `suggestion:`. Clear `Source: recall` when it is present. That relabel is the last label write. A surviving `Source: recall` line does not re-enter `blocks(f)`. After this step `blocks(f)` is the label set only, so a downgraded finding does not block whether or not that line survived.
 4. **Keep by default:** after deterministic dedup, every finding remains in F. Confidence controls ordering. A validation zero (C := 0) also makes the finding's cause ineligible for auto-apply in `skill://fix`. No confidence threshold, agent judgement, or second LLM pass may remove a finding. Blocking findings are never filtered.
-5. **Sort and group:** C descending within Blockers → Warnings → Suggestions → Praise.
+5. **Sort and group:** C descending within Blockers → Warnings → Suggestions → Praise, using the label → group table above. `suggestion:` is a Warning, not a Suggestion.
 6. **Name root causes.** Read `skill://dev-review/root-causes.md`. R := causes over actionable findings, after reading cited lines where a join is not already obvious. praise, thought, question never enter R. This step writes no code.
 7. **Disclose roster allocation** in the review output whenever non-empty: `capped[]` (the per-chunk union) and `warnings[]`.
 
-`blocks(f) := label ∈ {issue:, issue(blocking):, todo:, suggestion(blocking):} ∨ source(f)=recall`.
+`blocks(f) := label ∈ {issue:, issue(blocking):, todo:, suggestion(blocking):}`. Evaluated after step 3b. After step 3b, `blocks(f)` is the label set only. A downgraded finding does not block whether or not a `Source: recall` line survived.
 
 ### Verdict
 
@@ -411,6 +425,8 @@ Verdict is computed from the complete deduplicated F and fails closed on blocker
 | Warnings only, no blockers | Approve with comments |
 | Suggestions/praise only | Approve |
 | F = ∅ | Approve (clean) |
+
+No blocker and Warnings nonempty → `Approve with comments`, even when praise, thought, or question are also present. Those do not demote the verdict to `Approve`, and they do not make it `Request changes`. The four rows above are unchanged. Round accounting is unchanged: only `Request changes` is red.
 
 ### Render once
 
@@ -514,7 +530,7 @@ nothing: report and exit. No caller may bypass either sink.
   `skill://fix #<pr>` (omit `#<pr>` for local-only).
   For `step.reason === 'ci-failed'`, follow `/feature` §6.5's inline CI correction
   from failed-check logs, not the previous review. Re-review with the same loop.
-  **Stop** keeps the allocated round spent; at `fixes=2` the next resume escalates.
+  **Stop** keeps the allocated round spent. At `fixes=2` the next resume stays open until the receipt is posted; a later red after that receipt escalates.
 - **`land`** → Q: **Merge** / **Stop**. Merge → obtain explicit approval if needed,
   then follow **`skill://feature` §6.7 in full** with this same `loop`: `landPr` (sole
   writer of `reviewed`; no raw label shortcuts), run the returned `watch`, map exits
@@ -596,7 +612,7 @@ explicit human-selected supersede.
 | roster capped (max_agents, per chunk) | disclosed when ≠ ∅ (Phase 4) |
 | oracle warnings ≠ ∅ | echoed into output; review_halt → HALT |
 | sticky `stopReason` on resume (`loop.closed === 'stop'`) | enforceStop (PR) + dossier; ¬record; ¬Fix; ¬Merge |
-| terminal-red derived by `interpretReviewHistory` (exhausted fixes + latest me-authored code-review after latest receipt is Request changes) | `loop.closed === 'stop'` → same as sticky stop; ¬pendingFix; ¬replay |
+| terminal-red derived by `interpretReviewHistory` (exhausted fixes, the allocation's receipt posted, then a later me-authored Request changes) | `loop.closed === 'stop'` → same as sticky stop; ¬pendingFix; ¬replay |
 
 ## Safety Rules
 

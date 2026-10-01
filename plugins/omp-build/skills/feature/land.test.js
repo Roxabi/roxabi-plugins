@@ -382,7 +382,7 @@ const STOPPED = [
     'review-bound',
   ],
   ['a terminal red followed by a later green', [...TWO_ROUNDS, byMe(RED), byMe(GREEN)], 'review-bound'],
-  ['a second allocation never receipted', TWO_ROUNDS.slice(0, 5), 'review-bound'],
+  ['a third red after two receipted rounds', [...TWO_ROUNDS, byMe(RED)], 'review-bound'],
   ['#636 as it stands: a review record and a prose dossier', PR_636, 'history-ambiguous'],
 ]
 
@@ -468,6 +468,7 @@ describe('landPr — only an approval of the latest correction arms', () => {
       [byMe(RED), byMe(accounting(1, 1)), byMe(RECEIPT), { author: { login: 'attacker' }, body: GREEN }],
       { reviews: 1, fixes: 1 },
     ],
+    ['a second allocation never receipted', TWO_ROUNDS.slice(0, 5), { reviews: 2, fixes: 2 }],
   ])('%s: not-approved, and no gate write', async (_label, comments, counts) => {
     const fake = gatePr({ comments })
     const result = await landPr('/tmp/wt', 7, { gh: fake.gh, ...NATIVE })

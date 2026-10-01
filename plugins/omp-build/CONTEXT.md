@@ -63,6 +63,11 @@ At most two automatic review→fix rounds per PR and automation identity.
 A remaining blocker after those rounds stops automatic corrections and landing.
 The stop survives a new session and a later green. A final green after two
 completed fixes is eligible only if no stop has already occurred.
+One review posted after the last marker is already counted; recording it
+acknowledges that review and does not count it twice. More than one unrecorded
+review is unprovable. An allocated fix whose receipt is not posted yet is still
+open: it is not a spent stop. The stop is a later red after that receipt, or an
+explicit stop marker.
 An allocation is spent before the Fix/Stop choice and is executable only once;
 reconstructing history never recreates its permission. CI corrections spend the
 same budget. Unprovable history requires human guidance, not a reset.
@@ -136,11 +141,11 @@ The skill holding Roxabi's multi-domain review on OMP: roster, Conventional Comm
 _Avoid_: R-dev-review as the skill name, code-review (Matt), /review (host builtin)
 
 **fix**:
-The skill that applies one change per common root cause from a review, inline, with no per-finding choice.
-_Avoid_: R-fix as the skill name, R-fixer, spawning a fixer agent, a per-finding walkthrough
+The skill that applies one change per blocking root cause from a review, inline, with no per-finding choice. Non-blocking causes are deferred into one sibling issue, not applied.
+_Avoid_: R-fix as the skill name, R-fixer, spawning a fixer agent, a per-finding walkthrough, applying a non-blocking cause
 
 **Root cause**:
-The shared mechanism behind one or more review findings. Named after the review, before any edit. The unit `fix` applies.
+The shared mechanism behind one or more review findings. Named after the review, before any edit. The unit `fix` applies when a member blocks; otherwise the unit it defers.
 _Avoid_: the finding itself, a class slug alone, a file
 
 **Review record**:
