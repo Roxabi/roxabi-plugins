@@ -324,6 +324,18 @@ describe('stateful gh — one continuous goal', () => {
     expect(pin.stderr).toContain(wrong)
     expect(prOf(BRANCH_A).autoMerge).toBeNull()
     expect(prOf(BRANCH_A).state).toBe('OPEN')
+    const pinned = gh(['pr', 'merge', String(openedA.number), '--auto', '--merge', '--match-head-commit', shaA])
+    expect(pinned.status).toBe(0)
+    const moved = commitAndPush(BRANCH_A, 'feat(a): move head (#2)', 'a-moved.txt')
+    markGreen(moved)
+    if (!box) throw new Error('no sandbox')
+    const originBefore = git(box.origin, ['rev-parse', 'refs/heads/main'])
+    const viewed = gh(['pr', 'view', String(openedA.number), '--json', 'state'])
+    expect(JSON.parse(viewed.stdout).state).toBe('OPEN')
+    expect(git(box.origin, ['rev-parse', 'refs/heads/main'])).toBe(originBefore)
+    expect(gh(['pr', 'merge', String(openedA.number), '--disable-auto']).status).toBe(0)
+    git(box.epic, ['reset', '--hard', shaA])
+    git(box.epic, ['push', '--force', '-q', 'origin', BRANCH_A])
 
     const landed = callWorkflow<{ status: string; mode?: string; watch?: string }>('landPr', epic, {
       pr: openedA.number,

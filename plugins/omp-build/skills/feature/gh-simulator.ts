@@ -225,6 +225,8 @@ function mergeIntoOrigin(state: State, pr: Pull): void {
 function settle(state: State, pr: Pull): void {
   if (pr.state !== 'OPEN') return
   refreshHead(state, pr)
+  const pin = pr.autoMerge?.matchHeadCommit
+  if (pin !== undefined && pin !== pr.headRefOid) return
   if (armed(pr) && green(state, pr.headRefOid)) mergeIntoOrigin(state, pr)
 }
 
