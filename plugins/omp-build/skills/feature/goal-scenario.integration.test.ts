@@ -327,6 +327,12 @@ describe('stateful gh — one continuous goal', () => {
     const pinned = gh(['pr', 'merge', String(openedA.number), '--auto', '--merge', '--match-head-commit', shaA])
     expect(pinned.status).toBe(0)
     const moved = commitAndPush(BRANCH_A, 'feat(a): move head (#2)', 'a-moved.txt')
+    const refused = callWorkflow<{ status: string; reason?: string }>('landPr', epic, {
+      pr: openedA.number,
+    })
+    expect(refused).toMatchObject({ status: 'not-approved', reason: 'head-moved' })
+    expect(prOf(BRANCH_A).labels).not.toContain('reviewed')
+
     markGreen(moved)
     if (!box) throw new Error('no sandbox')
     const originBefore = git(box.origin, ['rev-parse', 'refs/heads/main'])

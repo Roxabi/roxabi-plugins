@@ -531,6 +531,19 @@ function handle(state: State, argv: string[]): void {
     return
   }
 
+  if (cmd === 'api' && bool.has('--paginate') && bool.has('--slurp') && sub?.endsWith('/comments')) {
+    const number = sub.match(/issues\/(\d+)\/comments$/)?.[1]
+    if (!number) fail(`gh: unhandled ${argv.join(' ')}`)
+    const comments = state.prs[number]?.comments ?? state.issues[number]?.comments ?? []
+    const page = comments.map((comment, index) => ({
+      user: { login: comment.author },
+      body: comment.body,
+      created_at: `2026-01-01T00:00:${String(index).padStart(2, '0')}Z`,
+    }))
+    process.stdout.write(`${JSON.stringify([page])}\n`)
+    return
+  }
+
   if (cmd === 'api' && sub?.includes('/events')) {
     const number = sub.match(/issues\/(\d+)\/events/)?.[1]
     if (!number) fail(`gh: unhandled ${argv.join(' ')}`)
