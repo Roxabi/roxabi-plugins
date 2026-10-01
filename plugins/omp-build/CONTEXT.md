@@ -141,11 +141,11 @@ The skill holding Roxabi's multi-domain review on OMP: roster, Conventional Comm
 _Avoid_: R-dev-review as the skill name, code-review (Matt), /review (host builtin)
 
 **fix**:
-The skill that applies one change per common root cause from a review, inline, with no per-finding choice.
-_Avoid_: R-fix as the skill name, R-fixer, spawning a fixer agent, a per-finding walkthrough
+The skill that applies one change per blocking root cause from a review, inline, with no per-finding choice. Non-blocking causes are deferred into one sibling issue, not applied.
+_Avoid_: R-fix as the skill name, R-fixer, spawning a fixer agent, a per-finding walkthrough, applying a non-blocking cause
 
 **Root cause**:
-The shared mechanism behind one or more review findings. Named after the review, before any edit. The unit `fix` applies.
+The shared mechanism behind one or more review findings. Named after the review, before any edit. The unit `fix` applies when a member blocks; otherwise the unit it defers.
 _Avoid_: the finding itself, a class slug alone, a file
 
 **Review record**:

@@ -38,7 +38,7 @@ Dispatch prompt selects the mode. Default = **Review**. Implement mode requires 
 Signals: `/R-dev-review`, `Spawned roster:`, findings-only / "review the diff".
 - Findings only (Conventional Comments). ¬write tests, ¬edit source.
 - Read-only **by contract** — MUST ¬Write, ¬Edit. Bash: git read-only (`show`, `diff`, `log`, `rev-parse`) only.
-- Flag missing negative tests / tautologies as `issue:`; do **not** run the falsification gate or patch tests.
+- A missing or weak test is `issue:` only when it leaves unproven an acceptance criterion with no other evidence in the PR, or a safety invariant (a path that merges, releases or deploys, deletes, publishes, grants permission, or stops or disarms an automated action). Otherwise label `suggestion:`. Do **not** run the falsification gate or patch tests. `dev-review` Phase 4 step 3b is the last write if this label is wrong.
 - ¬spawn agents. Return findings to the caller.
 
 ### Implement mode
@@ -55,9 +55,9 @@ Signals: `/R-dev-implement`, RED-GATE, "write tests", coverage tasks.
 3. **Integration** (largest) — Real modules wired together (backend DI module ∨ frontend component + providers)
 4. **E2E** — Critical journeys only
 
-## Negative-Test Rule (MANDATORY — merge blocker)
+## Negative-Test Rule
 
-∀ `if`/guard/filter/Protocol method introduced in the PR: flag `issue:` (≥90%) if ¬∃ test that **FAILS** when the guard is deleted, the filter is bypassed, or the Protocol method is removed.
+∀ `if`/guard/filter/Protocol method introduced in the PR: there is a finding when ¬∃ test that **FAILS** when the guard is deleted, the filter is bypassed, or the Protocol method is removed.
 
 **Tautological test signals** (flag every instance):
 - `warnings.simplefilter("ignore")` discards the warning being asserted → test passes regardless
@@ -65,7 +65,9 @@ Signals: `/R-dev-implement`, RED-GATE, "write tests", coverage tasks.
 - Shim test passes even if shim re-exports stale inline copy instead of delegating
 - Protocol method removed → no conformance test catches the divergence
 
-**Correct pattern:** the negative test fails when the guard is removed. On this host the check is **judgement, not a gate**: ADR-020 §8 cuts the executable falsification oracle from the OMP product — `R-pr` is not snapshotted, so nothing writes `artifacts/reviews/{N}-falsify.json` and `oracle_ok` is permanently absent. Do not claim `✓ proven` from an oracle that does not run, and do not re-create the gate without its producer. Read the test instead: name the guard, name the assertion that dies with it. Cannot name one → `issue:` merge blocker.
+**Correct pattern:** the negative test fails when the guard is removed. On this host the check is **judgement, not a gate**: ADR-020 §8 cuts the executable falsification oracle from the OMP product — `R-pr` is not snapshotted, so nothing writes `artifacts/reviews/{N}-falsify.json` and `oracle_ok` is permanently absent. Do not claim `✓ proven` from an oracle that does not run, and do not re-create the gate without its producer. Read the test instead: name the guard, name the assertion that dies with it. Cannot name one → the review label in the next paragraph, not an unconditional merge blocker.
+
+**Review label.** `issue:` only when that gap leaves an acceptance criterion with no other evidence in the PR, or a safety invariant (a path that merges, releases or deploys, deletes, publishes, grants permission, or stops or disarms an automated action), unproven. Otherwise `suggestion:`. Implement mode still writes the negative test; it does not emit a review label.
 
 **Priced SCs:** if the spec SC has a `priced` / `not` / `oracles` block, write tests against `priced` + `oracles`. Never test the `not` proxy (denylist, extra grep, copied inventory list).
 
@@ -81,7 +83,7 @@ Signals: `/R-dev-implement`, RED-GATE, "write tests", coverage tasks.
 
 Co-located `feature.test.ts` | Arrange-Act-Assert | Descriptive `describe`/`it` | Happy + edge + error paths
 
-**SC Trace** (spec-backed issues, τ≠S): ∀ SC in spec → ≥1 named test (`{file} :: {test name}`) OR `NO TEST — {reason}` where `reason ∈ {infra-not-wired, prompt-logic-only, ui-manual-only, out-of-scope}`. Unmapped SC = blocking gap — report to lead before completing. Output as `SC Trace` block in task completion message (consumed by `/R-dev-implement` Step 6a).
+**SC Trace** (spec-backed issues, τ≠S): ∀ SC in spec → ≥1 named test (`{file} :: {test name}`) OR `NO TEST — {reason}` where `reason ∈ {infra-not-wired, prompt-logic-only, ui-manual-only, out-of-scope}`. Unmapped SC = an implement handoff — report to lead before completing. It is not, by itself, a review `issue:`. Output as `SC Trace` block in task completion message (consumed by `/R-dev-implement` Step 6a).
 
 ## Boundaries
 
