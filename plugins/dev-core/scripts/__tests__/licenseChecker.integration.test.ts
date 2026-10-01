@@ -260,6 +260,8 @@ describe('isLicenseAllowed', () => {
     ['stray close paren before OR', 'MIT ) OR GPL-3.0'],
     ['unclosed group', '(MIT OR GPL-3.0'],
     ['trailing operator', 'MIT OR'],
+    ['operator as operand', 'MIT OR AND'],
+    ['close paren as operand', 'MIT OR )'],
     ['grouped WITH', '(MIT) WITH GPL-3.0'],
   ])('%s: "%s" is disallowed, and says why', (_shape, expr) => {
     const warn = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
