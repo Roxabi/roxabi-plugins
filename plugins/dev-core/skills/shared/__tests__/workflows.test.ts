@@ -67,7 +67,7 @@ describe('generateAutoMergeYml', () => {
 
     expect(blockRegion).toContain(`steps.${fetchId}.outputs.update-type == 'version-update:semver-major'`)
     // Scoped to the Block step only — the whole YAML also has a legitimate
-    // `exit 0` elsewhere (update-behind-prs' empty-PR-list check).
+    // `exit 0` in update-behind-prs, which no longer retargets a reviewed PR.
     expect(blockRegion).toContain('exit 1')
   })
   it('documents native auto-merge, not a merge queue', () => {
@@ -77,12 +77,24 @@ describe('generateAutoMergeYml', () => {
     expect(yml).not.toContain('merge queue')
   })
 
-  it('pins auto-merge to the reviewed commit and does not update-branch after the label', () => {
+  it('commits the generated auto-merge script, and a later push is not a lease', () => {
     const yml = generateAutoMergeYml()
-    const enable = yml.slice(yml.indexOf('  auto-merge:'), yml.indexOf('  update-behind-prs:'))
-    expect(enable).toContain('--match-head-commit')
-    expect(enable).toContain('omp-build:review-head')
-    expect(enable).not.toContain('update-branch')
+    const committed = fs.readFileSync(
+      path.resolve(import.meta.dirname, '../../../../../.github/workflows/auto-merge.yml'),
+      'utf8',
+    )
+    // The committed workflow is the generator output, not a slice that ends
+    // before update-behind-prs. A retarget or an unauthenticated pin fails here.
+    expect(yml).toBe(committed)
+    expect(yml).not.toContain('update-branch')
+    expect(yml).not.toContain('|| true')
+    expect(yml).toContain('[ "$ACTION" != "labeled" ]')
+    expect(yml).toContain('--disable-auto')
+    expect(yml).toContain('--remove-label reviewed')
+    expect(yml).toContain('author.login == $reviewer')
+    expect(yml).toContain('github.event.pull_request.head.sha')
+    expect(yml).toContain('Verdict: Approve')
+    expect(yml).not.toContain('startswith')
   })
 })
 

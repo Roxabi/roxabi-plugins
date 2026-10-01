@@ -483,9 +483,12 @@ argv. It does not poll. Native enables the pinned auto-merge
 (`--match-head-commit` of the reviewed sha) before adding `reviewed`.
 `already enabled` is not success: auto-merge is disabled and enabled again with
 that pin, or `landPr` returns `auto-merge-failed` without the label. The fleet
-workflow passes that same sha and does not update-branch after the label. The
-pin is not a later-push lease, and merge-on-green has no equivalent: once
-`reviewed` is applied, a push by another actor is not refused by GitHub.
+workflow enables only on `labeled`, and only when the event head equals the
+line-2 sha of the latest automation-account Approve record. On `synchronize` it
+disables auto-merge and removes `reviewed` instead of re-enabling from a
+comment, and it does not `update-branch` a reviewed PR. merge-on-green has no
+equivalent pin: once `reviewed` is applied, a push by another actor is not
+refused by GitHub.
 merge-on-green never returns `no-required-checks`.
 
 Run `watch` as an async bash job (`timeout: 0`). Map the exit with
