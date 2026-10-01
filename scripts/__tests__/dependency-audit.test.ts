@@ -19,8 +19,8 @@ import {
 // hides too much) and a false alarm (an ignored advisory reported, or the same report
 // re-posted weekly). `bun audit` itself is spied: a unit test must not fork (#502).
 
-// `main` writes its clean summary straight to fd 1, past vitest's console capture: the
-// write is mocked so a test reads it instead of the run printing it.
+// `main` writes to fd 1 directly, past vitest's console capture: the write is mocked so a
+// test reads what reached stdout instead of the run printing it.
 vi.mock('node:fs', async (importOriginal) => ({
   ...(await importOriginal<typeof NodeFs>()),
   writeSync: vi.fn(),
@@ -217,12 +217,26 @@ describe('main', () => {
       signalCode,
     } as unknown as Bun.SyncSubprocess<'pipe', 'pipe'>)
 
+  // What `main` wrote to fd 1, and how many bytes one writeSync call takes.
+  let stdoutBytes: Buffer[]
+  let takes: number
+  const stdout = () => Buffer.concat(stdoutBytes).toString()
+
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'dependency-audit-'))
     report = join(dir, 'report.md')
     spawn = vi.spyOn(Bun, 'spawnSync')
     vi.spyOn(process.stderr, 'write').mockReturnValue(true)
-    vi.mocked(writeSync).mockClear()
+    stdoutBytes = []
+    takes = Number.POSITIVE_INFINITY
+    // mockReset, not mockClear: it also drops a once-implementation a test left unconsumed.
+    vi.mocked(writeSync)
+      .mockReset()
+      .mockImplementation(((fd: number, data: Uint8Array, offset = 0) => {
+        const n = Math.min(takes, data.byteLength - offset)
+        if (fd === 1) stdoutBytes.push(Buffer.from(data.subarray(offset, offset + n)))
+        return n
+      }) as unknown as typeof writeSync)
     vi.spyOn(console, 'error').mockImplementation(() => {})
   })
 
@@ -233,20 +247,28 @@ describe('main', () => {
 
   // Route tests pass their own ignore list: the shipped IGNORED must never be the reason
   // a route test passes. Only the next test is tied to it, on purpose.
-  it('exits 10 on a finding and writes a report whose first line is the marker', () => {
+  it('exits 10 on a finding and writes a report whose first line is the marker, to the file only', () => {
     bunAudit(JSON.stringify({ 'js-yaml': [JS_YAML], esbuild: [ESBUILD] }), 1)
     expect(main(['--report', report], {}, [IGNORE])).toBe(10)
     const [first] = readFileSync(report, 'utf8').split('\n')
     const found = classify(advisories({ 'js-yaml': [JS_YAML], esbuild: [ESBUILD] }), [IGNORE])
     expect(first).toBe(`<!-- dependency-audit: ${marker(found)} -->`)
     expect(first).not.toContain('g7r4')
+    expect(stdout()).toBe('')
   })
 
-  it('exits 0 when the only advisory is one the shipped IGNORED accepts, and writes no report', () => {
+  it('writes the same report to stdout when no --report is given', () => {
+    bunAudit(JSON.stringify({ 'js-yaml': [JS_YAML] }), 1)
+    expect(main(['--report', report], {}, [IGNORE])).toBe(10)
+    expect(main([], {}, [IGNORE])).toBe(10)
+    expect(stdout()).toBe(readFileSync(report, 'utf8'))
+  })
+
+  it('exits 0 when the only advisory is one the shipped IGNORED accepts, writes no report, and counts it on stdout', () => {
     bunAudit(JSON.stringify({ esbuild: [ESBUILD] }), 1)
     expect(main(['--report', report], {})).toBe(0)
     expect(existsSync(report)).toBe(false)
-    expect(writeSync).toHaveBeenCalledWith(1, expect.stringMatching(/^Dependency audit: clean — 1 ignored advisory/))
+    expect(stdout()).toMatch(/\b1 ignored\b/)
   })
 
   it('routes on the ignore list it is given, not the shipped one', () => {
@@ -295,30 +317,60 @@ describe('main', () => {
     expect(readFileSync(report, 'utf8')).toMatch(/^<!-- dependency-audit: /)
   })
 
-  // A closed pipe (`… | head`) or a full non-blocking stdout makes writeSync throw. Once:
-  // beforeEach only clears the module mock, so a lasting implementation would leak.
-  const stdoutFails = () =>
+  // A closed pipe (`… | head`) or a full non-blocking stdout makes writeSync throw. Once, so
+  // the default implementation takes any later call.
+  const stdoutThrows = () =>
     vi.mocked(writeSync).mockImplementationOnce(() => {
       throw Object.assign(new Error('EPIPE: broken pipe, write'), { code: 'EPIPE' })
     })
 
   it('keeps exit 0 and says so when the clean summary cannot reach stdout', () => {
     bunAudit('{}', 0)
-    stdoutFails()
+    stdoutThrows()
     expect(main(['--report', report], {}, [])).toBe(0)
-    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('stdout not written: EPIPE'))
+    expect(console.error).toHaveBeenCalledWith(expect.stringMatching(/stdout not written \(0 of \d+ bytes\): EPIPE/))
   })
 
   it('keeps exit 10 and says so when the report, with no --report, cannot reach stdout', () => {
     bunAudit(JSON.stringify({ 'js-yaml': [JS_YAML] }), 1)
-    stdoutFails()
+    stdoutThrows()
     expect(main([], {}, [IGNORE])).toBe(10)
-    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('stdout not written: EPIPE'))
+    expect(console.error).toHaveBeenCalledWith(expect.stringMatching(/stdout not written \(0 of \d+ bytes\): EPIPE/))
   })
 
-  it('exits 2 when the report file, the workflow input, cannot be written', () => {
+  it('writes the rest of a report that stdout takes a few bytes at a time', () => {
+    bunAudit(JSON.stringify({ 'js-yaml': [JS_YAML] }), 1)
+    expect(main(['--report', report], {}, [IGNORE])).toBe(10)
+    takes = 7
+    expect(main([], {}, [IGNORE])).toBe(10)
+    expect(stdout()).toBe(readFileSync(report, 'utf8'))
+    expect(console.error).not.toHaveBeenCalledWith(expect.stringContaining('stdout not written'))
+  })
+
+  it('keeps exit 10 and says how much was written when stdout fails part way', () => {
+    bunAudit(JSON.stringify({ 'js-yaml': [JS_YAML] }), 1)
+    takes = 7
+    // The first call takes 7 bytes, the second throws.
+    vi.mocked(writeSync).mockImplementationOnce(vi.mocked(writeSync).getMockImplementation() as typeof writeSync)
+    stdoutThrows()
+    expect(main([], {}, [IGNORE])).toBe(10)
+    expect(console.error).toHaveBeenCalledWith(expect.stringMatching(/stdout not written \(7 of \d+ bytes\): EPIPE/))
+  })
+
+  it('keeps exit 0 and reports once when stdout takes nothing', () => {
+    bunAudit('{}', 0)
+    takes = 0
+    expect(main(['--report', report], {}, [])).toBe(0)
+    expect(console.error).toHaveBeenCalledTimes(1)
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringMatching(/stdout not written \(0 of \d+ bytes\): write returned 0/),
+    )
+  })
+
+  it('exits 2 and names the error when the report file, the workflow input, cannot be written', () => {
     bunAudit(JSON.stringify({ 'js-yaml': [JS_YAML] }), 1)
     expect(main(['--report', join(dir, 'missing-dir', 'report.md')], {}, [IGNORE])).toBe(2)
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('ENOENT'))
   })
 
   it('runs `audit --json` on the running bun, bounded well inside the audit step cap', () => {

@@ -307,12 +307,24 @@ function appendStepSummary(env: NodeJS.ProcessEnv, text: string): void {
   }
 }
 
-/** Display only, like the step summary: a closed or full stdout must not turn 0 or 10 into 2. */
+/**
+ * Display only, like the step summary: a closed or full stdout must not turn 0 or 10 into 2.
+ * A non-blocking stdout can take part of a write, so the rest is written until a call takes
+ * nothing or throws.
+ */
 function writeStdout(text: string): void {
+  const bytes = Buffer.from(text)
+  let written = 0
   try {
-    writeSync(1, text)
+    while (written < bytes.length) {
+      const n = writeSync(1, bytes, written)
+      if (!(n > 0)) throw new Error(`write returned ${n}`)
+      written += n
+    }
   } catch (error) {
-    console.error(`dependency-audit: stdout not written: ${error instanceof Error ? error.message : String(error)}`)
+    console.error(
+      `dependency-audit: stdout not written (${written} of ${bytes.length} bytes): ${error instanceof Error ? error.message : String(error)}`,
+    )
   }
 }
 
