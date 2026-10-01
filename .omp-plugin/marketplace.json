@@ -21,7 +21,7 @@
     },
     {
       "name": "dev-core",
-      "version": "0.3.3",
+      "version": "0.3.4",
       "description": "Full development workflow \u2014 frame, shape, plan, implement, review, ship. Includes /dev-init project setup orchestrator. Opinionated Roxabi process: lifecycle skills, specialized agents, and safety hooks.",
       "source": "./plugins/dev-core",
       "category": "development"
