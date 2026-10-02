@@ -67,6 +67,8 @@ Canonical labels written: `size:S` / `size:F-lite` / `size:F-full`. Legacy `XS/S
 | **Medium** (P2) | Plan for next sprint |
 | **Low** (P3) | Backlog |
 
+P1 fires on either of two triggers: the milestone in progress, or a shipped check that reports a pass when it should fail or stop. The full rubric is in the skill's Priority Guidelines; the consuming project's contract binds it to the repository.
+
 ## License
 
 MIT

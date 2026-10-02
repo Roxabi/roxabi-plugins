@@ -76,6 +76,18 @@ A stale `size:` gives no first contact: `R-dev-review` consumes it and proceeds
 with the wrong panel, so the defect surfaces as an under-reviewed ticket that
 *looks* reviewed.
 
+### Priority
+
+The rubric lives in the `issue-triage` skill, § Priority Guidelines. `P1-high`
+fires on either of two triggers: the milestone in progress, or a shipped check
+that lies. A check that fails closed is `P2-medium`, and an epic caps its
+feature slices but not its defects. This repo binds the two triggers:
+
+- **Milestone**: the open `epic` that carries `P1-high`.
+- **Shipped**: everything under `plugins/`, the published plugins. A gate,
+  guard, verifier or success predicate there that reports a pass when it
+  should fail or stop is `P1-high`, whatever the milestone.
+
 ### Deferred follow-ups are siblings
 
 A follow-up deferred out of issue A is a **sibling** of A under their shared
@@ -151,7 +163,7 @@ issue · `dependencies` `javascript` `github_actions`: Dependabot PR labels;
 never remove either label from the workflow's issues)
 Tier: `size:S` `size:F-lite` `size:F-full` · `epic`
 Priority: `P0-critical` `P1-high` `P2-medium` `P3-low` (legacy `priority:P2`,
-`priority:P3`, `priority: low` exist; prefer the `PN-` form)
+`priority:P3`, `priority: low` exist; prefer the `PN-` form; meaning: [Priority](#priority))
 Pipeline: `reviewed` (gates auto-merge) · `autorelease: pending` /
 `autorelease: tagged` (written by release automation, never by hand)
 
