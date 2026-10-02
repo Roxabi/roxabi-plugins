@@ -138,8 +138,8 @@ ADR-020 no longer bind:
 - ADR-020's other clauses are untouched: host split, snapshot freeze,
   `issue-triage` owns ticket links, five-role panel, principal freeze, TDD as a
   posture.
-- The glossary terms this decision adds live in `plugins/omp-build/CONTEXT.md`.
+- The glossary terms this decision adds live in `plugins/omp-build/GLOSSARY.md`.
 
 ## References
 
-- Issue #576 · [ADR-020](020-omp-delivery-feature-cycle.md) · Glossary `plugins/omp-build/CONTEXT.md`
+- Issue #576 · [ADR-020](020-omp-delivery-feature-cycle.md) · Glossary `plugins/omp-build/GLOSSARY.md`

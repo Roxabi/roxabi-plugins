@@ -176,7 +176,7 @@ Adopt **Option C**.
 
 ## References
 
-- Issue #488 · Glossary `plugins/omp-build/CONTEXT.md`
+- Issue #488 · Glossary `plugins/omp-build/GLOSSARY.md`
 - ADR-017 (principal freeze) · ADR-018 (skill homes, 2026-08-24 amendment) ·
   ADR-019 (falsify oracle — Claude product only) ·
   [ADR-024](024-one-goal-per-epic.md) (amends §3, §4, §8, §9)
