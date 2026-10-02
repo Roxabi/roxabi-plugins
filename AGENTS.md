@@ -85,6 +85,7 @@ Keep all READMEs current. Adding/modifying/removing a plugin → update:
 - Markdown: ATX headings (`#`), tables for structured data, code blocks for commands
 - A test that forks a process MUST be named `*.integration.test.*` — 30s budget, not the 5s unit default (#502); `vitest.setup.ts` counts real forks and fails the build if one lands in `unit`
 - Tests run without git's repo-location env (`vitest.setup.ts` strips `git rev-parse --local-env-vars`), so a hook's `GIT_DIR` cannot redirect a git fixture; a run that changes the repo's `core.bare` fails (`vitest.global-setup.ts`)
+- A test's expected output is asserted, never printed. Under vitest a sync `exec*Sync` child given no `stdio` has its stderr piped (`vitest.setup.ts`): a failing call keeps it on the thrown error (`error.stderr`), a zero-exit call drops it, so a test that reads a succeeding child's stderr uses `spawnSync` or an explicit `stdio`. Code under test that writes to `process.stderr` or fd 1 directly is spied or mocked and the spy asserted
 
 ## Gotchas
 
