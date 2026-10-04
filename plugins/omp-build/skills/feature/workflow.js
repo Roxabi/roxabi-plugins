@@ -989,7 +989,7 @@ export function analyzeReviewHistory(comments, { me, maxFixRounds = MAX_FIX_ROUN
     stopOrigin = 'terminal-red'
   }
   const allocationReceipted = markerFixes === 0 || latestReceipt > latestAllocation
-  const allocationGranted = grants.some((g) => g.reviews === markerReviews && g.fixes === markerFixes)
+  const allocationGranted = markerFixes > 0 && grants.some((g) => g.fixes === markerFixes)
   const approvedForLanding =
     allocationReceipted &&
     latestVerdict?.startsWith('Approve') === true &&

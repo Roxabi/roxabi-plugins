@@ -1856,4 +1856,25 @@ describe('a persisted fix grant survives the process that allocated it (#699)', 
     const step = await loop.recordPosted(CWD, 'red')
     expect(step).toEqual({ action: 'fix', reviews: 2, fixes: 2, remaining: 0 })
   })
+
+  it('does not re-grant a consumed fix when a later green persist bumps reviews only', async () => {
+    const fake = fakePr({
+      comments: [
+        comment(accounting(0, 0)),
+        comment(GREEN),
+        comment(accounting(1, 0)),
+        comment(accounting(1, 1)),
+        comment(grant(1, 1)),
+        comment(GREEN),
+        comment(accounting(2, 1)),
+      ],
+    })
+    const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    expect(loop.persistedFix).toBe(null)
+    const forged = { action: 'fix', reason: 'ci-failed', reviews: 2, fixes: 1, remaining: 1 }
+    const before = fake.pr.comments.length
+    await expect(loop.assertFixAllowed(CWD, forged)).rejects.toThrow(/grant already consumed/)
+    expect(loop.closed).toBe(null)
+    expect(fake.pr.comments).toHaveLength(before)
+  })
 })
