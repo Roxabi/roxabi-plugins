@@ -17,6 +17,7 @@ function recipeSource(score = '4', n = '42'): string {
 }
 
 const GH = `#!/bin/sh
+printf '%s\\n' "$*" >> "$RECIPE_GH_LOG"
 if [ "$1" = "issue" ]; then
   if [ -n "$GH_VIEW_EXIT" ]; then exit "$GH_VIEW_EXIT"; fi
   if [ -n "$GH_VIEW_FILE" ]; then cat "$GH_VIEW_FILE"; exit 0; fi
@@ -45,7 +46,7 @@ exit 0
 function runRecipe(
   env: Record<string, string>,
   score = '4',
-): { status: number | null; called: boolean; body: string; stderr: string } {
+): { status: number | null; called: boolean; body: string; ghLog: string; setLog: string } {
   const dir = mkdtempSync(join(tmpdir(), 'complexity-recipe-'))
   const bin = join(dir, 'bin')
   mkdirSync(bin)
@@ -54,6 +55,7 @@ function runRecipe(
   chmodSync(join(bin, 'gh'), 0o755)
   chmodSync(join(bin, 'T'), 0o755)
   const tLog = join(dir, 't.log')
+  const ghLog = join(dir, 'gh.log')
   const bodyOut = join(dir, 'body.out')
   const viewFile = join(dir, 'view.body')
   const childEnv: Record<string, string> = { ...env }
@@ -68,6 +70,7 @@ function runRecipe(
     env: {
       PATH: `${bin}:/usr/bin:/bin`,
       HOME: dir,
+      RECIPE_GH_LOG: ghLog,
       RECIPE_T_LOG: tLog,
       RECIPE_BODY: bodyOut,
       GITHUB_REPO: 'Acme/app',
@@ -78,7 +81,8 @@ function runRecipe(
     status: proc.status,
     called: existsSync(tLog),
     body: existsSync(bodyOut) ? readFileSync(bodyOut, 'utf8') : '',
-    stderr: proc.stderr,
+    ghLog: existsSync(ghLog) ? readFileSync(ghLog, 'utf8') : '',
+    setLog: existsSync(tLog) ? readFileSync(tLog, 'utf8') : '',
   }
 }
 
@@ -97,10 +101,20 @@ describe('complexity scoring recipe', () => {
     expect(empty.called).toBe(false)
   })
 
+  it('does not call set when the repo slug is empty', () => {
+    const result = runRecipe({ GITHUB_REPO: '', GH_REPO_SLUG: '' })
+    expect(result.status).not.toBe(0)
+    expect(result.called).toBe(false)
+    expect(result.ghLog).not.toContain('issue view')
+  })
+
   it('replaces one marker and writes the same repo', () => {
     const result = runRecipe({ GH_VIEW_BODY: 'spec\n<!-- complexity: 1 -->\nrest' })
     expect(result.status).toBe(0)
     expect(result.called).toBe(true)
+    expect(result.ghLog).toContain('issue view 42 --repo Acme/app')
+    expect(result.setLog).toContain('set Acme/app#42')
+    expect(result.setLog).toContain('--body-file')
     expect(result.body.match(/<!-- complexity:/g)).toHaveLength(1)
     expect(result.body).toContain('<!-- complexity: 4 -->')
     expect(result.body).not.toContain('<!-- complexity: 1 -->')
