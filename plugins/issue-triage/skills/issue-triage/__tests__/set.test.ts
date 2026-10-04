@@ -694,6 +694,16 @@ describe('issue-triage/set > body replace', () => {
     expect(mockUpdateIssueBody).not.toHaveBeenCalled()
   })
 
+  it.each(['--parent', '--blocked-by', '--add-child', '--rm-child'])(
+    'writes nothing when %s is only commas',
+    async (flag) => {
+      const exitSpy = throwingExit()
+      await setIssue(['42', '--body', 'NEW', '--size', 'S', flag, ',']).catch(() => {})
+      expect(exitSpy).toHaveBeenCalledWith(1)
+      expectNoMutations()
+    },
+  )
+
   it('exits non-zero and names the status when the body PATCH is rejected', async () => {
     const exitSpy = throwingExit()
     const errors: string[] = []

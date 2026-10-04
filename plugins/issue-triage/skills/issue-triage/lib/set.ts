@@ -216,6 +216,7 @@ function requireRefs(input: string, flag: string): ParsedIssueRef[] {
     if (!ref) fail(`Error: Invalid issue reference "${trimmed}" for ${flag}`)
     refs.push(ref)
   }
+  if (refs.length === 0) fail(`Error: ${flag} did not resolve to an issue reference`)
   return refs
 }
 
