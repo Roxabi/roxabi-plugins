@@ -217,11 +217,18 @@ if [ -z "$trimmed" ]; then
   exit 1
 fi
 MARKER="<!-- complexity: ${SCORE} -->"
-if printf '%s' "$BODY" | grep -q '<!-- complexity:'; then
-  NEW=$(printf '%s' "$BODY" | sed -E "s/<!-- complexity: [0-9]+ -->/${MARKER}/")
-else
-  NEW=$(printf '%s\n\n%s\n' "$BODY" "$MARKER")
-fi
+case "$BODY" in
+  *'<!-- complexity:'*)
+    NEW=$(printf '%s' "$BODY" | sed -E "s/<!-- complexity: [0-9]+ -->/${MARKER}/")
+    if [ "$NEW" = "$BODY" ]; then
+      echo "Error: complexity marker matched but was not replaced" >&2
+      exit 1
+    fi
+    ;;
+  *)
+    NEW=$(printf '%s\n\n%s\n' "$BODY" "$MARKER")
+    ;;
+esac
 DIR=$(mktemp -d)
 printf '%s\n' "$NEW" > "$DIR/body.md"
 GITHUB_REPO="$REPO" T set "${REPO}#${N}" --body-file "$DIR/body.md"

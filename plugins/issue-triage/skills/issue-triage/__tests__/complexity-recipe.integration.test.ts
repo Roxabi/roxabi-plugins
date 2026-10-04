@@ -17,9 +17,9 @@ function recipeSource(score = '4', n = '42'): string {
 }
 
 const GH = `#!/bin/sh
-printf '%s\\n' "$*" >> "$RECIPE_GH_LOG"
 if [ "$1" = "issue" ]; then
   if [ -n "$GH_VIEW_EXIT" ]; then exit "$GH_VIEW_EXIT"; fi
+  if [ -n "$GH_VIEW_FILE" ]; then cat "$GH_VIEW_FILE"; exit 0; fi
   printf '%s' "$GH_VIEW_BODY"
   exit 0
 fi
@@ -55,17 +55,23 @@ function runRecipe(
   chmodSync(join(bin, 'T'), 0o755)
   const tLog = join(dir, 't.log')
   const bodyOut = join(dir, 'body.out')
+  const viewFile = join(dir, 'view.body')
+  const childEnv: Record<string, string> = { ...env }
+  if (env.GH_VIEW_BODY !== undefined) {
+    writeFileSync(viewFile, env.GH_VIEW_BODY)
+    delete childEnv.GH_VIEW_BODY
+    childEnv.GH_VIEW_FILE = viewFile
+  }
   const proc = spawnSync('bash', ['-c', recipeSource(score)], {
     cwd: dir,
     encoding: 'utf8',
     env: {
       PATH: `${bin}:/usr/bin:/bin`,
       HOME: dir,
-      RECIPE_GH_LOG: join(dir, 'gh.log'),
       RECIPE_T_LOG: tLog,
       RECIPE_BODY: bodyOut,
       GITHUB_REPO: 'Acme/app',
-      ...env,
+      ...childEnv,
     },
   })
   return {
@@ -99,5 +105,20 @@ describe('complexity scoring recipe', () => {
     expect(result.body).toContain('<!-- complexity: 4 -->')
     expect(result.body).not.toContain('<!-- complexity: 1 -->')
     expect(result.body).toContain('spec')
+  })
+
+  it('replaces one marker when it sits at the start of a body larger than the pipe', () => {
+    const filler = 'x'.repeat(200_000)
+    const result = runRecipe({ GH_VIEW_BODY: `<!-- complexity: 1 -->\n${filler}` }, '9')
+    expect(result.status).toBe(0)
+    expect(result.body.match(/<!-- complexity:/g)).toHaveLength(1)
+    expect(result.body).toContain('<!-- complexity: 9 -->')
+    expect(result.body).toContain(filler)
+  })
+
+  it('does not call set when a matched marker is not a number', () => {
+    const result = runRecipe({ GH_VIEW_BODY: 'spec <!-- complexity: nope -->' })
+    expect(result.status).not.toBe(0)
+    expect(result.called).toBe(false)
   })
 })
