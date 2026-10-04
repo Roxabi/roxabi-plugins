@@ -3,7 +3,7 @@
 Issues and specs for this repo live as GitHub issues in `Roxabi/roxabi-plugins`.
 Infer the repo from `git remote -v`; `gh` does this automatically inside a clone.
 
-**Reads use `gh` directly. Every write that creates an issue, sets a label, or
+**Reads use `gh` directly. Every write that creates an issue, replaces its body, sets a label, or
 creates a relation goes through the `issue-triage` skill** — see
 [Relations and labels](#relations-and-labels). CI workflows are the one exception:
 [Issues filed by CI](#issues-filed-by-ci). Authority: ADR-020 §6.
@@ -33,6 +33,7 @@ written.
 | Need | Flag |
 |---|---|
 | Create an issue | `create --title "..." [--body "..."]` |
+| Replace the body | `set <number> --body "..."` or `set <number> --body-file <path>` |
 | Parent (issue is a child of N) | `--parent "#N"` |
 | Children | `--add-child "#N,#M"` |
 | Blocked by | `--blocked-by "#N"` |
@@ -136,7 +137,13 @@ relations the work implies.
 **Exception — an epic already exists for the subject.** When the conversation is
 already tracked by an issue (the grill ran before the spec, the issue holds the
 decisions), **amend that issue** instead of publishing a second one. One subject,
-one spec home. An amendment that changes a κ input re-opens the tier — see
+one spec home. Replace the body through the writer:
+
+```bash
+bun plugins/issue-triage/skills/issue-triage/triage.ts set <number> --body-file <path>
+```
+
+`--body "..."` is the inline form. An amendment that changes a κ input re-opens the tier — see
 [Tier is mandatory](#tier-is-mandatory).
 
 ## When a skill says "fetch the relevant ticket"

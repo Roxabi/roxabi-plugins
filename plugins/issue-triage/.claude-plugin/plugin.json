@@ -1,6 +1,6 @@
 {
   "name": "issue-triage",
-  "description": "Triage/create GitHub issues — size/priority/lane/type labels, blocked-by deps, parent/child. Labels + native relations, no Projects V2.",
+  "description": "Triage/create GitHub issues — body, size/priority/lane/type labels, blocked-by deps, parent/child. Labels + native relations, no Projects V2.",
   "author": {
     "name": "Roxabi"
   }

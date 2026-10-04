@@ -126,6 +126,28 @@ export async function createGitHubIssue(
   return { url: data.html_url, number: data.number }
 }
 
+/**
+ * Replace the body of an existing issue via REST API.
+ * An empty string is sent as-is so `--body ""` clears the body; omitting the
+ * field is the caller's job (that means "leave the body alone").
+ */
+export async function updateGitHubIssueBody(issueNumber: number, body: string, repo?: string): Promise<void> {
+  const repoSlug = repo ?? GITHUB_REPO
+  const res = await fetch(`${GITHUB_API}/repos/${repoSlug}/issues/${issueNumber}`, {
+    method: 'PATCH',
+    headers: authHeaders(),
+    body: JSON.stringify({ body }),
+  })
+
+  if (!res.ok) {
+    const text = await res.text()
+    throw new GitHubApiError(
+      `Failed to update issue body for #${issueNumber} in ${repoSlug} (${res.status}): ${text}`,
+      res.status,
+    )
+  }
+}
+
 /** Add a blocked-by dependency between two issues. */
 export async function addBlockedBy(issueId: string, blockingId: string): Promise<void> {
   await ghGraphQL(ADD_BLOCKED_BY_MUTATION, { issueId, blockingId })

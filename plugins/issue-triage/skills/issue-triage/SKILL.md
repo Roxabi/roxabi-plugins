@@ -1,8 +1,8 @@
 ---
 name: issue-triage
-argument-hint: '[list | set <num> | create --title "..." [--parent N] [--size S] [--priority P] [--type T] [--lane L]]'
-description: Triage/create GitHub issues — set size/priority/lane/type labels, manage dependencies & parent/child. Run before `/feature` picks a ticket up. Triggers: "triage" | "create issue" | "set size" | "set priority" | "blocked by" | "set parent" | "child of" | "sub-issue" | "file an issue" | "log a bug" | "open an issue" | "file a bug" | "add issue" | "new issue" | "set lane" | "set type".
-version: 0.6.0
+argument-hint: '[list | set <num> [--body-file <path>] | create --title "..." [--parent N] [--size S] [--priority P] [--type T] [--lane L]]'
+description: Triage/create GitHub issues — set size/priority/lane/type labels, replace the body, manage dependencies & parent/child. Run before `/feature` picks a ticket up. Triggers: "triage" | "create issue" | "set size" | "set priority" | "blocked by" | "set parent" | "child of" | "sub-issue" | "file an issue" | "log a bug" | "open an issue" | "file a bug" | "add issue" | "new issue" | "set lane" | "set type" | "set body" | "update issue body".
+version: 0.7.0
 allowed-tools: Bash, Read, ToolSearch
 ---
 
@@ -14,8 +14,8 @@ Default: `T` or `T list` (no args = list).
 
 Create GitHub issues, assign Size/Priority labels, manage blockedBy dependencies and parent/child relationships.
 
-This skill owns every issue write: creation, `size:` tier, priority, type, and the
-native relations. Nothing else writes them — not `gh issue create`, not a
+This skill owns every issue write: creation, the body, `size:` tier, priority, type, and the
+native relations. Nothing else writes them — not `gh issue create`, not `gh issue edit --body`, not a
 `Blocked by:` line in a body. The project contract is `docs/agents/issue-tracker.md`.
 
 It runs **before** the delivery cycle, not inside it. `/feature` mutates tickets
@@ -86,10 +86,12 @@ Every priority change carries a comment that names the trigger and the evidence,
 | `--add-child <REF>[,<REF>...]` | Add child sub-issues |
 | `--rm-parent` | Remove parent relationship |
 | `--rm-child <REF>[,<REF>...]` | Remove child sub-issues |
+| `--body "..."` | Replace the issue body. An empty string clears it. `--body` and `--body-file` together: the last one wins |
+| `--body-file <path>` | Replace the issue body from a file. Use it for text you did not write: `$(…)` or a backtick in a double-quoted `--body` runs in your shell. A missing or unreadable file exits 1 before any write |
 | `--lane <L>` | Set lane label (optional, additive). Valid: `a1`, `a2`, `a3`, `b`, `c1`, `c2`, `c3`, `d`–`o`, `standalone` — case-folded; anything else exits 1 |
 | `--type <T>` | Set org issueType (optional, additive). Valid: `fix`, `feat`, `docs`, `test`, `chore`, `ci`, `perf`, `epic`, `research`, `refactor` |
 
-Every flag is canonicalised **before** the first write, so a rejected value leaves the issue untouched. A flag given no value (`--priority` with nothing after it, or `--priority "$UNSET"`) exits 1 rather than being ignored. A label that the repository does not carry is reported and exits 1 **after** the dependency and parent/child writes have run, never instead of them.
+Every flag is canonicalised **before** the first write, so a rejected value leaves the issue untouched — including the body. A flag given no value (`--priority` with nothing after it, or `--priority "$UNSET"`) exits 1 rather than being ignored. `--body` and `--body-file` combine with the other flags in one invocation. A label that the repository does not carry is reported and exits 1 **after** the dependency and parent/child writes have run, never instead of them.
 
 ### `create` — Create a new issue
 
@@ -183,13 +185,14 @@ rm -rf "$DIR"
 
 ## Complexity Scoring
 
-Assess κ ∈ [1,10] to inform tier (S / F-lite / F-full). Record by appending to issue body:
+Assess κ ∈ [1,10] to inform tier (S / F-lite / F-full). Record by appending to the issue body with `set --body-file`:
 
 ```bash
-BODY=$(gh issue view <number> --json body --jq .body)
-gh issue edit <number> --body "$BODY
-
-<!-- complexity: <score> -->"
+DIR=$(mktemp -d -t "issue-triage-kappa-XXXXXX")
+gh issue view <number> --json body --jq .body > "$DIR/body.md"
+printf '\n<!-- complexity: <score> -->\n' >> "$DIR/body.md"
+T set <number> --body-file "$DIR/body.md"
+rm -rf "$DIR"
 ```
 
 `<!-- complexity: N -->` is machine-parseable, so a later read can recover the score behind a tier.
@@ -227,6 +230,8 @@ state, not this skill's: `docs/agents/issue-tracker.md` § Tier is mandatory.
 T list
 T list --untriaged
 T set 42 --size M --priority High
+T set 362 --body-file "$DIR/body.md"
+T set 362 --body "Rewritten body" --size F-lite --priority High
 T set 91 --blocked-by 117
 T set 117 --blocks 91,118
 T set 91 --rm-blocked-by 117

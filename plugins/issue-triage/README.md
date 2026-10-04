@@ -1,10 +1,10 @@
 # issue-triage
 
-Triage and create GitHub issues — size, priority, lane, and type labels plus blocked-by / parent-child relations. Labels and native GitHub relations only; no Projects V2.
+Triage and create GitHub issues — body, size, priority, lane, and type labels plus blocked-by / parent-child relations. Labels and native GitHub relations only; no Projects V2.
 
 ## Why
 
-Raw GitHub issues lack structure. This plugin adds Size (S / F-lite / F-full), Priority (P0→P3), Lane, and Type via native labels and issue relations, so the backlog is plannable and a frontier query — "what is grabbable right now?" — is answerable from GitHub alone. It is the single writer of issue relations and tiers; the consuming project states how they are used, e.g. [`docs/agents/issue-tracker.md`](../../docs/agents/issue-tracker.md) in this repo.
+Raw GitHub issues lack structure. This plugin adds Size (S / F-lite / F-full), Priority (P0→P3), Lane, and Type via native labels and issue relations, so the backlog is plannable and a frontier query — "what is grabbable right now?" — is answerable from GitHub alone. It is the single writer of issue bodies, relations, and tiers; the consuming project states how they are used, e.g. [`docs/agents/issue-tracker.md`](../../docs/agents/issue-tracker.md) in this repo.
 
 ## Install
 
@@ -35,7 +35,16 @@ Triggers: `"triage"` | `"create issue"` | `"set size"` | `"set priority"` | `"bl
 /issue-triage set 42 --size M --priority High
 /issue-triage set 91 --blocked-by 117
 /issue-triage set 164 --parent 163
+/issue-triage set 362 --body-file path/to/body.md
+/issue-triage set 362 --body "..."
 /issue-triage create --title "..." --size S --priority Medium --type feat --lane b --parent 163
+```
+
+`set` replaces an existing issue body with `--body` or `--body-file`. A missing or unreadable body file exits 1 before any write. Either flag combines with the other `set` flags in the same command (`--size`, `--priority`, `--parent`, and the rest). Empty `--body ""` clears the body.
+
+```bash
+bun plugins/issue-triage/skills/issue-triage/triage.ts set 362 --body-file path/to/body.md
+bun plugins/issue-triage/skills/issue-triage/triage.ts set 362 --body "..."
 ```
 
 Adopt a repository. `init` writes `docs/agents/issue-tracker.md` only when that file is absent, at the git toplevel. An existing contract is kept (`contract: keep-existing`) and is the label vocabulary: a `Label | Colour` table, or canonical names in the template list. A contract that does not parse prints `vocabulary: none parsed from docs/agents/issue-tracker.md` and exits non-zero. `--repo` other than the local repo is refused. Missing labels are created in the contract's colours; an existing label is never recoloured, and a case mismatch is reported instead of created.

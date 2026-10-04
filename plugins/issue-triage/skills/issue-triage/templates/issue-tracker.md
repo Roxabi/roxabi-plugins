@@ -3,9 +3,9 @@
 Issues and specs for this repo live as GitHub issues in `{{REPO}}`.
 Infer the repo from `git remote -v`; `gh` does this automatically inside a clone.
 
-**Reads use `gh` directly. issue-triage is the only writer of labels and
+**Reads use `gh` directly. issue-triage is the only writer of the body, labels, and
 relations** — run the `issue-triage` skill's CLI (`init`, `create`, `set`, …). Nothing else writes them.
-Not `gh issue create`, not `gh issue edit --add-label`, not a `Blocked by:` line in a body.
+Not `gh issue create`, not `gh issue edit --body`, not `gh issue edit --add-label`, not a `Blocked by:` line in a body.
 
 ## Relations
 
@@ -15,6 +15,7 @@ for blocked-by / blocks. A `Blocked by:` line in a body is **not** a relation.
 | Need | Flag |
 |---|---|
 | Create an issue | `create --title "..."` |
+| Replace the body | `set <number> --body-file <path>` |
 | Parent | `--parent "#N"` |
 | Blocked by | `--blocked-by "#N"` |
 | Tier | `--size S` \| `F-lite` \| `F-full` |

@@ -1,5 +1,5 @@
 /**
- * Update an existing issue: labels, dependencies, and parent/child relations.
+ * Update an existing issue: body, labels, dependencies, and parent/child relations.
  * Replaces set.sh.
  */
 
@@ -12,9 +12,10 @@ import {
   removeBlockedBy,
   removeSubIssue,
   resolveIssueTypeId,
+  updateGitHubIssueBody,
   updateIssueIssueType,
 } from '../../shared/adapters/github-adapter'
-import { requireFlagValue } from '../../shared/domain/cli-args'
+import { readFlagFile, requireFlagValue } from '../../shared/domain/cli-args'
 import { EXTENDED_ISSUE_TYPES, ISSUE_TYPE_NAMES } from '../../shared/domain/issue-types'
 import { formatRef, parseIssueRef, parseIssueRefs } from '../../shared/domain/parse-issue-ref'
 import { type LabelFlags, resolveLabelFlags, writeLabels } from './label-flags'
@@ -22,6 +23,7 @@ import { type LabelFlags, resolveLabelFlags, writeLabels } from './label-flags'
 interface SetOptions {
   issueNumber: number
   subjectRepo?: string
+  body?: string
   size?: string
   priority?: string
   status?: string
@@ -44,6 +46,12 @@ function parseArgs(args: string[]): SetOptions {
   while (i < args.length) {
     const arg = args[i]
     switch (arg) {
+      case '--body':
+        opts.body = requireFlagValue(args, ++i, '--body', true)
+        break
+      case '--body-file':
+        opts.body = readFlagFile(args, ++i, '--body-file')
+        break
       case '--size':
         opts.size = requireFlagValue(args, ++i, '--size')
         break
@@ -224,6 +232,7 @@ export async function setIssue(args: string[]): Promise<void> {
   }
 
   const hasAction =
+    opts.body !== undefined ||
     opts.size ||
     opts.priority ||
     opts.status ||
@@ -240,7 +249,7 @@ export async function setIssue(args: string[]): Promise<void> {
 
   if (!hasAction) {
     console.error(
-      'Error: Specify --size, --priority, --lane, --type, --blocked-by, --blocks, --rm-blocked-by, --rm-blocks, --parent, --add-child, --rm-parent, and/or --rm-child',
+      'Error: Specify --body, --body-file, --size, --priority, --lane, --type, --blocked-by, --blocks, --rm-blocked-by, --rm-blocks, --parent, --add-child, --rm-parent, and/or --rm-child',
     )
     process.exit(1)
   }
@@ -275,6 +284,14 @@ export async function setIssue(args: string[]): Promise<void> {
     )
   }
   const labels: LabelFlags = crossRepoLabels ? {} : resolved
+
+  // `--body-file` is read in parseArgs, so a missing file has already exited.
+  // The PATCH runs only after every other flag is canonicalised: a rejected
+  // --size/--type must not leave a new body behind.
+  if (opts.body !== undefined) {
+    await updateGitHubIssueBody(opts.issueNumber, opts.body, opts.subjectRepo)
+    console.log(`Body ${subjectStr(opts.issueNumber, opts.subjectRepo)}`)
+  }
 
   if (type && !opts.subjectRepo) await applyType(opts.issueNumber, type)
   const unwritten = await writeLabels(opts.issueNumber, labels)
