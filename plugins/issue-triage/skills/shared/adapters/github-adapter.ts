@@ -101,6 +101,23 @@ export async function getNodeId(issueNumber: number | string, repo?: string): Pr
   return data.node_id
 }
 
+/** Replace an issue body. An empty string clears it. Never reads the current body. */
+export async function updateIssueBody(issueNumber: number, body: string, repo?: string): Promise<void> {
+  const repoSlug = repo ?? GITHUB_REPO
+  const res = await fetch(`${GITHUB_API}/repos/${repoSlug}/issues/${issueNumber}`, {
+    method: 'PATCH',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ body }),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new GitHubApiError(
+      `Failed to update body for ${repoSlug}#${issueNumber} (${res.status}): ${text}`,
+      res.status,
+    )
+  }
+}
+
 /** Create a new GitHub issue via REST API. Returns the issue URL and number. */
 export async function createGitHubIssue(
   title: string,
