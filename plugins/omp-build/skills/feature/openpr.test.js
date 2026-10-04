@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  analyzeReviewHistory,
   applyCiWatchExit,
   commentPageArgs,
   createReviewLoop,
@@ -811,10 +812,13 @@ describe('assertFixAllowed on a PR loop — fresh history at the fix sink', () =
       fixes: 1,
       pendingFix: false,
     })
-    await expect(loop.assertFixAllowed(CWD, { action: 'fix', reviews: 1, fixes: 1, remaining: 1 })).rejects.toThrow()
+    await expect(loop.assertFixAllowed(CWD, { action: 'fix', reviews: 1, fixes: 1, remaining: 1 })).rejects.toThrow(
+      'no live unconsumed',
+    )
     // A newer red is posted: the open allocation is superseded, and recording it counts the new review once.
     fake.post(RED)
     await expect(loop.refreshPersistedFix(CWD)).resolves.toBe(null)
+    expect(loop.persistedFix).toBe(null)
     const step = loop.record('red')
     await loop.persist(CWD)
     expect(step).toEqual({ action: 'fix', reviews: 2, fixes: 2, remaining: 0 })
@@ -1748,13 +1752,13 @@ describe('a persisted fix allocation outlives the process that recorded it (#699
     const step = await resumed.claimPersistedFix(CWD, gitOf(fake))
     expect(step).toEqual({ action: 'fix', reviews: 1, fixes: 1, remaining: 1 })
     await expect(resumed.assertFixAllowed(CWD, step, gitOf(fake))).resolves.toBe(step)
-    await expect(resumed.assertFixAllowed(CWD, step, gitOf(fake))).rejects.toThrow()
-    await expect(resumed.claimPersistedFix(CWD, gitOf(fake))).rejects.toThrow()
+    await expect(resumed.assertFixAllowed(CWD, step, gitOf(fake))).rejects.toThrow('no live unconsumed')
+    await expect(resumed.claimPersistedFix(CWD, gitOf(fake))).rejects.toThrow('nothing to claim')
 
     // Consumed for everyone else: a third process sees nothing to claim, and no round was added.
     const third = await resume(fake)
     expect({ persistedFix: third.persistedFix, closed: third.closed }).toEqual({ persistedFix: null, closed: null })
-    await expect(third.claimPersistedFix(CWD, gitOf(fake))).rejects.toThrow()
+    await expect(third.claimPersistedFix(CWD, gitOf(fake))).rejects.toThrow('nothing to claim')
     expect(await strict(fake)).toEqual({ reviews: 1, fixes: 1 })
     expect(bodies(fake).filter((body) => body.startsWith('<!-- omp-build:fix-grant'))).toHaveLength(1)
   })
@@ -1782,18 +1786,44 @@ describe('a persisted fix allocation outlives the process that recorded it (#699
   })
 
   it.each([
-    ['a red review no marker allocated', [comment(RED)]],
-    ['an allocation a grant marker already covers', [comment(RED), comment(accounting(1, 1)), comment(grant(1, 1))]],
-    ['an allocation whose fix posted its receipt', [comment(RED), comment(accounting(1, 1)), comment(RECEIPT)]],
-    ['an allocation a later review follows', [comment(RED), comment(accounting(1, 1)), comment(RED)]],
-    ['an allocation another account wrote', [comment(RED), comment(accounting(1, 1), 'omp-bot-2')]],
-    ['a sticky stop', [comment(RED), comment(accounting(1, 1, 'review-bound'))]],
-  ])('claims nothing for %s, and writes nothing', async (_label, comments) => {
+    ['a red review no marker allocated (history-ambiguous)', [comment(RED)], 'the loop is closed'],
+    [
+      'an allocation a grant marker already covers',
+      [comment(RED), comment(accounting(1, 1)), comment(grant(1, 1))],
+      'nothing to claim',
+    ],
+    [
+      'an allocation whose fix posted its receipt',
+      [comment(RED), comment(accounting(1, 1)), comment(RECEIPT)],
+      'nothing to claim',
+    ],
+    [
+      'an allocation a later review follows',
+      [comment(RED), comment(accounting(1, 1)), comment(RED)],
+      'nothing to claim',
+    ],
+    [
+      'a later review a marker already recorded',
+      [comment(RED), comment(accounting(1, 1)), comment(GREEN), comment(accounting(2, 1))],
+      'nothing to claim',
+    ],
+    [
+      'two posted reviews of which the marker counts one',
+      [comment(RED), comment(RED), comment(accounting(1, 1))],
+      'nothing to claim',
+    ],
+    [
+      'an allocation another account wrote',
+      [comment(accounting(0, 0)), comment(RED), comment(accounting(1, 1), 'omp-bot-2')],
+      'nothing to claim',
+    ],
+    ['a sticky stop', [comment(RED), comment(accounting(1, 1, 'review-bound'))], 'the loop is closed'],
+  ])('claims nothing for %s, and writes nothing', async (_label, comments, message) => {
     const fake = fakePr({ comments })
     const before = bodies(fake)
     const resumed = await resume(fake)
     expect(resumed.persistedFix).toBe(null)
-    await expect(resumed.claimPersistedFix(CWD, gitOf(fake))).rejects.toThrow()
+    await expect(resumed.claimPersistedFix(CWD, gitOf(fake))).rejects.toThrow(message)
     expect(bodies(fake)).toEqual(before)
     expect(resumed.pendingFix).toBe(false)
   })
@@ -1849,6 +1879,19 @@ describe('a persisted fix allocation outlives the process that recorded it (#699
       fake.pr.headRefOid = REVIEWED_HEAD
       await expect(resumed.assertFixAllowed(CWD, step, gitOf(fake))).resolves.toBe(step)
     })
+
+    it('refuses the grant when the checkout leaves the reviewed head after the claim', async () => {
+      const fake = fakePr()
+      await oneShot(fake)
+      const resumed = await resume(fake)
+      const step = await resumed.claimPersistedFix(CWD, gitOf(fake))
+      fake.pr.localHead = ELSEWHERE
+      const before = bodies(fake)
+      await expect(resumed.assertFixAllowed(CWD, step, gitOf(fake))).rejects.toThrow('this checkout is at')
+      expect(bodies(fake)).toEqual(before)
+      fake.pr.localHead = REVIEWED_HEAD
+      await expect(resumed.assertFixAllowed(CWD, step, gitOf(fake))).resolves.toBe(step)
+    })
   })
 
   describe('recovery never records the posted review a second time', () => {
@@ -1870,20 +1913,6 @@ describe('a persisted fix allocation outlives the process that recorded it (#699
       // One posted review, one review record, no stop: the history never diverged.
       expect(bodies(fake).filter((body) => body.startsWith('<!-- omp-build:code-review -->'))).toHaveLength(1)
       expect(await strict(fake)).toEqual({ reviews: 1, fixes: 1 })
-    })
-
-    it('lifts the guard once a newer review supersedes the allocation, so that review is recorded once', async () => {
-      const fake = fakePr()
-      await oneShot(fake)
-      const resumed = await resume(fake)
-      expect(() => resumed.record('red')).toThrow()
-      fake.post(RED)
-      await expect(resumed.refreshPersistedFix(CWD)).resolves.toBe(null)
-      expect(resumed.persistedFix).toBe(null)
-      const step = resumed.record('red')
-      await resumed.persist(CWD)
-      expect(step).toEqual({ action: 'fix', reviews: 2, fixes: 2, remaining: 0 })
-      await expect(resumed.assertFixAllowed(CWD, step)).resolves.toBe(step)
     })
 
     it('keeps the guard while the allocation is still open', async () => {
@@ -2022,7 +2051,219 @@ describe('a persisted fix allocation outlives the process that recorded it (#699
       expect(error.message).toContain('consumed')
       expect(resumed.pendingFix).toBe(false)
       expect((await resume(fake)).persistedFix).toBe(null)
-      await expect(resumed.assertFixAllowed(CWD, step, gitOf(fake))).rejects.toThrow()
+      await expect(resumed.assertFixAllowed(CWD, step, gitOf(fake))).rejects.toThrow('no live unconsumed')
+    })
+  })
+
+  describe('two processes that both read the allocation as ungranted', () => {
+    const isGrantWrite = (args) => args[1] === 'comment' && String(args[4]).startsWith('<!-- omp-build:fix-grant')
+    /** The grant marker write of `fake`, held until `release()`; `attempted` settles once it is reached. */
+    function gated(fake) {
+      let release = () => {}
+      let reached = () => {}
+      const hold = new Promise((resolve) => {
+        release = resolve
+      })
+      const attempted = new Promise((resolve) => {
+        reached = resolve
+      })
+      const gh = async (cwd, args) => {
+        if (isGrantWrite(args)) {
+          reached()
+          await hold
+        }
+        return fake.gh(cwd, args)
+      }
+      return { gh, release, attempted }
+    }
+
+    it('grants the earliest marker, though the loser’s marker lands after the winner finished', async () => {
+      const fake = fakePr()
+      await oneShot(fake)
+      const [a, b] = [await resume(fake), await resume(fake)]
+      const stepA = await a.claimPersistedFix(CWD, gitOf(fake))
+      const stepB = await b.claimPersistedFix(CWD, gitOf(fake))
+      const held = gated(fake)
+      const outcomeB = refusal(b.assertFixAllowed(CWD, stepB, { gh: held.gh, git: fake.git }))
+      await held.attempted
+      await expect(a.assertFixAllowed(CWD, stepA, gitOf(fake))).resolves.toBe(stepA)
+      held.release()
+
+      const error = await outcomeB
+      expect(error.message).toContain('another process')
+      expect(bodies(fake).filter((body) => body.startsWith('<!-- omp-build:fix-grant'))).toHaveLength(2)
+      expect(b.pendingFix).toBe(false)
+      // The loser can neither record the review again nor grant itself: only a newer review moves it on.
+      expect(() => b.record('red')).toThrow('post a newer review')
+      fake.post(RED)
+      await expect(b.refreshPersistedFix(CWD)).resolves.toBe(null)
+    })
+
+    it('refuses a process that resumed before another was granted, without writing', async () => {
+      const fake = fakePr()
+      await oneShot(fake)
+      const [a, b] = [await resume(fake), await resume(fake)]
+      const step = await a.claimPersistedFix(CWD, gitOf(fake))
+      await a.assertFixAllowed(CWD, step, gitOf(fake))
+      const before = bodies(fake)
+
+      await expect(b.claimPersistedFix(CWD, gitOf(fake))).rejects.toThrow('no longer open')
+      expect(() => b.record('red')).toThrow('post a newer review')
+      expect(bodies(fake)).toEqual(before)
+    })
+
+    it('refuses the grant of a claim another process was granted meanwhile, writing no second marker', async () => {
+      const fake = fakePr()
+      await oneShot(fake)
+      const [a, b] = [await resume(fake), await resume(fake)]
+      const stepB = await b.claimPersistedFix(CWD, gitOf(fake))
+      const stepA = await a.claimPersistedFix(CWD, gitOf(fake))
+      await a.assertFixAllowed(CWD, stepA, gitOf(fake))
+      const before = bodies(fake)
+
+      await expect(b.assertFixAllowed(CWD, stepB, gitOf(fake))).rejects.toThrow('already granted')
+      expect(bodies(fake)).toEqual(before)
+      expect(b.pendingFix).toBe(false)
+      expect(() => b.record('red')).toThrow('post a newer review')
+    })
+  })
+
+  describe('grant markers in the history', () => {
+    const history = (...bodies) => bodies.map((body) => comment(body))
+    const [A, B, C] = ['a', 'b', 'c'].map((char) => char.repeat(16))
+
+    it('takes the earliest token of an allocation, and never reopens an allocation a later grant covered', () => {
+      const twice = analyzeReviewHistory(history(RED, accounting(1, 1), grant(1, 1, A), grant(1, 1, B)), { me: ME })
+      expect(twice.grantTokens.get(1)).toBe(A)
+
+      // A loser’s late marker for the first allocation does not reopen the second one.
+      const late = analyzeReviewHistory(
+        history(RED, accounting(1, 1), grant(1, 1, A), RECEIPT, RED, accounting(2, 2), grant(2, 2, B), grant(1, 1, C)),
+        { me: ME },
+      )
+      expect(late.grantedFixes).toBe(2)
+      expect(late.openAllocation).toBe(false)
+    })
+  })
+
+  describe('what a resumed loop sees change under it', () => {
+    it.each(['claimPersistedFix', 'refreshPersistedFix'])(
+      'enforces a stop posted after the resume, at %s',
+      async (method) => {
+        const fake = fakePr()
+        await oneShot(fake)
+        const resumed = await resume(fake)
+        fake.pr.labels.add('reviewed')
+        fake.pr.autoMerge = { mergeMethod: 'MERGE' }
+        fake.post(accounting(1, 1, 'review-bound'))
+
+        const error = await refusal(resumed[method](CWD, gitOf(fake)))
+        expect(error.message).toContain('stopped (review-bound)')
+        expect(error.stop).toBeDefined()
+        expect(fake.pr.labels.has('reviewed')).toBe(false)
+        expect(fake.pr.autoMerge).toBe(null)
+        expect({ closed: resumed.closed, persistedFix: resumed.persistedFix }).toEqual({
+          closed: 'stop',
+          persistedFix: null,
+        })
+        await expect(resumed.claimPersistedFix(CWD, gitOf(fake))).rejects.toThrow('the loop is closed')
+      },
+    )
+
+    it('refuses a claim when gh answers as another account after the resume, writing nothing', async () => {
+      const fake = fakePr()
+      await oneShot(fake)
+      const resumed = await resume(fake)
+      const before = bodies(fake)
+      fake.pr.me = 'omp-bot-2'
+      await expect(resumed.claimPersistedFix(CWD, gitOf(fake))).rejects.toThrow('another account')
+      expect(bodies(fake)).toEqual(before)
+      expect(resumed.pendingFix).toBe(false)
+    })
+
+    it('refuses a refresh when the PR history moved since the resume', async () => {
+      const fake = fakePr()
+      await oneShot(fake)
+      const resumed = await resume(fake)
+      fake.post(accounting(2, 2))
+      await expect(resumed.refreshPersistedFix(CWD)).rejects.toThrow('moved since this loop resumed')
+      expect(() => resumed.record('red')).toThrow('claimPersistedFix')
+    })
+
+    it('does not lift the guard on counts another process has since moved', async () => {
+      const fake = fakePr()
+      await oneShot(fake)
+      const [a, b] = [await resume(fake), await resume(fake)]
+      const step = await b.claimPersistedFix(CWD, gitOf(fake))
+      await b.assertFixAllowed(CWD, step, gitOf(fake))
+      fake.post(RECEIPT)
+      fake.post(RED)
+      const next = b.record('red')
+      await b.persist(CWD)
+      await b.assertFixAllowed(CWD, next)
+
+      await expect(a.refreshPersistedFix(CWD)).rejects.toThrow('moved since this loop resumed')
+      expect(() => a.record('red')).toThrow('claimPersistedFix')
+    })
+
+    it('grants one of two overlapping claims on the same loop', async () => {
+      const fake = fakePr()
+      await oneShot(fake)
+      const resumed = await resume(fake)
+      const outcomes = await Promise.allSettled([
+        resumed.claimPersistedFix(CWD, gitOf(fake)),
+        resumed.claimPersistedFix(CWD, gitOf(fake)),
+      ])
+      expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1)
+    })
+
+    it('lets a claimed process carry on after its grant: fix, re-review, record', async () => {
+      const fake = fakePr()
+      await oneShot(fake)
+      const resumed = await resume(fake)
+      const step = await resumed.claimPersistedFix(CWD, gitOf(fake))
+      await resumed.assertFixAllowed(CWD, step, gitOf(fake))
+      fake.post(RECEIPT)
+      fake.post(RED)
+
+      const next = resumed.record('red')
+      expect(next).toEqual({ action: 'fix', reviews: 2, fixes: 2, remaining: 0 })
+      await resumed.persist(CWD)
+      await expect(resumed.assertFixAllowed(CWD, next)).resolves.toBe(next)
+      expect(await strict(fake)).toEqual({ reviews: 2, fixes: 2 })
+    })
+
+    describe('a grant marker that cannot be written', () => {
+      const isGrantWrite = (args) => args[1] === 'comment' && String(args[4]).startsWith('<!-- omp-build:fix-grant')
+
+      it('is not given back once the loop closed meanwhile', async () => {
+        const fake = fakePr()
+        const { loop, step } = await oneShot(fake)
+        const gh = async (cwd, args) => {
+          if (!isGrantWrite(args)) return fake.gh(cwd, args)
+          fake.post(GREEN)
+          loop.record('green')
+          throw new Error('gh: 502')
+        }
+        await expect(loop.assertFixAllowed(CWD, step, { gh, git: fake.git })).rejects.toThrow('502')
+        expect({ closed: loop.closed, pendingFix: loop.pendingFix }).toEqual({ closed: 'land', pendingFix: false })
+      })
+
+      it('does not overwrite a newer allocation the loop made meanwhile', async () => {
+        const fake = fakePr()
+        const { loop, step } = await oneShot(fake)
+        let newer = null
+        const gh = async (cwd, args) => {
+          if (!isGrantWrite(args)) return fake.gh(cwd, args)
+          fake.post(RED)
+          newer = loop.record('red')
+          throw new Error('gh: 502')
+        }
+        await expect(loop.assertFixAllowed(CWD, step, { gh, git: fake.git })).rejects.toThrow('502')
+        expect(newer).toMatchObject({ action: 'fix', fixes: 2 })
+        await loop.persist(CWD)
+        await expect(loop.assertFixAllowed(CWD, newer)).resolves.toBe(newer)
+      })
     })
   })
 })
