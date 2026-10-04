@@ -242,8 +242,7 @@ the final review and the hook are the operator's call.
    Skip the brief for `size:S`.
    Publish with `T=$(realpath skill://issue-triage/triage.ts) && bun "$T" create`, or `set` to amend
    an existing issue. Titles and bodies you did not write go through
-   `--title-file` and `--body-file`. If that command cannot be resolved, stop
-   and name issue-triage. Do not resolve the CLI from a path inside the skill body.
+   `--title-file` and `--body-file`. Amending a body with `set --body` or `set --body-file` requires issue-triage ≥ 0.2.0 (the `.omp-plugin/marketplace.json` cache key). An older cached CLI skips an unknown flag and can exit 0 when another flag is present, leaving the body unwritten. If that command cannot be resolved, stop and name issue-triage. Do not resolve the CLI from a path inside the skill body.
    **A newly returned issue number immediately triggers §3**, even mid-framing.
 3. Record durable vocabulary/decisions only in the matching worktree, using the
    project's glossary and ADR conventions when warranted. The issue remains the

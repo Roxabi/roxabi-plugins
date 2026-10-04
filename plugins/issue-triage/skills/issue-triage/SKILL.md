@@ -84,12 +84,19 @@ Every priority change carries a comment that names the trigger and the evidence,
 | `--rm-blocks <REF>[,<REF>...]` | Remove blocking dependency |
 | `--parent <REF>` | Set parent issue. REF = `#N` or `owner/repo#N` |
 | `--add-child <REF>[,<REF>...]` | Add child sub-issues |
-| `--rm-parent` | Remove parent relationship |
+| `--rm-parent` | Remove parent relationship. Refused for a cross-repo subject before any write |
 | `--rm-child <REF>[,<REF>...]` | Remove child sub-issues |
 | `--lane <L>` | Set lane label (optional, additive). Valid: `a1`, `a2`, `a3`, `b`, `c1`, `c2`, `c3`, `d`–`o`, `standalone` — case-folded; anything else exits 1 |
 | `--type <T>` | Set org issueType (optional, additive). Valid: `fix`, `feat`, `docs`, `test`, `chore`, `ci`, `perf`, `epic`, `research`, `refactor` |
+| `--body <text>` | Replace the issue body. Empty, whitespace-only, or a value equal to a known `set` flag exits 1 and writes nothing. Not a clear |
+| `--body-file <path>` | Replace the issue body with the file's bytes. A missing file, an empty or whitespace-only file, or a path that is a known `set` flag exits 1 and writes nothing. Last of `--body` / `--body-file` wins |
+| `--clear-body` | Write an empty body. The only clear. Combined with `--body` or `--body-file`, exits 1 and writes nothing |
 
-Every flag is canonicalised **before** the first write, so a rejected value leaves the issue untouched. A flag given no value (`--priority` with nothing after it, or `--priority "$UNSET"`) exits 1 rather than being ignored. A label that the repository does not carry is reported and exits 1 **after** the dependency and parent/child writes have run, never instead of them.
+Every flag is canonicalised, and every lookup that can reject the command (type id, parent / child / blocked-by node id, a relation token that does not parse) is resolved, **before** the first write. A rejected value leaves the issue untouched, including the body. The body `PATCH` is the last write. A rejected `PATCH` exits non-zero and names the HTTP status; it does not roll back label or relation writes that already landed in that invocation. A label that the repository does not carry is reported and exits 1 **after** the dependency and parent/child writes, and **before** the body `PATCH`. A flag given no value (`--priority` with nothing after it, or `--priority "$UNSET"`) exits 1 rather than being ignored.
+
+On success, a body replace prints `Body #N` or `Body owner/repo#N`.
+
+`set` on a pull-request number rewrites the PR description: `PATCH /repos/{owner}/{repo}/issues/{n}` applies to PRs. `set` does not GET the target to refuse one.
 
 ### `create` — Create a new issue
 
@@ -183,16 +190,50 @@ rm -rf "$DIR"
 
 ## Complexity Scoring
 
-Assess κ ∈ [1,10] to inform tier (S / F-lite / F-full). Record by appending to issue body:
+Assess κ ∈ [1,10] to inform tier (S / F-lite / F-full). Record by replacing an existing marker, or appending one, through `set --body-file`. A failed or empty read must not write. The read and the write use the same non-empty repo slug (env, then `.dev/dev-core.yml` `github_repo`, then the cwd). An empty slug must abort before `gh issue view`: that command ignores an empty repo flag and exits 0 against the cwd.
 
 ```bash
-BODY=$(gh issue view <number> --json body --jq .body)
-gh issue edit <number> --body "$BODY
-
-<!-- complexity: <score> -->"
+set -euo pipefail
+N=<number>
+SCORE=<score>
+REPO="${GITHUB_REPO:-}"
+if [ -z "$REPO" ] && [ -f .dev/dev-core.yml ]; then
+  REPO=$(sed -n "s/^github_repo:[[:space:]]*['\"]\{0,1\}\([^'\"]*\)['\"]\{0,1\}[[:space:]]*$/\1/p" .dev/dev-core.yml | head -n 1)
+fi
+if [ -z "$REPO" ]; then
+  REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+fi
+if [ -z "$REPO" ]; then
+  echo "Error: empty repo; refusing to read one repo and write another" >&2
+  exit 1
+fi
+BODY=$(gh issue view "$N" --repo "$REPO" --json body --jq .body) || exit 1
+if [ "$BODY" = "null" ]; then
+  BODY=""
+fi
+trimmed=$(printf '%s' "$BODY" | tr -d '[:space:]')
+if [ -z "$trimmed" ]; then
+  echo "Error: empty body read; refusing to write a marker-only body" >&2
+  exit 1
+fi
+MARKER="<!-- complexity: ${SCORE} -->"
+case "$BODY" in
+  *'<!-- complexity:'*)
+    NEW=$(printf '%s' "$BODY" | sed -E "s/<!-- complexity: [0-9]+ -->/${MARKER}/")
+    if [ "$NEW" = "$BODY" ]; then
+      echo "Error: complexity marker matched but was not replaced" >&2
+      exit 1
+    fi
+    ;;
+  *)
+    NEW=$(printf '%s\n\n%s\n' "$BODY" "$MARKER")
+    ;;
+esac
+DIR=$(mktemp -d)
+printf '%s\n' "$NEW" > "$DIR/body.md"
+GITHUB_REPO="$REPO" T set "${REPO}#${N}" --body-file "$DIR/body.md"
+rm -rf "$DIR"
 ```
-
-`<!-- complexity: N -->` is machine-parseable, so a later read can recover the score behind a tier.
 
 **Factors (each 1-10, weighted):**
 

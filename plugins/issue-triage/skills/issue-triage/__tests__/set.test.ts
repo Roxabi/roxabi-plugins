@@ -1,3 +1,6 @@
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as ConfigHelpers from '../../shared/adapters/config-helpers'
 import { EXTENDED_ISSUE_TYPES, ISSUE_TYPE_NAMES } from '../../shared/domain/issue-types'
@@ -30,6 +33,7 @@ vi.mock('../../shared/adapters/github-adapter', () => ({
   removeSubIssue: vi.fn(),
   resolveIssueTypeId: vi.fn(),
   updateIssueIssueType: vi.fn(),
+  updateIssueBody: vi.fn(),
 }))
 
 const github = await import('../../shared/adapters/github-adapter')
@@ -41,6 +45,7 @@ const mockRemoveSubIssue = github.removeSubIssue as ReturnType<typeof vi.fn>
 const mockGetParentNumber = github.getParentNumber as ReturnType<typeof vi.fn>
 const mockResolveIssueTypeId = github.resolveIssueTypeId as ReturnType<typeof vi.fn>
 const mockUpdateIssueIssueType = github.updateIssueIssueType as ReturnType<typeof vi.fn>
+const mockUpdateIssueBody = github.updateIssueBody as ReturnType<typeof vi.fn>
 
 const githubInfra = await import('../../shared/adapters/github-infra')
 const mockSyncPriorityLabel = githubInfra.syncPriorityLabel as ReturnType<typeof vi.fn>
@@ -515,5 +520,201 @@ describe('issue-triage/set > combined --lane + --type + --size', () => {
     expect(mockSyncLaneLabel).toHaveBeenCalledWith(123, 'a1')
     // Assert — type mutation
     expect(mockUpdateIssueIssueType).toHaveBeenCalledWith('node-123', 'type-id-feat')
+  })
+})
+
+function throwingExit() {
+  return vi.spyOn(process, 'exit').mockImplementation(((code: number) => {
+    throw new Error(`process.exit:${code}`)
+  }) as never)
+}
+
+function expectNoMutations() {
+  expect(mockUpdateIssueBody).not.toHaveBeenCalled()
+  expect(mockUpdateIssueIssueType).not.toHaveBeenCalled()
+  expect(mockSyncPriorityLabel).not.toHaveBeenCalled()
+  expect(mockSyncSizeLabel).not.toHaveBeenCalled()
+  expect(mockSyncLaneLabel).not.toHaveBeenCalled()
+  expect(mockSyncStatusLabel).not.toHaveBeenCalled()
+  expect(mockAddBlockedBy).not.toHaveBeenCalled()
+  expect(mockRemoveBlockedBy).not.toHaveBeenCalled()
+  expect(mockAddSubIssue).not.toHaveBeenCalled()
+  expect(mockRemoveSubIssue).not.toHaveBeenCalled()
+}
+
+function bodyFile(text: string): string {
+  const dir = mkdtempSync(join(tmpdir(), 'set-body-'))
+  const path = join(dir, 'body.md')
+  writeFileSync(path, text)
+  return path
+}
+
+describe('issue-triage/set > body replace', () => {
+  beforeEach(setupMocks)
+  afterEach(() => vi.restoreAllMocks())
+
+  it('replaces the body and prints Body #N', async () => {
+    const logs: string[] = []
+    vi.spyOn(console, 'log').mockImplementation((...args) => logs.push(String(args[0])))
+    await setIssue(['42', '--body', 'replaced spec'])
+    expect(mockUpdateIssueBody).toHaveBeenCalledWith(42, 'replaced spec', undefined)
+    expect(mockUpdateIssueBody).toHaveBeenCalledTimes(1)
+    expect(logs).toContain('Body #42')
+    expect(mockSyncSizeLabel).not.toHaveBeenCalled()
+    expect(mockUpdateIssueIssueType).not.toHaveBeenCalled()
+  })
+
+  it('writes file bytes, including shell metacharacters, and last body flag wins', async () => {
+    const path = bodyFile('keep $(curl)\n`tick`')
+    await setIssue(['42', '--body', 'first', '--body-file', path])
+    expect(mockUpdateIssueBody).toHaveBeenCalledWith(42, 'keep $(curl)\n`tick`', undefined)
+  })
+
+  it('clears the body only through --clear-body', async () => {
+    const logs: string[] = []
+    vi.spyOn(console, 'log').mockImplementation((...args) => logs.push(String(args[0])))
+    await setIssue(['42', '--clear-body'])
+    expect(mockUpdateIssueBody).toHaveBeenCalledWith(42, '', undefined)
+    expect(logs).toContain('Body #42')
+  })
+
+  it('patches a cross-repo subject and skips label sync', async () => {
+    const logs: string[] = []
+    vi.spyOn(console, 'log').mockImplementation((...args) => logs.push(String(args[0])))
+    await setIssue(['Roxabi/voiceCLI#144', '--body', 'NEW', '--size', 'S', '--priority', 'High'])
+    expect(mockUpdateIssueBody).toHaveBeenCalledWith(144, 'NEW', 'Roxabi/voiceCLI')
+    expect(logs).toContain('Body Roxabi/voiceCLI#144')
+    expect(mockSyncSizeLabel).not.toHaveBeenCalled()
+    expect(mockSyncPriorityLabel).not.toHaveBeenCalled()
+    const errors = (console.error as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(errors.some((m) => m.includes('label sync') && m.includes('cross-repo'))).toBe(true)
+  })
+
+  it('refuses a flag token taken as --body and does not apply the following flag', async () => {
+    const exitSpy = throwingExit()
+    await setIssue(['42', '--body', '--size', 'M']).catch(() => {})
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expect(mockSyncSizeLabel).not.toHaveBeenCalled()
+    expectNoMutations()
+  })
+
+  it('refuses an empty or whitespace body and writes nothing', async () => {
+    const exitSpy = throwingExit()
+    await setIssue(['42', '--body', '', '--size', 'S']).catch(() => {})
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expectNoMutations()
+    exitSpy.mockClear()
+    await setIssue(['42', '--body', '   ', '--size', 'S']).catch(() => {})
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expectNoMutations()
+    exitSpy.mockClear()
+    await setIssue(['42', '--body-file', bodyFile('  \n'), '--size', 'S']).catch(() => {})
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expectNoMutations()
+    exitSpy.mockClear()
+    await setIssue(['42', '--body', 'keep', '--body-file', bodyFile('')]).catch(() => {})
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expectNoMutations()
+  })
+
+  it('refuses --clear-body combined with a body flag', async () => {
+    const exitSpy = throwingExit()
+    const errors: string[] = []
+    vi.spyOn(console, 'error').mockImplementation((...args) => errors.push(String(args[0])))
+    await setIssue(['42', '--clear-body', '--body', 'NEW', '--size', 'S']).catch(() => {})
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expect(errors.some((m) => m.includes('--clear-body') && m.includes('--body'))).toBe(true)
+    expectNoMutations()
+  })
+
+  it('refuses a missing --body-file before any write', async () => {
+    const exitSpy = throwingExit()
+    await setIssue(['42', '--body-file', join(tmpdir(), 'missing-set-body.md'), '--size', 'S']).catch(() => {})
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expectNoMutations()
+  })
+
+  it.each([
+    ['--type', 'bogus'],
+    ['--size', 'bogus'],
+    ['--priority', 'bogus'],
+    ['--lane', 'bogus'],
+    ['--status', 'Done'],
+  ])('writes nothing when %s %s is rejected', async (flag, value) => {
+    const exitSpy = throwingExit()
+    await setIssue(['42', '--body', 'NEW', flag, value, '--parent', '7']).catch(() => {})
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expectNoMutations()
+  })
+
+  it('writes nothing when cross-repo --rm-parent is rejected', async () => {
+    const exitSpy = throwingExit()
+    await setIssue(['Roxabi/x#5', '--body', 'NEW', '--rm-parent', '--blocked-by', '9', '--size', 'S']).catch(() => {})
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expectNoMutations()
+  })
+
+  it('writes nothing when a relation token does not parse', async () => {
+    const exitSpy = throwingExit()
+    await setIssue(['42', '--body', 'NEW', '--blocked-by', 'nope', '--size', 'S']).catch(() => {})
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expectNoMutations()
+  })
+
+  it('writes nothing when the type lookup rejects', async () => {
+    const exitSpy = throwingExit()
+    mockResolveIssueTypeId.mockRejectedValue(new Error('type lookup down'))
+    await setIssue(['42', '--body', 'NEW', '--size', 'S', '--type', 'feat']).catch(() => {})
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expectNoMutations()
+  })
+
+  it('writes nothing when a ref lookup rejects after the subject resolves', async () => {
+    const exitSpy = throwingExit()
+    mockGetNodeId.mockImplementation(async (num: number) => {
+      if (num === 7) throw new Error('ref lookup down')
+      return `node-${num}`
+    })
+    await setIssue(['42', '--body', 'NEW', '--size', 'S', '--parent', '7']).catch(() => {})
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expectNoMutations()
+  })
+
+  it('writes nothing when the parent lookup rejects', async () => {
+    const exitSpy = throwingExit()
+    mockGetParentNumber.mockRejectedValue(new Error('parent lookup down'))
+    await setIssue(['42', '--body', 'NEW', '--size', 'S', '--rm-parent']).catch(() => {})
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expectNoMutations()
+  })
+
+  it('does not replace the body when a label write fails', async () => {
+    const exitSpy = throwingExit()
+    mockSyncSizeLabel.mockResolvedValueOnce(false)
+    await setIssue(['42', '--body', 'NEW', '--size', 'S', '--parent', '7']).catch(() => {})
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expect(mockAddSubIssue).toHaveBeenCalledWith('node-7', 'node-42')
+    expect(mockUpdateIssueBody).not.toHaveBeenCalled()
+  })
+
+  it.each(['--parent', '--blocked-by', '--add-child', '--rm-child'])(
+    'writes nothing when %s is only commas',
+    async (flag) => {
+      const exitSpy = throwingExit()
+      await setIssue(['42', '--body', 'NEW', '--size', 'S', flag, ',']).catch(() => {})
+      expect(exitSpy).toHaveBeenCalledWith(1)
+      expectNoMutations()
+    },
+  )
+
+  it('exits non-zero and names the status when the body PATCH is rejected', async () => {
+    const exitSpy = throwingExit()
+    const errors: string[] = []
+    vi.spyOn(console, 'error').mockImplementation((...args) => errors.push(String(args[0])))
+    mockUpdateIssueBody.mockRejectedValue(new Error('Failed to update body for #42 (422): nope'))
+    await setIssue(['42', '--body', 'NEW']).catch(() => {})
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expect(errors.some((m) => m.includes('422'))).toBe(true)
+    expect(mockSyncSizeLabel).not.toHaveBeenCalled()
   })
 })
