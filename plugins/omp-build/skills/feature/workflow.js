@@ -998,9 +998,7 @@ export function analyzeReviewHistory(comments, { me, maxFixRounds = MAX_FIX_ROUN
   // or grant exists, and nothing stops the loop. A CI fix posts no receipt, so `grantedFixes`
   // (not the receipt count) is what tells a consumed allocation from an open one.
   const openAllocation =
-    hasMarker &&
     rounds.stopReason === undefined &&
-    markerFixes >= 1 &&
     grantedFixes < markerFixes &&
     codeReviews >= 1 &&
     markerReviews >= codeReviews &&
