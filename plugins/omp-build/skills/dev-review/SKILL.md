@@ -500,26 +500,33 @@ point here; do not invent a parallel stop policy.
 **Called by `/feature`:** return the posted verdict to `skill://feature` §6.4
 before presenting this decision. That caller already owns the loop (initialized
 before this nested review) and records the bounded round once:
-`record` → (`stop` ? `enforceStop` : `persist`) → human choice → `assertFixAllowed`
-→ `fix` or gated landing. Skip the standalone actions below; never
-choose on the operator's behalf. Nested review must not initialize, `record`, or
-`persist` again.
+`recordPosted` → (`stop` ? `enforceStop` : `persist`) → human choice →
+`assertFixAllowed` → `fix` or gated landing. Skip the standalone actions below;
+never choose on the operator's behalf. Nested review must not initialize,
+`record`, or `persist` again.
 
 **Standalone review:** use the handle created in Phase 1. Map `Approve`,
 `Approve (clean)` and `Approve with comments` to `green`; `Request changes` to
-`red`. After posting the review, call `step = loop.record(verdict)` once.
-On `stop`, disarm and publish the dossier below; otherwise persist when `pr`
-exists. Local-only reviews keep the same counts/stop in their local record.
+`red`. After posting the review, call `step = await loop.recordPosted(cwd, verdict)`
+once when a PR exists, otherwise `loop.record(verdict)`. On `stop`, disarm and
+publish the dossier below; otherwise persist when `pr` exists. Local-only reviews
+keep the same counts/stop in their local record. A resumed loop's unconsumed
+allocation is `loop.persistedFix`: pass that step to `assertFixAllowed`. Do not
+replay `record`.
 
 **Executable action contract (`workflow.js`).** A PR fix is authorized only by
 `await loop.assertFixAllowed(cwd, step)` after its allocation is persisted.
 It checks fresh attributable history, not just the cached loop, and consumes
-the live step once. A valid second live allocation is allowed; resuming that
-same incomplete allocation is not. Calling it before `persist` throws a
-recoverable error that names `persist` and writes nothing; the allocation stays
-live. If the durable history diverges from this persisted allocation, it stops
-permanently as `history-stale` rather than refunding it. Only that divergence
-makes a stop sticky.
+the live step once — including a resumed `persistedFix`, which is not a live
+step until this call honours it. A PR grant writes
+`<!-- omp-build:fix-grant reviews=N fixes=M token=… -->` before returning. A
+second grant throws `grant already consumed` and writes nothing. A missing or
+moved review head throws and writes nothing, including no stop. A valid second
+live allocation is allowed; a consumed grant is not. Calling it before `persist`
+throws a recoverable error that names `persist` and writes nothing; the
+allocation stays live. If the durable history diverges from this persisted
+allocation, it stops permanently as `history-stale` rather than refunding it.
+Only that divergence makes a stop sticky.
 `landPr(cwd, pr)` independently rejects stops and returns `not-approved` unless
 an approving review follows the latest correction/allocation. Stop refusals
 disarm and carry `error.stop` / `land.stop`; print that evidence and publish the
