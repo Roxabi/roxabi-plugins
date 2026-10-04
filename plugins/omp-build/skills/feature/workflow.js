@@ -1073,8 +1073,8 @@ async function readReviewHistory(cwd, pr, { gh: ghFn = gh, maxFixRounds = MAX_FI
  * The loop for a PR that may already have spent rounds — the constructor to use in
  * `/feature` §6.4, so that re-entering mode 2 (or re-creating the loop mid-session)
  * **resumes** the bound instead of restarting it. A sticky stopReason reopens closed.
- * A resumed loop never carries a live fix grant — only a fresh `record`/`reopen` in this
- * process allocates one.
+ * A resumed loop holds no live fix grant of its own — only a fresh `record`/`reopen` in this
+ * process, or `claimPersistedFix` on a persisted allocation, makes one.
  *
  * @param {string} cwd
  * @param {{ pr: number | string, maxFixRounds?: number, gh?: (cwd: string, args: string[]) => Promise<string> }} options
@@ -1095,8 +1095,8 @@ export async function resumeReviewLoop(cwd, { pr, maxFixRounds = MAX_FIX_ROUNDS,
  * Pure local review counter. A PR-bound fix must use resumeReviewLoop so its
  * authorization has private, observed provenance, not caller-provided counts.
  * Record/reopen allocate; persist saves that allocation; awaited assertFixAllowed
- * checks fresh history and consumes it. Neither reconstruction nor a new session
- * creates a live allocation.
+ * checks fresh history and consumes it. A resumed loop holds no live allocation of its own:
+ * only a fresh `record`/`reopen`, or `claimPersistedFix` on a persisted one, creates one.
  *
  * @param {{
  *   pr?: number | string | null,
@@ -1150,10 +1150,11 @@ function buildReviewLoop(
   /** @type {string} */
   let closedReason = seedStopReason || 'review-bound'
   let pendingStep = null
-  // The posted review is already covered by a persisted fix allocation ('persisted': resumed
-  // with one nobody granted) or by the step claimed from it ('claimed', until the grant is
-  // written). While set, `record` would count that one review a second time, so it throws.
-  /** @type {'persisted' | 'claimed' | null} */
+  // The posted review is already covered by an allocation on the PR: 'persisted' (resumed with one
+  // nobody granted), 'claimed' (its step is held, until the grant is written) or 'consumed' (it was
+  // granted, fixed or superseded and no newer review exists yet). While set, `record` would count
+  // that one review a second time, so it throws; only a newer posted review lifts it.
+  /** @type {'persisted' | 'claimed' | 'consumed' | null} */
   let replayGuard = provenance?.openAllocation ? 'persisted' : null
   /** @type {string | null} the reviewed head a claimed step is bound to */
   let claimedHead = null
@@ -1255,6 +1256,21 @@ function buildReviewLoop(
     }
   }
 
+  /**
+   * The allocation is no longer open (granted, fixed or superseded). A claimed step is dropped
+   * with it. The guard stays ('consumed') until a newer posted review, counted by no marker,
+   * makes `record` legitimate again; then it is lifted.
+   * @param {any} fresh
+   */
+  function releaseOrKeepGuard(fresh) {
+    if (replayGuard === 'claimed') pendingStep = null
+    claimedHead = null
+    replayGuard =
+      fresh.markerReviews === reviews && fresh.markerFixes === fixes && fresh.codeReviews > expectedCodeReviews
+        ? null
+        : 'consumed'
+  }
+
   function persistBody() {
     const lines = [`<!-- omp-build:review-rounds reviews=${reviews} fixes=${fixes} -->`]
     if (closed === 'stop') {
@@ -1283,8 +1299,8 @@ function buildReviewLoop(
       return Math.max(0, maxFixRounds - fixes)
     },
     /**
-     * True only while this live process holds an unconsumed allocation from
-     * `record('red')` / `reopen('ci-failed')`. Always false on a resumed loop.
+     * True while this process holds an unconsumed allocation: from `record('red')` /
+     * `reopen('ci-failed')`, or from `claimPersistedFix` on a resumed loop.
      */
     get pendingFix() {
       return pendingStep !== null
@@ -1295,7 +1311,7 @@ function buildReviewLoop(
      * A snapshot of the resume (or the last `refreshPersistedFix`): it is not proof.
      */
     get persistedFix() {
-      if (replayGuard !== 'persisted') return null
+      if (replayGuard !== 'persisted' || closed !== null) return null
       return Object.freeze({
         reviews,
         fixes,
@@ -1332,7 +1348,9 @@ function buildReviewLoop(
         throw new Error(
           replayGuard === 'persisted'
             ? 'createReviewLoop: a persisted, ungranted fix allocation already covers the posted review — record would count it twice. Claim it with claimPersistedFix, or call refreshPersistedFix after a newer review was posted'
-            : 'createReviewLoop: a claimed fix allocation is awaiting its grant — record would count the posted review twice; await assertFixAllowed',
+            : replayGuard === 'claimed'
+              ? 'createReviewLoop: a claimed fix allocation is awaiting its grant — record would count the posted review twice; await assertFixAllowed, or after a newer review call refreshPersistedFix'
+              : 'createReviewLoop: the allocation covering the posted review was already granted, fixed or superseded — record would count that review twice; post a newer review with dev-review, then call refreshPersistedFix',
         )
       }
       if (!acknowledged && postedAhead > 1) return stopStep('history-ambiguous')
@@ -1360,23 +1378,42 @@ function buildReviewLoop(
       return pendingStep
     },
     /**
-     * Read what the PR says about the persisted allocation this resumed loop found, and
-     * lift the `record` guard once that allocation is superseded (a later review, a
-     * receipt, a grant). Returns `persistedFix` (null once lifted). Call it after posting
-     * a newer review on a loop that resumed with a persisted allocation. A durable stop
-     * stops the loop and is enforced, as `assertFixAllowed` does. Writes nothing otherwise.
+     * Read what the PR says about the allocation this resumed loop found, and lift the
+     * `record` guard once a newer review is posted after it (the only thing that makes
+     * `record` legitimate again). Returns `persistedFix` while the allocation is still
+     * claimable and `null` once the guard is lifted; it throws while the guard stays (the
+     * allocation is granted, fixed or claimed and no newer review exists), so `null` always
+     * means "record now". A claimed step whose allocation a newer review superseded (the
+     * head moved) is dropped with the guard: it was never granted. A durable stop stops the
+     * loop and is enforced, as `assertFixAllowed` does. Writes nothing otherwise.
      *
      * @param {string} cwd
      * @param {{ gh?: Function }} [deps]
      */
     async refreshPersistedFix(cwd, { gh: ghFn = ghDefault } = {}) {
       requirePr('refreshPersistedFix')
-      if (replayGuard !== 'persisted') return loop.persistedFix
+      if (!replayGuard) return null
       if (closed === 'stop') throw new Error(`refreshPersistedFix: loop is stopped (${closedReason})`)
       const { fresh } = await freshPersisted(cwd, ghFn, 'refreshPersistedFix')
-      if (!fresh.openAllocation) replayGuard = null
-      else assertPersistedMatches(fresh, 'refreshPersistedFix')
-      return loop.persistedFix
+      if (fresh.markerReviews !== reviews || fresh.markerFixes !== fixes) {
+        throw new Error('refreshPersistedFix: the PR history moved since this loop resumed — resume the loop again')
+      }
+      if (fresh.openAllocation) {
+        if (replayGuard === 'claimed') {
+          throw new Error(
+            'refreshPersistedFix: a claimed allocation is awaiting its grant — await assertFixAllowed, or re-run dev-review on the current head and call this again',
+          )
+        }
+        assertPersistedMatches(fresh, 'refreshPersistedFix')
+        return loop.persistedFix
+      }
+      releaseOrKeepGuard(fresh)
+      if (replayGuard) {
+        throw new Error(
+          'refreshPersistedFix: the allocation covering the posted review is granted, fixed or superseded and no newer review exists — post one with dev-review, then call this again',
+        )
+      }
+      return null
     },
     /**
      * Make the persisted, ungranted allocation this resumed loop found on the PR its one
@@ -1399,14 +1436,14 @@ function buildReviewLoop(
       if (!provenance) throw new Error('claimPersistedFix: needs resumeReviewLoop provenance')
       if (replayGuard !== 'persisted') {
         throw new Error(
-          'claimPersistedFix: no persisted, ungranted fix allocation covers the posted review — record the review',
+          'claimPersistedFix: no persisted, ungranted fix allocation covers the posted review — nothing to claim; never record the posted review again, only a newer one',
         )
       }
       const { fresh, head, local } = await freshPersisted(cwd, ghFn, 'claimPersistedFix', { gitFn })
       if (!fresh.openAllocation) {
-        replayGuard = null
+        releaseOrKeepGuard(fresh)
         throw new Error(
-          'claimPersistedFix: that allocation is no longer open (a later review, receipt or grant follows it) — nothing to claim; record the newest review',
+          'claimPersistedFix: that allocation is no longer open (a later review, receipt or grant follows it) — nothing to claim; post a newer review with dev-review, then call refreshPersistedFix before record',
         )
       }
       assertPersistedMatches(fresh, 'claimPersistedFix')
@@ -1508,7 +1545,8 @@ function buildReviewLoop(
         if (!ownsDerivedStop && !fresh.openAllocation) {
           // A fix-grant marker, or a receipt, already follows this allocation: it was used.
           pendingStep = null
-          replayGuard = null
+          replayGuard = replayGuard === 'claimed' ? 'consumed' : null
+          claimedHead = null
           throw new Error(
             'assertFixAllowed: this allocation was already granted or fixed (a fix-grant marker or receipt follows it) — no grant is issued twice',
           )
@@ -1548,14 +1586,21 @@ function buildReviewLoop(
         try {
           winner = (await readReviewHistory(cwd, pr, { gh: ghFn, maxFixRounds })).grantTokens.get(step.fixes)
         } catch (error) {
+          replayGuard = replayGuard === 'claimed' ? 'consumed' : replayGuard
+          claimedHead = null
           throw new Error(
             `assertFixAllowed: the grant was written but could not be confirmed (${error instanceof Error ? error.message : String(error)}) — the allocation is consumed and nothing was authorized`,
           )
         }
         if (winner !== grantToken) {
+          replayGuard = replayGuard === 'claimed' ? 'consumed' : replayGuard
+          claimedHead = null
           throw new Error('assertFixAllowed: another process was granted this allocation first — nothing is authorized')
         }
-        if (replayGuard === 'claimed') replayGuard = null
+        if (replayGuard === 'claimed') {
+          replayGuard = null
+          claimedHead = null
+        }
       }
       return step
     },

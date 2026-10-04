@@ -1893,6 +1893,85 @@ describe('a persisted fix allocation outlives the process that recorded it (#699
       await expect(resumed.refreshPersistedFix(CWD)).resolves.toEqual({ reviews: 1, fixes: 1, remaining: 1 })
       expect(() => resumed.record('red')).toThrow('claimPersistedFix')
     })
+
+    it('never lifts the guard on a granted allocation without a newer review, so record cannot replay it', async () => {
+      const fake = fakePr()
+      await oneShot(fake)
+      const [a, b] = [await resume(fake), await resume(fake)]
+      const step = await b.claimPersistedFix(CWD, gitOf(fake))
+      await b.assertFixAllowed(CWD, step, gitOf(fake))
+      const before = bodies(fake)
+
+      // A refresh that cannot lift says so (null always means "record now"); nothing is written.
+      await expect(a.refreshPersistedFix(CWD)).rejects.toThrow('no newer review exists')
+      expect(() => a.record('red')).toThrow('post a newer review')
+      await expect(a.claimPersistedFix(CWD, gitOf(fake))).rejects.toThrow('nothing to claim')
+      expect(bodies(fake)).toEqual(before)
+
+      // The newer review is what makes record legitimate again, counted once.
+      fake.post(RED)
+      await expect(a.refreshPersistedFix(CWD)).resolves.toBe(null)
+      expect(a.record('red')).toEqual({ action: 'fix', reviews: 2, fixes: 2, remaining: 0 })
+    })
+
+    it('lets a claimed step whose head moved recover in the same process through a newer review', async () => {
+      const fake = fakePr()
+      await oneShot(fake)
+      const resumed = await resume(fake)
+      const step = await resumed.claimPersistedFix(CWD, gitOf(fake))
+      fake.pr.headRefOid = ELSEWHERE
+      await expect(resumed.assertFixAllowed(CWD, step, gitOf(fake))).rejects.toThrow('head-moved')
+      expect(() => resumed.record('red')).toThrow('refreshPersistedFix')
+      await expect(resumed.refreshPersistedFix(CWD)).rejects.toThrow('awaiting its grant')
+      expect(resumed.pendingFix).toBe(true)
+
+      // dev-review re-reviewed the moved head: the claim was never granted, so it is dropped.
+      fake.post(RED)
+      await expect(resumed.refreshPersistedFix(CWD)).resolves.toBe(null)
+      expect(resumed.pendingFix).toBe(false)
+      const next = resumed.record('red')
+      await resumed.persist(CWD)
+      expect(next).toEqual({ action: 'fix', reviews: 2, fixes: 2, remaining: 0 })
+      await expect(resumed.assertFixAllowed(CWD, next, gitOf(fake))).resolves.toBe(next)
+      expect(await strict(fake)).toEqual({ reviews: 2, fixes: 2 })
+    })
+
+    it('leaves no dead end after a grant that was written but lost or unconfirmed', async () => {
+      const lost = fakePr()
+      await oneShot(lost)
+      const [a, b] = [await resume(lost), await resume(lost)]
+      const stepA = await a.claimPersistedFix(CWD, gitOf(lost))
+      const stepB = await b.claimPersistedFix(CWD, gitOf(lost))
+      await b.assertFixAllowed(CWD, stepB, gitOf(lost))
+      await expect(a.assertFixAllowed(CWD, stepA, gitOf(lost))).rejects.toThrow()
+      expect(a.pendingFix).toBe(false)
+      expect(() => a.record('red')).toThrow('post a newer review')
+
+      lost.post(RED)
+      await expect(a.refreshPersistedFix(CWD)).resolves.toBe(null)
+      expect(a.record('red')).toMatchObject({ action: 'fix', fixes: 2 })
+    })
+
+    it('keeps the guard on a grant it could not confirm, and lifts it on a newer review', async () => {
+      const fake = fakePr()
+      await oneShot(fake)
+      const resumed = await resume(fake)
+      const step = await resumed.claimPersistedFix(CWD, gitOf(fake))
+      let posted = false
+      const gh = async (cwd, args) => {
+        if (posted && args[0] === 'api' && args.includes('--paginate')) throw new Error('gh: timeout')
+        const out = await fake.gh(cwd, args)
+        if (args[1] === 'comment') posted = true
+        return out
+      }
+      await expect(resumed.assertFixAllowed(CWD, step, { gh, git: fake.git })).rejects.toThrow('consumed')
+      expect(() => resumed.record('red')).toThrow('post a newer review')
+      await expect(resumed.claimPersistedFix(CWD, gitOf(fake))).rejects.toThrow('nothing to claim')
+
+      fake.post(RED)
+      await expect(resumed.refreshPersistedFix(CWD)).resolves.toBe(null)
+      expect(resumed.record('red')).toMatchObject({ action: 'fix', fixes: 2 })
+    })
   })
 
   describe('single use is durable', () => {
