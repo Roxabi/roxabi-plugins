@@ -685,6 +685,15 @@ describe('issue-triage/set > body replace', () => {
     expectNoMutations()
   })
 
+  it('does not replace the body when a label write fails', async () => {
+    const exitSpy = throwingExit()
+    mockSyncSizeLabel.mockResolvedValueOnce(false)
+    await setIssue(['42', '--body', 'NEW', '--size', 'S', '--parent', '7']).catch(() => {})
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expect(mockAddSubIssue).toHaveBeenCalledWith('node-7', 'node-42')
+    expect(mockUpdateIssueBody).not.toHaveBeenCalled()
+  })
+
   it('exits non-zero and names the status when the body PATCH is rejected', async () => {
     const exitSpy = throwingExit()
     const errors: string[] = []
