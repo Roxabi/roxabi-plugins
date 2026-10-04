@@ -669,9 +669,12 @@ describe('issue-triage/set > body replace', () => {
     expectNoMutations()
   })
 
-  it('writes nothing when a node lookup rejects', async () => {
+  it('writes nothing when a ref lookup rejects after the subject resolves', async () => {
     const exitSpy = throwingExit()
-    mockGetNodeId.mockRejectedValue(new Error('node lookup down'))
+    mockGetNodeId.mockImplementation(async (num: number) => {
+      if (num === 7) throw new Error('ref lookup down')
+      return `node-${num}`
+    })
     await setIssue(['42', '--body', 'NEW', '--size', 'S', '--parent', '7']).catch(() => {})
     expect(exitSpy).toHaveBeenCalledWith(1)
     expectNoMutations()
