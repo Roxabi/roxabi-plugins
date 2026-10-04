@@ -160,8 +160,12 @@ PRs resume directly into review; empty history receives a baseline marker.
   posted since: replaying `record('red')` would
   count one posted review twice and stop the loop as `history-stale`. After posting
   a newer review on such a loop, `await loop.refreshPersistedFix(cwd)` lifts that
-  guard (and drops a claimed step that was never granted); it returns `null` exactly
-  when `record` is legitimate and throws otherwise. A claim needs the Phase 8 human
+  guard (and drops a claimed step that was never granted). It returns `null` when the
+  guard is lifted or none was armed, and throws while a guard is set and cannot be
+  lifted. A resume onto a granted allocation whose receipt was never posted arms the
+  guard, so the first `record` after it also needs `refreshPersistedFix`. After a lift
+  the caller owns the verdict match: `assertFixAllowed` stops a mismatch as
+  `history-stale`. A claim needs the Phase 8 human
   choice like any other step. The grant marker only binds sessions on 0.8.2 or later:
   keep every session on one version, or an older session can still grant an
   allocation unmarked. A Stop on a claimable allocation writes nothing, so a later

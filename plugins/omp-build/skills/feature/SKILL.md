@@ -321,10 +321,12 @@ review or `record` again, `step = await loop.claimPersistedFix(cwd)` and go to
 the §6.4 Phase 8 choice. A refusal on the head (`head-moved`, `no-review-head`, a
 checkout off the reviewed head) writes nothing: fix the cause, or re-run `dev-review`
 on the current head, which posts a newer review, then `await loop.refreshPersistedFix(cwd)`
-before `record`ing that review; it returns `null` only once `record` is legitimate
-and throws while it is not (a claim awaiting its grant, an allocation granted or
-fixed by another process, no newer review). "The PR history moved … resume the loop
-again" is not recoverable in place: start a new process.
+before `record`ing that review; it returns `null` when the guard is lifted or none was
+armed, and throws while a guard is set and cannot be lifted (a claim awaiting its grant,
+an allocation granted or fixed by another process, no newer review). A resume onto a
+granted allocation whose receipt was never posted arms the guard, so it needs the same
+`refreshPersistedFix` before `record`. After a lift the caller owns the verdict match.
+"The PR history moved … resume the loop again" is not recoverable in place: start a new process.
 For a new PR only, when `.semctx/` exists, derive/open the change contract from the
 issue (goal, invariants, evidence, unknowns); the issue stays the spec. Then §6.1.
 

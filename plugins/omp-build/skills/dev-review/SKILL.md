@@ -527,8 +527,10 @@ throws while it is unclaimed, awaiting its grant, or granted/fixed with no newer
 review posted since. After a
 newer review is posted on such a loop, call `await loop.refreshPersistedFix(cwd)`
 before `record`: it lifts the guard (and drops a claimed step that was never granted)
-only on a newer posted review, returns `null` exactly when `record` is legitimate,
-and throws otherwise. An allocation already
+only on a newer posted review, returns `null` when the guard is lifted or none was
+armed, and throws while a guard is set and cannot be lifted. A resume onto a granted
+allocation whose receipt was never posted arms the guard too. After a lift the caller
+owns the verdict match. An allocation already
 granted (marker or receipt) is not recoverable. Calling `assertFixAllowed` before `persist` throws a
 recoverable error that names `persist` and writes nothing; the allocation stays
 live. If the durable history diverges from this persisted allocation, it stops
