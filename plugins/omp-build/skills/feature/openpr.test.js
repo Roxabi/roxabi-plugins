@@ -1943,6 +1943,45 @@ describe('a persisted fix allocation outlives the process that recorded it (#699
       expect(a.record('red')).toEqual({ action: 'fix', reviews: 2, fixes: 2, remaining: 0 })
     })
 
+    it('guards a fresh resume onto a granted allocation whose receipt was never posted', async () => {
+      const fake = fakePr()
+      await oneShot(fake)
+      const grantor = await resume(fake)
+      const step = await grantor.claimPersistedFix(CWD, gitOf(fake))
+      await grantor.assertFixAllowed(CWD, step, gitOf(fake))
+
+      // The grantor crashed mid-fix: a new process resumes onto the grant marker alone.
+      const resumed = await resume(fake)
+      const before = bodies(fake)
+      expect(resumed.persistedFix).toBe(null)
+      await expect(resumed.refreshPersistedFix(CWD)).rejects.toThrow('no newer review exists')
+      expect(() => resumed.record('red')).toThrow('post a newer review')
+      await expect(resumed.claimPersistedFix(CWD, gitOf(fake))).rejects.toThrow('nothing to claim')
+      expect(bodies(fake)).toEqual(before)
+
+      // The re-review is what makes record legitimate again, counted once.
+      fake.post(RED)
+      await expect(resumed.refreshPersistedFix(CWD)).resolves.toBe(null)
+      const next = resumed.record('red')
+      await resumed.persist(CWD)
+      expect(next).toEqual({ action: 'fix', reviews: 2, fixes: 2, remaining: 0 })
+      expect(bodies(fake).filter((body) => body.startsWith('<!-- omp-build:code-review -->'))).toHaveLength(2)
+    })
+
+    it('keeps the guard when a step this process held was granted by another, so record cannot replay it', async () => {
+      const fake = fakePr()
+      const { loop, step } = await oneShot(fake)
+      const other = await resume(fake)
+      const claimed = await other.claimPersistedFix(CWD, gitOf(fake))
+      await other.assertFixAllowed(CWD, claimed, gitOf(fake))
+
+      await expect(loop.assertFixAllowed(CWD, step)).rejects.toThrow('already granted')
+      expect(() => loop.record('red')).toThrow('post a newer review')
+      fake.post(RED)
+      await expect(loop.refreshPersistedFix(CWD)).resolves.toBe(null)
+      expect(loop.record('red')).toMatchObject({ action: 'fix', fixes: 2 })
+    })
+
     it('lets a claimed step whose head moved recover in the same process through a newer review', async () => {
       const fake = fakePr()
       await oneShot(fake)

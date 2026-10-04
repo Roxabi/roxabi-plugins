@@ -1024,6 +1024,7 @@ export function analyzeReviewHistory(comments, { me, maxFixRounds = MAX_FIX_ROUN
     reviewedHead: reviewHeadOf(latestReviewBody),
     grantedFixes,
     grantTokens,
+    allocationReceipted,
     openAllocation,
     empty,
   }
@@ -1153,7 +1154,11 @@ function buildReviewLoop(
   // granted, fixed or superseded and no newer review exists yet). While set, `record` would count
   // that one review a second time, so it throws; only a newer posted review lifts it.
   /** @type {'persisted' | 'claimed' | 'consumed' | null} */
-  let replayGuard = provenance?.openAllocation ? 'persisted' : null
+  let replayGuard = provenance?.openAllocation
+    ? 'persisted'
+    : provenance && provenance.grantedFixes >= 1 && !provenance.allocationReceipted
+      ? 'consumed'
+      : null
   /** @type {string | null} the reviewed head a claimed step is bound to */
   let claimedHead = null
   // True once the in-memory counts match a marker this process wrote, or the
@@ -1543,7 +1548,7 @@ function buildReviewLoop(
         if (!ownsDerivedStop && !fresh.openAllocation) {
           // A fix-grant marker, or a receipt, already follows this allocation: it was used.
           pendingStep = null
-          replayGuard = replayGuard === 'claimed' ? 'consumed' : null
+          replayGuard = 'consumed'
           claimedHead = null
           throw new Error(
             'assertFixAllowed: this allocation was already granted or fixed (a fix-grant marker or receipt follows it) — no grant is issued twice',
