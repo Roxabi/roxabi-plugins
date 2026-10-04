@@ -514,8 +514,17 @@ exists. Local-only reviews keep the same counts/stop in their local record.
 **Executable action contract (`workflow.js`).** A PR fix is authorized only by
 `await loop.assertFixAllowed(cwd, step)` after its allocation is persisted.
 It checks fresh attributable history, not just the cached loop, and consumes
-the live step once. A valid second live allocation is allowed; resuming that
-same incomplete allocation is not. Calling it before `persist` throws a
+the live step once; before returning it posts a durable `fix-grant` marker, so
+no process can be granted the same allocation again. A valid second live
+allocation is allowed. A persisted allocation nobody granted survives a process
+boundary: a resumed loop reports it as `loop.persistedFix`, and
+`await loop.claimPersistedFix(cwd)` makes it the live step once fresh history
+proves it and the posted review's head is the PR's and the checkout's. Never
+replay `record` for it: that counts one posted review twice and stops the loop
+as `history-stale`, so `record` throws while the allocation is unclaimed or
+awaiting its grant. After a newer review is posted on such a loop, call
+`await loop.refreshPersistedFix(cwd)` before `record`. An allocation already
+granted (marker or receipt) is not recoverable. Calling `assertFixAllowed` before `persist` throws a
 recoverable error that names `persist` and writes nothing; the allocation stays
 live. If the durable history diverges from this persisted allocation, it stops
 permanently as `history-stale` rather than refunding it. Only that divergence
@@ -528,7 +537,8 @@ nothing: report and exit. No caller may bypass either sink.
 
 ### Human choice (constrained by `step`)
 
-- **`fix`** → Q: **Fix now** / **Stop**. Fix now → await
+- **`fix`** → Q: **Fix now** / **Stop**. A step claimed with `claimPersistedFix`
+  is offered the same way; the human choice precedes the grant. Fix now → await
   `loop.assertFixAllowed(cwd, step)` once. For a review fix, run
   `skill://fix #<pr>` (omit `#<pr>` for local-only).
   For `step.reason === 'ci-failed'`, follow `/feature` §6.5's inline CI correction

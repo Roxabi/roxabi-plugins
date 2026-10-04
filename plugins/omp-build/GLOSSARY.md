@@ -71,7 +71,10 @@ explicit stop marker. Only a divergence of the durable history makes that stop
 sticky. A step this process skipped (`persist` after the allocation) throws and
 leaves the allocation live; it writes no stop.
 An allocation is spent before the Fix/Stop choice and is executable only once;
-reconstructing history never recreates its permission. CI corrections spend the
+reconstructing history never recreates its permission. A resumed loop may claim
+a persisted allocation nobody granted (`claimPersistedFix`), bound to the head the
+review covers; the grant writes a `fix-grant` marker, so no later process can grant
+it again. CI corrections spend the
 same budget. Unprovable history requires human guidance, not a reset.
 After escalation, resumption means an explicitly selected superseding PR under
 a revised plan, or the operator finishing by hand; the stopped PR stays intact.

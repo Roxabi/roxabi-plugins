@@ -139,13 +139,26 @@ PRs resume directly into review; empty history receives a baseline marker.
 
 `workflow.js` enforces the review bound at the action sinks:
 - `resumeReviewLoop` restores attributable counts/stops and private provenance;
-  only a newly recorded verdict or CI reopening allocates a live fix step.
+  only a newly recorded verdict, CI reopening, or `claimPersistedFix` yields a live fix step.
 - `await loop.assertFixAllowed(cwd, step)` checks current durable history and
   consumes that allocation once. It allows its own second live allocation, but
-  rejects resumed grants, newer stops, identity drift and additional reviews;
+  rejects unclaimed grants, newer stops, identity drift and additional reviews;
   an allocation this process has not yet persisted throws until `persist`; durable
   history that does not prove the persisted allocation stops as `history-stale`
-  rather than refunding it.
+  rather than refunding it. Before it returns, a PR grant posts a
+  `<!-- omp-build:fix-grant reviews=N fixes=M token=… -->` marker and the earliest
+  marker for that allocation wins, so one allocation is granted once across processes.
+  A marker that cannot be confirmed still consumes the allocation: a round may be lost,
+  never doubled. Edited or deleted markers are not detected (same as every record here).
+- A resumed loop reports `loop.persistedFix` when the PR holds a persisted
+  allocation nobody granted (its review precedes it; no later review, receipt, grant
+  or stop). `await loop.claimPersistedFix(cwd)` makes it the live step once fresh
+  history proves that, and the posted review's head is both the PR's current head
+  and the checkout's; `assertFixAllowed` re-checks that head before the grant.
+  While it is unclaimed or awaiting its grant, `record` throws and writes nothing:
+  replaying `record('red')` would count one posted review twice and stop the loop as
+  `history-stale`. After posting a newer review on such a loop, `await loop.refreshPersistedFix(cwd)`
+  lifts that guard. A claim needs the Phase 8 human choice like any other step.
 - `landPr(cwd, pr)` independently checks current history before either landing
   mode can arm. A stop returns `review-stopped` with disarm evidence; without an
   approving review of the current head after the latest correction/allocation it

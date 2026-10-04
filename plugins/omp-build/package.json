@@ -1,6 +1,6 @@
 {
   "name": "omp-build",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "private": true,
   "type": "module",
   "description": "OMP-only feature cycle \u2014 frame, GitHub issue, worktree, implement, bounded review/fix, land.",

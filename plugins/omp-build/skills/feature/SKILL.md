@@ -315,7 +315,13 @@ let loop = pr === null ? null : await resumeReviewLoop(cwd, { pr })
 Discovery/read errors stop with evidence; never substitute a local loop.
 If `loop?.closed === 'stop'`, run `enforceStop`, publish the canonical dossier
 (`dev-review` Phase 8), and exit before any edit. Otherwise an existing `pr`
-continues at §6.4 using this same `pr` and `loop`.
+continues at §6.4 using this same `pr` and `loop`. When `loop.persistedFix` is
+set, a previous process already persisted a fix allocation nobody granted: do not
+review or `record` again, `step = await loop.claimPersistedFix(cwd)` and go to
+the §6.4 Phase 8 choice. A refusal (`head-moved`, `no-review-head`, a checkout off
+the reviewed head, moved history) writes nothing: fix the cause or re-run `dev-review`
+on the current head, then `await loop.refreshPersistedFix(cwd)` before `record`ing
+the newly posted review.
 For a new PR only, when `.semctx/` exists, derive/open the change contract from the
 issue (goal, invariants, evidence, unknowns); the issue stays the spec. Then §6.1.
 
@@ -405,7 +411,8 @@ if (step.action === 'stop') {
 
 Only a divergence of the durable history can make a stop sticky. A caller-order
 mistake this process can see — `assertFixAllowed` before `persist`, a reused
-step, or `record` on a stopped loop — throws and writes nothing. The allocation
+step, `record` on a stopped loop, or `record` while `loop.persistedFix` is set or
+its claim awaits the grant — throws and writes nothing. The allocation
 stays live; `persist`, then `assertFixAllowed`, still grants it.
 
 Present the Phase 8 human choice constrained by `step`: **Fix now** routes through
@@ -420,7 +427,8 @@ the second fix offer (`fixes=2`) simply exits. It does not escalate: the
 allocating review precedes its marker and its receipt, so the next resume stays
 open until that receipt is posted. A later red review after that receipt is the
 derived `review-bound`. A crash between the fix push and the receipt is the same
-open allocation, never a sticky stop.
+open allocation, never a sticky stop; if the grant was written before the crash it is
+consumed (the round is lost, not stopped): re-review.
 `resumeReviewLoop` already counts one review posted after the last marker.
 `record` acknowledges that review when the verdict matches it, and does not
 count it again. More than one unrecorded review is `history-ambiguous`: no live
