@@ -519,11 +519,16 @@ no process can be granted the same allocation again. A valid second live
 allocation is allowed. A persisted allocation nobody granted survives a process
 boundary: a resumed loop reports it as `loop.persistedFix`, and
 `await loop.claimPersistedFix(cwd)` makes it the live step once fresh history
-proves it and the posted review's head is the PR's and the checkout's. Never
+proves it and the posted review's head is the PR's and the checkout's; a claimed
+step keeps that head binding at the grant. Never
 replay `record` for it: that counts one posted review twice and stops the loop
-as `history-stale`, so `record` throws while the allocation is unclaimed or
-awaiting its grant. After a newer review is posted on such a loop, call
-`await loop.refreshPersistedFix(cwd)` before `record`. An allocation already
+as `history-stale`, so on a loop that resumed with such an allocation `record`
+throws while it is unclaimed, awaiting its grant, or granted/fixed with no newer
+review posted since. After a
+newer review is posted on such a loop, call `await loop.refreshPersistedFix(cwd)`
+before `record`: it lifts the guard (and drops a claimed step that was never granted)
+only on a newer posted review, returns `null` exactly when `record` is legitimate,
+and throws otherwise. An allocation already
 granted (marker or receipt) is not recoverable. Calling `assertFixAllowed` before `persist` throws a
 recoverable error that names `persist` and writes nothing; the allocation stays
 live. If the durable history diverges from this persisted allocation, it stops

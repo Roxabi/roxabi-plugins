@@ -318,10 +318,13 @@ If `loop?.closed === 'stop'`, run `enforceStop`, publish the canonical dossier
 continues at §6.4 using this same `pr` and `loop`. When `loop.persistedFix` is
 set, a previous process already persisted a fix allocation nobody granted: do not
 review or `record` again, `step = await loop.claimPersistedFix(cwd)` and go to
-the §6.4 Phase 8 choice. A refusal (`head-moved`, `no-review-head`, a checkout off
-the reviewed head, moved history) writes nothing: fix the cause or re-run `dev-review`
-on the current head, then `await loop.refreshPersistedFix(cwd)` before `record`ing
-the newly posted review.
+the §6.4 Phase 8 choice. A refusal on the head (`head-moved`, `no-review-head`, a
+checkout off the reviewed head) writes nothing: fix the cause, or re-run `dev-review`
+on the current head, which posts a newer review, then `await loop.refreshPersistedFix(cwd)`
+before `record`ing that review; it returns `null` only once `record` is legitimate
+and throws while it is not (a claim awaiting its grant, an allocation granted or
+fixed by another process, no newer review). "The PR history moved … resume the loop
+again" is not recoverable in place: start a new process.
 For a new PR only, when `.semctx/` exists, derive/open the change contract from the
 issue (goal, invariants, evidence, unknowns); the issue stays the spec. Then §6.1.
 
@@ -411,8 +414,9 @@ if (step.action === 'stop') {
 
 Only a divergence of the durable history can make a stop sticky. A caller-order
 mistake this process can see — `assertFixAllowed` before `persist`, a reused
-step, `record` on a stopped loop, or `record` while `loop.persistedFix` is set or
-its claim awaits the grant — throws and writes nothing. The allocation
+step, `record` on a stopped loop, or `record` while `loop.persistedFix` is set, its
+claim awaits the grant, or its allocation was granted/fixed and no newer review was
+posted since — throws and writes nothing. The allocation
 stays live; `persist`, then `assertFixAllowed`, still grants it.
 
 Present the Phase 8 human choice constrained by `step`: **Fix now** routes through

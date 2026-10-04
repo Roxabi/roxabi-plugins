@@ -155,10 +155,17 @@ PRs resume directly into review; empty history receives a baseline marker.
   or stop). `await loop.claimPersistedFix(cwd)` makes it the live step once fresh
   history proves that, and the posted review's head is both the PR's current head
   and the checkout's; `assertFixAllowed` re-checks that head before the grant.
-  While it is unclaimed or awaiting its grant, `record` throws and writes nothing:
-  replaying `record('red')` would count one posted review twice and stop the loop as
-  `history-stale`. After posting a newer review on such a loop, `await loop.refreshPersistedFix(cwd)`
-  lifts that guard. A claim needs the Phase 8 human choice like any other step.
+  On a loop that resumed with such an allocation, `record` throws and writes nothing
+  while it is unclaimed, awaiting its grant, or granted/fixed with no newer review
+  posted since: replaying `record('red')` would
+  count one posted review twice and stop the loop as `history-stale`. After posting
+  a newer review on such a loop, `await loop.refreshPersistedFix(cwd)` lifts that
+  guard (and drops a claimed step that was never granted); it returns `null` exactly
+  when `record` is legitimate and throws otherwise. A claim needs the Phase 8 human
+  choice like any other step. The grant marker only binds sessions on 0.8.2 or later:
+  keep every session on one version, or an older session can still grant an
+  allocation unmarked. A Stop on a claimable allocation writes nothing, so a later
+  resume offers it again.
 - `landPr(cwd, pr)` independently checks current history before either landing
   mode can arm. A stop returns `review-stopped` with disarm evidence; without an
   approving review of the current head after the latest correction/allocation it
