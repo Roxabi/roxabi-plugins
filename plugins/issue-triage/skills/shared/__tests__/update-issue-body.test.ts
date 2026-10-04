@@ -25,4 +25,16 @@ describe('updateIssueBody', () => {
     await expect(updateIssueBody(42, 'NEW', 'Acme/app')).rejects.toThrow(/Acme\/app/)
     await expect(updateIssueBody(42, 'NEW', 'Acme/app')).rejects.toThrow(/nope/)
   })
+
+  it('PATCHes the default repo when no slug is passed', async () => {
+    vi.stubEnv('GITHUB_REPO', 'Acme/default')
+    vi.resetModules()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 200 })))
+    const { updateIssueBody: fresh } = await import('../adapters/github-adapter')
+    await fresh(42, 'NEW')
+    const [url, init] = vi.mocked(fetch).mock.calls[0]
+    expect(String(url)).toBe('https://api.github.com/repos/Acme/default/issues/42')
+    expect(init?.method).toBe('PATCH')
+    expect(JSON.parse(String(init?.body))).toEqual({ body: 'NEW' })
+  })
 })
