@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Idempotent worktree bootstrap. Never writes on the principal.
 # Marker: $(git rev-parse --git-dir)/omp-build-bootstrapped
-# Reads .dev/stack.yml worktree.copy / worktree.seed / worktree.setup.
+# Reads .dev/stack.yml worktree.copy / worktree.seed / worktree.setup, then
+# builds each code index (ccc, codegraph, semctx) the principal has.
 set -euo pipefail
 
 toplevel="$(git rev-parse --show-toplevel)"
@@ -126,33 +127,69 @@ copy_from_principal() {
 while IFS= read -r rel; do
   [ -n "$rel" ] || continue
   copy_from_principal "$rel"
-done <<< "$copy_list"
-
-while IFS= read -r rel; do
-  [ -n "$rel" ] || continue
-  refuse_example "$rel" && continue
-  if [ "$rel" = ".cocoindex_code" ]; then
-    if [ -d "$principal/.cocoindex_code" ]; then
-      command -v ccc >/dev/null 2>&1 || {
-        echo "bootstrap=cocoindex-cli-missing" >&2
-        exit 3
-      }
-      (cd "$here" && ccc index)
-    fi
-    continue
-  fi
-  copy_from_principal "$rel"
-done <<< "$seed_list"
+done <<< "$copy_list
+$seed_list"
 
 if [ -n "$setup" ]; then
   (cd "$here" && bash -c "$setup")
 fi
 
-if [ -d "$here/.semctx" ]; then
-  command -v semctx >/dev/null 2>&1 || {
-    echo "bootstrap=semctx-cli-missing" >&2
+need_cli() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "bootstrap=$2-cli-missing" >&2
     exit 3
   }
+}
+
+# Copies the principal's ccc stores. Both hold repo-relative paths, so the copy
+# is valid here and `ccc index` reprocesses only the branch delta. A copy that
+# overlaps a principal re-index (a store mtime moved) is refused.
+copy_ccc_stores() {
+  python3 - "$1" "$2" << 'PY'
+import os, shutil, sqlite3, sys
+src, dest = sys.argv[1], sys.argv[2]
+state = os.path.join("cocoindex.db", "mdb", "data.mdb")
+vectors = "target_sqlite.db"
+def stamp():
+    return [os.stat(os.path.join(src, name)).st_mtime_ns for name in (state, vectors)]
+
+try:
+    before = stamp()
+    os.makedirs(os.path.dirname(os.path.join(dest, state)), exist_ok=True)
+    shutil.copyfile(os.path.join(src, state), os.path.join(dest, state))
+    source = sqlite3.connect(os.path.join(src, vectors), timeout=30)
+    source.backup(sqlite3.connect(os.path.join(dest, vectors)))
+    if stamp() != before:
+        raise RuntimeError("principal index changed during the copy")
+except Exception as error:
+    print(f"bootstrap=cocoindex-copy-skipped {error}", file=sys.stderr)
+    sys.exit(1)
+PY
+}
+
+# Code indexes are gitignored, so a new worktree has none. Each one is built
+# only when the principal has it: ccc started without its own settings.yml
+# walks up and indexes an ancestor directory (`~`).
+if [ -f "$principal/.cocoindex_code/settings.yml" ]; then
+  need_cli ccc cocoindex
+  ccc_dir="$here/.cocoindex_code"
+  if [ ! -f "$ccc_dir/settings.yml" ]; then
+    mkdir -p "$ccc_dir"
+    cp "$principal/.cocoindex_code/settings.yml" "$ccc_dir/settings.yml"
+    copy_ccc_stores "$principal/.cocoindex_code" "$ccc_dir" ||
+      rm -rf "$ccc_dir/cocoindex.db" "$ccc_dir/target_sqlite.db"
+  fi
+  # An unreadable copy fails the index: drop it from the daemon and rebuild.
+  (cd "$here" && ccc index) || (cd "$here" && ccc reset -f && ccc index)
+fi
+
+if [ -f "$principal/.codegraph/codegraph.db" ]; then
+  need_cli codegraph codegraph
+  codegraph init -y "$here"
+fi
+
+if [ -d "$here/.semctx" ]; then
+  need_cli semctx semctx
   (cd "$here" && semctx index)
 fi
 

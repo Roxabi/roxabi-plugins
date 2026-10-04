@@ -291,12 +291,16 @@ or a fork point off `<base>`, → stop and name it; a correct branch name proves
 Install dependencies with the repository's documented command in this worktree
 before running hooks/builds; no unconditional `bun install` for unrelated stacks.
 On entering a worktree that is not the principal, run
-`bash "$SKILL_DIR/worktree-bootstrap.sh"`. It copies `worktree.copy` from the
-principal, seeds `worktree.seed` (`.cocoindex_code` is a fresh `ccc index` only
-when the principal already has one — a copied DB embeds an absolute path), runs
-`worktree.setup`, then `semctx index` when `.semctx/` exists. A marker under
-`git rev-parse --git-dir` makes a second run a no-op. It refuses to write on the
-principal and never copies `*.example` in place of a missing real file.
+`bash "$SKILL_DIR/worktree-bootstrap.sh"`. It copies `worktree.copy` and
+`worktree.seed` from the principal, runs `worktree.setup`, then builds each code
+index the principal has, never one it lacks: ccc without its own `settings.yml`
+indexes an ancestor directory. `.cocoindex_code` starts from a copy of the
+principal's (repo-relative paths), so `ccc index` reprocesses only the branch
+delta, and a copy that races a principal re-index or fails to load is rebuilt.
+`.codegraph` is a fresh `codegraph init -y`, and `.semctx/` gets `semctx index`.
+A marker under `git rev-parse --git-dir` makes a second run a no-op. It refuses
+to write on the principal and never copies `*.example` in place of a missing
+real file.
 Agent-created worktrees live at `<worktree base>/<repo>/<slug>`, where the base
 is `OMP_WORKTREE_DIR`, else `.dev/stack.yml` `worktree.base`, else `~/.omp/wt`.
 Resolve the review target before opening a semantic contract. An existing PR
