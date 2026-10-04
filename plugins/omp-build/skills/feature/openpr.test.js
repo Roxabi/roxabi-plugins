@@ -237,10 +237,10 @@ const deps = ({ gh, git }) => ({ gh, git })
 /** The strict durable read, through the same PR. */
 const strict = (fake) => readReviewRounds(CWD, PR, { gh: fake.gh })
 
-/** dev-review posts its record; the loop records that verdict and persists it (§6.4). */
+/** dev-review posts its record; the loop re-reads and records that verdict (§6.4). */
 async function reviewed(loop, fake, verdict) {
   fake.post(verdict === 'red' ? RED : GREEN)
-  const step = loop.record(verdict)
+  const step = await loop.recordPosted(CWD, verdict)
   await loop.persist(CWD)
   return step
 }
@@ -892,7 +892,7 @@ describe('assertFixAllowed on a PR loop — fresh history at the fix sink', () =
     const fake = fakePr({ labels: ['reviewed'], autoMerge: { mergeMethod: 'MERGE' } })
     const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
     fake.post(RED)
-    const step = loop.record('red')
+    const step = await loop.recordPosted(CWD, 'red')
     const before = fake.pr.comments.map((entry) => entry.body)
     const error = await refusal(loop.assertFixAllowed(CWD, step))
     expect(error).toBeInstanceOf(Error)
@@ -911,7 +911,7 @@ describe('assertFixAllowed on a PR loop — fresh history at the fix sink', () =
     const fake = fakePr({ labels: ['reviewed'], autoMerge: { mergeMethod: 'MERGE' } })
     const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
     fake.post(RED)
-    const step = loop.record('red')
+    const step = await loop.recordPosted(CWD, 'red')
     await loop.persist(CWD)
     let drifted = false
     const pages = commentPageArgs(PR)
@@ -920,7 +920,7 @@ describe('assertFixAllowed on a PR loop — fresh history at the fix sink', () =
       if (!drifted && same(args, pages)) {
         drifted = true
         fake.post(RED)
-        loop.record('red')
+        await loop.recordPosted(CWD, 'red')
       }
       return result
     }
@@ -959,12 +959,12 @@ describe('assertFixAllowed on a PR loop — fresh history at the fix sink', () =
     const fake = fakePr({ labels: ['reviewed'], autoMerge: { mergeMethod: 'MERGE' } })
     const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
     fake.post(RED)
-    loop.record('red')
+    await loop.recordPosted(CWD, 'red')
     let during
     const gh = async (cwd, args) => {
       if (!during && args[0] === 'pr' && args[1] === 'comment') {
         fake.post(RED)
-        during = loop.record('red')
+        during = await loop.recordPosted(CWD, 'red')
       }
       return fake.gh(cwd, args)
     }
@@ -987,7 +987,7 @@ describe('assertFixAllowed on a PR loop — fresh history at the fix sink', () =
     const fake = fakePr({ labels: ['reviewed'], autoMerge: { mergeMethod: 'MERGE' } })
     const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
     fake.post(RED)
-    const step = loop.record('red')
+    const step = await loop.recordPosted(CWD, 'red')
     await loop.persist(CWD)
     const reviewAt = fake.pr.comments.findIndex((entry) => entry.body.startsWith('<!-- omp-build:code-review -->'))
     fake.pr.comments.splice(reviewAt, 1)
@@ -1002,7 +1002,7 @@ describe('assertFixAllowed on a PR loop — fresh history at the fix sink', () =
     const missing = fakePr({ labels: ['reviewed'], autoMerge: { mergeMethod: 'MERGE' } })
     const missingLoop = await resumeReviewLoop(CWD, { pr: PR, gh: missing.gh })
     missing.post(RED)
-    const missingStep = missingLoop.record('red')
+    const missingStep = await missingLoop.recordPosted(CWD, 'red')
     const missingBefore = missing.pr.comments.map((entry) => entry.body)
     const missingError = await refusal(missingLoop.assertFixAllowed(CWD, missingStep))
 
@@ -1140,7 +1140,12 @@ describe('assertFixAllowed on a PR loop — fresh history at the fix sink', () =
     const fake = fakePr()
     const loop = await ciFixThenRedFix(fake)
     fake.post(RED)
-    expect(loop.record('red')).toMatchObject({ action: 'stop', reason: 'review-bound', reviews: 3, fixes: 2 })
+    expect(await loop.recordPosted(CWD, 'red')).toMatchObject({
+      action: 'stop',
+      reason: 'review-bound',
+      reviews: 3,
+      fixes: 2,
+    })
     expect(await loop.enforceStop(CWD)).toMatchObject({ prState: 'OPEN', guaranteed: true, published: true })
     expect(await strict(fake)).toEqual({ reviews: 3, fixes: 2, stopReason: 'review-bound' })
     expect(await landPr(CWD, PR, { gh: fake.gh, landing: NATIVE })).toMatchObject({
@@ -1301,13 +1306,15 @@ describe('enforceStop — reads the gate, then publishes and disarms independent
 
 describe('the count outlives the process that holds it', () => {
   it('resumes a loop on its last round instead of handing out two fresh ones', async () => {
-    const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fakePr({ comments: TWO_ROUNDS }).gh })
+    const fake = fakePr({ comments: TWO_ROUNDS })
+    const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
     expect({ reviews: loop.reviews, fixes: loop.fixes, remaining: loop.remaining }).toEqual({
       reviews: 2,
       fixes: 2,
       remaining: 0,
     })
-    expect(loop.record('red').action).toBe('stop')
+    fake.post(RED)
+    expect((await loop.recordPosted(CWD, 'red')).action).toBe('stop')
   })
 
   it('writes a zero baseline on an empty PR once: a review posted before a persist is not legacy', async () => {
@@ -1331,7 +1338,12 @@ describe('the count outlives the process that holds it', () => {
     const fake = fakePr({ comments: TWO_ROUNDS })
     const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
     fake.post(RED)
-    expect(loop.record('red')).toMatchObject({ action: 'stop', reason: 'review-bound', reviews: 3, fixes: 2 })
+    expect(await loop.recordPosted(CWD, 'red')).toMatchObject({
+      action: 'stop',
+      reason: 'review-bound',
+      reviews: 3,
+      fixes: 2,
+    })
     await loop.enforceStop(CWD)
     fake.post(GREEN)
     const resumed = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
@@ -1454,7 +1466,7 @@ describe('interpretReviewHistory — strict, author-bound, first-line records', 
     expect(interpretReviewHistory(comments, { me: ME })).toEqual({ reviews: 3, fixes: 2 })
     const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fakePr({ comments }).gh })
     expect(loop.closed).toBe(null)
-    expect(loop.record('green').action).toBe('land')
+    expect((await loop.recordPosted(CWD, 'green')).action).toBe('land')
   })
 
   it('does not derive review-bound when the second allocation was never receipted', () => {
@@ -1619,7 +1631,7 @@ describe('a posted review not yet recorded is counted once (#662)', () => {
       fixes: 0,
       closed: null,
     })
-    const step = loop.record('red')
+    const step = await loop.recordPosted(CWD, 'red')
     expect(step).toEqual({ action: 'fix', reviews: 1, fixes: 1, remaining: 1 })
     await loop.persist(CWD)
     await expect(loop.assertFixAllowed(CWD, step)).resolves.toBe(step)
@@ -1633,7 +1645,7 @@ describe('a posted review not yet recorded is counted once (#662)', () => {
     await fixed(first, fake, await reviewed(first, fake, 'red'))
     fake.post(RED)
     const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
-    const step = loop.record('red')
+    const step = await loop.recordPosted(CWD, 'red')
     expect(step).toEqual({ action: 'fix', reviews: 2, fixes: 2, remaining: 0 })
     await loop.persist(CWD)
     await expect(loop.assertFixAllowed(CWD, step)).resolves.toBe(step)
@@ -1642,7 +1654,7 @@ describe('a posted review not yet recorded is counted once (#662)', () => {
 
   it('lands a posted green without spending an extra review', async () => {
     const { loop } = await postedUnrecorded(GREEN)
-    expect(loop.record('green')).toEqual({ action: 'land', reviews: 1, fixes: 0 })
+    expect(await loop.recordPosted(CWD, 'green')).toEqual({ action: 'land', reviews: 1, fixes: 0 })
   })
 
   it('still increments when every posted review is already recorded', async () => {
@@ -1682,7 +1694,7 @@ describe('a posted review not yet recorded is counted once (#662)', () => {
       closed: null,
     })
     fake.post(RED)
-    const step = loop.record('red')
+    const step = await loop.recordPosted(CWD, 'red')
     expect(step).toEqual({ action: 'fix', reviews: 1, fixes: 1, remaining: 1 })
     await loop.persist(CWD)
     await expect(loop.assertFixAllowed(CWD, step)).resolves.toBe(step)
@@ -1710,5 +1722,138 @@ describe('a posted review not yet recorded is counted once (#662)', () => {
     })
     const resumed = await resumeReviewLoop(CWD, { pr: PR, gh: fakePr({ comments }).gh })
     expect(resumed.stopReason).toBe('review-bound')
+  })
+})
+
+/** A consumed-grant marker. First line only; a quote inside another comment is not one. */
+function grant(reviews, fixes, token) {
+  const field = 'token'
+  const id = token ?? RED.match(/sha=([0-9a-f]{16})/)[1]
+  return `<!-- omp-build:fix-grant reviews=${reviews} fixes=${fixes} ${field}=${id} -->`
+}
+
+describe('a persisted fix grant survives the process that allocated it (#699)', () => {
+  it('(a) honours a persisted unconsumed allocation exactly once across processes', async () => {
+    const fake = fakePr()
+    const first = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    await reviewed(first, fake, 'red')
+    const second = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    expect(second.pendingFix).toBe(false)
+    const step = second.persistedFix
+    expect(step).toEqual({ action: 'fix', reviews: 1, fixes: 1, remaining: 1 })
+    await expect(second.assertFixAllowed(CWD, step)).resolves.toBe(step)
+    await expect(second.assertFixAllowed(CWD, step)).rejects.toThrow(/grant already consumed/)
+    const third = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    expect(third.persistedFix).toBe(null)
+    expect(third.closed).toBe(null)
+    await expect(third.assertFixAllowed(CWD, step)).rejects.toThrow(/grant already consumed/)
+    expect(third.closed).toBe(null)
+  })
+
+  it('(b) records the new review when an unreceipted grant sits before a later red', async () => {
+    const fake = fakePr({
+      comments: [comment(RED), comment(accounting(1, 1)), comment(grant(1, 1)), comment(RED)],
+    })
+    const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    expect(loop.persistedFix).toBe(null)
+    const step = await loop.recordPosted(CWD, 'red')
+    expect(step).toEqual({ action: 'fix', reviews: 2, fixes: 2, remaining: 0 })
+    await loop.persist(CWD)
+    expect(await strict(fake)).toEqual({ reviews: 2, fixes: 2 })
+    expect(loop.closed).toBe(null)
+  })
+
+  it('(c) refuses a replay of the same posted comment and writes nothing', async () => {
+    const fake = fakePr({ comments: [comment(RED), comment(accounting(1, 1))] })
+    const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    const before = fake.pr.comments.map((entry) => entry.body)
+    await expect(loop.recordPosted(CWD, 'red')).rejects.toThrow(/posted review already counted/)
+    expect(loop.closed).toBe(null)
+    expect(loop.reviews).toBe(1)
+    expect(fake.pr.comments.map((entry) => entry.body)).toEqual(before)
+    expect(await strict(fake)).toEqual({ reviews: 1, fixes: 1 })
+  })
+
+  it('(d) no recovery writes a second review record for that one posted comment', async () => {
+    const fake = fakePr({ comments: [comment(RED), comment(accounting(1, 1))] })
+    const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    await expect(loop.recordPosted(CWD, 'red')).rejects.toThrow(/posted review already counted/)
+    expect(() => loop.record('red')).toThrow(/re-read required/)
+    expect(loop.reviews).toBe(1)
+    await loop.persist(CWD)
+    const bodies = fake.pr.comments.map((entry) => entry.body)
+    expect(bodies.filter((body) => body.startsWith('<!-- omp-build:code-review -->'))).toHaveLength(1)
+    expect(bodies.some((body) => body.includes('reviews=2'))).toBe(false)
+    expect(loop.closed).toBe(null)
+    expect(await strict(fake)).toEqual({ reviews: 1, fixes: 1 })
+  })
+
+  it('(e) refuses a grant that is already consumed, with no write and no stop', async () => {
+    const fake = fakePr({ comments: [comment(RED), comment(accounting(1, 1))] })
+    const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    const step = loop.persistedFix
+    fake.post(grant(1, 1))
+    const before = fake.pr.comments.map((entry) => entry.body)
+    await expect(loop.assertFixAllowed(CWD, step)).rejects.toThrow(/grant already consumed/)
+    expect(loop.closed).toBe(null)
+    expect(fake.pr.comments.map((entry) => entry.body)).toEqual(before)
+    expect(fake.pr.comments.some((entry) => entry.body.includes('review-stop'))).toBe(false)
+  })
+
+  it('(f) refuses a persisted grant when the head moved, with no write and no stop', async () => {
+    const fake = fakePr({ comments: [comment(RED), comment(accounting(1, 1))] })
+    const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    fake.pr.headRefOid = fake.pr.headRefOid.replace(/^./, 'b')
+    const before = fake.pr.comments.length
+    await expect(loop.assertFixAllowed(CWD, loop.persistedFix)).rejects.toThrow(/head moved/)
+    expect(loop.closed).toBe(null)
+    expect(fake.pr.comments).toHaveLength(before)
+    expect(loop.persistedFix?.reviews).toBe(1)
+  })
+
+  it('refuses a persisted grant when the review head line is missing', async () => {
+    const noHead = RED.split('\n')
+      .filter((line) => !line.includes('review-head'))
+      .join('\n')
+    const fake = fakePr({ comments: [comment(noHead), comment(accounting(1, 1))] })
+    const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    const before = fake.pr.comments.length
+    await expect(loop.assertFixAllowed(CWD, loop.persistedFix)).rejects.toThrow(/review head missing/)
+    expect(loop.closed).toBe(null)
+    expect(fake.pr.comments).toHaveLength(before)
+  })
+
+  it('honours a persisted ci-failed allocation once across processes', async () => {
+    const fake = fakePr()
+    const first = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    expect((await reviewed(first, fake, 'green')).action).toBe('land')
+    const opened = first.reopen('ci-failed')
+    expect(opened.reason).toBe('ci-failed')
+    await first.persist(CWD)
+    const second = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    expect(second.persistedFix).toMatchObject({ action: 'fix', reason: 'ci-failed', reviews: 1, fixes: 1 })
+    const step = second.persistedFix
+    await expect(second.assertFixAllowed(CWD, step)).resolves.toBe(step)
+    await expect(second.assertFixAllowed(CWD, step)).rejects.toThrow(/grant already consumed/)
+    expect(second.closed).toBe(null)
+  })
+
+  it('does not treat a grant quoted inside a review as consumption', async () => {
+    const quoting = review('Request changes', { before: grant(1, 1) })
+    const fake = fakePr({ comments: [comment(quoting), comment(accounting(1, 1))] })
+    const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    expect(loop.persistedFix).toEqual({ action: 'fix', reviews: 1, fixes: 1, remaining: 1 })
+    await expect(loop.assertFixAllowed(CWD, loop.persistedFix)).resolves.toBe(loop.persistedFix)
+  })
+
+  it('does not count a new review from the resume snapshot', async () => {
+    const fake = fakePr({ comments: [comment(RED), comment(accounting(1, 1))] })
+    const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    expect(() => loop.record('red')).toThrow(/re-read required/)
+    expect(loop.reviews).toBe(1)
+    expect(loop.closed).toBe(null)
+    fake.post(RED)
+    const step = await loop.recordPosted(CWD, 'red')
+    expect(step).toEqual({ action: 'fix', reviews: 2, fixes: 2, remaining: 0 })
   })
 })

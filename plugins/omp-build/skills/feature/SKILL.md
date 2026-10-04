@@ -389,11 +389,11 @@ fix/landing actions; the nested review must not execute them independently.
 
 Translate the panel's verdict before calling the loop:
 `Approve`, `Approve (clean)`, `Approve with comments` → `verdict = 'green'`;
-`Request changes` → `verdict = 'red'`. Pass only `'green'` or `'red'` to
-`loop.record`, never a raw panel string such as `'Request changes'`.
+`Request changes` → `verdict = 'red'`. Pass only `'green'` or `'red'` to the
+loop, never a raw panel string such as `'Request changes'`.
 
 ```javascript
-let step = loop.record(verdict)
+let step = pr ? await loop.recordPosted(cwd, verdict) : loop.record(verdict)
 if (step.action === 'stop') {
   const stop = await loop.enforceStop(cwd) // BEFORE dossier; publishes durable stop + disarms
   print(stop.message)
@@ -403,10 +403,18 @@ if (step.action === 'stop') {
 }
 ```
 
+A resumed loop does not replay `record` to recover an allocation. If
+`loop.persistedFix` is set, that step is the unconsumed allocation: pass it to
+`assertFixAllowed`. Do not call `record` or `recordPosted` for it. The grant
+writes `<!-- omp-build:fix-grant reviews=N fixes=M token=… -->` and succeeds once.
+A second call throws `grant already consumed` and writes nothing. A missing or
+moved review head throws and writes nothing, including no stop.
+
 Only a divergence of the durable history can make a stop sticky. A caller-order
 mistake this process can see — `assertFixAllowed` before `persist`, a reused
-step, or `record` on a stopped loop — throws and writes nothing. The allocation
-stays live; `persist`, then `assertFixAllowed`, still grants it.
+step, `record` on a stopped loop, or `record` on a resumed loop without
+`recordPosted` — throws and writes nothing. A live allocation stays live;
+`persist`, then `assertFixAllowed`, still grants it.
 
 Present the Phase 8 human choice constrained by `step`: **Fix now** routes through
 §6.5 only on `fix`; **Merge** routes through §6.7 only on `land`; on `stop`,
@@ -430,7 +438,8 @@ then fixes.
 
 ### 6.5 Fix
 
-`step.action === 'fix'`, by `step.reason`:
+`step.action === 'fix'`, by `step.reason`. On a resumed loop `step` is
+`loop.persistedFix`, not a step from replaying `record`:
 
 - review round (no reason) → `await loop.assertFixAllowed(cwd, step)`, then execute
   `skill://fix` with `#<pr>`. Nested fix consumes this caller-owned

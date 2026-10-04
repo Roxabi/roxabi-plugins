@@ -138,14 +138,22 @@ on the branch refuses implicit reuse, so its budget cannot be reset. Existing
 PRs resume directly into review; empty history receives a baseline marker.
 
 `workflow.js` enforces the review bound at the action sinks:
-- `resumeReviewLoop` restores attributable counts/stops and private provenance;
-  only a newly recorded verdict or CI reopening allocates a live fix step.
+- `resumeReviewLoop` restores attributable counts/stops and private provenance.
+  A newly recorded verdict or CI reopening allocates a live fix step. An
+  unconsumed allocation already on the PR is `persistedFix`, not a live step.
+- On a PR, `await loop.recordPosted(cwd, verdict)` re-reads posted comments and
+  records that verdict. It refuses, writing nothing, only when that posted review
+  is already covered by the latest marker. `loop.record` on a resumed loop throws
+  `re-read required` and writes nothing.
 - `await loop.assertFixAllowed(cwd, step)` checks current durable history and
-  consumes that allocation once. It allows its own second live allocation, but
-  rejects resumed grants, newer stops, identity drift and additional reviews;
-  an allocation this process has not yet persisted throws until `persist`; durable
-  history that does not prove the persisted allocation stops as `history-stale`
-  rather than refunding it.
+  consumes that allocation once, including a resumed `persistedFix`. A PR grant
+  writes `<!-- omp-build:fix-grant reviews=N fixes=M token=… -->` before returning.
+  A second grant throws `grant already consumed` and writes nothing. A missing or
+  moved review head throws and writes nothing, including no stop. It allows its
+  own second live allocation, but rejects a consumed grant, newer stops, identity
+  drift and additional reviews; an allocation this process has not yet persisted
+  throws until `persist`; durable history that does not prove the persisted
+  allocation stops as `history-stale` rather than refunding it.
 - `landPr(cwd, pr)` independently checks current history before either landing
   mode can arm. A stop returns `review-stopped` with disarm evidence; without an
   approving review of the current head after the latest correction/allocation it

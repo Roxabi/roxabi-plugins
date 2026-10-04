@@ -3,6 +3,7 @@
  * `detectPrincipal` names the base when `landPr` has none. No worktree driver.
  */
 
+import { randomBytes } from 'node:crypto'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -791,6 +792,10 @@ const STOP_MARKER = /<!--\s*omp-build:review-stop\s+reason=([a-z0-9-]+)\s*-->/g
 const ROUNDS_FIRST_LINE = /^<!--\s*omp-build:review-rounds\s+reviews=\d+\s+fixes=\d+\s*-->\s*$/
 const CODE_REVIEW_FIRST_LINE = /^<!--\s*omp-build:code-review\s*-->\s*$/
 const FIX_RECEIPT_FIRST_LINE = /^## Review Fixes Applied\s*$/
+const GRANT_FIELD = 'token'
+const GRANT_FIRST_LINE = new RegExp(
+  `^<!--\\s*omp-build:fix-grant\\s+reviews=(\\d+)\\s+fixes=(\\d+)\\s+${GRANT_FIELD}=([0-9a-f]{16})\\s*-->\\s*$`,
+)
 const VERDICT_LINE = /^\*\*Verdict:\s*(Request changes|Approve with comments|Approve \(clean\)|Approve)\*\*(?:\s.*)?$/
 /** Line 2 only. A sha anywhere else in the body is not the reviewed commit. */
 const REVIEW_HEAD_LINE = /^<!-- omp-build:review-head sha=([0-9a-f]{40}) -->$/
@@ -906,11 +911,14 @@ export function analyzeReviewHistory(comments, { me, maxFixRounds = MAX_FIX_ROUN
   let historicalStop
   let receipts = 0
   let codeReviews = 0
+  let uncoveredReviews = 0
   let latestReview = -1
   let latestReceipt = -1
   let latestVerdict = null
   let latestReviewBody = null
   let latestAllocation = -1
+  /** @type {{ reviews: number, fixes: number, token: string, order: number }[]} */
+  const grants = []
   // GitHub supplies creation order. Only first-line records by this account count.
   for (let order = 0; order < comments.length; order++) {
     const entry = comments[order]
@@ -923,12 +931,14 @@ export function analyzeReviewHistory(comments, { me, maxFixRounds = MAX_FIX_ROUN
     if (ROUNDS_FIRST_LINE.test(first)) {
       const parsed = parseReviewRounds(entry.body)
       hasMarker = true
+      uncoveredReviews = 0
       markerReviews = Math.max(markerReviews, parsed.reviews)
       if (parsed.fixes > markerFixes) latestAllocation = order
       markerFixes = Math.max(markerFixes, parsed.fixes)
       explicitStop ??= parsed.stopReason
     } else if (CODE_REVIEW_FIRST_LINE.test(first)) {
       codeReviews++
+      uncoveredReviews++
       latestReview = order
       latestVerdict = reviewVerdict(entry.body)
       latestReviewBody = entry.body
@@ -941,6 +951,9 @@ export function analyzeReviewHistory(comments, { me, maxFixRounds = MAX_FIX_ROUN
     } else if (FIX_RECEIPT_FIRST_LINE.test(first)) {
       receipts++
       latestReceipt = order
+    } else {
+      const grant = first.match(GRANT_FIRST_LINE)
+      if (grant) grants.push({ reviews: Number(grant[1]), fixes: Number(grant[2]), token: grant[3], order })
     }
   }
   const rounds = {
@@ -976,6 +989,7 @@ export function analyzeReviewHistory(comments, { me, maxFixRounds = MAX_FIX_ROUN
     stopOrigin = 'terminal-red'
   }
   const allocationReceipted = markerFixes === 0 || latestReceipt > latestAllocation
+  const allocationGranted = grants.some((g) => g.reviews === markerReviews && g.fixes === markerFixes)
   const approvedForLanding =
     allocationReceipted &&
     latestVerdict?.startsWith('Approve') === true &&
@@ -989,10 +1003,14 @@ export function analyzeReviewHistory(comments, { me, maxFixRounds = MAX_FIX_ROUN
     markerReviews,
     markerFixes,
     codeReviews,
+    uncoveredReviews,
     latestVerdict,
     stopOrigin,
     approvedForLanding,
     reviewedHead: reviewHeadOf(latestReviewBody),
+    allocationReceipted,
+    allocationGranted,
+    grants,
     empty,
   }
 }
@@ -1039,8 +1057,8 @@ async function readReviewHistory(cwd, pr, { gh: ghFn = gh, maxFixRounds = MAX_FI
  * The loop for a PR that may already have spent rounds — the constructor to use in
  * `/feature` §6.4, so that re-entering mode 2 (or re-creating the loop mid-session)
  * **resumes** the bound instead of restarting it. A sticky stopReason reopens closed.
- * A resumed loop never carries a live fix grant — only a fresh `record`/`reopen` in this
- * process allocates one.
+ * `pendingFix` stays false. An unconsumed allocation is `persistedFix`, honoured once
+ * by `assertFixAllowed`, never by replaying `record`.
  *
  * @param {string} cwd
  * @param {{ pr: number | string, maxFixRounds?: number, gh?: (cwd: string, args: string[]) => Promise<string> }} options
@@ -1075,6 +1093,33 @@ export async function resumeReviewLoop(cwd, { pr, maxFixRounds = MAX_FIX_ROUNDS,
  */
 export function createReviewLoop(options = {}) {
   return buildReviewLoop(options)
+}
+
+/** @param {string} verdict @param {string | null | undefined} posted */
+function postedMatches(verdict, posted) {
+  return verdict === 'red' ? posted === 'Request changes' : posted?.startsWith('Approve') === true
+}
+
+/** One frozen step for an unconsumed head-bound allocation, or null. Not a live grant. */
+function persistedStepOf(history, maxFixRounds) {
+  if (!history || history.rounds?.stopReason || history.empty) return null
+  if (!history.hasMarker || history.markerFixes < 1 || history.markerFixes > maxFixRounds) return null
+  if (history.codeReviews !== history.markerReviews) return null
+  if (history.allocationGranted || history.allocationReceipted) return null
+  const approve = history.latestVerdict?.startsWith('Approve') === true
+  if (!approve && history.latestVerdict !== 'Request changes') return null
+  return Object.freeze({
+    action: 'fix',
+    reviews: history.markerReviews,
+    fixes: history.markerFixes,
+    remaining: maxFixRounds - history.markerFixes,
+    ...(approve ? { reason: 'ci-failed' } : {}),
+  })
+}
+
+/** @param {number} reviews @param {number} fixes @param {string} token */
+function grantComment(reviews, fixes, token) {
+  return `<!-- omp-build:fix-grant reviews=${reviews} fixes=${fixes} ${GRANT_FIELD}=${token} -->`
 }
 
 function buildReviewLoop(
@@ -1116,6 +1161,11 @@ function buildReviewLoop(
   /** @type {string} */
   let closedReason = seedStopReason || 'review-bound'
   let pendingStep = null
+  let coveredUnrecorded = 0
+  let persistedFix = persistedStepOf(provenance, maxFixRounds)
+  /** @type {object | null} */
+  let consumedStep = null
+  let grantBusy = false
   // True once the in-memory counts match a marker this process wrote, or the
   // durable history it resumed from. `record` / `reopen` clear it; only a
   // successful `persist` of those same counts sets it again. A skipped persist
@@ -1200,22 +1250,24 @@ function buildReviewLoop(
     get pendingFix() {
       return pendingStep !== null
     },
+    /** Minted unconsumed allocation. Not live until `assertFixAllowed` honours it. */
+    get persistedFix() {
+      return persistedFix
+    },
     /**
      * Record one `dev-review` verdict and get the next move.
      *
-     * `verdict` is the panel's word — `green` or `red`, nothing else. A sentence, a
-     * missing value or a third word throws: reading a verdict out of prose is the
-     * failure this slice exists to remove, and a defaulted verdict would either burn
-     * a round for free or land an unreviewed PR.
-     *
-     * A red verdict allocates/spends a fix round before the operator's Fix choice.
-     * Choosing Stop does not refund that allocation. The returned fix step is the only
-     * live permission for `assertFixAllowed` in this process — single-use via `pendingFix`.
+     * On a resumed loop the only refusal is a fresh double-count: `recordPosted`
+     * re-reads, then this applies `codeReviews - markerReviews - covered`. A resume
+     * snapshot is not that comparison — `record` without a fresh read throws
+     * `re-read required` and writes nothing. A local loop has no posted comment
+     * and still increments.
      *
      * @param {string} verdict
+     * @param {object} [fresh]
      * @returns {{ action: 'land' | 'fix' | 'stop', reviews: number, fixes: number, remaining?: number, reason?: string, message?: string }}
      */
-    record(verdict) {
+    record(verdict, fresh) {
       if (closed) {
         throw new Error(
           `createReviewLoop: the loop already closed with "${closed}" after ${reviews} reviews — a further verdict has nowhere to go`,
@@ -1225,13 +1277,23 @@ function buildReviewLoop(
       if (v !== 'green' && v !== 'red') {
         throw new TypeError(`createReviewLoop: verdict must be "green" or "red", got ${JSON.stringify(verdict)}`)
       }
-      if (!acknowledged && postedAhead > 1) return stopStep('history-ambiguous')
-      const acknowledging = !acknowledged && postedAhead === 1
-      if (acknowledging) {
+      if (provenance && (fresh == null || typeof fresh.codeReviews !== 'number')) {
+        throw new Error('record: re-read required — call recordPosted; a resume snapshot is not a double-count check')
+      }
+      if (fresh) {
+        const uncovered = fresh.uncoveredReviews - coveredUnrecorded
+        if (uncovered <= 0) throw new Error('record: posted review already counted')
+        if (uncovered > 1) return stopStep('history-ambiguous')
+        if (!postedMatches(v, fresh.latestVerdict)) return stopStep('history-stale')
+        if (fresh.codeReviews > expectedCodeReviews) reviews += 1
+        expectedCodeReviews = fresh.codeReviews
+        coveredUnrecorded += 1
+        persistedFix = null
+      } else if (!acknowledged && postedAhead > 1) {
+        return stopStep('history-ambiguous')
+      } else if (!acknowledged && postedAhead === 1) {
         acknowledged = true
-        const posted = provenance?.latestVerdict
-        const matches = v === 'red' ? posted === 'Request changes' : posted?.startsWith('Approve') === true
-        if (!matches) return stopStep('history-stale')
+        if (!postedMatches(v, provenance?.latestVerdict)) return stopStep('history-stale')
       } else {
         reviews += 1
         expectedCodeReviews++
@@ -1250,6 +1312,18 @@ function buildReviewLoop(
       return pendingStep
     },
     /**
+     * Re-read posted comments and record. The adapter has no count policy of its own.
+     *
+     * @param {string} cwd
+     * @param {string} verdict
+     * @param {{ gh?: Function }} [deps]
+     */
+    async recordPosted(cwd, verdict, { gh: ghFn = ghDefault } = {}) {
+      const number = requirePr('recordPosted')
+      const fresh = await readReviewHistory(cwd, number, { gh: ghFn, maxFixRounds })
+      return loop.record(verdict, fresh)
+    },
+    /**
      * Authorize the live step against fresh durable history, then consume it once.
      * A skipped `persist` throws a recoverable error and writes nothing: only a
      * divergence of the durable history stops the loop. Only this process's own
@@ -1257,13 +1331,79 @@ function buildReviewLoop(
      * stop, different account, or additional review never can.
      */
     async assertFixAllowed(cwd, step, { gh: ghFn = ghDefault, git: gitFn = git } = {}) {
+      const consumed = () => {
+        throw new Error('assertFixAllowed: grant already consumed')
+      }
+      const hasPr = pr !== null && pr !== undefined && pr !== ''
+      async function publishGrant(allocation) {
+        const token = randomBytes(8).toString('hex')
+        await ghFn(cwd, [
+          'pr',
+          'comment',
+          String(pr),
+          '--body',
+          grantComment(allocation.reviews, allocation.fixes, token),
+        ])
+        const after = await readReviewHistory(cwd, pr, { gh: ghFn, maxFixRounds })
+        const mine = after.grants.filter((g) => g.reviews === allocation.reviews && g.fixes === allocation.fixes)
+        const ours = mine.find((g) => g.token === token)
+        if (!ours || mine.some((g) => g.token !== token && g.order < ours.order)) consumed()
+      }
+      if (consumedStep && step === consumedStep) consumed()
+      if (persistedFix && step === persistedFix && pendingStep === null) {
+        if (closed === 'stop') throw new Error(`assertFixAllowed: loop is stopped (${closedReason})`)
+        if (grantBusy) consumed()
+        grantBusy = true
+        try {
+          const fresh = await readReviewHistory(cwd, pr, { gh: ghFn, maxFixRounds })
+          if (fresh.rounds.stopReason) throw new Error(`assertFixAllowed: loop is stopped (${fresh.rounds.stopReason})`)
+          if (
+            fresh.me !== provenance.me ||
+            fresh.allocationGranted ||
+            fresh.allocationReceipted ||
+            fresh.codeReviews !== fresh.markerReviews ||
+            fresh.markerReviews !== step.reviews ||
+            fresh.markerFixes !== step.fixes ||
+            (step.reason === 'ci-failed'
+              ? fresh.latestVerdict?.startsWith('Approve') !== true
+              : fresh.latestVerdict !== 'Request changes')
+          ) {
+            consumed()
+          }
+          let head
+          try {
+            head = await readHeadRefOid(cwd, pr, ghFn)
+          } catch {
+            throw new Error('assertFixAllowed: review head missing')
+          }
+          if (!isCommitSha(fresh.reviewedHead)) throw new Error('assertFixAllowed: review head missing')
+          if (!isCommitSha(head) || head !== fresh.reviewedHead) throw new Error('assertFixAllowed: head moved')
+          await publishGrant(step)
+          consumedStep = step
+          persistedFix = null
+          return step
+        } finally {
+          grantBusy = false
+        }
+      }
       const checkLive = () => {
         if (closed === 'stop') throw new Error(`assertFixAllowed: loop is stopped (${closedReason})`)
         if (!pendingStep) throw new Error('assertFixAllowed: no live unconsumed fix allocation')
         if (step !== pendingStep) throw new Error('assertFixAllowed: step does not match the live allocation')
       }
+      if (
+        !pendingStep &&
+        hasPr &&
+        provenance &&
+        step &&
+        step.reviews === provenance.markerReviews &&
+        step.fixes === provenance.markerFixes
+      ) {
+        const fresh = await readReviewHistory(cwd, pr, { gh: ghFn, maxFixRounds })
+        if (fresh.allocationGranted || (fresh.allocationReceipted && fresh.markerFixes === step.fixes)) consumed()
+      }
       checkLive()
-      if (pr === null || pr === undefined || pr === '') {
+      if (!hasPr) {
         if (await resolveReviewPr(cwd, null, { gh: ghFn, git: gitFn })) {
           throw new Error('assertFixAllowed: PR discovered; resume the PR loop before fixing')
         }
@@ -1306,10 +1446,12 @@ function buildReviewLoop(
           const stop = await loop.enforceStop(cwd, { gh: ghFn })
           throw Object.assign(new Error(`assertFixAllowed: stopped (${closedReason})`), { stop })
         }
+        await publishGrant(step)
       }
-      // Two overlapping awaits must not execute the same step twice.
       checkLive()
+      consumedStep = step
       pendingStep = null
+      persistedFix = null
       return step
     },
     /**
@@ -1372,6 +1514,7 @@ function buildReviewLoop(
       // allocation unpersisted so the caller writes it before a grant.
       if (reviews === written.reviews && fixes === written.fixes && closed === written.closed) {
         allocationPersisted = true
+        coveredUnrecorded = 0
       }
       return closed === 'stop' ? { reviews, fixes, stopReason: closedReason } : { reviews, fixes }
     },
