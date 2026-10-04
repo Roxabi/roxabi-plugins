@@ -649,7 +649,7 @@ describe('issue-triage/set > body replace', () => {
 
   it('writes nothing when cross-repo --rm-parent is rejected', async () => {
     const exitSpy = throwingExit()
-    await setIssue(['Roxabi/x#5', '--body', 'NEW', '--rm-parent', '--size', 'S']).catch(() => {})
+    await setIssue(['Roxabi/x#5', '--body', 'NEW', '--rm-parent', '--blocked-by', '9', '--size', 'S']).catch(() => {})
     expect(exitSpy).toHaveBeenCalledWith(1)
     expectNoMutations()
   })
