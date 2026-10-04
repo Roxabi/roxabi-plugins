@@ -1435,7 +1435,6 @@ function buildReviewLoop(
       if (closed !== null) {
         throw new Error(`claimPersistedFix: the loop is closed (${closed === 'stop' ? closedReason : closed})`)
       }
-      if (pendingStep) throw new Error('claimPersistedFix: this process already holds a live allocation')
       if (!provenance) throw new Error('claimPersistedFix: needs resumeReviewLoop provenance')
       if (replayGuard !== 'persisted') {
         throw new Error(
