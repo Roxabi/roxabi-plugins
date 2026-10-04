@@ -1877,4 +1877,21 @@ describe('a persisted fix grant survives the process that allocated it (#699)', 
     expect(loop.closed).toBe(null)
     expect(fake.pr.comments).toHaveLength(before)
   })
+
+  it('refuses when the head moves during the grant write, and does not authorize the fix', async () => {
+    const fake = fakePr({ comments: [comment(RED), comment(accounting(1, 1))] })
+    const loop = await resumeReviewLoop(CWD, { pr: PR, gh: fake.gh })
+    const step = loop.persistedFix
+    const gh = async (cwd, args) => {
+      const result = await fake.gh(cwd, args)
+      if (args[1] === 'comment' && String(args.at(-1)).includes('fix-grant')) {
+        fake.pr.headRefOid = 'b'.repeat(40)
+      }
+      return result
+    }
+    await expect(loop.assertFixAllowed(CWD, step, { gh })).rejects.toThrow(/head moved/)
+    expect(loop.closed).toBe(null)
+    await expect(loop.assertFixAllowed(CWD, step, { gh })).rejects.toThrow(/grant already consumed/)
+    expect(fake.pr.comments.filter((entry) => entry.body.includes('fix-grant'))).toHaveLength(1)
+  })
 })

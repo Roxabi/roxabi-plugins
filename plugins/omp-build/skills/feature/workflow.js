@@ -1379,6 +1379,13 @@ function buildReviewLoop(
           if (!isCommitSha(fresh.reviewedHead)) throw new Error('assertFixAllowed: review head missing')
           if (!isCommitSha(head) || head !== fresh.reviewedHead) throw new Error('assertFixAllowed: head moved')
           await publishGrant(step)
+          let after
+          try {
+            after = await readHeadRefOid(cwd, pr, ghFn)
+          } catch {
+            throw new Error('assertFixAllowed: review head missing')
+          }
+          if (!isCommitSha(after) || after !== fresh.reviewedHead) throw new Error('assertFixAllowed: head moved')
           consumedStep = step
           persistedFix = null
           return step
