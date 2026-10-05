@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process'
+import { execFile, execFileSync, spawnSync } from 'node:child_process'
 import {
   chmodSync,
   existsSync,
@@ -8,10 +8,12 @@ import {
   realpathSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { promisify } from 'node:util'
 import { afterEach, describe, expect, it } from 'vitest'
 
 const BOOT = path.resolve(import.meta.dirname, 'worktree-bootstrap.sh')
@@ -119,8 +121,8 @@ describe('worktree bootstrap', () => {
     expect(readFileSync(path.join(repo, 'out', 'NEW'), 'utf8')).toBe('src-bytes\n')
   })
 
-  it('indexes the worktree itself, starting ccc from a copy of the principal stores', () => {
-    const { repo, wt } = principalWith('')
+  it('indexes the worktree itself before setup, starting ccc from a copy of the principal stores', () => {
+    const { repo, wt } = principalWith('worktree:\n  setup: echo setup >> ../indexers.log\n')
     const ccc = path.join(repo, '.cocoindex_code')
     mkdirSync(path.join(ccc, 'cocoindex.db', 'mdb'), { recursive: true })
     writeFileSync(path.join(ccc, 'settings.yml'), 'include_patterns: []\n')
@@ -149,6 +151,7 @@ describe('worktree bootstrap', () => {
     expect(readFileSync(log, 'utf8').trim().split('\n')).toEqual([
       `ccc index|${here}|cocoindex.db,settings.yml,target_sqlite.db`,
       `codegraph init -y ${here}|${here}|cocoindex.db,settings.yml,target_sqlite.db`,
+      'setup',
     ])
     expect(readFileSync(path.join(wt, '.cocoindex_code', 'settings.yml'), 'utf8')).toBe('include_patterns: []\n')
     expect(readFileSync(path.join(wt, '.cocoindex_code', 'cocoindex.db', 'mdb', 'data.mdb'), 'utf8')).toBe('state\n')
@@ -170,5 +173,26 @@ describe('worktree bootstrap', () => {
     expect(out.trim()).toBe('bootstrap=done')
     expect(existsSync(log)).toBe(false)
     expect(existsSync(path.join(wt, '.cocoindex_code'))).toBe(false)
+  })
+
+  it('runs setup once when two bootstraps race, the later one waiting then no-op', async () => {
+    const { wt } = principalWith('worktree:\n  setup: echo run >> setup-runs; sleep 1\n')
+    const run = () => promisify(execFile)('bash', [BOOT], { cwd: wt, env: ENV, encoding: 'utf8' })
+
+    const outputs = await Promise.all([run(), run()])
+
+    expect(outputs.map(({ stdout }) => stdout.trim()).sort()).toEqual(['bootstrap=done', 'bootstrap=noop'])
+    expect(readFileSync(path.join(wt, 'setup-runs'), 'utf8')).toBe('run\n')
+  })
+
+  it('takes over the lock of a run that died', () => {
+    const { repo, wt } = principalWith(STACK)
+    const lock = path.join(repo, '.git', 'worktrees', 'wt', 'omp-build-bootstrap.lock')
+    symlinkSync(String(spawnSync('true').pid), lock)
+
+    const out = execFileSync('bash', [BOOT], { cwd: wt, env: ENV, encoding: 'utf8', timeout: 10_000 })
+
+    expect(out.trim()).toBe('bootstrap=done')
+    expect(existsSync(lock)).toBe(false)
   })
 })

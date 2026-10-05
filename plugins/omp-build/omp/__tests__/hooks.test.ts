@@ -184,8 +184,8 @@ describe('OMP omp-build hooks', () => {
 
       let captured: ToolCallHandler | undefined
       ompBuildExtension({
-        on: (_event, fn) => {
-          captured = fn as ToolCallHandler
+        on: (event: string, fn: unknown) => {
+          if (event === 'tool_call') captured = fn as ToolCallHandler
         },
         registerCommand: () => {},
         sendUserMessage: () => {},

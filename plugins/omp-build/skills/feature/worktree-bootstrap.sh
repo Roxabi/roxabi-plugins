@@ -33,6 +33,25 @@ if [ "$here" = "$principal" ]; then
   exit 2
 fi
 
+# One run at a time: omp-build's extension starts this in the background when a
+# session enters the worktree, and /feature runs it in the foreground. The later
+# run waits, then no-ops on the marker. The lock is a symlink naming its holder's
+# pid, so a lock left by a killed run is taken over.
+lock="$git_dir/omp-build-bootstrap.lock"
+until ln -s "$$" "$lock" 2>/dev/null; do
+  holder="$(readlink "$lock" 2>/dev/null || true)"
+  if [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; then
+    rm -f "$lock"
+  else
+    sleep 1
+  fi
+done
+trap 'rm -f "$lock"' EXIT
+if [ -f "$marker" ]; then
+  echo "bootstrap=noop"
+  exit 0
+fi
+
 stack="$here/.dev/stack.yml"
 copy_list=""
 seed_list=""
@@ -130,10 +149,6 @@ while IFS= read -r rel; do
 done <<< "$copy_list
 $seed_list"
 
-if [ -n "$setup" ]; then
-  (cd "$here" && bash -c "$setup")
-fi
-
 need_cli() {
   command -v "$1" >/dev/null 2>&1 || {
     echo "bootstrap=$2-cli-missing" >&2
@@ -169,7 +184,9 @@ PY
 
 # Code indexes are gitignored, so a new worktree has none. Each one is built
 # only when the principal has it: ccc started without its own settings.yml
-# walks up and indexes an ancestor directory (`~`).
+# walks up and indexes an ancestor directory (`~`). They come before
+# worktree.setup: a session already editing here re-indexes through ccc, and
+# must find this worktree's settings.yml rather than wait out an install.
 if [ -f "$principal/.cocoindex_code/settings.yml" ]; then
   need_cli ccc cocoindex
   ccc_dir="$here/.cocoindex_code"
@@ -186,6 +203,10 @@ fi
 if [ -f "$principal/.codegraph/codegraph.db" ]; then
   need_cli codegraph codegraph
   codegraph init -y "$here"
+fi
+
+if [ -n "$setup" ]; then
+  (cd "$here" && bash -c "$setup")
 fi
 
 if [ -d "$here/.semctx" ]; then
