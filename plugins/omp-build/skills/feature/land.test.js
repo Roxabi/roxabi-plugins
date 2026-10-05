@@ -453,6 +453,25 @@ describe('landPr — a refusal disarms a gate armed for an earlier approval', ()
     expect(fake.calls.some(armsLabel)).toBe(false)
   })
 
+  it.each([
+    ['native', NATIVE],
+    ['merge-on-green', { landing: { mode: 'merge-on-green', required_checks: [] } }],
+  ])(
+    'a head that moves at the first pre-write re-read under %s: not-approved, and the armed gate is disarmed',
+    async (_mode, options) => {
+      const fake = gatePr({ comments: [green()], headRefOid: REVIEWED_HEAD, ...ARMED })
+      const gh = async (cwd, args) => {
+        if (same(args, ['pr', 'view', '7', '--json', 'headRefOid'])) fake.pr.headRefOid = MOVED_HEAD
+        return fake.gh(cwd, args)
+      }
+      const result = await landPr('/tmp/wt', 7, { gh, sleep: async () => {}, ...options })
+      expect(result).toEqual({ status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true })
+      expect([...fake.pr.labels]).toEqual(['size:F-lite'])
+      expect(fake.pr.autoMerge).toBe(null)
+      expect(fake.calls.some(armsLabel)).toBe(false)
+    },
+  )
+
   it('leaves the gate of a CLOSED PR alone', async () => {
     const fake = gatePr({ comments: [green(), red()], headRefOid: REVIEWED_HEAD, state: 'CLOSED', ...ARMED })
     const result = await landPr('/tmp/wt', 7, { gh: fake.gh, ...NATIVE })
