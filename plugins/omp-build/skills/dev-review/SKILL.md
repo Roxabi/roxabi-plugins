@@ -64,7 +64,7 @@ Steps: gather-changes → secret-scan → spec-compliance → multi-domain-revie
    const { resolveReviewPr, nextReviewStep, landPr, applyCiWatchExit } =
      await import(pathToFileURL(join(SKILL_DIR, '../feature/workflow.js')).href)
    const pr = await resolveReviewPr(cwd, explicitPr)
-   if (pr !== null && (await nextReviewStep(cwd, pr)).action === 'stop') {
+   if (pr !== null && (await nextReviewStep(cwd, pr, { reviewing: true })).action === 'stop') {
      // The bound is spent and the step disarmed an armed gate: display the
      // Phase 8 dossier and stop before reviewing.
      return
@@ -72,8 +72,9 @@ Steps: gather-changes → secret-scan → spec-compliance → multi-domain-revie
    ```
 
    `explicitPr` is the optional positive argument, else undefined. `pr === null`
-   is a local-only review: no PR, no bound, nothing to land. Any step but `land`
-   disarms a gate that is armed, so a re-review never runs under a live gate.
+   is a local-only review: no PR, no bound, nothing to land. `reviewing` disarms
+   an armed gate whatever the step, `land` included, so a re-review never runs
+   under a live gate; an approving post re-arms through `landPr` in Phase 8.
    Discovery/read failure → report and stop, never fall back to local. Keep this
    one `pr` through all phases and rounds.
 1. Source the shared helpers. `skill://` rejects `..`, so `lib.sh` (one level up, outside any skill directory) is reachable only from a real path — and an unset `SKILL_DIR` would silently make that path `/../shared/lib.sh`, i.e. a base branch detected against nothing:
@@ -512,9 +513,11 @@ the PR has at most two records, one fix per review: the fix's push moves the
 head, and a latest record of another commit asks for a review first (`review`).
 A record past the second that does not approve spends the bound for good — a
 later green does not lift it. A CI failure after the third review stops too.
-Every `nextReviewStep` step but `land` disarms an armed PR, and every `landPr`
-`not-approved` does too: a gate stays armed only while the latest record approves
-the current head within the bound. `landPr` arms only for an approving latest
+Every `nextReviewStep` step but `land` disarms an armed PR, a step taken with
+`{ reviewing: true }` (Phase 1 step 0) disarms on `land` too, and every `landPr`
+`not-approved` disarms as well: a gate stays armed only while the latest record
+approves the current head within the bound and no review of it is running.
+`landPr` arms only for an approving latest
 record of the current head, never past a spent bound. Nothing writes accounting;
 every step is derived again from a fresh read.
 
@@ -578,7 +581,7 @@ Publish as a PR comment when a PR exists; otherwise display locally:
 | Recall worker skipped | single chunk ∨ class appears in <2 chunks ∨ <3 unique callsites |
 | roster capped (max_agents, per chunk) | disclosed when ≠ ∅ (Phase 4) |
 | oracle warnings ≠ ∅ | echoed into output; review_halt → HALT |
-| bound already spent on entry (`nextReviewStep(cwd, pr)` → `stop`, gate disarmed) | dossier; ¬review; ¬Fix; ¬Merge |
+| bound already spent on entry (`nextReviewStep(cwd, pr, { reviewing: true })` → `stop`, gate disarmed) | dossier; ¬review; ¬Fix; ¬Merge |
 
 ## Safety Rules
 

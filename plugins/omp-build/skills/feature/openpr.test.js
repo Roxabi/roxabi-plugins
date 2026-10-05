@@ -844,6 +844,7 @@ describe('nextReviewStep — the bound is two reads of the review records', () =
         {},
         { action: 'review', reason: 'no-verdict', reviews: 1 },
       ],
+      ['a land a review is about to start on', [approve(HEAD)], { reviewing: true }, { action: 'land', reviews: 1 }],
     ]
 
     it.each(DISARMED)(

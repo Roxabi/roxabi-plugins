@@ -1037,8 +1037,10 @@ function reviewStep(records, { head, ciFailed = false, posted }) {
  * then the step — `land` | `fix` | `stop` | `review`. `posted` is the review
  * dev-review just posted (its verdict and REVIEWED_HEAD). `ciFailed` asks for
  * the correction of a red check on the approved head. Every step but `land`
- * disarms an OPEN armed PR first (`disarmed: true`): a gate stays armed only
- * while the latest record approves the current head within the bound. Nothing
+ * disarms an OPEN armed PR first (`disarmed: true`); `reviewing` — a review is
+ * about to start — disarms on `land` too, and an approving post re-arms through
+ * `landPr`. A gate stays armed only while the latest record approves the current
+ * head within the bound and no review of it is running. Nothing
  * else is written; a throw decides nothing and writes nothing.
  *
  * @param {string} cwd
@@ -1046,10 +1048,11 @@ function reviewStep(records, { head, ciFailed = false, posted }) {
  * @param {{
  *   posted?: { verdict: string, head: string },
  *   ciFailed?: boolean,
+ *   reviewing?: boolean,
  *   gh?: (cwd: string, args: string[]) => Promise<string>,
  * }} [opts]
  */
-export async function nextReviewStep(cwd, pr, { posted, ciFailed = false, gh: ghFn = gh } = {}) {
+export async function nextReviewStep(cwd, pr, { posted, ciFailed = false, reviewing = false, gh: ghFn = gh } = {}) {
   if (pr === null || pr === undefined || pr === '') {
     throw new TypeError(`nextReviewStep: pr is required, got ${JSON.stringify(pr)}`)
   }
@@ -1057,6 +1060,8 @@ export async function nextReviewStep(cwd, pr, { posted, ciFailed = false, gh: gh
   const records = await readReviewRecords(cwd, number, { gh: ghFn })
   const gate = await readGate(cwd, number, ghFn)
   const step = reviewStep(records, { head: gate.headRefOid, ciFailed, posted })
-  if (step.action !== 'land' && (await disarmGate(cwd, number, gate, ghFn))) return { ...step, disarmed: true }
+  if ((reviewing || step.action !== 'land') && (await disarmGate(cwd, number, gate, ghFn))) {
+    return { ...step, disarmed: true }
+  }
   return step
 }

@@ -141,13 +141,14 @@ The review bound is two reads of the PR's review records (#710) — the comments
 by the automation login (`gh api user`) whose first line is
 `<!-- omp-build:code-review -->`: how many there are, and the latest one. Nothing
 writes accounting; every decision is derived again from a fresh read.
-- `nextReviewStep(cwd, pr, { posted?, ciFailed? })` returns `land`, `fix`, `stop`
+- `nextReviewStep(cwd, pr, { posted?, ciFailed?, reviewing? })` returns `land`, `fix`, `stop`
   or `review`. A fix is allowed while the PR has at most two records, one per
   review: the fix's push moves the head, and a latest record of another commit
   asks for a review first. A record past the second that does not approve spends
   the bound for good — a later green does not lift it. A CI failure on the head
   the third review approved stops too. `posted` (the review just posted) must be
-  the latest record, else it throws. Every step but `land` disarms an armed PR.
+  the latest record, else it throws. Every step but `land` disarms an armed PR;
+  `reviewing` (a review is about to start) disarms on `land` too.
 - `landPr(cwd, pr)` arms only when the latest record approves and its line-2
   `<!-- omp-build:review-head sha=… -->` equals the current `headRefOid`, re-read
   before every write. A spent bound is `not-approved` with reason `review-bound`.
