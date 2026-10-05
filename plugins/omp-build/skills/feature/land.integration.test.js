@@ -25,18 +25,12 @@ if (fn === 'readLanding') {
 }
 const ME = 'omp-bot'
 const review = (verdict) => '<!-- omp-build:code-review -->\\n<!-- omp-build:review-head sha=0123456789abcdef0123456789abcdef01234567 -->\\n## Code Review\\n\\n**Verdict: ' + verdict + '** — summary'
-const rounds = (reviews, fixes) => '<!-- omp-build:review-rounds reviews=' + reviews + ' fixes=' + fixes + ' -->\\nReview bound.'
-const RECEIPT = '## Review Fixes Applied\\n\\n**Applied:** 1 cause(s)'
-// approved: a first-round green and its persisted count. stopped: a third red after two completed rounds.
-// unapproved: a receipted fix that no review has judged yet.
+// approved: a first-round green. unapproved: a red latest record at the current head.
+// spent: a third red, which exhausts the bound.
 const HISTORIES = {
-  approved: [review('Approve (clean)'), rounds(1, 0)],
-  unapproved: [review('Request changes'), rounds(1, 1), RECEIPT],
-  stopped: [
-    review('Request changes'), rounds(1, 1), RECEIPT,
-    review('Request changes'), rounds(2, 2), RECEIPT,
-    review('Request changes'),
-  ],
+  approved: [review('Approve (clean)')],
+  unapproved: [review('Request changes')],
+  spent: [review('Request changes'), review('Request changes'), review('Request changes')],
 }
 const comments = HISTORIES[historyMode].map((body) => ({ author: { login: ME }, body }))
 const calls = []
@@ -190,7 +184,7 @@ describe('landPr through the checkout', () => {
   })
   it('a head that moves after the labels view is not-approved and writes nothing', () => {
     const { result, calls } = land(checkout(STACK), 'ok', { head: 'moved' })
-    expect(result).toEqual({ status: 'not-approved', reviews: 1, fixes: 0, reason: 'head-moved' })
+    expect(result).toEqual({ status: 'not-approved', reviews: 1, reason: 'head-moved' })
     expect(calls.some((args) => args[1] === 'edit')).toBe(false)
   })
 
@@ -259,22 +253,15 @@ describe('landPr review gate through the checkout', () => {
     ['an invalid landing', { '.dev/stack.yml': 'landing:\n  mode: auto\n' }],
   ]
 
-  it.each(CONFIGS)('a stopped history under %s is review-stopped and never armed', (_mode, files) => {
-    const { result, calls } = land(checkout(files), 'ok', { history: 'stopped' })
-    expect(result).toMatchObject({
-      status: 'review-stopped',
-      reason: 'review-bound',
-      reviews: 3,
-      fixes: 2,
-      stop: { prState: 'OPEN', guaranteed: true, published: true },
-    })
-    expect(calls.some((a) => a[0] === 'pr' && a.includes('--add-label'))).toBe(false)
-    expect(calls.some((a) => a[0] === 'pr' && a[1] === 'merge' && a.includes('--auto'))).toBe(false)
+  it.each(CONFIGS)('a spent history under %s is not-approved by the review bound and never armed', (_mode, files) => {
+    const { result, calls } = land(checkout(files), 'ok', { history: 'spent' })
+    expect(result).toEqual({ status: 'not-approved', reviews: 3, reason: 'review-bound' })
+    onlyHistoryRead(calls)
   })
 
   it.each(CONFIGS)('an unapproved history under %s is not-approved after the history read alone', (_mode, files) => {
     const { result, calls } = land(checkout(files), 'ok', { history: 'unapproved' })
-    expect(result).toEqual({ status: 'not-approved', reviews: 1, fixes: 1 })
+    expect(result).toEqual({ status: 'not-approved', reviews: 1 })
     onlyHistoryRead(calls)
   })
 

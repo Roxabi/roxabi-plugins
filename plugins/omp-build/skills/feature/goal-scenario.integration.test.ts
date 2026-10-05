@@ -273,16 +273,9 @@ function reviewRecord(sha: string): string {
   ].join('\n')
 }
 
-function roundsRecord(): string {
-  return '<!-- omp-build:review-rounds reviews=1 fixes=0 -->\nReview bound.'
-}
-
 function approve(pr: number, sha: string): void {
   const review = gh(['pr', 'comment', String(pr), '--body', reviewRecord(sha)])
-  const rounds = gh(['pr', 'comment', String(pr), '--body', roundsRecord()])
-  if (review.status !== 0 || rounds.status !== 0) {
-    throw new Error(`approve #${pr}: ${review.stderr}${rounds.stderr}`)
-  }
+  if (review.status !== 0) throw new Error(`approve #${pr}: ${review.stderr}`)
 }
 
 function prOf(head: string): Pull {

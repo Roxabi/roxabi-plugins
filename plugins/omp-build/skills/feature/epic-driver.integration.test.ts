@@ -470,14 +470,15 @@ describe('epic-driver — objective', () => {
 })
 
 describe('epic-driver — review bound', () => {
-  function reviewed(number: number, history: string[]): void {
-    const nodes = history.map((body) => ({ body, author: { login: ME } }))
+  type Comment = string | { body: string; author: string }
+  function reviewed(number: number, history: Comment[]): void {
+    const nodes = history.map((item) => {
+      const { body, author } = typeof item === 'string' ? { body: item, author: ME } : item
+      return { body, author: { login: author } }
+    })
     const data = { data: { repository: { [`p${number}`]: { comments: { nodes } } } } }
     writeFileSync(path.join(sandboxOf().state, 'reviews.json'), JSON.stringify(data))
   }
-  const rounds = (reviews: number, fixes: number) =>
-    `<!-- omp-build:review-rounds reviews=${reviews} fixes=${fixes} -->\nbound`
-  const receipt = '## Review Fixes Applied\n\n**Applied:** 1 cause(s)'
   const record = (verdict: string) =>
     `<!-- omp-build:code-review -->\n## Code Review\n\n**Verdict: ${verdict}** — summary`
 
@@ -493,15 +494,15 @@ describe('epic-driver — review bound', () => {
   it('keeps a PR stopped once its last fix round was reviewed red, even if the review quotes an approval', () => {
     openPrChild()
     const quoted = `${record('Request changes')}\n\n> **Verdict: Approve** — the earlier round said`
-    reviewed(11, [
-      record('Request changes'),
-      rounds(1, 1),
-      receipt,
-      record('Request changes'),
-      rounds(2, 2),
-      receipt,
-      quoted,
-    ])
+    reviewed(11, [record('Request changes'), record('Request changes'), quoted])
+    const run = drive(['next', '--dry-run'])
+    expect(run.json().step).toMatchObject({ action: 'drop', stop: 'no-progress' })
+    expect(run.json().step.report.stopped).toEqual([{ ticket: 2, reason: 'review-bound', sticky: true }])
+  })
+
+  it('does not lift the bound when a later review approves', () => {
+    openPrChild()
+    reviewed(11, [record('Request changes'), record('Request changes'), record('Request changes'), record('Approve')])
     const run = drive(['next', '--dry-run'])
     expect(run.json().step).toMatchObject({ action: 'drop', stop: 'no-progress' })
     expect(run.json().step.report.stopped).toEqual([{ ticket: 2, reason: 'review-bound', sticky: true }])
@@ -509,7 +510,18 @@ describe('epic-driver — review bound', () => {
 
   it('resumes a PR with a fix round left', () => {
     openPrChild()
-    reviewed(11, [record('Request changes'), rounds(1, 1), receipt])
+    reviewed(11, [record('Request changes')])
+    const run = drive(['next', '--dry-run'])
+    expect(run.json().step).toMatchObject({ action: 'resume', ticket: 2, pr: { number: 11 } })
+  })
+
+  it('does not count review records posted by another login', () => {
+    openPrChild()
+    reviewed(11, [
+      { body: record('Request changes'), author: 'mallory' },
+      { body: record('Request changes'), author: 'mallory' },
+      record('Request changes'),
+    ])
     const run = drive(['next', '--dry-run'])
     expect(run.json().step).toMatchObject({ action: 'resume', ticket: 2, pr: { number: 11 } })
   })

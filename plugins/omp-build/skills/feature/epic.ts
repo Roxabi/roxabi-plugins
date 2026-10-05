@@ -263,8 +263,6 @@ export function landOutcome(
     case 'stopped':
     case 'closed':
       return { stop: status, class: 'ticket' }
-    case 'review-stopped':
-      return { stop: 'review-bound', class: 'ticket' }
     case 'watch-failed':
     case 'bad-landing':
     case 'no-required-checks':
@@ -290,7 +288,7 @@ export type PrFacts = {
   baseSha: string | null
   /** `reviewed` label or native auto-merge on. */
   armed: boolean
-  /** The review loop has stopped on this PR (`interpretReviewHistory` in `workflow.js`). */
+  /** The review bound is spent on this PR (`reviewRecords` in `workflow.js`). */
   exhausted: boolean
 }
 

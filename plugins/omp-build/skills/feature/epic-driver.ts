@@ -55,7 +55,7 @@ import {
   ticketOfSubject,
 } from './epic'
 import { type HookResult, runPostMergeHook } from './epic-close'
-import { disarmReviewedBeforePush, interpretReviewHistory, readLanding } from './workflow.js'
+import { disarmReviewedBeforePush, readLanding, reviewRecords } from './workflow.js'
 
 class Refused extends Error {}
 class Assisted extends Error {}
@@ -197,9 +197,10 @@ function repoName(repo: string): { owner: string; name: string; full: string } {
 }
 
 /**
- * The PRs whose review loop has stopped, per `interpretReviewHistory` — the one
- * reading of a PR's review records (#637) that `landPr` and `resumeReviewLoop`
- * also use. `comments(last: 100)` in creation order, as that reader expects.
+ * The PRs whose review bound is spent, per `reviewRecords` (#710): a record past
+ * the second does not approve. The same derivation `landPr` and `nextReviewStep`
+ * use. `comments(last: 100)` in creation order: a PR with more comments can
+ * under-count here; §6.0's paginated `nextReviewStep` still stops it.
  */
 function stoppedReviews(repo: string, owner: string, name: string, viewer: string, numbers: number[]): Set<number> {
   const out = new Set<number>()
@@ -215,7 +216,7 @@ function stoppedReviews(repo: string, owner: string, name: string, viewer: strin
   for (const n of numbers) {
     const nodes = data.repository[`p${n}`]?.comments.nodes ?? []
     const history = nodes.map((c) => ({ body: c.body ?? '', author: c.author }))
-    if (interpretReviewHistory(history, { me: viewer }).stopReason) out.add(n)
+    if (reviewRecords(history, { me: viewer }).spent) out.add(n)
   }
   return out
 }

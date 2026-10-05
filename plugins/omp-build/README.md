@@ -132,51 +132,40 @@ It does not hand the operator a `/wt` line. Existing worktrees are entered by
 `/move <path>`, not recreated.
 
 In the matching worktree: implement → `dev-review` → `fix` → land.
-`resolveReviewPr` binds an explicit number or the current branch before review
-initialization; lookup failure is never treated as a local review. A closed PR
-on the branch refuses implicit reuse, so its budget cannot be reset. Existing
-PRs resume directly into review; empty history receives a baseline marker.
+`resolveReviewPr` binds an explicit number or the current branch before any
+review read; lookup failure is never treated as a local review. A closed PR on
+the branch refuses implicit reuse, so its bound cannot be reset. Existing PRs
+resume from their review records.
 
-`workflow.js` enforces the review bound at the action sinks:
-- `resumeReviewLoop` restores attributable counts/stops and private provenance.
-  A newly recorded verdict or CI reopening allocates a live fix step. An
-  unconsumed allocation already on the PR is `persistedFix`, not a live step.
-- On a PR, `await loop.recordPosted(cwd, verdict)` re-reads posted comments and
-  records that verdict. It refuses, writing nothing, only when that posted review
-  is already covered by the latest marker. `loop.record` on a resumed loop throws
-  `re-read required` and writes nothing.
-- `await loop.assertFixAllowed(cwd, step)` checks current durable history and
-  consumes that allocation once, including a resumed `persistedFix`. A PR grant
-  writes `<!-- omp-build:fix-grant reviews=N fixes=M token=… -->` before returning.
-  A second grant throws `grant already consumed` and writes nothing. A missing or
-  moved review head throws and writes nothing, including no stop. It allows its
-  own second live allocation, but rejects a consumed grant, newer stops, identity
-  drift and additional reviews; an allocation this process has not yet persisted
-  throws until `persist`; durable history that does not prove the persisted
-  allocation stops as `history-stale` rather than refunding it.
-- `landPr(cwd, pr)` independently checks current history before either landing
-  mode can arm. A stop returns `review-stopped` with disarm evidence; without an
-  approving review of the current head after the latest correction/allocation it
-  returns `not-approved`. A missing or malformed line-2 sha is `no-review-head`;
-  a different or unreadable head is `head-moved`. Unreadable history authorizes nothing.
+The review bound is two reads of the PR's review records (#710) — the comments
+by the automation login (`gh api user`) whose first line is
+`<!-- omp-build:code-review -->`: how many there are, and the latest one. Nothing
+writes accounting; every decision is derived again from a fresh read.
+- `nextReviewStep(cwd, pr, { posted?, ciFailed? })` returns `land`, `fix`, `stop`
+  or `review`. A fix is allowed while the PR has at most two records, one per
+  review: the fix's push moves the head, and a latest record of another commit
+  asks for a review first. A record past the second that does not approve spends
+  the bound for good — a later green does not lift it. A CI failure on the head
+  the third review approved stops too. `posted` (the review just posted) must be
+  the latest record, else it throws. On `fix` and `stop` it disarms an armed PR.
+- `landPr(cwd, pr)` arms only when the latest record approves and its line-2
+  `<!-- omp-build:review-head sha=… -->` equals the current `headRefOid`, re-read
+  before every write. A spent bound is `not-approved` with reason `review-bound`.
+  A missing or malformed line-2 sha is `no-review-head`; a different or unreadable
+  head is `head-moved`. Unreadable records authorize nothing.
   Native auto-merge is requested with `--match-head-commit`. Merge-on-green is
   label-driven: a later push by another actor is not refused by GitHub. A review
   posted before the head line existed needs one re-review before it can land.
-- `enforceStop` observes PR state before independently publishing and disarming.
-  CLOSED/MERGED PRs receive no effects; partial failures are reported explicitly.
 
-History is per automation identity, not a tamper-proof ledger. Foreign records
-are ignored; deletion/editing of the account's comments is not detected. Empty
-history starts at zero; review-only legacy history without accounting/receipts
-(such as #636) is ambiguous, not proof of zero spent rounds. A review posted
-after the last marker is already counted; recording it does not count it twice,
-and more than one unrecorded review is ambiguous. An allocated fix whose receipt
-is not posted yet stays open. A terminal stop remains sticky through later greens.
-Two completed fixes followed by an unambiguous green remain eligible for landing.
+The bound guards against agent mistakes, not against an agent that bypasses it:
+records by other accounts are ignored, and edits or deletions of the account's
+comments are not detected. Every posted review counts, with or without a fix
+before it. Older accounting comments and the `## Review Fixes Applied` receipt
+decide nothing.
 
-The canonical choices, escalation dossier and human-approved superseding-PR
-procedure live in `skills/dev-review/SKILL.md` Phase 8. Skills route through the
-sinks; they do not own separate enforcement rules.
+The canonical choices and escalation dossier live in `skills/dev-review/SKILL.md`
+Phase 8. Skills route through `nextReviewStep` and `landPr`; they do not own
+separate rules.
 
 Landing resolves mode from `readLanding`: stack `landing.mode`, else
 `merge-on-green.yml`, else native. It returns the absolute `/ci-watch` command,

@@ -16,11 +16,11 @@ export declare function disarmReviewedBeforePush(
   deps?: { gh?: Gh; push?: () => Promise<void> | void },
 ): Promise<{ disarmed: true }>
 
-/** The one reading of a PR's review records: counts, and the stop when the loop has stopped. */
-export declare function interpretReviewHistory(
+/** The review records by `me` (#710): count, latest verdict and head, and whether the bound is spent. */
+export declare function reviewRecords(
   comments: { body: string; author: { login: string } | null }[],
-  options: { me: string; maxFixRounds?: number },
-): { reviews: number; fixes: number; stopReason?: string }
+  options: { me: string },
+): { reviews: number; verdict: string | null; head: string | null; spent: boolean }
 
 export declare function openPr(
   cwd: string,
