@@ -147,12 +147,13 @@ writes accounting; every decision is derived again from a fresh read.
   asks for a review first. A record past the second that does not approve spends
   the bound for good — a later green does not lift it. A CI failure on the head
   the third review approved stops too. `posted` (the review just posted) must be
-  the latest record, else it throws. On `fix` and `stop` it disarms an armed PR.
+  the latest record, else it throws. Every step but `land` disarms an armed PR.
 - `landPr(cwd, pr)` arms only when the latest record approves and its line-2
   `<!-- omp-build:review-head sha=… -->` equals the current `headRefOid`, re-read
   before every write. A spent bound is `not-approved` with reason `review-bound`.
   A missing or malformed line-2 sha is `no-review-head`; a different or unreadable
-  head is `head-moved`. Unreadable records authorize nothing.
+  head is `head-moved`. Every `not-approved` disarms an armed PR. Unreadable
+  records authorize nothing.
   Native auto-merge is requested with `--match-head-commit`. Merge-on-green is
   label-driven: a later push by another actor is not refused by GitHub. A review
   posted before the head line existed needs one re-review before it can land.

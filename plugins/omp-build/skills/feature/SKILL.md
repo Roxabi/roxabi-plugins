@@ -418,7 +418,7 @@ next step needs a review of it.
 
 | `step.action` | Next |
 |---|---|
-| `review` | §6.4 |
+| `review` | §6.4. `nextReviewStep` already disarmed an armed PR |
 | `fix` | §6.5 |
 | `land` | §6.7 |
 | `stop` | Publish/display the escalation dossier from `skill://dev-review` Phase 8, print `step.message`, and stop. `nextReviewStep` already disarmed an armed PR. Epic goal: then ticket stop `review-bound` |
@@ -440,18 +440,19 @@ below. Then `await landPr(cwd, pr)`
 resolves the landing mode itself from `cwd` through `readLanding` — the same
 resolver `/ci-watch` uses: `landing.mode` in `.dev/stack.yml` (parsed as YAML),
 else merge-on-green when `.github/workflows/merge-on-green.yml` exists, else
-native. Before reading configuration, `landPr` reads the review records itself:
-a spent bound returns `not-approved` with reason `review-bound`, and a latest
-record that does not approve returns `not-approved`. An approval arms
-only the commit its record names: line 2 must be
+native. Before reading configuration, `landPr` reads the review records itself,
+then the PR's gate: a spent bound returns `not-approved` with reason
+`review-bound`, and a latest record that does not approve returns `not-approved`.
+An approval arms only the commit its record names: line 2 must be
 `<!-- omp-build:review-head sha=<40 lowercase hex> -->` and must equal the PR's
 current `headRefOid`. A record with no head line returns `not-approved` with
-reason `no-review-head` and writes nothing — a PR reviewed before this line
-existed needs one re-review. A different or unreadable head returns
-`not-approved` with reason `head-moved`, also with no write. Invalid
-configuration then returns `bad-landing` before arming. Immediately before every
-write it re-reads `headRefOid`; a different or unreadable head returns
-`not-approved` with reason `head-moved` and writes nothing. Under merge-on-green
+reason `no-review-head` — a PR reviewed before this line existed needs one
+re-review. A different or unreadable head returns `not-approved` with reason
+`head-moved`. Every `not-approved` disarms a gate already armed on an OPEN PR
+(`disarmed: true`) and writes nothing else. Invalid configuration then returns
+`bad-landing` before arming. Immediately before every write it re-reads
+`headRefOid`; a different or unreadable head returns `not-approved` with reason
+`head-moved` and disarms the same way. Under merge-on-green
 it then adds `reviewed` — a pre-existing label is removed first so a fresh
 labeled run exists — and returns
 `{ status: 'watching', mode, watch }`. `watch` is the absolute real path of
@@ -497,7 +498,7 @@ Neither a fix round nor another review action may write that label in this cycle
 | `land.status` | Action |
 |---|---|
 | `no-pr` | Stop; no PR was resolved and no gate was armed |
-| `not-approved` | Stop; the latest review record does not approve the current head, or the bound is spent (`reason: 'review-bound'`). Review again only when the bound is not spent; do not merge |
+| `not-approved` | Stop; the latest review record does not approve the current head, or the bound is spent (`reason: 'review-bound'`). `landPr` disarmed a gate that was armed (`disarmed: true`). Review again only when the bound is not spent; do not merge |
 | `watching` | Start the async `/ci-watch` job named in `land.watch` |
 | `merged` | Report issue + PR; offer the optional tail (§0), stop |
 | `ci-failed` | Gate already disarmed; `step = await nextReviewStep(cwd, pr, { ciFailed: true })`, then §6.6 |

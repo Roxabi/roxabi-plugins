@@ -544,11 +544,12 @@ const SINCE_RETRY_MS = 200
 
 /**
  * Arm `reviewed` and hand the wait to `/ci-watch`. No in-process poll.
- * First resolve the PR and read its review records. A spent bound, or a latest
- * record that does not approve, returns `not-approved`.
+ * First resolve the PR, read its review records, then its gate. A spent bound,
+ * or a latest record that does not approve, returns `not-approved`.
  * An approval arms only when its line-2 head is the PR's `headRefOid` (both 40 lowercase hex).
  * `no-review-head` is a record with no valid head line; `head-moved` is a different or
- * unreadable oid. Neither writes. Native auto-merge is then requested with
+ * unreadable oid. Every `not-approved` disarms a gate already armed on an OPEN PR
+ * (`disarmed: true`) and writes nothing else. Native auto-merge is then requested with
  * `--match-head-commit` of that reviewed sha — an enable-time pin, not a later-push lease.
  * Native also enables merge-commit auto-merge. merge-on-green never returns
  * `no-required-checks` — the workflow, not the rules API, is the gate. Under
@@ -579,14 +580,16 @@ export async function landPr(
   const records = await readReviewRecords(cwd, pr, { gh: ghFn })
   const { reviews } = records
   // Only an approving latest record arms, only for the commit it names, and never
-  // past a spent bound. Read the head before any landing step.
-  if (records.spent) return { status: 'not-approved', reviews, reason: 'review-bound' }
-  if (!approves(records.verdict)) return { status: 'not-approved', reviews }
-  const currentHead = await readHeadRefOid(cwd, pr, ghFn)
-  if (!isCommitSha(records.head)) return { status: 'not-approved', reviews, reason: 'no-review-head' }
-  if (!isCommitSha(currentHead) || currentHead !== records.head) {
-    return { status: 'not-approved', reviews, reason: 'head-moved' }
+  // past a spent bound. Read the gate before any landing step; a refusal disarms it.
+  const refuse = async (reason, gate) => {
+    const disarmed = await disarmGate(cwd, pr, gate ?? (await readGate(cwd, pr, ghFn)), ghFn)
+    return { status: 'not-approved', reviews, ...(reason && { reason }), ...(disarmed && { disarmed }) }
   }
+  const gate = await readGate(cwd, pr, ghFn)
+  if (records.spent) return refuse('review-bound', gate)
+  if (!approves(records.verdict)) return refuse(undefined, gate)
+  if (!isCommitSha(records.head)) return refuse('no-review-head', gate)
+  if (!isCommitSha(gate.headRefOid) || gate.headRefOid !== records.head) return refuse('head-moved', gate)
   let resolved = landing
   if (!resolved) {
     try {
@@ -609,7 +612,7 @@ export async function landPr(
     const again = await readHeadRefOid(cwd, pr, ghFn)
     return !isCommitSha(again) || again !== records.head
   }
-  const moved = () => ({ status: 'not-approved', reviews, reason: 'head-moved' })
+  const moved = () => refuse('head-moved')
   const pin = ['pr', 'merge', String(pr), '--auto', '--merge', '--match-head-commit', records.head]
 
   /** @type {string} */
@@ -821,11 +824,11 @@ async function readHeadRefOid(cwd, pr, ghFn) {
 }
 
 /**
- * The gate as `nextReviewStep` needs it: head, state, and what arms it.
- * A non-JSON answer throws: it authorizes nothing.
+ * The gate: head, state, and what arms it. A non-JSON answer throws: it
+ * authorizes nothing.
  *
  * @param {string} cwd
- * @param {number} pr
+ * @param {number | string} pr
  * @param {(cwd: string, args: string[]) => Promise<string>} ghFn
  */
 async function readGate(cwd, pr, ghFn) {
@@ -834,12 +837,29 @@ async function readGate(cwd, pr, ghFn) {
   try {
     data = JSON.parse(raw)
   } catch {
-    throw new Error(`nextReviewStep: gh pr view ${pr} returned no JSON — ${preview(raw)}`)
+    throw new Error(`readGate: gh pr view ${pr} returned no JSON — ${preview(raw)}`)
   }
   if (typeof data !== 'object' || data === null || !Array.isArray(data.labels)) {
-    throw new Error(`nextReviewStep: gh pr view ${pr} carried no labels — ${preview(raw)}`)
+    throw new Error(`readGate: gh pr view ${pr} carried no labels — ${preview(raw)}`)
   }
   return data
+}
+
+/**
+ * Disarm an OPEN PR whose gate is armed: remove `reviewed`, then disable
+ * auto-merge. Returns whether either was on. A CLOSED or MERGED PR is left alone.
+ *
+ * @param {string} cwd
+ * @param {number | string} pr
+ * @param {{ state?: string, labels: { name?: string }[], autoMergeRequest?: unknown }} gate
+ * @param {(cwd: string, args: string[]) => Promise<string>} ghFn
+ */
+async function disarmGate(cwd, pr, gate, ghFn) {
+  if (gate.state !== 'OPEN') return false
+  const labelled = gate.labels.some((label) => label?.name === 'reviewed')
+  if (labelled) await ghFn(cwd, ['pr', 'edit', String(pr), '--remove-label', 'reviewed'])
+  if (gate.autoMergeRequest) await ghFn(cwd, ['pr', 'merge', String(pr), '--disable-auto'])
+  return labelled || Boolean(gate.autoMergeRequest)
 }
 
 /**
@@ -1016,9 +1036,10 @@ function reviewStep(records, { head, ciFailed = false, posted }) {
  * The loop's one decision point (#710): fresh records, the PR's current gate,
  * then the step — `land` | `fix` | `stop` | `review`. `posted` is the review
  * dev-review just posted (its verdict and REVIEWED_HEAD). `ciFailed` asks for
- * the correction of a red check on the approved head. A `fix` or `stop` on an
- * OPEN armed PR disarms it first (`disarmed: true`): only `land` leaves a gate.
- * Nothing else is written.
+ * the correction of a red check on the approved head. Every step but `land`
+ * disarms an OPEN armed PR first (`disarmed: true`): a gate stays armed only
+ * while the latest record approves the current head within the bound. Nothing
+ * else is written; a throw decides nothing and writes nothing.
  *
  * @param {string} cwd
  * @param {number | string} pr
@@ -1036,11 +1057,6 @@ export async function nextReviewStep(cwd, pr, { posted, ciFailed = false, gh: gh
   const records = await readReviewRecords(cwd, number, { gh: ghFn })
   const gate = await readGate(cwd, number, ghFn)
   const step = reviewStep(records, { head: gate.headRefOid, ciFailed, posted })
-  if ((step.action === 'fix' || step.action === 'stop') && gate.state === 'OPEN') {
-    const labelled = gate.labels.some((label) => label?.name === 'reviewed')
-    if (labelled) await ghFn(cwd, ['pr', 'edit', String(number), '--remove-label', 'reviewed'])
-    if (gate.autoMergeRequest) await ghFn(cwd, ['pr', 'merge', String(number), '--disable-auto'])
-    if (labelled || gate.autoMergeRequest) return { ...step, disarmed: true }
-  }
+  if (step.action !== 'land' && (await disarmGate(cwd, number, gate, ghFn))) return { ...step, disarmed: true }
   return step
 }

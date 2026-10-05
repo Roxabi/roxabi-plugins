@@ -61,19 +61,21 @@ Steps: gather-changes → secret-scan → spec-compliance → multi-domain-revie
    ```javascript
    const { pathToFileURL } = await import('node:url')
    const { join } = await import('node:path')
-   const { resolveReviewPr, readReviewRecords, nextReviewStep, landPr, applyCiWatchExit } =
+   const { resolveReviewPr, nextReviewStep, landPr, applyCiWatchExit } =
      await import(pathToFileURL(join(SKILL_DIR, '../feature/workflow.js')).href)
    const pr = await resolveReviewPr(cwd, explicitPr)
-   if (pr !== null && (await readReviewRecords(cwd, pr)).spent) {
-     // The bound is spent: display the Phase 8 dossier and stop before reviewing.
+   if (pr !== null && (await nextReviewStep(cwd, pr)).action === 'stop') {
+     // The bound is spent and the step disarmed an armed gate: display the
+     // Phase 8 dossier and stop before reviewing.
      return
    }
    ```
 
    `explicitPr` is the optional positive argument, else undefined. `pr === null`
-   is a local-only review: no PR, no bound, nothing to land. Discovery/read
-   failure → report and stop, never fall back to local. Keep this one `pr`
-   through all phases and rounds.
+   is a local-only review: no PR, no bound, nothing to land. Any step but `land`
+   disarms a gate that is armed, so a re-review never runs under a live gate.
+   Discovery/read failure → report and stop, never fall back to local. Keep this
+   one `pr` through all phases and rounds.
 1. Source the shared helpers. `skill://` rejects `..`, so `lib.sh` (one level up, outside any skill directory) is reachable only from a real path — and an unset `SKILL_DIR` would silently make that path `/../shared/lib.sh`, i.e. a base branch detected against nothing:
 
    ```bash
@@ -510,9 +512,11 @@ the PR has at most two records, one fix per review: the fix's push moves the
 head, and a latest record of another commit asks for a review first (`review`).
 A record past the second that does not approve spends the bound for good — a
 later green does not lift it. A CI failure after the third review stops too.
-`nextReviewStep` disarms an armed PR on `fix` and `stop`. `landPr` arms only for
-an approving latest record of the current head, never past a spent bound.
-Nothing writes accounting; every step is derived again from a fresh read.
+Every `nextReviewStep` step but `land` disarms an armed PR, and every `landPr`
+`not-approved` does too: a gate stays armed only while the latest record approves
+the current head within the bound. `landPr` arms only for an approving latest
+record of the current head, never past a spent bound. Nothing writes accounting;
+every step is derived again from a fresh read.
 
 ### Human choice (constrained by `step`)
 
@@ -527,6 +531,7 @@ Nothing writes accounting; every step is derived again from a fresh read.
   `nextReviewStep(cwd, pr, { ciFailed: true })`. Never merge with residual
   blockers. Warnings-only is ordinary gated landing.
 - **`review`** → the latest record does not review the current head: review again.
+  The step already disarmed an armed PR.
 - **`stop`** → no Fix, no Merge. Publish/display the escalation dossier; the step
   already disarmed the PR. Leave any PR open and the code unchanged by the stop.
 
@@ -573,7 +578,7 @@ Publish as a PR comment when a PR exists; otherwise display locally:
 | Recall worker skipped | single chunk ∨ class appears in <2 chunks ∨ <3 unique callsites |
 | roster capped (max_agents, per chunk) | disclosed when ≠ ∅ (Phase 4) |
 | oracle warnings ≠ ∅ | echoed into output; review_halt → HALT |
-| bound already spent on entry (`readReviewRecords(cwd, pr).spent`) | dossier; ¬review; ¬Fix; ¬Merge |
+| bound already spent on entry (`nextReviewStep(cwd, pr)` → `stop`, gate disarmed) | dossier; ¬review; ¬Fix; ¬Merge |
 
 ## Safety Rules
 

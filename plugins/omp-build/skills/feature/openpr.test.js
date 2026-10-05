@@ -836,6 +836,14 @@ describe('nextReviewStep — the bound is two reads of the review records', () =
         { action: 'fix', reason: 'ci-failed', reviews: 1, remaining: 1 },
       ],
       ['a stop', [red(C1), red(C2), red(HEAD)], {}, { ...STOP, reviews: 3 }],
+      ['a review of another commit', [red(C1)], {}, { action: 'review', reason: 'head-moved', reviews: 1 }],
+      ['a review with no record yet', [], {}, { action: 'review', reason: 'no-review', reviews: 0 }],
+      [
+        'a review of an undecided record',
+        [undecided(HEAD)],
+        {},
+        { action: 'review', reason: 'no-verdict', reviews: 1 },
+      ],
     ]
 
     it.each(DISARMED)(
@@ -884,16 +892,6 @@ describe('nextReviewStep — the bound is two reads of the review records', () =
       expect(writes).toEqual([])
       expect(fake.pr.labels.has('reviewed')).toBe(true)
       expect(fake.pr.autoMerge).not.toBe(null)
-    })
-
-    it.each([
-      ['head-moved', [red(C1)]],
-      ['no-review', []],
-      ['no-verdict', [undecided(HEAD)]],
-    ])('leaves the gate of a PR it sends back to review (%s)', async (_label, comments) => {
-      const { step, writes } = await decide({ ...ARMED, comments })
-      expect(step.action).toBe('review')
-      expect(writes).toEqual([])
     })
 
     it.each(['MERGED', 'CLOSED'])('writes nothing on a %s PR, whatever it decides', async (state) => {

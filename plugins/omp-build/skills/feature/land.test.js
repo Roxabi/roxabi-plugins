@@ -54,6 +54,10 @@ const EVENTS_FIRST = ['', EVENT_AT]
 const ME = 'omp-bot'
 /** The one query the automation login comes from. */
 const IDENTITY = ['api', 'user', '--jq', '.login']
+/** The fields of the one gate read `landPr` makes before deciding. */
+const GATE_FIELDS = 'headRefOid,state,labels,autoMergeRequest'
+/** @param {number} pr */
+const GATE_READ = (pr) => ['pr', 'view', String(pr), '--json', GATE_FIELDS]
 /** @param {unknown[]} args @param {unknown[]} expected */
 const same = (args, expected) => args.length === expected.length && expected.every((arg, i) => args[i] === arg)
 const REVIEWED_HEAD = '0123456789abcdef0123456789abcdef01234567'
@@ -114,6 +118,14 @@ function mockLand({
           created_at: `2026-01-01T00:00:${String(index).padStart(2, '0')}Z`,
         })),
       ])
+    }
+    if (args[0] === 'pr' && args[1] === 'view' && args[jsonAt + 1] === GATE_FIELDS) {
+      return JSON.stringify({
+        headRefOid: REVIEWED_HEAD,
+        state: 'OPEN',
+        labels: labels.map((name) => ({ name })),
+        autoMergeRequest: null,
+      })
     }
     if (args[0] === 'pr' && args[1] === 'view' && same(fields, ['headRefOid'])) {
       return JSON.stringify({ headRefOid: REVIEWED_HEAD })
@@ -206,8 +218,8 @@ describe('landPr', () => {
       gh,
       sleep,
     })
-    // After the review-history read: the pre-add time, remove, re-add, then the newer time.
-    const historyRead = [IDENTITY, commentPageArgs(7), ['pr', 'view', '7', '--json', 'headRefOid']]
+    // After the review-history and gate reads: the pre-add time, remove, re-add, then the newer time.
+    const historyRead = [IDENTITY, commentPageArgs(7), GATE_READ(7), ['pr', 'view', '7', '--json', 'headRefOid']]
     expect(calls.filter((args) => !historyRead.some((read) => same(args, read)))).toEqual([
       ['repo', 'view', '--json', 'nameWithOwner'],
       EVENTS_CALL,
@@ -299,6 +311,9 @@ describe('landPr', () => {
             created_at: '2026-01-01T00:00:00Z',
           })),
         ])
+      if (same(args, GATE_READ(7))) {
+        return JSON.stringify({ headRefOid: REVIEWED_HEAD, state: 'OPEN', labels: [], autoMergeRequest: null })
+      }
       if (same(args, ['pr', 'view', '7', '--json', 'headRefOid'])) {
         return JSON.stringify({ headRefOid: REVIEWED_HEAD })
       }
@@ -405,13 +420,44 @@ describe('landPr — a spent review bound is enforced before any landing step', 
     MODES.map(([mode, options]) => [`${label}, under ${mode}`, comments, reviews, options]),
   )
 
-  it.each(CASES)('%s: not-approved by the review bound, no write', async (_label, comments, reviews, options) => {
-    const fake = gatePr({ comments, headRefOid: REVIEWED_HEAD, ...ARMED })
-    const result = await landPr('/tmp/wt', 7, { gh: fake.gh, sleep: async () => {}, ...options })
-    expect(result).toEqual({ status: 'not-approved', reviews, reason: 'review-bound' })
+  it.each(CASES)(
+    '%s: not-approved by the review bound, and the armed gate is disarmed',
+    async (_label, comments, reviews, options) => {
+      const fake = gatePr({ comments, headRefOid: REVIEWED_HEAD, ...ARMED })
+      const result = await landPr('/tmp/wt', 7, { gh: fake.gh, sleep: async () => {}, ...options })
+      expect(result).toEqual({ status: 'not-approved', reviews, reason: 'review-bound', disarmed: true })
+      expect([...fake.pr.labels]).toEqual(['size:F-lite'])
+      expect(fake.pr.autoMerge).toBe(null)
+      expect(fake.calls.some(armsLabel)).toBe(false)
+      expect(fake.calls.some((args) => args[1] === 'merge' && args.includes('--auto'))).toBe(false)
+    },
+  )
+})
+
+describe('landPr — a refusal disarms a gate armed for an earlier approval', () => {
+  it.each([
+    ['a red review after the approval, at the same head', [green(), red()], REVIEWED_HEAD, undefined],
+    ['a push after the approval', [green()], MOVED_HEAD, 'head-moved'],
+    ['an approval with no head line', [byMe(GREEN)], REVIEWED_HEAD, 'no-review-head'],
+  ])('%s: not-approved, reviewed removed and auto-merge disabled', async (_label, comments, headRefOid, reason) => {
+    const fake = gatePr({ comments, headRefOid, ...ARMED })
+    const result = await landPr('/tmp/wt', 7, { gh: fake.gh, ...NATIVE })
+    expect(result).toEqual({
+      status: 'not-approved',
+      reviews: comments.length,
+      ...(reason && { reason }),
+      disarmed: true,
+    })
+    expect([...fake.pr.labels]).toEqual(['size:F-lite'])
+    expect(fake.pr.autoMerge).toBe(null)
+    expect(fake.calls.some(armsLabel)).toBe(false)
+  })
+
+  it('leaves the gate of a CLOSED PR alone', async () => {
+    const fake = gatePr({ comments: [green(), red()], headRefOid: REVIEWED_HEAD, state: 'CLOSED', ...ARMED })
+    const result = await landPr('/tmp/wt', 7, { gh: fake.gh, ...NATIVE })
+    expect(result).toEqual({ status: 'not-approved', reviews: 2 })
     expect(noWrite(fake.calls)).toBe(false)
-    expect([...fake.pr.labels]).toEqual(ARMED.labels)
-    expect(fake.pr.autoMerge).toEqual(ARMED.autoMerge)
   })
 })
 
@@ -701,7 +747,7 @@ describe('landPr — an approval arms only the commit it reviewed', () => {
     })
     const gh = async (cwd, args) => {
       const result = await fake.gh(cwd, args)
-      if (args[1] === 'view' && args[4] === 'headRefOid') fake.pr.headRefOid = MOVED_HEAD
+      if (args[1] === 'view' && args[4] === GATE_FIELDS) fake.pr.headRefOid = MOVED_HEAD
       return result
     }
     const result = await landPr('/tmp/wt', 7, { gh, ...NATIVE })
@@ -858,7 +904,7 @@ describe('landPr — an approval arms only the commit it reviewed', () => {
 
   it('a head that moves after the pin is not-approved, auto-merge disabled, and unlabeled', async () => {
     const fake = approvedGate()
-    const result = await landPr('/tmp/wt', 7, { gh: movingHead(fake, { moveAt: 3 }), ...NATIVE })
+    const result = await landPr('/tmp/wt', 7, { gh: movingHead(fake, { moveAt: 2 }), ...NATIVE })
     expect(result).toEqual({ status: 'not-approved', reviews: 1, reason: 'head-moved' })
     expect(fake.calls.some(disablesAuto)).toBe(true)
     expect(fake.calls.some(armsLabel)).toBe(false)
@@ -868,7 +914,7 @@ describe('landPr — an approval arms only the commit it reviewed', () => {
   it('a head that moves between disable and the second enable is not labeled', async () => {
     const fake = approvedGate()
     const result = await landPr('/tmp/wt', 7, {
-      gh: movingHead(fake, { moveAt: 3, firstMerge: 'already-enabled' }),
+      gh: movingHead(fake, { moveAt: 2, firstMerge: 'already-enabled' }),
       ...NATIVE,
     })
     expect(result).toEqual({ status: 'not-approved', reviews: 1, reason: 'head-moved' })
@@ -880,7 +926,7 @@ describe('landPr — an approval arms only the commit it reviewed', () => {
   it('disable-auto throwing after the pin moves returns auto-merge-failed and no label', async () => {
     const fake = approvedGate()
     const result = await landPr('/tmp/wt', 7, {
-      gh: movingHead(fake, { moveAt: 3, disableThrows: true }),
+      gh: movingHead(fake, { moveAt: 2, disableThrows: true }),
       ...NATIVE,
     })
     expect(result).toEqual({ status: 'auto-merge-failed', armed: true })
