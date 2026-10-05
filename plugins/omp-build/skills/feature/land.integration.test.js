@@ -25,18 +25,12 @@ if (fn === 'readLanding') {
 }
 const ME = 'omp-bot'
 const review = (verdict) => '<!-- omp-build:code-review -->\\n<!-- omp-build:review-head sha=0123456789abcdef0123456789abcdef01234567 -->\\n## Code Review\\n\\n**Verdict: ' + verdict + '** — summary'
-const rounds = (reviews, fixes) => '<!-- omp-build:review-rounds reviews=' + reviews + ' fixes=' + fixes + ' -->\\nReview bound.'
-const RECEIPT = '## Review Fixes Applied\\n\\n**Applied:** 1 cause(s)'
-// approved: a first-round green and its persisted count. stopped: a third red after two completed rounds.
-// unapproved: a receipted fix that no review has judged yet.
+// approved: a first-round green. unapproved: a red latest record at the current head.
+// spent: a third red, which exhausts the bound.
 const HISTORIES = {
-  approved: [review('Approve (clean)'), rounds(1, 0)],
-  unapproved: [review('Request changes'), rounds(1, 1), RECEIPT],
-  stopped: [
-    review('Request changes'), rounds(1, 1), RECEIPT,
-    review('Request changes'), rounds(2, 2), RECEIPT,
-    review('Request changes'),
-  ],
+  approved: [review('Approve (clean)')],
+  unapproved: [review('Request changes')],
+  spent: [review('Request changes'), review('Request changes'), review('Request changes')],
 }
 const comments = HISTORIES[historyMode].map((body) => ({ author: { login: ME }, body }))
 const calls = []
@@ -142,6 +136,7 @@ const RULES = ['api', 'repos/acme/app/rules/branches/main']
 const EVENTS = ['api', 'repos/acme/app/issues/7/events', '--paginate', '--jq', EVENTS_JQ]
 const IDENTITY = ['api', 'user', '--jq', '.login']
 const COMMENTS = ['api', '--paginate', '--slurp', 'repos/{owner}/{repo}/issues/7/comments']
+const GATE = ['pr', 'view', '7', '--json', 'headRefOid,state,labels,autoMergeRequest']
 const LIST = ['pr', 'list', '--head', BRANCH, '--state', 'all', '--json', 'number,state,isCrossRepository']
 const STACK = { ...WORKFLOW_FILE, '.dev/stack.yml': 'runtime: bun\n' }
 const WATCH_FAILED = {
@@ -149,10 +144,10 @@ const WATCH_FAILED = {
   error: 'could not read the labeled reviewed event after re-label — merge-on-green needs --since from GitHub',
 }
 
-/** The calls were the review-history read — login and comments, in either order — and nothing else. */
-function onlyHistoryRead(calls) {
-  expect(calls).toHaveLength(2)
-  expect(calls).toEqual(expect.arrayContaining([IDENTITY, COMMENTS]))
+/** The calls were the review-history read — login and comments, in either order — then the gate read, and nothing else. */
+function onlyDecidingReads(calls) {
+  expect(calls).toHaveLength(3)
+  expect(calls).toEqual(expect.arrayContaining([IDENTITY, COMMENTS, GATE]))
 }
 
 describe('landPr through the checkout', () => {
@@ -172,13 +167,13 @@ describe('landPr through the checkout', () => {
         input: '[]',
       }).trim(),
     ).toBe('PENDING')
-    // review gate (identity + comments), head, then before events + labels,
+    // review gate (identity + comments), the PR gate, then before events + labels,
     // a fresh head read, then the label.
     // Stub answers protection/rules; a probe would show.
     expect(calls).toEqual([
       IDENTITY,
       COMMENTS,
-      ['pr', 'view', '7', '--json', 'headRefOid'],
+      GATE,
       ['repo', 'view', '--json', 'nameWithOwner'],
       EVENTS,
       ['pr', 'view', '7', '--json', 'labels'],
@@ -190,7 +185,7 @@ describe('landPr through the checkout', () => {
   })
   it('a head that moves after the labels view is not-approved and writes nothing', () => {
     const { result, calls } = land(checkout(STACK), 'ok', { head: 'moved' })
-    expect(result).toEqual({ status: 'not-approved', reviews: 1, fixes: 0, reason: 'head-moved' })
+    expect(result).toEqual({ status: 'not-approved', reviews: 1, reason: 'head-moved' })
     expect(calls.some((args) => args[1] === 'edit')).toBe(false)
   })
 
@@ -242,7 +237,7 @@ describe('landPr through the checkout', () => {
     const { result, calls } = land(checkout({ ...WORKFLOW_FILE, '.dev/stack.yml': stack }))
     expect(result.status).toBe('bad-landing')
     expect(result.error).toMatch(error)
-    expect(calls).toEqual([IDENTITY, COMMENTS, ['pr', 'view', '7', '--json', 'headRefOid']])
+    expect(calls).toEqual([IDENTITY, COMMENTS, GATE])
     expect(calls.some((a) => a[1] === 'edit' || a[1] === 'merge')).toBe(false)
   })
 
@@ -259,24 +254,20 @@ describe('landPr review gate through the checkout', () => {
     ['an invalid landing', { '.dev/stack.yml': 'landing:\n  mode: auto\n' }],
   ]
 
-  it.each(CONFIGS)('a stopped history under %s is review-stopped and never armed', (_mode, files) => {
-    const { result, calls } = land(checkout(files), 'ok', { history: 'stopped' })
-    expect(result).toMatchObject({
-      status: 'review-stopped',
-      reason: 'review-bound',
-      reviews: 3,
-      fixes: 2,
-      stop: { prState: 'OPEN', guaranteed: true, published: true },
-    })
-    expect(calls.some((a) => a[0] === 'pr' && a.includes('--add-label'))).toBe(false)
-    expect(calls.some((a) => a[0] === 'pr' && a[1] === 'merge' && a.includes('--auto'))).toBe(false)
+  it.each(CONFIGS)('a spent history under %s is not-approved by the review bound and never armed', (_mode, files) => {
+    const { result, calls } = land(checkout(files), 'ok', { history: 'spent' })
+    expect(result).toEqual({ status: 'not-approved', reviews: 3, reason: 'review-bound' })
+    onlyDecidingReads(calls)
   })
 
-  it.each(CONFIGS)('an unapproved history under %s is not-approved after the history read alone', (_mode, files) => {
-    const { result, calls } = land(checkout(files), 'ok', { history: 'unapproved' })
-    expect(result).toEqual({ status: 'not-approved', reviews: 1, fixes: 1 })
-    onlyHistoryRead(calls)
-  })
+  it.each(CONFIGS)(
+    'an unapproved history under %s is not-approved after the history and gate reads alone',
+    (_mode, files) => {
+      const { result, calls } = land(checkout(files), 'ok', { history: 'unapproved' })
+      expect(result).toEqual({ status: 'not-approved', reviews: 1 })
+      onlyDecidingReads(calls)
+    },
+  )
 
   it.each([
     ['no PR', '[]'],

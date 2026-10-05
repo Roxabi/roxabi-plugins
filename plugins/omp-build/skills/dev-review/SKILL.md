@@ -55,30 +55,28 @@ Steps: gather-changes → secret-scan → spec-compliance → multi-domain-revie
 ## Phase 1 — Gather Changes
 
 0. **Bind the review before gathering or posting anything.** Nested `/feature`
-   supplies `pr` and `loop`; reuse both without initializing or recording twice.
-   Standalone resolves the argument or current branch exactly once:
+   supplies `pr`; reuse it. Standalone resolves the argument or current branch
+   exactly once:
 
    ```javascript
    const { pathToFileURL } = await import('node:url')
    const { join } = await import('node:path')
-   const { resolveReviewPr, resumeReviewLoop, createReviewLoop, landPr, applyCiWatchExit } =
+   const { resolveReviewPr, nextReviewStep, landPr, applyCiWatchExit } =
      await import(pathToFileURL(join(SKILL_DIR, '../feature/workflow.js')).href)
    const pr = await resolveReviewPr(cwd, explicitPr)
-   if (pr === null && !localHistory) {
-     // Incomplete local history: display the Phase 8 dossier and stop.
+   if (pr !== null && (await nextReviewStep(cwd, pr, { reviewing: true })).action === 'stop') {
+     // The bound is spent and the step disarmed an armed gate: display the
+     // Phase 8 dossier and stop before reviewing.
      return
    }
-   const loop = pr === null
-     ? createReviewLoop(localHistory)
-     : await resumeReviewLoop(cwd, { pr })
    ```
 
-   `explicitPr` is the optional positive argument, else undefined. `localHistory`
-   is the complete `{reviews, fixes, stopReason?}` record for this local change;
-   `{reviews: 0, fixes: 0}` is valid only for its known first review. Unknown
-   prior work is not an empty record. Discovery/read failure → report and stop,
-   never fall back to local. Recovered stop → Phase 8 dossier (with PR disarm),
-   exit before review. Keep this one `pr` and `loop` through all phases and rounds.
+   `explicitPr` is the optional positive argument, else undefined. `pr === null`
+   is a local-only review: no PR, no bound, nothing to land. `reviewing` disarms
+   an armed gate whatever the step, `land` included, so a re-review never runs
+   under a live gate; an approving post re-arms through `landPr` in Phase 8.
+   Discovery/read failure → report and stop, never fall back to local. Keep this
+   one `pr` through all phases and rounds.
 1. Source the shared helpers. `skill://` rejects `..`, so `lib.sh` (one level up, outside any skill directory) is reachable only from a real path — and an unset `SKILL_DIR` would silently make that path `/../shared/lib.sh`, i.e. a base branch detected against nothing:
 
    ```bash
@@ -497,106 +495,68 @@ Roster capped by max_agents: R-devops
 This section is the single escalation contract. `/feature` §6.6 and `skill://fix`
 point here; do not invent a parallel stop policy.
 
-**Called by `/feature`:** return the posted verdict to `skill://feature` §6.4
-before presenting this decision. That caller already owns the loop (initialized
-before this nested review) and records the bounded round once:
-`recordPosted` → (`stop` ? `enforceStop` : `persist`) → human choice →
-`assertFixAllowed` → `fix` or gated landing. Skip the standalone actions below;
-never choose on the operator's behalf. Nested review must not initialize,
-`record`, or `persist` again.
+**Called by `/feature`:** return the posted verdict and `REVIEWED_HEAD` to
+`skill://feature` §6.4 before presenting this decision. That caller derives the
+step and owns the fix and landing actions. Skip the standalone actions below;
+never choose on the operator's behalf.
 
-**Standalone review:** use the handle created in Phase 1. Map `Approve`,
-`Approve (clean)` and `Approve with comments` to `green`; `Request changes` to
-`red`. After posting the review, call `step = await loop.recordPosted(cwd, verdict)`
-once when a PR exists, otherwise `loop.record(verdict)`. On `stop`, disarm and
-publish the dossier below; otherwise persist when `pr` exists. Local-only reviews
-keep the same counts/stop in their local record. A resumed loop's unconsumed
-allocation is `loop.persistedFix`: pass that step to `assertFixAllowed`. Do not
-replay `record`.
+**Standalone review:** with a PR, derive the step from the post:
+`step = await nextReviewStep(cwd, pr, { posted: { verdict, head: REVIEWED_HEAD } })`,
+`verdict` as posted (`Request changes`, `Approve`, `Approve (clean)`,
+`Approve with comments`). It throws when the latest review record is not this
+post: report and stop. Local-only (no PR): `Request changes` → `fix`; an
+approval ends the review, with nothing to land. There is no local bound.
 
-**Executable action contract (`workflow.js`).** A PR fix is authorized only by
-`await loop.assertFixAllowed(cwd, step)` after its allocation is persisted.
-It checks fresh attributable history, not just the cached loop, and consumes
-the live step once — including a resumed `persistedFix`, which is not a live
-step until this call honours it. A PR grant writes
-`<!-- omp-build:fix-grant reviews=N fixes=M token=… -->` before returning. A
-second grant throws `grant already consumed` and writes nothing. A missing or
-moved review head throws and writes nothing, including no stop. A valid second
-live allocation is allowed; a consumed grant is not. Calling it before `persist`
-throws a recoverable error that names `persist` and writes nothing; the
-allocation stays live. If the durable history diverges from this persisted
-allocation, it stops permanently as `history-stale` rather than refunding it.
-Only that divergence makes a stop sticky.
-`landPr(cwd, pr)` independently rejects stops and returns `not-approved` unless
-an approving review follows the latest correction/allocation. Stop refusals
-disarm and carry `error.stop` / `land.stop`; print that evidence and publish the
-dossier, without a second enforcement call. Discovery/read errors authorize
-nothing: report and exit. No caller may bypass either sink.
+**The bound (`workflow.js`, #710).** Two reads of the PR's review records by the
+automation login: how many there are, and the latest one. A fix is allowed while
+the PR has at most two records, one fix per review: the fix's push moves the
+head, and a latest record of another commit asks for a review first (`review`).
+A record past the second that does not approve spends the bound for good — a
+later green does not lift it. A CI failure after the third review stops too.
+Every `nextReviewStep` step but `land` disarms an armed PR, a step taken with
+`{ reviewing: true }` (Phase 1 step 0) disarms on `land` too, and every `landPr`
+`not-approved` disarms as well: a gate stays armed only while the latest record
+approves the current head within the bound and no review of it is running.
+`landPr` arms only for an approving latest
+record of the current head, never past a spent bound. Nothing writes accounting;
+every step is derived again from a fresh read.
 
 ### Human choice (constrained by `step`)
 
-- **`fix`** → Q: **Fix now** / **Stop**. Fix now → await
-  `loop.assertFixAllowed(cwd, step)` once. For a review fix, run
-  `skill://fix #<pr>` (omit `#<pr>` for local-only).
-  For `step.reason === 'ci-failed'`, follow `/feature` §6.5's inline CI correction
-  from failed-check logs, not the previous review. Re-review with the same loop.
-  **Stop** keeps the allocated round spent. At `fixes=2` the next resume stays open until the receipt is posted; a later red after that receipt escalates.
+- **`fix`** → Q: **Fix now** / **Stop**. Fix now → for a review fix, run
+  `skill://fix #<pr>` (omit `#<pr>` for local-only). For `step.reason === 'ci-failed'`,
+  follow `/feature` §6.5's inline CI correction from failed-check logs, not the
+  previous review. Then re-review. **Stop** exits; the records still allow that fix.
 - **`land`** → Q: **Merge** / **Stop**. Merge → obtain explicit approval if needed,
-  then follow **`skill://feature` §6.7 in full** with this same `loop`: `landPr` (sole
-  writer of `reviewed`; no raw label shortcuts), run the returned `watch`, map exits
-  with `applyCiWatchExit`, and on `ci-failed` call `loop.reopen('ci-failed')` (spends a
-  round) then continue the bound. Never merge with residual blockers. Warnings-only is
-  ordinary gated landing.
-- **`stop`** → no Fix, no Merge. When a PR exists, run `enforceStop` **first**
-  (observe PR state; on OPEN publish the stop and independently disarm; read
-  failure still attempts disarm with uncertainty; CLOSED/MERGED receives no
-  effects and is reported as such),
-  then publish/display the escalation dossier. No PR → never call `persist` /
-  `enforceStop`; keep `stopReason` on the local record and display the dossier.
-  Leave any PR open and the code unchanged by the stop.
+  then follow **`skill://feature` §6.7 in full**: `landPr` (sole writer of `reviewed`;
+  no raw label shortcuts), run the returned `watch`, map exits with
+  `applyCiWatchExit`, and on `ci-failed` continue from
+  `nextReviewStep(cwd, pr, { ciFailed: true })`. Never merge with residual
+  blockers. Warnings-only is ordinary gated landing.
+- **`review`** → the latest record does not review the current head: review again.
+  The step already disarmed an armed PR.
+- **`stop`** → no Fix, no Merge. Publish/display the escalation dossier; the step
+  already disarmed the PR. Leave any PR open and the code unchanged by the stop.
 
 Never offer **Merge as-is** with blockers at any round. Nitpicks / warnings alone on
 a green verdict do not require escalation.
 
-### Escalation dossier (on `stop`, or when displaying a recovered stop)
+### Escalation dossier (on `stop`, or when the bound is already spent)
 
 Publish as a PR comment when a PR exists; otherwise display locally:
 
 1. Review/commit references and residual blockers (quote the latest review refs).
 2. Recurring mechanisms across rounds (round-local RC IDs).
-3. Fix-induced defects observed after an allocated round.
+3. Fix-induced defects observed after a fix round.
 4. Higher-level hypothesis — labelled **hypothesis, not certainty** — plus the
    falsifying observations that would discriminate it.
 5. Exactly 2–3 human options (revised diagnostic plan via a NEW superseding PR,
    revised design/scope via a NEW superseding PR, or the operator finishing this
    PR by hand). Generic "retry" is not an option.
-6. Explicit ask: after a stop, automation on this PR is finished. Resumption is
-   either a NEW superseding PR (revised ticket → new branch → fresh `/feature`) or
-   the operator landing by hand. Spent counts and the sticky stop stay intact;
-   guidance does not unlock a parseable permission bit. The bound is per
-   automation account; records by other accounts, and edited/deleted comments of
-   that account, are not detected.
-
-### Human resumption
-
-After a stop, automation on that PR is finished for good. Resumption is an
-explicit human selection of either:
-
-1. a revised plan delivered in a **NEW PR** that supersedes the stopped one
-   (new issue via issue-triage linking the stopped PR, new branch, fresh budget; old PR
-   stays open as evidence until the operator closes it — never closed or
-   relabelled by an agent), or
-2. the operator finishing/landing the stopped PR by hand.
-
-Helpers (`persist`, `enforceStop`, `assertFixAllowed`, `resumeReviewLoop`) never
-lift the sticky stop. A fresh `/feature` run on a stopped PR always
-`enforceStop`s, publishes the dossier, and exits before edits — it does not
-continue automatic work on that PR.
-
-Forbidden as resumption: generic retry, a new session/agent, rebase-as-retry,
-counter deletion/reset, re-labelling, continuing human-guided work on the same
-PR after a "fresh review", or moving the same plan to another PR without an
-explicit human-selected supersede.
+6. Explicit ask: automation on this PR is finished. A superseding PR (a revised
+   ticket via issue-triage linking this PR, a new branch, a fresh `/feature`)
+   starts its own bound; the stopped PR stays open as evidence until the operator
+   closes it. The bound counts the automation account's records only.
 
 > Review findings are fixed by `skill://fix`; CI-only failures use `/feature` §6.5.
 
@@ -610,7 +570,7 @@ explicit human-selected supersede.
 | F = ∅ | Clean approve, post, Phase 8 |
 | Critical security | Escalate in findings, flag in verdict |
 | Agents disagree | Present both with respective C |
-| ¬∃ PR | Render Phase 4 body; Phase 8 local only; absent history → stop |
+| ¬∃ PR | Render Phase 4 body; Phase 8 local only, no bound |
 | Missing root cause/solutions | C(f) := 0; keep finding; `skill://fix` files its cause instead of applying it |
 | ∄ `size:` label | τ := F-lite, disclosed out loud (never silently) |
 | R-architect skipped | no axial or structural evidence |
@@ -621,15 +581,14 @@ explicit human-selected supersede.
 | Recall worker skipped | single chunk ∨ class appears in <2 chunks ∨ <3 unique callsites |
 | roster capped (max_agents, per chunk) | disclosed when ≠ ∅ (Phase 4) |
 | oracle warnings ≠ ∅ | echoed into output; review_halt → HALT |
-| sticky `stopReason` on resume (`loop.closed === 'stop'`) | enforceStop (PR) + dossier; ¬record; ¬Fix; ¬Merge |
-| terminal-red derived by `interpretReviewHistory` (exhausted fixes, the allocation's receipt posted, then a later me-authored Request changes) | `loop.closed === 'stop'` → same as sticky stop; ¬pendingFix; ¬replay |
+| bound already spent on entry (`nextReviewStep(cwd, pr, { reviewing: true })` → `stop`, gate disarmed) | dossier; ¬review; ¬Fix; ¬Merge |
 
 ## Safety Rules
 
 1. Fresh agents only — ¬implementation context
 2. ¬approve PRs on GitHub; ¬enable auto-merge outside a green `land` step through `landPr`
 3. Merge = merge commit only, ¬squash; merge executes via the gate (label + auto-merge), never manually mid-CI
-4. ¬fix code — findings only. Fixing = `skill://fix` after the executable grant
+4. ¬fix code — findings only. Fixing = `skill://fix` after a `fix` step
 5. ∃ PR → must post the Phase 4 body
 6. Human decides at Phase 8 — ¬proceed without Q
 7. ¬merge with residual blockers at any round; warnings-only may use normal gated landing
@@ -640,6 +599,6 @@ explicit human-selected supersede.
 - **Predecessor:** implement
 - **Successor:** conditional — green `land` → gated landing | red `fix` → `skill://fix` | `stop` → escalation dossier + human guidance
 - **Class:** verdict (branching based on findings)
-- **Loop cap:** max 2 automatic fix→review rounds via `createReviewLoop`. Residual blockers after those rounds → stop + dossier; never Merge-as-is with blockers.
+- **Loop cap:** at most 2 automatic fixes, derived by `nextReviewStep` from the review records. A record past the second that does not approve → stop + dossier; never Merge-as-is with blockers.
 
 $ARGUMENTS

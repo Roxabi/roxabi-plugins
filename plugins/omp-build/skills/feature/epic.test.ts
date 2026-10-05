@@ -998,7 +998,6 @@ describe('stop classes', () => {
     ['ci-blocked', { stop: 'ci-blocked', class: 'ticket' }],
     ['stopped', { stop: 'stopped', class: 'ticket' }],
     ['closed', { stop: 'closed', class: 'ticket' }],
-    ['review-stopped', { stop: 'review-bound', class: 'ticket' }],
     ['watch-failed', { stop: 'watch-failed', class: 'shared' }],
     ['bad-landing', { stop: 'bad-landing', class: 'shared' }],
     ['no-required-checks', { stop: 'no-required-checks', class: 'shared' }],

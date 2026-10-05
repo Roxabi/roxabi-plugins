@@ -20,21 +20,19 @@ One pass: find the review record, name the causes, apply each eligible well-form
 
 ```
 /skill:fix             → the latest dev-review output in this conversation
-/skill:fix #42         → the review record on PR #42, after the caller's executable grant
+/skill:fix #42         → the review record on PR #42, after the caller's `fix` step
 ```
 
 **No `reviewed` from a review-driven fix.** A review-driven fix — nested under
-`/feature` / standalone Phase 8, or a direct `/fix #PR` after a **caller-owned**
-live allocation — never writes the `reviewed` label. That label is not a status:
+`/feature` / standalone Phase 8, or a direct `/fix #PR` — never writes the `reviewed` label. That label is not a status:
 `.github/workflows/auto-merge.yml` turns it into `gh pr merge --auto --merge`, so
 writing it *is* merging. Phase 5 never writes it; only an approved `landPr` arms.
 
-**Authorization precedes edits.** Follow `dev-review` Phase 8's executable action
-contract: the caller awaits `loop.assertFixAllowed(cwd, step)` exactly once,
-then invokes this skill. Rejection means no edits. This skill neither allocates
-nor authorizes a second time. Direct `/fix` without a live authorized step routes
-through standalone `dev-review`, which resolves the PR before reading its state.
-CI-only failures use `/feature` §6.5, not this review-comment consumer.
+**A `fix` step precedes edits.** The caller's `nextReviewStep` returned `fix` for
+this PR's latest review record (`dev-review` Phase 8); this skill neither derives
+nor re-checks it. Direct `/fix` without that step routes through standalone
+`dev-review`, which resolves the PR before reading its records. CI-only failures
+use `/feature` §6.5, not this review-comment consumer.
 
 **You apply every blocking fix yourself.** There is no `R-fixer` in this plugin (ADR-020 §7) and nothing replaces it: Phase 3 edits files inline, in this session, with the diff visible in the working tree. ¬spawn a fixer, ¬delegate the edit. A cause with no blocking member is not applied.
 
@@ -260,13 +258,11 @@ New findings surfaced during falsification → **parking lot**: file as a candid
 
 ## Phase 5 — Push (no review-driven label)
 
-Phase 5 and Phase 6 are one step. Do not end the turn, yield, or compact between
-the push and the receipt. A crash leaves the head unchanged, or the head moved
-and `## Review Fixes Applied` already posted.
+Phase 5 and Phase 6 are one step: post the receipt right after the push.
 
 1. ∃ cause commits → O_push. Fail after 3 → halt; the commits stay local. Do not post the receipt for a push that did not land.
-2. **Never write `reviewed` for a review-driven fix.** If ∃ PR and a review record /
-   round marker / this invocation followed `assertFixAllowed`, write nothing:
+2. **Never write `reviewed` for a review-driven fix.** If ∃ PR and a review record,
+   write nothing:
    ¬`labels[]=reviewed`, ¬`gh pr edit --add-label`, ¬`gh pr merge`. Say one line —
    « fix appliqué, pas de label : le gate appartient à landPr / l'appelant » — and
    post the receipt in this same step. A label here would merge before the re-review
@@ -276,8 +272,8 @@ and `## Review Fixes Applied` already posted.
 ## Phase 6 — Post Follow-Up Comment
 
 ∄ PR → skip. This comment is the rest of the push step, not a later session.
-If the push succeeded and `gh pr comment` fails, stop. Do not re-review, and do
-not push again. The next resume waits for this receipt.
+If the push succeeded and `gh pr comment` fails, report it and do not push
+again. The receipt is for humans; no gate reads it.
 
 Write the body into a mktemp dir — never a fixed `/tmp` path:
 ```bash
@@ -348,7 +344,6 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 | ¬∃ PR | Skip Phase 6, local only, no label |
 | ∄ SOURCE_PARENT | Filed issue is top-level — ¬parent it to the origin |
 | review-driven fix | Phase 5 writes no `reviewed`; landing owns the gate |
-| sticky stop (`loop.closed === 'stop'`) / ambiguous history | Halt before edits; publish/display Phase 8 dossier |
 
 ## Safety Rules
 
@@ -371,10 +366,9 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 
 - **Success:** blocking causes applied or filed, non-blocking causes deferred in one issue or already deferred, receipt posted. A run that applied nothing is success without a commit or a push. Print Applied / Deferred / Filed / Failed + `Next: re-review with skill://dev-review`. Stop.
 - **Failure (quality gate, ¬findings, unrecoverable):** return the error and stop — the caller decides next steps outside the automatic bound.
-- **Loop cap:** shared `createReviewLoop` (max 2 allocated fix rounds). On
-  `loop.closed === 'stop'` or when `assertFixAllowed` refuses, follow
-  `skill://dev-review` Phase 8 — escalation dossier. Automation on that PR is
-  finished; resumption is a NEW superseding PR or the operator finishing by hand.
-  Generic retry is not resumption.
+- **Loop cap:** at most 2 automatic fixes, derived by the caller's `nextReviewStep`
+  from the review records. On `stop`, follow `skill://dev-review` Phase 8 —
+  escalation dossier. Automation on that PR is finished; resumption is a NEW
+  superseding PR or the operator finishing by hand.
 
 $ARGUMENTS
