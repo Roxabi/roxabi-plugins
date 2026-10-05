@@ -204,6 +204,14 @@ Guards are **off** unless the project declares the host-neutral contract (`.dev/
 
 > **Known caveat, this slice only.** While both this plugin and `dev-core` are installed, both interceptors see the same `tool_call` and reach the same verdict — the snapshots are byte-identical and read the same escape hatch. Expect the refusal, and the no-contract warning, to be reported **once per plugin**: each extension owns a private warned-cwd set, so neither dedupes the other.
 
+## Worktree bootstrap on entry
+
+The same extension bootstraps worktrees it did not create. On `session_start` and `agent_start`, when the main agent's cwd is inside a linked worktree with no `omp-build-bootstrapped` marker in its git dir, it starts `skills/feature/worktree-bootstrap.sh` there, detached, logging to `<git dir>/omp-build-bootstrap.log`. Each cwd is checked once per session. This covers every way a worktree appears — `git worktree add`, `github` `pr_checkout`, `/wt`, a terminal — as soon as a session works in it, because omp emits no event for a new worktree or a `/move` while `ctx.cwd` follows the session.
+
+- The principal, a directory outside git, and subagents (task isolations) never start one. No project contract is required: without `.dev/stack.yml` only the code indexes are built.
+- The script holds a lock in the git dir, so `/feature`'s explicit call waits for a background run and then no-ops.
+- ccc's `settings.yml` lands before `worktree.setup`, so ccc never indexes an ancestor directory while an install runs.
+
 ## Agents
 
 OMP task agents in `agents/`. **Two** are OMP-native (`R-advisor`, `elon` — `model: "@advisor"`, typed `output:` schema); **five** are frozen snapshots of `dev-core` review agents (ADR-020 decision 7). Every agent carries an explicit `tools:` pin: the snapshots arrived with their posture stated in prose only, and a read-only floor whose read-only-ness is unenforced is not a control.

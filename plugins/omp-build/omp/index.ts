@@ -13,9 +13,11 @@ import {
   scanSecurityContent,
   shouldBlockPrincipalSwitch,
 } from './guards'
+import { startBootstrap, unbootstrappedWorktree } from './worktree-entry'
 
 type ExtensionContext = {
   cwd: string
+  agent?: { kind: 'main' | 'sub' }
 }
 
 type ToolCallEvent = {
@@ -33,6 +35,7 @@ type ExtensionAPI = {
     event: 'tool_call',
     handler: (event: ToolCallEvent, ctx: ExtensionContext) => Promise<ToolCallEventResult | undefined>,
   ): void
+  on(event: 'session_start' | 'agent_start', handler: (event: unknown, ctx: ExtensionContext) => Promise<void>): void
   registerCommand(
     name: string,
     options: {
@@ -44,6 +47,7 @@ type ExtensionAPI = {
 }
 
 const SKILLS_DIR = join(dirname(dirname(fileURLToPath(import.meta.url))), 'skills')
+const BOOTSTRAP_SCRIPT = join(SKILLS_DIR, 'feature', 'worktree-bootstrap.sh')
 
 /**
  * Every slash command this extension owns: one skill body, dumped verbatim.
@@ -178,6 +182,21 @@ export default function ompBuildExtension(
       }
     }
   })
+
+  // Code indexes are gitignored, so a new worktree has none, whoever created it
+  // (git, `pr_checkout`, `/wt`, a terminal). omp emits no event for a new
+  // worktree or a `/move`, but `ctx.cwd` follows the session: its first start or
+  // prompt in a linked worktree never bootstrapped starts the bootstrap in the
+  // background. Subagents never do; their task isolations are not worked in.
+  const checkedCwds = new Set<string>()
+  const bootstrapOnEntry = async (_event: unknown, ctx: ExtensionContext) => {
+    if (ctx.agent?.kind === 'sub' || checkedCwds.has(ctx.cwd)) return
+    checkedCwds.add(ctx.cwd)
+    const worktree = unbootstrappedWorktree(ctx.cwd)
+    if (worktree) startBootstrap(BOOTSTRAP_SCRIPT, worktree)
+  }
+  pi.on('session_start', bootstrapOnEntry)
+  pi.on('agent_start', bootstrapOnEntry)
 
   // format hook + principal post-nudge: deferred. Never sendUserMessage on tool_result
   // (OMP treats that as a user turn and the agent may git-switch off the feature branch).
