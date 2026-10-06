@@ -456,15 +456,34 @@ const ROWS = [
     },
   ],
   [
-    'M4 merge-on-green: adding the label throws after the old one was removed → rejects, unlabelled',
+    'M4 merge-on-green: adding the label throws after the old one was removed → the head is still reviewed, so the raw error does not escape',
     {
       fn: 'land',
       opts: MOG,
       records: [approve()],
       script: { fail: [{ on: 'add' }] },
-      rejects: /injected/,
+      result: {
+        status: 'watch-failed',
+        error: expect.stringContaining('labeled reviewed event'),
+      },
       labels: CLEAN,
       auto: true,
+    },
+  ],
+  [
+    'M4 merge-on-green: the label write applies then throws, and the head moved → disarmed, the raw error does not escape',
+    {
+      fn: 'land',
+      opts: MOG,
+      records: [approve()],
+      start: 'none',
+      script: {
+        fail: [{ on: 'add', applies: true }],
+        moves: [{ when: 'before', on: 'head', nth: 2, head: MOVED }],
+      },
+      result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+      labels: CLEAN,
+      auto: false,
     },
   ],
   [
@@ -678,6 +697,25 @@ const ROWS = [
     },
   ],
   [
+    'N3 native: the pin enables auto-merge then throws, the head moved, and the fresh gate read fails → disarmed from what the call wrote',
+    {
+      fn: 'land',
+      opts: NATIVE,
+      records: [approve()],
+      start: 'none',
+      script: {
+        fail: [
+          { on: 'pin', applies: true, error: 'HTTP 502' },
+          { on: 'gate', nth: 2 },
+        ],
+        moves: [{ when: 'before', on: 'head', nth: 2, head: MOVED }],
+      },
+      result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+      labels: CLEAN,
+      auto: false,
+    },
+  ],
+  [
     'N6 native: the second pin is refused because the head moved → refused and disarmed',
     {
       fn: 'land',
@@ -754,6 +792,68 @@ const ROWS = [
       },
       labels: REVIEWED,
       auto: true,
+    },
+  ],
+  [
+    'N4 native: unarmed opening snapshot, the pin enables auto-merge then throws already enabled, the disable fails, and the head moved → does not claim the gate was disarmed while auto-merge is on',
+    {
+      fn: 'land',
+      opts: NATIVE,
+      records: [approve()],
+      start: 'none',
+      script: {
+        fail: [
+          { on: 'pin', error: 'already enabled', applies: true },
+          { on: 'disable', times: 2 },
+        ],
+        moves: [{ when: 'before', on: 'head', nth: 2, head: MOVED }],
+      },
+      result: {
+        status: 'auto-merge-failed',
+        armed: true,
+        error: expect.stringMatching(/stays armed — auto-merge(?! and)/),
+      },
+      labels: CLEAN,
+      auto: true,
+    },
+  ],
+  [
+    'N4 native: already enabled, the disable fails, the head moved, and the disarm writes succeed → gate was disarmed',
+    {
+      fn: 'land',
+      opts: NATIVE,
+      records: [approve()],
+      start: 'none',
+      script: {
+        fail: [{ on: 'pin', error: 'already enabled', applies: true }, { on: 'disable' }],
+        moves: [{ when: 'before', on: 'head', nth: 2, head: MOVED }],
+      },
+      result: {
+        status: 'auto-merge-failed',
+        armed: false,
+        error: 'head moved after --disable-auto failed; the gate was disarmed',
+      },
+      labels: CLEAN,
+      auto: false,
+    },
+  ],
+  [
+    'N4 native: already enabled, the disable fails, the head cannot be read, and the disarm writes succeed → gate was disarmed',
+    {
+      fn: 'land',
+      opts: NATIVE,
+      records: [approve()],
+      start: 'none',
+      script: {
+        fail: [{ on: 'pin', error: 'already enabled', applies: true }, { on: 'disable' }, { on: 'head', nth: 2 }],
+      },
+      result: {
+        status: 'auto-merge-failed',
+        armed: false,
+        error: expect.stringMatching(/^head unreadable after --disable-auto failed; the gate was disarmed — /),
+      },
+      labels: CLEAN,
+      auto: false,
     },
   ],
   [
@@ -922,16 +1022,32 @@ const ROWS = [
     },
   ]),
   [
-    'N9 native: the label write throws after a verified pin → rejects; auto-merge is pinned to the verified head',
+    'N9 native: the label write throws after a verified pin → the head is still reviewed, so the raw error does not escape',
     {
       fn: 'land',
       opts: NATIVE,
       records: [approve()],
       start: 'none',
       script: { fail: [{ on: 'add' }] },
-      rejects: /injected/,
+      result: { status: 'watching', mode: 'native', watch: expect.any(String) },
       labels: CLEAN,
       auto: true,
+    },
+  ],
+  [
+    'N9 native: the label write applies then throws, and the head moved → disarmed, the raw error does not escape',
+    {
+      fn: 'land',
+      opts: NATIVE,
+      records: [approve()],
+      start: 'none',
+      script: {
+        fail: [{ on: 'add', applies: true }],
+        moves: [{ when: 'before', on: 'head', nth: 3, head: MOVED }],
+      },
+      result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+      labels: CLEAN,
+      auto: false,
     },
   ],
   [

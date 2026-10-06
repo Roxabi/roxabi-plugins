@@ -482,11 +482,13 @@ string as given — the OMP shell does not resolve `skill://` for a bare `bash`
 argv. It does not poll. Native enables the pinned auto-merge
 (`--match-head-commit` of the reviewed sha) before adding `reviewed`.
 `already enabled` is not success: auto-merge is disabled and enabled again with
-that pin. If that disable fails, `landPr` returns `auto-merge-failed` with
-`armed: true` and an `error` naming what stays armed — the label may stay. A
-head that moved or cannot be read in that window is disarmed through
-`disarmGate`; when that disarm cannot finish, the same status carries an
-`error` naming the remainder. The fleet
+that pin. If that disable fails and the head is still the reviewed one, `landPr`
+returns `auto-merge-failed` with `armed: true` and an `error` naming what stays
+armed — the label may stay. A head that moved or cannot be read in that window
+is disarmed through `disarmGate`; `armed: false` is returned only when that
+read-back confirms the gate clear. When the disarm cannot finish, or the
+read-back shows the gate still armed, the same status carries an `error` naming
+the remainder. The fleet
 workflow enables only on `labeled`, and only when the event head equals the
 line-2 sha of the latest automation-account Approve record. On `synchronize` it
 disables auto-merge and removes `reviewed` instead of re-enabling from a
