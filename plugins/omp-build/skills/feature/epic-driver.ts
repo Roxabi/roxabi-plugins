@@ -55,7 +55,29 @@ import {
   ticketOfSubject,
 } from './epic'
 import { type HookResult, runPostMergeHook } from './epic-close'
-import { disarmReviewedBeforePush, readLanding, reviewRecords } from './workflow.js'
+import {
+  type HeadRuns,
+  boundState,
+  checkRunArgs,
+  ciFixCount,
+  declaredRequiredChecks,
+  disarmReviewedBeforePush,
+  headNeedsStatuses,
+  isMissingRef,
+  MAX_FIX_ROUNDS,
+  parseCheckRuns,
+  parseCommitStatuses,
+  protectionArgs,
+  readLanding,
+  reviewRecords,
+  rulesetArgs,
+  statusArgs,
+  strictRequiredContexts,
+  unreadCouldSpend,
+  workflowNameFromRun,
+  workflowRunArgs,
+  withWorkflowNames,
+} from './workflow.js'
 
 class Refused extends Error {}
 class Assisted extends Error {}
@@ -197,12 +219,20 @@ function repoName(repo: string): { owner: string; name: string; full: string } {
 }
 
 /**
- * The PRs whose review bound is spent, per `reviewRecords` (#710): a record past
- * the second does not approve. The same derivation `landPr` and `nextReviewStep`
- * use. `comments(last: 100)` in creation order: a PR with more comments can
- * under-count here; §6.0's paginated `nextReviewStep` still stops it.
+ * PRs whose fix allowance is spent (#716): `Request changes` records plus CI-fixed
+ * approved heads, the same `ciFixCount` and `boundState` that `landPr` and
+ * `nextReviewStep` use. A failed required-check read, or a per-PR check-run read,
+ * leaves that PR unread rather than dropping the goal. `comments(last: 100)` can
+ * lag a PR with more comments; §6.0's paginated `nextReviewStep` still stops it.
  */
-function stoppedReviews(repo: string, owner: string, name: string, viewer: string, numbers: number[]): Set<number> {
+function stoppedReviews(
+  repo: string,
+  owner: string,
+  name: string,
+  base: string,
+  viewer: string,
+  numbers: number[],
+): Set<number> {
   const out = new Set<number>()
   if (!numbers.length) return out
   const fields = numbers
@@ -213,12 +243,73 @@ function stoppedReviews(repo: string, owner: string, name: string, viewer: strin
     `query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { ${fields} } }`,
     { owner, name },
   )
+  const pending: { n: number; reds: number; heads: string[] }[] = []
   for (const n of numbers) {
     const nodes = data.repository[`p${n}`]?.comments.nodes ?? []
     const history = nodes.map((c) => ({ body: c.body ?? '', author: c.author }))
-    if (reviewRecords(history, { me: viewer }).spent) out.add(n)
+    const records = reviewRecords(history, { me: viewer })
+    if (records.reds > MAX_FIX_ROUNDS) {
+      out.add(n)
+      continue
+    }
+    if (unreadCouldSpend(records.reds, records.approvedHeads))
+      pending.push({ n, reds: records.reds, heads: records.approvedHeads })
+  }
+  if (!pending.length) return out
+  let required: string[]
+  try {
+    required = requiredFixChecks(repo, owner, name, base)
+  } catch {
+    return out
+  }
+  for (const item of pending) {
+    try {
+      const ciFixes = ciFixesOf(repo, owner, name, item.heads, required)
+      if (boundState({ reds: item.reds, ciFixes }).spent) out.add(item.n)
+    } catch {
+      // A per-PR read failure leaves that PR unread. It does not drop the goal.
+    }
   }
   return out
+}
+
+/** Declared `landing.required_checks`, else protection and rulesets. A failed read throws. */
+function requiredFixChecks(repo: string, owner: string, name: string, base: string): string[] {
+  const declared = declaredRequiredChecks(repo)
+  if (declared.declared) return declared.checks
+  const classic = gh(repo, protectionArgs(owner, name, base))
+  const rules = gh(repo, rulesetArgs(owner, name, base))
+  return [...new Set([...strictRequiredContexts(classic), ...strictRequiredContexts(rules)])]
+}
+
+/** Same read as `readOneHead` in workflow.js, on this module's sync `gh`. A 404 is no runs. */
+function ciFixesOf(repo: string, owner: string, name: string, heads: string[], required: string[]): number {
+  const runsByHead: Record<string, HeadRuns> = {}
+  for (const sha of [...new Set(heads)]) {
+    if (!/^[0-9a-f]{40}$/.test(sha)) continue
+    try {
+      let checks = parseCheckRuns(gh(repo, checkRunArgs(owner, name, sha)))
+      const missing = [
+        ...new Set(checks.filter((run) => run.actionRun && !run.workflow).map((run) => run.actionRun as string)),
+      ]
+      if (missing.length) {
+        const names: Record<string, string> = {}
+        for (const id of missing) names[id] = workflowNameFromRun(gh(repo, workflowRunArgs(owner, name, id)))
+        checks = withWorkflowNames(checks, names)
+      }
+      const statuses = headNeedsStatuses(checks, required)
+        ? parseCommitStatuses(gh(repo, statusArgs(owner, name, sha)))
+        : []
+      runsByHead[sha] = { checks, statuses }
+    } catch (error) {
+      if (isMissingRef(error)) {
+        runsByHead[sha] = { checks: [], statuses: [] }
+        continue
+      }
+      throw error
+    }
+  }
+  return ciFixCount(runsByHead, required)
 }
 
 function prFacts(raw: RawPr, stopped: Set<number>): PrFacts {
@@ -361,7 +452,7 @@ function gather(
         .map((pr) => pr.number),
     ),
   ]
-  const stopped = reviews ? stoppedReviews(repo, owner, name, viewer, open) : new Set<number>()
+  const stopped = reviews ? stoppedReviews(repo, owner, name, base, viewer, open) : new Set<number>()
   const numbers = nodes.map((node) => node.number)
   const refs = withGit ? branchRefs(repo, base, numbers) : new Map<number, BranchFacts[]>()
 

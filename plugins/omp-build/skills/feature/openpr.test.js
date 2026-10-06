@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { commentPageArgs, nextReviewStep, openPr, resolveReviewPr, reviewRecords } from './workflow.js'
+import {
+  boundState,
+  ciFixCount,
+  commentPageArgs,
+  nextReviewStep,
+  openPr,
+  parseCheckRuns,
+  resolveReviewPr,
+  reviewRecords,
+} from './workflow.js'
 
 /**
  * Every call goes through an injected client. Nothing here can reach a real `gh`,
@@ -132,6 +141,12 @@ function fakePr({
   head = HEAD,
   /** The branch's PRs as `gh pr list --state all` lists them, a raw answer, or the Error the lookup throws. */
   branchPrs = [listing(PR, state)],
+  /** Check runs by sha. A missing sha is an empty page, not a failed read. */
+  checks = {},
+  /** A sha whose check-run read throws, instead of returning `checks`. */
+  checkErrors = {},
+  /** Commit statuses by sha. A missing sha is an empty page. */
+  statuses = {},
 } = {}) {
   const pr = {
     me,
@@ -142,6 +157,9 @@ function fakePr({
     branch,
     branchPrs,
     headRefOid: head,
+    checks,
+    checkErrors,
+    statuses,
   }
   const n = String(PR)
   const calls = []
@@ -169,6 +187,7 @@ function fakePr({
         else if (field === 'autoMergeRequest') view.autoMergeRequest = pr.autoMerge
         else if (field === 'state') view.state = pr.state
         else if (field === 'headRefOid') view.headRefOid = pr.headRefOid
+        else if (field === 'baseRefName') view.baseRefName = 'main'
         else throw new Error(`unexpected field: ${field}`)
       }
       return JSON.stringify(view)
@@ -181,6 +200,21 @@ function fakePr({
       pr.autoMerge = null
       return ''
     }
+    if (same(args, ['repo', 'view', '--json', 'nameWithOwner'])) return JSON.stringify({ nameWithOwner: 'acme/app' })
+    const endpoint = args[0] === 'api' ? String(args.at(-1)) : ''
+    if (endpoint.includes('/check-runs')) {
+      const sha = endpoint.match(/commits\/([0-9a-f]{40})/)?.[1]
+      if (sha && pr.checkErrors[sha]) throw pr.checkErrors[sha]
+      const runs = sha ? (pr.checks[sha] ?? []) : []
+      return JSON.stringify([{ total_count: runs.length, check_runs: runs }])
+    }
+    if (endpoint.includes('/statuses')) {
+      const sha = endpoint.match(/commits\/([0-9a-f]{40})/)?.[1]
+      return JSON.stringify([sha ? (pr.statuses[sha] ?? []) : []])
+    }
+    if (endpoint.includes('/actions/runs/')) return JSON.stringify({ name: 'ci', path: '.github/workflows/ci.yml' })
+    if (endpoint.includes('required_status_checks')) return JSON.stringify({ contexts: ['ci'] })
+    if (endpoint.includes('/rules/branches/')) return JSON.stringify([])
     throw new Error(`unexpected gh call: ${args.join(' ')}`)
   }
   const git = async (_cwd, args) => {
@@ -502,7 +536,7 @@ describe('resolveReviewPr — a fork PR is not this branch’s PR', () => {
 
 describe('reviewRecords — strict, author-bound, first-line records', () => {
   it('reads nothing from an empty history', () => {
-    expect(reviewRecords([], { me: ME })).toEqual({ reviews: 0, verdict: null, head: null, spent: false })
+    expect(reviewRecords([], { me: ME })).toEqual({ reviews: 0, verdict: null, head: null, reds: 0, approvedHeads: [] })
   })
 
   it('counts every record and reads the verdict and head of the latest', () => {
@@ -510,7 +544,8 @@ describe('reviewRecords — strict, author-bound, first-line records', () => {
       reviews: 2,
       verdict: 'Approve with comments',
       head: C2,
-      spent: false,
+      reds: 1,
+      approvedHeads: [C2],
     })
   })
 
@@ -571,7 +606,7 @@ describe('reviewRecords — strict, author-bound, first-line records', () => {
         ],
         { me: ME },
       ),
-    ).toEqual({ reviews: 1, verdict: 'Approve', head: C1, spent: false })
+    ).toEqual({ reviews: 1, verdict: 'Approve', head: C1, reds: 0, approvedHeads: [C1] })
   })
 
   it('reads a record only from its first line', () => {
@@ -581,7 +616,13 @@ describe('reviewRecords — strict, author-bound, first-line records', () => {
       comment(`\`\`\`\n${RED}\n\`\`\``),
       comment(RED.replace('-->', '--> and more')),
     ]
-    expect(reviewRecords(notRecords, { me: ME })).toEqual({ reviews: 0, verdict: null, head: null, spent: false })
+    expect(reviewRecords(notRecords, { me: ME })).toEqual({
+      reviews: 0,
+      verdict: null,
+      head: null,
+      reds: 0,
+      approvedHeads: [],
+    })
   })
 
   it('reads a record whose lines end in CRLF', () => {
@@ -590,7 +631,8 @@ describe('reviewRecords — strict, author-bound, first-line records', () => {
       reviews: 1,
       verdict: 'Request changes',
       head: C1,
-      spent: false,
+      reds: 1,
+      approvedHeads: [],
     })
   })
 
@@ -635,30 +677,32 @@ describe('reviewRecords — strict, author-bound, first-line records', () => {
       reviews: 2,
       verdict: 'Approve',
       head: null,
-      spent: false,
+      reds: 0,
+      approvedHeads: [C1],
     })
   })
 
   it.each([
-    ['three reds', [red(C1), red(C2), red(C3)], true],
-    ['two reds', [red(C1), red(C2)], false],
-    ['a third approval', [red(C1), red(C2), approve(C3)], false],
-    ['two approvals then a red', [approve(C1), approve(C2), red(C3)], true],
-    ['a third record with no verdict', [red(C1), red(C2), undecided(C3)], true],
-    ['a red inside the bound, then approvals', [red(C1), approve(C2), approve(C3)], false],
-    ['four approvals', [approve(C1), approve(C1), approve(C2), approve(C3)], false],
-    ['a red past the bound that a later approval follows', [red(C1), red(C2), red(C3), approve(C3)], true],
-    ['two reds and a third by another account', [red(C1), red(C2), comment(RED, 'attacker')], false],
-  ])('marks the bound spent for %s: %s', (_label, comments, spent) => {
-    expect(reviewRecords(comments, { me: ME }).spent).toBe(spent)
+    ['three reds', [red(C1), red(C2), red(C3)], 3, []],
+    ['two reds', [red(C1), red(C2)], 2, []],
+    ['a third approval', [red(C1), red(C2), approve(C3)], 2, [C3]],
+    ['two approvals then a red', [approve(C1), approve(C2), red(C3)], 1, [C1, C2]],
+    ['a third record with no verdict', [red(C1), red(C2), undecided(C3)], 2, []],
+    ['a red inside the bound, then approvals', [red(C1), approve(C2), approve(C3)], 1, [C2, C3]],
+    ['four approvals', [approve(C1), approve(C1), approve(C2), approve(C3)], 0, [C1, C1, C2, C3]],
+    ['a red past the bound that a later approval follows', [red(C1), red(C2), red(C3), approve(C3)], 3, [C3]],
+    ['two reds and a third by another account', [red(C1), red(C2), comment(RED, 'attacker')], 2, []],
+  ])('counts reds and approved heads for %s', (_label, comments, reds, approvedHeads) => {
+    expect(reviewRecords(comments, { me: ME })).toMatchObject({ reds, approvedHeads })
   })
 
-  it('keeps the latest verdict and head when a green follows a spent bound', () => {
+  it('keeps the latest verdict and head when a green follows three reds', () => {
     expect(reviewRecords([red(C1), red(C2), red(C3), approve(C3)], { me: ME })).toEqual({
       reviews: 4,
       verdict: 'Approve',
       head: C3,
-      spent: true,
+      reds: 3,
+      approvedHeads: [C3],
     })
   })
 
@@ -672,10 +716,27 @@ describe('reviewRecords — strict, author-bound, first-line records', () => {
   })
 })
 
+/** A completed failing check named `ci`, so the test protection set prices it. */
+function failRun(name = 'ci', at = '2026-01-01T00:00:00Z', id = 1, conclusion = 'failure') {
+  return {
+    name,
+    status: 'completed',
+    conclusion,
+    completed_at: at,
+    id,
+    workflow: 'ci',
+    details_url: 'https://github.com/acme/app/actions/runs/9',
+  }
+}
+
+function passRun(at = '2026-01-02T00:00:00Z', id = 2) {
+  return { ...failRun('ci', at, id, 'success'), conclusion: 'success' }
+}
+
 describe('nextReviewStep — the bound is two reads of the review records', () => {
   const isRead = (args) =>
-    same(args, IDENTITY) || same(args, commentPageArgs(PR)) || (args[0] === 'pr' && args[1] === 'view')
-  /** Every call that is not one of the three reads. */
+    args[0] === 'api' || (args[0] === 'pr' && args[1] === 'view') || (args[0] === 'repo' && args[1] === 'view')
+  /** Every call that is not a read. */
   const writesOf = (fake) => fake.calls.filter((args) => !isRead(args))
   const REMOVE_LABEL = ['pr', 'edit', String(PR), '--remove-label', 'reviewed']
   const DISABLE_AUTO = ['pr', 'merge', String(PR), '--disable-auto']
@@ -685,7 +746,8 @@ describe('nextReviewStep — the bound is two reads of the review records', () =
 
   /** One decision over a PR, and what it wrote. */
   async function decide(options, call = {}) {
-    const fake = fakePr(options)
+    const checks = options.checks ?? (call.ciFailed ? { [options.head ?? HEAD]: [failRun()] } : {})
+    const fake = fakePr({ ...options, checks })
     const step = await nextReviewStep(CWD, PR, { ...call, gh: fake.gh })
     return { step, writes: writesOf(fake), fake }
   }
@@ -696,7 +758,12 @@ describe('nextReviewStep — the bound is two reads of the review records', () =
       ['R2 red at the head: the last fix', [red(C1), red(C2)], C2, { action: 'fix', reviews: 2, remaining: 0 }],
       ['R3 red: no fix is left', [red(C1), red(C2), red(C3)], C3, { ...STOP, reviews: 3 }],
       ['a stop whatever the head: the PR moved after R3', [red(C1), red(C2), red(C3)], HEAD, { ...STOP, reviews: 3 }],
-      ['approve, approve, request changes', [approve(C1), approve(C2), red(C3)], C3, { ...STOP, reviews: 3 }],
+      [
+        'approve, approve, request changes',
+        [approve(C1), approve(C2), red(C3)],
+        C3,
+        { action: 'fix', reviews: 3, remaining: 1 },
+      ],
       ['R3 approve: the PR can land', [red(C1), red(C2), approve(C3)], C3, { action: 'land', reviews: 3 }],
       ['R1 approve', [approve(C1, 'Approve (clean)')], C1, { action: 'land', reviews: 1 }],
       ['R2 approve with comments', [red(C1), approve(C2, 'Approve with comments')], C2, { action: 'land', reviews: 2 }],
@@ -712,12 +779,9 @@ describe('nextReviewStep — the bound is two reads of the review records', () =
       expect(writes).toEqual([])
     })
 
-    it.each([
-      ['an approval of the current head after three reds', [red(C1), red(C2), red(C3), approve(C3)], 4],
-      ['a third record with no verdict', [red(C1), red(C2), undecided(C3)], 3],
-    ])('stays stopped through %s', async (_label, comments, reviews) => {
-      const { step, writes } = await decide({ comments, head: C3 })
-      expect(step).toEqual({ ...STOP, reviews })
+    it('stays stopped through an approval of the current head after three reds', async () => {
+      const { step, writes } = await decide({ comments: [red(C1), red(C2), red(C3), approve(C3)], head: C3 })
+      expect(step).toEqual({ ...STOP, reviews: 4 })
       expect(writes).toEqual([])
     })
 
@@ -819,6 +883,7 @@ describe('nextReviewStep — the bound is two reads of the review records', () =
     it.each([
       ['a first review', [undecided(C1)], C1, 1],
       ['a second review', [red(C1), undecided(C2)], C2, 2],
+      ['a third record with no verdict', [red(C1), red(C2), undecided(C3)], C3, 3],
     ])('asks again when %s of the current head declares no verdict', async (_label, comments, head, reviews) => {
       const { step, writes } = await decide({ comments, head })
       expect(step).toEqual({ action: 'review', reason: 'no-verdict', reviews })
@@ -989,6 +1054,127 @@ describe('nextReviewStep — the bound is two reads of the review records', () =
       }
       await expect(nextReviewStep(CWD, PR, { gh })).rejects.toThrow()
       expect(writesOf(fake)).toEqual([])
+    })
+  })
+
+  describe('the allowance counts fixes', () => {
+    const CI = { action: 'stop', reason: 'ci-failed', message: expect.any(String) }
+
+    it('approve, approve, red is a fix: approvals spend nothing', async () => {
+      const { step } = await decide({ comments: [approve(C1), approve(C2), red(C3)], head: C3 })
+      expect(step).toEqual({ action: 'fix', reviews: 3, remaining: 1 })
+    })
+
+    it('three CI failures: the third stops ci-failed, not review-bound', async () => {
+      const checks = {
+        [C1]: [failRun()],
+        [C2]: [failRun('ci', '2026-01-02T00:00:00Z', 2)],
+        [C3]: [failRun('ci', '2026-01-03T00:00:00Z', 3)],
+      }
+      const { step } = await decide(
+        { comments: [approve(C1), approve(C2), approve(C3)], head: C3, checks },
+        { ciFailed: true },
+      )
+      expect(step).toEqual({ ...CI, reviews: 3 })
+    })
+
+    it('a green re-run of the first failure leaves the third CI failure a fix', async () => {
+      const checks = {
+        [C1]: [failRun('ci', '2026-01-01T00:00:00Z', 1), passRun()],
+        [C2]: [failRun('ci', '2026-01-02T00:00:00Z', 3)],
+        [C3]: [failRun('ci', '2026-01-03T00:00:00Z', 4)],
+      }
+      const { step } = await decide(
+        { comments: [approve(C1), approve(C2), approve(C3)], head: C3, checks },
+        { ciFailed: true },
+      )
+      expect(step).toEqual({ action: 'fix', reason: 'ci-failed', reviews: 3, remaining: 0 })
+    })
+
+    it('a red after an approval whose check failed is the spent third fix', async () => {
+      const first = await decide({ comments: [red(C1)], head: C1 })
+      expect(first.step).toEqual({ action: 'fix', reviews: 1, remaining: 1 })
+      const second = await decide(
+        { comments: [red(C1), approve(C2)], head: C2, checks: { [C2]: [failRun()] } },
+        { ciFailed: true },
+      )
+      expect(second.step).toEqual({ action: 'fix', reason: 'ci-failed', reviews: 2, remaining: 0 })
+      const third = await decide({ comments: [red(C1), approve(C2), red(C3)], head: C3, checks: { [C2]: [failRun()] } })
+      expect(third.step).toEqual({ ...STOP, reviews: 3 })
+    })
+
+    it('a stop holds through a later green', async () => {
+      const { step } = await decide({ comments: [red(C1), red(C2), red(C3), approve(C3)], head: C3 })
+      expect(step).toEqual({ ...STOP, reviews: 4 })
+    })
+
+    it('two approvals of one sha with a failed check are one CI fix', async () => {
+      const { step } = await decide(
+        { comments: [approve(C1), approve(C1)], head: C1, checks: { [C1]: [failRun()] } },
+        { ciFailed: true },
+      )
+      expect(step).toEqual({ action: 'fix', reason: 'ci-failed', reviews: 2, remaining: 1 })
+      expect(ciFixCount({ [C1]: { checks: [failRun()], statuses: [] } }, ['ci'])).toBe(1)
+    })
+
+    it('a failure on a sha with no approving record counts zero', () => {
+      expect(ciFixCount({ [C1]: { checks: [failRun()], statuses: [] } }, ['ci'])).toBe(1)
+      expect(ciFixCount({}, ['ci'])).toBe(0)
+      expect(boundState({ reds: 1, ciFixes: 0 })).toEqual({ fixes: 1, spent: false })
+    })
+
+    it('does not grant a ci-failed fix once the latest run is green', async () => {
+      await expect(
+        decide({ comments: [approve(C1)], head: C1, checks: { [C1]: [failRun(), passRun()] } }, { ciFailed: true }),
+      ).rejects.toThrow('granted only when the current head is a counted CI fix')
+      expect(ciFixCount({ [C1]: { checks: [failRun(), passRun()], statuses: [] } }, ['ci'])).toBe(0)
+    })
+
+    it('counts startup_failure, and a required status when no check run exists', () => {
+      expect(
+        ciFixCount({ [C1]: { checks: [failRun('ci', '2026-01-01T00:00:00Z', 1, 'startup_failure')], statuses: [] } }, [
+          'ci',
+        ]),
+      ).toBe(1)
+      expect(
+        ciFixCount(
+          {
+            [C2]: {
+              checks: [],
+              statuses: [{ context: 'ci', state: 'error', updated_at: '2026-01-01T00:00:00Z', id: 1 }],
+            },
+          },
+          ['ci'],
+        ),
+      ).toBe(1)
+      expect(boundState({ reds: 2, ciFixes: 1 })).toEqual({ fixes: 3, spent: true })
+      expect(boundState({ reds: 2, ciFixes: 0 })).toEqual({ fixes: 2, spent: false })
+    })
+
+    it('rejects an incomplete check-run page', () => {
+      expect(() => parseCheckRuns(JSON.stringify([{ total_count: 2, check_runs: [failRun()] }]))).toThrow(
+        'not the last page',
+      )
+    })
+
+    it('skips an unreadable historical head that cannot spend the allowance', async () => {
+      const { step } = await decide({
+        comments: [red(C1), approve(C2), approve(C3)],
+        head: C3,
+        checkErrors: { [C2]: new Error('gh: HTTP 502') },
+        checks: { [C3]: [passRun()] },
+      })
+      expect(step).toEqual({ action: 'land', reviews: 3 })
+    })
+
+    it('throws when an unreadable head could spend the allowance', async () => {
+      await expect(
+        decide({
+          comments: [red(C1), red(C2), approve(C3)],
+          head: C3,
+          checkErrors: { [C3]: new Error('gh: HTTP 502') },
+        }),
+      ).rejects.toThrow('could be spent')
     })
   })
 })

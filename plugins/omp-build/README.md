@@ -137,18 +137,20 @@ review read; lookup failure is never treated as a local review. A closed PR on
 the branch refuses implicit reuse, so its bound cannot be reset. Existing PRs
 resume from their review records.
 
-The review bound is two reads of the PR's review records (#710) — the comments
-by the automation login (`gh api user`) whose first line is
-`<!-- omp-build:code-review -->`: how many there are, and the latest one. Nothing
-writes accounting; every decision is derived again from a fresh read.
+The review bound is two automated fixes (#716). A fix is a `Request changes`
+record by the automation login (`gh api user`) whose first line is
+`<!-- omp-build:code-review -->`, or an approved head whose required check's
+latest completed run failed. An approval spends nothing and resets nothing.
+Nothing writes accounting; every decision is derived again from a fresh read.
 - `nextReviewStep(cwd, pr, { posted?, ciFailed?, reviewing? })` returns `land`, `fix`, `stop`
-  or `review`. A fix is allowed while the PR has at most two records, one per
-  review: the fix's push moves the head, and a latest record of another commit
-  asks for a review first. A record past the second that does not approve spends
-  the bound for good — a later green does not lift it. A CI failure on the head
-  the third review approved stops too. `posted` (the review just posted) must be
-  the latest record, else it throws. Every step but `land` disarms an armed PR;
-  `reviewing` (a review is about to start) disarms on `land` too.
+  or `review`. A fix is allowed while reds and CI fixes together are at most two:
+  the fix's push moves the head, and a latest record of another commit asks for a
+  review first. A third fix spends the bound for good — red records only
+  accumulate, so a later approval does not lift a stop they caused. A CI fix is
+  the latest completed run, so a re-run that goes green no longer counts.
+  `posted` (the review just posted) must be the latest record, else it throws.
+  Every step but `land` disarms an armed PR; `reviewing` (a review is about to
+  start) disarms on `land` too.
 - `landPr(cwd, pr)` arms only when the latest record approves and its line-2
   `<!-- omp-build:review-head sha=… -->` equals the current `headRefOid`, re-read
   before every write. A spent bound is `not-approved` with reason `review-bound`.
@@ -161,8 +163,8 @@ writes accounting; every decision is derived again from a fresh read.
 
 The bound guards against agent mistakes, not against an agent that bypasses it:
 records by other accounts are ignored, and edits or deletions of the account's
-comments are not detected. Every posted review counts, with or without a fix
-before it. Older accounting comments and the `## Review Fixes Applied` receipt
+comments are not detected. Only a `Request changes` record spends a fix; an
+approval does not. Older accounting comments and the `## Review Fixes Applied` receipt
 decide nothing.
 
 The canonical choices and escalation dossier live in `skills/dev-review/SKILL.md`
