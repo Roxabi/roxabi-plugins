@@ -507,6 +507,18 @@ describe('epic-driver — a child that fix filed (#685)', () => {
     expect(run.json().recorded).toEqual([])
     expect(run.json().step).toMatchObject({ action: 'start', ticket: 3, branch: 'fix/3-filed-cause' })
   })
+
+  it.each(templates)('refuses %s when it carries no size label', (_name, body) => {
+    const { epic } = sandbox()
+    const child = filed(body, 'OPEN')
+    child.labels = { nodes: [] }
+    serveEpic([childNode(2, 'feat(x): first child'), child])
+    const run = drive(['objective'], { cwd: epic })
+    expect(run.code).toBe(2)
+    expect(run.stderr).toContain('#3')
+    expect(run.stderr).not.toContain('#2')
+    expect(run.stdout).not.toContain('/goal')
+  })
 })
 
 describe('epic-driver — review bound', () => {
