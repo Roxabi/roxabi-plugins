@@ -1,5 +1,25 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { commentPageArgs, nextReviewStep, openPr, resolveReviewPr, reviewRecords } from './workflow.js'
+import { commentPageArgs, nextReviewStep, openPr as openPrWith, resolveReviewPr, reviewRecords } from './workflow.js'
+
+/**
+ * The `git` of a checkout whose root and principal are `cwd`, at `head`. The unit tests never fork,
+ * so `openPr` is handed this instead of the real `git`; the real one runs in `proof-gate.integration.test.ts`.
+ */
+function repoGit({ head = '0123456789abcdef0123456789abcdef01234567' } = {}) {
+  return async (cwd, args) => {
+    if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return cwd
+    if (args[0] === 'worktree') return `worktree ${cwd}\n`
+    if (args[0] === 'rev-parse' && args[1] === 'HEAD') return head
+    if (args[0] === 'status') return ''
+    throw new Error(`unexpected git ${args.join(' ')}`)
+  }
+}
+
+/** `openPr` with the proof gate seeing a plain repository, unless a test passes its own `git`. */
+const openPr = (cwd, input, deps = {}) => openPrWith(cwd, input, { git: repoGit(), ...deps })
 
 /**
  * Every call goes through an injected client. Nothing here can reach a real `gh`,
@@ -169,6 +189,7 @@ function fakePr({
         else if (field === 'autoMergeRequest') view.autoMergeRequest = pr.autoMerge
         else if (field === 'state') view.state = pr.state
         else if (field === 'headRefOid') view.headRefOid = pr.headRefOid
+        else if (field === 'headRefName') view.headRefName = pr.branch
         else throw new Error(`unexpected field: ${field}`)
       }
       return JSON.stringify(view)
@@ -393,6 +414,120 @@ describe('openPr', () => {
     const { gh, calls } = mockGh()
     await expect(openPr('/tmp/wt', input, { gh })).rejects.toThrow(TypeError)
     expect(calls).toEqual([])
+  })
+
+  describe('the proof gate stands before any gh call', () => {
+    const PROOF_HEAD = 'a'.repeat(40)
+    const proof = (over = {}) => ({
+      head: PROOF_HEAD,
+      verify: 'VERIFIED',
+      gaps: [],
+      noTest: {},
+      assertledger: null,
+      hasAdapter: false,
+      typeFix: false,
+      ...over,
+    })
+    const sem = (lifecycle) =>
+      `change change.back-half\n  statement: a fictional contract\n  status: ${lifecycle}\n  tag: issue-494\n`
+    const semctxCheckout = (lifecycle = 'verified') => {
+      const dir = mkdtempSync(join(tmpdir(), 'openpr-'))
+      mkdirSync(join(dir, '.semctx', 'semantic', 'changes'), { recursive: true })
+      writeFileSync(join(dir, '.semctx', 'semantic', 'changes', 'back-half.sem'), sem(lifecycle))
+      return dir
+    }
+    const refusal = (reason) => ({ status: 'proof-blocked', reason })
+    const ACTIVE = 'change contract change.back-half is active; a VERIFIED proof needs verified'
+
+    it('opens the PR when the proof holds', async () => {
+      const { gh, calls } = mockGh()
+      const git = repoGit({ head: PROOF_HEAD })
+      expect(await openPr(semctxCheckout(), { ...INPUT, proof: proof() }, { gh, git })).toEqual({
+        number: 512,
+        status: 'created',
+      })
+      expect(created(calls)).toHaveLength(1)
+    })
+
+    it('refuses an unclosed contract: proof-blocked, and the client was never called', async () => {
+      const { gh, calls } = mockGh()
+      const git = repoGit({ head: PROOF_HEAD })
+      expect(await openPr(semctxCheckout('active'), { ...INPUT, proof: proof() }, { gh, git })).toEqual(refusal(ACTIVE))
+      expect(calls).toEqual([])
+    })
+
+    it('refuses before reporting a PR that is already open', async () => {
+      const { gh, calls } = mockGh({ list: JSON.stringify([{ number: 400, isCrossRepository: false }]) })
+      const git = repoGit({ head: PROOF_HEAD })
+      expect(await openPr(semctxCheckout('active'), { ...INPUT, proof: proof() }, { gh, git })).toEqual(refusal(ACTIVE))
+      expect(calls).toEqual([])
+    })
+
+    it('refuses a semctx repo that supplies no proof', async () => {
+      const { gh, calls } = mockGh()
+      expect(await openPr(semctxCheckout(), INPUT, { gh, git: repoGit({ head: PROOF_HEAD }) })).toEqual(
+        refusal('no proof supplied'),
+      )
+      expect(calls).toEqual([])
+    })
+
+    it('refuses a proof that tries to widen the NO TEST enum', async () => {
+      const { gh, calls } = mockGh()
+      const widened = proof({
+        verify: 'PARTIAL',
+        gaps: ['ci'],
+        noTest: { ci: 'flaky-ci' },
+        acceptedReasons: ['flaky-ci'],
+      })
+      const git = repoGit({ head: PROOF_HEAD })
+      const result = await openPr(semctxCheckout('partial'), { ...INPUT, proof: widened }, { gh, git })
+      expect(result).toEqual(refusal('malformed proof: unknown key "acceptedReasons"'))
+      expect(calls).toEqual([])
+    })
+
+    it('refuses outside a git checkout', async () => {
+      const { gh, calls } = mockGh()
+      const git = async () => {
+        throw new Error('fatal: not a git repository')
+      }
+      expect(await openPr(semctxCheckout(), { ...INPUT, proof: proof() }, { gh, git })).toEqual(refusal('no-repo-root'))
+      expect(calls).toEqual([])
+    })
+
+    it('opens a PR in a repository without .semctx, whatever the proof says', async () => {
+      const { gh, calls } = mockGh()
+      const dir = mkdtempSync(join(tmpdir(), 'openpr-plain-'))
+      expect(await openPr(dir, INPUT, { gh, git: repoGit({ head: PROOF_HEAD }) })).toEqual({
+        number: 512,
+        status: 'created',
+      })
+      expect(created(calls)).toHaveLength(1)
+    })
+
+    describe('a recorded browser check', () => {
+      const ui = { steps: 'open the page, press save', url: '/settings', observed: 'the toast reads Saved' }
+      const uiProof = () =>
+        proof({ verify: 'PARTIAL', gaps: ['ui'], noTest: { ui: 'ui-manual-only' }, uiChecks: { ui } })
+      const open = async (body) => {
+        const { gh, calls } = mockGh()
+        const git = repoGit({ head: PROOF_HEAD })
+        const result = await openPr(semctxCheckout('partial'), { ...INPUT, body, proof: uiProof() }, { gh, git })
+        return { result, calls }
+      }
+
+      it('opens when the body records the url and the observed result', async () => {
+        const { result } = await open(`ui: checked ${ui.url} — ${ui.observed}`)
+        expect(result).toEqual({ number: 512, status: 'created' })
+      })
+
+      it('refuses a body that does not carry the url', async () => {
+        const { result, calls } = await open(`ui: ${ui.observed}`)
+        expect(result).toEqual(
+          refusal('the PR body does not record the browser check for ui (its url and observed result)'),
+        )
+        expect(calls).toEqual([])
+      })
+    })
   })
 })
 
@@ -959,7 +1094,7 @@ describe('nextReviewStep — the bound is two reads of the review records', () =
     const ASKS = {
       identity: IDENTITY,
       pages: commentPageArgs(PR),
-      gate: ['pr', 'view', String(PR), '--json', 'headRefOid,state,labels,autoMergeRequest'],
+      gate: ['pr', 'view', String(PR), '--json', 'headRefOid,headRefName,state,labels,autoMergeRequest'],
     }
     it.each([
       ['identity', 'the identity query fails', new Error('gh: not logged in')],

@@ -1,3 +1,4 @@
-change: acme-alpha
-  status: active
+change change.acme-alpha
   statement: invent a fictional alpha contract for the fixture
+  status: active
+  tag: acme-alpha

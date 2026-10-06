@@ -33,12 +33,12 @@ The GitHub issue body: agreed scope, acceptance criteria, invariants and exclusi
 _Avoid_: artifacts/specs, validated, /R-spec
 
 **Change contract**:
-The semctx record derived from the issue body. It is proof, not a second Spec.
+The semctx record derived from the issue body: a `change` block in `.semctx/semantic/changes/*.sem`, tagged `issue-<N>` for its ticket. It is proof, not a second Spec.
 _Avoid_: artifacts/specs, a second spec home, the contract as what to build
 
 **Proof gate**:
-The bar a change must clear before its PR opens: a verified Change contract, and assertledger where an adapter exists.
-_Avoid_: a green test run standing in for it, a falsify gate with no producer
+The bar a change must clear in a repo with `.semctx`, enforced by `openPr` before the PR opens and again by `landPr`: a proof bound to the current head, the ticket's Change contract at the lifecycle it claims, NO TEST reasons from dev-review's fixed enum, and assertledger where an adapter exists. A refusal is `proof-blocked`.
+_Avoid_: a green test run standing in for it, a falsify gate with no producer, a caller-supplied list of accepted reasons
 
 **TDD**:
 Test-first implementation at the seams agreed with the operator, using the model-invoked `tdd` skill.

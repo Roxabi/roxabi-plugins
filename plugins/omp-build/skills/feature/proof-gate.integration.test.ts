@@ -1,0 +1,121 @@
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
+import { type Proof, proofCheck } from './proof-gate'
+
+/** Real git against a throw-away repository: what the injected `git` of the unit tests only pretends. */
+const git = async (cwd: string, args: string[]) =>
+  execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+
+const dirs: string[] = []
+afterEach(() => {
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
+})
+
+const SEM = 'change change.alpha\n  statement: a fictional contract\n  status: verified\n  tag: issue-42\n'
+
+function put(root: string, files: Record<string, string>) {
+  for (const [name, content] of Object.entries(files)) {
+    mkdirSync(dirname(join(root, name)), { recursive: true })
+    writeFileSync(join(root, name), content)
+  }
+}
+
+/** A repository with one commit holding `files`. */
+function repo(files: Record<string, string>): string {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'proof-git-')))
+  dirs.push(root)
+  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root })
+  execFileSync('git', ['config', 'user.email', 'dev@example.test'], { cwd: root })
+  execFileSync('git', ['config', 'user.name', 'Dev'], { cwd: root })
+  put(root, files)
+  execFileSync('git', ['add', '-A'], { cwd: root })
+  execFileSync('git', ['commit', '-q', '-m', 'init'], { cwd: root })
+  return root
+}
+
+async function proofFor(root: string, over: Partial<Proof> = {}): Promise<Proof> {
+  return {
+    head: await git(root, ['rev-parse', 'HEAD']),
+    verify: 'VERIFIED',
+    gaps: [],
+    noTest: {},
+    assertledger: null,
+    hasAdapter: false,
+    typeFix: false,
+    ...over,
+  }
+}
+
+const CONTRACT = '.semctx/semantic/changes/alpha.sem'
+
+describe('proofCheck with real git', () => {
+  it('passes a committed, verified contract at the proof head', async () => {
+    const root = repo({ [CONTRACT]: SEM })
+    expect(await proofCheck(root, { proof: await proofFor(root), issue: 42, git })).toEqual({
+      applies: true,
+      pass: true,
+    })
+  })
+
+  it('does not apply to a repository without .semctx', async () => {
+    const root = repo({ 'a.txt': 'x' })
+    expect(await proofCheck(root, { issue: 42, git })).toEqual({ applies: false })
+  })
+
+  it('refuses outside a repository', async () => {
+    const outside = realpathSync(mkdtempSync(join(tmpdir(), 'proof-nogit-')))
+    dirs.push(outside)
+    expect(await proofCheck(outside, { issue: 42, git })).toEqual({
+      applies: true,
+      pass: false,
+      reason: 'no-repo-root',
+    })
+  })
+
+  it('refuses a tracked contract that was edited after the commit', async () => {
+    const root = repo({ [CONTRACT]: SEM.replace('verified', 'active') })
+    const proof = await proofFor(root)
+    put(root, { [CONTRACT]: SEM })
+    expect(await proofCheck(root, { proof, issue: 42, git })).toEqual({
+      applies: true,
+      pass: false,
+      reason: 'tracked files under .semctx are modified; commit the contract change first',
+    })
+  })
+
+  it('ignores untracked and ignored files under .semctx when asking whether tracked files are clean', async () => {
+    const root = repo({ [CONTRACT]: SEM, '.gitignore': '.semctx/cache/\n' })
+    put(root, { '.semctx/notes.txt': 'scratch', '.semctx/cache/index.db': 'binary' })
+    expect(await proofCheck(root, { proof: await proofFor(root), issue: 42, git })).toEqual({
+      applies: true,
+      pass: true,
+    })
+  })
+
+  it('refuses a proof whose head is not the checkout HEAD', async () => {
+    const root = repo({ [CONTRACT]: SEM })
+    const proof = await proofFor(root)
+    put(root, { 'later.txt': 'x' })
+    execFileSync('git', ['add', '-A'], { cwd: root })
+    execFileSync('git', ['commit', '-q', '-m', 'later'], { cwd: root })
+    const result = await proofCheck(root, { proof, issue: 42, git })
+    expect(result).toMatchObject({ applies: true, pass: false })
+    expect(result.applies && !result.pass && result.reason).toMatch(/^proof head [0-9a-f]{7} is not HEAD [0-9a-f]{7}$/)
+  })
+
+  it('applies in a linked worktree whose principal alone has .semctx, and refuses: the worktree has no contract', async () => {
+    const principal = repo({ 'a.txt': 'x', '.gitignore': '.semctx/\n' })
+    put(principal, { [CONTRACT]: SEM })
+    const linked = join(realpathSync(mkdtempSync(join(tmpdir(), 'proof-linked-'))), 'wt')
+    dirs.push(dirname(linked))
+    execFileSync('git', ['worktree', 'add', '-q', '-b', 'feat/42-alpha', linked], { cwd: principal })
+    expect(await proofCheck(linked, { proof: await proofFor(linked), issue: 42, git })).toEqual({
+      applies: true,
+      pass: false,
+      reason: 'no change contract tagged issue-42',
+    })
+  })
+})

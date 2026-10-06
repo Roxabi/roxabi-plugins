@@ -145,10 +145,14 @@ export function objectiveText(epic: number, run: string, base: string): string {
 export type MarkerKind = 'goal-stop' | 'epic-review' | 'epic-fix' | 'post-merge' | 'goal-report'
 
 const FIELD_VALUE = /^[A-Za-z0-9._-]+$/
+/** `range` alone carries a comma-joined list of `sha..sha` diffs. */
+const RANGE_VALUE = /^[A-Za-z0-9._,-]+$/
 
 export function formatMarker(kind: MarkerKind, fields: Record<string, string> = {}): string {
   const pairs = Object.entries(fields).map(([key, value]) => {
-    if (!/^[a-z]+$/.test(key) || !FIELD_VALUE.test(value)) throw new Error(`marker ${kind}: bad field ${key}=${value}`)
+    if (!/^[a-z]+$/.test(key) || !(key === 'range' ? RANGE_VALUE : FIELD_VALUE).test(value)) {
+      throw new Error(`marker ${kind}: bad field ${key}=${value}`)
+    }
     return ` ${key}=${value}`
   })
   return `<!-- omp-build:${kind}${pairs.join('')} -->`
@@ -160,7 +164,9 @@ export function formatMarker(kind: MarkerKind, fields: Record<string, string> = 
  */
 export function readMarker(body: string, kind: MarkerKind): Record<string, string> | null {
   const first = body.split('\n', 1)[0]?.trim() ?? ''
-  const match = /^<!--\s*omp-build:([a-z-]+)((?:\s+[a-z]+=[A-Za-z0-9._-]+)*)\s*-->$/.exec(first)
+  const match = /^<!--\s*omp-build:([a-z-]+)((?:\s+(?:range=[A-Za-z0-9._,-]+|[a-z]+=[A-Za-z0-9._-]+))*)\s*-->$/.exec(
+    first,
+  )
   if (!match || match[1] !== kind) return null
   const fields: Record<string, string> = {}
   for (const pair of (match[2] ?? '').trim().split(/\s+/).filter(Boolean)) {
@@ -182,10 +188,16 @@ export function parseEpicReview(body: string): EpicReview | null {
   const fields = readMarker(body, 'epic-review')
   if (!fields?.run || !RUN_ID.test(fields.run)) return null
   if (fields.verdict !== 'clean' && fields.verdict !== 'blocking') return null
-  const parts = (fields.range ?? '').split('..')
-  const [from, to] = parts
-  if (parts.length !== 2 || !from || !to || !SHA.test(from) || !SHA.test(to)) return null
-  return { run: fields.run, verdict: fields.verdict, range: `${from}..${to}` }
+  const elements = (fields.range ?? '').split(',')
+  const seen = new Set<string>()
+  for (const element of elements) {
+    const parts = element.split('..')
+    const [from, to] = parts
+    if (parts.length !== 2 || !from || !to || !SHA.test(from) || !SHA.test(to)) return null
+    if (seen.has(element)) return null
+    seen.add(element)
+  }
+  return { run: fields.run, verdict: fields.verdict, range: elements.join(',') }
 }
 
 export function parsePostMerge(body: string): HookRecord | null {
@@ -257,6 +269,7 @@ export function landOutcome(
       return { next: 'confirm' }
     case 'ci-failed':
       return { next: 'reopen' }
+    case 'proof-blocked':
     case 'timeout':
     case 'ci-cancelled':
     case 'ci-blocked':
@@ -769,7 +782,6 @@ export function nextStep(facts: Facts): Step {
   const merged = facts.children
     .map((child) => ({ child, pr: mergedPr(child, base) }))
     .filter((entry): entry is { child: ChildFacts; pr: PrFacts } => entry.pr !== null)
-    .sort((a, b) => (a.pr.mergedAt ?? '').localeCompare(b.pr.mergedAt ?? ''))
   if (!merged.length) {
     const blocked = finalizationBlock(facts, report)
     if (blocked) return blocked
@@ -780,16 +792,16 @@ export function nextStep(facts: Facts): Step {
     if (hook.state === 'stale') return { action: 'drop', stop: 'hook-stale', reason: hook.detail, report }
     return { action: 'complete', reason: 'every child closed and none merged', report }
   }
-  const first = merged[0]?.pr
-  if (!first?.baseSha) {
-    return { action: 'drop', stop: 'driver-error', reason: `PR #${first?.number} has no merge base`, report }
-  }
   const diff = epicDiffRange(
-    merged.map(({ child, pr }) => ({ number: child.number, baseSha: pr.baseSha ?? '', mergeSha: pr.mergeSha })),
+    merged.map(({ child, pr }) => ({
+      number: child.number,
+      baseSha: pr.baseSha,
+      mergeSha: pr.mergeSha,
+      mergedAt: pr.mergedAt,
+    })),
   )
   if ('error' in diff) return { action: 'drop', stop: 'driver-error', reason: diff.error, report }
-  const end = diff.range.split('..')[1]
-  const review = facts.reviews.filter((entry) => entry.range.split('..')[1] === end).at(-1)
+  const review = facts.reviews.filter((entry) => entry.range === diff.range).at(-1)
   if (!review) {
     return { action: 'final-review', stage: 'review', range: diff.range, reason: `no review of ${diff.range}`, report }
   }
@@ -817,7 +829,7 @@ export function nextStep(facts: Facts): Step {
   if (hook.state === 'failed') return { action: 'drop', stop: 'hook-failed', reason: hook.detail, report }
   if (hook.state === 'stale') return { action: 'drop', stop: 'hook-stale', reason: hook.detail, report }
   if (hook.state === 'done') return { action: 'complete', reason: hook.detail, report }
-  return { action: 'post-merge', reason: `final review clean at ${end}`, report }
+  return { action: 'post-merge', reason: `final review clean at ${diff.end}`, report }
 }
 
 /**

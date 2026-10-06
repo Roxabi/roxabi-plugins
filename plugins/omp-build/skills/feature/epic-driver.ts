@@ -9,7 +9,7 @@
  *   objective --epic E                                  the /goal line (assisted, read-only)
  *   next      --epic E <gate> [--dry-run]               the next action; switches to the child branch
  *   stop      --epic E <gate> --ticket N --reason R [--detail-file F]     record a ticket stop (disarms first)
- *   review    --epic E <gate> --verdict V --range A..B [--detail-file F]  record the final epic review
+ *   review    --epic E <gate> --verdict V --range A..B[,C..D…] [--detail-file F]  record the final epic review
  *   hook      --epic E <gate> --repo <worktree>         run release.post_merge (cwd outside the repo)
  *   report    --epic E <gate> --outcome complete|drop   post the goal report (drop disarms every PR)
  *

@@ -1,8 +1,0 @@
-name: Widget Build
-on: [push]
-jobs:
-  # TODO: add a semctx-working-empty job once the widget tree is clean
-  widget-build:
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo build

@@ -1,3 +1,4 @@
-change: acme-delta
-  status: active
+change change.acme-delta
   statement: invent a fictional delta contract for the fixture
+  status: active
+  tag: acme-delta

@@ -3,9 +3,11 @@
  * `detectPrincipal` names the base when `landPr` has none. No worktree driver.
  */
 
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { existsSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { ticketOfBranch } from './epic'
+import { proofCheck, readStack } from './proof-gate'
 
 /** @param {string} value */
 function shellQuote(value) {
@@ -337,10 +339,15 @@ export async function resolveReviewPr(cwd, explicitPr, { gh: ghFn = gh, git: git
  * Client injection follows `landPr(cwd, pr, { gh })`: the tests drive a stub, never a
  * real `gh`, so no test can open, label or merge a real pull request.
  *
+ * The proof gate runs first (`proofCheck`, `proof-gate.ts`), before any `gh` call — so it
+ * also stands before an already-open PR is reported. In a semctx repo the PR opens only on
+ * a proof that holds; a refusal is a result, not a throw.
+ *
  * Contract:
  *
  * | Case | Result |
  * |---|---|
+ * | the gate applies and refuses | `{ status: 'proof-blocked', reason }` — no `gh` call was made |
  * | no open PR for `head`→`base` | `{ number, status: 'created' }` |
  * | one already open for that pair | `{ number, status: 'existing' }` — idempotent; re-running mode 2 after a crash never opens a second PR |
  * | the create races another opener | `{ number, status: 'existing' }` — GitHub's 422 is re-read as a lookup, not swallowed. The race is classified on the client's exit payload (status + `errors[].message`, or its stderr), never on the rendered message, which embeds this caller's own `title=` and `body=` |
@@ -353,11 +360,18 @@ export async function resolveReviewPr(cwd, explicitPr, { gh: ghFn = gh, git: git
  * a number cannot carry that. The number is `result.number`.
  *
  * @param {string} cwd
- * @param {{ issue: number | string, branch: string, base: string, title: string, body?: string }} input
- * @param {{ gh?: (cwd: string, args: string[]) => Promise<string> }} [deps]
- * @returns {Promise<{ number: number, status: 'created' | 'existing' }>}
+ * @param {{ issue: number | string, branch: string, base: string, title: string, body?: string, proof?: unknown }} input
+ * @param {{
+ *   gh?: (cwd: string, args: string[]) => Promise<string>,
+ *   git?: (cwd: string, args: string[]) => Promise<string>,
+ * }} [deps]
+ * @returns {Promise<{ number: number, status: 'created' | 'existing' } | { status: 'proof-blocked', reason: string }>}
  */
-export async function openPr(cwd, { issue, branch, base, title, body } = {}, { gh: ghFn = gh } = {}) {
+export async function openPr(
+  cwd,
+  { issue, branch, base, title, body, proof } = {},
+  { gh: ghFn = gh, git: gitFn = git } = {},
+) {
   const n = Number(issue)
   if (!Number.isInteger(n) || n <= 0) {
     throw new TypeError(`openPr: issue must be a positive issue number, got ${JSON.stringify(issue)}`)
@@ -365,6 +379,9 @@ export async function openPr(cwd, { issue, branch, base, title, body } = {}, { g
   const head = requireField(branch, 'branch')
   const baseRef = requireField(base, 'base')
   const prTitle = requireField(title, 'title')
+
+  const checked = await proofCheck(cwd, { proof, issue: n, body: bodyFor(body, n), git: gitFn })
+  if (checked.applies && !checked.pass) return { status: 'proof-blocked', reason: checked.reason }
 
   const already = await findOpenPr(cwd, head, baseRef, ghFn)
   if (already !== null) return { number: already, status: 'existing' }
@@ -485,27 +502,17 @@ async function resolveRequiredContexts(cwd, pr, ghFn) {
 }
 
 /**
- * `landing` from stack text, parsed with `Bun.YAML`. Absent `landing.mode`: a
- * merge-on-green workflow means that mode, otherwise native. Anything that is not
- * a valid landing throws: invalid YAML, a non-map document or `landing`, a mode
- * other than native/merge-on-green, `required_checks` not a list of names.
+ * `landing` from the parsed `.dev/stack.yml` document (`readStack`; `null` when absent or
+ * blank). Absent `landing.mode`: a merge-on-green workflow means that mode, otherwise
+ * native. Anything that is not a valid landing throws: a non-map document or `landing`, a
+ * mode other than native/merge-on-green, `required_checks` not a list of names.
  *
- * @param {string} stackText
+ * @param {unknown} doc
  * @param {{ mergeOnGreenWorkflow?: boolean }} [opts]
  * @returns {{ mode: 'native' | 'merge-on-green', required_checks: string[] }}
  */
-function parseLanding(stackText, { mergeOnGreenWorkflow = false } = {}) {
+function parseLanding(doc, { mergeOnGreenWorkflow = false } = {}) {
   const fallback = mergeOnGreenWorkflow ? 'merge-on-green' : 'native'
-  if (!stackText.trim()) return { mode: fallback, required_checks: [] }
-  if (typeof Bun === 'undefined' || typeof Bun.YAML?.parse !== 'function') {
-    throw new Error('.dev/stack.yml: reading it needs bun >= 1.2.21 (Bun.YAML)')
-  }
-  let doc
-  try {
-    doc = Bun.YAML.parse(stackText)
-  } catch (e) {
-    throw new Error(`.dev/stack.yml is not valid YAML: ${e instanceof Error ? e.message : String(e)}`)
-  }
   const isMap = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
   if (doc == null) return { mode: fallback, required_checks: [] }
   if (!isMap(doc)) throw new Error('.dev/stack.yml: the document is not a map')
@@ -524,17 +531,15 @@ function parseLanding(stackText, { mergeOnGreenWorkflow = false } = {}) {
 }
 
 /**
- * The one landing resolver: `<cwd>/.dev/stack.yml` (absent → no landing block)
- * and `<cwd>/.github/workflows/merge-on-green.yml` as the mode fallback. `landPr`
- * and `ci-watch.sh` both resolve through it. Throws on an invalid landing.
+ * The one landing resolver: `<cwd>/.dev/stack.yml` (absent → no landing block, via
+ * `readStack`) and `<cwd>/.github/workflows/merge-on-green.yml` as the mode fallback.
+ * `landPr` and `ci-watch.sh` both resolve through it. Throws on an invalid landing.
  *
  * @param {string} cwd
  */
 export function readLanding(cwd) {
-  const stackPath = join(cwd, '.dev', 'stack.yml')
-  const stackText = existsSync(stackPath) ? readFileSync(stackPath, 'utf8') : ''
   const mergeOnGreenWorkflow = existsSync(join(cwd, '.github', 'workflows', 'merge-on-green.yml'))
-  return parseLanding(stackText, { mergeOnGreenWorkflow })
+  return parseLanding(readStack(cwd), { mergeOnGreenWorkflow })
 }
 
 /** Attempts to read a labeled-reviewed time newer than the pre-add snapshot. */
@@ -561,10 +566,17 @@ const SINCE_RETRY_MS = 200
  * `watch` is `bash '<real path of ci-watch.sh>' …` — the OMP shell does not
  * resolve `skill://` for a bare `bash` argv.
  *
+ * In a semctx repo (`proofCheck`) a `proof` built for the current head must hold too, after
+ * the review gate and before anything is armed: the PR's head branch names the ticket,
+ * `proof.head` must be the PR's `headRefOid`, and `cwd` must be that head's worktree. A
+ * refusal is `proof-blocked`, disarms like `not-approved`, and writes nothing else.
+ *
  * @param {string} cwd
  * @param {string | number} pr
  * @param {{
  *   gh?: (cwd: string, args: string[]) => Promise<string>,
+ *   git?: (cwd: string, args: string[]) => Promise<string>,
+ *   proof?: unknown,
  *   requiredContexts?: string[],
  *   landing?: { mode: string, required_checks: string[] },
  *   sleep?: (ms: number) => Promise<void>,
@@ -573,7 +585,14 @@ const SINCE_RETRY_MS = 200
 export async function landPr(
   cwd,
   pr,
-  { gh: ghFn = gh, requiredContexts, landing, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {},
+  {
+    gh: ghFn = gh,
+    git: gitFn = git,
+    proof,
+    requiredContexts,
+    landing,
+    sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  } = {},
 ) {
   pr = await resolveReviewPr(cwd, pr, { gh: ghFn })
   if (pr === null) return { status: 'no-pr' }
@@ -581,15 +600,23 @@ export async function landPr(
   const { reviews } = records
   // Only an approving latest record arms, only for the commit it names, and never
   // past a spent bound. Read the gate before any landing step; a refusal disarms it.
-  const refuse = async (reason, gate) => {
+  const stop = async (status, fields, gate) => {
     const disarmed = await disarmGate(cwd, pr, gate ?? (await readGate(cwd, pr, ghFn)), ghFn)
-    return { status: 'not-approved', reviews, ...(reason && { reason }), ...(disarmed && { disarmed }) }
+    return { status, ...fields, ...(disarmed && { disarmed }) }
   }
+  const refuse = (reason, gate) => stop('not-approved', { reviews, ...(reason && { reason }) }, gate)
   const gate = await readGate(cwd, pr, ghFn)
   if (records.spent) return refuse('review-bound', gate)
   if (!approves(records.verdict)) return refuse(undefined, gate)
   if (!isCommitSha(records.head)) return refuse('no-review-head', gate)
   if (!isCommitSha(gate.headRefOid) || gate.headRefOid !== records.head) return refuse('head-moved', gate)
+  const checked = await proofCheck(cwd, { proof, issue: ticketOfBranch(gate.headRefName), git: gitFn })
+  if (checked.applies) {
+    if (!checked.pass) return stop('proof-blocked', { reason: checked.reason }, gate)
+    if (/** @type {{ head: string }} */ (proof).head !== gate.headRefOid) {
+      return stop('proof-blocked', { reason: 'proof head is not the PR head' }, gate)
+    }
+  }
   let resolved = landing
   if (!resolved) {
     try {
@@ -824,7 +851,7 @@ async function readHeadRefOid(cwd, pr, ghFn) {
 }
 
 /**
- * The gate: head, state, and what arms it. A non-JSON answer throws: it
+ * The gate: head, head branch, state, and what arms it. A non-JSON answer throws: it
  * authorizes nothing.
  *
  * @param {string} cwd
@@ -832,7 +859,13 @@ async function readHeadRefOid(cwd, pr, ghFn) {
  * @param {(cwd: string, args: string[]) => Promise<string>} ghFn
  */
 async function readGate(cwd, pr, ghFn) {
-  const raw = await ghFn(cwd, ['pr', 'view', String(pr), '--json', 'headRefOid,state,labels,autoMergeRequest'])
+  const raw = await ghFn(cwd, [
+    'pr',
+    'view',
+    String(pr),
+    '--json',
+    'headRefOid,headRefName,state,labels,autoMergeRequest',
+  ])
   let data
   try {
     data = JSON.parse(raw)

@@ -48,6 +48,7 @@ const gh = async (_cwd, args) => {
     for (const field of String(args[4]).split(',')) {
       if (field === 'comments') view.comments = comments
       if (field === 'labels') view.labels = []
+      if (field === 'headRefName') view.headRefName = 'feat/7-widget'
       if (field === 'autoMergeRequest') view.autoMergeRequest = null
       if (field === 'state') view.state = 'OPEN'
       if (field === 'baseRefName') view.baseRefName = 'main'
@@ -89,13 +90,19 @@ try {
 }
 `
 
-/** A checkout with the given files, relative path → content. */
-function checkout(files = {}) {
+/** Hook-inherited GIT_* would point git at the caller's repository instead of this one. */
+function gitEnv() {
+  return Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
+}
+
+/** A checkout with the given files, relative path → content; a git repository unless `repo: false`. */
+function checkout(files = {}, { repo = true } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'land-seam-'))
   for (const [path, content] of Object.entries(files)) {
     mkdirSync(join(dir, path, '..'), { recursive: true })
     writeFileSync(join(dir, path), content)
   }
+  if (repo) execFileSync('git', ['init', '-q'], { cwd: dir, env: gitEnv() })
   return dir
 }
 
@@ -117,10 +124,7 @@ const BRANCH = 'feat/637-review-action-sinks'
 /** A checkout that is a git repository on BRANCH (unborn — `branch --show-current` needs no commit). */
 function onBranch(files) {
   const dir = checkout(files)
-  // Hook-inherited GIT_* would point git at the caller's repository instead of this one.
-  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
-  execFileSync('git', ['init', '-q'], { cwd: dir, env })
-  execFileSync('git', ['symbolic-ref', 'HEAD', `refs/heads/${BRANCH}`], { cwd: dir, env })
+  execFileSync('git', ['symbolic-ref', 'HEAD', `refs/heads/${BRANCH}`], { cwd: dir, env: gitEnv() })
   return dir
 }
 
@@ -136,7 +140,7 @@ const RULES = ['api', 'repos/acme/app/rules/branches/main']
 const EVENTS = ['api', 'repos/acme/app/issues/7/events', '--paginate', '--jq', EVENTS_JQ]
 const IDENTITY = ['api', 'user', '--jq', '.login']
 const COMMENTS = ['api', '--paginate', '--slurp', 'repos/{owner}/{repo}/issues/7/comments']
-const GATE = ['pr', 'view', '7', '--json', 'headRefOid,state,labels,autoMergeRequest']
+const GATE = ['pr', 'view', '7', '--json', 'headRefOid,headRefName,state,labels,autoMergeRequest']
 const LIST = ['pr', 'list', '--head', BRANCH, '--state', 'all', '--json', 'number,state,isCrossRepository']
 const STACK = { ...WORKFLOW_FILE, '.dev/stack.yml': 'runtime: bun\n' }
 const WATCH_FAILED = {
@@ -313,6 +317,29 @@ describe('readLanding', () => {
 
   it('no stack and no workflow file is native', () => {
     expect(readLanding(checkout())).toEqual({ mode: 'native', required_checks: [] })
+  })
+})
+
+describe('landPr proof gate through real git', () => {
+  const SEMCTX = {
+    ...STACK,
+    '.semctx/semantic/changes/widget.sem': 'change change.widget\n  status: verified\n  tag: issue-7\n',
+  }
+
+  it('a semctx repository whose caller supplies no proof is proof-blocked, and nothing is written', () => {
+    const { result, calls } = land(checkout(SEMCTX))
+    expect(result).toEqual({ status: 'proof-blocked', reason: 'no proof supplied' })
+    onlyDecidingReads(calls)
+  })
+
+  it('a directory that is not a git checkout is refused rather than landed unchecked', () => {
+    const { result, calls } = land(checkout(STACK, { repo: false }))
+    expect(result).toEqual({ status: 'proof-blocked', reason: 'no-repo-root' })
+    onlyDecidingReads(calls)
+  })
+
+  it('a repository without .semctx lands without a proof', () => {
+    expect(land(checkout(STACK)).result).toMatchObject({ status: 'watching', mode: 'merge-on-green' })
   })
 })
 

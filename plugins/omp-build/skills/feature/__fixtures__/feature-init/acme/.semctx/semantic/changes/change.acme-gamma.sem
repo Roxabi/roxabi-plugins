@@ -1,3 +1,9 @@
-change: acme-gamma
-  status: verified
+invariant invariant.acme.single-gate
+  statement: a fictional invariant whose own vocabulary also says active
+  status: active
+  tag: acme-gamma
+
+change change.acme-gamma
   statement: invent a fictional verified contract that mentions active work without being active
+  status: verified
+  tag: acme-gamma

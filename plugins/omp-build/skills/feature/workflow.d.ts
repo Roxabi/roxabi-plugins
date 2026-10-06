@@ -22,15 +22,28 @@ export declare function reviewRecords(
   options: { me: string },
 ): { reviews: number; verdict: string | null; head: string | null; spent: boolean }
 
+/** `proof-blocked`: the proof gate applies to this repository and refused (nothing was written). */
 export declare function openPr(
   cwd: string,
-  input: { issue: number; branch: string; base: string; title: string; body?: string },
-): Promise<{ number: number; status: 'created' | 'existing' }>
+  input: { issue: number; branch: string; base: string; title: string; body?: string; proof?: unknown },
+  deps?: { gh?: Gh; git?: Gh },
+): Promise<{ number: number; status: 'created' | 'existing' } | { status: 'proof-blocked'; reason: string }>
 
 export declare function landPr(
   cwd: string,
   pr: number | string,
-): Promise<{ status: string; mode?: string; watch?: string; reason?: string; disarmed?: true }>
+  opts?: {
+    gh?: Gh
+    git?: Gh
+    proof?: unknown
+    requiredContexts?: string[]
+    landing?: { mode: string; required_checks: string[] }
+    sleep?: (ms: number) => Promise<void>
+  },
+): Promise<
+  | { status: 'proof-blocked'; reason: string; disarmed?: true }
+  | { status: string; mode?: string; watch?: string; reason?: string; disarmed?: true }
+>
 
 export declare function applyCiWatchExit(
   cwd: string,
