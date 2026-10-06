@@ -590,6 +590,8 @@ export async function landPr(
   try {
     allowance = await readFixAllowance(cwd, pr, records, ghFn, { landing })
   } catch (error) {
+    // A throw here skips the refusals below, which are the only other disarm.
+    await disarmGate(cwd, pr, gate, ghFn)
     if (isLandingError(error)) {
       return { status: 'bad-landing', error: error instanceof Error ? error.message : String(error) }
     }
@@ -1598,9 +1600,15 @@ export async function nextReviewStep(cwd, pr, { posted, ciFailed = false, review
   const number = await resolveReviewPr(cwd, pr, { gh: ghFn })
   const records = await readReviewRecords(cwd, number, { gh: ghFn })
   const gate = await readGate(cwd, number, ghFn)
-  const allowance = await readFixAllowance(cwd, number, records, ghFn, {
-    need: ciFailed ? gate.headRefOid : null,
-  })
+  let allowance
+  try {
+    allowance = await readFixAllowance(cwd, number, records, ghFn, {
+      need: ciFailed ? gate.headRefOid : null,
+    })
+  } catch (error) {
+    await disarmGate(cwd, number, gate, ghFn)
+    throw error
+  }
   const step = reviewStep(records, {
     head: gate.headRefOid,
     ciFailed,

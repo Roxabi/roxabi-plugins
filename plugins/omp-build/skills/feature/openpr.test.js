@@ -1208,5 +1208,16 @@ describe('nextReviewStep — the bound is two reads of the review records', () =
       )
       expect(writesOf(fake)).toEqual([])
     })
+
+    it('disarms an armed gate before a failing allowance read escapes', async () => {
+      const fake = fakePr({
+        ...ARMED,
+        comments: [red(C1), red(C2), approve(C3)],
+        head: C3,
+        checkErrors: { [C3]: new Error('gh: HTTP 502') },
+      })
+      await expect(nextReviewStep(CWD, PR, { gh: fake.gh })).rejects.toThrow('could be spent')
+      expect(writesOf(fake)).toEqual([REMOVE_LABEL, DISABLE_AUTO])
+    })
   })
 })

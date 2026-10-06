@@ -335,8 +335,25 @@ describe('landPr', () => {
  * A PR whose gate follows the calls made on it: labels, native auto-merge, labeled events,
  * comments by author. Only exact argv is answered; anything else throws.
  */
-function gatePr({ comments, labels = [], autoMerge = null, state = 'OPEN', headRefOid = null, checks = {} }) {
-  const pr = { comments: [...comments], labels: new Set(labels), autoMerge, state, labeledAt: [], headRefOid, checks }
+function gatePr({
+  comments,
+  labels = [],
+  autoMerge = null,
+  state = 'OPEN',
+  headRefOid = null,
+  checks = {},
+  checkErrors = {},
+}) {
+  const pr = {
+    comments: [...comments],
+    labels: new Set(labels),
+    autoMerge,
+    state,
+    labeledAt: [],
+    headRefOid,
+    checks,
+    checkErrors,
+  }
   const calls = []
   const gh = async (_cwd, args) => {
     calls.push(args)
@@ -398,6 +415,7 @@ function gatePr({ comments, labels = [], autoMerge = null, state = 'OPEN', headR
     const endpoint = args[0] === 'api' ? String(args.at(-1)) : ''
     if (endpoint.includes('/check-runs')) {
       const sha = endpoint.match(/commits\/([0-9a-f]{40})/)?.[1]
+      if (sha && pr.checkErrors[sha]) throw pr.checkErrors[sha]
       const runs = sha ? (pr.checks[sha] ?? []) : []
       return JSON.stringify([{ total_count: runs.length, check_runs: runs }])
     }
@@ -437,6 +455,22 @@ describe('landPr — a spent review bound is enforced before any landing step', 
       expect(fake.calls.some((args) => args[1] === 'merge' && args.includes('--auto'))).toBe(false)
     },
   )
+})
+
+describe('landPr — a failing allowance read disarms an armed gate', () => {
+  it('removes the label and the auto-merge before the read failure escapes', async () => {
+    const fake = gatePr({
+      comments: [red(), red(), green()],
+      headRefOid: REVIEWED_HEAD,
+      ...ARMED,
+      checkErrors: { [REVIEWED_HEAD]: new Error('gh: HTTP 502') },
+    })
+    await expect(landPr('/tmp/wt', 7, { gh: fake.gh, sleep: async () => {}, ...NATIVE })).rejects.toThrow(
+      'could be spent',
+    )
+    expect([...fake.pr.labels]).toEqual(['size:F-lite'])
+    expect(fake.pr.autoMerge).toBe(null)
+  })
 })
 
 describe('landPr — approvals do not spend the allowance', () => {
