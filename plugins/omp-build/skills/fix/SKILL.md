@@ -104,7 +104,11 @@ The record is the one review F and R come from. Nothing else on the PR is input:
    gh api graphql -f query='query{repository(owner:"<O>",name:"<R>"){issue(number:<SOURCE_ISSUE>){parent{number}}}}' \
      --jq '.data.repository.issue.parent.number // empty'
    ```
-   — used to wire the filed issue as a **sibling** under the shared parent.
+   — used to wire the filed issue as a **sibling** under the shared parent. Then resolve `SOURCE_SIZE`, the `--size` of every issue this run files (`S` when `SOURCE_ISSUE = ∅`):
+   ```bash
+   gh issue view "$SOURCE_ISSUE" --json labels \
+     --jq '[.labels[].name | select(startswith("size:"))][0] // "size:S" | ltrimstr("size:") | ltrimstr(" ")'
+   ```
 2. ¬PR# → record := the latest `dev-review` output in this conversation, read with the same rules. No `dev-review` output → record := the findings the operator gave in the conversation; it has no `## Root causes` section.
 3. R_posted := the record's `## Root causes` section — the lines after that heading, up to the next `##` heading.
    - body exactly `none` → nothing to fix: halt "No actionable findings".
@@ -202,7 +206,7 @@ So the filed issue takes the **origin's** parent, not the origin:
 - `--body-file` — the `{details}` below
 - `--blocked-by "#${SOURCE_ISSUE}"` — the origin. Omit when `SOURCE_ISSUE = ∅`
 - `--parent "#${SOURCE_PARENT}"` — the origin's **parent**. Omit when `SOURCE_PARENT = ∅`
-- `--size` — mandatory: the origin issue's `size:` label, else `S`
+- `--size "${SOURCE_SIZE}"` — mandatory, from Phase 1
 - `--type` — per `issue-triage`
 
 `--parent "#${SOURCE_ISSUE}"` is the bug this section exists to prevent: it nests the deferral under its origin and the epic's fan-out stops being flat.
