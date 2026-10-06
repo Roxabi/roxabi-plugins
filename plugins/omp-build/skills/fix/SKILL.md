@@ -183,7 +183,7 @@ Two dispositions, one wiring. A non-blocking cause is not filed on its own: it j
 
 **Comment text never reaches a command line.** Titles and bodies come from PR comments, which anyone can write. Write them with the `write` tool into a mktemp dir and pass the files; a double-quoted `$(…)` or backtick in an argument runs in the operator's shell.
 
-**Deferral — one issue per run.** Every cause that is not `blocking(r)`, every uncited finding that does not satisfy `blocks(f)`, and every cited finding of a malformed block that does not satisfy `blocks(f)`, and that is not already deferred or filed, goes into exactly one follow-up. They are not applied. One `create`, not one per cause. The title file is the bundle title `Deferred non-blocking review findings`. The body file lists every deferred mechanism, its fix line, and its findings, plus each uncited non-blocking finding, plus each cited non-blocking finding of a malformed block, and includes `**Origin:** PR #<N>`. Same `--blocked-by` / `--parent` / `--size` / `--type` wiring as the bullets under the fence. Empty set after the already-deferred filter → no issue. Do not use the per-cause sentence `could not be applied` for this issue. Do not copy a non-blocking member of an applied cause into it.
+**Deferral — one issue per run.** Every cause that is not `blocking(r)`, every uncited finding that does not satisfy `blocks(f)`, and every cited finding of a malformed block that does not satisfy `blocks(f)`, and that is not already deferred or filed, goes into exactly one follow-up. They are not applied. One `create`, not one per cause. The title file is the bundle title `Deferred non-blocking review findings`. The body file opens with `**Origin:** PR #<N>`, then `## Acceptance criteria` with one checkbox per deferred item, then the details: every deferred mechanism, its fix line, and its findings, plus each uncited non-blocking finding, plus each cited non-blocking finding of a malformed block. Same `--blocked-by` / `--parent` / `--size` / `--type` wiring as the bullets under the fence. Empty set after the already-deferred filter → no issue. Do not use the per-cause sentence `could not be applied` for this issue. Do not copy a non-blocking member of an applied cause into it.
 
 ```bash
 FILE_DIR=$(mktemp -d -t "omp-build-fix-file-XXXXXX")
@@ -202,7 +202,8 @@ So the filed issue takes the **origin's** parent, not the origin:
 - `--body-file` — the `{details}` below
 - `--blocked-by "#${SOURCE_ISSUE}"` — the origin. Omit when `SOURCE_ISSUE = ∅`
 - `--parent "#${SOURCE_PARENT}"` — the origin's **parent**. Omit when `SOURCE_PARENT = ∅`
-- `--size`, `--type` — per `issue-triage`; a ticket with no `size:` label silently downgrades its own future review to F-lite
+- `--size` — mandatory: the origin issue's `size:` label, else `S`
+- `--type` — per `issue-triage`
 
 `--parent "#${SOURCE_ISSUE}"` is the bug this section exists to prevent: it nests the deferral under its origin and the epic's fan-out stops being flat.
 
@@ -210,32 +211,58 @@ So the filed issue takes the **origin's** parent, not the origin:
 
 `issue-triage` `--blocked-by` accepts issues only (¬PRs) — when the source review is on a PR with no closing-issue reference, fall back to no `--blocked-by` and rely on the `Origin: PR #N` body line.
 
-`{details}` template:
+**Every filed issue is a scoped child.** Inside an epic, `objective` and `next` start only a child with a `size:` label and an acceptance heading, and no "needs framing" heading (`hasScope`, `skill://feature` § Epic goal). A filed issue missing either stops the epic: no `/goal` line (`missing scope`). So both templates below open with the Origin line, then `## Acceptance criteria`, before any copied text: a stray fence in a copied finding cannot hide the heading. Copied text — titles, mechanisms, findings — is never a heading line and never opens a fence; quote code inline. Each checkbox is one line.
+
+`{details}` template — for a filed cause, and for a single filed finding:
 ```markdown
 **Origin:** PR #<N> review <comment-id> (filed because the cause could not be applied in this round).
 
+## Acceptance criteria
+
+- [ ] {one checkbox per row of the table below}
+
+## Details
+
 {mechanism + member findings}
 
-**Action:** {the fix line, or the eligibility condition that failed}
+**Why it was filed:** {the eligibility condition that failed, or the failed apply or falsification}
 ```
+
+The checkbox states the outcome, never a fix line the policy refused:
+
+| Filed because | Checkbox |
+|---|---|
+| a member has C(f) := 0 | the finding at `path:line` is confirmed or dismissed with evidence; a confirmed one is fixed |
+| the fix line widens a denylist, adds a grep, or copies an inventory | `<mechanism>` no longer holds at `path:line`, fixed at its oracle or single source, without widening a denylist, adding a grep, or copying an inventory |
+| a cited path is outside the repository | the cited path is resolved inside the repository, or the finding is dismissed with evidence |
+| the apply failed after 3, or falsification failed twice | first `confirm <mechanism> still holds on the current base`, then `<mechanism> no longer holds at path:line; the earlier attempt (<reason>) did not hold` |
+| an uncited blocking finding, or a blocking finding of a malformed block | the finding's solution at its `path:line` — `one of: …` when it lists several, its description when it has none, never the malformed block's `fix:` |
 
 Deferral body, one issue for the whole set. Not the per-cause template above:
 
 ```markdown
 **Origin:** PR #<N> review <comment-id> (deferred: non-blocking; not applied this round).
 
-## Deferred causes
+## Acceptance criteria
 
-### RC-2 — <title>
-- mechanism: <why>
-- fix: <the fix line, not applied>
-- findings: `path:line`
+- [ ] RC-2: <the fix line> at `path:line`
+- [ ] <the uncited finding's solution> at `path:line`
+- [ ] <the malformed-block finding's solution> at `path:line`
 
-## Uncited non-blocking findings
+## Details
+
+### Deferred causes
+
+- **RC-2 — <title>**
+  - mechanism: <why>
+  - fix: <the fix line, not applied>
+  - findings: `path:line`
+
+### Uncited non-blocking findings
 
 - `suggestion:` <description> — `path:line`
 
-## Cited non-blocking findings of a malformed block
+### Cited non-blocking findings of a malformed block
 
 - `suggestion:` <description> — `path:line` — cited by malformed RC-<n>
 ```

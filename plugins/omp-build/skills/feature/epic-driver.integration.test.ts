@@ -469,6 +469,46 @@ describe('epic-driver — objective', () => {
   })
 })
 
+describe('epic-driver — a child that fix filed (#685)', () => {
+  const FIX = readFileSync(path.resolve(import.meta.dirname, '..', 'fix', 'SKILL.md'), 'utf8')
+
+  /** The first ```markdown fence after a lead-in line of fix § Filing: the body fix writes. */
+  function template(leadIn: string): string {
+    const at = FIX.indexOf(leadIn)
+    if (at < 0) throw new Error(`fix/SKILL.md lost the lead-in: ${leadIn}`)
+    const body = /```markdown\n([\s\S]*?)```/.exec(FIX.slice(at))?.[1]
+    if (!body) throw new Error(`no markdown fence after: ${leadIn}`)
+    return body
+  }
+
+  const templates: [string, string][] = [
+    ['a filed cause', template('`{details}` template')],
+    ['the deferral', template('Deferral body, one issue for the whole set')],
+  ]
+  const filed = (body: string, origin: 'OPEN' | 'CLOSED') => ({
+    ...childNode(3, 'fix(x): filed cause', { blockedBy: [[2, origin]] }),
+    body,
+  })
+
+  it.each(templates)('prints the /goal line while %s waits on its open origin', (_name, body) => {
+    const { epic } = sandbox()
+    serveEpic([childNode(2, 'feat(x): first child'), filed(body, 'OPEN')])
+    const run = drive(['objective'], { cwd: epic })
+    expect(run.stderr).toBe('')
+    expect(run.code).toBe(0)
+    expect(run.stdout).toContain('order: #2 → #3')
+  })
+
+  it.each(templates)('starts %s once its origin is closed', (_name, body) => {
+    sandbox()
+    serveEpic([childNode(2, 'feat(x): first child', { state: 'CLOSED' }), filed(body, 'CLOSED')])
+    const run = drive(['next'])
+    expect(run.code).toBe(0)
+    expect(run.json().recorded).toEqual([])
+    expect(run.json().step).toMatchObject({ action: 'start', ticket: 3, branch: 'fix/3-filed-cause' })
+  })
+})
+
 describe('epic-driver — review bound', () => {
   type Comment = string | { body: string; author: string }
   function reviewed(number: number, history: Comment[]): void {
