@@ -549,7 +549,11 @@ const SINCE_RETRY_MS = 200
  * An approval arms only when its line-2 head is the PR's `headRefOid` (both 40 lowercase hex).
  * `no-review-head` is a record with no valid head line; `head-moved` is a different or
  * unreadable oid. Every `not-approved` disarms a gate already armed on an OPEN PR
- * (`disarmed: true`) and writes nothing else. Native auto-merge is then requested with
+ * (`disarmed: true`) and writes nothing else. A disarm that cannot finish throws
+ * an error naming what stays armed — except after native auto-merge was pinned,
+ * where it returns `auto-merge-failed` with `armed: true` and that `error`. Every
+ * exit after a write that armed the PR re-reads the head: a head that moved or
+ * cannot be read disarms what the call wrote. Native auto-merge is then requested with
  * `--match-head-commit` of that reviewed sha — an enable-time pin, not a later-push lease.
  * Native also enables merge-commit auto-merge. merge-on-green never returns
  * `no-required-checks` — the workflow, not the rules API, is the gate. Under
@@ -580,12 +584,31 @@ export async function landPr(
   const records = await readReviewRecords(cwd, pr, { gh: ghFn })
   const { reviews } = records
   // Only an approving latest record arms, only for the commit it names, and never
-  // past a spent bound. Read the gate before any landing step; a refusal disarms it.
-  const refuse = async (reason, gate) => {
-    const disarmed = await disarmGate(cwd, pr, gate ?? (await readGate(cwd, pr, ghFn)), ghFn)
+  // past a spent bound. The gate is read before any landing step; a refusal disarms it.
+  const gate = await readGate(cwd, pr, ghFn)
+  // What this call armed since the gate read. A disarm must cover it even when the
+  // fresh read it would use fails: the read-back inside `disarmGate` then decides.
+  const armedByUs = { auto: false, label: false }
+  const knownGate = () => ({
+    ...gate,
+    labels:
+      armedByUs.label && !gate.labels.some((label) => label?.name === 'reviewed')
+        ? [...gate.labels, { name: 'reviewed' }]
+        : gate.labels,
+    autoMergeRequest: armedByUs.auto ? (gate.autoMergeRequest ?? { pinned: true }) : gate.autoMergeRequest,
+  })
+  const refuse = async (reason, snapshot) => {
+    let seen = snapshot
+    if (!seen) {
+      try {
+        seen = await readGate(cwd, pr, ghFn)
+      } catch {
+        seen = knownGate()
+      }
+    }
+    const disarmed = await disarmGate(cwd, pr, seen, ghFn)
     return { status: 'not-approved', reviews, ...(reason && { reason }), ...(disarmed && { disarmed }) }
   }
-  const gate = await readGate(cwd, pr, ghFn)
   if (records.spent) return refuse('review-bound', gate)
   if (!approves(records.verdict)) return refuse(undefined, gate)
   if (!isCommitSha(records.head)) return refuse('no-review-head', gate)
@@ -613,6 +636,34 @@ export async function landPr(
     return !isCommitSha(again) || again !== records.head
   }
   const moved = () => refuse('head-moved')
+  // The head re-read after a write that armed the PR. A head that cannot be read
+  // after the write is not a verified head: disarm what the call wrote, then rethrow
+  // the read error. When the disarm fails too, `stuck` names what stays armed.
+  const movedAfterWrite = async () => {
+    try {
+      return { moved: await headMoved() }
+    } catch (error) {
+      try {
+        await disarmGate(cwd, pr, knownGate(), ghFn)
+      } catch (disarmError) {
+        return { moved: true, stuck: `${errorText(disarmError)} — after: ${errorText(error)}` }
+      }
+      throw error
+    }
+  }
+  // A refused pin leaves the gate as the call found it — but GitHub refuses a pin whose
+  // head no longer matches, and a head that moved meanwhile leaves an armed gate at a
+  // head nobody reviewed: that goes through the one disarm. A head that cannot be read
+  // is no news, and the gate stays as it was.
+  const pinRefused = async () => {
+    let gone = false
+    try {
+      gone = await headMoved()
+    } catch {
+      gone = false
+    }
+    return gone ? moved() : { status: 'auto-merge-failed', armed: false }
+  }
   const pin = ['pr', 'merge', String(pr), '--auto', '--merge', '--match-head-commit', records.head]
 
   /** @type {string} */
@@ -626,6 +677,11 @@ export async function landPr(
       await ghFn(cwd, ['pr', 'edit', String(pr), '--remove-label', 'reviewed'])
     }
     await ghFn(cwd, ['pr', 'edit', String(pr), '--add-label', 'reviewed'])
+    armedByUs.label = true
+    // The re-read before the write is not a lease on the label either.
+    const afterLabel = await movedAfterWrite()
+    if (afterLabel.stuck) throw new Error(afterLabel.stuck)
+    if (afterLabel.moved) return moved()
     since = await waitLabeledSince(cwd, pr, ghFn, before, sleep)
     if (!since) {
       return {
@@ -639,9 +695,11 @@ export async function landPr(
     if (await headMoved()) return moved()
     try {
       await ghFn(cwd, pin)
+      armedByUs.auto = true
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      if (!/already enabled/i.test(msg)) return { status: 'auto-merge-failed', armed: false }
+      if (!/already enabled/i.test(msg)) return pinRefused()
+      // Not a disarm: the head was just verified, and the pin is re-enabled at it.
       try {
         await ghFn(cwd, ['pr', 'merge', String(pr), '--disable-auto'])
       } catch {
@@ -650,17 +708,21 @@ export async function landPr(
       if (await headMoved()) return moved()
       try {
         await ghFn(cwd, pin)
+        armedByUs.auto = true
       } catch {
-        return { status: 'auto-merge-failed', armed: false }
+        return pinRefused()
       }
     }
-    if (await headMoved()) {
+    // The pin is now live. A head that moved or cannot be read goes through the one
+    // disarm; a disarm that fails reports the gate as still armed.
+    const afterPin = await movedAfterWrite()
+    if (afterPin.stuck) return { status: 'auto-merge-failed', armed: true, error: afterPin.stuck }
+    if (afterPin.moved) {
       try {
-        await ghFn(cwd, ['pr', 'merge', String(pr), '--disable-auto'])
-      } catch {
-        return { status: 'auto-merge-failed', armed: true }
+        return await moved()
+      } catch (error) {
+        return { status: 'auto-merge-failed', armed: true, error: errorText(error) }
       }
-      return moved()
     }
     await ghFn(cwd, ['pr', 'edit', String(pr), '--add-label', 'reviewed'])
   }
@@ -845,9 +907,18 @@ async function readGate(cwd, pr, ghFn) {
   return data
 }
 
+/** @param {unknown} error */
+const errorText = (error) => (error instanceof Error ? error.message : String(error))
+
 /**
- * Disarm an OPEN PR whose gate is armed: remove `reviewed`, then disable
- * auto-merge. Returns whether either was on. A CLOSED or MERGED PR is left alone.
+ * Disarm an OPEN PR whose gate is armed. Each write is attempted whatever the
+ * other did: auto-merge is disabled first (it is the one that merges without a
+ * further event), then `reviewed` is removed. When any write was attempted the
+ * gate is read back, and a read-back that is OPEN with something still armed —
+ * or that cannot be read, or finds the PR MERGED — throws one error naming
+ * what stays armed, with the write errors. A write error over a clean OPEN
+ * read-back is not an error: the gate is disarmed. Returns whether either was
+ * on. A CLOSED or MERGED PR is left alone.
  *
  * @param {string} cwd
  * @param {number | string} pr
@@ -857,9 +928,41 @@ async function readGate(cwd, pr, ghFn) {
 async function disarmGate(cwd, pr, gate, ghFn) {
   if (gate.state !== 'OPEN') return false
   const labelled = gate.labels.some((label) => label?.name === 'reviewed')
-  if (labelled) await ghFn(cwd, ['pr', 'edit', String(pr), '--remove-label', 'reviewed'])
-  if (gate.autoMergeRequest) await ghFn(cwd, ['pr', 'merge', String(pr), '--disable-auto'])
-  return labelled || Boolean(gate.autoMergeRequest)
+  const auto = Boolean(gate.autoMergeRequest)
+  if (!labelled && !auto) return false
+  /** @type {string[]} */
+  const failures = []
+  if (auto) {
+    try {
+      await ghFn(cwd, ['pr', 'merge', String(pr), '--disable-auto'])
+    } catch (error) {
+      failures.push(`--disable-auto failed: ${errorText(error)}`)
+    }
+  }
+  if (labelled) {
+    try {
+      await ghFn(cwd, ['pr', 'edit', String(pr), '--remove-label', 'reviewed'])
+    } catch (error) {
+      failures.push(`--remove-label failed: ${errorText(error)}`)
+    }
+  }
+  const detail = failures.length ? ` (${failures.join('; ')})` : ''
+  let back
+  try {
+    back = await readGate(cwd, pr, ghFn)
+  } catch (error) {
+    throw new Error(
+      `disarmGate: PR ${pr} could not be read back; auto-merge and reviewed may stay armed${detail} — ${errorText(error)}`,
+    )
+  }
+  if (back.state === 'MERGED') throw new Error(`disarmGate: PR ${pr} merged while being disarmed${detail}`)
+  if (back.state === 'OPEN') {
+    const stays = []
+    if (back.autoMergeRequest) stays.push('auto-merge')
+    if (back.labels.some((label) => label?.name === 'reviewed')) stays.push('the reviewed label')
+    if (stays.length) throw new Error(`disarmGate: PR ${pr} stays armed — ${stays.join(' and ')}${detail}`)
+  }
+  return true
 }
 
 /**
@@ -991,6 +1094,38 @@ function fixStep(reviews, reason) {
 }
 
 /**
+ * `posted` must be a `{ verdict, head }` the panel could have posted. Checked
+ * before any read, like `pr`: a malformed argument touches nothing.
+ *
+ * @param {unknown} posted
+ */
+function assertPostedShape(posted) {
+  if (posted === undefined) return
+  const shape = /** @type {{ verdict?: unknown, head?: unknown } | null} */ (posted)
+  if (!VERDICTS.includes(/** @type {string} */ (shape?.verdict)) || !isCommitSha(shape?.head)) {
+    throw new TypeError('nextReviewStep: posted must be { verdict: <panel verdict>, head: <40-hex sha> }')
+  }
+}
+
+/**
+ * May this gate stay armed? Only when the latest record approves the current
+ * head within the bound and no review of that head is running.
+ *
+ * @param {{ verdict: string | null, head: string | null, spent: boolean }} records
+ * @param {{ headRefOid?: unknown }} gate
+ * @param {boolean} reviewing
+ */
+function mayStayArmed(records, gate, reviewing) {
+  return (
+    !reviewing &&
+    !records.spent &&
+    approves(records.verdict) &&
+    isCommitSha(gate.headRefOid) &&
+    records.head === gate.headRefOid
+  )
+}
+
+/**
  * The move the records allow at the PR's current `head`.
  *
  * - `posted` (the review just posted) must be the latest record, else throw.
@@ -1007,15 +1142,10 @@ function fixStep(reviews, reason) {
  */
 function reviewStep(records, { head, ciFailed = false, posted }) {
   const { reviews } = records
-  if (posted !== undefined) {
-    if (!VERDICTS.includes(posted?.verdict) || !isCommitSha(posted?.head)) {
-      throw new TypeError('nextReviewStep: posted must be { verdict: <panel verdict>, head: <40-hex sha> }')
-    }
-    if (records.verdict !== posted.verdict || records.head !== posted.head) {
-      throw new Error(
-        `nextReviewStep: the latest review record is not the one just posted — posted ${posted.verdict} at ${posted.head}, read ${records.verdict} at ${records.head}`,
-      )
-    }
+  if (posted !== undefined && (records.verdict !== posted.verdict || records.head !== posted.head)) {
+    throw new Error(
+      `nextReviewStep: the latest review record is not the one just posted — posted ${posted.verdict} at ${posted.head}, read ${records.verdict} at ${records.head}`,
+    )
   }
   if (records.spent) return stopStep('review-bound', reviews)
   const current = isCommitSha(head) && records.head === head
@@ -1040,8 +1170,12 @@ function reviewStep(records, { head, ciFailed = false, posted }) {
  * disarms an OPEN armed PR first (`disarmed: true`); `reviewing` — a review is
  * about to start — disarms on `land` too, and an approving post re-arms through
  * `landPr`. A gate stays armed only while the latest record approves the current
- * head within the bound and no review of it is running. Nothing
- * else is written; a throw decides nothing and writes nothing.
+ * head within the bound and no review of it is running. Nothing else is written.
+ * A throw decides nothing: a malformed `posted`, an unreadable PR or record, or
+ * a refused `posted` / `ciFailed` over an approving, current gate leaves the
+ * gate as it was; a refusal over a gate that may not stay armed disarms it
+ * first. When the disarm itself fails the error names what stays armed — on a
+ * refusal, appended to the refusal.
  *
  * @param {string} cwd
  * @param {number | string} pr
@@ -1056,10 +1190,25 @@ export async function nextReviewStep(cwd, pr, { posted, ciFailed = false, review
   if (pr === null || pr === undefined || pr === '') {
     throw new TypeError(`nextReviewStep: pr is required, got ${JSON.stringify(pr)}`)
   }
+  assertPostedShape(posted)
   const number = await resolveReviewPr(cwd, pr, { gh: ghFn })
   const records = await readReviewRecords(cwd, number, { gh: ghFn })
   const gate = await readGate(cwd, number, ghFn)
-  const step = reviewStep(records, { head: gate.headRefOid, ciFailed, posted })
+  let step
+  try {
+    step = reviewStep(records, { head: gate.headRefOid, ciFailed, posted })
+  } catch (error) {
+    // A refusal decides nothing, but it must not leave a gate armed that may not stay.
+    if (!mayStayArmed(records, gate, reviewing)) {
+      try {
+        await disarmGate(cwd, number, gate, ghFn)
+      } catch (disarmError) {
+        const Original = error instanceof Error ? /** @type {ErrorConstructor} */ (error.constructor) : Error
+        throw new Original(`${errorText(error)} — and the disarm failed: ${errorText(disarmError)}`, { cause: error })
+      }
+    }
+    throw error
+  }
   if ((reviewing || step.action !== 'land') && (await disarmGate(cwd, number, gate, ghFn))) {
     return { ...step, disarmed: true }
   }
