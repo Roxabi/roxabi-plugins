@@ -140,6 +140,35 @@ describe('proofCheck with real git', () => {
     expect(result.applies && !result.pass && result.reason).toMatch(/^proof head [0-9a-f]{7} is not HEAD [0-9a-f]{7}$/)
   })
 
+  it('refuses ui-manual-only when the committed stack declares e2e, though the stack file is deleted on disk', async () => {
+    const root = repo({
+      '.dev/stack.yml': JSON.stringify({ commands: { test_e2e: 'bunx playwright test' } }),
+      [CONTRACT]: SEM.replace('verified', 'partial'),
+    })
+    rmSync(join(root, '.dev/stack.yml'))
+    const proof = await proofFor(root, {
+      verify: 'PARTIAL',
+      gaps: ['login'],
+      noTest: { login: 'ui-manual-only' },
+      uiChecks: { login: { steps: 'open the login page, submit', url: '/login', observed: 'the dashboard renders' } },
+    })
+    expect(await proofCheck(root, { proof, issue: 42, git, parseYaml: JSON.parse })).toEqual({
+      applies: true,
+      pass: false,
+      reason: 'ui-manual-only refused for login: commands.test_e2e is declared',
+    })
+  })
+
+  it('applies to a repository whose .semctx is committed, though it is deleted on disk', async () => {
+    const root = repo({ [CONTRACT]: SEM })
+    rmSync(join(root, '.semctx'), { recursive: true })
+    expect(await proofCheck(root, { issue: 42, git })).toEqual({
+      applies: true,
+      pass: false,
+      reason: 'no proof supplied',
+    })
+  })
+
   it('applies in a linked worktree whose principal alone has .semctx, and refuses: the worktree has no contract', async () => {
     const principal = repo({ 'a.txt': 'x', '.gitignore': '.semctx/\n' })
     put(principal, { [CONTRACT]: SEM })

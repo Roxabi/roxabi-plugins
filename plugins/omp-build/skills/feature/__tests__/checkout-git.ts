@@ -1,31 +1,38 @@
 import { lstatSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
+/** The `ls-tree` row of `path`, as git writes it for a file, symlink or directory on the disk. */
+function row(root: string, path: string): string {
+  const stat = lstatSync(join(root, path))
+  const [mode, type] = stat.isSymbolicLink()
+    ? ['120000', 'blob']
+    : stat.isDirectory()
+      ? ['040000', 'tree']
+      : ['100644', 'blob']
+  return `${mode} ${type} ${path}\t${path}`
+}
+
 /**
- * `git ls-tree -z HEAD <dir>/` of a tree whose files on disk are the commit: object ids are
- * the paths. As in git, a `<dir>` reached through a symlink is no tree, so it lists nothing.
+ * `git ls-tree -z HEAD <path>` of a tree whose files on disk are the commit: object ids are
+ * the paths. `dir/` lists the children of `dir`; a path without the slash lists that entry
+ * alone. As in git, a path reached through a symlink is in no tree, so it lists nothing.
  */
-function listing(root: string, dir: string): string {
-  const parts = dir.split('/').filter(Boolean)
+function listing(root: string, path: string): string {
+  const parts = path.split('/').filter(Boolean)
+  const listsChildren = path.endsWith('/')
   for (let depth = 1; depth <= parts.length; depth++) {
+    const last = depth === parts.length
     try {
-      if (!lstatSync(join(root, ...parts.slice(0, depth))).isDirectory()) return ''
+      const stat = lstatSync(join(root, ...parts.slice(0, depth)))
+      if (!stat.isDirectory() && !(last && !listsChildren)) return ''
     } catch {
       return ''
     }
   }
-  return readdirSync(join(root, dir))
+  if (!listsChildren) return row(root, parts.join('/'))
+  return readdirSync(join(root, path))
     .sort()
-    .map((name) => {
-      const path = `${dir}${name}`
-      const stat = lstatSync(join(root, path))
-      const [mode, type] = stat.isSymbolicLink()
-        ? ['120000', 'blob']
-        : stat.isDirectory()
-          ? ['040000', 'tree']
-          : ['100644', 'blob']
-      return `${mode} ${type} ${path}\t${path}`
-    })
+    .map((name) => row(root, `${path}${name}`))
     .join('\0')
 }
 
@@ -53,7 +60,7 @@ export function checkoutGit({
       return cwd
     }
     if (args[0] === 'worktree') return `worktree ${principal ?? cwd}\n`
-    if (args[0] === 'rev-parse' && args[1] === 'HEAD') return head
+    if (args[0] === 'rev-parse' && (args[1] === 'HEAD' || args[3] === 'HEAD^{commit}')) return head
     const ref =
       args[0] === 'rev-parse' && args[1] === '--verify' ? /^refs\/heads\/(.+)\^\{commit\}$/.exec(args[3] ?? '') : null
     if (ref) {

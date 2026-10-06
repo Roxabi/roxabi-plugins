@@ -379,9 +379,9 @@ issue link, or `{ status: 'proof-blocked', reason }`. Print that result. Failure
 report it; reconcile remote state before retrying, never blindly create a second PR.
 The matrix follows `dev-review`'s SC→Test contract, including justified NO TEST rows.
 
-**Proof gate — enforced by `openPr` and `landPr`, in a repo with `.semctx/`** (this
-worktree or the principal checkout; without it the gate does not apply and `proof`
-is not read). `openPr` runs `proofCheck` (`$SKILL_DIR/proof-gate.ts`) before any
+**Proof gate — enforced by `openPr` and `landPr`, in a repo with `.semctx/`** (on
+the disk of this worktree or the principal checkout, or committed at HEAD; without
+it the gate does not apply and `proof` is not read). `openPr` runs `proofCheck` (`$SKILL_DIR/proof-gate.ts`) before any
 `gh` call, also when a PR is already open; a refusal returns `proof-blocked` with
 its `reason` and nothing was written to GitHub. Fix the named cause and call
 `openPr` again. Produce the proof in this order:
@@ -412,8 +412,9 @@ const proof = {
 
 What it refuses: a `proof` that is missing, malformed or carries an unknown key; a
 `head` other than the checkout's HEAD; for `openPr`, a `branch` that does not name
-the ticket or whose local tip is not `proof.head`; an unreadable or invalid
-`.dev/stack.yml`; a cwd that is not inside a git checkout. The ticket's contracts are the `change`
+the ticket or whose local tip is not `proof.head`; a `.dev/stack.yml` committed at
+HEAD that is not a regular file or not valid YAML — the gate reads it from the
+commit, so an uncommitted edit or deletion changes nothing; a cwd that is not inside a git checkout. The ticket's contracts are the `change`
 blocks of the `.sem` files committed at HEAD under `.semctx/semantic/changes/`
 (each a regular file; a symlink or other entry there is refused), tagged
 `issue-<N>`: none → refused; each must be `superseded` or at the lifecycle the
@@ -423,7 +424,7 @@ not run `semctx_change_verify` again. Contracts of other tickets are ignored.
 `BLOCKED` stops. A `PARTIAL` needs
 gaps, each with a NO TEST reason from the enum — the enum cannot be widened.
 `ui-manual-only` follows `dev-review` 5a, applied without a diff: it is refused
-whenever `.dev/stack.yml` declares `commands.test_e2e` (stricter than 5a, which only
+whenever the `.dev/stack.yml` committed at HEAD declares `commands.test_e2e` (stricter than 5a, which only
 fires when the diff touches `frontend.path` or `shared.ui`); without an e2e
 command the gap needs a `uiChecks` entry — steps, a URL or path, the observed result
 — and the PR body must contain that URL and result. A `type: fix` ticket with an

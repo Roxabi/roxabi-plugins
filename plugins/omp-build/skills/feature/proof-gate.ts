@@ -168,6 +168,25 @@ export function readChangeContracts(root: string): ChangeContract[] {
   return entries.flatMap((file) => parseChangeContracts(readFileSync(join(dir, file), 'utf8'), file))
 }
 
+type TreeEntry = { mode: string; type: string; object: string; path: string }
+
+/** `git ls-tree -z HEAD <path>`: the HEAD-tree entries at `path` (`dir/` lists its children). */
+async function headTree(root: string, git: GitFn, path: string): Promise<TreeEntry[]> {
+  const listing = await git(root, ['ls-tree', '-z', 'HEAD', path])
+  return listing
+    .split('\0')
+    .filter(Boolean)
+    .map((entry) => {
+      const tab = entry.indexOf('\t')
+      const [mode = '', type = '', object = ''] = entry.slice(0, tab).split(' ')
+      return { mode, type, object, path: entry.slice(tab + 1) }
+    })
+}
+
+/** A blob git checks out as a plain file: no symlink, submodule or tree. */
+const isRegularBlob = (entry: TreeEntry) =>
+  entry.type === 'blob' && (entry.mode === '100644' || entry.mode === '100755') && entry.object !== ''
+
 /**
  * The change contracts committed at HEAD: the `.sem` blobs directly under
  * `.semctx/semantic/changes/` in the HEAD tree, read from git objects, never from the disk.
@@ -175,18 +194,12 @@ export function readChangeContracts(root: string): ChangeContract[] {
  * not a regular file (a symlink, a submodule, a directory) is a refusal, returned as a string.
  */
 async function committedContracts(root: string, git: GitFn): Promise<ChangeContract[] | string> {
-  const listing = await git(root, ['ls-tree', '-z', 'HEAD', `${CHANGES_DIR}/`])
   const out: ChangeContract[] = []
-  for (const entry of listing.split('\0').filter(Boolean)) {
-    const tab = entry.indexOf('\t')
-    const [mode, type, object] = entry.slice(0, tab).split(' ')
-    const path = entry.slice(tab + 1)
-    const file = path.slice(CHANGES_DIR.length + 1)
+  for (const entry of await headTree(root, git, `${CHANGES_DIR}/`)) {
+    const file = entry.path.slice(CHANGES_DIR.length + 1)
     if (!file.endsWith('.sem')) continue
-    if (type !== 'blob' || (mode !== '100644' && mode !== '100755') || !object) {
-      return `${path} is not a regular file at HEAD`
-    }
-    out.push(...parseChangeContracts(await git(root, ['cat-file', 'blob', object]), file))
+    if (!isRegularBlob(entry)) return `${entry.path} is not a regular file at HEAD`
+    out.push(...parseChangeContracts(await git(root, ['cat-file', 'blob', entry.object]), file))
   }
   return out
 }
@@ -203,24 +216,43 @@ function bunYaml(text: string): unknown {
 }
 
 /**
- * The parsed `<root>/.dev/stack.yml` document, or `null` when the file is absent or blank.
- * Throws when it is not valid YAML. `readLanding` and `proofCheck` both read it here.
+ * The parsed `<root>/.dev/stack.yml` document on the disk, or `null` when the file is absent
+ * or blank. Throws when it is not valid YAML. `readLanding` reads it here; `proofCheck` reads
+ * the committed one (`committedStack`).
  */
 export function readStack(root: string, parseYaml: ParseYaml = bunYaml): unknown {
   let text: string
   try {
-    text = readFileSync(join(root, '.dev', 'stack.yml'), 'utf8')
+    text = readFileSync(join(root, STACK_FILE), 'utf8')
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
     throw error
   }
+  return parseStack(text, parseYaml)
+}
+
+const STACK_FILE = '.dev/stack.yml'
+
+function parseStack(text: string, parseYaml: ParseYaml): unknown {
   if (!text.trim()) return null
   try {
     return parseYaml(text)
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith('.dev/stack.yml')) throw error
-    throw new Error(`.dev/stack.yml is not valid YAML: ${error instanceof Error ? error.message : String(error)}`)
+    if (error instanceof Error && error.message.startsWith(STACK_FILE)) throw error
+    throw new Error(`${STACK_FILE} is not valid YAML: ${error instanceof Error ? error.message : String(error)}`)
   }
+}
+
+/**
+ * The parsed `.dev/stack.yml` committed at HEAD, or `null` when HEAD has none or it is blank —
+ * never the disk, so an uncommitted edit cannot change what the gate enforces. Throws when the
+ * entry is not a regular file or not valid YAML.
+ */
+async function committedStack(root: string, git: GitFn, parseYaml: ParseYaml = bunYaml): Promise<unknown> {
+  const [entry] = await headTree(root, git, STACK_FILE)
+  if (!entry) return null
+  if (!isRegularBlob(entry)) throw new Error(`${STACK_FILE} is not a regular file at HEAD`)
+  return parseStack(await git(root, ['cat-file', 'blob', entry.object]), parseYaml)
 }
 
 /** `commands.test_e2e` is a non-empty string, or a map with a non-empty `run` and no `skip: true`. */
@@ -268,9 +300,10 @@ function principalOf(porcelain: string): string | null {
 }
 
 /**
- * The proof gate on a working tree. It applies when the repository (this worktree or its
- * principal) has a `.semctx`; otherwise the repository does not use semctx and nothing is
- * checked. Once it applies, anything unreadable or doubtful is a refusal, never a pass.
+ * The proof gate on a working tree. It applies when the repository has a `.semctx` — on the
+ * disk of this worktree or of its principal, or committed at HEAD; otherwise the repository
+ * does not use semctx and nothing is checked. Once it applies, anything unreadable or
+ * doubtful is a refusal, never a pass. Every input it enforces is read from HEAD.
  *
  * The ticket's contracts are the `change` blocks tagged `issue-<issue>` committed at HEAD
  * (`committedContracts`): each is `superseded` or at the lifecycle the proof claims
@@ -303,14 +336,25 @@ export async function proofCheck(
     return refuse('principal-unreadable')
   }
   if (entryKind(join(root, '.semctx')) === 'absent' && entryKind(join(principal, '.semctx')) === 'absent') {
-    return { applies: false }
+    // An unborn HEAD has no tree, so nothing can be committed there.
+    const born = await git(root, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}']).then(
+      () => true,
+      () => false,
+    )
+    let committed: TreeEntry[] = []
+    try {
+      if (born) committed = await headTree(root, git, '.semctx')
+    } catch (error) {
+      return refuse(error instanceof Error ? error.message : String(error))
+    }
+    if (committed.length === 0) return { applies: false }
   }
 
   if (proof === undefined || proof === null) return refuse('no proof supplied')
 
   let e2e: boolean
   try {
-    e2e = declaresE2e(readStack(root, parseYaml))
+    e2e = declaresE2e(await committedStack(root, git, parseYaml))
   } catch (error) {
     return refuse(error instanceof Error ? error.message : String(error))
   }
