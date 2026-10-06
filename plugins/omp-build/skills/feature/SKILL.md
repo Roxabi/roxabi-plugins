@@ -419,8 +419,11 @@ blocks of the `.sem` files committed at HEAD under `.semctx/semantic/changes/`
 (each a regular file; a symlink or other entry there is refused), tagged
 `issue-<N>`: none → refused; each must be `superseded` or at the lifecycle the
 proof claims (`VERIFIED` → `verified`, `PARTIAL` → `partial`), and at least one
-must be. What binds is the contract in the commit the proof names; the gate does
-not run `semctx_change_verify` again. Contracts of other tickets are ignored.
+must be. The gate checks that `proof.head` is HEAD and that the lifecycle committed
+at HEAD matches the verdict. It cannot see whether `semctx_change_verify` ran after
+later commits: a contract records no verification commit, so one closed before a
+code commit still reads `verified`. Every proof rebuild therefore runs step 2 again
+for the current HEAD first — required, not optional. Contracts of other tickets are ignored.
 `BLOCKED` stops. A `PARTIAL` needs
 gaps, each with a NO TEST reason from the enum — the enum cannot be widened.
 `ui-manual-only` follows `dev-review` 5a, applied without a diff: it is refused
@@ -465,7 +468,8 @@ step from the records.
 - `ci-failed` → fix inline from the failed checks (`land.failed`) and their
   logs. `fix` reads review comments, not CI: running it here replays stale findings.
 
-Verify, commit and push the fixes, then post `## Review Fixes Applied`. The
+Verify, commit and push the fixes, then post `## Review Fixes Applied`. In a repo
+with `.semctx`, the next proof starts from §6.3 step 2 for the new HEAD. The
 receipt is for humans: no gate reads it, and a failed post is reported, not
 retried. State `step.remaining`, then §6.4 — the push moved the head, so the
 next step needs a review of it.
@@ -508,7 +512,8 @@ re-review. A different or unreadable head returns `not-approved` with reason
 (`disarmed: true`) and writes nothing else. In a repo with `.semctx` (this
 worktree or the principal), `landPr` then re-checks the proof as `openPr` did
 (§6.3), for the ticket the PR's head branch names. `proof` must be re-built for
-the current head — re-run `semctx_change_verify` on re-entry, commit any contract
+the current head — run `semctx_change_verify` again for that head (required: the
+gate cannot tell a stale verification from a fresh one), commit any contract
 change, and set `proof.head` to HEAD — `cwd` must be the PR's worktree at that
 head, and `proof.head` must equal the PR's `headRefOid`. A refusal returns
 `proof-blocked` with its `reason`, disarms exactly like `not-approved` and writes

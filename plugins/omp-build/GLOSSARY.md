@@ -37,7 +37,7 @@ The semctx record derived from the issue body: a `change` block in `.semctx/sema
 _Avoid_: artifacts/specs, a second spec home, the contract as what to build
 
 **Proof gate**:
-The bar a change must clear in a repo with `.semctx`, enforced by `openPr` before the PR opens and again by `landPr`: a proof bound to the current head, the ticket's Change contract committed at that head at the lifecycle it claims (an uncommitted or ignored contract does not count), NO TEST reasons from dev-review's fixed enum, and assertledger where an adapter exists. Every input it enforces, `.dev/stack.yml` included, is read from that commit, never from the disk. A refusal is `proof-blocked`.
+The bar a change must clear in a repo with `.semctx`, enforced by `openPr` before the PR opens and again by `landPr`: a proof naming the current head, the ticket's Change contract committed at that head at the lifecycle it claims (an uncommitted or ignored contract does not count), NO TEST reasons from dev-review's fixed enum, and assertledger where an adapter exists. Every input it enforces, `.dev/stack.yml` included, is read from that commit, never from the disk. It cannot see whether verification ran after later commits — a contract records no verification commit — so re-verifying for the current head before each proof is the caller's step. A refusal is `proof-blocked`.
 _Avoid_: a green test run standing in for it, a falsify gate with no producer, a caller-supplied list of accepted reasons
 
 **TDD**:
