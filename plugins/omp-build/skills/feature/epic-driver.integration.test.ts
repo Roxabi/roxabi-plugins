@@ -59,6 +59,11 @@ case "$1 \${2:-}" in
   "pr merge")
     log "merge $3 \${*:4}"
     [[ -f "$S/pr/$3.sticky" ]] || { jq -c '.autoMergeRequest = null' "$S/pr/$3.json" > "$S/tmp" && mv "$S/tmp" "$S/pr/$3.json"; } ;;
+  api\\ *)
+    if [[ "$*" == *required_status_checks* && -f "$S/protection.fail" ]]; then echo "gh: Branch not protected (HTTP 404)" >&2; exit 1; fi
+    if [[ "$*" == *rules/branches* && -f "$S/ruleset.json" ]]; then cat "$S/ruleset.json"; exit 0; fi
+    if [[ "$*" == *check-runs* && -f "$S/checks.json" ]]; then cat "$S/checks.json"; exit 0; fi
+    echo "stub gh: unhandled $*" >&2; exit 9 ;;
   *) echo "stub gh: unhandled $*" >&2; exit 9 ;;
 esac
 `
@@ -564,6 +569,42 @@ describe('epic-driver — review bound', () => {
     ])
     const run = drive(['next', '--dry-run'])
     expect(run.json().step).toMatchObject({ action: 'resume', ticket: 2, pr: { number: 11 } })
+  })
+
+  it('stops a PR spent through CI fixes when classic protection answers 404 and a ruleset names the check', () => {
+    openPrChild()
+    const sha = 'a'.repeat(40)
+    const state = sandboxOf().state
+    writeFileSync(path.join(state, 'protection.fail'), '')
+    writeFileSync(
+      path.join(state, 'ruleset.json'),
+      JSON.stringify([{ type: 'required_status_checks', parameters: { required_status_checks: [{ context: 'ci' }] } }]),
+    )
+    writeFileSync(
+      path.join(state, 'checks.json'),
+      JSON.stringify([
+        {
+          total_count: 1,
+          check_runs: [
+            {
+              name: 'ci',
+              status: 'completed',
+              conclusion: 'failure',
+              completed_at: '2026-01-01T00:00:00Z',
+              id: 1,
+              workflow: 'ci',
+            },
+          ],
+        },
+      ]),
+    )
+    const approval =
+      `<!-- omp-build:code-review -->\n<!-- omp-build:review-head sha=${sha} -->\n` +
+      '## Code Review\n\n**Verdict: Approve** — summary'
+    reviewed(11, [record('Request changes'), record('Request changes'), approval])
+    const run = drive(['next', '--dry-run'])
+    expect(run.json().step).toMatchObject({ action: 'drop', stop: 'no-progress' })
+    expect(run.json().step.report.stopped).toEqual([{ ticket: 2, reason: 'review-bound', sticky: true }])
   })
 })
 

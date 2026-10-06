@@ -273,13 +273,24 @@ function stoppedReviews(
   return out
 }
 
-/** Declared `landing.required_checks`, else protection and rulesets. A failed read throws. */
+/**
+ * Declared `landing.required_checks`, else protection and rulesets. A 404 on the
+ * classic protection read means the branch has no classic protection, the same rule
+ * `resolveFixChecks` applies; the ruleset read stays fail closed. Any other failed
+ * read throws, and the caller leaves those PRs unread.
+ */
 function requiredFixChecks(repo: string, owner: string, name: string, base: string): string[] {
   const declared = declaredRequiredChecks(repo)
   if (declared.declared) return declared.checks
-  const classic = gh(repo, protectionArgs(owner, name, base))
+  let classic: string | null = null
+  try {
+    classic = gh(repo, protectionArgs(owner, name, base))
+  } catch (error) {
+    if (!isMissingRef(error)) throw error
+  }
   const rules = gh(repo, rulesetArgs(owner, name, base))
-  return [...new Set([...strictRequiredContexts(classic), ...strictRequiredContexts(rules)])]
+  const classicContexts = classic === null ? [] : strictRequiredContexts(classic)
+  return [...new Set([...classicContexts, ...strictRequiredContexts(rules)])]
 }
 
 /** Same read as `readOneHead` in workflow.js, on this module's sync `gh`. A 404 is no runs. */
