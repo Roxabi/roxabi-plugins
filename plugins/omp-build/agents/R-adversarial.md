@@ -29,6 +29,7 @@ description: |
   </example>
 # Tool pin: review floor, findings only — the body says "never write, never push, never mutate".
 tools: read, grep, glob, bash, lsp, ast_grep, web_search
+model: "@task"
 maxTurns: 30
 # capabilities: write_knowledge=false, write_code=false, review_code=true, run_tests=false
 # based-on: shared/base

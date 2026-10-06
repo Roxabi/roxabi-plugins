@@ -11,6 +11,7 @@ description: |
   </example>
 # Tool pin: write_code=true per its capabilities line.
 tools: read, grep, glob, bash, lsp, ast_grep, web_search, write, edit
+model: "@task"
 maxTurns: 50
 # capabilities: write_knowledge=false, write_code=true, review_code=true, run_tests=true
 # based-on: shared/base
