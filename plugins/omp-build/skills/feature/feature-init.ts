@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { readChangeContracts } from './proof-gate'
 
 export type MigrateLabel = (name: string) => { add: string | null; remove: boolean }
 
@@ -87,7 +88,6 @@ export type Facts = {
   legacyLabels: string[]
   hasSemctx: boolean
   hooks: HooksState
-  hasWorkingEmptyJob: boolean
   activeContracts: number
   hasAssertledger: boolean
   vitest: boolean
@@ -123,7 +123,6 @@ export function plan(facts: Facts): string[] {
     ? `semctx hooks unknown (${facts.hooks})`
     : HOOK_LINES[facts.hooks as keyof typeof HOOK_LINES]
   if (facts.hasSemctx && hookLine) lines.push(hookLine)
-  if (facts.hasSemctx && !facts.hasWorkingEmptyJob) lines.push('CI job semctx-working-empty')
   if (facts.activeContracts > 0) lines.push(`${facts.activeContracts} orphan contracts`)
   if (!facts.hasAssertledger) {
     lines.push(facts.vitest ? 'assertledger + vitest adapter' : 'assertledger')
@@ -390,12 +389,9 @@ function read(path: string): string {
   return existsSync(path) ? readFileSync(path, 'utf8') : ''
 }
 
+/** Change contracts whose own `status:` is `active` — read with the shared semctx grammar, not by line pattern. */
 function countActiveContracts(dir: string): number {
-  const root = join(dir, '.semctx', 'semantic', 'changes')
-  if (!existsSync(root)) return 0
-  return readdirSync(root).filter(
-    (name) => name.endsWith('.sem') && /^\s*status:\s*active\s*$/m.test(readFileSync(join(root, name), 'utf8')),
-  ).length
+  return readChangeContracts(dir).filter((contract) => contract.lifecycle === 'active').length
 }
 
 const DEPENDENCY_MAPS = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']
@@ -496,7 +492,6 @@ export async function readFacts(dir: string, opts: ReadFactsOpts = {}): Promise<
   const parseYaml = opts.parseYaml ?? bunYamlParse
   const stack = read(join(dir, '.dev', 'stack.yml'))
   const merge = read(join(dir, '.github', 'workflows', 'merge-on-green.yml'))
-  const ci = read(join(dir, '.github', 'workflows', 'ci.yml'))
   const pkg = read(join(dir, 'package.json'))
   const hasLanding = /^landing:/m.test(stack)
 
@@ -521,7 +516,6 @@ export async function readFacts(dir: string, opts: ReadFactsOpts = {}): Promise<
     legacyLabels: labels.filter((label) => migrate(label).remove),
     hasSemctx: existsSync(join(dir, '.semctx')),
     hooks: semctxHooks(dir, parseYaml),
-    hasWorkingEmptyJob: /^\s*(name:\s*)?semctx-working-empty:?\s*$/m.test(ci),
     activeContracts: countActiveContracts(dir),
     hasAssertledger: /"assertledger"/.test(pkg),
     vitest: detectsVitest(dir),

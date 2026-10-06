@@ -547,7 +547,9 @@ describe('stateful gh — one continuous goal', () => {
     expect(afterStop.step.action).toBe('final-review')
     expect(afterStop.step.stage).toBe('review')
     const range = afterStop.step.range ?? ''
-    expect(range).toMatch(/^[0-9a-f]{40}\.\.[0-9a-f]{40}$/)
+    // A and B merged: one element each, in merge order, the last ending at B's merge commit.
+    expect(range).toMatch(/^[0-9a-f]{40}\.\.[0-9a-f]{40},[0-9a-f]{40}\.\.[0-9a-f]{40}$/)
+    expect(range.split(',')[1]?.split('..')[1]).toBe(prOf(BRANCH_B).mergeCommit?.oid)
 
     const reviewed = drive(['review', '--verdict', 'clean', '--range', range], RUN_B)
     expect(reviewed.code).toBe(0)

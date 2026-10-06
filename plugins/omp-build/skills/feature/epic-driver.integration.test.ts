@@ -639,7 +639,7 @@ describe('epic-driver — unreadable landing', () => {
 
 /**
  * Child #2 merged into origin/main by PR #10, whose commit also ships a hook that
- * leaves a proof file. Returns the cumulative range the final review is about.
+ * leaves a proof file. Returns the range (one child, so one element) the final review is about.
  */
 function landedEpic(): { range: string; merged: ReturnType<typeof prNode>; proof: string } {
   const { principal, epic, root } = sandbox()

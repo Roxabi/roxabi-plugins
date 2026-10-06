@@ -124,11 +124,11 @@ const DONE = [
   child(2, { state: 'CLOSED', prs: [landed(2, T1, sha('1'), sha('2'))] }),
   child(3, { state: 'CLOSED' }),
 ]
-/** First merged baseSha .. last merged mergeSha, by mergedAt. */
-const RANGE = `${sha('1')}..${sha('c')}`
-/** The epic-fix ticket, merged after the others: it moves the range end. */
+/** One `baseSha..mergeSha` per merged child, in mergedAt order: #2 (T1) then #1 (T2). */
+const RANGE = `${sha('1')}..${sha('2')},${sha('b')}..${sha('c')}`
+/** The epic-fix ticket, merged after the others: it appends an element and moves the end. */
 const FIX = child(4, { epicFix: true, state: 'CLOSED', prs: [landed(4, T3, sha('c'), sha('d'))] })
-const FIXED = `${sha('1')}..${sha('d')}`
+const FIXED = `${RANGE},${sha('c')}..${sha('d')}`
 
 const review = (verdict: 'clean' | 'blocking', range: string, run = RUN) => ({ run, verdict, range })
 const hook = (result: HookRecord['result'], at: string, run = RUN): HookRecord => ({ run, result, sha: at })
@@ -526,7 +526,7 @@ describe('nextStep', () => {
         step: { action: 'complete' },
       },
       {
-        name: 'no review → review the first base .. last merge, by mergedAt',
+        name: 'no review → review each merged child own diff, in mergedAt order',
         facts: facts(DONE),
         step: { action: 'final-review', stage: 'review', range: RANGE },
         report: { merged: [1, 2], closed: [3] },
@@ -560,9 +560,27 @@ describe('nextStep', () => {
         step: { action: 'post-merge' },
       },
       {
-        name: 'a clean review whose range ends before the last merge → review again',
+        name: 'a clean review of an earlier range → review again',
         facts: facts(DONE, { reviews: [review('clean', `${sha('1')}..${sha('2')}`)] }),
         step: { action: 'final-review', stage: 'review', range: RANGE },
+      },
+      {
+        name: 'a clean review recorded before per-child ranges (one span, same end) is not reused → review again',
+        facts: facts(DONE, { reviews: [review('clean', `${sha('1')}..${sha('c')}`)] }),
+        step: { action: 'final-review', stage: 'review', range: RANGE },
+      },
+      {
+        name: 'a clean review with the same end but another element set is not reused → review again',
+        facts: facts(DONE, { reviews: [review('clean', `${sha('e')}..${sha('2')},${sha('b')}..${sha('c')}`)] }),
+        step: { action: 'final-review', stage: 'review', range: RANGE },
+      },
+      {
+        name: 'a foreign merge between two children appears in no element',
+        facts: facts([
+          child(1, { state: 'CLOSED', prs: [landed(1, T1, sha('1'), sha('2'))] }),
+          child(2, { state: 'CLOSED', prs: [landed(2, T3, sha('9'), sha('3'))] }),
+        ]),
+        step: { action: 'final-review', stage: 'review', range: `${sha('1')}..${sha('2')},${sha('9')}..${sha('3')}` },
       },
       {
         name: 'blocking and no epic-fix child → open the fix ticket',
@@ -570,7 +588,7 @@ describe('nextStep', () => {
         step: { action: 'final-review', stage: 'fix-ticket', range: RANGE },
       },
       {
-        name: 'the latest verdict for the range end wins',
+        name: 'the latest verdict for the exact range wins',
         facts: facts(DONE, { reviews: [review('clean', RANGE, EARLIER), review('blocking', RANGE)] }),
         step: { action: 'final-review', stage: 'fix-ticket' },
       },
@@ -582,7 +600,7 @@ describe('nextStep', () => {
         step: { action: 'drop', stop: 'final-review-blocking' },
       },
       {
-        name: 'blocking on an older range end after the fix merged → review again',
+        name: 'blocking on a smaller element set after the fix merged → review again',
         facts: facts([...DONE, FIX], { reviews: [review('blocking', RANGE)] }),
         step: { action: 'final-review', stage: 'review', range: FIXED },
       },
@@ -599,7 +617,7 @@ describe('nextStep', () => {
         step: { action: 'post-merge' },
       },
       {
-        name: 'the first merged PR without a merge base → drop driver-error',
+        name: 'a merged PR without a merge base → drop driver-error',
         facts: facts([
           child(1, { state: 'CLOSED', prs: [landed(1, T1, sha('1'), sha('2'), { baseSha: null })] }),
           child(2, { state: 'CLOSED', prs: [landed(2, T2, sha('2'), sha('3'))] }),
@@ -607,12 +625,20 @@ describe('nextStep', () => {
         step: { action: 'drop', stop: 'driver-error' },
       },
       {
-        name: 'a later merged PR without a merge base does not change the range',
+        name: 'a later merged PR without a merge base → drop driver-error',
         facts: facts([
           child(1, { state: 'CLOSED', prs: [landed(1, T1, sha('1'), sha('2'))] }),
           child(2, { state: 'CLOSED', prs: [landed(2, T2, sha('2'), sha('3'), { baseSha: null })] }),
         ]),
-        step: { action: 'final-review', stage: 'review', range: `${sha('1')}..${sha('3')}` },
+        step: { action: 'drop', stop: 'driver-error' },
+      },
+      {
+        name: 'a merged PR without a merge time → drop driver-error',
+        facts: facts([
+          child(1, { state: 'CLOSED', prs: [landed(1, T1, sha('1'), sha('2'))] }),
+          child(2, { state: 'CLOSED', prs: [landed(2, T2, sha('2'), sha('3'), { mergedAt: null })] }),
+        ]),
+        step: { action: 'drop', stop: 'driver-error' },
       },
     ])('$name', decides)
   })
@@ -998,6 +1024,7 @@ describe('stop classes', () => {
     ['ci-blocked', { stop: 'ci-blocked', class: 'ticket' }],
     ['stopped', { stop: 'stopped', class: 'ticket' }],
     ['closed', { stop: 'closed', class: 'ticket' }],
+    ['proof-blocked', { stop: 'proof-blocked', class: 'ticket' }],
     ['watch-failed', { stop: 'watch-failed', class: 'shared' }],
     ['bad-landing', { stop: 'bad-landing', class: 'shared' }],
     ['no-required-checks', { stop: 'no-required-checks', class: 'shared' }],
@@ -1029,6 +1056,20 @@ describe('markers', () => {
       sha: sha('f'),
     })
     expect(readMarker(`${formatMarker('epic-fix')}\n\n## Acceptance`, 'epic-fix')).toEqual({})
+  })
+
+  it('round-trips a multi-pair range and keeps its elements in order', () => {
+    const range = `${sha('3')}..${sha('4')},${sha('1')}..${sha('2')},${sha('5')}..${sha('6')}`
+    const body = `${formatMarker('epic-review', { run: RUN, verdict: 'blocking', range })}\nBlocking.`
+    expect(parseEpicReview(body)).toEqual({ run: RUN, verdict: 'blocking', range })
+    expect(readMarker(body, 'epic-review')).toMatchObject({ range })
+  })
+
+  it('allows a comma only in the range field', () => {
+    const range = `${sha('1')}..${sha('2')},${sha('3')}..${sha('4')}`
+    expect(() => formatMarker('epic-review', { run: RUN, range })).not.toThrow()
+    expect(() => formatMarker('goal-stop', { run: RUN, reason: 'a,b' })).toThrow()
+    expect(() => formatMarker('epic-review', { run: RUN, verdict: 'a,b' })).toThrow()
   })
 
   it.each([
@@ -1075,6 +1116,35 @@ describe('markers', () => {
         parseEpicReview(
           `<!-- omp-build:epic-review run=${RUN} verdict=clean range=${sha('1')}..${sha('2')}..${sha('3')} -->`,
         ),
+    ],
+    [
+      'epic-review, an empty element',
+      () =>
+        parseEpicReview(
+          `<!-- omp-build:epic-review run=${RUN} verdict=clean range=${sha('1')}..${sha('2')},,${sha('3')}..${sha('4')} -->`,
+        ),
+    ],
+    [
+      'epic-review, a trailing comma',
+      () => parseEpicReview(`<!-- omp-build:epic-review run=${RUN} verdict=clean range=${sha('1')}..${sha('2')}, -->`),
+    ],
+    [
+      'epic-review, a duplicate pair',
+      () =>
+        parseEpicReview(
+          `<!-- omp-build:epic-review run=${RUN} verdict=clean range=${sha('1')}..${sha('2')},${sha('1')}..${sha('2')} -->`,
+        ),
+    ],
+    [
+      'epic-review, a short sha in the second element',
+      () =>
+        parseEpicReview(
+          `<!-- omp-build:epic-review run=${RUN} verdict=clean range=${sha('1')}..${sha('2')},abc1234..${sha('4')} -->`,
+        ),
+    ],
+    [
+      'goal-stop, a comma outside the range field',
+      () => parseGoalStop(`<!-- omp-build:goal-stop run=${RUN} reason=time,out -->`),
     ],
     [
       'epic-review, bad run',

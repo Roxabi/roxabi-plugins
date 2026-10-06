@@ -1,3 +1,4 @@
-change: acme-beta
-  status: active
+change change.acme-beta
   statement: invent a fictional beta contract for the fixture
+  status: active
+  tag: acme-beta

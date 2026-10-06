@@ -91,7 +91,6 @@ describe('feature init on the fictional acme fixture', () => {
       'tracker contract',
       'label migration',
       'semctx hooks',
-      'CI job semctx-working-empty',
       '3 orphan contracts',
       'assertledger + vitest adapter',
       'landing = merge-on-green (every check; gates: widget-audit ; (widget-build|widget-build-full) ; Widget scan, nightly|widget-scan)',
@@ -100,16 +99,15 @@ describe('feature init on the fictional acme fixture', () => {
     ])
   })
 
-  it('counts a contract only on an anchored status: active line of a .sem file', async () => {
-    // Decoys: `note: was status: active` (only ^ rejects it), `status: active-draft` (only $ rejects it),
+  it('counts a change block whose own status is active, in the real semctx grammar', async () => {
+    // Decoys: an `invariant` block whose `status: active` is its own vocabulary, `status: active-draft`,
+    // `note: was status: active` inside a verified change, a verified change that talks about active work,
     // and a non-.sem file.
     expect((await factsFor('acme')).activeContracts).toBe(3)
   })
 
-  it('ignores a ci.yml comment and a package script that only mention the tools', async () => {
-    const facts = await factsFor('acme')
-    expect(facts.hasWorkingEmptyJob).toBe(false)
-    expect(facts.hasAssertledger).toBe(false)
+  it('ignores a package script that only mentions the tool', async () => {
+    expect((await factsFor('acme')).hasAssertledger).toBe(false)
   })
 
   const WIDGET = { name: 'widget-app', private: true }
@@ -292,17 +290,16 @@ describe('semctx hooks: git-hook groups only', () => {
 
 describe('feature init when landing already exists', () => {
   it.each([
-    ['acme', { hasWorkingEmptyJob: false, hasAssertledger: false, landingHidesChecks: false }],
-    ['kept', { hasWorkingEmptyJob: true, hasAssertledger: true, landingHidesChecks: false }],
-    ['kept-hidden', { hasWorkingEmptyJob: true, hasAssertledger: true, landingHidesChecks: true }],
-  ])('%s: CI job, assertledger and landing facts', async (name, expected) => {
+    ['acme', { hasAssertledger: false, landingHidesChecks: false }],
+    ['kept', { hasAssertledger: true, landingHidesChecks: false }],
+    ['kept-hidden', { hasAssertledger: true, landingHidesChecks: true }],
+  ])('%s: assertledger and landing facts', async (name, expected) => {
     expect(await factsFor(name)).toMatchObject(expected)
   })
 
   it('names a recorded required_checks list in the kept line', async () => {
     const lines = plan(await factsFor('kept-hidden'))
     expect(lines).toContain('landing kept (existing; required_checks hides other checks)')
-    expect(lines).not.toContain('CI job semctx-working-empty')
     expect(lines).not.toContain('assertledger')
   })
 
@@ -637,7 +634,6 @@ function baseFacts(): Facts {
     legacyLabels: [],
     hasSemctx: false,
     hooks: 'present',
-    hasWorkingEmptyJob: true,
     activeContracts: 0,
     hasAssertledger: true,
     vitest: true,

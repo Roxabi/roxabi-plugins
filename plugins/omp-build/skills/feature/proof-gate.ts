@@ -1,11 +1,22 @@
+import { lstatSync, readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
 export type VerifyStatus = 'VERIFIED' | 'PARTIAL' | 'BLOCKED'
 export type AssertledgerVerdict = 'detection' | 'WEAK_ORACLE' | 'miss' | null
 
-export type GateInput = {
+/** dev-review step 5's NO TEST enum: the only reasons a PARTIAL gap may carry. */
+export const NO_TEST_REASONS = ['infra-not-wired', 'prompt-logic-only', 'ui-manual-only', 'out-of-scope'] as const
+
+/** An agent browser check (dev-review 5a): what was done, where, and what was seen. */
+export type UiCheck = { steps: string; url: string; observed: string }
+
+/** The proof `/feature` builds for a PR: what `semctx_change_verify` and the NO TEST rows said, bound to a commit. */
+export type Proof = {
+  head: string
   verify: VerifyStatus
   gaps: string[]
   noTest: Record<string, string>
-  acceptedReasons: string[]
+  uiChecks?: Record<string, UiCheck>
   assertledger: AssertledgerVerdict
   hasAdapter: boolean
   typeFix: boolean
@@ -13,17 +24,381 @@ export type GateInput = {
 
 export type GateResult = { pass: true } | { pass: false; reason: string }
 
-const DEFAULT_REASONS = ['infra-not-wired', 'prompt-logic-only', 'ui-manual-only', 'out-of-scope']
+type Guard = { ok: true; proof: Proof } | { ok: false; reason: string }
 
-export function proofGate(input: GateInput): GateResult {
-  if (input.verify === 'BLOCKED') return { pass: false, reason: 'BLOCKED' }
-  if (input.verify === 'PARTIAL') {
-    const accepted = new Set(input.acceptedReasons.length ? input.acceptedReasons : DEFAULT_REASONS)
-    const unjustified = input.gaps.filter((gap) => !accepted.has(input.noTest[gap] ?? ''))
-    if (unjustified.length) return { pass: false, reason: `unjustified PARTIAL: ${unjustified.join(', ')}` }
+const PROOF_KEYS = ['head', 'verify', 'gaps', 'noTest', 'uiChecks', 'assertledger', 'hasAdapter', 'typeFix']
+const UI_CHECK_KEYS = ['steps', 'url', 'observed']
+const VERIFY: readonly unknown[] = ['VERIFIED', 'PARTIAL', 'BLOCKED']
+const ASSERTLEDGER: readonly unknown[] = ['detection', 'WEAK_ORACLE', 'miss', null]
+const COMMIT_SHA = /^[0-9a-f]{40}$/
+/** An absolute URL or a site path: the place the check was made. */
+const URL_OR_PATH = /^(?:https?:\/\/\S+|\/\S*)$/
+
+type Dict = Record<string, unknown>
+
+function isDict(value: unknown): value is Dict {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isText(value: unknown): value is string {
+  return typeof value === 'string' && value.trim() !== ''
+}
+
+/** The proof's shape, before any rule reads it. Never throws, never passes a doubtful value on. */
+function shape(input: unknown): Guard {
+  const bad = (what: string): Guard => ({ ok: false, reason: `malformed proof: ${what}` })
+  if (!isDict(input)) return bad('not an object')
+  for (const key of Object.keys(input)) if (!PROOF_KEYS.includes(key)) return bad(`unknown key ${JSON.stringify(key)}`)
+  if (typeof input.head !== 'string' || !COMMIT_SHA.test(input.head)) return bad('head is not a 40-hex commit sha')
+  if (!VERIFY.includes(input.verify)) return bad('verify is not VERIFIED, PARTIAL or BLOCKED')
+  if (!Array.isArray(input.gaps) || !input.gaps.every(isText)) return bad('gaps is not a list of names')
+  if (!isDict(input.noTest) || !Object.values(input.noTest).every((reason) => typeof reason === 'string')) {
+    return bad('noTest is not a map of gap to reason')
   }
-  if (input.typeFix && input.hasAdapter && input.assertledger !== 'detection') {
-    return { pass: false, reason: input.assertledger ?? 'assertledger-missing' }
+  if (input.uiChecks !== undefined) {
+    if (!isDict(input.uiChecks)) return bad('uiChecks is not a map of gap to check')
+    for (const [gap, check] of Object.entries(input.uiChecks)) {
+      if (!isDict(check)) return bad(`uiChecks.${gap} is not an object`)
+      for (const key of Object.keys(check)) {
+        if (!UI_CHECK_KEYS.includes(key)) return bad(`uiChecks.${gap} has unknown key ${JSON.stringify(key)}`)
+      }
+      for (const key of UI_CHECK_KEYS) {
+        if (typeof check[key] !== 'string') return bad(`uiChecks.${gap}.${key} is missing`)
+      }
+    }
+  }
+  if (!ASSERTLEDGER.includes(input.assertledger as AssertledgerVerdict)) return bad('assertledger is not a verdict')
+  if (typeof input.hasAdapter !== 'boolean') return bad('hasAdapter is not a boolean')
+  if (typeof input.typeFix !== 'boolean') return bad('typeFix is not a boolean')
+  return { ok: true, proof: input as unknown as Proof }
+}
+
+const has = (map: object, key: string) => Object.hasOwn(map, key)
+
+/** Why a recorded browser check does not stand, or `null` when it does. */
+function uiCheckFault(gap: string, check: UiCheck | undefined): string | null {
+  if (!check) return `ui-manual-only gap ${gap} has no uiChecks entry`
+  if (!isText(check.steps)) return `uiChecks.${gap}.steps is empty`
+  if (!isText(check.observed)) return `uiChecks.${gap}.observed is empty`
+  if (!URL_OR_PATH.test(check.url.trim())) return `uiChecks.${gap}.url is not a URL or a path`
+  return null
+}
+
+/**
+ * The proof, judged. `e2e` is whether `.dev/stack.yml` declares `commands.test_e2e`: then
+ * the e2e command is the UI proof and `ui-manual-only` is refused. The gate has no diff, so
+ * this is stricter than dev-review 5a, which only fires when the diff touches the frontend.
+ */
+export function proofGate(input: unknown, { e2e = false }: { e2e?: boolean } = {}): GateResult {
+  const guard = shape(input)
+  if (!guard.ok) return { pass: false, reason: guard.reason }
+  const { proof } = guard
+  if (proof.verify === 'BLOCKED') return { pass: false, reason: 'BLOCKED' }
+  if (proof.verify === 'PARTIAL') {
+    if (proof.gaps.length === 0) return { pass: false, reason: 'PARTIAL names no gap' }
+    const reasonOf = (gap: string) => (has(proof.noTest, gap) ? proof.noTest[gap] : '')
+    const unjustified = proof.gaps.filter((gap) => !(NO_TEST_REASONS as readonly string[]).includes(reasonOf(gap)))
+    if (unjustified.length) return { pass: false, reason: `unjustified PARTIAL: ${unjustified.join(', ')}` }
+    for (const gap of proof.gaps.filter((name) => reasonOf(name) === 'ui-manual-only')) {
+      if (e2e) return { pass: false, reason: `ui-manual-only refused for ${gap}: commands.test_e2e is declared` }
+      const fault = uiCheckFault(gap, proof.uiChecks && has(proof.uiChecks, gap) ? proof.uiChecks[gap] : undefined)
+      if (fault) return { pass: false, reason: fault }
+    }
+  }
+  if (proof.typeFix && proof.hasAdapter && proof.assertledger !== 'detection') {
+    return { pass: false, reason: proof.assertledger ?? 'assertledger-missing' }
   }
   return { pass: true }
+}
+
+// ── Change contracts: the real semctx grammar ─────────────────────────────────
+
+export type ChangeContract = { id: string; lifecycle: string | null; tags: string[]; file: string }
+
+const BLOCK_HEADER = /^(goal|invariant|decision|assumption|unknown|change|evidence|relation) (\S+)\s*$/
+const FIELD = /^ {2}(status|tag):[ \t]*(.*?)\s*$/
+
+/**
+ * The change contracts of one `.sem` text. A block opens on a column-0 `<kind> <id>` line
+ * and runs to the next column-0 non-blank line; its fields are indented two spaces. Only
+ * `change` blocks are contracts, and a contract's lifecycle is its own `status:` —
+ * `invariant` and `evidence` blocks carry other vocabularies there. A contract with no
+ * `status:` has `lifecycle: null`.
+ */
+export function parseChangeContracts(text: string, file: string): ChangeContract[] {
+  const out: ChangeContract[] = []
+  let open: ChangeContract | null = null
+  for (const line of text.split('\n')) {
+    const row = line.endsWith('\r') ? line.slice(0, -1) : line
+    if (row.trim() === '') continue
+    if (!row.startsWith(' ') && !row.startsWith('\t')) {
+      const header = BLOCK_HEADER.exec(row)
+      open = header?.[1] === 'change' ? { id: header[2] as string, lifecycle: null, tags: [], file } : null
+      if (open) out.push(open)
+      continue
+    }
+    const field = open ? FIELD.exec(row) : null
+    if (!open || !field) continue
+    if (field[1] === 'tag') {
+      if (field[2]) open.tags.push(field[2])
+    } else if (open.lifecycle === null && field[2]) {
+      open.lifecycle = field[2]
+    }
+  }
+  return out
+}
+
+const CHANGES_DIR = '.semctx/semantic/changes'
+
+/** The change contracts of the working tree's `<root>/.semctx/semantic/changes/*.sem`. No directory: none. */
+export function readChangeContracts(root: string): ChangeContract[] {
+  const dir = join(root, CHANGES_DIR)
+  let entries: string[]
+  try {
+    entries = readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.sem'))
+      .map((entry) => entry.name)
+      .sort()
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT' || (error as NodeJS.ErrnoException).code === 'ENOTDIR') {
+      return []
+    }
+    throw error
+  }
+  return entries.flatMap((file) => parseChangeContracts(readFileSync(join(dir, file), 'utf8'), file))
+}
+
+type TreeEntry = { mode: string; type: string; object: string; path: string }
+
+/** `git ls-tree -z HEAD <path>`: the HEAD-tree entries at `path` (`dir/` lists its children). */
+async function headTree(root: string, git: GitFn, path: string): Promise<TreeEntry[]> {
+  const listing = await git(root, ['ls-tree', '-z', 'HEAD', path])
+  return listing
+    .split('\0')
+    .filter(Boolean)
+    .map((entry) => {
+      const tab = entry.indexOf('\t')
+      const [mode = '', type = '', object = ''] = entry.slice(0, tab).split(' ')
+      return { mode, type, object, path: entry.slice(tab + 1) }
+    })
+}
+
+/** A blob git checks out as a plain file: no symlink, submodule or tree. */
+const isRegularBlob = (entry: TreeEntry) =>
+  entry.type === 'blob' && (entry.mode === '100644' || entry.mode === '100755') && entry.object !== ''
+
+/**
+ * The change contracts committed at HEAD: the `.sem` blobs directly under
+ * `.semctx/semantic/changes/` in the HEAD tree, read from git objects, never from the disk.
+ * An untracked, ignored or uncommitted contract is not in that tree. A `.sem` entry that is
+ * not a regular file (a symlink, a submodule, a directory) is a refusal, returned as a string.
+ */
+async function committedContracts(root: string, git: GitFn): Promise<ChangeContract[] | string> {
+  const out: ChangeContract[] = []
+  for (const entry of await headTree(root, git, `${CHANGES_DIR}/`)) {
+    const file = entry.path.slice(CHANGES_DIR.length + 1)
+    if (!file.endsWith('.sem')) continue
+    if (!isRegularBlob(entry)) return `${entry.path} is not a regular file at HEAD`
+    out.push(...parseChangeContracts(await git(root, ['cat-file', 'blob', entry.object]), file))
+  }
+  return out
+}
+
+// ── `.dev/stack.yml` ──────────────────────────────────────────────────────────
+
+export type ParseYaml = (text: string) => unknown
+
+function bunYaml(text: string): unknown {
+  if (typeof Bun === 'undefined' || typeof Bun.YAML?.parse !== 'function') {
+    throw new Error('.dev/stack.yml: reading it needs bun >= 1.2.21 (Bun.YAML)')
+  }
+  return Bun.YAML.parse(text)
+}
+
+/**
+ * The parsed `<root>/.dev/stack.yml` document on the disk, or `null` when the file is absent
+ * or blank. Throws when it is not valid YAML. `readLanding` reads it here; `proofCheck` reads
+ * the committed one (`committedStack`).
+ */
+export function readStack(root: string, parseYaml: ParseYaml = bunYaml): unknown {
+  let text: string
+  try {
+    text = readFileSync(join(root, STACK_FILE), 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw error
+  }
+  return parseStack(text, parseYaml)
+}
+
+const STACK_FILE = '.dev/stack.yml'
+
+function parseStack(text: string, parseYaml: ParseYaml): unknown {
+  if (!text.trim()) return null
+  try {
+    return parseYaml(text)
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith(STACK_FILE)) throw error
+    throw new Error(`${STACK_FILE} is not valid YAML: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+/**
+ * The parsed `.dev/stack.yml` committed at HEAD, or `null` when HEAD has none or it is blank —
+ * never the disk, so an uncommitted edit cannot change what the gate enforces. Throws when the
+ * entry is not a regular file or not valid YAML.
+ */
+async function committedStack(root: string, git: GitFn, parseYaml: ParseYaml = bunYaml): Promise<unknown> {
+  const [entry] = await headTree(root, git, STACK_FILE)
+  if (!entry) return null
+  if (!isRegularBlob(entry)) throw new Error(`${STACK_FILE} is not a regular file at HEAD`)
+  return parseStack(await git(root, ['cat-file', 'blob', entry.object]), parseYaml)
+}
+
+/** `commands.test_e2e` is a non-empty string, or a map with a non-empty `run` and no `skip: true`. */
+function declaresE2e(doc: unknown): boolean {
+  if (doc === null || doc === undefined) return false
+  if (!isDict(doc)) throw new Error('.dev/stack.yml: the document is not a map')
+  const commands = doc.commands
+  if (commands === null || commands === undefined) return false
+  if (!isDict(commands)) throw new Error('.dev/stack.yml: commands is not a map')
+  const e2e = commands.test_e2e
+  if (typeof e2e === 'string') return e2e.trim() !== ''
+  return isDict(e2e) && isText(e2e.run) && e2e.skip !== true
+}
+
+// ── The gate, applied to a repository ─────────────────────────────────────────
+
+/** `git` run in `cwd`, resolving to its trimmed stdout and rejecting on a non-zero exit. */
+export type GitFn = (cwd: string, args: string[]) => Promise<string>
+
+export type ProofCheck =
+  | { applies: false }
+  | { applies: true; pass: true }
+  | { applies: true; pass: false; reason: string }
+
+type EntryKind = 'absent' | 'dir' | 'file' | 'symlink' | 'other'
+
+/** What `path` is, without following a symlink. */
+function entryKind(path: string): EntryKind {
+  try {
+    const stat = lstatSync(path)
+    if (stat.isSymbolicLink()) return 'symlink'
+    if (stat.isDirectory()) return 'dir'
+    if (stat.isFile()) return 'file'
+    return 'other'
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'absent'
+    throw error
+  }
+}
+
+/** The first worktree `git worktree list --porcelain` names: the principal checkout. */
+function principalOf(porcelain: string): string | null {
+  const first = porcelain.split('\n').find((line) => line.startsWith('worktree '))
+  return first ? first.slice('worktree '.length) : null
+}
+
+/**
+ * The proof gate on a working tree. It applies when the repository has a `.semctx` — on the
+ * disk of this worktree or of its principal, or committed at HEAD; otherwise the repository
+ * does not use semctx and nothing is checked. Once it applies, anything unreadable or
+ * doubtful is a refusal, never a pass. Every input it enforces is read from HEAD.
+ *
+ * The ticket's contracts are the `change` blocks tagged `issue-<issue>` committed at HEAD
+ * (`committedContracts`): each is `superseded` or at the lifecycle the proof claims
+ * (VERIFIED → `verified`, PARTIAL → `partial`), and at least one is. Other contracts are
+ * not the ticket's and are ignored. What is bound is the contract in the commit the proof
+ * names; the gate does not re-run verification after later commits.
+ * `body`, when given, is the PR body: it must carry every recorded browser check.
+ */
+export async function proofCheck(
+  cwd: string,
+  {
+    proof,
+    issue,
+    body,
+    git,
+    parseYaml,
+  }: { proof?: unknown; issue: number | string | null; body?: string; git: GitFn; parseYaml?: ParseYaml },
+): Promise<ProofCheck> {
+  const refuse = (reason: string): ProofCheck => ({ applies: true, pass: false, reason })
+  let root: string
+  try {
+    root = await git(cwd, ['rev-parse', '--show-toplevel'])
+  } catch {
+    return refuse('no-repo-root')
+  }
+  let principal: string
+  try {
+    principal = principalOf(await git(root, ['worktree', 'list', '--porcelain'])) ?? root
+  } catch {
+    return refuse('principal-unreadable')
+  }
+  if (entryKind(join(root, '.semctx')) === 'absent' && entryKind(join(principal, '.semctx')) === 'absent') {
+    // An unborn HEAD has no tree, so nothing can be committed there.
+    const born = await git(root, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}']).then(
+      () => true,
+      () => false,
+    )
+    let committed: TreeEntry[] = []
+    try {
+      if (born) committed = await headTree(root, git, '.semctx')
+    } catch (error) {
+      return refuse(error instanceof Error ? error.message : String(error))
+    }
+    if (committed.length === 0) return { applies: false }
+  }
+
+  if (proof === undefined || proof === null) return refuse('no proof supplied')
+
+  let e2e: boolean
+  try {
+    e2e = declaresE2e(await committedStack(root, git, parseYaml))
+  } catch (error) {
+    return refuse(error instanceof Error ? error.message : String(error))
+  }
+  const verdict = proofGate(proof, { e2e })
+  if (!verdict.pass) return refuse(verdict.reason)
+  const checked = proof as Proof
+
+  let head: string
+  try {
+    head = await git(root, ['rev-parse', 'HEAD'])
+  } catch (error) {
+    return refuse(error instanceof Error ? error.message : String(error))
+  }
+  if (checked.head !== head) return refuse(`proof head ${checked.head.slice(0, 7)} is not HEAD ${head.slice(0, 7)}`)
+
+  const ticket = Number(issue)
+  if (!Number.isInteger(ticket) || ticket <= 0) return refuse('no ticket number')
+  const tag = `issue-${ticket}`
+  let committed: ChangeContract[] | string
+  try {
+    committed = await committedContracts(root, git)
+  } catch (error) {
+    return refuse(error instanceof Error ? error.message : String(error))
+  }
+  if (typeof committed === 'string') return refuse(committed)
+  const contracts = committed.filter((contract) => contract.tags.includes(tag))
+  if (contracts.length === 0) return refuse(`no change contract tagged ${tag} is committed at HEAD`)
+  const want = checked.verify === 'VERIFIED' ? 'verified' : 'partial'
+  const stale = contracts.find((contract) => contract.lifecycle !== 'superseded' && contract.lifecycle !== want)
+  if (stale) {
+    return refuse(
+      `change contract ${stale.id} is ${stale.lifecycle ?? 'unset'} at HEAD; a ${checked.verify} proof needs ${want}`,
+    )
+  }
+  if (!contracts.some((contract) => contract.lifecycle === want)) {
+    return refuse(`no change contract tagged ${tag} is ${want} at HEAD; a ${checked.verify} proof needs one`)
+  }
+
+  if (body !== undefined) {
+    for (const [gap, check] of Object.entries(checked.uiChecks ?? {})) {
+      if (!body.includes(check.url) || !body.includes(check.observed)) {
+        return refuse(`the PR body does not record the browser check for ${gap} (its url and observed result)`)
+      }
+    }
+  }
+  return { applies: true, pass: true }
 }

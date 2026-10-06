@@ -45,7 +45,9 @@ function installedCli(base: string, issueTriage: 'present' | 'absent' | 'broken'
   mkdirSync(path.join(ompBuild, 'skills', 'feature'), { recursive: true })
   mkdirSync(nodeModules, { recursive: true })
   writeFileSync(path.join(ompBuild, 'package.json'), JSON.stringify({ name: 'omp-build', type: 'module' }))
-  cpSync(CLI, path.join(ompBuild, 'skills', 'feature', 'feature-init.ts'))
+  for (const file of ['feature-init.ts', 'proof-gate.ts']) {
+    cpSync(path.join(FEATURE_DIR, file), path.join(ompBuild, 'skills', 'feature', file))
+  }
   symlinkSync(ompBuild, path.join(nodeModules, 'omp-build'))
   if (issueTriage !== 'absent') {
     const installed = path.join(cache, 'issue-triage-0.0.0')

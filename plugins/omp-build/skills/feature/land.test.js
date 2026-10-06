@@ -2,11 +2,12 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { checkoutGit as fakeGit } from './__tests__/checkout-git'
 import {
   applyCiWatchExit,
   commentPageArgs,
   disarmReviewedBeforePush,
-  landPr,
+  landPr as landPrWith,
   parseRequiredContexts,
 } from './workflow.js'
 
@@ -19,6 +20,9 @@ function checkout(files = {}) {
   }
   return dir
 }
+
+/** `landPr` with the proof gate seeing a plain repository, unless a test passes its own `git`. */
+const landPr = (cwd, pr, options = {}) => landPrWith(cwd, pr, { git: fakeGit(), ...options })
 
 describe('parseRequiredContexts', () => {
   it('parses classic contexts and checks', () => {
@@ -55,7 +59,7 @@ const ME = 'omp-bot'
 /** The one query the automation login comes from. */
 const IDENTITY = ['api', 'user', '--jq', '.login']
 /** The fields of the one gate read `landPr` makes before deciding. */
-const GATE_FIELDS = 'headRefOid,state,labels,autoMergeRequest'
+const GATE_FIELDS = 'headRefOid,headRefName,state,labels,autoMergeRequest'
 /** @param {number} pr */
 const GATE_READ = (pr) => ['pr', 'view', String(pr), '--json', GATE_FIELDS]
 /** @param {unknown[]} args @param {unknown[]} expected */
@@ -122,6 +126,7 @@ function mockLand({
     if (args[0] === 'pr' && args[1] === 'view' && args[jsonAt + 1] === GATE_FIELDS) {
       return JSON.stringify({
         headRefOid: REVIEWED_HEAD,
+        headRefName: 'feat/7-widget',
         state: 'OPEN',
         labels: labels.map((name) => ({ name })),
         autoMergeRequest: null,
@@ -335,7 +340,14 @@ describe('landPr', () => {
  * A PR whose gate follows the calls made on it: labels, native auto-merge, labeled events,
  * comments by author. Only exact argv is answered; anything else throws.
  */
-function gatePr({ comments, labels = [], autoMerge = null, state = 'OPEN', headRefOid = null }) {
+function gatePr({
+  comments,
+  labels = [],
+  autoMerge = null,
+  state = 'OPEN',
+  headRefOid = null,
+  headRefName = 'feat/7-widget',
+}) {
   const pr = { comments: [...comments], labels: new Set(labels), autoMerge, state, labeledAt: [], headRefOid }
   const calls = []
   const gh = async (_cwd, args) => {
@@ -363,6 +375,7 @@ function gatePr({ comments, labels = [], autoMerge = null, state = 'OPEN', headR
         else if (field === 'autoMergeRequest') view.autoMergeRequest = pr.autoMerge
         else if (field === 'state') view.state = pr.state
         else if (field === 'headRefOid') view.headRefOid = pr.headRefOid
+        else if (field === 'headRefName') view.headRefName = headRefName
         else throw new Error(`unexpected field: ${field}`)
       }
       return JSON.stringify(view)
@@ -951,5 +964,128 @@ describe('landPr — an approval arms only the commit it reviewed', () => {
     expect(result).toEqual({ status: 'auto-merge-failed', armed: true })
     expect(fake.calls.some(armsLabel)).toBe(false)
     expect(fake.pr.labels.has('reviewed')).toBe(false)
+  })
+})
+
+describe('landPr — the proof gate stands before anything is armed', () => {
+  const TICKET_BRANCH = 'feat/42-alpha'
+  const sem = (lifecycle) =>
+    `change change.alpha\n  statement: a fictional contract\n  status: ${lifecycle}\n  tag: issue-42\n`
+  const semctxCheckout = (lifecycle = 'verified') => checkout({ '.semctx/semantic/changes/alpha.sem': sem(lifecycle) })
+  const proof = (head = REVIEWED_HEAD) => ({
+    head,
+    verify: 'VERIFIED',
+    gaps: [],
+    noTest: {},
+    assertledger: null,
+    hasAdapter: false,
+    typeFix: false,
+  })
+  const approved = (over = {}) =>
+    gatePr({
+      comments: [byMe(boundReview('Approve (clean)', REVIEWED_HEAD))],
+      headRefOid: REVIEWED_HEAD,
+      headRefName: TICKET_BRANCH,
+      ...over,
+    })
+  const refusal = (reason, extra = {}) => ({ status: 'proof-blocked', reason, ...extra })
+  const ACTIVE = 'change contract change.alpha is active at HEAD; a VERIFIED proof needs verified'
+
+  it('lands when the proof holds for the PR head and the ticket the head branch names', async () => {
+    const fake = approved()
+    const result = await landPr(semctxCheckout(), 7, {
+      gh: fake.gh,
+      git: fakeGit(),
+      proof: proof(),
+      ...NATIVE,
+    })
+    expect(result).toMatchObject({ status: 'watching', mode: 'native' })
+    expect(fake.calls.some(armsLabel)).toBe(true)
+  })
+
+  it('refuses a contract that is not closed: proof-blocked, the armed gate disarmed, nothing armed', async () => {
+    const fake = approved(ARMED)
+    const result = await landPr(semctxCheckout('active'), 7, { gh: fake.gh, proof: proof(), ...NATIVE })
+    expect(result).toEqual(refusal(ACTIVE, { disarmed: true }))
+    expect([...fake.pr.labels]).toEqual(['size:F-lite'])
+    expect(fake.pr.autoMerge).toBe(null)
+    expect(fake.calls.some(armsLabel)).toBe(false)
+    expect(fake.calls.some((args) => args[1] === 'merge' && args.includes('--auto'))).toBe(false)
+  })
+
+  it('writes nothing at all when there was no armed gate to disarm', async () => {
+    const fake = approved()
+    const result = await landPr(semctxCheckout('active'), 7, { gh: fake.gh, proof: proof(), ...NATIVE })
+    expect(result).toEqual(refusal(ACTIVE))
+    expect(noWrite(fake.calls)).toBe(false)
+  })
+
+  it('refuses a semctx repo that supplies no proof', async () => {
+    const fake = approved()
+    const result = await landPr(semctxCheckout(), 7, { gh: fake.gh, ...NATIVE })
+    expect(result).toEqual(refusal('no proof supplied'))
+    expect(noWrite(fake.calls)).toBe(false)
+  })
+
+  it('refuses a proof built for a commit that is not the PR head', async () => {
+    const other = 'c'.repeat(40)
+    const fake = approved(ARMED)
+    // The checkout is at `other` and the proof says so: it passes `proofCheck`, but it is not the PR head.
+    const result = await landPr(semctxCheckout(), 7, {
+      gh: fake.gh,
+      git: fakeGit({ head: other }),
+      proof: proof(other),
+      ...NATIVE,
+    })
+    expect(result).toEqual(refusal('proof head is not the PR head', { disarmed: true }))
+    expect(fake.calls.some(armsLabel)).toBe(false)
+  })
+
+  it('refuses a checkout that is not at the proof head', async () => {
+    const fake = approved()
+    const result = await landPr(semctxCheckout(), 7, {
+      gh: fake.gh,
+      git: fakeGit({ head: 'c'.repeat(40) }),
+      proof: proof(),
+      ...NATIVE,
+    })
+    expect(result).toMatchObject({ status: 'proof-blocked' })
+    expect(result.reason).toMatch(/^proof head [0-9a-f]{7} is not HEAD [0-9a-f]{7}$/)
+    expect(noWrite(fake.calls)).toBe(false)
+  })
+
+  it('takes the ticket from the PR head branch, not from the caller', async () => {
+    const fake = approved({ headRefName: 'feat/43-beta' })
+    const result = await landPr(semctxCheckout(), 7, { gh: fake.gh, proof: proof(), ...NATIVE })
+    expect(result).toEqual(refusal('no change contract tagged issue-43 is committed at HEAD'))
+  })
+
+  it('refuses a head branch that names no ticket', async () => {
+    const fake = approved({ headRefName: 'scratch' })
+    const result = await landPr(semctxCheckout(), 7, { gh: fake.gh, proof: proof(), ...NATIVE })
+    expect(result).toEqual(refusal('no ticket number'))
+  })
+
+  it('lets not-approved win: the proof is not even read behind a red review', async () => {
+    const asked = []
+    const git = fakeGit()
+    const fake = gatePr({ comments: [red()], headRefOid: REVIEWED_HEAD, headRefName: TICKET_BRANCH, ...ARMED })
+    const result = await landPr(semctxCheckout('active'), 7, {
+      gh: fake.gh,
+      git: async (cwd, args) => {
+        asked.push(args)
+        return git(cwd, args)
+      },
+      proof: proof(),
+      ...NATIVE,
+    })
+    expect(result).toEqual({ status: 'not-approved', reviews: 1, disarmed: true })
+    expect(asked).toEqual([])
+  })
+
+  it('does not read the proof of a repository without .semctx', async () => {
+    const fake = approved()
+    const result = await landPr(checkout(), 7, { gh: fake.gh, ...NATIVE })
+    expect(result).toMatchObject({ status: 'watching', mode: 'native' })
   })
 })

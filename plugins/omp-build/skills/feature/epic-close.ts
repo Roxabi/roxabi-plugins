@@ -5,18 +5,35 @@ import { join, sep } from 'node:path'
 
 export type MergedChild = {
   number: number
-  baseSha: string
+  baseSha: string | null
   mergeSha: string | null
+  mergedAt: string | null
 }
 
-/** First merged child's base .. last merged child's merge commit, children in merge order. */
-export function epicDiffRange(children: MergedChild[]): { range: string } | { error: string } {
+const SHA = /^[0-9a-f]{40}$/
+
+/**
+ * The final review's diffs: one `baseSha..mergeSha` per merged child, comma-joined,
+ * in merge order (`mergedAt`, then issue number). Each is that merge's first-parent
+ * diff, so a foreign merge landed between two children is in no element. `end` is the
+ * last child's merge commit. This is the only place that orders children; a merged
+ * child with an unusable base, merge commit or merge time refuses the whole range.
+ */
+export function epicDiffRange(children: MergedChild[]): { range: string; end: string } | { error: string } {
   const merged = children.filter((child) => child.mergeSha)
   if (!merged.length) return { error: 'no merged children' }
-  const first = merged[0]
-  const last = merged[merged.length - 1]
-  if (!first || !last?.mergeSha) return { error: 'no merged children' }
-  return { range: `${first.baseSha}..${last.mergeSha}` }
+  const ordered: { number: number; baseSha: string; mergeSha: string; mergedAt: string }[] = []
+  for (const child of merged) {
+    const { number, baseSha, mergeSha, mergedAt } = child
+    if (!baseSha || !SHA.test(baseSha)) return { error: `merged child #${number} has no usable merge base` }
+    if (!mergeSha || !SHA.test(mergeSha)) return { error: `merged child #${number} has no usable merge commit` }
+    if (!mergedAt) return { error: `merged child #${number} has no merge time` }
+    ordered.push({ number, baseSha, mergeSha, mergedAt })
+  }
+  ordered.sort((a, b) => (a.mergedAt < b.mergedAt ? -1 : a.mergedAt > b.mergedAt ? 1 : a.number - b.number))
+  const last = ordered[ordered.length - 1]
+  if (!last) return { error: 'no merged children' }
+  return { range: ordered.map((child) => `${child.baseSha}..${child.mergeSha}`).join(','), end: last.mergeSha }
 }
 
 // ── Post-merge hook (ADR-024 §1) ─────────────────────────────────────────────
