@@ -84,7 +84,7 @@ d ∈ D := {tag: str, file: str, line: int, description: str, phase: str}
 
 ## Clean Tree — before everything
 
-The first check, before Phase 0 and before every other halt: `git status --porcelain` (untracked files included, ignored files not) non-empty → halt and list the paths: commit, stash (`git stash -u`) or remove them, then re-run. Nothing runs first — not the taxonomy load, not the record read — so no other `fix` halt can fire over a change that was already in the tree when `fix` started, and a caller that routes a halt by its kind never finds such a change behind a non-dirty halt. The halt comes before any apply, defer or filing step, whatever the plan would hold: a run with nothing to apply halts too. It is the chosen guard against a stray change shipping under a fix receipt: `fix` refuses the tree, its callers are not asked to hold back a commit. Nothing is committed around the halt.
+The first check, before Phase 0 and before every other halt: `git status --porcelain` (untracked files included, ignored files not) non-empty → **HALT**: `[dirty-tree] {paths} — commit, stash (git stash -u) or remove them, then re-run.` The message starts with the literal marker `[dirty-tree]`, like `[taxonomy-error]` below; no other halt carries it, and a caller routes on the marker, never on the prose. Nothing runs first — not the taxonomy load, not the record read — so no other `fix` halt can fire over a change that was already in the tree when `fix` started. The halt comes before any apply, defer or filing step, whatever the plan would hold: a run with nothing to apply halts too. It is the chosen guard against a stray change shipping under a fix receipt: `fix` refuses the tree, its callers are not asked to hold back a commit. Nothing is committed around the halt.
 
 ## Phase 0 — Load Taxonomy
 
@@ -344,7 +344,7 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 | Blocking cause already under Filed, or a still-non-blocking cause already under Deferred | `already filed → #N` or `already deferred → #N`. A non-blocking cause only under Filed is deferred now. A prior deferral does not suppress filing a blocking cause that is ineligible or failed |
 | All causes non-blocking | Commit nothing. One follow-up lists those not already deferred; none left → no issue. Receipt reports deferred → #N and already deferred → #N. No push |
 | Mixed causes | Apply the well-formed blocking eligible ones. A malformed block is not applied. One deferral issue holds every non-blocking cause, every uncited non-blocking finding, and every cited non-blocking finding of a malformed block, each not already deferred |
-| Dirty tree at start | Halt in the clean-tree check, before Phase 0 and every other halt, and list the paths — before any apply, defer or filing, also when nothing would be applied |
+| Dirty tree at start | `[dirty-tree] {paths}` halt in the clean-tree check, before Phase 0 and every other halt — before any apply, defer or filing, also when nothing would be applied |
 | Apply fails after 3 | Restore to the last cause commit, `[failed]`, file, continue |
 | Falsification fails twice | Revert that cause's commits, `[failed]`, file |
 | Quality gate fails 3× on the push | Halt, commits stay local. No cause commit → the push is skipped, not failed |

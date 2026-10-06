@@ -176,8 +176,8 @@ each already disarmed and recorded exactly like the `stop` subcommand does.
 | `nextReviewStep` `stop`, any reason | Ticket stop `--reason review-bound`; the step already disarmed the PR |
 | `nextReviewStep` or `landPr` throws | Ticket stop `--reason stopped`, the error as detail |
 | proof gate BLOCKED | Ticket stop `--reason proof-blocked` |
-| `fix` halts on a dirty tree (its clean-tree check, which precedes every other `fix` halt) | Shared-state stop: the `drop` row, `--reason dirty-tree`. Commit nothing around it and call no ticket `stop`: its `wip:` commit would put the stray change on the branch the next fix pushes |
-| `fix` halts otherwise (no record, taxonomy, malformed record, push failed) | Ticket stop `--reason stopped`, `fix`'s message as detail. The clean-tree check ran first, so no stray change from before `fix` started is behind it |
+| `fix` halt message starts with `[dirty-tree]` (its clean-tree check, which precedes every other `fix` halt) | Shared-state stop: the `drop` row, `--reason dirty-tree`. Commit nothing around it and call no ticket `stop`: its `wip:` commit would put the stray change on the branch the next fix pushes |
+| any other `fix` halt (no `[dirty-tree]` marker: no record, taxonomy, malformed record, push failed) | Ticket stop `--reason stopped`, `fix`'s message as detail. The clean-tree check ran first, so no stray change from before `fix` started is behind it |
 | `watch-failed`, `bad-landing`, `no-required-checks`, `evaluate-only`, `auto-merge-failed`, any other status | Shared-state stop: the `drop` row, `--reason <status>` |
 | issue-triage CLI unresolvable | Shared-state stop: the `drop` row, `--reason tracker-unresolvable` |
 | driver exit 1 | Shared-state stop: the `drop` row, `--reason driver-error` (`hook-failed` for `hook`) |
@@ -408,8 +408,9 @@ step from the records.
 - review round (no reason) → execute `skill://fix` with `#<pr>`. It applies one
   change per well-formed posted root cause that contains a blocking finding. A block missing a non-empty `mechanism:`, `fix:`, or `findings:` line is not applied; its blocking cited findings are filed per finding. It does not stop for a per-finding choice. Non-blocking causes are not applied; they go into one sibling follow-up, blocked by the origin. A blocking cause it
   cannot apply becomes its own sibling issue. `fix` halts on a dirty tree before
-  any defer or filing step, even with nothing to apply: that refusal is the guard
-  against a stray change shipping under its receipt, not a rule for you. `fix`
+  any defer or filing step, even with nothing to apply, with a message that starts
+  `[dirty-tree]`: that refusal is the guard against a stray change shipping under
+  its receipt, not a rule for you. Route a halt on that marker, not its prose. `fix`
   commits each applied cause, pushes when it committed one, and posts
   `## Review Fixes Applied` itself; you commit nothing in this round. Any `fix`
   halt → report it and stop here, with no commit and no §6.4 (Epic goal: the
