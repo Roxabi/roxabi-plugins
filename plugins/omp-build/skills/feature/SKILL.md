@@ -411,8 +411,9 @@ const proof = {
 ```
 
 What it refuses: a `proof` that is missing, malformed or carries an unknown key; a
-`head` other than the checkout's HEAD; an unreadable or invalid `.dev/stack.yml`; a
-cwd that is not inside a git checkout. The ticket's contracts are the `change`
+`head` other than the checkout's HEAD; for `openPr`, a `branch` that does not name
+the ticket or whose local tip is not `proof.head`; an unreadable or invalid
+`.dev/stack.yml`; a cwd that is not inside a git checkout. The ticket's contracts are the `change`
 blocks of the `.sem` files committed at HEAD under `.semctx/semantic/changes/`
 (each a regular file; a symlink or other entry there is refused), tagged
 `issue-<N>`: none → refused; each must be `superseded` or at the lifecycle the

@@ -481,6 +481,35 @@ describe('openPr', () => {
       expect(calls).toEqual([])
     })
 
+    describe('the branch the PR is opened from', () => {
+      const open = async (input, branches = {}) => {
+        const { gh, calls } = mockGh()
+        const git = repoGit({ head: PROOF_HEAD, branches })
+        return { result: await openPr(semctxCheckout(), { ...input, proof: proof() }, { gh, git }), calls }
+      }
+
+      it.each([
+        ['another ticket', 'feat/495-other', 'branch feat/495-other names #495, not #494'],
+        ['no ticket', 'scratch', 'branch scratch names no ticket, not #494'],
+      ])('refuses a branch that names %s, before any gh call', async (_name, branch, reason) => {
+        const { result, calls } = await open({ ...INPUT, branch })
+        expect(result).toEqual(refusal(reason))
+        expect(calls).toEqual([])
+      })
+
+      it('refuses a branch whose local tip is not the proof head', async () => {
+        const { result, calls } = await open(INPUT, { [INPUT.branch]: 'c'.repeat(40) })
+        expect(result).toEqual(refusal(`branch ${INPUT.branch} is at ccccccc, not the proof head aaaaaaa`))
+        expect(calls).toEqual([])
+      })
+
+      it('refuses a branch that does not exist locally', async () => {
+        const { result, calls } = await open(INPUT, { [INPUT.branch]: null })
+        expect(result).toEqual(refusal(`branch ${INPUT.branch} is not a local branch`))
+        expect(calls).toEqual([])
+      })
+    })
+
     it('opens a PR in a repository without .semctx, whatever the proof says', async () => {
       const { gh, calls } = mockGh()
       const dir = mkdtempSync(join(tmpdir(), 'openpr-plain-'))

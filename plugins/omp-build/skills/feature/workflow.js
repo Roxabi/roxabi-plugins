@@ -341,7 +341,9 @@ export async function resolveReviewPr(cwd, explicitPr, { gh: ghFn = gh, git: git
  *
  * The proof gate runs first (`proofCheck`, `proof-gate.ts`), before any `gh` call — so it
  * also stands before an already-open PR is reported. In a semctx repo the PR opens only on
- * a proof that holds; a refusal is a result, not a throw.
+ * a proof that holds; a refusal is a result, not a throw. Where the gate applies, the PR's
+ * `branch` must also name `issue` and its local tip must be `proof.head`: the proof is
+ * bound to the branch the PR is opened from, not only to the checkout `cwd`.
  *
  * Contract:
  *
@@ -381,7 +383,26 @@ export async function openPr(
   const prTitle = requireField(title, 'title')
 
   const checked = await proofCheck(cwd, { proof, issue: n, body: bodyFor(body, n), git: gitFn })
-  if (checked.applies && !checked.pass) return { status: 'proof-blocked', reason: checked.reason }
+  if (checked.applies) {
+    if (!checked.pass) return { status: 'proof-blocked', reason: checked.reason }
+    const named = ticketOfBranch(head)
+    if (named !== n) {
+      return { status: 'proof-blocked', reason: `branch ${head} names ${named ? `#${named}` : 'no ticket'}, not #${n}` }
+    }
+    const proofHead = /** @type {{ head: string }} */ (proof).head
+    let tip
+    try {
+      tip = await gitFn(cwd, ['rev-parse', '--verify', '--quiet', `refs/heads/${head}^{commit}`])
+    } catch {
+      return { status: 'proof-blocked', reason: `branch ${head} is not a local branch` }
+    }
+    if (tip !== proofHead) {
+      return {
+        status: 'proof-blocked',
+        reason: `branch ${head} is at ${tip.slice(0, 7)}, not the proof head ${proofHead.slice(0, 7)}`,
+      }
+    }
+  }
 
   const already = await findOpenPr(cwd, head, baseRef, ghFn)
   if (already !== null) return { number: already, status: 'existing' }

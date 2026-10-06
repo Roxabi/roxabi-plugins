@@ -31,29 +31,36 @@ function listing(root: string, dir: string): string {
 
 /**
  * The `git` of a checkout whose files on disk are exactly what is committed at `head`. Its
- * root is the `cwd` it is asked about; its principal is that root unless given. The unit
- * tests never fork, so the proof gate gets this instead of the real `git`; the real one runs
- * in `proof-gate.integration.test.ts`.
+ * root is the `cwd` it is asked about; its principal is that root unless given. A local
+ * branch is at `branches[name]` (`null`: no such branch), else at `head`. The unit tests
+ * never fork, so the proof gate gets this instead of the real `git`; the real one runs in
+ * `proof-gate.integration.test.ts`.
  */
 export function checkoutGit({
   head = '0123456789abcdef0123456789abcdef01234567',
   principal,
   noRoot = false,
-  calls,
+  branches = {},
 }: {
   head?: string
   principal?: string
   noRoot?: boolean
-  calls?: string[][]
+  branches?: Record<string, string | null>
 } = {}) {
   return async (cwd: string, args: string[]): Promise<string> => {
-    calls?.push(args)
     if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') {
       if (noRoot) throw new Error('fatal: not a git repository')
       return cwd
     }
     if (args[0] === 'worktree') return `worktree ${principal ?? cwd}\n`
     if (args[0] === 'rev-parse' && args[1] === 'HEAD') return head
+    const ref =
+      args[0] === 'rev-parse' && args[1] === '--verify' ? /^refs\/heads\/(.+)\^\{commit\}$/.exec(args[3] ?? '') : null
+    if (ref) {
+      const tip = Object.hasOwn(branches, ref[1] as string) ? branches[ref[1] as string] : head
+      if (tip === null || tip === undefined) throw new Error('git rev-parse --verify: exit 1')
+      return tip
+    }
     if (args[0] === 'ls-tree' && args[2] === 'HEAD') return listing(cwd, args[3] ?? '')
     if (args[0] === 'cat-file' && args[1] === 'blob') return readFileSync(join(cwd, args[2] ?? ''), 'utf8')
     throw new Error(`unexpected git ${args.join(' ')}`)
