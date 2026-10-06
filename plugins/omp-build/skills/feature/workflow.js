@@ -927,8 +927,9 @@ export function declaredRequiredChecks(cwd) {
 /**
  * The check set the CI-fix counter prices. A declared list, including an empty one
  * (every check). Otherwise protection and rulesets, fail closed: a failed or
- * unparsable read throws. `[]` from a read that succeeded and named nothing means
- * every check.
+ * unparsable read throws. A 404 on the classic protection read means the branch has
+ * no classic protection, not a failed read; the ruleset read stays fail closed.
+ * `[]` from a read that succeeded and named nothing means every check.
  *
  * @param {string} cwd
  * @param {string | number} pr
@@ -955,19 +956,22 @@ async function resolveFixChecks(cwd, pr, ghFn, landing) {
   }
   const base = prJson?.baseRefName
   if (typeof base !== 'string' || !base) throw new Error('required checks: the PR named no base')
-  let classic
+  let classic = null
   let rules
   try {
     classic = await ghFn(cwd, protectionArgs(slug.owner, slug.repo, base))
   } catch (error) {
-    throw new Error(`required checks: protection read failed — ${error instanceof Error ? error.message : error}`)
+    if (!isMissingRef(error)) {
+      throw new Error(`required checks: protection read failed — ${error instanceof Error ? error.message : error}`)
+    }
   }
   try {
     rules = await ghFn(cwd, rulesetArgs(slug.owner, slug.repo, base))
   } catch (error) {
     throw new Error(`required checks: ruleset read failed — ${error instanceof Error ? error.message : error}`)
   }
-  return [...new Set([...strictRequiredContexts(classic), ...strictRequiredContexts(rules)])]
+  const classicContexts = classic === null ? [] : strictRequiredContexts(classic)
+  return [...new Set([...classicContexts, ...strictRequiredContexts(rules)])]
 }
 
 /** @param {string} cwd @param {(cwd: string, args: string[]) => Promise<string>} ghFn */

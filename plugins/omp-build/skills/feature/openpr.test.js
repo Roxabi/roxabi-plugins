@@ -1176,5 +1176,37 @@ describe('nextReviewStep — the bound is two reads of the review records', () =
         }),
       ).rejects.toThrow('could be spent')
     })
+
+    it('a 404 on classic protection is no classic protection, and the ruleset is priced', async () => {
+      const fake = fakePr({ comments: [approve(C1)], head: C1, checks: { [C1]: [failRun()] } })
+      const gh = async (cwd, args) => {
+        const endpoint = args[0] === 'api' ? String(args.at(-1)) : ''
+        if (endpoint.includes('required_status_checks')) throw new Error('gh: HTTP 404')
+        if (endpoint.includes('/rules/branches/')) {
+          return JSON.stringify([
+            { type: 'required_status_checks', parameters: { required_status_checks: [{ context: 'deploy' }] } },
+          ])
+        }
+        return fake.gh(cwd, args)
+      }
+      // 'deploy' is required and no run names it, so the 'ci' failure is not a CI fix.
+      // A hard 404 throws 'protection read failed'; an ignored ruleset counts every check and grants the fix.
+      await expect(nextReviewStep('/tmp/omp-rc1-absent-stack', PR, { ciFailed: true, gh })).rejects.toThrow(
+        'granted only when the current head is a counted CI fix',
+      )
+    })
+
+    it('a 403 on the classic protection read still fails closed', async () => {
+      const fake = fakePr({ comments: [approve(C1)], head: C1, checks: { [C1]: [failRun()] } })
+      const gh = async (cwd, args) => {
+        const endpoint = args[0] === 'api' ? String(args.at(-1)) : ''
+        if (endpoint.includes('required_status_checks')) throw new Error('gh: HTTP 403')
+        return fake.gh(cwd, args)
+      }
+      await expect(nextReviewStep('/tmp/omp-rc1-absent-stack', PR, { ciFailed: true, gh })).rejects.toThrow(
+        'protection read failed',
+      )
+      expect(writesOf(fake)).toEqual([])
+    })
   })
 })
