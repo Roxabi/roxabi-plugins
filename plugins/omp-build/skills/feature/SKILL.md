@@ -402,6 +402,9 @@ step = await nextReviewStep(cwd, pr, { posted: { verdict, head: REVIEWED_HEAD } 
 the latest review record must be that post, or it throws and decides nothing.
 Every posted review counts toward the bound, whether or not a fix follows it.
 
+The nested review's step 0 (`dev-review` Phase 1) disarms the PR before the panel
+reads the diff — for a PR opened in §6.3 and for an `existing` one resumed in §6.0.
+
 Present the Phase 8 human choice constrained by `step` (§6.6). Never choose on
 the user's behalf or offer “Merge as-is” for a red verdict — except under the
 Epic goal, where the choice follows `step.action` with no prompt. The human's
@@ -440,6 +443,12 @@ stop is not in the records: under the Epic goal the ticket stop keeps it;
 outside it, re-entry is the operator's call. The dossier lives in `dev-review`
 Phase 8.
 
+**The armed gate (#713).** An OPEN PR is armed — `reviewed` label or auto-merge
+enabled — only when the latest review record approves the current head, the bound
+is not spent, and no review of that head is running. `disarmGate` is the one
+disarm: `nextReviewStep` and `landPr` call it wherever the gate may not stay armed,
+and a disarm that cannot finish throws an error naming what stays armed.
+
 ### 6.7 Land
 
 Only `step.action === 'land'` may reach this step. Obtain the operator's merge
@@ -473,7 +482,13 @@ string as given — the OMP shell does not resolve `skill://` for a bare `bash`
 argv. It does not poll. Native enables the pinned auto-merge
 (`--match-head-commit` of the reviewed sha) before adding `reviewed`.
 `already enabled` is not success: auto-merge is disabled and enabled again with
-that pin, or `landPr` returns `auto-merge-failed` without the label. The fleet
+that pin. If that disable fails and the head is still the reviewed one, `landPr`
+returns `auto-merge-failed` with `armed: true` and an `error` naming what stays
+armed — the label may stay. A head that moved or cannot be read in that window
+is disarmed through `disarmGate`; `armed: false` is returned only when that
+read-back confirms the gate clear. When the disarm cannot finish, or the
+read-back shows the gate still armed, the same status carries an `error` naming
+the remainder. The fleet
 workflow enables only on `labeled`, and only when the event head equals the
 line-2 sha of the latest automation-account Approve record. On `synchronize` it
 disables auto-merge and removes `reviewed` instead of re-enabling from a
@@ -519,7 +534,7 @@ Neither a fix round nor another review action may write that label in this cycle
 | `no-required-checks` | Stop; report missing protection. Native only, when no required context was found (declared `landing.required_checks`, protection or rulesets) — merge-on-green does not return this |
 | `timeout` | Re-attach the watch. Do not claim merged. Epic goal: ticket stop, no re-attach |
 | `stopped` | Stop and report. Do not claim merged |
-| `auto-merge-failed` | Stop; inspect and report actual PR/label/auto-merge state, never claim merged |
+| `auto-merge-failed` | Stop; inspect and report actual PR/label/auto-merge state, never claim merged. Every `armed: true` carries an `error` naming what stays armed — remove that remainder by hand before anything else |
 | `closed` | Stop; report closure |
 
 Errors stop with their evidence. No manual mid-CI merge and no automatic release

@@ -762,13 +762,18 @@ describe('nextReviewStep — the bound is two reads of the review records', () =
       ['an approval of another commit', [approve(C1)], C2],
       ['no review record', [], C1],
       ['a latest record with no verdict', [undecided(C1)], C1],
-    ])('refuses a ci-failed ask over %s, and writes nothing', async (_label, comments, head) => {
-      const fake = fakePr({ ...ARMED, comments, head })
-      await expect(nextReviewStep(CWD, PR, { ciFailed: true, gh: fake.gh })).rejects.toThrow(
-        'a ci-failed fix needs the latest review record to approve the current head',
-      )
-      expect(writesOf(fake)).toEqual([])
-    })
+    ])(
+      'refuses a ci-failed ask over %s, and disarms the gate that may not stay armed',
+      async (_label, comments, head) => {
+        const fake = fakePr({ ...ARMED, comments, head })
+        await expect(nextReviewStep(CWD, PR, { ciFailed: true, gh: fake.gh })).rejects.toThrow(
+          'a ci-failed fix needs the latest review record to approve the current head',
+        )
+        expect(writesOf(fake)).toEqual([DISABLE_AUTO, REMOVE_LABEL])
+        expect([...fake.pr.labels]).toEqual([])
+        expect(fake.pr.autoMerge).toBe(null)
+      },
+    )
   })
 
   describe('posted', () => {
@@ -781,16 +786,18 @@ describe('nextReviewStep — the bound is two reads of the review records', () =
     })
 
     it.each([
-      ['has a different verdict', [approve(C1)], { verdict: 'Request changes', head: C1 }],
-      ['names another commit', [red(C1)], { verdict: 'Request changes', head: C2 }],
-      ['is not yet on the PR', [], { verdict: 'Request changes', head: C1 }],
-      ['was followed by a later record', [red(C1), approve(C2)], { verdict: 'Request changes', head: C1 }],
-    ])('refuses a posted review that %s, and writes nothing', async (_label, comments, posted) => {
+      ['has a different verdict', [approve(C1)], { verdict: 'Request changes', head: C1 }, false],
+      ['names another commit', [red(C1)], { verdict: 'Request changes', head: C2 }, true],
+      ['is not yet on the PR', [], { verdict: 'Request changes', head: C1 }, true],
+      ['was followed by a later record', [red(C1), approve(C2)], { verdict: 'Request changes', head: C1 }, true],
+    ])('refuses a posted review that %s', async (_label, comments, posted, disarms) => {
       const fake = fakePr({ ...ARMED, comments, head: C1 })
       await expect(nextReviewStep(CWD, PR, { posted, gh: fake.gh })).rejects.toThrow(
         'the latest review record is not the one just posted',
       )
-      expect(writesOf(fake)).toEqual([])
+      // Only a gate that may not stay armed is disarmed; an approving, current one is left alone.
+      expect(writesOf(fake)).toEqual(disarms ? [DISABLE_AUTO, REMOVE_LABEL] : [])
+      expect(fake.pr.autoMerge === null).toBe(disarms)
     })
 
     it.each([
@@ -799,10 +806,10 @@ describe('nextReviewStep — the bound is two reads of the review records', () =
       ['no head', { verdict: 'Request changes' }],
       ['a bare verdict', 'Request changes'],
       ['null', null],
-    ])('refuses a posted review with %s as a TypeError, and writes nothing', async (_label, posted) => {
+    ])('refuses a posted review with %s as a TypeError, before any read', async (_label, posted) => {
       const fake = fakePr({ ...ARMED, comments: [red(C1)], head: C1 })
       await expect(nextReviewStep(CWD, PR, { posted, gh: fake.gh })).rejects.toThrow(TypeError)
-      expect(writesOf(fake)).toEqual([])
+      expect(fake.calls).toEqual([])
     })
   })
 
@@ -848,11 +855,11 @@ describe('nextReviewStep — the bound is two reads of the review records', () =
     ]
 
     it.each(DISARMED)(
-      '%s on an open armed PR drops the label, then auto-merge, and says so',
+      '%s on an open armed PR drops auto-merge, then the label, and says so',
       async (_label, comments, call, expected) => {
         const { step, writes, fake } = await decide({ ...ARMED, comments }, call)
         expect(step).toEqual({ ...expected, disarmed: true })
-        expect(writes).toEqual([REMOVE_LABEL, DISABLE_AUTO])
+        expect(writes).toEqual([DISABLE_AUTO, REMOVE_LABEL])
         expect([...fake.pr.labels]).toEqual([])
         expect(fake.pr.autoMerge).toBe(null)
       },

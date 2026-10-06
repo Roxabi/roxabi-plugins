@@ -30,7 +30,15 @@ export declare function openPr(
 export declare function landPr(
   cwd: string,
   pr: number | string,
-): Promise<{ status: string; mode?: string; watch?: string; reason?: string; disarmed?: true }>
+): Promise<{
+  status: string
+  mode?: string
+  watch?: string
+  reason?: string
+  disarmed?: true
+  armed?: boolean
+  error?: string
+}>
 
 export declare function applyCiWatchExit(
   cwd: string,

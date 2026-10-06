@@ -168,7 +168,8 @@ describe('landPr through the checkout', () => {
       }).trim(),
     ).toBe('PENDING')
     // review gate (identity + comments), the PR gate, then before events + labels,
-    // a fresh head read, then the label.
+    // a fresh head read, the label, a head read after it, the events, then a head
+    // read before the armed return.
     // Stub answers protection/rules; a probe would show.
     expect(calls).toEqual([
       IDENTITY,
@@ -179,8 +180,10 @@ describe('landPr through the checkout', () => {
       ['pr', 'view', '7', '--json', 'labels'],
       ['pr', 'view', '7', '--json', 'headRefOid'],
       ['pr', 'edit', '7', '--add-label', 'reviewed'],
+      ['pr', 'view', '7', '--json', 'headRefOid'],
       ['repo', 'view', '--json', 'nameWithOwner'],
       EVENTS,
+      ['pr', 'view', '7', '--json', 'headRefOid'],
     ])
   })
   it('a head that moves after the labels view is not-approved and writes nothing', () => {

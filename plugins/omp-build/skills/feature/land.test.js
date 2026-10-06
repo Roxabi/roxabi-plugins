@@ -924,8 +924,8 @@ describe('landPr — an approval arms only the commit it reviewed', () => {
   it('a head that moves after the pin is not-approved, auto-merge disabled, and unlabeled', async () => {
     const fake = approvedGate()
     const result = await landPr('/tmp/wt', 7, { gh: movingHead(fake, { moveAt: 2 }), ...NATIVE })
-    expect(result).toEqual({ status: 'not-approved', reviews: 1, reason: 'head-moved' })
-    expect(fake.calls.some(disablesAuto)).toBe(true)
+    expect(result).toEqual({ status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true })
+    expect(fake.pr.autoMerge).toBe(null)
     expect(fake.calls.some(armsLabel)).toBe(false)
     expect(fake.pr.labels.has('reviewed')).toBe(false)
   })
@@ -942,13 +942,17 @@ describe('landPr — an approval arms only the commit it reviewed', () => {
     expect(fake.calls.some(armsLabel)).toBe(false)
   })
 
-  it('disable-auto throwing after the pin moves returns auto-merge-failed and no label', async () => {
+  it('disable-auto throwing after the pin moves returns auto-merge-failed, armed, and no label', async () => {
     const fake = approvedGate()
     const result = await landPr('/tmp/wt', 7, {
       gh: movingHead(fake, { moveAt: 2, disableThrows: true }),
       ...NATIVE,
     })
-    expect(result).toEqual({ status: 'auto-merge-failed', armed: true })
+    expect(result).toEqual({
+      status: 'auto-merge-failed',
+      armed: true,
+      error: expect.stringContaining('stays armed — auto-merge'),
+    })
     expect(fake.calls.some(armsLabel)).toBe(false)
     expect(fake.pr.labels.has('reviewed')).toBe(false)
   })
