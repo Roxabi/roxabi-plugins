@@ -210,8 +210,14 @@ line and a `size:` label (`skill://fix` § Filing), so `objective` and `next`
 treat them like any other child; neither special-cases them. Their criteria come
 from the operator's own review record. Each is blocked by its origin: it waits
 until the origin merges or closes, and a stopped origin keeps it skipped. Their
-own reviews can defer again; the operator ends that chain by closing a deferral
-as not planned.
+own reviews can defer again. The signal is the order `objective` prints: each
+link waits on its origin, and a stopped origin keeps it skipped. A chain that
+keeps advancing always has an actionable link, so `no-progress` does not end it;
+that drop ends only a stalled chain, where no child is actionable and some remain
+open. The bound on an advancing chain is the goal budget: a `budget-limited` goal
+is not `active`, the driver acts on nothing, and the open links stay for a new
+`/goal` line. The operator can close a deferral as not planned at any time; a
+running goal does not do that itself.
 
 **Final epic review and hook.** Once every child is closed or merged into the
 base, the review above runs on the cumulative range from `epicDiffRange`. A red
