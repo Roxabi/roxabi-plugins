@@ -25,6 +25,7 @@ description: |
   </example>
 # Tool pin: spawned by omp-build only as a review role; its axial contract is ¬Write ¬Edit ¬Bash.
 tools: read, grep, glob, bash, lsp, ast_grep, web_search
+model: "@task"
 maxTurns: 50
 # capabilities: write_knowledge=true, write_code=false, review_code=true, run_tests=false
 # based-on: shared/base
