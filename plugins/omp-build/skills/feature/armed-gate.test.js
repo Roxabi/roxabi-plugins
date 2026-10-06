@@ -492,6 +492,58 @@ const ROWS = [
     },
   ],
   [
+    'M5 merge-on-green: the head moves during the labeled-event poll → refused and disarmed',
+    {
+      fn: 'land',
+      opts: MOG,
+      records: [approve()],
+      start: 'none',
+      script: { moves: [{ when: 'after', on: 'events', nth: 2, head: MOVED }] },
+      result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+      labels: CLEAN,
+      auto: false,
+    },
+  ],
+  [
+    'M5 merge-on-green: the head moves during a failed labeled-event poll → refused and disarmed, not watch-failed',
+    {
+      fn: 'land',
+      opts: MOG,
+      records: [approve()],
+      start: 'none',
+      script: { events: 'none', moves: [{ when: 'after', on: 'events', nth: 2, head: MOVED }] },
+      result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+      labels: CLEAN,
+      auto: false,
+    },
+  ],
+  [
+    'M5 merge-on-green: the head re-read after the poll throws → label removed, not-approved',
+    {
+      fn: 'land',
+      opts: MOG,
+      records: [approve()],
+      start: 'none',
+      script: { fail: [{ on: 'head', nth: 3 }] },
+      result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+      labels: CLEAN,
+      auto: false,
+    },
+  ],
+  [
+    'M5 merge-on-green: that re-read throws and the label cannot be removed → names the label',
+    {
+      fn: 'land',
+      opts: MOG,
+      records: [approve()],
+      start: 'none',
+      script: { fail: [{ on: 'head', nth: 3 }, { on: 'remove' }] },
+      rejects: stays('the reviewed label'),
+      labels: REVIEWED,
+      auto: false,
+    },
+  ],
+  [
     'M6 merge-on-green: the head moves right after the label write → refused and disarmed',
     {
       fn: 'land',
@@ -651,14 +703,55 @@ const ROWS = [
     },
   ],
   [
-    'N4 native: already enabled and the disable fails → auto-merge-failed armed, at a verified head',
+    'N4 native: already enabled and the disable fails → auto-merge-failed armed, naming what stays, at a verified head',
     {
       fn: 'land',
       opts: NATIVE,
       records: [approve()],
       start: 'both',
       script: { fail: [{ on: 'disable' }] },
-      result: { status: 'auto-merge-failed', armed: true },
+      result: {
+        status: 'auto-merge-failed',
+        armed: true,
+        error: expect.stringMatching(/stays armed — auto-merge and the reviewed label/),
+      },
+      labels: REVIEWED,
+      auto: true,
+    },
+  ],
+  [
+    'N4 native: already enabled, the disable fails, and the head moved → auto-merge-failed armed, naming what stays',
+    {
+      fn: 'land',
+      opts: NATIVE,
+      records: [approve()],
+      start: 'both',
+      script: {
+        fail: [{ on: 'disable', times: 2 }, { on: 'remove' }],
+        moves: [{ when: 'before', on: 'disable', head: MOVED }],
+      },
+      result: {
+        status: 'auto-merge-failed',
+        armed: true,
+        error: expect.stringMatching(/stays armed — auto-merge and the reviewed label/),
+      },
+      labels: REVIEWED,
+      auto: true,
+    },
+  ],
+  [
+    'N4 native: already enabled, the disable fails, and the head cannot be read → auto-merge-failed armed, naming what stays',
+    {
+      fn: 'land',
+      opts: NATIVE,
+      records: [approve()],
+      start: 'both',
+      script: { fail: [{ on: 'disable', times: 2 }, { on: 'head', nth: 2 }, { on: 'remove' }] },
+      result: {
+        status: 'auto-merge-failed',
+        armed: true,
+        error: expect.stringMatching(/stays armed — auto-merge and the reviewed label/),
+      },
       labels: REVIEWED,
       auto: true,
     },
@@ -851,6 +944,45 @@ const ROWS = [
       result: { status: 'watching', mode: 'native', watch: expect.any(String) },
       labels: REVIEWED,
       auto: true,
+    },
+  ],
+  [
+    'N10 native: the head moves after the label write → refused and disarmed',
+    {
+      fn: 'land',
+      opts: NATIVE,
+      records: [approve()],
+      start: 'none',
+      script: { moves: [{ when: 'after', on: 'add', head: MOVED }] },
+      result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+      labels: CLEAN,
+      auto: false,
+    },
+  ],
+  [
+    'N10 native: the head re-read after the label write throws → the label this call added is removed',
+    {
+      fn: 'land',
+      opts: NATIVE,
+      records: [approve()],
+      start: 'none',
+      script: { fail: [{ on: 'head', nth: 3 }] },
+      result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+      labels: CLEAN,
+      auto: false,
+    },
+  ],
+  [
+    'N10 native: that re-read throws and the label cannot be removed → names the label',
+    {
+      fn: 'land',
+      opts: NATIVE,
+      records: [approve()],
+      start: 'none',
+      script: { fail: [{ on: 'head', nth: 3 }, { on: 'remove' }] },
+      rejects: stays('the reviewed label'),
+      labels: REVIEWED,
+      auto: false,
     },
   ],
 
@@ -1258,7 +1390,7 @@ describe('disarmGate — order and independence', () => {
 
 // --- the sweep: every gh call of a scripted run, failed once and moved after -------
 
-/** Scripted runs, each from an armed PR. `race`: a head move after the last head read is not visible to the call. */
+/** Scripted runs, each from an armed PR. A move after an arming write, or during the merge-on-green poll, is not exempt. */
 const SWEEPS = [
   ['landPr native from a labelled PR', { fn: 'land', opts: NATIVE, records: [approve()], start: 'label' }],
   [
@@ -1283,7 +1415,9 @@ describe('the armed-gate invariant — every gh call of a scripted run', () => {
     expect(clean.error, clean.error?.message).toBeUndefined()
     const kinds = baseline.log.map((entry) => entry.kind)
     const gateAt = kinds.indexOf('gate')
-    // A move after the last head read cannot be seen by the call; for a step the gate read is the read.
+    // A move after the last head read cannot be seen once the call returns.
+    // An arming write, the merge-on-green poll, and a head read followed by
+    // either are not that return.
     const lastRead = run.fn === 'land' ? kinds.lastIndexOf('head') : kinds.length
     const violations = []
     for (let k = 0; k < kinds.length; k++) {
@@ -1293,7 +1427,13 @@ describe('the armed-gate invariant — every gh call of a scripted run', () => {
       if (!holds(failing, failed, { reviewing: run.reviewing, exempt })) {
         violations.push(`throw at call ${k} (${kinds[k]}): ${failed.error?.message}`)
       }
-      if (k >= lastRead) continue
+      const kind = kinds[k]
+      const laterArms = kinds
+        .slice(k + 1)
+        .some((next) => next === 'add' || next === 'pin' || next === 'events' || next === 'repo')
+      const armingWrite = kind === 'add' || kind === 'pin'
+      const duringPoll = kind === 'events' || kind === 'repo'
+      if (k >= lastRead && !armingWrite && !duringPoll && !laterArms) continue
       const moving = armedPr({ records: run.records, start: run.start, script: { moveAfterCall: k } })
       const moved = await exec({ fn: run.fn, opts: run.opts }, moving)
       if (!holds(moving, moved, { reviewing: run.reviewing })) {

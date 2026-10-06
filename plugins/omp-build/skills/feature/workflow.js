@@ -551,10 +551,13 @@ const SINCE_RETRY_MS = 200
  * unreadable oid. Every `not-approved` disarms a gate already armed on an OPEN PR
  * (`disarmed: true`) and writes nothing else. A disarm that cannot finish throws
  * an error naming what stays armed — except after native auto-merge was pinned,
- * where it returns `auto-merge-failed` with `armed: true` and that `error`. Every
- * exit after a write that armed the PR re-reads the head: a head that moved or
- * cannot be read disarms what the call wrote. Native auto-merge is then requested with
- * `--match-head-commit` of that reviewed sha — an enable-time pin, not a later-push lease.
+ * or an already-enabled disable failed, where it returns `auto-merge-failed`
+ * with `armed: true` and that `error`. Every exit after a write that armed the
+ * PR, and every return that would leave the PR armed, re-reads the head: a head
+ * that moved or cannot be read disarms through `knownGate()` and returns
+ * `not-approved` / `head-moved`, or the stuck error when that disarm fails.
+ * Native auto-merge is then requested with `--match-head-commit` of that reviewed
+ * sha — an enable-time pin, not a later-push lease.
  * Native also enables merge-commit auto-merge. merge-on-green never returns
  * `no-required-checks` — the workflow, not the rules API, is the gate. Under
  * merge-on-green a `reviewed` already on the PR is removed and re-added, so a
@@ -651,6 +654,29 @@ export async function landPr(
       throw error
     }
   }
+
+  // A return that would leave the PR armed is not a lease on the last head read.
+  // Moved or unreadable: disarm through knownGate() — it includes what this call
+  // armed — then not-approved. A disarm that cannot finish is the stuck error.
+  const refuseIfMoved = async () => {
+    let gone = true
+    /** @type {unknown} */
+    let readError
+    try {
+      gone = await headMoved()
+    } catch (error) {
+      gone = true
+      readError = error
+    }
+    if (!gone) return null
+    try {
+      const disarmed = await disarmGate(cwd, pr, knownGate(), ghFn)
+      return { status: 'not-approved', reviews, reason: 'head-moved', ...(disarmed && { disarmed }) }
+    } catch (disarmError) {
+      const stuck = readError ? `${errorText(disarmError)} — after: ${errorText(readError)}` : errorText(disarmError)
+      throw new Error(stuck)
+    }
+  }
   // A refused pin leaves the gate as the call found it — but GitHub refuses a pin whose
   // head no longer matches, and a head that moved meanwhile leaves an armed gate at a
   // head nobody reviewed: that goes through the one disarm. A head that cannot be read
@@ -664,6 +690,7 @@ export async function landPr(
     }
     return gone ? moved() : { status: 'auto-merge-failed', armed: false }
   }
+
   const pin = ['pr', 'merge', String(pr), '--auto', '--merge', '--match-head-commit', records.head]
 
   /** @type {string} */
@@ -683,6 +710,8 @@ export async function landPr(
     if (afterLabel.stuck) throw new Error(afterLabel.stuck)
     if (afterLabel.moved) return moved()
     since = await waitLabeledSince(cwd, pr, ghFn, before, sleep)
+    const afterWait = await refuseIfMoved()
+    if (afterWait) return afterWait
     if (!since) {
       return {
         status: 'watch-failed',
@@ -699,11 +728,47 @@ export async function landPr(
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       if (!/already enabled/i.test(msg)) return pinRefused()
-      // Not a disarm: the head was just verified, and the pin is re-enabled at it.
+      // Replacing an enable that is already on. A failed disable re-reads the
+      // head: still the reviewed one, the gate stays and the error names it; moved
+      // or unreadable, disarm through knownGate() and name whatever stays.
       try {
         await ghFn(cwd, ['pr', 'merge', String(pr), '--disable-auto'])
-      } catch {
-        return { status: 'auto-merge-failed', armed: true }
+      } catch (disableError) {
+        let gone = true
+        /** @type {unknown} */
+        let readError
+        try {
+          gone = await headMoved()
+        } catch (error) {
+          gone = true
+          readError = error
+        }
+        if (gone) {
+          try {
+            await disarmGate(cwd, pr, knownGate(), ghFn)
+          } catch (disarmError) {
+            const stuck = readError
+              ? `${errorText(disarmError)} — after: ${errorText(readError)}`
+              : errorText(disarmError)
+            return { status: 'auto-merge-failed', armed: true, error: stuck }
+          }
+          return {
+            status: 'auto-merge-failed',
+            armed: false,
+            error: readError
+              ? `head unreadable after --disable-auto failed; the gate was disarmed — ${errorText(readError)}`
+              : 'head moved after --disable-auto failed; the gate was disarmed',
+          }
+        }
+        const known = knownGate()
+        const names = []
+        if (known.autoMergeRequest) names.push('auto-merge')
+        if (known.labels.some((label) => label?.name === 'reviewed')) names.push('the reviewed label')
+        return {
+          status: 'auto-merge-failed',
+          armed: true,
+          error: `PR ${pr} stays armed — ${names.join(' and ')} (--disable-auto failed: ${errorText(disableError)})`,
+        }
       }
       if (await headMoved()) return moved()
       try {
@@ -725,6 +790,9 @@ export async function landPr(
       }
     }
     await ghFn(cwd, ['pr', 'edit', String(pr), '--add-label', 'reviewed'])
+    armedByUs.label = true
+    const afterAdd = await refuseIfMoved()
+    if (afterAdd) return afterAdd
   }
   const sinceArg = since ? ` --since ${since}` : ''
   return {

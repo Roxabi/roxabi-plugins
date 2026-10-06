@@ -482,7 +482,11 @@ string as given — the OMP shell does not resolve `skill://` for a bare `bash`
 argv. It does not poll. Native enables the pinned auto-merge
 (`--match-head-commit` of the reviewed sha) before adding `reviewed`.
 `already enabled` is not success: auto-merge is disabled and enabled again with
-that pin, or `landPr` returns `auto-merge-failed` without the label. The fleet
+that pin. If that disable fails, `landPr` returns `auto-merge-failed` with
+`armed: true` and an `error` naming what stays armed — the label may stay. A
+head that moved or cannot be read in that window is disarmed through
+`disarmGate`; when that disarm cannot finish, the same status carries an
+`error` naming the remainder. The fleet
 workflow enables only on `labeled`, and only when the event head equals the
 line-2 sha of the latest automation-account Approve record. On `synchronize` it
 disables auto-merge and removes `reviewed` instead of re-enabling from a
@@ -528,7 +532,7 @@ Neither a fix round nor another review action may write that label in this cycle
 | `no-required-checks` | Stop; report missing protection. Native only, when no required context was found (declared `landing.required_checks`, protection or rulesets) — merge-on-green does not return this |
 | `timeout` | Re-attach the watch. Do not claim merged. Epic goal: ticket stop, no re-attach |
 | `stopped` | Stop and report. Do not claim merged |
-| `auto-merge-failed` | Stop; inspect and report actual PR/label/auto-merge state, never claim merged. `armed: true` with `error`: a disarm did not finish and the error names what stays armed — remove it by hand before anything else |
+| `auto-merge-failed` | Stop; inspect and report actual PR/label/auto-merge state, never claim merged. Every `armed: true` carries an `error` naming what stays armed — remove that remainder by hand before anything else |
 | `closed` | Stop; report closure |
 
 Errors stop with their evidence. No manual mid-CI merge and no automatic release
