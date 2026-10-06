@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { checkoutGit as fakeGit } from './__tests__/checkout-git'
 import {
   applyCiWatchExit,
   commentPageArgs,
@@ -18,20 +19,6 @@ function checkout(files = {}) {
     writeFileSync(join(dir, path), content)
   }
   return dir
-}
-
-/**
- * The `git` of a checkout whose root and principal are `cwd`, at `head`. The unit tests never fork,
- * so `landPr` is handed this instead of the real `git`; `land.integration.test.js` runs the real one.
- */
-function fakeGit({ head = '0123456789abcdef0123456789abcdef01234567' } = {}) {
-  return async (cwd, args) => {
-    if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return cwd
-    if (args[0] === 'worktree') return `worktree ${cwd}\n`
-    if (args[0] === 'rev-parse' && args[1] === 'HEAD') return head
-    if (args[0] === 'status') return ''
-    throw new Error(`unexpected git ${args.join(' ')}`)
-  }
 }
 
 /** `landPr` with the proof gate seeing a plain repository, unless a test passes its own `git`. */
@@ -1002,7 +989,7 @@ describe('landPr — the proof gate stands before anything is armed', () => {
       ...over,
     })
   const refusal = (reason, extra = {}) => ({ status: 'proof-blocked', reason, ...extra })
-  const ACTIVE = 'change contract change.alpha is active; a VERIFIED proof needs verified'
+  const ACTIVE = 'change contract change.alpha is active at HEAD; a VERIFIED proof needs verified'
 
   it('lands when the proof holds for the PR head and the ticket the head branch names', async () => {
     const fake = approved()
@@ -1070,7 +1057,7 @@ describe('landPr — the proof gate stands before anything is armed', () => {
   it('takes the ticket from the PR head branch, not from the caller', async () => {
     const fake = approved({ headRefName: 'feat/43-beta' })
     const result = await landPr(semctxCheckout(), 7, { gh: fake.gh, proof: proof(), ...NATIVE })
-    expect(result).toEqual(refusal('no change contract tagged issue-43'))
+    expect(result).toEqual(refusal('no change contract tagged issue-43 is committed at HEAD'))
   })
 
   it('refuses a head branch that names no ticket', async () => {

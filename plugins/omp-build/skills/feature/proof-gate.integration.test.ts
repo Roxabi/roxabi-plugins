@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -75,23 +75,47 @@ describe('proofCheck with real git', () => {
     })
   })
 
-  it('refuses a tracked contract that was edited after the commit', async () => {
+  it('reads the contract committed at HEAD, not the one edited on disk after the commit', async () => {
     const root = repo({ [CONTRACT]: SEM.replace('verified', 'active') })
     const proof = await proofFor(root)
     put(root, { [CONTRACT]: SEM })
     expect(await proofCheck(root, { proof, issue: 42, git })).toEqual({
       applies: true,
       pass: false,
-      reason: 'tracked files under .semctx are modified; commit the contract change first',
+      reason: 'change contract change.alpha is active at HEAD; a VERIFIED proof needs verified',
     })
   })
 
-  it('ignores untracked and ignored files under .semctx when asking whether tracked files are clean', async () => {
-    const root = repo({ [CONTRACT]: SEM, '.gitignore': '.semctx/cache/\n' })
-    put(root, { '.semctx/notes.txt': 'scratch', '.semctx/cache/index.db': 'binary' })
+  it('refuses a verified contract that was never committed', async () => {
+    const root = repo({ '.semctx/semantic/changes/other.sem': SEM.replace('issue-42', 'issue-7') })
+    put(root, { [CONTRACT]: SEM })
     expect(await proofCheck(root, { proof: await proofFor(root), issue: 42, git })).toEqual({
       applies: true,
-      pass: true,
+      pass: false,
+      reason: 'no change contract tagged issue-42 is committed at HEAD',
+    })
+  })
+
+  it('refuses a repository that ignores .semctx: its contract is never in the commit', async () => {
+    const root = repo({ 'a.txt': 'x', '.gitignore': '.semctx/\n' })
+    put(root, { [CONTRACT]: SEM })
+    expect(await proofCheck(root, { proof: await proofFor(root), issue: 42, git })).toEqual({
+      applies: true,
+      pass: false,
+      reason: 'no change contract tagged issue-42 is committed at HEAD',
+    })
+  })
+
+  it('refuses a contract committed as a symlink', async () => {
+    const root = repo({ '.semctx/real.txt': SEM })
+    mkdirSync(join(root, '.semctx/semantic/changes'), { recursive: true })
+    symlinkSync('../../real.txt', join(root, CONTRACT))
+    execFileSync('git', ['add', '-A'], { cwd: root })
+    execFileSync('git', ['commit', '-q', '-m', 'link'], { cwd: root })
+    expect(await proofCheck(root, { proof: await proofFor(root), issue: 42, git })).toEqual({
+      applies: true,
+      pass: false,
+      reason: `${CONTRACT} is not a regular file at HEAD`,
     })
   })
 
@@ -115,7 +139,7 @@ describe('proofCheck with real git', () => {
     expect(await proofCheck(linked, { proof: await proofFor(linked), issue: 42, git })).toEqual({
       applies: true,
       pass: false,
-      reason: 'no change contract tagged issue-42',
+      reason: 'no change contract tagged issue-42 is committed at HEAD',
     })
   })
 })

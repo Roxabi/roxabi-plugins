@@ -392,8 +392,9 @@ its `reason` and nothing was written to GitHub. Fix the named cause and call
    `semctx_change_close` (lifecycle `verified`). `PARTIAL` accepted through NO TEST
    rows → `semctx_change_update` with `status: 'partial'` (lifecycle `partial`).
    `BLOCKED` stops.
-3. Commit the contract change: tracked files under `.semctx/` must be clean
-   (untracked and ignored files are not looked at).
+3. Commit the contract change. The gate reads the ticket's contracts from the
+   commit, never from the disk: an uncommitted, untracked or ignored contract does
+   not count, so a repo that ignores `.semctx/` is always refused.
 4. Build `proof` for that commit and call `openPr`:
 
 ```javascript
@@ -410,13 +411,15 @@ const proof = {
 ```
 
 What it refuses: a `proof` that is missing, malformed or carries an unknown key; a
-`head` other than the checkout's HEAD; a modified tracked file under `.semctx/`; a
-`.semctx` entry that is a symlink or of the wrong type; an unreadable or invalid
-`.dev/stack.yml`; a cwd that is not inside a git checkout. The ticket's contracts
-are the `change` blocks of `.semctx/semantic/changes/*.sem` tagged
+`head` other than the checkout's HEAD; an unreadable or invalid `.dev/stack.yml`; a
+cwd that is not inside a git checkout. The ticket's contracts are the `change`
+blocks of the `.sem` files committed at HEAD under `.semctx/semantic/changes/`
+(each a regular file; a symlink or other entry there is refused), tagged
 `issue-<N>`: none → refused; each must be `superseded` or at the lifecycle the
 proof claims (`VERIFIED` → `verified`, `PARTIAL` → `partial`), and at least one
-must be. Contracts of other tickets are ignored. `BLOCKED` stops. A `PARTIAL` needs
+must be. What binds is the contract in the commit the proof names; the gate does
+not run `semctx_change_verify` again. Contracts of other tickets are ignored.
+`BLOCKED` stops. A `PARTIAL` needs
 gaps, each with a NO TEST reason from the enum — the enum cannot be widened.
 `ui-manual-only` follows `dev-review` 5a, applied without a diff: it is refused
 whenever `.dev/stack.yml` declares `commands.test_e2e` (stricter than 5a, which only

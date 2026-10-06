@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { checkoutGit } from './__tests__/checkout-git'
 import { NO_TEST_REASONS, type Proof, proofCheck, proofGate, readChangeContracts, readStack } from './proof-gate'
 
 const HEAD = 'a'.repeat(40)
@@ -268,44 +269,15 @@ describe('proofCheck', () => {
     `change change.${id}\n  statement: a fictional contract\n${lifecycle ? `  status: ${lifecycle}\n` : ''}  tag: ${tag}\n`
   const sem = (name: string, text: string) => ({ [`.semctx/semantic/changes/${name}.sem`]: text })
 
-  /** A `git` stand-in: the answers a checkout at `root` (principal `principal`) would give. */
-  function fakeGit({
-    root,
-    principal = root,
-    head = HEAD,
-    dirty = '',
-    noRoot = false,
-  }: {
-    root: string
-    principal?: string
-    head?: string
-    dirty?: string
-    noRoot?: boolean
-  }) {
-    const calls: string[][] = []
-    const git = async (_cwd: string, args: string[]) => {
-      calls.push(args)
-      if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') {
-        if (noRoot) throw new Error('fatal: not a git repository')
-        return root
-      }
-      if (args[0] === 'worktree') return `worktree ${principal}\nHEAD ${head}\nbranch refs/heads/main\n`
-      if (args[0] === 'rev-parse' && args[1] === 'HEAD') return head
-      if (args[0] === 'status') return dirty
-      throw new Error(`unexpected git ${args.join(' ')}`)
-    }
-    return { git, calls }
-  }
-
   const run = (
     root: string,
-    over: Partial<Parameters<typeof proofCheck>[1]> & { gitOver?: Parameters<typeof fakeGit>[0] } = {},
+    over: Partial<Parameters<typeof proofCheck>[1]> & { gitOver?: Parameters<typeof checkoutGit>[0] } = {},
   ) => {
     const { gitOver, ...rest } = over
     return proofCheck(root, {
       proof: verified,
       issue: 42,
-      git: fakeGit({ root, ...gitOver }).git,
+      git: checkoutGit({ head: HEAD, ...gitOver }),
       parseYaml: JSON.parse,
       ...rest,
     })
@@ -315,43 +287,42 @@ describe('proofCheck', () => {
   const OK = { applies: true, pass: true }
 
   it('refuses when there is no repository root, even with no .semctx to be found', async () => {
-    const root = tree()
-    expect(await run(root, { gitOver: { root, noRoot: true } })).toEqual(refused('no-repo-root'))
+    expect(await run(tree(), { gitOver: { noRoot: true } })).toEqual(refused('no-repo-root'))
   })
 
   it('does not apply when neither this worktree nor the principal has a .semctx', async () => {
-    const root = tree({ 'a.txt': 'x' })
     const principal = tree()
-    expect(await run(root, { proof: undefined, gitOver: { root, principal } })).toEqual({ applies: false })
+    expect(await run(tree({ 'a.txt': 'x' }), { proof: undefined, gitOver: { principal } })).toEqual({ applies: false })
   })
 
   it('applies when only the principal has a .semctx, and the worktree then has no contract to show', async () => {
-    const root = tree()
     const principal = tree(sem('a', contract('a', 'verified')))
-    expect(await run(root, { gitOver: { root, principal } })).toEqual(refused('no change contract tagged issue-42'))
+    expect(await run(tree(), { gitOver: { principal } })).toEqual(
+      refused('no change contract tagged issue-42 is committed at HEAD'),
+    )
   })
 
   it('passes a VERIFIED proof with a verified contract tagged for the ticket', async () => {
     expect(await run(tree(sem('a', contract('a', 'verified'))))).toEqual(OK)
   })
 
-  it('refuses a .semctx that is a symlink', async () => {
+  it('applies through a .semctx symlink, yet reads no contract through it: contracts come from the commit', async () => {
     const real = tree(sem('a', contract('a', 'verified')))
     const root = tree()
     symlinkSync(join(real, '.semctx'), join(root, '.semctx'))
-    expect(await run(root)).toEqual(refused('.semctx is a symlink'))
+    expect(await run(root)).toEqual(refused('no change contract tagged issue-42 is committed at HEAD'))
   })
 
-  it('refuses a .sem entry that is a symlink', async () => {
+  it('refuses a committed .sem entry that is a symlink', async () => {
     const root = tree(sem('real', contract('a', 'verified')))
     symlinkSync(join(root, '.semctx/semantic/changes/real.sem'), join(root, '.semctx/semantic/changes/link.sem'))
-    expect(await run(root)).toEqual(refused('.semctx/semantic/changes/link.sem is a symlink'))
+    expect(await run(root)).toEqual(refused('.semctx/semantic/changes/link.sem is not a regular file at HEAD'))
   })
 
-  it('refuses a .sem entry that is a directory', async () => {
+  it('refuses a committed .sem entry that is a tree', async () => {
     const root = tree(sem('a', contract('a', 'verified')))
     mkdirSync(join(root, '.semctx/semantic/changes/dir.sem'))
-    expect(await run(root)).toEqual(refused('.semctx/semantic/changes/dir.sem is not a file'))
+    expect(await run(root)).toEqual(refused('.semctx/semantic/changes/dir.sem is not a regular file at HEAD'))
   })
 
   it('refuses when no proof is supplied', async () => {
@@ -373,13 +344,13 @@ describe('proofCheck', () => {
 
   it('refuses when no contract carries the ticket tag', async () => {
     expect(await run(tree(sem('a', contract('a', 'verified', 'issue-41'))))).toEqual(
-      refused('no change contract tagged issue-42'),
+      refused('no change contract tagged issue-42 is committed at HEAD'),
     )
   })
 
   it('matches the tag exactly: issue-4 is not issue-42', async () => {
     expect(await run(tree(sem('a', contract('a', 'verified', 'issue-4'))))).toEqual(
-      refused('no change contract tagged issue-42'),
+      refused('no change contract tagged issue-42 is committed at HEAD'),
     )
   })
 
@@ -399,23 +370,23 @@ describe('proofCheck', () => {
 
   it('refuses a contract still active when the proof claims VERIFIED', async () => {
     expect(await run(tree(sem('a', contract('a', 'active'))))).toEqual(
-      refused('change contract change.a is active; a VERIFIED proof needs verified'),
+      refused('change contract change.a is active at HEAD; a VERIFIED proof needs verified'),
     )
   })
 
   it('refuses a contract with no lifecycle', async () => {
     expect(await run(tree(sem('a', contract('a', null))))).toEqual(
-      refused('change contract change.a is unset; a VERIFIED proof needs verified'),
+      refused('change contract change.a is unset at HEAD; a VERIFIED proof needs verified'),
     )
   })
 
   it('refuses a VERIFIED contract when the proof is PARTIAL, and a partial one when it is VERIFIED', async () => {
     const partial: Proof = { ...verified, verify: 'PARTIAL', gaps: ['p'], noTest: { p: 'prompt-logic-only' } }
     expect(await run(tree(sem('a', contract('a', 'verified'))), { proof: partial })).toEqual(
-      refused('change contract change.a is verified; a PARTIAL proof needs partial'),
+      refused('change contract change.a is verified at HEAD; a PARTIAL proof needs partial'),
     )
     expect(await run(tree(sem('a', contract('a', 'partial'))))).toEqual(
-      refused('change contract change.a is partial; a VERIFIED proof needs verified'),
+      refused('change contract change.a is partial at HEAD; a VERIFIED proof needs verified'),
     )
     expect(await run(tree(sem('a', contract('a', 'partial'))), { proof: partial })).toEqual(OK)
   })
@@ -425,24 +396,14 @@ describe('proofCheck', () => {
     expect(await run(both)).toEqual(OK)
     const alone = tree(sem('old', contract('old', 'superseded')))
     expect(await run(alone)).toEqual(
-      refused('no change contract tagged issue-42 is verified; a VERIFIED proof needs one'),
+      refused('no change contract tagged issue-42 is verified at HEAD; a VERIFIED proof needs one'),
     )
   })
 
   it('refuses a proof built for another commit', async () => {
-    const root = tree(sem('a', contract('a', 'verified')))
-    expect(await run(root, { gitOver: { root, head: OTHER } })).toEqual(
+    expect(await run(tree(sem('a', contract('a', 'verified'))), { gitOver: { head: OTHER } })).toEqual(
       refused(`proof head ${HEAD.slice(0, 7)} is not HEAD ${OTHER.slice(0, 7)}`),
     )
-  })
-
-  it('refuses a tracked change under .semctx, asking git only about tracked files', async () => {
-    const root = tree(sem('a', contract('a', 'verified')))
-    const fake = fakeGit({ root, dirty: ' M .semctx/semantic/changes/a.sem' })
-    expect(await proofCheck(root, { proof: verified, issue: 42, git: fake.git, parseYaml: JSON.parse })).toEqual(
-      refused('tracked files under .semctx are modified; commit the contract change first'),
-    )
-    expect(fake.calls).toContainEqual(['status', '--porcelain', '--untracked-files=no', '--', '.semctx'])
   })
 
   describe('commands.test_e2e', () => {

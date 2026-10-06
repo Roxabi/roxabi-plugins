@@ -2,21 +2,8 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { checkoutGit as repoGit } from './__tests__/checkout-git'
 import { commentPageArgs, nextReviewStep, openPr as openPrWith, resolveReviewPr, reviewRecords } from './workflow.js'
-
-/**
- * The `git` of a checkout whose root and principal are `cwd`, at `head`. The unit tests never fork,
- * so `openPr` is handed this instead of the real `git`; the real one runs in `proof-gate.integration.test.ts`.
- */
-function repoGit({ head = '0123456789abcdef0123456789abcdef01234567' } = {}) {
-  return async (cwd, args) => {
-    if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return cwd
-    if (args[0] === 'worktree') return `worktree ${cwd}\n`
-    if (args[0] === 'rev-parse' && args[1] === 'HEAD') return head
-    if (args[0] === 'status') return ''
-    throw new Error(`unexpected git ${args.join(' ')}`)
-  }
-}
 
 /** `openPr` with the proof gate seeing a plain repository, unless a test passes its own `git`. */
 const openPr = (cwd, input, deps = {}) => openPrWith(cwd, input, { git: repoGit(), ...deps })
@@ -437,7 +424,7 @@ describe('openPr', () => {
       return dir
     }
     const refusal = (reason) => ({ status: 'proof-blocked', reason })
-    const ACTIVE = 'change contract change.back-half is active; a VERIFIED proof needs verified'
+    const ACTIVE = 'change contract change.back-half is active at HEAD; a VERIFIED proof needs verified'
 
     it('opens the PR when the proof holds', async () => {
       const { gh, calls } = mockGh()

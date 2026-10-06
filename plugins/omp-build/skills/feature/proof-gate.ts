@@ -119,14 +119,40 @@ const BLOCK_HEADER = /^(goal|invariant|decision|assumption|unknown|change|eviden
 const FIELD = /^ {2}(status|tag):[ \t]*(.*?)\s*$/
 
 /**
- * The change contracts of `<root>/.semctx/semantic/changes/*.sem`. A block opens on a
- * column-0 `<kind> <id>` line and runs to the next column-0 non-blank line; its fields are
- * indented two spaces. Only `change` blocks are contracts, and a contract's lifecycle is its
- * own `status:` — `invariant` and `evidence` blocks carry other vocabularies there. A
- * contract with no `status:` has `lifecycle: null`. No `changes/` directory: no contracts.
+ * The change contracts of one `.sem` text. A block opens on a column-0 `<kind> <id>` line
+ * and runs to the next column-0 non-blank line; its fields are indented two spaces. Only
+ * `change` blocks are contracts, and a contract's lifecycle is its own `status:` —
+ * `invariant` and `evidence` blocks carry other vocabularies there. A contract with no
+ * `status:` has `lifecycle: null`.
  */
+export function parseChangeContracts(text: string, file: string): ChangeContract[] {
+  const out: ChangeContract[] = []
+  let open: ChangeContract | null = null
+  for (const line of text.split('\n')) {
+    const row = line.endsWith('\r') ? line.slice(0, -1) : line
+    if (row.trim() === '') continue
+    if (!row.startsWith(' ') && !row.startsWith('\t')) {
+      const header = BLOCK_HEADER.exec(row)
+      open = header?.[1] === 'change' ? { id: header[2] as string, lifecycle: null, tags: [], file } : null
+      if (open) out.push(open)
+      continue
+    }
+    const field = open ? FIELD.exec(row) : null
+    if (!open || !field) continue
+    if (field[1] === 'tag') {
+      if (field[2]) open.tags.push(field[2])
+    } else if (open.lifecycle === null && field[2]) {
+      open.lifecycle = field[2]
+    }
+  }
+  return out
+}
+
+const CHANGES_DIR = '.semctx/semantic/changes'
+
+/** The change contracts of the working tree's `<root>/.semctx/semantic/changes/*.sem`. No directory: none. */
 export function readChangeContracts(root: string): ChangeContract[] {
-  const dir = join(root, '.semctx', 'semantic', 'changes')
+  const dir = join(root, CHANGES_DIR)
   let entries: string[]
   try {
     entries = readdirSync(dir, { withFileTypes: true })
@@ -139,26 +165,28 @@ export function readChangeContracts(root: string): ChangeContract[] {
     }
     throw error
   }
+  return entries.flatMap((file) => parseChangeContracts(readFileSync(join(dir, file), 'utf8'), file))
+}
+
+/**
+ * The change contracts committed at HEAD: the `.sem` blobs directly under
+ * `.semctx/semantic/changes/` in the HEAD tree, read from git objects, never from the disk.
+ * An untracked, ignored or uncommitted contract is not in that tree. A `.sem` entry that is
+ * not a regular file (a symlink, a submodule, a directory) is a refusal, returned as a string.
+ */
+async function committedContracts(root: string, git: GitFn): Promise<ChangeContract[] | string> {
+  const listing = await git(root, ['ls-tree', '-z', 'HEAD', `${CHANGES_DIR}/`])
   const out: ChangeContract[] = []
-  for (const file of entries) {
-    let open: ChangeContract | null = null
-    for (const line of readFileSync(join(dir, file), 'utf8').split('\n')) {
-      const text = line.endsWith('\r') ? line.slice(0, -1) : line
-      if (text.trim() === '') continue
-      if (!text.startsWith(' ') && !text.startsWith('\t')) {
-        const header = BLOCK_HEADER.exec(text)
-        open = header?.[1] === 'change' ? { id: header[2] as string, lifecycle: null, tags: [], file } : null
-        if (open) out.push(open)
-        continue
-      }
-      const field = open ? FIELD.exec(text) : null
-      if (!open || !field) continue
-      if (field[1] === 'tag') {
-        if (field[2]) open.tags.push(field[2])
-      } else if (open.lifecycle === null && field[2]) {
-        open.lifecycle = field[2]
-      }
+  for (const entry of listing.split('\0').filter(Boolean)) {
+    const tab = entry.indexOf('\t')
+    const [mode, type, object] = entry.slice(0, tab).split(' ')
+    const path = entry.slice(tab + 1)
+    const file = path.slice(CHANGES_DIR.length + 1)
+    if (!file.endsWith('.sem')) continue
+    if (type !== 'blob' || (mode !== '100644' && mode !== '100755') || !object) {
+      return `${path} is not a regular file at HEAD`
     }
+    out.push(...parseChangeContracts(await git(root, ['cat-file', 'blob', object]), file))
   }
   return out
 }
@@ -233,27 +261,6 @@ function entryKind(path: string): EntryKind {
   }
 }
 
-/** Why `<root>/.semctx` cannot be trusted as a tree of plain directories and files, or `null`. */
-function semctxFault(root: string): string | null {
-  const semantic = join(root, '.semctx', 'semantic')
-  const levels: [string, string][] = [
-    [join(root, '.semctx'), '.semctx'],
-    [semantic, '.semctx/semantic'],
-    [join(semantic, 'changes'), '.semctx/semantic/changes'],
-  ]
-  for (const [path, name] of levels) {
-    const kind = entryKind(path)
-    if (kind === 'absent') return null
-    if (kind !== 'dir') return `${name} ${kind === 'symlink' ? 'is a symlink' : 'is not a directory'}`
-  }
-  const changes = join(semantic, 'changes')
-  for (const name of readdirSync(changes).filter((entry) => entry.endsWith('.sem'))) {
-    const kind = entryKind(join(changes, name))
-    if (kind !== 'file') return `.semctx/semantic/changes/${name} is ${kind === 'symlink' ? 'a symlink' : 'not a file'}`
-  }
-  return null
-}
-
 /** The first worktree `git worktree list --porcelain` names: the principal checkout. */
 function principalOf(porcelain: string): string | null {
   const first = porcelain.split('\n').find((line) => line.startsWith('worktree '))
@@ -265,9 +272,11 @@ function principalOf(porcelain: string): string | null {
  * principal) has a `.semctx`; otherwise the repository does not use semctx and nothing is
  * checked. Once it applies, anything unreadable or doubtful is a refusal, never a pass.
  *
- * The ticket's contracts are the `change` blocks tagged `issue-<issue>`: each is
- * `superseded` or at the lifecycle the proof claims (VERIFIED → `verified`, PARTIAL →
- * `partial`), and at least one is. Other contracts are not the ticket's and are ignored.
+ * The ticket's contracts are the `change` blocks tagged `issue-<issue>` committed at HEAD
+ * (`committedContracts`): each is `superseded` or at the lifecycle the proof claims
+ * (VERIFIED → `verified`, PARTIAL → `partial`), and at least one is. Other contracts are
+ * not the ticket's and are ignored. What is bound is the contract in the commit the proof
+ * names; the gate does not re-run verification after later commits.
  * `body`, when given, is the PR body: it must carry every recorded browser check.
  */
 export async function proofCheck(
@@ -297,8 +306,6 @@ export async function proofCheck(
     return { applies: false }
   }
 
-  const fault = semctxFault(root)
-  if (fault) return refuse(fault)
   if (proof === undefined || proof === null) return refuse('no proof supplied')
 
   let e2e: boolean
@@ -312,30 +319,34 @@ export async function proofCheck(
   const checked = proof as Proof
 
   let head: string
-  let dirty: string
   try {
     head = await git(root, ['rev-parse', 'HEAD'])
-    dirty = await git(root, ['status', '--porcelain', '--untracked-files=no', '--', '.semctx'])
   } catch (error) {
     return refuse(error instanceof Error ? error.message : String(error))
   }
   if (checked.head !== head) return refuse(`proof head ${checked.head.slice(0, 7)} is not HEAD ${head.slice(0, 7)}`)
-  if (dirty) return refuse('tracked files under .semctx are modified; commit the contract change first')
 
   const ticket = Number(issue)
   if (!Number.isInteger(ticket) || ticket <= 0) return refuse('no ticket number')
   const tag = `issue-${ticket}`
-  const contracts = readChangeContracts(root).filter((contract) => contract.tags.includes(tag))
-  if (contracts.length === 0) return refuse(`no change contract tagged ${tag}`)
+  let committed: ChangeContract[] | string
+  try {
+    committed = await committedContracts(root, git)
+  } catch (error) {
+    return refuse(error instanceof Error ? error.message : String(error))
+  }
+  if (typeof committed === 'string') return refuse(committed)
+  const contracts = committed.filter((contract) => contract.tags.includes(tag))
+  if (contracts.length === 0) return refuse(`no change contract tagged ${tag} is committed at HEAD`)
   const want = checked.verify === 'VERIFIED' ? 'verified' : 'partial'
   const stale = contracts.find((contract) => contract.lifecycle !== 'superseded' && contract.lifecycle !== want)
   if (stale) {
     return refuse(
-      `change contract ${stale.id} is ${stale.lifecycle ?? 'unset'}; a ${checked.verify} proof needs ${want}`,
+      `change contract ${stale.id} is ${stale.lifecycle ?? 'unset'} at HEAD; a ${checked.verify} proof needs ${want}`,
     )
   }
   if (!contracts.some((contract) => contract.lifecycle === want)) {
-    return refuse(`no change contract tagged ${tag} is ${want}; a ${checked.verify} proof needs one`)
+    return refuse(`no change contract tagged ${tag} is ${want} at HEAD; a ${checked.verify} proof needs one`)
   }
 
   if (body !== undefined) {
