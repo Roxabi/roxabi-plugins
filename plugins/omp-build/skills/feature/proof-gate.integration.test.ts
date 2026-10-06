@@ -5,9 +5,19 @@ import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { type Proof, proofCheck } from './proof-gate'
 
+/** No inherited `GIT_*` (a hook's `GIT_DIR` would redirect every call) and no user or system config. */
+const ENV = {
+  ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))),
+  GIT_CONFIG_GLOBAL: '/dev/null',
+  GIT_CONFIG_NOSYSTEM: '1',
+}
+
+/** Real git, run hermetically in `cwd`. */
+const run = (cwd: string, args: string[]) =>
+  execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', env: ENV, stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+
 /** Real git against a throw-away repository: what the injected `git` of the unit tests only pretends. */
-const git = async (cwd: string, args: string[]) =>
-  execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+const git = async (cwd: string, args: string[]) => run(cwd, args)
 
 const dirs: string[] = []
 afterEach(() => {
@@ -27,12 +37,12 @@ function put(root: string, files: Record<string, string>) {
 function repo(files: Record<string, string>): string {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'proof-git-')))
   dirs.push(root)
-  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root })
-  execFileSync('git', ['config', 'user.email', 'dev@example.test'], { cwd: root })
-  execFileSync('git', ['config', 'user.name', 'Dev'], { cwd: root })
+  run(root, ['init', '-q', '-b', 'main'])
+  run(root, ['config', 'user.email', 'dev@example.test'])
+  run(root, ['config', 'user.name', 'Dev'])
   put(root, files)
-  execFileSync('git', ['add', '-A'], { cwd: root })
-  execFileSync('git', ['commit', '-q', '-m', 'init'], { cwd: root })
+  run(root, ['add', '-A'])
+  run(root, ['commit', '-q', '-m', 'init'])
   return root
 }
 
@@ -110,8 +120,8 @@ describe('proofCheck with real git', () => {
     const root = repo({ '.semctx/real.txt': SEM })
     mkdirSync(join(root, '.semctx/semantic/changes'), { recursive: true })
     symlinkSync('../../real.txt', join(root, CONTRACT))
-    execFileSync('git', ['add', '-A'], { cwd: root })
-    execFileSync('git', ['commit', '-q', '-m', 'link'], { cwd: root })
+    run(root, ['add', '-A'])
+    run(root, ['commit', '-q', '-m', 'link'])
     expect(await proofCheck(root, { proof: await proofFor(root), issue: 42, git })).toEqual({
       applies: true,
       pass: false,
@@ -123,8 +133,8 @@ describe('proofCheck with real git', () => {
     const root = repo({ [CONTRACT]: SEM })
     const proof = await proofFor(root)
     put(root, { 'later.txt': 'x' })
-    execFileSync('git', ['add', '-A'], { cwd: root })
-    execFileSync('git', ['commit', '-q', '-m', 'later'], { cwd: root })
+    run(root, ['add', '-A'])
+    run(root, ['commit', '-q', '-m', 'later'])
     const result = await proofCheck(root, { proof, issue: 42, git })
     expect(result).toMatchObject({ applies: true, pass: false })
     expect(result.applies && !result.pass && result.reason).toMatch(/^proof head [0-9a-f]{7} is not HEAD [0-9a-f]{7}$/)
@@ -135,7 +145,7 @@ describe('proofCheck with real git', () => {
     put(principal, { [CONTRACT]: SEM })
     const linked = join(realpathSync(mkdtempSync(join(tmpdir(), 'proof-linked-'))), 'wt')
     dirs.push(dirname(linked))
-    execFileSync('git', ['worktree', 'add', '-q', '-b', 'feat/42-alpha', linked], { cwd: principal })
+    run(principal, ['worktree', 'add', '-q', '-b', 'feat/42-alpha', linked])
     expect(await proofCheck(linked, { proof: await proofFor(linked), issue: 42, git })).toEqual({
       applies: true,
       pass: false,
