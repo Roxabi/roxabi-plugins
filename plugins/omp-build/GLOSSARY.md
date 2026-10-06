@@ -25,7 +25,7 @@ A child the Goal run stops on - review bound spent, proof blocked, foreign commi
 _Avoid_: a goal drop, a skipped dependent, a stop held in session memory
 
 **Shared-state stop**:
-A failure that makes every remaining child unsafe — base CI red, base CI pending at finalization (`base-ci-pending`), a dirty tree between tickets or before the goal completes, a hook `ok` or `skipped` at another commit (`hook-stale`), a landing or tracker failure, a failed post-merge hook, a final review still blocking after its fix round. Every armed child PR is disarmed, the goal is reported and dropped. Finalization (the hook, and `complete`) also requires a clean tree and base CI green or absent; a red or pending base does not hold the final review.
+A failure that makes every remaining child unsafe — base CI red, base CI pending at finalization (`base-ci-pending`), a dirty tree between tickets, when `fix` starts, or before the goal completes, a hook `ok` or `skipped` at another commit (`hook-stale`), a landing or tracker failure, a failed post-merge hook, a final review still blocking after its fix round. Every armed child PR is disarmed, the goal is reported and dropped. Finalization (the hook, and `complete`) also requires a clean tree and base CI green or absent; a red or pending base does not hold the final review.
 _Avoid_: a ticket stop, skipping the ticket, waiting on pending base CI
 
 **Spec**:

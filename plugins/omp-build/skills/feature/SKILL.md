@@ -176,6 +176,8 @@ each already disarmed and recorded exactly like the `stop` subcommand does.
 | `nextReviewStep` `stop`, any reason | Ticket stop `--reason review-bound`; the step already disarmed the PR |
 | `nextReviewStep` or `landPr` throws | Ticket stop `--reason stopped`, the error as detail |
 | proof gate BLOCKED | Ticket stop `--reason proof-blocked` |
+| `fix` halts on a dirty tree (its Phase 1 step 0) | Shared-state stop: the `drop` row, `--reason dirty-tree`. Commit nothing around it and call no ticket `stop`: its `wip:` commit would put the stray change on the branch the next fix pushes |
+| `fix` halts otherwise (no record, taxonomy, malformed record, push failed) | Ticket stop `--reason stopped`, `fix`'s message as detail |
 | `watch-failed`, `bad-landing`, `no-required-checks`, `evaluate-only`, `auto-merge-failed`, any other status | Shared-state stop: the `drop` row, `--reason <status>` |
 | issue-triage CLI unresolvable | Shared-state stop: the `drop` row, `--reason tracker-unresolvable` |
 | driver exit 1 | Shared-state stop: the `drop` row, `--reason driver-error` (`hook-failed` for `hook`) |
@@ -197,7 +199,7 @@ ticket stays armed.
 | Class | Triggers | Effect |
 |---|---|---|
 | Ticket stop | review loop stop; proof BLOCKED; foreign commit, branch mismatch; child without scope; `timeout`; `ci-cancelled`; `ci-blocked`; `stopped`; `closed` | report, `goal-stop` marker; dependents skipped by their open blocker edge; independent children continue |
-| Shared-state stop | base CI red; `base-ci-pending` at finalization; dirty tree between tickets, before the hook, or before a none-merged complete; `hook-stale`; `watch-failed`; `bad-landing`; `no-required-checks`; `evaluate-only`; `auto-merge-failed`; tracker CLI unresolvable; post-merge hook failure; final review still blocking after its fix round | disarm, report, `goal({op:"drop"})` |
+| Shared-state stop | base CI red; `base-ci-pending` at finalization; dirty tree between tickets, when `fix` starts, before the hook, or before a none-merged complete; `hook-stale`; `watch-failed`; `bad-landing`; `no-required-checks`; `evaluate-only`; `auto-merge-failed`; tracker CLI unresolvable; post-merge hook failure; final review still blocking after its fix round | disarm, report, `goal({op:"drop"})` |
 | No progress | no actionable child while children remain open | report, `goal({op:"drop"})` |
 
 A stop marker holds for its run: a new `/goal` line (new `run=`) retries the
@@ -405,14 +407,21 @@ step from the records.
 
 - review round (no reason) → execute `skill://fix` with `#<pr>`. It applies one
   change per well-formed posted root cause that contains a blocking finding. A block missing a non-empty `mechanism:`, `fix:`, or `findings:` line is not applied; its blocking cited findings are filed per finding. It does not stop for a per-finding choice. Non-blocking causes are not applied; they go into one sibling follow-up, blocked by the origin. A blocking cause it
-  cannot apply becomes its own sibling issue.
+  cannot apply becomes its own sibling issue. `fix` halts on a dirty tree before
+  any defer or filing step, even with nothing to apply: that refusal is the guard
+  against a stray change shipping under its receipt, not a rule for you. `fix`
+  commits each applied cause, pushes when it committed one, and posts
+  `## Review Fixes Applied` itself; you commit nothing in this round. Any `fix`
+  halt → report it and stop here, with no commit and no §6.4 (Epic goal: the
+  `fix` rows of the child table).
 - `ci-failed` → fix inline from the failed checks (`land.failed`) and their
   logs. `fix` reads review comments, not CI: running it here replays stale findings.
+  Verify, commit only the files your fix changed (§6.3), push, then post
+  `## Review Fixes Applied`.
 
-Verify, commit and push the fixes, then post `## Review Fixes Applied`. The
-receipt is for humans: no gate reads it, and a failed post is reported, not
-retried. State `step.remaining`, then §6.4 — the push moved the head, so the
-next step needs a review of it.
+The receipt is for humans: no gate reads it, and a failed post is reported, not
+retried. State `step.remaining`, then §6.4: after a push the head moved and needs
+a review; when nothing was pushed, say so and still go to §6.4.
 
 ### 6.6 Bound
 

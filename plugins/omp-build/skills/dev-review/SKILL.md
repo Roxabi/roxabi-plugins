@@ -372,7 +372,7 @@ C(f) = min(diagnostic_certainty, fix_certainty)
 | Moderate | 40-69 | Probable, context-dependent |
 | Low | 0-39 | Speculative, competing explanations |
 
-**Validation:** missing mandatory fields ∨ C ∉ ℤ ∩ [0,100] ∨ free-text class label → C(f) := 0 (kept; `skill://fix` files a cause with a C := 0 member instead of applying it).
+**Validation:** missing mandatory fields ∨ C ∉ ℤ ∩ [0,100] ∨ free-text class label → C(f) := 0 (kept; a cause with a C := 0 member is never applied: `skill://fix` files it when it is blocking and defers it into the run's single deferral otherwise).
 
 ### Finding categories
 
@@ -571,7 +571,7 @@ Publish as a PR comment when a PR exists; otherwise display locally:
 | Critical security | Escalate in findings, flag in verdict |
 | Agents disagree | Present both with respective C |
 | ¬∃ PR | Render Phase 4 body; Phase 8 local only, no bound |
-| Missing root cause/solutions | C(f) := 0; keep finding; `skill://fix` files its cause instead of applying it |
+| Missing root cause/solutions | C(f) := 0; keep finding; `skill://fix` never applies it: files it when `blocks(f)`, otherwise defers it into the run's single deferral |
 | ∄ `size:` label | τ := F-lite, disclosed out loud (never silently) |
 | R-architect skipped | no axial or structural evidence |
 | R-tester skipped | ¬delta_test_hit and ¬untested-change |
