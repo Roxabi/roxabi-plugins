@@ -176,8 +176,8 @@ each already disarmed and recorded exactly like the `stop` subcommand does.
 | `nextReviewStep` `stop`, any reason | Ticket stop `--reason review-bound`; the step already disarmed the PR |
 | `nextReviewStep` or `landPr` throws | Ticket stop `--reason stopped`, the error as detail |
 | proof gate BLOCKED | Ticket stop `--reason proof-blocked` |
-| `fix` halts on a dirty tree (its Phase 1 step 0) | Shared-state stop: the `drop` row, `--reason dirty-tree`. Commit nothing around it and call no ticket `stop`: its `wip:` commit would put the stray change on the branch the next fix pushes |
-| `fix` halts otherwise (no record, taxonomy, malformed record, push failed) | Ticket stop `--reason stopped`, `fix`'s message as detail |
+| `fix` halts on a dirty tree (its clean-tree check, which precedes every other `fix` halt) | Shared-state stop: the `drop` row, `--reason dirty-tree`. Commit nothing around it and call no ticket `stop`: its `wip:` commit would put the stray change on the branch the next fix pushes |
+| `fix` halts otherwise (no record, taxonomy, malformed record, push failed) | Ticket stop `--reason stopped`, `fix`'s message as detail. The clean-tree check ran first, so no stray change from before `fix` started is behind it |
 | `watch-failed`, `bad-landing`, `no-required-checks`, `evaluate-only`, `auto-merge-failed`, any other status | Shared-state stop: the `drop` row, `--reason <status>` |
 | issue-triage CLI unresolvable | Shared-state stop: the `drop` row, `--reason tracker-unresolvable` |
 | driver exit 1 | Shared-state stop: the `drop` row, `--reason driver-error` (`hook-failed` for `hook`) |
