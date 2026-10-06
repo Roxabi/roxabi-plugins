@@ -580,13 +580,24 @@ export async function landPr(
   const records = await readReviewRecords(cwd, pr, { gh: ghFn })
   const { reviews } = records
   // Only an approving latest record arms, only for the commit it names, and never
-  // past a spent bound. Read the gate before any landing step; a refusal disarms it.
+  // past a spent fix allowance. Read the gate before any landing step; a refusal disarms it.
   const refuse = async (reason, gate) => {
     const disarmed = await disarmGate(cwd, pr, gate ?? (await readGate(cwd, pr, ghFn)), ghFn)
     return { status: 'not-approved', reviews, ...(reason && { reason }), ...(disarmed && { disarmed }) }
   }
   const gate = await readGate(cwd, pr, ghFn)
-  if (records.spent) return refuse('review-bound', gate)
+  let allowance
+  try {
+    allowance = await readFixAllowance(cwd, pr, records, ghFn, { landing })
+  } catch (error) {
+    // A throw here skips the refusals below, which are the only other disarm.
+    await disarmGate(cwd, pr, gate, ghFn)
+    if (isLandingError(error)) {
+      return { status: 'bad-landing', error: error instanceof Error ? error.message : String(error) }
+    }
+    throw error
+  }
+  if (boundState({ reds: records.reds, ciFixes: allowance.ciFixes }).spent) return refuse('review-bound', gate)
   if (!approves(records.verdict)) return refuse(undefined, gate)
   if (!isCommitSha(records.head)) return refuse('no-review-head', gate)
   if (!isCommitSha(gate.headRefOid) || gate.headRefOid !== records.head) return refuse('head-moved', gate)
@@ -771,22 +782,24 @@ export async function disarmReviewedBeforePush(cwd, pr, { gh: ghFn = gh, push } 
   return { disarmed: true }
 }
 
-/** ADR-020 §3 / #488 / #710: at most two automated fixes per PR, one per review. */
+/** ADR-020 §3 / #488 / #716: at most two automated fixes per PR, red reviews and CI failures together. */
 export const MAX_FIX_ROUNDS = 2
 
 /**
- * The bound is two reads of the PR's review records (#710): how many there are,
- * and the latest one. A review record is a comment by the automation login whose
- * first line is `<!-- omp-build:code-review -->`. Every other comment — fix
- * receipts, prose, older accounting markers — is ignored. Nothing writes
- * accounting: every decision is derived again from a fresh read. Every posted
- * review counts, with or without a fix before it.
+ * The allowance is two reads (#716). A review record is a comment by the automation
+ * login whose first line is `<!-- omp-build:code-review -->`. Only a `Request changes`
+ * record spends a fix; an approval spends nothing and resets nothing. A CI fix is an
+ * approved head whose required check's latest completed run failed. Nothing writes
+ * accounting: every decision is derived again from a fresh read.
  */
 const CODE_REVIEW_FIRST_LINE = /^<!--\s*omp-build:code-review\s*-->\s*$/
 const VERDICT_LINE = /^\*\*Verdict:\s*(Request changes|Approve with comments|Approve \(clean\)|Approve)\*\*(?:\s.*)?$/
 const VERDICTS = ['Request changes', 'Approve with comments', 'Approve (clean)', 'Approve']
 /** Line 2 only. A sha anywhere else in the body is not the reviewed commit. */
 const REVIEW_HEAD_LINE = /^<!-- omp-build:review-head sha=([0-9a-f]{40}) -->$/
+const FAILING_CONCLUSIONS = new Set(['failure', 'timed_out', 'startup_failure'])
+const FAILING_STATES = new Set(['failure', 'error'])
+const ACTIONS_RUN = /\/actions\/runs\/(\d+)\b/
 
 /** @param {string | null} body */
 function reviewHeadOf(body) {
@@ -799,6 +812,424 @@ function reviewHeadOf(body) {
 /** @param {unknown} value */
 function isCommitSha(value) {
   return typeof value === 'string' && /^[0-9a-f]{40}$/.test(value)
+}
+
+/** @param {unknown} value */
+function stringField(value) {
+  return typeof value === 'string' && value ? value : ''
+}
+
+/** @param {unknown} error */
+function isLandingError(error) {
+  return error instanceof Error && error.message.startsWith('.dev/stack.yml')
+}
+
+/**
+ * A 404 on a historical sha is an empty head, not a failed read. A current-head
+ * 404 stays a failure: the caller decides that.
+ *
+ * @param {unknown} error
+ */
+export function isMissingRef(error) {
+  const payload = ghFailurePayload(error)
+  const message = error instanceof Error ? error.message : String(error ?? '')
+  const text = `${payload?.text ?? ''}\n${message}`
+  return payload?.status === 404 || /\bHTTP[\s:]*404\b/i.test(text) || /"status"\s*:\s*"?404"?/.test(text)
+}
+
+/**
+ * True when an unread approved head could push `reds + CI fixes` over the allowance.
+ * Already over on reds alone, or still under even if every distinct sha failed, → false.
+ *
+ * @param {number} reds
+ * @param {string[]} approvedHeads
+ */
+export function unreadCouldSpend(reds, approvedHeads) {
+  if (!Number.isInteger(reds) || reds < 0) return true
+  if (reds > MAX_FIX_ROUNDS) return false
+  const distinct = new Set((approvedHeads ?? []).filter(isCommitSha)).size
+  return reds + distinct > MAX_FIX_ROUNDS
+}
+
+/**
+ * @param {{ reds: number, ciFixes: number }} input
+ * @returns {{ fixes: number, spent: boolean }}
+ */
+export function boundState({ reds, ciFixes }) {
+  if (!Number.isInteger(reds) || reds < 0 || !Number.isInteger(ciFixes) || ciFixes < 0) {
+    throw new TypeError('boundState: reds and ciFixes must be non-negative integers')
+  }
+  const fixes = reds + ciFixes
+  return { fixes, spent: fixes > MAX_FIX_ROUNDS }
+}
+
+/** @param {string} owner @param {string} repo @param {string} base */
+export function protectionArgs(owner, repo, base) {
+  return ['api', `repos/${owner}/${repo}/branches/${base}/protection/required_status_checks`]
+}
+
+/** @param {string} owner @param {string} repo @param {string} base */
+export function rulesetArgs(owner, repo, base) {
+  return ['api', `repos/${owner}/${repo}/rules/branches/${base}`]
+}
+
+/**
+ * Fail-closed parse of a protection or ruleset body. Unparsable throws.
+ * A body that parsed and named nothing returns `[]` — every check, matching ci-watch.
+ *
+ * @param {string} apiJson
+ * @returns {string[]}
+ */
+export function strictRequiredContexts(apiJson) {
+  let data
+  try {
+    data = JSON.parse(apiJson)
+  } catch {
+    throw new Error(`required checks: unparsable response — ${preview(apiJson)}`)
+  }
+  if (data == null || typeof data !== 'object') throw new Error('required checks: response is not an object')
+  return [...parseRequiredContexts(JSON.stringify(data))]
+}
+
+/**
+ * Whether `<cwd>/.dev/stack.yml` declares `landing.required_checks`. Absent file,
+ * empty file, or a landing block without the key → not declared. Invalid YAML throws
+ * the same errors `readLanding` throws.
+ *
+ * @param {string} cwd
+ * @returns {{ declared: boolean, checks: string[] }}
+ */
+export function declaredRequiredChecks(cwd) {
+  const stackPath = join(cwd, '.dev', 'stack.yml')
+  if (!existsSync(stackPath)) return { declared: false, checks: [] }
+  const text = readFileSync(stackPath, 'utf8')
+  if (!text.trim()) return { declared: false, checks: [] }
+  if (typeof Bun === 'undefined' || typeof Bun.YAML?.parse !== 'function') {
+    throw new Error('.dev/stack.yml: reading it needs bun >= 1.2.21 (Bun.YAML)')
+  }
+  let doc
+  try {
+    doc = Bun.YAML.parse(text)
+  } catch (e) {
+    throw new Error(`.dev/stack.yml is not valid YAML: ${e instanceof Error ? e.message : String(e)}`)
+  }
+  const isMap = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
+  if (doc == null) return { declared: false, checks: [] }
+  if (!isMap(doc)) throw new Error('.dev/stack.yml: the document is not a map')
+  if (doc.landing == null) return { declared: false, checks: [] }
+  if (!isMap(doc.landing)) throw new Error('.dev/stack.yml: landing is not a map')
+  if (!Object.hasOwn(doc.landing, 'required_checks')) return { declared: false, checks: [] }
+  const checks = doc.landing.required_checks
+  if (!Array.isArray(checks) || !checks.every((check) => typeof check === 'string' && check.length > 0)) {
+    throw new Error('.dev/stack.yml: landing.required_checks must be a list of check names')
+  }
+  return { declared: true, checks }
+}
+
+/**
+ * The check set the CI-fix counter prices. A declared list, including an empty one
+ * (every check). Otherwise protection and rulesets, fail closed: a failed or
+ * unparsable read throws. A 404 on the classic protection read means the branch has
+ * no classic protection, not a failed read; the ruleset read stays fail closed.
+ * `[]` from a read that succeeded and named nothing means every check.
+ *
+ * @param {string} cwd
+ * @param {string | number} pr
+ * @param {(cwd: string, args: string[]) => Promise<string>} ghFn
+ * @param {{ required_checks?: string[] } | undefined} landing
+ */
+async function resolveFixChecks(cwd, pr, ghFn, landing) {
+  if (landing && Object.hasOwn(landing, 'required_checks')) {
+    const checks = landing.required_checks
+    if (!Array.isArray(checks) || !checks.every((check) => typeof check === 'string' && check.length > 0)) {
+      throw new Error('.dev/stack.yml: landing.required_checks must be a list of check names')
+    }
+    return checks
+  }
+  const declared = declaredRequiredChecks(cwd)
+  if (declared.declared) return declared.checks
+  const slug = await repoSlug(cwd, ghFn)
+  const rawPr = await ghFn(cwd, ['pr', 'view', String(pr), '--json', 'baseRefName'])
+  let prJson
+  try {
+    prJson = JSON.parse(rawPr)
+  } catch {
+    throw new Error(`required checks: pr view returned no JSON — ${preview(rawPr)}`)
+  }
+  const base = prJson?.baseRefName
+  if (typeof base !== 'string' || !base) throw new Error('required checks: the PR named no base')
+  let classic = null
+  let rules
+  try {
+    classic = await ghFn(cwd, protectionArgs(slug.owner, slug.repo, base))
+  } catch (error) {
+    if (!isMissingRef(error)) {
+      throw new Error(`required checks: protection read failed — ${error instanceof Error ? error.message : error}`)
+    }
+  }
+  try {
+    rules = await ghFn(cwd, rulesetArgs(slug.owner, slug.repo, base))
+  } catch (error) {
+    throw new Error(`required checks: ruleset read failed — ${error instanceof Error ? error.message : error}`)
+  }
+  const classicContexts = classic === null ? [] : strictRequiredContexts(classic)
+  return [...new Set([...classicContexts, ...strictRequiredContexts(rules)])]
+}
+
+/** @param {string} cwd @param {(cwd: string, args: string[]) => Promise<string>} ghFn */
+async function repoSlug(cwd, ghFn) {
+  const raw = await ghFn(cwd, ['repo', 'view', '--json', 'nameWithOwner'])
+  let data
+  try {
+    data = JSON.parse(raw)
+  } catch {
+    throw new Error(`required checks: repo view returned no JSON — ${preview(raw)}`)
+  }
+  const [owner, repo] = String(data?.nameWithOwner ?? '').split('/')
+  if (!owner || !repo) throw new Error('required checks: repo view named no owner/repo')
+  return { owner, repo }
+}
+
+/** @param {string} owner @param {string} repo @param {string} sha */
+export function checkRunArgs(owner, repo, sha) {
+  return ['api', '--paginate', '--slurp', `repos/${owner}/${repo}/commits/${sha}/check-runs?filter=all&per_page=100`]
+}
+
+/** @param {string} owner @param {string} repo @param {string} sha */
+export function statusArgs(owner, repo, sha) {
+  return ['api', '--paginate', '--slurp', `repos/${owner}/${repo}/commits/${sha}/statuses?per_page=100`]
+}
+
+/** @param {string} owner @param {string} repo @param {string} runId */
+export function workflowRunArgs(owner, repo, runId) {
+  return ['api', `repos/${owner}/${repo}/actions/runs/${runId}`]
+}
+
+/**
+ * Paginated `filter=all` check-run pages. A page that is not the last page
+ * (fewer runs than `total_count`) throws: it is a failed read, not an empty head.
+ *
+ * @param {string} raw
+ */
+export function parseCheckRuns(raw) {
+  let pages
+  try {
+    pages = JSON.parse(raw)
+  } catch {
+    throw new Error(`check runs: not JSON — ${preview(raw)}`)
+  }
+  if (
+    !Array.isArray(pages) ||
+    pages.some((page) => !page || typeof page !== 'object' || !Array.isArray(page.check_runs))
+  ) {
+    throw new Error('check runs: expected a page list')
+  }
+  /** @type {number | null} */
+  let total = null
+  /** @type {ReturnType<typeof normalizeCheckRun>[]} */
+  const runs = []
+  for (const page of pages) {
+    if (typeof page.total_count !== 'number') throw new Error('check runs: a page has no total_count')
+    if (total === null) total = page.total_count
+    else if (total !== page.total_count) throw new Error('check runs: total_count changed mid-read')
+    for (const run of page.check_runs) runs.push(normalizeCheckRun(run))
+  }
+  if (runs.length !== total) throw new Error('check runs: a page is not the last page')
+  return runs
+}
+
+/** @param {unknown} run */
+function normalizeCheckRun(run) {
+  if (!run || typeof run !== 'object') throw new Error('check runs: a run is not an object')
+  const row = /** @type {Record<string, unknown>} */ (run)
+  const suite =
+    row.check_suite && typeof row.check_suite === 'object'
+      ? /** @type {Record<string, unknown>} */ (row.check_suite)
+      : {}
+  const app = row.app && typeof row.app === 'object' ? /** @type {Record<string, unknown>} */ (row.app) : {}
+  const url = String(row.details_url ?? row.html_url ?? '')
+  const actionRun = url.match(ACTIONS_RUN)?.[1] ?? null
+  const named =
+    stringField(row.workflow) ||
+    stringField(row.workflow_name) ||
+    stringField(row.workflowName) ||
+    stringField(suite.workflow) ||
+    stringField(suite.workflow_name)
+  return {
+    name: typeof row.name === 'string' ? row.name : '',
+    workflow: named || (actionRun ? '' : stringField(app.slug)),
+    actionRun,
+    status: String(row.status ?? '').toLowerCase(),
+    conclusion: String(row.conclusion ?? '').toLowerCase(),
+    completed_at: stringField(row.completed_at) || stringField(row.completedAt),
+    id: typeof row.id === 'number' ? row.id : 0,
+  }
+}
+
+/** @param {string} raw */
+export function workflowNameFromRun(raw) {
+  let data
+  try {
+    data = JSON.parse(raw)
+  } catch {
+    throw new Error(`check runs: workflow run is not JSON — ${preview(raw)}`)
+  }
+  const name = stringField(data?.path) || stringField(data?.name)
+  if (!name) throw new Error('check runs: workflow run named no workflow')
+  return name
+}
+
+/**
+ * @param {ReturnType<typeof normalizeCheckRun>[]} runs
+ * @param {Record<string, string>} names
+ */
+export function withWorkflowNames(runs, names) {
+  return runs.map((run) => {
+    if (run.workflow || !run.actionRun) return run
+    const workflow = names?.[run.actionRun]
+    if (!workflow) throw new Error('check runs: a workflow run was not named')
+    return { ...run, workflow }
+  })
+}
+
+/**
+ * @param {string} raw
+ * @returns {{ context: string, state: string, updated_at: string, id: number }[]}
+ */
+export function parseCommitStatuses(raw) {
+  let pages
+  try {
+    pages = JSON.parse(raw)
+  } catch {
+    throw new Error(`commit statuses: not JSON — ${preview(raw)}`)
+  }
+  const lists =
+    Array.isArray(pages) && pages.every(Array.isArray)
+      ? pages
+      : pages && typeof pages === 'object' && Array.isArray(pages.statuses)
+        ? [pages.statuses]
+        : null
+  if (!lists) throw new Error('commit statuses: expected pages')
+  /** @type {{ context: string, state: string, updated_at: string, id: number }[]} */
+  const out = []
+  for (const list of lists) {
+    for (const status of list) {
+      if (!status || typeof status !== 'object') throw new Error('commit statuses: an entry is not an object')
+      out.push({
+        context: typeof status.context === 'string' ? status.context : '',
+        state: String(status.state ?? '').toLowerCase(),
+        updated_at: stringField(status.updated_at) || stringField(status.created_at),
+        id: typeof status.id === 'number' ? status.id : 0,
+      })
+    }
+  }
+  return out
+}
+
+/**
+ * A required name with no check run is a commit status. An empty required set is
+ * every check, so statuses are always read.
+ *
+ * @param {{ name: string }[]} checks
+ * @param {string[]} required
+ */
+export function headNeedsStatuses(checks, required) {
+  if (!required.length) return true
+  const names = new Set(checks.map((run) => run.name))
+  return required.some((name) => !names.has(name))
+}
+
+/**
+ * Latest completed run per workflow and name. In-progress runs are ignored.
+ * A tie on `completed_at` breaks on id.
+ *
+ * @param {{ name?: string, workflow?: string, status?: string, conclusion?: string, completed_at?: string, id?: number }[]} runs
+ */
+function latestCompleted(runs) {
+  /** @type {Map<string, { name: string, workflow: string, conclusion: string, completed_at: string, id: number }>} */
+  const groups = new Map()
+  for (const run of runs ?? []) {
+    if (String(run?.status ?? '').toLowerCase() !== 'completed') continue
+    const name = run.name ?? ''
+    const workflow = run.workflow ?? ''
+    const key = `${workflow}\0${name}`
+    const row = {
+      name,
+      workflow,
+      conclusion: String(run.conclusion ?? '').toLowerCase(),
+      completed_at: run.completed_at ?? '',
+      id: run.id ?? 0,
+    }
+    const prev = groups.get(key)
+    if (!prev || row.completed_at > prev.completed_at || (row.completed_at === prev.completed_at && row.id > prev.id)) {
+      groups.set(key, row)
+    }
+  }
+  return [...groups.values()]
+}
+
+/** @param {{ context?: string, state?: string, updated_at?: string, id?: number }[]} statuses */
+function latestStatuses(statuses) {
+  /** @type {Map<string, { context: string, state: string, updated_at: string, id: number }>} */
+  const groups = new Map()
+  for (const status of statuses ?? []) {
+    const context = status?.context ?? ''
+    const row = {
+      context,
+      state: String(status?.state ?? '').toLowerCase(),
+      updated_at: status?.updated_at ?? '',
+      id: status?.id ?? 0,
+    }
+    const prev = groups.get(context)
+    if (!prev || row.updated_at > prev.updated_at || (row.updated_at === prev.updated_at && row.id > prev.id)) {
+      groups.set(context, row)
+    }
+  }
+  return [...groups.values()]
+}
+
+/**
+ * One approved head is one CI fix when any required check's latest completed
+ * conclusion is `failure`, `timed_out`, or `startup_failure`. An empty required
+ * set means every check. A required name with no check run is its commit status
+ * (`failure` or `error`). Keys are unique shas: two approvals of one sha count once.
+ * A sha that is not a key counts zero.
+ *
+ * @param {Record<string, { checks?: object[], statuses?: object[] } | object[]> | Map<string, { checks?: object[], statuses?: object[] }>} runsByHead
+ * @param {string[]} requiredChecks
+ */
+export function ciFixCount(runsByHead, requiredChecks) {
+  const required = Array.isArray(requiredChecks) ? requiredChecks : []
+  const entries = runsByHead instanceof Map ? [...runsByHead.entries()] : Object.entries(runsByHead ?? {})
+  const seen = new Set()
+  let count = 0
+  for (const [sha, raw] of entries) {
+    if (!isCommitSha(sha) || seen.has(sha)) continue
+    seen.add(sha)
+    if (headIsCiFix(raw, required)) count++
+  }
+  return count
+}
+
+/** @param {unknown} raw @param {string[]} required */
+function headIsCiFix(raw, required) {
+  const checks = latestCompleted(Array.isArray(raw) ? raw : /** @type {{ checks?: object[] }} */ (raw)?.checks)
+  const statuses = latestStatuses(Array.isArray(raw) ? [] : /** @type {{ statuses?: object[] }} */ (raw)?.statuses)
+  const checkNames = new Set(checks.map((run) => run.name))
+  if (!required.length) {
+    if (checks.some((run) => FAILING_CONCLUSIONS.has(run.conclusion))) return true
+    return statuses.some((status) => !checkNames.has(status.context) && FAILING_STATES.has(status.state))
+  }
+  for (const name of required) {
+    const matched = checks.filter((run) => run.name === name)
+    if (matched.length) {
+      if (matched.some((run) => FAILING_CONCLUSIONS.has(run.conclusion))) return true
+      continue
+    }
+    const status = statuses.find((row) => row.context === name)
+    if (status && FAILING_STATES.has(status.state)) return true
+  }
+  return false
 }
 
 /**
@@ -900,31 +1331,46 @@ function reviewIdentity(me) {
  * The review records by `me` among `comments`, in the order given (GitHub
  * creation order). `verdict` and `head` are the latest record's; `verdict` is
  * null when its declarations are missing or conflict, `head` when line 2 is not
- * a review-head line. `spent`: a record past the `MAX_FIX_ROUNDS`-th does not
- * approve. The bound is then spent for good — a later green does not lift it.
+ * a review-head line. `reds` counts `Request changes` records only. `approvedHeads`
+ * is the sha of every approving record that names a 40-hex commit, in order;
+ * a record with no such sha is skipped. An approval spends nothing.
  *
  * @param {{ body: string, author: { login: string } | null }[]} comments
  * @param {{ me: string }} options
- * @returns {{ reviews: number, verdict: string | null, head: string | null, spent: boolean }}
+ * @returns {{ reviews: number, verdict: string | null, head: string | null, reds: number, approvedHeads: string[] }}
  */
 export function reviewRecords(comments, { me } = {}) {
   if (!Array.isArray(comments)) throw new TypeError('reviewRecords: comments must be an array')
   const who = reviewIdentity(me)
   let reviews = 0
+  let reds = 0
+  /** @type {string[]} */
+  const approvedHeads = []
   /** @type {string | null} */
   let latest = null
-  let spent = false
   for (const entry of comments) {
-    if (typeof entry !== 'object' || entry === null)
+    if (typeof entry !== 'object' || entry === null) {
       throw new TypeError('reviewRecords: each comment must be an object')
+    }
     if (entry.author?.login !== who) continue
     if (typeof entry.body !== 'string') throw new TypeError('reviewRecords: comment body must be a string')
     if (!CODE_REVIEW_FIRST_LINE.test(commentFirstLine(entry.body))) continue
     reviews++
     latest = entry.body
-    if (reviews > MAX_FIX_ROUNDS && !approves(reviewVerdict(entry.body))) spent = true
+    const verdict = reviewVerdict(entry.body)
+    if (verdict === 'Request changes') reds++
+    else if (approves(verdict)) {
+      const sha = reviewHeadOf(entry.body)
+      if (isCommitSha(sha)) approvedHeads.push(sha)
+    }
   }
-  return { reviews, verdict: latest === null ? null : reviewVerdict(latest), head: reviewHeadOf(latest), spent }
+  return {
+    reviews,
+    verdict: latest === null ? null : reviewVerdict(latest),
+    head: reviewHeadOf(latest),
+    reds,
+    approvedHeads,
+  }
 }
 
 /** Issue-comment pages, every page. `gh pr view --json comments` is a silent first 100. */
@@ -968,6 +1414,95 @@ export async function readReviewRecords(cwd, pr, { gh: ghFn = gh } = {}) {
   return reviewRecords(commentsFromPages(raw, pr), { me })
 }
 
+/**
+ * Check runs of one sha, paginated `filter=all`, grouped later by workflow and
+ * name. A required name with no check run is filled from commit statuses.
+ * `epic-driver.ts` `ciFixesOf` is this read, synchronous.
+ *
+ * @param {string} cwd
+ * @param {string} owner
+ * @param {string} repo
+ * @param {string} sha
+ * @param {string[]} required
+ * @param {(cwd: string, args: string[]) => Promise<string>} ghFn
+ */
+async function readOneHead(cwd, owner, repo, sha, required, ghFn) {
+  let checks = parseCheckRuns(await ghFn(cwd, checkRunArgs(owner, repo, sha)))
+  const missing = [...new Set(checks.filter((run) => run.actionRun && !run.workflow).map((run) => run.actionRun))]
+  if (missing.length) {
+    /** @type {Record<string, string>} */
+    const names = {}
+    for (const id of missing) names[id] = workflowNameFromRun(await ghFn(cwd, workflowRunArgs(owner, repo, id)))
+    checks = withWorkflowNames(checks, names)
+  }
+  const statuses = headNeedsStatuses(checks, required)
+    ? parseCommitStatuses(await ghFn(cwd, statusArgs(owner, repo, sha)))
+    : []
+  return { checks, statuses }
+}
+
+/**
+ * CI fixes of the approved heads. A 404 on a sha other than `current` is no runs.
+ * A failed read is listed, not counted: the caller throws only when those heads
+ * could push the allowance over.
+ *
+ * @param {string} cwd
+ * @param {string[]} heads
+ * @param {string[]} required
+ * @param {(cwd: string, args: string[]) => Promise<string>} ghFn
+ * @param {string | null} current
+ */
+async function readApprovedRuns(cwd, heads, required, ghFn, current) {
+  const { owner, repo } = await repoSlug(cwd, ghFn)
+  /** @type {Record<string, { checks: object[], statuses: object[] }>} */
+  const runsByHead = {}
+  /** @type {string[]} */
+  const failed = []
+  for (const sha of [...new Set(heads.filter(isCommitSha))]) {
+    try {
+      runsByHead[sha] = await readOneHead(cwd, owner, repo, sha, required, ghFn)
+    } catch (error) {
+      if (sha !== current && isMissingRef(error)) {
+        runsByHead[sha] = { checks: [], statuses: [] }
+        continue
+      }
+      failed.push(sha)
+    }
+  }
+  return { runsByHead, failed, ciFixes: ciFixCount(runsByHead, required) }
+}
+
+/**
+ * The allowance the records and, when it can change the answer, the check runs
+ * support. Skips the read when reds alone already spend it, and when even
+ * counting every approved sha cannot. `need` forces a read of that head so a
+ * ci-failed grant is priced by the same count.
+ *
+ * @param {string} cwd
+ * @param {string | number} pr
+ * @param {{ reds: number, approvedHeads: string[] }} records
+ * @param {(cwd: string, args: string[]) => Promise<string>} ghFn
+ * @param {{ landing?: { required_checks?: string[] }, need?: string | null }} [opts]
+ */
+async function readFixAllowance(cwd, pr, records, ghFn, { landing, need = null } = {}) {
+  if (records.reds > MAX_FIX_ROUNDS) return { ciFixes: 0, current: false }
+  const heads = records.approvedHeads
+  const must = unreadCouldSpend(records.reds, heads)
+  const needed = isCommitSha(need) && heads.includes(need)
+  if (!must && !needed) return { ciFixes: 0, current: false }
+  const required = await resolveFixChecks(cwd, pr, ghFn, landing)
+  const read = await readApprovedRuns(cwd, heads, required, ghFn, need)
+  if (read.failed.length && records.reds + read.ciFixes + read.failed.length > MAX_FIX_ROUNDS) {
+    throw new Error(`check runs unreadable for ${read.failed.join(', ')} and the bound could be spent`)
+  }
+  if (needed && read.failed.includes(/** @type {string} */ (need))) {
+    throw new Error('check runs of the current head are unreadable')
+  }
+  const entry = need ? read.runsByHead[need] : undefined
+  const current = entry ? ciFixCount({ [/** @type {string} */ (need)]: entry }, required) === 1 : false
+  return { ciFixes: read.ciFixes, current }
+}
+
 const STOP_GUIDANCE =
   'Publish the escalation dossier (dev-review Phase 8). Automation on this PR is finished: a NEW superseding PR from a revised ticket, or the operator finishing this PR by hand.'
 
@@ -975,38 +1510,33 @@ const STOP_GUIDANCE =
 function stopStep(reason, reviews) {
   const why =
     reason === 'ci-failed'
-      ? `A required check failed on the head review ${reviews} approved, and no fix is left.`
-      : `Review bound reached: ${reviews} reviews and the latest after the bound does not approve.`
+      ? 'A required check failed on the approved head, and that failure would be the third automated fix.'
+      : 'Review bound reached: the automated-fix allowance is spent.'
   return { action: /** @type {'stop'} */ ('stop'), reason, reviews, message: `${why} ${STOP_GUIDANCE}` }
 }
 
-/** @param {number} reviews @param {'ci-failed'} [reason] */
-function fixStep(reviews, reason) {
+/** @param {number} reviews @param {number} fixes @param {'ci-failed'} [reason] */
+function fixStep(reviews, fixes, reason) {
   return {
     action: /** @type {'fix'} */ ('fix'),
     reviews,
-    remaining: MAX_FIX_ROUNDS - reviews,
+    remaining: MAX_FIX_ROUNDS - fixes,
     ...(reason ? { reason } : {}),
   }
 }
 
 /**
- * The move the records allow at the PR's current `head`.
+ * The move the records allow at the PR's current `head`. The current event is
+ * priced against the count excluding itself: `prior > MAX_FIX_ROUNDS` is already
+ * sticky (`review-bound`, never reclassified). A CI failure on an approving
+ * current head stops `ci-failed` only when this head would be the third fix,
+ * and only when the head is itself in the CI-fix count.
  *
- * - `posted` (the review just posted) must be the latest record, else throw.
- * - `spent` → `stop`, whatever the head.
- * - `ciFailed` needs an approving latest record of the current head, else throw;
- *   then `fix` while `reviews <= MAX_FIX_ROUNDS`, else `stop`.
- * - No record, or a latest record of another commit or with no verdict →
- *   `review`: post a review of the current head first. One review allows one fix:
- *   the fix's push moves the head.
- * - An approval → `land`; `Request changes` → `fix` (a red past the bound is spent).
- *
- * @param {{ reviews: number, verdict: string | null, head: string | null, spent: boolean }} records
- * @param {{ head: unknown, ciFailed?: boolean, posted?: { verdict: string, head: string } }} at
+ * @param {{ reviews: number, verdict: string | null, head: string | null, reds: number }} records
+ * @param {{ head: unknown, ciFailed?: boolean, posted?: { verdict: string, head: string }, ciFixes?: number, currentCiFix?: boolean }} at
  */
-function reviewStep(records, { head, ciFailed = false, posted }) {
-  const { reviews } = records
+function reviewStep(records, { head, ciFailed = false, posted, ciFixes = 0, currentCiFix = false }) {
+  const { reviews, reds } = records
   if (posted !== undefined) {
     if (!VERDICTS.includes(posted?.verdict) || !isCommitSha(posted?.head)) {
       throw new TypeError('nextReviewStep: posted must be { verdict: <panel verdict>, head: <40-hex sha> }')
@@ -1017,31 +1547,42 @@ function reviewStep(records, { head, ciFailed = false, posted }) {
       )
     }
   }
-  if (records.spent) return stopStep('review-bound', reviews)
   const current = isCommitSha(head) && records.head === head
+  const currentRed = current && records.verdict === 'Request changes'
+  const pricingCi = ciFailed && current && approves(records.verdict)
+  const prior = currentRed ? reds - 1 + ciFixes : pricingCi ? reds + ciFixes - (currentCiFix ? 1 : 0) : reds + ciFixes
+  if (prior > MAX_FIX_ROUNDS) return stopStep('review-bound', reviews)
   if (ciFailed) {
     if (!current || !approves(records.verdict)) {
       throw new Error('nextReviewStep: a ci-failed fix needs the latest review record to approve the current head')
     }
-    return reviews <= MAX_FIX_ROUNDS ? fixStep(reviews, 'ci-failed') : stopStep('ci-failed', reviews)
+    if (!currentCiFix) {
+      throw new Error('nextReviewStep: a ci-failed fix is granted only when the current head is a counted CI fix')
+    }
+    const fixes = prior + 1
+    return fixes > MAX_FIX_ROUNDS ? stopStep('ci-failed', reviews) : fixStep(reviews, fixes, 'ci-failed')
   }
   if (reviews === 0) return { action: /** @type {'review'} */ ('review'), reason: 'no-review', reviews }
   if (!current) return { action: /** @type {'review'} */ ('review'), reason: 'head-moved', reviews }
   if (approves(records.verdict)) return { action: /** @type {'land'} */ ('land'), reviews }
-  if (records.verdict === 'Request changes') return fixStep(reviews)
+  if (records.verdict === 'Request changes') {
+    const fixes = prior + 1
+    return fixes > MAX_FIX_ROUNDS ? stopStep('review-bound', reviews) : fixStep(reviews, fixes)
+  }
   return { action: /** @type {'review'} */ ('review'), reason: 'no-verdict', reviews }
 }
 
 /**
- * The loop's one decision point (#710): fresh records, the PR's current gate,
- * then the step — `land` | `fix` | `stop` | `review`. `posted` is the review
- * dev-review just posted (its verdict and REVIEWED_HEAD). `ciFailed` asks for
- * the correction of a red check on the approved head. Every step but `land`
- * disarms an OPEN armed PR first (`disarmed: true`); `reviewing` — a review is
- * about to start — disarms on `land` too, and an approving post re-arms through
- * `landPr`. A gate stays armed only while the latest record approves the current
- * head within the bound and no review of it is running. Nothing
- * else is written; a throw decides nothing and writes nothing.
+ * The loop's one decision point (#716): fresh records, the CI fixes of approved
+ * heads when they can spend the allowance, the PR's current gate, then the step —
+ * `land` | `fix` | `stop` | `review`. `posted` is the review dev-review just posted.
+ * `ciFailed` asks for the correction of a red check on the approved head, granted
+ * only when that head is itself a counted CI fix. Every step but `land` disarms
+ * an OPEN armed PR first (`disarmed: true`); `reviewing` — a review is about to
+ * start — disarms on `land` too, and an approving post re-arms through `landPr`.
+ * A gate stays armed only while the latest record approves the current head
+ * within the allowance and no review of it is running. Nothing else is written;
+ * a throw decides nothing and writes nothing.
  *
  * @param {string} cwd
  * @param {number | string} pr
@@ -1059,7 +1600,22 @@ export async function nextReviewStep(cwd, pr, { posted, ciFailed = false, review
   const number = await resolveReviewPr(cwd, pr, { gh: ghFn })
   const records = await readReviewRecords(cwd, number, { gh: ghFn })
   const gate = await readGate(cwd, number, ghFn)
-  const step = reviewStep(records, { head: gate.headRefOid, ciFailed, posted })
+  let allowance
+  try {
+    allowance = await readFixAllowance(cwd, number, records, ghFn, {
+      need: ciFailed ? gate.headRefOid : null,
+    })
+  } catch (error) {
+    await disarmGate(cwd, number, gate, ghFn)
+    throw error
+  }
+  const step = reviewStep(records, {
+    head: gate.headRefOid,
+    ciFailed,
+    posted,
+    ciFixes: allowance.ciFixes,
+    currentCiFix: allowance.current,
+  })
   if ((reviewing || step.action !== 'land') && (await disarmGate(cwd, number, gate, ghFn))) {
     return { ...step, disarmed: true }
   }

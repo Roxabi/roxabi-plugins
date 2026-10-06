@@ -400,7 +400,7 @@ step = await nextReviewStep(cwd, pr, { posted: { verdict, head: REVIEWED_HEAD } 
 `verdict` is the panel's verdict as posted: `Request changes`, `Approve`,
 `Approve (clean)` or `Approve with comments`. `nextReviewStep` re-reads the PR:
 the latest review record must be that post, or it throws and decides nothing.
-Every posted review counts toward the bound, whether or not a fix follows it.
+Only a `Request changes` record spends a fix. An approval spends nothing; a CI failure on an approved head spends one too, counted with the reds.
 
 Present the Phase 8 human choice constrained by `step` (§6.6). Never choose on
 the user's behalf or offer “Merge as-is” for a red verdict — except under the
@@ -432,12 +432,12 @@ next step needs a review of it.
 | `land` | §6.7 |
 | `stop` | Publish/display the escalation dossier from `skill://dev-review` Phase 8, print `step.message`, and stop. `nextReviewStep` already disarmed an armed PR. Epic goal: then ticket stop `review-bound` |
 
-`nextReviewStep` is the bound (#710): the review records by the automation
-login, counted, and the latest one. A fix is allowed while the PR has at most
-two records. A record past the second that does not approve spends the bound for
-good: a later green does not lift it, and `landPr` refuses it. A `ci-failed`
-stop is not in the records: under the Epic goal the ticket stop keeps it;
-outside it, re-entry is the operator's call. The dossier lives in `dev-review`
+`nextReviewStep` is the bound (#716): at most two automated fixes. A fix is a
+`Request changes` record by the automation login, or an approved head whose
+required check's latest completed run failed. An approval spends nothing. A
+third fix spends the bound for good: red records only accumulate, so a later
+approval does not lift a stop they caused, and `landPr` refuses it. A CI fix is
+re-derived from the latest completed run. The dossier lives in `dev-review`
 Phase 8.
 
 ### 6.7 Land

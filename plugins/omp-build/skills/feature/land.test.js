@@ -335,8 +335,25 @@ describe('landPr', () => {
  * A PR whose gate follows the calls made on it: labels, native auto-merge, labeled events,
  * comments by author. Only exact argv is answered; anything else throws.
  */
-function gatePr({ comments, labels = [], autoMerge = null, state = 'OPEN', headRefOid = null }) {
-  const pr = { comments: [...comments], labels: new Set(labels), autoMerge, state, labeledAt: [], headRefOid }
+function gatePr({
+  comments,
+  labels = [],
+  autoMerge = null,
+  state = 'OPEN',
+  headRefOid = null,
+  checks = {},
+  checkErrors = {},
+}) {
+  const pr = {
+    comments: [...comments],
+    labels: new Set(labels),
+    autoMerge,
+    state,
+    labeledAt: [],
+    headRefOid,
+    checks,
+    checkErrors,
+  }
   const calls = []
   const gh = async (_cwd, args) => {
     calls.push(args)
@@ -395,6 +412,15 @@ function gatePr({ comments, labels = [], autoMerge = null, state = 'OPEN', headR
     }
     if (same(args, ['repo', 'view', '--json', 'nameWithOwner'])) return JSON.stringify({ nameWithOwner: 'acme/app' })
     if (same(args, EVENTS_CALL)) return pr.labeledAt.join('\n')
+    const endpoint = args[0] === 'api' ? String(args.at(-1)) : ''
+    if (endpoint.includes('/check-runs')) {
+      const sha = endpoint.match(/commits\/([0-9a-f]{40})/)?.[1]
+      if (sha && pr.checkErrors[sha]) throw pr.checkErrors[sha]
+      const runs = sha ? (pr.checks[sha] ?? []) : []
+      return JSON.stringify([{ total_count: runs.length, check_runs: runs }])
+    }
+    if (endpoint.includes('/statuses')) return JSON.stringify([[]])
+    if (endpoint.includes('/actions/runs/')) return JSON.stringify({ name: 'ci', path: '.github/workflows/ci.yml' })
     throw new Error(`unexpected gh call: ${args.join(' ')}`)
   }
   return { gh, calls, pr }
@@ -407,10 +433,7 @@ const ARMED = { labels: ['reviewed', 'size:F-lite'], autoMerge: { mergeMethod: '
 const NATIVE = { landing: { mode: 'native', required_checks: ['ci'] } }
 
 describe('landPr — a spent review bound is enforced before any landing step', () => {
-  const SPENT = [
-    ['three reds, then an approval of the current head', [red(), red(), red(), green()], 4],
-    ['two reds, a record with conflicting verdicts, then an approval', [red(), red(), byMe(NULL_VERDICT), green()], 4],
-  ]
+  const SPENT = [['three reds, then an approval of the current head', [red(), red(), red(), green()], 4]]
   const MODES = [
     ['native', NATIVE],
     ['native with zero required contexts', { landing: { mode: 'native', required_checks: [] }, requiredContexts: [] }],
@@ -432,6 +455,68 @@ describe('landPr — a spent review bound is enforced before any landing step', 
       expect(fake.calls.some((args) => args[1] === 'merge' && args.includes('--auto'))).toBe(false)
     },
   )
+})
+
+describe('landPr — a failing allowance read disarms an armed gate', () => {
+  it('removes the label and the auto-merge before the read failure escapes', async () => {
+    const fake = gatePr({
+      comments: [red(), red(), green()],
+      headRefOid: REVIEWED_HEAD,
+      ...ARMED,
+      checkErrors: { [REVIEWED_HEAD]: new Error('gh: HTTP 502') },
+    })
+    await expect(landPr('/tmp/wt', 7, { gh: fake.gh, sleep: async () => {}, ...NATIVE })).rejects.toThrow(
+      'could be spent',
+    )
+    expect([...fake.pr.labels]).toEqual(['size:F-lite'])
+    expect(fake.pr.autoMerge).toBe(null)
+  })
+})
+
+describe('landPr — approvals do not spend the allowance', () => {
+  const WITHIN = [red(), red(), byMe(NULL_VERDICT), green()]
+
+  it.each([
+    ['native', NATIVE, { status: 'watching', mode: 'native' }],
+    [
+      'native with zero required contexts',
+      { landing: { mode: 'native', required_checks: [] }, requiredContexts: [] },
+      { status: 'no-required-checks' },
+    ],
+    [
+      'merge-on-green',
+      { landing: { mode: 'merge-on-green', required_checks: [] } },
+      { status: 'watching', mode: 'merge-on-green' },
+    ],
+  ])('two reds then an approval under %s still lands', async (_mode, options, expected) => {
+    const fake = gatePr({ comments: WITHIN, headRefOid: REVIEWED_HEAD, ...ARMED })
+    const result = await landPr('/tmp/wt', 7, { gh: fake.gh, sleep: async () => {}, ...options })
+    expect(result).toMatchObject(expected)
+    expect(result.reason).toBeUndefined()
+  })
+
+  it('two reds plus an approval of a CI-failed head spends the allowance', async () => {
+    const fake = gatePr({
+      comments: [red(MOVED_HEAD), red(MOVED_HEAD), green()],
+      headRefOid: REVIEWED_HEAD,
+      ...ARMED,
+      checks: {
+        [REVIEWED_HEAD]: [
+          {
+            name: 'ci',
+            status: 'completed',
+            conclusion: 'failure',
+            completed_at: '2026-01-01T00:00:00Z',
+            id: 1,
+            workflow: 'ci',
+          },
+        ],
+      },
+    })
+    const result = await landPr('/tmp/wt', 7, { gh: fake.gh, sleep: async () => {}, ...NATIVE })
+    expect(result).toEqual({ status: 'not-approved', reviews: 3, reason: 'review-bound', disarmed: true })
+    expect(fake.calls.some(armsLabel)).toBe(false)
+  })
 })
 
 describe('landPr — a refusal disarms a gate armed for an earlier approval', () => {

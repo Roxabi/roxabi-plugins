@@ -507,18 +507,20 @@ never choose on the operator's behalf.
 post: report and stop. Local-only (no PR): `Request changes` → `fix`; an
 approval ends the review, with nothing to land. There is no local bound.
 
-**The bound (`workflow.js`, #710).** Two reads of the PR's review records by the
-automation login: how many there are, and the latest one. A fix is allowed while
-the PR has at most two records, one fix per review: the fix's push moves the
-head, and a latest record of another commit asks for a review first (`review`).
-A record past the second that does not approve spends the bound for good — a
-later green does not lift it. A CI failure after the third review stops too.
+**The bound (`workflow.js`, #716).** At most two automated fixes per PR: a
+`Request changes` record by the automation login, plus an approved head whose
+required check's latest completed run failed. An approval spends nothing and
+resets nothing. A fix is allowed while those together are at most two: the fix's
+push moves the head, and a latest record of another commit asks for a review
+first (`review`). A third fix spends the bound for good — red records only
+accumulate, so a later approval does not lift a stop they caused. A CI fix is
+the latest completed run, so a re-run that goes green no longer counts.
 Every `nextReviewStep` step but `land` disarms an armed PR, a step taken with
 `{ reviewing: true }` (Phase 1 step 0) disarms on `land` too, and every `landPr`
 `not-approved` disarms as well: a gate stays armed only while the latest record
-approves the current head within the bound and no review of it is running.
+approves the current head within the allowance and no review of it is running.
 `landPr` arms only for an approving latest
-record of the current head, never past a spent bound. Nothing writes accounting;
+record of the current head, never past a spent allowance. Nothing writes accounting;
 every step is derived again from a fresh read.
 
 ### Human choice (constrained by `step`)
@@ -599,6 +601,6 @@ Publish as a PR comment when a PR exists; otherwise display locally:
 - **Predecessor:** implement
 - **Successor:** conditional — green `land` → gated landing | red `fix` → `skill://fix` | `stop` → escalation dossier + human guidance
 - **Class:** verdict (branching based on findings)
-- **Loop cap:** at most 2 automatic fixes, derived by `nextReviewStep` from the review records. A record past the second that does not approve → stop + dossier; never Merge-as-is with blockers.
+- **Loop cap:** at most 2 automatic fixes — a `Request changes` record, or a CI failure on an approved head — derived by `nextReviewStep`. A third fix → stop + dossier; never Merge-as-is with blockers.
 
 $ARGUMENTS

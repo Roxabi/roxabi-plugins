@@ -59,10 +59,10 @@ The repository's declared command that runs once the epic has landed, not after 
 _Avoid_: a per-ticket deploy, a release cut, re-running this run's hook on a moved base
 
 **Review bound**:
-At most two automated fixes per PR, one per Review record, derived on every read from the automation login's Review records: how many there are, and the latest one.
-A fix — after a red review, or after a CI failure on the approved head — is allowed while the PR has at most two records; the fix's push moves the head, so the next step needs a review of it.
-A record past the second that does not approve spends the bound for good: a later green does not lift it, and `landPr` refuses to arm. A CI failure after the third review stops too; the records do not show it, so only a ticket stop keeps that stop across runs.
-Every posted review counts, with or without a fix before it. Nothing writes accounting.
+At most two automated fixes per PR, derived on every read: a `Request changes` record by the automation login, plus an approved head whose required check's latest completed run failed.
+An approval spends nothing and resets nothing. A fix is allowed while those together are at most two; the fix's push moves the head, so the next step needs a review of it.
+A third fix spends the bound for good: red records only accumulate, so a later approval does not lift a stop they caused, and `landPr` refuses to arm. A CI fix is the latest completed run, so a re-run that goes green no longer counts.
+Nothing writes accounting.
 The bound guards against agent mistakes, not against an agent that bypasses it. After a stop, resumption is an explicitly selected superseding PR under a revised plan, or the operator finishing by hand.
 _Avoid_: a ledger, counting fix receipts, a stop marker, one more automatic retry, merging with blockers
 
@@ -139,7 +139,7 @@ The shared mechanism behind one or more review findings. Named after the review,
 _Avoid_: the finding itself, a class slug alone, a file
 
 **Review record**:
-The one PR comment `fix` reads: first line `<!-- omp-build:code-review -->`, authored by the account running `fix`, newest wins. Root causes and findings both come from it. It is also the unit the Review bound counts. Line 2, when a PR was reviewed, is `<!-- omp-build:review-head sha=<40 lowercase hex> -->` — the commit that approval names. `fix` does not read it. `landPr` arms only when it matches the PR's current `headRefOid`; a record without it does not arm, so a PR reviewed before the line existed needs one re-review. Native auto-merge is then pinned with `--match-head-commit`. Merge-on-green remains label-driven: a push by another actor after `reviewed` is applied is not refused by GitHub.
+The one PR comment `fix` reads: first line `<!-- omp-build:code-review -->`, authored by the account running `fix`, newest wins. Root causes and findings both come from it. A `Request changes` record spends one fix; an approving record's line-2 sha is a head the bound may price as a CI fix. Line 2, when a PR was reviewed, is `<!-- omp-build:review-head sha=<40 lowercase hex> -->` — the commit that approval names. `fix` does not read it. `landPr` arms only when it matches the PR's current `headRefOid`; a record without it does not arm, so a PR reviewed before the line existed needs one re-review. Native auto-merge is then pinned with `--match-head-commit`. Merge-on-green remains label-driven: a push by another actor after `reviewed` is applied is not refused by GitHub.
 _Avoid_: scraping every PR comment, matching `## Code Review` as a substring, reading a sha from prose or from any line but line 2
 
 **Panel**:
