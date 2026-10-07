@@ -531,6 +531,27 @@ describe('landPr proof after review', () => {
     expect(pinned(run.calls)).toBe(false)
   })
 
+  it('keeps an ordinary red review ahead of a failing applicable proof', () => {
+    const { dir, oid } = initRepo(sem(contract('partial')))
+    const run = drive(
+      dir,
+      landScenario(oid, {
+        comments: [review('Request changes', oid)],
+        proof: uiProof(oid),
+        body: 'no browser check',
+        labels: ['reviewed'],
+        auto: true,
+      }),
+    )
+
+    expect(run.result).toMatchObject({ status: 'not-approved', reviews: 1, disarmed: true })
+    expect(run.result.reason).not.toBe('review-bound')
+    expect(viewedBody(run.calls)).toBe(false)
+    expect(pinned(run.calls)).toBe(false)
+    expect(run.labels).toEqual([])
+    expect(run.auto).toBe(false)
+  })
+
   it('does not renew a bound oid when the review and the PR head later advance together', () => {
     const { dir, oid } = initRepo(sem(contract('verified')))
     const run = drive(
