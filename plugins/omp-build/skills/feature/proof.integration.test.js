@@ -442,6 +442,22 @@ describe('landPr proof after review', () => {
     expect(landed.auto).toBe(false)
   })
 
+  it('does not exempt an ignored empty Semctx working directory on a born commit', () => {
+    const { dir, oid } = initRepo({ '.gitignore': '.semctx/\n' })
+    mkdirSync(join(dir, '.semctx/working'), { recursive: true })
+    const opened = drive(dir, { ...OPEN, proof: proofOf(oid) })
+    const landed = drive(dir, landScenario(oid, { labels: ['reviewed'], auto: true }))
+
+    expect(opened.result).toMatchObject({ status: 'proof-blocked' })
+    expect(opened.result.reason).toMatch(/no change contract/)
+    expect(posted(opened.calls)).toBe(false)
+    expect(landed.result).toMatchObject({ status: 'proof-blocked', disarmed: true })
+    expect(landed.result.reason).toMatch(/no change contract/)
+    expect(pinned(landed.calls)).toBe(false)
+    expect(landed.labels).toEqual([])
+    expect(landed.auto).toBe(false)
+  })
+
   it('refuses contradictory VERIFIED manual gaps before create or landing', () => {
     const { dir, oid } = initRepo(sem(contract('verified'), E2E))
     const contradictory = {
