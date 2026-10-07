@@ -593,9 +593,11 @@ const SINCE_RETRY_MS = 200
  * armed — except after native auto-merge was pinned, or an already-enabled disable
  * failed, where it returns `auto-merge-failed`. In those two handlings that status
  * carries `armed: false` only when a read-back confirmed the gate clear; otherwise
- * `armed: true` and an `error` naming what stays armed. A refused pin is the
- * exception: its `auto-merge-failed` / `armed: false` says the pin was refused, not
- * that the gate is clear, and an unreadable head there is the deferred #731 defect.
+ * `armed: true` and an `error` naming what stays armed. A refused pin on a readable
+ * stable head keeps its `auto-merge-failed` / `armed: false`: that says the pin was
+ * refused, not that the gate is clear. A refused pin whose head cannot be read
+ * forces the known gate clear, then throws the original read error — or, when
+ * clearing cannot finish, an error naming what stays armed with that cause.
  * Every other terminal exit refreshes authorization after intervening awaits:
  * latest records first, current head last. A moved or unreadable head targets
  * clearing from the known gate, including writes that may have applied and thrown.
@@ -694,13 +696,14 @@ export async function landPr(
     if (!isCommitSha(records.head)) return exit(refused('no-review-head'), { policy: 'unarmed' })
     return null
   }
-  // #731 RC-5 remains separate: an unreadable head after a refused pin leaves
-  // the gate as found. This sole boundary is not an authorization from stale data.
+  // A refused pin: a moved head is cleared via `moved`, a readable stable head is
+  // the native refusal, and an unreadable head forces the known gate clear and
+  // then propagates the original read failure through the epilogue.
   const pinRefused = async () => {
     try {
       if (await headMoved()) return moved()
-    } catch {
-      return exit({ status: 'auto-merge-failed', armed: false }, { refresh: false })
+    } catch (failure) {
+      return exit(undefined, { policy: 'unarmed', failure })
     }
     return exit({ status: 'auto-merge-failed', armed: false })
   }

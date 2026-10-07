@@ -17,8 +17,6 @@ import { applyCiWatchExit, commentPageArgs, disarmReviewedBeforePush, landPr, ne
  * fake also answers the resolver's repo / base / protection / rules reads, so native runs
  * without declared checks go through the real discovery control flow.
  *
- * Out of this table on purpose (#731): an unreadable head after a refused pin
- * (`pinRefused`) still returns `auto-merge-failed` / `armed: false` and leaves the gate it found.
  */
 
 const PR = 7
@@ -89,8 +87,9 @@ const ARMED = {
 }
 
 /**
- * @typedef {{ on: string, nth?: number, times?: number, error?: string, answer?: string, applies?: boolean }} Fail
- *   Make the nth call of a kind throw `error` (default 'injected'), or answer `answer`. `applies`: the write
+ * @typedef {{ on: string, nth?: number, times?: number, error?: string | Error, answer?: string, applies?: boolean }} Fail
+ *   Make the nth call of a kind throw `error` (default 'injected'; an Error is thrown as is, so a test can assert its
+ *   identity), or answer `answer`. `applies`: the write
  *   lands, then the call still throws.
  * @typedef {{ when: 'before' | 'after', on: string, nth?: number, head?: string, state?: string, reviews?: ReturnType<typeof approve>[] }} Move
  *   Move the head, change the state or append review records around the nth call of a kind.
@@ -201,7 +200,7 @@ function armedPr({ records = [], start = 'both', state = 'OPEN', head = HEAD, sc
     if (rule) {
       if (rule.answer !== undefined) return rule.answer
       if (rule.applies) perform(kind, args)
-      throw new Error(rule.error ?? 'injected')
+      throw rule.error instanceof Error ? rule.error : new Error(rule.error ?? 'injected')
     }
     const out = perform(kind, args)
     applyMoves('after', kind)
@@ -1186,15 +1185,15 @@ const ROWS = [
     },
   ],
   [
-    'N3 native: the pin fails and the head cannot be read back → auto-merge-failed, the gate as it was (the explicit #731 limit, kept as it is)',
+    'N3 native: the pin fails and the head cannot be read back → clears the known gate and throws the read error',
     {
       fn: 'land',
       opts: NATIVE,
       records: [approve()],
       start: 'label',
       script: { fail: [{ on: 'pin' }, { on: 'head', nth: 2 }] },
-      result: { status: 'auto-merge-failed', armed: false },
-      labels: REVIEWED,
+      rejects: /^injected$/,
+      labels: CLEAN,
       auto: false,
     },
   ],
@@ -2801,4 +2800,429 @@ describe('native arming uses the freshly approved head', () => {
     expect(fake.pr.labels.has('reviewed')).toBe(true)
     expect(holds(fake, outcome)).toBe(true)
   })
+})
+
+// --- #731: a refused pin, then a head read that fails ---------------------------------------------
+
+/**
+ * `pinRefused` is reached at two sites: the initial pin (head reads: before the pin = 1st, after its
+ * refusal = 2nd) and the re-pin after an "already enabled" refusal (before the pin 1st, before the re-pin
+ * 2nd, after its refusal 3rd). When the head read that follows a refused pin fails, the pin's refusal says
+ * nothing about the gate: the call clears the gate it knew — including a pin that may have applied before
+ * it threw — in one disable / remove / read-back tail, then rethrows the head read error; if that tail
+ * cannot finish, one error names what stays armed and carries the head read error as its cause.
+ *
+ * `before`: the writes up to the failed head read. `keepsFoundAuto`: whether auto-merge found on the PR is
+ * still on when that read fails (the re-pin's preparation disable has cleared it by then). `disableNth`: the
+ * terminal clearing disable among the disables (the re-pin's preparation disable is the first).
+ */
+const PIN_REFUSALS = [
+  {
+    name: 'initial pin',
+    before: ['pin'],
+    headNth: 2,
+    disableNth: 1,
+    keepsFoundAuto: true,
+    refuse: (applies) => [{ on: 'pin', nth: 1, error: 'HTTP 502', applies }],
+  },
+  {
+    name: 're-pin',
+    before: ['pin', 'disable', 'pin'],
+    headNth: 3,
+    disableNth: 2,
+    keepsFoundAuto: false,
+    refuse: (applies) => [
+      { on: 'pin', nth: 1, error: 'GraphQL: Auto merge is already enabled' },
+      { on: 'pin', nth: 2, error: 'HTTP 502', applies },
+    ],
+  },
+]
+const STARTS = Object.keys(ARMED)
+const LAND = { fn: 'land', opts: NATIVE }
+const labelled = (start) => ARMED[start].labels.length > 0
+/** The ordered clearing writes the unreadable head must trigger: auto-merge first, the label when found labelled. */
+const clearing = (start) => (labelled(start) ? ['disable', 'remove'] : ['disable'])
+/** Whether auto-merge is really on when the head read fails: found and never cleared, or a pin that applied. */
+const autoAtFailure = (site, start, applied) => applied || (site.keepsFoundAuto && ARMED[start].auto)
+/** A pin that applied and threw cannot coexist with auto-merge found on at the initial pin ("already enabled"). */
+const appliedChoices = (site, start) => (site.keepsFoundAuto && ARMED[start].auto ? [false] : [false, true])
+const nthIndex = (log, kind, nth) => {
+  let seen = 0
+  for (let index = 0; index < log.length; index += 1) {
+    if (log[index].kind !== kind) continue
+    seen += 1
+    if (seen === nth) return index
+  }
+  return -1
+}
+
+/** The two ways the head read fails: gh throws an Error (identity is observable), or answers non-JSON. */
+const HEAD_READS = ['a gh error', 'a non-JSON answer']
+function originOf(read) {
+  if (read === 'a gh error') {
+    const error = new Error('head view unavailable')
+    return { error, message: error.message, rule: { error } }
+  }
+  return { error: undefined, message: 'landPr: gh pr view 7 returned no JSON — not json', rule: { answer: 'not json' } }
+}
+
+/**
+ * One refused pin followed by an unreadable head, over an approved stable head. `headMoved`: a concurrent
+ * push lands between the pin and the failed read. `extra`/`moves`/`script`: further faults. `arms` records
+ * what the PR really had armed at the instant the head read failed.
+ */
+function refusedPin({
+  site,
+  start,
+  applied = false,
+  read = 'a gh error',
+  headMoved = false,
+  state,
+  extra = [],
+  moves = [],
+  script = {},
+}) {
+  const origin = originOf(read)
+  const fake = armedPr({
+    records: [approve()],
+    start,
+    state,
+    script: {
+      ...script,
+      fail: [...site.refuse(applied), { on: 'head', nth: site.headNth, ...origin.rule }, ...extra],
+      moves: [...(headMoved ? [{ when: 'before', on: 'head', nth: site.headNth, head: MOVED }] : []), ...moves],
+    },
+  })
+  const arms = {}
+  const inner = fake.gh
+  fake.gh = async (cwd, args) => {
+    if (kindOf(args) === 'head' && fake.log.filter((entry) => entry.kind === 'head').length + 1 === site.headNth) {
+      arms.auto = fake.pr.autoMerge !== null
+      arms.label = fake.pr.labels.has('reviewed')
+    }
+    return inner(cwd, args)
+  }
+  return { fake, origin, arms }
+}
+
+function expectOriginalError(outcome, origin) {
+  expect(outcome.result, 'an unreadable head after a refused pin never returns a result').toBeUndefined()
+  expect(outcome.error, 'the call must reject').toBeDefined()
+  if (origin.error) expect(outcome.error).toBe(origin.error)
+  else expect(outcome.error.message).toBe(origin.message)
+}
+
+function expectCause(error, origin) {
+  if (origin.error) expect(error.cause).toBe(origin.error)
+  else expect(error.cause?.message).toBe(origin.message)
+}
+
+/** Refused pin → the failed head read → one clearing/readback tail; no further head read, no second pin. */
+function expectClearingTail(fake, site, start) {
+  const headAt = nthIndex(fake.log, 'head', site.headNth)
+  expect(headAt, 'the failing head read ran').toBeGreaterThan(0)
+  expect(fake.log[headAt - 1].kind, 'it directly follows the refused pin').toBe('pin')
+  expect(fake.log.filter((entry) => entry.kind === 'head')).toHaveLength(site.headNth)
+  expect(fake.log.slice(headAt).map((entry) => entry.kind)).toEqual(['head', ...clearing(start), 'gate'])
+  expect(writesOf(fake)).toEqual([...site.before, ...clearing(start)])
+}
+
+const SITE_START_READ_MOVE = PIN_REFUSALS.flatMap((site) =>
+  STARTS.flatMap((start) =>
+    HEAD_READS.flatMap((read) =>
+      [false, true].map((headMoved) => [
+        `${site.name} from ${start}: head read is ${read}, the head ${headMoved ? 'moved' : 'did not move'}`,
+        site,
+        start,
+        read,
+        headMoved,
+      ]),
+    ),
+  ),
+)
+
+describe('#731 — a refused pin followed by an unreadable head clears the gate and rethrows the head error', () => {
+  it.each(SITE_START_READ_MOVE)('%s', async (_name, site, start, read, headMoved) => {
+    const { fake, origin, arms } = refusedPin({ site, start, read, headMoved })
+    const outcome = await exec(LAND, fake)
+
+    expect(arms).toEqual({ auto: autoAtFailure(site, start, false), label: labelled(start) })
+    expectOriginalError(outcome, origin)
+    expect([...fake.pr.labels].sort()).toEqual(CLEAN)
+    expect(fake.pr.autoMerge).toBeNull()
+    expect(fake.pr.head).toBe(headMoved ? MOVED : HEAD)
+    expectClearingTail(fake, site, start)
+    expect(holds(fake, outcome, { strict: true })).toBe(true)
+    expect(truthful(fake, outcome)).toBe(true)
+  })
+
+  const APPLIED_ROWS = PIN_REFUSALS.flatMap((site) =>
+    STARTS.filter((start) => appliedChoices(site, start).includes(true)).flatMap((start) =>
+      [false, true].map((headMoved) => [
+        `${site.name} from ${start}: the pin applied, then threw; the head ${headMoved ? 'moved' : 'did not move'}`,
+        site,
+        start,
+        headMoved,
+      ]),
+    ),
+  )
+
+  it.each(APPLIED_ROWS)('%s → the possibly applied pin is still disabled', async (_name, site, start, headMoved) => {
+    const { fake, origin, arms } = refusedPin({ site, start, applied: true, headMoved })
+    const outcome = await exec(LAND, fake)
+
+    expect(arms.auto, 'auto-merge really is on when the head read fails').toBe(true)
+    expectOriginalError(outcome, origin)
+    expect([...fake.pr.labels].sort()).toEqual(CLEAN)
+    expect(fake.pr.autoMerge).toBeNull()
+    expectClearingTail(fake, site, start)
+    expect(holds(fake, outcome, { strict: true })).toBe(true)
+  })
+})
+
+const FAULTS = ['ok', 'throw', 'noop']
+/** A clearing write that throws, or answers without effect, at its `nth` call. */
+const clearingFault = (kind, nth, fault, text) =>
+  fault === 'throw' ? [{ on: kind, nth, error: text }] : fault === 'noop' ? [{ on: kind, nth, answer: '' }] : []
+
+describe('#731 — a clearing tail that cannot finish names what stays armed and keeps the head error as cause', () => {
+  const ROWS_CLEARING = PIN_REFUSALS.flatMap((site) =>
+    STARTS.flatMap((start) =>
+      appliedChoices(site, start).flatMap((applied) =>
+        FAULTS.flatMap((disable) =>
+          FAULTS.filter((remove) => labelled(start) || remove === 'ok')
+            .filter((remove) => disable !== 'ok' || remove !== 'ok')
+            .map((remove) => [
+              `${site.name} from ${start}${applied ? ' (pin applied, then threw)' : ''}: disable ${disable}, remove ${remove}`,
+              site,
+              start,
+              applied,
+              disable,
+              remove,
+            ]),
+        ),
+      ),
+    ),
+  )
+
+  it.each(ROWS_CLEARING)('%s', async (_name, site, start, applied, disable, remove) => {
+    const { fake, origin, arms } = refusedPin({
+      site,
+      start,
+      applied,
+      extra: [
+        ...clearingFault('disable', site.disableNth, disable, 'disable unavailable'),
+        ...clearingFault('remove', 1, remove, 'remove unavailable'),
+      ],
+    })
+    const outcome = await exec(LAND, fake)
+
+    const autoOn = autoAtFailure(site, start, applied)
+    expect(arms).toEqual({ auto: autoOn, label: labelled(start) })
+    // An arm stays only when it was really on and its own clearing write did not clear it.
+    const autoStays = autoOn && disable !== 'ok'
+    const labelStays = labelled(start) && remove !== 'ok'
+    expect(fake.pr.autoMerge !== null).toBe(autoStays)
+    expect(fake.pr.labels.has('reviewed')).toBe(labelStays)
+    expectClearingTail(fake, site, start)
+
+    const remaining = [...(autoStays ? ['auto-merge'] : []), ...(labelStays ? ['the reviewed label'] : [])]
+    if (remaining.length === 0) {
+      // A write error over a gate the read-back finds clear is not an error: the head error is.
+      expectOriginalError(outcome, origin)
+    } else {
+      const failures = [
+        ...(disable === 'throw' ? ['--disable-auto failed: disable unavailable'] : []),
+        ...(labelled(start) && remove === 'throw' ? ['--remove-label failed: remove unavailable'] : []),
+      ]
+      const detail = failures.length ? ` (${failures.join('; ')})` : ''
+      expect(outcome.result).toBeUndefined()
+      expect(outcome.error?.message).toBe(
+        `disarmGate: PR ${PR} stays armed — ${remaining.join(' and ')}${detail} — after: ${origin.message}`,
+      )
+      expectCause(outcome.error, origin)
+    }
+    expect(holds(fake, outcome, { strict: true })).toBe(true)
+  })
+})
+
+/** Read-backs of the clearing tail that cannot confirm a clear, and what the error says of them (the fake is clear). */
+const TAIL_READBACKS = [
+  ['throws', { error: 'gh: HTTP 502' }, 'gh: HTTP 502'],
+  ['is not JSON', { answer: 'not json' }, 'readGate: gh pr view 7 returned no JSON — not json'],
+  [
+    'carries no labels',
+    { answer: JSON.stringify({ headRefOid: HEAD, state: 'OPEN', autoMergeRequest: null }) },
+    'readGate: gh pr view 7 carried no labels',
+  ],
+  ...[
+    ['has no state', BAD_READBACKS[0][1], 'readGate: gh pr view 7 state is missing'],
+    ['has an unknown state', BAD_READBACKS[1][1], 'readGate: gh pr view 7 state is "INVALID"'],
+    ['has no autoMergeRequest field', BAD_READBACKS[3][1], 'readGate: gh pr view 7 carried no auto-merge state'],
+    ['has a label with no name', BAD_READBACKS[5][1], 'readGate: gh pr view 7 carried unreadable labels'],
+  ].map(([how, body, why]) => [how, { answer: JSON.stringify(body) }, why]),
+]
+
+describe('#731 — a clearing tail whose read-back cannot be read reports the uncertainty, not a clear', () => {
+  const ROWS_READBACK = PIN_REFUSALS.flatMap((site) =>
+    ['both', 'none'].flatMap((start) =>
+      TAIL_READBACKS.map(([how, rule, why]) => [
+        `${site.name} from ${start}: the read-back ${how}`,
+        site,
+        start,
+        rule,
+        why,
+      ]),
+    ),
+  )
+
+  it.each(ROWS_READBACK)('%s', async (_name, site, start, rule, why) => {
+    const { fake, origin } = refusedPin({ site, start, extra: [{ on: 'gate', nth: 2, ...rule }] })
+    const outcome = await exec(LAND, fake)
+
+    expect(outcome.result).toBeUndefined()
+    const message = outcome.error?.message ?? ''
+    expect(message).toContain(`PR ${PR} could not be read back; auto-merge and reviewed may stay armed — ${why}`)
+    expect(message.endsWith(` — after: ${origin.message}`)).toBe(true)
+    expectCause(outcome.error, origin)
+    expectClearingTail(fake, site, start)
+    // The fake really was cleared by the one tail; the report is of what could not be confirmed.
+    expect([...fake.pr.labels].sort()).toEqual(CLEAN)
+    expect(fake.pr.autoMerge).toBeNull()
+    expect(holds(fake, outcome, { strict: true })).toBe(true)
+  })
+
+  it.each(PIN_REFUSALS.map((site) => [site.name, site]))(
+    '%s: a failed disable and an unreadable read-back are both named, once',
+    async (_name, site) => {
+      const { fake, origin } = refusedPin({
+        site,
+        start: 'both',
+        extra: [
+          ...clearingFault('disable', site.disableNth, 'throw', 'disable unavailable'),
+          { on: 'gate', nth: 2, error: 'gh: HTTP 502' },
+        ],
+      })
+      const outcome = await exec(LAND, fake)
+
+      expect(outcome.error?.message).toBe(
+        `disarmGate: PR ${PR} could not be read back; auto-merge and reviewed may stay armed (--disable-auto failed: disable unavailable) — gh: HTTP 502 — after: ${origin.message}`,
+      )
+      expectCause(outcome.error, origin)
+      expectClearingTail(fake, site, 'both')
+    },
+  )
+})
+
+describe('#731 — the PR leaves OPEN around the unreadable head', () => {
+  const RACES = PIN_REFUSALS.flatMap((site) =>
+    STARTS.flatMap((start) =>
+      ['CLOSED', 'MERGED'].map((state) => [
+        `${site.name} from ${start}: the PR becomes ${state} during the failed read`,
+        site,
+        start,
+        state,
+      ]),
+    ),
+  )
+
+  it.each(RACES)('%s', async (_name, site, start, state) => {
+    const { fake, origin } = refusedPin({
+      site,
+      start,
+      moves: [{ when: 'before', on: 'head', nth: site.headNth, state }],
+    })
+    const outcome = await exec(LAND, fake)
+
+    expect(outcome.result, 'a PR that merged mid-disarm is never returned as merged').toBeUndefined()
+    expectClearingTail(fake, site, start)
+    if (state === 'CLOSED') {
+      // A CLOSED read-back is terminal: no OPEN gate is left, the head error stands.
+      expectOriginalError(outcome, origin)
+    } else {
+      expect(outcome.error?.message).toBe(`disarmGate: PR ${PR} merged while being disarmed — after: ${origin.message}`)
+      expectCause(outcome.error, origin)
+    }
+  })
+
+  const NOT_OPEN = PIN_REFUSALS.flatMap((site) =>
+    STARTS.flatMap((start) =>
+      ['CLOSED', 'MERGED'].map((state) => [
+        `${site.name} from ${start}: the PR was already ${state}`,
+        site,
+        start,
+        state,
+      ]),
+    ),
+  )
+
+  it.each(NOT_OPEN)(
+    '%s → no clearing write after the failed head read, the head error stands',
+    async (_name, site, start, state) => {
+      const { fake, origin } = refusedPin({ site, start, state })
+      const outcome = await exec(LAND, fake)
+
+      expectOriginalError(outcome, origin)
+      const headAt = nthIndex(fake.log, 'head', site.headNth)
+      expect(fake.log[headAt - 1].kind).toBe('pin')
+      // The refused pin(s) were attempted; nothing follows the failed read — no write, no read-back.
+      expect(fake.log).toHaveLength(headAt + 1)
+      expect(writesOf(fake)).toEqual(site.before)
+      expect([...fake.pr.labels].sort()).toEqual(labelled(start) ? [...REVIEWED].sort() : CLEAN)
+      expect(fake.pr.autoMerge !== null).toBe(site.keepsFoundAuto && ARMED[start].auto)
+    },
+  )
+})
+
+describe('#731 — compound faults around a refused pin and an unreadable head', () => {
+  const COMPOUND = PIN_REFUSALS.flatMap((site) => STARTS.map((start) => [`${site.name} from ${start}`, site, start]))
+
+  it.each(COMPOUND)(
+    '%s: a further failure, a head move, or both, at any call leaves the invariant',
+    async (_name, site, start) => {
+      const baseline = refusedPin({ site, start })
+      const clean = await exec(LAND, baseline.fake)
+      expectOriginalError(clean, baseline.origin)
+      expect(armedNames(baseline.fake)).toEqual([])
+      const kinds = baseline.fake.log.map((entry) => entry.kind)
+      const gateAt = kinds.indexOf('gate')
+      const headAt = nthIndex(baseline.fake.log, 'head', site.headNth)
+      const violations = []
+
+      for (let k = 0; k < kinds.length; k++) {
+        const kind = kinds[k]
+        // The seeded pin and head faults are this branch; a base failure falls to the real `detectPrincipal`.
+        const faultable = kind !== 'base' && kind !== 'pin' && kind !== 'head'
+        const variants = [
+          ...(faultable ? [['throw at', { failAt: k }]] : []),
+          ['head moved after', { moveAfterCall: k }],
+          ...(faultable && k > gateAt ? [['throw and head moved at', { failAt: k, moveBeforeCall: k }]] : []),
+        ]
+        for (const [how, script] of variants) {
+          const label = `${how} call ${k} (${kind})`
+          const run = refusedPin({ site, start, script })
+          const outcome = await exec(LAND, run.fake)
+          // After the failed read the exit is the unarmed clearing tail: the records' approval buys nothing.
+          const tail = k > headAt
+          const exempt =
+            how === 'throw at' && outcome.error !== undefined && k <= gateAt && writesOf(run.fake).length === 0
+          if (!holds(run.fake, outcome, { exempt, strict: tail })) {
+            violations.push(`${label}: ${outcome.error?.message ?? JSON.stringify(outcome.result)}`)
+          }
+          if (!truthful(run.fake, outcome)) violations.push(`${label}: a disarm claim over a PR that is not disarmed`)
+          const at = nthIndex(run.fake.log, 'head', site.headNth)
+          if (at > 0 && run.fake.log[at - 1].kind === 'pin') {
+            // The refused pin and the failed head read both ran: a head error, never a result.
+            if (outcome.result !== undefined) violations.push(`${label}: returned ${JSON.stringify(outcome.result)}`)
+            else if (outcome.error === run.origin.error) {
+              if (armedNames(run.fake).length) violations.push(`${label}: rethrown the head error over an armed PR`)
+            } else if (outcome.error?.cause !== run.origin.error) {
+              violations.push(`${label}: lost the head error — ${outcome.error?.message}`)
+            }
+          }
+        }
+      }
+      expect(violations).toEqual([])
+    },
+  )
 })
