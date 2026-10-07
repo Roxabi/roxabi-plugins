@@ -924,8 +924,8 @@ describe('landPr — an approval arms only the commit it reviewed', () => {
   it('a head that moves after the pin is not-approved, auto-merge disabled, and unlabeled', async () => {
     const fake = approvedGate()
     const result = await landPr('/tmp/wt', 7, { gh: movingHead(fake, { moveAt: 2 }), ...NATIVE })
-    expect(result).toEqual({ status: 'not-approved', reviews: 1, reason: 'head-moved' })
-    expect(fake.calls.some(disablesAuto)).toBe(true)
+    expect(result).toEqual({ status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true })
+    expect(fake.pr.autoMerge).toBe(null)
     expect(fake.calls.some(armsLabel)).toBe(false)
     expect(fake.pr.labels.has('reviewed')).toBe(false)
   })
@@ -942,14 +942,80 @@ describe('landPr — an approval arms only the commit it reviewed', () => {
     expect(fake.calls.some(armsLabel)).toBe(false)
   })
 
-  it('disable-auto throwing after the pin moves returns auto-merge-failed and no label', async () => {
+  it('disable-auto throwing after the pin moves returns auto-merge-failed, armed, and no label', async () => {
     const fake = approvedGate()
     const result = await landPr('/tmp/wt', 7, {
       gh: movingHead(fake, { moveAt: 2, disableThrows: true }),
       ...NATIVE,
     })
-    expect(result).toEqual({ status: 'auto-merge-failed', armed: true })
+    expect(result).toEqual({
+      status: 'auto-merge-failed',
+      armed: true,
+      error: expect.stringContaining('stays armed — auto-merge'),
+    })
     expect(fake.calls.some(armsLabel)).toBe(false)
     expect(fake.pr.labels.has('reviewed')).toBe(false)
+  })
+})
+
+describe('landPr — a native refusal for want of required checks disarms an armed gate', () => {
+  /** An approved, armed PR whose protection read fails and whose rules are empty; the head can move at the repo read. */
+  function armedForLookup({ headMovesAt } = {}) {
+    const fake = gatePr({
+      comments: [byMe(boundReview('Approve (clean)', REVIEWED_HEAD))],
+      headRefOid: REVIEWED_HEAD,
+      ...ARMED,
+    })
+    const gh = async (cwd, args) => {
+      if (args[0] === 'repo' && headMovesAt === 'repo') fake.pr.headRefOid = MOVED_HEAD
+      if (same(args, ['pr', 'view', '7', '--json', 'baseRefName'])) return JSON.stringify({ baseRefName: 'main' })
+      if (args[0] === 'api' && String(args[1]).includes('/protection/')) throw new Error('HTTP 403')
+      if (args[0] === 'api' && String(args[1]).includes('/rules/')) return '[]'
+      return fake.gh(cwd, args)
+    }
+    return { fake, gh }
+  }
+
+  it.each([
+    [
+      'explicitly empty contexts',
+      { landing: { mode: 'native', required_checks: [] }, requiredContexts: [] },
+      undefined,
+    ],
+    [
+      'discovered-empty contexts (protection unreadable, no rules)',
+      { landing: { mode: 'native', required_checks: [] } },
+      undefined,
+    ],
+    [
+      'discovered-empty contexts, the head moving during the lookups',
+      { landing: { mode: 'native', required_checks: [] } },
+      'repo',
+    ],
+  ])(
+    '%s: the approved, armed PR ends unarmed, and the result says it was disarmed',
+    async (_label, options, headMovesAt) => {
+      const { fake, gh } = armedForLookup({ headMovesAt })
+      const result = await landPr('/tmp/wt', 7, { gh, ...options })
+      expect(result).toEqual({ status: 'no-required-checks', disarmed: true })
+      expect([...fake.pr.labels]).toEqual(['size:F-lite'])
+      expect(fake.pr.autoMerge).toBe(null)
+    },
+  )
+
+  it('an unarmed PR is left alone and no disarm is claimed', async () => {
+    const fake = gatePr({
+      comments: [byMe(boundReview('Approve (clean)', REVIEWED_HEAD))],
+      headRefOid: REVIEWED_HEAD,
+      labels: ['size:F-lite'],
+    })
+    const result = await landPr('/tmp/wt', 7, {
+      gh: fake.gh,
+      landing: { mode: 'native', required_checks: [] },
+      requiredContexts: [],
+    })
+    expect(result).toEqual({ status: 'no-required-checks' })
+    expect([...fake.pr.labels]).toEqual(['size:F-lite'])
+    expect(fake.pr.autoMerge).toBe(null)
   })
 })

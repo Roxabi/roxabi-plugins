@@ -141,20 +141,34 @@ The review bound is two reads of the PR's review records (#710) — the comments
 by the automation login (`gh api user`) whose first line is
 `<!-- omp-build:code-review -->`: how many there are, and the latest one. Nothing
 writes accounting; every decision is derived again from a fresh read.
+
+**The armed gate (#713).** An OPEN PR is armed — `reviewed` label or auto-merge
+enabled — only when the latest review record approves the current head, the bound
+is not spent, and no review of that head is running. `disarmGate` is the one
+disarm: it disables auto-merge, then removes the label, attempts both, reads the
+gate back, and throws one error naming what stays armed. Every `nextReviewStep`
+step but `land` calls it, `reviewing` (a review is about to start, nested or
+standalone) calls it on `land` too, and every `landPr` `not-approved` calls it.
+Native `no-required-checks` is stricter: `landPr` disarms a gate it found armed
+even at the approved current head, because required-check discovery reads an API
+error as no checks. That can cancel a scheduled merge; nothing restores it —
+configure the checks and re-enter through the normal gate. A `/feature` review of
+an existing PR runs this disarm before it reads the diff; the review-start test
+executes that fence against a fake `gh`, which shows the fence works, not that a
+model runs it.
+
 - `nextReviewStep(cwd, pr, { posted?, ciFailed?, reviewing? })` returns `land`, `fix`, `stop`
   or `review`. A fix is allowed while the PR has at most two records, one per
   review: the fix's push moves the head, and a latest record of another commit
   asks for a review first. A record past the second that does not approve spends
   the bound for good — a later green does not lift it. A CI failure on the head
   the third review approved stops too. `posted` (the review just posted) must be
-  the latest record, else it throws. Every step but `land` disarms an armed PR;
-  `reviewing` (a review is about to start) disarms on `land` too.
+  the latest record, else it throws.
 - `landPr(cwd, pr)` arms only when the latest record approves and its line-2
   `<!-- omp-build:review-head sha=… -->` equals the current `headRefOid`, re-read
   before every write. A spent bound is `not-approved` with reason `review-bound`.
   A missing or malformed line-2 sha is `no-review-head`; a different or unreadable
-  head is `head-moved`. Every `not-approved` disarms an armed PR. Unreadable
-  records authorize nothing.
+  head is `head-moved`. Unreadable records authorize nothing.
   Native auto-merge is requested with `--match-head-commit`. Merge-on-green is
   label-driven: a later push by another actor is not refused by GitHub. A review
   posted before the head line existed needs one re-review before it can land.

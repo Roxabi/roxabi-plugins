@@ -10,10 +10,9 @@ const WORKFLOW = join(import.meta.dirname, 'workflow.js')
 const CI_WATCH = join(import.meta.dirname, '..', 'ci-watch', 'ci-watch.sh')
 const EVENT_AT = '2026-09-29T10:00:05Z'
 const BEFORE_AT = '2026-09-29T09:00:00Z'
-const EVENTS_JQ = '.[] | select(.event == "labeled" and .label.name == "reviewed") | .created_at'
 
 const DRIVER = `
-const [mod, fn, cwd, pr, eventsMode, historyMode, prList, headMode] = process.argv.slice(1)
+const [mod, fn, cwd, pr, eventsMode, historyMode, prList, headMode, armMode] = process.argv.slice(1)
 const { landPr, readLanding } = await import(mod)
 if (fn === 'readLanding') {
   try {
@@ -36,6 +35,11 @@ const comments = HISTORIES[historyMode].map((body) => ({ author: { login: ME }, 
 const calls = []
 let eventsPoll = 0
 let headReads = 0
+// The gate as the PR holds it: reviewed and auto-merge follow the writes made on them.
+const arms = {
+  labels: new Set(armMode === 'label' || armMode === 'both' ? ['reviewed'] : []),
+  auto: armMode === 'auto' || armMode === 'both',
+}
 const sleep = async () => {}
 const same = (args, expected) => args.length === expected.length && expected.every((arg, i) => args[i] === arg)
 const gh = async (_cwd, args) => {
@@ -47,8 +51,8 @@ const gh = async (_cwd, args) => {
     const view = {}
     for (const field of String(args[4]).split(',')) {
       if (field === 'comments') view.comments = comments
-      if (field === 'labels') view.labels = []
-      if (field === 'autoMergeRequest') view.autoMergeRequest = null
+      if (field === 'labels') view.labels = [...arms.labels].map((name) => ({ name }))
+      if (field === 'autoMergeRequest') view.autoMergeRequest = arms.auto ? { mergeMethod: 'MERGE' } : null
       if (field === 'state') view.state = 'OPEN'
       if (field === 'baseRefName') view.baseRefName = 'main'
       if (field === 'headRefOid') {
@@ -79,13 +83,17 @@ const gh = async (_cwd, args) => {
     return JSON.stringify([comments.map((entry, index) => ({ user: { login: entry.author.login }, body: entry.body, created_at: '2026-01-01T00:00:0' + index + 'Z' }))])
   }
   if (args[0] === 'api') throw new Error('HTTP 403')
+  if (same(args, ['pr', 'edit', '7', '--remove-label', 'reviewed'])) arms.labels.delete('reviewed')
+  if (same(args, ['pr', 'edit', '7', '--add-label', 'reviewed'])) arms.labels.add('reviewed')
+  if (same(args, ['pr', 'merge', '7', '--disable-auto'])) arms.auto = false
+  else if (args[0] === 'pr' && args[1] === 'merge' && args.includes('--auto')) arms.auto = true
   return ''
 }
 try {
   const result = await landPr(cwd, pr === '' ? undefined : Number(pr), { gh, sleep })
-  console.log(JSON.stringify({ result, calls }))
+  console.log(JSON.stringify({ result, calls, final: { labels: [...arms.labels], autoMerge: arms.auto } }))
 } catch (e) {
-  console.log(JSON.stringify({ error: e.message, calls }))
+  console.log(JSON.stringify({ error: e.message, calls, final: { labels: [...arms.labels], autoMerge: arms.auto } }))
 }
 `
 
@@ -100,9 +108,9 @@ function checkout(files = {}) {
 }
 
 /** `pr: ''` omits the PR, so landPr discovers it from the checkout's branch. */
-function land(cwd, eventsMode = 'ok', { pr = '7', history = 'approved', prList = '[]', head = '' } = {}) {
+function land(cwd, eventsMode = 'ok', { pr = '7', history = 'approved', prList = '[]', head = '', arm = '' } = {}) {
   return JSON.parse(
-    execFileSync('bun', ['-e', DRIVER, WORKFLOW, 'landPr', cwd, pr, eventsMode, history, prList, head], {
+    execFileSync('bun', ['-e', DRIVER, WORKFLOW, 'landPr', cwd, pr, eventsMode, history, prList, head, arm], {
       encoding: 'utf8',
     }),
   )
@@ -133,7 +141,6 @@ function watchScript(watch) {
 const WORKFLOW_FILE = { '.github/workflows/merge-on-green.yml': 'name: merge-on-green\n' }
 const PROTECTION = ['api', 'repos/acme/app/branches/main/protection/required_status_checks']
 const RULES = ['api', 'repos/acme/app/rules/branches/main']
-const EVENTS = ['api', 'repos/acme/app/issues/7/events', '--paginate', '--jq', EVENTS_JQ]
 const IDENTITY = ['api', 'user', '--jq', '.login']
 const COMMENTS = ['api', '--paginate', '--slurp', 'repos/{owner}/{repo}/issues/7/comments']
 const GATE = ['pr', 'view', '7', '--json', 'headRefOid,state,labels,autoMergeRequest']
@@ -152,7 +159,7 @@ function onlyDecidingReads(calls) {
 
 describe('landPr through the checkout', () => {
   it('a merge-on-green workflow and a stack with no landing block watch merge-on-green, asking no rules API', () => {
-    const { result, calls } = land(checkout({ ...WORKFLOW_FILE, '.dev/stack.yml': 'runtime: bun\n' }))
+    const { result, calls, final } = land(checkout({ ...WORKFLOW_FILE, '.dev/stack.yml': 'runtime: bun\n' }))
     expect(result).toMatchObject({ status: 'watching', mode: 'merge-on-green' })
     const script = watchScript(result.watch)
     expect(script.startsWith('/')).toBe(true)
@@ -167,21 +174,11 @@ describe('landPr through the checkout', () => {
         input: '[]',
       }).trim(),
     ).toBe('PENDING')
-    // review gate (identity + comments), the PR gate, then before events + labels,
-    // a fresh head read, then the label.
-    // Stub answers protection/rules; a probe would show.
-    expect(calls).toEqual([
-      IDENTITY,
-      COMMENTS,
-      GATE,
-      ['repo', 'view', '--json', 'nameWithOwner'],
-      EVENTS,
-      ['pr', 'view', '7', '--json', 'labels'],
-      ['pr', 'view', '7', '--json', 'headRefOid'],
-      ['pr', 'edit', '7', '--add-label', 'reviewed'],
-      ['repo', 'view', '--json', 'nameWithOwner'],
-      EVENTS,
-    ])
+    // A merge-on-green landing is decided by its workflow: it never probes protection or rulesets,
+    // and the one write it leaves is the reviewed label.
+    expect(calls).not.toContainEqual(PROTECTION)
+    expect(calls).not.toContainEqual(RULES)
+    expect(final).toEqual({ labels: ['reviewed'], autoMerge: false })
   })
   it('a head that moves after the labels view is not-approved and writes nothing', () => {
     const { result, calls } = land(checkout(STACK), 'ok', { head: 'moved' })
@@ -223,6 +220,31 @@ describe('landPr through the checkout', () => {
     expect(result).toEqual({ status: 'no-required-checks' })
     expect(calls).toContainEqual(PROTECTION)
     expect(calls).toContainEqual(RULES)
+  })
+
+  it.each([
+    ['both arms', 'both'],
+    ['the label alone', 'label'],
+    ['auto-merge alone', 'auto'],
+  ])('native with no required checks disarms an armed PR (%s) and says so', (_case, arm) => {
+    const { result, final } = land(checkout({ '.dev/stack.yml': 'landing:\n  mode: native\n' }), 'ok', { arm })
+    expect(result).toEqual({ status: 'no-required-checks', disarmed: true })
+    expect(final).toEqual({ labels: [], autoMerge: false })
+  })
+
+  it('native with no required checks, armed, still disarms when the head moves while it is disarmed', () => {
+    const { result, final } = land(checkout({ '.dev/stack.yml': 'landing:\n  mode: native\n' }), 'ok', {
+      arm: 'both',
+      head: 'moved',
+    })
+    expect(result).toEqual({ status: 'no-required-checks', disarmed: true })
+    expect(final).toEqual({ labels: [], autoMerge: false })
+  })
+
+  it('native with no required checks leaves an unarmed PR alone and claims no disarm', () => {
+    const { result, final } = land(checkout({ '.dev/stack.yml': 'landing:\n  mode: native\n' }))
+    expect(result).toEqual({ status: 'no-required-checks' })
+    expect(final).toEqual({ labels: [], autoMerge: false })
   })
 
   it.each([
