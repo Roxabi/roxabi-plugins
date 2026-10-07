@@ -561,6 +561,19 @@ describe('landPr proof after review', () => {
     expect(pinned(run.calls)).toBe(false)
   })
 
+  it('refuses an advanced local branch while checkout and approval still match', () => {
+    const { dir, oid } = initRepo(sem(contract('verified')))
+    git(dir, ['commit', '-qm', 'advanced branch', '--allow-empty'])
+    git(dir, ['checkout', '-q', '--detach', oid])
+    const run = drive(dir, landScenario(oid, { labels: ['reviewed'], auto: true }))
+
+    expect(run.result).toMatchObject({ status: 'proof-blocked', disarmed: true })
+    expect(run.result.reason).toMatch(/not the proof head/)
+    expect(pinned(run.calls)).toBe(false)
+    expect(run.labels).toEqual([])
+    expect(run.auto).toBe(false)
+  })
+
   it('refuses committed e2e on land the same way open does', () => {
     const { dir, oid } = initRepo(sem(contract('partial'), E2E))
     const run = drive(dir, landScenario(oid, { proof: uiProof(oid), body: bodyWithCheck() }))
