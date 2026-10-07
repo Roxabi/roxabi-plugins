@@ -6,6 +6,7 @@ import { join, sep } from 'node:path'
 
 const GIT_SHA = /^[0-9a-f]{40}$/
 
+/** One claiming landed PR; several records may belong to the same child. */
 export type MergedChild = {
   number: number
   /** First parent of the merge commit. */
@@ -17,8 +18,8 @@ export type MergedChild = {
 export type ChildDiff = { number: number; firstParent: string; merge: string }
 
 /**
- * Ordered first-parent diffs of every claimed merged child, plus the SHA-256 of
- * those fixed-width pairs. Sorted by numeric merge time, then ticket number.
+ * Ordered first-parent diffs of every claiming landed PR, plus the SHA-256 of
+ * those fixed-width pairs. Sort by merge time, ticket, merge SHA, then parent SHA.
  * A later unusable SHA or date refuses the set; nothing is dropped. The
  * coverage token is an identity, never a Git argument, and has no decoder.
  */
@@ -33,7 +34,12 @@ export function epicCoverage(children: MergedChild[]): { diffs: ChildDiff[]; cov
     if (!Number.isFinite(at)) return { error: `#${child.number} has no merge time` }
     validated.push({ number: child.number, firstParent: child.baseSha, merge: child.mergeSha, at })
   }
-  const ordered = [...validated].sort((a, b) => a.at - b.at || a.number - b.number)
+  const ordered = validated.sort((a, b) => {
+    const order = a.at - b.at || a.number - b.number
+    if (order) return order
+    if (a.merge !== b.merge) return a.merge < b.merge ? -1 : 1
+    return a.firstParent === b.firstParent ? 0 : a.firstParent < b.firstParent ? -1 : 1
+  })
   const diffs = ordered.map(({ number, firstParent, merge }) => ({ number, firstParent, merge }))
   const coverage = createHash('sha256')
     .update(diffs.map((diff) => diff.firstParent + diff.merge).join(''))

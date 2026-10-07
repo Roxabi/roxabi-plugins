@@ -152,6 +152,34 @@ const hook = (result: HookRecord['result'], at: string, run = RUN): HookRecord =
 const reviewed = (hooks: HookRecord[]) => facts(DONE, { reviews: [review('clean', COVERAGE)], hooks })
 
 describe('nextStep', () => {
+  it('requires review of every claiming merge of one child, independent of PR order', () => {
+    const first = landed(1, T1, sha('1'), sha('2'))
+    const second = landed(1, T2, sha('b'), sha('c'), { number: 201, head: 'fix/1-follow-up' })
+    const before = nextStep(facts([child(1, { state: 'CLOSED', prs: [first] })]))
+    if (before.action !== 'final-review') throw new Error('expected an initial review')
+    const reviews = [review('clean', before.coverage)]
+    const after = nextStep(facts([child(1, { state: 'CLOSED', prs: [first, second] })], { reviews }))
+
+    expect(after).toMatchObject({
+      action: 'final-review',
+      stage: 'review',
+      diffs: [
+        { number: 1, firstParent: sha('1'), merge: sha('2') },
+        { number: 1, firstParent: sha('b'), merge: sha('c') },
+      ],
+    })
+    expect(nextStep(facts([child(1, { state: 'CLOSED', prs: [second, first] })], { reviews }))).toEqual(after)
+  })
+
+  it('refuses an unusable second claiming merge instead of dropping it from coverage', () => {
+    const first = landed(1, T1, sha('1'), sha('2'))
+    const unusable = landed(1, T2, sha('b'), sha('c'), { number: 201, head: 'fix/1-follow-up', mergeSha: null })
+    expect(nextStep(facts([child(1, { state: 'CLOSED', prs: [first, unusable] })]))).toMatchObject({
+      action: 'drop',
+      stop: 'driver-error',
+    })
+  })
+
   describe('order and blockers', () => {
     it.each<Case>([
       {

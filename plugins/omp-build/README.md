@@ -111,9 +111,10 @@ naming the epic, `/feature` is unchanged.
 
 Every `next` re-disarms a stopped child's armed PR before it moves on (`reconciled`); a failed disarm, or a PR that already merged, is a drop and creates no branch. `report --outcome drop` disarms without reading base CI or the landing, and exits non-zero naming any PR still armed. If that command fails, print the error, then drop the goal.
 
-The final review receives the ordered `diffs` from `epicCoverage`: each child's
-merge commit against its first parent. Run one `git diff --no-ext-diff` with those
-two SHAs as separate arguments per pair, then review the union. A spanning
+The final review receives the ordered `diffs` from `epicCoverage`: every same-base
+merged PR whose branch claims a child contributes its first-parent diff, including
+multiple PRs for one child. Run one `git diff --no-ext-diff` with the two SHAs as
+separate arguments per pair, then review the union. A spanning
 first-base→last-merge diff includes unrelated intervening merges. The driver
 records `review --coverage <identity>`, a SHA-256 identity of the exact ordered
 pairs; it is not a Git revision. Old range-only review markers do not satisfy it.

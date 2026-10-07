@@ -52,6 +52,20 @@ describe('epicCoverage', () => {
     })
   })
 
+  it('orders simultaneous landings of the same child independently of input order', () => {
+    const at = '2026-09-01T10:00:00Z'
+    const first = child(1, sha('1'), sha('a'), at)
+    const second = child(1, sha('2'), sha('b'), at)
+    const reversed = epicCoverage([second, first])
+    expect(reversed).toEqual(epicCoverage([first, second]))
+    expect(reversed).toMatchObject({
+      diffs: [
+        { number: 1, firstParent: sha('1'), merge: sha('a') },
+        { number: 1, firstParent: sha('2'), merge: sha('b') },
+      ],
+    })
+  })
+
   it('rejects an unusable later child instead of dropping it', () => {
     const good = child(1, sha('1'), sha('a'), '2026-09-01T10:00:00Z')
     const later = child(2, sha('2'), sha('b'), '2026-09-02T10:00:00Z')

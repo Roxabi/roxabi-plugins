@@ -220,8 +220,9 @@ is not `active`, the driver acts on nothing, and the open links stay for a new
 running goal does not do that itself.
 
 **Final epic review and hook.** Once every child is closed or merged into the
-base, `epicCoverage` supplies `step.diffs`, ordered by merge time, and an opaque
-`step.coverage` identity. For each `{firstParent, merge}` pair, run
+base, `epicCoverage` supplies `step.diffs` for every same-base merged PR claiming
+a child, including multiple PRs per child, and an opaque `step.coverage` identity.
+Keep the driver's merge-time order and all its pairs. For each `{firstParent, merge}`, run
 `git diff --no-ext-diff <firstParent> <merge> --` with the two SHAs as separate
 argv entries; review all those diffs. Neither concatenate revision ranges nor
 pass `coverage` to Git: a spanning diff includes unrelated merges between children.

@@ -735,6 +735,45 @@ const reviewMarker = (verdict: 'clean' | 'blocking', coverage: string): Comment 
 })
 
 describe('epic-driver — final review and hook refusals', () => {
+  it('invalidates a clean subset when another PR claiming the same child lands', () => {
+    const { coverage, base, merge, merged, proof } = landedEpic()
+    const { principal, epic, root, state } = sandboxOf()
+    writeFileSync(path.join(principal, 'follow-up.txt'), 'second delivered change\n')
+    git(principal, 'add', 'follow-up.txt')
+    git(principal, 'commit', '-qm', 'fix(x): follow-up (#2)')
+    const secondMerge = git(principal, 'rev-parse', 'HEAD')
+    git(principal, 'push', '-q', 'origin', 'main')
+    git(epic, 'fetch', '-q', 'origin')
+    const second = prNode(11, 'fix/2-follow-up', 'd'.repeat(40), {
+      state: 'MERGED',
+      mergedAt: '2026-09-30T10:01:00Z',
+      mergeCommit: { oid: secondMerge, parents: { nodes: [{ oid: merge }] } },
+    })
+    const done = childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged, second] })
+    serveEpic([done], [reviewMarker('clean', coverage)])
+    const next = drive(['next', '--dry-run'])
+    expect(next.code).toBe(0)
+    const step = next.json().step
+    expect(step).toMatchObject({
+      action: 'final-review',
+      stage: 'review',
+      diffs: [
+        { number: 2, firstParent: base, merge },
+        { number: 2, firstParent: merge, merge: secondMerge },
+      ],
+    })
+
+    expect(drive(['review', '--verdict', 'clean', '--coverage', coverage]).code).toBe(2)
+    expect(drive(['hook', '--repo', epic], { cwd: root }).code).toBe(2)
+    expect(writes()).toEqual([])
+    expect(() => readFileSync(proof)).toThrow()
+
+    expect(drive(['review', '--verdict', 'clean', '--coverage', step.coverage]).code).toBe(0)
+    const recorded = readFileSync(path.join(state, 'comment-0.md'), 'utf8')
+    serveEpic([done], [{ body: recorded, author: ME }])
+    expect(drive(['next', '--dry-run']).json().step).toMatchObject({ action: 'post-merge' })
+  })
+
   it('refuses a clean review while the one fix ticket is still owed', () => {
     const { coverage, merged } = landedEpic()
     serveEpic(

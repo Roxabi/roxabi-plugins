@@ -610,15 +610,12 @@ export function generateObjective(input: {
 }
 
 /**
- * Finalization selector. MERGED into `base` from a branch claiming the child,
- * even when `mergeSha` is null: omitting that PR would count a CLOSED child as
- * never merged. `mergedPr` stays the mid-flight landing predicate.
+ * Every finalization claim: MERGED into `base` from a branch naming the child.
+ * Keep null merge fields so an unusable landed PR refuses the whole coverage.
+ * `mergedPr` stays the mid-flight landing predicate.
  */
-function claimedMergedPr(child: ChildFacts, base: string): PrFacts | null {
-  return (
-    child.prs.find((pr) => pr.state === 'MERGED' && pr.base === base && ticketOfBranch(pr.head) === child.number) ??
-    null
-  )
+function claimedMergedPrs(child: ChildFacts, base: string): PrFacts[] {
+  return child.prs.filter((pr) => pr.state === 'MERGED' && pr.base === base && ticketOfBranch(pr.head) === child.number)
 }
 
 // ── The driver's decision ─────────────────────────────────────────────────────
@@ -778,9 +775,14 @@ export function nextStep(facts: Facts): Step {
     }
   }
 
-  const merged = facts.children
-    .map((child) => ({ child, pr: claimedMergedPr(child, base) }))
-    .filter((entry): entry is { child: ChildFacts; pr: PrFacts } => entry.pr !== null)
+  const merged = facts.children.flatMap((child) =>
+    claimedMergedPrs(child, base).map((pr) => ({
+      number: child.number,
+      baseSha: pr.baseSha,
+      mergeSha: pr.mergeSha,
+      mergedAt: pr.mergedAt,
+    })),
+  )
   if (!merged.length) {
     const blocked = finalizationBlock(facts, report)
     if (blocked) return blocked
@@ -791,14 +793,7 @@ export function nextStep(facts: Facts): Step {
     if (hook.state === 'stale') return { action: 'drop', stop: 'hook-stale', reason: hook.detail, report }
     return { action: 'complete', reason: 'every child closed and none merged', report }
   }
-  const diff = epicCoverage(
-    merged.map(({ child, pr }) => ({
-      number: child.number,
-      baseSha: pr.baseSha,
-      mergeSha: pr.mergeSha,
-      mergedAt: pr.mergedAt,
-    })),
-  )
+  const diff = epicCoverage(merged)
   if ('error' in diff) return { action: 'drop', stop: 'driver-error', reason: diff.error, report }
   const review = facts.reviews.filter((entry) => entry.coverage === diff.coverage).at(-1)
   if (!review) {
