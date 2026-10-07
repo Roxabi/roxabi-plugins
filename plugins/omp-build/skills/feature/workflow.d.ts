@@ -17,7 +17,7 @@ export declare function disarmReviewedBeforePush(
   cwd: string,
   pr: number | string,
   deps?: { gh?: Gh; push?: () => Promise<void> | void },
-): Promise<{ disarmed: true }>
+): Promise<{ disarmed?: true }>
 
 /** The review records by `me` (#710): count, latest verdict and head, and whether the bound is spent. */
 export declare function reviewRecords(
@@ -51,4 +51,4 @@ export declare function applyCiWatchExit(
   pr: number | string,
   code: number,
   opts?: { mode?: string },
-): Promise<{ status: string }>
+): Promise<{ status: string; disarmed?: true }>

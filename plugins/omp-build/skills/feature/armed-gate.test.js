@@ -1,8 +1,5 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { commentPageArgs, landPr, nextReviewStep } from './workflow.js'
+import { applyCiWatchExit, commentPageArgs, disarmReviewedBeforePush, landPr, nextReviewStep } from './workflow.js'
 
 /**
  * The armed-gate invariant (#713), delivered again by #744. An OPEN PR is armed (`reviewed`
@@ -12,12 +9,13 @@ import { commentPageArgs, landPr, nextReviewStep } from './workflow.js'
  * gate even at a stable, approved head (explicit or discovered-empty contexts), because an
  * empty discovery is not proof that protection is absent.
  *
- * One stateful fake PR, shared by `landPr` and `nextReviewStep`. Every exit of both after the
- * gate read is a row of the table below; the sweeps at the end make each gh call of a scripted
- * run fail once, move the head after it, and fail while the head moves, so a missed exit shows
- * up as a violation of the oracle. The oracle is written here from the fake's final state,
- * not from `workflow.js`. The fake also answers the resolver's repo / base / protection / rules
- * reads, so native runs without declared checks go through the real discovery control flow.
+ * One stateful fake PR, shared by `landPr`, `nextReviewStep`, `applyCiWatchExit` and
+ * `disarmReviewedBeforePush` (#729). Every exit after the gate read is a row of the table
+ * below; the sweeps at the end make each gh call of a scripted run fail once, move the head
+ * after it, and fail while the head moves, so a missed exit shows up as a violation of the
+ * oracle. The oracle is written here from the fake's final state, not from `workflow.js`. The
+ * fake also answers the resolver's repo / base / protection / rules reads, so native runs
+ * without declared checks go through the real discovery control flow.
  *
  * Out of this table on purpose (#731): an unreadable head after a refused pin
  * (`pinRefused`) still returns `auto-merge-failed` / `armed: false` and leaves the gate it found.
@@ -61,7 +59,15 @@ function kindOf(args) {
   if (same(args, IDENTITY)) return 'identity'
   if (same(args, commentPageArgs(PR))) return 'comments'
   if (args[0] === 'pr' && args[1] === 'view' && args.length === 5) {
-    return { [GATE_FIELDS]: 'gate', headRefOid: 'head', labels: 'labels', baseRefName: 'base' }[args[4]] ?? 'unexpected'
+    return (
+      {
+        [GATE_FIELDS]: 'gate',
+        headRefOid: 'head',
+        labels: 'labels',
+        baseRefName: 'base',
+        'state,autoMergeRequest': 'state',
+      }[args[4]] ?? 'unexpected'
+    )
   }
   if (same(args, ['pr', 'merge', String(PR), '--disable-auto'])) return 'disable'
   if (same(args, ['pr', 'edit', String(PR), '--remove-label', 'reviewed'])) return 'remove'
@@ -86,8 +92,8 @@ const ARMED = {
  * @typedef {{ on: string, nth?: number, times?: number, error?: string, answer?: string, applies?: boolean }} Fail
  *   Make the nth call of a kind throw `error` (default 'injected'), or answer `answer`. `applies`: the write
  *   lands, then the call still throws.
- * @typedef {{ when: 'before' | 'after', on: string, nth?: number, head?: string, state?: string }} Move
- *   Move the head (or change the state) around the nth call of a kind.
+ * @typedef {{ when: 'before' | 'after', on: string, nth?: number, head?: string, state?: string, reviews?: ReturnType<typeof approve>[] }} Move
+ *   Move the head, change the state or append review records around the nth call of a kind.
  * @typedef {{ fail?: Fail[], moves?: Move[], failAt?: number, moveAfterCall?: number, moveBeforeCall?: number, events?: 'normal' | 'none' }} Script
  *   `moveBeforeCall`: the head moves immediately before the call at that log index runs (and may fail).
  * @typedef {{ classic?: string[], rules?: string[] }} Found
@@ -117,6 +123,7 @@ function armedPr({ records = [], start = 'both', state = 'OPEN', head = HEAD, sc
       if (move.when !== when || move.on !== kind || seen[kind] !== (move.nth ?? 1)) continue
       if (move.head) pr.head = move.head
       if (move.state) pr.state = move.state
+      if (move.reviews) records.push(...move.reviews)
     }
   }
   const perform = (kind, args) => {
@@ -140,6 +147,8 @@ function armedPr({ records = [], start = 'both', state = 'OPEN', head = HEAD, sc
         })
       case 'head':
         return JSON.stringify({ headRefOid: pr.head })
+      case 'state':
+        return JSON.stringify({ state: pr.state, autoMergeRequest: pr.autoMerge })
       case 'labels':
         return JSON.stringify({ labels: [...pr.labels].map((name) => ({ name })) })
       case 'disable':
@@ -270,17 +279,21 @@ function truthful(fake, outcome) {
 const NATIVE = { landing: { mode: 'native', required_checks: ['ci'] } }
 const MOG = { landing: { mode: 'merge-on-green', required_checks: [] } }
 
-/** A checkout whose `.dev/stack.yml` is not a valid landing. */
 /**
- * @param {{ fn: 'land' | 'step', opts?: object, cwd?: string }} what
+ * @param {{ fn: 'land' | 'step' | 'watch' | 'push', opts?: object, cwd?: string }} what
  * @param {ReturnType<typeof armedPr>} fake
  */
 async function exec(what, fake) {
   try {
+    const cwd = what.cwd ?? '/tmp/wt'
     const result =
       what.fn === 'land'
-        ? await landPr(what.cwd ?? '/tmp/wt', PR, { gh: fake.gh, sleep: async () => {}, ...what.opts })
-        : await nextReviewStep(what.cwd ?? '/tmp/wt', PR, { gh: fake.gh, ...what.opts })
+        ? await landPr(cwd, PR, { gh: fake.gh, sleep: async () => {}, ...what.opts })
+        : what.fn === 'watch'
+          ? await applyCiWatchExit(cwd, PR, what.opts?.code ?? 1, { mode: what.opts?.mode ?? 'native', gh: fake.gh })
+          : what.fn === 'push'
+            ? await disarmReviewedBeforePush(cwd, PR, { gh: fake.gh, push: what.opts?.push })
+            : await nextReviewStep(cwd, PR, { gh: fake.gh, ...what.opts })
     return { result, error: undefined }
   } catch (error) {
     return { result: undefined, error }
@@ -345,6 +358,27 @@ const SOURCES = [
 ]
 /** What a disarm writes from each armed start, in the order it writes them. */
 const START_WRITES = { both: ['disable', 'remove'], label: ['remove'], auto: ['disable'] }
+const WATCH_OBSERVERS = [
+  [0, { status: 'stopped' }],
+  [4, { status: 'stopped' }],
+  [5, { status: 'timeout' }],
+  [6, { status: 'evaluate-only' }],
+  [70, { status: 'watch-failed', code: 70 }],
+  [9, { status: 'watch-failed', code: 9 }],
+]
+const WATCH_FORCED = [
+  [1, 'ci-failed'],
+  [2, 'ci-cancelled'],
+  [3, 'ci-blocked'],
+]
+const REVIEW_GATES = [
+  ['valid approval', [approve()], HEAD, true],
+  ['red latest review', [approve(), red()], HEAD, false],
+  ['spent bound despite later approval', [red(), red(), red(), approve()], HEAD, false],
+  ['approval of the previous head', [approve()], MOVED, false],
+  ['no records', [], HEAD, false],
+  ['approval without a head', [noHead('Approve')], HEAD, false],
+]
 const REFUSED = { status: 'no-required-checks', disarmed: true }
 const WATCHING = { status: 'watching', mode: 'native', watch: expect.any(String) }
 /** A stable, approved head: only the policy — not the records — can explain an unarmed end state. */
@@ -2056,6 +2090,209 @@ const ROWS = [
       auto: false,
     },
   ],
+  // --- applyCiWatchExit / disarmReviewedBeforePush (#729 AC4) -----------------
+  [
+    'W1 applyCiWatchExit exit 1 on an armed OPEN PR → ci-failed, disarmed',
+    {
+      fn: 'watch',
+      opts: { code: 1, mode: 'native' },
+      records: [approve()],
+      result: { status: 'ci-failed', disarmed: true },
+      labels: CLEAN,
+      auto: false,
+      strict: true,
+    },
+  ],
+  [
+    'W1 applyCiWatchExit exit 2 → ci-cancelled, disarmed',
+    {
+      fn: 'watch',
+      opts: { code: 2, mode: 'native' },
+      records: [approve()],
+      result: { status: 'ci-cancelled', disarmed: true },
+      labels: CLEAN,
+      auto: false,
+      strict: true,
+    },
+  ],
+  [
+    'W1 applyCiWatchExit exit 3 → ci-blocked, disarmed',
+    {
+      fn: 'watch',
+      opts: { code: 3, mode: 'native' },
+      records: [approve()],
+      result: { status: 'ci-blocked', disarmed: true },
+      labels: CLEAN,
+      auto: false,
+      strict: true,
+    },
+  ],
+  [
+    'W2 applyCiWatchExit exit 1: disable fails and read-back stays armed → rejects',
+    {
+      fn: 'watch',
+      opts: { code: 1, mode: 'native' },
+      records: [approve()],
+      script: { fail: [{ on: 'disable', answer: '' }] },
+      rejects: stays('auto-merge'),
+      labels: CLEAN,
+      auto: true,
+      strict: true,
+    },
+  ],
+  [
+    'W3 applyCiWatchExit exit 1: PR merges while being disarmed → merged',
+    {
+      fn: 'watch',
+      opts: { code: 1, mode: 'native' },
+      records: [approve()],
+      script: { moves: [{ when: 'after', on: 'remove', state: 'MERGED' }] },
+      result: { status: 'merged' },
+      labels: CLEAN,
+      auto: false,
+      strict: true,
+    },
+  ],
+  [
+    'W4 applyCiWatchExit exit 6 evaluate-only → leaves the gate armed',
+    {
+      fn: 'watch',
+      opts: { code: 6, mode: 'native' },
+      records: [approve()],
+      start: 'both',
+      result: { status: 'evaluate-only' },
+      labels: REVIEWED,
+      auto: true,
+      none: true,
+    },
+  ],
+  [
+    'P1 disarmReviewedBeforePush on an armed gate → disarmed before push',
+    {
+      fn: 'push',
+      records: [approve()],
+      result: { disarmed: true },
+      labels: CLEAN,
+      auto: false,
+      strict: true,
+    },
+  ],
+  [
+    'P2 disarmReviewedBeforePush: remove fails and read-back stays labelled → rejects',
+    {
+      fn: 'push',
+      records: [approve()],
+      script: { fail: [{ on: 'remove', answer: '' }] },
+      rejects: stays('the reviewed label'),
+      labels: REVIEWED,
+      auto: false,
+      strict: true,
+    },
+  ],
+  ...WATCH_OBSERVERS.flatMap(([code, result]) =>
+    REVIEW_GATES.flatMap(([review, records, head, allowed]) =>
+      Object.keys(ARMED).map((start) => [
+        `W5 observer ${code}, ${review}, ${start}: only a current unspent approval may stay armed`,
+        {
+          fn: 'watch',
+          opts: { code },
+          records,
+          head,
+          start,
+          result: { ...result, ...(!allowed && start !== 'none' && { disarmed: true }) },
+          labels: allowed ? [...ARMED[start].labels, OTHER_LABEL] : CLEAN,
+          auto: allowed && ARMED[start].auto,
+        },
+      ]),
+    ),
+  ),
+  ...WATCH_FORCED.flatMap(([code, status]) =>
+    Object.keys(ARMED).flatMap((start) =>
+      ['OPEN', 'CLOSED', 'MERGED'].map((state) => [
+        `W6 forced exit ${code}, ${start}, ${state}: no invented disarm`,
+        {
+          fn: 'watch',
+          opts: { code },
+          records: [approve()],
+          start,
+          state,
+          strict: true,
+          result:
+            state === 'OPEN'
+              ? { status, ...(start !== 'none' && { disarmed: true }) }
+              : { status: state === 'MERGED' ? 'merged' : 'stopped' },
+          labels: state === 'OPEN' ? CLEAN : [...ARMED[start].labels, OTHER_LABEL],
+          auto: state !== 'OPEN' && ARMED[start].auto,
+        },
+      ]),
+    ),
+  ),
+  ...Object.keys(ARMED).flatMap((start) =>
+    ['OPEN', 'CLOSED', 'MERGED'].map((state) => [
+      `P3 push barrier ${start}, ${state}: no invented disarm`,
+      {
+        fn: 'push',
+        records: [approve()],
+        start,
+        state,
+        strict: true,
+        result: state === 'OPEN' && start !== 'none' ? { disarmed: true } : {},
+        labels: state === 'OPEN' ? CLEAN : [...ARMED[start].labels, OTHER_LABEL],
+        auto: state !== 'OPEN' && ARMED[start].auto,
+      },
+    ]),
+  ),
+  ...[
+    ['watch', { code: 1 }, { status: 'ci-failed', disarmed: true }],
+    ['watch', { code: 6 }, { status: 'evaluate-only', disarmed: true }],
+    ['push', {}, { disarmed: true }],
+  ].flatMap(([fn, opts, success]) =>
+    DISARM_FAULTS.map(([fault, script, expected]) => [
+      `${fn} ${opts.code ?? 'barrier'}: ${fault}`,
+      {
+        fn,
+        opts,
+        records: [red()],
+        strict: fn === 'push' || opts.code === 1,
+        script,
+        ...expected,
+        ...(expected.result && { result: success }),
+        ...(fn === 'watch' && /merges while/.test(fault) && { rejects: undefined, result: { status: 'merged' } }),
+        writes: ['disable', 'remove'],
+      },
+    ]),
+  ),
+  ...WATCH_OBSERVERS.flatMap(([code]) =>
+    ['identity', 'comments'].map((on) => [
+      `W7 observer ${code}: ${on} fails after acquisition, clearing preserves the original failure`,
+      {
+        fn: 'watch',
+        opts: { code },
+        records: [approve()],
+        script: { fail: [{ on, error: `${on} unavailable` }] },
+        rejects: new RegExp(`${on} unavailable`),
+        labels: CLEAN,
+        auto: false,
+        strict: true,
+        writes: ['disable', 'remove'],
+      },
+    ]),
+  ),
+  ...WATCH_OBSERVERS.flatMap(([code, result]) =>
+    ['identity', 'comments'].map((on) => [
+      `W8 observer ${code}: a head change during ${on} invalidates the old approval`,
+      {
+        fn: 'watch',
+        opts: { code },
+        records: [approve()],
+        script: { moves: [{ when: 'after', on, head: MOVED }] },
+        result: { ...result, disarmed: true },
+        labels: CLEAN,
+        auto: false,
+        writes: ['disable', 'remove'],
+      },
+    ]),
+  ),
 ]
 
 /** Attach the oracle's `reviewing` and fill the defaults. */
@@ -2071,7 +2308,7 @@ function prepare(row) {
   return { fake, what: { fn: row.fn, opts: row.opts, cwd: row.cwd } }
 }
 
-describe('the armed-gate invariant — every exit of landPr and nextReviewStep', () => {
+describe('the armed-gate invariant — every exit of landPr, nextReviewStep, applyCiWatchExit, disarmReviewedBeforePush', () => {
   it.each(ROWS)('%s', async (_name, row) => {
     const { fake, what } = prepare(row)
     const outcome = await exec(what, fake)
@@ -2192,6 +2429,33 @@ const SWEEPS = [
     'nextReviewStep land while reviewing',
     { fn: 'step', opts: { reviewing: true }, reviewing: true, records: [approve()], start: 'both' },
   ],
+  [
+    'applyCiWatchExit exit 1 from an armed PR',
+    { fn: 'watch', opts: { code: 1, mode: 'native' }, strict: true, records: [approve()], start: 'both' },
+  ],
+  [
+    'applyCiWatchExit exit 1 from a labelled PR',
+    { fn: 'watch', opts: { code: 1, mode: 'native' }, strict: true, records: [approve()], start: 'label' },
+  ],
+  ['disarmReviewedBeforePush from an armed PR', { fn: 'push', strict: true, records: [approve()], start: 'both' }],
+  ...WATCH_FORCED.flatMap(([code]) =>
+    ['both', 'label', 'auto', 'none'].map((start) => [
+      `applyCiWatchExit forced exit ${code} from ${start}`,
+      { fn: 'watch', opts: { code }, strict: true, records: [approve()], start },
+    ]),
+  ),
+  ...WATCH_OBSERVERS.flatMap(([code]) =>
+    REVIEW_GATES.filter(([_review, _records, _head, allowed]) => !allowed).flatMap(([review, records, head]) =>
+      ['both', 'label', 'auto'].map((start) => [
+        `applyCiWatchExit observer ${code}, ${review}, from ${start}`,
+        { fn: 'watch', opts: { code }, records: head === MOVED ? [approve(OLD)] : records, start },
+      ]),
+    ),
+  ),
+  ...['label', 'auto', 'none'].map((start) => [
+    `disarmReviewedBeforePush from ${start}`,
+    { fn: 'push', strict: true, records: [approve()], start },
+  ]),
   ...['both', 'label', 'auto'].flatMap((start) =>
     SOURCES.map(([source, opts]) => [
       `landPr native refusing for want of required checks (${source}) from a PR armed by ${start}`,
@@ -2214,6 +2478,8 @@ const PAIRABLE = new Set([
   'rules',
   'events',
   'gate',
+  'state',
+  'comments',
   'disable',
   'remove',
   'add',
@@ -2274,4 +2540,265 @@ describe('the armed-gate invariant — every gh call of a scripted run', () => {
       expect(violations).toEqual([])
     },
   )
+})
+
+describe('watch and push — acquisition boundaries and terminal failures', () => {
+  it.each([
+    ...WATCH_OBSERVERS.map(([code]) => ['watch', { code }]),
+    ...WATCH_FORCED.map(([code]) => ['watch', { code }]),
+    ['push', {}],
+  ])('%s %j does not guess or claim a disarm when its first gate read fails', async (fn, opts) => {
+    const fake = armedPr({
+      records: [approve()],
+      script: { fail: [{ on: 'gate', error: 'gate unavailable' }] },
+    })
+    const outcome = await exec({ fn, opts }, fake)
+    expect(outcome.error?.message).toMatch(/gate unavailable/)
+    expect(outcome.result).toBeUndefined()
+    expect([...fake.pr.labels]).toEqual(REVIEWED)
+    expect(fake.pr.autoMerge).not.toBeNull()
+  })
+
+  it.each(WATCH_OBSERVERS)(
+    'observer %s clears after an unreadable current head and preserves its error',
+    async (code) => {
+      const fake = armedPr({
+        records: [approve()],
+        script: { fail: [{ on: 'head', error: 'head unavailable' }] },
+      })
+      const outcome = await exec({ fn: 'watch', opts: { code } }, fake)
+      expect(outcome.error?.message).toMatch(/head unavailable/)
+      expect([...fake.pr.labels]).toEqual(CLEAN)
+      expect(fake.pr.autoMerge).toBeNull()
+      expect(holds(fake, outcome)).toBe(true)
+      expect(truthful(fake, outcome)).toBe(true)
+    },
+  )
+
+  it.each(['identity', 'comments', 'head'])(
+    'observer keeps the original %s error as cause when clearing fails',
+    async (on) => {
+      const fake = armedPr({
+        records: [approve()],
+        script: {
+          fail: [
+            { on, error: `${on} unavailable` },
+            { on: 'disable', error: 'disable unavailable' },
+          ],
+        },
+      })
+      const outcome = await exec({ fn: 'watch', opts: { code: 6 } }, fake)
+      expect(outcome.error?.message).toMatch(stays('auto-merge'))
+      expect(outcome.error?.cause?.message).toMatch(new RegExp(`${on} unavailable`))
+      expect([...fake.pr.labels]).toEqual(CLEAN)
+      expect(fake.pr.autoMerge).not.toBeNull()
+      expect(writesOf(fake)).toEqual(['disable', 'remove'])
+      expect(holds(fake, outcome, { strict: true })).toBe(true)
+    },
+  )
+
+  it.each(WATCH_OBSERVERS.flatMap(([code, result]) => ['CLOSED', 'MERGED'].map((state) => [code, result, state])))(
+    'observer %s preserves terminal status at %s without claiming disarm',
+    async (code, result, state) => {
+      const fake = armedPr({ records: [red()], state })
+      const outcome = await exec({ fn: 'watch', opts: { code } }, fake)
+      expect(outcome.error).toBeUndefined()
+      expect(outcome.result).toEqual(code === 0 && state === 'MERGED' ? { status: 'merged' } : result)
+      expect([...fake.pr.labels]).toEqual(REVIEWED)
+      expect(fake.pr.autoMerge).not.toBeNull()
+      expect(truthful(fake, outcome)).toBe(true)
+    },
+  )
+})
+
+describe('watch observer sweeps — approved gates and fresh authorization evidence', () => {
+  it.each(WATCH_OBSERVERS.flatMap(([code]) => Object.keys(ARMED).map((start) => [code, start])))(
+    'observer %s from %s handles each acquisition failure and observable head move',
+    async (code, start) => {
+      const spec = { records: [approve()], start }
+      const baseline = armedPr(spec)
+      const clean = await exec({ fn: 'watch', opts: { code } }, baseline)
+      expect(clean.error).toBeUndefined()
+      expect(holds(baseline, clean)).toBe(true)
+      expect(truthful(baseline, clean)).toBe(true)
+      const kinds = baseline.log.map((entry) => entry.kind)
+      const gateAt = kinds.indexOf('gate')
+      const violations = []
+      const check = (fake, outcome, label) => {
+        if (!holds(fake, outcome, { strict: true }))
+          violations.push(`${label}: ${outcome.error?.message ?? JSON.stringify(outcome.result)}`)
+        if (!truthful(fake, outcome)) violations.push(`${label}: false disarm claim`)
+      }
+      for (let k = 0; k < kinds.length; k++) {
+        const failing = armedPr({ ...spec, script: { failAt: k } })
+        const failed = await exec({ fn: 'watch', opts: { code } }, failing)
+        if (k <= gateAt) {
+          // An unacquired gate is an explicit boundary, not an exemption for later reads.
+          expect(failed.error).toBeDefined()
+          expect(failed.result).toBeUndefined()
+          expect([...failing.pr.labels]).toEqual([...baseline.pr.labels])
+          expect(failing.pr.autoMerge).toEqual(baseline.pr.autoMerge)
+        } else {
+          check(failing, failed, `failure at ${kinds[k]}`)
+        }
+        // A move after the final evidence read cannot be observed by this call.
+        // Move during every earlier await instead; the final read must invalidate approval.
+        if (start !== 'none' && k < kinds.length - 1) {
+          const moving = armedPr({ ...spec, script: { moveAfterCall: k } })
+          const moved = await exec({ fn: 'watch', opts: { code } }, moving)
+          check(moving, moved, `move after ${kinds[k]}`)
+        }
+        if (start !== 'none' && k > gateAt) {
+          const both = armedPr({ ...spec, script: { failAt: k, moveBeforeCall: k } })
+          const hit = await exec({ fn: 'watch', opts: { code } }, both)
+          check(both, hit, `failure and move at ${kinds[k]}`)
+        }
+      }
+      expect(violations).toEqual([])
+    },
+  )
+})
+
+describe('same-head review revocation during terminal authorization', () => {
+  const REVOCATIONS = [
+    ['a newer red', [red()], 'fix'],
+    ['a newly spent bound followed by approval', [red(), red(), red(), approve()], 'stop'],
+  ]
+  const PATHS = [
+    ['native landing', { fn: 'land', opts: NATIVE }],
+    ['merge-on-green landing', { fn: 'land', opts: MOG }],
+    ['nextReviewStep land', { fn: 'step' }],
+    [
+      'nextReviewStep refused posted record',
+      { fn: 'step', opts: { posted: { verdict: 'Request changes', head: HEAD } } },
+    ],
+  ]
+
+  for (const [revocation, reviews, step] of REVOCATIONS) {
+    it.each(PATHS)(`%s clears both arms after ${revocation}`, async (_path, what) => {
+      const fake = armedPr({ records: [approve()] })
+      const ghBeforeRevocation = fake.gh
+      let revoked = false
+      fake.gh = async (cwd, args) => {
+        const after = what.fn === 'land' ? 'add' : 'gate'
+        if (!revoked && kindOf(args) === 'comments' && fake.log.some((entry) => entry.kind === after)) {
+          fake.records.push(...reviews)
+          revoked = true
+        }
+        return ghBeforeRevocation(cwd, args)
+      }
+      const outcome = await exec(what, fake)
+
+      expect(fake.pr.head).toBe(HEAD)
+      expect(armedNames(fake)).toEqual([])
+      expect(holds(fake, outcome)).toBe(true)
+      expect(truthful(fake, outcome)).toBe(true)
+      if (what.fn === 'land') {
+        expect(outcome.error).toBeUndefined()
+        expect(outcome.result).toMatchObject({ status: 'not-approved', disarmed: true })
+      } else if (what.opts?.posted) {
+        expect(outcome.error?.message).toMatch(/latest review record is not the one just posted/)
+      } else {
+        expect(outcome.error).toBeUndefined()
+        expect(outcome.result).toMatchObject({ action: step, disarmed: true })
+      }
+    })
+  }
+})
+
+describe('same-head revocation before merge-capable arming', () => {
+  const ARM_PATHS = [
+    ['native pin', NATIVE, 'base', 'pin'],
+    ['native discovered protection', DISCOVERED, 'protection', 'pin'],
+    ['merge-on-green label', MOG, 'base', 'add'],
+  ]
+  const REVOKED = [
+    ['a newer red', [red()]],
+    ['a newly spent bound followed by approval', [red(), red(), red(), approve()]],
+  ]
+
+  for (const [revocation, reviews] of REVOKED) {
+    it.each(ARM_PATHS)(`%s cannot merge after ${revocation} during discovery`, async (_path, opts, on, arm) => {
+      const fake = armedPr({
+        records: [approve()],
+        start: 'none',
+        found: { classic: ['ci'] },
+        script: {
+          moves: [
+            { when: 'after', on, reviews },
+            { when: 'after', on: arm, state: 'MERGED' },
+          ],
+        },
+      })
+      const outcome = await exec({ fn: 'land', opts }, fake)
+
+      expect(fake.pr.state).toBe('OPEN')
+      expect(fake.pr.head).toBe(HEAD)
+      expect(armedNames(fake)).toEqual([])
+      expect(outcome.error).toBeUndefined()
+      expect(outcome.result).toMatchObject({ status: 'not-approved', reviews: reviews.length + 1 })
+      expect(holds(fake, outcome)).toBe(true)
+      if (reviews.length > 1) expect(outcome.result.reason).toBe('review-bound')
+    })
+  }
+})
+
+describe('same-head revocation during preparation for the next arming write', () => {
+  const PREPARATIONS = [
+    ['native re-pin', NATIVE, 'both', 'disable', 'pin', 2],
+    ['native label after the pin', NATIVE, 'none', 'pin', 'add', 1],
+    ['merge-on-green re-label', MOG, 'label', 'remove', 'add', 1],
+  ]
+  const REVOKED = [
+    ['a newer red', [red()]],
+    ['a newly spent bound followed by approval', [red(), red(), red(), approve()]],
+  ]
+
+  for (const [revocation, reviews] of REVOKED) {
+    it.each(PREPARATIONS)(
+      `%s cannot merge after ${revocation} during preparation`,
+      async (_path, opts, start, preparation, arm, armNth) => {
+        const fake = armedPr({
+          records: [approve()],
+          start,
+          script: {
+            moves: [
+              { when: 'after', on: preparation, reviews },
+              { when: 'after', on: arm, nth: armNth, state: 'MERGED' },
+            ],
+          },
+        })
+        const outcome = await exec({ fn: 'land', opts }, fake)
+
+        expect(fake.pr.state).toBe('OPEN')
+        expect(fake.pr.head).toBe(HEAD)
+        expect(armedNames(fake)).toEqual([])
+        expect(outcome.error).toBeUndefined()
+        expect(outcome.result).toMatchObject({ status: 'not-approved', reviews: reviews.length + 1 })
+        expect(holds(fake, outcome)).toBe(true)
+        if (reviews.length > 1) expect(outcome.result.reason).toBe('review-bound')
+      },
+    )
+  }
+})
+
+describe('native arming uses the freshly approved head', () => {
+  it.each([
+    ['initial pin after discovery', 'none', 'base'],
+    ['re-pin after disabling the old arm', 'both', 'disable'],
+  ])('%s', async (_path, start, on) => {
+    const fake = armedPr({
+      records: [approve()],
+      start,
+      script: { moves: [{ when: 'after', on, head: MOVED, reviews: [approve(MOVED)] }] },
+    })
+    const outcome = await exec({ fn: 'land', opts: NATIVE }, fake)
+
+    expect(outcome.error).toBeUndefined()
+    expect(outcome.result).toMatchObject({ status: 'watching', mode: 'native' })
+    expect(fake.pr.head).toBe(MOVED)
+    expect(fake.pr.autoMerge).not.toBeNull()
+    expect(fake.pr.labels.has('reviewed')).toBe(true)
+    expect(holds(fake, outcome)).toBe(true)
+  })
 })

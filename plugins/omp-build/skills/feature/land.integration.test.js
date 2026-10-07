@@ -311,7 +311,6 @@ describe('landPr through the checkout', () => {
     const { result, calls } = land(checkout({ ...WORKFLOW_FILE, '.dev/stack.yml': stack }))
     expect(result.status).toBe('bad-landing')
     expect(result.error).toMatch(error)
-    expect(calls).toEqual([IDENTITY, COMMENTS, GATE, ['pr', 'view', '7', '--json', 'baseRefName']])
     expect(calls.some((a) => a[1] === 'edit' || a[1] === 'merge')).toBe(false)
   })
 
@@ -322,6 +321,15 @@ describe('landPr through the checkout', () => {
     expect(result.error).toMatch(/landing is not a map|landing\.mode/)
     expect(calls.some((a) => a[1] === 'edit' || a[1] === 'merge')).toBe(false)
     expect(final).toEqual({ labels: ['reviewed'], autoMerge: true })
+  })
+
+  it('an invalid base stack cannot retain an armed head that moved during resolution', () => {
+    const dir = checkout({ '.dev/stack.yml': 'landing: nope\n' })
+    const { result, final } = land(dir, 'ok', { arm: 'both', head: 'moved' })
+    expect(result.status).toBe('bad-landing')
+    expect(result.error).toMatch(/landing is not a map|landing\.mode/)
+    expect(result.disarmed).toBe(true)
+    expect(final).toEqual({ labels: [], autoMerge: false })
   })
 
   it('a comment-only stack with the workflow file watches merge-on-green', () => {

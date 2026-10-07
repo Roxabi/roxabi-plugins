@@ -520,21 +520,23 @@ later green does not lift it. A CI failure after the third review stops too.
 
 **The armed gate (#713).** An OPEN PR is armed — `reviewed` label or auto-merge
 enabled — only when the latest review record approves the current head, the bound
-is not spent, and no review of that head is running. `disarmGate` is the one
-disarm: it disables auto-merge, then removes the label, attempts both whatever the
-first did, reads the gate back, and throws one error naming what stays armed. A
-write error over a read-back that confirms no OPEN armed gate is a disarm, not a
-failure; a read-back that is missing, invalid or MERGED is never a clear gate.
-Every `nextReviewStep` step but `land` calls it; a step taken with
-`{ reviewing: true }` (Phase 1 step 0) calls it on `land` too; a refused `posted`
-or `ciFailed` over a gate that may not stay armed calls it before it throws; every
-`landPr` `not-approved` calls it. One native exit is stricter: `landPr` returns
-`no-required-checks` after disarming a gate it found armed, even at the approved
-current head — an API failure in required-check discovery cancels a scheduled merge
-on purpose. Nothing restores it: configure the checks, then re-enter through the
-normal gate. `landPr` arms only for an approving latest
-record of the current head, never past a spent bound. Nothing writes accounting;
-every step is derived again from a fresh read.
+is not spent, and no review of that head is running. The four workflow exits share
+`enforceArmedGate` (#729); `reviewing` is the actual review-running input, separate
+from forced-unarmed policy. `disarmGate` is its clearing primitive: disable
+auto-merge first, attempt label removal independently, validate read-back, and
+throw one error naming any remainder. `disarmed: true` comes only from an attempted
+clear with confirmed read-back, never an already-clear or non-OPEN no-op.
+Every `nextReviewStep` action passes the policy; non-`land` actions and
+`{ reviewing: true }` force clearing. A refused `posted` / `ciFailed` keeps an
+armed gate only with refreshed approval/head evidence. `landPr` refusals, watch
+failures 1–3 and pre-push barriers force clearing; those watch/push paths need no
+review-service reads. Observer watch statuses retain only currently authorized
+arms. Native `no-required-checks` also clears at an approved head: API discovery
+failure cancels a scheduled merge on purpose, with no automatic restoration.
+Native legacy stuck results adapt the same clearing error without retrying it;
+the sole preserved unreadable `pinRefused` boundary remains #731 (feature §6.7).
+`landPr` arms only within the bound. Nothing writes accounting; every step is
+derived again from fresh reads.
 
 ### Human choice (constrained by `step`)
 

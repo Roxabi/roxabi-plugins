@@ -97,11 +97,11 @@ function mockLand({
   const t = 0
   const calls = []
   let poll = 0
-  let statePoll = 0
   let eventsPoll = 0
   const eventPages = Array.isArray(events) ? events : [events]
   const gateLabels = new Set(labels)
   let gateAuto = autoMerges[0] ?? null
+  let gateState = states[0] ?? 'OPEN'
   const gh = async (_cwd, args) => {
     calls.push(args)
     const jsonAt = args.indexOf('--json')
@@ -124,7 +124,7 @@ function mockLand({
     if (args[0] === 'pr' && args[1] === 'view' && args[jsonAt + 1] === GATE_FIELDS) {
       return JSON.stringify({
         headRefOid: REVIEWED_HEAD,
-        state: states[0] ?? 'OPEN',
+        state: gateState,
         labels: [...gateLabels].map((name) => ({ name })),
         autoMergeRequest: gateAuto,
       })
@@ -136,13 +136,10 @@ function mockLand({
       return JSON.stringify({ headRefOid: REVIEWED_HEAD })
     }
     if (args[0] === 'pr' && args[1] === 'view' && fields.includes('state')) {
-      const state = states[Math.min(statePoll, states.length - 1)] ?? 'OPEN'
-      const autoMergeRequest = autoMerges[Math.min(statePoll, autoMerges.length - 1)] ?? null
-      statePoll++
-      return JSON.stringify({ state, autoMergeRequest })
+      return JSON.stringify({ state: gateState, autoMergeRequest: gateAuto })
     }
     if (args[0] === 'pr' && args[1] === 'view' && fields.includes('labels')) {
-      return JSON.stringify({ labels: labels.map((name) => ({ name })) })
+      return JSON.stringify({ labels: [...gateLabels].map((name) => ({ name })) })
     }
     if (args[0] === 'repo') return JSON.stringify({ nameWithOwner: 'acme/app' })
     if (args[0] === 'api' && String(args[1] ?? '').includes('/events')) {
@@ -166,9 +163,8 @@ function mockLand({
     }
     if (args[0] === 'pr' && args[1] === 'merge' && args.includes('--disable-auto')) {
       if (disableThrows) {
-        // "already off" means GitHub has no auto-merge left; "already merged" leaves
-        // the arm so disarmGate's read-back fails and applyCiWatchExit re-reads state.
         if (/already off/.test(String(disableThrows))) gateAuto = null
+        if (/already merged/.test(String(disableThrows))) gateState = 'MERGED'
         throw new Error(disableThrows)
       }
       gateAuto = null
@@ -176,6 +172,7 @@ function mockLand({
     }
     if (args[0] === 'pr' && args[1] === 'merge') {
       if (mergeThrows) throw new Error(mergeThrows)
+      if (args.includes('--auto')) gateAuto = { mergeMethod: 'MERGE' }
       return ''
     }
     return ''
@@ -183,6 +180,17 @@ function mockLand({
   return {
     gh,
     calls,
+    gate: {
+      get state() {
+        return gateState
+      },
+      get labels() {
+        return [...gateLabels]
+      },
+      get autoMerge() {
+        return gateAuto
+      },
+    },
     /** Instant sleep so retries stay in-process and fast. */
     sleep: async () => {},
     land: (requiredContexts, pr = 1) =>
@@ -202,7 +210,6 @@ function labeled(calls) {
   return calls.some((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--add-label') && a.includes('reviewed'))
 }
 
-const call = (calls, predicate) => calls.findIndex(predicate)
 const removesLabel = (a) => a[1] === 'edit' && a.includes('--remove-label') && a.includes('reviewed')
 const disablesAuto = (a) => a[1] === 'merge' && a.includes('--disable-auto')
 
@@ -611,173 +618,164 @@ describe('landPr — an unreadable review history never arms', () => {
   })
 })
 
-describe('applyCiWatchExit', () => {
-  const view = ['pr', 'view', '7', '--json', 'state,autoMergeRequest']
+describe('applyCiWatchExit — public status and gate state', () => {
+  const OBSERVERS = [
+    [0, { status: 'stopped' }],
+    [4, { status: 'stopped' }],
+    [5, { status: 'timeout' }],
+    [6, { status: 'evaluate-only' }],
+    [70, { status: 'watch-failed', code: 70 }],
+    [9, { status: 'watch-failed', code: 9 }],
+  ]
 
-  it.each([
-    [4, 'stopped'],
-    [5, 'timeout'],
-  ])('exit %s → %s', async (code, status) => {
-    const { gh, calls } = mockLand()
-    expect(await applyCiWatchExit('/tmp/wt', 7, code, { mode: 'merge-on-green', gh })).toEqual({ status })
-    expect(calls).toEqual([])
+  it.each(OBSERVERS)('exit %s preserves a valid approval without claiming a disarm', async (code, expected) => {
+    const fake = gatePr({ comments: [green()], headRefOid: REVIEWED_HEAD, ...ARMED })
+    const result = await applyCiWatchExit('/tmp/wt', 7, code, { gh: fake.gh })
+    expect(result).toEqual(expected)
+    expect([...fake.pr.labels]).toEqual(ARMED.labels)
+    expect(fake.pr.autoMerge).toEqual(ARMED.autoMerge)
   })
 
-  it('exit 6 is evaluate-only and leaves the gate armed', async () => {
-    const { gh, calls } = mockLand()
-    expect(await applyCiWatchExit('/tmp/wt', 7, 6, { mode: 'merge-on-green', gh })).toEqual({
-      status: 'evaluate-only',
-    })
-    expect(calls).toEqual([])
+  it.each([1, 2, 3])('exit %s forces unarmed even when review records cannot be acquired', async (code) => {
+    const fake = gatePr({ comments: [green()], headRefOid: REVIEWED_HEAD, ...ARMED })
+    const gh = async (cwd, args) => {
+      if (same(args, IDENTITY) || same(args, commentPageArgs(7))) throw new Error('review service unavailable')
+      return fake.gh(cwd, args)
+    }
+    const result = await applyCiWatchExit('/tmp/wt', 7, code, { gh })
+    expect(result).toEqual({ status: { 1: 'ci-failed', 2: 'ci-cancelled', 3: 'ci-blocked' }[code], disarmed: true })
+    expect([...fake.pr.labels]).toEqual(['size:F-lite'])
+    expect(fake.pr.autoMerge).toBe(null)
   })
 
-  it('exit 0 on a merged PR is merged', async () => {
-    const { gh, calls } = mockLand({ states: ['MERGED'] })
-    expect(await applyCiWatchExit('/tmp/wt', 7, 0, { mode: 'native', gh })).toEqual({ status: 'merged' })
-    expect(calls).toEqual([view])
-  })
-
-  it('exit 0 on an unmerged PR is stopped', async () => {
-    const { gh, calls } = mockLand({ states: ['OPEN'] })
-    expect(await applyCiWatchExit('/tmp/wt', 7, 0, { mode: 'native', gh })).toEqual({ status: 'stopped' })
-    expect(calls).toEqual([view])
-  })
-
-  it.each([1, 2, 3])('exit %s on a closed PR is stopped without disarm', async (code) => {
-    const { gh, calls } = mockLand({ states: ['CLOSED'] })
-    expect(await applyCiWatchExit('/tmp/wt', 7, code, { mode: 'native', gh })).toEqual({ status: 'stopped' })
-    expect(calls).toEqual([view])
-  })
-
-  it('exit 1 on merge-on-green removes reviewed and does not disable auto-merge', async () => {
-    const { gh, calls } = mockLand({ labels: ['reviewed'] })
-    expect(await applyCiWatchExit('/tmp/wt', 7, 1, { mode: 'merge-on-green', gh })).toEqual({
-      status: 'ci-failed',
-      disarmed: true,
-    })
-    expect(calls.some(removesLabel)).toBe(true)
-    expect(calls.some(disablesAuto)).toBe(false)
-  })
-
-  it('exit 1 on native removes the label before disabling auto-merge', async () => {
-    const { gh, calls } = mockLand({ labels: ['reviewed'], autoMerges: [{ enabledAt: 't' }] })
-    expect(await applyCiWatchExit('/tmp/wt', 7, 1, { mode: 'native', gh })).toEqual({
-      status: 'ci-failed',
-      disarmed: true,
-    })
-    // disarmGate disables before it removes.
-    expect(call(calls, disablesAuto)).toBeLessThan(call(calls, removesLabel))
-  })
-
-  it.each([
-    [2, 'ci-cancelled'],
-    [3, 'ci-blocked'],
-  ])('exit %s on merge-on-green disarms reviewed only → %s', async (code, status) => {
-    const { gh, calls } = mockLand({ labels: ['reviewed'] })
-    expect(await applyCiWatchExit('/tmp/wt', 7, code, { mode: 'merge-on-green', gh })).toEqual({
-      status,
-      disarmed: true,
-    })
-    expect(calls[0]).toEqual(['pr', 'view', '7', '--json', 'state,autoMergeRequest'])
-    expect(calls.some(removesLabel)).toBe(true)
-    expect(calls.some(disablesAuto)).toBe(false)
-  })
-
-  it.each([
-    [2, 'ci-cancelled'],
-    [3, 'ci-blocked'],
-  ])('exit %s on native removes the label then disables auto-merge → %s', async (code, status) => {
-    const { gh, calls } = mockLand({ labels: ['reviewed'], autoMerges: [{ enabledAt: 't' }] })
-    expect(await applyCiWatchExit('/tmp/wt', 7, code, { mode: 'native', gh })).toEqual({
-      status,
-      disarmed: true,
-    })
-    expect(calls[0]).toEqual(['pr', 'view', '7', '--json', 'state,autoMergeRequest'])
-    expect(call(calls, disablesAuto)).toBeLessThan(call(calls, removesLabel))
-  })
-
-  it('an unmapped exit leaves the gate armed', async () => {
-    const { gh, calls } = mockLand()
-    expect(await applyCiWatchExit('/tmp/wt', 7, 9, { mode: 'native', gh })).toEqual({
-      status: 'watch-failed',
-      code: 9,
-    })
-    expect(calls).toEqual([])
-  })
-
-  it('a merged PR is not disarmed', async () => {
-    const { gh, calls } = mockLand({ states: ['MERGED'] })
-    expect(await applyCiWatchExit('/tmp/wt', 7, 3, { mode: 'native', gh })).toEqual({ status: 'merged' })
-    expect(calls).toEqual([['pr', 'view', '7', '--json', 'state,autoMergeRequest']])
-  })
-
-  it('a merge that wins during disable-auto is merged', async () => {
-    const { gh, calls } = mockLand({
+  it('a merge that wins during disable-auto is merged, not a disarm claim', async () => {
+    const { gh, gate } = mockLand({
       disableThrows: 'already merged',
-      states: ['OPEN', 'MERGED'],
       labels: ['reviewed'],
       autoMerges: [{ enabledAt: 't' }],
     })
-    expect(await applyCiWatchExit('/tmp/wt', 7, 1, { mode: 'native', gh })).toEqual({ status: 'merged' })
-    expect(calls.some(disablesAuto)).toBe(true)
-    expect(calls.some(removesLabel)).toBe(true)
-  })
-
-  it('a disable-auto error with no auto-merge is already disarmed', async () => {
-    // Gate opens armed; after the failed disable the read-back shows nothing armed.
-    const { gh, calls } = mockLand({
-      disableThrows: 'already off',
-      states: ['OPEN', 'OPEN'],
-      labels: ['reviewed'],
-      autoMerges: [{ enabledAt: 't' }, null],
-    })
-    expect(await applyCiWatchExit('/tmp/wt', 7, 2, { mode: 'native', gh })).toEqual({
-      status: 'ci-cancelled',
-      disarmed: true,
-    })
-    expect(calls.some(disablesAuto)).toBe(true)
-  })
-
-  it('rethrown disable-auto failure when auto-merge is still set', async () => {
-    const { gh } = mockLand({
-      disableThrows: 'nope',
-      states: ['OPEN', 'OPEN'],
-      labels: ['reviewed'],
-      autoMerges: [{ enabledAt: 't' }, { enabledAt: 't' }],
-    })
-    await expect(applyCiWatchExit('/tmp/wt', 7, 1, { mode: 'native', gh })).rejects.toThrow(/stays armed|nope/)
-  })
-
-  it('exit 70 leaves the gate armed', async () => {
-    const { gh, calls } = mockLand()
-    expect(await applyCiWatchExit('/tmp/wt', 7, 70, { mode: 'native', gh })).toEqual({
-      status: 'watch-failed',
-      code: 70,
-    })
-    expect(calls).toEqual([])
+    expect(await applyCiWatchExit('/tmp/wt', 7, 1, { gh })).toEqual({ status: 'merged' })
+    expect(gate.state).toBe('MERGED')
   })
 })
 
-describe('disarmReviewedBeforePush', () => {
-  it('removes reviewed before the push that follows it, through disarmGate', async () => {
-    const { gh, calls } = mockLand({ labels: ['reviewed'], autoMerges: [{ enabledAt: 't' }] })
-    let removedBeforePush = false
-    await disarmReviewedBeforePush('/tmp/wt', 7, {
-      gh,
-      push: async () => {
-        removedBeforePush = calls.some(removesLabel)
+describe('disarmReviewedBeforePush — callback barrier', () => {
+  it.each(['both', 'label', 'auto', 'none'])('%s is clear before the callback, which runs once', async (start) => {
+    const fake = gatePr({
+      comments: [green()],
+      headRefOid: REVIEWED_HEAD,
+      labels: ['size:F-lite', ...(['both', 'label'].includes(start) ? ['reviewed'] : [])],
+      autoMerge: ['both', 'auto'].includes(start) ? { mergeMethod: 'MERGE' } : null,
+    })
+    let pushes = 0
+    const result = await disarmReviewedBeforePush('/tmp/wt', 7, {
+      gh: fake.gh,
+      push: () => {
+        pushes++
+        expect([...fake.pr.labels]).toEqual(['size:F-lite'])
+        expect(fake.pr.autoMerge).toBe(null)
+        fake.pr.headRefOid = MOVED_HEAD
       },
     })
-    expect(removedBeforePush).toBe(true)
-    expect(calls.some(disablesAuto)).toBe(true)
+    expect(result).toEqual(start === 'none' ? {} : { disarmed: true })
+    expect(pushes).toBe(1)
+    expect(fake.pr.headRefOid).toBe(MOVED_HEAD)
   })
 
-  it('a worktree stack does not matter: disarmGate is the only write path (#623 item 3)', async () => {
-    const { gh, calls } = mockLand({ labels: ['reviewed'] })
-    await disarmReviewedBeforePush('/tmp/wt', 7, { gh })
-    expect(calls.filter(removesLabel)).toHaveLength(1)
-    // No auto-merge on the gate → disarmGate does not invent a disable.
-    expect(calls.some(disablesAuto)).toBe(false)
+  it.each(['sync', 'async'])('preserves the original %s callback error without retrying cleanup', async (kind) => {
+    const fake = gatePr({ comments: [green()], headRefOid: REVIEWED_HEAD, ...ARMED })
+    const original = new Error(`${kind} push failed`)
+    let pushes = 0
+    let callbackEntered = false
+    const gh = async (cwd, args) => {
+      if (callbackEntered) throw new Error('cleanup attempted after callback')
+      return fake.gh(cwd, args)
+    }
+    const fail = () => {
+      pushes++
+      callbackEntered = true
+      fake.pr.headRefOid = MOVED_HEAD
+      throw original
+    }
+    await expect(
+      disarmReviewedBeforePush('/tmp/wt', 7, {
+        gh,
+        push: kind === 'sync' ? fail : async () => fail(),
+      }),
+    ).rejects.toBe(original)
+    expect(pushes).toBe(1)
+    expect([...fake.pr.labels]).toEqual(['size:F-lite'])
+    expect(fake.pr.autoMerge).toBe(null)
+  })
+
+  it.each(['disable', 'remove', 'readback', 'merged'])(
+    'never invokes push after a failed %s barrier',
+    async (fault) => {
+      const fake = gatePr({ comments: [green()], headRefOid: REVIEWED_HEAD, ...ARMED })
+      let pushes = 0
+      let gateReads = 0
+      const gh = async (cwd, args) => {
+        if (same(args, GATE_READ(7)) && ++gateReads > 1 && fault === 'readback') throw new Error('readback unavailable')
+        if (fault === 'disable' && disablesAuto(args)) throw new Error('disable failed')
+        if (fault === 'remove' && removesLabel(args)) throw new Error('remove failed')
+        const answer = await fake.gh(cwd, args)
+        if (fault === 'merged' && removesLabel(args)) fake.pr.state = 'MERGED'
+        return answer
+      }
+      await expect(
+        disarmReviewedBeforePush('/tmp/wt', 7, {
+          gh,
+          push: () => {
+            pushes++
+          },
+        }),
+      ).rejects.toThrow(
+        fault === 'merged'
+          ? /merged while being disarmed/
+          : fault === 'readback'
+            ? /could not be read back/
+            : /stays armed/,
+      )
+      expect(pushes).toBe(0)
+      expect(fake.pr.autoMerge !== null).toBe(fault === 'disable')
+      expect(fake.pr.labels.has('reviewed')).toBe(fault === 'remove')
+    },
+  )
+
+  it('does not need review identity or comments to protect a push', async () => {
+    const fake = gatePr({ comments: [green()], headRefOid: REVIEWED_HEAD, ...ARMED })
+    const gh = async (cwd, args) => {
+      if (same(args, IDENTITY) || same(args, commentPageArgs(7))) throw new Error('review service unavailable')
+      return fake.gh(cwd, args)
+    }
+    expect(await disarmReviewedBeforePush('/tmp/wt', 7, { gh })).toEqual({ disarmed: true })
+    expect([...fake.pr.labels]).toEqual(['size:F-lite'])
+    expect(fake.pr.autoMerge).toBe(null)
+  })
+})
+
+describe('landPr — configuration failures after acquiring the gate', () => {
+  it.each([false, true])('clears the known armed gate when configuration throws (head moved: %s)', async (moved) => {
+    const fake = gatePr({ comments: [green()], headRefOid: REVIEWED_HEAD, ...ARMED })
+    const original = new Error('landing configuration unavailable')
+    const gh = async (cwd, args) => {
+      const answer = await fake.gh(cwd, args)
+      if (moved && same(args, ['pr', 'view', '7', '--json', 'baseRefName'])) {
+        await Promise.resolve()
+        fake.pr.headRefOid = MOVED_HEAD
+      }
+      return answer
+    }
+    const landing = {
+      get mode() {
+        throw original
+      },
+      required_checks: ['ci'],
+    }
+    await expect(landPr('/tmp/wt', 7, { gh, landing })).rejects.toBe(original)
+    expect(fake.pr.headRefOid).toBe(moved ? MOVED_HEAD : REVIEWED_HEAD)
+    expect([...fake.pr.labels]).toEqual(['size:F-lite'])
+    expect(fake.pr.autoMerge).toBe(null)
   })
 })
 
@@ -1051,4 +1049,82 @@ describe('landPr — a native refusal for want of required checks disarms an arm
     expect([...fake.pr.labels]).toEqual(['size:F-lite'])
     expect(fake.pr.autoMerge).toBe(null)
   })
+})
+
+describe('watch — native and merge-on-green share the same gate policy', () => {
+  it.each([
+    ['native', true],
+    ['native', false],
+    ['merge-on-green', true],
+    ['merge-on-green', false],
+  ])('%s observer keeps arms only for an approved current head (approved: %s)', async (mode, approved) => {
+    const fake = gatePr({ comments: approved ? [green()] : [red()], headRefOid: REVIEWED_HEAD, ...ARMED })
+    expect(await applyCiWatchExit('/tmp/wt', 7, 6, { mode, gh: fake.gh })).toEqual({
+      status: 'evaluate-only',
+      ...(!approved && { disarmed: true }),
+    })
+    expect(fake.pr.labels.has('reviewed')).toBe(approved)
+    expect(fake.pr.autoMerge !== null).toBe(approved)
+  })
+
+  it.each(['native', 'merge-on-green'])('%s force-stop clears even a native auto-merge request', async (mode) => {
+    const fake = gatePr({ comments: [green()], headRefOid: REVIEWED_HEAD, ...ARMED })
+    expect(await applyCiWatchExit('/tmp/wt', 7, 1, { mode, gh: fake.gh })).toEqual({
+      status: 'ci-failed',
+      disarmed: true,
+    })
+    expect([...fake.pr.labels]).toEqual(['size:F-lite'])
+    expect(fake.pr.autoMerge).toBeNull()
+  })
+})
+
+describe('push — inactive gate receipts', () => {
+  it.each(['CLOSED', 'MERGED'])(
+    '%s at acquisition invokes the callback once without claiming disarm',
+    async (state) => {
+      const fake = gatePr({ comments: [green()], headRefOid: REVIEWED_HEAD, state, ...ARMED })
+      let pushes = 0
+      expect(
+        await disarmReviewedBeforePush('/tmp/wt', 7, {
+          gh: fake.gh,
+          push: () => {
+            pushes++
+          },
+        }),
+      ).toEqual({})
+      expect(pushes).toBe(1)
+      expect([...fake.pr.labels]).toEqual(ARMED.labels)
+      expect(fake.pr.autoMerge).toEqual(ARMED.autoMerge)
+    },
+  )
+})
+
+describe('push — terminal receipt reuse', () => {
+  it.each(['sync', 'async'])(
+    'returns the successful barrier receipt after a %s callback moves the head',
+    async (kind) => {
+      const fake = gatePr({ comments: [green()], headRefOid: REVIEWED_HEAD, ...ARMED })
+      let callbackEntered = false
+      let pushes = 0
+      const gh = async (cwd, args) => {
+        if (callbackEntered) throw new Error('GitHub unavailable after push')
+        return fake.gh(cwd, args)
+      }
+      const push = () => {
+        callbackEntered = true
+        pushes++
+        fake.pr.headRefOid = MOVED_HEAD
+      }
+      expect(
+        await disarmReviewedBeforePush('/tmp/wt', 7, {
+          gh,
+          push: kind === 'sync' ? push : async () => push(),
+        }),
+      ).toEqual({ disarmed: true })
+      expect(pushes).toBe(1)
+      expect(fake.pr.headRefOid).toBe(MOVED_HEAD)
+      expect([...fake.pr.labels]).toEqual(['size:F-lite'])
+      expect(fake.pr.autoMerge).toBeNull()
+    },
+  )
 })

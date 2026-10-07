@@ -454,13 +454,19 @@ Phase 8.
 
 **The armed gate (#713).** An OPEN PR is armed — `reviewed` label or auto-merge
 enabled — only when the latest review record approves the current head, the bound
-is not spent, and no review of that head is running. `disarmGate` is the one
-disarm: `nextReviewStep` and `landPr` call it wherever the gate may not stay armed,
-and a disarm that cannot finish throws an error naming what stays armed. A
-disarm is confirmed only by a valid read-back with no OPEN armed gate: a PR that
-closed meanwhile has no OPEN gate left (its stored fields may remain), one that
-merged meanwhile throws. Native `no-required-checks` is stricter: it disarms a
-gate already armed even while this invariant would permit it (§6.7).
+is not spent, and no review of that head is running. `enforceArmedGate` is the
+shared exit policy for `landPr`, `nextReviewStep`, `applyCiWatchExit` and
+`disarmReviewedBeforePush` (#729). `reviewing` means an actual review is running;
+forced-unarmed exits use a separate policy. Failed opening acquisitions leave
+no known gate to act on. Retaining an OPEN arm requires fresh review/head evidence
+after intervening reads. The sole preserved unreadable-pin boundary is #731 (§6.7).
+`disarmGate` is the clearing primitive: disable auto-merge first, attempt label
+removal independently, then validate the read-back. A stuck or unreadable disarm
+throws naming the remainder; native legacy result adapters report that same error
+without retrying cleanup. `disarmed: true` means this call attempted clearing and
+confirmed no OPEN armed gate; an already clear or non-OPEN gate carries no flag.
+A PR closed during clearing has no OPEN gate left; one merged during clearing
+throws (only the watch mapper translates that race to `merged`).
 
 ### 6.7 Land
 
@@ -481,9 +487,12 @@ reason `no-review-head` — a PR reviewed before this line existed needs one
 re-review. A different or unreadable head returns `not-approved` with reason
 `head-moved`. Every `not-approved` disarms a gate already armed on an OPEN PR
 (`disarmed: true`) and writes nothing else. Invalid configuration then returns
-`bad-landing` before arming. Immediately before every write it re-reads
-`headRefOid`; a different or unreadable head returns `not-approved` with reason
-`head-moved` and disarms the same way. Under merge-on-green
+`bad-landing` before arming. Immediately before each merge-capable arming write,
+it re-reads the latest review records and then `headRefOid`, including after
+disable/remove preparation. Red or spent records refuse arming; missing,
+moved or unreadable authorization never permits that write. Known OPEN arms
+are cleared through the exit policy, or its error names the remainder.
+Native pins use the refreshed reviewed head. Under merge-on-green
 it then adds `reviewed` — a pre-existing label is removed first so a fresh
 labeled run exists — and returns
 `{ status: 'watching', mode, watch }`. `watch` is the absolute real path of
@@ -518,19 +527,26 @@ Run `watch` as an async bash job (`timeout: 0`). Map the exit with
 | Exit | Result |
 |---|---|
 | 0 | re-read state: MERGED → `merged`; CLOSED or otherwise unmerged → `stopped` (do not claim merged) |
-| 1 | re-read state first (MERGED → `merged`, CLOSED → `stopped`); otherwise remove `reviewed` (native: also disable auto-merge), `ci-failed`, then `nextReviewStep(cwd, pr, { ciFailed: true })` |
-| 2 | re-read state first (MERGED → `merged`, CLOSED → `stopped`); otherwise remove `reviewed` (native: also disable auto-merge), `ci-cancelled` |
-| 3 | re-read state first (MERGED → `merged`, CLOSED → `stopped`); otherwise remove `reviewed` (native: also disable auto-merge), `ci-blocked` |
+| 1 | re-read gate first (MERGED → `merged`, CLOSED → `stopped`); otherwise disable any auto-merge, independently remove `reviewed`, confirm read-back, return `ci-failed`, then `nextReviewStep(cwd, pr, { ciFailed: true })` |
+| 2 | same forced-unarmed policy, then `ci-cancelled` |
+| 3 | same forced-unarmed policy, then `ci-blocked` |
 | 4 | stop and report; do not claim merged (includes CLOSED during the check phase) |
 | 5 | `timeout`; re-attach the same watch later |
-| 6 | `evaluate-only`: merge-on-green is green but its run for this landing (started at or after `--since`, or the latest run without `--since`) reports `kit-ci not configured`; gate left armed |
-| 70 | usage, missing tool, invalid `.dev/stack.yml` landing, or `gh`/`jq` failure → `watch-failed`; gate left armed |
-| other | any other code (bad argv that somehow returned 1, job killed 124/137/143, …) → `watch-failed`; gate left armed |
+| 6 | `evaluate-only`: merge-on-green is green but its run for this landing reports `kit-ci not configured`; retain an OPEN gate only while currently authorized |
+| 70 | usage, missing tool, invalid landing, or `gh`/`jq` failure → `watch-failed`; retain an OPEN gate only while currently authorized |
+| other | unmapped code (including killed jobs 124/137/143) → `watch-failed`; retain an OPEN gate only while currently authorized |
+
+Every mapped exit passes the shared policy. Observer exits (0/4/5/6/70/other)
+preserve their status but clear moved, red or spent OPEN gates. If those review/head
+reads fail after acquiring the gate, clear the known arms before surfacing the read
+error. Forced exits 1–3 need no review-service reads. A no-op never claims `disarmed`.
 
 Before any push that follows a `reviewed` label, call
-`disarmReviewedBeforePush(cwd, pr, { push })`. The label is removed before the
-push. A push with the label still on is forbidden — metalyde does not revoke it
-on synchronize.
+`disarmReviewedBeforePush(cwd, pr, { push })`. Disable auto-merge, remove the label
+independently and confirm clearing before invoking `push`, once. A failed barrier
+prevents the push. Reuse its receipt after callback success or failure: no second
+cleanup or push retry, and the original callback error is preserved. An already
+clear or non-OPEN gate is a no-op, without `disarmed: true`.
 
 Neither a fix round nor another review action may write that label in this cycle.
 
@@ -543,9 +559,9 @@ Neither a fix round nor another review action may write that label in this cycle
 | `ci-failed` | Gate already disarmed; `step = await nextReviewStep(cwd, pr, { ciFailed: true })`, then §6.6 |
 | `ci-cancelled` | Gate disarmed; stop, report the cancelled checks; operator re-runs CI then re-enters §6.7 |
 | `ci-blocked` | Gate disarmed; stop, report the checks named on stderr; operator resolves the named checks or re-runs CI, then re-enters §6.7 |
-| `watch-failed` | Stop; report the code or `land.error` (including when the labeled `reviewed` event could not be read after re-label under merge-on-green). Gate left as is; do not claim merged |
-| `evaluate-only` | Stop; report "evaluate-only — manual merge required" and `docs/kit/ci-app-setup.md`. Gate left armed; the operator merges by hand. Do not claim merged; do not wait |
-| `bad-landing` | Stop; report `land.error` (the `.dev/stack.yml` problem). This attempt wrote nothing new: an already-armed approved gate may exist. Fix the stack file, then re-enter §6.7 |
+| `watch-failed` | Stop; report code or error. The gate is retained only with current authorization; invalid arms are cleared or the error names their remainder. Do not claim merged |
+| `evaluate-only` | Stop; report "evaluate-only — manual merge required" and `docs/kit/ci-app-setup.md`. The gate is retained only with current authorization; the operator merges by hand. Do not claim merged; do not wait |
+| `bad-landing` | Stop; report `land.error` (configuration/base-resolution problem). An armed gate is retained only after fresh authorization; invalid arms are cleared or the error names their remainder. Fix the base configuration, then re-enter §6.7 |
 | `no-required-checks` | Stop; report missing protection. Native only, when no required context was found (declared `landing.required_checks`, protection or rulesets); an API error in that discovery reads as none — merge-on-green does not return this. `landPr` first disarmed a gate it found armed, at the approved current head too (`disarmed: true` only when it confirmed that disarm; a PR found unarmed carries no flag and no write was made). Nothing restores the label or auto-merge: configure the checks, then re-enter §6.7 through the normal gate. A disarm that cannot finish throws instead (below) |
 | `timeout` | Re-attach the watch. Do not claim merged. Epic goal: ticket stop, no re-attach |
 | `stopped` | Stop and report. Do not claim merged |
