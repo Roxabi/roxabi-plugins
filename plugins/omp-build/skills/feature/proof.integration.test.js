@@ -262,6 +262,30 @@ describe('proof binds to the selected artifact', () => {
     expect(posted(refused.calls)).toBe(false)
   })
 
+  it('disarms an existing PR on a body-independent proof refusal and reports failed clears', () => {
+    const { dir, oid } = initRepo(sem(contract('verified')))
+    const scenario = {
+      ...OPEN,
+      list: [JSON.stringify([{ number: 12, isCrossRepository: false }])],
+      headRefOid: oid,
+      labels: ['reviewed'],
+      auto: true,
+    }
+    const cleared = drive(dir, scenario)
+    expect(cleared.result).toMatchObject({ status: 'proof-blocked', disarmed: true })
+    expect(cleared.labels).toEqual([])
+    expect(cleared.auto).toBe(false)
+    expect(posted(cleared.calls)).toBe(false)
+
+    const failed = drive(dir, { ...scenario, disarmThrows: true })
+    expect(failed.result).toBeUndefined()
+    expect(failed.error).toContain('reviewed')
+    expect(failed.error).toContain('auto-merge')
+    expect(failed.labels).toEqual(['reviewed'])
+    expect(failed.auto).toBe(true)
+    expect(posted(failed.calls)).toBe(false)
+  })
+
   it('does not let a caller body authorize an existing or 422 body, and disarms the known PR', () => {
     const { dir, oid } = initRepo(sem(contract('partial')))
     const recorded = uiProof(oid)

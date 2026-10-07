@@ -152,8 +152,10 @@ resume from their review records.
 Open returns `created | existing` with a number, or `proof-blocked` with `reason`.
 Land adds that same refusal to its statuses. Report the refusal and stop
 (Epic goal: non-sticky ticket stop `proof-blocked`, without automatic retry).
-An existing/422 open refusal and a land refusal clear known OPEN arms through
-the shared unarmed policy; `disarmed` is a confirmed clearing receipt only.
+Open proof refusals first look up the same-repository head/base PR, even when
+the proof fails before a body is selected. Existing/422 open and land refusals
+clear known OPEN arms through the shared unarmed policy; `disarmed` is a
+confirmed clearing receipt only.
 
 Contracts and the proof's e2e policy come from regular blobs at the bound commit,
 including `.semctx/semantic/changes/*.sem` with exact `issue-<N>` tags. Every

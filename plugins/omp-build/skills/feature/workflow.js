@@ -504,9 +504,12 @@ export async function openPr(
   const baseRef = requireField(base, 'base')
   const prTitle = requireField(title, 'title')
   const bound = await openProof(cwd, n, head, proof, gitFn)
-  if (bound.blocked) return { status: 'proof-blocked', reason: bound.blocked }
-
   const already = await findOpenPr(cwd, head, baseRef, ghFn)
+  if ('blocked' in bound) {
+    return already === null
+      ? { status: 'proof-blocked', reason: bound.blocked }
+      : refuseOpenProof(cwd, already, ghFn, bound.blocked)
+  }
   if (already !== null) {
     const refused = await existingBodyProof(cwd, already, ghFn, bound.checked)
     if (refused) return refused
