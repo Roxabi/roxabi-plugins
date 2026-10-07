@@ -92,8 +92,8 @@ const ARMED = {
  * @typedef {{ on: string, nth?: number, times?: number, error?: string, answer?: string, applies?: boolean }} Fail
  *   Make the nth call of a kind throw `error` (default 'injected'), or answer `answer`. `applies`: the write
  *   lands, then the call still throws.
- * @typedef {{ when: 'before' | 'after', on: string, nth?: number, head?: string, state?: string }} Move
- *   Move the head (or change the state) around the nth call of a kind.
+ * @typedef {{ when: 'before' | 'after', on: string, nth?: number, head?: string, state?: string, reviews?: ReturnType<typeof approve>[] }} Move
+ *   Move the head, change the state or append review records around the nth call of a kind.
  * @typedef {{ fail?: Fail[], moves?: Move[], failAt?: number, moveAfterCall?: number, moveBeforeCall?: number, events?: 'normal' | 'none' }} Script
  *   `moveBeforeCall`: the head moves immediately before the call at that log index runs (and may fail).
  * @typedef {{ classic?: string[], rules?: string[] }} Found
@@ -123,6 +123,7 @@ function armedPr({ records = [], start = 'both', state = 'OPEN', head = HEAD, sc
       if (move.when !== when || move.on !== kind || seen[kind] !== (move.nth ?? 1)) continue
       if (move.head) pr.head = move.head
       if (move.state) pr.state = move.state
+      if (move.reviews) records.push(...move.reviews)
     }
   }
   const perform = (kind, args) => {
@@ -2656,4 +2657,44 @@ describe('watch observer sweeps — approved gates and fresh authorization evide
       expect(violations).toEqual([])
     },
   )
+})
+
+describe('same-head review revocation during terminal authorization', () => {
+  const REVOCATIONS = [
+    ['a newer red', [red()], 'fix'],
+    ['a newly spent bound followed by approval', [red(), red(), red(), approve()], 'stop'],
+  ]
+  const PATHS = [
+    ['native landing', { fn: 'land', opts: NATIVE }],
+    ['merge-on-green landing', { fn: 'land', opts: MOG }],
+    ['nextReviewStep land', { fn: 'step' }],
+    [
+      'nextReviewStep refused posted record',
+      { fn: 'step', opts: { posted: { verdict: 'Request changes', head: HEAD } } },
+    ],
+  ]
+
+  for (const [revocation, reviews, step] of REVOCATIONS) {
+    it.each(PATHS)(`%s clears both arms after ${revocation}`, async (_path, what) => {
+      const fake = armedPr({
+        records: [approve()],
+        script: { moves: [{ when: 'before', on: 'comments', nth: 2, reviews }] },
+      })
+      const outcome = await exec(what, fake)
+
+      expect(fake.pr.head).toBe(HEAD)
+      expect(armedNames(fake)).toEqual([])
+      expect(holds(fake, outcome)).toBe(true)
+      expect(truthful(fake, outcome)).toBe(true)
+      if (what.fn === 'land') {
+        expect(outcome.error).toBeUndefined()
+        expect(outcome.result).toMatchObject({ status: 'not-approved', disarmed: true })
+      } else if (what.opts?.posted) {
+        expect(outcome.error?.message).toMatch(/latest review record is not the one just posted/)
+      } else {
+        expect(outcome.error).toBeUndefined()
+        expect(outcome.result).toMatchObject({ action: step, disarmed: true })
+      }
+    })
+  }
 })
