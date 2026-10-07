@@ -231,23 +231,25 @@ The same extension bootstraps worktrees it did not create. On `session_start` an
 
 ## Agents
 
-OMP task agents in `agents/`. **Two** are OMP-native (`R-advisor`, `elon` — `model: "@advisor"`, typed `output:` schema). **Five** are frozen snapshots of `dev-core` review agents (ADR-020 decision 7) and declare a role instead of inheriting the parent: `@task` for `R-adversarial`, `R-architect`, `R-devops` and `R-tester`; `@slow` for `R-security-auditor`. Every agent carries an explicit `tools:` pin: the snapshots arrived with their posture stated in prose only, and a read-only floor whose read-only-ness is unenforced is not a control.
+OMP task agents in `agents/`. **Two** are OMP-native (`R-advisor`, `elon` — `model: "@advisor"`, typed `output:` schema). **Five** are frozen snapshots of `dev-core` review agents (ADR-020 decision 7) and declare a role instead of inheriting the parent: `@review, @slow` for the judgment agents `R-adversarial`, `R-architect` and `R-security-auditor`; `@task` for `R-devops` and `R-tester`. Every agent carries an explicit `tools:` pin: the snapshots arrived with their posture stated in prose only, and a read-only floor whose read-only-ness is unenforced is not a control.
 
 | Agent | Model | Posture |
 |---|---|---|
-| `R-adversarial` | `@task` | Review floor. Red-team the priced claim: bypass, fleet-regression, operational, assumption-kill, vacuous-guard, scope-attack — **plus the OWASP lens**, because `R-security-auditor` is not spawned by default. Sibling-drop applies only to siblings actually in the `Spawned roster:`; absent roster ⇒ it owns everything. |
+| `R-adversarial` | `@review, @slow` | Review floor. Red-team the priced claim: bypass, fleet-regression, operational, assumption-kill, vacuous-guard, scope-attack — **plus the OWASP lens**, because `R-security-auditor` is not spawned by default. Sibling-drop applies only to siblings actually in the `Spawned roster:`; absent roster ⇒ it owns everything. |
 | `R-advisor` | `@advisor` | Constructive second opinion. Strengthen, don't attack. Not the session WATCHDOG (`advisor.enabled`, `/advisor`, `WATCHDOG.yml`). |
-| `R-architect` | `@task` | System design + cross-cutting consistency. Two modes: normal (ADRs, tier) and axial (read-only drift review against the unique `axial: true` ADR; the procedure is inlined at the end of the agent file). Pinned read-only here — omp-build spawns it as a review role. |
+| `R-architect` | `@review, @slow` | System design + cross-cutting consistency. Two modes: normal (ADRs, tier) and axial (read-only drift review against the unique `axial: true` ADR; the procedure is inlined at the end of the agent file). Pinned read-only here — omp-build spawns it as a review role. |
 | `R-devops` | `@task` | Config, CI/CD, Docker, dependencies. Review mode by default — findings only, no config edits. |
 | `R-tester` | `@task` | Test generation + coverage + negative-test judgement. The executable falsify oracle is **cut** on OMP (ADR-020 decision 8): no producer, so no `oracle_ok`. |
-| `R-security-auditor` | `@slow` | OWASP inventory. Spawned on `path_hit` (Δ ∩ auth/secrets/crypto), not by default. |
+| `R-security-auditor` | `@review, @slow` | OWASP inventory. Spawned on `path_hit` (Δ ∩ auth/secrets/crypto), not by default. |
 | `elon` | `@advisor` | The Algorithm. Read-only tools. Inventory (NAMED/UNNAMED/BINDING) → delete (named add-back) → simplify → accelerate → automate last. Process only, not Musk roleplay. |
+
+`review` is not a built-in OMP role: the operator maps it in `modelRoles.review`, with an optional `retry.fallbackChains.review`. Unmapped, `@review` matches no model and OMP takes the next entry, `@slow`, so the judgment agents never fall to the `@task` tier.
 
 Spawn: `task` `{ agent: "R-adversarial" | "R-advisor" | "R-architect" | "R-devops" | "R-tester" | "R-security-auditor" | "elon", ... }`. Read from `agents/` of whichever package root is in the extension lane — the `link` symlink, or the marketplace install's `node_modules` symlink once it is listed in `extensions:`. `R-advisor` is a spawnable task agent, **not** the session WATCHDOG (`advisor.enabled`).
 
 `R-frontend-dev`, `R-backend-dev`, `R-fixer`, `R-doc-writer` and `R-product-lead` are deliberately absent (ADR-020 decision 7): their concerns fall to the `R-adversarial` floor through the sibling-drop rule.
 
-Resolution when a spawn passes no `model`: explicit call model, then `task.agentModelOverrides`, then this frontmatter, then the active parent. An operator override for an agent masks the manifest role until it is removed. `@default` in that override inherits the parent and defeats the declaration — an entry such as `R-devops: "@default"` does that on purpose. Removing operator overrides is outside this ticket. The dev-review spawn template passes no `model`, so it does not defeat these declarations.
+Resolution when a spawn passes no `model`: explicit call model, then `task.agentModelOverrides`, then this frontmatter, then the active parent. An operator override for an agent masks the manifest role until it is removed. A role alias in an override expands through `modelRoles`, `@default` included: `R-devops: "@default"` pins the configured `modelRoles.default`, not the parent's live model. Only a per-call `model: "@default"` or a single-entry frontmatter `@default` follows the parent's active model. The dev-review spawn template passes no `model`, so it does not defeat these declarations.
 
 ## Skills
 
