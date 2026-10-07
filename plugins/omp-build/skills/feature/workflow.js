@@ -663,7 +663,7 @@ export async function landPr(
     try {
       await disarmGate(cwd, pr, knownGate(), ghFn)
     } catch (disarmError) {
-      throw new Error(`${errorText(disarmError)} — after: ${errorText(error)}`, { cause: error })
+      throw stuckError(disarmError, error)
     }
     throw error
   }
@@ -684,7 +684,7 @@ export async function landPr(
       try {
         await disarmGate(cwd, pr, knownGate(), ghFn)
       } catch (disarmError) {
-        return { moved: true, stuck: `${errorText(disarmError)} — after: ${errorText(error)}` }
+        return { moved: true, stuck: stuckError(disarmError, error) }
       }
       throw error
     }
@@ -707,8 +707,7 @@ export async function landPr(
       const disarmed = await disarmGate(cwd, pr, knownGate(), ghFn)
       return { status: 'not-approved', reviews, reason: 'head-moved', ...(disarmed && { disarmed }) }
     } catch (disarmError) {
-      const stuck = readError ? `${errorText(disarmError)} — after: ${errorText(readError)}` : errorText(disarmError)
-      throw new Error(stuck)
+      throw stuckError(disarmError, readError)
     }
   }
   // A refused pin leaves the gate as the call found it — but GitHub refuses a pin whose
@@ -748,8 +747,7 @@ export async function landPr(
     try {
       cleared = await disarmGate(cwd, pr, knownGate(), ghFn)
     } catch (disarmError) {
-      const stuck = readError ? `${errorText(disarmError)} — after: ${errorText(readError)}` : errorText(disarmError)
-      return { status: 'auto-merge-failed', armed: true, error: stuck }
+      return { status: 'auto-merge-failed', armed: true, error: stuckError(disarmError, readError).message }
     }
     if (cleared) return { status: 'auto-merge-failed', armed: false, error: disarmedAfterDisable(readError) }
     try {
@@ -802,7 +800,7 @@ export async function landPr(
     if (added) return added
     // The re-read before the write is not a lease on the label either.
     const afterLabel = await movedAfterWrite()
-    if (afterLabel.stuck) throw new Error(afterLabel.stuck)
+    if (afterLabel.stuck) throw afterLabel.stuck
     if (afterLabel.moved) return moved()
     since = await waitLabeledSince(cwd, pr, ghFn, before, sleep)
     const afterWait = await refuseIfMoved()
@@ -867,7 +865,7 @@ export async function landPr(
     // The pin is now live. A head that moved or cannot be read goes through the one
     // disarm; a disarm that fails reports the gate as still armed.
     const afterPin = await movedAfterWrite()
-    if (afterPin.stuck) return { status: 'auto-merge-failed', armed: true, error: afterPin.stuck }
+    if (afterPin.stuck) return { status: 'auto-merge-failed', armed: true, error: afterPin.stuck.message }
     if (afterPin.moved) {
       try {
         return await moved()
@@ -1058,8 +1056,32 @@ async function readGate(cwd, pr, ghFn) {
   if (typeof data !== 'object' || data === null || !Array.isArray(data.labels)) {
     throw new Error(`readGate: gh pr view ${pr} carried no labels — ${preview(raw)}`)
   }
+  if (!data.labels.every((label) => typeof label?.name === 'string')) {
+    throw new Error(`readGate: gh pr view ${pr} carried unreadable labels — ${preview(raw)}`)
+  }
+  if (!GATE_STATES.has(data.state)) {
+    throw new Error(`readGate: gh pr view ${pr} state is ${JSON.stringify(data.state) ?? 'missing'} — ${preview(raw)}`)
+  }
+  if (!('autoMergeRequest' in data) || (data.autoMergeRequest !== null && typeof data.autoMergeRequest !== 'object')) {
+    throw new Error(`readGate: gh pr view ${pr} carried no auto-merge state — ${preview(raw)}`)
+  }
   return data
 }
+
+/** The states `gh pr view` reports; anything else is an answer the gate cannot be read from. */
+const GATE_STATES = new Set(['OPEN', 'CLOSED', 'MERGED'])
+
+/**
+ * The one error for a disarm that failed after a read that failed: the disarm
+ * error names what stays armed, the read error is the cause.
+ *
+ * @param {unknown} disarmError
+ * @param {unknown} readError
+ */
+const stuckError = (disarmError, readError) =>
+  readError === undefined
+    ? new Error(errorText(disarmError), { cause: disarmError })
+    : new Error(`${errorText(disarmError)} — after: ${errorText(readError)}`, { cause: readError })
 
 /** @param {unknown} error */
 const errorText = (error) => (error instanceof Error ? error.message : String(error))
@@ -1117,13 +1139,6 @@ async function disarmGate(cwd, pr, gate, ghFn) {
   }
   if (back.state === 'MERGED') throw new Error(`disarmGate: PR ${pr} merged while being disarmed${detail}`)
   if (back.state === 'CLOSED') return true
-  if (back.state !== 'OPEN') throw unconfirmed(`the read-back state is ${JSON.stringify(back.state) ?? 'missing'}`)
-  if (!('autoMergeRequest' in back) || (back.autoMergeRequest !== null && typeof back.autoMergeRequest !== 'object')) {
-    throw unconfirmed('the read-back carried no auto-merge state')
-  }
-  if (!back.labels.every((label) => typeof label?.name === 'string')) {
-    throw unconfirmed('the read-back carried unreadable labels')
-  }
   const stays = []
   if (back.autoMergeRequest) stays.push('auto-merge')
   if (back.labels.some((label) => label?.name === 'reviewed')) stays.push('the reviewed label')

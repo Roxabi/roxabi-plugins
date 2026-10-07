@@ -463,6 +463,35 @@ const BAD_READBACKS = [
   ['a label with no name', { ...clear, labels: [{}] }],
   ['a label whose name is not a string', { ...clear, labels: [{ name: 5 }] }],
 ]
+/**
+ * The same malformed answers at the OPENING read. The gate it would select a branch from is
+ * not a gate: both reads share one validation, so the call rejects before any write — it does
+ * not read a missing or unknown state as "not OPEN, nothing to disarm".
+ */
+const ARMED_RED_GATE = { headRefOid: HEAD, labels: [{ name: 'reviewed' }], autoMergeRequest: { mergeMethod: 'MERGE' } }
+const OPENING_GATE_MALFORMED = [
+  ['the gate read has no state', { on: 'gate', answer: JSON.stringify(ARMED_RED_GATE) }, /state is missing/],
+  [
+    'the gate read has an unknown state',
+    { on: 'gate', answer: JSON.stringify({ ...ARMED_RED_GATE, state: 'INVALID' }) },
+    /state is "INVALID"/,
+  ],
+  [
+    'the gate read has a lower-case state',
+    { on: 'gate', answer: JSON.stringify({ ...ARMED_RED_GATE, state: 'open' }) },
+    /state is "open"/,
+  ],
+  [
+    'the gate read has no autoMergeRequest field',
+    { on: 'gate', answer: JSON.stringify({ headRefOid: HEAD, state: 'OPEN', labels: ARMED_RED_GATE.labels }) },
+    /carried no auto-merge state/,
+  ],
+  [
+    'the gate read has a label with no name',
+    { on: 'gate', answer: JSON.stringify({ ...ARMED_RED_GATE, state: 'OPEN', labels: [{}] }) },
+    /carried unreadable labels/,
+  ],
+]
 
 const NO_REQUIRED_CHECKS = [
   // every armed start, both sources, a stable approved head: disarmed, and only said so by a read-back
@@ -696,12 +725,18 @@ const ROWS = [
 
   // ---- landPr: gate and history reads fail on a red armed PR ------------------
   ...[
-    ['the gate read throws', { on: 'gate', error: 'gh: HTTP 502' }],
-    ['the gate read is not JSON', { on: 'gate', answer: 'not json' }],
-    ['the gate read carries no labels', { on: 'gate', answer: JSON.stringify({ headRefOid: HEAD, state: 'OPEN' }) }],
-    ['the identity read throws', { on: 'identity', error: 'gh: not logged in' }],
-    ['the comment read throws', { on: 'comments', error: 'gh: HTTP 502' }],
-  ].flatMap(([name, fail]) =>
+    // The first five keep `/./`: RC-5 of the review (message-specific rejects) is deferred.
+    ['the gate read throws', { on: 'gate', error: 'gh: HTTP 502' }, /./],
+    ['the gate read is not JSON', { on: 'gate', answer: 'not json' }, /./],
+    [
+      'the gate read carries no labels',
+      { on: 'gate', answer: JSON.stringify({ headRefOid: HEAD, state: 'OPEN' }) },
+      /./,
+    ],
+    ['the identity read throws', { on: 'identity', error: 'gh: not logged in' }, /./],
+    ['the comment read throws', { on: 'comments', error: 'gh: HTTP 502' }, /./],
+    ...OPENING_GATE_MALFORMED,
+  ].flatMap(([name, fail, rejects]) =>
     ['native', 'merge-on-green'].map((mode) => [
       `RC-3 landPr, ${mode}: ${name} on an armed red PR → rejects and writes nothing`,
       {
@@ -709,7 +744,7 @@ const ROWS = [
         opts: mode === 'native' ? NATIVE : MOG,
         records: [red()],
         script: { fail: [fail] },
-        rejects: /./,
+        rejects,
         labels: REVIEWED,
         auto: true,
         none: true,
@@ -943,7 +978,8 @@ const ROWS = [
       records: [approve()],
       start: 'none',
       script: { fail: [{ on: 'head', nth: 3 }, { on: 'remove' }] },
-      rejects: stays('the reviewed label'),
+      rejects: /stays armed — the reviewed label[\s\S]*— after: injected/,
+      causeMatches: /^injected$/,
       labels: REVIEWED,
       auto: false,
     },
@@ -995,7 +1031,8 @@ const ROWS = [
       records: [approve()],
       start: 'none',
       script: { fail: [{ on: 'head', nth: 2 }, { on: 'remove' }] },
-      rejects: stays('the reviewed label'),
+      rejects: /stays armed — the reviewed label[\s\S]*— after: injected/,
+      causeMatches: /^injected$/,
       labels: REVIEWED,
       auto: false,
     },
@@ -1605,7 +1642,8 @@ const ROWS = [
       records: [approve()],
       start: 'none',
       script: { fail: [{ on: 'head', nth: 3 }, { on: 'remove' }] },
-      rejects: stays('the reviewed label'),
+      rejects: /stays armed — the reviewed label[\s\S]*— after: injected/,
+      causeMatches: /^injected$/,
       labels: REVIEWED,
       auto: false,
     },
@@ -1854,18 +1892,23 @@ const ROWS = [
 
   // ---- nextReviewStep: reads that fail ----------------------------------------
   ...[
-    ['the gate read throws', { on: 'gate', error: 'gh: HTTP 502' }],
-    ['the gate read is not JSON', { on: 'gate', answer: 'not json' }],
-    ['the gate read carries no labels', { on: 'gate', answer: JSON.stringify({ headRefOid: HEAD, state: 'OPEN' }) }],
-    ['the identity read throws', { on: 'identity', error: 'gh: not logged in' }],
-    ['the comment read throws', { on: 'comments', error: 'gh: HTTP 502' }],
-  ].map(([name, fail]) => [
+    ['the gate read throws', { on: 'gate', error: 'gh: HTTP 502' }, /./],
+    ['the gate read is not JSON', { on: 'gate', answer: 'not json' }, /./],
+    [
+      'the gate read carries no labels',
+      { on: 'gate', answer: JSON.stringify({ headRefOid: HEAD, state: 'OPEN' }) },
+      /./,
+    ],
+    ['the identity read throws', { on: 'identity', error: 'gh: not logged in' }, /./],
+    ['the comment read throws', { on: 'comments', error: 'gh: HTTP 502' }, /./],
+    ...OPENING_GATE_MALFORMED,
+  ].map(([name, fail, rejects]) => [
     `RC-3 nextReviewStep: ${name} on an armed red PR → rejects and writes nothing`,
     {
       fn: 'step',
       records: [red()],
       script: { fail: [fail] },
-      rejects: /./,
+      rejects,
       labels: REVIEWED,
       auto: true,
       none: true,
