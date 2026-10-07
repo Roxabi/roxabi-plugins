@@ -865,28 +865,61 @@ const ROWS = [
     },
   ]),
   [
-    'M4 merge-on-green: removing the old label throws → rejects, head was verified, label stays',
+    'M4 merge-on-green: removing the old label throws at a current head → rejects with the write error, label stays at the reviewed head',
     {
       fn: 'land',
       opts: MOG,
       records: [approve()],
       script: { fail: [{ on: 'remove' }] },
-      rejects: /injected/,
+      rejects: /^injected$/,
       labels: REVIEWED,
       auto: true,
     },
   ],
   [
-    'M4 merge-on-green: adding the label throws after the old one was removed → the head is still reviewed, so the raw error does not escape',
+    'M4 merge-on-green: removing the old label throws and the head moved → disarmed, not-approved',
+    {
+      fn: 'land',
+      opts: MOG,
+      records: [approve()],
+      script: { fail: [{ on: 'remove' }], moves: [{ when: 'before', on: 'head', nth: 2, head: MOVED }] },
+      result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+      labels: CLEAN,
+      auto: false,
+    },
+  ],
+  [
+    'M4 merge-on-green: removing the old label throws and the head cannot be read → disarmed through the known gate',
+    {
+      fn: 'land',
+      opts: MOG,
+      records: [approve()],
+      script: { fail: [{ on: 'remove' }, { on: 'head', nth: 2 }] },
+      result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+      labels: CLEAN,
+      auto: false,
+    },
+  ],
+  [
+    'M4 merge-on-green: removing the old label throws, the head moved, and the disarm fails → stays armed, after nothing',
+    {
+      fn: 'land',
+      opts: MOG,
+      records: [approve()],
+      script: { fail: [{ on: 'remove', times: 2 }], moves: [{ when: 'before', on: 'head', nth: 2, head: MOVED }] },
+      rejects: stays('the reviewed label'),
+      labels: REVIEWED,
+      auto: false,
+    },
+  ],
+  [
+    'M4 merge-on-green: adding the label throws at a current head → rejects with the write error; the old label is gone',
     {
       fn: 'land',
       opts: MOG,
       records: [approve()],
       script: { fail: [{ on: 'add' }] },
-      result: {
-        status: 'watch-failed',
-        error: expect.stringContaining('labeled reviewed event'),
-      },
+      rejects: /^injected$/,
       labels: CLEAN,
       auto: true,
     },
@@ -1568,14 +1601,14 @@ const ROWS = [
     },
   ]),
   [
-    'N9 native: the label write throws after a verified pin → the head is still reviewed, so the raw error does not escape',
+    'N9 native: the label write throws after a verified pin at a current head → rejects with the write error; the pin stays at the reviewed head',
     {
       fn: 'land',
       opts: NATIVE,
       records: [approve()],
       start: 'none',
       script: { fail: [{ on: 'add' }] },
-      result: { status: 'watching', mode: 'native', watch: expect.any(String) },
+      rejects: /^injected$/,
       labels: CLEAN,
       auto: true,
     },
@@ -2188,8 +2221,25 @@ const SWEEPS = [
   ),
 ]
 
-/** The reads after the gate that a head move and a failure can hit together. */
-const PAIRABLE = new Set(['labels', 'head', 'repo', 'protection', 'rules', 'events', 'gate'])
+/**
+ * The calls after the gate that a head move and a failure can hit together: every read, and every
+ * write — a write that throws may or may not have applied, and the head may have moved meanwhile.
+ * `base` stays out: a failed base read falls to the real `detectPrincipal`. Throw-after-apply and a
+ * second fault inside the disarm a first fault triggers are table rows, not sweep points.
+ */
+const PAIRABLE = new Set([
+  'labels',
+  'head',
+  'repo',
+  'protection',
+  'rules',
+  'events',
+  'gate',
+  'disable',
+  'remove',
+  'add',
+  'pin',
+])
 
 describe('the armed-gate invariant — every gh call of a scripted run', () => {
   it.each(SWEEPS)(

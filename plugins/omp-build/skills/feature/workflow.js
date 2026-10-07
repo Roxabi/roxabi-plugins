@@ -566,7 +566,11 @@ const SINCE_RETRY_MS = 200
  * that moved or cannot be read disarms through `knownGate()` and returns
  * `not-approved` / `head-moved`, or the stuck error when that disarm fails. A head
  * or label read that fails before any write is disarmed the same way and its error
- * rethrown. A `bad-landing` made no writes: an already-armed approved gate may exist.
+ * rethrown. A label write (`--add-label`, or merge-on-green's `--remove-label`)
+ * that throws is a failed write until the head says otherwise: a moved or
+ * unreadable head disarms through `knownGate()`; a head that is still the reviewed
+ * one rethrows the write error — never `watching`. A `bad-landing` made no writes:
+ * an already-armed approved gate may exist.
  * Native auto-merge is then requested with `--match-head-commit` of that reviewed
  * sha — an enable-time pin, not a later-push lease.
  * Native also enables merge-commit auto-merge. merge-on-green never returns
@@ -723,18 +727,23 @@ export async function landPr(
     }
     return gone ? moved() : { status: 'auto-merge-failed', armed: false }
   }
-  // A throw after an arming write does not prove the write failed. Record the arm,
-  // then the same re-read: a moved or unreadable head is disarmed through knownGate().
-  const addReviewed = async () => {
+  // A label write that throws is answered the same way whether it added or removed:
+  // the write may have applied, so a moved or unreadable head is disarmed through
+  // knownGate() (which counts what this call armed); a head that is still the
+  // reviewed one rethrows the write error — a failed write is never success.
+  const labelWrite = async (args, arm) => {
     try {
-      await ghFn(cwd, ['pr', 'edit', String(pr), '--add-label', 'reviewed'])
-    } catch {
-      armedByUs.label = true
-      return refuseIfMoved()
+      await ghFn(cwd, args)
+    } catch (error) {
+      if (arm) armedByUs.label = true
+      const refused = await refuseIfMoved()
+      if (refused) return refused
+      throw error
     }
-    armedByUs.label = true
+    if (arm) armedByUs.label = true
     return null
   }
+  const addReviewed = () => labelWrite(['pr', 'edit', String(pr), '--add-label', 'reviewed'], true)
   const disarmedAfterDisable = (readError) =>
     readError
       ? `head unreadable after --disable-auto failed; the gate was disarmed — ${errorText(readError)}`
@@ -794,7 +803,8 @@ export async function landPr(
     // Re-read immediately before the write. The earlier check is not a lease.
     if (await headMovedOrDisarm()) return moved()
     if (labels.some((label) => label?.name === 'reviewed')) {
-      await ghFn(cwd, ['pr', 'edit', String(pr), '--remove-label', 'reviewed'])
+      const removed = await labelWrite(['pr', 'edit', String(pr), '--remove-label', 'reviewed'], false)
+      if (removed) return removed
     }
     const added = await addReviewed()
     if (added) return added
