@@ -310,15 +310,9 @@ fi
 `,
     )
     const count = join(dir, 'count')
-    const out = execFileSync(
-      SCRIPT,
-      ['7', '--interval', '0', '--timeout', '30s', '--merge-mode', 'merge-on-green', '--repo', 'acme/app'],
-      {
-        encoding: 'utf8',
-        env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, CI_WATCH_COUNT: count },
-      },
-    )
-    expect(out).toContain('merged')
+    const result = runWatch(dir, { CI_WATCH_COUNT: count })
+    expect(result.code).toBe(0)
+    expect(result.stdout).toContain('merged')
   })
 
   it('exits 1 when a check failed', () => {
@@ -333,22 +327,7 @@ cat <<'EOF'
 EOF
 `,
     )
-    let code = 0
-    try {
-      execFileSync(
-        SCRIPT,
-        ['7', '--interval', '0', '--timeout', '30s', '--merge-mode', 'merge-on-green', '--repo', 'acme/app'],
-        {
-          encoding: 'utf8',
-          env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
-        },
-      )
-    } catch (error) {
-      if (error && typeof error === 'object' && 'status' in error && typeof error.status === 'number') {
-        code = error.status
-      }
-    }
-    expect(code).toBe(1)
+    expect(runWatch(dir).code).toBe(1)
   })
 
   /** `mode: null` passes no `--merge-mode`, so the script resolves it from `cwd`. */
