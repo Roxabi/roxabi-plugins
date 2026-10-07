@@ -167,11 +167,12 @@ before its diff; the review-start test exercises the fence, not model compliance
   the third review approved stops too. `posted` (the review just posted) must be
   the latest record, else it throws.
 - `landPr(cwd, pr)` arms only when the latest record approves and its line-2
-  `<!-- omp-build:review-head sha=… -->` equals the current `headRefOid`, re-read
-  before every write. A spent bound is `not-approved` with reason `review-bound`.
-  A missing or malformed line-2 sha is `no-review-head`; a different or unreadable
-  head is `head-moved`. Unreadable records authorize nothing.
-  Native auto-merge is requested with `--match-head-commit`. Merge-on-green is
+  `<!-- omp-build:review-head sha=… -->` equals the current `headRefOid`. Records
+  then head are refreshed before each arming write, including after disable/remove
+  preparation. A spent bound is `not-approved` with reason `review-bound`; a missing
+  line-2 sha is `no-review-head`, and a moved head is `head-moved`. Unreadable
+  authorization never permits arming; acquired gates use the shared exit policy.
+  Native auto-merge pins that refreshed reviewed head with `--match-head-commit`. Merge-on-green is
   label-driven: a later push by another actor is not refused by GitHub. A review
   posted before the head line existed needs one re-review before it can land.
 

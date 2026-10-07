@@ -2676,10 +2676,17 @@ describe('same-head review revocation during terminal authorization', () => {
 
   for (const [revocation, reviews, step] of REVOCATIONS) {
     it.each(PATHS)(`%s clears both arms after ${revocation}`, async (_path, what) => {
-      const fake = armedPr({
-        records: [approve()],
-        script: { moves: [{ when: 'before', on: 'comments', nth: 2, reviews }] },
-      })
+      const fake = armedPr({ records: [approve()] })
+      const ghBeforeRevocation = fake.gh
+      let revoked = false
+      fake.gh = async (cwd, args) => {
+        const after = what.fn === 'land' ? 'add' : 'gate'
+        if (!revoked && kindOf(args) === 'comments' && fake.log.some((entry) => entry.kind === after)) {
+          fake.records.push(...reviews)
+          revoked = true
+        }
+        return ghBeforeRevocation(cwd, args)
+      }
       const outcome = await exec(what, fake)
 
       expect(fake.pr.head).toBe(HEAD)
@@ -2697,4 +2704,101 @@ describe('same-head review revocation during terminal authorization', () => {
       }
     })
   }
+})
+
+describe('same-head revocation before merge-capable arming', () => {
+  const ARM_PATHS = [
+    ['native pin', NATIVE, 'base', 'pin'],
+    ['native discovered protection', DISCOVERED, 'protection', 'pin'],
+    ['merge-on-green label', MOG, 'base', 'add'],
+  ]
+  const REVOKED = [
+    ['a newer red', [red()]],
+    ['a newly spent bound followed by approval', [red(), red(), red(), approve()]],
+  ]
+
+  for (const [revocation, reviews] of REVOKED) {
+    it.each(ARM_PATHS)(`%s cannot merge after ${revocation} during discovery`, async (_path, opts, on, arm) => {
+      const fake = armedPr({
+        records: [approve()],
+        start: 'none',
+        found: { classic: ['ci'] },
+        script: {
+          moves: [
+            { when: 'after', on, reviews },
+            { when: 'after', on: arm, state: 'MERGED' },
+          ],
+        },
+      })
+      const outcome = await exec({ fn: 'land', opts }, fake)
+
+      expect(fake.pr.state).toBe('OPEN')
+      expect(fake.pr.head).toBe(HEAD)
+      expect(armedNames(fake)).toEqual([])
+      expect(outcome.error).toBeUndefined()
+      expect(outcome.result).toMatchObject({ status: 'not-approved', reviews: reviews.length + 1 })
+      expect(holds(fake, outcome)).toBe(true)
+      if (reviews.length > 1) expect(outcome.result.reason).toBe('review-bound')
+    })
+  }
+})
+
+describe('same-head revocation during preparation for the next arming write', () => {
+  const PREPARATIONS = [
+    ['native re-pin', NATIVE, 'both', 'disable', 'pin', 2],
+    ['native label after the pin', NATIVE, 'none', 'pin', 'add', 1],
+    ['merge-on-green re-label', MOG, 'label', 'remove', 'add', 1],
+  ]
+  const REVOKED = [
+    ['a newer red', [red()]],
+    ['a newly spent bound followed by approval', [red(), red(), red(), approve()]],
+  ]
+
+  for (const [revocation, reviews] of REVOKED) {
+    it.each(PREPARATIONS)(
+      `%s cannot merge after ${revocation} during preparation`,
+      async (_path, opts, start, preparation, arm, armNth) => {
+        const fake = armedPr({
+          records: [approve()],
+          start,
+          script: {
+            moves: [
+              { when: 'after', on: preparation, reviews },
+              { when: 'after', on: arm, nth: armNth, state: 'MERGED' },
+            ],
+          },
+        })
+        const outcome = await exec({ fn: 'land', opts }, fake)
+
+        expect(fake.pr.state).toBe('OPEN')
+        expect(fake.pr.head).toBe(HEAD)
+        expect(armedNames(fake)).toEqual([])
+        expect(outcome.error).toBeUndefined()
+        expect(outcome.result).toMatchObject({ status: 'not-approved', reviews: reviews.length + 1 })
+        expect(holds(fake, outcome)).toBe(true)
+        if (reviews.length > 1) expect(outcome.result.reason).toBe('review-bound')
+      },
+    )
+  }
+})
+
+describe('native arming uses the freshly approved head', () => {
+  it.each([
+    ['initial pin after discovery', 'none', 'base'],
+    ['re-pin after disabling the old arm', 'both', 'disable'],
+  ])('%s', async (_path, start, on) => {
+    const fake = armedPr({
+      records: [approve()],
+      start,
+      script: { moves: [{ when: 'after', on, head: MOVED, reviews: [approve(MOVED)] }] },
+    })
+    const outcome = await exec({ fn: 'land', opts: NATIVE }, fake)
+
+    expect(outcome.error).toBeUndefined()
+    expect(outcome.result).toMatchObject({ status: 'watching', mode: 'native' })
+    expect(fake.pr.head).toBe(MOVED)
+    expect(fake.pr.autoMerge).not.toBeNull()
+    expect(fake.pr.labels.has('reviewed')).toBe(true)
+    expect(holds(fake, outcome)).toBe(true)
+  })
 })

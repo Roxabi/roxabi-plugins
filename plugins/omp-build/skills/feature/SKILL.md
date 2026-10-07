@@ -487,9 +487,12 @@ reason `no-review-head` — a PR reviewed before this line existed needs one
 re-review. A different or unreadable head returns `not-approved` with reason
 `head-moved`. Every `not-approved` disarms a gate already armed on an OPEN PR
 (`disarmed: true`) and writes nothing else. Invalid configuration then returns
-`bad-landing` before arming. Immediately before every write it re-reads
-`headRefOid`; a different or unreadable head returns `not-approved` with reason
-`head-moved` and disarms the same way. Under merge-on-green
+`bad-landing` before arming. Immediately before each merge-capable arming write,
+it re-reads the latest review records and then `headRefOid`, including after
+disable/remove preparation. Red or spent records refuse arming; missing,
+moved or unreadable authorization never permits that write. Known OPEN arms
+are cleared through the exit policy, or its error names the remainder.
+Native pins use the refreshed reviewed head. Under merge-on-green
 it then adds `reviewed` — a pre-existing label is removed first so a fresh
 labeled run exists — and returns
 `{ status: 'watching', mode, watch }`. `watch` is the absolute real path of

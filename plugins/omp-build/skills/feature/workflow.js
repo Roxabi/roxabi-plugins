@@ -675,10 +675,23 @@ export async function landPr(
   }
   const afterWrite = async (adapter) => {
     try {
+      if (adapter === 'native') {
+        const refusal = await refreshReviewAuthorization()
+        if (refusal) return { ...refusal, adapter }
+      }
       if (await headMoved()) return moved(adapter)
     } catch (failure) {
       return exit(undefined, { policy: 'unarmed', failure, adapter })
     }
+    return null
+  }
+  const refreshReviewAuthorization = async () => {
+    // Every pre-arm checkpoint reads records first, then the caller reads the
+    // head last. Preparation awaits must not retain same-head authorization.
+    records = await readReviewRecords(cwd, pr, { gh: ghFn })
+    if (records.spent) return exit(refused('review-bound'), { policy: 'unarmed' })
+    if (!approves(records.verdict)) return exit(refused(), { policy: 'unarmed' })
+    if (!isCommitSha(records.head)) return exit(refused('no-review-head'), { policy: 'unarmed' })
     return null
   }
   // #731 RC-5 remains separate: an unreadable head after a refused pin leaves
@@ -743,17 +756,21 @@ export async function landPr(
               : await resolveRequiredContexts(cwd, pr, ghFn)
         if (required.length === 0) return exit({ status: 'no-required-checks' }, { policy: 'unarmed' })
       }
-      const pin = ['pr', 'merge', String(pr), '--auto', '--merge', '--match-head-commit', records.head]
       let since = ''
       if (resolved.mode === 'merge-on-green') {
         const before = await labeledReviewedAt(cwd, pr, ghFn)
         const labels = JSON.parse(await ghFn(cwd, ['pr', 'view', String(pr), '--json', 'labels'])).labels ?? []
         if (!Array.isArray(labels)) throw new Error(`landPr: gh pr view ${pr} carried no labels`)
+        const beforeLabel = await refreshReviewAuthorization()
+        if (beforeLabel) return beforeLabel
         if (await headMoved()) return moved()
         if (labels.some((label) => label?.name === 'reviewed')) {
           // Preparation for a fresh labeled event, not a terminal disarm.
           const removed = await labelWrite(['pr', 'edit', String(pr), '--remove-label', 'reviewed'], false)
           if (removed) return removed
+          const afterRemove = await refreshReviewAuthorization()
+          if (afterRemove) return afterRemove
+          if (await headMoved()) return moved()
         }
         const added = await labelWrite(['pr', 'edit', String(pr), '--add-label', 'reviewed'], true)
         if (added) return added
@@ -770,7 +787,10 @@ export async function landPr(
           })
         }
       } else {
+        const beforePin = await refreshReviewAuthorization()
+        if (beforePin) return beforePin
         if (await headMoved()) return moved()
+        const pin = ['pr', 'merge', String(pr), '--auto', '--merge', '--match-head-commit', records.head]
         armedByUs.auto = true
         try {
           await ghFn(cwd, pin)
@@ -801,7 +821,10 @@ export async function landPr(
               error: `PR ${pr} stays armed — ${names.join(' and ')} (--disable-auto failed: ${errorText(disableError)})`,
             })
           }
+          const beforeRepin = await refreshReviewAuthorization()
+          if (beforeRepin) return beforeRepin
           if (await headMoved()) return moved()
+          pin[pin.length - 1] = records.head
           armedByUs.auto = true
           try {
             await ghFn(cwd, pin)
