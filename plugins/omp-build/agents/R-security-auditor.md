@@ -11,7 +11,7 @@ description: |
   </example>
 # Tool pin: audit role — reports, never remediates.
 tools: read, grep, glob, bash, lsp, ast_grep, web_search
-model: "@slow"
+model: "@review, @slow"
 maxTurns: 30
 # capabilities: write_knowledge=false, write_code=false, review_code=true, run_tests=false
 # based-on: shared/base
