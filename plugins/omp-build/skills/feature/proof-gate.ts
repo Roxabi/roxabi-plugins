@@ -236,9 +236,9 @@ async function gitText(git: GitFn, cwd: string, args: string[]): Promise<string>
   return (await git(cwd, args)).trim()
 }
 
-/** `git ls-tree -z <oid> <path>`. A missing object rejects; it never reads as empty. */
+/** Root-relative `git ls-tree` at the bound oid, regardless of caller cwd. Missing objects reject. */
 async function treeAt(cwd: string, git: GitFn, oid: string, path: string): Promise<TreeEntry[]> {
-  const listing = await gitText(git, cwd, ['ls-tree', '-z', oid, path])
+  const listing = await gitText(git, cwd, ['ls-tree', '--full-tree', '-z', oid, path])
   return listing
     .split('\0')
     .filter(Boolean)

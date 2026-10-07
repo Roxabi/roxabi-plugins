@@ -591,4 +591,36 @@ describe('landPr proof after review', () => {
     expect(landed.labels).toEqual([])
     expect(landed.auto).toBe(false)
   })
+
+  it.each([
+    { name: 'contracts', status: 'verified', stack: {}, shadow: 'active', pass: true },
+    { name: 'e2e policy', status: 'partial', stack: E2E, shadow: 'partial', pass: false },
+  ])('reads root $name from a nested cwd, never shadow artifacts', ({ status, stack, shadow, pass }) => {
+    const { dir, oid } = initRepo(
+      sem(contract(status), {
+        ...stack,
+        'nested/.semctx/semantic/changes/shadow.sem': contract(shadow),
+      }),
+    )
+    const cwd = join(dir, 'nested')
+    const proof = status === 'verified' ? proofOf(oid) : uiProof(oid)
+    const opened = drive(cwd, { ...OPEN, proof, bodyInput: bodyWithCheck() })
+    const landed = drive(cwd, landScenario(oid, { proof, body: bodyWithCheck(), labels: ['reviewed'], auto: true }))
+
+    if (pass) {
+      expect(opened.result).toMatchObject({ status: 'created' })
+      expect(posted(opened.calls)).toBe(true)
+      expect(landed.result).toMatchObject({ status: 'watching', mode: 'native' })
+      expect(pinned(landed.calls)).toBe(true)
+    } else {
+      expect(opened.result).toMatchObject({ status: 'proof-blocked' })
+      expect(opened.result.reason).toMatch(/commands\.test_e2e/)
+      expect(posted(opened.calls)).toBe(false)
+      expect(landed.result).toMatchObject({ status: 'proof-blocked', disarmed: true })
+      expect(landed.result.reason).toMatch(/commands\.test_e2e/)
+      expect(pinned(landed.calls)).toBe(false)
+      expect(landed.labels).toEqual([])
+      expect(landed.auto).toBe(false)
+    }
+  })
 })
