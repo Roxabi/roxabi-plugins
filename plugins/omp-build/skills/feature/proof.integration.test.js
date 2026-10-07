@@ -574,11 +574,21 @@ describe('landPr proof after review', () => {
     expect(run.auto).toBe(false)
   })
 
-  it('refuses committed e2e on land the same way open does', () => {
-    const { dir, oid } = initRepo(sem(contract('partial'), E2E))
-    const run = drive(dir, landScenario(oid, { proof: uiProof(oid), body: bodyWithCheck() }))
-    expect(run.result).toMatchObject({ status: 'proof-blocked' })
-    expect(run.result.reason).toMatch(/commands\.test_e2e/)
-    expect(pinned(run.calls)).toBe(false)
+  it('uses committed e2e on open and land despite a dirty stack removing it', () => {
+    const { dir, oid } = initRepo(sem(contract('partial'), E2E), {
+      dirty: { '.dev/stack.yml': 'commands: {}\n' },
+    })
+    const proof = uiProof(oid)
+    const opened = drive(dir, { ...OPEN, proof, bodyInput: bodyWithCheck() })
+    const landed = drive(dir, landScenario(oid, { proof, body: bodyWithCheck(), labels: ['reviewed'], auto: true }))
+
+    expect(opened.result).toMatchObject({ status: 'proof-blocked' })
+    expect(opened.result.reason).toMatch(/commands\.test_e2e/)
+    expect(posted(opened.calls)).toBe(false)
+    expect(landed.result).toMatchObject({ status: 'proof-blocked', disarmed: true })
+    expect(landed.result.reason).toMatch(/commands\.test_e2e/)
+    expect(pinned(landed.calls)).toBe(false)
+    expect(landed.labels).toEqual([])
+    expect(landed.auto).toBe(false)
   })
 })
