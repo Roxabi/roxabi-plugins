@@ -155,8 +155,11 @@ non-`land` actions and actual review starts force clearing. Native
 watch observers retain arms only with current approval/head evidence. Required-check
 discovery failure can cancel a scheduled merge; configure checks and re-enter
 through the normal gate, with no automatic restoration. Native legacy stuck results
-adapt the clearing error without another attempt; the unreadable `pinRefused`
-boundary remains separately tracked by #731. An existing-PR review runs the barrier
+adapt the clearing error without another attempt. A refused native pin on a readable
+stable head still returns `auto-merge-failed` / `armed: false`, which is no clearing
+receipt; if that head cannot be read, the known gate is forced clear and the original
+read error is thrown — when clearing cannot finish, the error names the remaining or
+uncertain arms with that error as its cause. An existing-PR review runs the barrier
 before its diff; the review-start test exercises the fence, not model compliance.
 
 - `nextReviewStep(cwd, pr, { posted?, ciFailed?, reviewing? })` returns `land`, `fix`, `stop`

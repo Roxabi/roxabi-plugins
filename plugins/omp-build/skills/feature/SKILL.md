@@ -459,7 +459,8 @@ shared exit policy for `landPr`, `nextReviewStep`, `applyCiWatchExit` and
 `disarmReviewedBeforePush` (#729). `reviewing` means an actual review is running;
 forced-unarmed exits use a separate policy. Failed opening acquisitions leave
 no known gate to act on. Retaining an OPEN arm requires fresh review/head evidence
-after intervening reads. The sole preserved unreadable-pin boundary is #731 (§6.7).
+after intervening reads. A refused pin whose head is unreadable forces the known gate
+clear and throws the original read error (§6.7).
 `disarmGate` is the clearing primitive: disable auto-merge first, attempt label
 removal independently, then validate the read-back. A stuck or unreadable disarm
 throws naming the remainder; native legacy result adapters report that same error
@@ -510,9 +511,11 @@ armed — the label may stay. A head that moved or cannot be read in that window
 is disarmed through `disarmGate`; `armed: false` is returned only when that
 read-back confirms the gate clear. When the disarm cannot finish, or the
 read-back shows the gate still armed, the same status carries an `error` naming
-the remainder. The one exception is a refused pin (not `already enabled`): its
-`armed: false` is no read-back claim, and an unreadable head is not disarmed
-there — the deferred #731 defect, not a global guarantee. The fleet
+the remainder. A refused pin (not `already enabled`) on a readable stable head returns
+`auto-merge-failed` / `armed: false`, which is no read-back claim. If the head cannot
+be read there, the known gate is forced clear and `landPr` throws the original read
+error; when clearing cannot finish, the thrown error names the remaining or uncertain
+arms and keeps that error as its cause. The fleet
 workflow enables only on `labeled`, and only when the event head equals the
 line-2 sha of the latest automation-account Approve record. On `synchronize` it
 disables auto-merge and removes `reviewed` instead of re-enabling from a

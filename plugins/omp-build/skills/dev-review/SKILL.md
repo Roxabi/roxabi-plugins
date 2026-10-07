@@ -533,8 +533,10 @@ failures 1–3 and pre-push barriers force clearing; those watch/push paths need
 review-service reads. Observer watch statuses retain only currently authorized
 arms. Native `no-required-checks` also clears at an approved head: API discovery
 failure cancels a scheduled merge on purpose, with no automatic restoration.
-Native legacy stuck results adapt the same clearing error without retrying it;
-the sole preserved unreadable `pinRefused` boundary remains #731 (feature §6.7).
+Native legacy stuck results adapt the same clearing error without retrying it. A
+refused native pin with an unreadable head forces the known gate clear and throws the
+original read error; a failed clear throws naming the remainder, with that cause. A
+readable stable-head refusal stays `auto-merge-failed` / `armed: false` (no receipt).
 `landPr` arms only within the bound. Nothing writes accounting; every step is
 derived again from fresh reads.
 
