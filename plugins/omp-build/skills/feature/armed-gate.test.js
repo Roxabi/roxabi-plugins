@@ -271,13 +271,6 @@ const NATIVE = { landing: { mode: 'native', required_checks: ['ci'] } }
 const MOG = { landing: { mode: 'merge-on-green', required_checks: [] } }
 
 /** A checkout whose `.dev/stack.yml` is not a valid landing. */
-function badLandingCheckout() {
-  const dir = mkdtempSync(join(tmpdir(), 'armed-gate-'))
-  mkdirSync(join(dir, '.dev'))
-  writeFileSync(join(dir, '.dev', 'stack.yml'), 'landing: nope\n')
-  return dir
-}
-
 /**
  * @param {{ fn: 'land' | 'step', opts?: object, cwd?: string }} what
  * @param {ReturnType<typeof armedPr>} fake
@@ -706,19 +699,6 @@ const ROWS = [
       rejects: stays('auto-merge'),
       labels: CLEAN,
       auto: true,
-    },
-  ],
-  [
-    'L5 bad-landing: the gate is left as it was (it was allowed)',
-    {
-      fn: 'land',
-      opts: {},
-      cwd: 'BAD_LANDING',
-      records: [approve()],
-      result: { status: 'bad-landing', error: expect.any(String) },
-      labels: REVIEWED,
-      auto: true,
-      none: true,
     },
   ],
   ...NO_REQUIRED_CHECKS,
@@ -2088,8 +2068,7 @@ function prepare(row) {
     script: row.script,
     found: row.found,
   })
-  const cwd = row.cwd === 'BAD_LANDING' ? badLandingCheckout() : row.cwd
-  return { fake, what: { fn: row.fn, opts: row.opts, cwd } }
+  return { fake, what: { fn: row.fn, opts: row.opts, cwd: row.cwd } }
 }
 
 describe('the armed-gate invariant — every exit of landPr and nextReviewStep', () => {

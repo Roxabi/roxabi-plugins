@@ -180,6 +180,7 @@ REPO=""
 TIMEOUT_RAW="30m"
 INTERVAL=15
 MERGE_MODE=""
+BASE_REF=""
 SINCE=""
 
 need_value() {
@@ -205,6 +206,11 @@ while [[ $# -gt 0 ]]; do
     --merge-mode)
       need_value "$@"
       MERGE_MODE="$2"
+      shift 2
+      ;;
+    --base)
+      need_value "$@"
+      BASE_REF="$2"
       shift 2
       ;;
     --repo)
@@ -236,7 +242,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$PR" ]]; then
-  echo "Usage: ci-watch.sh <pr> [--timeout 30m] [--merge-mode merge-on-green|native] [--since <UTC time>] [--repo owner/repo]" >&2
+  echo "Usage: ci-watch.sh <pr> [--timeout 30m] [--merge-mode merge-on-green|native] [--base <branch>] [--since <UTC time>] [--repo owner/repo]" >&2
   exit "$EXIT_INTERNAL"
 fi
 
@@ -252,24 +258,32 @@ fi
 TIMEOUT=$(parse_duration "$TIMEOUT_RAW")
 
 # One landing resolver: feature/workflow.js readLanding, also used by landPr —
-# `landing.mode` in .dev/stack.yml, else merge-on-green when
-# .github/workflows/merge-on-green.yml exists, else native. Prints the mode, then
-# one required check per line. An invalid .dev/stack.yml exits 70.
-# Needs this script's real path so `$0` finds the sibling (not a pipe or copy).
+# from origin/<PR base>:.dev/stack.yml (never the working tree), else
+# merge-on-green when that ref has .github/workflows/merge-on-green.yml, else
+# native. Prints the mode, then one required check per line. An invalid stack
+# exits 70. Needs this script's real path so `$0` finds the sibling (not a pipe
+# or copy).
 LANDING_JS="$(dirname "$(readlink -f "$0")")/../feature/workflow.js"
 if [[ ! -f "$LANDING_JS" ]]; then
   echo "ci-watch: run this script from its real path (realpath skill://ci-watch/ci-watch.sh) — cannot find ../feature/workflow.js" >&2
   exit "$EXIT_INTERNAL"
 fi
+if [[ -z "$BASE_REF" ]]; then
+  BASE_REF=$(gh pr view "$PR" --repo "$REPO" --json baseRefName --jq -r '.baseRefName')
+fi
+if [[ -z "$BASE_REF" || "$BASE_REF" == "null" ]]; then
+  echo "Error: could not read baseRefName for PR $PR (pass --base <branch>)" >&2
+  exit "$EXIT_INTERNAL"
+fi
 LANDING=$(bun -e '
 const { readLanding } = await import(process.argv[1])
 try {
-  const landing = readLanding(process.cwd())
+  const landing = readLanding(process.cwd(), { base: process.argv[2] })
   console.log([landing.mode, ...landing.required_checks].join("\n"))
 } catch (e) {
   console.error(`Error: ${e instanceof Error ? e.message : e}`)
   process.exit(1)
-}' "$LANDING_JS")
+}' "$LANDING_JS" "$BASE_REF")
 if [[ -z "$MERGE_MODE" ]]; then
   MERGE_MODE="${LANDING%%$'\n'*}"
 fi
@@ -334,8 +348,8 @@ require_snapshot() {
 
 # What the kit's merge-on-green workflow resolved for this landing: the newest
 # non-skipped `merge-on-green` check run on the commit, started at or after
-# --since. A completed run with a `kit-ci not configured` annotation (the notice
-# the workflow emits when it runs evaluate-only) → unconfigured; completed
+# --since. A completed run with a `kit-ci not configured` or `Manual merge required`
+# annotation (both notices the workflow variants emit for evaluate-only) → unconfigured; completed
 # without it → configured; no such run yet, or not completed → pending.
 # Called in an assignment, never an `if`, so a gh/jq failure still exits 70.
 kit_ci_of() {
@@ -361,7 +375,7 @@ kit_ci_of() {
     return 0
   fi
   count=$(gh api --paginate "repos/$REPO/check-runs/$id/annotations" |
-    jq -s '[.[][]? | select(.title == "kit-ci not configured")] | length')
+    jq -s '[.[][]? | select(.title == "kit-ci not configured" or .title == "Manual merge required")] | length')
   if (( count > 0 )); then
     echo unconfigured
   else

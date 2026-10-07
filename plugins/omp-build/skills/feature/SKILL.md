@@ -468,10 +468,10 @@ Only `step.action === 'land'` may reach this step. Obtain the operator's merge
 approval if not already explicit for this PR; under the Epic goal the goal is that
 approval, and each `land.status` maps through § Epic goal instead of the table
 below. Then `await landPr(cwd, pr)`
-resolves the landing mode itself from `cwd` through `readLanding` — the same
-resolver `/ci-watch` uses: `landing.mode` in `.dev/stack.yml` (parsed as YAML),
-else merge-on-green when `.github/workflows/merge-on-green.yml` exists, else
-native. Before reading configuration, `landPr` reads the review records itself,
+resolves the landing mode itself from the PR base through `readLanding(cwd, { base })` — the same
+resolver `/ci-watch` uses: `landing.mode` in `origin/<base>:.dev/stack.yml` (parsed as YAML),
+else merge-on-green when `origin/<base>:.github/workflows/merge-on-green.yml` exists, else
+native. The head worktree never selects the mode or its required checks (#623). Before reading configuration, `landPr` reads the review records itself,
 then the PR's gate: a spent bound returns `not-approved` with reason
 `review-bound`, and a latest record that does not approve returns `not-approved`.
 An approval arms only the commit its record names: line 2 must be

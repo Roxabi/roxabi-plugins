@@ -16,7 +16,7 @@ const [mod, fn, cwd, pr, eventsMode, historyMode, prList, headMode, armMode] = p
 const { landPr, readLanding } = await import(mod)
 if (fn === 'readLanding') {
   try {
-    console.log(JSON.stringify(readLanding(cwd)))
+    console.log(JSON.stringify(readLanding(cwd, { base: pr || 'main' })))
   } catch (e) {
     console.log(JSON.stringify({ error: e.message }))
   }
@@ -97,12 +97,38 @@ try {
 }
 `
 
-/** A checkout with the given files, relative path → content. */
-function checkout(files = {}) {
+/** Strip hook-inherited GIT_* so fixtures are not redirected to the caller's repo. */
+function gitEnv() {
+  return Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
+}
+
+/**
+ * A git checkout whose base ref holds `baseFiles`. `origin/<base>` is planted at that
+ * commit so `readLanding` can read the base, never the working tree. Optional `headFiles`
+ * overwrite the worktree after the base commit (the case item 1 of #623 pins).
+ */
+function checkout(baseFiles = {}, { headFiles, base = 'main' } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'land-seam-'))
-  for (const [path, content] of Object.entries(files)) {
+  const env = gitEnv()
+  execFileSync('git', ['init', '-q', '-b', base], { cwd: dir, env })
+  execFileSync('git', ['config', 'user.email', 'land@test'], { cwd: dir, env })
+  execFileSync('git', ['config', 'user.name', 'land'], { cwd: dir, env })
+  for (const [path, content] of Object.entries(baseFiles)) {
     mkdirSync(join(dir, path, '..'), { recursive: true })
     writeFileSync(join(dir, path), content)
+  }
+  if (Object.keys(baseFiles).length) {
+    execFileSync('git', ['add', '-A'], { cwd: dir, env })
+    execFileSync('git', ['commit', '-qm', 'base'], { cwd: dir, env })
+  } else {
+    execFileSync('git', ['commit', '-qm', 'empty', '--allow-empty'], { cwd: dir, env })
+  }
+  execFileSync('git', ['update-ref', `refs/remotes/origin/${base}`, 'HEAD'], { cwd: dir, env })
+  if (headFiles) {
+    for (const [path, content] of Object.entries(headFiles)) {
+      mkdirSync(join(dir, path, '..'), { recursive: true })
+      writeFileSync(join(dir, path), content)
+    }
   }
   return dir
 }
@@ -116,8 +142,8 @@ function land(cwd, eventsMode = 'ok', { pr = '7', history = 'approved', prList =
   )
 }
 
-function readLanding(cwd) {
-  return JSON.parse(execFileSync('bun', ['-e', DRIVER, WORKFLOW, 'readLanding', cwd], { encoding: 'utf8' }))
+function readLanding(cwd, base = 'main') {
+  return JSON.parse(execFileSync('bun', ['-e', DRIVER, WORKFLOW, 'readLanding', cwd, base], { encoding: 'utf8' }))
 }
 
 const BRANCH = 'feat/637-review-action-sinks'
@@ -125,10 +151,14 @@ const BRANCH = 'feat/637-review-action-sinks'
 /** A checkout that is a git repository on BRANCH (unborn — `branch --show-current` needs no commit). */
 function onBranch(files) {
   const dir = checkout(files)
-  // Hook-inherited GIT_* would point git at the caller's repository instead of this one.
-  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
-  execFileSync('git', ['init', '-q'], { cwd: dir, env })
-  execFileSync('git', ['symbolic-ref', 'HEAD', `refs/heads/${BRANCH}`], { cwd: dir, env })
+  const env = gitEnv()
+  execFileSync('git', ['checkout', '-q', '--orphan', BRANCH], { cwd: dir, env })
+  execFileSync('git', ['rm', '-rfq', '--ignore-unmatch', '.'], { cwd: dir, env })
+  // Restore base files into the orphan worktree so landPr still sees a stack; origin/main stays.
+  for (const [path, content] of Object.entries(files)) {
+    mkdirSync(join(dir, path, '..'), { recursive: true })
+    writeFileSync(join(dir, path), content)
+  }
   return dir
 }
 
@@ -164,7 +194,7 @@ describe('landPr through the checkout', () => {
     const script = watchScript(result.watch)
     expect(script.startsWith('/')).toBe(true)
     expect(existsSync(script)).toBe(true)
-    expect(result.watch).toBe(`bash '${script}' '7' --merge-mode merge-on-green --since ${EVENT_AT}`)
+    expect(result.watch).toBe(`bash '${script}' '7' --merge-mode merge-on-green --base main --since ${EVENT_AT}`)
     // The absolute path is the real ci-watch.sh: a pure hook works from a cwd outside the plugin.
     const outside = mkdtempSync(join(tmpdir(), 'land-watch-cwd-'))
     expect(
@@ -180,6 +210,28 @@ describe('landPr through the checkout', () => {
     expect(calls).not.toContainEqual(RULES)
     expect(final).toEqual({ labels: ['reviewed'], autoMerge: false })
   })
+  it('a head whose stack declares native is still landed and watched under the base merge-on-green (#623 item 1)', () => {
+    const { result, calls, final } = land(
+      checkout(
+        { ...WORKFLOW_FILE, '.dev/stack.yml': 'landing:\n  mode: merge-on-green\n' },
+        { headFiles: { '.dev/stack.yml': 'landing:\n  mode: native\n  required_checks: ["ci"]\n' } },
+      ),
+    )
+    expect(result).toMatchObject({ status: 'watching', mode: 'merge-on-green' })
+    expect(result.watch).toContain('--merge-mode merge-on-green')
+    expect(calls).not.toContainEqual(PROTECTION)
+    expect(calls).not.toContainEqual(RULES)
+    expect(final).toEqual({ labels: ['reviewed'], autoMerge: false })
+  })
+
+  it('readLanding ignores the worktree stack when origin/base says otherwise', () => {
+    const dir = checkout(
+      { '.dev/stack.yml': 'landing:\n  mode: merge-on-green\n' },
+      { headFiles: { '.dev/stack.yml': 'landing:\n  mode: native\n  required_checks: ["ci"]\n' } },
+    )
+    expect(readLanding(dir)).toEqual({ mode: 'merge-on-green', required_checks: [] })
+  })
+
   it('a head that moves after the labels view is not-approved and writes nothing', () => {
     const { result, calls } = land(checkout(STACK), 'ok', { head: 'moved' })
     expect(result).toEqual({ status: 'not-approved', reviews: 1, reason: 'head-moved' })
@@ -259,8 +311,17 @@ describe('landPr through the checkout', () => {
     const { result, calls } = land(checkout({ ...WORKFLOW_FILE, '.dev/stack.yml': stack }))
     expect(result.status).toBe('bad-landing')
     expect(result.error).toMatch(error)
-    expect(calls).toEqual([IDENTITY, COMMENTS, GATE])
+    expect(calls).toEqual([IDENTITY, COMMENTS, GATE, ['pr', 'view', '7', '--json', 'baseRefName']])
     expect(calls.some((a) => a[1] === 'edit' || a[1] === 'merge')).toBe(false)
+  })
+
+  it('an armed PR with an invalid base stack is bad-landing and writes nothing (#623)', () => {
+    const dir = checkout({ '.dev/stack.yml': 'landing: nope\n' })
+    const { result, calls, final } = land(dir, 'ok', { arm: 'both' })
+    expect(result.status).toBe('bad-landing')
+    expect(result.error).toMatch(/landing is not a map|landing\.mode/)
+    expect(calls.some((a) => a[1] === 'edit' || a[1] === 'merge')).toBe(false)
+    expect(final).toEqual({ labels: ['reviewed'], autoMerge: true })
   })
 
   it('a comment-only stack with the workflow file watches merge-on-green', () => {

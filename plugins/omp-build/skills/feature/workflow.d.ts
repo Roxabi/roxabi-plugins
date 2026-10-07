@@ -5,7 +5,10 @@
 
 type Gh = (cwd: string, args: string[]) => Promise<string>
 
-export declare function readLanding(cwd: string): {
+export declare function readLanding(
+  cwd: string,
+  opts: { base: string },
+): {
   mode: 'native' | 'merge-on-green'
   required_checks: string[]
 }

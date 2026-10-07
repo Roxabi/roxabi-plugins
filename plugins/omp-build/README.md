@@ -183,7 +183,7 @@ The canonical choices and escalation dossier live in `skills/dev-review/SKILL.md
 Phase 8. Skills route through `nextReviewStep` and `landPr`; they do not own
 separate rules.
 
-Landing resolves mode from `readLanding`: stack `landing.mode`, else
+Landing resolves mode from `readLanding` on the PR base ref (`origin/<base>`): stack `landing.mode`, else
 `merge-on-green.yml`, else native. It returns the absolute `/ci-watch` command,
 including GitHub's fresh labeled-event time under merge-on-green. Native also
 enables auto-merge. `applyCiWatchExit` observes the result and disarms failures;

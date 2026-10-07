@@ -392,7 +392,7 @@ function gather(
   let landingError: string | null = null
   if (dashboard) {
     try {
-      landing = readLanding(repo)
+      landing = readLanding(repo, { base })
     } catch (error) {
       landingError = error instanceof Error ? error.message : String(error)
     }
