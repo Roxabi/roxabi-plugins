@@ -230,6 +230,17 @@ describe('proof binds to the selected artifact', () => {
     expect(viewedBody(run.calls)).toBe(false)
   })
 
+  it('refuses a branch claiming another ticket even at the proven commit', () => {
+    const { dir, oid } = initRepo(sem(contract('verified')))
+    const foreign = 'feat/999-other'
+    git(dir, ['branch', foreign, oid])
+    const run = drive(dir, { ...OPEN, branch: foreign, proof: proofOf(oid) })
+
+    expect(run.result).toMatchObject({ status: 'proof-blocked' })
+    expect(run.result.reason).toMatch(/names #999/)
+    expect(posted(run.calls)).toBe(false)
+  })
+
   it('publishes manual UI proof only when the submitted body records the browser check', () => {
     const { dir, oid } = initRepo(sem(contract('partial')))
     const proof = uiProof(oid)
