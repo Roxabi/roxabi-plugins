@@ -144,18 +144,20 @@ writes accounting; every decision is derived again from a fresh read.
 
 **The armed gate (#713).** An OPEN PR is armed — `reviewed` label or auto-merge
 enabled — only when the latest review record approves the current head, the bound
-is not spent, and no review of that head is running. `disarmGate` is the one
-disarm: it disables auto-merge, then removes the label, attempts both, reads the
-gate back, and throws one error naming what stays armed. Every `nextReviewStep`
-step but `land` calls it, `reviewing` (a review is about to start, nested or
-standalone) calls it on `land` too, and every `landPr` `not-approved` calls it.
-Native `no-required-checks` is stricter: `landPr` disarms a gate it found armed
-even at the approved current head, because required-check discovery reads an API
-error as no checks. That can cancel a scheduled merge; nothing restores it —
-configure the checks and re-enter through the normal gate. A `/feature` review of
-an existing PR runs this disarm before it reads the diff; the review-start test
-executes that fence against a fake `gh`, which shows the fence works, not that a
-model runs it.
+is not spent, and no review of that head is running. The four workflow exits share
+`enforceArmedGate` (#729), separating actual `reviewing` from forced-unarmed policy.
+Its `disarmGate` primitive disables auto-merge first, independently removes the
+label, validates read-back, and throws one error naming any remainder.
+`disarmed: true` requires an attempted clear and confirming read-back; an already
+clear or non-OPEN gate is a no-op. Every `nextReviewStep` action passes the policy:
+non-`land` actions and actual review starts force clearing. Native
+`no-required-checks`, CI-watch failures and pre-push barriers also force clearing;
+watch observers retain arms only with current approval/head evidence. Required-check
+discovery failure can cancel a scheduled merge; configure checks and re-enter
+through the normal gate, with no automatic restoration. Native legacy stuck results
+adapt the clearing error without another attempt; the unreadable `pinRefused`
+boundary remains separately tracked by #731. An existing-PR review runs the barrier
+before its diff; the review-start test exercises the fence, not model compliance.
 
 - `nextReviewStep(cwd, pr, { posted?, ciFailed?, reviewing? })` returns `land`, `fix`, `stop`
   or `review`. A fix is allowed while the PR has at most two records, one per
@@ -186,8 +188,10 @@ separate rules.
 Landing resolves mode from `readLanding` on the PR base ref (`origin/<base>`): stack `landing.mode`, else
 `merge-on-green.yml`, else native. It returns the absolute `/ci-watch` command,
 including GitHub's fresh labeled-event time under merge-on-green. Native also
-enables auto-merge. `applyCiWatchExit` observes the result and disarms failures;
-neither review nor fix labels a PR. No duplicate spec files or `validated` gate.
+enables auto-merge. `applyCiWatchExit` preserves watch statuses while enforcing
+gate authorization; `disarmReviewedBeforePush` confirms clearing before invoking
+the push once, and reuses that receipt if the callback fails. Neither review nor
+fix labels a PR. No duplicate spec files or `validated` gate.
 
 ## Guards
 
