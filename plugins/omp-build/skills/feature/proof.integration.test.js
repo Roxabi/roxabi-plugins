@@ -424,6 +424,24 @@ describe('landPr proof after review', () => {
     }
   }
 
+  it('refuses a proof for an earlier commit on open and land', () => {
+    const { dir, oid } = initRepo(sem(contract('verified')))
+    git(dir, ['commit', '-qm', 'next artifact', '--allow-empty'])
+    const current = git(dir, ['rev-parse', 'HEAD'])
+    const stale = proofOf(oid)
+
+    const opened = drive(dir, { ...OPEN, proof: stale })
+    const landed = drive(dir, landScenario(current, { proof: stale, labels: ['reviewed'], auto: true }))
+    expect(opened.result).toMatchObject({ status: 'proof-blocked' })
+    expect(opened.result.reason).toMatch(/proof head/)
+    expect(posted(opened.calls)).toBe(false)
+    expect(landed.result).toMatchObject({ status: 'proof-blocked', disarmed: true })
+    expect(landed.result.reason).toMatch(/proof head/)
+    expect(pinned(landed.calls)).toBe(false)
+    expect(landed.labels).toEqual([])
+    expect(landed.auto).toBe(false)
+  })
+
   it('refuses contradictory VERIFIED manual gaps before create or landing', () => {
     const { dir, oid } = initRepo(sem(contract('verified'), E2E))
     const contradictory = {
