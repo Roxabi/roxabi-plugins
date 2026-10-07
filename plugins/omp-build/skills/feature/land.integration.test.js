@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -12,7 +12,7 @@ const EVENT_AT = '2026-09-29T10:00:05Z'
 const BEFORE_AT = '2026-09-29T09:00:00Z'
 
 const DRIVER = `
-const [mod, fn, cwd, pr, eventsMode, historyMode, prList, headMode, armMode] = process.argv.slice(1)
+const [mod, fn, cwd, pr, eventsMode, historyMode, prList, headMode, armMode, baseMode] = process.argv.slice(1)
 const { landPr, readLanding } = await import(mod)
 if (fn === 'readLanding') {
   try {
@@ -47,6 +47,8 @@ const gh = async (_cwd, args) => {
   if (same(args, ['api', 'user', '--jq', '.login'])) return ME + '\\n'
   if (args[0] === 'pr' && args[1] === 'list') return prList
   if (args[0] === 'repo') return JSON.stringify({ nameWithOwner: 'acme/app' })
+  // base: the PR's baseRefName read fails (logged first), as gh does when GitHub errors on it.
+  if (baseMode === 'fail' && same(args, ['pr', 'view', '7', '--json', 'baseRefName'])) throw new Error('HTTP 502')
   if (args[0] === 'pr' && args[1] === 'view') {
     const view = {}
     for (const field of String(args[4]).split(',')) {
@@ -134,9 +136,13 @@ function checkout(baseFiles = {}, { headFiles, base = 'main' } = {}) {
 }
 
 /** `pr: ''` omits the PR, so landPr discovers it from the checkout's branch. */
-function land(cwd, eventsMode = 'ok', { pr = '7', history = 'approved', prList = '[]', head = '', arm = '' } = {}) {
+function land(
+  cwd,
+  eventsMode = 'ok',
+  { pr = '7', history = 'approved', prList = '[]', head = '', arm = '', base = '' } = {},
+) {
   return JSON.parse(
-    execFileSync('bun', ['-e', DRIVER, WORKFLOW, 'landPr', cwd, pr, eventsMode, history, prList, head, arm], {
+    execFileSync('bun', ['-e', DRIVER, WORKFLOW, 'landPr', cwd, pr, eventsMode, history, prList, head, arm, base], {
       encoding: 'utf8',
     }),
   )
@@ -299,6 +305,30 @@ describe('landPr through the checkout', () => {
     expect(final).toEqual({ labels: [], autoMerge: false })
   })
 
+  it('a failed base read falls back to the fetched origin base and disarms native with no required checks', () => {
+    const dir = checkout({ ...WORKFLOW_FILE, '.dev/stack.yml': 'landing:\n  mode: native\n' })
+    const origin = mkdtempSync(join(tmpdir(), 'land-origin-'))
+    try {
+      const env = gitEnv()
+      execFileSync('git', ['init', '-q', '--bare', '-b', 'main'], { cwd: origin, env })
+      execFileSync('git', ['remote', 'add', 'origin', origin], { cwd: dir, env })
+      execFileSync('git', ['push', '-q', 'origin', 'main'], { cwd: dir, env })
+      const { result, calls, final } = land(dir, 'ok', { arm: 'both', base: 'fail' })
+      expect(result).toEqual({ status: 'no-required-checks', disarmed: true })
+      expect(final).toEqual({ labels: [], autoMerge: false })
+      const at = (expected) => calls.flatMap((a, i) => (JSON.stringify(a) === JSON.stringify(expected) ? [i] : []))
+      const faults = at(['pr', 'view', '7', '--json', 'baseRefName'])
+      expect(faults).toHaveLength(2)
+      const [protection] = at(PROTECTION)
+      const [rules] = at(RULES)
+      expect(protection).toBeGreaterThan(faults[1])
+      expect(rules).toBeGreaterThan(faults[1])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+      rmSync(origin, { recursive: true, force: true })
+    }
+  })
+
   it.each([
     ['malformed YAML', 'landing: [unclosed\n', /not valid YAML/],
     ['a landing that is not a map', 'landing: native\n', /landing is not a map/],
@@ -314,22 +344,32 @@ describe('landPr through the checkout', () => {
     expect(calls.some((a) => a[1] === 'edit' || a[1] === 'merge')).toBe(false)
   })
 
-  it('an armed PR with an invalid base stack is bad-landing and writes nothing (#623)', () => {
+  it('L5 successor (#623): an armed PR with an invalid base stack is bad-landing and writes nothing', () => {
     const dir = checkout({ '.dev/stack.yml': 'landing: nope\n' })
-    const { result, calls, final } = land(dir, 'ok', { arm: 'both' })
-    expect(result.status).toBe('bad-landing')
-    expect(result.error).toMatch(/landing is not a map|landing\.mode/)
-    expect(calls.some((a) => a[1] === 'edit' || a[1] === 'merge')).toBe(false)
-    expect(final).toEqual({ labels: ['reviewed'], autoMerge: true })
+    try {
+      const { result, calls, final } = land(dir, 'ok', { arm: 'both' })
+      expect(result.status).toBe('bad-landing')
+      expect(result.error).toMatch(/landing is not a map/)
+      expect(result.error).not.toMatch(/Bun\.YAML|needs bun/i)
+      expect(calls.some((a) => a[1] === 'edit' || a[1] === 'merge')).toBe(false)
+      expect(final).toEqual({ labels: ['reviewed'], autoMerge: true })
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
-  it('an invalid base stack cannot retain an armed head that moved during resolution', () => {
+  it('L5 successor (#623): an invalid base stack cannot retain an armed head that moved during resolution', () => {
     const dir = checkout({ '.dev/stack.yml': 'landing: nope\n' })
-    const { result, final } = land(dir, 'ok', { arm: 'both', head: 'moved' })
-    expect(result.status).toBe('bad-landing')
-    expect(result.error).toMatch(/landing is not a map|landing\.mode/)
-    expect(result.disarmed).toBe(true)
-    expect(final).toEqual({ labels: [], autoMerge: false })
+    try {
+      const { result, final } = land(dir, 'ok', { arm: 'both', head: 'moved' })
+      expect(result.status).toBe('bad-landing')
+      expect(result.error).toMatch(/landing is not a map/)
+      expect(result.error).not.toMatch(/Bun\.YAML|needs bun/i)
+      expect(result.disarmed).toBe(true)
+      expect(final).toEqual({ labels: [], autoMerge: false })
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   it('a comment-only stack with the workflow file watches merge-on-green', () => {

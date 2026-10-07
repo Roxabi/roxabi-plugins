@@ -42,7 +42,7 @@ export declare function landPr(
   disarmed?: true
   /** `auto-merge-failed` only: `false` after a confirmed clear or a refused pin (not a clear claim), `true` when something stays armed. */
   armed?: boolean
-  /** The reason for `bad-landing` or `watch-failed`; for `auto-merge-failed`, what stays armed or why the gate was disarmed. */
+  /** The reason for `bad-landing` or `watch-failed`; for `auto-merge-failed`, what stays armed or why the gate was disarmed. Only two fragments are contract: the remaining arms follow `stays armed — <arms>`, and unconfirmed state is named by `could not be read back`. The prefix and causal prose around them are not a stable API. */
   error?: string
 }>
 

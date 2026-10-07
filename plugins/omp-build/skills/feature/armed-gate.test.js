@@ -11,9 +11,18 @@ import { applyCiWatchExit, commentPageArgs, disarmReviewedBeforePush, landPr, ne
  *
  * One stateful fake PR, shared by `landPr`, `nextReviewStep`, `applyCiWatchExit` and
  * `disarmReviewedBeforePush` (#729). Every exit after the gate read is a row of the table
- * below; the sweeps at the end make each gh call of a scripted run fail once, move the head
- * after it, and fail while the head moves, so a missed exit shows up as a violation of the
- * oracle. The oracle is written here from the fake's final state, not from `workflow.js`. The
+ * below. The clean-baseline sweep near the end covers three axes only, each at a call the clean
+ * scripted run makes: one throw before any effect (the `base` read is excluded — it falls to the
+ * real `detectPrincipal` — so `base` throws and throw+move pairs are not swept), a head move after
+ * a call that succeeded (selected observable moves, `base` included; the fake's after-hook does not
+ * run after a throw or a substituted answer), and a throw paired with a head move at a call after
+ * the gate is acquired. Excluded from the sweep: `base` failures and `base` throw+move pairs
+ * (a `base` read failure is proved by the real-Bun case in `land.integration.test.js`; no pair is
+ * claimed), applies-then-throws and second faults inside a disarm that a fault first triggers
+ * (table rows only). The sweep claims nothing about a call or fault a clean run does not make. The
+ * separate #731 compound suite seeds a refused pin; it is
+ * not the clean-baseline sweep. A missed exit shows up as a violation of the oracle. The oracle is
+ * written here from the fake's final state, not from `workflow.js`. The
  * fake also answers the resolver's repo / base / protection / rules reads, so native runs
  * without declared checks go through the real discovery control flow.
  *
@@ -256,7 +265,7 @@ function holds(fake, outcome, { reviewing = false, exempt = false, strict = fals
   if (!strict && mayBeArmed(fake, reviewing)) return true
   if (!attempted(fake, names)) return false
   const message = outcome.error?.message ?? outcome.result?.error ?? ''
-  if (/could not be read back; auto-merge and reviewed may stay armed/.test(message)) return true
+  if (/could not be read back/.test(message)) return true
   const said = message.match(/stays armed — (auto-merge and the reviewed label|auto-merge|the reviewed label)/)
   return said !== null && said[1] === names.join(' and ')
 }
@@ -315,7 +324,8 @@ const GATE_READ_FAILURES = [
 /**
  * Row fields: `fn`, `opts`, `records`, `start`, `state`, `head`, `script`, and what must hold at exit —
  * `result` (exact) or `rejects` (message), `labels` (what is left), `auto` (auto-merge still on),
- * `none` (no write at all). `reviewing` is read by the oracle.
+ * `none` (no write at all). `reviewing` is read by the oracle. `known`: an inert provenance marker for a
+ * regression row of a fixed issue; nothing reads it and it exempts nothing.
  */
 const LAND_REFUSALS = [
   [
@@ -738,16 +748,15 @@ const ROWS = [
 
   // ---- landPr: gate and history reads fail on a red armed PR ------------------
   ...[
-    // The first five keep `/./`: RC-5 of the review (message-specific rejects) is deferred.
-    ['the gate read throws', { on: 'gate', error: 'gh: HTTP 502' }, /./],
-    ['the gate read is not JSON', { on: 'gate', answer: 'not json' }, /./],
+    ['the gate read throws', { on: 'gate', error: 'gh: HTTP 502' }, /HTTP 502/],
+    ['the gate read is not JSON', { on: 'gate', answer: 'not json' }, /returned no JSON/],
     [
       'the gate read carries no labels',
       { on: 'gate', answer: JSON.stringify({ headRefOid: HEAD, state: 'OPEN' }) },
-      /./,
+      /carried no labels/,
     ],
-    ['the identity read throws', { on: 'identity', error: 'gh: not logged in' }, /./],
-    ['the comment read throws', { on: 'comments', error: 'gh: HTTP 502' }, /./],
+    ['the identity read throws', { on: 'identity', error: 'gh: not logged in' }, /not logged in/],
+    ['the comment read throws', { on: 'comments', error: 'gh: HTTP 502' }, /HTTP 502/],
     ...OPENING_GATE_MALFORMED,
   ].flatMap(([name, fail, rejects]) =>
     ['native', 'merge-on-green'].map((mode) => [
@@ -1193,6 +1202,9 @@ const ROWS = [
       start: 'label',
       script: { fail: [{ on: 'pin' }, { on: 'head', nth: 2 }] },
       rejects: /^injected$/,
+      // #731 is fixed: the unreadable head clears the known gate and rethrows the read error. `known` is
+      // greppable provenance only — no exemption, no `armed: false` carve-out.
+      known: '#731',
       labels: CLEAN,
       auto: false,
     },
@@ -1332,7 +1344,7 @@ const ROWS = [
       result: {
         status: 'auto-merge-failed',
         armed: false,
-        error: 'head moved after --disable-auto failed; the gate was disarmed',
+        error: expect.stringMatching(/the gate was disarmed/),
       },
       labels: CLEAN,
       auto: false,
@@ -1351,7 +1363,7 @@ const ROWS = [
       result: {
         status: 'auto-merge-failed',
         armed: false,
-        error: expect.stringMatching(/^head unreadable after --disable-auto failed; the gate was disarmed — /),
+        error: expect.stringMatching(/the gate was disarmed/),
       },
       labels: CLEAN,
       auto: false,
@@ -1372,7 +1384,7 @@ const ROWS = [
       result: {
         status: 'auto-merge-failed',
         armed: true,
-        error: expect.stringMatching(/^PR 7 stays armed — auto-merge and the reviewed label \(--disable-auto failed: /),
+        error: expect.stringMatching(/stays armed — auto-merge and the reviewed label/),
       },
       labels: REVIEWED,
       auto: true,
@@ -1392,9 +1404,7 @@ const ROWS = [
       result: {
         status: 'auto-merge-failed',
         armed: false,
-        error: expect.stringMatching(
-          /^PR 7 is CLOSED with nothing armed after --disable-auto failed; the head could not be read — /,
-        ),
+        error: expect.stringMatching(/is CLOSED with nothing armed/),
       },
       labels: CLEAN,
       auto: false,
@@ -1415,7 +1425,7 @@ const ROWS = [
       result: {
         status: 'auto-merge-failed',
         armed: true,
-        error: expect.stringMatching(/^PR 7 could not be read back; auto-merge and reviewed may stay armed — /),
+        error: expect.stringMatching(/could not be read back/),
       },
       labels: CLEAN,
       auto: false,
@@ -1524,7 +1534,7 @@ const ROWS = [
       result: {
         status: 'auto-merge-failed',
         armed: true,
-        error: expect.stringMatching(/stays armed — auto-merge.*after: injected/),
+        error: expect.stringMatching(/stays armed — auto-merge(?! and)/),
       },
       labels: CLEAN,
       auto: true,
@@ -1938,15 +1948,15 @@ const ROWS = [
 
   // ---- nextReviewStep: reads that fail ----------------------------------------
   ...[
-    ['the gate read throws', { on: 'gate', error: 'gh: HTTP 502' }, /./],
-    ['the gate read is not JSON', { on: 'gate', answer: 'not json' }, /./],
+    ['the gate read throws', { on: 'gate', error: 'gh: HTTP 502' }, /HTTP 502/],
+    ['the gate read is not JSON', { on: 'gate', answer: 'not json' }, /returned no JSON/],
     [
       'the gate read carries no labels',
       { on: 'gate', answer: JSON.stringify({ headRefOid: HEAD, state: 'OPEN' }) },
-      /./,
+      /carried no labels/,
     ],
-    ['the identity read throws', { on: 'identity', error: 'gh: not logged in' }, /./],
-    ['the comment read throws', { on: 'comments', error: 'gh: HTTP 502' }, /./],
+    ['the identity read throws', { on: 'identity', error: 'gh: not logged in' }, /not logged in/],
+    ['the comment read throws', { on: 'comments', error: 'gh: HTTP 502' }, /HTTP 502/],
     ...OPENING_GATE_MALFORMED,
   ].map(([name, fail, rejects]) => [
     `RC-3 nextReviewStep: ${name} on an armed red PR → rejects and writes nothing`,
@@ -2379,6 +2389,48 @@ describe('the oracle itself', () => {
     expect(holds(fake, { result: {} }, { strict: true })).toBe(false)
   })
 
+  it('rejects an approval of an older head over an armed PR that no write cleared', () => {
+    const fake = armedPr({ records: [approve(OLD)], start: 'both' })
+    expect(fake.pr.head).toBe(HEAD)
+    expect(writesOf(fake)).toEqual([])
+    expect(holds(fake, { result: {} })).toBe(false)
+  })
+
+  it('rejects a report naming only auto-merge while the label is still armed after both clearing writes were attempted', async () => {
+    const fake = armedPr({
+      records: [red()],
+      start: 'both',
+      script: {
+        fail: [
+          { on: 'disable', answer: '' },
+          { on: 'remove', answer: '' },
+        ],
+      },
+    })
+    await fake.gh('/tmp/wt', ['pr', 'merge', String(PR), '--disable-auto'])
+    await fake.gh('/tmp/wt', ['pr', 'edit', String(PR), '--remove-label', 'reviewed'])
+    expect(armedNames(fake)).toEqual(['auto-merge', 'the reviewed label'])
+    expect(holds(fake, { error: new Error(`PR ${PR} stays armed — auto-merge`) })).toBe(false)
+  })
+
+  it('rejects an approving latest record over an armed PR once the review bound is spent', () => {
+    const fake = armedPr({ records: [red(), red(), red(), approve()], start: 'both' })
+    expect(fake.records.at(-1).head).toBe(fake.pr.head)
+    expect(holds(fake, { result: {} })).toBe(false)
+  })
+
+  it('rejects a result that only says the gate was disarmed over a PR still armed after a no-effect clearing write', async () => {
+    const fake = armedPr({ records: [red()], start: 'both', script: { fail: [{ on: 'disable', answer: '' }] } })
+    await fake.gh('/tmp/wt', ['pr', 'merge', String(PR), '--disable-auto'])
+    expect(armedNames(fake)).not.toEqual([])
+    const result = {
+      status: 'auto-merge-failed',
+      error: 'head moved after --disable-auto failed; the gate was disarmed',
+    }
+    expect(result).not.toHaveProperty('disarmed')
+    expect(truthful(fake, { result })).toBe(false)
+  })
+
   it('takes a disarm claim only after a clearing write, over a PR with nothing armed', async () => {
     const unwritten = armedPr({ records: [red()], start: 'none' })
     expect(truthful(unwritten, { result: { disarmed: true } })).toBe(false)
@@ -2392,13 +2444,19 @@ describe('the oracle itself', () => {
   })
 })
 
-// --- the sweeps: every gh call of a scripted run, failed once, moved after, and both at once --------
+// --- the clean-baseline sweep: a throw at, a head move after, and both at, a call of a clean run; --------
+// --- base failures/pairs, applies-then-throws and second faults inside a newly triggered disarm excluded -
 
 /**
  * Scripted runs, each from an armed PR. A move after an arming write, or during the merge-on-green poll
  * or the required-checks lookup, is not exempt. `strict` (and `outcome`): the #744 policy — a native
  * refusal for want of required checks leaves nothing armed whatever the records say of the head.
  * `exhaustive`: no head read follows the gate there, so a move is tried after every call anyway.
+ * Excluded: `base` failures and `base` throw+move pairs (a `base` move after a successful call is
+ * swept; a `base` read failure is proved by the real-Bun case in `land.integration.test.js`, and no
+ * pair is claimed), and applies-then-throws and second faults inside a newly triggered disarm
+ * (table rows only). Only calls the clean baseline makes are enumerated, and moves only after calls
+ * that return.
  */
 const SWEEPS = [
   ['landPr native from a labelled PR', { fn: 'land', opts: NATIVE, records: [approve()], start: 'label' }],
@@ -2464,12 +2522,15 @@ const SWEEPS = [
 ]
 
 /**
- * The calls after the gate that a head move and a failure can hit together: every read, and every
- * write — a write that throws may or may not have applied, and the head may have moved meanwhile.
- * `base` stays out: a failed base read falls to the real `detectPrincipal`. Throw-after-apply and a
- * second fault inside the disarm a first fault triggers are table rows, not sweep points.
+ * The calls after the gate that a head move and a throw can hit together: every write kind in
+ * `WRITES` — a write that throws before any effect, with the head moved meanwhile — and every read
+ * below. `base` stays out: a failed base read falls to the real `detectPrincipal` and is proved by
+ * the real-Bun case in `land.integration.test.js`; no `base` throw+move pair is claimed.
+ * Applies-then-throws and a second fault inside the disarm a first fault triggers are table rows,
+ * not sweep points.
  */
 const PAIRABLE = new Set([
+  ...WRITES,
   'labels',
   'head',
   'repo',
@@ -2479,15 +2540,11 @@ const PAIRABLE = new Set([
   'gate',
   'state',
   'comments',
-  'disable',
-  'remove',
-  'add',
-  'pin',
 ])
 
-describe('the armed-gate invariant — every gh call of a scripted run', () => {
+describe('the armed-gate invariant — the clean-baseline sweep (base failures/pairs, applies-then-throws and second faults inside a newly triggered disarm excluded)', () => {
   it.each(SWEEPS)(
-    '%s: a failure at, a head move after, or both at, any call leaves the invariant',
+    '%s: one throw before effect at, a head move after, or both at, a call of the clean baseline leaves the invariant',
     async (_name, run) => {
       const spec = { records: run.records, start: run.start, found: run.found }
       const baseline = armedPr(spec)
