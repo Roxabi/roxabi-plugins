@@ -269,7 +269,7 @@ if [[ ! -f "$LANDING_JS" ]]; then
   exit "$EXIT_INTERNAL"
 fi
 if [[ -z "$BASE_REF" ]]; then
-  BASE_REF=$(gh pr view "$PR" --repo "$REPO" --json baseRefName --jq -r '.baseRefName')
+  BASE_REF=$(gh pr view "$PR" --repo "$REPO" --json baseRefName --jq .baseRefName)
 fi
 if [[ -z "$BASE_REF" || "$BASE_REF" == "null" ]]; then
   echo "Error: could not read baseRefName for PR $PR (pass --base <branch>)" >&2
