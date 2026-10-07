@@ -91,8 +91,17 @@ const gh = async (_cwd, args) => {
   else if (args[0] === 'pr' && args[1] === 'merge' && args.includes('--auto')) arms.auto = true
   return ''
 }
+const git = async (_cwd, args) => {
+  if (args[0] === 'rev-parse' && args.indexOf('--show-toplevel') !== -1) return cwd
+  if (args[0] === 'worktree') return 'worktree ' + cwd + String.fromCharCode(10)
+  if (args[0] === 'ls-tree') return ''
+  if (args[0] === 'rev-parse') return '0123456789abcdef0123456789abcdef01234567'
+  const error = new Error('unexpected git ' + args.join(' '))
+  error.exitCode = 128
+  throw error
+}
 try {
-  const result = await landPr(cwd, pr === '' ? undefined : Number(pr), { gh, sleep })
+  const result = await landPr(cwd, pr === '' ? undefined : Number(pr), { gh, sleep, git })
   console.log(JSON.stringify({ result, calls, final: { labels: [...arms.labels], autoMerge: arms.auto } }))
 } catch (e) {
   console.log(JSON.stringify({ error: e.message, calls, final: { labels: [...arms.labels], autoMerge: arms.auto } }))

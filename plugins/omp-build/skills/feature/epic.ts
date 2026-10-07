@@ -3,7 +3,7 @@
  * decision needs arrives as a parameter, gathered from GitHub and git by
  * `epic-driver.ts`, so a goal session resumes from GitHub state, not from memory.
  */
-import { epicDiffRange } from './epic-close'
+import { type ChildDiff, epicCoverage } from './epic-close'
 
 // ── Claims: which ticket a branch or a commit belongs to ──────────────────────
 
@@ -171,6 +171,7 @@ export function readMarker(body: string, kind: MarkerKind): Record<string, strin
 }
 
 const SHA = /^[0-9a-f]{40}$/
+const COVERAGE = /^[0-9a-f]{64}$/
 
 export function parseGoalStop(body: string): { run: string; reason: string } | null {
   const fields = readMarker(body, 'goal-stop')
@@ -182,10 +183,8 @@ export function parseEpicReview(body: string): EpicReview | null {
   const fields = readMarker(body, 'epic-review')
   if (!fields?.run || !RUN_ID.test(fields.run)) return null
   if (fields.verdict !== 'clean' && fields.verdict !== 'blocking') return null
-  const parts = (fields.range ?? '').split('..')
-  const [from, to] = parts
-  if (parts.length !== 2 || !from || !to || !SHA.test(from) || !SHA.test(to)) return null
-  return { run: fields.run, verdict: fields.verdict, range: `${from}..${to}` }
+  if (!fields.coverage || !COVERAGE.test(fields.coverage)) return null
+  return { run: fields.run, verdict: fields.verdict, coverage: fields.coverage }
 }
 
 export function parsePostMerge(body: string): HookRecord | null {
@@ -260,6 +259,7 @@ export function landOutcome(
     case 'timeout':
     case 'ci-cancelled':
     case 'ci-blocked':
+    case 'proof-blocked':
     case 'stopped':
     case 'closed':
       return { stop: status, class: 'ticket' }
@@ -321,7 +321,7 @@ export type ChildFacts = {
 }
 
 export type BaseCi = { state: 'red' | 'green' | 'pending' | 'none' | 'unread'; failed: string[]; pending: string[] }
-export type EpicReview = { run: string; verdict: 'clean' | 'blocking'; range: string }
+export type EpicReview = { run: string; verdict: 'clean' | 'blocking'; coverage: string }
 export type HookRecord = { run: string; result: 'started' | 'ok' | 'skipped' | 'failed'; sha: string }
 
 export type Facts = {
@@ -354,7 +354,7 @@ export type Step = { reason: string; report: Report } & (
   | { action: 'start'; ticket: number; branch: string }
   | { action: 'resume'; ticket: number; branch: string; pr: PrFacts | null }
   | { action: 'stop'; ticket: number; stop: TicketStop }
-  | { action: 'final-review'; stage: 'review' | 'fix-ticket'; range: string }
+  | { action: 'final-review'; stage: 'review' | 'fix-ticket'; diffs: ChildDiff[]; coverage: string }
   | { action: 'post-merge' }
   | { action: 'complete' }
   | { action: 'drop'; stop: SharedStop | 'no-progress' }
@@ -609,6 +609,18 @@ export function generateObjective(input: {
   }
 }
 
+/**
+ * Finalization selector. MERGED into `base` from a branch claiming the child,
+ * even when `mergeSha` is null: omitting that PR would count a CLOSED child as
+ * never merged. `mergedPr` stays the mid-flight landing predicate.
+ */
+function claimedMergedPr(child: ChildFacts, base: string): PrFacts | null {
+  return (
+    child.prs.find((pr) => pr.state === 'MERGED' && pr.base === base && ticketOfBranch(pr.head) === child.number) ??
+    null
+  )
+}
+
 // ── The driver's decision ─────────────────────────────────────────────────────
 
 /**
@@ -767,9 +779,8 @@ export function nextStep(facts: Facts): Step {
   }
 
   const merged = facts.children
-    .map((child) => ({ child, pr: mergedPr(child, base) }))
+    .map((child) => ({ child, pr: claimedMergedPr(child, base) }))
     .filter((entry): entry is { child: ChildFacts; pr: PrFacts } => entry.pr !== null)
-    .sort((a, b) => (a.pr.mergedAt ?? '').localeCompare(b.pr.mergedAt ?? ''))
   if (!merged.length) {
     const blocked = finalizationBlock(facts, report)
     if (blocked) return blocked
@@ -780,25 +791,33 @@ export function nextStep(facts: Facts): Step {
     if (hook.state === 'stale') return { action: 'drop', stop: 'hook-stale', reason: hook.detail, report }
     return { action: 'complete', reason: 'every child closed and none merged', report }
   }
-  const first = merged[0]?.pr
-  if (!first?.baseSha) {
-    return { action: 'drop', stop: 'driver-error', reason: `PR #${first?.number} has no merge base`, report }
-  }
-  const diff = epicDiffRange(
-    merged.map(({ child, pr }) => ({ number: child.number, baseSha: pr.baseSha ?? '', mergeSha: pr.mergeSha })),
+  const diff = epicCoverage(
+    merged.map(({ child, pr }) => ({
+      number: child.number,
+      baseSha: pr.baseSha,
+      mergeSha: pr.mergeSha,
+      mergedAt: pr.mergedAt,
+    })),
   )
   if ('error' in diff) return { action: 'drop', stop: 'driver-error', reason: diff.error, report }
-  const end = diff.range.split('..')[1]
-  const review = facts.reviews.filter((entry) => entry.range.split('..')[1] === end).at(-1)
+  const review = facts.reviews.filter((entry) => entry.coverage === diff.coverage).at(-1)
   if (!review) {
-    return { action: 'final-review', stage: 'review', range: diff.range, reason: `no review of ${diff.range}`, report }
+    return {
+      action: 'final-review',
+      stage: 'review',
+      diffs: diff.diffs,
+      coverage: diff.coverage,
+      reason: `no review of ${diff.coverage}`,
+      report,
+    }
   }
   if (review.verdict === 'blocking') {
     if (!facts.children.some((child) => child.epicFix)) {
       return {
         action: 'final-review',
         stage: 'fix-ticket',
-        range: diff.range,
+        diffs: diff.diffs,
+        coverage: diff.coverage,
         reason: 'the final review is blocking and its one fix round is unspent',
         report,
       }
@@ -817,7 +836,7 @@ export function nextStep(facts: Facts): Step {
   if (hook.state === 'failed') return { action: 'drop', stop: 'hook-failed', reason: hook.detail, report }
   if (hook.state === 'stale') return { action: 'drop', stop: 'hook-stale', reason: hook.detail, report }
   if (hook.state === 'done') return { action: 'complete', reason: hook.detail, report }
-  return { action: 'post-merge', reason: `final review clean at ${end}`, report }
+  return { action: 'post-merge', reason: `final review clean at ${diff.coverage}`, report }
 }
 
 /**

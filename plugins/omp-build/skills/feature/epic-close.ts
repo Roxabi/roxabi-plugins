@@ -1,22 +1,44 @@
 import { execFileSync, spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 
+const GIT_SHA = /^[0-9a-f]{40}$/
+
 export type MergedChild = {
   number: number
-  baseSha: string
+  /** First parent of the merge commit. */
+  baseSha: string | null
   mergeSha: string | null
+  mergedAt: string | null
 }
 
-/** First merged child's base .. last merged child's merge commit, children in merge order. */
-export function epicDiffRange(children: MergedChild[]): { range: string } | { error: string } {
-  const merged = children.filter((child) => child.mergeSha)
-  if (!merged.length) return { error: 'no merged children' }
-  const first = merged[0]
-  const last = merged[merged.length - 1]
-  if (!first || !last?.mergeSha) return { error: 'no merged children' }
-  return { range: `${first.baseSha}..${last.mergeSha}` }
+export type ChildDiff = { number: number; firstParent: string; merge: string }
+
+/**
+ * Ordered first-parent diffs of every claimed merged child, plus the SHA-256 of
+ * those fixed-width pairs. Sorted by numeric merge time, then ticket number.
+ * A later unusable SHA or date refuses the set; nothing is dropped. The
+ * coverage token is an identity, never a Git argument, and has no decoder.
+ */
+export function epicCoverage(children: MergedChild[]): { diffs: ChildDiff[]; coverage: string } | { error: string } {
+  if (!children.length) return { error: 'no merged children' }
+  const validated: { number: number; firstParent: string; merge: string; at: number }[] = []
+  for (const child of children) {
+    if (!Number.isInteger(child.number) || child.number <= 0) return { error: 'claimed child has no ticket number' }
+    if (!child.baseSha || !GIT_SHA.test(child.baseSha)) return { error: `#${child.number} has no merge base` }
+    if (!child.mergeSha || !GIT_SHA.test(child.mergeSha)) return { error: `#${child.number} has no merge commit` }
+    const at = Date.parse(child.mergedAt ?? '')
+    if (!Number.isFinite(at)) return { error: `#${child.number} has no merge time` }
+    validated.push({ number: child.number, firstParent: child.baseSha, merge: child.mergeSha, at })
+  }
+  const ordered = [...validated].sort((a, b) => a.at - b.at || a.number - b.number)
+  const diffs = ordered.map(({ number, firstParent, merge }) => ({ number, firstParent, merge }))
+  const coverage = createHash('sha256')
+    .update(diffs.map((diff) => diff.firstParent + diff.merge).join(''))
+    .digest('hex')
+  return { diffs, coverage }
 }
 
 // ── Post-merge hook (ADR-024 §1) ─────────────────────────────────────────────

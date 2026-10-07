@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { commentPageArgs, nextReviewStep, openPr, resolveReviewPr, reviewRecords } from './workflow.js'
+import { exemptGit } from './proof-exempt-git.js'
+import {
+  commentPageArgs,
+  nextReviewStep,
+  openPr as openPrProduction,
+  resolveReviewPr,
+  reviewRecords,
+} from './workflow.js'
+
+/** Production gate runs; this repo has a commit and no `.semctx`, so proof does not apply. */
+async function openPr(cwd, input, deps = {}) {
+  return openPrProduction(cwd, input, { git: exemptGit, ...deps })
+}
 
 /**
  * Every call goes through an injected client. Nothing here can reach a real `gh`,

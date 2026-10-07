@@ -2,13 +2,19 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { exemptGit } from './proof-exempt-git.js'
 import {
   applyCiWatchExit,
   commentPageArgs,
   disarmReviewedBeforePush,
-  landPr,
+  landPr as landPrProduction,
   parseRequiredContexts,
 } from './workflow.js'
+
+/** Production gate runs; a resolved commit with no `.semctx` is the unit exemption. */
+async function landPr(cwd, pr, opts = {}) {
+  return landPrProduction(cwd, pr, { git: exemptGit, ...opts })
+}
 
 /** A checkout with the given files, relative path → content. Base-ref landing is covered in land.integration.test.js. */
 function checkout(files = {}) {

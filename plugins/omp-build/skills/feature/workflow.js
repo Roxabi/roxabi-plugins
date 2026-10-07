@@ -6,6 +6,8 @@
 import { spawnSync } from 'node:child_process'
 import { realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { ticketOfBranch } from './epic'
+import { landApplicability, openApplicability, proofBody, proofFacts } from './proof-gate'
 
 /** @param {string} value */
 function shellQuote(value) {
@@ -47,7 +49,8 @@ async function git(cwd, args) {
   const stderr = await new Response(proc.stderr).text()
   const code = await proc.exited
   if (code !== 0) {
-    throw new Error(`git ${args.join(' ')} failed (${code}): ${stderr || stdout}`)
+    const error = new Error(`git ${args.join(' ')} failed (${code}): ${stderr || stdout}`)
+    throw Object.assign(error, { exitCode: code, stderr, stdout })
   }
   return stdout.trim()
 }
@@ -213,6 +216,136 @@ function bodyFor(body, issue) {
 }
 
 /**
+ * A local commit, or why it could not be read. Exit 1 is a missing ref. Any other
+ * exit, including 128, is an operational failure and must not be read as absence.
+ *
+ * @param {string} cwd
+ * @param {string} ref
+ * @param {(cwd: string, args: string[]) => Promise<string>} gitFn
+ */
+async function readCommit(cwd, ref, gitFn) {
+  try {
+    return { ok: true, tip: await gitFn(cwd, ['rev-parse', '--verify', '--quiet', ref]) }
+  } catch (error) {
+    const code = error !== null && typeof error === 'object' ? error.exitCode : undefined
+    if (code === 1) return { ok: false, missing: true }
+    return { ok: false, reason: errorText(error) }
+  }
+}
+
+/** The GitHub body of an existing PR. A missing body is not an exemption. */
+async function readOpenBody(cwd, pr, ghFn) {
+  let raw
+  try {
+    raw = await ghFn(cwd, ['pr', 'view', String(pr), '--json', 'body'])
+  } catch (error) {
+    return { ok: false, reason: errorText(error) }
+  }
+  let data
+  try {
+    data = JSON.parse(raw)
+  } catch {
+    return { ok: false, reason: `openPr: gh pr view ${pr} returned no JSON — ${preview(raw)}` }
+  }
+  if (typeof data?.body !== 'string') return { ok: false, reason: 'the PR body was not read' }
+  return { ok: true, body: data.body }
+}
+
+/** Land's separate artifact read. `readGate`'s fields stay unchanged. */
+async function readLandArtifact(cwd, pr, ghFn) {
+  let raw
+  try {
+    raw = await ghFn(cwd, ['pr', 'view', String(pr), '--json', 'body,headRefName'])
+  } catch (error) {
+    return { ok: false, reason: errorText(error) }
+  }
+  let data
+  try {
+    data = JSON.parse(raw)
+  } catch {
+    return { ok: false, reason: `landPr: gh pr view ${pr} returned no JSON — ${preview(raw)}` }
+  }
+  if (typeof data?.body !== 'string') return { ok: false, reason: 'the PR body was not read' }
+  if (typeof data.headRefName !== 'string' || data.headRefName === '') {
+    return { ok: false, reason: 'the PR head ref was not read' }
+  }
+  return { ok: true, body: data.body, headRefName: data.headRefName }
+}
+
+/**
+ * An existing or 422-raced PR failed proof. Clear its OPEN arms through the shared
+ * unarmed policy. `disarmed` comes only from that receipt. A clearing failure throws
+ * the remainder; it is not reported as a completed refusal.
+ */
+async function refuseOpenProof(cwd, pr, ghFn, reason) {
+  let opened
+  try {
+    opened = await readGate(cwd, pr, ghFn)
+  } catch (error) {
+    throw new Error(`openPr: proof-blocked (${reason}) but the gate could not be read — ${errorText(error)}`, {
+      cause: error,
+    })
+  }
+  let receipt
+  try {
+    receipt = await enforceArmedGate(cwd, pr, { gate: opened, policy: 'unarmed', gh: ghFn })
+  } catch (disarmError) {
+    throw stuckError(disarmError)
+  }
+  return { status: 'proof-blocked', reason, ...(receipt.disarmed ? { disarmed: true } : {}) }
+}
+
+/** Body-independent proof plus local tip binding. No GitHub call. */
+async function openProof(cwd, issue, branch, proof, gitFn) {
+  const applicability = await openApplicability(cwd, branch, gitFn)
+  if (applicability.pass === false) return { blocked: applicability.reason }
+  if (!applicability.applies) return { checked: null }
+  const named = ticketOfBranch(branch)
+  if (named !== issue) return { blocked: `branch ${branch} names #${named ?? 'none'}, not #${issue}` }
+  const facts = await proofFacts(cwd, { proof, issue, oid: applicability.oid, git: gitFn })
+  if (!facts.pass) return { blocked: facts.reason }
+  const tip = await readCommit(cwd, `refs/heads/${branch}^{commit}`, gitFn)
+  if (!tip.ok) return { blocked: tip.missing ? `branch ${branch} is not a local branch` : tip.reason }
+  if (tip.tip !== applicability.oid) {
+    return {
+      blocked: `branch ${branch} is at ${tip.tip.slice(0, 7)}, not the proof head ${facts.proof.head.slice(0, 7)}`,
+    }
+  }
+  return { checked: facts.proof }
+}
+
+/** The selected GitHub body, not the caller's. A failure disarms the known PR. */
+async function existingBodyProof(cwd, number, ghFn, checked) {
+  if (!checked) return null
+  const artifact = await readOpenBody(cwd, number, ghFn)
+  if (!artifact.ok) return refuseOpenProof(cwd, number, ghFn, artifact.reason)
+  const recorded = proofBody(checked, artifact.body)
+  if (!recorded.pass) return refuseOpenProof(cwd, number, ghFn, recorded.reason)
+  return null
+}
+
+/** Checkout HEAD and the named local branch must equal the approved oid. */
+async function landIdentity(cwd, branch, proof, oid, gitFn) {
+  const checkout = await readCommit(cwd, 'HEAD^{commit}', gitFn)
+  if (!checkout.ok) return { pass: false, reason: checkout.missing ? 'checkout HEAD is not a commit' : checkout.reason }
+  if (checkout.tip !== oid) {
+    return {
+      pass: false,
+      reason: `checkout HEAD ${checkout.tip.slice(0, 7)} is not the approved head ${oid.slice(0, 7)}`,
+    }
+  }
+  const tip = await readCommit(cwd, `refs/heads/${branch}^{commit}`, gitFn)
+  if (!tip.ok) return { pass: false, reason: tip.missing ? `branch ${branch} is not a local branch` : tip.reason }
+  if (tip.tip !== oid) {
+    return {
+      pass: false,
+      reason: `branch ${branch} is at ${tip.tip.slice(0, 7)}, not the proof head ${proof.head.slice(0, 7)}`,
+    }
+  }
+  return { pass: true }
+}
+
+/**
  * The open PR for `head`→`base`, or `null`. Never guesses: a response that is not a
  * JSON array throws rather than reading as "none open", because "none open" is the
  * answer that opens a second PR on a branch that already has one.
@@ -347,17 +480,22 @@ export async function resolveReviewPr(cwd, explicitPr, { gh: ghFn = gh, git: git
  * | the client fails | **throws** the client's own error, unchanged |
  * | the response is not the shape promised | **throws**, naming the call and quoting what arrived |
  * | `issue`/`branch`/`base`/`title` missing | **throws** `TypeError` before any call is made |
+ * | the bound commit's proof applies and the selected body fails | `{ status: 'proof-blocked', reason, disarmed?: true }` — create validates `bodyFor` and posts nothing; an existing or 422 body is read back, and a caller's body never authorizes it |
  *
  * It returns a record rather than a bare number because the caller has to *say* which
  * happened — "opened #512" and "reusing #512" are different operator-facing facts — and
  * a number cannot carry that. The number is `result.number`.
  *
  * @param {string} cwd
- * @param {{ issue: number | string, branch: string, base: string, title: string, body?: string }} input
- * @param {{ gh?: (cwd: string, args: string[]) => Promise<string> }} [deps]
- * @returns {Promise<{ number: number, status: 'created' | 'existing' }>}
+ * @param {{ issue: number | string, branch: string, base: string, title: string, body?: string, proof?: unknown }} input
+ * @param {{ gh?: (cwd: string, args: string[]) => Promise<string>, git?: (cwd: string, args: string[]) => Promise<string> }} [deps]
+ * @returns {Promise<{ number: number, status: 'created' | 'existing', disarmed?: true } | { status: 'proof-blocked', reason: string, disarmed?: true }>}
  */
-export async function openPr(cwd, { issue, branch, base, title, body } = {}, { gh: ghFn = gh } = {}) {
+export async function openPr(
+  cwd,
+  { issue, branch, base, title, body, proof } = {},
+  { gh: ghFn = gh, git: gitFn = git } = {},
+) {
   const n = Number(issue)
   if (!Number.isInteger(n) || n <= 0) {
     throw new TypeError(`openPr: issue must be a positive issue number, got ${JSON.stringify(issue)}`)
@@ -365,9 +503,21 @@ export async function openPr(cwd, { issue, branch, base, title, body } = {}, { g
   const head = requireField(branch, 'branch')
   const baseRef = requireField(base, 'base')
   const prTitle = requireField(title, 'title')
+  const bound = await openProof(cwd, n, head, proof, gitFn)
+  if (bound.blocked) return { status: 'proof-blocked', reason: bound.blocked }
 
   const already = await findOpenPr(cwd, head, baseRef, ghFn)
-  if (already !== null) return { number: already, status: 'existing' }
+  if (already !== null) {
+    const refused = await existingBodyProof(cwd, already, ghFn, bound.checked)
+    if (refused) return refused
+    return { number: already, status: 'existing' }
+  }
+
+  const payload = bodyFor(body, n)
+  if (bound.checked) {
+    const recorded = proofBody(bound.checked, payload)
+    if (!recorded.pass) return { status: 'proof-blocked', reason: recorded.reason }
+  }
 
   let created
   try {
@@ -383,16 +533,18 @@ export async function openPr(cwd, { issue, branch, base, title, body } = {}, { g
       '-f',
       `title=${prTitle}`,
       '-f',
-      `body=${bodyFor(body, n)}`,
+      `body=${payload}`,
     ])
   } catch (error) {
-    // GitHub answers a duplicate head with 422 "A pull request already exists for …".
-    // Between the lookup above and this call another opener may have won; re-read rather
-    // than fail — but only when *GitHub* said so. `isDuplicateHeadFailure` reads the exit
-    // payload, never the argv, which carries this caller's own title and body.
+    // GitHub answers a duplicate head with 422. The raced PR's body is read back;
+    // the payload just submitted does not authorize it.
     if (isDuplicateHeadFailure(error)) {
       const raced = await findOpenPr(cwd, head, baseRef, ghFn)
-      if (raced !== null) return { number: raced, status: 'existing' }
+      if (raced !== null) {
+        const refused = await existingBodyProof(cwd, raced, ghFn, bound.checked)
+        if (refused) return refused
+        return { number: raced, status: 'existing' }
+      }
     }
     throw error
   }
@@ -623,6 +775,8 @@ const SINCE_RETRY_MS = 200
  * @param {string | number} pr
  * @param {{
  *   gh?: (cwd: string, args: string[]) => Promise<string>,
+ *   git?: (cwd: string, args: string[]) => Promise<string>,
+ *   proof?: unknown,
  *   requiredContexts?: string[],
  *   landing?: { mode: string, required_checks: string[] },
  *   sleep?: (ms: number) => Promise<void>,
@@ -631,10 +785,19 @@ const SINCE_RETRY_MS = 200
 export async function landPr(
   cwd,
   pr,
-  { gh: ghFn = gh, requiredContexts, landing, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {},
+  {
+    gh: ghFn = gh,
+    git: gitFn = git,
+    proof,
+    requiredContexts,
+    landing,
+    sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  } = {},
 ) {
   let records
   let gate
+  /** The oid a proof pass or no-Semctx exemption authorized. Later checkpoints must still name it. */
+  let boundOid = null
   const armedByUs = { auto: false, label: false }
   const knownGate = () =>
     gate && {
@@ -664,7 +827,8 @@ export async function landPr(
   }
   const headMoved = async () => {
     const head = await readHeadRefOid(cwd, pr, ghFn)
-    return !isCommitSha(head) || head !== records.head
+    if (!isCommitSha(head) || head !== records.head) return true
+    return Boolean(boundOid) && head !== boundOid
   }
   const refuseIfMoved = async () => {
     let readError
@@ -694,6 +858,7 @@ export async function landPr(
     if (records.spent) return exit(refused('review-bound'), { policy: 'unarmed' })
     if (!approves(records.verdict)) return exit(refused(), { policy: 'unarmed' })
     if (!isCommitSha(records.head)) return exit(refused('no-review-head'), { policy: 'unarmed' })
+    if (boundOid && records.head !== boundOid) return exit(refused('head-moved'), { policy: 'unarmed' })
     return null
   }
   // A refused pin: a moved head is cleared via `moved`, a readable stable head is
@@ -733,6 +898,34 @@ export async function landPr(
       if (!isCommitSha(records.head)) return exit(refused('no-review-head'), { policy: 'unarmed' })
       if (!isCommitSha(gate.headRefOid) || gate.headRefOid !== records.head) {
         return exit(refused('head-moved'), { policy: 'unarmed' })
+      }
+      const applicability = await landApplicability(cwd, gate.headRefOid, gitFn)
+      if (applicability.pass === false) {
+        return exit({ status: 'proof-blocked', reason: applicability.reason }, { policy: 'unarmed' })
+      }
+      boundOid = gate.headRefOid
+      if (applicability.applies) {
+        const artifact = await readLandArtifact(cwd, pr, ghFn)
+        if (!artifact.ok) return exit({ status: 'proof-blocked', reason: artifact.reason }, { policy: 'unarmed' })
+        const issue = ticketOfBranch(artifact.headRefName)
+        if (issue === null) {
+          return exit(
+            { status: 'proof-blocked', reason: `branch ${artifact.headRefName} names no ticket` },
+            { policy: 'unarmed' },
+          )
+        }
+        const facts = await proofFacts(cwd, {
+          proof,
+          issue,
+          oid: gate.headRefOid,
+          git: gitFn,
+          headMismatch: 'proof head is not the PR head',
+        })
+        if (!facts.pass) return exit({ status: 'proof-blocked', reason: facts.reason }, { policy: 'unarmed' })
+        const recorded = proofBody(facts.proof, artifact.body)
+        if (!recorded.pass) return exit({ status: 'proof-blocked', reason: recorded.reason }, { policy: 'unarmed' })
+        const identity = await landIdentity(cwd, artifact.headRefName, facts.proof, gate.headRefOid, gitFn)
+        if (!identity.pass) return exit({ status: 'proof-blocked', reason: identity.reason }, { policy: 'unarmed' })
       }
       let resolved = landing
       let landingBase
@@ -861,7 +1054,7 @@ export async function landPr(
       // records first and the head last; an old snapshot is only a clearing target.
       records = await readReviewRecords(cwd, pr, { gh: ghFn })
       seen = { ...seen, headRefOid: await readHeadRefOid(cwd, pr, ghFn) }
-      if (!mayStayArmed(records, seen, false)) {
+      if ((boundOid && seen.headRefOid !== boundOid) || !mayStayArmed(records, seen, false)) {
         terminal.policy = 'unarmed'
         if (!terminal.failure && terminal.result?.status === 'watching') {
           terminal.result = refused('head-moved')

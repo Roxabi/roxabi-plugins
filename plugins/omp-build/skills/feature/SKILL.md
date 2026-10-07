@@ -159,7 +159,7 @@ each already disarmed and recorded exactly like the `stop` subcommand does.
 | `step.action` | Do |
 |---|---|
 | `start` / `resume` | The driver fetched, checked the tree and base CI, switched to `step.branch` (new from `refs/remotes/origin/<base>`, or the existing one), validated it with `resolveTicketBranch` and `refuseForeignCommits`, and disarmed an armed PR. Run §6 for `step.ticket` in this worktree: §6.0 without the operator handoff, then §6.1–§6.7. The PR is `step.pr?.number ?? null`, never discovered by branch name (a branch name also matches fork PRs): `resume` with `step.pr` continues that PR from its `nextReviewStep` (§6.0), and no `step.pr` means a new PR through `openPr`. |
-| `final-review`, `stage: review` | R-architect and R-adversarial, read-only, on `git diff <step.range>`. Then `bun "$D" review --epic E <gate> --verdict clean\|blocking --range <step.range> --detail-file <findings file>`. |
+| `final-review`, `stage: review` | R-architect and R-adversarial, read-only, on the ordered child diffs below. Then `bun "$D" review --epic E <gate> --verdict clean\|blocking --coverage <step.coverage> --detail-file <findings file>`. |
 | `final-review`, `stage: fix-ticket` | One fix ticket through issue-triage: `create --parent "#E" --type fix --size … --priority … --body-file <f>`, body's first line `<!-- omp-build:epic-fix -->`, an `## Acceptance criteria` heading holding the blocking findings. The next `next` starts it. Non-blocking findings are follow-up siblings, each scoped the same way: an `## Acceptance criteria` heading and a `size:` label (`skill://fix` § Filing). |
 | `post-merge` | Only after a clean final review, a clean tree, and base CI green or absent. This run's hook `ok` or `skipped` at another commit is `drop hook-stale`, not another run. Then `bun --no-env-file "$D" hook --epic E <gate> --repo <epic worktree>`, with the bash `cwd` outside the repository (`$SKILL_DIR`): the runner must load nothing from the epic worktree. |
 | `complete` | `bun "$D" report --epic E <gate> --outcome complete` refuses unless `next` is `complete`. Print it, `goal({op:"complete"})`, offer `/cleanup`. |
@@ -175,7 +175,7 @@ each already disarmed and recorded exactly like the `stop` subcommand does.
 | `timeout`, `ci-cancelled`, `ci-blocked`, `stopped`, `closed` | Ticket stop `--reason <status>`. A timeout is never re-attached under a goal |
 | `nextReviewStep` `stop`, any reason | Ticket stop `--reason review-bound`; the step already disarmed the PR |
 | `nextReviewStep` or `landPr` throws | Ticket stop `--reason stopped`, the error as detail |
-| proof gate BLOCKED | Ticket stop `--reason proof-blocked` |
+| `openPr` or `landPr` status `proof-blocked` | Report `reason`, then ticket stop `--reason proof-blocked`. No automatic fix-and-retry in this run. |
 | `watch-failed`, `bad-landing`, `no-required-checks`, `evaluate-only`, `auto-merge-failed`, any other status | Shared-state stop: the `drop` row, `--reason <status>` |
 | issue-triage CLI unresolvable | Shared-state stop: the `drop` row, `--reason tracker-unresolvable` |
 | driver exit 1 | Shared-state stop: the `drop` row, `--reason driver-error` (`hook-failed` for `hook`) |
@@ -220,8 +220,14 @@ is not `active`, the driver acts on nothing, and the open links stay for a new
 running goal does not do that itself.
 
 **Final epic review and hook.** Once every child is closed or merged into the
-base, the review above runs on the cumulative range from `epicDiffRange`. A red
-base, a pending base, or a dirty tree does not hold that review or its fix ticket.
+base, `epicCoverage` supplies `step.diffs`, ordered by merge time, and an opaque
+`step.coverage` identity. For each `{firstParent, merge}` pair, run
+`git diff --no-ext-diff <firstParent> <merge> --` with the two SHAs as separate
+argv entries; review all those diffs. Neither concatenate revision ranges nor
+pass `coverage` to Git: a spanning diff includes unrelated merges between children.
+The coverage identity binds the exact ordered pairs; legacy range-only review
+markers do not certify them. A red base, a pending base, or a dirty tree does not
+hold that review or its fix ticket.
 A blocking verdict gets one fix ticket, delivered in the same goal; still blocking
 after it merged is a shared-state stop, even on a red base. The ticket counts that
 round across runs. After a clean review the goal finalizes only on a clean tree
@@ -237,7 +243,7 @@ temporary detached checkout of that commit, removed afterwards; `argv[0]` is a
 path inside it (`./scripts/…`). A string value, a PATH lookup or an escaping
 symlink fails it; its failure is a shared-state stop. An absent hook is skipped
 and the report says so. No per-ticket deploy. A resume skips a review whose
-latest verdict is clean for the current range. This run's hook `ok` or `skipped`
+latest verdict is clean for the exact current coverage. This run's hook `ok` or `skipped`
 counts as done only at the current base commit; at another commit the goal drops
 `hook-stale` and does not run the hook again. A later run treats an earlier `ok`
 at another commit as not done — that relaunch is the operator's new `/goal` line,
@@ -337,7 +343,8 @@ Discovery/read errors stop with evidence; never substitute a local review.
 An existing PR follows `step` through §6.6: `review` → §6.4, `fix` → §6.5,
 `land` → §6.7, `stop` → the dossier, and exit before any edit.
 For a new PR only, when `.semctx/` exists, derive/open the change contract from the
-issue (goal, invariants, evidence, unknowns); the issue stays the spec. Then §6.1.
+issue (goal, invariants, evidence, unknowns), with the exact `issue-<N>` tag;
+the issue stays the spec. Then §6.1.
 
 ### 6.1 Plan against acceptance criteria
 
@@ -369,30 +376,60 @@ commit that claims no ticket, or another one. Preserve unrelated work; never sta
 the whole checkout indiscriminately.
 Use the base resolved in §3, including when already inside a worktree on entry.
 
+**Proof input.** In a Semctx repository, re-verify for the committed HEAD before
+opening and again before landing. Build `proof` with `head` (40 lowercase hex),
+`verify` (`VERIFIED`, `PARTIAL` or `BLOCKED`), `gaps`, `noTest` (gap → reason),
+optional `uiChecks` (gap → `{steps, url, observed}`), `assertledger`
+(`detection`, `WEAK_ORACLE`, `miss` or `null`), `hasAdapter` and `typeFix`.
+For an exempt repository, omit `proof` or set it to `undefined`; the executable
+applicability check, not the caller, decides the exemption.
+
 ```javascript
 const opened = await openPr(cwd, {
   issue, branch, base,
   title: '<Conventional Commit subject>',
   body: '<changes, verification, and criterion→evidence matrix>',
+  proof,
 })
-pr = opened.number
 ```
 
-`openPr` returns the numeric PR and `created | existing`, and supplies the closing
-issue link. Print that result. Failure → report it; reconcile remote state before
-retrying, never blindly create a second PR. The matrix follows `dev-review`'s
-SC→Test contract, including justified NO TEST rows. An `existing` PR is not new:
-an earlier run may have left it armed, so §6.4 runs the review's step 0 before
-anything reads or reviews it.
+On `proof-blocked`, report `reason` and stop; under an Epic goal record the ticket
+stop `proof-blocked`, without throwing or retrying it. Outside a goal, correction
+and a later explicit invocation are the operator's call. Otherwise set
+`pr = opened.number`, print `created | existing`, and continue. The helper adds
+the closing issue link. A thrown failure is reported; reconcile remote state
+before retrying, never blindly create a second PR. The matrix follows
+`dev-review`'s SC→Test contract, including justified NO TEST rows. An `existing`
+PR is not new: §6.4 runs the review's step 0 before reading or reviewing its diff.
 
-**Proof gate, before `openPr`, when `.semctx/` exists.** `proofGate` in
-`$SKILL_DIR/proof-gate.ts` must pass: VERIFIED, or PARTIAL where every gap is a
-NO TEST row with an accepted reason. BLOCKED stops. A `type: fix` ticket with an
-assertledger adapter stops on any verdict other than detection, including
-`WEAK_ORACLE`. No adapter is non-blocking. Then close the contract and leave
-`.semctx/working/` empty apart from `.gitkeep`. No PR opened by `/feature` in a
-semctx repo carries any other file there. The PR body's proof section is the
-criterion → evidence map from the contract.
+**Executable proof gate.** `openPr` and `landPr` enforce the gate themselves.
+They read regular committed `.semctx/semantic/changes/*.sem` blobs at the bound
+oid, not `.semctx/working/` or uncommitted contract edits. Every change tagged
+`issue-<N>` must have the claimed lifecycle (`verified` for VERIFIED, `partial`
+for PARTIAL) or be `superseded`; at least one must match. An active sibling
+refuses. PARTIAL is not reported as closed: `semctx_change_close` derives
+`verified` only from VERIFIED. BLOCKED refuses. A fix with an assertledger adapter
+requires `detection`; no adapter is non-blocking.
+
+PARTIAL gaps require the fixed dev-review NO TEST enum; `acceptedReasons` is not
+an input. `ui-manual-only` is refused when the bound commit's `.dev/stack.yml`
+declares `commands.test_e2e`. Otherwise its nonblank steps, URL and observed
+result must all occur in the actual PR body. Create checks the exact submitted
+payload; existing/422 and land read the GitHub body, never an unwritten caller
+replacement. Missing body or acquisition failure refuses.
+
+Open binds the issue, local branch tip, checkout HEAD and `proof.head`. Applicable
+land binds those to the already-approved GitHub head and reads that explicit oid.
+A later head change invalidates the checked proof or no-Semctx exemption before
+arming. Git faults do not establish absence: a genuinely unborn repository is
+exempt only with no disk Semctx; a corrupt/missing object or unreadable probe
+refuses. Known OPEN arms clear through the shared unarmed policy on proof refusal,
+including existing/422 open; a failed clear throws with the remaining arms.
+
+The committed contract stores no verification commit. The gate checks artifact
+and caller-head binding, not when verification last ran. Re-verification is the
+caller's obligation, not an invented freshness guarantee. The PR proof section
+remains the criterion → evidence map derived from the issue.
 
 ### 6.4 Review
 
@@ -474,7 +511,7 @@ throws (only the watch mapper translates that race to `merged`).
 Only `step.action === 'land'` may reach this step. Obtain the operator's merge
 approval if not already explicit for this PR; under the Epic goal the goal is that
 approval, and each `land.status` maps through § Epic goal instead of the table
-below. Then `await landPr(cwd, pr)`
+below. Rebuild the current-head proof from §6.3, then `await landPr(cwd, pr, { proof })`
 resolves the landing mode itself from the PR base through `readLanding(cwd, { base })` — the same
 resolver `/ci-watch` uses: `landing.mode` in `origin/<base>:.dev/stack.yml` (parsed as YAML),
 else merge-on-green when `origin/<base>:.github/workflows/merge-on-green.yml` exists, else
@@ -557,6 +594,7 @@ Neither a fix round nor another review action may write that label in this cycle
 |---|---|
 | `no-pr` | Stop; no PR was resolved and no gate was armed |
 | `not-approved` | Stop; the latest review record does not approve the current head, or the bound is spent (`reason: 'review-bound'`). `landPr` disarmed a gate that was armed (`disarmed: true`). Review again only when the bound is not spent; do not merge |
+| `proof-blocked` | Report `reason` and stop; known OPEN arms are cleared through the unarmed policy. Epic goal: ticket stop `proof-blocked`, no automatic retry. Review/bound/head refusals take precedence over proof checks. |
 | `watching` | Start the async `/ci-watch` job named in `land.watch` |
 | `merged` | Report issue + PR; offer the optional tail (§0), stop |
 | `ci-failed` | Gate already disarmed; `step = await nextReviewStep(cwd, pr, { ciFailed: true })`, then §6.6 |

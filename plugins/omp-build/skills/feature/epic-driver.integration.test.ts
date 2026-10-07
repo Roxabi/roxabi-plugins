@@ -1,4 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import {
   chmodSync,
   mkdirSync,
@@ -408,8 +409,7 @@ describe('epic-driver — review and report', () => {
   it('refuses a final review the driver does not expect', () => {
     sandbox()
     serveEpic([childNode(2, 'feat(x): first child')])
-    const range = `${'a'.repeat(40)}..${'b'.repeat(40)}`
-    expect(drive(['review', '--verdict', 'clean', '--range', range]).code).toBe(2)
+    expect(drive(['review', '--verdict', 'clean', '--coverage', 'a'.repeat(64)]).code).toBe(2)
     expect(writes()).toEqual([])
   })
 
@@ -646,7 +646,10 @@ describe('epic-driver — hook', () => {
       mergedAt: '2026-09-30T10:00:00Z',
       mergeCommit: { oid: merge, parents: { nodes: [{ oid: base }] } },
     })
-    const review = `<!-- omp-build:epic-review run=${RUN} verdict=clean range=${base}..${merge} -->\nclean`
+    const coverage = createHash('sha256')
+      .update(base + merge)
+      .digest('hex')
+    const review = `<!-- omp-build:epic-review run=${RUN} verdict=clean coverage=${coverage} -->\nclean`
     serveEpic(
       [childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] })],
       [{ body: review, author: ME }],
@@ -691,9 +694,10 @@ describe('epic-driver — unreadable landing', () => {
 
 /**
  * Child #2 merged into origin/main by PR #10, whose commit also ships a hook that
- * leaves a proof file. Returns the cumulative range the final review is about.
+ * leaves a proof file. Returns the coverage the final review is about, and the
+ * merge sha beside it — never recovered by splitting a range.
  */
-function landedEpic(): { range: string; merged: ReturnType<typeof prNode>; proof: string } {
+function landedEpic() {
   const { principal, epic, root } = sandbox()
   const proof = path.join(root, 'hook-ran')
   mkdirSync(path.join(principal, 'scripts'))
@@ -714,36 +718,63 @@ function landedEpic(): { range: string; merged: ReturnType<typeof prNode>; proof
     mergedAt: '2026-09-30T10:00:00Z',
     mergeCommit: { oid: merge, parents: { nodes: [{ oid: base }] } },
   })
-  return { range: `${base}..${merge}`, merged, proof }
+  return {
+    coverage: createHash('sha256')
+      .update(base + merge)
+      .digest('hex'),
+    base,
+    merge,
+    merged,
+    proof,
+  }
 }
 
-const reviewMarker = (verdict: 'clean' | 'blocking', range: string): Comment => ({
-  body: `<!-- omp-build:epic-review run=${RUN} verdict=${verdict} range=${range} -->\n${verdict}`,
+const reviewMarker = (verdict: 'clean' | 'blocking', coverage: string): Comment => ({
+  body: `<!-- omp-build:epic-review run=${RUN} verdict=${verdict} coverage=${coverage} -->\n${verdict}`,
   author: ME,
 })
 
 describe('epic-driver — final review and hook refusals', () => {
   it('refuses a clean review while the one fix ticket is still owed', () => {
-    const { range, merged } = landedEpic()
+    const { coverage, merged } = landedEpic()
     serveEpic(
       [childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] })],
-      [reviewMarker('blocking', range)],
+      [reviewMarker('blocking', coverage)],
     )
     expect(drive(['next', '--dry-run']).json().step).toMatchObject({ action: 'final-review', stage: 'fix-ticket' })
 
-    const run = drive(['review', '--verdict', 'clean', '--range', range])
+    const run = drive(['review', '--verdict', 'clean', '--coverage', coverage])
     expect(run.code).toBe(2)
     expect(writes()).toEqual([])
   })
 
-  it('refuses a review of a range the driver did not ask for', () => {
-    const { range, merged } = landedEpic()
+  it('refuses a coverage the driver did not ask for, and records the exact one', () => {
+    const { coverage, merged } = landedEpic()
     serveEpic([childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] })])
-    const [from] = range.split('..')
-    const run = drive(['review', '--verdict', 'clean', '--range', `${from}..${'d'.repeat(40)}`])
+    const run = drive(['review', '--verdict', 'clean', '--coverage', 'd'.repeat(64)])
     expect(run.code).toBe(2)
     expect(writes()).toEqual([])
-    expect(drive(['review', '--verdict', 'clean', '--range', range]).code).toBe(0)
+    expect(drive(['review', '--verdict', 'clean', '--coverage', coverage]).code).toBe(0)
+  })
+
+  it('does not accept --range, even when a final review is owed', () => {
+    const { coverage, base, merge, merged } = landedEpic()
+    serveEpic([childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] })])
+    const run = drive(['review', '--verdict', 'clean', '--range', `${base}..${merge}`])
+    expect(run.code).not.toBe(0)
+    expect(writes()).toEqual([])
+    expect(drive(['review', '--verdict', 'clean', '--coverage', coverage]).code).toBe(0)
+  })
+
+  it('does not certify an old range marker that ends at the same merge', () => {
+    const { coverage, base, merge, merged } = landedEpic()
+    const old = `<!-- omp-build:epic-review run=${RUN} verdict=clean range=${base}..${merge} -->\nclean`
+    serveEpic([childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] })], [{ body: old, author: ME }])
+    expect(drive(['next', '--dry-run']).json().step).toMatchObject({
+      action: 'final-review',
+      stage: 'review',
+      coverage,
+    })
   })
 
   it('refuses to run the hook before the final review is clean', () => {
@@ -756,16 +787,16 @@ describe('epic-driver — final review and hook refusals', () => {
   })
 
   it('counts the fix round only for an epic-fix child this account wrote', () => {
-    const { range, merged } = landedEpic()
+    const { coverage, merged } = landedEpic()
     const fix = (author: string) => ({
       ...childNode(3, 'fix(x): epic review', { state: 'CLOSED' }),
       body: '<!-- omp-build:epic-fix -->\n## Acceptance criteria\n- [ ] fixed\n',
       author: { login: author },
     })
     const done = childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] })
-    serveEpic([done, fix('mallory')], [reviewMarker('blocking', range)])
+    serveEpic([done, fix('mallory')], [reviewMarker('blocking', coverage)])
     expect(drive(['next', '--dry-run']).json().step).toMatchObject({ action: 'final-review', stage: 'fix-ticket' })
-    serveEpic([done, fix(ME)], [reviewMarker('blocking', range)])
+    serveEpic([done, fix(ME)], [reviewMarker('blocking', coverage)])
     expect(drive(['next', '--dry-run']).json().step).toMatchObject({ action: 'drop', stop: 'final-review-blocking' })
   })
 })
@@ -822,18 +853,183 @@ describe('epic-driver — disarm modes', () => {
 
 describe('epic-driver — report', () => {
   it('reports the hook result that completed the goal, even from an earlier run', () => {
-    const { range, merged } = landedEpic()
-    const merge = range.split('..')[1]
+    const { coverage, merge, merged } = landedEpic()
     const earlier = { body: `<!-- omp-build:post-merge run=run00000 result=ok sha=${merge} -->\nok`, author: ME }
     serveEpic(
       [childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] })],
-      [reviewMarker('clean', range), earlier],
+      [reviewMarker('clean', coverage), earlier],
     )
 
     const run = drive(['report', '--outcome', 'complete'])
 
     expect(run.code).toBe(0)
     expect(run.stdout).toContain(`| Post-merge hook | ok at \`${merge}\` (run \`run00000\`) |`)
+  })
+})
+
+type ForeignHistory = {
+  epic: string
+  parent1: string
+  merge1: string
+  second1: string
+  tip1: string
+  parent2: string
+  merge2: string
+  second2: string
+  tip2: string
+}
+
+describe('epic-driver — exact coverage', () => {
+  function foreignMerges(): ForeignHistory {
+    const { principal, epic } = sandbox()
+    git(principal, 'switch', '-q', '-c', 'feat/2-child-one')
+    writeFileSync(path.join(principal, 'child1.txt'), 'one\n')
+    git(principal, 'add', 'child1.txt')
+    git(principal, 'commit', '-qm', 'feat(x): child one (#2)')
+    const tip1 = git(principal, 'rev-parse', 'HEAD')
+    git(principal, 'switch', '-q', 'main')
+    git(principal, 'merge', '--no-ff', tip1, '-m', 'Merge child one')
+    const merge1 = git(principal, 'rev-parse', 'HEAD')
+    const parent1 = git(principal, 'rev-parse', `${merge1}^1`)
+    const second1 = git(principal, 'rev-parse', `${merge1}^2`)
+
+    writeFileSync(path.join(principal, 'foreign.txt'), 'foreign\n')
+    git(principal, 'add', 'foreign.txt')
+    git(principal, 'commit', '-qm', 'chore: foreign')
+
+    git(principal, 'switch', '-q', '-c', 'feat/3-child-two')
+    writeFileSync(path.join(principal, 'child2.txt'), 'two\n')
+    git(principal, 'add', 'child2.txt')
+    git(principal, 'commit', '-qm', 'feat(x): child two (#3)')
+    const tip2 = git(principal, 'rev-parse', 'HEAD')
+    git(principal, 'switch', '-q', 'main')
+    git(principal, 'merge', '--no-ff', tip2, '-m', 'Merge child two')
+    const merge2 = git(principal, 'rev-parse', 'HEAD')
+    const parent2 = git(principal, 'rev-parse', `${merge2}^1`)
+    const second2 = git(principal, 'rev-parse', `${merge2}^2`)
+    git(principal, 'push', '-q', 'origin', 'main')
+    return { epic, parent1, merge1, second1, tip1, parent2, merge2, second2, tip2 }
+  }
+
+  function serveForeign(history: ForeignHistory, epicComments: Comment[] = []): void {
+    const first = prNode(10, 'feat/2-child-one', history.tip1, {
+      state: 'MERGED',
+      mergedAt: '2026-09-30T10:00:00Z',
+      mergeCommit: { oid: history.merge1, parents: { nodes: [{ oid: history.parent1 }] } },
+    })
+    const second = prNode(11, 'feat/3-child-two', history.tip2, {
+      state: 'MERGED',
+      mergedAt: '2026-09-30T12:00:00Z',
+      mergeCommit: { oid: history.merge2, parents: { nodes: [{ oid: history.parent2 }] } },
+    })
+    serveEpic(
+      [
+        childNode(3, 'feat(x): child two', { state: 'CLOSED', prs: [second] }),
+        childNode(2, 'feat(x): child one', { state: 'CLOSED', prs: [first] }),
+      ],
+      epicComments,
+    )
+  }
+
+  function names(cwd: string, from: string, to: string): string[] {
+    const out = git(cwd, 'diff', '--name-only', '--no-ext-diff', from, to, '--')
+    return out ? out.split('\n') : []
+  }
+
+  it('returns pair diffs that exclude a foreign merge the old span includes', () => {
+    const history = foreignMerges()
+    serveForeign(history)
+    const run = drive(['next'])
+    expect(run.code).toBe(0)
+    const exact = createHash('sha256')
+      .update(history.parent1 + history.merge1 + history.parent2 + history.merge2)
+      .digest('hex')
+    const span = createHash('sha256')
+      .update(history.parent1 + history.merge2)
+      .digest('hex')
+    const step = run.json().step
+    expect(step).toMatchObject({
+      action: 'final-review',
+      stage: 'review',
+      diffs: [
+        { number: 2, firstParent: history.parent1, merge: history.merge1 },
+        { number: 3, firstParent: history.parent2, merge: history.merge2 },
+      ],
+      coverage: exact,
+    })
+    expect(step).not.toHaveProperty('range')
+    expect(step.coverage).not.toBe(span)
+    expect(git(history.epic, 'rev-parse', `${history.merge1}^1`)).toBe(history.parent1)
+    expect(git(history.epic, 'rev-parse', `${history.merge1}^2`)).toBe(history.second1)
+    expect(history.parent1).not.toBe(history.second1)
+    const diffs = step.diffs as { firstParent: string; merge: string }[]
+    expect(names(history.epic, diffs[0]?.firstParent ?? '', diffs[0]?.merge ?? '')).toEqual(['child1.txt'])
+    expect(names(history.epic, diffs[1]?.firstParent ?? '', diffs[1]?.merge ?? '')).toEqual(['child2.txt'])
+    expect(names(history.epic, history.parent1, history.merge2)).toContain('foreign.txt')
+
+    expect(drive(['review', '--verdict', 'clean', '--coverage', span]).code).toBe(2)
+    expect(writes()).toEqual([])
+    const ranged = drive(['review', '--verdict', 'clean', '--range', `${history.parent1}..${history.merge2}`])
+    expect(ranged.code).not.toBe(0)
+    expect(writes()).toEqual([])
+    const accepted = drive(['review', '--verdict', 'clean', '--coverage', exact])
+    expect(accepted.code).toBe(0)
+    expect(comments()[0]).toContain(`coverage=${exact}`)
+    expect(comments()[0]).not.toContain('range=')
+  })
+
+  it('does not certify an old range marker that ends at the last merge', () => {
+    const history = foreignMerges()
+    const old = `<!-- omp-build:epic-review run=${RUN} verdict=clean range=${history.parent1}..${history.merge2} -->`
+    serveForeign(history, [{ body: `${old}\nclean`, author: ME }])
+    const step = drive(['next']).json().step
+    expect(step.action).toBe('final-review')
+    expect(step.stage).toBe('review')
+    expect(step.action).not.toBe('post-merge')
+  })
+
+  it('driver-errors a CLOSED MERGED child with no merge commit', () => {
+    sandbox()
+    serveEpic([
+      childNode(2, 'feat(x): first child', {
+        state: 'CLOSED',
+        prs: [
+          prNode(10, 'feat/2-first-child', 'a'.repeat(40), {
+            state: 'MERGED',
+            mergedAt: '2026-09-30T10:00:00Z',
+            mergeCommit: null,
+          }),
+        ],
+      }),
+    ])
+    const run = drive(['next'])
+    expect(run.code).toBe(0)
+    expect(run.json().step).toMatchObject({ action: 'drop', stop: 'driver-error' })
+    expect(run.json().step.action).not.toBe('complete')
+    expect(git(sandboxOf().epic, 'branch', '--show-current')).toBe('')
+    expect(writes()).toEqual([])
+  })
+
+  it('driver-errors when a later CLOSED MERGED child has no merge commit', () => {
+    const { merged } = landedEpic()
+    serveEpic([
+      childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] }),
+      childNode(3, 'feat(y): second', {
+        state: 'CLOSED',
+        prs: [
+          prNode(11, 'feat/3-second', 'b'.repeat(40), {
+            state: 'MERGED',
+            mergedAt: '2026-10-01T00:00:00Z',
+            mergeCommit: null,
+          }),
+        ],
+      }),
+    ])
+    const run = drive(['next'])
+    expect(run.json().step).toMatchObject({ action: 'drop', stop: 'driver-error' })
+    expect(run.json().step.action).not.toBe('complete')
+    expect(git(sandboxOf().epic, 'branch', '--show-current')).toBe('')
+    expect(writes()).toEqual([])
   })
 })
 
@@ -921,7 +1117,7 @@ describe('epic-driver — remaining branches', () => {
 
   it.each([
     ['stop', '--ticket', '2', '--reason', 'timeout'],
-    ['review', '--verdict', 'clean', '--range', `${'a'.repeat(40)}..${'b'.repeat(40)}`],
+    ['review', '--verdict', 'clean', '--coverage', 'a'.repeat(64)],
     ['hook'],
     ['report', '--outcome', 'drop', '--reason', 'x'],
   ])('refuses %s on the Principal', (...args) => {

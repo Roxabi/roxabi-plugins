@@ -37,7 +37,7 @@ The semctx record derived from the issue body. It is proof, not a second Spec.
 _Avoid_: artifacts/specs, a second spec home, the contract as what to build
 
 **Proof gate**:
-The bar a change must clear before its PR opens: a verified Change contract, and assertledger where an adapter exists.
+The bar a change must clear before its PR opens or lands: proof tied to the selected committed artifacts and the actual PR body, plus assertledger where an adapter exists. Artifact binding is not evidence of when verification last ran.
 _Avoid_: a green test run standing in for it, a falsify gate with no producer
 
 **TDD**:
