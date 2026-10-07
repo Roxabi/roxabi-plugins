@@ -1651,6 +1651,17 @@ const ROWS = [
     },
   ],
   [
+    'S1 posted mismatch over a spent bound whose latest record approves the current head → throws, the gate is disarmed',
+    {
+      fn: 'step',
+      opts: { posted: { verdict: 'Request changes', head: HEAD } },
+      records: [red(), red(), red(), approve()],
+      rejects: /not the one just posted/,
+      labels: CLEAN,
+      auto: false,
+    },
+  ],
+  [
     'S1 posted mismatch while reviewing, over an approving gate → throws, the gate is disarmed',
     {
       fn: 'step',
@@ -2118,6 +2129,10 @@ const SWEEPS = [
   ['landPr merge-on-green from an unarmed PR', { fn: 'land', opts: MOG, records: [approve()], start: 'none' }],
   ['landPr refusing a red armed PR', { fn: 'land', opts: NATIVE, records: [approve(), red()], start: 'both' }],
   ['nextReviewStep fix on an armed PR', { fn: 'step', records: [red()], start: 'both' }],
+  [
+    'nextReviewStep stop on a PR armed past a spent bound',
+    { fn: 'step', records: [red(), red(), red(), approve()], start: 'both' },
+  ],
   [
     'nextReviewStep land while reviewing',
     { fn: 'step', opts: { reviewing: true }, reviewing: true, records: [approve()], start: 'both' },
