@@ -30,7 +30,18 @@ export declare function openPr(
 export declare function landPr(
   cwd: string,
   pr: number | string,
-): Promise<{ status: string; mode?: string; watch?: string; reason?: string; disarmed?: true }>
+): Promise<{
+  status: string
+  mode?: string
+  watch?: string
+  reason?: string
+  /** Only `true`, only when a read-back confirmed the disarm; never a no-op claim. */
+  disarmed?: true
+  /** `auto-merge-failed` only: `false` after a confirmed clear or a refused pin (not a clear claim), `true` when something stays armed. */
+  armed?: boolean
+  /** The reason for `bad-landing` or `watch-failed`; for `auto-merge-failed`, what stays armed or why the gate was disarmed. */
+  error?: string
+}>
 
 export declare function applyCiWatchExit(
   cwd: string,

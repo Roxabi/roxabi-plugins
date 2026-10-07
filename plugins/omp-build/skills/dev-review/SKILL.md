@@ -54,9 +54,11 @@ Steps: gather-changes → secret-scan → spec-compliance → multi-domain-revie
 
 ## Phase 1 — Gather Changes
 
-0. **Bind the review before gathering or posting anything.** Nested `/feature`
-   supplies `pr`; reuse it. Standalone resolves the argument or current branch
-   exactly once:
+0. **Bind the review and disarm it before gathering or posting anything.** Every
+   review of a PR runs this step — nested `/feature` (§6.4, for a new PR and for
+   an `existing` one resumed in §6.0) and standalone alike. Nested `/feature`
+   supplies its numeric `pr` as `explicitPr`; `resolveReviewPr` returns it with
+   no `gh` call. Standalone resolves the argument or current branch exactly once:
 
    ```javascript
    const { pathToFileURL } = await import('node:url')
@@ -73,9 +75,11 @@ Steps: gather-changes → secret-scan → spec-compliance → multi-domain-revie
 
    `explicitPr` is the optional positive argument, else undefined. `pr === null`
    is a local-only review: no PR, no bound, nothing to land. `reviewing` disarms
-   an armed gate whatever the step, `land` included, so a re-review never runs
-   under a live gate; an approving post re-arms through `landPr` in Phase 8.
-   Discovery/read failure → report and stop, never fall back to local. Keep this
+   an armed gate whatever the step, `land` included, before the review reads
+   the diff (the armed gate, Phase 8); an approving post re-arms through `landPr`
+   in Phase 8. Any throw from `resolveReviewPr` or `nextReviewStep` stops the
+   review and is reported — the gate may still be armed, and a disarm that failed
+   names what stays armed. Never fall back to local, never review on. Keep this
    one `pr` through all phases and rounds.
 1. Source the shared helpers. `skill://` rejects `..`, so `lib.sh` (one level up, outside any skill directory) is reachable only from a real path — and an unset `SKILL_DIR` would silently make that path `/../shared/lib.sh`, i.e. a base branch detected against nothing:
 
@@ -513,11 +517,22 @@ the PR has at most two records, one fix per review: the fix's push moves the
 head, and a latest record of another commit asks for a review first (`review`).
 A record past the second that does not approve spends the bound for good — a
 later green does not lift it. A CI failure after the third review stops too.
-Every `nextReviewStep` step but `land` disarms an armed PR, a step taken with
-`{ reviewing: true }` (Phase 1 step 0) disarms on `land` too, and every `landPr`
-`not-approved` disarms as well: a gate stays armed only while the latest record
-approves the current head within the bound and no review of it is running.
-`landPr` arms only for an approving latest
+
+**The armed gate (#713).** An OPEN PR is armed — `reviewed` label or auto-merge
+enabled — only when the latest review record approves the current head, the bound
+is not spent, and no review of that head is running. `disarmGate` is the one
+disarm: it disables auto-merge, then removes the label, attempts both whatever the
+first did, reads the gate back, and throws one error naming what stays armed. A
+write error over a read-back that confirms no OPEN armed gate is a disarm, not a
+failure; a read-back that is missing, invalid or MERGED is never a clear gate.
+Every `nextReviewStep` step but `land` calls it; a step taken with
+`{ reviewing: true }` (Phase 1 step 0) calls it on `land` too; a refused `posted`
+or `ciFailed` over a gate that may not stay armed calls it before it throws; every
+`landPr` `not-approved` calls it. One native exit is stricter: `landPr` returns
+`no-required-checks` after disarming a gate it found armed, even at the approved
+current head — an API failure in required-check discovery cancels a scheduled merge
+on purpose. Nothing restores it: configure the checks, then re-enter through the
+normal gate. `landPr` arms only for an approving latest
 record of the current head, never past a spent bound. Nothing writes accounting;
 every step is derived again from a fresh read.
 

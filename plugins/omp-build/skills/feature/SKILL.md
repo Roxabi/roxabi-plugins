@@ -381,7 +381,9 @@ pr = opened.number
 `openPr` returns the numeric PR and `created | existing`, and supplies the closing
 issue link. Print that result. Failure → report it; reconcile remote state before
 retrying, never blindly create a second PR. The matrix follows `dev-review`'s
-SC→Test contract, including justified NO TEST rows.
+SC→Test contract, including justified NO TEST rows. An `existing` PR is not new:
+an earlier run may have left it armed, so §6.4 runs the review's step 0 before
+anything reads or reviews it.
 
 **Proof gate, before `openPr`, when `.semctx/` exists.** `proofGate` in
 `$SKILL_DIR/proof-gate.ts` must pass: VERIFIED, or PARTIAL where every gap is a
@@ -395,7 +397,11 @@ criterion → evidence map from the contract.
 ### 6.4 Review
 
 Read and execute `skill://dev-review` for `#<pr>`, using **its own** directory for
-`SKILL_DIR`. Keep feature's directory separately. It returns its posted verdict
+`SKILL_DIR`, starting with its Phase 1 step 0: that disarms the PR before the panel
+reads the diff — for a PR opened in §6.3, an `existing` one, and one resumed in
+§6.0 alike. A throw from step 0 is reported and stops this cycle (Epic goal:
+ticket stop `stopped`): no diff, no review, no fix, no land. Keep feature's
+directory separately. The review returns its posted verdict
 and `REVIEWED_HEAD` before its Phase 8 decision. This cycle owns the fix and
 landing actions; the nested review does not execute them.
 
@@ -446,6 +452,16 @@ stop is not in the records: under the Epic goal the ticket stop keeps it;
 outside it, re-entry is the operator's call. The dossier lives in `dev-review`
 Phase 8.
 
+**The armed gate (#713).** An OPEN PR is armed — `reviewed` label or auto-merge
+enabled — only when the latest review record approves the current head, the bound
+is not spent, and no review of that head is running. `disarmGate` is the one
+disarm: `nextReviewStep` and `landPr` call it wherever the gate may not stay armed,
+and a disarm that cannot finish throws an error naming what stays armed. A
+disarm is confirmed only by a valid read-back with no OPEN armed gate: a PR that
+closed meanwhile has no OPEN gate left (its stored fields may remain), one that
+merged meanwhile throws. Native `no-required-checks` is stricter: it disarms a
+gate already armed even while this invariant would permit it (§6.7).
+
 ### 6.7 Land
 
 Only `step.action === 'land'` may reach this step. Obtain the operator's merge
@@ -479,14 +495,22 @@ string as given — the OMP shell does not resolve `skill://` for a bare `bash`
 argv. It does not poll. Native enables the pinned auto-merge
 (`--match-head-commit` of the reviewed sha) before adding `reviewed`.
 `already enabled` is not success: auto-merge is disabled and enabled again with
-that pin, or `landPr` returns `auto-merge-failed` without the label. The fleet
+that pin. If that disable fails and the head is still the reviewed one, `landPr`
+returns `auto-merge-failed` with `armed: true` and an `error` naming what stays
+armed — the label may stay. A head that moved or cannot be read in that window
+is disarmed through `disarmGate`; `armed: false` is returned only when that
+read-back confirms the gate clear. When the disarm cannot finish, or the
+read-back shows the gate still armed, the same status carries an `error` naming
+the remainder. The one exception is a refused pin (not `already enabled`): its
+`armed: false` is no read-back claim, and an unreadable head is not disarmed
+there — the deferred #731 defect, not a global guarantee. The fleet
 workflow enables only on `labeled`, and only when the event head equals the
 line-2 sha of the latest automation-account Approve record. On `synchronize` it
 disables auto-merge and removes `reviewed` instead of re-enabling from a
 comment, and it does not `update-branch` a reviewed PR. merge-on-green has no
 equivalent pin: once `reviewed` is applied, a push by another actor is not
 refused by GitHub.
-merge-on-green never returns `no-required-checks`.
+merge-on-green never returns `no-required-checks`; native returns it only after its own disarm (table).
 
 Run `watch` as an async bash job (`timeout: 0`). Map the exit with
 `applyCiWatchExit(cwd, pr, code, { mode: land.mode })`:
@@ -521,12 +545,12 @@ Neither a fix round nor another review action may write that label in this cycle
 | `ci-blocked` | Gate disarmed; stop, report the checks named on stderr; operator resolves the named checks or re-runs CI, then re-enters §6.7 |
 | `watch-failed` | Stop; report the code or `land.error` (including when the labeled `reviewed` event could not be read after re-label under merge-on-green). Gate left as is; do not claim merged |
 | `evaluate-only` | Stop; report "evaluate-only — manual merge required" and `docs/kit/ci-app-setup.md`. Gate left armed; the operator merges by hand. Do not claim merged; do not wait |
-| `bad-landing` | Stop; report `land.error` (the `.dev/stack.yml` problem). Nothing was labelled or armed. Fix the stack file, then re-enter §6.7 |
-| `no-required-checks` | Stop; report missing protection. Native only, when no required context was found (declared `landing.required_checks`, protection or rulesets) — merge-on-green does not return this |
+| `bad-landing` | Stop; report `land.error` (the `.dev/stack.yml` problem). This attempt wrote nothing new: an already-armed approved gate may exist. Fix the stack file, then re-enter §6.7 |
+| `no-required-checks` | Stop; report missing protection. Native only, when no required context was found (declared `landing.required_checks`, protection or rulesets); an API error in that discovery reads as none — merge-on-green does not return this. `landPr` first disarmed a gate it found armed, at the approved current head too (`disarmed: true` only when it confirmed that disarm; a PR found unarmed carries no flag and no write was made). Nothing restores the label or auto-merge: configure the checks, then re-enter §6.7 through the normal gate. A disarm that cannot finish throws instead (below) |
 | `timeout` | Re-attach the watch. Do not claim merged. Epic goal: ticket stop, no re-attach |
 | `stopped` | Stop and report. Do not claim merged |
-| `auto-merge-failed` | Stop; inspect and report actual PR/label/auto-merge state, never claim merged |
+| `auto-merge-failed` | Stop; inspect and report actual PR/label/auto-merge state, never claim merged. Every `armed: true` carries an `error` naming what stays armed — remove that remainder by hand before anything else |
 | `closed` | Stop; report closure |
 
-Errors stop with their evidence. No manual mid-CI merge and no automatic release
+Errors stop with their evidence. A `landPr` throw from a disarm that could not finish names what stays armed — on `no-required-checks` too, where the refusal itself is not returned: remove that remainder by hand. No manual mid-CI merge and no automatic release
 or worktree deletion; the Epic goal deletes merged children's local branches, never a worktree.
