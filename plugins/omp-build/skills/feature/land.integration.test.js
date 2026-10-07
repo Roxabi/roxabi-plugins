@@ -10,7 +10,6 @@ const WORKFLOW = join(import.meta.dirname, 'workflow.js')
 const CI_WATCH = join(import.meta.dirname, '..', 'ci-watch', 'ci-watch.sh')
 const EVENT_AT = '2026-09-29T10:00:05Z'
 const BEFORE_AT = '2026-09-29T09:00:00Z'
-const EVENTS_JQ = '.[] | select(.event == "labeled" and .label.name == "reviewed") | .created_at'
 
 const DRIVER = `
 const [mod, fn, cwd, pr, eventsMode, historyMode, prList, headMode, armMode] = process.argv.slice(1)
@@ -142,7 +141,6 @@ function watchScript(watch) {
 const WORKFLOW_FILE = { '.github/workflows/merge-on-green.yml': 'name: merge-on-green\n' }
 const PROTECTION = ['api', 'repos/acme/app/branches/main/protection/required_status_checks']
 const RULES = ['api', 'repos/acme/app/rules/branches/main']
-const EVENTS = ['api', 'repos/acme/app/issues/7/events', '--paginate', '--jq', EVENTS_JQ]
 const IDENTITY = ['api', 'user', '--jq', '.login']
 const COMMENTS = ['api', '--paginate', '--slurp', 'repos/{owner}/{repo}/issues/7/comments']
 const GATE = ['pr', 'view', '7', '--json', 'headRefOid,state,labels,autoMergeRequest']
