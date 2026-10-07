@@ -3,6 +3,7 @@
  * `detectPrincipal` names the base when `landPr` has none. No worktree driver.
  */
 
+import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -524,17 +525,51 @@ function parseLanding(stackText, { mergeOnGreenWorkflow = false } = {}) {
 }
 
 /**
- * The one landing resolver: `<cwd>/.dev/stack.yml` (absent → no landing block)
- * and `<cwd>/.github/workflows/merge-on-green.yml` as the mode fallback. `landPr`
- * and `ci-watch.sh` both resolve through it. Throws on an invalid landing.
+ * Sync git for the landing resolver. Hook env is stripped so a harness GIT_DIR
+ * cannot redirect the read to another repository.
  *
  * @param {string} cwd
+ * @param {string[]} args
  */
-export function readLanding(cwd) {
-  const stackPath = join(cwd, '.dev', 'stack.yml')
-  const stackText = existsSync(stackPath) ? readFileSync(stackPath, 'utf8') : ''
-  const mergeOnGreenWorkflow = existsSync(join(cwd, '.github', 'workflows', 'merge-on-green.yml'))
-  return parseLanding(stackText, { mergeOnGreenWorkflow })
+function gitSync(cwd, args) {
+  const result = spawnSync('git', ['-C', cwd, ...args], {
+    cwd,
+    env: stripGitHookEnv(),
+    encoding: 'utf8',
+  })
+  return result
+}
+
+/**
+ * The one landing resolver: `origin/<base>:.dev/stack.yml` (absent → no landing
+ * block) and `origin/<base>:.github/workflows/merge-on-green.yml` as the mode
+ * fallback. A head's own tree never selects the mode or its required checks —
+ * `landPr` and `ci-watch.sh` both resolve through it (#623). Throws on an
+ * invalid landing. `base` is required.
+ *
+ * @param {string} cwd
+ * @param {{ base: string }} opts
+ */
+export function readLanding(cwd, { base } = {}) {
+  if (typeof base !== 'string' || !base) {
+    throw new Error('readLanding: base is required — landing is read from origin/<base>, never the working tree')
+  }
+  const refPath = (path) => `origin/${base}:${path}`
+  const stack = gitSync(cwd, ['show', refPath('.dev/stack.yml')])
+  const stackText = stack.status === 0 ? stack.stdout : ''
+  const workflow = gitSync(cwd, ['cat-file', '-e', refPath('.github/workflows/merge-on-green.yml')])
+  return parseLanding(stackText, { mergeOnGreenWorkflow: workflow.status === 0 })
+}
+
+/** PR base when known, else the principal branch. Used by landPr before readLanding. */
+async function resolveLandingBase(cwd, pr, ghFn) {
+  try {
+    const prJson = JSON.parse(await ghFn(cwd, ['pr', 'view', String(pr), '--json', 'baseRefName']))
+    if (typeof prJson.baseRefName === 'string' && prJson.baseRefName) return prJson.baseRefName
+  } catch {
+    /* fall through */
+  }
+  return detectPrincipal(cwd)
 }
 
 /** Attempts to read a labeled-reviewed time newer than the pre-add snapshot. */
@@ -632,11 +667,20 @@ export async function landPr(
   if (!isCommitSha(records.head)) return refuse('no-review-head', gate)
   if (!isCommitSha(gate.headRefOid) || gate.headRefOid !== records.head) return refuse('head-moved', gate)
   let resolved = landing
+  /** @type {string | undefined} */
+  let landingBase
   if (!resolved) {
     try {
-      resolved = readLanding(cwd)
+      landingBase = await resolveLandingBase(cwd, pr, ghFn)
+      resolved = readLanding(cwd, { base: landingBase })
     } catch (e) {
       return { status: 'bad-landing', error: e instanceof Error ? e.message : String(e) }
+    }
+  } else {
+    try {
+      landingBase = await resolveLandingBase(cwd, pr, ghFn)
+    } catch {
+      landingBase = undefined
     }
   }
   if (resolved.mode === 'native') {
@@ -888,11 +932,17 @@ export async function landPr(
     const afterAdd = await refuseIfMoved()
     if (afterAdd) return afterAdd
   }
+  if (!landingBase) {
+    return {
+      status: 'bad-landing',
+      error: 'landPr: could not resolve the PR base for the landing watch',
+    }
+  }
   const sinceArg = since ? ` --since ${since}` : ''
   return {
     status: 'watching',
     mode: resolved.mode,
-    watch: `bash ${shellQuote(ciWatchSh())} ${shellQuote(String(pr))} --merge-mode ${resolved.mode}${sinceArg}`,
+    watch: `bash ${shellQuote(ciWatchSh())} ${shellQuote(String(pr))} --merge-mode ${resolved.mode} --base ${landingBase}${sinceArg}`,
   }
 }
 
@@ -964,18 +1014,37 @@ export async function applyCiWatchExit(cwd, pr, code, { mode = 'native', gh: ghF
     const view = await watchPrState(cwd, pr, ghFn)
     if (view?.state === 'MERGED') return { status: 'merged' }
     if (view?.state === 'CLOSED' || code === 0) return { status: 'stopped' }
-    await ghFn(cwd, ['pr', 'edit', String(pr), '--remove-label', 'reviewed'])
-    if (mode === 'native') {
+    // One disarm path (#623 item 3): the hardened primitive. merge-on-green
+    // usually has no auto-merge request, so only the label is cleared; native
+    // clears whichever arms the gate still shows. A merge that wins mid-disarm
+    // is reported as merged; a gate already clear after a write error is success.
+    try {
+      const gate = await readGate(cwd, pr, ghFn)
+      await disarmGate(cwd, pr, gate, ghFn)
+    } catch (error) {
+      const text = errorText(error)
+      if (/merged while being disarmed/.test(text)) return { status: 'merged' }
       try {
-        await ghFn(cwd, ['pr', 'merge', String(pr), '--disable-auto'])
-      } catch (error) {
         const again = await watchPrState(cwd, pr, ghFn)
         if (again?.state === 'MERGED') return { status: 'merged' }
         if (again?.autoMergeRequest == null) {
-          return { status: code === 1 ? 'ci-failed' : code === 2 ? 'ci-cancelled' : 'ci-blocked', disarmed: true }
+          // Label may still be on; prefer a fresh gate read for the claim.
+          try {
+            const back = await readGate(cwd, pr, ghFn)
+            if (!back.autoMergeRequest && !back.labels.some((label) => label?.name === 'reviewed')) {
+              return {
+                status: code === 1 ? 'ci-failed' : code === 2 ? 'ci-cancelled' : 'ci-blocked',
+                disarmed: true,
+              }
+            }
+          } catch {
+            /* fall through to rethrow */
+          }
         }
-        throw error
+      } catch {
+        /* fall through to rethrow */
       }
+      throw error
     }
     if (code === 1) return { status: 'ci-failed', disarmed: true }
     if (code === 2) return { status: 'ci-cancelled', disarmed: true }
@@ -986,11 +1055,12 @@ export async function applyCiWatchExit(cwd, pr, code, { mode = 'native', gh: ghF
 
 /**
  * A push after `reviewed` must drop the label first. metalyde does not revoke
- * it on synchronize, so the push would merge without a re-review.
+ * it on synchronize, so the push would merge without a re-review. Uses the same
+ * `disarmGate` primitive as the watch-exit path (#623 item 3).
  */
 export async function disarmReviewedBeforePush(cwd, pr, { gh: ghFn = gh, push } = {}) {
-  await ghFn(cwd, ['pr', 'edit', String(pr), '--remove-label', 'reviewed'])
-  await ghFn(cwd, ['pr', 'merge', String(pr), '--disable-auto'])
+  const gate = await readGate(cwd, pr, ghFn)
+  await disarmGate(cwd, pr, gate, ghFn)
   if (push) await push()
   return { disarmed: true }
 }

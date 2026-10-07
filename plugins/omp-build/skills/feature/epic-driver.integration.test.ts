@@ -326,8 +326,8 @@ describe('epic-driver — next', () => {
     expect(run.json().recorded).toMatchObject([{ ticket: 2, stop: 'foreign-commit', disarmed: { 11: 'disarmed' } }])
     expect(run.json().step).toMatchObject({ action: 'drop', stop: 'no-progress' })
     expect(writes()).toEqual([
-      'edit 11 --remove-label reviewed',
       'merge 11 --disable-auto',
+      'edit 11 --remove-label reviewed',
       `comment 2 <!-- omp-build:goal-stop run=${RUN} reason=foreign-commit -->`,
     ])
   })
@@ -377,8 +377,8 @@ describe('epic-driver — stop', () => {
     const run = drive(['stop', '--ticket', '2', '--reason', 'timeout', ...detail("watch timed out; it's re-run later")])
     expect(run.code).toBe(0)
     expect(writes()).toEqual([
-      'edit 11 --remove-label reviewed',
       'merge 11 --disable-auto',
+      'edit 11 --remove-label reviewed',
       `comment 2 <!-- omp-build:goal-stop run=${RUN} reason=timeout -->`,
     ])
     expect(comments()[0]).toContain("watch timed out; it's re-run later")
@@ -432,8 +432,8 @@ describe('epic-driver — review and report', () => {
     const first = drive(['report', '--outcome', 'drop', '--reason', 'base-ci-red'])
     expect(first.code).toBe(0)
     expect(writes()).toEqual([
-      'edit 11 --remove-label reviewed',
       'merge 11 --disable-auto',
+      'edit 11 --remove-label reviewed',
       `comment 1 <!-- omp-build:goal-report run=${RUN} -->`,
     ])
     serveEpic(children, [{ body: comments()[0] ?? '', author: ME }])
@@ -682,8 +682,8 @@ describe('epic-driver — unreadable landing', () => {
     const report = drive(['report', '--outcome', 'drop', '--reason', 'bad-landing'])
     expect(report.code).toBe(0)
     expect(writes()).toEqual([
-      'edit 11 --remove-label reviewed',
       'merge 11 --disable-auto',
+      'edit 11 --remove-label reviewed',
       `comment 1 <!-- omp-build:goal-report run=${RUN} -->`,
     ])
   })
@@ -964,7 +964,7 @@ describe('epic-driver — reconcile a stopped armed PR', () => {
     expect(run.json().step).toMatchObject({ action: 'start', ticket: 3, branch: 'fix/3-second-child' })
     expect(run.json().disarmed).toBeNull()
     expect(run.json().reconciled).toEqual([{ ticket: 2, pr: 10, disarmed: 'disarmed' }])
-    expect(writes()).toEqual(['edit 10 --remove-label reviewed', 'merge 10 --disable-auto'])
+    expect(writes()).toEqual(['merge 10 --disable-auto', 'edit 10 --remove-label reviewed'])
     expect(git(epic, 'branch', '--show-current')).toBe('fix/3-second-child')
   })
 
@@ -1014,10 +1014,10 @@ describe('epic-driver — reconcile a stopped armed PR', () => {
     expect(run.json().step.action).toBe('drop')
     expect(run.json().step.reason).toContain('#10')
     expect(writes()).toEqual([
-      'edit 10 --remove-label reviewed',
       'merge 10 --disable-auto',
-      'edit 14 --remove-label reviewed',
+      'edit 10 --remove-label reviewed',
       'merge 14 --disable-auto',
+      'edit 14 --remove-label reviewed',
     ])
     expect(git(epic, 'branch', '--list', 'fix/3-second-child')).toBe('')
   })
@@ -1107,10 +1107,10 @@ describe('epic-driver — reconcile a stopped armed PR', () => {
       { ticket: 2, pr: 14, disarmed: 'disarmed' },
     ])
     expect(writes()).toEqual([
-      'edit 10 --remove-label reviewed',
       'merge 10 --disable-auto',
-      'edit 14 --remove-label reviewed',
+      'edit 10 --remove-label reviewed',
       'merge 14 --disable-auto',
+      'edit 14 --remove-label reviewed',
     ])
     expect(git(epic, 'branch', '--show-current')).toBe('fix/3-second-child')
   })
@@ -1131,8 +1131,8 @@ describe('epic-driver — drop disarms without the dashboard', () => {
     const run = drive(['report', '--outcome', 'drop', '--reason', 'driver-error'])
     expect(run.code).toBe(0)
     expect(writes()).toEqual([
-      'edit 11 --remove-label reviewed',
       'merge 11 --disable-auto',
+      'edit 11 --remove-label reviewed',
       `comment 1 <!-- omp-build:goal-report run=${RUN} -->`,
     ])
     expect(run.stdout).toContain('| Base CI | unread |')
@@ -1153,8 +1153,8 @@ describe('epic-driver — drop disarms without the dashboard', () => {
     const run = drive(['report', '--outcome', 'drop', '--reason', 'bad-landing'])
     expect(run.code).toBe(0)
     expect(writes()).toEqual([
-      'edit 11 --remove-label reviewed',
       'merge 11 --disable-auto',
+      'edit 11 --remove-label reviewed',
       `comment 1 <!-- omp-build:goal-report run=${RUN} -->`,
     ])
     const seen = readFileSync(straceLog, 'utf8').split('\n')
@@ -1179,7 +1179,7 @@ describe('epic-driver — drop disarms without the dashboard', () => {
     git(epic.epic, 'update-ref', '-d', 'refs/remotes/origin/main')
     const run = drive(['report', '--outcome', 'drop', '--reason', 'driver-error'])
     expect(run.code).toBe(0)
-    expect(writes().slice(0, 2)).toEqual(['edit 11 --remove-label reviewed', 'merge 11 --disable-auto'])
+    expect(writes().slice(0, 2)).toEqual(['merge 11 --disable-auto', 'edit 11 --remove-label reviewed'])
   })
 
   it('disarms when the review-comments query fails', () => {
@@ -1195,7 +1195,7 @@ describe('epic-driver — drop disarms without the dashboard', () => {
     )
     const run = drive(['report', '--outcome', 'drop', '--reason', 'driver-error'])
     expect(run.code).toBe(0)
-    expect(writes().slice(0, 2)).toEqual(['edit 11 --remove-label reviewed', 'merge 11 --disable-auto'])
+    expect(writes().slice(0, 2)).toEqual(['merge 11 --disable-auto', 'edit 11 --remove-label reviewed'])
   })
 
   it('does not list an open unarmed PR or a closed armed PR as disarmed', () => {
@@ -1215,8 +1215,8 @@ describe('epic-driver — drop disarms without the dashboard', () => {
     const run = drive(['report', '--outcome', 'drop', '--reason', 'driver-error'])
     expect(run.code).toBe(0)
     expect(writes()).toEqual([
-      'edit 11 --remove-label reviewed',
       'merge 11 --disable-auto',
+      'edit 11 --remove-label reviewed',
       `comment 1 <!-- omp-build:goal-report run=${RUN} -->`,
     ])
     expect(run.stdout).toContain('| Disarmed | #11 disarmed |')
@@ -1237,10 +1237,10 @@ describe('epic-driver — drop disarms without the dashboard', () => {
     expect(run.code).not.toBe(0)
     expect(run.stderr).toContain('#11')
     expect(writes()).toEqual([
-      'edit 11 --remove-label reviewed',
       'merge 11 --disable-auto',
-      'edit 12 --remove-label reviewed',
+      'edit 11 --remove-label reviewed',
       'merge 12 --disable-auto',
+      'edit 12 --remove-label reviewed',
       `comment 1 <!-- omp-build:goal-report run=${RUN} -->`,
     ])
     expect(JSON.parse(readFileSync(path.join(sandboxOf().state, 'pr', '12.json'), 'utf8')).labels).toEqual([])
@@ -1263,10 +1263,10 @@ describe('epic-driver — drop disarms without the dashboard', () => {
     expect(run.code).not.toBe(0)
     expect(run.stderr).toContain('#11')
     expect(writes()).toEqual([
-      'edit 11 --remove-label reviewed',
       'merge 11 --disable-auto',
-      'edit 12 --remove-label reviewed',
+      'edit 11 --remove-label reviewed',
       'merge 12 --disable-auto',
+      'edit 12 --remove-label reviewed',
     ])
   })
 })

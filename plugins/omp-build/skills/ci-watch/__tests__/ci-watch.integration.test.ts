@@ -310,15 +310,9 @@ fi
 `,
     )
     const count = join(dir, 'count')
-    const out = execFileSync(
-      SCRIPT,
-      ['7', '--interval', '0', '--timeout', '30s', '--merge-mode', 'merge-on-green', '--repo', 'acme/app'],
-      {
-        encoding: 'utf8',
-        env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, CI_WATCH_COUNT: count },
-      },
-    )
-    expect(out).toContain('merged')
+    const result = runWatch(dir, { CI_WATCH_COUNT: count })
+    expect(result.code).toBe(0)
+    expect(result.stdout).toContain('merged')
   })
 
   it('exits 1 when a check failed', () => {
@@ -333,25 +327,26 @@ cat <<'EOF'
 EOF
 `,
     )
-    let code = 0
-    try {
-      execFileSync(
-        SCRIPT,
-        ['7', '--interval', '0', '--timeout', '30s', '--merge-mode', 'merge-on-green', '--repo', 'acme/app'],
-        {
-          encoding: 'utf8',
-          env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
-        },
-      )
-    } catch (error) {
-      if (error && typeof error === 'object' && 'status' in error && typeof error.status === 'number') {
-        code = error.status
-      }
-    }
-    expect(code).toBe(1)
+    expect(runWatch(dir).code).toBe(1)
   })
 
   /** `mode: null` passes no `--merge-mode`, so the script resolves it from `cwd`. */
+
+  /** Plant `files` on `origin/main` so `readLanding` reads the base ref, never the worktree. */
+  function plantBase(cwd: string, files: Record<string, string> = {}) {
+    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd, env })
+    execFileSync('git', ['config', 'user.email', 'ci-watch@test'], { cwd, env })
+    execFileSync('git', ['config', 'user.name', 'ci-watch'], { cwd, env })
+    for (const [rel, content] of Object.entries(files)) {
+      mkdirSync(join(cwd, rel, '..'), { recursive: true })
+      writeFileSync(join(cwd, rel), content)
+    }
+    execFileSync('git', ['add', '-A'], { cwd, env })
+    execFileSync('git', ['commit', '-qm', 'base', '--allow-empty'], { cwd, env })
+    execFileSync('git', ['update-ref', 'refs/remotes/origin/main', 'HEAD'], { cwd, env })
+  }
+
   function runWatch(
     dir: string,
     extraEnv: Record<string, string> = {},
@@ -361,10 +356,29 @@ EOF
     extra: string[] = [],
   ) {
     const modeArgs = mode === null ? [] : ['--merge-mode', mode]
-    const args = ['7', '--interval', '0', '--timeout', timeout, ...modeArgs, '--repo', 'acme/app', ...extra]
+    const baseArgs = extra.includes('--base') ? [] : ['--base', 'main']
+    const args = [
+      '7',
+      '--interval',
+      '0',
+      '--timeout',
+      timeout,
+      ...modeArgs,
+      ...baseArgs,
+      '--repo',
+      'acme/app',
+      ...extra,
+    ]
     const env = { ...process.env, PATH: `${dir}:${process.env.PATH}`, ...extraEnv }
+    const watchCwd =
+      cwd ??
+      (() => {
+        const d = mkdtempSync(join(tmpdir(), 'ci-watch-base-'))
+        plantBase(d)
+        return d
+      })()
     try {
-      const stdout = execFileSync(SCRIPT, args, { encoding: 'utf8', env, cwd })
+      const stdout = execFileSync(SCRIPT, args, { encoding: 'utf8', env, cwd: watchCwd })
       return { code: 0, stdout, stderr: '' }
     } catch (error) {
       if (error && typeof error === 'object' && 'status' in error && typeof error.status === 'number') {
@@ -410,8 +424,7 @@ fi
   it('treats a skipped check named in landing.required_checks as green', () => {
     const dir = mkdtempSync(join(tmpdir(), 'ci-watch-req-'))
     const cwd = mkdtempSync(join(tmpdir(), 'ci-watch-req-cwd-'))
-    mkdirSync(join(cwd, '.dev'))
-    writeFileSync(join(cwd, '.dev', 'stack.yml'), 'landing:\n  required_checks:\n    - lint\n')
+    plantBase(cwd, { '.dev/stack.yml': 'landing:\n  required_checks:\n    - lint\n' })
     fakeGh(
       dir,
       `#!/usr/bin/env bash
@@ -495,8 +508,7 @@ EOF
   it('treats a neutral check named in landing.required_checks as green', () => {
     const dir = mkdtempSync(join(tmpdir(), 'ci-watch-neutral-'))
     const cwd = mkdtempSync(join(tmpdir(), 'ci-watch-neutral-cwd-'))
-    mkdirSync(join(cwd, '.dev'))
-    writeFileSync(join(cwd, '.dev', 'stack.yml'), 'landing:\n  required_checks:\n    - lint\n')
+    plantBase(cwd, { '.dev/stack.yml': 'landing:\n  required_checks:\n    - lint\n' })
     fakeGh(
       dir,
       `#!/usr/bin/env bash
@@ -592,11 +604,10 @@ exit 0
     expect(Date.now() - started).toBeLessThan(1500)
   })
 
-  it('with no --merge-mode, a checkout holding only merge-on-green.yml watches in merge-on-green mode', () => {
+  it('with no --merge-mode, a base ref holding only merge-on-green.yml watches in merge-on-green mode', () => {
     const dir = mkdtempSync(join(tmpdir(), 'ci-watch-mog-file-'))
     const cwd = mkdtempSync(join(tmpdir(), 'ci-watch-mog-file-cwd-'))
-    mkdirSync(join(cwd, '.github', 'workflows'), { recursive: true })
-    writeFileSync(join(cwd, '.github', 'workflows', 'merge-on-green.yml'), 'name: merge-on-green\n')
+    plantBase(cwd, { '.github/workflows/merge-on-green.yml': 'name: merge-on-green\n' })
     // No `reviewed` label but auto-merge armed: merge-on-green says not eligible (4),
     // native would keep watching until the MERGED snapshot (0).
     fakeGh(
@@ -626,8 +637,7 @@ fi
   it('exits 70 naming the problem when .dev/stack.yml is not valid YAML', () => {
     const dir = mkdtempSync(join(tmpdir(), 'ci-watch-bad-stack-'))
     const cwd = mkdtempSync(join(tmpdir(), 'ci-watch-bad-stack-cwd-'))
-    mkdirSync(join(cwd, '.dev'))
-    writeFileSync(join(cwd, '.dev', 'stack.yml'), 'landing: [unclosed\n')
+    plantBase(cwd, { '.dev/stack.yml': 'landing: [unclosed\n' })
     const log = join(dir, 'gh.log')
     fakeGh(
       dir,
@@ -729,6 +739,9 @@ next snap ${snapshots.length}
     { title: 'kit-ci not configured', message: 'Auto-merge OFF (evaluate-only)', annotation_level: 'notice' },
   ])
   const OTHER_NOTICE = JSON.stringify([{ title: 'something else', message: 'x', annotation_level: 'notice' }])
+  const MANUAL_MERGE = JSON.stringify([
+    { title: 'Manual merge required', message: 'App X is not installed', annotation_level: 'warning' },
+  ])
 
   function page(
     ...runs: { id: number; status: string; started_at: string | null; conclusion?: string | null }[]
@@ -759,6 +772,18 @@ next snap ${snapshots.length}
 
   const count = (dir: string, name: string) => readFileSync(join(dir, `${name}.count`), 'utf8').trim()
   const apiLog = (dir: string) => (existsSync(join(dir, 'api.log')) ? readFileSync(join(dir, 'api.log'), 'utf8') : '')
+
+  it('exits 6 once green when the merge-on-green run reports only Manual merge required (#623 item 2)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-watch-eval-manual-'))
+    probeGh(dir, {
+      snapshots: [snapshot(), snapshot(), snapshot(), snapshot('MERGED')],
+      runs: [page({ id: 42, status: 'completed', started_at: '2026-09-29T10:00:05Z' })],
+      annotations: { 42: MANUAL_MERGE },
+    })
+    const result = runWatch(dir, {}, undefined, '30s', 'merge-on-green', ['--since', SINCE])
+    expect(result.code).toBe(6)
+    expect(result.stderr).toContain(EVALUATE_ONLY)
+  })
 
   it('exits 6 once green when the merge-on-green run of this landing reports kit-ci not configured', () => {
     const dir = mkdtempSync(join(tmpdir(), 'ci-watch-eval-only-'))
@@ -886,8 +911,7 @@ cat "$d/snap.$n.json"
   it('keeps probing a queued run hidden by landing.required_checks until it reports kit-ci not configured', () => {
     const dir = mkdtempSync(join(tmpdir(), 'ci-watch-eval-queued-'))
     const cwd = mkdtempSync(join(tmpdir(), 'ci-watch-eval-queued-cwd-'))
-    mkdirSync(join(cwd, '.dev'))
-    writeFileSync(join(cwd, '.dev', 'stack.yml'), 'landing:\n  required_checks: [ci]\n')
+    plantBase(cwd, { '.dev/stack.yml': 'landing:\n  required_checks: [ci]\n' })
     const queued = page({ id: 42, status: 'queued', started_at: '2026-09-29T10:00:05Z' })
     const open = snapshot('OPEN', { extraChecks: [{ name: 'merge-on-green', status: 'QUEUED', conclusion: '' }] })
     probeGh(dir, {

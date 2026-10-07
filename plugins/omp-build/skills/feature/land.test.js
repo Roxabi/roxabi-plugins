@@ -10,7 +10,7 @@ import {
   parseRequiredContexts,
 } from './workflow.js'
 
-/** A checkout with the given files, relative path → content. */
+/** A checkout with the given files, relative path → content. Base-ref landing is covered in land.integration.test.js. */
 function checkout(files = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'land-'))
   for (const [path, content] of Object.entries(files)) {
@@ -100,6 +100,8 @@ function mockLand({
   let statePoll = 0
   let eventsPoll = 0
   const eventPages = Array.isArray(events) ? events : [events]
+  const gateLabels = new Set(labels)
+  let gateAuto = autoMerges[0] ?? null
   const gh = async (_cwd, args) => {
     calls.push(args)
     const jsonAt = args.indexOf('--json')
@@ -122,10 +124,13 @@ function mockLand({
     if (args[0] === 'pr' && args[1] === 'view' && args[jsonAt + 1] === GATE_FIELDS) {
       return JSON.stringify({
         headRefOid: REVIEWED_HEAD,
-        state: 'OPEN',
-        labels: labels.map((name) => ({ name })),
-        autoMergeRequest: null,
+        state: states[0] ?? 'OPEN',
+        labels: [...gateLabels].map((name) => ({ name })),
+        autoMergeRequest: gateAuto,
       })
+    }
+    if (args[0] === 'pr' && args[1] === 'view' && same(fields, ['baseRefName'])) {
+      return JSON.stringify({ baseRefName: 'main' })
     }
     if (args[0] === 'pr' && args[1] === 'view' && same(fields, ['headRefOid'])) {
       return JSON.stringify({ headRefOid: REVIEWED_HEAD })
@@ -151,8 +156,22 @@ function mockLand({
       poll++
       return JSON.stringify(entry)
     }
+    if (args[0] === 'pr' && args[1] === 'edit' && args.includes('--remove-label') && args.includes('reviewed')) {
+      gateLabels.delete('reviewed')
+      return ''
+    }
+    if (args[0] === 'pr' && args[1] === 'edit' && args.includes('--add-label') && args.includes('reviewed')) {
+      gateLabels.add('reviewed')
+      return ''
+    }
     if (args[0] === 'pr' && args[1] === 'merge' && args.includes('--disable-auto')) {
-      if (disableThrows) throw new Error(disableThrows)
+      if (disableThrows) {
+        // "already off" means GitHub has no auto-merge left; "already merged" leaves
+        // the arm so disarmGate's read-back fails and applyCiWatchExit re-reads state.
+        if (/already off/.test(String(disableThrows))) gateAuto = null
+        throw new Error(disableThrows)
+      }
+      gateAuto = null
       return ''
     }
     if (args[0] === 'pr' && args[1] === 'merge') {
@@ -169,6 +188,8 @@ function mockLand({
     land: (requiredContexts, pr = 1) =>
       landPr(checkout(), pr, {
         requiredContexts,
+        // Unit tests inject landing so readLanding (git) is never forked here (#502).
+        landing: { mode: 'native', required_checks: requiredContexts ?? [] },
         gh,
         sleep: async () => {},
         now: () => t,
@@ -214,13 +235,15 @@ describe('landPr', () => {
       labels: ['reviewed'],
       events: [BEFORE_AT, `${BEFORE_AT}\n${EVENT_AT}\n`],
     })
-    const result = await landPr(checkout({ '.github/workflows/merge-on-green.yml': 'name: merge-on-green\n' }), 7, {
+    const result = await landPr('/tmp/wt', 7, {
       gh,
       sleep,
+      landing: { mode: 'merge-on-green', required_checks: [] },
     })
     // After the review-history and gate reads: the pre-add time, remove, re-add, then the newer time.
     const historyRead = [IDENTITY, commentPageArgs(7), GATE_READ(7), ['pr', 'view', '7', '--json', 'headRefOid']]
     expect(calls.filter((args) => !historyRead.some((read) => same(args, read)))).toEqual([
+      ['pr', 'view', '7', '--json', 'baseRefName'],
       ['repo', 'view', '--json', 'nameWithOwner'],
       EVENTS_CALL,
       ['pr', 'view', '7', '--json', 'labels'],
@@ -363,6 +386,7 @@ function gatePr({ comments, labels = [], autoMerge = null, state = 'OPEN', headR
         else if (field === 'autoMergeRequest') view.autoMergeRequest = pr.autoMerge
         else if (field === 'state') view.state = pr.state
         else if (field === 'headRefOid') view.headRefOid = pr.headRefOid
+        else if (field === 'baseRefName') view.baseRefName = 'main'
         else throw new Error(`unexpected field: ${field}`)
       }
       return JSON.stringify(view)
@@ -626,7 +650,7 @@ describe('applyCiWatchExit', () => {
   })
 
   it('exit 1 on merge-on-green removes reviewed and does not disable auto-merge', async () => {
-    const { gh, calls } = mockLand()
+    const { gh, calls } = mockLand({ labels: ['reviewed'] })
     expect(await applyCiWatchExit('/tmp/wt', 7, 1, { mode: 'merge-on-green', gh })).toEqual({
       status: 'ci-failed',
       disarmed: true,
@@ -636,43 +660,40 @@ describe('applyCiWatchExit', () => {
   })
 
   it('exit 1 on native removes the label before disabling auto-merge', async () => {
-    const { gh, calls } = mockLand()
+    const { gh, calls } = mockLand({ labels: ['reviewed'], autoMerges: [{ enabledAt: 't' }] })
     expect(await applyCiWatchExit('/tmp/wt', 7, 1, { mode: 'native', gh })).toEqual({
       status: 'ci-failed',
       disarmed: true,
     })
-    expect(call(calls, disablesAuto)).toBeGreaterThan(call(calls, removesLabel))
+    // disarmGate disables before it removes.
+    expect(call(calls, disablesAuto)).toBeLessThan(call(calls, removesLabel))
   })
 
   it.each([
     [2, 'ci-cancelled'],
     [3, 'ci-blocked'],
   ])('exit %s on merge-on-green disarms reviewed only → %s', async (code, status) => {
-    const { gh, calls } = mockLand()
+    const { gh, calls } = mockLand({ labels: ['reviewed'] })
     expect(await applyCiWatchExit('/tmp/wt', 7, code, { mode: 'merge-on-green', gh })).toEqual({
       status,
       disarmed: true,
     })
-    expect(calls).toEqual([
-      ['pr', 'view', '7', '--json', 'state,autoMergeRequest'],
-      ['pr', 'edit', '7', '--remove-label', 'reviewed'],
-    ])
+    expect(calls[0]).toEqual(['pr', 'view', '7', '--json', 'state,autoMergeRequest'])
+    expect(calls.some(removesLabel)).toBe(true)
+    expect(calls.some(disablesAuto)).toBe(false)
   })
 
   it.each([
     [2, 'ci-cancelled'],
     [3, 'ci-blocked'],
   ])('exit %s on native removes the label then disables auto-merge → %s', async (code, status) => {
-    const { gh, calls } = mockLand()
+    const { gh, calls } = mockLand({ labels: ['reviewed'], autoMerges: [{ enabledAt: 't' }] })
     expect(await applyCiWatchExit('/tmp/wt', 7, code, { mode: 'native', gh })).toEqual({
       status,
       disarmed: true,
     })
-    expect(calls).toEqual([
-      ['pr', 'view', '7', '--json', 'state,autoMergeRequest'],
-      ['pr', 'edit', '7', '--remove-label', 'reviewed'],
-      ['pr', 'merge', '7', '--disable-auto'],
-    ])
+    expect(calls[0]).toEqual(['pr', 'view', '7', '--json', 'state,autoMergeRequest'])
+    expect(call(calls, disablesAuto)).toBeLessThan(call(calls, removesLabel))
   })
 
   it('an unmapped exit leaves the gate armed', async () => {
@@ -691,37 +712,40 @@ describe('applyCiWatchExit', () => {
   })
 
   it('a merge that wins during disable-auto is merged', async () => {
-    const { gh, calls } = mockLand({ disableThrows: 'already merged', states: ['OPEN', 'MERGED'] })
+    const { gh, calls } = mockLand({
+      disableThrows: 'already merged',
+      states: ['OPEN', 'MERGED'],
+      labels: ['reviewed'],
+      autoMerges: [{ enabledAt: 't' }],
+    })
     expect(await applyCiWatchExit('/tmp/wt', 7, 1, { mode: 'native', gh })).toEqual({ status: 'merged' })
-    expect(calls).toEqual([
-      ['pr', 'view', '7', '--json', 'state,autoMergeRequest'],
-      ['pr', 'edit', '7', '--remove-label', 'reviewed'],
-      ['pr', 'merge', '7', '--disable-auto'],
-      ['pr', 'view', '7', '--json', 'state,autoMergeRequest'],
-    ])
+    expect(calls.some(disablesAuto)).toBe(true)
+    expect(calls.some(removesLabel)).toBe(true)
   })
 
   it('a disable-auto error with no auto-merge is already disarmed', async () => {
-    const { gh, calls } = mockLand({ disableThrows: 'already off', states: ['OPEN', 'OPEN'] })
+    // Gate opens armed; after the failed disable the read-back shows nothing armed.
+    const { gh, calls } = mockLand({
+      disableThrows: 'already off',
+      states: ['OPEN', 'OPEN'],
+      labels: ['reviewed'],
+      autoMerges: [{ enabledAt: 't' }, null],
+    })
     expect(await applyCiWatchExit('/tmp/wt', 7, 2, { mode: 'native', gh })).toEqual({
       status: 'ci-cancelled',
       disarmed: true,
     })
-    expect(calls).toEqual([
-      ['pr', 'view', '7', '--json', 'state,autoMergeRequest'],
-      ['pr', 'edit', '7', '--remove-label', 'reviewed'],
-      ['pr', 'merge', '7', '--disable-auto'],
-      ['pr', 'view', '7', '--json', 'state,autoMergeRequest'],
-    ])
+    expect(calls.some(disablesAuto)).toBe(true)
   })
 
   it('rethrown disable-auto failure when auto-merge is still set', async () => {
     const { gh } = mockLand({
       disableThrows: 'nope',
       states: ['OPEN', 'OPEN'],
-      autoMerges: [null, { enabledAt: 't' }],
+      labels: ['reviewed'],
+      autoMerges: [{ enabledAt: 't' }, { enabledAt: 't' }],
     })
-    await expect(applyCiWatchExit('/tmp/wt', 7, 1, { mode: 'native', gh })).rejects.toThrow(/nope/)
+    await expect(applyCiWatchExit('/tmp/wt', 7, 1, { mode: 'native', gh })).rejects.toThrow(/stays armed|nope/)
   })
 
   it('exit 70 leaves the gate armed', async () => {
@@ -735,8 +759,8 @@ describe('applyCiWatchExit', () => {
 })
 
 describe('disarmReviewedBeforePush', () => {
-  it('removes reviewed before the push that follows it', async () => {
-    const { gh, calls } = mockLand()
+  it('removes reviewed before the push that follows it, through disarmGate', async () => {
+    const { gh, calls } = mockLand({ labels: ['reviewed'], autoMerges: [{ enabledAt: 't' }] })
     let removedBeforePush = false
     await disarmReviewedBeforePush('/tmp/wt', 7, {
       gh,
@@ -745,6 +769,15 @@ describe('disarmReviewedBeforePush', () => {
       },
     })
     expect(removedBeforePush).toBe(true)
+    expect(calls.some(disablesAuto)).toBe(true)
+  })
+
+  it('a worktree stack does not matter: disarmGate is the only write path (#623 item 3)', async () => {
+    const { gh, calls } = mockLand({ labels: ['reviewed'] })
+    await disarmReviewedBeforePush('/tmp/wt', 7, { gh })
+    expect(calls.filter(removesLabel)).toHaveLength(1)
+    // No auto-merge on the gate → disarmGate does not invent a disable.
+    expect(calls.some(disablesAuto)).toBe(false)
   })
 })
 

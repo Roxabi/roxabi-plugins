@@ -151,9 +151,16 @@ describe('feature init landing via readLanding', () => {
     expect(stack).toMatch(/^landing:\n {2}mode: merge-on-green\n/m)
     expect(stack).not.toContain('required_checks')
 
+    // Landing is read from origin/<base>, never the worktree (#623). Plant the
+    // written stack on origin/main so readLanding sees what init just wrote.
+    git(wt, gh.env, 'add', '.dev/stack.yml')
+    git(wt, gh.env, 'commit', '-qm', 'init landing')
+    git(wt, gh.env, 'update-ref', 'refs/remotes/origin/main', 'HEAD')
     const driver =
-      'const { readLanding } = await import(process.argv[1]); console.log(JSON.stringify(readLanding(process.argv[2])))'
-    const landing = JSON.parse(execFileSync(REAL_BUN, ['-e', driver, WORKFLOW, wt], { env: gh.env, encoding: 'utf8' }))
+      'const { readLanding } = await import(process.argv[1]); console.log(JSON.stringify(readLanding(process.argv[2], { base: process.argv[3] })))'
+    const landing = JSON.parse(
+      execFileSync(REAL_BUN, ['-e', driver, WORKFLOW, wt, 'main'], { env: gh.env, encoding: 'utf8' }),
+    )
     expect(landing).toEqual({ mode: 'merge-on-green', required_checks: [] })
   })
 })
