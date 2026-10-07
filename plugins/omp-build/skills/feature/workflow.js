@@ -828,7 +828,6 @@ export async function landPr(
           if (beforeRepin) return beforeRepin
           if (await headMoved()) return moved()
           pin[pin.length - 1] = records.head
-          armedByUs.auto = true
           try {
             await ghFn(cwd, pin)
           } catch {
