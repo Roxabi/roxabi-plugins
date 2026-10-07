@@ -230,6 +230,18 @@ describe('proof binds to the selected artifact', () => {
     expect(viewedBody(run.calls)).toBe(false)
   })
 
+  it('publishes manual UI proof only when the submitted body records the browser check', () => {
+    const { dir, oid } = initRepo(sem(contract('partial')))
+    const proof = uiProof(oid)
+    const missing = drive(dir, { ...OPEN, proof, bodyInput: `${CHECK.steps}\n${CHECK.url}` })
+    expect(missing.result).toMatchObject({ status: 'proof-blocked' })
+    expect(posted(missing.calls)).toBe(false)
+
+    const complete = drive(dir, { ...OPEN, proof, bodyInput: bodyWithCheck() })
+    expect(complete.result).toEqual({ number: 751, status: 'created' })
+    expect(posted(complete.calls)).toBe(true)
+  })
+
   it('accepts PARTIAL plus a superseded sibling, and refuses an active sibling before create', () => {
     const partial = initRepo(
       sem(`${contract('partial', ISSUE, 'bind')}\nchange old\n  status: superseded\n  tag: issue-${ISSUE}\n`),
