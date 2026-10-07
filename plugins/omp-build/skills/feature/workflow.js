@@ -659,7 +659,15 @@ export async function landPr(
         seen = knownGate()
       }
     }
-    const disarmed = await disarmGate(cwd, pr, seen, ghFn)
+    // Refuse exits never leave the gate allowed: a knownGate() fallback after a
+    // failed re-read still carries the opening head, which would look allowed.
+    const { disarmed } = await enforceArmedGate(cwd, pr, {
+      records,
+      gate: seen,
+      reviewing: true,
+      gh: ghFn,
+      snapshot: seen,
+    })
     return { status: 'not-approved', reviews, ...(reason && { reason }), ...(disarmed && { disarmed }) }
   }
   if (records.spent) return refuse('review-bound', gate)
@@ -694,7 +702,13 @@ export async function landPr(
       // Native without required checks refuses to continue landing: a known armed
       // gate is disarmed even on an unchanged approved head. One call on the opening
       // gate — no head or gate re-read, no retry. `disarmed` only when confirmed.
-      const disarmed = await disarmGate(cwd, pr, gate, ghFn)
+      const { disarmed } = await enforceArmedGate(cwd, pr, {
+        records,
+        gate,
+        reviewing: true,
+        gh: ghFn,
+        snapshot: gate,
+      })
       return { status: 'no-required-checks', ...(disarmed && { disarmed }) }
     }
   }
@@ -709,7 +723,13 @@ export async function landPr(
   // error; a disarm that cannot finish throws the stuck error with it as the cause.
   const disarmAndRethrow = async (error) => {
     try {
-      await disarmGate(cwd, pr, knownGate(), ghFn)
+      await enforceArmedGate(cwd, pr, {
+        records,
+        gate,
+        reviewing: true,
+        gh: ghFn,
+        snapshot: knownGate(),
+      })
     } catch (disarmError) {
       throw stuckError(disarmError, error)
     }
@@ -730,7 +750,13 @@ export async function landPr(
       return { moved: await headMoved() }
     } catch (error) {
       try {
-        await disarmGate(cwd, pr, knownGate(), ghFn)
+        await enforceArmedGate(cwd, pr, {
+          records,
+          gate,
+          reviewing: true,
+          gh: ghFn,
+          snapshot: knownGate(),
+        })
       } catch (disarmError) {
         return { moved: true, stuck: stuckError(disarmError, error) }
       }
@@ -752,7 +778,13 @@ export async function landPr(
     }
     if (!gone) return null
     try {
-      const disarmed = await disarmGate(cwd, pr, knownGate(), ghFn)
+      const { disarmed } = await enforceArmedGate(cwd, pr, {
+        records,
+        gate,
+        reviewing: true,
+        gh: ghFn,
+        snapshot: knownGate(),
+      })
       return { status: 'not-approved', reviews, reason: 'head-moved', ...(disarmed && { disarmed }) }
     } catch (disarmError) {
       throw stuckError(disarmError, readError)
@@ -798,7 +830,14 @@ export async function landPr(
   const disarmAfterDisableFailed = async (disableError, readError) => {
     let cleared = false
     try {
-      cleared = await disarmGate(cwd, pr, knownGate(), ghFn)
+      const result = await enforceArmedGate(cwd, pr, {
+        records,
+        gate,
+        reviewing: true,
+        gh: ghFn,
+        snapshot: knownGate(),
+      })
+      cleared = Boolean(result.disarmed)
     } catch (disarmError) {
       return { status: 'auto-merge-failed', armed: true, error: stuckError(disarmError, readError).message }
     }
@@ -1020,7 +1059,8 @@ export async function applyCiWatchExit(cwd, pr, code, { mode = 'native', gh: ghF
     // is reported as merged; a gate already clear after a write error is success.
     try {
       const gate = await readGate(cwd, pr, ghFn)
-      await disarmGate(cwd, pr, gate, ghFn)
+      const records = await readReviewRecords(cwd, pr, { gh: ghFn })
+      await enforceArmedGate(cwd, pr, { records, gate, reviewing: true, gh: ghFn })
     } catch (error) {
       const text = errorText(error)
       if (/merged while being disarmed/.test(text)) return { status: 'merged' }
@@ -1060,7 +1100,8 @@ export async function applyCiWatchExit(cwd, pr, code, { mode = 'native', gh: ghF
  */
 export async function disarmReviewedBeforePush(cwd, pr, { gh: ghFn = gh, push } = {}) {
   const gate = await readGate(cwd, pr, ghFn)
-  await disarmGate(cwd, pr, gate, ghFn)
+  const records = await readReviewRecords(cwd, pr, { gh: ghFn })
+  await enforceArmedGate(cwd, pr, { records, gate, reviewing: true, gh: ghFn })
   if (push) await push()
   return { disarmed: true }
 }
@@ -1387,6 +1428,30 @@ function mayStayArmed(records, gate, reviewing) {
 }
 
 /**
+ * The one armed-gate exit (#729): given the review records, a gate read, and whether
+ * a review of that head is running, leave the gate allowed or unarmed. `reviewing:
+ * true` forces unarmed (CI-watch failure, pre-push, post-write recovery,
+ * no-required-checks). Throws naming what stays armed when the disarm cannot finish.
+ *
+ * @param {string} cwd
+ * @param {string | number} pr
+ * @param {{
+ *   records: { verdict: string | null, head: string | null, spent: boolean },
+ *   gate: { state?: string, headRefOid?: unknown, labels?: { name?: string }[], autoMergeRequest?: unknown },
+ *   reviewing?: boolean,
+ *   gh?: (cwd: string, args: string[]) => Promise<string>,
+ *   snapshot?: { state?: string, headRefOid?: unknown, labels?: { name?: string }[], autoMergeRequest?: unknown },
+ * }} opts
+ * @returns {Promise<{ allowed: boolean, disarmed?: true }>}
+ */
+async function enforceArmedGate(cwd, pr, { records, gate, reviewing = false, gh: ghFn = gh, snapshot }) {
+  const allowed = mayStayArmed(records, gate, reviewing)
+  if (allowed) return { allowed: true }
+  const disarmed = await disarmGate(cwd, pr, snapshot ?? gate, ghFn)
+  return disarmed ? { allowed: false, disarmed: true } : { allowed: false }
+}
+
+/**
  * The move the records allow at the PR's current `head`.
  *
  * - `posted` (the review just posted) must be the latest record, else throw.
@@ -1460,17 +1525,21 @@ export async function nextReviewStep(cwd, pr, { posted, ciFailed = false, review
     step = reviewStep(records, { head: gate.headRefOid, ciFailed, posted })
   } catch (error) {
     // A refusal decides nothing, but it must not leave a gate armed that may not stay.
-    if (!mayStayArmed(records, gate, reviewing)) {
-      try {
-        await disarmGate(cwd, number, gate, ghFn)
-      } catch (disarmError) {
-        throw new Error(`${errorText(error)} — and the disarm failed: ${errorText(disarmError)}`, { cause: error })
-      }
+    try {
+      await enforceArmedGate(cwd, number, { records, gate, reviewing, gh: ghFn })
+    } catch (disarmError) {
+      throw new Error(`${errorText(error)} — and the disarm failed: ${errorText(disarmError)}`, { cause: error })
     }
     throw error
   }
-  if ((reviewing || step.action !== 'land') && (await disarmGate(cwd, number, gate, ghFn))) {
-    return { ...step, disarmed: true }
+  if (reviewing || step.action !== 'land') {
+    const { disarmed } = await enforceArmedGate(cwd, number, {
+      records,
+      gate,
+      reviewing: reviewing || step.action !== 'land',
+      gh: ghFn,
+    })
+    if (disarmed) return { ...step, disarmed: true }
   }
   return step
 }

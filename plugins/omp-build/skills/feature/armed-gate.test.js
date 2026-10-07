@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { commentPageArgs, landPr, nextReviewStep } from './workflow.js'
+import { applyCiWatchExit, commentPageArgs, disarmReviewedBeforePush, landPr, nextReviewStep } from './workflow.js'
 
 /**
  * The armed-gate invariant (#713), delivered again by #744. An OPEN PR is armed (`reviewed`
@@ -12,12 +12,13 @@ import { commentPageArgs, landPr, nextReviewStep } from './workflow.js'
  * gate even at a stable, approved head (explicit or discovered-empty contexts), because an
  * empty discovery is not proof that protection is absent.
  *
- * One stateful fake PR, shared by `landPr` and `nextReviewStep`. Every exit of both after the
- * gate read is a row of the table below; the sweeps at the end make each gh call of a scripted
- * run fail once, move the head after it, and fail while the head moves, so a missed exit shows
- * up as a violation of the oracle. The oracle is written here from the fake's final state,
- * not from `workflow.js`. The fake also answers the resolver's repo / base / protection / rules
- * reads, so native runs without declared checks go through the real discovery control flow.
+ * One stateful fake PR, shared by `landPr`, `nextReviewStep`, `applyCiWatchExit` and
+ * `disarmReviewedBeforePush` (#729). Every exit after the gate read is a row of the table
+ * below; the sweeps at the end make each gh call of a scripted run fail once, move the head
+ * after it, and fail while the head moves, so a missed exit shows up as a violation of the
+ * oracle. The oracle is written here from the fake's final state, not from `workflow.js`. The
+ * fake also answers the resolver's repo / base / protection / rules reads, so native runs
+ * without declared checks go through the real discovery control flow.
  *
  * Out of this table on purpose (#731): an unreadable head after a refused pin
  * (`pinRefused`) still returns `auto-merge-failed` / `armed: false` and leaves the gate it found.
@@ -61,7 +62,15 @@ function kindOf(args) {
   if (same(args, IDENTITY)) return 'identity'
   if (same(args, commentPageArgs(PR))) return 'comments'
   if (args[0] === 'pr' && args[1] === 'view' && args.length === 5) {
-    return { [GATE_FIELDS]: 'gate', headRefOid: 'head', labels: 'labels', baseRefName: 'base' }[args[4]] ?? 'unexpected'
+    return (
+      {
+        [GATE_FIELDS]: 'gate',
+        headRefOid: 'head',
+        labels: 'labels',
+        baseRefName: 'base',
+        'state,autoMergeRequest': 'state',
+      }[args[4]] ?? 'unexpected'
+    )
   }
   if (same(args, ['pr', 'merge', String(PR), '--disable-auto'])) return 'disable'
   if (same(args, ['pr', 'edit', String(PR), '--remove-label', 'reviewed'])) return 'remove'
@@ -140,6 +149,8 @@ function armedPr({ records = [], start = 'both', state = 'OPEN', head = HEAD, sc
         })
       case 'head':
         return JSON.stringify({ headRefOid: pr.head })
+      case 'state':
+        return JSON.stringify({ state: pr.state, autoMergeRequest: pr.autoMerge })
       case 'labels':
         return JSON.stringify({ labels: [...pr.labels].map((name) => ({ name })) })
       case 'disable':
@@ -277,10 +288,15 @@ const MOG = { landing: { mode: 'merge-on-green', required_checks: [] } }
  */
 async function exec(what, fake) {
   try {
+    const cwd = what.cwd ?? '/tmp/wt'
     const result =
       what.fn === 'land'
-        ? await landPr(what.cwd ?? '/tmp/wt', PR, { gh: fake.gh, sleep: async () => {}, ...what.opts })
-        : await nextReviewStep(what.cwd ?? '/tmp/wt', PR, { gh: fake.gh, ...what.opts })
+        ? await landPr(cwd, PR, { gh: fake.gh, sleep: async () => {}, ...what.opts })
+        : what.fn === 'watch'
+          ? await applyCiWatchExit(cwd, PR, what.opts?.code ?? 1, { mode: what.opts?.mode ?? 'native', gh: fake.gh })
+          : what.fn === 'push'
+            ? await disarmReviewedBeforePush(cwd, PR, { gh: fake.gh, push: what.opts?.push })
+            : await nextReviewStep(cwd, PR, { gh: fake.gh, ...what.opts })
     return { result, error: undefined }
   } catch (error) {
     return { result: undefined, error }
@@ -2056,6 +2072,108 @@ const ROWS = [
       auto: false,
     },
   ],
+  // --- applyCiWatchExit / disarmReviewedBeforePush (#729 AC4) -----------------
+  [
+    'W1 applyCiWatchExit exit 1 on an armed OPEN PR → ci-failed, disarmed',
+    {
+      fn: 'watch',
+      opts: { code: 1, mode: 'native' },
+      records: [approve()],
+      result: { status: 'ci-failed', disarmed: true },
+      labels: CLEAN,
+      auto: false,
+      reviewing: true,
+    },
+  ],
+  [
+    'W1 applyCiWatchExit exit 2 → ci-cancelled, disarmed',
+    {
+      fn: 'watch',
+      opts: { code: 2, mode: 'native' },
+      records: [approve()],
+      result: { status: 'ci-cancelled', disarmed: true },
+      labels: CLEAN,
+      auto: false,
+      reviewing: true,
+    },
+  ],
+  [
+    'W1 applyCiWatchExit exit 3 → ci-blocked, disarmed',
+    {
+      fn: 'watch',
+      opts: { code: 3, mode: 'native' },
+      records: [approve()],
+      result: { status: 'ci-blocked', disarmed: true },
+      labels: CLEAN,
+      auto: false,
+      reviewing: true,
+    },
+  ],
+  [
+    'W2 applyCiWatchExit exit 1: disable fails and read-back stays armed → rejects',
+    {
+      fn: 'watch',
+      opts: { code: 1, mode: 'native' },
+      records: [approve()],
+      script: { fail: [{ on: 'disable', answer: '' }] },
+      rejects: stays('auto-merge'),
+      labels: CLEAN,
+      auto: true,
+      reviewing: true,
+    },
+  ],
+  [
+    'W3 applyCiWatchExit exit 1: PR merges while being disarmed → merged',
+    {
+      fn: 'watch',
+      opts: { code: 1, mode: 'native' },
+      records: [approve()],
+      script: { moves: [{ when: 'after', on: 'remove', state: 'MERGED' }] },
+      result: { status: 'merged' },
+      labels: CLEAN,
+      auto: false,
+      reviewing: true,
+      exempt: true,
+    },
+  ],
+  [
+    'W4 applyCiWatchExit exit 6 evaluate-only → leaves the gate armed',
+    {
+      fn: 'watch',
+      opts: { code: 6, mode: 'native' },
+      records: [approve()],
+      start: 'both',
+      result: { status: 'evaluate-only' },
+      labels: REVIEWED,
+      auto: true,
+      reviewing: true,
+      none: true,
+      exempt: true,
+    },
+  ],
+  [
+    'P1 disarmReviewedBeforePush on an armed gate → disarmed before push',
+    {
+      fn: 'push',
+      records: [approve()],
+      result: { disarmed: true },
+      labels: CLEAN,
+      auto: false,
+      reviewing: true,
+    },
+  ],
+  [
+    'P2 disarmReviewedBeforePush: remove fails and read-back stays labelled → rejects',
+    {
+      fn: 'push',
+      records: [approve()],
+      script: { fail: [{ on: 'remove', answer: '' }] },
+      rejects: stays('the reviewed label'),
+      labels: REVIEWED,
+      auto: false,
+      reviewing: true,
+    },
+  ],
 ]
 
 /** Attach the oracle's `reviewing` and fill the defaults. */
@@ -2071,7 +2189,7 @@ function prepare(row) {
   return { fake, what: { fn: row.fn, opts: row.opts, cwd: row.cwd } }
 }
 
-describe('the armed-gate invariant — every exit of landPr and nextReviewStep', () => {
+describe('the armed-gate invariant — every exit of landPr, nextReviewStep, applyCiWatchExit, disarmReviewedBeforePush', () => {
   it.each(ROWS)('%s', async (_name, row) => {
     const { fake, what } = prepare(row)
     const outcome = await exec(what, fake)
@@ -2192,6 +2310,15 @@ const SWEEPS = [
     'nextReviewStep land while reviewing',
     { fn: 'step', opts: { reviewing: true }, reviewing: true, records: [approve()], start: 'both' },
   ],
+  [
+    'applyCiWatchExit exit 1 from an armed PR',
+    { fn: 'watch', opts: { code: 1, mode: 'native' }, reviewing: true, records: [approve()], start: 'both' },
+  ],
+  [
+    'applyCiWatchExit exit 1 from a labelled PR',
+    { fn: 'watch', opts: { code: 1, mode: 'native' }, reviewing: true, records: [approve()], start: 'label' },
+  ],
+  ['disarmReviewedBeforePush from an armed PR', { fn: 'push', reviewing: true, records: [approve()], start: 'both' }],
   ...['both', 'label', 'auto'].flatMap((start) =>
     SOURCES.map(([source, opts]) => [
       `landPr native refusing for want of required checks (${source}) from a PR armed by ${start}`,
@@ -2214,6 +2341,8 @@ const PAIRABLE = new Set([
   'rules',
   'events',
   'gate',
+  'state',
+  'comments',
   'disable',
   'remove',
   'add',
