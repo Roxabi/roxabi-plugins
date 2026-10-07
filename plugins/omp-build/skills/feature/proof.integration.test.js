@@ -388,6 +388,24 @@ describe('landPr proof after review', () => {
     }
   }
 
+  it('refuses contradictory VERIFIED manual gaps before create or landing', () => {
+    const { dir, oid } = initRepo(sem(contract('verified'), E2E))
+    const contradictory = {
+      ...uiProof(oid),
+      verify: 'VERIFIED',
+      uiChecks: { gate: { steps: '', url: '', observed: '' } },
+    }
+    const opened = drive(dir, { ...OPEN, bodyInput: '', proof: contradictory })
+    const landed = drive(dir, landScenario(oid, { proof: contradictory, body: '', labels: ['reviewed'], auto: true }))
+
+    expect(opened.result).toMatchObject({ status: 'proof-blocked' })
+    expect(posted(opened.calls)).toBe(false)
+    expect(landed.result).toMatchObject({ status: 'proof-blocked', disarmed: true })
+    expect(pinned(landed.calls)).toBe(false)
+    expect(landed.labels).toEqual([])
+    expect(landed.auto).toBe(false)
+  })
+
   it('lands a verified commit and does not read a body when Semctx is absent', () => {
     const proved = initRepo(sem(contract('verified')))
     const passed = drive(proved.dir, landScenario(proved.oid))

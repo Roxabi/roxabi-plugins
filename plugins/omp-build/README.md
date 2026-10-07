@@ -159,7 +159,8 @@ Contracts and the proof's e2e policy come from regular blobs at the bound commit
 including `.semctx/semantic/changes/*.sem` with exact `issue-<N>` tags. Every
 matching contract must have the claimed verified/partial lifecycle or be
 superseded, with at least one matching; ignored working files are not authority.
-PARTIAL needs justified gaps in the fixed NO TEST enum, never caller-added reasons.
+VERIFIED must carry no unresolved gaps. PARTIAL needs justified gaps in the fixed
+NO TEST enum, never caller-added reasons.
 `ui-manual-only` requires steps, URL and observed result in the selected PR body
 and is refused by a declared committed `commands.test_e2e`. Create checks its
 submitted payload; existing/422 and land read GitHub's actual body. A proposed

@@ -63,6 +63,7 @@ function shape(input: unknown): Guard {
     return bad('verify is not VERIFIED, PARTIAL or BLOCKED')
   }
   if (!Array.isArray(gaps) || !gaps.every(isText)) return bad('gaps is not a list of names')
+  if (verify === 'VERIFIED' && gaps.length !== 0) return bad('VERIFIED names unresolved gaps')
   if (!isDict(noTestInput)) return bad('noTest is not a map of gap to reason')
   const noTest: Record<string, string> = {}
   for (const [key, reason] of Object.entries(noTestInput)) {
