@@ -117,6 +117,8 @@ and the filing command refuses dirty or unreadable Git state before tracker acce
 Both entrances bind to the physical delivery cwd and clear Git-local environment
 variables using Git's own `rev-parse --local-env-vars` inventory before sensing
 status; inherited redirects cannot substitute another clean checkout.
+The zero-apply preflight is exercised with otherwise-clean trees containing only
+config-hidden untracked work or an ignore-hidden dirty submodule.
 After any fix halt, `epic-driver fix-halt`
 reads Git state rather than error wording: dirty means a shared `dirty-tree`
 drop, without a WIP commit or push; clean means the ordinary recorded `stopped`

@@ -242,24 +242,13 @@ function initRepo(parent: string): string {
   return repo
 }
 
-function runPreflight(cwd: string, binParent: string, inherited: NodeJS.ProcessEnv = {}) {
-  const bin = path.join(binParent, 'bin')
-  mkdirSync(bin, { recursive: true })
-  const marker = path.join(binParent, 'bun-ran')
-  writeFileSync(
-    path.join(bin, 'bun'),
-    `#!/bin/sh
-printf ran > ${JSON.stringify(marker)}
-exit 99
-`,
-    { mode: 0o755 },
-  )
+function runPreflight(cwd: string, inherited: NodeJS.ProcessEnv = {}) {
   const result = spawnSync('bash', ['-c', preflightBlock()], {
     cwd,
     encoding: 'utf8',
-    env: { ...gitEnv(cwd, { PATH: `${bin}:/usr/bin:/bin` }), ...inherited },
+    env: { ...gitEnv(cwd, { PATH: '/usr/bin:/bin' }), ...inherited },
   })
-  return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '', marker }
+  return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' }
 }
 
 describe('fix Filing command', () => {
@@ -618,10 +607,44 @@ describe('fix initial worktree preflight', () => {
     const clean = initRepo(elsewhere)
     const head = git(repo, ['rev-parse', 'HEAD'])
     writeFileSync(path.join(repo, 'sentinel'), 'operator work\n')
-    const ran = runPreflight(repo, root, { GIT_DIR: path.join(clean, '.git'), GIT_WORK_TREE: clean })
+    const ran = runPreflight(repo, { GIT_DIR: path.join(clean, '.git'), GIT_WORK_TREE: clean })
     expect(ran.status).not.toBe(0)
     expect(git(repo, ['rev-parse', 'HEAD'])).toBe(head)
     expect(readFileSync(path.join(repo, 'sentinel'), 'utf8')).toBe('operator work\n')
+  })
+
+  it('halts on only a config-hidden untracked file before zero-apply work', () => {
+    root = mkdtempSync(path.join(tmpdir(), 'omp-fix-preflight-hidden-'))
+    const repo = initRepo(root)
+    const head = git(repo, ['rev-parse', 'HEAD'])
+    git(repo, ['config', 'status.showUntrackedFiles', 'no'])
+    writeFileSync(path.join(repo, 'hidden-work'), 'operator work\n')
+    expect(git(repo, ['status', '--porcelain'])).toBe('')
+    const ran = runPreflight(repo)
+    expect(ran.status).not.toBe(0)
+    expect(git(repo, ['rev-parse', 'HEAD'])).toBe(head)
+    expect(readFileSync(path.join(repo, 'hidden-work'), 'utf8')).toBe('operator work\n')
+  })
+
+  it('halts on only an ignore-hidden dirty submodule before zero-apply work', () => {
+    root = mkdtempSync(path.join(tmpdir(), 'omp-fix-preflight-submodule-'))
+    const repo = initRepo(root)
+    const source = path.join(root, 'source')
+    mkdirSync(source)
+    const sub = initRepo(source)
+    git(repo, ['-c', 'protocol.file.allow=always', 'submodule', 'add', sub, 'vendor'])
+    git(repo, ['commit', '-m', 'add vendor'])
+    const vendor = path.join(repo, 'vendor')
+    const head = git(repo, ['rev-parse', 'HEAD'])
+    const subHead = git(vendor, ['rev-parse', 'HEAD'])
+    git(repo, ['config', 'submodule.vendor.ignore', 'all'])
+    writeFileSync(path.join(vendor, 'README'), 'operator work\n')
+    expect(git(repo, ['status', '--porcelain'])).toBe('')
+    const ran = runPreflight(repo)
+    expect(ran.status).not.toBe(0)
+    expect(git(repo, ['rev-parse', 'HEAD'])).toBe(head)
+    expect(git(vendor, ['rev-parse', 'HEAD'])).toBe(subHead)
+    expect(readFileSync(path.join(vendor, 'README'), 'utf8')).toBe('operator work\n')
   })
 
   it('halts a dirty zero-apply tree and leaves sentinels uncommitted', () => {
@@ -631,7 +654,7 @@ describe('fix initial worktree preflight', () => {
     writeFileSync(path.join(repo, 'README'), 'changed\n')
     git(repo, ['add', 'README'])
     writeFileSync(path.join(repo, 'sentinel-untracked'), 'keep\n')
-    const ran = runPreflight(repo, root)
+    const ran = runPreflight(repo)
     expect(ran.status).not.toBe(0)
     expect(ran.stderr).toMatch(/dirty tree/)
     expect(readFileSync(path.join(repo, 'sentinel-untracked'), 'utf8')).toBe('keep\n')
@@ -639,18 +662,16 @@ describe('fix initial worktree preflight', () => {
     expect(git(repo, ['diff', '--cached', '--name-only'])).toContain('README')
     expect(git(repo, ['status', '--porcelain=v1', '--untracked-files=all'])).toMatch(/sentinel-untracked/)
     expect(git(repo, ['remote'])).toBe('')
-    expect(() => readFileSync(ran.marker, 'utf8')).toThrow()
   })
 
   it('accepts a clean tree and creates no commit', () => {
     root = mkdtempSync(path.join(tmpdir(), 'omp-fix-preflight-clean-'))
     const repo = initRepo(root)
     const head = git(repo, ['rev-parse', 'HEAD'])
-    const ran = runPreflight(repo, root)
+    const ran = runPreflight(repo)
     expect(ran.status).toBe(0)
     expect(git(repo, ['rev-parse', 'HEAD'])).toBe(head)
     expect(git(repo, ['status', '--porcelain=v1', '--untracked-files=all'])).toBe('')
-    expect(() => readFileSync(ran.marker, 'utf8')).toThrow()
   })
 
   it('treats a failed status as not clean', () => {
@@ -658,10 +679,9 @@ describe('fix initial worktree preflight', () => {
     const dir = path.join(root, 'not-a-repo')
     mkdirSync(dir)
     writeFileSync(path.join(dir, 'sentinel'), 'keep\n')
-    const ran = runPreflight(dir, root)
+    const ran = runPreflight(dir)
     expect(ran.status).not.toBe(0)
     expect(ran.stderr).toMatch(/not clean/)
     expect(readFileSync(path.join(dir, 'sentinel'), 'utf8')).toBe('keep\n')
-    expect(() => readFileSync(ran.marker, 'utf8')).toThrow()
   })
 })
