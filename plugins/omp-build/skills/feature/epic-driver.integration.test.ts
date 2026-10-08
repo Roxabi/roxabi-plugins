@@ -359,7 +359,12 @@ describe('epic-driver — next', () => {
 
   it('refuses a child whose comment history completeness is unknown', () => {
     const { epic, state } = sandbox()
-    const comments = Array.from({ length: 101 }, () => ({ author: ME, body: 'ordinary note' }))
+    const marker =
+      '<!-- omp-build:goal-stop run=oldrun01 reason=review-bound -->\nRecorded spent review bound; never edited.\n'
+    const comments = [
+      { author: ME, body: marker },
+      ...Array.from({ length: 100 }, () => ({ author: ME, body: 'ordinary note' })),
+    ]
     const node = childNode(2, 'feat(x): first child', { comments }) as {
       comments: { pageInfo: { hasPreviousPage?: boolean } }
     }
