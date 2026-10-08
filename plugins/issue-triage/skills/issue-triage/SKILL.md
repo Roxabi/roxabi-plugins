@@ -170,6 +170,8 @@ Then omit `--parent`. Do not create an epic to hold B. Exclusion is that absent 
 
 `ACTIVE_EPIC` is the open epic the goal loop is delivering. It is not inferred from `P1`, priority, labels, or a hardcoded number. Empty means a successful fresh goal read proved no active epic, and the sibling default stays. Unset, or a failed, malformed, or unresolved goal read, is not that empty: halt before any create or relation write. `skill://fix` § Filing establishes `DISPOSITION` and `ACTIVE_EPIC` (feature supplies the epic it is delivering; a standalone run uses that same fresh goal read). This fence consumes those facts. It does not re-read goal state, and it does not add a tracker parser. Whether a reused body must gain an item is that filing recipe's conservation decision.
 
+Final-review origin E may itself have a parent H. The explicit nonblocking self-candidate (`SOURCE_ISSUE=SOURCE_PARENT=ACTIVE_EPIC`) resolves to that live H, preserving the sibling default outside E. Only a proven top-level E keeps E as the candidate to omit. Blocking epic-fix tickets still parent to E.
+
 **Reuse.** `EXISTING_ISSUE` is only a candidate. Empty means discovery succeeded and found no open cover. Unset, or a failed search, must not be passed as empty — halt, do not create. Before reuse, re-read live state: the issue must be `OPEN` and the body readable. `ITEM_COVERAGE` is the agent's explicit decision, `exact` or `noncovering`; title similarity is not coverage. `noncovering`, or a missing coverage fact, halts with no create. Several open trackers and no single issue that covers every deferred item → halt before create, body write, relation write, push, or receipt. Do not file an umbrella and do not record a deferral that does not exist. Reuse does not create and does not set or remove parent, whether the issue is outside the epic or still a historical child. A detached issue is not reattached. A non-whitespace `FILE_DIR/append.md` is the only mutation: `set --body-file`, prior body kept as the prefix. No relation flags. If that `set` fails, reconcile the issue; do not create another.
 
 **Recipe — defer A → create follow-up B.** Facts, not new CLI flags. Names match `skill://fix` § Filing. Every listed name must be set before the fence; unset halts. Empty is known absence only where noted, never a failed read. Bare positive integers, never `#N`. The omit comparison is that recipe's comparison: fresh, `DISPOSITION=nonblocking`, and `SOURCE_PARENT` equals a non-empty `ACTIVE_EPIC`.
@@ -251,10 +253,10 @@ else error("malformed parent") end'
       ;;
     *) A_PARENT="$PARENT_MARK" ;;
   esac
-  # Agree, or the origin is the top-level epic being filed as its own candidate parent.
-  if [ "$SOURCE_PARENT" = "$A_PARENT" ]; then
-    :
-  elif [ -z "$A_PARENT" ] && [ "$SOURCE_PARENT" = "$SOURCE_ISSUE" ]; then
+  # Final-review self-candidates resolve to the live enclosing parent, if any.
+  if [ "$DISPOSITION" = "nonblocking" ] && [ "$SOURCE_ISSUE" = "$ACTIVE_EPIC" ] && [ "$SOURCE_PARENT" = "$SOURCE_ISSUE" ]; then
+    SOURCE_PARENT="${A_PARENT:-$SOURCE_ISSUE}"
+  elif [ "$SOURCE_PARENT" = "$A_PARENT" ]; then
     :
   else
     echo "Error: parent bindings disagree; refusing to create" >&2

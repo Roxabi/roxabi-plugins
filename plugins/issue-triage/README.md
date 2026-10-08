@@ -57,6 +57,8 @@ edge. Blocking filings and planned delivery slices keep the parent. An existing
 open issue that already tracks the item is reused without reparenting, even when
 it is detached or historically remains an epic child. This is the caller's filing
 policy, not a new CLI flag or scheduler filter; see the skill's Deferred Follow-Ups.
+Final review of a nested delivery epic preserves its enclosing sibling parent;
+only a top-level delivery epic has no such parent to pass.
 
 ## Size
 

@@ -219,7 +219,7 @@ Export these facts before the fence. Each name must be set. Empty is known absen
 - `FILE_DIR` — `title.txt` and `body.md`, written with the write tool. `append.md` only when reused D gains items
 - `SOURCE_SIZE` — required on a fresh create. `SOURCE_TYPE` is optional and passed only when non-empty
 - `SOURCE_ISSUE` — bare positive integer, or empty when a successful read proved no origin. A fresh create passes `--blocked-by` only when it is set
-- `SOURCE_PARENT` — bare positive integer, or empty after a successful parent read. When `SOURCE_ISSUE` is set, the fence re-reads that parent and halts on failure or disagreement. Exception: the live parent is null and `SOURCE_PARENT` equals `SOURCE_ISSUE` (the origin is the top-level epic, filed as its own candidate parent). A parent claimed with an empty origin halts
+- `SOURCE_PARENT` — bare positive integer, or empty after a successful parent read. The fence re-reads the origin's parent and halts on failure or disagreement. For nonblocking final review only (`SOURCE_ISSUE=SOURCE_PARENT=ACTIVE_EPIC`), that self-candidate is resolved to the live enclosing parent H if present; a proven top-level origin keeps E as candidate and omits it on create. A parent claimed with an empty origin halts
 - `ACTIVE_EPIC` — the open epic the goal loop is delivering, from a successful fresh goal read, or empty only when that read proved none. Feature passes the goal/driver epic. Standalone reads the same goal state. Do not infer it from priority, labels, or a hardcoded number. The fence consumes the fact and does not re-read goal state
 - `EXISTING_ISSUE` — candidate number, or empty only after a successful search found no open cover. A failed search is unset, not empty
 - `ITEM_COVERAGE` — required when `EXISTING_ISSUE` is non-empty: `exact` or `noncovering`. The agent owns semantic coverage. The fence checks that fact and the live OPEN/body read; it does not parse bodies. `noncovering` halts with no create
@@ -296,13 +296,11 @@ if [ -n "$SOURCE_ISSUE" ]; then
     echo "halt: SOURCE_PARENT read failed; not absence" >&2
     exit 1
   fi
-  if [ "$parent_live" != "$SOURCE_PARENT" ]; then
-    if [ -z "$parent_live" ] && [ "$SOURCE_PARENT" = "$SOURCE_ISSUE" ]; then
-      :
-    else
-      echo "halt: SOURCE_PARENT disagrees with live parent; not absence" >&2
-      exit 1
-    fi
+  if [ "$DISPOSITION" = "nonblocking" ] && [ "$SOURCE_ISSUE" = "$ACTIVE_EPIC" ] && [ "$SOURCE_PARENT" = "$SOURCE_ISSUE" ]; then
+    SOURCE_PARENT="${parent_live:-$SOURCE_ISSUE}"
+  elif [ "$parent_live" != "$SOURCE_PARENT" ]; then
+    echo "halt: SOURCE_PARENT disagrees with live parent; not absence" >&2
+    exit 1
   fi
 elif [ -n "$SOURCE_PARENT" ]; then
   echo "halt: SOURCE_PARENT set without SOURCE_ISSUE; not absence" >&2

@@ -349,6 +349,16 @@ describe('fix Filing command', () => {
     expect(ran.state.log.some((line) => line.startsWith('graphql:addSubIssue'))).toBe(false)
   })
 
+  it('keeps the enclosing sibling parent for final review of a nested epic', () => {
+    const ran = runFiling(
+      facts({ SOURCE_ISSUE: '720', SOURCE_PARENT: '720', ACTIVE_EPIC: '720' }),
+      emptyState([seed(720, { parent: 50 }), seed(50)]),
+    )
+    expect(ran.status).toBe(0)
+    expect(created(ran.state)[0].parent).toBe(50)
+    expect(created(ran.state)[0].blockedBy).toEqual([720])
+  })
+
   it('halts when the claimed parent disagrees with the live read', () => {
     const ran = runFiling(facts({ SOURCE_PARENT: '50' }), emptyState([seed(396, { parent: 720 })]))
     expect(ran.status).not.toBe(0)
