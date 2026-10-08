@@ -111,6 +111,8 @@ naming the epic, `/feature` is unchanged.
 
 Every `next` re-disarms a stopped child's armed PR before it moves on (`reconciled`); a failed disarm, or a PR that already merged, is a drop and creates no branch. `report --outcome drop` disarms without reading base CI or the landing, and exits non-zero naming any PR still armed. If that command fails, print the error, then drop the goal.
 
+Child stop markers are read from the complete comment history, preserving the author and first-line checks. The recent GraphQL window is used only when it has no previous page; otherwise all REST pages are read before scheduling. An unreadable or incomplete history cannot authorize a resume. A shared-state drop still disarms first, even when that history is unavailable.
+
 ## Slash commands
 
 | Command | Lane |

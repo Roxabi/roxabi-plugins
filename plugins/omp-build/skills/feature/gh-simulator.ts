@@ -316,7 +316,10 @@ function issueNode(state: State, issue: Issue): Record<string, unknown> {
         }
       }),
     },
-    comments: { nodes: commentNodes(issue.comments) },
+    comments: {
+      nodes: commentNodes(issue.comments.slice(-100)),
+      pageInfo: { hasPreviousPage: issue.comments.length > 100 },
+    },
     closedByPullRequestsReferences: { nodes: merged.map((pr) => prNode(state, pr)) },
     timelineItems: {
       nodes: open.map((pr) => ({ source: prNode(state, pr) })),

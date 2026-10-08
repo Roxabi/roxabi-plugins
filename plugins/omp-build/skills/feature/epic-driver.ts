@@ -55,7 +55,7 @@ import {
   ticketOfSubject,
 } from './epic'
 import { type HookResult, runPostMergeHook } from './epic-close'
-import { disarmReviewedBeforePush, readLanding, reviewRecords } from './workflow.js'
+import { commentPageArgs, disarmReviewedBeforePush, readLanding, reviewRecords } from './workflow.js'
 
 class Refused extends Error {}
 class Assisted extends Error {}
@@ -135,7 +135,7 @@ type RawChild = {
   repository: { nameWithOwner: string }
   labels: { nodes: { name: string }[] }
   blockedBy: { nodes: { number: number; state: 'OPEN' | 'CLOSED'; repository: { nameWithOwner: string } }[] }
-  comments: { nodes: RawComment[] }
+  comments: { nodes: RawComment[]; pageInfo: { hasPreviousPage: boolean } }
   closedByPullRequestsReferences: { nodes: RawPr[] }
   timelineItems: { nodes: ({ source?: Partial<RawPr> | null } | null)[] }
 }
@@ -167,7 +167,7 @@ const EPIC_QUERY = `query($owner: String!, $name: String!, $epic: Int!) {
           number title state body author { login } repository { nameWithOwner }
           labels(first: 50) { nodes { name } }
           blockedBy(first: 50) { nodes { number state repository { nameWithOwner } } }
-          comments(last: 100) { nodes { body author { login } } }
+          comments(last: 100) { pageInfo { hasPreviousPage } nodes { body author { login } } }
           closedByPullRequestsReferences(first: 20, includeClosedPrs: true) { nodes { ${PR_FIELDS} } }
           timelineItems(itemTypes: [CROSS_REFERENCED_EVENT], last: 50) {
             nodes { ... on CrossReferencedEvent { source { ... on PullRequest { ${PR_FIELDS} } } } }
@@ -185,6 +185,30 @@ function isPr(source: Partial<RawPr> | null | undefined): source is RawPr {
 /** Bodies of this account's comments: the only surface a marker is read from. */
 function ours(comments: RawComment[], viewer: string): string[] {
   return comments.filter((c) => c.author?.login === viewer).map((c) => c.body ?? '')
+}
+
+/** The window is sufficient only when GitHub certifies there is no earlier page. */
+function childCommentBodies(repo: string, node: RawChild, viewer: string): string[] {
+  const earlier = node.comments.pageInfo?.hasPreviousPage
+  if (earlier === false) return ours(node.comments.nodes, viewer)
+  if (earlier !== true) throw new Error(`child #${node.number}: comment history completeness is unknown`)
+  const pages: unknown = JSON.parse(gh(repo, commentPageArgs(node.number)))
+  if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) {
+    throw new Error(`child #${node.number}: comment history is incomplete`)
+  }
+  const bodies: string[] = []
+  let count = 0
+  for (const page of pages) {
+    for (const entry of page) {
+      if (typeof entry?.body !== 'string') throw new Error(`child #${node.number}: comment has no body`)
+      count++
+      if (entry.user?.login === viewer) bodies.push(entry.body)
+    }
+  }
+  if (count <= node.comments.nodes.length) {
+    throw new Error(`child #${node.number}: comment history changed or is incomplete`)
+  }
+  return bodies
 }
 
 // ── Facts ────────────────────────────────────────────────────────────────────
@@ -378,7 +402,8 @@ function gather(
         ? { number: b.number, state: b.state }
         : { number: b.number, state: b.state, repo: b.repository.nameWithOwner },
     ),
-    stops: ours(node.comments.nodes, viewer)
+    // The light drop snapshot must disarm even if reading the full history fails.
+    stops: (reviews ? childCommentBodies(repo, node, viewer) : ours(node.comments.nodes, viewer))
       .map(parseGoalStop)
       .filter((stop) => stop !== null),
     prs: (rawPrs.get(node.number) ?? []).map((pr) => prFacts(pr, stopped)),

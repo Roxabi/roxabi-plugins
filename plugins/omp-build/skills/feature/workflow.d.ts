@@ -19,6 +19,8 @@ export declare function disarmReviewedBeforePush(
   deps?: { gh?: Gh; push?: () => Promise<void> | void },
 ): Promise<{ disarmed?: true }>
 
+export declare function commentPageArgs(pr: number | string): string[]
+
 /**
  * Own marked reviews by `me` (#710). `reviews` counts exact `Request changes`
  * only; approvals neither spend nor reset. `verdict` and `head` are the latest

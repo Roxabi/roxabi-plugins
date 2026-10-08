@@ -47,6 +47,11 @@ case "$1 \${2:-}" in
       query reviews
       cat "$S/reviews.json"
     else query other; echo '{"data":{"repository":{}}}'; fi ;;
+  "api --paginate")
+    [[ "$3" == "--slurp" ]] || exit 9
+    number="\${4%/comments}"; number="\${number##*/}"
+    query "comments $number"
+    cat "$S/issue-$number-comments.json" || exit 1 ;;
   "issue comment")
     if [[ -f "$S/comment.fail" ]]; then echo "comment failed" >&2; exit 1; fi
     n=$(ls "$S" | grep -c '^comment-' || true)
@@ -150,7 +155,10 @@ function childNode(
     repository: { nameWithOwner: 'o/r' },
     labels: { nodes: [{ name: 'size:S' }] },
     blockedBy: { nodes: blockedBy.map(([n, s]) => ({ number: n, state: s, repository: { nameWithOwner: 'o/r' } })) },
-    comments: { nodes: comments.map((c) => ({ body: c.body, author: { login: c.author } })) },
+    comments: {
+      nodes: comments.slice(-100).map((c) => ({ body: c.body, author: { login: c.author } })),
+      pageInfo: { hasPreviousPage: comments.length > 100 },
+    },
     closedByPullRequestsReferences: { nodes: prs },
     timelineItems: { nodes: [] },
   }
@@ -270,6 +278,76 @@ describe('epic-driver — next', () => {
     expect(run.json().step.report.skipped).toEqual([{ ticket: 3, blockers: [2] }])
     expect(git(epic, 'branch', '--show-current')).toBe('feat/2-first-child')
     expect(git(epic, 'rev-parse', 'HEAD')).toBe(git(epic, 'rev-parse', 'refs/remotes/origin/main'))
+  })
+
+  it.each([
+    { author: ME, prefix: '', ticket: 4, sticky: true },
+    { author: 'mallory', prefix: '', ticket: 2, sticky: false },
+    { author: ME, prefix: 'Quoted record:\n', ticket: 2, sticky: false },
+  ])('reads older child comments without weakening marker authenticity: $author / $prefix', (testCase) => {
+    const { state } = sandbox()
+    const comments = [
+      {
+        author: testCase.author,
+        body: `${testCase.prefix}<!-- omp-build:goal-stop run=oldrun01 reason=review-bound -->\nhistorical stop`,
+      },
+      ...Array.from({ length: 100 }, (_, index) => ({ author: ME, body: `ordinary note ${index}` })),
+    ]
+    const entries = comments.map((entry) => ({ body: entry.body, user: { login: entry.author } }))
+    writeFileSync(
+      path.join(state, 'issue-2-comments.json'),
+      JSON.stringify([entries.slice(0, 100), entries.slice(100)]),
+    )
+    serveEpic([
+      childNode(2, 'feat(x): first child', { comments }),
+      childNode(3, 'fix(y): dependent child', { blockedBy: [[2, 'OPEN']] }),
+      childNode(4, 'fix(z): independent child'),
+    ])
+    const run = drive(['next'])
+    expect(run.code).toBe(0)
+    expect(run.json().step).toMatchObject({ action: 'start', ticket: testCase.ticket })
+    expect(run.json().step.report.stopped).toEqual(
+      testCase.sticky ? [{ ticket: 2, reason: 'review-bound', sticky: true }] : [],
+    )
+    expect(run.json().step.report.skipped).toEqual([{ ticket: 3, blockers: [2] }])
+    expect(writes()).toEqual([])
+  })
+
+  it('refuses unreadable history without preventing a shared-state drop from disarming', () => {
+    const { epic } = sandbox()
+    const comments = Array.from({ length: 101 }, () => ({ author: ME, body: 'ordinary note' }))
+    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
+    serveEpic([
+      childNode(2, 'feat(x): first child', {
+        comments,
+        prs: [prNode(11, 'feat/2-first-child', 'c'.repeat(40), armed)],
+      }),
+    ])
+    servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    const run = drive(['next'])
+    expect(run.code).toBe(1)
+    expect(run.stderr).toContain('driver=failed')
+    expect(git(epic, 'branch', '--show-current')).toBe('')
+    expect(writes()).toEqual([])
+    const drop = drive(['report', '--outcome', 'drop', '--reason', 'driver-error'])
+    expect(drop.code).toBe(0)
+    expect(writes()).toEqual([
+      'merge 11 --disable-auto',
+      'edit 11 --remove-label reviewed',
+      `comment 1 <!-- omp-build:goal-report run=${RUN} -->`,
+    ])
+  })
+
+  it('does not treat an empty full-history response as permission to resume', () => {
+    const { epic, state } = sandbox()
+    const comments = Array.from({ length: 101 }, () => ({ author: ME, body: 'ordinary note' }))
+    serveEpic([childNode(2, 'feat(x): first child', { comments })])
+    writeFileSync(path.join(state, 'issue-2-comments.json'), '[]')
+    const run = drive(['next'])
+    expect(run.code).toBe(1)
+    expect(run.stderr).toContain('comment history changed or is incomplete')
+    expect(git(epic, 'branch', '--show-current')).toBe('')
+    expect(writes()).toEqual([])
   })
 
   it('confirms a merged child, deletes its local branch and starts the next one', () => {
