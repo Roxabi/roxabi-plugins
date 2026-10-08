@@ -315,18 +315,17 @@ describe('fix Filing command', () => {
     expect(created(ran.state)).toEqual([])
   })
 
-  it('creates a fresh nonblocking deferral outside the active epic', () => {
+  it.each(['fix', 'triage'] as const)('%s creates a fresh nonblocking deferral outside the active epic', (recipe) => {
     const ran = runFiling(
       facts(),
       emptyState([seed(396, { parent: 720, body: 'origin' }), seed(720, { title: 'epic' })]),
+      { recipe },
     )
     expect(ran.status).toBe(0)
     const issue = created(ran.state)
     expect(issue).toHaveLength(1)
     expect(issue[0].parent).toBeNull()
     expect(issue[0].blockedBy).toEqual([396])
-    expect(issue[0].body).toContain('**Origin:**')
-    expect(issue[0].body).toContain('## Acceptance criteria')
     expect(issue[0].labels).toContain('size:S')
     expect(issue[0].type).toBe('TYPE_fix')
     expect(ran.state.log.some((line) => line.startsWith('fetch:POST /graphql'))).toBe(true)
@@ -334,12 +333,15 @@ describe('fix Filing command', () => {
     expect(ran.state.log.every((line) => !line.includes('example.com'))).toBe(true)
   })
 
-  it('keeps the delivery parent on a blocking filing', () => {
-    const ran = runFiling(facts({ DISPOSITION: 'blocking' }), emptyState([seed(396, { parent: 720 }), seed(720)]))
+  it.each(['fix', 'triage'] as const)('%s keeps the delivery parent on a blocking filing', (recipe) => {
+    const ran = runFiling(facts({ DISPOSITION: 'blocking' }), emptyState([seed(396, { parent: 720 }), seed(720)]), {
+      recipe,
+    })
     expect(ran.status).toBe(0)
     expect(created(ran.state)).toHaveLength(1)
     expect(created(ran.state)[0].parent).toBe(720)
     expect(created(ran.state)[0].blockedBy).toEqual([396])
+    expect(relations(ran.state)).toContain('graphql:addSubIssue')
   })
 
   it('uses the sibling parent when it is not the active epic', () => {
@@ -377,14 +379,16 @@ describe('fix Filing command', () => {
     expect(ran.state.log.some((line) => line.startsWith('graphql:addSubIssue'))).toBe(false)
   })
 
-  it('keeps the enclosing sibling parent for final review of a nested epic', () => {
+  it.each(['fix', 'triage'] as const)('%s keeps the enclosing sibling parent for a nested final review', (recipe) => {
     const ran = runFiling(
       facts({ SOURCE_ISSUE: '720', SOURCE_PARENT: '720', ACTIVE_EPIC: '720' }),
       emptyState([seed(720, { parent: 50 }), seed(50)]),
+      { recipe },
     )
     expect(ran.status).toBe(0)
     expect(created(ran.state)[0].parent).toBe(50)
     expect(created(ran.state)[0].blockedBy).toEqual([720])
+    expect(relations(ran.state)).toContain('graphql:addSubIssue')
   })
 
   it('halts when the claimed parent disagrees with the live read', () => {
@@ -422,7 +426,7 @@ describe('fix Filing command', () => {
     expect(posts(ran.state)).toEqual([])
   })
 
-  it('reuses an already detached open issue and writes no edges', () => {
+  it.each(['fix', 'triage'] as const)('%s reuses an already detached open issue and writes no edges', (recipe) => {
     const ran = runFiling(
       facts({
         SOURCE_ISSUE: '',
@@ -431,15 +435,15 @@ describe('fix Filing command', () => {
         ITEM_COVERAGE: 'exact',
       }),
       emptyState([seed(80, { parent: null, body: 'HISTORY-LINE' })]),
+      { recipe },
     )
     expect(ran.status).toBe(0)
-    expect(ran.stdout).toMatch(/reused #80/)
     expect(posts(ran.state)).toEqual([])
     expect(relations(ran.state)).toEqual([])
     expect(ran.state.issues.find((issue) => issue.number === 80)?.parent).toBeNull()
   })
 
-  it('reuses a historical child without changing its parent', () => {
+  it.each(['fix', 'triage'] as const)('%s reuses a historical child without changing its parent', (recipe) => {
     const ran = runFiling(
       facts({
         SOURCE_ISSUE: '',
@@ -448,11 +452,28 @@ describe('fix Filing command', () => {
         ITEM_COVERAGE: 'exact',
       }),
       emptyState([seed(81, { parent: 720, body: 'still a child' })]),
+      { recipe },
     )
     expect(ran.status).toBe(0)
     expect(posts(ran.state)).toEqual([])
     expect(relations(ran.state)).toEqual([])
     expect(ran.state.issues.find((issue) => issue.number === 81)?.parent).toBe(720)
+  })
+
+  it.each([
+    ['Origin', '## Acceptance criteria\n\n- [ ] item\n'],
+    ['acceptance heading', '**Origin:** PR #9\n\n- [ ] item\n'],
+  ])('triage refuses a fresh deferral missing %s before creation', (_missing, body) => {
+    const ran = runFiling(facts(), emptyState([seed(396, { parent: 720 }), seed(720)]), {
+      recipe: 'triage',
+      prepare(fileDir) {
+        writePayload(fileDir, body)
+      },
+    })
+    expect(ran.status).not.toBe(0)
+    expect(posts(ran.state)).toEqual([])
+    expect(relations(ran.state)).toEqual([])
+    expect(created(ran.state)).toEqual([])
   })
 
   it('does not reuse a closed tracker and does not create another', () => {

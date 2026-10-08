@@ -142,6 +142,9 @@ than produce duplicate issues or a false success receipt.
 Reused-tracker additions are append-only comments, never body replacements.
 Coverage includes the body and all comment pages; the receipt links each addition.
 Read or append failure halts before push or a successful receipt.
+Both executable filing recipes are exercised on successful fresh/nonblocking,
+blocking, nested-epic and reuse paths; triage also refuses missing Origin or
+acceptance headings before creation.
 
 ## Slash commands
 
