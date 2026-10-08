@@ -849,7 +849,7 @@ export async function landPr(
       return exit({
         status: 'watching',
         mode: resolved.mode,
-        watch: `bash ${shellQuote(ciWatchSh())} ${shellQuote(String(pr))} --merge-mode ${resolved.mode} --base ${landingBase}${sinceArg}`,
+        watch: `bash ${shellQuote(ciWatchSh())} ${shellQuote(String(pr))} --merge-mode ${resolved.mode} --base ${shellQuote(landingBase)}${sinceArg}`,
       })
     })()
   } catch (failure) {

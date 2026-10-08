@@ -365,7 +365,7 @@ describe('landPr', () => {
  * A PR whose gate follows the calls made on it: labels, native auto-merge, labeled events,
  * comments by author. Only exact argv is answered; anything else throws.
  */
-function gatePr({ comments, labels = [], autoMerge = null, state = 'OPEN', headRefOid = null }) {
+function gatePr({ comments, labels = [], autoMerge = null, state = 'OPEN', headRefOid = null, base = 'main' }) {
   const pr = { comments: [...comments], labels: new Set(labels), autoMerge, state, labeledAt: [], headRefOid }
   const calls = []
   const gh = async (_cwd, args) => {
@@ -393,7 +393,7 @@ function gatePr({ comments, labels = [], autoMerge = null, state = 'OPEN', headR
         else if (field === 'autoMergeRequest') view.autoMergeRequest = pr.autoMerge
         else if (field === 'state') view.state = pr.state
         else if (field === 'headRefOid') view.headRefOid = pr.headRefOid
-        else if (field === 'baseRefName') view.baseRefName = 'main'
+        else if (field === 'baseRefName') view.baseRefName = base
         else throw new Error(`unexpected field: ${field}`)
       }
       return JSON.stringify(view)
@@ -552,6 +552,22 @@ describe('landPr — only an approving latest record arms', () => {
     const result = await landPr('/tmp/wt', 7, { gh: fake.gh, ...NATIVE })
     expect(result).toMatchObject({ status: 'watching', mode: 'native' })
     expect(fake.pr.labels.has('reviewed')).toBe(true)
+  })
+
+  it.each([
+    ['command substitution', 'release$(id)', "'release$(id)'"],
+    ['a semicolon', 'release;id', "'release;id'"],
+    ['a single quote', "release'id", "'release'\\''id'"],
+  ])('quotes a base containing %s before the watch command reaches a shell', async (_label, base, quoted) => {
+    const fake = gatePr({
+      comments: [byMe(boundReview('Approve (clean)', REVIEWED_HEAD))],
+      headRefOid: REVIEWED_HEAD,
+      base,
+    })
+    const result = await landPr('/tmp/wt', 7, { gh: fake.gh, ...NATIVE })
+    expect(result.watch).toContain(`--base ${quoted}`)
+    expect(result.watch).not.toContain(`--base ${base} `)
+    expect(result.watch).not.toContain(`--base ${base}"`)
   })
 })
 
