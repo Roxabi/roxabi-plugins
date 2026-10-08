@@ -198,7 +198,7 @@ export function parsePostMerge(body: string): HookRecord | null {
 
 // ── Stops ─────────────────────────────────────────────────────────────────────
 
-/** Report, record a goal-stop marker, skip dependents, continue independents. */
+/** Report, record a goal-stop marker, skip dependents, continue independents. `ci-failed` is not sticky. */
 export const TICKET_STOPS = [
   'review-bound',
   'proof-blocked',
@@ -208,6 +208,7 @@ export const TICKET_STOPS = [
   'timeout',
   'ci-cancelled',
   'ci-blocked',
+  'ci-failed',
   'stopped',
   'closed',
 ] as const
@@ -230,7 +231,7 @@ export const SHARED_STOPS = [
   'driver-error',
 ] as const
 
-/** A spent review bound stays stopped across runs; every other ticket stop is retried by a new run. */
+/** A spent Request-changes bound stays stopped across runs; every other ticket stop, including `ci-failed`, is retried by a new run. */
 export const STICKY_STOPS: readonly string[] = ['review-bound']
 
 export type TicketStop = (typeof TICKET_STOPS)[number]
@@ -245,21 +246,22 @@ export function stopClass(reason: string): 'ticket' | 'shared' | 'no-progress' |
 
 /**
  * What a `landPr` / `applyCiWatchExit` status means under a goal. `timeout` is a
- * ticket stop, never a re-attach. An unknown status fails closed as shared.
+ * ticket stop, never a re-attach. `ci-failed` is the same class of ticket stop:
+ * not sticky, not `review-bound`, and not a correction. An unknown status fails
+ * closed as shared.
  */
 export function landOutcome(
   status: string,
-): { next: 'watch' | 'confirm' | 'reopen' } | { stop: TicketStop | SharedStop; class: 'ticket' | 'shared' } {
+): { next: 'watch' | 'confirm' } | { stop: TicketStop | SharedStop; class: 'ticket' | 'shared' } {
   switch (status) {
     case 'watching':
       return { next: 'watch' }
     case 'merged':
       return { next: 'confirm' }
-    case 'ci-failed':
-      return { next: 'reopen' }
     case 'timeout':
     case 'ci-cancelled':
     case 'ci-blocked':
+    case 'ci-failed':
     case 'stopped':
     case 'closed':
       return { stop: status, class: 'ticket' }
@@ -288,7 +290,7 @@ export type PrFacts = {
   baseSha: string | null
   /** `reviewed` label or native auto-merge on. */
   armed: boolean
-  /** The review bound is spent on this PR (`reviewRecords` in `workflow.js`). */
+  /** Request-changes bound spent on this PR (`reviewRecords.spent` in `workflow.js`). A later approval does not lift it. */
   exhausted: boolean
 }
 

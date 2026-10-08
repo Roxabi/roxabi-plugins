@@ -21,7 +21,7 @@ One `/goal` line for an Epic goal, named by the `run=<id>` in its objective. Onl
 _Avoid_: a session, a paused goal, the run as a counter of attempts
 
 **Ticket stop**:
-A child the Goal run stops on - review bound spent, proof blocked, foreign commit or branch mismatch, no scope, a watch that timed out, cancelled or blocked checks, an unmerged or closed PR. Recorded as a `goal-stop` marker on the child; its PR is disarmed, its dependents are skipped, independent children continue. A later `next` re-disarms an armed PR of a stopped child before it continues; a failed re-disarm, or a PR that already merged, drops the goal and creates no branch. A spent review bound stays stopped across runs; any other ticket stop is retried by the next run.
+A child the Goal run stops on — review bound spent, a watcher-reported CI failure, proof blocked, foreign commit or branch mismatch, no scope, a watch that timed out, cancelled or blocked checks, an unmerged or closed PR. Recorded as a `goal-stop` marker on the child; its PR is disarmed, its dependents are skipped, independent children continue. A later `next` re-disarms an armed PR of a stopped child before it continues; a failed re-disarm, or a PR that already merged, drops the goal and creates no branch. A spent review bound stays stopped across runs; a watcher CI failure and any other ticket stop are retried by the next run.
 _Avoid_: a goal drop, a skipped dependent, a stop held in session memory
 
 **Shared-state stop**:
@@ -59,12 +59,8 @@ The repository's declared command that runs once the epic has landed, not after 
 _Avoid_: a per-ticket deploy, a release cut, re-running this run's hook on a moved base
 
 **Review bound**:
-At most two automated fixes per PR, one per Review record, derived on every read from the automation login's Review records: how many there are, and the latest one.
-A fix — after a red review, or after a CI failure on the approved head — is allowed while the PR has at most two records; the fix's push moves the head, so the next step needs a review of it.
-A record past the second that does not approve spends the bound for good: a later green does not lift it, and `landPr` refuses to arm. A CI failure after the third review stops too; the records do not show it, so only a ticket stop keeps that stop across runs.
-Every posted review counts, with or without a fix before it. Nothing writes accounting.
-The bound guards against agent mistakes, not against an agent that bypasses it. After a stop, resumption is an explicitly selected superseding PR under a revised plan, or the operator finishing by hand.
-_Avoid_: a ledger, counting fix receipts, a stop marker, one more automatic retry, merging with blockers
+The cumulative allowance of two `Request changes` records on a PR. The third spends it for good — an approval neither spends nor resets it, a later green does not lift it, and resumption is a superseding PR under a revised plan or the operator finishing by hand.
+_Avoid_: a PR-lifetime review envelope (#717), counting approvals, a CI-fix budget, a ledger
 
 **Snapshot**:
 A frozen copy of selected `dev-core` files inside `omp-build`. No resync. Claude's `dev-core` evolves alone.

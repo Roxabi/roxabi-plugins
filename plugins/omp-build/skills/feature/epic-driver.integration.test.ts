@@ -577,6 +577,48 @@ describe('epic-driver — review bound', () => {
     const run = drive(['next', '--dry-run'])
     expect(run.json().step).toMatchObject({ action: 'resume', ticket: 2, pr: { number: 11 } })
   })
+
+  it('does not spend the bound on approvals', () => {
+    openPrChild()
+    reviewed(11, [record('Approve'), record('Approve'), record('Request changes')])
+    const run = drive(['next', '--dry-run'])
+    expect(run.json().step).toMatchObject({ action: 'resume', ticket: 2, pr: { number: 11 } })
+    expect(run.json().step.report.stopped).toEqual([])
+  })
+
+  it('keeps a recorded review-bound stop when the fresh review count is unspent', () => {
+    openPrChild()
+    const earlier = { body: '<!-- omp-build:goal-stop run=run00000 reason=review-bound -->\nstopped', author: ME }
+    const later = { body: `<!-- omp-build:goal-stop run=${RUN} reason=ci-failed -->\nci`, author: ME }
+    serveEpic([
+      childNode(2, 'feat(x): first child', {
+        comments: [earlier, later],
+        prs: [
+          prNode(
+            11,
+            'feat/2-first-child',
+            git(sandboxOf().epic, 'rev-parse', 'refs/remotes/origin/feat/2-first-child'),
+          ),
+        ],
+      }),
+    ])
+    reviewed(11, [record('Approve'), record('Approve')])
+    const run = drive(['next', '--dry-run'])
+    expect(run.json().step).toMatchObject({ action: 'drop', stop: 'no-progress' })
+    expect(run.json().step.report.stopped).toEqual([{ ticket: 2, reason: 'review-bound', sticky: true }])
+  })
+
+  it('retries a child whose only earlier stop is ci-failed', () => {
+    sandbox()
+    serveEpic([
+      childNode(2, 'feat(x): first child', {
+        comments: [{ body: '<!-- omp-build:goal-stop run=run00000 reason=ci-failed -->\nci', author: ME }],
+      }),
+    ])
+    const run = drive(['next', '--dry-run'])
+    expect(run.json().step).toMatchObject({ action: 'start', ticket: 2 })
+    expect(run.json().step.report.stopped).toEqual([])
+  })
 })
 
 describe('epic-driver — eventual consistency', () => {

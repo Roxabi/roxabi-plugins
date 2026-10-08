@@ -240,7 +240,7 @@ describe('landPr through the checkout', () => {
 
   it('a head that moves after the labels view is not-approved and writes nothing', () => {
     const { result, calls } = land(checkout(STACK), 'ok', { head: 'moved' })
-    expect(result).toEqual({ status: 'not-approved', reviews: 1, reason: 'head-moved' })
+    expect(result).toEqual({ status: 'not-approved', reviews: 0, reason: 'head-moved' })
     expect(calls.some((args) => args[1] === 'edit')).toBe(false)
   })
 

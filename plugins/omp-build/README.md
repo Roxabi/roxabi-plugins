@@ -1,6 +1,6 @@
 # omp-build
 
-OMP-only cycle: frame → GitHub issue → agent-created worktree → `/move` + `/goal` → implement → bounded review/fix → land.
+OMP-only cycle: frame → GitHub issue → agent-created worktree → `/move` + `/goal` → implement → bounded review/fix (Request changes only) → land. A watcher CI failure stops; it is not repaired.
 
 Not a Claude/Grok factory — does not invoke host `/dev` or dev-core Skill() children.
 
@@ -98,7 +98,7 @@ next → start/resume child (branch from origin/<base>) → implement → dev-re
      → report → goal complete
 ```
 
-Children run in `blocked_by` order. A **ticket stop** (review bound spent, watch
+Children run in `blocked_by` order. A **ticket stop** (review bound spent, a watcher CI failure, watch
 timeout, cancelled or blocked checks, proof blocked, no scope, foreign commit…) is
 recorded on the child as a `goal-stop` marker, its PR disarmed; its dependents are
 skipped and independent children continue. A **shared-state stop** (base CI red,
@@ -106,7 +106,7 @@ skipped and independent children continue. A **shared-state stop** (base CI red,
 failure, hook failure, final review still blocking after its one fix ticket)
 disarms every child PR, reports on the epic and drops the
 goal. A new `/goal` line resumes: merged children are skipped, open PRs resumed,
-stops of earlier runs retried except a spent review bound. Without an active goal
+stops of earlier runs retried except a spent review bound. A watcher CI failure is that non-sticky ticket stop: the new run may retry it, and that retry does not repair. Without an active goal
 naming the epic, `/feature` is unchanged.
 
 Every `next` re-disarms a stopped child's armed PR before it moves on (`reconciled`); a failed disarm, or a PR that already merged, is a drop and creates no branch. `report --outcome drop` disarms without reading base CI or the landing, and exits non-zero naming any PR still armed. If that command fails, print the error, then drop the goal.
@@ -137,10 +137,7 @@ review read; lookup failure is never treated as a local review. A closed PR on
 the branch refuses implicit reuse, so its bound cannot be reset. Existing PRs
 resume from their review records.
 
-The review bound is two reads of the PR's review records (#710) — the comments
-by the automation login (`gh api user`) whose first line is
-`<!-- omp-build:code-review -->`: how many there are, and the latest one. Nothing
-writes accounting; every decision is derived again from a fresh read.
+The review bound is the cumulative allowance of two `Request changes` records (#710) — comments by the automation login (`gh api user`) whose first line is `<!-- omp-build:code-review -->` and whose verdict is `Request changes`. An approval neither spends nor resets that count. The latest verdict and head still follow every own marked review. Nothing writes accounting; every decision is derived again from a fresh read.
 
 **The armed gate (#713).** An OPEN PR is armed — `reviewed` label or auto-merge
 enabled — only when the latest review record approves the current head, the bound
@@ -166,13 +163,7 @@ before its diff; the review-start test exercises the fence, not model compliance
 
 **What the tests prove.** `armed-gate.test.js` has a clean-baseline sweep that covers one throw-before-effect at each call of the clean baseline (the base read excluded), selected observable head moves after calls that succeeded, and a throw plus a move paired after the gate is acquired. It excludes, and leaves to table rows alone, applies-then-throws and faults inside a disarm that an injected fault first triggers; it makes no claim about future calls. The #731 seeded compound suite is separate from that sweep. The base-read failure is covered by its own real-Bun scenario in `land.integration.test.js`: a discovered, armed, strict landing whose base read fails, with a real local origin. It does not detect both base files vanishing, which defaults to native. The oracle has four negative self-tests (`approve(OLD)` over an armed head, a forged `stays armed — auto-merge` report, a spent-bound armed PR, a text-only "the gate was disarmed" claim). The unreadable-pin row carries `known: '#731'`, an inert provenance marker for a fixed regression: it grants no exemption and nothing reads it. None of this is a proof that every fault ordering is covered.
 
-- `nextReviewStep(cwd, pr, { posted?, ciFailed?, reviewing? })` returns `land`, `fix`, `stop`
-  or `review`. A fix is allowed while the PR has at most two records, one per
-  review: the fix's push moves the head, and a latest record of another commit
-  asks for a review first. A record past the second that does not approve spends
-  the bound for good — a later green does not lift it. A CI failure on the head
-  the third review approved stops too. `posted` (the review just posted) must be
-  the latest record, else it throws.
+- `nextReviewStep(cwd, pr, { posted?, ciFailed?, reviewing? })` returns `land`, `fix`, `stop` or `review`. `reviews` counts `Request changes` only. A fix is allowed while that count is at most two; the fix's push moves the head, and a latest record of another commit asks for a review first. The third `Request changes` spends the bound for good — a later green does not lift it. `ciFailed: true` is a stale refusal: after posted validation it returns `stop` / `ci-failed` and does not grant a fix. `posted` (the review just posted) must be the latest record, else it throws.
 - `landPr(cwd, pr)` arms only when the latest record approves and its line-2
   `<!-- omp-build:review-head sha=… -->` equals the current `headRefOid`. Records
   then head are refreshed before each arming write, including after disable/remove
@@ -185,8 +176,8 @@ before its diff; the review-start test exercises the fence, not model compliance
 
 The bound guards against agent mistakes, not against an agent that bypasses it:
 records by other accounts are ignored, and edits or deletions of the account's
-comments are not detected. Every posted review counts, with or without a fix
-before it. Older accounting comments and the `## Review Fixes Applied` receipt
+comments are not detected. `Request changes` counts toward the bound. An approval does not.
+Older accounting comments and the `## Review Fixes Applied` receipt
 decide nothing.
 
 The canonical choices and escalation dossier live in `skills/dev-review/SKILL.md`

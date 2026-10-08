@@ -439,8 +439,8 @@ const NATIVE = { landing: { mode: 'native', required_checks: ['ci'] } }
 
 describe('landPr — a spent review bound is enforced before any landing step', () => {
   const SPENT = [
-    ['three reds, then an approval of the current head', [red(), red(), red(), green()], 4],
-    ['two reds, a record with conflicting verdicts, then an approval', [red(), red(), byMe(NULL_VERDICT), green()], 4],
+    ['three reds, then an approval of the current head', [red(), red(), red(), green()], 3],
+    ['three reds, a conflicting record, then an approval', [red(), red(), red(), byMe(NULL_VERDICT), green()], 3],
   ]
   const MODES = [
     ['native', NATIVE],
@@ -463,26 +463,39 @@ describe('landPr — a spent review bound is enforced before any landing step', 
       expect(fake.calls.some((args) => args[1] === 'merge' && args.includes('--auto'))).toBe(false)
     },
   )
+
+  it('does not spend the bound on a conflicting record or on approvals', async () => {
+    const fake = gatePr({
+      comments: [red(), red(), byMe(NULL_VERDICT), green(), green()],
+      headRefOid: REVIEWED_HEAD,
+      ...ARMED,
+    })
+    const result = await landPr('/tmp/wt', 7, { gh: fake.gh, ...NATIVE })
+    expect(result.status).toBe('watching')
+  })
 })
 
 describe('landPr — a refusal disarms a gate armed for an earlier approval', () => {
   it.each([
-    ['a red review after the approval, at the same head', [green(), red()], REVIEWED_HEAD, undefined],
-    ['a push after the approval', [green()], MOVED_HEAD, 'head-moved'],
-    ['an approval with no head line', [byMe(GREEN)], REVIEWED_HEAD, 'no-review-head'],
-  ])('%s: not-approved, reviewed removed and auto-merge disabled', async (_label, comments, headRefOid, reason) => {
-    const fake = gatePr({ comments, headRefOid, ...ARMED })
-    const result = await landPr('/tmp/wt', 7, { gh: fake.gh, ...NATIVE })
-    expect(result).toEqual({
-      status: 'not-approved',
-      reviews: comments.length,
-      ...(reason && { reason }),
-      disarmed: true,
-    })
-    expect([...fake.pr.labels]).toEqual(['size:F-lite'])
-    expect(fake.pr.autoMerge).toBe(null)
-    expect(fake.calls.some(armsLabel)).toBe(false)
-  })
+    ['a red review after the approval, at the same head', [green(), red()], REVIEWED_HEAD, undefined, 1],
+    ['a push after the approval', [green()], MOVED_HEAD, 'head-moved', 0],
+    ['an approval with no head line', [byMe(GREEN)], REVIEWED_HEAD, 'no-review-head', 0],
+  ])(
+    '%s: not-approved, reviewed removed and auto-merge disabled',
+    async (_label, comments, headRefOid, reason, reviews) => {
+      const fake = gatePr({ comments, headRefOid, ...ARMED })
+      const result = await landPr('/tmp/wt', 7, { gh: fake.gh, ...NATIVE })
+      expect(result).toEqual({
+        status: 'not-approved',
+        reviews,
+        ...(reason && { reason }),
+        disarmed: true,
+      })
+      expect([...fake.pr.labels]).toEqual(['size:F-lite'])
+      expect(fake.pr.autoMerge).toBe(null)
+      expect(fake.calls.some(armsLabel)).toBe(false)
+    },
+  )
 
   it.each([
     ['native', NATIVE],
@@ -496,7 +509,7 @@ describe('landPr — a refusal disarms a gate armed for an earlier approval', ()
         return fake.gh(cwd, args)
       }
       const result = await landPr('/tmp/wt', 7, { gh, sleep: async () => {}, ...options })
-      expect(result).toEqual({ status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true })
+      expect(result).toEqual({ status: 'not-approved', reviews: 0, reason: 'head-moved', disarmed: true })
       expect([...fake.pr.labels]).toEqual(['size:F-lite'])
       expect(fake.pr.autoMerge).toBe(null)
       expect(fake.calls.some(armsLabel)).toBe(false)
@@ -506,7 +519,7 @@ describe('landPr — a refusal disarms a gate armed for an earlier approval', ()
   it('leaves the gate of a CLOSED PR alone', async () => {
     const fake = gatePr({ comments: [green(), red()], headRefOid: REVIEWED_HEAD, state: 'CLOSED', ...ARMED })
     const result = await landPr('/tmp/wt', 7, { gh: fake.gh, ...NATIVE })
-    expect(result).toEqual({ status: 'not-approved', reviews: 2 })
+    expect(result).toEqual({ status: 'not-approved', reviews: 1 })
     expect(noWrite(fake.calls)).toBe(false)
   })
 })
@@ -515,8 +528,8 @@ describe('landPr — only an approving latest record arms', () => {
   it.each([
     ['no review record at all', [], 0],
     ['a red latest record at the current head', [red()], 1],
-    ['a red after the approval, both at the current head', [green(), red()], 2],
-    ['a latest record with conflicting verdicts', [byMe(NULL_VERDICT)], 1],
+    ['a red after the approval, both at the current head', [green(), red()], 1],
+    ['a latest record with conflicting verdicts', [byMe(NULL_VERDICT)], 0],
     [
       'an approval posted by another account',
       [red(), { author: { login: 'attacker' }, body: boundReview('Approve (clean)', REVIEWED_HEAD) }],
@@ -786,7 +799,7 @@ describe('landPr — an approval arms only the commit it reviewed', () => {
       headRefOid: MOVED_HEAD,
     })
     const result = await landPr('/tmp/wt', 7, { gh: fake.gh, ...NATIVE })
-    expect(result).toEqual({ status: 'not-approved', reviews: 1, reason: 'head-moved' })
+    expect(result).toEqual({ status: 'not-approved', reviews: 0, reason: 'head-moved' })
     expect(noWrite(fake.calls)).toBe(false)
   })
 
@@ -801,7 +814,7 @@ describe('landPr — an approval arms only the commit it reviewed', () => {
       return result
     }
     const result = await landPr('/tmp/wt', 7, { gh, ...NATIVE })
-    expect(result).toEqual({ status: 'not-approved', reviews: 1, reason: 'head-moved' })
+    expect(result).toEqual({ status: 'not-approved', reviews: 0, reason: 'head-moved' })
     expect(noWrite(fake.calls)).toBe(false)
   })
 
@@ -852,7 +865,7 @@ describe('landPr — an approval arms only the commit it reviewed', () => {
       headRefOid: null,
     })
     const result = await landPr('/tmp/wt', 7, { gh: fake.gh, ...NATIVE })
-    expect(result).toEqual({ status: 'not-approved', reviews: 1, reason: 'head-moved' })
+    expect(result).toEqual({ status: 'not-approved', reviews: 0, reason: 'head-moved' })
     expect(noWrite(fake.calls)).toBe(false)
   })
 
@@ -872,14 +885,14 @@ describe('landPr — an approval arms only the commit it reviewed', () => {
   it('a review record with no head line does not arm', async () => {
     const fake = gatePr({ comments: [byMe(GREEN)], headRefOid: REVIEWED_HEAD })
     const result = await landPr('/tmp/wt', 7, { gh: fake.gh, ...NATIVE })
-    expect(result).toEqual({ status: 'not-approved', reviews: 1, reason: 'no-review-head' })
+    expect(result).toEqual({ status: 'not-approved', reviews: 0, reason: 'no-review-head' })
     expect(noWrite(fake.calls)).toBe(false)
   })
 
   it('a missing head oid beside a record with no head line does not arm', async () => {
     const fake = gatePr({ comments: [byMe(GREEN)], headRefOid: null })
     const result = await landPr('/tmp/wt', 7, { gh: fake.gh, ...NATIVE })
-    expect(result).toEqual({ status: 'not-approved', reviews: 1, reason: 'no-review-head' })
+    expect(result).toEqual({ status: 'not-approved', reviews: 0, reason: 'no-review-head' })
     expect(noWrite(fake.calls)).toBe(false)
   })
 
@@ -887,7 +900,7 @@ describe('landPr — an approval arms only the commit it reviewed', () => {
     const quoted = `<!-- omp-build:code-review -->\n## Code Review\n\n${headLine(REVIEWED_HEAD)}\n\n**Verdict: Approve (clean)** — summary`
     const fake = gatePr({ comments: [byMe(quoted)], headRefOid: REVIEWED_HEAD })
     const result = await landPr('/tmp/wt', 7, { gh: fake.gh, ...NATIVE })
-    expect(result).toEqual({ status: 'not-approved', reviews: 1, reason: 'no-review-head' })
+    expect(result).toEqual({ status: 'not-approved', reviews: 0, reason: 'no-review-head' })
     expect(noWrite(fake.calls)).toBe(false)
   })
 
@@ -901,7 +914,7 @@ describe('landPr — an approval arms only the commit it reviewed', () => {
     const body = `<!-- omp-build:code-review -->\n${line2}\n## Code Review\n\n**Verdict: Approve (clean)** — summary`
     const fake = gatePr({ comments: [byMe(body)], headRefOid: REVIEWED_HEAD })
     const result = await landPr('/tmp/wt', 7, { gh: fake.gh, ...NATIVE })
-    expect(result).toEqual({ status: 'not-approved', reviews: 1, reason: 'no-review-head' })
+    expect(result).toEqual({ status: 'not-approved', reviews: 0, reason: 'no-review-head' })
     expect(noWrite(fake.calls)).toBe(false)
   })
 
@@ -919,7 +932,7 @@ describe('landPr — an approval arms only the commit it reviewed', () => {
   it('the latest record names the commit that counts, not an earlier one', async () => {
     const stale = gatePr({ comments: [green(REVIEWED_HEAD), green(MOVED_HEAD)], headRefOid: REVIEWED_HEAD })
     const staleResult = await landPr('/tmp/wt', 7, { gh: stale.gh, ...NATIVE })
-    expect(staleResult).toEqual({ status: 'not-approved', reviews: 2, reason: 'head-moved' })
+    expect(staleResult).toEqual({ status: 'not-approved', reviews: 0, reason: 'head-moved' })
     expect(noWrite(stale.calls)).toBe(false)
     const fresh = gatePr({ comments: [green(MOVED_HEAD), green(REVIEWED_HEAD)], headRefOid: REVIEWED_HEAD })
     const freshResult = await landPr('/tmp/wt', 7, { gh: fresh.gh, ...NATIVE })
@@ -955,7 +968,7 @@ describe('landPr — an approval arms only the commit it reviewed', () => {
   it('a head that moves after the pin is not-approved, auto-merge disabled, and unlabeled', async () => {
     const fake = approvedGate()
     const result = await landPr('/tmp/wt', 7, { gh: movingHead(fake, { moveAt: 2 }), ...NATIVE })
-    expect(result).toEqual({ status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true })
+    expect(result).toEqual({ status: 'not-approved', reviews: 0, reason: 'head-moved', disarmed: true })
     expect(fake.pr.autoMerge).toBe(null)
     expect(fake.calls.some(armsLabel)).toBe(false)
     expect(fake.pr.labels.has('reviewed')).toBe(false)
@@ -967,7 +980,7 @@ describe('landPr — an approval arms only the commit it reviewed', () => {
       gh: movingHead(fake, { moveAt: 2, firstMerge: 'already-enabled' }),
       ...NATIVE,
     })
-    expect(result).toEqual({ status: 'not-approved', reviews: 1, reason: 'head-moved' })
+    expect(result).toEqual({ status: 'not-approved', reviews: 0, reason: 'head-moved' })
     expect(fake.calls.filter((args) => args[1] === 'merge' && args.includes('--auto'))).toHaveLength(0)
     expect(fake.calls.some(disablesAuto)).toBe(true)
     expect(fake.calls.some(armsLabel)).toBe(false)

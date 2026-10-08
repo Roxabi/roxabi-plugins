@@ -1,9 +1,9 @@
 {
   "name": "omp-build",
-  "version": "0.9.9",
+  "version": "0.9.10",
   "private": true,
   "type": "module",
-  "description": "OMP-only feature cycle \u2014 frame, GitHub issue, worktree, implement, bounded review/fix, land.",
+  "description": "OMP-only feature cycle — frame, GitHub issue, worktree, implement, bounded review/fix (Request changes only), land. A watcher CI failure stops; it is not repaired.",
   "omp": {
     "extensions": [
       "./omp/index.ts"

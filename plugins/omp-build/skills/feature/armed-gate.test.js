@@ -236,8 +236,8 @@ function armedNames(fake) {
 /** May the fake's PR be armed by the records, at its current head? */
 function mayBeArmed(fake, reviewing) {
   const latest = fake.records.at(-1)
-  // A record past the second that does not approve spends the bound for good.
-  const spent = fake.records.some((record, index) => index >= 2 && !approves(record.verdict))
+  // Third Request changes only. An approval neither spends nor resets.
+  const spent = fake.records.filter((record) => record.verdict === 'Request changes').length > 2
   return !reviewing && latest !== undefined && approves(latest.verdict) && !spent && latest.head === fake.pr.head
 }
 
@@ -331,27 +331,27 @@ const LAND_REFUSALS = [
   [
     'L1 review-bound',
     { records: [red(), red(), red(), approve()] },
-    { status: 'not-approved', reviews: 4, reason: 'review-bound', disarmed: true },
+    { status: 'not-approved', reviews: 3, reason: 'review-bound', disarmed: true },
   ],
   [
     'L2 latest record does not approve',
     { records: [approve(), red()] },
-    { status: 'not-approved', reviews: 2, disarmed: true },
+    { status: 'not-approved', reviews: 1, disarmed: true },
   ],
   [
     'L3 no review head',
     { records: [noHead('Approve (clean)')] },
-    { status: 'not-approved', reviews: 1, reason: 'no-review-head', disarmed: true },
+    { status: 'not-approved', reviews: 0, reason: 'no-review-head', disarmed: true },
   ],
   [
     'L4 head moved before the call',
     { records: [approve()], head: MOVED },
-    { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+    { status: 'not-approved', reviews: 0, reason: 'head-moved', disarmed: true },
   ],
   [
     'L4 the record names an older head',
     { records: [approve(OLD)] },
-    { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+    { status: 'not-approved', reviews: 0, reason: 'head-moved', disarmed: true },
   ],
 ]
 
@@ -606,7 +606,7 @@ const NO_REQUIRED_CHECKS = [
       start: 'label',
       found: { classic: ['ci'] },
       script: { moves: [{ when: 'before', on: kind, head: MOVED }] },
-      result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+      result: { status: 'not-approved', reviews: 0, reason: 'head-moved', disarmed: true },
       labels: CLEAN,
       auto: false,
       writesOnly: ['remove'],
@@ -868,7 +868,7 @@ const ROWS = [
       opts: MOG,
       records: [approve()],
       script: { moves: [{ when: 'before', on: 'head', nth: 1, head: MOVED }] },
-      result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+      result: { status: 'not-approved', reviews: 0, reason: 'head-moved', disarmed: true },
       labels: CLEAN,
       auto: false,
       writesOnly: ['disable', 'remove'],
@@ -881,7 +881,7 @@ const ROWS = [
       opts: MOG,
       records: [approve()],
       script: { moves: [{ when: 'before', on: 'head', nth: 1, head: MOVED }], fail: [{ on: 'gate', nth: 2, ...fail }] },
-      result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+      result: { status: 'not-approved', reviews: 0, reason: 'head-moved', disarmed: true },
       labels: CLEAN,
       auto: false,
     },
@@ -905,7 +905,7 @@ const ROWS = [
       opts: MOG,
       records: [approve()],
       script: { fail: [{ on: 'remove' }], moves: [{ when: 'before', on: 'head', nth: 2, head: MOVED }] },
-      result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+      result: { status: 'not-approved', reviews: 0, reason: 'head-moved', disarmed: true },
       labels: CLEAN,
       auto: false,
     },
@@ -917,7 +917,7 @@ const ROWS = [
       opts: MOG,
       records: [approve()],
       script: { fail: [{ on: 'remove' }, { on: 'head', nth: 2 }] },
-      result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+      result: { status: 'not-approved', reviews: 0, reason: 'head-moved', disarmed: true },
       labels: CLEAN,
       auto: false,
     },
@@ -957,7 +957,7 @@ const ROWS = [
         fail: [{ on: 'add', applies: true }],
         moves: [{ when: 'before', on: 'head', nth: 2, head: MOVED }],
       },
-      result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+      result: { status: 'not-approved', reviews: 0, reason: 'head-moved', disarmed: true },
       labels: CLEAN,
       auto: false,
     },
@@ -994,7 +994,7 @@ const ROWS = [
       records: [approve()],
       start: 'none',
       script: { moves: [{ when: 'after', on: 'events', nth: 2, head: MOVED }] },
-      result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+      result: { status: 'not-approved', reviews: 0, reason: 'head-moved', disarmed: true },
       labels: CLEAN,
       auto: false,
     },
@@ -1007,7 +1007,7 @@ const ROWS = [
       records: [approve()],
       start: 'none',
       script: { events: 'none', moves: [{ when: 'after', on: 'events', nth: 2, head: MOVED }] },
-      result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+      result: { status: 'not-approved', reviews: 0, reason: 'head-moved', disarmed: true },
       labels: CLEAN,
       auto: false,
     },
@@ -1020,7 +1020,7 @@ const ROWS = [
       records: [approve()],
       start: 'none',
       script: { fail: [{ on: 'head', nth: 3 }] },
-      result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+      result: { status: 'not-approved', reviews: 0, reason: 'head-moved', disarmed: true },
       labels: CLEAN,
       auto: false,
     },
@@ -1047,7 +1047,7 @@ const ROWS = [
       records: [approve()],
       start: 'none',
       script: { moves: [{ when: 'after', on: 'add', head: MOVED }] },
-      result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+      result: { status: 'not-approved', reviews: 0, reason: 'head-moved', disarmed: true },
       labels: CLEAN,
       auto: false,
     },
@@ -1060,7 +1060,7 @@ const ROWS = [
       records: [approve()],
       start: 'none',
       script: { moves: [{ when: 'after', on: 'add', head: MOVED }], fail: [{ on: 'gate', nth: 2, ...fail }] },
-      result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+      result: { status: 'not-approved', reviews: 0, reason: 'head-moved', disarmed: true },
       labels: CLEAN,
       auto: false,
     },
@@ -1148,7 +1148,7 @@ const ROWS = [
       records: [approve()],
       start: 'label',
       script: { moves: [{ when: 'before', on: 'head', nth: 1, head: MOVED }] },
-      result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+      result: { status: 'not-approved', reviews: 0, reason: 'head-moved', disarmed: true },
       labels: CLEAN,
       auto: false,
       writesOnly: ['remove'],
@@ -1162,7 +1162,7 @@ const ROWS = [
       records: [approve()],
       start: 'label',
       script: { moves: [{ when: 'before', on: 'head', nth: 1, head: MOVED }], fail: [{ on: 'gate', nth: 2, ...fail }] },
-      result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+      result: { status: 'not-approved', reviews: 0, reason: 'head-moved', disarmed: true },
       labels: CLEAN,
       auto: false,
     },
@@ -1188,7 +1188,7 @@ const ROWS = [
       records: [approve()],
       start: 'label',
       script: { moves: [{ when: 'after', on: 'head', nth: 1, head: MOVED }] },
-      result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+      result: { status: 'not-approved', reviews: 0, reason: 'head-moved', disarmed: true },
       labels: CLEAN,
       auto: false,
     },
@@ -1223,7 +1223,7 @@ const ROWS = [
         ],
         moves: [{ when: 'before', on: 'head', nth: 2, head: MOVED }],
       },
-      result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+      result: { status: 'not-approved', reviews: 0, reason: 'head-moved', disarmed: true },
       labels: CLEAN,
       auto: false,
     },
@@ -1236,7 +1236,7 @@ const ROWS = [
       records: [approve()],
       start: 'both',
       script: { moves: [{ when: 'after', on: 'head', nth: 2, head: MOVED }] },
-      result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+      result: { status: 'not-approved', reviews: 0, reason: 'head-moved', disarmed: true },
       labels: CLEAN,
       auto: false,
     },
@@ -1439,7 +1439,7 @@ const ROWS = [
       records: [approve()],
       start: 'both',
       script: { moves: [{ when: 'after', on: 'disable', head: MOVED }] },
-      result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+      result: { status: 'not-approved', reviews: 0, reason: 'head-moved', disarmed: true },
       labels: CLEAN,
       auto: false,
     },
@@ -1452,7 +1452,7 @@ const ROWS = [
       records: [approve()],
       start: 'both',
       script: { moves: [{ when: 'after', on: 'disable', head: MOVED }], fail: [{ on: 'gate', nth: 2, ...fail }] },
-      result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+      result: { status: 'not-approved', reviews: 0, reason: 'head-moved', disarmed: true },
       labels: CLEAN,
       auto: false,
     },
@@ -1561,7 +1561,7 @@ const ROWS = [
       records: [approve()],
       start: 'label',
       script: { moves: [{ when: 'after', on: 'pin', head: MOVED }] },
-      result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+      result: { status: 'not-approved', reviews: 0, reason: 'head-moved', disarmed: true },
       labels: CLEAN,
       auto: false,
       writesOnly: ['pin', 'disable', 'remove'],
@@ -1618,7 +1618,7 @@ const ROWS = [
       records: [approve()],
       start: 'label',
       script: { moves: [{ when: 'after', on: 'pin', head: MOVED }], fail: [{ on: 'gate', nth: 2, ...fail }] },
-      result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+      result: { status: 'not-approved', reviews: 0, reason: 'head-moved', disarmed: true },
       labels: CLEAN,
       auto: false,
     },
@@ -1647,7 +1647,7 @@ const ROWS = [
         fail: [{ on: 'add', applies: true }],
         moves: [{ when: 'before', on: 'head', nth: 3, head: MOVED }],
       },
-      result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+      result: { status: 'not-approved', reviews: 0, reason: 'head-moved', disarmed: true },
       labels: CLEAN,
       auto: false,
     },
@@ -1672,7 +1672,7 @@ const ROWS = [
       records: [approve()],
       start: 'none',
       script: { moves: [{ when: 'after', on: 'add', head: MOVED }] },
-      result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+      result: { status: 'not-approved', reviews: 0, reason: 'head-moved', disarmed: true },
       labels: CLEAN,
       auto: false,
     },
@@ -1685,7 +1685,7 @@ const ROWS = [
       records: [approve()],
       start: 'none',
       script: { fail: [{ on: 'head', nth: 3 }] },
-      result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
+      result: { status: 'not-approved', reviews: 0, reason: 'head-moved', disarmed: true },
       labels: CLEAN,
       auto: false,
     },
@@ -1781,23 +1781,23 @@ const ROWS = [
     },
   ],
   [
-    'S1 ci-failed over a red latest record → throws, the gate is disarmed first',
+    'S1 ci-failed over a red latest record → stop, the gate is disarmed',
     {
       fn: 'step',
       opts: { ciFailed: true },
       records: [red()],
-      rejects: /a ci-failed fix needs/,
+      result: { action: 'stop', reason: 'ci-failed', reviews: 1, message: expect.any(String), disarmed: true },
       labels: CLEAN,
       auto: false,
     },
   ],
   [
-    'S1 ci-failed over an approval of another head → throws, the gate is disarmed first',
+    'S1 ci-failed over an approval of another head → stop, the gate is disarmed',
     {
       fn: 'step',
       opts: { ciFailed: true },
       records: [approve(OLD)],
-      rejects: /a ci-failed fix needs/,
+      result: { action: 'stop', reason: 'ci-failed', reviews: 0, message: expect.any(String), disarmed: true },
       labels: CLEAN,
       auto: false,
     },
@@ -1818,18 +1818,18 @@ const ROWS = [
       fn: 'step',
       opts: { ciFailed: true },
       records: [red(), red(), approve()],
-      result: { action: 'stop', reason: 'ci-failed', reviews: 3, message: expect.any(String), disarmed: true },
+      result: { action: 'stop', reason: 'ci-failed', reviews: 2, message: expect.any(String), disarmed: true },
       labels: CLEAN,
       auto: false,
     },
   ],
   [
-    'S2 ci-failed fix → disarmed',
+    'S2 ci-failed over a current approval → stop, disarmed, no fix',
     {
       fn: 'step',
       opts: { ciFailed: true },
       records: [approve()],
-      result: { action: 'fix', reviews: 1, remaining: 1, reason: 'ci-failed', disarmed: true },
+      result: { action: 'stop', reason: 'ci-failed', reviews: 0, message: expect.any(String), disarmed: true },
       labels: CLEAN,
       auto: false,
     },
@@ -1859,7 +1859,7 @@ const ROWS = [
     {
       fn: 'step',
       records: [approve(OLD)],
-      result: { action: 'review', reason: 'head-moved', reviews: 1, disarmed: true },
+      result: { action: 'review', reason: 'head-moved', reviews: 0, disarmed: true },
       labels: CLEAN,
       auto: false,
     },
@@ -1869,7 +1869,7 @@ const ROWS = [
     {
       fn: 'step',
       records: [undecided()],
-      result: { action: 'review', reason: 'no-verdict', reviews: 1, disarmed: true },
+      result: { action: 'review', reason: 'no-verdict', reviews: 0, disarmed: true },
       labels: CLEAN,
       auto: false,
     },
@@ -1881,7 +1881,7 @@ const ROWS = [
       opts: { reviewing: true },
       reviewing: true,
       records: [approve()],
-      result: { action: 'land', reviews: 1, disarmed: true },
+      result: { action: 'land', reviews: 0, disarmed: true },
       labels: CLEAN,
       auto: false,
     },
@@ -1891,7 +1891,7 @@ const ROWS = [
     {
       fn: 'step',
       records: [approve()],
-      result: { action: 'land', reviews: 1 },
+      result: { action: 'land', reviews: 0 },
       labels: REVIEWED,
       auto: true,
       none: true,
@@ -2769,11 +2769,11 @@ describe('same-head revocation before merge-capable arming', () => {
     ['merge-on-green label', MOG, 'base', 'add'],
   ]
   const REVOKED = [
-    ['a newer red', [red()]],
-    ['a newly spent bound followed by approval', [red(), red(), red(), approve()]],
+    ['a newer red', [red()], 1],
+    ['a newly spent bound followed by approval', [red(), red(), red(), approve()], 3],
   ]
 
-  for (const [revocation, reviews] of REVOKED) {
+  for (const [revocation, reviews, reds] of REVOKED) {
     it.each(ARM_PATHS)(`%s cannot merge after ${revocation} during discovery`, async (_path, opts, on, arm) => {
       const fake = armedPr({
         records: [approve()],
@@ -2792,9 +2792,9 @@ describe('same-head revocation before merge-capable arming', () => {
       expect(fake.pr.head).toBe(HEAD)
       expect(armedNames(fake)).toEqual([])
       expect(outcome.error).toBeUndefined()
-      expect(outcome.result).toMatchObject({ status: 'not-approved', reviews: reviews.length + 1 })
+      expect(outcome.result).toMatchObject({ status: 'not-approved', reviews: reds })
       expect(holds(fake, outcome)).toBe(true)
-      if (reviews.length > 1) expect(outcome.result.reason).toBe('review-bound')
+      if (reds > 2) expect(outcome.result.reason).toBe('review-bound')
     })
   }
 })
@@ -2806,11 +2806,11 @@ describe('same-head revocation during preparation for the next arming write', ()
     ['merge-on-green re-label', MOG, 'label', 'remove', 'add', 1],
   ]
   const REVOKED = [
-    ['a newer red', [red()]],
-    ['a newly spent bound followed by approval', [red(), red(), red(), approve()]],
+    ['a newer red', [red()], 1],
+    ['a newly spent bound followed by approval', [red(), red(), red(), approve()], 3],
   ]
 
-  for (const [revocation, reviews] of REVOKED) {
+  for (const [revocation, reviews, reds] of REVOKED) {
     it.each(PREPARATIONS)(
       `%s cannot merge after ${revocation} during preparation`,
       async (_path, opts, start, preparation, arm, armNth) => {
@@ -2830,9 +2830,9 @@ describe('same-head revocation during preparation for the next arming write', ()
         expect(fake.pr.head).toBe(HEAD)
         expect(armedNames(fake)).toEqual([])
         expect(outcome.error).toBeUndefined()
-        expect(outcome.result).toMatchObject({ status: 'not-approved', reviews: reviews.length + 1 })
+        expect(outcome.result).toMatchObject({ status: 'not-approved', reviews: reds })
         expect(holds(fake, outcome)).toBe(true)
-        if (reviews.length > 1) expect(outcome.result.reason).toBe('review-bound')
+        if (reds > 2) expect(outcome.result.reason).toBe('review-bound')
       },
     )
   }

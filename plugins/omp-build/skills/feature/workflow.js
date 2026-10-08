@@ -578,8 +578,9 @@ const SINCE_RETRY_MS = 200
 
 /**
  * Arm `reviewed` and hand the wait to `/ci-watch`. No in-process poll.
- * First resolve the PR, read its review records, then its gate. A spent bound,
- * or a latest record that does not approve, returns `not-approved`.
+ * First resolve the PR, read its review records, then its gate. A spent
+ * Request-changes bound, or a latest record that does not approve, returns
+ * `not-approved`. A zero Request-changes count does not block a current-SHA approval.
  * An approval arms only when its line-2 head is the PR's `headRefOid` (both 40 lowercase hex).
  * `no-review-head` is a record with no valid head line; `head-moved` is a different or
  * unreadable oid. Every `not-approved` disarms a gate already armed on an OPEN PR
@@ -1056,16 +1057,17 @@ export async function disarmReviewedBeforePush(cwd, pr, { gh: ghFn = gh, push } 
   return receipt.disarmed ? { disarmed: true } : {}
 }
 
-/** ADR-020 §3 / #488 / #710: at most two automated fixes per PR, one per review. */
+/** ADR-020 §3 / #488 / #710: at most two automated review fixes per PR, one per Request changes. CI failures are not fixes. */
 export const MAX_FIX_ROUNDS = 2
 
 /**
- * The bound is two reads of the PR's review records (#710): how many there are,
- * and the latest one. A review record is a comment by the automation login whose
- * first line is `<!-- omp-build:code-review -->`. Every other comment — fix
- * receipts, prose, older accounting markers — is ignored. Nothing writes
- * accounting: every decision is derived again from a fresh read. Every posted
- * review counts, with or without a fix before it.
+ * The Request-changes allowance (#710). A review record is a comment by the
+ * automation login whose first line is `<!-- omp-build:code-review -->`.
+ * `reviews` counts exact `Request changes` only; the latest marked record still
+ * supplies `verdict` and `head`. Approvals neither spend nor reset. Fix
+ * receipts, prose, and older accounting markers are ignored. Nothing writes
+ * accounting: every decision is derived again from a fresh read. The third
+ * `Request changes` spends for good. There is no automatic CI repair.
  */
 const CODE_REVIEW_FIRST_LINE = /^<!--\s*omp-build:code-review\s*-->\s*$/
 const VERDICT_LINE = /^\*\*Verdict:\s*(Request changes|Approve with comments|Approve \(clean\)|Approve)\*\*(?:\s.*)?$/
@@ -1253,10 +1255,12 @@ function reviewIdentity(me) {
 
 /**
  * The review records by `me` among `comments`, in the order given (GitHub
- * creation order). `verdict` and `head` are the latest record's; `verdict` is
- * null when its declarations are missing or conflict, `head` when line 2 is not
- * a review-head line. `spent`: a record past the `MAX_FIX_ROUNDS`-th does not
- * approve. The bound is then spent for good — a later green does not lift it.
+ * creation order). `reviews` counts exact `Request changes` only. `verdict`
+ * and `head` are the latest marked record's, including an approval; `verdict`
+ * is null when its declarations are missing or conflict, `head` when line 2 is
+ * not a review-head line. `spent` sticks once `reviews` passes
+ * `MAX_FIX_ROUNDS`; a later approval does not lift it. No usable review
+ * evidence is `reviews === 0 && verdict === null && head === null`.
  *
  * @param {{ body: string, author: { login: string } | null }[]} comments
  * @param {{ me: string }} options
@@ -1268,6 +1272,8 @@ export function reviewRecords(comments, { me } = {}) {
   let reviews = 0
   /** @type {string | null} */
   let latest = null
+  /** @type {string | null} */
+  let verdict = null
   let spent = false
   for (const entry of comments) {
     if (typeof entry !== 'object' || entry === null)
@@ -1275,11 +1281,14 @@ export function reviewRecords(comments, { me } = {}) {
     if (entry.author?.login !== who) continue
     if (typeof entry.body !== 'string') throw new TypeError('reviewRecords: comment body must be a string')
     if (!CODE_REVIEW_FIRST_LINE.test(commentFirstLine(entry.body))) continue
-    reviews++
     latest = entry.body
-    if (reviews > MAX_FIX_ROUNDS && !approves(reviewVerdict(entry.body))) spent = true
+    verdict = reviewVerdict(latest)
+    if (verdict === 'Request changes') {
+      reviews++
+      if (reviews > MAX_FIX_ROUNDS) spent = true
+    }
   }
-  return { reviews, verdict: latest === null ? null : reviewVerdict(latest), head: reviewHeadOf(latest), spent }
+  return { reviews, verdict: latest === null ? null : verdict, head: reviewHeadOf(latest), spent }
 }
 
 /** Issue-comment pages, every page. `gh pr view --json comments` is a silent first 100. */
@@ -1328,20 +1337,29 @@ const STOP_GUIDANCE =
 
 /** @param {'review-bound' | 'ci-failed'} reason @param {number} reviews */
 function stopStep(reason, reviews) {
-  const why =
-    reason === 'ci-failed'
-      ? `A required check failed on the head review ${reviews} approved, and no fix is left.`
-      : `Review bound reached: ${reviews} reviews and the latest after the bound does not approve.`
-  return { action: /** @type {'stop'} */ ('stop'), reason, reviews, message: `${why} ${STOP_GUIDANCE}` }
+  if (reason === 'ci-failed') {
+    return {
+      action: /** @type {'stop'} */ ('stop'),
+      reason,
+      reviews,
+      message:
+        'Automatic CI repair is disabled. This cycle stops; report the diagnostic and do not fix, re-arm, or re-watch. After an operator repair, an explicit re-entry or a new goal run may retry.',
+    }
+  }
+  return {
+    action: /** @type {'stop'} */ ('stop'),
+    reason,
+    reviews,
+    message: `Review bound reached: ${reviews} Request changes. A later green does not lift it. ${STOP_GUIDANCE}`,
+  }
 }
 
-/** @param {number} reviews @param {'ci-failed'} [reason] */
-function fixStep(reviews, reason) {
+/** @param {number} reviews */
+function fixStep(reviews) {
   return {
     action: /** @type {'fix'} */ ('fix'),
     reviews,
     remaining: MAX_FIX_ROUNDS - reviews,
-    ...(reason ? { reason } : {}),
   }
 }
 
@@ -1411,13 +1429,16 @@ async function enforceArmedGate(
  * The move the records allow at the PR's current `head`.
  *
  * - `posted` (the review just posted) must be the latest record, else throw.
- * - `spent` → `stop`, whatever the head.
- * - `ciFailed` needs an approving latest record of the current head, else throw;
- *   then `fix` while `reviews <= MAX_FIX_ROUNDS`, else `stop`.
- * - No record, or a latest record of another commit or with no verdict →
- *   `review`: post a review of the current head first. One review allows one fix:
- *   the fix's push moves the head.
- * - An approval → `land`; `Request changes` → `fix` (a red past the bound is spent).
+ * - `ciFailed` is a stale-input refusal: `stop` / `ci-failed` before `spent`,
+ *   with no approval or current-head precondition, and never `fix` or `land`.
+ * - `spent` → `stop` / `review-bound`, whatever the head. A later green does
+ *   not lift it.
+ * - No usable review evidence (`reviews === 0` and no latest verdict or head)
+ *   → `review` / `no-review`. A current-SHA approval with a zero Request-changes
+ *   count still lands. A zero-red approval of another SHA is `head-moved`.
+ * - A latest record of another commit, or with no head → `review` / `head-moved`.
+ * - An approval of the current head → `land`; `Request changes` → `fix`.
+ * - Anything else → `review` / `no-verdict`.
  *
  * @param {{ reviews: number, verdict: string | null, head: string | null, spent: boolean }} records
  * @param {{ head: unknown, ciFailed?: boolean, posted?: { verdict: string, head: string } }} at
@@ -1429,15 +1450,13 @@ function reviewStep(records, { head, ciFailed = false, posted }) {
       `nextReviewStep: the latest review record is not the one just posted — posted ${posted.verdict} at ${posted.head}, read ${records.verdict} at ${records.head}`,
     )
   }
+  if (ciFailed) return stopStep('ci-failed', reviews)
   if (records.spent) return stopStep('review-bound', reviews)
-  const current = isCommitSha(head) && records.head === head
-  if (ciFailed) {
-    if (!current || !approves(records.verdict)) {
-      throw new Error('nextReviewStep: a ci-failed fix needs the latest review record to approve the current head')
-    }
-    return reviews <= MAX_FIX_ROUNDS ? fixStep(reviews, 'ci-failed') : stopStep('ci-failed', reviews)
+  // Count zero is not absence: an approval spends nothing.
+  if (reviews === 0 && records.verdict === null && records.head === null) {
+    return { action: /** @type {'review'} */ ('review'), reason: 'no-review', reviews }
   }
-  if (reviews === 0) return { action: /** @type {'review'} */ ('review'), reason: 'no-review', reviews }
+  const current = isCommitSha(head) && records.head === head
   if (!current) return { action: /** @type {'review'} */ ('review'), reason: 'head-moved', reviews }
   if (approves(records.verdict)) return { action: /** @type {'land'} */ ('land'), reviews }
   if (records.verdict === 'Request changes') return fixStep(reviews)
@@ -1447,17 +1466,20 @@ function reviewStep(records, { head, ciFailed = false, posted }) {
 /**
  * The loop's one decision point (#710): fresh records, the PR's current gate,
  * then the step — `land` | `fix` | `stop` | `review`. `posted` is the review
- * dev-review just posted (its verdict and REVIEWED_HEAD). `ciFailed` asks for
- * the correction of a red check on the approved head. Every step but `land`
- * disarms an OPEN armed PR first (`disarmed: true`); `reviewing` — a review is
- * about to start — disarms on `land` too, and an approving post re-arms through
- * `landPr`. A gate stays armed only while the latest record approves the current
- * head within the bound and no review of it is running. Nothing else is written.
- * Malformed inputs and failed opening acquisitions leave no known gate to act
- * on. A refused `posted` / `ciFailed` over an approving current gate refreshes
- * records and head before keeping it; an unauthorized gate is cleared. Refresh
- * failures force clearing from the known gate and propagate the original error.
- * A clearing failure names what stays armed and is appended to the refusal.
+ * dev-review just posted (its verdict and REVIEWED_HEAD). `ciFailed` is a
+ * defensive stale input, not a correction: it returns `stop` / `ci-failed` and
+ * never `fix` or `land`. Every step but `land` disarms an OPEN armed PR first
+ * (`disarmed: true`); `reviewing` — a review is about to start — disarms on
+ * `land` too, and an approving post re-arms through `landPr`. A gate stays
+ * armed only while the latest record approves the current head within the
+ * bound and no review of it is running. Nothing else is written. Malformed
+ * inputs and failed opening acquisitions leave no known gate to act on. A
+ * refused `posted` over an approving current gate refreshes records and head
+ * before keeping it; an unauthorized gate is cleared. `ciFailed` is not that
+ * refusal: after posted validation it is a stop, so the epilogue disarms.
+ * Refresh failures force clearing from the known gate and propagate the
+ * original error. A clearing failure names what stays armed and is appended
+ * to the refusal.
  *
  * @param {string} cwd
  * @param {number | string} pr

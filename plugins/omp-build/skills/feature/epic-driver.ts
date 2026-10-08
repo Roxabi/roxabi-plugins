@@ -197,10 +197,11 @@ function repoName(repo: string): { owner: string; name: string; full: string } {
 }
 
 /**
- * The PRs whose review bound is spent, per `reviewRecords` (#710): a record past
- * the second does not approve. The same derivation `landPr` and `nextReviewStep`
- * use. `comments(last: 100)` in creation order: a PR with more comments can
- * under-count here; §6.0's paginated `nextReviewStep` still stops it.
+ * The PRs whose Request-changes bound is spent, per `reviewRecords` (#710): the
+ * third `Request changes` spends, and a later approval does not lift it.
+ * Approvals neither spend nor reset. The same derivation `landPr` and
+ * `nextReviewStep` use. `comments(last: 100)` in creation order: a PR with more
+ * comments can under-count here; §6.0's paginated `nextReviewStep` still stops it.
  */
 function stoppedReviews(repo: string, owner: string, name: string, viewer: string, numbers: number[]): Set<number> {
   const out = new Set<number>()

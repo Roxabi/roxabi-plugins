@@ -19,7 +19,11 @@ export declare function disarmReviewedBeforePush(
   deps?: { gh?: Gh; push?: () => Promise<void> | void },
 ): Promise<{ disarmed?: true }>
 
-/** The review records by `me` (#710): count, latest verdict and head, and whether the bound is spent. */
+/**
+ * Own marked reviews by `me` (#710). `reviews` counts exact `Request changes`
+ * only; approvals neither spend nor reset. `verdict` and `head` are the latest
+ * marked review. `spent` sticks once a third `Request changes` is seen.
+ */
 export declare function reviewRecords(
   comments: { body: string; author: { login: string } | null }[],
   options: { me: string },

@@ -169,11 +169,11 @@ each already disarmed and recorded exactly like the `stop` subcommand does.
 
 | Outcome | Do |
 |---|---|
-| `land.status` `watching` | Run `land.watch` as in §6.7, map its exit with `applyCiWatchExit`, then this table |
+| `land.status` `watching` | Run `land.watch` as in §6.7. When it completes, execute the completed-watch fence there once. A return of `driver-error` is the driver-exit row. A fence-handled `ci-failed` returns to `next`. Any other returned status continues in this table |
 | `land.status` `merged` | Nothing: `next` re-reads the PR (MERGED into the base, head claiming the child, tip equal), detaches and deletes the local branch |
-| `ci-failed` | `step = await nextReviewStep(cwd, pr, { ciFailed: true })`, then §6.6 |
+| `ci-failed` | Already finished by that fence. Do not call `nextReviewStep`. Under a goal, return to `next` |
 | `timeout`, `ci-cancelled`, `ci-blocked`, `stopped`, `closed` | Ticket stop `--reason <status>`. A timeout is never re-attached under a goal |
-| `nextReviewStep` `stop`, any reason | Ticket stop `--reason review-bound`; the step already disarmed the PR |
+| `nextReviewStep` `stop`, any reason | Ticket stop `--reason step.reason`; the step already disarmed the PR. Publish the escalation dossier only when `step.reason === 'review-bound'` |
 | `nextReviewStep` or `landPr` throws | Ticket stop `--reason stopped`, the error as detail |
 | proof gate BLOCKED | Ticket stop `--reason proof-blocked` |
 | `watch-failed`, `bad-landing`, `no-required-checks`, `evaluate-only`, `auto-merge-failed`, any other status | Shared-state stop: the `drop` row, `--reason <status>` |
@@ -181,9 +181,9 @@ each already disarmed and recorded exactly like the `stop` subcommand does.
 | driver exit 1 | Shared-state stop: the `drop` row, `--reason driver-error` (`hook-failed` for `hook`) |
 
 A ticket stop is `bun "$D" stop --epic E <gate> --ticket N --reason <r> --detail-file <file>` (what happened).
-It refuses a dirty tree: first commit the ticket's work on its branch, locally,
-as `wip: goal-stop <r> (#N)`. It disarms the PR (`reviewed` removed, auto-merge
-disabled), detaches HEAD, keeps the branch and writes the `goal-stop` marker on
+For a reason other than the completed-watch `ci-failed` stop, a dirty tree is committed locally first as `wip: goal-stop <r> (#N)`, then `stop` runs.
+The completed-watch fence is that `ci-failed` stop: it passes `--repo` and does not commit or push. A nonzero exit from it is the driver-error shared stop (the `drop` row). Do not commit, push, or run `stop` again.
+It disarms the PR (`reviewed` removed, auto-merge disabled), detaches HEAD, keeps the branch and writes the `goal-stop` marker on
 the child. A shared-state stop is the `drop` row above. `report --outcome drop`
 reads only the children and PRs: it disarms every open armed child PR without
 reading base CI or the landing, and one failed disarm does not stop the others.
@@ -196,13 +196,11 @@ ticket stays armed.
 
 | Class | Triggers | Effect |
 |---|---|---|
-| Ticket stop | review loop stop; proof BLOCKED; foreign commit, branch mismatch; child without scope; `timeout`; `ci-cancelled`; `ci-blocked`; `stopped`; `closed` | report, `goal-stop` marker; dependents skipped by their open blocker edge; independent children continue |
+| Ticket stop | review bound spent (`review-bound`); watcher CI failure (`ci-failed`); proof BLOCKED; foreign commit, branch mismatch; child without scope; `timeout`; `ci-cancelled`; `ci-blocked`; `stopped`; `closed` | report, `goal-stop` marker; dependents skipped by their open blocker edge; independent children continue |
 | Shared-state stop | base CI red; `base-ci-pending` at finalization; dirty tree between tickets, before the hook, or before a none-merged complete; `hook-stale`; `watch-failed`; `bad-landing`; `no-required-checks`; `evaluate-only`; `auto-merge-failed`; tracker CLI unresolvable; post-merge hook failure; final review still blocking after its fix round | disarm, report, `goal({op:"drop"})` |
 | No progress | no actionable child while children remain open | report, `goal({op:"drop"})` |
 
-A stop marker holds for its run: a new `/goal` line (new `run=`) retries the
-child. `review-bound` holds across runs, as does an open PR whose review bound is
-spent. Before a ticket, base checks that are pending or absent do not stop the loop; they are reported. At finalization, pending drops as `base-ci-pending` and absent does not.
+A stop marker holds for its run: a new `/goal` line (new `run=`) retries the child. `review-bound` holds across runs, as does an open PR whose review bound is spent. `ci-failed` does not: the new run may retry it, and that retry still does not repair. Before a ticket, base checks that are pending or absent do not stop the loop; they are reported. At finalization, pending drops as `base-ci-pending` and absent does not.
 
 **Fix-filed children are scoped children.** A cause `skill://fix` files and its
 one deferral carry an `## Acceptance criteria` heading right after their Origin
@@ -335,7 +333,7 @@ let step = pr === null ? null : await nextReviewStep(cwd, pr)
 
 Discovery/read errors stop with evidence; never substitute a local review.
 An existing PR follows `step` through §6.6: `review` → §6.4, `fix` → §6.5,
-`land` → §6.7, `stop` → the dossier, and exit before any edit.
+`land` → §6.7, `stop` → §6.6 (dossier only for `review-bound`), and exit before any edit.
 For a new PR only, when `.semctx/` exists, derive/open the change contract from the
 issue (goal, invariants, evidence, unknowns); the issue stays the spec. Then §6.1.
 
@@ -412,7 +410,7 @@ step = await nextReviewStep(cwd, pr, { posted: { verdict, head: REVIEWED_HEAD } 
 `verdict` is the panel's verdict as posted: `Request changes`, `Approve`,
 `Approve (clean)` or `Approve with comments`. `nextReviewStep` re-reads the PR:
 the latest review record must be that post, or it throws and decides nothing.
-Every posted review counts toward the bound, whether or not a fix follows it.
+A `Request changes` record counts toward the bound. An approval does not.
 
 Present the Phase 8 human choice constrained by `step` (§6.6). Never choose on
 the user's behalf or offer “Merge as-is” for a red verdict — except under the
@@ -422,13 +420,9 @@ step from the records.
 
 ### 6.5 Fix
 
-`step.action === 'fix'`, by `step.reason`:
-
-- review round (no reason) → execute `skill://fix` with `#<pr>`. It applies one
-  change per well-formed posted root cause that contains a blocking finding. A block missing a non-empty `mechanism:`, `fix:`, or `findings:` line is not applied; its blocking cited findings are filed per finding. It does not stop for a per-finding choice. Non-blocking causes are not applied; they go into one sibling follow-up, blocked by the origin. A blocking cause it
-  cannot apply becomes its own sibling issue.
-- `ci-failed` → fix inline from the failed checks (`land.failed`) and their
-  logs. `fix` reads review comments, not CI: running it here replays stale findings.
+`step.action === 'fix'` is a review fix. Execute `skill://fix` with `#<pr>`. It applies one
+change per well-formed posted root cause that contains a blocking finding. A block missing a non-empty `mechanism:`, `fix:`, or `findings:` line is not applied; its blocking cited findings are filed per finding. It does not stop for a per-finding choice. Non-blocking causes are not applied; they go into one sibling follow-up, blocked by the origin. A blocking cause it
+cannot apply becomes its own sibling issue.
 
 Verify, commit and push the fixes, then post `## Review Fixes Applied`. The
 receipt is for humans: no gate reads it, and a failed post is reported, not
@@ -442,15 +436,9 @@ next step needs a review of it.
 | `review` | §6.4. `nextReviewStep` already disarmed an armed PR |
 | `fix` | §6.5 |
 | `land` | §6.7 |
-| `stop` | Publish/display the escalation dossier from `skill://dev-review` Phase 8, print `step.message`, and stop. `nextReviewStep` already disarmed an armed PR. Epic goal: then ticket stop `review-bound` |
+| `stop` | Print `step.message` and stop. `nextReviewStep` already disarmed an armed PR. Epic goal: ticket stop `--reason step.reason`. Publish the escalation dossier from `skill://dev-review` Phase 8 only when `step.reason === 'review-bound'` |
 
-`nextReviewStep` is the bound (#710): the review records by the automation
-login, counted, and the latest one. A fix is allowed while the PR has at most
-two records. A record past the second that does not approve spends the bound for
-good: a later green does not lift it, and `landPr` refuses it. A `ci-failed`
-stop is not in the records: under the Epic goal the ticket stop keeps it;
-outside it, re-entry is the operator's call. The dossier lives in `dev-review`
-Phase 8.
+`nextReviewStep` is the bound (#710): `reviews` counts `Request changes` by the automation login. An approval neither spends nor resets that count. The latest verdict and head still follow every own marked review. A fix is allowed while that count is at most two. The third `Request changes` spends the bound for good: a later green does not lift it, and `landPr` refuses it. The dossier is for that spent bound only. A watcher CI failure is the completed-watch fence in §6.7, not this step and not `review-bound`.
 
 **The armed gate (#713).** An OPEN PR is armed — `reviewed` label or auto-merge
 enabled — only when the latest review record approves the current head, the bound
@@ -524,13 +512,49 @@ equivalent pin: once `reviewed` is applied, a push by another actor is not
 refused by GitHub.
 merge-on-green never returns `no-required-checks`; native returns it only after its own disarm (table).
 
-Run `watch` as an async bash job (`timeout: 0`). Map the exit with
-`applyCiWatchExit(cwd, pr, code, { mode: land.mode })`:
+Run `watch` as an async bash job (`timeout: 0`). When it completes, execute the completed-watch fence once. That fence is the only call to `applyCiWatchExit`. Do not map the exit again.
+
+#### Completed watch
+
+Bindings in scope, not declared in the fence: `FEATURE_DIR` (this skill's directory, kept apart from dev-review's `SKILL_DIR`), `cwd`, `pr`, `watchExit`, `watchStdout`, `watchStderr`, `mode`, `detailFile` (a path from `mktemp -d`, outside the worktree), and `goalStopArgv` only under an authorized goal. `goalStopArgv`, when present, is `[D, 'stop', '--repo', cwd, '--epic', String(E), '--goal-status', status, '--goal-objective-file', objectiveFile, '--ticket', String(N)]`. `D` is the authorized driver path already in hand. Outside a goal, leave `goalStopArgv` undefined. dev-review runs this same fence.
+
+```javascript
+const { writeFileSync } = await import('node:fs')
+const { spawnSync } = await import('node:child_process')
+const { applyCiWatchExit } = await import(`${FEATURE_DIR}/workflow.js`)
+const { landOutcome } = await import(`${FEATURE_DIR}/epic.ts`)
+const watched = await applyCiWatchExit(cwd, pr, watchExit, { mode })
+if (watched.status !== 'ci-failed') return watched
+writeFileSync(detailFile, watchStdout + watchStderr)
+process.stdout.write(watchStdout)
+process.stderr.write(watchStderr)
+if (goalStopArgv === undefined) return watched
+const outcome = landOutcome(watched.status)
+if (!('stop' in outcome) || outcome.class !== 'ticket') {
+  throw new Error(`landOutcome(${watched.status}) is not a ticket stop`)
+}
+const stopped = spawnSync(
+  process.execPath,
+  ['--no-env-file', ...goalStopArgv, '--reason', outcome.stop, '--detail-file', detailFile],
+  { cwd: FEATURE_DIR, encoding: 'utf8' },
+)
+if (stopped.status !== 0) {
+  const stderr = `${stopped.stderr ?? ''}${stopped.error ? stopped.error.message : ''}`
+  process.stderr.write(stderr)
+  return { status: 'driver-error', class: 'shared', exitCode: stopped.status, stderr }
+}
+process.stdout.write(stopped.stdout ?? '')
+return { ...watched, stop: outcome.stop, receipt: stopped.stdout ?? '' }
+```
+
+A returned status other than `ci-failed` is the mapper result, merged and stopped included: continue in the land-status table, or the epic child table under a goal. A `ci-failed` return outside a goal ends the cycle; both streams are already displayed. Under a goal, a return with `stop` and `receipt` is the recorded ticket stop: display the receipt and return to `next`. A return of `driver-error` is the shared driver-error drop. Do not commit, push, re-arm, or start another watch.
+
+The exit table is what `applyCiWatchExit` returns. The fence is the only caller.
 
 | Exit | Result |
 |---|---|
 | 0 | re-read state: MERGED → `merged`; CLOSED or otherwise unmerged → `stopped` (do not claim merged) |
-| 1 | re-read gate first (MERGED → `merged`, CLOSED → `stopped`); otherwise disable any auto-merge, independently remove `reviewed`, confirm read-back, return `ci-failed`, then `nextReviewStep(cwd, pr, { ciFailed: true })` |
+| 1 | re-read gate first (MERGED → `merged`, CLOSED → `stopped`); otherwise forced-unarmed, return `ci-failed`. The completed-watch fence is the only action for that return |
 | 2 | same forced-unarmed policy, then `ci-cancelled` |
 | 3 | same forced-unarmed policy, then `ci-blocked` |
 | 4 | stop and report; do not claim merged (includes CLOSED during the check phase) |
@@ -559,7 +583,7 @@ Neither a fix round nor another review action may write that label in this cycle
 | `not-approved` | Stop; the latest review record does not approve the current head, or the bound is spent (`reason: 'review-bound'`). `landPr` disarmed a gate that was armed (`disarmed: true`). Review again only when the bound is not spent; do not merge |
 | `watching` | Start the async `/ci-watch` job named in `land.watch` |
 | `merged` | Report issue + PR; offer the optional tail (§0), stop |
-| `ci-failed` | Gate already disarmed; `step = await nextReviewStep(cwd, pr, { ciFailed: true })`, then §6.6 |
+| `ci-failed` | Already finished by the completed-watch fence: stop the cycle. Do not call `nextReviewStep` |
 | `ci-cancelled` | Gate disarmed; stop, report the cancelled checks; operator re-runs CI then re-enters §6.7 |
 | `ci-blocked` | Gate disarmed; stop, report the checks named on stderr; operator resolves the named checks or re-runs CI, then re-enters §6.7 |
 | `watch-failed` | Stop; report code or error. The gate is retained only with current authorization; invalid arms are cleared or the error names their remainder. Do not claim merged |
