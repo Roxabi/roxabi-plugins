@@ -118,8 +118,8 @@ After any fix halt, `epic-driver fix-halt`
 reads Git state rather than error wording: dirty means a shared `dirty-tree`
 drop, without a WIP commit or push; clean means the ordinary recorded `stopped`
 ticket. Its status read includes untracked and dirty submodule content regardless
-of ignore configuration and does not refresh the index. It rechecks immediately
-before recording the stop; dirt appearing during disarm becomes the same drop,
+of ignore configuration and does not refresh the index. After disarm and branch
+observation, one final strict status governs the stop; observed dirt becomes the same drop,
 with any disarm already performed left as-is. Ordinary implementation
 stops retain their separate commit-first safeguard.
 

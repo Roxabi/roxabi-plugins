@@ -519,8 +519,12 @@ async function ticketStop(
     disarmed[pr.number] = await disarm(repo, pr.number)
     if (disarmed[pr.number] === 'merged') return { merged: pr.number, disarmed }
   }
-  if (opts?.abortIfDirty && git(repo, FIX_STATUS) !== '') return { merged: null, disarmed, dirty: true }
-  const here = tree(repo)
+  // Fix halts read the branch first, then make one final strict observation.
+  // Do not re-enter ordinary tree(), whose status can refresh the index.
+  const here = opts?.abortIfDirty
+    ? { branch: git(repo, ['branch', '--show-current']) || null, clean: git(repo, FIX_STATUS) === '' }
+    : tree(repo)
+  if (opts?.abortIfDirty && !here.clean) return { merged: null, disarmed, dirty: true }
   if (here.clean && ticketOfBranch(here.branch) === child.number) {
     git(repo, ['switch', '--detach', `refs/remotes/origin/${base}`])
   }

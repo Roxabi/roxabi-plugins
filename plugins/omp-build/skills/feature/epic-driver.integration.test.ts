@@ -1582,6 +1582,35 @@ fi`)
     expect(git(epic, 'branch', '--show-current')).toBe('feat/2-first-child')
   })
 
+  it('drops dirt introduced while reading the post-disarm stop branch', () => {
+    const epic = onBranch()
+    servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    stale(epic)
+    const before = snapshot(epic)
+    sandboxOf().env.DRIVER_RACE_REPO = epic
+    installGit(`case "$*" in
+  *"branch --show-current"*)
+    if [ -s "$DRIVER_STATE/writes.log" ]; then echo raced > "$DRIVER_RACE_REPO/raced.txt"; fi ;;
+esac`)
+    const run = drive(['fix-halt', '--ticket', '2', ...detail('branch observation raced')])
+    expect(run.code).toBe(0)
+    expect(run.json()).toEqual(DROP)
+    expect(writes()).toEqual(['merge 11 --disable-auto', 'edit 11 --remove-label reviewed'])
+    expect(snapshot(epic)).toEqual(before)
+    expect(readFileSync(path.join(epic, 'raced.txt'), 'utf8')).toBe('raced\n')
+  })
+
+  it('does not refresh a stale index when recording a clean fix halt', () => {
+    const epic = childReady()
+    stale(epic)
+    const before = snapshot(epic)
+    const run = drive(['fix-halt', '--ticket', '2', ...detail('clean halt')])
+    expect(run.code).toBe(0)
+    expect(run.json()).toMatchObject({ action: 'stopped', class: 'ticket' })
+    expect(snapshot(epic).index).toBe(before.index)
+    expect(snapshot(epic).remotes).toBe(before.remotes)
+  })
+
   it('still records an ordinary stop after a legitimate commit, and does not push it', () => {
     const epic = onBranch()
     servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
