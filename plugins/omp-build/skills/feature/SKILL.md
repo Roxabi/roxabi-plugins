@@ -159,8 +159,8 @@ each already disarmed and recorded exactly like the `stop` subcommand does.
 | `step.action` | Do |
 |---|---|
 | `start` / `resume` | The driver fetched, checked the tree and base CI, switched to `step.branch` (new from `refs/remotes/origin/<base>`, or the existing one), validated it with `resolveTicketBranch` and `refuseForeignCommits`, and disarmed an armed PR. Run §6 for `step.ticket` in this worktree: §6.0 without the operator handoff, then §6.1–§6.7. The PR is `step.pr?.number ?? null`, never discovered by branch name (a branch name also matches fork PRs): `resume` with `step.pr` continues that PR from its `nextReviewStep` (§6.0), and no `step.pr` means a new PR through `openPr`. |
-| `final-review`, `stage: review` | R-architect and R-adversarial, read-only, on `git diff <step.range>`. Then `bun "$D" review --epic E <gate> --verdict clean\|blocking --range <step.range> --detail-file <findings file>`. |
-| `final-review`, `stage: fix-ticket` | One fix ticket through issue-triage: `create --parent "#E" --type fix --size … --priority … --body-file <f>`, body's first line `<!-- omp-build:epic-fix -->`, an `## Acceptance criteria` heading holding the blocking findings. The next `next` starts it. Non-blocking findings are follow-up siblings, each scoped the same way: an `## Acceptance criteria` heading and a `size:` label (`skill://fix` § Filing). |
+| `final-review`, `stage: review` | R-architect and R-adversarial, read-only, on `git diff <step.range>`. Before deferral discovery or recording either verdict, run `skill://fix` § Initial worktree preflight: dirt → report/drop `dirty-tree`; a failed status → report/drop `driver-error`. No filing or verdict on either refusal. Account for every non-blocking finding through `skill://fix` § Filing, whose executable entrance repeats the clean-tree check: one new or reused deferral, `DISPOSITION=nonblocking`, origin E, self-candidate parent E, active epic E. The fence resolves E's live parent: fresh filing under enclosing H preserves the sibling default; a top-level E omits `--parent`. Reuse changes no parent. This applies to clean reviews with warnings too. Print the tracking issue; a filing failure stops before the verdict and follows the shared tracker-failure drop. Then `bun "$D" review --epic E <gate> --verdict clean\|blocking --range <step.range> --detail-file <findings file>`. |
+| `final-review`, `stage: fix-ticket` | One blocking fix ticket through issue-triage: `create --parent "#E" --type fix --size … --priority … --body-file <f>`, body's first line `<!-- omp-build:epic-fix -->`, an `## Acceptance criteria` heading holding the blocking findings. The next `next` starts it. Non-blocking findings were accounted for before the review verdict; reuse that record, without creating another issue or reattaching it. |
 | `post-merge` | Only after a clean final review, a clean tree, and base CI green or absent. This run's hook `ok` or `skipped` at another commit is `drop hook-stale`, not another run. Then `bun --no-env-file "$D" hook --epic E <gate> --repo <epic worktree>`, with the bash `cwd` outside the repository (`$SKILL_DIR`): the runner must load nothing from the epic worktree. |
 | `complete` | `bun "$D" report --epic E <gate> --outcome complete` refuses unless `next` is `complete`. Print it, `goal({op:"complete"})`, offer `/cleanup`. |
 | `drop` | `bun "$D" report --epic E <gate> --outcome drop --reason <step.stop>`, print it, `goal({op:"drop"})`. If that command fails, print the error, then `goal({op:"drop"})`. A failing drop still drops the goal. |
@@ -172,6 +172,7 @@ each already disarmed and recorded exactly like the `stop` subcommand does.
 | `land.status` `watching` | Run `land.watch` as in §6.7, map its exit with `applyCiWatchExit`, then this table |
 | `land.status` `merged` | Nothing: `next` re-reads the PR (MERGED into the base, head claiming the child, tip equal), detaches and deletes the local branch |
 | `ci-failed` | `step = await nextReviewStep(cwd, pr, { ciFailed: true })`, then §6.6 |
+| Any fix halt, including a preflight, apply, defer, filing or push failure | Run § Fix-halt command. The driver reads Git state: dirty → shared `dirty-tree` drop; clean → recorded ticket `stopped`; merged during disarm → `next`. Never take the ordinary commit-first ticket-stop path for a fix halt. |
 | `timeout`, `ci-cancelled`, `ci-blocked`, `stopped`, `closed` | Ticket stop `--reason <status>`. A timeout is never re-attached under a goal |
 | `nextReviewStep` `stop`, any reason | Ticket stop `--reason review-bound`; the step already disarmed the PR |
 | `nextReviewStep` or `landPr` throws | Ticket stop `--reason stopped`, the error as detail |
@@ -180,9 +181,9 @@ each already disarmed and recorded exactly like the `stop` subcommand does.
 | issue-triage CLI unresolvable | Shared-state stop: the `drop` row, `--reason tracker-unresolvable` |
 | driver exit 1 | Shared-state stop: the `drop` row, `--reason driver-error` (`hook-failed` for `hook`) |
 
-A ticket stop is `bun "$D" stop --epic E <gate> --ticket N --reason <r> --detail-file <file>` (what happened).
-It refuses a dirty tree: first commit the ticket's work on its branch, locally,
-as `wip: goal-stop <r> (#N)`. It disarms the PR (`reviewed` removed, auto-merge
+An ordinary implementation ticket stop is `bun "$D" stop --epic E <gate> --ticket N --reason <r> --detail-file <file>` (what happened).
+It refuses a dirty tree: first commit legitimate ticket work on its branch, locally,
+as `chore: wip goal-stop <r> (#N)`. Fix halts instead use § Fix-halt command, without any commit or push. The ordinary stop disarms the PR (`reviewed` removed, auto-merge
 disabled), detaches HEAD, keeps the branch and writes the `goal-stop` marker on
 the child. A shared-state stop is the `drop` row above. `report --outcome drop`
 reads only the children and PRs: it disarms every open armed child PR without
@@ -197,27 +198,25 @@ ticket stays armed.
 | Class | Triggers | Effect |
 |---|---|---|
 | Ticket stop | review loop stop; proof BLOCKED; foreign commit, branch mismatch; child without scope; `timeout`; `ci-cancelled`; `ci-blocked`; `stopped`; `closed` | report, `goal-stop` marker; dependents skipped by their open blocker edge; independent children continue |
-| Shared-state stop | base CI red; `base-ci-pending` at finalization; dirty tree between tickets, before the hook, or before a none-merged complete; `hook-stale`; `watch-failed`; `bad-landing`; `no-required-checks`; `evaluate-only`; `auto-merge-failed`; tracker CLI unresolvable; post-merge hook failure; final review still blocking after its fix round | disarm, report, `goal({op:"drop"})` |
+| Shared-state stop | base CI red; `base-ci-pending` at finalization; dirty tree at any fix halt, between tickets, before the hook, or before a none-merged complete; `hook-stale`; `watch-failed`; `bad-landing`; `no-required-checks`; `evaluate-only`; `auto-merge-failed`; tracker CLI unresolvable; post-merge hook failure; final review still blocking after its fix round | disarm, report, `goal({op:"drop"})` |
 | No progress | no actionable child while children remain open | report, `goal({op:"drop"})` |
 
 A stop marker holds for its run: a new `/goal` line (new `run=`) retries the
 child. `review-bound` holds across runs, as does an open PR whose review bound is
 spent. Before a ticket, base checks that are pending or absent do not stop the loop; they are reported. At finalization, pending drops as `base-ci-pending` and absent does not.
 
-**Fix-filed children are scoped children.** A cause `skill://fix` files and its
-one deferral carry an `## Acceptance criteria` heading right after their Origin
-line and a `size:` label (`skill://fix` § Filing), so `objective` and `next`
-treat them like any other child; neither special-cases them. Their criteria come
-from the operator's own review record. Each is blocked by its origin: it waits
-until the origin merges or closes, and a stopped origin keeps it skipped. Their
-own reviews can defer again. The signal is the order `objective` prints: each
-link waits on its origin, and a stopped origin keeps it skipped. A chain that
-keeps advancing always has an actionable link, so `no-progress` does not end it;
-that drop ends only a stalled chain, where no child is actionable and some remain
-open. The bound on an advancing chain is the goal budget: a `budget-limited` goal
-is not `active`, the driver acts on nothing, and the open links stay for a new
-`/goal` line. The operator can close a deferral as not planned at any time; a
-running goal does not do that itself.
+**Scoped filings and delivery membership.** Every blocking filing and non-blocking
+deferral has `**Origin:**`, an `## Acceptance criteria` heading and a `size:` label
+(`skill://fix` § Filing). Scope is not an exclusion trick. Blocking filings remain
+delivery children, blocked by their origin. Newly deferred non-blocking work stays
+outside the active delivery epic: when that epic is the candidate parent, omit
+`--parent`, retaining the origin's native blocked-by edge.
+Reuse never changes parentage. A historical deferral already under the epic stays
+there and remains governed by the ordinary `objective` / `next` rules; a detached
+backlog issue is not reattached. Independent delivery children remain actionable
+under the same dependency rules: no priority filter, scheduler flag, or reverse
+dependency on the deferral is added. `no-progress` still ends only a stalled chain.
+The operator may close a deferral as not planned; the running goal does not.
 
 **Final epic review and hook.** Once every child is closed or merged into the
 base, the review above runs on the cumulative range from `epicDiffRange`. A red
@@ -274,8 +273,10 @@ the final review and the hook are the operator's call.
    criteria heading, and no such heading: only then does the Epic goal start it.
 
 Scope changes require re-evaluating the issue tier under the tracker contract.
-Post-review deferrals are siblings under the origin's parent, blocked by the origin;
-`fix` and `issue-triage` own that procedure.
+Post-review deferrals normally remain siblings under the origin's parent, blocked
+by the origin. Newly deferred non-blocking work omits that parent only when it is
+the active delivery epic; blocking filings and planned slices retain it. Reuse
+changes no parent edge. `fix` and `issue-triage` own the procedure.
 
 ## 5. Frontier and framing handoff
 
@@ -422,18 +423,100 @@ step from the records.
 
 ### 6.5 Fix
 
+Before either fix branch, execute `skill://fix` § Initial worktree preflight.
+A dirty tree halts before apply, defer or filing, including an empty apply bucket.
+Any halt follows § Fix-halt command under an Epic goal; outside it, report and stop
+without committing or pushing stray or partial state.
+
 `step.action === 'fix'`, by `step.reason`:
 
-- review round (no reason) → execute `skill://fix` with `#<pr>`. It applies one
-  change per well-formed posted root cause that contains a blocking finding. A block missing a non-empty `mechanism:`, `fix:`, or `findings:` line is not applied; its blocking cited findings are filed per finding. It does not stop for a per-finding choice. Non-blocking causes are not applied; they go into one sibling follow-up, blocked by the origin. A blocking cause it
-  cannot apply becomes its own sibling issue.
+- review round (no reason) → execute `skill://fix` with `#<pr>`. Supply the active
+  delivery epic from the fresh goal/driver context, or establish its absence;
+  a failed context read is not absence. It applies each eligible well-formed
+  blocking root cause. Malformed or ineligible blocking causes are filed under
+  the shared delivery parent. Non-blocking causes are not applied: every one is
+  accounted for in the run's single new/reused deferral or genuine prior Deferred
+  evidence. Fresh non-blocking filing omits the active delivery epic parent;
+  existing issues retain their relations. Conflicting existing trackers halt,
+  rather than disappear from the partition or become duplicate issues.
 - `ci-failed` → fix inline from the failed checks (`land.failed`) and their
   logs. `fix` reads review comments, not CI: running it here replays stale findings.
 
-Verify, commit and push the fixes, then post `## Review Fixes Applied`. The
-receipt is for humans: no gate reads it, and a failed post is reported, not
-retried. State `step.remaining`, then §6.4 — the push moved the head, so the
-next step needs a review of it.
+Only a successful fix reaches verification, cause commits, the single push and
+`## Review Fixes Applied`. A halt takes the command below, not that success path.
+The receipt is for humans: no gate reads it, and a failed post is reported, not
+retried. State `step.remaining`, then §6.4 — the push moved the head.
+
+### Fix-halt command
+
+Under an Epic goal, every fix halt uses this executable recipe, whether the
+failure came from a review fix, inline CI fix, initial preflight or later step.
+Write the diagnostic to the detail file; its wording never selects the outcome.
+Set `EPIC_DRIVER` to this skill's resolved `epic-driver.ts`, `EPIC_REPO` to the epic
+worktree, `EPIC_NUMBER` / `TICKET_NUMBER` to the driver-selected numbers,
+`GOAL_STATUS` to the fresh goal status, `GOAL_OBJECTIVE_FILE` to its verbatim
+objective file, and `DETAIL_FILE` to that diagnostic file. Save the fence outside
+the consumer checkout. Launch it with `bun --no-env-file <fence-file>` and the
+tool's `cwd` set to this resolved, trusted skill directory, outside the consumer
+worktree. Both the launcher and its children must avoid checkout `bunfig.toml`
+preloads; `--no-env-file` alone does not disable those preloads.
+
+```javascript
+const { spawnSync } = await import('node:child_process')
+const { realpathSync } = await import('node:fs')
+const { dirname } = await import('node:path')
+const required = (name) => {
+  const value = process.env[name]
+  if (!value) throw new Error(`fix halt: missing ${name}`)
+  return value
+}
+const driver = realpathSync(required('EPIC_DRIVER'))
+const trustedCwd = dirname(driver)
+const repo = required('EPIC_REPO')
+const common = [
+  '--epic', required('EPIC_NUMBER'),
+  '--goal-status', required('GOAL_STATUS'),
+  '--goal-objective-file', required('GOAL_OBJECTIVE_FILE'),
+  '--repo', repo,
+]
+const run = (command, args) => spawnSync('bun', ['--no-env-file', driver, command, ...common, ...args], {
+  cwd: trustedCwd, env: process.env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+})
+const halted = run('fix-halt', [
+  '--ticket', required('TICKET_NUMBER'), '--detail-file', required('DETAIL_FILE'),
+])
+let outcome
+if (halted.status === 2 || halted.status === 3) {
+  outcome = { action: 'halt', reason: 'driver-refused', exit: halted.status, error: halted.stderr }
+} else {
+  try {
+    if (halted.error || halted.status !== 0) throw new Error(halted.error?.message || halted.stderr || 'driver failed')
+    outcome = JSON.parse(halted.stdout)
+    const valid = (outcome.action === 'drop' && outcome.stop === 'dirty-tree' && outcome.class === 'shared')
+      || (outcome.action === 'stopped' && outcome.stop === 'stopped' && outcome.class === 'ticket')
+      || (outcome.action === 'merged' && Number.isInteger(outcome.merged) && outcome.merged > 0)
+    if (!valid) throw new Error('fix halt: invalid driver outcome')
+  } catch (error) {
+    outcome = { action: 'drop', stop: 'driver-error', class: 'shared', error: String(error) }
+  }
+  if (outcome.action === 'drop') {
+    const reported = run('report', ['--outcome', 'drop', '--reason', outcome.stop])
+    outcome = {
+      ...outcome, report: reported.stdout, reportExit: reported.status,
+      reportError: reported.error?.message || reported.stderr,
+    }
+  }
+}
+console.log(JSON.stringify(outcome))
+```
+
+Consume exactly the returned action. `drop` → print the report/errors, then
+`goal({op:"drop"})`, even if reporting failed; no `next`. `stopped` / `merged` →
+the driver already recorded the stop or observed the merge: call `next`, without
+another `stop`. `halt` → report the refusal and stop; no fallback to WIP, commit,
+push, success receipt or re-review. No shell command can drop the host goal by
+itself: the `goal` call remains the operator runtime's action. Outside an Epic
+goal, a fix halt reports the error and leaves all local state untouched.
 
 ### 6.6 Bound
 

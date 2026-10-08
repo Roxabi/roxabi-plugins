@@ -60,9 +60,9 @@ Plugins are project-agnostic: they read your stack from `.dev/stack.yml` at runt
 | Plugin | Description |
 |--------|-------------|
 | [dev-core](plugins/dev-core/README.md) | Full dev workflow — frame, analyze, spec, plan, implement, review, ship. Includes `/R-dev-init` project setup (env-setup → axial → ci-setup → release-setup). Lifecycle skills, agents, safety hooks. Issues-only (no Projects V2 board); issue triage is the companion [issue-triage](plugins/issue-triage/README.md) plugin. Project-agnostic via `stack.yml`. Quality gates (Python): file-length / folder-size / import-layer pre-commit hooks via `quality_gates:` in `stack.yml` |
-| [issue-triage](plugins/issue-triage/README.md) | Triage/create GitHub issues — size/priority/lane/type labels, blocked-by deps, parent/child. Labels + native relations, no Projects V2 |
+| [issue-triage](plugins/issue-triage/README.md) | Triage/create GitHub issues — size/priority/lane/type labels and native blocked-by / parent-child relations. Deferred follow-ups preserve the sibling default except new non-blocking work outside the active delivery epic; reuse never reparents. No Projects V2 |
 | [gitnexus](plugins/gitnexus/README.md) | GitNexus CLI — code knowledge graph (impact, symbol context, query). CLI-only alternative to MCP for minimal token overhead |
-| [omp-build](plugins/omp-build/README.md) | OMP-only feature cycle — frame → GitHub issue → worktree → `/move` + `/goal` → implement → bounded review/fix → land. Landing, review, CI-watch and pre-push exits share one armed-gate policy, with confirmed disarms and current-head approval checks, including refused pins whose head cannot be read. Issue writes go through the companion [issue-triage](plugins/issue-triage/README.md) plugin. Ships in the OMP catalog only: `omp plugin install omp-build@roxabi-marketplace` |
+| [omp-build](plugins/omp-build/README.md) | OMP-only feature cycle — frame → issue → worktree → `/move` + `/goal` → implement → bounded review/fix → land. Shared armed-gate policy; actual Git state routes fix halts without WIP/push. Clean-tree filing, including final review. Lossless non-blocking deferral accounting, with fresh deferrals outside the active delivery epic. Issue writes use [issue-triage](plugins/issue-triage/README.md). OMP catalog only: `omp plugin install omp-build@roxabi-marketplace` |
 
 ### Content & branding
 

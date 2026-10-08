@@ -9,6 +9,7 @@
  *   objective --epic E                                  the /goal line (assisted, read-only)
  *   next      --epic E <gate> [--dry-run]               the next action; switches to the child branch
  *   stop      --epic E <gate> --ticket N --reason R [--detail-file F]     record a ticket stop (disarms first)
+ *   fix-halt  --epic E <gate> --ticket N --detail-file F            dirty → shared drop; clean → ticket stop `stopped`
  *   review    --epic E <gate> --verdict V --range A..B [--detail-file F]  record the final epic review
  *   hook      --epic E <gate> --repo <worktree>         run release.post_merge (cwd outside the repo)
  *   report    --epic E <gate> --outcome complete|drop   post the goal report (drop disarms every PR)
@@ -20,7 +21,8 @@
  * Exit: 0 done · 1 failed (shared-state stop) · 2 refused · 3 assisted (no gate).
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import {
@@ -237,12 +239,30 @@ function prFacts(raw: RawPr, stopped: Set<number>): PrFacts {
   }
 }
 
-function tree(repo: string): Facts['tree'] {
+function tree(repo: string, refreshIndex = true): Facts['tree'] {
+  // Drop reporting skips the optional index refresh. The porcelain flags stay
+  // the scheduler's, so a hidden file is still classified as it is for `next`.
+  const status = refreshIndex ? ['status', '--porcelain'] : ['--no-optional-locks', 'status', '--porcelain']
   return {
-    clean: git(repo, ['status', '--porcelain']) === '',
+    clean: git(repo, status) === '',
     branch: git(repo, ['branch', '--show-current']) || null,
   }
 }
+
+/** Config-proof, non-refreshing. `git` throws on a failed read — never treated as clean. */
+const FIX_STATUS = [
+  '--no-optional-locks',
+  '-c',
+  'status.showUntrackedFiles=all',
+  '-c',
+  'status.submoduleSummary=0',
+  '-c',
+  'status.ignoreSubmodules=none',
+  'status',
+  '--porcelain=v1',
+  '--untracked-files=all',
+  '--ignore-submodules=none',
+]
 
 /** Local and origin branches claiming each child, deduped by name, with their foreign commits. */
 function branchRefs(repo: string, base: string, children: number[]): Map<number, BranchFacts[]> {
@@ -323,7 +343,7 @@ function gather(
   epic: number,
   run: string,
   base: string,
-  { git: withGit = true, dashboard = true, reviews = true } = {},
+  { git: withGit = true, dashboard = true, reviews = true, refreshIndex = true } = {},
 ): Gathered {
   const { owner, name, full } = repoName(repo)
   const data = graphql<EpicData>(repo, EPIC_QUERY, { owner, name, epic })
@@ -402,7 +422,7 @@ function gather(
     run,
     base,
     baseSha,
-    tree: withGit ? tree(repo) : { clean: true, branch: null },
+    tree: withGit ? tree(repo, refreshIndex) : { clean: true, branch: null },
     baseCi: !dashboard
       ? { state: 'unread', failed: [], pending: [] }
       : withGit && landing
@@ -479,6 +499,12 @@ function recordStop(repo: string, run: string, ticket: number, reason: string, d
  * The one way a ticket stops, whoever proved it: disarm every open PR of the
  * child, detach HEAD from its branch (kept), then write the `goal-stop` marker.
  * A PR that merged before its disarm is no stop: `merged` names it, no marker.
+ *
+ * `abortIfDirty` is the fix-halt seam only. After the disarms it re-reads with
+ * the non-refreshing sensor and returns `dirty` without detach or a marker.
+ * Nothing locks the worktree across those GitHub calls: dirt that appears
+ * after that read is not observed. Ordinary stop does not set the flag, and
+ * still records when its own recheck is dirty.
  */
 async function ticketStop(
   repo: string,
@@ -487,18 +513,68 @@ async function ticketStop(
   child: ChildFacts,
   reason: string,
   detail: string,
-): Promise<{ merged: number | null; disarmed: Record<number, Disarm> }> {
+  opts?: { abortIfDirty?: boolean },
+): Promise<{ merged: number | null; disarmed: Record<number, Disarm>; dirty?: boolean }> {
   const disarmed: Record<number, Disarm> = {}
   for (const pr of child.prs.filter((p) => p.state === 'OPEN')) {
     disarmed[pr.number] = await disarm(repo, pr.number)
-    if (disarmed[pr.number] === 'merged') return { merged: pr.number, disarmed }
+    if (disarmed[pr.number] === 'merged') {
+      if (opts?.abortIfDirty && git(repo, FIX_STATUS) !== '') return { merged: null, disarmed, dirty: true }
+      return { merged: pr.number, disarmed }
+    }
   }
-  const here = tree(repo)
+  // Fix halts read the branch first, then make one final strict observation.
+  // Do not re-enter ordinary tree(), whose status can refresh the index.
+  const here = opts?.abortIfDirty
+    ? { branch: git(repo, ['branch', '--show-current']) || null, clean: git(repo, FIX_STATUS) === '' }
+    : tree(repo)
+  if (opts?.abortIfDirty && !here.clean) return { merged: null, disarmed, dirty: true }
   if (here.clean && ticketOfBranch(here.branch) === child.number) {
-    git(repo, ['switch', '--detach', `refs/remotes/origin/${base}`])
+    if (opts?.abortIfDirty) {
+      const hooks = mkdtempSync(join(tmpdir(), 'omp-fix-halt-hooks-'))
+      try {
+        git(repo, ['-c', `core.hooksPath=${hooks}`, 'switch', '--detach', `refs/remotes/origin/${base}`])
+      } finally {
+        rmSync(hooks, { recursive: true, force: true })
+      }
+    } else {
+      git(repo, ['switch', '--detach', `refs/remotes/origin/${base}`])
+    }
   }
   recordStop(repo, run, child.number, reason, detail)
   return { merged: null, disarmed }
+}
+
+/**
+ * A fix halt. Detail text never selects the branch. Dirty — including a tree
+ * that became dirty during the disarms — is a shared drop: no marker, no
+ * checkout, no commit. Clean records ticket stop `stopped`.
+ */
+async function fixHalt(
+  repo: string,
+  epic: number,
+  run: string,
+  base: string,
+  ticket: number,
+  detail: string,
+): Promise<Record<string, unknown>> {
+  if (!Number.isInteger(ticket) || ticket <= 0) throw new Refused('--ticket <N> is required')
+  refusePrincipal(repo)
+  const { facts } = gather(repo, epic, run, base, { git: false, dashboard: false, reviews: false })
+  const child = facts.children.find((c) => c.number === ticket)
+  if (!child) throw new Refused(`#${ticket} is not a sub-issue of #${epic}`)
+  if (git(repo, FIX_STATUS) !== '') return { action: 'drop', stop: 'dirty-tree', class: 'shared' }
+  const outcome = await ticketStop(repo, run, base, child, 'stopped', detail, { abortIfDirty: true })
+  if (outcome.dirty) return { action: 'drop', stop: 'dirty-tree', class: 'shared' }
+  if (outcome.merged !== null) return { action: 'merged', ticket, merged: outcome.merged, disarmed: outcome.disarmed }
+  return {
+    action: 'stopped',
+    stop: 'stopped',
+    class: 'ticket',
+    ticket,
+    sticky: STICKY_STOPS.includes('stopped'),
+    disarmed: outcome.disarmed,
+  }
 }
 
 // ── Subcommands ───────────────────────────────────────────────────────────────
@@ -745,7 +821,8 @@ async function report(
       }
     }
     try {
-      ;({ facts, epicComments } = gather(repo, epic, run, base))
+      // Later drop read: do not refresh the index. Porcelain flags stay the scheduler's.
+      ;({ facts, epicComments } = gather(repo, epic, run, base, { refreshIndex: false }))
       if (facts.landingError) {
         facts = { ...facts, baseCi: { state: 'unread', failed: [], pending: [] } }
       }
@@ -853,6 +930,8 @@ async function main(argv: string[]): Promise<string> {
       return JSON.stringify(await next(repo, epic, run, base, values['dry-run'] ?? false), null, 2)
     case 'stop':
       return JSON.stringify(await stop(repo, epic, run, base, ticket, values.reason, detail), null, 2)
+    case 'fix-halt':
+      return JSON.stringify(await fixHalt(repo, epic, run, base, ticket, detail), null, 2)
     case 'review':
       return JSON.stringify(review(repo, epic, run, base, values.verdict, values.range, detail), null, 2)
     case 'hook': {
@@ -869,7 +948,9 @@ async function main(argv: string[]): Promise<string> {
       return out.text
     }
     default:
-      throw new Refused(`unknown subcommand ${command ?? '(none)'}: objective | next | stop | review | hook | report`)
+      throw new Refused(
+        `unknown subcommand ${command ?? '(none)'}: objective | next | stop | fix-halt | review | hook | report`,
+      )
   }
 }
 

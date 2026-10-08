@@ -11,10 +11,10 @@ version: 0.2.0
 
 ## Success
 
-I := ∀ blocking r → applied ∨ filed (issue ∃) ∧ (deferred set = ∅ ∨ one deferral issue ∃) ∧ ∀ uncited blocking f → filed ∧ ∀ uncited non-blocking f → in that deferral ∨ already deferred ∧ ∀ cited non-blocking finding of a malformed block → in that deferral ∨ already deferred ∧ PR comment posted
+I := ∀ blocking r → applied ∨ filed ∧ ∀ item of N\P → represented in deferral D ∧ ∀ item of P → accounted to its prior Deferred issue ∧ ∀ uncited blocking f → filed ∧ receipt posted. An empty deferred set is not success when N\P ≠ ∅
 V := `gh pr view {N} --comments | grep "## Review Fixes Applied"`
 
-One pass: find the review record, name the causes, apply each eligible well-formed blocking cause as its own commit, defer every non-blocking cause into one issue, push once when a cause was committed. A malformed block is never a commit.
+One pass: find the review record, name the causes, apply each eligible well-formed blocking cause as its own commit, account every item of N\P in one deferral issue, push once when a cause was committed. A malformed block is never a commit.
 
 **⚠ Continuous pipeline. The cause plan is the decision — apply it in this turn. Stop only on: unrecoverable failure or Phase 6 completion.**
 
@@ -42,14 +42,14 @@ use `/feature` §6.5, not this review-comment consumer.
 |-------|----|----------|---------------|-------|
 | 1 | gather | ✓ | record found, F + R_posted parsed | the marked review record only |
 | 2 | causes | ✓ | R named, eligibility decided | posted blocks, else cluster |
-| 3 | apply | — | one commit per applied cause | empty apply bucket → no commit; defer and file still run |
+| 3 | apply | — | one commit per applied cause | empty apply bucket → no commit; defer and file run only after a clean preflight |
 | 4 | falsify | — | pass/fail per cause | no applied cause with a classed member → skip |
 | 5 | push | ✓ | `git push` success when a cause was committed | no cause commit → skip the push; never writes `reviewed` on a review-driven fix |
 | 6 | post-comment | — | comment posted | ∄ PR → skip |
 
 ## Pre-flight
 
-Success: ∀ blocking r → applied ∨ filed ∧ deferred set in one issue or empty ∧ PR comment posted
+Success: ∀ blocking r → applied ∨ filed ∧ every item of N\P in deferral D ∧ every item of P accounted ∧ receipt posted. An empty deferred set is not success when N\P ≠ ∅
 Evidence: `gh pr view {N} --comments | grep "## Review Fixes Applied"`
 Steps: gather → causes → apply → falsify → push → post-comment
 ¬clear → STOP + ask: "Do you have review findings to fix?"
@@ -67,6 +67,9 @@ Let:
   O_commit(r) { stage only the files r changed (¬`git add -A`) → commit `fix(<scope>): <r.id> <r.title> (#T)` — ` (#T)` only when T exists; the epic goal refuses a branch commit that claims no ticket }
   O_push { lint + tests (max 3 retries) → `git push` }
   D_subsumption := {d ∈ D | d.tag = "subsumption-violation"}
+  N := every non-blocking cause, every uncited finding that does not satisfy blocks(f), and every cited finding of a malformed block that does not satisfy blocks(f)
+  P := { n ∈ N | a prior ## Review Fixes Applied comment by ME lists that item under ### Deferred with an issue number }. A ### Filed line is not membership in P
+  deferral D := the one current issue, new or reused, that covers every item of N\P. ∅ only when N\P = ∅. In filing and the receipt, D is this issue, not the diagnostics bus
 
 Join rules, the `## Root causes` shape, and what may not join: `skill://dev-review/root-causes.md`. Read it in Phase 2.
 
@@ -104,7 +107,7 @@ The record is the one review F and R come from. Nothing else on the PR is input:
    gh api graphql -f query='query{repository(owner:"<O>",name:"<R>"){issue(number:<SOURCE_ISSUE>){parent{number}}}}' \
      --jq '.data.repository.issue.parent.number // empty'
    ```
-   — used to wire the filed issue as a **sibling** under the shared parent. Then resolve `SOURCE_SIZE`, the `--size` of every issue this run files (`S` when `SOURCE_ISSUE = ∅`):
+   — a successful empty parent is known absence. A non-zero exit leaves `SOURCE_PARENT` unset; do not export empty from a failed read. The filing fence re-reads that parent and halts on failure or disagreement. Then resolve `SOURCE_SIZE`, the `--size` of every fresh create (`S` when `SOURCE_ISSUE` is empty):
    ```bash
    gh issue view "$SOURCE_ISSUE" --json labels \
      --jq '[.labels[].name | select(startswith("size:"))][0] // "size:S" | ltrimstr("size:") | ltrimstr(" ")'
@@ -144,7 +147,7 @@ An actionable finding of the record cited by no block in R is uncited. It is fil
 - `r.fix` does not widen a denylist, add a grep, or copy an inventory / `validate:full` list — checked on the fix line itself, whatever the members' classes
 - every cited path resolves inside the repository root (`git rev-parse --show-toplevel`)
 
-**Already filed.** Before filing or deferring, read `### Filed` and `### Deferred` in the earlier `## Review Fixes Applied` comments by ME on this PR. A cause whose mechanism is already under `### Filed` is reported `already filed → #N`, not filed again. A prior deferral suppresses only another deferral of a still-non-blocking cause: report `already deferred → #N` and do not defer it again. A blocking cause that is ineligible or failed is filed even if its mechanism appears under `### Deferred`. An uncited non-blocking finding already listed at the same file:line is not listed again. Create the deferral issue only when the remaining deferred set is non-empty. A deferred cause is reported under `### Deferred`, never under `### Filed`.
+**Conservation.** Before deferring or filing, read `### Filed` and `### Deferred` in the earlier `## Review Fixes Applied` comments by ME on this PR. Report each item of P as `already deferred → #N` and do not defer it again. A blocking cause that is ineligible or failed is filed even if its mechanism appears under `### Deferred`. Every item of N\P is represented in one deferral D, new or reused. Filed-only does not remove an item from N\P. One open issue the agent attests covers every item of N\P — including an open Filed-only tracker — is D: reuse it, record it under this run's `### Deferred`, and do not create another. Coverage reads D's body and its complete, paginated comment history. Missing items go in an append-only comment through the filing fence; preserve the body and every relation. Several open trackers and no single covering issue → halt before any triage mutation, push, or receipt. Name the item→issue conflicts. Do not create an umbrella, do not invent a prior Deferred line, and do not set `EXISTING_ISSUE` empty to skip the conflict. N\P empty still requires the receipt to account each prior item to its issue.
 
 Print the plan, then continue. This print is not a gate.
 
@@ -160,9 +163,33 @@ Not causes: K (praise, thought, question)
 
 ## Phase 3 — Apply Causes (inline, one commit each)
 
-No cause in the apply bucket → commit nothing. The defer and file steps below still run, then Phase 5, which pushes only when a cause commit exists.
+### Initial worktree preflight
 
-The tree must be clean before the first applied cause. Uncommitted changes → halt and name them when the apply bucket is non-empty: a restore below must never touch the operator's work. An empty apply bucket does not halt on a dirty tree.
+Run this fence before apply, defer, or file, including when no cause would be applied. A failed status is not clean. A non-empty status halts: name the listed changes, then stop. No commit, no push, no deferral, no filing.
+
+```bash
+set -euo pipefail
+delivery_cwd=$(pwd -P)
+local_git_vars=$(git rev-parse --local-env-vars)
+while IFS= read -r local_git_var; do
+  unset "$local_git_var"
+done <<< "$local_git_vars"
+status_file=$(mktemp)
+trap 'rm -f "$status_file"' EXIT
+if ! git -C "$delivery_cwd" --no-optional-locks status --porcelain=v1 --untracked-files=all --ignore-submodules=none >"$status_file"; then
+  echo "worktree status failed; not clean" >&2
+  exit 1
+fi
+if [ -s "$status_file" ]; then
+  echo "dirty tree; halt before apply, defer, or file" >&2
+  cat "$status_file" >&2
+  exit 1
+fi
+```
+
+No cause in the apply bucket → commit nothing. Defer and file still run only after this preflight is clean, then Phase 5 pushes only when a cause commit exists.
+
+The restore below must never touch the operator's work: this preflight already refused a dirty tree.
 
 ∀ r in the apply bucket, in order, **inline in this session**:
 
@@ -183,39 +210,184 @@ Applied: N | Deferred: D | Filed: M
 
 ### Filing — the follow-up is a sibling, never a child
 
-Two dispositions, one wiring. A non-blocking cause is not filed on its own: it joins the single deferral below. Today's filing is only an ineligible or failed blocking cause, an uncited finding that satisfies `blocks(f)`, or a cited finding of a malformed block that satisfies `blocks(f)`. Each of those gets its own issue. Create every follow-up with `T=$(realpath skill://issue-triage/triage.ts) && bun "$T" create --title-file … --body-file …`. If that command cannot be resolved, stop and name issue-triage. Never raw `gh issue create`: issue mutations go through that CLI so blocked-by and parent are wired atomically, and a `Blocked by: #12` line in a body is invisible to `gh issue view` and to the frontier query.
-
-**Comment text never reaches a command line.** Titles and bodies come from PR comments, which anyone can write. Write them with the `write` tool into a mktemp dir and pass the files; a double-quoted `$(…)` or backtick in an argument runs in the operator's shell.
-
-**Deferral — one issue per run.** Every cause that is not `blocking(r)`, every uncited finding that does not satisfy `blocks(f)`, and every cited finding of a malformed block that does not satisfy `blocks(f)`, and that is not already deferred or filed, goes into exactly one follow-up. They are not applied. One `create`, not one per cause. The title file is the bundle title `Deferred non-blocking review findings`. The body file opens with `**Origin:** PR #<N>`, then `## Acceptance criteria` with one checkbox per deferred item, then the details: every deferred mechanism, its fix line, and its findings, plus each uncited non-blocking finding, plus each cited non-blocking finding of a malformed block. Same `--blocked-by` / `--parent` / `--size` / `--type` wiring as the bullets under the fence. Empty set after the already-deferred filter → no issue. Do not use the per-cause sentence `could not be applied` for this issue. Do not copy a non-blocking member of an applied cause into it.
-
-```bash
-FILE_DIR=$(mktemp -d -t "omp-build-fix-file-XXXXXX")
-trap 'rm -rf "$FILE_DIR"' EXIT
-# write "$FILE_DIR/title.txt" and "$FILE_DIR/body.md" with the write tool, then:
-T=$(realpath skill://issue-triage/triage.ts) && bun "$T" create --title-file "$FILE_DIR/title.txt" --body-file "$FILE_DIR/body.md" ...
-```
+Sibling under the shared parent remains the default. Only a fresh nonblocking create whose candidate parent equals the active delivery epic omits `--parent`. Blocking filings, the blocking epic-fix, and planned slices keep that parent. Do not create an epic to hold the deferral. Reuse never passes a relation flag, whether the issue is already detached or still a historical child.
 
 `docs/agents/issue-tracker.md` § "Deferred follow-ups are siblings":
 
 > A follow-up deferred out of issue A is a **sibling** of A under their shared parent, blocked-by A — never a child of A. This keeps the epic's fan-out flat instead of building a nested cascade. Planned decomposition (epic → phase) *is* parent/child; post-hoc deferral is not.
 
-So the filed issue takes the **origin's** parent, not the origin:
+That default stands everywhere the exception above does not. `--parent "#${SOURCE_ISSUE}"` is still the bug this section prevents: it nests the follow-up under its origin.
 
-- `--title-file` — the cause title
-- `--body-file` — the `{details}` below
-- `--blocked-by "#${SOURCE_ISSUE}"` — the origin. Omit when `SOURCE_ISSUE = ∅`
-- `--parent "#${SOURCE_PARENT}"` — the origin's **parent**. Omit when `SOURCE_PARENT = ∅`
-- `--size "${SOURCE_SIZE}"` — mandatory, from Phase 1
-- `--type` — per `issue-triage`
+Export these facts before the fence. Each name must be set. Empty is known absence only where noted. Unset, empty where a number is required, or any other unresolved value halts before mutations. A failed read is never stored as empty.
 
-`--parent "#${SOURCE_ISSUE}"` is the bug this section exists to prevent: it nests the deferral under its origin and the epic's fan-out stops being flat.
+- `DISPOSITION` — `blocking` or `nonblocking`
+- `FILE_DIR` — `title.txt` and `body.md`, written with the write tool. `append.md` only when reused D gains items
+- `SOURCE_SIZE` — required on a fresh create. `SOURCE_TYPE` is optional and passed only when non-empty
+- `SOURCE_ISSUE` — bare positive integer, or empty when a successful read proved no origin. A fresh create passes `--blocked-by` only when it is set
+- `SOURCE_PARENT` — bare positive integer, or empty after a successful parent read. The fence re-reads the origin's parent and halts on failure or disagreement. For nonblocking final review only (`SOURCE_ISSUE=SOURCE_PARENT=ACTIVE_EPIC`), that self-candidate is resolved to the live enclosing parent H if present; a proven top-level origin keeps E as candidate and omits it on create. A parent claimed with an empty origin halts
+- `ACTIVE_EPIC` — the open epic the goal loop is delivering, from a successful fresh goal read, or empty only when that read proved none. Feature passes the goal/driver epic. Standalone reads the same goal state. Do not infer it from priority, labels, or a hardcoded number. The fence consumes the fact and does not re-read goal state
+- `EXISTING_ISSUE` — candidate number, or empty only after a successful search found no open cover. A failed search is unset, not empty
+- `ITEM_COVERAGE` — required when `EXISTING_ISSUE` is non-empty: `exact` or `noncovering`. The agent establishes coverage from the issue body, every comment page, and any proposed `append.md` additions. The fence verifies live OPEN/body/comment reads, not semantics. A failed or incomplete read and `noncovering` halt with no create
+- `GITHUB_REPO` — required; triage already reads it
 
-∄ SOURCE_ISSUE → create without `--blocked-by` or `--parent`; `{details}` MUST include `**Origin:** PR #<N>` so traceability survives. ∄ SOURCE_PARENT (SOURCE_ISSUE is top-level) → create without `--parent`; the filed issue is top-level too.
+Omit `--parent` only for a fresh create (`EXISTING_ISSUE` empty) when `DISPOSITION=nonblocking` and `SOURCE_PARENT` equals a non-empty `ACTIVE_EPIC`. Every other fresh create that has a candidate parent passes it. Reuse: no create, no relation flags, no body replacement. A non-whitespace `append.md` is published with `gh issue comment --body-file`; save its returned URL in the Deferred receipt. A failed comment write may have reached GitHub: re-read the complete history before any retry; halt before push or success receipt and never create a replacement.
 
-`issue-triage` `--blocked-by` accepts issues only (¬PRs) — when the source review is on a PR with no closing-issue reference, fall back to no `--blocked-by` and rely on the `Origin: PR #N` body line.
+Comment text never reaches a command line. Titles and bodies come from PR comments. Write them with the write tool. If `realpath` cannot resolve issue-triage, stop and name it. Never raw `gh issue create`.
 
-**Every filed issue is a scoped child.** Inside an epic, `objective` and `next` start only a child with a `size:` label and an acceptance heading, and no "needs framing" heading (`hasScope`, `skill://feature` § Epic goal). A filed issue missing either stops the epic: no `/goal` line (`missing scope`). So both templates below open with the Origin line, then `## Acceptance criteria`, before any copied text: a stray fence in a copied finding cannot hide the heading. Copied text — titles, mechanisms, findings — is never a heading line and never opens a fence; quote code inline. Each checkbox is one line.
+```bash
+FILE_DIR=$(mktemp -d -t "omp-build-fix-file-XXXXXX")
+trap 'rm -rf "$FILE_DIR"' EXIT
+# write "$FILE_DIR/title.txt" and "$FILE_DIR/body.md" with the write tool, and "$FILE_DIR/append.md" only when reused D gains items, then:
+set -euo pipefail
+delivery_cwd=$(pwd -P)
+local_git_vars=$(git rev-parse --local-env-vars)
+while IFS= read -r local_git_var; do
+  unset "$local_git_var"
+done <<< "$local_git_vars"
+if ! worktree_status=$(git -C "$delivery_cwd" --no-optional-locks status --porcelain=v1 --untracked-files=all --ignore-submodules=none); then
+  echo "worktree status failed; not clean" >&2
+  exit 1
+fi
+if [ -n "$worktree_status" ]; then
+  printf 'dirty tree; halt before filing\n%s\n' "$worktree_status" >&2
+  exit 1
+fi
+must_set() {
+  local name="$1"
+  if [ -z "${!name+x}" ]; then
+    echo "halt: ${name} unset; not absence" >&2
+    exit 1
+  fi
+}
+number_or_empty() {
+  local name="$1" value
+  must_set "$name"
+  value="${!name}"
+  if [ -z "$value" ]; then
+    return 0
+  fi
+  if [[ ! "$value" =~ ^[1-9][0-9]*$ ]]; then
+    echo "halt: ${name} unresolved (${value}); not absence" >&2
+    exit 1
+  fi
+}
+must_set DISPOSITION
+must_set FILE_DIR
+must_set GITHUB_REPO
+number_or_empty SOURCE_ISSUE
+number_or_empty SOURCE_PARENT
+number_or_empty ACTIVE_EPIC
+number_or_empty EXISTING_ISSUE
+if [ "$DISPOSITION" != "blocking" ] && [ "$DISPOSITION" != "nonblocking" ]; then
+  echo "halt: DISPOSITION unresolved (${DISPOSITION}); not absence" >&2
+  exit 1
+fi
+if [ -z "$FILE_DIR" ] || [ ! -d "$FILE_DIR" ]; then
+  echo "halt: FILE_DIR unresolved; not absence" >&2
+  exit 1
+fi
+if [ -z "$GITHUB_REPO" ]; then
+  echo "halt: GITHUB_REPO unresolved; not absence" >&2
+  exit 1
+fi
+if [ -z "$EXISTING_ISSUE" ]; then
+  must_set SOURCE_SIZE
+  if [ -z "$SOURCE_SIZE" ]; then
+    echo "halt: SOURCE_SIZE unresolved; not absence" >&2
+    exit 1
+  fi
+fi
+T=$(realpath skill://issue-triage/triage.ts) || {
+  echo "halt: issue-triage unresolved; not absence" >&2
+  exit 1
+}
+if [ -n "$SOURCE_ISSUE" ]; then
+  if ! parent_live=$(gh issue view "$SOURCE_ISSUE" --repo "$GITHUB_REPO" --json parent --jq '.parent.number // empty'); then
+    echo "halt: SOURCE_PARENT read failed; not absence" >&2
+    exit 1
+  fi
+  if [ "$DISPOSITION" = "nonblocking" ] && [ "$SOURCE_ISSUE" = "$ACTIVE_EPIC" ] && [ "$SOURCE_PARENT" = "$SOURCE_ISSUE" ]; then
+    SOURCE_PARENT="${parent_live:-$SOURCE_ISSUE}"
+  elif [ "$parent_live" != "$SOURCE_PARENT" ]; then
+    echo "halt: SOURCE_PARENT disagrees with live parent; not absence" >&2
+    exit 1
+  fi
+elif [ -n "$SOURCE_PARENT" ]; then
+  echo "halt: SOURCE_PARENT set without SOURCE_ISSUE; not absence" >&2
+  exit 1
+fi
+if [ -n "$EXISTING_ISSUE" ]; then
+  if ! existing_state=$(gh issue view "$EXISTING_ISSUE" --repo "$GITHUB_REPO" --json state,body --jq '.state'); then
+    echo "halt: EXISTING_ISSUE #${EXISTING_ISSUE} unreadable; not absence" >&2
+    exit 1
+  fi
+  if [ "$existing_state" != "OPEN" ]; then
+    echo "halt: EXISTING_ISSUE #${EXISTING_ISSUE} is not an open tracker; not absence" >&2
+    exit 1
+  fi
+  if ! gh issue view "$EXISTING_ISSUE" --repo "$GITHUB_REPO" --json state,body --jq '.body' >"$FILE_DIR/prior-body.md"; then
+    echo "halt: EXISTING_ISSUE #${EXISTING_ISSUE} body unreadable; not absence" >&2
+    exit 1
+  fi
+  if ! gh api --paginate "repos/${GITHUB_REPO}/issues/${EXISTING_ISSUE}/comments" --jq '.[].body' >"$FILE_DIR/prior-comments.md"; then
+    echo "halt: EXISTING_ISSUE #${EXISTING_ISSUE} complete comment history unreadable; not absence" >&2
+    exit 1
+  fi
+  must_set ITEM_COVERAGE
+  if [ "$ITEM_COVERAGE" != "exact" ]; then
+    echo "halt: EXISTING_ISSUE #${EXISTING_ISSUE} coverage ${ITEM_COVERAGE:-unresolved}; name item→issue conflicts; no create" >&2
+    exit 1
+  fi
+  if [ -f "$FILE_DIR/append.md" ] && [ -n "$(tr -d '[:space:]' < "$FILE_DIR/append.md")" ]; then
+    log=$(mktemp)
+    set +e
+    gh issue comment "$EXISTING_ISSUE" --repo "$GITHUB_REPO" --body-file "$FILE_DIR/append.md" >"$log" 2>&1
+    status=$?
+    set -e
+    cat "$log"
+    rm -f "$log"
+    if [ "$status" -ne 0 ]; then
+      echo "tracker partial failure: issue #${EXISTING_ISSUE}; re-read all comments before retry; do not create again" >&2
+      exit "$status"
+    fi
+  else
+    echo "reused #${EXISTING_ISSUE}"
+  fi
+  exit 0
+fi
+omit_parent=0
+if [ "$DISPOSITION" = "nonblocking" ] && [ -n "$SOURCE_PARENT" ] && [ -n "$ACTIVE_EPIC" ] && [ "$SOURCE_PARENT" = "$ACTIVE_EPIC" ]; then
+  omit_parent=1
+fi
+args=(create --title-file "$FILE_DIR/title.txt" --body-file "$FILE_DIR/body.md" --size "$SOURCE_SIZE")
+if [ -n "${SOURCE_TYPE-}" ]; then
+  args+=(--type "$SOURCE_TYPE")
+fi
+if [ -n "$SOURCE_ISSUE" ]; then
+  args+=(--blocked-by "#${SOURCE_ISSUE}")
+fi
+if [ -n "$SOURCE_PARENT" ] && [ "$omit_parent" -eq 0 ]; then
+  args+=(--parent "#${SOURCE_PARENT}")
+fi
+log=$(mktemp)
+set +e
+bun "$T" "${args[@]}" >"$log" 2>&1
+status=$?
+set -e
+cat "$log"
+if [ "$status" -ne 0 ]; then
+  created=$(sed -n 's/^Created #\([0-9][0-9]*\):.*/\1/p' "$log")
+  created=${created%%$'\n'*}
+  if [ -n "$created" ]; then
+    echo "tracker partial failure: created #${created}; reconcile that issue; do not create again" >&2
+  fi
+  rm -f "$log"
+  exit "$status"
+fi
+rm -f "$log"
+```
+
+**Filed issues stay scoped; only blocking filings are delivery children.** A blocking filing and the blocking epic-fix keep the delivery parent. A fresh nonblocking deferral whose candidate parent is the active delivery epic omits `--parent` and is not that epic's child. Either way the body opens with the Origin line, then `## Acceptance criteria`, and the issue gets a `size:` label. Inside an epic, `objective` and `next` start only a child with those and no "needs framing" heading (`hasScope`, `skill://feature` § Epic goal). A delivery child missing either stops the epic: no `/goal` line (`missing scope`). A stray fence in copied finding text cannot hide the heading. Copied text — titles, mechanisms, findings — is never a heading line and never opens a fence; quote code inline. Each checkbox is one line.
 
 `{details}` template — for a filed cause, and for a single filed finding:
 ```markdown
@@ -318,8 +490,8 @@ Write the summary (below) to `"$BODY"` → `gh pr comment "$PR" --body-file "$BO
 ```markdown
 ## Review Fixes Applied
 
-**Applied:** N cause(s)
-**Deferred (non-blocking):** D cause(s) + U uncited finding(s) + M cited non-blocking finding(s) of a malformed block → #456
+**Applied:** {applied} cause(s)
+**Deferred (non-blocking):** |N\P| in #D; already deferred |P| on their prior issues. A Filed-only record is not already deferred. `0` is not success when N\P ≠ ∅
 **Filed (sibling issues):** J cause(s)
 **Already filed:** A cause(s)
 **Failed:** L cause(s)
@@ -330,10 +502,12 @@ Write the summary (below) to `"$BODY"` → `gh pr comment "$PR" --body-file "$BO
 - [applied] RC-1 — missing roster SSoT — `3f2a1c0`
 
 ### Deferred
-_(omit section when nothing was deferred this run; the summary line is then `**Deferred (non-blocking):** 0`)_
+_(omit the new-item list when N\P = ∅; the summary still accounts P)_
+For reused D, cite the body or existing comment that covers each item; new additions cite the successfully posted comment URL. Complete comment retrieval and a successful append are required before push or this success receipt.
 - RC-2 — mechanism: the tests assert a fix that already passes — deferred, not applied — #456
 - uncited `suggestion:` polish the name — `ui.ts:12` — #456
 - malformed-block cited `suggestion:` `b.ts:2` — #456
+- already deferred — RC-9 — mechanism: named under a prior ### Deferred — #400
 
 ### Filed
 - RC-2 — a member failed validation — #123 (sibling of #120, blocked-by #120)
@@ -365,15 +539,18 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 | A member has C(f) := 0 | A blocking cause is filed, not applied. A non-blocking cause is deferred, not filed on its own |
 | Fix line widens a denylist / adds a grep / copies an inventory | A blocking cause is filed, not applied. A non-blocking cause is deferred |
 | Cited path outside the repository | A blocking cause is filed, not applied. A non-blocking cause is deferred |
-| Cause already under Filed, or a still-non-blocking cause already under Deferred | `already filed → #N` or `already deferred → #N`. A prior deferral does not suppress filing a blocking cause that is ineligible or failed |
-| All causes non-blocking | Commit nothing. File exactly one follow-up listing them. Receipt reports deferred → #N. No push |
-| Mixed causes | Apply the well-formed blocking eligible ones. A malformed block is not applied. One deferral issue holds every non-blocking cause, every uncited non-blocking finding, and every cited non-blocking finding of a malformed block |
-| Dirty tree before an apply | Halt, name the changes. An empty apply bucket does not halt |
+| Item of N under a prior ### Deferred | P. Report `already deferred → #N`. Do not defer it again. A prior Deferred line does not suppress filing a blocking cause that is ineligible or failed |
+| Item of N only under ### Filed | Stays in N\P. One open issue that covers every item of N\P may be reused as D and recorded under this run's Deferred. Filed-only is not already deferred |
+| Several open trackers, none covering every item of N\P | Halt before triage mutations, push, and receipt. Name the item→issue conflicts. No umbrella, no fabricated Deferred line, and do not set EXISTING_ISSUE empty to skip the conflict |
+| All causes non-blocking | Commit nothing. One D covers every item of N\P, new or reused. P stays on its prior issues. The receipt accounts both. No push |
+| Mixed causes | Apply the well-formed blocking eligible ones. A malformed block is not applied. One D covers every item of N\P |
+| Dirty tree before apply, defer, or file, including zero applied causes | Halt via ### Initial worktree preflight. A failed status is not clean. No commit, no push, no filing |
 | Apply fails after 3 | Restore to the last cause commit, `[failed]`, file, continue |
 | Falsification fails twice | Revert that cause's commits, `[failed]`, file |
 | Quality gate fails 3× on the push | Halt, commits stay local. No cause commit → the push is skipped, not failed |
 | ¬∃ PR | Skip Phase 6, local only, no label |
-| ∄ SOURCE_PARENT | Filed issue is top-level — ¬parent it to the origin |
+| SOURCE_PARENT empty after a successful read | Omit `--parent`. A failed parent read is unset, not empty, and the filing fence halts. A fresh nonblocking create whose candidate parent equals ACTIVE_EPIC also omits `--parent`. Blocking filings keep that parent |
+| Unknown filing fact, or a failed goal, parent, or search read | Halt before mutations. Do not store the failure as empty |
 | review-driven fix | Phase 5 writes no `reviewed`; landing owns the gate |
 
 ## Safety Rules
@@ -395,7 +572,7 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 
 ## Exit
 
-- **Success:** blocking causes applied or filed, non-blocking causes deferred in one issue or already deferred, receipt posted. A run that applied nothing is success without a commit or a push. Print Applied / Deferred / Filed / Failed + `Next: re-review with skill://dev-review`. Stop.
+- **Success:** every blocking cause applied or filed; every item of N\P represented in this run's one deferral issue D; every item of P accounted to its prior Deferred issue; receipt posted. An empty deferred set is not success when N\P ≠ ∅. A run that applied nothing is success without a commit or a push only when that partition holds. Print Applied / Deferred / Filed / Failed + `Next: re-review with skill://dev-review`. Stop.
 - **Failure (quality gate, ¬findings, unrecoverable):** return the error and stop — the caller decides next steps outside the automatic bound.
 - **Loop cap:** at most 2 automatic fixes, derived by the caller's `nextReviewStep`
   from the review records. On `stop`, follow `skill://dev-review` Phase 8 —

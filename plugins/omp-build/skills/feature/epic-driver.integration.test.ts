@@ -1,4 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import {
   chmodSync,
   mkdirSync,
@@ -7,6 +8,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -22,6 +24,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 const DRIVER = path.resolve(import.meta.dirname, 'epic-driver.ts')
 const REAL_BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
+const REAL_GIT = execFileSync('which', ['git'], { encoding: 'utf8' }).trim()
 const RUN = 'run00001'
 const ME = 'operator'
 
@@ -52,7 +55,12 @@ case "$1 \${2:-}" in
     n=$(ls "$S" | grep -c '^comment-' || true)
     cat > "$S/comment-$n.md"
     log "comment $3 $(head -1 "$S/comment-$n.md")" ;;
-  "pr view") cat "$S/pr/$3.json" ;;
+  "pr view")
+    if [[ -f "$S/dirty-on-pr-view" ]]; then
+      IFS= read -r repo < "$S/dirty-on-pr-view"
+      printf 'raced\\n' > "$repo/raced.txt"
+    fi
+    cat "$S/pr/$3.json" ;;
   "pr edit")
     log "edit $3 \${*:4}"
     [[ -f "$S/pr/$3.sticky" ]] || { jq -c '.labels = []' "$S/pr/$3.json" > "$S/tmp" && mv "$S/tmp" "$S/pr/$3.json"; } ;;
@@ -1268,5 +1276,591 @@ describe('epic-driver — drop disarms without the dashboard', () => {
       'merge 12 --disable-auto',
       'edit 12 --remove-label reviewed',
     ])
+  })
+})
+
+describe('epic-driver — fix halt', () => {
+  const DROP = { action: 'drop', stop: 'dirty-tree', class: 'shared' }
+  const FENCE = (() => {
+    const skill = readFileSync(path.resolve(import.meta.dirname, 'SKILL.md'), 'utf8')
+    const at = skill.indexOf('### Fix-halt command')
+    if (at < 0) throw new Error('missing ### Fix-halt command')
+    const match = skill.slice(at).match(/```javascript\n([\s\S]*?)```/)
+    if (!match?.[1]?.includes("run('fix-halt'")) throw new Error('missing fix-halt javascript fence')
+    return match[1]
+  })()
+
+  function snapshot(cwd: string) {
+    const indexRel = git(cwd, 'rev-parse', '--git-path', 'index')
+    const indexAbs = path.isAbsolute(indexRel) ? indexRel : path.resolve(cwd, indexRel)
+    return {
+      head: git(cwd, 'rev-parse', 'HEAD'),
+      branch: git(cwd, 'branch', '--show-current'),
+      entries: git(cwd, 'ls-files', '--stage'),
+      index: createHash('sha256').update(readFileSync(indexAbs)).digest('hex'),
+      remotes: git(sandboxOf().origin, 'for-each-ref', '--format=%(refname) %(objectname)'),
+    }
+  }
+
+  function stale(cwd: string, file = 'README.md') {
+    const at = Date.now() / 1000 + 30
+    utimesSync(path.join(cwd, file), at, at)
+  }
+
+  function trace(): string {
+    try {
+      return readFileSync(path.join(sandboxOf().state, 'trace.log'), 'utf8')
+    } catch {
+      return ''
+    }
+  }
+
+  function installGit(script: string) {
+    const file = path.join(sandboxOf().root, 'bin', 'git')
+    writeFileSync(file, `#!/bin/sh\nreal='${REAL_GIT}'\n${script}\nexec "$real" "$@"\n`)
+    chmodSync(file, 0o755)
+  }
+
+  function childReady(): string {
+    const { epic } = sandbox()
+    serveEpic([childNode(2, 'feat(x): first child')])
+    return epic
+  }
+
+  function onBranch(): string {
+    const { epic } = sandbox()
+    git(epic, 'switch', '-q', '-c', 'feat/2-first-child', 'refs/remotes/origin/main')
+    git(epic, 'push', '-q', 'origin', 'feat/2-first-child')
+    const tip = git(epic, 'rev-parse', 'HEAD')
+    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
+    serveEpic([childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', tip, armed)] })])
+    return epic
+  }
+
+  function runFence(over: { ticket?: string; status?: string; detail?: string; repo?: string; driver?: string } = {}) {
+    const box = sandboxOf()
+    const repo = over.repo ?? box.epic
+    const objective = path.join(box.root, 'fence-objective.txt')
+    writeFileSync(objective, `Deliver epic #1 (/feature #1 run=${RUN} base=main).`)
+    const detailFile = path.join(box.root, 'fence-detail.txt')
+    writeFileSync(detailFile, over.detail ?? 'halted: review refused the patch')
+    const script = path.join(box.root, 'fix-halt-fence.js')
+    writeFileSync(script, FENCE)
+    const out = spawnSync(REAL_BUN, ['--no-env-file', script], {
+      cwd: path.dirname(realpathSync(over.driver ?? DRIVER)),
+      env: {
+        ...box.env,
+        EPIC_DRIVER: over.driver ?? DRIVER,
+        EPIC_REPO: repo,
+        EPIC_NUMBER: '1',
+        GOAL_STATUS: over.status ?? 'active',
+        GOAL_OBJECTIVE_FILE: objective,
+        TICKET_NUMBER: over.ticket ?? '2',
+        DETAIL_FILE: detailFile,
+      },
+      encoding: 'utf8',
+    })
+    return { code: out.status, stdout: out.stdout, stderr: out.stderr, json: () => JSON.parse(out.stdout) }
+  }
+
+  function fenceJson(over?: Parameters<typeof runFence>[0]) {
+    const ran = runFence(over)
+    expect({ code: ran.code, stderr: ran.stderr, stdout: ran.stdout }).toMatchObject({ code: 0 })
+    return ran.json()
+  }
+
+  it('drops a config-hidden untracked file without mutating git', () => {
+    const epic = childReady()
+    writeFileSync(path.join(epic, '.hidden'), 'secret\n')
+    git(epic, 'config', 'status.showUntrackedFiles', 'no')
+    stale(epic)
+    const before = snapshot(epic)
+    const run = drive(['fix-halt', '--ticket', '2', ...detail('checker failed: not a dirty-tree error')])
+    expect(run.code).toBe(0)
+    expect(run.json()).toEqual(DROP)
+    expect(run.stdout).not.toMatch(/commit|push|wip/i)
+    expect(snapshot(epic)).toEqual(before)
+    expect(readFileSync(path.join(epic, '.hidden'), 'utf8')).toBe('secret\n')
+    expect(writes()).toEqual([])
+  })
+
+  it('drops a staged change and leaves the index entry', () => {
+    const epic = childReady()
+    writeFileSync(path.join(epic, 'staged.txt'), 'staged\n')
+    git(epic, 'add', 'staged.txt')
+    stale(epic)
+    const before = snapshot(epic)
+    const run = drive(['fix-halt', '--ticket', '2', ...detail('unrelated failure')])
+    expect(run.json()).toEqual(DROP)
+    expect(snapshot(epic)).toEqual(before)
+    expect(before.entries).toContain('staged.txt')
+    expect(writes()).toEqual([])
+  })
+
+  it('drops an unstaged modification without refreshing the index', () => {
+    const epic = childReady()
+    writeFileSync(path.join(epic, 'README.md'), 'changed\n')
+    stale(epic, '.dev/stack.yml')
+    const before = snapshot(epic)
+    const run = drive(['fix-halt', '--ticket', '2', ...detail('unrelated failure')])
+    expect(run.json()).toEqual(DROP)
+    expect(snapshot(epic)).toEqual(before)
+    expect(readFileSync(path.join(epic, 'README.md'), 'utf8')).toBe('changed\n')
+    expect(writes()).toEqual([])
+  })
+
+  it('drops a partial commit plus a dirty remainder and preserves both', () => {
+    const epic = childReady()
+    writeFileSync(path.join(epic, 'cause.txt'), 'applied\n')
+    git(epic, 'add', 'cause.txt')
+    git(epic, 'commit', '-qm', 'fix: apply one cause (#2)')
+    writeFileSync(path.join(epic, 'remainder.txt'), 'stray\n')
+    stale(epic)
+    const before = snapshot(epic)
+    const run = drive(['fix-halt', '--ticket', '2', ...detail('apply stopped halfway')])
+    expect(run.json()).toEqual(DROP)
+    expect(snapshot(epic)).toEqual(before)
+    expect(git(epic, 'show', 'HEAD:cause.txt')).toBe('applied')
+    expect(readFileSync(path.join(epic, 'remainder.txt'), 'utf8')).toBe('stray\n')
+    expect(writes()).toEqual([])
+  })
+
+  it('drops a submodule hidden by ignore=all', () => {
+    const epic = childReady()
+    const sub = path.join(sandboxOf().root, 'sub')
+    git(sandboxOf().root, 'init', '-q', '-b', 'main', sub)
+    writeFileSync(path.join(sub, 's.txt'), 's\n')
+    git(sub, 'add', 's.txt')
+    git(sub, 'commit', '-qm', 'sub')
+    git(epic, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', sub, 'vendor')
+    git(epic, 'commit', '-qm', 'chore: add vendor')
+    writeFileSync(path.join(epic, 'vendor', 's.txt'), 'dirty\n')
+    git(epic, 'config', 'submodule.vendor.ignore', 'all')
+    stale(epic)
+    expect(git(epic, 'status', '--porcelain')).toBe('')
+    const before = snapshot(epic)
+    const run = drive(['fix-halt', '--ticket', '2', ...detail('submodule left dirty')])
+    expect(run.json()).toEqual(DROP)
+    expect(snapshot(epic)).toEqual(before)
+    expect(before.entries).toContain('160000')
+    expect(readFileSync(path.join(epic, 'vendor', 's.txt'), 'utf8')).toBe('dirty\n')
+    expect(writes()).toEqual([])
+  })
+
+  it('records stopped when the detail names dirty-tree but the tree is clean', () => {
+    const epic = onBranch()
+    servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    const tip = git(epic, 'rev-parse', 'HEAD')
+    const before = snapshot(epic)
+    const run = drive(['fix-halt', '--ticket', '2', ...detail('[dirty-tree] the prose said so')])
+    expect(run.code).toBe(0)
+    expect(run.json()).toMatchObject({ action: 'stopped', stop: 'stopped', class: 'ticket', ticket: 2, sticky: false })
+    expect(run.json().disarmed).toEqual({ 11: 'disarmed' })
+    expect(run.stdout).not.toMatch(/commit|wip/i)
+    expect(writes()).toEqual([
+      'merge 11 --disable-auto',
+      'edit 11 --remove-label reviewed',
+      `comment 2 <!-- omp-build:goal-stop run=${RUN} reason=stopped -->`,
+    ])
+    expect(comments()[0]).toContain('[dirty-tree] the prose said so')
+    expect(comments()[0]).not.toContain('reason=dirty-tree')
+    expect(git(epic, 'rev-parse', 'feat/2-first-child')).toBe(tip)
+    expect(git(epic, 'branch', '--show-current')).toBe('')
+    expect(snapshot(epic).remotes).toBe(before.remotes)
+    expect(snapshot(epic).entries).toBe(before.entries)
+    expect(snapshot(epic).head).toBe(tip)
+  })
+
+  it.each(['fix-halt', 'stop'])('%s preserves its checkout-hook policy', (command) => {
+    const epic = onBranch()
+    servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    const hooks = path.join(sandboxOf().root, 'checkout-hooks')
+    mkdirSync(hooks)
+    const hook = path.join(hooks, 'post-checkout')
+    writeFileSync(
+      hook,
+      `#!/bin/sh
+set -e
+printf 'hook commit\\n' > halt-hook.txt
+'${REAL_GIT}' add halt-hook.txt
+'${REAL_GIT}' -c user.name=t -c user.email=t@t commit -qm 'chore: hook commit'
+'${REAL_GIT}' push -q origin HEAD:refs/heads/hook-created
+`,
+    )
+    chmodSync(hook, 0o755)
+    git(epic, 'config', 'core.hooksPath', hooks)
+    const before = snapshot(epic)
+    const args = command === 'stop' ? ['--reason', 'stopped'] : []
+    const run = drive([command, '--ticket', '2', ...args, ...detail('clean hook boundary')])
+    expect({ code: run.code, stderr: run.stderr }).toMatchObject({ code: 0 })
+    expect(run.json()).toMatchObject({ stop: 'stopped', ticket: 2 })
+    expect(git(epic, 'branch', '--show-current')).toBe('')
+    if (command === 'fix-halt') {
+      expect(snapshot(epic).head).toBe(before.head)
+      expect(snapshot(epic).remotes).toBe(before.remotes)
+      expect(() => readFileSync(path.join(epic, 'halt-hook.txt'))).toThrow()
+    } else {
+      expect(snapshot(epic).head).not.toBe(before.head)
+      expect(git(sandboxOf().origin, 'rev-parse', 'hook-created')).toBe(snapshot(epic).head)
+      expect(readFileSync(path.join(epic, 'halt-hook.txt'), 'utf8')).toBe('hook commit\n')
+    }
+  })
+
+  it('refuses a ticket that is not a native child before reading status', () => {
+    const epic = childReady()
+    writeFileSync(path.join(epic, 'stray.txt'), 'stray\n')
+    const before = snapshot(epic)
+    const run = drive(['fix-halt', '--ticket', '7', ...detail('no such child')])
+    expect(run.code).toBe(2)
+    expect(run.stderr).toContain('not a sub-issue')
+    expect(snapshot(epic)).toEqual(before)
+    expect(readFileSync(path.join(epic, 'stray.txt'), 'utf8')).toBe('stray\n')
+    expect(writes()).toEqual([])
+    expect(trace()).toContain('query subIssues')
+  })
+
+  it('refuses a non-positive ticket before any gather', () => {
+    childReady()
+    const run = drive(['fix-halt', '--ticket', '0'])
+    expect(run.code).toBe(2)
+    expect(writes()).toEqual([])
+    expect(trace()).not.toContain('query subIssues')
+  })
+
+  it('acts on nothing when the goal is inactive', () => {
+    const epic = childReady()
+    writeFileSync(path.join(epic, 'stray.txt'), 'stray\n')
+    const before = snapshot(epic)
+    const run = drive(['fix-halt', '--ticket', '2'], { status: 'paused' })
+    expect(run.code).toBe(3)
+    expect(run.stderr).toContain('driver=assisted')
+    expect(snapshot(epic)).toEqual(before)
+    expect(writes()).toEqual([])
+    expect(trace()).not.toContain('query subIssues')
+  })
+
+  it('refuses the Principal before gather, even if the tree is dirty', () => {
+    const { principal } = sandbox()
+    serveEpic([childNode(2, 'feat(x): first child')])
+    writeFileSync(path.join(principal, 'stray.txt'), 'stray\n')
+    stale(principal)
+    const before = snapshot(principal)
+    const run = drive(['fix-halt', '--ticket', '2', ...detail('x')], { cwd: principal })
+    expect(run.code).toBe(2)
+    expect(run.stderr).toContain('Principal')
+    expect(snapshot(principal)).toEqual(before)
+    expect(readFileSync(path.join(principal, 'stray.txt'), 'utf8')).toBe('stray\n')
+    expect(writes()).toEqual([])
+    expect(trace()).not.toContain('query subIssues')
+  })
+
+  it('fails closed when status cannot be read', () => {
+    const epic = childReady()
+    stale(epic)
+    const before = snapshot(epic)
+    installGit('for arg in "$@"; do\n  if [ "$arg" = status ]; then echo "status failed" >&2; exit 1; fi\ndone')
+    const run = drive(['fix-halt', '--ticket', '2', ...detail('x')])
+    expect(run.code).toBe(1)
+    expect(run.stderr).toContain('driver=failed')
+    expect(run.stderr).not.toContain('commit')
+    expect(snapshot(epic)).toEqual(before)
+    expect(writes()).toEqual([])
+    expect(trace()).toContain('query subIssues')
+  })
+
+  it('returns merged and writes no marker when the PR merged during disarm', () => {
+    const epic = onBranch()
+    servePr(11, { state: 'MERGED', labels: ['reviewed'], autoMerge: false })
+    const before = snapshot(epic)
+    const run = drive(['fix-halt', '--ticket', '2', ...detail('[dirty-tree] too late')])
+    expect(run.code).toBe(0)
+    expect(run.json()).toMatchObject({ action: 'merged', ticket: 2, merged: 11, disarmed: { 11: 'merged' } })
+    expect(writes()).toEqual([])
+    expect(snapshot(epic)).toEqual(before)
+    expect(git(epic, 'branch', '--show-current')).toBe('feat/2-first-child')
+  })
+
+  it.each(['dirty', 'unreadable'])('does not advance a merged halt with %s Git state', (state) => {
+    const epic = onBranch()
+    servePr(11, { state: 'MERGED', labels: ['reviewed'], autoMerge: false })
+    git(epic, 'config', 'status.showUntrackedFiles', 'no')
+    stale(epic)
+    const before = snapshot(epic)
+    writeFileSync(path.join(sandboxOf().state, 'dirty-on-pr-view'), `${epic}\n`)
+    if (state === 'unreadable') {
+      installGit(`for arg in "$@"; do
+  if [ "$arg" = status ] && [ -f "$DRIVER_STATE/status-once" ]; then exit 42; fi
+  if [ "$arg" = status ]; then touch "$DRIVER_STATE/status-once"; fi
+done`)
+    }
+    const run = drive(['fix-halt', '--ticket', '2', ...detail('merge and dirt race')])
+    if (state === 'dirty') {
+      expect(run.code).toBe(0)
+      expect(run.json()).toEqual(DROP)
+    } else {
+      expect(run.code).not.toBe(0)
+      expect(run.stdout).not.toContain('"action": "merged"')
+    }
+    expect(readFileSync(path.join(epic, 'raced.txt'), 'utf8')).toBe('raced\n')
+    expect(snapshot(epic)).toEqual(before)
+    expect(writes()).toEqual([])
+  })
+
+  it('does not record a stop when disarm leaves the PR armed', () => {
+    const epic = onBranch()
+    servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true }, true)
+    stale(epic)
+    const before = snapshot(epic)
+    const run = drive(['fix-halt', '--ticket', '2', ...detail('stuck')])
+    expect(run.code).toBe(1)
+    expect(run.stderr).toContain('stays armed')
+    expect(writes().filter((line) => line.startsWith('comment'))).toEqual([])
+    expect(snapshot(epic)).toEqual(before)
+    expect(git(epic, 'branch', '--show-current')).toBe('feat/2-first-child')
+  })
+
+  it('drops when the tree becomes dirty after a clean read and before the marker', () => {
+    const epic = onBranch()
+    servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    stale(epic)
+    const before = snapshot(epic)
+    sandboxOf().env.DRIVER_DIRTY_ON_SECOND = epic
+    installGit(`if [ -n "\${DRIVER_DIRTY_ON_SECOND:-}" ]; then
+  for arg in "$@"; do
+    if [ "$arg" = status ]; then
+      n=$(cat "$DRIVER_STATE/status.count" 2>/dev/null || echo 0)
+      n=$((n + 1))
+      echo "$n" > "$DRIVER_STATE/status.count"
+      if [ "$n" -ge 2 ]; then echo raced > "$DRIVER_DIRTY_ON_SECOND/raced.txt"; fi
+      break
+    fi
+  done
+fi`)
+    const run = drive(['fix-halt', '--ticket', '2', ...detail('race')])
+    expect(run.code).toBe(0)
+    expect(run.json()).toEqual(DROP)
+    expect(readFileSync(path.join(sandboxOf().state, 'status.count'), 'utf8').trim()).toBe('2')
+    expect(readFileSync(path.join(epic, 'raced.txt'), 'utf8')).toBe('raced\n')
+    expect(writes()).toEqual(['merge 11 --disable-auto', 'edit 11 --remove-label reviewed'])
+    expect(snapshot(epic).index).toBe(before.index)
+    expect(snapshot(epic).head).toBe(before.head)
+    expect(snapshot(epic).remotes).toBe(before.remotes)
+    expect(git(epic, 'branch', '--show-current')).toBe('feat/2-first-child')
+  })
+
+  it('drops dirt introduced while reading the post-disarm stop branch', () => {
+    const epic = onBranch()
+    servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    stale(epic)
+    const before = snapshot(epic)
+    sandboxOf().env.DRIVER_RACE_REPO = epic
+    installGit(`case "$*" in
+  *"branch --show-current"*)
+    if [ -s "$DRIVER_STATE/writes.log" ]; then echo raced > "$DRIVER_RACE_REPO/raced.txt"; fi ;;
+esac`)
+    const run = drive(['fix-halt', '--ticket', '2', ...detail('branch observation raced')])
+    expect(run.code).toBe(0)
+    expect(run.json()).toEqual(DROP)
+    expect(writes()).toEqual(['merge 11 --disable-auto', 'edit 11 --remove-label reviewed'])
+    expect(snapshot(epic)).toEqual(before)
+    expect(readFileSync(path.join(epic, 'raced.txt'), 'utf8')).toBe('raced\n')
+  })
+
+  it('does not refresh a stale index when recording a clean fix halt', () => {
+    const epic = childReady()
+    stale(epic)
+    const before = snapshot(epic)
+    const run = drive(['fix-halt', '--ticket', '2', ...detail('clean halt')])
+    expect(run.code).toBe(0)
+    expect(run.json()).toMatchObject({ action: 'stopped', class: 'ticket' })
+    expect(snapshot(epic).index).toBe(before.index)
+    expect(snapshot(epic).remotes).toBe(before.remotes)
+  })
+
+  it('still records an ordinary stop after a legitimate commit, and does not push it', () => {
+    const epic = onBranch()
+    servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    const pushed = git(epic, 'rev-parse', 'HEAD')
+    writeFileSync(path.join(epic, 'wip.txt'), 'legitimate\n')
+    git(epic, 'add', 'wip.txt')
+    git(epic, 'commit', '-qm', 'chore: wip goal-stop timeout (#2)')
+    const tip = git(epic, 'rev-parse', 'HEAD')
+    const before = snapshot(epic)
+    const run = drive(['stop', '--ticket', '2', '--reason', 'timeout', ...detail('committed first')])
+    expect(run.code).toBe(0)
+    expect(run.json()).toMatchObject({ ticket: 2, stop: 'timeout', sticky: false })
+    expect(git(epic, 'rev-parse', 'feat/2-first-child')).toBe(tip)
+    expect(git(epic, 'rev-parse', 'refs/remotes/origin/feat/2-first-child')).toBe(pushed)
+    expect(git(epic, 'branch', '--show-current')).toBe('')
+    expect(snapshot(epic).remotes).toBe(before.remotes)
+    expect(writes().at(-1)).toBe(`comment 2 <!-- omp-build:goal-stop run=${RUN} reason=timeout -->`)
+  })
+
+  it('runs the feature fence: dirty drop reports, disarms another armed child, and does not refresh the index', () => {
+    const epic = childReady()
+    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
+    serveEpic([
+      childNode(2, 'feat(x): first child'),
+      childNode(3, 'fix(y): second child', { prs: [prNode(12, 'fix/3-second-child', 'd'.repeat(40), armed)] }),
+    ])
+    servePr(12, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    writeFileSync(path.join(epic, 'stray.txt'), 'stray\n')
+    stale(epic)
+    const before = snapshot(epic)
+    const outcome = fenceJson({ detail: 'unrelated failure, not a marker' })
+    expect(outcome).toMatchObject({ action: 'drop', stop: 'dirty-tree', class: 'shared', reportExit: 0 })
+    expect(outcome.report).toContain('dirty-tree')
+    expect(writes()).toEqual([
+      'merge 12 --disable-auto',
+      'edit 12 --remove-label reviewed',
+      `comment 1 <!-- omp-build:goal-report run=${RUN} -->`,
+    ])
+    expect(comments().join('\n')).not.toContain('goal-stop')
+    expect(snapshot(epic)).toEqual(before)
+    expect(readFileSync(path.join(epic, 'stray.txt'), 'utf8')).toBe('stray\n')
+  })
+
+  it('runs the feature fence without executing checkout Bun preloads', () => {
+    const epic = childReady()
+    const marker = path.join(sandboxOf().root, 'untrusted-preload-ran')
+    writeFileSync(path.join(epic, 'bunfig.toml'), 'preload = ["./preload.ts"]\n')
+    writeFileSync(
+      path.join(epic, 'preload.ts'),
+      `import { writeFileSync } from 'node:fs'
+writeFileSync(${JSON.stringify(marker)}, 'ran')
+console.log(JSON.stringify({ action: 'stopped', stop: 'stopped', class: 'ticket' }))
+process.exit(0)
+`,
+    )
+    stale(epic)
+    const before = snapshot(epic)
+    const outcome = fenceJson()
+    expect(outcome).toMatchObject({ action: 'drop', stop: 'dirty-tree', class: 'shared', reportExit: 0 })
+    expect(() => readFileSync(marker, 'utf8')).toThrow()
+    expect(comments().join('\n')).not.toContain('goal-stop')
+    expect(writes()).toEqual([`comment 1 <!-- omp-build:goal-report run=${RUN} -->`])
+    expect(snapshot(epic)).toEqual(before)
+  })
+
+  it('runs the feature fence: clean misleading text returns stopped and does not report', () => {
+    const epic = onBranch()
+    servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    const tip = git(epic, 'rev-parse', 'HEAD')
+    const before = snapshot(epic)
+    const outcome = fenceJson({ detail: '[dirty-tree] prose only' })
+    expect(outcome).toMatchObject({ action: 'stopped', stop: 'stopped', class: 'ticket' })
+    expect(outcome).not.toHaveProperty('reportExit')
+    expect(comments()[0]).toContain('reason=stopped')
+    expect(comments().join('\n')).not.toContain('goal-report')
+    expect(git(epic, 'rev-parse', 'feat/2-first-child')).toBe(tip)
+    expect(git(epic, 'branch', '--show-current')).toBe('')
+    expect(snapshot(epic).remotes).toBe(before.remotes)
+  })
+
+  it('runs the feature fence: a refused child halts with no report and no commit', () => {
+    const epic = childReady()
+    writeFileSync(path.join(epic, 'stray.txt'), 'stray\n')
+    const before = snapshot(epic)
+    const outcome = fenceJson({ ticket: '9', detail: 'missing child' })
+    expect(outcome).toMatchObject({ action: 'halt', reason: 'driver-refused', exit: 2 })
+    expect(writes()).toEqual([])
+    expect(snapshot(epic)).toEqual(before)
+    expect(readFileSync(path.join(epic, 'stray.txt'), 'utf8')).toBe('stray\n')
+  })
+
+  it('runs the feature fence: an inactive goal halts with no effects', () => {
+    const epic = childReady()
+    writeFileSync(path.join(epic, 'stray.txt'), 'stray\n')
+    const before = snapshot(epic)
+    const outcome = fenceJson({ status: 'paused' })
+    expect(outcome).toMatchObject({ action: 'halt', reason: 'driver-refused', exit: 3 })
+    expect(writes()).toEqual([])
+    expect(snapshot(epic)).toEqual(before)
+  })
+
+  it('runs the feature fence: the Principal halts with no effects', () => {
+    const { principal } = sandbox()
+    serveEpic([childNode(2, 'feat(x): first child')])
+    writeFileSync(path.join(principal, 'stray.txt'), 'stray\n')
+    const before = snapshot(principal)
+    const outcome = fenceJson({ repo: principal })
+    expect(outcome).toMatchObject({ action: 'halt', reason: 'driver-refused', exit: 2 })
+    expect(writes()).toEqual([])
+    expect(snapshot(principal)).toEqual(before)
+    expect(readFileSync(path.join(principal, 'stray.txt'), 'utf8')).toBe('stray\n')
+  })
+
+  it('runs the feature fence: a status fault becomes driver-error drop plus report', () => {
+    const epic = childReady()
+    stale(epic)
+    const before = snapshot(epic)
+    installGit('for arg in "$@"; do\n  if [ "$arg" = status ]; then echo "status failed" >&2; exit 1; fi\ndone')
+    const outcome = fenceJson()
+    expect(outcome).toMatchObject({ action: 'drop', stop: 'driver-error', class: 'shared' })
+    expect(comments().join('\n')).toContain('driver-error')
+    expect(comments().join('\n')).not.toContain('goal-stop')
+    expect(snapshot(epic)).toEqual(before)
+    expect(writes().some((line) => line.startsWith('comment 1'))).toBe(true)
+  })
+
+  it('runs the feature fence: a failed report still emits drop', () => {
+    const epic = childReady()
+    writeFileSync(path.join(epic, 'stray.txt'), 'stray\n')
+    writeFileSync(path.join(sandboxOf().state, 'comment.fail'), '')
+    stale(epic)
+    const before = snapshot(epic)
+    const outcome = fenceJson()
+    expect(outcome).toMatchObject({ action: 'drop', stop: 'dirty-tree', class: 'shared' })
+    expect(outcome.reportExit).not.toBe(0)
+    expect(writes()).toEqual([])
+    expect(snapshot(epic)).toEqual(before)
+    expect(readFileSync(path.join(epic, 'stray.txt'), 'utf8')).toBe('stray\n')
+  })
+
+  it('runs the feature fence: stuck disarm is driver-error drop, not a ticket stop', () => {
+    const epic = onBranch()
+    servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true }, true)
+    stale(epic)
+    const before = snapshot(epic)
+    const outcome = fenceJson()
+    expect(outcome).toMatchObject({ action: 'drop', stop: 'driver-error', class: 'shared' })
+    expect(outcome.reportExit).not.toBe(0)
+    expect(comments().join('\n')).not.toContain('goal-stop')
+    expect(snapshot(epic).index).toBe(before.index)
+    expect(snapshot(epic).remotes).toBe(before.remotes)
+    expect(git(epic, 'branch', '--show-current')).toBe('feat/2-first-child')
+    expect(git(epic, 'rev-parse', 'HEAD')).toBe(before.head)
+  })
+
+  it('runs the feature fence: a merged race returns merged and does not report', () => {
+    const epic = onBranch()
+    servePr(11, { state: 'MERGED', labels: ['reviewed'], autoMerge: false })
+    const before = snapshot(epic)
+    const outcome = fenceJson({ detail: '[dirty-tree] ignored' })
+    expect(outcome).toMatchObject({ action: 'merged', merged: 11 })
+    expect(outcome).not.toHaveProperty('reportExit')
+    expect(writes()).toEqual([])
+    expect(snapshot(epic)).toEqual(before)
+  })
+
+  it('runs the feature fence: invalid driver JSON becomes driver-error drop and still calls report', () => {
+    const epic = childReady()
+    const before = snapshot(epic)
+    const fake = path.join(sandboxOf().root, 'fake-driver.js')
+    const log = path.join(sandboxOf().root, 'fake.log')
+    writeFileSync(
+      fake,
+      `import { appendFileSync } from 'node:fs'\nappendFileSync(process.env.FAKE_LOG, process.argv.slice(2).join(' ') + '\\n')\nconsole.log('not-json')\n`,
+    )
+    sandboxOf().env.FAKE_LOG = log
+    const outcome = fenceJson({ driver: fake })
+    expect(outcome).toMatchObject({ action: 'drop', stop: 'driver-error', class: 'shared', reportExit: 0 })
+    const [haltCall, reportCall] = readFileSync(log, 'utf8').trim().split('\n')
+    expect(haltCall).toContain('fix-halt')
+    expect(reportCall).toContain('report')
+    expect(reportCall).toContain('--outcome drop')
+    expect(reportCall).toContain('--reason driver-error')
+    expect(snapshot(epic)).toEqual(before)
+    expect(writes()).toEqual([])
   })
 })

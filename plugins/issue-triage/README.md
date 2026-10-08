@@ -50,6 +50,21 @@ Run the `issue-triage` skill's CLI: `init [--dry-run] [--repo owner/repo]`.
 
 Cross-repo: prefix `GITHUB_REPO=<owner/repo>`, and use fully-qualified `OWNER/REPO#N` refs when that env is set.
 
+Deferred follow-ups normally share the origin's parent. For newly deferred
+non-blocking work only, omit `--parent` when that parent is the active delivery
+epic; retain Origin, acceptance criteria, size and the origin's native blocked-by
+edge. Blocking filings and planned delivery slices keep the parent. An existing
+open issue that already tracks the item is reused without reparenting, even when
+it is detached or historically remains an epic child. This is the caller's filing
+policy, not a new CLI flag or scheduler filter; see the skill's Deferred Follow-Ups.
+Final review of a nested delivery epic preserves its enclosing sibling parent;
+only a top-level delivery epic has no such parent to pass.
+Reuse reads the body and complete comment history. Additional deferred items are
+append-only issue comments: concurrent contributions and human body edits survive.
+Neither body replacement nor relation changes are part of reuse.
+If creation succeeds before a later relation/label failure, the filing recipe
+reports the existing issue number for reconciliation instead of another create.
+
 ## Size
 
 | Size | Description |

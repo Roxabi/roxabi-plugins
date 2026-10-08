@@ -136,7 +136,7 @@ Cross-repo **relations** (`--blocked-by`, `--blocks`, `--parent`, `--add-child`)
 
 ## Deferred Follow-Ups — Sibling Rule
 
-**Defer ≠ decomposition.** When an issue A defers work to a new follow-up B (out-of-scope finding, post-merge gap, "do this later"), B is a **sibling** of A under their shared parent — NOT a child of A.
+**Defer ≠ decomposition.** When an issue A defers work to a new follow-up B (out-of-scope finding, post-merge gap, "do this later"), B is a **sibling** of A under their shared parent — NOT a child of A. That sibling default stays. Do not implement the exception below by deleting it.
 
 ```
        Epic E
@@ -145,47 +145,249 @@ Cross-repo **relations** (`--blocked-by`, `--blocks`, `--parent`, `--add-child`)
        blocked-by    B.blocked-by = A   (traceability of origin)
 ```
 
-**Why:**
+The diagram is the default, not the exception.
+
+**Why (default):**
 - `gh issue view E` shows the full fan-out flat (A + B + future C…) — true scope of the epic, ¬nested cascade
-- A frontier query lands on the origin epic for every follow-up, however deep the deferral chain
+- A frontier query lands on the origin epic for every follow-up that kept the shared parent, however deep the deferral chain
 - Multi-level deferrals (A→B→C) stay flat under E — ¬arbre profond ingérable
 
 **Decomposition vs deferral:**
 
 | Pattern | Parent-child? | Example |
 |---------|---------------|---------|
-| **Epic → phase** (planned decomposition) | ✓ child of epic | `to-spec` splits an epic: phase 1, phase 2 are children of it |
-| **Issue → follow-up** (deferral, post-hoc) | ✗ sibling under shared parent | A review finding deferred out of `/feature` becomes a sibling |
+| **Epic → phase** (planned decomposition) | ✓ child of epic | `to-spec` splits an epic: phase 1, phase 2 are children of it. Planned delivery slices stay children, including of the active delivery epic |
+| **Issue → follow-up** (deferral, post-hoc) | ✗ sibling under shared parent | Default. A new nonblocking deferral whose candidate parent is the active open delivery epic omits `--parent` instead |
 | **Bug → regression** (related ¬caused) | ✗ standalone | New bug surfaced post-merge, ¬child, ¬sibling necessarily |
 
-**Recipe — defer A → create follow-up B:**
+**Exception — new nonblocking, active delivery epic only.** One case supersedes `B.parent = A.parent`. All of these must hold:
+
+- B is new (`EXISTING_ISSUE` empty). An open issue that already tracks the item is reuse, not this exception.
+- `DISPOSITION=nonblocking`. A blocking per-finding filing and the blocking final epic-fix stay children of the delivery epic. A blocking cause that cannot be applied stays a delivery child.
+- `SOURCE_PARENT` equals a non-empty `ACTIVE_EPIC`.
+
+Then omit `--parent`. Do not create an epic to hold B. Exclusion is that absent parent edge only. It is not a priority filter (no `P3-low` skip, no new flag, no scheduler state) and not a missing acceptance heading (`hasScope` is not the mechanism). A fresh B still opens with `**Origin:**`, still has `## Acceptance criteria` and a `size:` label, and still takes a native `--blocked-by` to the origin issue when one exists.
+
+`ACTIVE_EPIC` is the open epic the goal loop is delivering. It is not inferred from `P1`, priority, labels, or a hardcoded number. Empty means a successful fresh goal read proved no active epic, and the sibling default stays. Unset, or a failed, malformed, or unresolved goal read, is not that empty: halt before any create or relation write. `skill://fix` § Filing establishes `DISPOSITION` and `ACTIVE_EPIC` (feature supplies the epic it is delivering; a standalone run uses that same fresh goal read). This fence consumes those facts. It does not re-read goal state, and it does not add a tracker parser. Whether a reused body must gain an item is that filing recipe's conservation decision.
+
+Final-review origin E may itself have a parent H. The explicit nonblocking self-candidate (`SOURCE_ISSUE=SOURCE_PARENT=ACTIVE_EPIC`) resolves to that live H, preserving the sibling default outside E. Only a proven top-level E keeps E as the candidate to omit. Blocking epic-fix tickets still parent to E.
+
+**Reuse.** `EXISTING_ISSUE` is only a candidate. Empty means discovery succeeded and found no open cover. Unset, or a failed search, must not be passed as empty — halt, do not create. Before reuse, re-read live state: the issue must be `OPEN`, its body readable, and its complete comment history retrieved with pagination. `ITEM_COVERAGE` is the agent's explicit decision from that body, all comments and proposed additions: `exact` or `noncovering`; title similarity is not coverage. Missing coverage, failed/incomplete reads, or `noncovering` halt with no create. Several open trackers and no single covering issue → halt before mutation, push, or receipt. Reuse preserves body and relations, whether detached or a historical child. A non-whitespace `FILE_DIR/append.md` is published as an append-only issue comment; record its URL in the Deferred receipt. A failed write may already exist: re-read all comments before retry, never create another issue or post a success receipt on failure.
+
+**Recipe — defer A → create follow-up B.** Facts, not new CLI flags. Names match `skill://fix` § Filing. Every listed name must be set before the fence; unset halts. Empty is known absence only where noted, never a failed read. Bare positive integers, never `#N`. The omit comparison is that recipe's comparison: fresh, `DISPOSITION=nonblocking`, and `SOURCE_PARENT` equals a non-empty `ACTIVE_EPIC`.
 
 ```bash
-# 1. Resolve A's parent (may be null if A is top-level)
-A_PARENT=$(gh api graphql -f query="query{repository(owner:\"$OWNER\",name:\"$REPO\"){issue(number:$A){parent{number}}}}" \
-  --jq '.data.repository.issue.parent.number // empty')
-
-# 2. Create B as sibling: same parent as A, blocked-by A.
-#    Title and body go through files — both often quote review text you did not write.
-DIR=$(mktemp -d -t "issue-triage-defer-XXXXXX")
-# write "$DIR/title.txt" ({deferred title}) and "$DIR/body.md"
-# (**Origin:** #A (deferred from ...), then {details}) with an editor or a write tool
-T create \
-  --title-file "$DIR/title.txt" \
-  --body-file "$DIR/body.md" \
-  --blocked-by "#${A}" \
-  ${A_PARENT:+--parent "#${A_PARENT}"}
-rm -rf "$DIR"
+set -euo pipefail
+# GITHUB_REPO is this skill's existing env, not a new filing fact. Empty resolves against the cwd.
+if [ -z "${GITHUB_REPO:-}" ]; then
+  echo "Error: GITHUB_REPO unresolved; refusing to create" >&2
+  exit 1
+fi
+case "$GITHUB_REPO" in
+  */*) ;;
+  *) echo "Error: GITHUB_REPO unresolved; refusing to create" >&2; exit 1 ;;
+esac
+OWNER=${GITHUB_REPO%%/*}
+REPO=${GITHUB_REPO#*/}
+case "$OWNER" in ""|*/*) echo "Error: GITHUB_REPO unresolved; refusing to create" >&2; exit 1 ;; esac
+case "$REPO" in ""|*/*) echo "Error: GITHUB_REPO unresolved; refusing to create" >&2; exit 1 ;; esac
+if [ -z "${DISPOSITION+x}" ] || [ -z "${SOURCE_ISSUE+x}" ] || [ -z "${SOURCE_PARENT+x}" ] \
+  || [ -z "${ACTIVE_EPIC+x}" ] || [ -z "${EXISTING_ISSUE+x}" ] || [ -z "${FILE_DIR+x}" ]; then
+  echo "Error: filing facts unresolved; refusing to create" >&2
+  exit 1
+fi
+case "$DISPOSITION" in
+  blocking|nonblocking) ;;
+  *) echo "Error: invalid DISPOSITION; refusing to create" >&2; exit 1 ;;
+esac
+is_num() {
+  case "$1" in ''|*[!0-9]*|0*) return 1 ;; *) return 0 ;; esac
+}
+if [ -n "$SOURCE_ISSUE" ] && ! is_num "$SOURCE_ISSUE"; then
+  echo "Error: SOURCE_ISSUE unresolved; refusing to create" >&2
+  exit 1
+fi
+if [ -n "$SOURCE_PARENT" ] && ! is_num "$SOURCE_PARENT"; then
+  echo "Error: SOURCE_PARENT unresolved; refusing to create" >&2
+  exit 1
+fi
+if [ -n "$ACTIVE_EPIC" ] && ! is_num "$ACTIVE_EPIC"; then
+  echo "Error: ACTIVE_EPIC unresolved; refusing to create" >&2
+  exit 1
+fi
+if [ -n "$EXISTING_ISSUE" ] && ! is_num "$EXISTING_ISSUE"; then
+  echo "Error: EXISTING_ISSUE unresolved; refusing to create" >&2
+  exit 1
+fi
+# A number with no origin has no successful parent read. Do not invent one.
+if [ -z "$SOURCE_ISSUE" ] && [ -n "$SOURCE_PARENT" ]; then
+  echo "Error: SOURCE_PARENT set without an origin; refusing to create" >&2
+  exit 1
+fi
+if [ -z "$FILE_DIR" ] || [ ! -d "$FILE_DIR" ]; then
+  echo "Error: FILE_DIR unresolved; refusing to create" >&2
+  exit 1
+fi
+# 1. Parent read, only when an origin issue exists. Failure is not empty.
+A_PARENT=""
+if [ -n "$SOURCE_ISSUE" ]; then
+  JQ_PARENT='if (.errors | type) == "array" then error("graphql errors")
+elif .data.repository.issue == null or .data.repository.issue.number != '"${SOURCE_ISSUE}"' then error("unresolved issue")
+elif (.data.repository.issue | has("parent") | not) then error("malformed parent")
+elif .data.repository.issue.parent == null then "ABSENT"
+elif (.data.repository.issue.parent.number | type) == "number" and .data.repository.issue.parent.number > 0 then (.data.repository.issue.parent.number | tostring)
+else error("malformed parent") end'
+  PARENT_MARK=$(gh api graphql \
+    -f query='query($o:String!,$n:String!,$num:Int!){repository(owner:$o,name:$n){issue(number:$num){number parent{number}}}}' \
+    -f o="$OWNER" -f n="$REPO" -F num="$SOURCE_ISSUE" \
+    --jq "$JQ_PARENT") || {
+    echo "Error: parent read failed; refusing to treat failure as no parent" >&2
+    exit 1
+  }
+  PARENT_MARK=$(printf '%s' "$PARENT_MARK" | tr -d '[:space:]"')
+  case "$PARENT_MARK" in
+    ABSENT) A_PARENT="" ;;
+    ''|*[!0-9]*|0*)
+      echo "Error: parent read unresolved; refusing to treat failure as no parent" >&2
+      exit 1
+      ;;
+    *) A_PARENT="$PARENT_MARK" ;;
+  esac
+  # Final-review self-candidates resolve to the live enclosing parent, if any.
+  if [ "$DISPOSITION" = "nonblocking" ] && [ "$SOURCE_ISSUE" = "$ACTIVE_EPIC" ] && [ "$SOURCE_PARENT" = "$SOURCE_ISSUE" ]; then
+    SOURCE_PARENT="${A_PARENT:-$SOURCE_ISSUE}"
+  elif [ "$SOURCE_PARENT" = "$A_PARENT" ]; then
+    :
+  else
+    echo "Error: parent bindings disagree; refusing to create" >&2
+    exit 1
+  fi
+fi
+# 2. Reuse. Live OPEN, readable body and complete comment history. No relation writes.
+if [ -n "$EXISTING_ISSUE" ]; then
+  case "${ITEM_COVERAGE:-}" in
+    exact) ;;
+    noncovering)
+      echo "Error: existing issue does not cover the item; refusing to create" >&2
+      exit 1
+      ;;
+    *)
+      echo "Error: ITEM_COVERAGE unresolved; refusing to create" >&2
+      exit 1
+      ;;
+  esac
+  EXISTING_MARK=$(gh issue view "$EXISTING_ISSUE" --repo "$GITHUB_REPO" --json state,body \
+    --jq 'if .state != "OPEN" then "NOT_OPEN" elif .body == null then "NO_BODY" else "OPEN" end') || {
+    echo "Error: existing-issue read failed; refusing to create or reuse" >&2
+    exit 1
+  }
+  EXISTING_MARK=$(printf '%s' "$EXISTING_MARK" | tr -d '[:space:]"')
+  if [ "$EXISTING_MARK" != "OPEN" ]; then
+    echo "Error: existing issue is not an open tracker (${EXISTING_MARK:-unresolved}); refusing to create or reuse" >&2
+    exit 1
+  fi
+  gh issue view "$EXISTING_ISSUE" --repo "$GITHUB_REPO" --json body --jq .body > "$FILE_DIR/prior-body.md" || {
+    echo "Error: existing-issue body read failed; refusing to create or reuse" >&2
+    exit 1
+  }
+  gh api --paginate "repos/${GITHUB_REPO}/issues/${EXISTING_ISSUE}/comments" --jq '.[].body' > "$FILE_DIR/prior-comments.md" || {
+    echo "Error: complete comment history unreadable; refusing to create or reuse" >&2
+    exit 1
+  }
+  if [ -f "$FILE_DIR/append.md" ] && grep -q '[^[:space:]]' "$FILE_DIR/append.md"; then
+    log=$(mktemp)
+    set +e
+    gh issue comment "$EXISTING_ISSUE" --repo "$GITHUB_REPO" --body-file "$FILE_DIR/append.md" >"$log" 2>&1
+    status=$?
+    set -e
+    cat "$log"
+    rm -f "$log"
+    if [ "$status" -ne 0 ]; then
+      echo "tracker partial failure: issue #${EXISTING_ISSUE}; re-read all comments before retry; do not create again" >&2
+      exit "$status"
+    fi
+  fi
+  echo "reuse #${EXISTING_ISSUE}: no create, no relation writes" >&2
+  exit 0
+fi
+if [ -n "${ITEM_COVERAGE:-}" ]; then
+  echo "Error: ITEM_COVERAGE set without an existing issue; refusing to create" >&2
+  exit 1
+fi
+# 3. Fresh create. Omit --parent only for the nonblocking active-epic exception.
+if [ -z "${SOURCE_SIZE:-}" ]; then
+  echo "Error: SOURCE_SIZE unresolved; refusing to create" >&2
+  exit 1
+fi
+case "$SOURCE_SIZE" in
+  *[[:space:]]*) echo "Error: SOURCE_SIZE unresolved; refusing to create" >&2; exit 1 ;;
+esac
+if [ ! -f "$FILE_DIR/title.txt" ] || [ ! -f "$FILE_DIR/body.md" ]; then
+  echo "Error: FILE_DIR payload unresolved; refusing to create" >&2
+  exit 1
+fi
+if ! grep -q '[^[:space:]]' "$FILE_DIR/title.txt" || ! grep -q '[^[:space:]]' "$FILE_DIR/body.md"; then
+  echo "Error: FILE_DIR payload unresolved; refusing to create" >&2
+  exit 1
+fi
+if ! grep -q '^\*\*Origin:\*\*' "$FILE_DIR/body.md" || ! grep -q '^## Acceptance criteria$' "$FILE_DIR/body.md"; then
+  echo "Error: fresh body missing Origin or acceptance heading; refusing to create" >&2
+  exit 1
+fi
+if [ -f "$FILE_DIR/append.md" ] && grep -q '[^[:space:]]' "$FILE_DIR/append.md"; then
+  echo "Error: append.md on a fresh create; refusing to create" >&2
+  exit 1
+fi
+OMIT_PARENT=0
+if [ "$DISPOSITION" = "nonblocking" ] && [ -n "$SOURCE_PARENT" ] && [ "$SOURCE_PARENT" = "$ACTIVE_EPIC" ]; then
+  OMIT_PARENT=1
+fi
+ARGS=(--title-file "$FILE_DIR/title.txt" --body-file "$FILE_DIR/body.md" --size "$SOURCE_SIZE")
+if [ -n "$SOURCE_ISSUE" ]; then
+  ARGS+=(--blocked-by "#${SOURCE_ISSUE}")
+fi
+if [ -n "${SOURCE_TYPE:-}" ]; then
+  case "$SOURCE_TYPE" in
+    *[[:space:]]*) echo "Error: SOURCE_TYPE unresolved; refusing to create" >&2; exit 1 ;;
+  esac
+  ARGS+=(--type "$SOURCE_TYPE")
+fi
+if [ "$OMIT_PARENT" != "1" ] && [ -n "$SOURCE_PARENT" ]; then
+  ARGS+=(--parent "#${SOURCE_PARENT}")
+fi
+# OMIT_PARENT does not create an epic. A non-zero create may already have filed B: reconcile it, do not create again.
+log=$(mktemp)
+set +e
+T create "${ARGS[@]}" >"$log" 2>&1
+status=$?
+set -e
+cat "$log"
+if [ "$status" -ne 0 ]; then
+  created=$(sed -n 's/^Created #\([0-9][0-9]*\):.*/\1/p' "$log")
+  created=${created%%$'\n'*}
+  if [ -n "$created" ]; then
+    echo "tracker partial failure: created #${created}; reconcile that issue; do not create again" >&2
+  fi
+  rm -f "$log"
+  exit "$status"
+fi
+rm -f "$log"
 ```
 
 **Edge cases:**
-- A has no parent → B has no parent either (both top-level). Consider whether A should be re-parented under a freshly-created epic if the fan-out grows.
-- A is already top-level epic → defer creates child of A (epic decomposition pattern applies).
-- Existing follow-up issue B mis-parented under A → fix retroactively:
+- Parent read failed, malformed, or unresolved → halt. That is not an empty `SOURCE_PARENT`, and it must not omit `--parent`.
+- A has no parent, and the read returned `ABSENT` with `SOURCE_PARENT` empty → B has no parent either, unless planned decomposition applies and A is a top-level epic that is not the active delivery epic. Do not create a holding epic because the fan-out grew. Do not re-parent A under a freshly-created epic for a nonblocking deferral, and never when the only candidate parent is the active delivery epic.
+- A is already a top-level epic → planned decomposition still creates a child of A. That child edge is not this exception: the filing is not a new nonblocking deferral, or A is not `ACTIVE_EPIC`. A new nonblocking deferral whose `SOURCE_PARENT` equals `ACTIVE_EPIC` omits `--parent`, including when A is that epic. A different top-level epic still gets the child.
+- Existing open tracker → reuse. The repair below is not filing, and filing must not run it.
+- Existing follow-up B nested under A → repair only outside filing, only after the successful parent read, and only when that parent is non-empty and is not `ACTIVE_EPIC`. Do not detach a historical child of the delivery epic, do not reattach a detached issue, and do not apply the exception by editing an existing relation:
   ```bash
+  if [ -z "${ACTIVE_EPIC+x}" ] || [ -z "${A_PARENT:-}" ] || [ "$A_PARENT" = "$ACTIVE_EPIC" ]; then
+    echo "Error: refusing to re-parent; absent or active-delivery parent is not a repair" >&2
+    exit 1
+  fi
   T set <B> --rm-parent
   T set <B> --parent "#${A_PARENT}"
-  T set <B> --blocked-by "#${A}"  # ensure traceability link
+  T set <B> --blocked-by "#${A}"
   ```
 
 ## Complexity Scoring

@@ -101,8 +101,20 @@ parent, blocked-by A — never a child of A:
 ```
 
 This keeps the epic's fan-out flat instead of building a nested cascade. Planned
-decomposition (epic → phase) *is* parent/child; post-hoc deferral is not. Full
-rule: the `issue-triage` skill, § Deferred Follow-Ups.
+decomposition (epic → phase) *is* parent/child; post-hoc deferral is not.
+
+That sibling default stays. It is superseded only for a new nonblocking
+deferral whose candidate parent is the active open delivery epic: omit
+`--parent`, and do not create an epic to hold the deferral. That absent parent
+edge is the exclusion. It is not a priority filter and not a missing
+`## Acceptance criteria` heading. Origin, native blocked-by when an origin
+issue exists, the acceptance heading, and a `size:` label stay. Blocking
+filings, the blocking epic-fix, and planned slices stay children of that epic.
+Reuse of an open tracker does not create a second issue and does not set or
+remove its parent, whether it sits outside the epic or is still a historical
+child. A failed parent, goal, or discovery read is not absence.
+
+Full rule: the `issue-triage` skill, § Deferred Follow-Ups.
 
 ### No `ready-for-agent`
 
