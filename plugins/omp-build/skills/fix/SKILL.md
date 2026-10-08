@@ -234,6 +234,14 @@ FILE_DIR=$(mktemp -d -t "omp-build-fix-file-XXXXXX")
 trap 'rm -rf "$FILE_DIR"' EXIT
 # write "$FILE_DIR/title.txt" and "$FILE_DIR/body.md" with the write tool, and "$FILE_DIR/append.md" only when reused D gains items, then:
 set -euo pipefail
+if ! worktree_status=$(git --no-optional-locks status --porcelain=v1 --untracked-files=all --ignore-submodules=none); then
+  echo "worktree status failed; not clean" >&2
+  exit 1
+fi
+if [ -n "$worktree_status" ]; then
+  printf 'dirty tree; halt before filing\n%s\n' "$worktree_status" >&2
+  exit 1
+fi
 must_set() {
   local name="$1"
   if [ -z "${!name+x}" ]; then

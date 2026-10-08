@@ -127,9 +127,16 @@ function writePayload(dir: string, body = '**Origin:** PR #9\n\n## Acceptance cr
 function runFiling(
   factEnv: Record<string, string>,
   state: IsolateState,
-  opts: { realpathOk?: boolean; markerBun?: boolean; prepare?: (fileDir: string) => void } = {},
-): { status: number | null; stdout: string; stderr: string; state: IsolateState; marker?: string } {
+  opts: {
+    realpathOk?: boolean
+    markerBun?: boolean
+    prepare?: (fileDir: string) => void
+    prepareRepo?: (repo: string) => void
+  } = {},
+): { status: number | null; stdout: string; stderr: string; state: IsolateState; marker?: string; repo: string } {
   root = mkdtempSync(path.join(tmpdir(), 'omp-fix-filing-'))
+  const repo = initRepo(root)
+  opts.prepareRepo?.(repo)
   const bin = path.join(root, 'bin')
   const fileDir = path.join(root, 'files')
   const statePath = path.join(root, 'github.json')
@@ -166,6 +173,7 @@ exec "$REAL_BUN" "$GITHUB_ISOLATE_FIXTURE" --gh "$@"
   writePayload(fileDir)
   opts.prepare?.(fileDir)
   const result = spawnSync('bash', ['-c', filingBlockAfterWrite()], {
+    cwd: repo,
     encoding: 'utf8',
     env: {
       PATH: `${bin}:${path.dirname(REAL_BUN)}:/usr/bin:/bin`,
@@ -185,6 +193,7 @@ exec "$REAL_BUN" "$GITHUB_ISOLATE_FIXTURE" --gh "$@"
     stderr: result.stderr ?? '',
     state: JSON.parse(readFileSync(statePath, 'utf8')) as IsolateState,
     marker,
+    repo,
   }
 }
 
@@ -247,6 +256,37 @@ exit 99
 }
 
 describe('fix Filing command', () => {
+  it('refuses dirty final-review filing before any tracker access', () => {
+    let head = ''
+    const ran = runFiling(
+      facts({ SOURCE_ISSUE: '720', SOURCE_PARENT: '720', ACTIVE_EPIC: '720' }),
+      emptyState([seed(720)]),
+      {
+        prepareRepo(repo) {
+          head = git(repo, ['rev-parse', 'HEAD'])
+          writeFileSync(path.join(repo, 'stray'), 'operator work\n')
+          git(repo, ['config', 'status.showUntrackedFiles', 'no'])
+        },
+      },
+    )
+    expect(ran.status).not.toBe(0)
+    expect(ran.state.log).toEqual([])
+    expect(created(ran.state)).toEqual([])
+    expect(readFileSync(path.join(ran.repo, 'stray'), 'utf8')).toBe('operator work\n')
+    expect(git(ran.repo, ['rev-parse', 'HEAD'])).toBe(head)
+  })
+
+  it('refuses filing when worktree status cannot be read', () => {
+    const ran = runFiling(facts(), emptyState([seed(396, { parent: 720 }), seed(720)]), {
+      prepareRepo(repo) {
+        rmSync(path.join(repo, '.git'), { recursive: true })
+      },
+    })
+    expect(ran.status).not.toBe(0)
+    expect(ran.state.log).toEqual([])
+    expect(created(ran.state)).toEqual([])
+  })
+
   it('creates a fresh nonblocking deferral outside the active epic', () => {
     const ran = runFiling(
       facts(),

@@ -71,7 +71,7 @@
     },
     {
       "name": "omp-build",
-      "version": "0.9.11",
+      "version": "0.9.12",
       "description": "OMP-only feature cycle \u2014 frame, GitHub issue, worktree, implement, bounded review/fix, land.",
       "source": "./plugins/omp-build",
       "category": "development"

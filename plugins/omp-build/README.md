@@ -112,7 +112,9 @@ naming the epic, `/feature` is unchanged.
 Every `next` re-disarms a stopped child's armed PR before it moves on (`reconciled`); a failed disarm, or a PR that already merged, is a drop and creates no branch. `report --outcome drop` disarms without reading base CI or the landing, and exits non-zero naming any PR still armed. If that command fails, print the error, then drop the goal.
 
 Fix begins with an unconditional clean-tree preflight, even when every finding
-will be deferred and nothing applied. After any fix halt, `epic-driver fix-halt`
+will be deferred and nothing applied. Final-review filing also runs that preflight,
+and the filing command refuses dirty or unreadable Git state before tracker access.
+After any fix halt, `epic-driver fix-halt`
 reads Git state rather than error wording: dirty means a shared `dirty-tree`
 drop, without a WIP commit or push; clean means the ordinary recorded `stopped`
 ticket. Its status read includes untracked and dirty submodule content regardless
