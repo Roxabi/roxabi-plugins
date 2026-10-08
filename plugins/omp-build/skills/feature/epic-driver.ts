@@ -21,7 +21,8 @@
  * Exit: 0 done · 1 failed (shared-state stop) · 2 refused · 3 assisted (no gate).
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import {
@@ -526,7 +527,16 @@ async function ticketStop(
     : tree(repo)
   if (opts?.abortIfDirty && !here.clean) return { merged: null, disarmed, dirty: true }
   if (here.clean && ticketOfBranch(here.branch) === child.number) {
-    git(repo, ['switch', '--detach', `refs/remotes/origin/${base}`])
+    if (opts?.abortIfDirty) {
+      const hooks = mkdtempSync(join(tmpdir(), 'omp-fix-halt-hooks-'))
+      try {
+        git(repo, ['-c', `core.hooksPath=${hooks}`, 'switch', '--detach', `refs/remotes/origin/${base}`])
+      } finally {
+        rmSync(hooks, { recursive: true, force: true })
+      }
+    } else {
+      git(repo, ['switch', '--detach', `refs/remotes/origin/${base}`])
+    }
   }
   recordStop(repo, run, child.number, reason, detail)
   return { merged: null, disarmed }

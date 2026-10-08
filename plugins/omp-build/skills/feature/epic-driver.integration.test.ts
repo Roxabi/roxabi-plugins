@@ -1466,6 +1466,41 @@ describe('epic-driver — fix halt', () => {
     expect(snapshot(epic).head).toBe(tip)
   })
 
+  it.each(['fix-halt', 'stop'])('%s preserves its checkout-hook policy', (command) => {
+    const epic = onBranch()
+    servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    const hooks = path.join(sandboxOf().root, 'checkout-hooks')
+    mkdirSync(hooks)
+    const hook = path.join(hooks, 'post-checkout')
+    writeFileSync(
+      hook,
+      `#!/bin/sh
+set -e
+printf 'hook commit\\n' > halt-hook.txt
+'${REAL_GIT}' add halt-hook.txt
+'${REAL_GIT}' -c user.name=t -c user.email=t@t commit -qm 'chore: hook commit'
+'${REAL_GIT}' push -q origin HEAD:refs/heads/hook-created
+`,
+    )
+    chmodSync(hook, 0o755)
+    git(epic, 'config', 'core.hooksPath', hooks)
+    const before = snapshot(epic)
+    const args = command === 'stop' ? ['--reason', 'stopped'] : []
+    const run = drive([command, '--ticket', '2', ...args, ...detail('clean hook boundary')])
+    expect({ code: run.code, stderr: run.stderr }).toMatchObject({ code: 0 })
+    expect(run.json()).toMatchObject({ stop: 'stopped', ticket: 2 })
+    expect(git(epic, 'branch', '--show-current')).toBe('')
+    if (command === 'fix-halt') {
+      expect(snapshot(epic).head).toBe(before.head)
+      expect(snapshot(epic).remotes).toBe(before.remotes)
+      expect(() => readFileSync(path.join(epic, 'halt-hook.txt'))).toThrow()
+    } else {
+      expect(snapshot(epic).head).not.toBe(before.head)
+      expect(git(sandboxOf().origin, 'rev-parse', 'hook-created')).toBe(snapshot(epic).head)
+      expect(readFileSync(path.join(epic, 'halt-hook.txt'), 'utf8')).toBe('hook commit\n')
+    }
+  })
+
   it('refuses a ticket that is not a native child before reading status', () => {
     const epic = childReady()
     writeFileSync(path.join(epic, 'stray.txt'), 'stray\n')

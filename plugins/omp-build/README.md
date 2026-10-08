@@ -120,8 +120,9 @@ drop, without a WIP commit or push; clean means the ordinary recorded `stopped`
 ticket. Its status read includes untracked and dirty submodule content regardless
 of ignore configuration and does not refresh the index. After disarm and branch
 observation, one final strict status governs the stop; observed dirt becomes the same drop,
-with any disarm already performed left as-is. Ordinary implementation
-stops retain their separate commit-first safeguard.
+with any disarm already performed left as-is. Fix-halt detachment uses a private
+empty hooks directory, so checkout hooks cannot commit or push on its behalf.
+Ordinary implementation stops retain their separate commit-first and hook behavior.
 The halt launcher and both driver calls run from the resolved trusted skill
 directory with `--no-env-file`; checkout Bun preloads cannot forge a stop result.
 
