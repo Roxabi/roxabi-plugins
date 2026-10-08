@@ -356,7 +356,22 @@ if [ "$OMIT_PARENT" != "1" ] && [ -n "$SOURCE_PARENT" ]; then
   ARGS+=(--parent "#${SOURCE_PARENT}")
 fi
 # OMIT_PARENT does not create an epic. A non-zero create may already have filed B: reconcile it, do not create again.
-T create "${ARGS[@]}"
+log=$(mktemp)
+set +e
+T create "${ARGS[@]}" >"$log" 2>&1
+status=$?
+set -e
+cat "$log"
+if [ "$status" -ne 0 ]; then
+  created=$(sed -n 's/^Created #\([0-9][0-9]*\):.*/\1/p' "$log")
+  created=${created%%$'\n'*}
+  if [ -n "$created" ]; then
+    echo "tracker partial failure: created #${created}; reconcile that issue; do not create again" >&2
+  fi
+  rm -f "$log"
+  exit "$status"
+fi
+rm -f "$log"
 ```
 
 **Edge cases:**

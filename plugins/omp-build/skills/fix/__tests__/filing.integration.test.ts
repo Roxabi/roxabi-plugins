@@ -13,6 +13,7 @@ import type { IsolateIssue, IsolateState } from './fixtures/github-isolate'
  */
 const FIX = readFileSync(path.resolve(import.meta.dirname, '..', 'SKILL.md'), 'utf8')
 const TRIAGE = path.resolve(import.meta.dirname, '../../../../issue-triage/skills/issue-triage/triage.ts')
+const TRIAGE_SKILL = readFileSync(path.join(path.dirname(TRIAGE), 'SKILL.md'), 'utf8')
 const FIXTURE = path.resolve(import.meta.dirname, 'fixtures/github-isolate.ts')
 const REAL_BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
 
@@ -22,10 +23,10 @@ afterEach(() => {
   root = undefined
 })
 
-function sectionFence(heading: string): string {
-  const start = FIX.indexOf(heading)
-  if (start < 0) throw new Error(`${heading} missing from fix/SKILL.md`)
-  const rest = FIX.slice(start + heading.length)
+function sectionFence(heading: string, source = FIX): string {
+  const start = source.indexOf(heading)
+  if (start < 0) throw new Error(`${heading} missing from skill`)
+  const rest = source.slice(start + heading.length)
   const next = rest.search(/\n### |\n## /)
   const section = next < 0 ? rest : rest.slice(0, next)
   const block = /```bash\n([\s\S]*?)```/.exec(section)?.[1]
@@ -132,6 +133,7 @@ function runFiling(
     markerBun?: boolean
     prepare?: (fileDir: string) => void
     prepareRepo?: (repo: string) => void
+    recipe?: 'fix' | 'triage'
   } = {},
 ): { status: number | null; stdout: string; stderr: string; state: IsolateState; marker?: string; repo: string } {
   root = mkdtempSync(path.join(tmpdir(), 'omp-fix-filing-'))
@@ -172,7 +174,11 @@ exec "$REAL_BUN" "$GITHUB_ISOLATE_FIXTURE" --gh "$@"
   )
   writePayload(fileDir)
   opts.prepare?.(fileDir)
-  const result = spawnSync('bash', ['-c', filingBlockAfterWrite()], {
+  const script =
+    opts.recipe === 'triage'
+      ? `T() { bun "$TRIAGE_ENTRY" "$@"; }\n${sectionFence('**Recipe — defer A', TRIAGE_SKILL)}`
+      : filingBlockAfterWrite()
+  const result = spawnSync('bash', ['-c', script], {
     cwd: repo,
     encoding: 'utf8',
     env: {
@@ -180,6 +186,7 @@ exec "$REAL_BUN" "$GITHUB_ISOLATE_FIXTURE" --gh "$@"
       HOME: root,
       REAL_BUN,
       GITHUB_ISOLATE_FIXTURE: FIXTURE,
+      TRIAGE_ENTRY: TRIAGE,
       GITHUB_ISOLATE_STATE: statePath,
       GITHUB_TOKEN: 'isolate',
       GITHUB_REPO: 'Acme/app',
@@ -484,27 +491,28 @@ describe('fix Filing command', () => {
     expect(ran.state.log.some((line) => line.startsWith('rest:PATCH'))).toBe(false)
   })
 
-  it('reports a partial create and does not create a second issue', () => {
-    const ran = runFiling(facts(), emptyState([seed(396, { parent: 720 })], { failGraphQL: 'relations' }))
+  it.each(['fix', 'triage'] as const)('%s reports the existing issue after a partial create', (recipe) => {
+    const ran = runFiling(facts(), emptyState([seed(396, { parent: 720 })], { failGraphQL: 'relations' }), {
+      recipe,
+    })
     expect(ran.status).not.toBe(0)
-    expect(ran.stderr).toMatch(/tracker partial failure: created #1000/)
-    expect(ran.stderr).toMatch(/do not create again/)
+    expect(ran.stderr).toContain('#1000')
     expect(posts(ran.state)).toHaveLength(1)
     expect(created(ran.state)).toHaveLength(1)
     expect(created(ran.state)[0].blockedBy).toEqual([])
   })
 
-  it('reports a failed comment append without changing the issue or creating another', () => {
+  it.each(['fix', 'triage'] as const)('%s reports a failed append without replacing the tracker', (recipe) => {
     const ran = runFiling(
       facts({ SOURCE_ISSUE: '', SOURCE_PARENT: '', EXISTING_ISSUE: '80', ITEM_COVERAGE: 'exact' }),
       emptyState([seed(80, { body: 'HISTORY-LINE' })], { failCommentWrite: true }),
       {
+        recipe,
         prepare: (fileDir) => writeFileSync(path.join(fileDir, 'append.md'), 'NEW-ITEM\n'),
       },
     )
     expect(ran.status).not.toBe(0)
-    expect(ran.stderr).toMatch(/tracker partial failure: issue #80/)
-    expect(ran.stderr).toMatch(/do not create again/)
+    expect(ran.stderr).toContain('#80')
     expect(posts(ran.state)).toEqual([])
     expect(ran.state.issues.find((issue) => issue.number === 80)?.body).toBe('HISTORY-LINE')
     expect(ran.state.issues.find((issue) => issue.number === 80)?.comments ?? []).toEqual([])

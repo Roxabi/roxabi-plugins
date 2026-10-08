@@ -62,6 +62,8 @@ only a top-level delivery epic has no such parent to pass.
 Reuse reads the body and complete comment history. Additional deferred items are
 append-only issue comments: concurrent contributions and human body edits survive.
 Neither body replacement nor relation changes are part of reuse.
+If creation succeeds before a later relation/label failure, the filing recipe
+reports the existing issue number for reconciliation instead of another create.
 
 ## Size
 

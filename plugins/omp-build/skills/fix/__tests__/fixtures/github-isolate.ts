@@ -7,6 +7,7 @@
  * Preload: `bun --preload github-isolate.ts`.
  * CLI: `bun github-isolate.ts --gh <gh argv...>`.
  */
+import { spawnSync } from 'node:child_process'
 import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 
 export type IsolateIssue = {
@@ -234,6 +235,13 @@ function flag(argv: string[], name: string): string | undefined {
   return index >= 0 ? argv[index + 1] : undefined
 }
 
+function emitJq(value: unknown, filter: string): number {
+  const result = spawnSync('jq', ['-r', filter], { input: JSON.stringify(value), encoding: 'utf8' })
+  process.stdout.write(result.stdout ?? '')
+  process.stderr.write(result.stderr ?? '')
+  return result.status ?? 1
+}
+
 function gh(argv: string[]): number {
   const state = load()
   note(state, `gh:${argv.join(' ')}`)
@@ -245,6 +253,19 @@ function gh(argv: string[]): number {
   if (argv[0] === 'label' && argv[1] === 'list') {
     process.stdout.write('size:S\nsize:F-lite\nsize:F-full\n')
     return 0
+  }
+  if (argv[0] === 'api' && argv[1] === 'graphql') {
+    const number = Number(argv.find((arg) => arg.startsWith('num='))?.slice(4))
+    const issue = byNumber(state, number)
+    if (state.failView.includes(number)) return 1
+    return emitJq(
+      {
+        data: {
+          repository: { issue: issue ? { number, parent: issue.parent ? { number: issue.parent } : null } : null },
+        },
+      },
+      flag(argv, '--jq') ?? '.',
+    )
   }
   if (argv[0] === 'api' && argv.some((arg) => /^repos\/[^/]+\/[^/]+\/issues\/\d+\/comments$/.test(arg))) {
     const endpoint = argv.find((arg) => arg.startsWith('repos/')) ?? ''
@@ -283,21 +304,7 @@ function gh(argv: string[]): number {
       process.stderr.write(`issue not found #${number}\n`)
       return 1
     }
-    const jq = flag(argv, '--jq') ?? ''
-    if (jq.includes('.parent.number')) {
-      process.stdout.write(issue.parent === null ? '\n' : `${issue.parent}\n`)
-      return 0
-    }
-    if (jq.includes('.body')) {
-      process.stdout.write(`${issue.body}\n`)
-      return 0
-    }
-    if (jq.includes('.state')) {
-      process.stdout.write(`${issue.state}\n`)
-      return 0
-    }
-    process.stderr.write(`unexpected jq ${jq}\n`)
-    return 1
+    return emitJq({ ...issue, parent: issue.parent ? { number: issue.parent } : null }, flag(argv, '--jq') ?? '.')
   }
   if (argv[0] === 'issue' && argv[1] === 'edit') {
     const issue = byNumber(state, Number(argv[2]))
