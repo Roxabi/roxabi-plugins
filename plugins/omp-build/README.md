@@ -122,7 +122,9 @@ reads Git state rather than error wording: dirty means a shared `dirty-tree`
 drop, without a WIP commit or push; clean means the ordinary recorded `stopped`
 ticket. Its status read includes untracked and dirty submodule content regardless
 of ignore configuration and does not refresh the index. After disarm and branch
-observation, one final strict status governs the stop; observed dirt becomes the same drop,
+observation, one final strict status governs the stop. A merged-during-disarm
+outcome also requires that final read; observed dirt takes precedence over merged
+and becomes the same drop,
 with any disarm already performed left as-is. Fix-halt detachment uses a private
 empty hooks directory, so checkout hooks cannot commit or push on its behalf.
 Ordinary implementation stops retain their separate commit-first and hook behavior.

@@ -518,7 +518,10 @@ async function ticketStop(
   const disarmed: Record<number, Disarm> = {}
   for (const pr of child.prs.filter((p) => p.state === 'OPEN')) {
     disarmed[pr.number] = await disarm(repo, pr.number)
-    if (disarmed[pr.number] === 'merged') return { merged: pr.number, disarmed }
+    if (disarmed[pr.number] === 'merged') {
+      if (opts?.abortIfDirty && git(repo, FIX_STATUS) !== '') return { merged: null, disarmed, dirty: true }
+      return { merged: pr.number, disarmed }
+    }
   }
   // Fix halts read the branch first, then make one final strict observation.
   // Do not re-enter ordinary tree(), whose status can refresh the index.

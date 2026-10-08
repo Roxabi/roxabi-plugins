@@ -55,7 +55,12 @@ case "$1 \${2:-}" in
     n=$(ls "$S" | grep -c '^comment-' || true)
     cat > "$S/comment-$n.md"
     log "comment $3 $(head -1 "$S/comment-$n.md")" ;;
-  "pr view") cat "$S/pr/$3.json" ;;
+  "pr view")
+    if [[ -f "$S/dirty-on-pr-view" ]]; then
+      IFS= read -r repo < "$S/dirty-on-pr-view"
+      printf 'raced\\n' > "$repo/raced.txt"
+    fi
+    cat "$S/pr/$3.json" ;;
   "pr edit")
     log "edit $3 \${*:4}"
     [[ -f "$S/pr/$3.sticky" ]] || { jq -c '.labels = []' "$S/pr/$3.json" > "$S/tmp" && mv "$S/tmp" "$S/pr/$3.json"; } ;;
@@ -1573,6 +1578,32 @@ printf 'hook commit\\n' > halt-hook.txt
     expect(writes()).toEqual([])
     expect(snapshot(epic)).toEqual(before)
     expect(git(epic, 'branch', '--show-current')).toBe('feat/2-first-child')
+  })
+
+  it.each(['dirty', 'unreadable'])('does not advance a merged halt with %s Git state', (state) => {
+    const epic = onBranch()
+    servePr(11, { state: 'MERGED', labels: ['reviewed'], autoMerge: false })
+    git(epic, 'config', 'status.showUntrackedFiles', 'no')
+    stale(epic)
+    const before = snapshot(epic)
+    writeFileSync(path.join(sandboxOf().state, 'dirty-on-pr-view'), `${epic}\n`)
+    if (state === 'unreadable') {
+      installGit(`for arg in "$@"; do
+  if [ "$arg" = status ] && [ -f "$DRIVER_STATE/status-once" ]; then exit 42; fi
+  if [ "$arg" = status ]; then touch "$DRIVER_STATE/status-once"; fi
+done`)
+    }
+    const run = drive(['fix-halt', '--ticket', '2', ...detail('merge and dirt race')])
+    if (state === 'dirty') {
+      expect(run.code).toBe(0)
+      expect(run.json()).toEqual(DROP)
+    } else {
+      expect(run.code).not.toBe(0)
+      expect(run.stdout).not.toContain('"action": "merged"')
+    }
+    expect(readFileSync(path.join(epic, 'raced.txt'), 'utf8')).toBe('raced\n')
+    expect(snapshot(epic)).toEqual(before)
+    expect(writes()).toEqual([])
   })
 
   it('does not record a stop when disarm leaves the PR armed', () => {
