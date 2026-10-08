@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { applyCiWatchExit, commentPageArgs, disarmReviewedBeforePush, landPr, nextReviewStep } from './workflow.js'
+import { exemptGit } from './proof-exempt-git.js'
+import {
+  applyCiWatchExit,
+  commentPageArgs,
+  disarmReviewedBeforePush,
+  landPr as landPrProduction,
+  nextReviewStep,
+} from './workflow.js'
+
+/** Production gate runs. Unit fakes are not repositories; the stub is a real no-Semctx commit. */
+async function landPr(cwd, pr, opts = {}) {
+  return landPrProduction(cwd, pr, { git: exemptGit, ...opts })
+}
 
 /**
  * The armed-gate invariant (#713), delivered again by #744. An OPEN PR is armed (`reviewed`
@@ -2838,7 +2850,7 @@ describe('same-head revocation during preparation for the next arming write', ()
   }
 })
 
-describe('native arming uses the freshly approved head', () => {
+describe('a bound oid is not renewed when the review and the head advance together', () => {
   it.each([
     ['initial pin after discovery', 'none', 'base'],
     ['re-pin after disabling the old arm', 'both', 'disable'],
@@ -2851,10 +2863,11 @@ describe('native arming uses the freshly approved head', () => {
     const outcome = await exec({ fn: 'land', opts: NATIVE }, fake)
 
     expect(outcome.error).toBeUndefined()
-    expect(outcome.result).toMatchObject({ status: 'watching', mode: 'native' })
+    expect(outcome.result).toMatchObject({ status: 'not-approved', reason: 'head-moved' })
     expect(fake.pr.head).toBe(MOVED)
-    expect(fake.pr.autoMerge).not.toBeNull()
-    expect(fake.pr.labels.has('reviewed')).toBe(true)
+    expect(fake.pr.autoMerge).toBeNull()
+    expect(fake.pr.labels.has('reviewed')).toBe(false)
+    if (start !== 'none') expect(outcome.result.disarmed).toBe(true)
     expect(holds(fake, outcome)).toBe(true)
   })
 })

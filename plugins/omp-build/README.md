@@ -111,6 +111,15 @@ naming the epic, `/feature` is unchanged.
 
 Every `next` re-disarms a stopped child's armed PR before it moves on (`reconciled`); a failed disarm, or a PR that already merged, is a drop and creates no branch. `report --outcome drop` disarms without reading base CI or the landing, and exits non-zero naming any PR still armed. If that command fails, print the error, then drop the goal.
 
+The final integration review still runs on `epicDiffRange`: the first supplied
+child's base through the last supplied child's merge. The helper depends on input
+order; the driver supplies merge-time order. This enclosing range is a
+**superset**, not child-only coverage, and can include foreign intervening merges.
+The driver records `review --range <step.range>`. A foreign change appearing in
+the range does not authorize an unrelated automatic fix: establish its relation
+to the epic's acceptance and report unrelated findings separately. Exact
+child-diff union remains postponed to #723, not delivered by the proof gate.
+
 ## Slash commands
 
 | Command | Lane |
@@ -136,6 +145,41 @@ In the matching worktree: implement → `dev-review` → `fix` → land.
 review read; lookup failure is never treated as a local review. A closed PR on
 the branch refuses implicit reuse, so its bound cannot be reset. Existing PRs
 resume from their review records.
+
+**Proof input and refusal.** In a Semctx repository,
+`openPr(cwd, { issue, branch, base, title, body, proof })` and
+`landPr(cwd, pr, { proof })` enforce the proof gate. `proof` carries `head`,
+`verify`, `gaps`, `noTest`, optional `uiChecks`, and the assertledger facts
+(`assertledger`, `hasAdapter`, `typeFix`); see feature §6.3 for the shape.
+Open returns `created | existing` with a number, or `proof-blocked` with `reason`.
+Land adds that same refusal to its statuses. Report the refusal and stop
+(Epic goal: non-sticky ticket stop `proof-blocked`, without automatic retry).
+Open proof refusals first look up the same-repository head/base PR, even when
+the proof fails before a body is selected. Existing/422 open and land refusals
+clear known OPEN arms through the shared unarmed policy; `disarmed` is a
+confirmed clearing receipt only.
+
+Contracts and the proof's e2e policy come from regular blobs at the bound commit,
+including `.semctx/semantic/changes/*.sem` with exact `issue-<N>` tags. Every
+matching contract must have the claimed verified/partial lifecycle or be
+superseded, with at least one matching; ignored working files are not authority.
+These artifact paths are repository-root-relative even when open or land is
+called from a subdirectory; nested packages cannot shadow the root contracts
+or the committed root e2e policy.
+VERIFIED must carry no unresolved gaps. PARTIAL needs justified gaps in the fixed
+NO TEST enum, never caller-added reasons.
+`ui-manual-only` requires steps, URL and observed result in the selected PR body
+and is refused by a declared committed `commands.test_e2e`. Create checks its
+submitted payload; existing/422 and land read GitHub's actual body. A proposed
+but unwritten body cannot authorize them.
+
+Applicable proofs bind checkout HEAD, the local feature branch and `proof.head`;
+land also binds the already-approved GitHub head. A later head change invalidates
+the proof or exemption before arming. A no-Semctx repository is exempt; an
+unreadable Git/probe result is not absence, and an unborn repository with Semctx
+is not exempt. The contract stores no verification commit: re-verify before
+open and land, without claiming the gate can observe verification freshness.
+Landing mode/required checks still come from the PR base, not the proof's head stack.
 
 The review bound is two reads of the PR's review records (#710) — the comments
 by the automation login (`gh api user`) whose first line is

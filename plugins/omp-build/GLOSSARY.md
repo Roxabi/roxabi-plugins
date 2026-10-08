@@ -16,6 +16,10 @@ _Avoid_: build, /build, /dev, /R-dev, omp-wt
 The `/goal` in the operator's session that delivers one epic. The autonomy unit of `/feature`.
 _Avoid_: a per-ticket stop, an autonomy level stored on the issue, one goal per ticket
 
+**Epic review range**:
+The enclosing span reviewed for an epic's integration. It is a superset that can include unrelated changes, not child-only coverage or authority to fix those changes.
+_Avoid_: child-diff union, child-only review, automatic scope expansion
+
 **Goal run**:
 One `/goal` line for an Epic goal, named by the `run=<id>` in its objective. Only an active goal whose objective names the epic authorizes the loop. Stops are recorded per run; a new `/goal` line is a new run.
 _Avoid_: a session, a paused goal, the run as a counter of attempts
@@ -37,7 +41,7 @@ The semctx record derived from the issue body. It is proof, not a second Spec.
 _Avoid_: artifacts/specs, a second spec home, the contract as what to build
 
 **Proof gate**:
-The bar a change must clear before its PR opens: a verified Change contract, and assertledger where an adapter exists.
+The bar a change must clear before its PR opens or lands: proof tied to the selected committed artifacts and the actual PR body, plus assertledger where an adapter exists. Artifact binding is not evidence of when verification last ran.
 _Avoid_: a green test run standing in for it, a falsify gate with no producer
 
 **TDD**:

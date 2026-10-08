@@ -260,6 +260,7 @@ export function landOutcome(
     case 'timeout':
     case 'ci-cancelled':
     case 'ci-blocked':
+    case 'proof-blocked':
     case 'stopped':
     case 'closed':
       return { stop: status, class: 'ticket' }

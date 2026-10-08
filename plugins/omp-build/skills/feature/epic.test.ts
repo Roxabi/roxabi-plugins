@@ -996,6 +996,7 @@ describe('stop classes', () => {
     ['timeout', { stop: 'timeout', class: 'ticket' }],
     ['ci-cancelled', { stop: 'ci-cancelled', class: 'ticket' }],
     ['ci-blocked', { stop: 'ci-blocked', class: 'ticket' }],
+    ['proof-blocked', { stop: 'proof-blocked', class: 'ticket' }],
     ['stopped', { stop: 'stopped', class: 'ticket' }],
     ['closed', { stop: 'closed', class: 'ticket' }],
     ['watch-failed', { stop: 'watch-failed', class: 'shared' }],

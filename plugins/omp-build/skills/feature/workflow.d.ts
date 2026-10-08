@@ -4,6 +4,7 @@
  */
 
 type Gh = (cwd: string, args: string[]) => Promise<string>
+type Git = (cwd: string, args: string[]) => Promise<string>
 
 export declare function readLanding(
   cwd: string,
@@ -27,12 +28,24 @@ export declare function reviewRecords(
 
 export declare function openPr(
   cwd: string,
-  input: { issue: number; branch: string; base: string; title: string; body?: string },
-): Promise<{ number: number; status: 'created' | 'existing' }>
+  input: { issue: number; branch: string; base: string; title: string; body?: string; proof?: unknown },
+  deps?: { gh?: Gh; git?: Git },
+): Promise<
+  | { number: number; status: 'created' | 'existing'; disarmed?: true }
+  | { status: 'proof-blocked'; reason: string; disarmed?: true }
+>
 
 export declare function landPr(
   cwd: string,
   pr: number | string,
+  opts?: {
+    gh?: Gh
+    git?: Git
+    proof?: unknown
+    requiredContexts?: string[]
+    landing?: { mode: string; required_checks: string[] }
+    sleep?: (ms: number) => Promise<void>
+  },
 ): Promise<{
   status: string
   mode?: string
