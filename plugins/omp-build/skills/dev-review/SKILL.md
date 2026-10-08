@@ -603,6 +603,6 @@ Publish as a PR comment when a PR exists; otherwise display locally:
 - **Predecessor:** implement
 - **Successor:** conditional — green `land` → gated landing | red `fix` → `skill://fix` | `stop` → escalation dossier + human guidance
 - **Class:** verdict (branching based on findings)
-- **Loop cap:** at most 2 automatic fixes, derived by `nextReviewStep` from the review records. A record past the second that does not approve → stop + dossier; never Merge-as-is with blockers.
+- **Loop cap:** at most 2 automatic fixes, derived by `nextReviewStep` from exact `Request changes` records. The third `Request changes` spends the bound permanently → stop + dossier. Approvals neither spend nor reset; no other record spends the bound. Never Merge-as-is with blockers.
 
 $ARGUMENTS
