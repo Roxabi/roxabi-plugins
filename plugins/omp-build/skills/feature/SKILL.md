@@ -159,7 +159,7 @@ each already disarmed and recorded exactly like the `stop` subcommand does.
 | `step.action` | Do |
 |---|---|
 | `start` / `resume` | The driver fetched, checked the tree and base CI, switched to `step.branch` (new from `refs/remotes/origin/<base>`, or the existing one), validated it with `resolveTicketBranch` and `refuseForeignCommits`, and disarmed an armed PR. Run §6 for `step.ticket` in this worktree: §6.0 without the operator handoff, then §6.1–§6.7. The PR is `step.pr?.number ?? null`, never discovered by branch name (a branch name also matches fork PRs): `resume` with `step.pr` continues that PR from its `nextReviewStep` (§6.0), and no `step.pr` means a new PR through `openPr`. |
-| `final-review`, `stage: review` | R-architect and R-adversarial, read-only, on the ordered child diffs below. Then `bun "$D" review --epic E <gate> --verdict clean\|blocking --coverage <step.coverage> --detail-file <findings file>`. |
+| `final-review`, `stage: review` | R-architect and R-adversarial, read-only, on `git diff <step.range>` under the enclosing-superset scope rule below. Then `bun "$D" review --epic E <gate> --verdict clean\|blocking --range <step.range> --detail-file <findings file>`. |
 | `final-review`, `stage: fix-ticket` | One fix ticket through issue-triage: `create --parent "#E" --type fix --size … --priority … --body-file <f>`, body's first line `<!-- omp-build:epic-fix -->`, an `## Acceptance criteria` heading holding the blocking findings. The next `next` starts it. Non-blocking findings are follow-up siblings, each scoped the same way: an `## Acceptance criteria` heading and a `size:` label (`skill://fix` § Filing). |
 | `post-merge` | Only after a clean final review, a clean tree, and base CI green or absent. This run's hook `ok` or `skipped` at another commit is `drop hook-stale`, not another run. Then `bun --no-env-file "$D" hook --epic E <gate> --repo <epic worktree>`, with the bash `cwd` outside the repository (`$SKILL_DIR`): the runner must load nothing from the epic worktree. |
 | `complete` | `bun "$D" report --epic E <gate> --outcome complete` refuses unless `next` is `complete`. Print it, `goal({op:"complete"})`, offer `/cleanup`. |
@@ -220,15 +220,16 @@ is not `active`, the driver acts on nothing, and the open links stay for a new
 running goal does not do that itself.
 
 **Final epic review and hook.** Once every child is closed or merged into the
-base, `epicCoverage` supplies `step.diffs` for every same-base merged PR claiming
-a child, including multiple PRs per child, and an opaque `step.coverage` identity.
-Keep the driver's merge-time order and all its pairs. For each `{firstParent, merge}`, run
-`git diff --no-ext-diff <firstParent> <merge> --` with the two SHAs as separate
-argv entries; review all those diffs. Neither concatenate revision ranges nor
-pass `coverage` to Git: a spanning diff includes unrelated merges between children.
-The coverage identity binds the exact ordered pairs; legacy range-only review
-markers do not certify them. A red base, a pending base, or a dirty tree does not
-hold that review or its fix ticket.
+base, the integration review still runs on the enclosing range from
+`epicDiffRange`: the first supplied child's base through the last supplied
+child's merge. The helper depends on input order; the driver supplies merge-time
+order. This range is a **superset**, not a child-only diff: it can include foreign
+merges between the children. Exact child-diff union is deferred to #723.
+Review the range and report its findings, but presence in that superset is not
+permission to auto-fix unrelated changes. Establish a finding's relation to this
+epic's acceptance before making it an automatic epic-fix; report unrelated
+findings separately. A red base, a pending base, or a dirty tree does not hold
+that review or its fix ticket.
 A blocking verdict gets one fix ticket, delivered in the same goal; still blocking
 after it merged is a shared-state stop, even on a red base. The ticket counts that
 round across runs. After a clean review the goal finalizes only on a clean tree
@@ -244,7 +245,7 @@ temporary detached checkout of that commit, removed afterwards; `argv[0]` is a
 path inside it (`./scripts/…`). A string value, a PATH lookup or an escaping
 symlink fails it; its failure is a shared-state stop. An absent hook is skipped
 and the report says so. No per-ticket deploy. A resume skips a review whose
-latest verdict is clean for the exact current coverage. This run's hook `ok` or `skipped`
+latest verdict is clean for the current range. This run's hook `ok` or `skipped`
 counts as done only at the current base commit; at another commit the goal drops
 `hook-stale` and does not run the hook again. A later run treats an earlier `ok`
 at another commit as not done — that relaunch is the operator's new `/goal` line,

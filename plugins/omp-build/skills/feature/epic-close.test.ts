@@ -1,84 +1,20 @@
-import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import { epicCoverage, postMergeArgv } from './epic-close'
+import { epicDiffRange, postMergeArgv } from './epic-close'
 
-const sha = (digit: string) => digit.repeat(40)
-
-const child = (number: number, base: string, merge: string | null, at: string | null) => ({
-  number,
-  baseSha: base,
-  mergeSha: merge,
-  mergedAt: at,
-})
-
-describe('epicCoverage', () => {
-  it('sorts by merge time then number and hashes the fixed-width pairs', () => {
-    const input = [
-      child(3, sha('3'), sha('c'), '2026-09-03T10:00:00Z'),
-      child(1, sha('1'), sha('a'), '2026-09-01T10:00:00Z'),
-      child(2, sha('2'), sha('b'), '2026-09-02T10:00:00Z'),
-    ]
-    const before = structuredClone(input)
-    const got = epicCoverage(input)
-    expect(input).toEqual(before)
-    expect(got).toEqual({
-      diffs: [
-        { number: 1, firstParent: sha('1'), merge: sha('a') },
-        { number: 2, firstParent: sha('2'), merge: sha('b') },
-        { number: 3, firstParent: sha('3'), merge: sha('c') },
-      ],
-      coverage: createHash('sha256')
-        .update(sha('1') + sha('a') + sha('2') + sha('b') + sha('3') + sha('c'))
-        .digest('hex'),
-    })
-    expect(got).not.toHaveProperty('range')
+describe('epicDiffRange', () => {
+  it('spans the first merged child base to the last merge commit, skipping unmerged children', () => {
+    expect(
+      epicDiffRange([
+        { number: 1, baseSha: 'base1', mergeSha: 'm1' },
+        { number: 2, baseSha: 'base2', mergeSha: null },
+        { number: 3, baseSha: 'base3', mergeSha: 'm3' },
+      ]),
+    ).toEqual({ range: 'base1..m3' })
   })
 
-  it('returns the same coverage when the input order is reversed', () => {
-    const forward = [
-      child(1, sha('1'), sha('a'), '2026-09-01T10:00:00Z'),
-      child(2, sha('2'), sha('b'), '2026-09-02T10:00:00Z'),
-    ]
-    expect(epicCoverage([...forward].reverse())).toEqual(epicCoverage(forward))
-  })
-
-  it('tie-breaks equal merge times by ticket number', () => {
-    const at = '2026-09-01T10:00:00Z'
-    expect(epicCoverage([child(4, sha('4'), sha('d'), at), child(2, sha('2'), sha('b'), at)])).toMatchObject({
-      diffs: [
-        { number: 2, firstParent: sha('2'), merge: sha('b') },
-        { number: 4, firstParent: sha('4'), merge: sha('d') },
-      ],
-    })
-  })
-
-  it('orders simultaneous landings of the same child independently of input order', () => {
-    const at = '2026-09-01T10:00:00Z'
-    const first = child(1, sha('1'), sha('a'), at)
-    const second = child(1, sha('2'), sha('b'), at)
-    const reversed = epicCoverage([second, first])
-    expect(reversed).toEqual(epicCoverage([first, second]))
-    expect(reversed).toMatchObject({
-      diffs: [
-        { number: 1, firstParent: sha('1'), merge: sha('a') },
-        { number: 1, firstParent: sha('2'), merge: sha('b') },
-      ],
-    })
-  })
-
-  it('rejects an unusable later child instead of dropping it', () => {
-    const good = child(1, sha('1'), sha('a'), '2026-09-01T10:00:00Z')
-    const later = child(2, sha('2'), sha('b'), '2026-09-02T10:00:00Z')
-    expect(epicCoverage([good, { ...later, mergeSha: null }])).toEqual({ error: '#2 has no merge commit' })
-    expect(epicCoverage([good, { ...later, baseSha: null }])).toEqual({ error: '#2 has no merge base' })
-    expect(epicCoverage([good, { ...later, baseSha: 'base2' }])).toEqual({ error: '#2 has no merge base' })
-    expect(epicCoverage([good, { ...later, mergeSha: sha('B') }])).toEqual({ error: '#2 has no merge commit' })
-    expect(epicCoverage([good, { ...later, mergedAt: null }])).toEqual({ error: '#2 has no merge time' })
-    expect(epicCoverage([good, { ...later, mergedAt: 'yesterday' }])).toEqual({ error: '#2 has no merge time' })
-  })
-
-  it('refuses when nothing was claimed merged', () => {
-    expect(epicCoverage([])).toEqual({ error: 'no merged children' })
+  it('refuses a range when nothing has merged', () => {
+    expect(epicDiffRange([{ number: 1, baseSha: 'base1', mergeSha: null }])).toEqual({ error: 'no merged children' })
+    expect(epicDiffRange([])).toEqual({ error: 'no merged children' })
   })
 })
 

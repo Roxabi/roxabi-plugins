@@ -16,6 +16,10 @@ _Avoid_: build, /build, /dev, /R-dev, omp-wt
 The `/goal` in the operator's session that delivers one epic. The autonomy unit of `/feature`.
 _Avoid_: a per-ticket stop, an autonomy level stored on the issue, one goal per ticket
 
+**Epic review range**:
+The enclosing span reviewed for an epic's integration. It is a superset that can include unrelated changes, not child-only coverage or authority to fix those changes.
+_Avoid_: child-diff union, child-only review, automatic scope expansion
+
 **Goal run**:
 One `/goal` line for an Epic goal, named by the `run=<id>` in its objective. Only an active goal whose objective names the epic authorizes the loop. Stops are recorded per run; a new `/goal` line is a new run.
 _Avoid_: a session, a paused goal, the run as a counter of attempts

@@ -9,7 +9,7 @@
  *   objective --epic E                                  the /goal line (assisted, read-only)
  *   next      --epic E <gate> [--dry-run]               the next action; switches to the child branch
  *   stop      --epic E <gate> --ticket N --reason R [--detail-file F]     record a ticket stop (disarms first)
- *   review    --epic E <gate> --verdict V --coverage <64hex> [--detail-file F]  record the final epic review
+ *   review    --epic E <gate> --verdict V --range A..B [--detail-file F]  record the final epic review
  *   hook      --epic E <gate> --repo <worktree>         run release.post_merge (cwd outside the repo)
  *   report    --epic E <gate> --outcome complete|drop   post the goal report (drop disarms every PR)
  *
@@ -676,26 +676,17 @@ async function stop(
   return { ticket, stop: reason, sticky: STICKY_STOPS.includes(reason), disarmed: outcome.disarmed }
 }
 
-function review(
-  repo: string,
-  epic: number,
-  run: string,
-  base: string,
-  verdict: string,
-  coverage: string,
-  detail: string,
-) {
+function review(repo: string, epic: number, run: string, base: string, verdict: string, range: string, detail: string) {
   if (verdict !== 'clean' && verdict !== 'blocking')
     throw new Refused(`--verdict must be clean or blocking: ${verdict}`)
-  if (!/^[0-9a-f]{64}$/.test(coverage)) throw new Refused(`--coverage must be 64 lowercase hex: ${coverage}`)
   refusePrincipal(repo)
   const step = nextStep(gather(repo, epic, run, base).facts)
-  if (step.action !== 'final-review' || step.stage !== 'review' || step.coverage !== coverage) {
-    throw new Refused(`the driver expects no final review of ${coverage} (next: ${step.action})`)
+  if (step.action !== 'final-review' || step.stage !== 'review' || step.range !== range) {
+    throw new Refused(`the driver expects no final review of ${range} (next: ${step.action})`)
   }
-  const head = formatMarker('epic-review', { run, verdict, coverage })
-  comment(repo, epic, [head, `**Final epic review: ${verdict}** on \`${coverage}\`.`, '', detail].join('\n'))
-  return { verdict, coverage }
+  const head = formatMarker('epic-review', { run, verdict, range })
+  comment(repo, epic, [head, `**Final epic review: ${verdict}** on \`${range}\`.`, '', detail].join('\n'))
+  return { verdict, range }
 }
 
 async function hook(repo: string, epic: number, run: string, base: string): Promise<HookResult> {
@@ -823,7 +814,6 @@ function textFile(path: string | undefined, flag: string): string {
 async function main(argv: string[]): Promise<string> {
   const { positionals, values } = parseArgs({
     args: argv,
-    strict: true,
     allowPositionals: true,
     options: {
       epic: { type: 'string' },
@@ -835,7 +825,7 @@ async function main(argv: string[]): Promise<string> {
       reason: { type: 'string', default: '' },
       'detail-file': { type: 'string' },
       verdict: { type: 'string', default: '' },
-      coverage: { type: 'string', default: '' },
+      range: { type: 'string', default: '' },
       outcome: { type: 'string', default: '' },
     },
   })
@@ -864,7 +854,7 @@ async function main(argv: string[]): Promise<string> {
     case 'stop':
       return JSON.stringify(await stop(repo, epic, run, base, ticket, values.reason, detail), null, 2)
     case 'review':
-      return JSON.stringify(review(repo, epic, run, base, values.verdict, values.coverage, detail), null, 2)
+      return JSON.stringify(review(repo, epic, run, base, values.verdict, values.range, detail), null, 2)
     case 'hook': {
       const outcome = await hook(repo, epic, run, base)
       if (outcome.result === 'failed') throw new Error(`hook-failed ${JSON.stringify(outcome)}`)

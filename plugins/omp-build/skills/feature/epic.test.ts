@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import {
   armedStoppedPrs,
@@ -125,61 +124,18 @@ const DONE = [
   child(2, { state: 'CLOSED', prs: [landed(2, T1, sha('1'), sha('2'))] }),
   child(3, { state: 'CLOSED' }),
 ]
-/** Per-child first-parent diffs in merge-time order: #2 at T1, then #1 at T2. */
-const DIFFS = [
-  { number: 2, firstParent: sha('1'), merge: sha('2') },
-  { number: 1, firstParent: sha('b'), merge: sha('c') },
-]
-const COVERAGE = createHash('sha256')
-  .update(DIFFS.map((pair) => pair.firstParent + pair.merge).join(''))
-  .digest('hex')
-/** The epic-fix ticket, merged after the others: it adds a pair. */
+/** First merged baseSha .. last merged mergeSha, by mergedAt. */
+const RANGE = `${sha('1')}..${sha('c')}`
+/** The epic-fix ticket, merged after the others: it moves the range end. */
 const FIX = child(4, { epicFix: true, state: 'CLOSED', prs: [landed(4, T3, sha('c'), sha('d'))] })
-const FIX_DIFFS = [...DIFFS, { number: 4, firstParent: sha('c'), merge: sha('d') }]
-const FIXED = createHash('sha256')
-  .update(FIX_DIFFS.map((pair) => pair.firstParent + pair.merge).join(''))
-  .digest('hex')
-/** Hash of the old scalar span's endpoints. Same last merge, not this coverage. */
-const SPAN = createHash('sha256')
-  .update(`${sha('1')}${sha('c')}`)
-  .digest('hex')
-const asked = { action: 'final-review', stage: 'review', diffs: DIFFS, coverage: COVERAGE }
-const fixing = { action: 'final-review', stage: 'fix-ticket', diffs: DIFFS, coverage: COVERAGE }
+const FIXED = `${sha('1')}..${sha('d')}`
 
-const review = (verdict: 'clean' | 'blocking', coverage: string, run = RUN) => ({ run, verdict, coverage })
+const review = (verdict: 'clean' | 'blocking', range: string, run = RUN) => ({ run, verdict, range })
 const hook = (result: HookRecord['result'], at: string, run = RUN): HookRecord => ({ run, result, sha: at })
-/** All done and the final review clean for the current coverage. */
-const reviewed = (hooks: HookRecord[]) => facts(DONE, { reviews: [review('clean', COVERAGE)], hooks })
+/** All done and the final review clean for the current range. */
+const reviewed = (hooks: HookRecord[]) => facts(DONE, { reviews: [review('clean', RANGE)], hooks })
 
 describe('nextStep', () => {
-  it('requires review of every claiming merge of one child, independent of PR order', () => {
-    const first = landed(1, T1, sha('1'), sha('2'))
-    const second = landed(1, T2, sha('b'), sha('c'), { number: 201, head: 'fix/1-follow-up' })
-    const before = nextStep(facts([child(1, { state: 'CLOSED', prs: [first] })]))
-    if (before.action !== 'final-review') throw new Error('expected an initial review')
-    const reviews = [review('clean', before.coverage)]
-    const after = nextStep(facts([child(1, { state: 'CLOSED', prs: [first, second] })], { reviews }))
-
-    expect(after).toMatchObject({
-      action: 'final-review',
-      stage: 'review',
-      diffs: [
-        { number: 1, firstParent: sha('1'), merge: sha('2') },
-        { number: 1, firstParent: sha('b'), merge: sha('c') },
-      ],
-    })
-    expect(nextStep(facts([child(1, { state: 'CLOSED', prs: [second, first] })], { reviews }))).toEqual(after)
-  })
-
-  it('refuses an unusable second claiming merge instead of dropping it from coverage', () => {
-    const first = landed(1, T1, sha('1'), sha('2'))
-    const unusable = landed(1, T2, sha('b'), sha('c'), { number: 201, head: 'fix/1-follow-up', mergeSha: null })
-    expect(nextStep(facts([child(1, { state: 'CLOSED', prs: [first, unusable] })]))).toMatchObject({
-      action: 'drop',
-      stop: 'driver-error',
-    })
-  })
-
   describe('order and blockers', () => {
     it.each<Case>([
       {
@@ -570,76 +526,76 @@ describe('nextStep', () => {
         step: { action: 'complete' },
       },
       {
-        name: 'no review → review each child diff in merge-time order',
+        name: 'no review → review the first base .. last merge, by mergedAt',
         facts: facts(DONE),
-        step: asked,
+        step: { action: 'final-review', stage: 'review', range: RANGE },
         report: { merged: [1, 2], closed: [3] },
       },
       {
         name: 'a red base does not hold the final review',
         facts: facts(DONE, { baseCi: { state: 'red', failed: ['test'], pending: [] } }),
-        step: asked,
+        step: { action: 'final-review', stage: 'review', range: RANGE },
       },
       {
         name: 'a pending base does not hold the final review',
         facts: facts(DONE, { baseCi: { state: 'pending', failed: [], pending: ['build'] } }),
-        step: asked,
+        step: { action: 'final-review', stage: 'review', range: RANGE },
       },
       {
         name: 'a dirty tree does not hold the final review',
         facts: facts(DONE, { tree: { clean: false, branch: null } }),
-        step: asked,
+        step: { action: 'final-review', stage: 'review', range: RANGE },
       },
       {
         name: 'a red base does not hold the fix ticket',
         facts: facts(DONE, {
-          reviews: [review('blocking', COVERAGE)],
+          reviews: [review('blocking', RANGE)],
           baseCi: { state: 'red', failed: ['test'], pending: [] },
         }),
-        step: fixing,
+        step: { action: 'final-review', stage: 'fix-ticket', range: RANGE },
       },
       {
-        name: 'a clean review from an earlier run of this coverage → hook',
-        facts: facts(DONE, { reviews: [review('clean', COVERAGE, EARLIER)] }),
+        name: 'a clean review from an earlier run at the current range end → hook',
+        facts: facts(DONE, { reviews: [review('clean', RANGE, EARLIER)] }),
         step: { action: 'post-merge' },
       },
       {
-        name: 'a clean review of the scalar span that ends at the last merge does not certify',
-        facts: facts(DONE, { reviews: [review('clean', SPAN)] }),
-        step: asked,
+        name: 'a clean review whose range ends before the last merge → review again',
+        facts: facts(DONE, { reviews: [review('clean', `${sha('1')}..${sha('2')}`)] }),
+        step: { action: 'final-review', stage: 'review', range: RANGE },
       },
       {
         name: 'blocking and no epic-fix child → open the fix ticket',
-        facts: facts(DONE, { reviews: [review('blocking', COVERAGE)] }),
-        step: fixing,
+        facts: facts(DONE, { reviews: [review('blocking', RANGE)] }),
+        step: { action: 'final-review', stage: 'fix-ticket', range: RANGE },
       },
       {
-        name: 'the latest verdict for this coverage wins',
-        facts: facts(DONE, { reviews: [review('clean', COVERAGE, EARLIER), review('blocking', COVERAGE)] }),
-        step: fixing,
+        name: 'the latest verdict for the range end wins',
+        facts: facts(DONE, { reviews: [review('clean', RANGE, EARLIER), review('blocking', RANGE)] }),
+        step: { action: 'final-review', stage: 'fix-ticket' },
       },
       {
         name: 'blocking with the fix round spent (fix closed unmerged) → drop final-review-blocking',
         facts: facts([...DONE, child(4, { epicFix: true, state: 'CLOSED' })], {
-          reviews: [review('blocking', COVERAGE)],
+          reviews: [review('blocking', RANGE)],
         }),
         step: { action: 'drop', stop: 'final-review-blocking' },
       },
       {
-        name: 'blocking on the coverage before the fix merged → review again',
-        facts: facts([...DONE, FIX], { reviews: [review('blocking', COVERAGE)] }),
-        step: { action: 'final-review', stage: 'review', diffs: FIX_DIFFS, coverage: FIXED },
+        name: 'blocking on an older range end after the fix merged → review again',
+        facts: facts([...DONE, FIX], { reviews: [review('blocking', RANGE)] }),
+        step: { action: 'final-review', stage: 'review', range: FIXED },
       },
       {
         name: 'still blocking after the fix merged → drop final-review-blocking',
         facts: facts([...DONE, FIX], {
-          reviews: [review('blocking', COVERAGE, EARLIER), review('blocking', FIXED)],
+          reviews: [review('blocking', RANGE, EARLIER), review('blocking', FIXED)],
         }),
         step: { action: 'drop', stop: 'final-review-blocking' },
       },
       {
         name: 'clean after the fix merged → hook',
-        facts: facts([...DONE, FIX], { reviews: [review('blocking', COVERAGE), review('clean', FIXED)] }),
+        facts: facts([...DONE, FIX], { reviews: [review('blocking', RANGE), review('clean', FIXED)] }),
         step: { action: 'post-merge' },
       },
       {
@@ -648,36 +604,15 @@ describe('nextStep', () => {
           child(1, { state: 'CLOSED', prs: [landed(1, T1, sha('1'), sha('2'), { baseSha: null })] }),
           child(2, { state: 'CLOSED', prs: [landed(2, T2, sha('2'), sha('3'))] }),
         ]),
-        step: { action: 'drop', stop: 'driver-error', reason: '#1 has no merge base' },
+        step: { action: 'drop', stop: 'driver-error' },
       },
       {
-        name: 'a later merged PR without a merge base refuses the whole coverage',
+        name: 'a later merged PR without a merge base does not change the range',
         facts: facts([
           child(1, { state: 'CLOSED', prs: [landed(1, T1, sha('1'), sha('2'))] }),
           child(2, { state: 'CLOSED', prs: [landed(2, T2, sha('2'), sha('3'), { baseSha: null })] }),
         ]),
-        step: { action: 'drop', stop: 'driver-error', reason: '#2 has no merge base' },
-      },
-      {
-        name: 'a CLOSED MERGED child with no merge commit is not closed without a merge',
-        facts: facts([child(1, { state: 'CLOSED', prs: [landed(1, T1, sha('1'), sha('2'), { mergeSha: null })] })]),
-        step: { action: 'drop', stop: 'driver-error', reason: '#1 has no merge commit' },
-      },
-      {
-        name: 'a later CLOSED MERGED child with no merge commit refuses the whole coverage',
-        facts: facts([
-          child(1, { state: 'CLOSED', prs: [landed(1, T1, sha('1'), sha('2'))] }),
-          child(2, { state: 'CLOSED', prs: [landed(2, T2, sha('2'), sha('3'), { mergeSha: null })] }),
-        ]),
-        step: { action: 'drop', stop: 'driver-error', reason: '#2 has no merge commit' },
-      },
-      {
-        name: 'a later merged child with no merge time refuses the whole coverage',
-        facts: facts([
-          child(1, { state: 'CLOSED', prs: [landed(1, T1, sha('1'), sha('2'))] }),
-          child(2, { state: 'CLOSED', prs: [landed(2, T2, sha('2'), sha('3'), { mergedAt: null })] }),
-        ]),
-        step: { action: 'drop', stop: 'driver-error', reason: '#2 has no merge time' },
+        step: { action: 'final-review', stage: 'review', range: `${sha('1')}..${sha('3')}` },
       },
     ])('$name', decides)
   })
@@ -733,7 +668,7 @@ describe('nextStep', () => {
       {
         name: 'clean review, base CI red → drop base-ci-red, the hook does not run',
         facts: facts(DONE, {
-          reviews: [review('clean', COVERAGE)],
+          reviews: [review('clean', RANGE)],
           baseCi: { state: 'red', failed: ['test'], pending: [] },
         }),
         step: { action: 'drop', stop: 'base-ci-red' },
@@ -742,20 +677,20 @@ describe('nextStep', () => {
       {
         name: 'clean review, base CI pending → drop base-ci-pending',
         facts: facts(DONE, {
-          reviews: [review('clean', COVERAGE)],
+          reviews: [review('clean', RANGE)],
           baseCi: { state: 'pending', failed: [], pending: ['build=cancelled'] },
         }),
         step: { action: 'drop', stop: 'base-ci-pending' },
       },
       {
         name: 'clean review, dirty tree → drop dirty-tree',
-        facts: facts(DONE, { reviews: [review('clean', COVERAGE)], tree: { clean: false, branch: null } }),
+        facts: facts(DONE, { reviews: [review('clean', RANGE)], tree: { clean: false, branch: null } }),
         step: { action: 'drop', stop: 'dirty-tree' },
       },
       {
         name: 'hook already ok at the current base, then the base goes red → drop, not complete',
         facts: facts(DONE, {
-          reviews: [review('clean', COVERAGE)],
+          reviews: [review('clean', RANGE)],
           hooks: [hook('ok', sha('f'))],
           baseCi: { state: 'red', failed: ['test'], pending: [] },
         }),
@@ -764,7 +699,7 @@ describe('nextStep', () => {
       {
         name: 'hook already ok at the current base, dirty tree → drop, not complete',
         facts: facts(DONE, {
-          reviews: [review('clean', COVERAGE)],
+          reviews: [review('clean', RANGE)],
           hooks: [hook('ok', sha('f'))],
           tree: { clean: false, branch: null },
         }),
@@ -773,7 +708,7 @@ describe('nextStep', () => {
       {
         name: 'hook already ok at the current base, base CI pending → drop, not complete',
         facts: facts(DONE, {
-          reviews: [review('clean', COVERAGE)],
+          reviews: [review('clean', RANGE)],
           hooks: [hook('ok', sha('f'))],
           baseCi: { state: 'pending', failed: [], pending: ['build'] },
         }),
@@ -797,7 +732,7 @@ describe('nextStep', () => {
       {
         name: 'base CI none after a clean review still runs the hook',
         facts: facts(DONE, {
-          reviews: [review('clean', COVERAGE)],
+          reviews: [review('clean', RANGE)],
           baseCi: { state: 'none', failed: [], pending: [] },
         }),
         step: { action: 'post-merge' },
@@ -1080,17 +1015,15 @@ describe('stop classes', () => {
 
 describe('markers', () => {
   it('round-trips each marker with readable text below it', () => {
-    const coverage = 'a'.repeat(64)
+    const range = `${sha('1')}..${sha('2')}`
     expect(parseGoalStop(`${formatMarker('goal-stop', { run: RUN, reason: 'timeout' })}\n\nStopped: timeout.`)).toEqual(
       { run: RUN, reason: 'timeout' },
     )
-    expect(parseEpicReview(`${formatMarker('epic-review', { run: RUN, verdict: 'clean', coverage })}\nClean.`)).toEqual(
-      {
-        run: RUN,
-        verdict: 'clean',
-        coverage,
-      },
-    )
+    expect(parseEpicReview(`${formatMarker('epic-review', { run: RUN, verdict: 'clean', range })}\nClean.`)).toEqual({
+      run: RUN,
+      verdict: 'clean',
+      range,
+    })
     expect(parsePostMerge(`${formatMarker('post-merge', { run: RUN, result: 'ok', sha: sha('f') })}\nok`)).toEqual({
       run: RUN,
       result: 'ok',
@@ -1125,24 +1058,28 @@ describe('markers', () => {
     ['goal-stop, another kind', () => parseGoalStop(`<!-- omp-build:post-merge run=${RUN} reason=timeout -->`)],
     [
       'epic-review, bad verdict',
-      () => parseEpicReview(`<!-- omp-build:epic-review run=${RUN} verdict=green coverage=${'a'.repeat(64)} -->`),
+      () => parseEpicReview(`<!-- omp-build:epic-review run=${RUN} verdict=green range=${sha('1')}..${sha('2')} -->`),
     ],
     [
-      'epic-review, short coverage',
-      () => parseEpicReview(`<!-- omp-build:epic-review run=${RUN} verdict=clean coverage=${'a'.repeat(63)} -->`),
+      'epic-review, short sha',
+      () => parseEpicReview(`<!-- omp-build:epic-review run=${RUN} verdict=clean range=abc1234..${sha('2')} -->`),
     ],
     [
-      'epic-review, uppercase coverage',
-      () => parseEpicReview(`<!-- omp-build:epic-review run=${RUN} verdict=clean coverage=${'A'.repeat(64)} -->`),
+      'epic-review, uppercase sha',
+      () =>
+        parseEpicReview(`<!-- omp-build:epic-review run=${RUN} verdict=clean range=${'A'.repeat(40)}..${sha('2')} -->`),
     ],
-    ['epic-review, no coverage', () => parseEpicReview(`<!-- omp-build:epic-review run=${RUN} verdict=clean -->`)],
+    ['epic-review, no range', () => parseEpicReview(`<!-- omp-build:epic-review run=${RUN} verdict=clean -->`)],
     [
-      'epic-review, old range marker',
-      () => parseEpicReview(`<!-- omp-build:epic-review run=${RUN} verdict=clean range=${sha('1')}..${sha('2')} -->`),
+      'epic-review, a range with three ends',
+      () =>
+        parseEpicReview(
+          `<!-- omp-build:epic-review run=${RUN} verdict=clean range=${sha('1')}..${sha('2')}..${sha('3')} -->`,
+        ),
     ],
     [
       'epic-review, bad run',
-      () => parseEpicReview(`<!-- omp-build:epic-review run=r1 verdict=clean coverage=${'a'.repeat(64)} -->`),
+      () => parseEpicReview(`<!-- omp-build:epic-review run=r1 verdict=clean range=${sha('1')}..${sha('2')} -->`),
     ],
     ['post-merge, short sha', () => parsePostMerge(`<!-- omp-build:post-merge run=${RUN} result=ok sha=abc1234 -->`)],
     ['post-merge, no sha', () => parsePostMerge(`<!-- omp-build:post-merge run=${RUN} result=ok -->`)],

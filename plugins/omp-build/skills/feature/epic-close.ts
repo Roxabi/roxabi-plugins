@@ -1,50 +1,22 @@
 import { execFileSync, spawn } from 'node:child_process'
-import { createHash } from 'node:crypto'
 import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 
-const GIT_SHA = /^[0-9a-f]{40}$/
-
-/** One claiming landed PR; several records may belong to the same child. */
 export type MergedChild = {
   number: number
-  /** First parent of the merge commit. */
-  baseSha: string | null
+  baseSha: string
   mergeSha: string | null
-  mergedAt: string | null
 }
 
-export type ChildDiff = { number: number; firstParent: string; merge: string }
-
-/**
- * Ordered first-parent diffs of every claiming landed PR, plus the SHA-256 of
- * those fixed-width pairs. Sort by merge time, ticket, merge SHA, then parent SHA.
- * A later unusable SHA or date refuses the set; nothing is dropped. The
- * coverage token is an identity, never a Git argument, and has no decoder.
- */
-export function epicCoverage(children: MergedChild[]): { diffs: ChildDiff[]; coverage: string } | { error: string } {
-  if (!children.length) return { error: 'no merged children' }
-  const validated: { number: number; firstParent: string; merge: string; at: number }[] = []
-  for (const child of children) {
-    if (!Number.isInteger(child.number) || child.number <= 0) return { error: 'claimed child has no ticket number' }
-    if (!child.baseSha || !GIT_SHA.test(child.baseSha)) return { error: `#${child.number} has no merge base` }
-    if (!child.mergeSha || !GIT_SHA.test(child.mergeSha)) return { error: `#${child.number} has no merge commit` }
-    const at = Date.parse(child.mergedAt ?? '')
-    if (!Number.isFinite(at)) return { error: `#${child.number} has no merge time` }
-    validated.push({ number: child.number, firstParent: child.baseSha, merge: child.mergeSha, at })
-  }
-  const ordered = validated.sort((a, b) => {
-    const order = a.at - b.at || a.number - b.number
-    if (order) return order
-    if (a.merge !== b.merge) return a.merge < b.merge ? -1 : 1
-    return a.firstParent === b.firstParent ? 0 : a.firstParent < b.firstParent ? -1 : 1
-  })
-  const diffs = ordered.map(({ number, firstParent, merge }) => ({ number, firstParent, merge }))
-  const coverage = createHash('sha256')
-    .update(diffs.map((diff) => diff.firstParent + diff.merge).join(''))
-    .digest('hex')
-  return { diffs, coverage }
+/** First merged child's base .. last merged child's merge commit, children in merge order. */
+export function epicDiffRange(children: MergedChild[]): { range: string } | { error: string } {
+  const merged = children.filter((child) => child.mergeSha)
+  if (!merged.length) return { error: 'no merged children' }
+  const first = merged[0]
+  const last = merged[merged.length - 1]
+  if (!first || !last?.mergeSha) return { error: 'no merged children' }
+  return { range: `${first.baseSha}..${last.mergeSha}` }
 }
 
 // ── Post-merge hook (ADR-024 §1) ─────────────────────────────────────────────

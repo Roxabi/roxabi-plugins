@@ -1,5 +1,4 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { createHash } from 'node:crypto'
 import {
   chmodSync,
   mkdirSync,
@@ -35,15 +34,7 @@ const BRANCH_B = 'feat/3-child-b'
 const BRANCH_C = 'feat/4-child-c'
 
 type DriverNext = {
-  step: {
-    action: string
-    ticket?: number
-    branch?: string
-    coverage?: string
-    diffs?: { number: number; firstParent: string; merge: string }[]
-    stop?: string
-    stage?: string
-  }
+  step: { action: string; ticket?: number; branch?: string; range?: string; stop?: string; stage?: string }
   reconciled: { ticket: number; pr: number; disarmed: string }[]
   cleaned: string[]
 }
@@ -552,29 +543,13 @@ describe('stateful gh — one continuous goal', () => {
       if (issue) issue.state = 'CLOSED'
     })
     const afterStop = jsonOf(drive(['next'], RUN_B))
+    assertStoppedDisarmed()
     expect(afterStop.step.action).toBe('final-review')
     expect(afterStop.step.stage).toBe('review')
-    expect(afterStop.step).not.toHaveProperty('range')
-    const diffs = afterStop.step.diffs ?? []
-    expect(diffs.map((diff) => diff.number)).toEqual([A, B])
-    const paired = diffs.map((diff) =>
-      git(epic, ['diff', '--name-only', '--no-ext-diff', diff.firstParent, diff.merge, '--'])
-        .split('\n')
-        .filter(Boolean),
-    )
-    expect(paired[0]).toEqual(expect.arrayContaining(['a.txt']))
-    expect(paired[1]).toEqual(expect.arrayContaining(['b.txt']))
-    expect(paired.every((names) => !(names.includes('a.txt') && names.includes('b.txt')))).toBe(true)
-    for (const diff of diffs) {
-      expect(git(epic, ['rev-parse', `${diff.merge}^1`])).toBe(diff.firstParent)
-      expect(git(epic, ['rev-parse', `${diff.merge}^2`])).not.toBe(diff.firstParent)
-    }
-    const coverage = afterStop.step.coverage ?? ''
-    const preimage = diffs.map((diff) => diff.firstParent + diff.merge).join('')
-    expect(coverage).toBe(createHash('sha256').update(preimage).digest('hex'))
-    expect(coverage).toMatch(/^[0-9a-f]{64}$/)
+    const range = afterStop.step.range ?? ''
+    expect(range).toMatch(/^[0-9a-f]{40}\.\.[0-9a-f]{40}$/)
 
-    const reviewed = drive(['review', '--verdict', 'clean', '--coverage', coverage], RUN_B)
+    const reviewed = drive(['review', '--verdict', 'clean', '--range', range], RUN_B)
     expect(reviewed.code).toBe(0)
     writeFileSync(path.join(epic, 'dirty.txt'), 'no\n')
     const dirty = jsonOf(drive(['next'], RUN_B))
