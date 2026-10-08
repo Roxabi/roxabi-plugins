@@ -162,6 +162,7 @@ function childNode(
     labels: { nodes: [{ name: 'size:S' }] },
     blockedBy: { nodes: blockedBy.map(([n, s]) => ({ number: n, state: s, repository: { nameWithOwner: 'o/r' } })) },
     comments: {
+      totalCount: comments.length,
       nodes: comments.slice(-100).map((c) => ({ body: c.body, author: { login: c.author } })),
       pageInfo: { hasPreviousPage: comments.length > 100 },
     },
@@ -299,7 +300,7 @@ describe('epic-driver — next', () => {
       },
       ...Array.from({ length: 100 }, (_, index) => ({ author: ME, body: `ordinary note ${index}` })),
     ]
-    const entries = comments.map((entry) => ({ body: entry.body, user: { login: entry.author } }))
+    const entries = comments.map((entry, index) => ({ id: index + 1, body: entry.body, user: { login: entry.author } }))
     writeFileSync(
       path.join(state, 'issue-2-comments.json'),
       JSON.stringify([entries.slice(0, 100), entries.slice(100)]),
@@ -349,6 +350,30 @@ describe('epic-driver — next', () => {
     const comments = Array.from({ length: 101 }, () => ({ author: ME, body: 'ordinary note' }))
     serveEpic([childNode(2, 'feat(x): first child', { comments })])
     writeFileSync(path.join(state, 'issue-2-comments.json'), '[]')
+    const run = drive(['next'])
+    expect(run.code).toBe(1)
+    expect(run.stderr).toContain('comment history changed or is incomplete')
+    expect(git(epic, 'branch', '--show-current')).toBe('')
+    expect(writes()).toEqual([])
+  })
+
+  it('refuses a longer page-number history that omits a pre-window sticky marker', () => {
+    const { epic, state } = sandbox()
+    const marker = {
+      author: ME,
+      body: '<!-- omp-build:goal-stop run=oldrun01 reason=review-bound -->\nRecorded spent review bound; never edited.\n',
+    }
+    const comments = [
+      ...Array.from({ length: 30 }, (_, index) => ({ author: 'mallory', body: `ordinary ${index}` })),
+      marker,
+      ...Array.from({ length: 101 }, (_, index) => ({ author: ME, body: `recent ${index}` })),
+    ]
+    const omitted = comments.filter((_, index) => index !== 30)
+    const entries = omitted.map((entry, index) => ({ id: index + 1, body: entry.body, user: { login: entry.author } }))
+    const pages = []
+    for (let start = 0; start < entries.length; start += 30) pages.push(entries.slice(start, start + 30))
+    writeFileSync(path.join(state, 'issue-2-comments.json'), JSON.stringify(pages))
+    serveEpic([childNode(2, 'feat(x): first child', { comments }), childNode(4, 'fix(z): independent child')])
     const run = drive(['next'])
     expect(run.code).toBe(1)
     expect(run.stderr).toContain('comment history changed or is incomplete')

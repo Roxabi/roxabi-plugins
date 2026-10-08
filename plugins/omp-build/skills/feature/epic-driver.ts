@@ -135,7 +135,7 @@ type RawChild = {
   repository: { nameWithOwner: string }
   labels: { nodes: { name: string }[] }
   blockedBy: { nodes: { number: number; state: 'OPEN' | 'CLOSED'; repository: { nameWithOwner: string } }[] }
-  comments: { nodes: RawComment[]; pageInfo: { hasPreviousPage: boolean } }
+  comments: { totalCount?: number; nodes: RawComment[]; pageInfo: { hasPreviousPage: boolean } }
   closedByPullRequestsReferences: { nodes: RawPr[] }
   timelineItems: { nodes: ({ source?: Partial<RawPr> | null } | null)[] }
 }
@@ -167,7 +167,7 @@ const EPIC_QUERY = `query($owner: String!, $name: String!, $epic: Int!) {
           number title state body author { login } repository { nameWithOwner }
           labels(first: 50) { nodes { name } }
           blockedBy(first: 50) { nodes { number state repository { nameWithOwner } } }
-          comments(last: 100) { pageInfo { hasPreviousPage } nodes { body author { login } } }
+          comments(last: 100) { totalCount pageInfo { hasPreviousPage } nodes { body author { login } } }
           closedByPullRequestsReferences(first: 20, includeClosedPrs: true) { nodes { ${PR_FIELDS} } }
           timelineItems(itemTypes: [CROSS_REFERENCED_EVENT], last: 50) {
             nodes { ... on CrossReferencedEvent { source { ... on PullRequest { ${PR_FIELDS} } } } }
@@ -187,28 +187,70 @@ function ours(comments: RawComment[], viewer: string): string[] {
   return comments.filter((c) => c.author?.login === viewer).map((c) => c.body ?? '')
 }
 
-/** The window is sufficient only when GitHub certifies there is no earlier page. */
+/** One REST comment, identified. GitHub's id is a number; a fixture may use a string. */
+type CommentIdentity = { id: string; body: string; login: string }
+
+function commentIdentity(entry: { id?: unknown; body?: unknown; user?: { login?: unknown } }): CommentIdentity | null {
+  const id =
+    typeof entry.id === 'string' && entry.id !== ''
+      ? entry.id
+      : typeof entry.id === 'number' && Number.isSafeInteger(entry.id)
+        ? String(entry.id)
+        : null
+  if (id === null || typeof entry.body !== 'string' || typeof entry.user?.login !== 'string') return null
+  return { id, body: entry.body, login: entry.user.login }
+}
+
+/** Every page, in order. A missing or repeated id is not a complete history. */
+function readCommentIdentities(repo: string, number: number): CommentIdentity[] {
+  const pages: unknown = JSON.parse(gh(repo, commentPageArgs(number)))
+  if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) {
+    throw new Error(`child #${number}: comment history is incomplete`)
+  }
+  const entries: CommentIdentity[] = []
+  const seen = new Set<string>()
+  for (const page of pages) {
+    for (const entry of page) {
+      const identity = commentIdentity(entry ?? {})
+      if (!identity || seen.has(identity.id)) {
+        throw new Error(`child #${number}: comment history changed or is incomplete`)
+      }
+      seen.add(identity.id)
+      entries.push(identity)
+    }
+  }
+  return entries
+}
+
+function sameIdentities(left: CommentIdentity[], right: CommentIdentity[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every(
+      (entry, index) =>
+        entry.id === right[index]?.id && entry.body === right[index]?.body && entry.login === right[index]?.login,
+    )
+  )
+}
+
+/**
+ * The window is sufficient only when GitHub certifies there is no earlier page.
+ * A longer page-number result is not that certificate: two reads must agree on
+ * ordered ids, and that count must equal the certified total.
+ */
 function childCommentBodies(repo: string, node: RawChild, viewer: string): string[] {
   const earlier = node.comments.pageInfo?.hasPreviousPage
   if (earlier === false) return ours(node.comments.nodes, viewer)
   if (earlier !== true) throw new Error(`child #${node.number}: comment history completeness is unknown`)
-  const pages: unknown = JSON.parse(gh(repo, commentPageArgs(node.number)))
-  if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) {
-    throw new Error(`child #${node.number}: comment history is incomplete`)
-  }
-  const bodies: string[] = []
-  let count = 0
-  for (const page of pages) {
-    for (const entry of page) {
-      if (typeof entry?.body !== 'string') throw new Error(`child #${node.number}: comment has no body`)
-      count++
-      if (entry.user?.login === viewer) bodies.push(entry.body)
-    }
-  }
-  if (count <= node.comments.nodes.length) {
+  const total = node.comments.totalCount
+  if (typeof total !== 'number' || !Number.isSafeInteger(total) || total <= node.comments.nodes.length) {
     throw new Error(`child #${node.number}: comment history changed or is incomplete`)
   }
-  return bodies
+  const first = readCommentIdentities(repo, node.number)
+  const second = readCommentIdentities(repo, node.number)
+  if (first.length !== total || !sameIdentities(first, second)) {
+    throw new Error(`child #${node.number}: comment history changed or is incomplete`)
+  }
+  return first.filter((entry) => entry.login === viewer).map((entry) => entry.body)
 }
 
 // ── Facts ────────────────────────────────────────────────────────────────────

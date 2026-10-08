@@ -111,7 +111,7 @@ naming the epic, `/feature` is unchanged.
 
 Every `next` re-disarms a stopped child's armed PR before it moves on (`reconciled`); a failed disarm, or a PR that already merged, is a drop and creates no branch. `report --outcome drop` disarms without reading base CI or the landing, and exits non-zero naming any PR still armed. If that command fails, print the error, then drop the goal.
 
-Child stop markers are read from the complete comment history, preserving the author and first-line checks. The recent GraphQL window is used only when it has no previous page; otherwise all REST pages are read before scheduling. An unreadable or incomplete history cannot authorize a resume. A shared-state drop still disarms first, even when that history is unavailable.
+Child stop markers are read from the complete comment history, preserving the author and first-line checks. The recent GraphQL window is used only when it has no previous page; otherwise two REST reads must agree on ordered comment ids and that count must equal the certified total before scheduling. A longer page set that omits an earlier comment does not authorize a resume. An unreadable or incomplete history cannot authorize a resume. A shared-state drop still disarms first, even when that history is unavailable.
 
 Stop diagnostics are published in order as comments of at most 60,000 UTF-8 bytes, including their headers. Only the first carries the existing `goal-stop` marker; continuation headers are not markers. Every diagnostic character is retained, including both watcher streams, without fetching logs again. A tracker failure during publication remains a shared driver error, not a successful receipt or an automatic retry.
 

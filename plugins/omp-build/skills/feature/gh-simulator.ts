@@ -317,6 +317,7 @@ function issueNode(state: State, issue: Issue): Record<string, unknown> {
       }),
     },
     comments: {
+      totalCount: issue.comments.length,
       nodes: commentNodes(issue.comments.slice(-100)),
       pageInfo: { hasPreviousPage: issue.comments.length > 100 },
     },
@@ -542,6 +543,7 @@ function handle(state: State, argv: string[]): void {
     if (!number) fail(`gh: unhandled ${argv.join(' ')}`)
     const comments = state.prs[number]?.comments ?? state.issues[number]?.comments ?? []
     const page = comments.map((comment, index) => ({
+      id: index + 1,
       user: { login: comment.author },
       body: comment.body,
       created_at: `2026-01-01T00:00:${String(index).padStart(2, '0')}Z`,
