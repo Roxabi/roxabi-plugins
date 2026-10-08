@@ -357,6 +357,22 @@ describe('epic-driver — next', () => {
     expect(writes()).toEqual([])
   })
 
+  it('refuses a child whose comment history completeness is unknown', () => {
+    const { epic, state } = sandbox()
+    const comments = Array.from({ length: 101 }, () => ({ author: ME, body: 'ordinary note' }))
+    const node = childNode(2, 'feat(x): first child', { comments }) as {
+      comments: { pageInfo: { hasPreviousPage?: boolean } }
+    }
+    delete node.comments.pageInfo.hasPreviousPage
+    serveEpic([node])
+    writeFileSync(path.join(state, 'issue-2-comments.json'), '[]')
+    const run = drive(['next'])
+    expect(run.code).toBe(1)
+    expect(run.stderr).toContain('comment history completeness is unknown')
+    expect(git(epic, 'branch', '--show-current')).toBe('')
+    expect(writes()).toEqual([])
+  })
+
   it('refuses a longer page-number history that omits a pre-window sticky marker', () => {
     const { epic, state } = sandbox()
     const marker = {
