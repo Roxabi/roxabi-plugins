@@ -114,6 +114,9 @@ Every `next` re-disarms a stopped child's armed PR before it moves on (`reconcil
 Fix begins with an unconditional clean-tree preflight, even when every finding
 will be deferred and nothing applied. Final-review filing also runs that preflight,
 and the filing command refuses dirty or unreadable Git state before tracker access.
+Both entrances bind to the physical delivery cwd and clear Git-local environment
+variables using Git's own `rev-parse --local-env-vars` inventory before sensing
+status; inherited redirects cannot substitute another clean checkout.
 After any fix halt, `epic-driver fix-halt`
 reads Git state rather than error wording: dirty means a shared `dirty-tree`
 drop, without a WIP commit or push; clean means the ordinary recorded `stopped`

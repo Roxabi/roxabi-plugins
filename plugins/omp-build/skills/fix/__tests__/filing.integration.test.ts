@@ -242,7 +242,7 @@ function initRepo(parent: string): string {
   return repo
 }
 
-function runPreflight(cwd: string, binParent: string) {
+function runPreflight(cwd: string, binParent: string, inherited: NodeJS.ProcessEnv = {}) {
   const bin = path.join(binParent, 'bin')
   mkdirSync(bin, { recursive: true })
   const marker = path.join(binParent, 'bun-ran')
@@ -257,7 +257,7 @@ exit 99
   const result = spawnSync('bash', ['-c', preflightBlock()], {
     cwd,
     encoding: 'utf8',
-    env: gitEnv(cwd, { PATH: `${bin}:/usr/bin:/bin` }),
+    env: { ...gitEnv(cwd, { PATH: `${bin}:/usr/bin:/bin` }), ...inherited },
   })
   return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '', marker }
 }
@@ -276,6 +276,27 @@ describe('fix Filing command', () => {
         },
       },
     )
+    expect(ran.status).not.toBe(0)
+    expect(ran.state.log).toEqual([])
+    expect(created(ran.state)).toEqual([])
+    expect(readFileSync(path.join(ran.repo, 'stray'), 'utf8')).toBe('operator work\n')
+    expect(git(ran.repo, ['rev-parse', 'HEAD'])).toBe(head)
+  })
+
+  it('refuses dirty filing despite inherited Git redirection to a clean repository', () => {
+    const env = facts()
+    let head = ''
+    const ran = runFiling(env, emptyState([seed(396, { parent: 720 }), seed(720)]), {
+      prepareRepo(repo) {
+        const elsewhere = path.join(path.dirname(repo), 'elsewhere')
+        mkdirSync(elsewhere)
+        const clean = initRepo(elsewhere)
+        env.GIT_DIR = path.join(clean, '.git')
+        env.GIT_WORK_TREE = clean
+        head = git(repo, ['rev-parse', 'HEAD'])
+        writeFileSync(path.join(repo, 'stray'), 'operator work\n')
+      },
+    })
     expect(ran.status).not.toBe(0)
     expect(ran.state.log).toEqual([])
     expect(created(ran.state)).toEqual([])
@@ -568,6 +589,20 @@ describe('github isolate', () => {
 })
 
 describe('fix initial worktree preflight', () => {
+  it('refuses a dirty delivery tree despite inherited Git redirection', () => {
+    root = mkdtempSync(path.join(tmpdir(), 'omp-fix-preflight-redirect-'))
+    const repo = initRepo(root)
+    const elsewhere = path.join(root, 'elsewhere')
+    mkdirSync(elsewhere)
+    const clean = initRepo(elsewhere)
+    const head = git(repo, ['rev-parse', 'HEAD'])
+    writeFileSync(path.join(repo, 'sentinel'), 'operator work\n')
+    const ran = runPreflight(repo, root, { GIT_DIR: path.join(clean, '.git'), GIT_WORK_TREE: clean })
+    expect(ran.status).not.toBe(0)
+    expect(git(repo, ['rev-parse', 'HEAD'])).toBe(head)
+    expect(readFileSync(path.join(repo, 'sentinel'), 'utf8')).toBe('operator work\n')
+  })
+
   it('halts a dirty zero-apply tree and leaves sentinels uncommitted', () => {
     root = mkdtempSync(path.join(tmpdir(), 'omp-fix-preflight-'))
     const repo = initRepo(root)
