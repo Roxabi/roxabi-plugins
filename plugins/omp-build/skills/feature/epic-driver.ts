@@ -55,7 +55,7 @@ import {
   ticketOfSubject,
 } from './epic'
 import { type HookResult, runPostMergeHook } from './epic-close'
-import { disarmReviewedBeforePush, readLanding, reviewRecords } from './workflow.js'
+import { commentPageArgs, disarmReviewedBeforePush, readLanding, reviewRecords } from './workflow.js'
 
 class Refused extends Error {}
 class Assisted extends Error {}
@@ -135,7 +135,7 @@ type RawChild = {
   repository: { nameWithOwner: string }
   labels: { nodes: { name: string }[] }
   blockedBy: { nodes: { number: number; state: 'OPEN' | 'CLOSED'; repository: { nameWithOwner: string } }[] }
-  comments: { nodes: RawComment[] }
+  comments: { totalCount?: number; nodes: RawComment[]; pageInfo: { hasPreviousPage: boolean } }
   closedByPullRequestsReferences: { nodes: RawPr[] }
   timelineItems: { nodes: ({ source?: Partial<RawPr> | null } | null)[] }
 }
@@ -167,7 +167,7 @@ const EPIC_QUERY = `query($owner: String!, $name: String!, $epic: Int!) {
           number title state body author { login } repository { nameWithOwner }
           labels(first: 50) { nodes { name } }
           blockedBy(first: 50) { nodes { number state repository { nameWithOwner } } }
-          comments(last: 100) { nodes { body author { login } } }
+          comments(last: 100) { totalCount pageInfo { hasPreviousPage } nodes { body author { login } } }
           closedByPullRequestsReferences(first: 20, includeClosedPrs: true) { nodes { ${PR_FIELDS} } }
           timelineItems(itemTypes: [CROSS_REFERENCED_EVENT], last: 50) {
             nodes { ... on CrossReferencedEvent { source { ... on PullRequest { ${PR_FIELDS} } } } }
@@ -187,6 +187,72 @@ function ours(comments: RawComment[], viewer: string): string[] {
   return comments.filter((c) => c.author?.login === viewer).map((c) => c.body ?? '')
 }
 
+/** One REST comment, identified. GitHub's id is a number; a fixture may use a string. */
+type CommentIdentity = { id: string; body: string; login: string }
+
+function commentIdentity(entry: { id?: unknown; body?: unknown; user?: { login?: unknown } }): CommentIdentity | null {
+  const id =
+    typeof entry.id === 'string' && entry.id !== ''
+      ? entry.id
+      : typeof entry.id === 'number' && Number.isSafeInteger(entry.id)
+        ? String(entry.id)
+        : null
+  if (id === null || typeof entry.body !== 'string' || typeof entry.user?.login !== 'string') return null
+  return { id, body: entry.body, login: entry.user.login }
+}
+
+/** Every page, in order. A missing or repeated id is not a complete history. */
+function readCommentIdentities(repo: string, number: number): CommentIdentity[] {
+  const pages: unknown = JSON.parse(gh(repo, commentPageArgs(number)))
+  if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) {
+    throw new Error(`child #${number}: comment history is incomplete`)
+  }
+  const entries: CommentIdentity[] = []
+  const seen = new Set<string>()
+  for (const page of pages) {
+    for (const entry of page) {
+      const identity = commentIdentity(entry ?? {})
+      if (!identity || seen.has(identity.id)) {
+        throw new Error(`child #${number}: comment history changed or is incomplete`)
+      }
+      seen.add(identity.id)
+      entries.push(identity)
+    }
+  }
+  return entries
+}
+
+function sameIdentities(left: CommentIdentity[], right: CommentIdentity[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every(
+      (entry, index) =>
+        entry.id === right[index]?.id && entry.body === right[index]?.body && entry.login === right[index]?.login,
+    )
+  )
+}
+
+/**
+ * The window is sufficient only when GitHub certifies there is no earlier page.
+ * A longer page-number result is not that certificate: two reads must agree on
+ * ordered ids, and that count must equal the certified total.
+ */
+function childCommentBodies(repo: string, node: RawChild, viewer: string): string[] {
+  const earlier = node.comments.pageInfo?.hasPreviousPage
+  if (earlier === false) return ours(node.comments.nodes, viewer)
+  if (earlier !== true) throw new Error(`child #${node.number}: comment history completeness is unknown`)
+  const total = node.comments.totalCount
+  if (typeof total !== 'number' || !Number.isSafeInteger(total) || total <= node.comments.nodes.length) {
+    throw new Error(`child #${node.number}: comment history changed or is incomplete`)
+  }
+  const first = readCommentIdentities(repo, node.number)
+  const second = readCommentIdentities(repo, node.number)
+  if (first.length !== total || !sameIdentities(first, second)) {
+    throw new Error(`child #${node.number}: comment history changed or is incomplete`)
+  }
+  return first.filter((entry) => entry.login === viewer).map((entry) => entry.body)
+}
+
 // ── Facts ────────────────────────────────────────────────────────────────────
 
 function repoName(repo: string): { owner: string; name: string; full: string } {
@@ -197,10 +263,11 @@ function repoName(repo: string): { owner: string; name: string; full: string } {
 }
 
 /**
- * The PRs whose review bound is spent, per `reviewRecords` (#710): a record past
- * the second does not approve. The same derivation `landPr` and `nextReviewStep`
- * use. `comments(last: 100)` in creation order: a PR with more comments can
- * under-count here; §6.0's paginated `nextReviewStep` still stops it.
+ * The PRs whose Request-changes bound is spent, per `reviewRecords` (#710): the
+ * third `Request changes` spends, and a later approval does not lift it.
+ * Approvals neither spend nor reset. The same derivation `landPr` and
+ * `nextReviewStep` use. `comments(last: 100)` in creation order: a PR with more
+ * comments can under-count here; §6.0's paginated `nextReviewStep` still stops it.
  */
 function stoppedReviews(repo: string, owner: string, name: string, viewer: string, numbers: number[]): Set<number> {
   const out = new Set<number>()
@@ -377,7 +444,8 @@ function gather(
         ? { number: b.number, state: b.state }
         : { number: b.number, state: b.state, repo: b.repository.nameWithOwner },
     ),
-    stops: ours(node.comments.nodes, viewer)
+    // The light drop snapshot must disarm even if reading the full history fails.
+    stops: (reviews ? childCommentBodies(repo, node, viewer) : ours(node.comments.nodes, viewer))
       .map(parseGoalStop)
       .filter((stop) => stop !== null),
     prs: (rawPrs.get(node.number) ?? []).map((pr) => prFacts(pr, stopped)),
@@ -461,18 +529,34 @@ async function disarm(repo: string, pr: number): Promise<Disarm> {
 }
 
 function recordStop(repo: string, run: string, ticket: number, reason: string, detail: string): void {
-  comment(
-    repo,
-    ticket,
-    [
-      formatMarker('goal-stop', { run, reason }),
-      `**Goal run \`${run}\` — ticket stop \`${reason}\`.** ${detail}`,
-      '',
-      STICKY_STOPS.includes(reason)
-        ? 'The review bound is spent: this child stays stopped in every later run until a human resolves it.'
-        : 'Its dependents are skipped in this run; independent children continue. A new `/goal` line retries it.',
-    ].join('\n'),
-  )
+  const first = [
+    formatMarker('goal-stop', { run, reason }),
+    `**Goal run \`${run}\` — ticket stop \`${reason}\`.**`,
+    STICKY_STOPS.includes(reason)
+      ? 'The review bound is spent: this child stays stopped in every later run until a human resolves it.'
+      : 'Its dependents are skipped in this run; independent children continue. A new `/goal` line retries it.',
+    '',
+    '',
+  ].join('\n')
+  let offset = 0
+  let part = 1
+  do {
+    const header = part === 1 ? first : `**Goal run \`${run}\` — diagnostic continued (${part}).**\n\n`
+    // Bound the entire UTF-8 comment, not JS characters or only the diagnostic.
+    const capacity = 60_000 - Buffer.byteLength(header, 'utf8')
+    let end = offset
+    let used = 0
+    while (end < detail.length) {
+      const point = detail.codePointAt(end) as number
+      const bytes = point <= 0x7f ? 1 : point <= 0x7ff ? 2 : point <= 0xffff ? 3 : 4
+      if (used + bytes > capacity) break
+      used += bytes
+      end += point > 0xffff ? 2 : 1
+    }
+    comment(repo, ticket, header + detail.slice(offset, end))
+    offset = end
+    part++
+  } while (offset < detail.length)
 }
 
 /**
@@ -800,12 +884,12 @@ async function report(
 
 /**
  * Free text — the goal objective, a stop or review detail — never travels as an
- * argv word the caller had to quote: it is read from a file, or stdin for `-`.
+ * argv word the caller had to quote: it is read verbatim from a file, or stdin for `-`.
  */
 function textFile(path: string | undefined, flag: string): string {
   if (path === undefined) return ''
   try {
-    return readFileSync(path === '-' ? 0 : path, 'utf8').trim()
+    return readFileSync(path === '-' ? 0 : path, 'utf8')
   } catch (error) {
     throw new Refused(`${flag} ${path}: ${error instanceof Error ? error.message : error}`)
   }
@@ -837,7 +921,7 @@ async function main(argv: string[]): Promise<string> {
 
   const goal = {
     status: values['goal-status'],
-    objective: textFile(values['goal-objective-file'], '--goal-objective-file'),
+    objective: textFile(values['goal-objective-file'], '--goal-objective-file').trim(),
   }
   const authorized = goalRun(goal, epic)
   if (!authorized) {

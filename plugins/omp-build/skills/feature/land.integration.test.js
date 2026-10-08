@@ -200,7 +200,7 @@ describe('landPr through the checkout', () => {
     const script = watchScript(result.watch)
     expect(script.startsWith('/')).toBe(true)
     expect(existsSync(script)).toBe(true)
-    expect(result.watch).toBe(`bash '${script}' '7' --merge-mode merge-on-green --base main --since ${EVENT_AT}`)
+    expect(result.watch).toBe(`bash '${script}' '7' --merge-mode merge-on-green --base 'main' --since ${EVENT_AT}`)
     // The absolute path is the real ci-watch.sh: a pure hook works from a cwd outside the plugin.
     const outside = mkdtempSync(join(tmpdir(), 'land-watch-cwd-'))
     expect(
@@ -240,7 +240,7 @@ describe('landPr through the checkout', () => {
 
   it('a head that moves after the labels view is not-approved and writes nothing', () => {
     const { result, calls } = land(checkout(STACK), 'ok', { head: 'moved' })
-    expect(result).toEqual({ status: 'not-approved', reviews: 1, reason: 'head-moved' })
+    expect(result).toEqual({ status: 'not-approved', reviews: 0, reason: 'head-moved' })
     expect(calls.some((args) => args[1] === 'edit')).toBe(false)
   })
 

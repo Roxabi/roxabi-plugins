@@ -347,6 +347,45 @@ describe('nextStep', () => {
         report: { stopped: [{ ticket: 1, reason: 'review-bound', sticky: true }] },
       },
       {
+        name: 'a recorded review-bound stays stopped after a later ci-failed marker and an unspent PR',
+        facts: facts([
+          child(1, {
+            stops: [
+              { run: EARLIER, reason: 'review-bound' },
+              { run: RUN, reason: 'ci-failed' },
+            ],
+            prs: [pr(1, { exhausted: false })],
+            branches: [branch(head(1))],
+          }),
+          child(2, { blockedBy: [on(1)] }),
+          child(3),
+        ]),
+        step: { action: 'start', ticket: 3 },
+        report: {
+          stopped: [{ ticket: 1, reason: 'review-bound', sticky: true }],
+          skipped: [{ ticket: 2, blockers: [1] }],
+        },
+      },
+      {
+        name: 'an earlier ci-failed stop is retried by a new run',
+        facts: facts([child(1, { stops: [{ run: EARLIER, reason: 'ci-failed' }] }), child(2, { blockedBy: [on(1)] })]),
+        step: { action: 'start', ticket: 1 },
+        report: { stopped: [], skipped: [{ ticket: 2, blockers: [1] }] },
+      },
+      {
+        name: 'a current-run ci-failed stops the ticket and skips its dependent',
+        facts: facts([
+          child(1, { stops: [{ run: RUN, reason: 'ci-failed' }] }),
+          child(2, { blockedBy: [on(1)] }),
+          child(3),
+        ]),
+        step: { action: 'start', ticket: 3 },
+        report: {
+          stopped: [{ ticket: 1, reason: 'ci-failed', sticky: false }],
+          skipped: [{ ticket: 2, blockers: [1] }],
+        },
+      },
+      {
         name: 'an open PR with its review bound spent stays stopped without a marker',
         facts: facts([child(1, { prs: [pr(1, { exhausted: true })], branches: [branch(head(1))] }), child(2)]),
         step: { action: 'start', ticket: 2 },
@@ -969,8 +1008,8 @@ describe('stop classes', () => {
     ['watch timeout', 'timeout', 'ticket'],
     ['ci-cancelled', 'ci-cancelled', 'ticket'],
     ['ci-blocked', 'ci-blocked', 'ticket'],
+    ['watcher CI failure', 'ci-failed', 'ticket'],
     ['stopped', 'stopped', 'ticket'],
-    ['closed', 'closed', 'ticket'],
     ['base CI red', 'base-ci-red', 'shared'],
     ['dirty tree between tickets', 'dirty-tree', 'shared'],
     ['watch-failed', 'watch-failed', 'shared'],
@@ -992,7 +1031,7 @@ describe('stop classes', () => {
   it.each<[string, Record<string, unknown>]>([
     ['watching', { next: 'watch' }],
     ['merged', { next: 'confirm' }],
-    ['ci-failed', { next: 'reopen' }],
+    ['ci-failed', { stop: 'ci-failed', class: 'ticket' }],
     ['timeout', { stop: 'timeout', class: 'ticket' }],
     ['ci-cancelled', { stop: 'ci-cancelled', class: 'ticket' }],
     ['ci-blocked', { stop: 'ci-blocked', class: 'ticket' }],

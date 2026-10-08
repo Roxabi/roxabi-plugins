@@ -511,12 +511,7 @@ never choose on the operator's behalf.
 post: report and stop. Local-only (no PR): `Request changes` → `fix`; an
 approval ends the review, with nothing to land. There is no local bound.
 
-**The bound (`workflow.js`, #710).** Two reads of the PR's review records by the
-automation login: how many there are, and the latest one. A fix is allowed while
-the PR has at most two records, one fix per review: the fix's push moves the
-head, and a latest record of another commit asks for a review first (`review`).
-A record past the second that does not approve spends the bound for good — a
-later green does not lift it. A CI failure after the third review stops too.
+**The bound (`workflow.js`, #710).** `reviews` counts `Request changes` by the automation login. An approval neither spends nor resets that count. A fix is allowed while that count is at most two; the fix's push moves the head, and a latest record of another commit asks for a review first (`review`). The third `Request changes` spends the bound for good — a later green does not lift it.
 
 **The armed gate (#713).** An OPEN PR is armed — `reviewed` label or auto-merge
 enabled — only when the latest review record approves the current head, the bound
@@ -527,8 +522,7 @@ auto-merge first, attempt label removal independently, validate read-back, and
 throw one error naming any remainder. `disarmed: true` comes only from an attempted
 clear with confirmed read-back, never an already-clear or non-OPEN no-op.
 Every `nextReviewStep` action passes the policy; non-`land` actions and
-`{ reviewing: true }` force clearing. A refused `posted` / `ciFailed` keeps an
-armed gate only with refreshed approval/head evidence. `landPr` refusals, watch
+`{ reviewing: true }` force clearing. A refused `posted` keeps an armed gate only with refreshed approval/head evidence. A stale `ciFailed: true` returns `stop` / `ci-failed` after that posted check and does not grant a fix. Live watcher failures use the `/feature` §6.7 completed-watch fence, not this input. `landPr` refusals, watch
 failures 1–3 and pre-push barriers force clearing; those watch/push paths need no
 review-service reads. Observer watch statuses retain only currently authorized
 arms. Native `no-required-checks` also clears at an approved head: API discovery
@@ -542,25 +536,16 @@ derived again from fresh reads.
 
 ### Human choice (constrained by `step`)
 
-- **`fix`** → Q: **Fix now** / **Stop**. Fix now → for a review fix, run
-  `skill://fix #<pr>` (omit `#<pr>` for local-only). For `step.reason === 'ci-failed'`,
-  follow `/feature` §6.5's inline CI correction from failed-check logs, not the
-  previous review. Then re-review. **Stop** exits; the records still allow that fix.
-- **`land`** → Q: **Merge** / **Stop**. Merge → obtain explicit approval if needed,
-  then follow **`skill://feature` §6.7 in full**: `landPr` (sole writer of `reviewed`;
-  no raw label shortcuts), run the returned `watch`, map exits with
-  `applyCiWatchExit`, and on `ci-failed` continue from
-  `nextReviewStep(cwd, pr, { ciFailed: true })`. Never merge with residual
-  blockers. Warnings-only is ordinary gated landing.
+- **`fix`** → Q: **Fix now** / **Stop**. Fix now → run `skill://fix #<pr>` (omit `#<pr>` for local-only), then re-review the new head. **Stop** exits; the records still allow that fix. A watcher CI failure is not this choice.
+- **`land`** → Q: **Merge** / **Stop**. Merge → obtain explicit approval if needed, then follow **`skill://feature` §6.7 in full**, including its completed-watch fence. Do not call `nextReviewStep({ ciFailed: true })`. Never merge with residual blockers. Warnings-only is ordinary gated landing.
 - **`review`** → the latest record does not review the current head: review again.
   The step already disarmed an armed PR.
-- **`stop`** → no Fix, no Merge. Publish/display the escalation dossier; the step
-  already disarmed the PR. Leave any PR open and the code unchanged by the stop.
+- **`stop`** → no Fix, no Merge. Print `step.message`. Publish the escalation dossier only when `step.reason === 'review-bound'`. The step already disarmed the PR. Leave any PR open and the code unchanged by the stop.
 
 Never offer **Merge as-is** with blockers at any round. Nitpicks / warnings alone on
 a green verdict do not require escalation.
 
-### Escalation dossier (on `stop`, or when the bound is already spent)
+### Escalation dossier (on `review-bound`, or when the bound is already spent)
 
 Publish as a PR comment when a PR exists; otherwise display locally:
 
@@ -575,9 +560,9 @@ Publish as a PR comment when a PR exists; otherwise display locally:
 6. Explicit ask: automation on this PR is finished. A superseding PR (a revised
    ticket via issue-triage linking this PR, a new branch, a fresh `/feature`)
    starts its own bound; the stopped PR stays open as evidence until the operator
-   closes it. The bound counts the automation account's records only.
+   closes it. The bound counts that account's `Request changes` only.
 
-> Review findings are fixed by `skill://fix`; CI-only failures use `/feature` §6.5.
+> Review findings are fixed by `skill://fix`. A watcher CI failure stops in `/feature` §6.7; it is not a fix input.
 
 ## Edge Cases
 
@@ -618,6 +603,6 @@ Publish as a PR comment when a PR exists; otherwise display locally:
 - **Predecessor:** implement
 - **Successor:** conditional — green `land` → gated landing | red `fix` → `skill://fix` | `stop` → escalation dossier + human guidance
 - **Class:** verdict (branching based on findings)
-- **Loop cap:** at most 2 automatic fixes, derived by `nextReviewStep` from the review records. A record past the second that does not approve → stop + dossier; never Merge-as-is with blockers.
+- **Loop cap:** at most 2 automatic fixes, derived by `nextReviewStep` from exact `Request changes` records. The third `Request changes` spends the bound permanently → stop + dossier. Approvals neither spend nor reset; no other record spends the bound. Never Merge-as-is with blockers.
 
 $ARGUMENTS

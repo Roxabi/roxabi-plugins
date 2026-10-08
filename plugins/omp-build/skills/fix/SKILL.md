@@ -31,8 +31,7 @@ writing it *is* merging. Phase 5 never writes it; only an approved `landPr` arms
 **A `fix` step precedes edits.** The caller's `nextReviewStep` returned `fix` for
 this PR's latest review record (`dev-review` Phase 8); this skill neither derives
 nor re-checks it. Direct `/fix` without that step routes through standalone
-`dev-review`, which resolves the PR before reading its records. CI-only failures
-use `/feature` §6.5, not this review-comment consumer.
+`dev-review`, which resolves the PR before reading its records. This skill applies posted review findings. A watcher CI failure stops in `/feature` §6.7; it is not an input here.
 
 **You apply every blocking fix yourself.** There is no `R-fixer` in this plugin (ADR-020 §7) and nothing replaces it: Phase 3 edits files inline, in this session, with the diff visible in the working tree. ¬spawn a fixer, ¬delegate the edit. A cause with no blocking member is not applied.
 

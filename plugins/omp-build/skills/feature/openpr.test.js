@@ -505,9 +505,9 @@ describe('reviewRecords — strict, author-bound, first-line records', () => {
     expect(reviewRecords([], { me: ME })).toEqual({ reviews: 0, verdict: null, head: null, spent: false })
   })
 
-  it('counts every record and reads the verdict and head of the latest', () => {
+  it('counts Request changes only and reads the verdict and head of the latest', () => {
     expect(reviewRecords([red(C1), approve(C2, 'Approve with comments')], { me: ME })).toEqual({
-      reviews: 2,
+      reviews: 1,
       verdict: 'Approve with comments',
       head: C2,
       spent: false,
@@ -571,7 +571,7 @@ describe('reviewRecords — strict, author-bound, first-line records', () => {
         ],
         { me: ME },
       ),
-    ).toEqual({ reviews: 1, verdict: 'Approve', head: C1, spent: false })
+    ).toEqual({ reviews: 0, verdict: 'Approve', head: C1, spent: false })
   })
 
   it('reads a record only from its first line', () => {
@@ -612,8 +612,8 @@ describe('reviewRecords — strict, author-bound, first-line records', () => {
     ],
     ['an unrecognised verdict', review('Maybe')],
     ['no declaration', `<!-- omp-build:code-review -->\n<!-- omp-build:review-head sha=${C1} -->\n## Code Review`],
-  ])('counts a record with %s, and reads its verdict as unknown', (_label, body) => {
-    expect(reviewRecords([comment(body)], { me: ME })).toMatchObject({ reviews: 1, verdict: null })
+  ])('does not count a record with %s as a Request changes', (_label, body) => {
+    expect(reviewRecords([comment(body)], { me: ME })).toMatchObject({ reviews: 0, verdict: null, spent: false })
   })
 
   it.each([
@@ -632,7 +632,7 @@ describe('reviewRecords — strict, author-bound, first-line records', () => {
     ],
   ])('reads a review head that is %s as no head', (_label, body) => {
     expect(reviewRecords([approve(C1), comment(body)], { me: ME })).toEqual({
-      reviews: 2,
+      reviews: 0,
       verdict: 'Approve',
       head: null,
       spent: false,
@@ -640,22 +640,23 @@ describe('reviewRecords — strict, author-bound, first-line records', () => {
   })
 
   it.each([
-    ['three reds', [red(C1), red(C2), red(C3)], true],
-    ['two reds', [red(C1), red(C2)], false],
-    ['a third approval', [red(C1), red(C2), approve(C3)], false],
-    ['two approvals then a red', [approve(C1), approve(C2), red(C3)], true],
-    ['a third record with no verdict', [red(C1), red(C2), undecided(C3)], true],
-    ['a red inside the bound, then approvals', [red(C1), approve(C2), approve(C3)], false],
-    ['four approvals', [approve(C1), approve(C1), approve(C2), approve(C3)], false],
-    ['a red past the bound that a later approval follows', [red(C1), red(C2), red(C3), approve(C3)], true],
-    ['two reds and a third by another account', [red(C1), red(C2), comment(RED, 'attacker')], false],
-  ])('marks the bound spent for %s: %s', (_label, comments, spent) => {
-    expect(reviewRecords(comments, { me: ME }).spent).toBe(spent)
+    ['three reds', [red(C1), red(C2), red(C3)], 3, true],
+    ['two reds', [red(C1), red(C2)], 2, false],
+    ['a third approval', [red(C1), red(C2), approve(C3)], 2, false],
+    ['two approvals then a red', [approve(C1), approve(C2), red(C3)], 1, false],
+    ['a third record with no verdict', [red(C1), red(C2), undecided(C3)], 2, false],
+    ['a red inside the bound, then approvals', [red(C1), approve(C2), approve(C3)], 1, false],
+    ['four approvals', [approve(C1), approve(C1), approve(C2), approve(C3)], 0, false],
+    ['approvals between reds neither spend nor reset', [red(C1), approve(C2), red(C1), approve(C3), red(C2)], 3, true],
+    ['a red past the bound that a later approval follows', [red(C1), red(C2), red(C3), approve(C3)], 3, true],
+    ['two reds and a third by another account', [red(C1), red(C2), comment(RED, 'attacker')], 2, false],
+  ])('counts %s as %s Request changes, spent %s', (_label, comments, reviews, spent) => {
+    expect(reviewRecords(comments, { me: ME })).toMatchObject({ reviews, spent })
   })
 
   it('keeps the latest verdict and head when a green follows a spent bound', () => {
     expect(reviewRecords([red(C1), red(C2), red(C3), approve(C3)], { me: ME })).toEqual({
-      reviews: 4,
+      reviews: 3,
       verdict: 'Approve',
       head: C3,
       spent: true,
@@ -696,10 +697,20 @@ describe('nextReviewStep — the bound is two reads of the review records', () =
       ['R2 red at the head: the last fix', [red(C1), red(C2)], C2, { action: 'fix', reviews: 2, remaining: 0 }],
       ['R3 red: no fix is left', [red(C1), red(C2), red(C3)], C3, { ...STOP, reviews: 3 }],
       ['a stop whatever the head: the PR moved after R3', [red(C1), red(C2), red(C3)], HEAD, { ...STOP, reviews: 3 }],
-      ['approve, approve, request changes', [approve(C1), approve(C2), red(C3)], C3, { ...STOP, reviews: 3 }],
-      ['R3 approve: the PR can land', [red(C1), red(C2), approve(C3)], C3, { action: 'land', reviews: 3 }],
-      ['R1 approve', [approve(C1, 'Approve (clean)')], C1, { action: 'land', reviews: 1 }],
-      ['R2 approve with comments', [red(C1), approve(C2, 'Approve with comments')], C2, { action: 'land', reviews: 2 }],
+      [
+        'two approvals then one red: one fix left',
+        [approve(C1), approve(C2), red(C3)],
+        C3,
+        { action: 'fix', reviews: 1, remaining: 1 },
+      ],
+      ['two reds then approve: the PR can land', [red(C1), red(C2), approve(C3)], C3, { action: 'land', reviews: 2 }],
+      ['a current approval spends nothing', [approve(C1, 'Approve (clean)')], C1, { action: 'land', reviews: 0 }],
+      [
+        'one red then approve with comments',
+        [red(C1), approve(C2, 'Approve with comments')],
+        C2,
+        { action: 'land', reviews: 1 },
+      ],
       [
         'a third red by another account is not a review',
         [red(C1), red(C2), comment(review('Request changes', { head: C3 }), 'attacker')],
@@ -712,19 +723,18 @@ describe('nextReviewStep — the bound is two reads of the review records', () =
       expect(writes).toEqual([])
     })
 
-    it.each([
-      ['an approval of the current head after three reds', [red(C1), red(C2), red(C3), approve(C3)], 4],
-      ['a third record with no verdict', [red(C1), red(C2), undecided(C3)], 3],
-    ])('stays stopped through %s', async (_label, comments, reviews) => {
-      const { step, writes } = await decide({ comments, head: C3 })
-      expect(step).toEqual({ ...STOP, reviews })
+    it('stays stopped through an approval of the current head after three reds', async () => {
+      const { step, writes } = await decide({ comments: [red(C1), red(C2), red(C3), approve(C3)], head: C3 })
+      expect(step).toEqual({ ...STOP, reviews: 3 })
       expect(writes).toEqual([])
     })
 
-    it('stops for the bound, not for ci-failed, when a red check follows a spent bound', async () => {
+    it('refuses a stale ci-failed before the spent bound, and does not grant a fix', async () => {
       const comments = [red(C1), red(C2), red(C3), approve(C3)]
-      const { step } = await decide({ comments, head: C3 }, { ciFailed: true })
-      expect(step).toEqual({ ...STOP, reviews: 4 })
+      const { step, writes } = await decide({ comments, head: C3 }, { ciFailed: true })
+      expect(step).toEqual({ action: 'stop', reason: 'ci-failed', reviews: 3, message: expect.any(String) })
+      expect(step).not.toHaveProperty('remaining')
+      expect(writes).toEqual([])
     })
   })
 
@@ -737,48 +747,76 @@ describe('nextReviewStep — the bound is two reads of the review records', () =
 
     it('does not take an approval of another commit for the current one', async () => {
       const { step, writes } = await decide({ comments: [approve(C1)], head: C2 })
-      expect(step).toEqual({ action: 'review', reason: 'head-moved', reviews: 1 })
+      expect(step).toEqual({ action: 'review', reason: 'head-moved', reviews: 0 })
+      expect(writes).toEqual([])
+    })
+
+    it('treats a headless approval as head-moved, not as no review and not as a spend', async () => {
+      const headless = comment('<!-- omp-build:code-review -->\n## Code Review\n**Verdict: Approve** — x')
+      const { step, writes } = await decide({ comments: [headless], head: C1 })
+      expect(step).toEqual({ action: 'review', reason: 'head-moved', reviews: 0 })
       expect(writes).toEqual([])
     })
   })
 
   describe('ci-failed', () => {
+    const CI_STOP = { action: 'stop', reason: 'ci-failed', message: expect.any(String) }
+
     it.each([
-      ['R1 approve', [approve(C1)], C1, { action: 'fix', reason: 'ci-failed', reviews: 1, remaining: 1 }],
-      ['R2 approve', [red(C1), approve(C2)], C2, { action: 'fix', reason: 'ci-failed', reviews: 2, remaining: 0 }],
-    ])('fixes a red check on the approved head: %s', async (_label, comments, head, expected) => {
+      ['a current approval and zero reds', [approve(C1)], C1, 0],
+      ['one red then a current approval', [red(C1), approve(C2)], C2, 1],
+      ['two reds then a current approval', [red(C1), red(C2), approve(C3)], C3, 2],
+      ['a red latest record', [approve(C1), red(C1)], C1, 1],
+      ['an approval of another commit', [approve(C1)], C2, 0],
+      ['no review record', [], C1, 0],
+      ['a latest record with no verdict', [undecided(C1)], C1, 0],
+      ['a spent bound followed by a green', [red(C1), red(C2), red(C3), approve(C3)], C3, 3],
+    ])('stops a stale ci-failed over %s and does not fix', async (_label, comments, head, reviews) => {
       const { step, writes } = await decide({ comments, head }, { ciFailed: true })
-      expect(step).toEqual(expected)
+      expect(step).toEqual({ ...CI_STOP, reviews })
+      expect(step).not.toHaveProperty('remaining')
       expect(writes).toEqual([])
     })
 
-    it('stops on a red check once R3 approved: no fix is left', async () => {
-      const { step } = await decide({ comments: [red(C1), red(C2), approve(C3)], head: C3 }, { ciFailed: true })
-      expect(step).toEqual({ action: 'stop', reason: 'ci-failed', reviews: 3, message: expect.any(String) })
+    it.each([
+      ['a current approval that could otherwise land', [approve(C1)], C1, 0],
+      ['a red latest record', [red(C1)], C1, 1],
+      ['no review record', [], C1, 0],
+    ])('disarms an armed gate on a stale ci-failed over %s', async (_label, comments, head, reviews) => {
+      const fake = fakePr({ ...ARMED, comments, head })
+      const step = await nextReviewStep(CWD, PR, { ciFailed: true, gh: fake.gh })
+      expect(step).toEqual({ ...CI_STOP, reviews, disarmed: true })
+      expect([...fake.pr.labels]).toEqual([])
+      expect(fake.pr.autoMerge).toBe(null)
     })
 
-    it.each([
-      ['a red latest record', [approve(C1), red(C1)], C1],
-      ['an approval of another commit', [approve(C1)], C2],
-      ['no review record', [], C1],
-      ['a latest record with no verdict', [undecided(C1)], C1],
-    ])(
-      'refuses a ci-failed ask over %s, and disarms the gate that may not stay armed',
-      async (_label, comments, head) => {
-        const fake = fakePr({ ...ARMED, comments, head })
-        await expect(nextReviewStep(CWD, PR, { ciFailed: true, gh: fake.gh })).rejects.toThrow(
-          'a ci-failed fix needs the latest review record to approve the current head',
-        )
-        expect([...fake.pr.labels]).toEqual([])
-        expect(fake.pr.autoMerge).toBe(null)
-      },
-    )
+    it('validates a posted review before the stale ci-failed stop', async () => {
+      const fake = fakePr({ ...ARMED, comments: [approve(C1)], head: C1 })
+      await expect(
+        nextReviewStep(CWD, PR, {
+          ciFailed: true,
+          posted: { verdict: 'Request changes', head: C1 },
+          gh: fake.gh,
+        }),
+      ).rejects.toThrow('the latest review record is not the one just posted')
+      expect(fake.pr.labels.has('reviewed')).toBe(true)
+      expect(fake.pr.autoMerge).not.toBe(null)
+    })
+
+    it('stops ci-failed after a matching posted approval instead of landing', async () => {
+      const { step } = await decide(
+        { comments: [approve(C1)], head: C1 },
+        { ciFailed: true, posted: { verdict: 'Approve', head: C1 } },
+      )
+      expect(step).toEqual({ ...CI_STOP, reviews: 0 })
+      expect(step.action).not.toBe('land')
+    })
   })
 
   describe('posted', () => {
     it.each([
       ['a red', 'Request changes', [red(C1)], { action: 'fix', reviews: 1, remaining: 1 }],
-      ['an approval', 'Approve (clean)', [approve(C1, 'Approve (clean)')], { action: 'land', reviews: 1 }],
+      ['an approval', 'Approve (clean)', [approve(C1, 'Approve (clean)')], { action: 'land', reviews: 0 }],
     ])('decides from %s that is the latest record', async (_label, verdict, comments, expected) => {
       const { step } = await decide({ comments, head: C1 }, { posted: { verdict, head: C1 } })
       expect(step).toEqual(expected)
@@ -823,8 +861,8 @@ describe('nextReviewStep — the bound is two reads of the review records', () =
     })
 
     it.each([
-      ['a first review', [undecided(C1)], C1, 1],
-      ['a second review', [red(C1), undecided(C2)], C2, 2],
+      ['a first review', [undecided(C1)], C1, 0],
+      ['a red then an undecided record', [red(C1), undecided(C2)], C2, 1],
     ])('asks again when %s of the current head declares no verdict', async (_label, comments, head, reviews) => {
       const { step, writes } = await decide({ comments, head })
       expect(step).toEqual({ action: 'review', reason: 'no-verdict', reviews })
@@ -836,10 +874,10 @@ describe('nextReviewStep — the bound is two reads of the review records', () =
     const DISARMED = [
       ['a fix', [red(HEAD)], {}, { action: 'fix', reviews: 1, remaining: 1 }],
       [
-        'a ci-failed fix',
+        'a stale ci-failed stop',
         [approve(HEAD)],
         { ciFailed: true },
-        { action: 'fix', reason: 'ci-failed', reviews: 1, remaining: 1 },
+        { action: 'stop', reason: 'ci-failed', reviews: 0, message: expect.any(String) },
       ],
       ['a stop', [red(C1), red(C2), red(HEAD)], {}, { ...STOP, reviews: 3 }],
       ['a review of another commit', [red(C1)], {}, { action: 'review', reason: 'head-moved', reviews: 1 }],
@@ -848,9 +886,9 @@ describe('nextReviewStep — the bound is two reads of the review records', () =
         'a review of an undecided record',
         [undecided(HEAD)],
         {},
-        { action: 'review', reason: 'no-verdict', reviews: 1 },
+        { action: 'review', reason: 'no-verdict', reviews: 0 },
       ],
-      ['a land a review is about to start on', [approve(HEAD)], { reviewing: true }, { action: 'land', reviews: 1 }],
+      ['a land a review is about to start on', [approve(HEAD)], { reviewing: true }, { action: 'land', reviews: 0 }],
     ]
 
     it.each(DISARMED)(
@@ -895,7 +933,7 @@ describe('nextReviewStep — the bound is two reads of the review records', () =
 
     it('leaves the gate of a PR it lands', async () => {
       const { step, writes, fake } = await decide({ ...ARMED, comments: [approve(HEAD)] })
-      expect(step).toEqual({ action: 'land', reviews: 1 })
+      expect(step).toEqual({ action: 'land', reviews: 0 })
       expect(writes).toEqual([])
       expect(fake.pr.labels.has('reviewed')).toBe(true)
       expect(fake.pr.autoMerge).not.toBe(null)
@@ -915,12 +953,12 @@ describe('nextReviewStep — the bound is two reads of the review records', () =
     it.each([
       ['a red at the head: still one fix left', [red(HEAD)], {}, { action: 'fix', reviews: 1, remaining: 1 }],
       ['two reds: still the last fix', [red(C1), red(HEAD)], {}, { action: 'fix', reviews: 2, remaining: 0 }],
-      ['an approval: a stop marker does not stop it', [approve(HEAD)], {}, { action: 'land', reviews: 1 }],
+      ['an approval: a stop marker does not stop it', [approve(HEAD)], {}, { action: 'land', reviews: 0 }],
       [
-        'a ci-failed ask on an approval',
+        'a stale ci-failed ask on an approval',
         [approve(HEAD)],
         { ciFailed: true },
-        { action: 'fix', reason: 'ci-failed', reviews: 1, remaining: 1 },
+        { action: 'stop', reason: 'ci-failed', reviews: 0, message: expect.any(String) },
       ],
       ['no review: the receipt’s approval is no record', [], {}, { action: 'review', reason: 'no-review', reviews: 0 }],
       [
@@ -947,13 +985,13 @@ describe('nextReviewStep — the bound is two reads of the review records', () =
         [entry(review('Request changes', { head: C1 }), '2026-01-01T00:00:00Z')],
       ]
       const gh = async (cwd, args) => (same(args, commentPageArgs(PR)) ? JSON.stringify(pages) : fake.gh(cwd, args))
-      expect(await nextReviewStep(CWD, PR, { gh })).toEqual({ action: 'land', reviews: 2 })
+      expect(await nextReviewStep(CWD, PR, { gh })).toEqual({ action: 'land', reviews: 1 })
     })
 
     it('reads the records of the account the identity query names', async () => {
       const comments = [comment(review('Request changes'), 'omp-bot'), comment(review('Approve'), 'other-bot')]
       const { step } = await decide({ me: 'other-bot', comments })
-      expect(step).toEqual({ action: 'land', reviews: 1 })
+      expect(step).toEqual({ action: 'land', reviews: 0 })
     })
 
     it.each([undefined, null, ''])('refuses pr %o', async (pr) => {

@@ -47,10 +47,21 @@ case "$1 \${2:-}" in
       query reviews
       cat "$S/reviews.json"
     else query other; echo '{"data":{"repository":{}}}'; fi ;;
+  "api --paginate")
+    [[ "$3" == "--slurp" ]] || exit 9
+    number="\${4%/comments}"; number="\${number##*/}"
+    query "comments $number"
+    cat "$S/issue-$number-comments.json" || exit 1 ;;
   "issue comment")
     if [[ -f "$S/comment.fail" ]]; then echo "comment failed" >&2; exit 1; fi
     n=$(ls "$S" | grep -c '^comment-' || true)
     cat > "$S/comment-$n.md"
+    if [[ -f "$S/comment.max-bytes" ]] && (( $(wc -c < "$S/comment-$n.md") > $(cat "$S/comment.max-bytes") )); then
+      rm "$S/comment-$n.md"; echo "HTTP 422: comment body too long" >&2; exit 1
+    fi
+    if [[ -f "$S/comment.fail-after" ]] && (( n >= $(cat "$S/comment.fail-after") )); then
+      rm "$S/comment-$n.md"; echo "comment failed" >&2; exit 1
+    fi
     log "comment $3 $(head -1 "$S/comment-$n.md")" ;;
   "pr view") cat "$S/pr/$3.json" ;;
   "pr edit")
@@ -150,7 +161,11 @@ function childNode(
     repository: { nameWithOwner: 'o/r' },
     labels: { nodes: [{ name: 'size:S' }] },
     blockedBy: { nodes: blockedBy.map(([n, s]) => ({ number: n, state: s, repository: { nameWithOwner: 'o/r' } })) },
-    comments: { nodes: comments.map((c) => ({ body: c.body, author: { login: c.author } })) },
+    comments: {
+      totalCount: comments.length,
+      nodes: comments.slice(-100).map((c) => ({ body: c.body, author: { login: c.author } })),
+      pageInfo: { hasPreviousPage: comments.length > 100 },
+    },
     closedByPullRequestsReferences: { nodes: prs },
     timelineItems: { nodes: [] },
   }
@@ -201,7 +216,7 @@ function comments(): string[] {
   const { state } = sandboxOf()
   return readdirSync(state)
     .filter((name) => name.startsWith('comment-'))
-    .sort()
+    .sort((a, b) => Number(a.slice(8, -3)) - Number(b.slice(8, -3)))
     .map((name) => readFileSync(path.join(state, name), 'utf8'))
 }
 
@@ -270,6 +285,121 @@ describe('epic-driver — next', () => {
     expect(run.json().step.report.skipped).toEqual([{ ticket: 3, blockers: [2] }])
     expect(git(epic, 'branch', '--show-current')).toBe('feat/2-first-child')
     expect(git(epic, 'rev-parse', 'HEAD')).toBe(git(epic, 'rev-parse', 'refs/remotes/origin/main'))
+  })
+
+  it.each([
+    { author: ME, prefix: '', ticket: 4, sticky: true },
+    { author: 'mallory', prefix: '', ticket: 2, sticky: false },
+    { author: ME, prefix: 'Quoted record:\n', ticket: 2, sticky: false },
+  ])('reads older child comments without weakening marker authenticity: $author / $prefix', (testCase) => {
+    const { state } = sandbox()
+    const comments = [
+      {
+        author: testCase.author,
+        body: `${testCase.prefix}<!-- omp-build:goal-stop run=oldrun01 reason=review-bound -->\nhistorical stop`,
+      },
+      ...Array.from({ length: 100 }, (_, index) => ({ author: ME, body: `ordinary note ${index}` })),
+    ]
+    const entries = comments.map((entry, index) => ({ id: index + 1, body: entry.body, user: { login: entry.author } }))
+    writeFileSync(
+      path.join(state, 'issue-2-comments.json'),
+      JSON.stringify([entries.slice(0, 100), entries.slice(100)]),
+    )
+    serveEpic([
+      childNode(2, 'feat(x): first child', { comments }),
+      childNode(3, 'fix(y): dependent child', { blockedBy: [[2, 'OPEN']] }),
+      childNode(4, 'fix(z): independent child'),
+    ])
+    const run = drive(['next'])
+    expect(run.code).toBe(0)
+    expect(run.json().step).toMatchObject({ action: 'start', ticket: testCase.ticket })
+    expect(run.json().step.report.stopped).toEqual(
+      testCase.sticky ? [{ ticket: 2, reason: 'review-bound', sticky: true }] : [],
+    )
+    expect(run.json().step.report.skipped).toEqual([{ ticket: 3, blockers: [2] }])
+    expect(writes()).toEqual([])
+  })
+
+  it('refuses unreadable history without preventing a shared-state drop from disarming', () => {
+    const { epic } = sandbox()
+    const comments = Array.from({ length: 101 }, () => ({ author: ME, body: 'ordinary note' }))
+    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
+    serveEpic([
+      childNode(2, 'feat(x): first child', {
+        comments,
+        prs: [prNode(11, 'feat/2-first-child', 'c'.repeat(40), armed)],
+      }),
+    ])
+    servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    const run = drive(['next'])
+    expect(run.code).toBe(1)
+    expect(run.stderr).toContain('driver=failed')
+    expect(git(epic, 'branch', '--show-current')).toBe('')
+    expect(writes()).toEqual([])
+    const drop = drive(['report', '--outcome', 'drop', '--reason', 'driver-error'])
+    expect(drop.code).toBe(0)
+    expect(writes()).toEqual([
+      'merge 11 --disable-auto',
+      'edit 11 --remove-label reviewed',
+      `comment 1 <!-- omp-build:goal-report run=${RUN} -->`,
+    ])
+  })
+
+  it('does not treat an empty full-history response as permission to resume', () => {
+    const { epic, state } = sandbox()
+    const comments = Array.from({ length: 101 }, () => ({ author: ME, body: 'ordinary note' }))
+    serveEpic([childNode(2, 'feat(x): first child', { comments })])
+    writeFileSync(path.join(state, 'issue-2-comments.json'), '[]')
+    const run = drive(['next'])
+    expect(run.code).toBe(1)
+    expect(run.stderr).toContain('comment history changed or is incomplete')
+    expect(git(epic, 'branch', '--show-current')).toBe('')
+    expect(writes()).toEqual([])
+  })
+
+  it('refuses a child whose comment history completeness is unknown', () => {
+    const { epic, state } = sandbox()
+    const marker =
+      '<!-- omp-build:goal-stop run=oldrun01 reason=review-bound -->\nRecorded spent review bound; never edited.\n'
+    const comments = [
+      { author: ME, body: marker },
+      ...Array.from({ length: 100 }, () => ({ author: ME, body: 'ordinary note' })),
+    ]
+    const node = childNode(2, 'feat(x): first child', { comments }) as {
+      comments: { pageInfo: { hasPreviousPage?: boolean } }
+    }
+    delete node.comments.pageInfo.hasPreviousPage
+    serveEpic([node])
+    writeFileSync(path.join(state, 'issue-2-comments.json'), '[]')
+    const run = drive(['next'])
+    expect(run.code).toBe(1)
+    expect(run.stderr).toContain('comment history completeness is unknown')
+    expect(git(epic, 'branch', '--show-current')).toBe('')
+    expect(writes()).toEqual([])
+  })
+
+  it('refuses a longer page-number history that omits a pre-window sticky marker', () => {
+    const { epic, state } = sandbox()
+    const marker = {
+      author: ME,
+      body: '<!-- omp-build:goal-stop run=oldrun01 reason=review-bound -->\nRecorded spent review bound; never edited.\n',
+    }
+    const comments = [
+      ...Array.from({ length: 30 }, (_, index) => ({ author: 'mallory', body: `ordinary ${index}` })),
+      marker,
+      ...Array.from({ length: 101 }, (_, index) => ({ author: ME, body: `recent ${index}` })),
+    ]
+    const omitted = comments.filter((_, index) => index !== 30)
+    const entries = omitted.map((entry, index) => ({ id: index + 1, body: entry.body, user: { login: entry.author } }))
+    const pages = []
+    for (let start = 0; start < entries.length; start += 30) pages.push(entries.slice(start, start + 30))
+    writeFileSync(path.join(state, 'issue-2-comments.json'), JSON.stringify(pages))
+    serveEpic([childNode(2, 'feat(x): first child', { comments }), childNode(4, 'fix(z): independent child')])
+    const run = drive(['next'])
+    expect(run.code).toBe(1)
+    expect(run.stderr).toContain('comment history changed or is incomplete')
+    expect(git(epic, 'branch', '--show-current')).toBe('')
+    expect(writes()).toEqual([])
   })
 
   it('confirms a merged child, deletes its local branch and starts the next one', () => {
@@ -384,6 +514,42 @@ describe('epic-driver — stop', () => {
     expect(comments()[0]).toContain("watch timed out; it's re-run later")
     expect(git(epic, 'branch', '--show-current')).toBe('')
     expect(git(epic, 'branch', '--list', 'feat/2-first-child')).not.toBe('')
+  })
+
+  it('persists one CI stop and the entire multibyte diagnostic across bounded comments', () => {
+    const epic = armedChild()
+    const { state } = sandboxOf()
+    servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    writeFileSync(path.join(state, 'comment.max-bytes'), '65536')
+    const diagnostic = `stdout-start\n${'é漢\u{1d11e}\n'.repeat(80_000)}stderr-end\n`
+    const run = drive(['stop', '--ticket', '2', '--reason', 'ci-failed', ...detail(diagnostic)])
+    expect(run.code).toBe(0)
+    expect(run.json()).toMatchObject({ ticket: 2, stop: 'ci-failed', sticky: false, disarmed: { 11: 'disarmed' } })
+    const bodies = comments()
+    const markers = bodies.filter((body) => body.startsWith('<!-- omp-build:goal-stop '))
+    expect(markers.map((body) => body.split('\n')[0])).toEqual([
+      `<!-- omp-build:goal-stop run=${RUN} reason=ci-failed -->`,
+    ])
+    for (const body of bodies) expect(Buffer.byteLength(body, 'utf8')).toBeLessThanOrEqual(60_000)
+    expect(bodies.map((body) => body.slice(body.indexOf('\n\n') + 2)).join('')).toBe(diagnostic)
+    expect(writes().slice(0, 2)).toEqual(['merge 11 --disable-auto', 'edit 11 --remove-label reviewed'])
+    expect(git(epic, 'branch', '--show-current')).toBe('')
+  })
+
+  it('returns no successful stop receipt when a diagnostic continuation cannot be published', () => {
+    const epic = armedChild()
+    const { state } = sandboxOf()
+    servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    writeFileSync(path.join(state, 'comment.fail-after'), '1')
+    const run = drive(['stop', '--ticket', '2', '--reason', 'ci-failed', ...detail('x'.repeat(150_000))])
+    expect(run.code).toBe(1)
+    expect(run.stderr).toContain('comment failed')
+    expect(run.stdout).toBe('')
+    expect(comments().map((body) => body.split('\n')[0])).toEqual([
+      `<!-- omp-build:goal-stop run=${RUN} reason=ci-failed -->`,
+    ])
+    expect(writes().slice(0, 2)).toEqual(['merge 11 --disable-auto', 'edit 11 --remove-label reviewed'])
+    expect(git(epic, 'branch', '--show-current')).toBe('')
   })
 
   it('writes no marker when the PR is still armed after the disarm', () => {
@@ -576,6 +742,48 @@ describe('epic-driver — review bound', () => {
     ])
     const run = drive(['next', '--dry-run'])
     expect(run.json().step).toMatchObject({ action: 'resume', ticket: 2, pr: { number: 11 } })
+  })
+
+  it('does not spend the bound on approvals', () => {
+    openPrChild()
+    reviewed(11, [record('Approve'), record('Approve'), record('Request changes')])
+    const run = drive(['next', '--dry-run'])
+    expect(run.json().step).toMatchObject({ action: 'resume', ticket: 2, pr: { number: 11 } })
+    expect(run.json().step.report.stopped).toEqual([])
+  })
+
+  it('keeps a recorded review-bound stop when the fresh review count is unspent', () => {
+    openPrChild()
+    const earlier = { body: '<!-- omp-build:goal-stop run=run00000 reason=review-bound -->\nstopped', author: ME }
+    const later = { body: `<!-- omp-build:goal-stop run=${RUN} reason=ci-failed -->\nci`, author: ME }
+    serveEpic([
+      childNode(2, 'feat(x): first child', {
+        comments: [earlier, later],
+        prs: [
+          prNode(
+            11,
+            'feat/2-first-child',
+            git(sandboxOf().epic, 'rev-parse', 'refs/remotes/origin/feat/2-first-child'),
+          ),
+        ],
+      }),
+    ])
+    reviewed(11, [record('Approve'), record('Approve')])
+    const run = drive(['next', '--dry-run'])
+    expect(run.json().step).toMatchObject({ action: 'drop', stop: 'no-progress' })
+    expect(run.json().step.report.stopped).toEqual([{ ticket: 2, reason: 'review-bound', sticky: true }])
+  })
+
+  it('retries a child whose only earlier stop is ci-failed', () => {
+    sandbox()
+    serveEpic([
+      childNode(2, 'feat(x): first child', {
+        comments: [{ body: '<!-- omp-build:goal-stop run=run00000 reason=ci-failed -->\nci', author: ME }],
+      }),
+    ])
+    const run = drive(['next', '--dry-run'])
+    expect(run.json().step).toMatchObject({ action: 'start', ticket: 2 })
+    expect(run.json().step.report.stopped).toEqual([])
   })
 })
 

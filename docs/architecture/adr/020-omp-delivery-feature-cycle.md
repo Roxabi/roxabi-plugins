@@ -2,7 +2,7 @@
 title: "ADR-020: OMP delivery leaves dev-core — /feature on the Matt base"
 description: >
   OMP runs omp-build + issue-triage; dev-core is uninstalled there.
-  /feature = grilling + issue-triage → implement → dev-review → fix ≤2 → landPr.
+  /feature = grilling + issue-triage → implement → dev-review → fix ≤2 Request changes → landPr. A watcher CI failure stops; it is not repaired.
   Absorb mode is snapshot freeze, not resync. Spec home is the tracker issue.
   Narrows ADR-019 to the Claude product; keeps ADR-017.
 status: accepted

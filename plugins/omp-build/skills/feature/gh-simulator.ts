@@ -25,6 +25,7 @@ type Check = {
   workflowName: string
   startedAt: string
 }
+type FailedRun = { databaseId: number; conclusion: string; log: string }
 type Issue = {
   number: number
   title: string
@@ -69,6 +70,8 @@ type State = {
   checks: Record<string, Check[]>
   events: Record<string, Event[]>
   calls: string[][]
+  /** Failed workflow runs by head SHA. `--log-failed` refuses an empty log. */
+  failedRuns?: Record<string, FailedRun[]>
 }
 
 const CLOSES = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s*#(\d+)\b/gi
@@ -313,7 +316,11 @@ function issueNode(state: State, issue: Issue): Record<string, unknown> {
         }
       }),
     },
-    comments: { nodes: commentNodes(issue.comments) },
+    comments: {
+      totalCount: issue.comments.length,
+      nodes: commentNodes(issue.comments.slice(-100)),
+      pageInfo: { hasPreviousPage: issue.comments.length > 100 },
+    },
     closedByPullRequestsReferences: { nodes: merged.map((pr) => prNode(state, pr)) },
     timelineItems: {
       nodes: open.map((pr) => ({ source: prNode(state, pr) })),
@@ -536,6 +543,7 @@ function handle(state: State, argv: string[]): void {
     if (!number) fail(`gh: unhandled ${argv.join(' ')}`)
     const comments = state.prs[number]?.comments ?? state.issues[number]?.comments ?? []
     const page = comments.map((comment, index) => ({
+      id: index + 1,
       user: { login: comment.author },
       body: comment.body,
       created_at: `2026-01-01T00:00:${String(index).padStart(2, '0')}Z`,
@@ -649,11 +657,24 @@ function handle(state: State, argv: string[]): void {
   }
 
   if (cmd === 'run' && sub === 'list') {
-    emit([], expression)
+    const commit = one(flag, '--commit')
+    const runs = (commit ? (state.failedRuns?.[commit] ?? []) : Object.values(state.failedRuns ?? {}).flat()).map(
+      (run) => ({ databaseId: run.databaseId, conclusion: run.conclusion }),
+    )
+    emit(runs, expression)
     return
   }
 
   if (cmd === 'run' && sub === 'view') {
+    if (argv.includes('--log-failed')) {
+      const id = Number(positionals[2])
+      const run = Object.values(state.failedRuns ?? {})
+        .flat()
+        .find((item) => item.databaseId === id)
+      if (!run?.log.trim()) fail(`gh: failed run ${id} has no log`)
+      process.stdout.write(run.log.endsWith('\n') ? run.log : `${run.log}\n`)
+      return
+    }
     process.stdout.write('\n')
     return
   }
