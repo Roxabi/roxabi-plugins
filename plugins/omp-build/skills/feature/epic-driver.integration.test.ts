@@ -1341,8 +1341,8 @@ describe('epic-driver — fix halt', () => {
     writeFileSync(detailFile, over.detail ?? 'halted: review refused the patch')
     const script = path.join(box.root, 'fix-halt-fence.js')
     writeFileSync(script, FENCE)
-    const out = spawnSync(REAL_BUN, [script], {
-      cwd: repo,
+    const out = spawnSync(REAL_BUN, ['--no-env-file', script], {
+      cwd: path.dirname(realpathSync(over.driver ?? DRIVER)),
       env: {
         ...box.env,
         EPIC_DRIVER: over.driver ?? DRIVER,
@@ -1652,6 +1652,28 @@ esac`)
     expect(comments().join('\n')).not.toContain('goal-stop')
     expect(snapshot(epic)).toEqual(before)
     expect(readFileSync(path.join(epic, 'stray.txt'), 'utf8')).toBe('stray\n')
+  })
+
+  it('runs the feature fence without executing checkout Bun preloads', () => {
+    const epic = childReady()
+    const marker = path.join(sandboxOf().root, 'untrusted-preload-ran')
+    writeFileSync(path.join(epic, 'bunfig.toml'), 'preload = ["./preload.ts"]\n')
+    writeFileSync(
+      path.join(epic, 'preload.ts'),
+      `import { writeFileSync } from 'node:fs'
+writeFileSync(${JSON.stringify(marker)}, 'ran')
+console.log(JSON.stringify({ action: 'stopped', stop: 'stopped', class: 'ticket' }))
+process.exit(0)
+`,
+    )
+    stale(epic)
+    const before = snapshot(epic)
+    const outcome = fenceJson()
+    expect(outcome).toMatchObject({ action: 'drop', stop: 'dirty-tree', class: 'shared', reportExit: 0 })
+    expect(() => readFileSync(marker, 'utf8')).toThrow()
+    expect(comments().join('\n')).not.toContain('goal-stop')
+    expect(writes()).toEqual([`comment 1 <!-- omp-build:goal-report run=${RUN} -->`])
+    expect(snapshot(epic)).toEqual(before)
   })
 
   it('runs the feature fence: clean misleading text returns stopped and does not report', () => {

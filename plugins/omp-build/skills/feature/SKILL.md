@@ -455,16 +455,23 @@ Write the diagnostic to the detail file; its wording never selects the outcome.
 Set `EPIC_DRIVER` to this skill's resolved `epic-driver.ts`, `EPIC_REPO` to the epic
 worktree, `EPIC_NUMBER` / `TICKET_NUMBER` to the driver-selected numbers,
 `GOAL_STATUS` to the fresh goal status, `GOAL_OBJECTIVE_FILE` to its verbatim
-objective file, and `DETAIL_FILE` to that diagnostic file. Run with Bun:
+objective file, and `DETAIL_FILE` to that diagnostic file. Save the fence outside
+the consumer checkout. Launch it with `bun --no-env-file <fence-file>` and the
+tool's `cwd` set to this resolved, trusted skill directory, outside the consumer
+worktree. Both the launcher and its children must avoid checkout `bunfig.toml`
+preloads; `--no-env-file` alone does not disable those preloads.
 
 ```javascript
 const { spawnSync } = await import('node:child_process')
+const { realpathSync } = await import('node:fs')
+const { dirname } = await import('node:path')
 const required = (name) => {
   const value = process.env[name]
   if (!value) throw new Error(`fix halt: missing ${name}`)
   return value
 }
-const driver = required('EPIC_DRIVER')
+const driver = realpathSync(required('EPIC_DRIVER'))
+const trustedCwd = dirname(driver)
 const repo = required('EPIC_REPO')
 const common = [
   '--epic', required('EPIC_NUMBER'),
@@ -472,8 +479,8 @@ const common = [
   '--goal-objective-file', required('GOAL_OBJECTIVE_FILE'),
   '--repo', repo,
 ]
-const run = (command, args) => spawnSync('bun', [driver, command, ...common, ...args], {
-  cwd: repo, env: process.env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+const run = (command, args) => spawnSync('bun', ['--no-env-file', driver, command, ...common, ...args], {
+  cwd: trustedCwd, env: process.env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
 })
 const halted = run('fix-halt', [
   '--ticket', required('TICKET_NUMBER'), '--detail-file', required('DETAIL_FILE'),
