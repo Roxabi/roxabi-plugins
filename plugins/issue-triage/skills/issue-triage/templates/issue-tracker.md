@@ -35,7 +35,16 @@ A ticket without one is reviewed as `F-lite`.
 ### Deferred follow-ups are siblings
 
 A follow-up deferred out of issue A is a **sibling** of A under their shared
-parent, blocked-by A — never a child of A.
+parent, blocked-by A — never a child of A. That default stays.
+
+One exception: a new nonblocking deferral whose only candidate parent is the
+active open delivery epic omits `--parent`. Do not create a holding epic. Not
+a priority filter and not a missing acceptance heading — Origin, `## Acceptance
+criteria`, `size:`, and native blocked-by (when an origin issue exists) stay.
+Blocking filings, the blocking epic-fix, and planned slices stay children.
+Reuse of an open tracker does not create or re-parent. A failed parent or
+discovery read is not absence. Full rule: the `issue-triage` skill, § Deferred
+Follow-Ups.
 
 ### No `ready-for-agent`
 

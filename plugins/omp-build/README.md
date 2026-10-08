@@ -111,6 +111,25 @@ naming the epic, `/feature` is unchanged.
 
 Every `next` re-disarms a stopped child's armed PR before it moves on (`reconciled`); a failed disarm, or a PR that already merged, is a drop and creates no branch. `report --outcome drop` disarms without reading base CI or the landing, and exits non-zero naming any PR still armed. If that command fails, print the error, then drop the goal.
 
+Fix begins with an unconditional clean-tree preflight, even when every finding
+will be deferred and nothing applied. After any fix halt, `epic-driver fix-halt`
+reads Git state rather than error wording: dirty means a shared `dirty-tree`
+drop, without a WIP commit or push; clean means the ordinary recorded `stopped`
+ticket. Its status read includes untracked and dirty submodule content regardless
+of ignore configuration and does not refresh the index. It rechecks immediately
+before recording the stop; dirt appearing during disarm becomes the same drop,
+with any disarm already performed left as-is. Ordinary implementation
+stops retain their separate commit-first safeguard.
+
+Fresh non-blocking deferrals, including findings from a clean final epic review,
+stay outside the active delivery epic. They retain Origin, acceptance criteria,
+size and the native origin blocker. Blocking filings and the blocking epic-fix
+remain delivery children. Reuse never reparents a detached or historical issue.
+Fix succeeds only when every non-blocking item is represented in one current
+new/reused deferral issue or genuine prior Deferred accounting. Filed-only history
+cannot silently empty that partition; incompatible existing trackers halt rather
+than produce duplicate issues or a false success receipt.
+
 ## Slash commands
 
 | Command | Lane |
@@ -262,7 +281,7 @@ Resolution when a spawn passes no `model`: explicit call model, then `task.agent
 | `cleanup` | `/cleanup` (registered command) · the optional tail |
 | `ci-watch` | `/ci-watch` (registered command) · watches checks, then the merge |
 
-`dev-review` and `fix` are the #492 snapshot of dev-core's `dev-review`/`fix` pair, cut to this plugin's roster: five dispatchable roles, `R-tester` armed by changed-test evidence alone, and blocking causes applied in-session; non-blocking causes deferred to one sibling issue. They read their own bundled files through `skill://dev-review/<file>`. `lib.sh` is the exception: it sits one level up, in a non-skill directory, and `skill://` rejects `..`, so `dev-review` Phase 1 traverses from `$SKILL_DIR` instead. **Nothing in this plugin exports `SKILL_DIR`** — only the registered commands print a skill directory (`omp/index.ts`) — so that fence asserts the variable (`${SKILL_DIR:?…}`) and stops when it is unset, rather than sourcing `/../shared/lib.sh` and detecting a base branch against nothing. `cleanup/analyze-branches.sh` has no such problem: it is a script, so it resolves `../shared/lib.sh` from its own `BASH_SOURCE`.
+`dev-review` and `fix` are the #492 snapshot of dev-core's `dev-review`/`fix` pair, cut to this plugin's roster: five dispatchable roles, `R-tester` armed by changed-test evidence alone, and blocking causes applied in-session; non-blocking causes use the deferral accounting and delivery-epic exception above. They read their own bundled files through `skill://dev-review/<file>`. `lib.sh` is the exception: it sits one level up, in a non-skill directory, and `skill://` rejects `..`, so `dev-review` Phase 1 traverses from `$SKILL_DIR` instead. **Nothing in this plugin exports `SKILL_DIR`** — only the registered commands print a skill directory (`omp/index.ts`) — so that fence asserts the variable (`${SKILL_DIR:?…}`) and stops when it is unset, rather than sourcing `/../shared/lib.sh` and detecting a base branch against nothing. `cleanup/analyze-branches.sh` has no such problem: it is a script, so it resolves `../shared/lib.sh` from its own `BASH_SOURCE`.
 
 `promote` and `cleanup` are the #495 snapshot of dev-core's tail. They are
 **offered after land, never automatic, and never inside the review→fix loop**.

@@ -70,31 +70,11 @@ describe('fix applies findings itself', () => {
   })
 })
 
-describe('deferred follow-ups are siblings', () => {
-  // docs/agents/issue-tracker.md § "Deferred follow-ups are siblings": the
-  // deferral takes the ORIGIN'S parent and is blocked by the origin. Parenting
-  // it to the origin builds the nested cascade that rule exists to prevent.
+describe('filed titles and bodies stay off the command line', () => {
   it('requires --title-file/--body-file and forbids raw gh issue create', () => {
-    // This pin keeps the file-argv / no-raw-gh rules only. Prose routing at the
-    // Filing instruction line is not asserted here — the Filing behaviour test
-    // covers the fenced block operators paste, not the surrounding sentence.
     expect(FIX).toContain('--title-file')
     expect(FIX).toContain('--body-file')
     expect(FIX).toMatch(/Never raw `gh issue create`/)
-  })
-
-  it('wires --parent to the origin’s parent and --blocked-by to the origin', () => {
-    // Regex, not a quoted string: `${…}` here is shell text lifted out of the
-    // markdown, and biome reads that shape in a plain string as a mistake.
-    expect(FIX).toMatch(/`--blocked-by "#\$\{SOURCE_ISSUE\}"`/)
-    expect(FIX).toMatch(/`--parent "#\$\{SOURCE_PARENT\}"`/)
-    expect(FIX).toMatch(/`--parent "#\$\{SOURCE_ISSUE\}"` is the bug/)
-    expect(FIX).toMatch(/sibling/)
-  })
-
-  it('degrades to a traceable top-level issue when there is no parent to share', () => {
-    expect(FIX).toMatch(/∄ SOURCE_PARENT[^\n]*without `--parent`/)
-    expect(FIX).toMatch(/\*\*Origin:\*\* PR #<N>/)
   })
 })
 

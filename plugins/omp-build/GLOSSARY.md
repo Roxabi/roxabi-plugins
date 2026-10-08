@@ -75,7 +75,7 @@ A native GitHub relation between tracker issues: sub-issue (parent/child) or dep
 _Avoid_: a `Blocked by:` text line, `.scratch/` local edges, raw `gh issue create` for a relation
 
 **Sibling rule**:
-A deferred follow-up is a sibling of its origin under their shared parent, blocked-by the origin — never its child.
+A deferred follow-up normally shares its origin's parent and is blocked by the origin, never its child. Newly deferred non-blocking work stays outside the active delivery epic when that epic would be the shared parent; reused issues keep their historical parentage.
 _Avoid_: child-of-origin, nested deferral cascade
 
 **Tier**:
@@ -131,7 +131,7 @@ The skill holding Roxabi's multi-domain review on OMP: roster, Conventional Comm
 _Avoid_: R-dev-review as the skill name, code-review (Matt), /review (host builtin)
 
 **fix**:
-The skill that applies one change per blocking root cause from a review, inline, with no per-finding choice. Non-blocking causes are deferred into one sibling issue, not applied.
+The skill that applies one change per blocking root cause from a review, inline, with no per-finding choice. Every non-blocking item is accounted for by one current new or reused deferral issue, or by genuine earlier deferral evidence; fresh deferrals follow the Sibling rule's delivery-epic exception.
 _Avoid_: R-fix as the skill name, R-fixer, spawning a fixer agent, a per-finding walkthrough, applying a non-blocking cause
 
 **Root cause**:
