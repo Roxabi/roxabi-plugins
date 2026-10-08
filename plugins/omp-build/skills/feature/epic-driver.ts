@@ -487,18 +487,34 @@ async function disarm(repo: string, pr: number): Promise<Disarm> {
 }
 
 function recordStop(repo: string, run: string, ticket: number, reason: string, detail: string): void {
-  comment(
-    repo,
-    ticket,
-    [
-      formatMarker('goal-stop', { run, reason }),
-      `**Goal run \`${run}\` — ticket stop \`${reason}\`.** ${detail}`,
-      '',
-      STICKY_STOPS.includes(reason)
-        ? 'The review bound is spent: this child stays stopped in every later run until a human resolves it.'
-        : 'Its dependents are skipped in this run; independent children continue. A new `/goal` line retries it.',
-    ].join('\n'),
-  )
+  const first = [
+    formatMarker('goal-stop', { run, reason }),
+    `**Goal run \`${run}\` — ticket stop \`${reason}\`.**`,
+    STICKY_STOPS.includes(reason)
+      ? 'The review bound is spent: this child stays stopped in every later run until a human resolves it.'
+      : 'Its dependents are skipped in this run; independent children continue. A new `/goal` line retries it.',
+    '',
+    '',
+  ].join('\n')
+  let offset = 0
+  let part = 1
+  do {
+    const header = part === 1 ? first : `**Goal run \`${run}\` — diagnostic continued (${part}).**\n\n`
+    // Bound the entire UTF-8 comment, not JS characters or only the diagnostic.
+    const capacity = 60_000 - Buffer.byteLength(header, 'utf8')
+    let end = offset
+    let used = 0
+    while (end < detail.length) {
+      const point = detail.codePointAt(end) as number
+      const bytes = point <= 0x7f ? 1 : point <= 0x7ff ? 2 : point <= 0xffff ? 3 : 4
+      if (used + bytes > capacity) break
+      used += bytes
+      end += point > 0xffff ? 2 : 1
+    }
+    comment(repo, ticket, header + detail.slice(offset, end))
+    offset = end
+    part++
+  } while (offset < detail.length)
 }
 
 /**
@@ -826,12 +842,12 @@ async function report(
 
 /**
  * Free text — the goal objective, a stop or review detail — never travels as an
- * argv word the caller had to quote: it is read from a file, or stdin for `-`.
+ * argv word the caller had to quote: it is read verbatim from a file, or stdin for `-`.
  */
 function textFile(path: string | undefined, flag: string): string {
   if (path === undefined) return ''
   try {
-    return readFileSync(path === '-' ? 0 : path, 'utf8').trim()
+    return readFileSync(path === '-' ? 0 : path, 'utf8')
   } catch (error) {
     throw new Refused(`${flag} ${path}: ${error instanceof Error ? error.message : error}`)
   }
@@ -863,7 +879,7 @@ async function main(argv: string[]): Promise<string> {
 
   const goal = {
     status: values['goal-status'],
-    objective: textFile(values['goal-objective-file'], '--goal-objective-file'),
+    objective: textFile(values['goal-objective-file'], '--goal-objective-file').trim(),
   }
   const authorized = goalRun(goal, epic)
   if (!authorized) {

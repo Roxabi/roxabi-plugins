@@ -113,6 +113,8 @@ Every `next` re-disarms a stopped child's armed PR before it moves on (`reconcil
 
 Child stop markers are read from the complete comment history, preserving the author and first-line checks. The recent GraphQL window is used only when it has no previous page; otherwise all REST pages are read before scheduling. An unreadable or incomplete history cannot authorize a resume. A shared-state drop still disarms first, even when that history is unavailable.
 
+Stop diagnostics are published in order as comments of at most 60,000 UTF-8 bytes, including their headers. Only the first carries the existing `goal-stop` marker; continuation headers are not markers. Every diagnostic character is retained, including both watcher streams, without fetching logs again. A tracker failure during publication remains a shared driver error, not a successful receipt or an automatic retry.
+
 ## Slash commands
 
 | Command | Lane |

@@ -56,6 +56,12 @@ case "$1 \${2:-}" in
     if [[ -f "$S/comment.fail" ]]; then echo "comment failed" >&2; exit 1; fi
     n=$(ls "$S" | grep -c '^comment-' || true)
     cat > "$S/comment-$n.md"
+    if [[ -f "$S/comment.max-bytes" ]] && (( $(wc -c < "$S/comment-$n.md") > $(cat "$S/comment.max-bytes") )); then
+      rm "$S/comment-$n.md"; echo "HTTP 422: comment body too long" >&2; exit 1
+    fi
+    if [[ -f "$S/comment.fail-after" ]] && (( n >= $(cat "$S/comment.fail-after") )); then
+      rm "$S/comment-$n.md"; echo "comment failed" >&2; exit 1
+    fi
     log "comment $3 $(head -1 "$S/comment-$n.md")" ;;
   "pr view") cat "$S/pr/$3.json" ;;
   "pr edit")
@@ -209,7 +215,7 @@ function comments(): string[] {
   const { state } = sandboxOf()
   return readdirSync(state)
     .filter((name) => name.startsWith('comment-'))
-    .sort()
+    .sort((a, b) => Number(a.slice(8, -3)) - Number(b.slice(8, -3)))
     .map((name) => readFileSync(path.join(state, name), 'utf8'))
 }
 
@@ -462,6 +468,42 @@ describe('epic-driver — stop', () => {
     expect(comments()[0]).toContain("watch timed out; it's re-run later")
     expect(git(epic, 'branch', '--show-current')).toBe('')
     expect(git(epic, 'branch', '--list', 'feat/2-first-child')).not.toBe('')
+  })
+
+  it('persists one CI stop and the entire multibyte diagnostic across bounded comments', () => {
+    const epic = armedChild()
+    const { state } = sandboxOf()
+    servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    writeFileSync(path.join(state, 'comment.max-bytes'), '65536')
+    const diagnostic = `stdout-start\n${'é漢\u{1d11e}\n'.repeat(80_000)}stderr-end\n`
+    const run = drive(['stop', '--ticket', '2', '--reason', 'ci-failed', ...detail(diagnostic)])
+    expect(run.code).toBe(0)
+    expect(run.json()).toMatchObject({ ticket: 2, stop: 'ci-failed', sticky: false, disarmed: { 11: 'disarmed' } })
+    const bodies = comments()
+    const markers = bodies.filter((body) => body.startsWith('<!-- omp-build:goal-stop '))
+    expect(markers.map((body) => body.split('\n')[0])).toEqual([
+      `<!-- omp-build:goal-stop run=${RUN} reason=ci-failed -->`,
+    ])
+    for (const body of bodies) expect(Buffer.byteLength(body, 'utf8')).toBeLessThanOrEqual(60_000)
+    expect(bodies.map((body) => body.slice(body.indexOf('\n\n') + 2)).join('')).toBe(diagnostic)
+    expect(writes().slice(0, 2)).toEqual(['merge 11 --disable-auto', 'edit 11 --remove-label reviewed'])
+    expect(git(epic, 'branch', '--show-current')).toBe('')
+  })
+
+  it('returns no successful stop receipt when a diagnostic continuation cannot be published', () => {
+    const epic = armedChild()
+    const { state } = sandboxOf()
+    servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    writeFileSync(path.join(state, 'comment.fail-after'), '1')
+    const run = drive(['stop', '--ticket', '2', '--reason', 'ci-failed', ...detail('x'.repeat(150_000))])
+    expect(run.code).toBe(1)
+    expect(run.stderr).toContain('comment failed')
+    expect(run.stdout).toBe('')
+    expect(comments().map((body) => body.split('\n')[0])).toEqual([
+      `<!-- omp-build:goal-stop run=${RUN} reason=ci-failed -->`,
+    ])
+    expect(writes().slice(0, 2)).toEqual(['merge 11 --disable-auto', 'edit 11 --remove-label reviewed'])
+    expect(git(epic, 'branch', '--show-current')).toBe('')
   })
 
   it('writes no marker when the PR is still armed after the disarm', () => {
