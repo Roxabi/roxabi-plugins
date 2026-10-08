@@ -59,6 +59,9 @@ it is detached or historically remains an epic child. This is the caller's filin
 policy, not a new CLI flag or scheduler filter; see the skill's Deferred Follow-Ups.
 Final review of a nested delivery epic preserves its enclosing sibling parent;
 only a top-level delivery epic has no such parent to pass.
+Reuse reads the body and complete comment history. Additional deferred items are
+append-only issue comments: concurrent contributions and human body edits survive.
+Neither body replacement nor relation changes are part of reuse.
 
 ## Size
 

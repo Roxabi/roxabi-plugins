@@ -459,7 +459,7 @@ describe('fix Filing command', () => {
     expect(ran.state.log.some((line) => line.startsWith('rest:PATCH'))).toBe(false)
   })
 
-  it('appends to a reused body and preserves the prior text', () => {
+  it('appends a reused finding without overwriting another writer', () => {
     const ran = runFiling(
       facts({
         SOURCE_ISSUE: '',
@@ -467,19 +467,21 @@ describe('fix Filing command', () => {
         EXISTING_ISSUE: '80',
         ITEM_COVERAGE: 'exact',
       }),
-      emptyState([seed(80, { parent: 720, body: 'HISTORY-LINE' })]),
+      emptyState([seed(80, { parent: 720, body: 'HISTORY-LINE', comments: ['EARLIER ITEM'] })], {
+        concurrentEdit: { body: 'HISTORY-LINE\nHUMAN EDIT', comment: 'CONCURRENT ITEM' },
+      }),
       {
         prepare: (fileDir) => writeFileSync(path.join(fileDir, 'append.md'), 'NEW-ITEM\n'),
       },
     )
     const issue = ran.state.issues.find((row) => row.number === 80)
     expect(ran.status).toBe(0)
-    expect(issue?.body.indexOf('HISTORY-LINE')).toBeGreaterThanOrEqual(0)
-    expect(issue?.body.indexOf('NEW-ITEM')).toBeGreaterThan(issue?.body.indexOf('HISTORY-LINE') ?? -1)
+    expect(issue?.body).toBe('HISTORY-LINE\nHUMAN EDIT')
+    expect(issue?.comments).toEqual(['EARLIER ITEM', 'CONCURRENT ITEM', 'NEW-ITEM\n'])
     expect(issue?.parent).toBe(720)
     expect(posts(ran.state)).toEqual([])
     expect(relations(ran.state)).toEqual([])
-    expect(ran.state.log.some((line) => line.startsWith('rest:PATCH'))).toBe(true)
+    expect(ran.state.log.some((line) => line.startsWith('rest:PATCH'))).toBe(false)
   })
 
   it('reports a partial create and does not create a second issue', () => {
@@ -492,10 +494,10 @@ describe('fix Filing command', () => {
     expect(created(ran.state)[0].blockedBy).toEqual([])
   })
 
-  it('reports a failed body update and does not create', () => {
+  it('reports a failed comment append without changing the issue or creating another', () => {
     const ran = runFiling(
       facts({ SOURCE_ISSUE: '', SOURCE_PARENT: '', EXISTING_ISSUE: '80', ITEM_COVERAGE: 'exact' }),
-      emptyState([seed(80, { body: 'HISTORY-LINE' })], { failPatch: true }),
+      emptyState([seed(80, { body: 'HISTORY-LINE' })], { failCommentWrite: true }),
       {
         prepare: (fileDir) => writeFileSync(path.join(fileDir, 'append.md'), 'NEW-ITEM\n'),
       },
@@ -505,6 +507,18 @@ describe('fix Filing command', () => {
     expect(ran.stderr).toMatch(/do not create again/)
     expect(posts(ran.state)).toEqual([])
     expect(ran.state.issues.find((issue) => issue.number === 80)?.body).toBe('HISTORY-LINE')
+    expect(ran.state.issues.find((issue) => issue.number === 80)?.comments ?? []).toEqual([])
+  })
+
+  it('halts reuse when complete comment history cannot be read', () => {
+    const ran = runFiling(
+      facts({ SOURCE_ISSUE: '', SOURCE_PARENT: '', EXISTING_ISSUE: '80', ITEM_COVERAGE: 'exact' }),
+      emptyState([seed(80)], { failCommentsRead: true }),
+      { prepare: (fileDir) => writeFileSync(path.join(fileDir, 'append.md'), 'NEW-ITEM\n') },
+    )
+    expect(ran.status).not.toBe(0)
+    expect(ran.state.issues).toEqual([seed(80)])
+    expect(posts(ran.state)).toEqual([])
   })
 
   it('exits non-zero on a realpath miss and never reaches triage', () => {

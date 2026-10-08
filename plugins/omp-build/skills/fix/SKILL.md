@@ -147,7 +147,7 @@ An actionable finding of the record cited by no block in R is uncited. It is fil
 - `r.fix` does not widen a denylist, add a grep, or copy an inventory / `validate:full` list — checked on the fix line itself, whatever the members' classes
 - every cited path resolves inside the repository root (`git rev-parse --show-toplevel`)
 
-**Conservation.** Before deferring or filing, read `### Filed` and `### Deferred` in the earlier `## Review Fixes Applied` comments by ME on this PR. Report each item of P as `already deferred → #N` and do not defer it again. A blocking cause that is ineligible or failed is filed even if its mechanism appears under `### Deferred`. Every item of N\P is represented in one deferral D, new or reused. Filed-only does not remove an item from N\P. One open issue the agent attests covers every item of N\P — including an open Filed-only tracker — is D: reuse it, record it under this run's `### Deferred`, and do not create another. Append items D does not yet list through the filing fence's body-only update; preserve the prior body and every relation. Several open trackers and no single covering issue → halt before any triage mutation, push, or receipt. Name the item→issue conflicts. Do not create an umbrella, do not invent a prior Deferred line, and do not set `EXISTING_ISSUE` empty to skip the conflict. N\P empty still requires the receipt to account each prior item to its issue.
+**Conservation.** Before deferring or filing, read `### Filed` and `### Deferred` in the earlier `## Review Fixes Applied` comments by ME on this PR. Report each item of P as `already deferred → #N` and do not defer it again. A blocking cause that is ineligible or failed is filed even if its mechanism appears under `### Deferred`. Every item of N\P is represented in one deferral D, new or reused. Filed-only does not remove an item from N\P. One open issue the agent attests covers every item of N\P — including an open Filed-only tracker — is D: reuse it, record it under this run's `### Deferred`, and do not create another. Coverage reads D's body and its complete, paginated comment history. Missing items go in an append-only comment through the filing fence; preserve the body and every relation. Several open trackers and no single covering issue → halt before any triage mutation, push, or receipt. Name the item→issue conflicts. Do not create an umbrella, do not invent a prior Deferred line, and do not set `EXISTING_ISSUE` empty to skip the conflict. N\P empty still requires the receipt to account each prior item to its issue.
 
 Print the plan, then continue. This print is not a gate.
 
@@ -222,10 +222,10 @@ Export these facts before the fence. Each name must be set. Empty is known absen
 - `SOURCE_PARENT` — bare positive integer, or empty after a successful parent read. The fence re-reads the origin's parent and halts on failure or disagreement. For nonblocking final review only (`SOURCE_ISSUE=SOURCE_PARENT=ACTIVE_EPIC`), that self-candidate is resolved to the live enclosing parent H if present; a proven top-level origin keeps E as candidate and omits it on create. A parent claimed with an empty origin halts
 - `ACTIVE_EPIC` — the open epic the goal loop is delivering, from a successful fresh goal read, or empty only when that read proved none. Feature passes the goal/driver epic. Standalone reads the same goal state. Do not infer it from priority, labels, or a hardcoded number. The fence consumes the fact and does not re-read goal state
 - `EXISTING_ISSUE` — candidate number, or empty only after a successful search found no open cover. A failed search is unset, not empty
-- `ITEM_COVERAGE` — required when `EXISTING_ISSUE` is non-empty: `exact` or `noncovering`. The agent owns semantic coverage. The fence checks that fact and the live OPEN/body read; it does not parse bodies. `noncovering` halts with no create
+- `ITEM_COVERAGE` — required when `EXISTING_ISSUE` is non-empty: `exact` or `noncovering`. The agent establishes coverage from the issue body, every comment page, and any proposed `append.md` additions. The fence verifies live OPEN/body/comment reads, not semantics. A failed or incomplete read and `noncovering` halt with no create
 - `GITHUB_REPO` — required; triage already reads it
 
-Omit `--parent` only for a fresh create (`EXISTING_ISSUE` empty) when `DISPOSITION=nonblocking` and `SOURCE_PARENT` equals a non-empty `ACTIVE_EPIC`. Every other fresh create that has a candidate parent passes it. Reuse: no create, no relation flags. A non-whitespace `append.md` is `set <n> --body-file` only, prior body kept as the prefix. A partial triage failure prints the created or updated issue and must not be followed by another create.
+Omit `--parent` only for a fresh create (`EXISTING_ISSUE` empty) when `DISPOSITION=nonblocking` and `SOURCE_PARENT` equals a non-empty `ACTIVE_EPIC`. Every other fresh create that has a candidate parent passes it. Reuse: no create, no relation flags, no body replacement. A non-whitespace `append.md` is published with `gh issue comment --body-file`; save its returned URL in the Deferred receipt. A failed comment write may have reached GitHub: re-read the complete history before any retry; halt before push or success receipt and never create a replacement.
 
 Comment text never reaches a command line. Titles and bodies come from PR comments. Write them with the write tool. If `realpath` cannot resolve issue-triage, stop and name it. Never raw `gh issue create`.
 
@@ -315,8 +315,12 @@ if [ -n "$EXISTING_ISSUE" ]; then
     echo "halt: EXISTING_ISSUE #${EXISTING_ISSUE} is not an open tracker; not absence" >&2
     exit 1
   fi
-  if ! gh issue view "$EXISTING_ISSUE" --repo "$GITHUB_REPO" --json state,body --jq '.body' >/dev/null; then
+  if ! gh issue view "$EXISTING_ISSUE" --repo "$GITHUB_REPO" --json state,body --jq '.body' >"$FILE_DIR/prior-body.md"; then
     echo "halt: EXISTING_ISSUE #${EXISTING_ISSUE} body unreadable; not absence" >&2
+    exit 1
+  fi
+  if ! gh api --paginate "repos/${GITHUB_REPO}/issues/${EXISTING_ISSUE}/comments" --jq '.[].body' >"$FILE_DIR/prior-comments.md"; then
+    echo "halt: EXISTING_ISSUE #${EXISTING_ISSUE} complete comment history unreadable; not absence" >&2
     exit 1
   fi
   must_set ITEM_COVERAGE
@@ -325,20 +329,15 @@ if [ -n "$EXISTING_ISSUE" ]; then
     exit 1
   fi
   if [ -f "$FILE_DIR/append.md" ] && [ -n "$(tr -d '[:space:]' < "$FILE_DIR/append.md")" ]; then
-    if ! gh issue view "$EXISTING_ISSUE" --repo "$GITHUB_REPO" --json body --jq '.body' >"$FILE_DIR/prior-body.md"; then
-      echo "halt: EXISTING_ISSUE #${EXISTING_ISSUE} body unreadable; not absence" >&2
-      exit 1
-    fi
-    cat "$FILE_DIR/prior-body.md" "$FILE_DIR/append.md" >"$FILE_DIR/next-body.md"
     log=$(mktemp)
     set +e
-    bun "$T" set "$EXISTING_ISSUE" --body-file "$FILE_DIR/next-body.md" >"$log" 2>&1
+    gh issue comment "$EXISTING_ISSUE" --repo "$GITHUB_REPO" --body-file "$FILE_DIR/append.md" >"$log" 2>&1
     status=$?
     set -e
     cat "$log"
     rm -f "$log"
     if [ "$status" -ne 0 ]; then
-      echo "tracker partial failure: issue #${EXISTING_ISSUE}; reconcile that issue; do not create again" >&2
+      echo "tracker partial failure: issue #${EXISTING_ISSUE}; re-read all comments before retry; do not create again" >&2
       exit "$status"
     fi
   else
@@ -494,6 +493,7 @@ Write the summary (below) to `"$BODY"` → `gh pr comment "$PR" --body-file "$BO
 
 ### Deferred
 _(omit the new-item list when N\P = ∅; the summary still accounts P)_
+For reused D, cite the body or existing comment that covers each item; new additions cite the successfully posted comment URL. Complete comment retrieval and a successful append are required before push or this success receipt.
 - RC-2 — mechanism: the tests assert a fix that already passes — deferred, not applied — #456
 - uncited `suggestion:` polish the name — `ui.ts:12` — #456
 - malformed-block cited `suggestion:` `b.ts:2` — #456

@@ -131,6 +131,9 @@ Fix succeeds only when every non-blocking item is represented in one current
 new/reused deferral issue or genuine prior Deferred accounting. Filed-only history
 cannot silently empty that partition; incompatible existing trackers halt rather
 than produce duplicate issues or a false success receipt.
+Reused-tracker additions are append-only comments, never body replacements.
+Coverage includes the body and all comment pages; the receipt links each addition.
+Read or append failure halts before push or a successful receipt.
 
 ## Slash commands
 

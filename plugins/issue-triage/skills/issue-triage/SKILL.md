@@ -172,7 +172,7 @@ Then omit `--parent`. Do not create an epic to hold B. Exclusion is that absent 
 
 Final-review origin E may itself have a parent H. The explicit nonblocking self-candidate (`SOURCE_ISSUE=SOURCE_PARENT=ACTIVE_EPIC`) resolves to that live H, preserving the sibling default outside E. Only a proven top-level E keeps E as the candidate to omit. Blocking epic-fix tickets still parent to E.
 
-**Reuse.** `EXISTING_ISSUE` is only a candidate. Empty means discovery succeeded and found no open cover. Unset, or a failed search, must not be passed as empty — halt, do not create. Before reuse, re-read live state: the issue must be `OPEN` and the body readable. `ITEM_COVERAGE` is the agent's explicit decision, `exact` or `noncovering`; title similarity is not coverage. `noncovering`, or a missing coverage fact, halts with no create. Several open trackers and no single issue that covers every deferred item → halt before create, body write, relation write, push, or receipt. Do not file an umbrella and do not record a deferral that does not exist. Reuse does not create and does not set or remove parent, whether the issue is outside the epic or still a historical child. A detached issue is not reattached. A non-whitespace `FILE_DIR/append.md` is the only mutation: `set --body-file`, prior body kept as the prefix. No relation flags. If that `set` fails, reconcile the issue; do not create another.
+**Reuse.** `EXISTING_ISSUE` is only a candidate. Empty means discovery succeeded and found no open cover. Unset, or a failed search, must not be passed as empty — halt, do not create. Before reuse, re-read live state: the issue must be `OPEN`, its body readable, and its complete comment history retrieved with pagination. `ITEM_COVERAGE` is the agent's explicit decision from that body, all comments and proposed additions: `exact` or `noncovering`; title similarity is not coverage. Missing coverage, failed/incomplete reads, or `noncovering` halt with no create. Several open trackers and no single covering issue → halt before mutation, push, or receipt. Reuse preserves body and relations, whether detached or a historical child. A non-whitespace `FILE_DIR/append.md` is published as an append-only issue comment; record its URL in the Deferred receipt. A failed write may already exist: re-read all comments before retry, never create another issue or post a success receipt on failure.
 
 **Recipe — defer A → create follow-up B.** Facts, not new CLI flags. Names match `skill://fix` § Filing. Every listed name must be set before the fence; unset halts. Empty is known absence only where noted, never a failed read. Bare positive integers, never `#N`. The omit comparison is that recipe's comparison: fresh, `DISPOSITION=nonblocking`, and `SOURCE_PARENT` equals a non-empty `ACTIVE_EPIC`.
 
@@ -263,7 +263,7 @@ else error("malformed parent") end'
     exit 1
   fi
 fi
-# 2. Reuse. Live OPEN and a readable body. Coverage is not parsed. No relation writes.
+# 2. Reuse. Live OPEN, readable body and complete comment history. No relation writes.
 if [ -n "$EXISTING_ISSUE" ]; then
   case "${ITEM_COVERAGE:-}" in
     exact) ;;
@@ -286,18 +286,26 @@ if [ -n "$EXISTING_ISSUE" ]; then
     echo "Error: existing issue is not an open tracker (${EXISTING_MARK:-unresolved}); refusing to create or reuse" >&2
     exit 1
   fi
+  gh issue view "$EXISTING_ISSUE" --repo "$GITHUB_REPO" --json body --jq .body > "$FILE_DIR/prior-body.md" || {
+    echo "Error: existing-issue body read failed; refusing to create or reuse" >&2
+    exit 1
+  }
+  gh api --paginate "repos/${GITHUB_REPO}/issues/${EXISTING_ISSUE}/comments" --jq '.[].body' > "$FILE_DIR/prior-comments.md" || {
+    echo "Error: complete comment history unreadable; refusing to create or reuse" >&2
+    exit 1
+  }
   if [ -f "$FILE_DIR/append.md" ] && grep -q '[^[:space:]]' "$FILE_DIR/append.md"; then
-    gh issue view "$EXISTING_ISSUE" --repo "$GITHUB_REPO" --json body --jq .body > "$FILE_DIR/prior-body.md" || {
-      echo "Error: existing-issue body read failed; refusing to create or reuse" >&2
-      exit 1
-    }
-    {
-      cat "$FILE_DIR/prior-body.md"
-      printf '\n\n'
-      cat "$FILE_DIR/append.md"
-    } > "$FILE_DIR/body.md"
-    # Body only. No --parent, --rm-parent, --add-child, --blocked-by, --blocks.
-    T set "$EXISTING_ISSUE" --body-file "$FILE_DIR/body.md"
+    log=$(mktemp)
+    set +e
+    gh issue comment "$EXISTING_ISSUE" --repo "$GITHUB_REPO" --body-file "$FILE_DIR/append.md" >"$log" 2>&1
+    status=$?
+    set -e
+    cat "$log"
+    rm -f "$log"
+    if [ "$status" -ne 0 ]; then
+      echo "tracker partial failure: issue #${EXISTING_ISSUE}; re-read all comments before retry; do not create again" >&2
+      exit "$status"
+    fi
   fi
   echo "reuse #${EXISTING_ISSUE}: no create, no relation writes" >&2
   exit 0

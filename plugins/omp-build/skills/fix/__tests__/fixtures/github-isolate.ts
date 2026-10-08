@@ -19,6 +19,7 @@ export type IsolateIssue = {
   blockedBy: number[]
   labels: string[]
   type: string | null
+  comments?: string[]
 }
 
 export type IsolateState = {
@@ -27,6 +28,9 @@ export type IsolateState = {
   failGraphQL: 'relations' | null
   failView: number[]
   failPatch: boolean
+  failCommentsRead?: boolean
+  failCommentWrite?: boolean
+  concurrentEdit?: { body: string; comment: string }
   log: string[]
 }
 
@@ -56,6 +60,14 @@ function byNumber(state: IsolateState, number: number): IsolateIssue | undefined
 
 function byNode(state: IsolateState, nodeId: string): IsolateIssue | undefined {
   return state.issues.find((issue) => issue.node_id === nodeId)
+}
+
+/** Another writer wins immediately before this request mutates the issue. */
+function concurrentEdit(state: IsolateState, issue: IsolateIssue): void {
+  if (!state.concurrentEdit) return
+  issue.body = state.concurrentEdit.body
+  issue.comments = [...(issue.comments ?? []), state.concurrentEdit.comment]
+  delete state.concurrentEdit
 }
 
 function json(status: number, body: unknown): Response {
@@ -192,6 +204,7 @@ async function handle(url: string, init?: RequestInit): Promise<Response> {
       save(state)
       return json(500, { message: 'patch down' })
     }
+    concurrentEdit(state, issue)
     const payload = JSON.parse(await readBody(init)) as { body?: string }
     issue.body = payload.body ?? ''
     note(state, `rest:PATCH ${parsed.pathname}`)
@@ -231,6 +244,32 @@ function gh(argv: string[]): number {
   }
   if (argv[0] === 'label' && argv[1] === 'list') {
     process.stdout.write('size:S\nsize:F-lite\nsize:F-full\n')
+    return 0
+  }
+  if (argv[0] === 'api' && argv.some((arg) => /^repos\/[^/]+\/[^/]+\/issues\/\d+\/comments$/.test(arg))) {
+    const endpoint = argv.find((arg) => arg.startsWith('repos/')) ?? ''
+    const issue = byNumber(state, Number(endpoint.split('/')[4]))
+    if (!issue || state.failCommentsRead) {
+      process.stderr.write('comments unreadable\n')
+      return 1
+    }
+    // gh without --paginate returns only the first page.
+    const comments = argv.includes('--paginate') ? (issue.comments ?? []) : (issue.comments ?? []).slice(0, 30)
+    process.stdout.write(comments.map((body) => `${body}\n`).join(''))
+    return 0
+  }
+  if (argv[0] === 'issue' && argv[1] === 'comment') {
+    const issue = byNumber(state, Number(argv[2]))
+    const payload = flag(argv, '--body-file')
+    if (!issue || !payload || state.failCommentWrite) {
+      process.stderr.write('comment write failed\n')
+      return 1
+    }
+    concurrentEdit(state, issue)
+    issue.comments = [...(issue.comments ?? []), readFileSync(payload, 'utf8')]
+    note(state, `comment:POST #${issue.number}`)
+    save(state)
+    process.stdout.write(`https://github.com/Acme/app/issues/${issue.number}#issuecomment-${issue.comments.length}\n`)
     return 0
   }
   if (argv[0] === 'issue' && argv[1] === 'view') {
