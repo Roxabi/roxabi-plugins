@@ -110,14 +110,14 @@ The record is the one review F and R come from. Nothing else on the PR is input:
      --jq '[.labels[].name | select(startswith("size:"))][0] // "size:S" | ltrimstr("size:") | ltrimstr(" ")'
    ```
 2. ¬PR# → record := the latest `dev-review` output in this conversation, read with the same rules. No `dev-review` output → record := the findings the operator gave in the conversation; it has no `## Root causes` section.
-3. R_posted := the record's `## Root causes` section — the lines after that heading, up to the next `##` heading.
-   - body exactly `none` → nothing to fix: halt "No actionable findings".
-   - `### RC-` blocks → R_posted. A block missing a non-empty `mechanism:`, `fix:` or `findings:` line is malformed: it is not applied. Cited findings that satisfy `blocks(f)` are filed per finding; the rest join the single deferral.
+3. Record whether `## Root causes` is present. R_posted := its lines up to the next `##` heading.
+   - body exactly `none` → R_posted = ∅, with the section still present. Parse F before any empty halt.
+   - `### RC-` blocks → R_posted. A block missing a non-empty `mechanism:`, `fix:` or `findings:` line is malformed: it is not applied. Unambiguously cited findings that satisfy `blocks(f)` are filed per finding; the rest join the single deferral.
    - any other line in the section (text outside the blocks, a Conventional Comment) → halt: `review record on PR #${PR} has a malformed ## Root causes section — re-run dev-review`.
-   - no section → R_posted = ∅ (a finding list from the conversation).
-4. F := the Conventional Comments of the record, outside `## Root causes`. ∀ f: parse → label, file:line, agent, root cause, class[], raw_callsites[], solutions, C(f)
+   - no section → R_posted = ∅ (a finding list from the conversation); only this case permits clustering.
+4. F := the Conventional Comments under `## Findings` in that record, never the Spec, Standards or Root causes roll-ups. Only an operator's conversational finding list without review sections is read directly. ∀ f: parse → label, exact rendered description, file:line, agent, provenance, root cause, symptoms/evidence and extensions, class[], raw_callsites[], solutions, C(f). Retain all detail; do not re-deduplicate.
    - `class[]` — 0–N canonical slugs from `review-classes.yml` + 0–1 `candidate/<slug>`; absent field → class[] = []
-   - `raw_callsites[]` — [{file, line}] list; required when class[] ≠ []; absent when class[] = []
+   - `raw_callsites[]` — [{file, line}] list; required when class[] ≠ []; classless explicit lists are retained, absent field → []. Provenance retains original Source, but neither it nor agent/phase/chunk changes `blocks(f)`.
 5. Malformed (missing mandatory fields ∨ C ∉ ℤ ∩ [0,100] ∨ free-text class label not in canonical list and not `candidate/*` ∨ `candidate/<slug>` violates `^candidate/[a-z][a-z0-9-]{1,48}$` ∨ class[] ≠ [] ∧ raw_callsites[] = []) → C(f) := 0
    Step 5 fires first; step 5b applies only to findings that passed step 5 (C(f) ≠ 0 after step 5).
 5b. [only if step 5 did not fire for f] Subsumption strip: ∃ `bare-except` ∧ `missing-error-handling` in the same finding's class[] → strip `missing-error-handling`; D.append({tag: "subsumption-violation", file: f.file, line: f.line, description: "bare-except subsumes missing-error-handling, duplicate tag stripped", phase: "1"}); ¬set C(f) := 0
@@ -126,25 +126,27 @@ The record is the one review F and R come from. Nothing else on the PR is input:
 
 Read `skill://dev-review/root-causes.md`.
 
-- R_posted ≠ ∅ → R := R_posted. The review owned the joins. Do not split or merge those blocks.
-- R_posted = ∅ ∧ actionable F ≠ ∅ → cluster F with those rules. Read cited lines before a join the text does not already make obvious.
+- Cause section present → R := R_posted, including R = ∅ for `none`. The review owned the joins. Do not split, merge or recluster those blocks or uncited findings.
+- Cause section absent ∧ actionable F ≠ ∅ → cluster F with those rules. Read cited lines before a join the text does not already make obvious.
 - actionable F = ∅ ∧ R = ∅ → "No actionable findings", halt.
+
+Resolve each `findings:` reference by `path:line` + exact final rendered description to exactly one actionable F. Each F may belong to at most one cause. Zero-match, multi-match or conflicting membership makes each affected cause non-applicable; do not guess by class/file/line, import another same-anchor finding, or recluster. Retain unambiguously associated members through malformed-block per-finding file/single-deferral handling; unresolved or conflicting findings use uncited handling exactly once. An independent malformed/low-C finding sharing an anchor does not contaminate a correctly bound cause.
 
 Partition. Each cause, and each uncited actionable finding, goes in exactly one bucket. Do not apply a non-blocking cause, and do not file it on its own.
 
-- apply — the block is well-formed (non-empty `mechanism:`, `fix:`, and `findings:` lines) and `blocking(r)` and every eligibility condition below holds. A block missing any of those three lines never enters apply, even when `blocking(r)` and the three eligibility conditions hold. One commit.
-- file — `blocking(r)` and a condition fails, or the apply or the falsification later fails, or the block is malformed and a cited finding satisfies `blocks(f)`, or an uncited finding satisfies `blocks(f)`. Today's per-cause or per-finding filing. Not the deferral issue.
-- defer — not `blocking(r)`, including when an eligibility condition would also fail, plus every uncited finding that does not satisfy `blocks(f)`, plus cited findings of a malformed block that do not satisfy `blocks(f)`. One issue for the whole set. Not applied.
+- apply — the block is well-formed (non-empty `mechanism:`, `fix:`, and `findings:` lines), its references and memberships passed the resolution rules above, and `blocking(r)` and every eligibility condition below holds. Missing fields or unresolved/conflicting members never enter apply. One commit.
+- file — `blocking(r)` and a condition fails, or the apply or falsification later fails; malformed/non-applicable-reference blocks use per-finding filing for unambiguously associated blockers, and uncited blockers are filed per finding. Today's per-cause or per-finding filing. Not the deferral issue.
+- defer — a well-formed, correctly bound cause with no blocking member, including when an eligibility condition fails, plus each uncited non-blocker and each unambiguously associated non-blocker of a malformed/non-applicable-reference block. One issue for the whole set. Not applied.
 
-An actionable finding of the record cited by no block in R is uncited. It is filed when it satisfies `blocks(f)`; otherwise it joins the deferral. Do not invent a cause. Do not ask.
+An actionable finding with no valid unique cause membership is uncited, including unresolved or conflicting references. It is filed when it satisfies `blocks(f)`; otherwise it joins the deferral. Retain each finding exactly once across these dispositions. Do not invent a cause. Do not ask.
 
 **Eligibility of an apply.** These three conditions gate the apply bucket only. A non-blocking cause is deferred even when one of them fails:
 
 - every member finding passed Phase 1 validation — none has C(f) := 0
 - `r.fix` does not widen a denylist, add a grep, or copy an inventory / `validate:full` list — checked on the fix line itself, whatever the members' classes
-- every cited path resolves inside the repository root (`git rev-parse --show-toplevel`)
+- every cited path and every explicit member Raw callsite path resolves inside the repository root (`git rev-parse --show-toplevel`)
 
-**Already filed.** Before filing or deferring, read `### Filed` and `### Deferred` in the earlier `## Review Fixes Applied` comments by ME on this PR. A cause whose mechanism is already under `### Filed` is reported `already filed → #N`, not filed again. A prior deferral suppresses only another deferral of a still-non-blocking cause: report `already deferred → #N` and do not defer it again. A blocking cause that is ineligible or failed is filed even if its mechanism appears under `### Deferred`. An uncited non-blocking finding already listed at the same file:line is not listed again. Create the deferral issue only when the remaining deferred set is non-empty. A deferred cause is reported under `### Deferred`, never under `### Filed`.
+**Already filed.** Before filing or deferring, read `### Filed` and `### Deferred` in the earlier `## Review Fixes Applied` comments by ME on this PR. A cause whose evidenced mechanism is already under `### Filed` is reported `already filed → #N`, not filed again. A prior deferral suppresses only another deferral of the same evidenced, still-non-blocking cause: report `already deferred → #N` and do not defer it again. A blocking cause that is ineligible or failed is filed even if its mechanism appears under `### Deferred`. For an uncited non-blocking finding, suppress a repeat only when the prior description, mechanism and evidence establish the same defect; file:line alone never matches. Consult linked issue details if receipts lack that evidence; uncertain identity stays in the deferred set. Round-local RC numbers are not cross-round identity. Create the deferral issue only when the remaining deferred set is non-empty. A deferred cause is reported under `### Deferred`, never under `### Filed`.
 
 Print the plan, then continue. This print is not a gate.
 
@@ -166,9 +168,9 @@ The tree must be clean before the first applied cause. Uncommitted changes → h
 
 ∀ r in the apply bucket, in order, **inline in this session**:
 
-1. Re-read every cited file.
-2. Apply `r.fix` once, so every member callsite is covered. The fix line is the change. There is no alternate solution to pick.
-3. Sweep the touched files for the same-class anti-pattern. The sweep may justify a hit of a class already on a member finding. It must not edit a file:line cited by a deferred cause, listed as an uncited non-blocking finding, or cited by a malformed block, whether that finding is filed per finding or listed in the deferral. An uncited hit outside that set may be fixed.
+1. Re-read every cited file and every member raw-callsite file.
+2. Apply `r.fix` once over the union of every member's cited location and all explicit Raw callsites, including classless lists. The fix line is the change. There is no alternate solution to pick. At a shared line, correct only this cause's mechanism; preserve any independent deferred, uncited or malformed finding's mechanism. Shared file/class/line neither drops the eligible blocker nor authorizes the other correction. If the eligible correction cannot be separated from that independent correction, do not apply it: file the eligible cause as ineligible/failed through the existing disposition.
+3. Sweep the touched files for the same-class anti-pattern. The sweep may justify a hit of a class already on a member finding. It must not apply the independent mechanism of a deferred cause, an uncited non-blocking finding, or a malformed block's finding, whether filed per finding or deferred. At their cited/raw locations, only the explicitly bound eligible cause correction from step 2 is authorized; no additional sweep correction is authorized there. An uncited hit outside that protected set may be fixed. Keep this existing touched-file/same-class sweep boundary.
 4. Run lint + the tests covering the changed files. Red → retry max 3.
 
 succeeds → O_commit(r) → `[applied]`, keep the commit sha.
@@ -227,7 +229,7 @@ So the filed issue takes the **origin's** parent, not the origin:
 
 ## Details
 
-{mechanism + member findings}
+{mechanism + member findings, each with `path:line` — exact final rendered description, symptoms/evidence, raw callsites, solutions and immutable provenance; for a single finding retain the same detail even when its mechanism is unusable}
 
 **Why it was filed:** {the eligibility condition that failed, or the failed apply or falsification}
 ```
@@ -236,11 +238,11 @@ The checkbox states the outcome, never a fix line the policy refused:
 
 | Filed because | Checkbox |
 |---|---|
-| a member has C(f) := 0 | the finding at `path:line` is confirmed or dismissed with evidence; a confirmed one is fixed |
-| the fix line widens a denylist, adds a grep, or copies an inventory | `<mechanism>` no longer holds at `path:line`, fixed at its oracle or single source, without widening a denylist, adding a grep, or copying an inventory |
+| a member has C(f) := 0 | the finding `path:line` — `<exact final rendered description>` is confirmed or dismissed with evidence; a confirmed one is fixed |
+| the fix line widens a denylist, adds a grep, or copies an inventory | `<mechanism>` no longer holds for `path:line` — `<exact final rendered description>`, fixed at its oracle or single source, without widening a denylist, adding a grep, or copying an inventory |
 | a cited path is outside the repository | the cited path is resolved inside the repository, or the finding is dismissed with evidence |
-| the apply failed after 3, or falsification failed twice | first `confirm <mechanism> still holds on the current base`, then `<mechanism> no longer holds at path:line; the earlier attempt (<reason>) did not hold` |
-| an uncited blocking finding, or a blocking finding of a malformed block | the finding's solution at its `path:line` — `one of: …` when it lists several, its description when it has none, never the malformed block's `fix:` |
+| the apply failed after 3, falsification failed twice, or the correction cannot be separated from an independent deferred mechanism | first `confirm <mechanism> still holds on the current base`, then `<mechanism> no longer holds for path:line — <exact final rendered description>; the earlier attempt (<reason>) did not hold`, preserving the independent deferred mechanism |
+| an uncited blocking finding, or a blocking finding of a malformed/unresolvable block | the finding's solution for `path:line` — `<exact final rendered description>` — `one of: …` when it lists several, its description when it has none, never the malformed block's `fix:` |
 
 Deferral body, one issue for the whole set. Not the per-cause template above:
 
@@ -249,9 +251,9 @@ Deferral body, one issue for the whole set. Not the per-cause template above:
 
 ## Acceptance criteria
 
-- [ ] RC-2: <the fix line> at `path:line`
-- [ ] <the uncited finding's solution> at `path:line`
-- [ ] <the malformed-block finding's solution> at `path:line`
+- [ ] RC-2: <the fix line> for `path:line` — <exact final rendered description>
+- [ ] <the uncited finding's solution> for `path:line` — <exact final rendered description>
+- [ ] <the malformed-block finding's solution> for `path:line` — <exact final rendered description>
 
 ## Details
 
@@ -260,15 +262,18 @@ Deferral body, one issue for the whole set. Not the per-cause template above:
 - **RC-2 — <title>**
   - mechanism: <why>
   - fix: <the fix line, not applied>
-  - findings: `path:line`
+  - findings: `path:line` — <exact final rendered description>
+  - member detail: <all symptoms/evidence, raw callsites, solutions and immutable provenance>
 
 ### Uncited non-blocking findings
 
-- `suggestion:` <description> — `path:line`
+- `suggestion:` <exact final rendered description> — `path:line`
+  - mechanism/evidence, raw callsites, solutions and provenance: <retained finding detail>
 
 ### Cited non-blocking findings of a malformed block
 
-- `suggestion:` <description> — `path:line` — cited by malformed RC-<n>
+- `suggestion:` <exact final rendered description> — `path:line` — cited by malformed RC-<n>
+  - mechanism/evidence, raw callsites, solutions and provenance: <retained finding detail>
 ```
 
 ## Phase 4 — Falsification Gate (per cause)
@@ -332,11 +337,11 @@ Write the summary (below) to `"$BODY"` → `gh pr comment "$PR" --body-file "$BO
 ### Deferred
 _(omit section when nothing was deferred this run; the summary line is then `**Deferred (non-blocking):** 0`)_
 - RC-2 — mechanism: the tests assert a fix that already passes — deferred, not applied — #456
-- uncited `suggestion:` polish the name — `ui.ts:12` — #456
-- malformed-block cited `suggestion:` `b.ts:2` — #456
+- uncited `suggestion:` polish the name — `ui.ts:12` — mechanism: <evidenced defect> — #456
+- malformed-block cited `suggestion:` <exact final rendered description> — `b.ts:2` — mechanism/evidence: <retained detail> — #456
 
 ### Filed
-- RC-2 — a member failed validation — #123 (sibling of #120, blocked-by #120)
+- RC-2 — mechanism: <evidenced defect> — findings: `path:line` — <exact final rendered description> — a member failed validation — #123 (sibling of #120, blocked-by #120)
 
 ### Failed
 - [failed] RC-3 — unused import in dashboard.tsx:3 — test failure
@@ -356,15 +361,17 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 |----------|----------|
 | `review-classes.yml` absent/unreadable/unparseable | HALT (Phase 0) — ¬validate classes from memory |
 | No marked record by ME on the PR | Halt — run dev-review first |
-| `## Root causes` is exactly `none` | "No actionable findings", halt |
+| `## Root causes` is exactly `none` | Parse F; actionable findings remain uncited and file/defer without clustering. Halt only if F has no actionable findings |
 | `## Root causes` has a line outside `### RC-` blocks | Halt — malformed record |
 | A block misses `mechanism:`, `fix:` or `findings:` | Not applied. Cited findings that satisfy `blocks(f)` are filed per finding. Cited findings that do not are deferred in the one issue |
+| Zero/multi-match member reference or conflicting memberships | Affected causes are not applied; retain findings in per-finding/uncited file/single-deferral paths exactly once. No anchor-only binding or reclustering |
 | Record has `### RC-` blocks | Use those blocks; do not recluster. Apply only the apply bucket. A malformed block is not in that bucket. Defer every well-formed block with no blocking member |
 | Conversation finding list, no section | Cluster with `skill://dev-review/root-causes.md` |
 | Actionable finding cited by no cause | `blocks(f)` → file it. Otherwise defer it. Do not ask |
 | A member has C(f) := 0 | A blocking cause is filed, not applied. A non-blocking cause is deferred, not filed on its own |
 | Fix line widens a denylist / adds a grep / copies an inventory | A blocking cause is filed, not applied. A non-blocking cause is deferred |
 | Cited path outside the repository | A blocking cause is filed, not applied. A non-blocking cause is deferred |
+| Eligible and independent deferred mechanisms share a line | Apply only the eligible mechanism and all its member raw callsites; no additional sweep correction at protected locations. If inseparable, file the eligible cause |
 | Cause already under Filed, or a still-non-blocking cause already under Deferred | `already filed → #N` or `already deferred → #N`. A prior deferral does not suppress filing a blocking cause that is ineligible or failed |
 | All causes non-blocking | Commit nothing. File exactly one follow-up listing them. Receipt reports deferred → #N. No push |
 | Mixed causes | Apply the well-formed blocking eligible ones. A malformed block is not applied. One deferral issue holds every non-blocking cause, every uncited non-blocking finding, and every cited non-blocking finding of a malformed block |

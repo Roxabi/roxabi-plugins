@@ -36,12 +36,14 @@ The section ends at the next `##` heading. In a review, that heading is `## Find
 ### RC-1 — <one-line cause>
 - mechanism: <why, not the symptom>
 - fix: <the one change that removes the cause, covering every member callsite>
-- findings: `path:line` ; `path:line`
+- findings: `path:line` — <exact final rendered description> ; `path:line` — <exact final rendered description>
 
 ## Findings
 ```
 
-No actionable findings → the section body is exactly:
+Finalize finding descriptions before building these references. Distinct findings at the same anchor have distinct mechanism-specific descriptions, with their original symptoms/evidence retained. Each `path:line` + exact description pair must resolve to exactly one finding under `## Findings`; each actionable finding belongs to at most one cause. A shared anchor never includes other findings implicitly. Zero/multiple matches or conflicting memberships do not authorize applying affected causes: keep findings for the existing uncited/per-finding filing/single-deferral paths, without reclustering the posted record.
+
+No named causes → the section body is exactly `none`, including when actionable findings remain uncited. It is not an assertion that there are no actionable findings:
 
 ```markdown
 ## Root causes

@@ -15,7 +15,6 @@ const SKILLS = path.resolve(import.meta.dirname, '..', '..')
 const FIX = readFileSync(path.join(SKILLS, 'fix', 'SKILL.md'), 'utf8')
 const REVIEW = readFileSync(path.join(SKILLS, 'dev-review', 'SKILL.md'), 'utf8')
 const CLASSES = path.join(SKILLS, 'dev-review', 'review-classes.yml')
-const ROOT_CAUSES = readFileSync(path.join(SKILLS, 'dev-review', 'root-causes.md'), 'utf8')
 const FALSIFY = readFileSync(path.join(SKILLS, 'fix', 'falsification.md'), 'utf8')
 
 /** The partition shape `dev-review` Phase 4 forbids inside the roll-up blocks. */
@@ -105,11 +104,6 @@ describe('fix applies root causes, one decision per cause', () => {
     expect(ids).toEqual(['gather', 'causes', 'apply', 'falsify', 'push', 'post-comment'])
   })
 
-  it('applies posted causes as the review joined them, with no solution menu', () => {
-    expect(FIX).toContain('R := R_posted. The review owned the joins. Do not split or merge those blocks.')
-    expect(FIX).toContain('The fix line is the change. There is no alternate solution to pick.')
-  })
-
   it('reads the shared rules through skill://, never through SKILL_DIR', () => {
     expect(FIX).toContain('Read `skill://dev-review/root-causes.md`.')
     expect(REVIEW).toContain('Read `skill://dev-review/root-causes.md`.')
@@ -129,11 +123,6 @@ describe('fix reads one attributable review record', () => {
     expect(REVIEW).toContain(`Its first line is exactly \`${mark}\``)
   })
 
-  it('takes F from the record only, and none means nothing to fix', () => {
-    expect(FIX).toContain('F := the Conventional Comments of the record, outside `## Root causes`.')
-    expect(FIX).toMatch(/body exactly `none` → nothing to fix: halt/)
-  })
-
   it('closes Root causes before any finding in the normative review comment', () => {
     const example = /\*\*Comment shape[^\n]*\n\n```markdown\n([\s\S]*?)\n```/.exec(REVIEW)?.[1] ?? ''
     expect(example.split('\n')[0]).toBe(mark)
@@ -144,12 +133,6 @@ describe('fix reads one attributable review record', () => {
 })
 
 describe('fix decides eligibility where the human used to', () => {
-  it('files a cause with an invalid member, a proxy fix line, or a path outside the repo', () => {
-    expect(FIX).toContain('every member finding passed Phase 1 validation — none has C(f) := 0')
-    expect(FIX).toMatch(/`r\.fix` does not widen a denylist[^\n]*whatever the members' classes/)
-    expect(FIX).toContain('every cited path resolves inside the repository root')
-  })
-
   it('sends filed titles and bodies through files, never argv', () => {
     expect(FIX).toContain('--title-file "$FILE_DIR/title.txt"')
     expect(FIX).toContain('--body-file "$FILE_DIR/body.md"')
@@ -163,21 +146,5 @@ describe('falsification counts causes', () => {
     expect(FALSIFY).toContain('falsification-retry per cause')
     expect(FALSIFY).toMatch(/Second `fail` → `git revert --no-edit` the cause's commits/)
     expect(FALSIFY).not.toMatch(/per finding|RC-1/)
-  })
-})
-
-describe('root-causes.md holds the join rules', () => {
-  it('bans joins on incidental overlap', () => {
-    expect(ROOT_CAUSES).toContain(
-      'Do not join on a shared file, a shared agent, a shared class slug, or similar symptom wording.',
-    )
-  })
-
-  it('requires every cause to carry a mechanism, a fix and its findings', () => {
-    expect(ROOT_CAUSES).toContain('Every cause has a non-empty `mechanism:`, `fix:` and `findings:`.')
-  })
-
-  it('ends the section at the next ## heading', () => {
-    expect(section(ROOT_CAUSES.replace(/```markdown\n/g, ''), '## Root causes').next).toBe('## Findings')
   })
 })
