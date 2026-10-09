@@ -137,6 +137,8 @@ review read; lookup failure is never treated as a local review. A closed PR on
 the branch refuses implicit reuse, so its bound cannot be reset. Existing PRs
 resume from their review records.
 
+Review → fix record contract: [root causes and member references](skills/dev-review/root-causes.md).
+
 The review bound is two reads of the PR's review records (#710) — the comments
 by the automation login (`gh api user`) whose first line is
 `<!-- omp-build:code-review -->`: how many there are, and the latest one. Nothing
