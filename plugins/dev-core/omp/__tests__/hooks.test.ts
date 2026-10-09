@@ -84,7 +84,7 @@ describe('OMP dev-core hooks', () => {
 
   describe('rewriteHarnessPaths', () => {
     it('expands leftover CLAUDE_SKILL_DIR and CLAUDE_PLUGIN_ROOT for dump fallback', () => {
-      const out = rewriteHarnessPaths('bash "${CLAUDE_SKILL_DIR}/ci-watch.sh"', '/plug/skills/ci-watch', '/plug')
+      const out = rewriteHarnessPaths(`bash "\${CLAUDE_SKILL_DIR}/ci-watch.sh"`, '/plug/skills/ci-watch', '/plug')
       expect(out).toBe('bash "/plug/skills/ci-watch/ci-watch.sh"')
     })
   })

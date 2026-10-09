@@ -1017,7 +1017,7 @@ describe('checkCompliance — regression pin', () => {
 
     // Assert — license distribution
     // MIT x2 (mit-pkg + override resolves to MIT), GPL-3.0 x1; unknown not counted (null license)
-    expect(report.summary.licenses['MIT']).toBe(2)
+    expect(report.summary.licenses.MIT).toBe(2)
     expect(report.summary.licenses['GPL-3.0']).toBe(1)
 
     // Assert — package statuses
@@ -1025,7 +1025,7 @@ describe('checkCompliance — regression pin', () => {
     expect(byName['mit-pkg'].status).toBe('allowed')
     expect(byName['gpl-pkg'].status).toBe('violation')
     expect(byName['mystery-pkg'].status).toBe('unknown')
-    expect(byName['overridden'].status).toBe('override')
+    expect(byName.overridden.status).toBe('override')
 
     // Assert — violations array
     expect(report.violations).toHaveLength(1)

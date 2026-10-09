@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   aggregateJobStats,
   classifyDormancy,
-  DORMANCY_MIN_RUNS,
   detectUnsafeTokenInTriggeredWorkflow,
   isJobRequired,
   type JobRunStats,
@@ -59,7 +58,7 @@ describe('detectUnsafeTokenInTriggeredWorkflow', () => {
         '      - name: Trigger merge',
         '        uses: some/action@v1',
         '        with:',
-        '          token: ${{ github.token }}',
+        `          token: \${{ github.token }}`,
       ].join('\n')
 
       const issues = detectUnsafeTokenInTriggeredWorkflow(content, 'auto-merge.yml')
@@ -84,7 +83,7 @@ describe('detectUnsafeTokenInTriggeredWorkflow', () => {
         '      - name: Push changes',
         '        run: git push',
         '        env:',
-        '          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}',
+        `          GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}`,
       ].join('\n')
 
       const issues = detectUnsafeTokenInTriggeredWorkflow(content, 'ci.yml')
@@ -105,7 +104,7 @@ describe('detectUnsafeTokenInTriggeredWorkflow', () => {
         '      - name: Deploy',
         '        run: deploy.sh',
         '        env:',
-        '          TOKEN: ${{ github.token }}',
+        `          TOKEN: \${{ github.token }}`,
       ].join('\n')
 
       const issues = detectUnsafeTokenInTriggeredWorkflow(content, 'ci.yml')
@@ -127,7 +126,7 @@ describe('detectUnsafeTokenInTriggeredWorkflow', () => {
         '      - name: Comment',
         '        uses: some-action@v1',
         '        with:',
-        '          token: ${{ github.token }}',
+        `          token: \${{ github.token }}`,
       ].join('\n')
 
       const issues = detectUnsafeTokenInTriggeredWorkflow(content, 'bot.yml')
@@ -150,7 +149,7 @@ describe('detectUnsafeTokenInTriggeredWorkflow', () => {
         '      - name: Trigger',
         '        uses: some/action@v1',
         '        with:',
-        '          token: ${{ secrets.PAT }}',
+        `          token: \${{ secrets.PAT }}`,
       ].join('\n')
 
       const issues = detectUnsafeTokenInTriggeredWorkflow(content, 'auto-merge.yml')
@@ -177,12 +176,12 @@ describe('detectUnsafeTokenInTriggeredWorkflow', () => {
         '        id: app',
         '        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1',
         '        with:',
-        '          app-id: ${{ vars.ROXABI_CI_APP_ID }}',
-        '          private-key: ${{ secrets.ROXABI_CI_APP_PRIVATE_KEY }}',
+        `          app-id: \${{ vars.ROXABI_CI_APP_ID }}`,
+        `          private-key: \${{ secrets.ROXABI_CI_APP_PRIVATE_KEY }}`,
         '      - name: Trigger merge',
         '        uses: some/action@v1',
         '        with:',
-        '          token: ${{ steps.app.outputs.token }}',
+        `          token: \${{ steps.app.outputs.token }}`,
       ].join('\n')
 
       const issues = detectUnsafeTokenInTriggeredWorkflow(content, 'auto-merge.yml')
@@ -205,12 +204,12 @@ describe('detectUnsafeTokenInTriggeredWorkflow', () => {
         '        id: roxabi-ci',
         '        uses: actions/create-github-app-token@v3',
         '        with:',
-        '          app-id: ${{ vars.APP_ID }}',
-        '          private-key: ${{ secrets.PRIVATE_KEY }}',
+        `          app-id: \${{ vars.APP_ID }}`,
+        `          private-key: \${{ secrets.PRIVATE_KEY }}`,
         '      - name: Push',
         '        run: git push',
         '        env:',
-        '          GH_TOKEN: ${{ steps.roxabi-ci.outputs.token }}',
+        `          GH_TOKEN: \${{ steps.roxabi-ci.outputs.token }}`,
       ].join('\n')
 
       const issues = detectUnsafeTokenInTriggeredWorkflow(content, 'ci.yml')
@@ -230,7 +229,7 @@ describe('detectUnsafeTokenInTriggeredWorkflow', () => {
         '  publish:',
         '    runs-on: ubuntu-latest',
         '    env:',
-        '      GH_TOKEN: ${{ github.token }}',
+        `      GH_TOKEN: \${{ github.token }}`,
         '    steps:',
         '      - run: gh release create',
       ].join('\n')
@@ -253,8 +252,8 @@ describe('detectUnsafeTokenInTriggeredWorkflow', () => {
         '      - name: Mixed',
         '        run: gh pr merge',
         '        env:',
-        '          APP: ${{ steps.app.outputs.token }}',
-        '          GH_TOKEN: ${{ github.token }}',
+        `          APP: \${{ steps.app.outputs.token }}`,
+        `          GH_TOKEN: \${{ github.token }}`,
       ].join('\n')
       const issues = detectUnsafeTokenInTriggeredWorkflow(content, 'auto-merge.yml')
       expect(issues.filter((i) => i.kind === 'dead')).toHaveLength(1)
@@ -268,7 +267,7 @@ describe('detectUnsafeTokenInTriggeredWorkflow', () => {
         '  sync:',
         '    runs-on: ubuntu-latest',
         '    env:',
-        '      GH_TOKEN: ${{ secrets.PAT }}',
+        `      GH_TOKEN: \${{ secrets.PAT }}`,
         '    steps:',
         '      - run: git push',
       ].join('\n')
@@ -308,7 +307,7 @@ describe('detectUnsafeTokenInTriggeredWorkflow', () => {
         '      - name: Comment',
         '        uses: some/action@v1',
         '        with:',
-        '          token: ${{ github.token }}',
+        `          token: \${{ github.token }}`,
       ].join('\n')
 
       const issues = detectUnsafeTokenInTriggeredWorkflow(content, 'pr-lint.yml')
@@ -434,12 +433,12 @@ describe('checkDeadGates (integration via subprocess)', () => {
         '        id: app',
         '        uses: actions/create-github-app-token@v1',
         '        with:',
-        '          app-id: ${{ vars.APP_ID }}',
-        '          private-key: ${{ secrets.APP_PRIVATE_KEY }}',
+        `          app-id: \${{ vars.APP_ID }}`,
+        `          private-key: \${{ secrets.APP_PRIVATE_KEY }}`,
         '      - name: Push',
         '        run: git push',
         '        env:',
-        '          GH_TOKEN: ${{ steps.app.outputs.token }}',
+        `          GH_TOKEN: \${{ steps.app.outputs.token }}`,
       ].join('\n'),
     )
 
@@ -500,7 +499,7 @@ describe('checkDeadGates (integration via subprocess)', () => {
         '      - name: Push',
         '        run: git push',
         '        env:',
-        '          GH_TOKEN: ${{ steps.app.outputs.token }}',
+        `          GH_TOKEN: \${{ steps.app.outputs.token }}`,
       ].join('\n'),
     )
 
@@ -535,12 +534,12 @@ describe('checkDeadGates (integration via subprocess)', () => {
         '        id: app',
         '        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1',
         '        with:',
-        '          app-id: ${{ vars.ROXABI_CI_APP_ID }}',
-        '          private-key: ${{ secrets.ROXABI_CI_APP_PRIVATE_KEY }}',
+        `          app-id: \${{ vars.ROXABI_CI_APP_ID }}`,
+        `          private-key: \${{ secrets.ROXABI_CI_APP_PRIVATE_KEY }}`,
         '      - name: Merge',
         '        uses: some/action@v1',
         '        with:',
-        '          token: ${{ steps.app.outputs.token }}',
+        `          token: \${{ steps.app.outputs.token }}`,
       ].join('\n'),
     )
 
@@ -987,7 +986,7 @@ describe('parseWorkflowJobs', () => {
       '    strategy:',
       '      matrix:',
       '        os: []',
-      '    runs-on: ${{ matrix.os }}',
+      `    runs-on: \${{ matrix.os }}`,
       '    steps:',
       '      - run: echo test',
     ].join('\n')
@@ -1002,7 +1001,7 @@ describe('parseWorkflowJobs', () => {
       '    strategy:',
       '      matrix:',
       '        os: [ubuntu-latest, windows-latest]',
-      '    runs-on: ${{ matrix.os }}',
+      `    runs-on: \${{ matrix.os }}`,
       '    steps:',
       '      - run: echo test',
     ].join('\n')

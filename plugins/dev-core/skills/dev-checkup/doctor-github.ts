@@ -569,7 +569,6 @@ export function detectUnsafeTokenInTriggeredWorkflow(
   let isPushTriggered = false
   let isBotTriggered = false // workflow_run, workflow_dispatch used by bots
   let inOnBlock = false
-  let onIndent = -1
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
@@ -577,7 +576,6 @@ export function detectUnsafeTokenInTriggeredWorkflow(
     // Detect `on:` root key
     if (/^on:\s*$/.test(line)) {
       inOnBlock = true
-      onIndent = 0
       continue
     }
     // Compact form: `on: [push, pull_request]` or `on: push`
@@ -993,7 +991,7 @@ export function aggregateJobStats(job: ParsedJob, runs: RunRecord[], siblings: S
     // name shares the prefix ("Build (debug)" vs matrix parent "Build") is excluded so its runs are
     // never absorbed into the parent's stats (#288 review #3).
     const matching = run.jobs.filter(
-      (j) => j.name === job.displayName || (j.name.startsWith(job.displayName + ' (') && !siblings.has(j.name)),
+      (j) => j.name === job.displayName || (j.name.startsWith(`${job.displayName} (`) && !siblings.has(j.name)),
     )
     if (matching.length === 0) continue // job absent from this run — don't count
 
@@ -1191,7 +1189,7 @@ export function isJobRequired(
 ): boolean {
   return (
     requiredContexts.has(displayName) ||
-    [...requiredContexts].some((c) => c.startsWith(displayName + ' (') && !siblings.has(c))
+    [...requiredContexts].some((c) => c.startsWith(`${displayName} (`) && !siblings.has(c))
   )
 }
 
@@ -1236,10 +1234,11 @@ export function detectDormantJobs(ghOk: boolean, owner: string, repo: string): C
       if (jobs.length === 0) continue
 
       // Fetch required contexts (memoized per branch)
-      if (!reqCache.has(branch)) {
-        reqCache.set(branch, fetchRequiredContexts(owner, repo, branch))
+      let requiredContexts = reqCache.get(branch)
+      if (requiredContexts === undefined) {
+        requiredContexts = fetchRequiredContexts(owner, repo, branch)
+        reqCache.set(branch, requiredContexts)
       }
-      const requiredContexts = reqCache.get(branch)!
 
       // Fetch job history
       const statsMap = fetchJobHistory(owner, repo, wf, branch, jobs, DORMANCY_RUN_LIMIT)

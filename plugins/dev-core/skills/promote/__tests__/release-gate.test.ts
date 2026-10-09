@@ -212,7 +212,7 @@ describe('release-consistency — pinned gate tooling step (#385 item 1)', () =>
     // The exec suite proves the behaviour; this pins the predicate so a future
     // edit cannot quietly drop the outcome conjunct and keep the file check.
     expect(reusableSrc).toMatch(/^\s+price_available\(\) \{$/m)
-    expect(reusableSrc).toContain('[ "${GATE_TOOLS_OUTCOME:-}" = "success" ] && [ -f "$PRICE" ]')
+    expect(reusableSrc).toContain(`[ "\${GATE_TOOLS_OUTCOME:-}" = "success" ] && [ -f "$PRICE" ]`)
   })
 
   it('every `bash "$PRICE"` is immediately preceded by the lazy guard, and no guard precedes an early green', () => {
@@ -321,7 +321,7 @@ describe('release-consistency — authority from BASE ref, not PR head (#374)', 
   })
 
   it('materialises the base stack.yml from a fully-qualified remote ref (not the checkout)', () => {
-    expect(reusableSrc).toContain('git show "refs/remotes/origin/${PR_BASE_REF}:${STACK}"')
+    expect(reusableSrc).toContain(`git show "refs/remotes/origin/\${PR_BASE_REF}:\${STACK}"`)
   })
 
   it('reads BOTH release.model and release.component from the base stack, not $STACK', () => {
@@ -343,7 +343,7 @@ describe('release-consistency — authority from BASE ref, not PR head (#374)', 
     // whole re-price must use refs/remotes/origin/… .
     expect(reusableSrc).not.toContain('"$COMPONENT" origin/main')
     expect(reusableSrc).toContain(
-      'bash "$PRICE" "$COMPONENT" "refs/remotes/origin/${PR_BASE_REF}" "refs/remotes/origin/${PR_BASE_REF}" "$PR_HEAD_SHA"',
+      `bash "$PRICE" "$COMPONENT" "refs/remotes/origin/\${PR_BASE_REF}" "refs/remotes/origin/\${PR_BASE_REF}" "$PR_HEAD_SHA"`,
     )
   })
 
@@ -353,7 +353,7 @@ describe('release-consistency — authority from BASE ref, not PR head (#374)', 
     expect(reusableSrc).toContain(`yq -r '.release.model // "staging-train"' "$f" 2>/dev/null || echo "staging-train"`)
     expect(reusableSrc).toContain(`yq -r '.release.component // ""' "$f" 2>/dev/null || echo ""`)
     // The readers take a file arg so the PR path can pass the base stack.
-    expect(reusableSrc).toContain('local f="${1:-$STACK}"')
+    expect(reusableSrc).toContain(`local f="\${1:-$STACK}"`)
   })
 })
 

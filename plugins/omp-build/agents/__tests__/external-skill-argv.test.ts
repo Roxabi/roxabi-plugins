@@ -66,7 +66,7 @@ const NON_SHELL_LANG = new Set([
 ])
 
 /** Whole-word shell commands — hyphenated `read-*` / `node-*` must not match. */
-const CMD = String.raw`(?:bun|bash|node|sh|bunx|npx|realpath|read|cat)`
+const CMD = `(?:bun|bash|node|sh|bunx|npx|realpath|read|cat)`
 const CMD_RE = new RegExp(String.raw`(?<![-\w])${CMD}(?![-\w])`)
 
 /** A resolvable skill path — requires a skill name (skips `skill://…` ellipses). */
