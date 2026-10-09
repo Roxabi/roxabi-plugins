@@ -139,6 +139,8 @@ External plugin marketplaces we endorse are tracked in [`.claude-plugin/external
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for how to add a plugin, wrap an external skill, or improve an existing one.
 
+Repository maintenance uses the locked Biome version with the recommended rules; keep lint fixes literal-safe and preserve runtime behavior rather than suppressing diagnostics. In JavaScript/TypeScript fixtures, escape literal `${...}` openers as `\${...}` in ordinary, untagged template literals and preserve the cooked string bytes. OMP changes to `dev-core`, `omp-build`, or `issue-triage` also require matching, newer package and OMP catalog versions so installed caches can pick them up.
+
 > [!TIP]
 > The fastest way to add a plugin is to follow the step-by-step guide in [docs/CREATE-PLUGIN-GUIDE.md](docs/CREATE-PLUGIN-GUIDE.md) — it covers directory structure, frontmatter, marketplace registration, and the commit format.
 

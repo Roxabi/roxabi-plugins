@@ -77,7 +77,7 @@ function makeRepo(script: string): { dir: string; argvLog: string; fakeBin: stri
       'if [ "$1" = "git" ]; then',
       '  url=$2',
       '  dest=$(mktemp -d)',
-      '  git clone --quiet "${url#file://}" "$dest" >/dev/null 2>&1 || true',
+      `  git clone --quiet "\${url#file://}" "$dest" >/dev/null 2>&1 || true`,
       '  rm -rf "$dest"',
       'fi',
       'exit 0',

@@ -786,7 +786,7 @@ describe('cleanup orphan scan repo scope (#622)', () => {
   })
 
   it('falls back to python3 when PATH has a realpath that rejects -m', () => {
-    const { root, home, base } = tempRoot('nognu')
+    const { root, base } = tempRoot('nognu')
     const realHome = path.join(root, 'real-home')
     const homeLink = path.join(root, 'home-link')
     mkdirSync(realHome)
@@ -816,11 +816,10 @@ describe('cleanup orphan scan repo scope (#622)', () => {
     // realpath that accepts no -m / -ms flags
     writeFileSync(
       path.join(shimDir, 'realpath'),
-      [
-        '#!/bin/bash',
-        'for a in "$@"; do case "$a" in -m|-ms) echo realpath-no-m >&2; exit 1;; esac; done',
-        'exec /usr/bin/realpath "$@"',
-      ].join('\n') + '\n',
+      `#!/bin/bash
+for a in "$@"; do case "$a" in -m|-ms) echo realpath-no-m >&2; exit 1;; esac; done
+exec /usr/bin/realpath "$@"
+`,
     )
     chmodSync(path.join(shimDir, 'realpath'), 0o755)
 

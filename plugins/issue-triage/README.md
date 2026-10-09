@@ -73,6 +73,10 @@ Canonical labels written: `size:S` / `size:F-lite` / `size:F-full`. Legacy `XS/S
 
 P1 fires on either of two triggers: the milestone in progress, or a shipped check that reports a pass when it should fail or stop. The full rubric is in the skill's Priority Guidelines; the consuming project's contract binds it to the repository.
 
+## Maintenance
+
+Keep literal harness placeholders intact when changing the OMP path-rewrite implementation; lint maintenance must not change expansion behavior. Publish OMP changes with matching, newer versions in `package.json` and `.omp-plugin/marketplace.json`; Claude's hash-keyed delivery is unchanged.
+
 ## License
 
 MIT

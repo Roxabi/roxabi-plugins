@@ -408,7 +408,7 @@ describe('release-consistency — a head-planted .gate-tools/ is not the pinned 
     // wrote. If these ever stop being green the two assertions above have stopped
     // proving anything.
     const presenceOnly = mutated((s) =>
-      s.replace('[ "${GATE_TOOLS_OUTCOME:-}" = "success" ] && [ -f "$PRICE" ]', '[ -f "$PRICE" ]'),
+      s.replace(`[ "\${GATE_TOOLS_OUTCOME:-}" = "success" ] && [ -f "$PRICE" ]`, '[ -f "$PRICE" ]'),
     )
     const pr = build(PLANTED_PR)
     const rpr = runGate(

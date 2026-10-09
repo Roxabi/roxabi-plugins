@@ -202,6 +202,10 @@ Agent definitions no longer preload external skills in frontmatter. Invoke compa
 
 The core workflow functions without them.
 
+## Maintenance
+
+Lint-only maintenance must preserve harness-path placeholder bytes and doctor cache behavior, including cached empty results. Keep `package.json` and the OMP catalog version matched and newer than `origin/main` for delivery; Claude's hash-keyed cache policy is unchanged.
+
 ## License
 
 MIT

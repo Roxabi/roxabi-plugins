@@ -168,7 +168,7 @@ describe('pf_emit_gates — missing spec / no-issue fail-closed', () => {
 function emitParsePriced(specPath: string): string {
   const r = spawnSync(
     'bash',
-    ['-c', 'source "$1"; pf_parse_priced "$2"; echo "priced_ok=${PRICED_OK}"', '_', PARSE, specPath],
+    ['-c', `source "$1"; pf_parse_priced "$2"; echo "priced_ok=\${PRICED_OK}"`, '_', PARSE, specPath],
     { encoding: 'utf-8', cwd: ROOT },
   )
   return r.stdout.trim()
