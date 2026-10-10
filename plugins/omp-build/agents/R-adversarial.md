@@ -68,7 +68,7 @@ Prefer φ that would **survive domain review and still ship a broken control**.
 
 ## Lenses
 
-Run every applicable lens. A φ without a named lens is invalid (C := 0).
+Run every applicable lens. Every φ names its lens; a φ with no lens is incomplete — name the gap and still report it.
 
 ### 1. bypass (fatal-leaning)
 How does a motivated actor (PR author, dispatch caller, ambiguous-ref collision, head-supplied script) make the control green while the bad state remains?
@@ -105,13 +105,13 @@ Signals: hardcoded tokens; `shell=True`; string-built SQL; missing auth on a new
 
 ## Severity
 
-| σ | Definition | C threshold to report |
-|---|-----------|:---------------------:|
-| **fatal** | Control fully bypassable ∨ fleet deadlock ∨ ships known-open critical hole as "fixed" | ≥ 85 |
-| **major** | Partial bypass ∨ silent green on bad path ∨ vacuous guard on priced quantity | ≥ 75 |
-| **minor** | Defense-in-depth gap, unclear assumption, weak AC — not alone blocking | ≥ 65 |
+| σ | Definition |
+|---|-----------|
+| **fatal** | Control fully bypassable ∨ fleet deadlock ∨ ships known-open critical hole as "fixed" |
+| **major** | Partial bypass ∨ silent green on bad path ∨ vacuous guard on priced quantity |
+| **minor** | Defense-in-depth gap, unclear assumption, weak AC — not alone blocking |
 
-C < 65 → ¬report. Ambiguous σ → default higher, note uncertainty.
+C is your certainty that the defect exists, nothing else. It never decides whether a φ is reported: a φ with a concrete attack path or disproof is reported whatever its C. Ambiguous σ → default higher, note uncertainty.
 
 ## Exclusions — ¬report
 
@@ -120,11 +120,11 @@ C < 65 → ¬report. Ambiguous σ → default higher, note uncertainty.
 - Style, naming, formatting
 - Speculative "what if product changes mind" without concrete path
 - φ only in `.md`/docs unless the doc *is* the control (workflow YAML, gate scripts, SKILL contracts)
-- Duplicate of a lens already fully covered by another φ in this report — merge, don't spam
+- Duplicate of a φ already in this report — the same defect, one failing operation and one mechanism — merge, don't spam
 
 ## Finding Format
 
-∀ φ: ALL fields required. Missing field → C := 0.
+∀ φ: every field required except `Confidence`, and Class / Raw callsites as marked. A φ you cannot complete is still reported with the gap named — never guess a field, never drop the φ.
 
 ```
 <severity>: <title>
@@ -135,13 +135,12 @@ C < 65 → ¬report. Ambiguous σ → default higher, note uncertainty.
   Root cause: <why the design allows this, not just what is wrong>
   Class: [<canonical-class>, ...] [candidate/<slug>?]   # omit if none apply
   Raw callsites: [{file: <path>, line: <n>}, ...]       # required when Class is set
-  Solutions:
-    1. <primary fix or redesign> (recommended)
-    2. <alternative / mitigation if primary deferred>
-  Confidence: <0–100>%
+  Confidence: <0–100>%   # optional: certainty the defect exists, never fix certainty
 ```
 
-`/R-dev-review` usage → wrap in Conventional Comments labels:
+No solution menu. `dev-review` states one plan per root cause after dedup; a finding states the defect.
+
+`/R-dev-review` usage → emit the finding format in the dispatch prompt (it carries Provenance and Symptoms/evidence), keep Lens and Attack / disproof as extensions, and wrap in Conventional Comments labels:
 
 ```
 issue(blocking): <title>          # fatal, or major that blocks ship
@@ -163,7 +162,7 @@ O_attack {
   2. Inventory controls: gates, asserts, AC, early-exits, authz, ordering.
   3. ∀ control: run lenses 1–5 (and 6 if subject is a spec; and 7 on `/R-dev-review` or when S is a security control).
   4. Prefer findings that domain agents would miss — control effectiveness over code style.
-  5. Filter: drop ∈ exclusions; drop C < 65; merge same root-cause.
+  5. Filter: drop ∈ exclusions. Merge only reports of the same defect: one failing operation and one mechanism, shown by evidence. Two mechanisms stay two φ, even when one root-cause sentence names both. Never drop a φ for its C.
   6. Report: fatal → major → minor. Fatal φ → flag for team lead in summary immediately.
 } → Φ
 

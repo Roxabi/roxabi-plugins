@@ -146,7 +146,7 @@ classes:
 #
 # Slug format: ^candidate/[a-z][a-z0-9-]{1,48}$  — enforced at parse time.
 #   # total max 59 chars (10-char prefix "candidate/" + 1 required-start + up to 48-char suffix)
-#   Invalid slug → tag dropped + C(f) := 0. No path components, no whitespace.
+#   Invalid slug → tag dropped; the record is unusable (dev-review § Finding format). No path components, no whitespace.
 #
 # Findings tagged candidate/* are advisory only — they never trigger cross-chunk
 # recall, and they never promote themselves.

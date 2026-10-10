@@ -131,12 +131,12 @@ The skill holding Roxabi's multi-domain review on OMP: roster, Conventional Comm
 _Avoid_: R-dev-review as the skill name, code-review (Matt), /review (host builtin)
 
 **fix**:
-The skill that applies one change per blocking root cause from a review, inline, with no per-finding choice. Non-blocking causes are deferred into one sibling issue, not applied.
-_Avoid_: R-fix as the skill name, R-fixer, spawning a fixer agent, a per-finding walkthrough, applying a non-blocking cause
+The skill that applies the one plan of each blocking root cause from a review, inline, with no per-finding choice, then tries to break it against the cause's own proof. Non-blocking causes are deferred into one sibling issue, not applied; a blocker it cannot apply is filed and still blocks.
+_Avoid_: R-fix as the skill name, R-fixer, spawning a fixer agent, a per-finding walkthrough, applying a non-blocking cause, picking a fix from a finding's solutions
 
 **Root cause**:
-The shared mechanism behind one or more review findings. Named after the review, before any edit. The unit `fix` applies when a member blocks; otherwise the unit it defers.
-_Avoid_: the finding itself, a class slug alone, a file
+The shared mechanism behind one or more review findings, stated with its one plan: mechanism, fix, failure scenario, restored behaviour, affected paths, proof, findings. Named after the review, before any edit. The unit `fix` applies when a member blocks; otherwise the unit it defers.
+_Avoid_: the finding itself, a class slug alone, a file, a menu of solutions
 
 **Review record**:
 The one PR comment `fix` reads: first line `<!-- omp-build:code-review -->`, authored by the account running `fix`, newest wins. Root causes and findings both come from it. It is also the unit the Review bound counts. Line 2, when a PR was reviewed, is `<!-- omp-build:review-head sha=<40 lowercase hex> -->` — the commit that approval names. `fix` does not read it. `landPr` arms only when it matches the PR's current `headRefOid`; a record without it does not arm, so a PR reviewed before the line existed needs one re-review. Native auto-merge is then pinned with `--match-head-commit`. Merge-on-green remains label-driven: a push by another actor after `reviewed` is applied is not refused by GitHub.

@@ -5,7 +5,7 @@ description: >-
   OMP-only multi-domain code review — five-role evidence-selected panel, Conventional Comments, common root causes, findings + verdict.
   Triggers: "dev-review" | "code review" | "review changes" | "review PR #42" | "check my code" | "review my changes" | "review this PR" | "do a code review" | "review the diff".
   Not the host native /review, not Matt code-review.
-version: 0.1.0
+version: 0.2.0
 ---
 
 # Code Review
@@ -26,7 +26,7 @@ Review branch/PR via fresh agents → Conventional Comments → root causes → 
 
 Let:
   F := set of all findings | f ∈ F := single finding
-  C(f) ∈ [0,100] ∩ ℤ — confidence | cat(f) ∈ {issue, suggestion, todo, nitpick, thought, question, praise}
+  C(f) ∈ [0,100] ∩ ℤ, or absent — certainty that the defect exists; orders findings, never removes one | unusable(f) — § Finding format | cat(f) ∈ {issue, suggestion, todo, nitpick, thought, question, praise}
   Δ := changed files | BASE := staging ∨ main
   τ := tier (S | F-lite | F-full)
   Q := present choice, wait for user reply
@@ -285,7 +285,7 @@ task(
     {
       name: "{Agent}Chunk{i}",
       agent: "{agent}",
-      task: "Code review task. Focus: {focus}.\n\nSpawned roster (this review): {agents[]}. Sibling-drop rules key off THIS list — a concern whose owner is ¬in the list is YOURS: keep the finding. This panel has five roles and two of them are specialists picked by evidence, so component/hook/client-behaviour and API/contract/error concerns usually have ¬owner: they are yours. If you are R-adversarial: also apply an OWASP lens (secrets, injection, auth); the default panel is R-adversarial alone, so spec-scope, structure and coverage φ are yours unless the roster names R-architect/R-tester (R-product-lead is ¬in the roster at all — Phase 2 owns spec compliance). Output Conventional Comments findings only. ¬spawn agents (¬task, ¬Skill). ¬invoke this skill. Review your assigned scope yourself.\n\nYou are reviewing chunk {i} of {N}. Review ONLY the files in this chunk.\n\nAdditionally audit each chunk against the systematic blind spots in `skill://dev-review/review-blind-spots.md` — call out each applicable one explicitly (or note none apply).\n\nFormat per finding:\n<label>: <description>\n  <file>:<line>\n  -- {agent}\n  Provenance: [{agent: {agent}, phase: panel, chunk: {i}, source: <original Source when present>, callsites: [<this report's evidenced locations>]}]\n  Root cause: <why>\n  Symptoms/evidence: <observed failure and supporting evidence>\n  Class: [<canonical-class>, ...] [candidate/<slug>?]  ← 0–N canonical from review-classes.yml + 0–1 candidate; omit field if no class applies\n  Raw callsites: [{file: <path>, line: <n>}, ...]  ← all evidenced manifestations of this defect; required when Class is set; never empty; classless explicit lists permitted\n  Solutions:\n    1. <primary> (recommended)\n    2. <alternative>\n  Confidence: N%\n\nAgent and chunk above are actual orchestrator task context. Omit unknown optional provenance values; retain original Source and extensions such as Lens/Attack/disproof. A class-wide discovery list is not this finding's callsite list.\n\nCanonical classes (use slug only): test-tautology, generator-drift, parallel-path-drift, bash-arithmetic-trap, bash-error-suppression, target-axis-trap, vacuous-guard, shell-injection, sql-injection, missing-error-handling, missing-input-validation, secret-leak, bare-except, path-traversal, unbounded-loop. Free-text labels not in this list or candidate/* namespace are invalid. Candidate slugs must match ^candidate/[a-z][a-z0-9-]{1,48}$. Subsumption: bare-except subsumes missing-error-handling — when both apply, tag bare-except only; strip tags within a finding, never merge findings. parallel-path-drift and target-axis-trap are siblings (¬overlap) — parallel-path-drift for security hardening missing on a sibling entry point, target-axis-trap for architectural concern duplication across the non-primary axis (concern copy-pasted in ≥3 sibling dirs); prefer the matching one, do not double-tag.\n\n---CHUNK DIFF (chunk {i})---\n{c_i.hunk_text for all files in chunk}\n\n---CHUNK FILES---\n{contents of files in c_i}\n\n---BOUNDARY DIGESTS (other chunks)---\n{format_digest_for_agent(d) for d in digests if d.chunk_index != i}\n\n---SPEC---\n{σ body if ∃, else omit section}"
+      task: "Code review task. Focus: {focus}.\n\nSpawned roster (this review): {agents[]}. Sibling-drop rules key off THIS list — a concern whose owner is ¬in the list is YOURS: keep the finding. This panel has five roles and two of them are specialists picked by evidence, so component/hook/client-behaviour and API/contract/error concerns usually have ¬owner: they are yours. If you are R-adversarial: also apply an OWASP lens (secrets, injection, auth); the default panel is R-adversarial alone, so spec-scope, structure and coverage φ are yours unless the roster names R-architect/R-tester (R-product-lead is ¬in the roster at all — Phase 2 owns spec compliance). Output Conventional Comments findings only. ¬spawn agents (¬task, ¬Skill). ¬invoke this skill. Review your assigned scope yourself.\n\nA finding states the defect — locus, evidence, and how sure you are that it exists — never a solution: the review states one plan per root cause after dedup. Never drop a finding for its confidence. Merge only reports of the same defect (one failing operation, one mechanism). A missing or weak test is judged by Phase 4 step 3b and § Proof in `skill://dev-review/root-causes.md`: never demand a source-text, wiring-copy or mock-echo assertion, and never demand again a proof the diff already carries without new evidence of a defect.\n\nYou are reviewing chunk {i} of {N}. Review ONLY the files in this chunk.\n\nAdditionally audit each chunk against the systematic blind spots in `skill://dev-review/review-blind-spots.md` — call out each applicable one explicitly (or note none apply).\n\nFormat per finding:\n<label>: <description>\n  <file>:<line>\n  -- {agent}\n  Provenance: [{agent: {agent}, phase: panel, chunk: {i}, source: <original Source when present>, callsites: [<this report's evidenced locations>]}]\n  Root cause: <why>\n  Symptoms/evidence: <observed failure and supporting evidence>\n  Class: [<canonical-class>, ...] [candidate/<slug>?]  ← 0–N canonical from review-classes.yml + 0–1 candidate; omit field if no class applies\n  Raw callsites: [{file: <path>, line: <n>}, ...]  ← all evidenced manifestations of this defect; required when Class is set; never empty; classless explicit lists permitted\n  Confidence: N%  ← optional: certainty the defect exists, never fix certainty\n\nAgent and chunk above are actual orchestrator task context. Omit unknown optional provenance values; retain original Source and extensions such as Lens/Attack/disproof. This format wins over the one in your agent body: keep your body's extra fields (Lens, Attack / disproof, Category, Exploit scenario) as extensions. A class-wide discovery list is not this finding's callsite list.\n\nCanonical classes (use slug only): test-tautology, generator-drift, parallel-path-drift, bash-arithmetic-trap, bash-error-suppression, target-axis-trap, vacuous-guard, shell-injection, sql-injection, missing-error-handling, missing-input-validation, secret-leak, bare-except, path-traversal, unbounded-loop. Free-text labels not in this list or candidate/* namespace are invalid. Candidate slugs must match ^candidate/[a-z][a-z0-9-]{1,48}$. Subsumption: bare-except subsumes missing-error-handling — when both apply, tag bare-except only; strip tags within a finding, never merge findings. parallel-path-drift and target-axis-trap are siblings (¬overlap) — parallel-path-drift for security hardening missing on a sibling entry point, target-axis-trap for architectural concern duplication across the non-primary axis (concern copy-pasted in ≥3 sibling dirs); prefer the matching one, do not double-tag.\n\n---CHUNK DIFF (chunk {i})---\n{c_i.hunk_text for all files in chunk}\n\n---CHUNK FILES---\n{contents of files in c_i}\n\n---BOUNDARY DIGESTS (other chunks)---\n{format_digest_for_agent(d) for d in digests if d.chunk_index != i}\n\n---SPEC---\n{σ body if ∃, else omit section}"
     }
   ]
 )
@@ -315,7 +315,7 @@ class_index = {}   # class_slug → {chunks: set[int], callsites: set[{file, lin
 
 `candidate/*` classes never join and never trigger recall.
 
-`chunks` and unique `callsites` are scheduling sets only. `reports` retains each original finding's description, root cause, symptoms/evidence, solutions, confidence, emitter, phase, chunk and original Source, with its own report-to-callsite associations. Preserve distinct reports at a shared location; the class index does not merge defects.
+`chunks` and unique `callsites` are scheduling sets only. `reports` retains each original finding's description, root cause, symptoms/evidence, confidence, emitter, phase, chunk and original Source, with its own report-to-callsite associations. Preserve distinct reports at a shared location; the class index does not merge defects.
 
 **Step 2 — Trigger per class only when all hold:**
 
@@ -330,7 +330,7 @@ There is no diff-size or confidence knob. A single-chunk concentration never tri
 
 **Step 3 — Spawn one isolated worker per triggered class:**
 
-Before dispatch, the orchestrator sets `finding_format` to the verbatim fenced template in § Finding format below and expands `{finding_format}` into the task text. Pass only that template, not this skill's full body or implementation context; the worker does not invoke a skill. Confidence uses the shared integer 0–100 rule.
+Before dispatch, the orchestrator sets `finding_format` to the verbatim fenced template in § Finding format below and expands `{finding_format}` into the task text. Pass only that template, not this skill's full body or implementation context; the worker does not invoke a skill. Confidence, when stated, uses the shared integer 0–100 existence rule.
 
 ```
 task(
@@ -339,7 +339,7 @@ task(
     {
       name: "Recall{cls}",
       agent: "scout",
-      task: "Fresh isolated read-only recall for canonical class '{cls}'.\n\nInput only:\n  class: {cls}\n  callsites: {class_index[cls].callsites}\n  reports: {class_index[cls].reports}\n  context_lines: 10\n  cross_chunk_index: {chunks: {class_index[cls].chunks}, agents: {agents_that_flagged}}\n\nAuthoritative finding format (expanded by orchestrator):\n{finding_format}\n\nEmit each finding in exactly that shape, including the standalone file:line citation and all mandatory fields. Confidence is an integer from 0 through 100 followed by %, not confidence-band prose.\n\nProcedure:\n1. RC-3 scope confirmation: read only ±10 lines around every supplied callsite and confirm every sibling entry point is covered. Check each input report's diagnostic mechanism independently, including distinct mechanisms at the same seed location; a confirmed class/location does not confirm every report there.\n2. RC-6 uncited-instance search: use read-only search for structural siblings of the flagged pattern (same signature shape, import, or decorator).\n3. Emit separate Conventional Comments findings for independently confirmed mechanisms, including co-located ones. Group locations within a finding only when evidence demonstrates the same defect. Use label `issue(blocking):`, active `Source: recall`, agent scout and canonical Class '{cls}' in the authoritative format. Record actual emitter scout, phase recall, original Source recall, and the locations this worker evidenced; include chunk only when actually known. Retain input-report provenance only for the mechanism and seed callsites that report actually supports. New locations have observed scout/recall provenance only, never inherited seed provenance. Preserve all confirmed input symptoms/evidence and their original source associations, including Lens/Attack/disproof extensions; do not copy the whole class index's agents/chunks onto a finding.\n4. If no additional or confirmable instance exists, return a plain scope receipt, not a finding.\n\nRead-only: read/grep/glob only. No write, edit, bash, task, Skill, tests, implementation context, or full diff. Never invent a callsite. Never spawn another worker or invoke this skill."
+      task: "Fresh isolated read-only recall for canonical class '{cls}'.\n\nInput only:\n  class: {cls}\n  callsites: {class_index[cls].callsites}\n  reports: {class_index[cls].reports}\n  context_lines: 10\n  cross_chunk_index: {chunks: {class_index[cls].chunks}, agents: {agents_that_flagged}}\n\nAuthoritative finding format (expanded by orchestrator):\n{finding_format}\n\nEmit each finding in exactly that shape, including the standalone file:line citation and all mandatory fields. Confidence is optional; when present it is an integer from 0 through 100 followed by %, the certainty that the defect exists, not confidence-band prose. No solution menu: state the defect, never a fix.\n\nProcedure:\n1. RC-3 scope confirmation: read only ±10 lines around every supplied callsite and confirm every sibling entry point is covered. Check each input report's diagnostic mechanism independently, including distinct mechanisms at the same seed location; a confirmed class/location does not confirm every report there.\n2. RC-6 uncited-instance search: use read-only search for structural siblings of the flagged pattern (same signature shape, import, or decorator).\n3. Emit separate Conventional Comments findings for independently confirmed mechanisms, including co-located ones. Group locations within a finding only when evidence demonstrates the same defect. Use label `issue(blocking):`, active `Source: recall`, agent scout and canonical Class '{cls}' in the authoritative format. Record actual emitter scout, phase recall, original Source recall, and the locations this worker evidenced; include chunk only when actually known. Retain input-report provenance only for the mechanism and seed callsites that report actually supports. New locations have observed scout/recall provenance only, never inherited seed provenance. Preserve all confirmed input symptoms/evidence and their original source associations, including Lens/Attack/disproof extensions; do not copy the whole class index's agents/chunks onto a finding.\n4. If no additional or confirmable instance exists, return a plain scope receipt, not a finding.\n\nRead-only: read/grep/glob only. No write, edit, bash, task, Skill, tests, implementation context, or full diff. Never invent a callsite. Never spawn another worker or invoke this skill."
     }
   ]
 )
@@ -350,7 +350,7 @@ Workers run in parallel. Collect their findings into Phase 4. A missing or weak 
 ### Review dimensions
 correctness | security | performance | architecture | tests | readability | observability
 
-### Finding format (ALL fields mandatory except Class/Raw callsites and conditional detail)
+### Finding format (ALL fields mandatory except Confidence, Class/Raw callsites and conditional detail)
 
 ```
 <label>: <description>
@@ -361,34 +361,32 @@ correctness | security | performance | architecture | tests | readability | obse
   Symptoms/evidence: <observed failure and supporting evidence; retain distinct details>
   Class: [<canonical-class>, ...] [candidate/<slug>?]
   Raw callsites: [{file: <path>, line: <n>}, ...]
-  Solutions:
-    1. <primary> (recommended)
-    2. <alternative>
-    3. <alternative> [optional]
   Confidence: <integer 0-100>%
 ```
 
 Provenance is immutable emission history, not an impact label. Keep each tuple's emitter/phase/chunk/original Source associated with the locations that report actually evidenced; omit unknown optional values, never fabricate them. The `-- <agent>` line remains mandatory; a merged record may list all emitters there. Preserve any report extensions (including Lens and Attack/disproof) in the same finding.
 
+No solution menu. A finding states the defect, its locus and its evidence; the plan lives once, on its cause (`skill://dev-review/root-causes.md`).
+
 **Class field rules:**
 - 0–N canonical tags from `skill://dev-review/review-classes.yml` + 0–1 `candidate/<slug>` tag
 - Omit the `Class:` field entirely when no class applies (¬write `Class: []`)
-- Free-text labels not in the canonical list and not prefixed `candidate/` → invalid; treat as C(f) := 0
-- `candidate/<slug>` must match `^candidate/[a-z][a-z0-9-]{1,48}$`; slug violating format → invalid, C(f) := 0
+- Free-text labels not in the canonical list and not prefixed `candidate/` → invalid; the record is unusable
+- `candidate/<slug>` must match `^candidate/[a-z][a-z0-9-]{1,48}$`; slug violating format → invalid; the record is unusable
 - `Raw callsites` required when `Class` is set; list ALL evidenced manifestations of this defect in the diff + resolved imports, never just the cited line; format: `[{file: <path>, line: <n>}, ...]`. Classless findings may emit explicit Raw callsites, which remain authoritative member locations. A class-wide discovery list is not a finding's callsite list.
 - Subsumption: `bare-except` subsumes `missing-error-handling` — when both could apply, tag `bare-except` only. Strip tags within a finding, never merge findings.
 - Subsumption: `parallel-path-drift` ⊥ `target-axis-trap` (siblings, ¬overlap). Authoritative definition + threshold (≥3 sibling dirs) lives in `review-classes.yml` RC-3 and RC-5 — see the `note:` fields there. Tag exactly one; do not double-tag.
 
-C(f) = min(diagnostic_certainty, fix_certainty)
+C(f) is the certainty that the defect exists — never fix certainty. It is optional. It orders findings; it never removes, demotes or files one, and it never moves a well-formed blocking cause out of apply.
 
 | Band | C | Criteria |
 |------|---|----------|
-| Certain | 90-100 | Unambiguous diagnosis + fix |
-| High | 70-89 | Clear diagnosis, 1-2 approaches |
+| Certain | 90-100 | Defect demonstrated: reproduced, or shown by the cited lines alone |
+| High | 70-89 | Strong evidence, one step not observed |
 | Moderate | 40-69 | Probable, context-dependent |
 | Low | 0-39 | Speculative, competing explanations |
 
-**Validation:** missing mandatory fields ∨ C ∉ ℤ ∩ [0,100] ∨ free-text class label → C(f) := 0 (kept; `skill://fix` files a cause with a C := 0 member instead of applying it).
+**Validation:** `unusable(f)` := a mandatory field is missing ∨ an invalid class tag (free text, or a malformed `candidate/<slug>`) ∨ `Class` set with absent or unparsable `Raw callsites`. An unusable record is kept and still blocks when its label blocks; `skill://fix` files its cause instead of applying it, and it never contaminates a different cause. Confidence never makes a record unusable: an absent or non-integer confidence is recorded as absent.
 
 ### Finding categories
 
@@ -400,7 +398,7 @@ C(f) = min(diagnostic_certainty, fix_certainty)
 | Architecture | `thought:` / `question:` | ✗ |
 | Good work | `praise:` | ✗ |
 
-**Missing or weak test.** A missing test, a test that still passes when the guard is removed, a tautology, or a coverage gap is blocking only when the behaviour it leaves unproven is an acceptance criterion of the issue with no other evidence in the PR, or a safety invariant: a path that merges, releases or deploys, deletes, publishes, grants permission, or stops or disarms an automated action. Otherwise the label is `suggestion:`, which does not satisfy `blocks(f)`.
+**Missing or weak test.** A missing test, a test that still passes when the guard is removed, a tautology, or a coverage gap is blocking only when both hold: the behaviour it leaves unproven is an acceptance criterion of the issue with no other evidence in the PR, or a safety invariant (a path that merges, releases or deploys, deletes, publishes, grants permission, or stops or disarms an automated action); and the PR carries no accepted proof of that behaviour (§ Proof in `skill://dev-review/root-causes.md`). Otherwise the label is `suggestion:`, which does not satisfy `blocks(f)`. The gap is judged on the behaviour, never on the proof form a reviewer asks for: a demanded source-text, wiring-copy or mock-echo assertion is never a requirement, and restating an accepted proof without new evidence of a defect is never a blocker. A real missed or fix-induced defect with evidence is a behaviour finding, not a missing-test finding, and keeps its label. Phase 4 step 3b applies this rule.
 
 Label → group, matched exactly (do not prefix-match `suggestion:` onto `suggestion(blocking):`):
 
@@ -416,17 +414,17 @@ Label → group, matched exactly (do not prefix-match `suggestion:` onto `sugges
 One phase owns the final finding set, the single rendered review, and the optional PR comment. Findings are never re-rendered in a second presentation step.
 
 1. **Collect F** from Phase 2 spec compliance, per-chunk agents, and isolated recall workers. Every unmet criterion's `issue(blocking):` enters F so a missing spec criterion cannot coexist with `Approve (clean)`. A missing or weak test that step 3b rewrites to `suggestion:` is a Warning: it does not by itself force `Request changes`, and it does not yield `Approve (clean)`.
-   Validate each original report independently with the finding-format rules before merging. Capture its provenance from the actual emission/task context before any fields can be combined; validation-zero records stay independently identifiable in F.
+   Validate each original report independently with the finding-format rules before merging. Capture its provenance from the actual emission/task context before any fields can be combined; unusable records stay independently identifiable in F.
 2. **Same-defect-only merge:** merge reports only when their evidence demonstrates the same failing operation/condition and diagnostic mechanism. Shared file, class, line, citation or similar wording is metadata, not identity. Independently falsifiable failures stay separate; uncertain identity stays separate. Different symptoms merge only when the evidence demonstrates that one defect produces them.
-   - Union every unique symptom, evidence sentence, raw callsite, solution, provenance tuple and report extension (including Lens and Attack/disproof). Keep report-to-callsite provenance associations, not Cartesian unions of agents and locations. Retain every original symptom/description in the detail when the final description changes.
-   - Maximum valid confidence orders merged duplicates; it does not choose which details survive. Preserve a blocking label if any duplicate is blocking until the existing final step 3b rewrite. Retain active `Source: recall` when any duplicate has it for step 3; original Sources remain in provenance independently.
-   - Validation-zero/malformed reports remain separate, unhealed by another report's fields or confidence. Class subsumption strips tags only. No extra LLM pass, confidence filter, file/class/location key or second joiner.
+   - Union every unique symptom, evidence sentence, raw callsite, provenance tuple and report extension (including Lens and Attack/disproof). Keep report-to-callsite provenance associations, not Cartesian unions of agents and locations. Retain every original symptom/description in the detail when the final description changes.
+   - Maximum stated confidence orders merged duplicates; it does not choose which details survive. Preserve a blocking label if any duplicate is blocking until the existing final step 3b rewrite. Retain active `Source: recall` when any duplicate has it for step 3; original Sources remain in provenance independently.
+   - Unusable reports remain separate, unhealed by another report's fields or confidence. Class subsumption strips tags only. No extra LLM pass, confidence filter, file/class/location key or second joiner.
 3. **Classify:** normal findings follow their category label. Before step 3b, a finding with `Source: recall` is normalized to `issue(blocking):`. That normalization is not re-applied after step 3b. A surviving `Source: recall` line does not restore a blocking label.
-3b. **Missing or weak test — last label write.** After collection, dedup, and the recall normalization, before the verdict and before root causes, rewrite a finding whose subject is a missing or weak test. That includes an agent `issue:`, a recall finding (the recall worker's required `issue(blocking):` is not final), and a Phase 2 unmet-criterion finding whose only gap is that test. It does not include a missing SC→Test matrix, and it does not include an unmet criterion whose gap is the behaviour itself. Keep the finding. It stays blocking, labelled `issue:`, only when the behaviour it leaves unproven is an acceptance criterion of the issue with no other evidence in the PR, or a safety invariant (a path that merges, releases or deploys, deletes, publishes, grants permission, or stops or disarms an automated action). Otherwise relabel it `suggestion:`. Clear `Source: recall` when it is present. That relabel is the last label write. A surviving `Source: recall` line does not re-enter `blocks(f)`. After this step `blocks(f)` is the label set only, so a downgraded finding does not block whether or not that line survived.
-4. **Keep by default:** after same-defect-only merge, every finding remains in F. Confidence controls ordering. A validation zero (C := 0) also makes the finding's cause ineligible for auto-apply in `skill://fix`. No confidence threshold, agent judgement, or second LLM pass may remove a finding. Blocking findings are never filtered.
-5. **Sort and group:** C descending within Blockers → Warnings → Suggestions → Praise, using the label → group table above. `suggestion:` is a Warning, not a Suggestion.
+3b. **Missing or weak test — last label write.** After collection, dedup, and the recall normalization, before the verdict and before root causes, rewrite a finding whose subject is a missing or weak test. That includes an agent `issue:`, a recall finding (the recall worker's required `issue(blocking):` is not final), and a Phase 2 unmet-criterion finding whose only gap is that test. It does not include a missing SC→Test matrix, and it does not include an unmet criterion whose gap is the behaviour itself. Keep the finding. It stays blocking, labelled `issue:`, only when both hold: (a) the behaviour it leaves unproven is an acceptance criterion of the issue with no other evidence in the PR, or a safety invariant (a path that merges, releases or deploys, deletes, publishes, grants permission, or stops or disarms an automated action); (b) the PR carries no accepted proof of that behaviour: a test in Δ that executes it, or a NO TEST row legal under Phase 2 steps 5–5a. A finding that restates an accepted proof without new evidence of a defect fails (b). A skip reported in a fix receipt is not an accepted proof. Otherwise relabel it `suggestion:`. Judge the unproven behaviour, not the proof form the finding asks for: a demanded source-text, wiring-copy or mock-echo assertion is never a requirement (§ Proof in `skill://dev-review/root-causes.md`); the finding keeps or loses its block on (a) and (b) alone. A real missed or fix-induced defect with evidence is a behaviour finding and is not rewritten here. Clear `Source: recall` when it is present. That relabel is the last label write. A surviving `Source: recall` line does not re-enter `blocks(f)`. After this step `blocks(f)` is the label set only, so a downgraded finding does not block whether or not that line survived.
+4. **Keep by default:** after same-defect-only merge, every finding remains in F. Confidence controls ordering only. An unusable record makes its cause ineligible for auto-apply in `skill://fix`; confidence never does. No confidence threshold, agent judgement, or second LLM pass may remove a finding. Blocking findings are never filtered.
+5. **Sort and group:** existence confidence descending (absent last) within Blockers → Warnings → Suggestions → Praise, using the label → group table above. `suggestion:` is a Warning, not a Suggestion.
    Finalize each rendered description before naming causes. Distinct findings sharing an anchor get distinct mechanism-specific descriptions; retain their original symptoms/evidence in the finding. Cause references use those exact final descriptions.
-6. **Name root causes.** Read `skill://dev-review/root-causes.md`. R := causes over actionable findings, after reading cited lines where a join is not already obvious. praise, thought, question never enter R. This step writes no code.
+6. **Name root causes.** Read `skill://dev-review/root-causes.md`. R := causes over actionable findings, after reading cited lines where a join is not already obvious. Each cause states all seven lines of its plan; a finding the review cannot plan stays uncited, never dropped. praise, thought, question never enter R. This step writes no code.
 7. **Disclose roster allocation** in the review output whenever non-empty: `capped[]` (the per-chunk union) and `warnings[]`.
 
 `blocks(f) := label ∈ {issue:, issue(blocking):, todo:, suggestion(blocking):}`. Evaluated after step 3b. After step 3b, `blocks(f)` is the label set only. A downgraded finding does not block whether or not a `Source: recall` line survived.
@@ -450,10 +448,10 @@ Build one body. Its first line is exactly `<!-- omp-build:code-review -->`: that
 
 1. `## Code Review`, then `## Spec` — render Σ from Phase 2, one row per criterion in σ order: `✓` met / `✗` missing, quoting `criterion_text`. σ ∄ → `no spec available — spec axis not evaluated`.
 2. `## Standards` — the orchestrator reads `skill://dev-review/review-smells.md` once, walks Δ against the baseline, and emits at most one `possible <Smell>` row per smell. Render the receipt in `## Standards (judgement pass — {n} smells walked, {k} fired)`. These rows never enter F, carry `Class:`, or affect verdict.
-3. `## Root causes` — render R from step 6, in the shape `skill://dev-review/root-causes.md` defines. R = ∅ → the section body is exactly `none`, even when actionable findings remain uncited. This declares no named causes, not no actionable findings.
+3. `## Root causes` — render R from step 6, in the shape `skill://dev-review/root-causes.md` defines: seven lines per cause. R = ∅ → the section body is exactly `none`. `none` is a complete record only when no actionable finding remains; with an actionable finding under `## Findings` the record is unplanned (root-causes.md § `none`), and the Summary (item 6) says so.
 4. `## Findings` — this heading closes `## Root causes`. Grouped findings from step 5 under `### Blockers`, `### Warnings`, `### Suggestions`, `### Praise`. **Render every finding exactly once here**, with all unioned detail and immutable provenance. Build cause citations from the final rendered `file:line` + exact description pairs. Every reference resolves to exactly one finding, and each actionable finding belongs to at most one cause; otherwise retain it for the existing uncited/per-finding file/single-deferral disposition. Spec, Standards, and Root causes are roll-ups, never copies of a finding.
 5. Roster allocation disclosures from step 7.
-6. Summary + verdict.
+6. Summary + verdict. When `## Root causes` is `none` and actionable findings remain, the Summary says `no cause planned for N actionable finding(s)`; it never reads as clean.
 
 **`/fix` partition (load-bearing):** `skill://fix` reads only the newest comment whose first line is the marker and whose author is the account running it. From that one comment it takes R from `## Root causes` (up to `## Findings`) and F from the Conventional Comments under `## Findings`. Spec, Standards, and Root causes rows MUST be non-CC-shaped: no line in those blocks may match `^\s*[-*]?\s*(issue|suggestion|todo|nitpick|thought|question|praise)(\([a-z-]+\))?:`. Paraphrase a quoted σ or Δ line that matches this shape, or cite only its location. Never restate a grouped finding in any of those blocks.
 
@@ -489,6 +487,10 @@ Build one body. Its first line is exactly `<!-- omp-build:code-review -->`: that
 ### RC-1 — warnings dropped before the comment is posted
 - mechanism: the render path keeps the verdict and drops the warning list
 - fix: emit every roster warning into the posted body
+- failure: a roster run that returns one warning posts a review body that does not contain it
+- restored: every warning the roster returns appears in the posted body
+- paths: `skills/dev-review/roster.ts:120` (producer) ; `skills/dev-review/SKILL.md:350` (render) ; the posted comment (consumer)
+- proof: run the roster on a fixture that yields one warning, render the body, and observe that warning in it — red before the fix, green after
 - findings: `skills/dev-review/SKILL.md:350` — oracle warnings dropped before posting
 
 ## Findings
@@ -500,9 +502,6 @@ issue(blocking): oracle warnings dropped before posting
   Provenance: [{agent: orchestrator, phase: spec, callsites: [{file: skills/dev-review/SKILL.md, line: 350}]}]
   Root cause: the render path drops the warning list
   Symptoms/evidence: the posted body omits the supplied oracle warning
-  Solutions:
-    1. Emit every roster warning into the posted body (recommended)
-    2. Render warnings from the roster result directly
   Confidence: 95%
 
 ### Warnings
@@ -613,13 +612,14 @@ Publish as a PR comment when a PR exists; otherwise display locally:
 | Critical security | Escalate in findings, flag in verdict |
 | Agents disagree | Present both with respective C |
 | ¬∃ PR | Render Phase 4 body; Phase 8 local only, no bound |
-| Missing root cause/solutions | C(f) := 0; keep finding; `skill://fix` files its cause instead of applying it |
+| Missing mandatory field, invalid class, or unparsable Raw callsites | unusable record; keep finding; `skill://fix` files its cause instead of applying it; it never contaminates a different cause |
+| `none` with actionable findings | unplanned record; the Summary says `no cause planned for N actionable finding(s)`; `skill://fix` files each blocker as uncited, still blocking |
 | ∄ `size:` label | τ := F-lite, disclosed out loud (never silently) |
 | R-architect skipped | no axial or structural evidence |
 | R-tester skipped | ¬delta_test_hit and ¬untested-change |
 | R-security-auditor skipped | path_hit=false — R-adversarial owns OWASP on every review |
 | FE/BE concern in Δ | R-adversarial floor owns it — the domain roles are cut, ¬spawn a substitute |
-| Low-confidence finding | keep; it joins its cause; confidence orders, it does not split the fix queue |
+| Low or absent confidence | keep; it joins its cause; confidence orders, it never removes, demotes or files a finding |
 | Recall worker skipped | single chunk ∨ class appears in <2 chunks ∨ <3 unique callsites |
 | roster capped (max_agents, per chunk) | disclosed when ≠ ∅ (Phase 4) |
 | oracle warnings ≠ ∅ | echoed into output; review_halt → HALT |
