@@ -3,7 +3,7 @@ name: feature
 disable-model-invocation: true
 argument-hint: '[#N | <subject>]'
 description: OMP-only feature cycle — frame a GitHub issue, create the worktree from origin/<base>, hand off /move and /goal, then implement, review, fix and land.
-version: 0.1.0
+version: 0.1.1
 ---
 
 # Feature
@@ -424,16 +424,22 @@ step from the records.
 
 `step.action === 'fix'`, by `step.reason`:
 
-- review round (no reason) → execute `skill://fix` with `#<pr>`. It applies one
-  change per well-formed posted root cause that contains a blocking finding. A block missing a non-empty `mechanism:`, `fix:`, or `findings:` line is not applied; its blocking cited findings are filed per finding. It does not stop for a per-finding choice. Non-blocking causes are not applied; they go into one sibling follow-up, blocked by the origin. A blocking cause it
-  cannot apply becomes its own sibling issue.
+- review round (no reason) → execute `skill://fix` with `#<pr>`. It applies the
+  one plan of each well-formed posted root cause that contains a blocking finding, and
+  falsifies it against the cause's own proof. A block missing any of its seven lines
+  (`skill://dev-review/root-causes.md` § Record) is not applied; its blocking cited
+  findings are filed per finding. It does not stop for a per-finding choice.
+  Non-blocking causes are not applied; they go into one sibling follow-up, blocked by
+  the origin. A blocking cause it cannot apply becomes its own sibling issue, and it
+  still blocks.
 - `ci-failed` → fix inline from the failed checks (`land.failed`) and their
   logs. `fix` reads review comments, not CI: running it here replays stale findings.
 
 Verify, commit and push the fixes, then post `## Review Fixes Applied`. The
 receipt is for humans: no gate reads it, and a failed post is reported, not
-retried. State `step.remaining`, then §6.4 — the push moved the head, so the
-next step needs a review of it.
+retried. It never reports a falsification skip as a pass, nor a `none` record
+with actionable findings as clean. State `step.remaining`, then §6.4 — the push
+moved the head, so the next step needs a review of it.
 
 ### 6.6 Bound
 
