@@ -124,8 +124,11 @@ git diff origin/${BASE}...HEAD | grep -iE '(password|passwd|secret|api[_-]?key|a
 4. σ ∃ → ∀ criterion: met → ∅ | ¬met → `issue(blocking):` | ∀ met → `praise:`
 4a. **Retain Σ (review-output display input, ¬a finding source):** Σ := [{criterion_text, verdict ∈ {met, missing}}] ∀ criterion — a **mirror of step 4**, same binary call, ¬a second judgement. `criterion_text` is the σ line already read in step 4 (verbatim, trimmed); `missing` ⟺ step 4 emitted `issue(blocking):` for that criterion. ¬`ac_id` (no AC-numbering scheme exists — a positional id would be fabricated), ¬`partial`, ¬scope-creep set: none has a producer in steps 1–4, and an unproduced row is an invented one. Σ carries ¬label, ¬C, ¬class: it adds no blocker and ¬enters F.
 5. SC→Test matrix (τ≠S): matrix ∃ in PR body → verify no silent gaps (every SC has a row), NO TEST reasons ∈ `{infra-not-wired, prompt-logic-only, ui-manual-only, out-of-scope}` enum. ¬matrix ∧ τ≠S → `issue(blocking):` missing SC→Test matrix.
-Where a Semctx record on the reviewed head is PARTIAL (`## Proof — semctx`, posted by
-`/feature`'s `proof-acquire`), each gap it names has its own row there; judge whether the
+Where a Semctx record on the reviewed head exists (`## Proof — semctx`, posted by
+`/feature`'s `proof-acquire`), it attests Semctx's composition over declared evidence
+statuses, never a test run: each evidence it counts as `tested` must name a test in Δ or
+the base that exercises the change, else `issue(blocking):`. Where it is PARTIAL, each
+gap it names has its own row there; judge whether the
 reason is true and, for `ui-manual-only`, whether the browser check was observed — `landPr`
 checks only its form, and only on a body last edited before this approving record: an edit
 after it returns the PR to review. The record is read, never re-run. The issue body

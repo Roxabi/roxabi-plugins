@@ -12,6 +12,12 @@ date: 2026-09-24
 > consequences §3 and §8 reverse: the per-ticket frontier stop, and the claim
 > that OMP loses every executable check. Those sentences are qualified in
 > ADR-020. They are not still law.
+>
+> **Amended 2026-10-11 by #768** — §2 and §3 now also say how the change
+> contract and assertledger reach landing: `landPr` reads their conserved
+> proof records for the reviewed head and runs neither. The open-time proof
+> gate this ADR implied is retired; that admission governs only the arms
+> `landPr` writes, and a record proves only what its producer composed.
 
 ## Context
 
@@ -88,9 +94,17 @@ ADR-020 no longer bind:
    the issue diverge, the issue wins: the contract is re-derived, and it cannot
    add a requirement the issue does not contain. ADR-020's refuse line against
    a second spec home stays in force; renaming the home does not satisfy it.
-   The contract's native result reaches landing as a proof record that
-   `landPr` reads and never produces (#768); its lifecycle stays Semctx's own,
-   so nothing closes it to open or land a PR.
+   *Amended 2026-10-11 by #768:* where Semctx applies — `origin/<base>`, the
+   head or the operator's uncommitted configuration configures it — the
+   change contract the head adds reaches landing as a proof record that
+   `landPr` reads and never produces. Its lifecycle stays Semctx's own, so
+   nothing closes it to open or land a PR. VERIFIED attests Semctx's
+   composition over the evidence statuses the contract declares, never a test
+   run: runtime proof is the base-required CI `landPr` waits on for the same
+   head, and the review judges that each `tested` evidence names a test that
+   exercises the change. A PARTIAL lands as PARTIAL only when every gap it
+   names has a closed-enum NO TEST row in a PR body the approving review
+   judged.
 
 3. **§8 — executable falsification returns through assertledger, where an
    adapter exists.** The adapter is the producer of that gate, and of no other.
@@ -104,6 +118,18 @@ ADR-020 no longer bind:
    `R-pr` / `oracle_ok` oracle. `superseded_in_part_by` records that
    qualification and no other ADR-019 clause. The same reading applies to
    ADR-020's preamble and Negative.
+   *Amended 2026-10-11 by #768:* the detection is read at landing too. For a
+   fix PR whose base or head declares an adapter, `landPr` reads the
+   conserved replay of the `assertledger check` the author ran on the
+   reviewed head and never runs it; there is no open-time gate.
+
+   Both readings govern only the arms `landPr` writes. A `reviewed` label or
+   auto-merge set by another actor is an override: GitHub's auto-merge and
+   the merge-on-green workflow honour it without proof, and the armed-gate
+   retention keeps it once the review approves. A proof record is a PR
+   comment by the automation account; admission reads that account's latest
+   record for the head, and any account with write access can still edit or
+   delete it, so it attests what the producer printed, not who ran it.
 
 4. **§9 — the agent creates the worktree** from a freshly fetched
    `refs/remotes/origin/<base>`, never from `HEAD`, and never carrying the
