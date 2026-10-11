@@ -412,8 +412,8 @@ output as one PR comment per producer and head. A record that still binds is
 reused: same head and inputs, nothing runs again. Exit 1 names what is missing;
 it decides nothing. A PARTIAL stays PARTIAL: each gap its record names needs one
 PR-body row `| <gap> | … | ⚠ NO TEST — <reason> |` with a reason from the closed
-enum, and a `ui-manual-only` gap a `### Browser check <gap>` block (`- Steps:`,
-`- URL:`, `- Observed:`), legal only when neither the base's nor the head's
+enum, and a `ui-manual-only` gap a `### Browser check <gap>` block (the gap bare
+or in backticks; `- Steps:`, `- URL:` http(s), `- Observed:`), legal only when neither the base's nor the head's
 `.dev/stack.yml` declares `commands.test_e2e`. Never close a PARTIAL change as
 verified. Semctx runs under the head's committed `.semctx/config.json`, which
 must equal the base's when the base commits one (a PR never changes or deletes

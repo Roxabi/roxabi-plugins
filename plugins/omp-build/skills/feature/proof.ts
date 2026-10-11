@@ -840,25 +840,24 @@ export function noTestReasons(body: string, gap: string): string[] {
 
 export type BrowserCheck = { steps: string; url: string; observed: string }
 
-/** The body's `Browser check \`<gap>\`` block: its Steps, URL and Observed lines. */
+const BROWSER_FIELDS: Record<string, keyof BrowserCheck> = { steps: 'steps', url: 'url', observed: 'observed' }
+
+/** The body's `Browser check <gap>` block (the gap bare or in backticks): its Steps, URL and Observed lines. */
 export function browserCheck(body: string, gap: string): Partial<BrowserCheck> | null {
   const lines = body.split('\n')
-  const heading = /^(?:#{1,6}\s*)?Browser check\s+`([^`]+)`\s*:?\s*$/i
-  const start = lines.findIndex((line) => line.trim().match(heading)?.[1] === gap)
+  const heading = /^(?:#{1,6}\s*)?Browser check\s+(?:`([^`]+)`|([^\s`:]+))\s*:?\s*$/i
+  const start = lines.findIndex((line) => {
+    const match = line.trim().match(heading)
+    return (match?.[1] ?? match?.[2]) === gap
+  })
   if (start < 0) return null
   const out: Partial<BrowserCheck> = {}
   for (const line of lines.slice(start + 1)) {
     const text = line.trim()
     if (/^#{1,6}\s/.test(text) || heading.test(text)) break
     const field = text.match(/^[-*]\s*(Steps|URL|Observed)\s*:\s*(.*)$/i)
-    if (!field) continue
-    const key =
-      (field[1] ?? '').toLowerCase() === 'url'
-        ? 'url'
-        : (field[1] ?? '').toLowerCase() === 'steps'
-          ? 'steps'
-          : 'observed'
-    out[key] ??= field[2] ?? ''
+    const key = BROWSER_FIELDS[(field?.[1] ?? '').toLowerCase()]
+    if (key) out[key] ??= field?.[2] ?? ''
   }
   return out
 }
