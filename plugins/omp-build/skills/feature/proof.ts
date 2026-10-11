@@ -1307,7 +1307,7 @@ export type AssertledgerInvocation = {
   repository: string
   pr: number
   candidate: string
-  /** The manifest path the operator gave; its bytes are `native.manifest`. */
+  /** The private snapshot actually replayed; the same bytes are `native.manifest`. */
   manifest: string
   tool: { path: string; version: string }
 }

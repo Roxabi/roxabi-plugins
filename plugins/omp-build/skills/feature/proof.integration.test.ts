@@ -35,11 +35,12 @@ import {
   worktree,
   writeSim,
 } from './__fixtures__/proof/sandbox'
-import type { SemctxRecord } from './proof'
+import type { AssertledgerRecord, SemctxRecord } from './proof'
 import { findRecord, proofMark, renderRecord } from './proof'
 
 type Captured = { code: number | null; stdout: string; stderr: string; record?: string[] }
-type Capture = { sha: Record<string, string>; records: Record<string, Captured> }
+type ReplayCapture = { token: { from: string; to: string }; version: Captured; invalid: Captured; valid: Captured }
+type Capture = { sha: Record<string, string>; records: Record<string, Captured>; replays?: ReplayCapture }
 type Records = { semctx: Capture; ignored: Capture; assertledger: Capture; both: Capture }
 const RECORDS: Records = JSON.parse(
   readFileSync(path.join(import.meta.dirname, '__fixtures__/proof/records.json'), 'utf8'),
@@ -1294,6 +1295,100 @@ describe('landPr admission in a repository whose Semctx configuration is the ope
       }
     })
   }
+})
+
+describe('assertledger acquisition binds the exact replayed manifest bytes', () => {
+  let box: Box
+  let wt: string
+  const { pr, branch } = LEDGER_CASES.detection
+  let valid: string
+  let invalid: string
+  let exporter: string
+  let replay: ReplayCapture
+  beforeAll(() => {
+    box = sandbox(ledgerSpec())
+    instrument(box)
+    wt = worktree(box, 'immutable-manifest', box.sha[branch] as string)
+    const found = findRecord(
+      conserved(RECORDS.assertledger, 'detection').map((body) => ({ author: { login: ME }, body })),
+      ME,
+      'assertledger',
+      box.sha[branch] as string,
+    )
+    if (!('record' in found) || !RECORDS.assertledger.replays)
+      throw new Error('native replay counterparts are missing; regenerate capture.ts')
+    valid = (found.record as AssertledgerRecord).native.manifest
+    replay = RECORDS.assertledger.replays
+    invalid = valid.replace(replay.token.from, replay.token.to)
+    if (invalid === valid) throw new Error('the native replay counterpart does not match this manifest')
+    exporter = path.join(box.root, 'exporter.json')
+  })
+  afterAll(() => rmSync(box.root, { recursive: true, force: true }))
+  function acquire(manifest = true) {
+    return spawnSync(
+      REAL_BUN,
+      [ACQUIRE, '--pr', String(pr), ...(manifest ? ['--assertledger-manifest', exporter] : [])],
+      { cwd: wt, env: box.env, encoding: 'utf8' },
+    )
+  }
+  function mutateExporterAtVersion(to: string): void {
+    writeFileSync(
+      path.join(box.root, 'producers', 'assertledger'),
+      `#!${REAL_BUN}
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
+const args = process.argv.slice(2)
+appendFileSync(${JSON.stringify(path.join(box.root, 'producer-calls.log'))}, 'assertledger ' + args.join(' ') + '\\n')
+if (args[0] === '--version') {
+  writeFileSync(${JSON.stringify(exporter)}, ${JSON.stringify(to)})
+  process.stdout.write(${JSON.stringify(replay.version.stdout)})
+  process.exit(${JSON.stringify(replay.version.code)})
+}
+if (args[0] !== 'replay' || args[2] !== '--json') throw new Error('unexpected native replay invocation')
+const bytes = readFileSync(args[1], 'utf8')
+const result = bytes === ${JSON.stringify(valid)} ? ${JSON.stringify(replay.valid)}
+  : bytes === ${JSON.stringify(invalid)} ? ${JSON.stringify(replay.invalid)} : null
+if (!result) throw new Error('no genuinely observed native replay for these bytes')
+process.stdout.write(result.stdout)
+process.stderr.write(result.stderr)
+process.exit(result.code)
+`,
+    )
+  }
+  it('an invalid captured manifest cannot borrow a valid replay from its overwritten exporter', () => {
+    const head = box.sha[branch] as string
+    prepare(box, pr, { comments: [approve(head)], body: 'Closes #2\n', armed: head })
+    writeFileSync(exporter, invalid)
+    mutateExporterAtVersion(valid)
+    const acquired = acquire()
+    expect(acquired.status).toBe(1)
+    const before = producerCalls(box)
+    const run = land(box, wt, pr)
+    expect(run.result).toMatchObject({
+      status: 'proof-blocked',
+      producer: 'assertledger',
+      reason: 'missing',
+      disarmed: true,
+    })
+    expect(run.gate).toEqual(UNARMED)
+    expect(run.producers).toEqual(before)
+  })
+  it('a valid captured manifest remains a detection when the exporter changes, and is reused without replay', () => {
+    const head = box.sha[branch] as string
+    prepare(box, pr, { comments: [approve(head)], body: 'Closes #2\n' })
+    writeFileSync(exporter, valid)
+    mutateExporterAtVersion(invalid)
+    const acquired = acquire()
+    expect(acquired.status).toBe(0)
+    expect(JSON.parse(acquired.stdout)).toMatchObject({ assertledger: 'posted' })
+    const before = producerCalls(box)
+    const resumed = acquire(false)
+    expect(resumed.status).toBe(0)
+    expect(JSON.parse(resumed.stdout)).toMatchObject({ assertledger: 'reused' })
+    const run = land(box, wt, pr)
+    expect(run.result).toMatchObject({ status: 'watching', proof: { assertledger: 'detection' } })
+    expect(run.gate).toEqual({ labels: ['reviewed'], autoMerge: expect.objectContaining({ matchHeadCommit: head }) })
+    expect(run.producers).toEqual(before)
+  })
 })
 
 describe('landPr admission against conserved assertledger records', () => {

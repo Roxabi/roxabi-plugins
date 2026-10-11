@@ -26,10 +26,11 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { Git, SemctxRecord } from '../../proof'
+import type { AssertledgerRecord, Git, SemctxRecord } from '../../proof'
 import {
   candidateFacts,
   changedContracts,
+  findRecord,
   mergeBaseOf,
   readSemctxRecord,
   refreshSelectedBase,
@@ -190,6 +191,39 @@ function detect(box: Box, name: string, { pr, branch, test }: { pr: number; bran
   }
 }
 
+/** Native counterparts: duration changes the artifact digest, not the decision digest. */
+function replayCounterparts(box: Box, detection: Captured) {
+  const { branch } = LEDGER_CASES.detection
+  const found = findRecord(
+    (detection.record ?? []).map((body) => ({ author: { login: 'operator' }, body })),
+    'operator',
+    'assertledger',
+    box.sha[branch] as string,
+  )
+  if (!('record' in found)) throw new Error('the native detection record is unavailable')
+  const valid = (found.record as AssertledgerRecord).native.manifest
+  const match = valid.match(/"durationMs"\s*:\s*(\d+),/)
+  if (!match?.[1]) throw new Error('the native manifest has no duration observation')
+  const from = match[0]
+  const duration = Number(match[1])
+  const to = from.replace(match[1], String(duration === 0 ? 1 : duration - 1))
+  const capture = (args: string[]): Captured => {
+    const result = spawnSync('assertledger', args, { cwd: box.root, env: box.env, encoding: 'utf8' })
+    return { code: result.status, stdout: result.stdout, stderr: result.stderr }
+  }
+  const replay = (name: string, bytes: string) => {
+    const file = path.join(box.root, `${name}.json`)
+    writeFileSync(file, bytes)
+    return capture(['replay', file, '--json'])
+  }
+  return {
+    token: { from, to },
+    version: capture(['--version']),
+    invalid: replay('invalid-artifact', valid.replace(from, to)),
+    valid: replay('valid-artifact', valid),
+  }
+}
+
 function which(name: string): string {
   const found = Bun.which(name)
   if (!found) throw new Error(`${name} is not on PATH`)
@@ -233,7 +267,12 @@ try {
   roots.push(ledger.root)
   const ledgerRecords: Record<string, Detected> = {}
   for (const [name, spec] of Object.entries(LEDGER_CASES)) ledgerRecords[name] = detect(ledger, name, spec)
-  records.assertledger = { sha: ledger.sha, records: ledgerRecords }
+  if (!ledgerRecords.detection) throw new Error('no native detection capture')
+  records.assertledger = {
+    sha: ledger.sha,
+    records: ledgerRecords,
+    replays: replayCounterparts(ledger, ledgerRecords.detection),
+  }
 
   const both = sandbox(bothSpec({ path: [bin] }))
   roots.push(both.root)
