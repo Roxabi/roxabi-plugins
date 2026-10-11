@@ -217,6 +217,10 @@ before its diff; the review-start test exercises the fence, not model compliance
   binds, so an unchanged head is never re-proved. Assertledger records bind only
   `assertledger check` manifests (git provenance); the kit adapter's `verify`
   manifests carry a working-tree provenance and refuse as unbound.
+  Assertledger acquisition freezes the exporter bytes in an owned read-only
+  private manifest before awaiting the tool, replays only that file, conserves
+  those same UTF-8 bytes and native result, and removes only its snapshot in
+  `finally`. An exporter rewrite cannot lend another manifest's valid replay.
   Every pre-arm checkpoint and the retained-arm epilogue re-read these inputs,
   even at the same head: body revisions, ignored configuration/access, ticket
   classification and the latest native record are not immutable with a commit.

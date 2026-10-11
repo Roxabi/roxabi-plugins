@@ -176,6 +176,21 @@ alongside two unplanned blockers. This is the final allowed fix, not a clean rev
   was deleted; malformed current policy now confirms clearing.
   Final writers: lint and typecheck passed; five admission/landing suites passed
   **1,309 tests**, including the migrated real EACCES race.
+- **RC-4:** actual assertledger 1.4.0 replays of B and its duration-only A
+  counterpart return respectively exit 0 / all validity flags true and exit 4 /
+  `artifactDigestValid:false` with `decisionDigestValid:true`. Both CLI temporal
+  regressions failed before the fix and again with replay redirected to the
+  exporter. Corrected acquisition snapshots before the tool await.
+  The actual native CLI smoke confirms invalid A cannot borrow valid B's
+  replay: acquisition exits 1, admission reports missing detection, both arms
+  clear. Valid B stays a detection while its exporter becomes invalid A;
+  reacquisition reuses it and landing makes no producer call (two native calls
+  total: version + replay). Snapshot mode 0400, parent 0700, exact captured
+  bytes, snapshot cleanup and preservation of the changed exporter were observed.
+  `capture.ts` regenerated the complete real-producer corpus and native replay
+  counterparts successfully (Semctx 0.4.2, assertledger 1.4.0).
+  Final writers: lint and typecheck passed; the five admission/landing suites
+  passed **1,311 tests** against the regenerated native corpus.
 - **Unresolved:** browser observation and NO TEST reason truth have no accepted
   replacement oracle. Filing or a safe unarmed state is not delivery or resolution.
 

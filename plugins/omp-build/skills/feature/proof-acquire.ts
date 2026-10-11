@@ -250,28 +250,36 @@ async function acquireAssertledger(ctx: Context, manifestPath: string | undefine
       `assertledger applies to PR #${ctx.pr} (fix ticket with an adapter) and no record binds ${ctx.candidate}: run \`assertledger check . --after ${ctx.candidate} …\` and pass its manifest with --assertledger-manifest`,
     )
   }
-  const path = resolve(manifestPath)
-  const manifest = readFileSync(path, 'utf8')
-  const local = join(ctx.facts.toplevel, 'node_modules', '.bin', 'assertledger')
-  const assertledger = await tool('assertledger', existsSync(local) ? local : null)
-  const argv = ['replay', path, '--json']
-  const replay = await run([assertledger.path, ...argv], { cwd: ctx.facts.toplevel, env: producerEnv() })
-  const record: AssertledgerRecord = {
-    producer: 'assertledger',
-    invocation: {
-      repository: ctx.repository,
-      pr: ctx.pr,
-      candidate: ctx.candidate,
-      manifest: path,
-      tool: assertledger,
-    },
-    native: { manifest, replay: { argv, exit: replay.code, stdout: replay.stdout } },
+  // Capture before the first producer await. The exporter is not the replay input.
+  const bytes = readFileSync(resolve(manifestPath))
+  const manifest = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes)
+  const work = mkdtempSync(join(tmpdir(), 'omp-proof-manifest-'))
+  try {
+    const path = join(work, 'manifest.json')
+    writeFileSync(path, bytes, { mode: 0o400 })
+    const local = join(ctx.facts.toplevel, 'node_modules', '.bin', 'assertledger')
+    const assertledger = await tool('assertledger', existsSync(local) ? local : null)
+    const argv = ['replay', path, '--json']
+    const replay = await run([assertledger.path, ...argv], { cwd: ctx.facts.toplevel, env: producerEnv() })
+    const record: AssertledgerRecord = {
+      producer: 'assertledger',
+      invocation: {
+        repository: ctx.repository,
+        pr: ctx.pr,
+        candidate: ctx.candidate,
+        manifest: path,
+        tool: assertledger,
+      },
+      native: { manifest, replay: { argv, exit: replay.code, stdout: replay.stdout } },
+    }
+    const read = readAssertledgerRecord(record, expected)
+    if (isUnbound(read)) throw new ProtocolError(`the manifest does not bind to the candidate — ${refusalText(read)}`)
+    const summary = read === 'detection' ? ['- **detection**'] : [`- Admission would refuse: ${refusalText(read)}`]
+    await post(ctx, renderRecord('assertledger', ctx.candidate, summary, record))
+    return 'posted'
+  } finally {
+    rmSync(work, { recursive: true, force: true })
   }
-  const read = readAssertledgerRecord(record, expected)
-  if (isUnbound(read)) throw new ProtocolError(`the manifest does not bind to the candidate — ${refusalText(read)}`)
-  const summary = read === 'detection' ? ['- **detection**'] : [`- Admission would refuse: ${refusalText(read)}`]
-  await post(ctx, renderRecord('assertledger', ctx.candidate, summary, record))
-  return 'posted'
 }
 
 function parseArgs(argv: string[]): { pr: number; manifest?: string } | null {
