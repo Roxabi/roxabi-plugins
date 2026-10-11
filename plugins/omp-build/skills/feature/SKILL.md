@@ -585,8 +585,10 @@ repository, PR, head, base, merge base, the changed contracts — at least one
 added by the head; a modified older contract never stands in for it — and the
 Semctx configuration (assertledger's
 reference world: the head's commit and tree), and are read with their native
-verdicts: VERIFIED, or PARTIAL with every gap justified; draft, blocked, stale,
-superseded, a PARTIAL closed as verified, a VERIFIED that requires no
+verdicts: VERIFIED, or PARTIAL with every gap justified — a gap is each
+warning finding, pending evidence and open unknown the result names, mirrored
+or not; draft, blocked, stale, superseded, a PARTIAL closed as verified, a
+PARTIAL with a stale link or a blocking impact, a VERIFIED that requires no
 evidence, and a non-terminal change that is not the one block of its own
 `changes/<id>.sem` refuse. A refusal returns `proof-blocked` with `producer`
 (`candidate` | `semctx` | `assertledger`), `reason` and `error` through the

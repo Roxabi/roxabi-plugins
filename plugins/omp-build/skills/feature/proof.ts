@@ -836,14 +836,27 @@ function changeResult(
         `${name} is closed as verified while its result is PARTIAL: a PARTIAL stays partial`,
       )
     }
-    if (findings.some((finding) => finding.severity !== 'warn')) {
-      return refuse('semctx', 'verdict', `${name} is PARTIAL with a blocking or stale finding: contradictory result`)
+    const contradiction = [
+      findings.some((finding) => finding.severity !== 'warn') && 'a blocking or stale finding',
+      stale.length && `${stale.length} stale link(s)`,
+      underlying.verdict !== 'PASS' && underlying.verdict !== 'WARN' && `impact ${String(underlying.verdict)}`,
+    ].filter(Boolean)
+    if (contradiction.length) {
+      return refuse('semctx', 'verdict', `${name} is PARTIAL with ${contradiction.join(', ')}: contradictory result`)
     }
-    const gaps = findings.map((finding) =>
-      Array.isArray(finding.refs) && typeof finding.refs[0] === 'string' && finding.refs[0]
-        ? finding.refs[0]
-        : String(finding.kind ?? ''),
-    )
+    // Each pending evidence and open unknown is a gap even when no finding mirrors it.
+    const open = [...pending, ...unknowns].map((item) => (isMap(item) && typeof item.id === 'string' ? item.id : ''))
+    if (open.some((gap) => !gap)) {
+      return refuse('semctx', 'unreadable', `${name}: a pending evidence or open unknown names no id`)
+    }
+    const gaps = [
+      ...findings.map((finding) =>
+        Array.isArray(finding.refs) && typeof finding.refs[0] === 'string' && finding.refs[0]
+          ? finding.refs[0]
+          : String(finding.kind ?? ''),
+      ),
+      ...open,
+    ]
     if (!gaps.length || gaps.some((gap) => !gap)) {
       return refuse('semctx', 'unjustified', `${name} is PARTIAL with no named gap: a PARTIAL must name each gap`)
     }
