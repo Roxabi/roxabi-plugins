@@ -391,8 +391,10 @@ SC→Test contract, including justified NO TEST rows. An `existing` PR is not ne
 an earlier run may have left it armed, so §6.4 runs the review's step 0 before
 anything reads or reviews it.
 
-**Proof records, after each push.** When Semctx applies, or the ticket is
-`type: fix` and the candidate commits an assertledger adapter
+**Proof records, after each push.** When Semctx applies — `origin/<base>` or
+the head commits `.semctx`, or the operator keeps an uncommitted (ignored)
+`.semctx/config.json` in this worktree or the principal checkout — or the
+ticket is `type: fix` and the base or the head declares an assertledger adapter
 (`assertledger.config.json` with an `adapter`, or
 `scripts/kit/assertledger/vitest-adapter.mjs`), run from this worktree at the
 pushed head:
@@ -409,10 +411,15 @@ reused: same head and inputs, nothing runs again. Exit 1 names what is missing;
 it decides nothing. A PARTIAL stays PARTIAL: each gap its record names needs one
 PR-body row `| <gap> | … | ⚠ NO TEST — <reason> |` with a reason from the closed
 enum, and a `ui-manual-only` gap a `### Browser check <gap>` block (`- Steps:`,
-`- URL:`, `- Observed:`), legal only when the candidate's `.dev/stack.yml`
-declares no `commands.test_e2e`. Never close a PARTIAL change as verified.
-`.semctx/working/` is Semctx's own ignored state; the clean checkout never sees
-it, so nothing asks to empty it. Only `landPr` admits (§6.7).
+`- URL:`, `- Observed:`), legal only when neither the base's nor the head's
+`.dev/stack.yml` declares `commands.test_e2e`. Never close a PARTIAL change as
+verified. Semctx runs under the head's committed `.semctx/config.json`, which
+must equal the base's when the base commits one (a PR never changes or deletes
+the policy it is judged by); with none committed, under the uncommitted one,
+copied into the private checkout — the head's `.gitignore` must ignore it and
+every copy on disk must agree. The record binds that configuration's source
+and sha256. `.semctx/working/` is Semctx's own ignored state; the clean checkout
+never sees it, so nothing asks to empty it. Only `landPr` admits (§6.7).
 
 ### 6.4 Review
 
@@ -559,8 +566,9 @@ merge-on-green never returns `no-required-checks`; native returns it only after 
 **Landing admission (#768).** After the review gate and `no-required-checks`,
 `landPr` admits the reviewed head through `admitLanding` (`proof.ts`). It reads
 and never produces: no producer, test or model call. The local tip must be that
-head. Semctx applies from the candidate's committed tree and the `.semctx` on
-disk at the root and the principal. Applicable §6.3 records must bind
+head. Semctx applies when `origin/<base>`, the head or the uncommitted
+configuration on disk at the root and the principal configures it; an adapter or
+`commands.test_e2e` applies when the base or the head declares it. Applicable §6.3 records must bind
 repository, PR, head, base, merge base and the changed contracts (assertledger's
 reference world: the head's commit and tree), and are read with their native
 verdicts: VERIFIED, or PARTIAL with every gap justified; draft, blocked, stale,

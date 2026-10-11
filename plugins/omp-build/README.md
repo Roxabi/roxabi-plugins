@@ -185,13 +185,16 @@ before its diff; the review-start test exercises the fence, not model compliance
   label-driven: a later push by another actor is not refused by GitHub. A review
   posted before the head line existed needs one re-review before it can land.
 - Then `landPr` admits that head (`admitLanding`, `proof.ts`), reading only: the
-  local tip must be it; Semctx applies from its committed tree and the `.semctx` on
-  disk at the root and the principal; applicable proof records — PR comments
+  local tip must be it; Semctx applies when `origin/<base>`, the head or the
+  uncommitted `.semctx/config.json` on disk at the root and the principal
+  configures it, and a PR that changes or deletes the base's committed
+  configuration refuses; applicable proof records — PR comments
   `proof-acquire.ts` posted after the push, one per producer and head — must bind
-  the repository, PR, head, base, merge base and changed contracts, and carry
+  the repository, PR, head, base, merge base, changed contracts and the Semctx
+  configuration's sha256, and carry
   VERIFIED, or PARTIAL with each gap justified by a closed-enum NO TEST row.
-  A `type: fix` ticket whose candidate commits an assertledger adapter needs a
-  detection. No producer, test or model runs at landing. A refusal is
+  A `type: fix` ticket needs a detection when the base or the head declares an
+  assertledger adapter. No producer, test or model runs at landing. A refusal is
   `proof-blocked` with `producer`, `reason` and `error`, unarmed; `watching`
   reports the admitted `proof`. `proof-acquire` reuses a record that still
   binds, so an unchanged head is never re-proved. Assertledger records bind only

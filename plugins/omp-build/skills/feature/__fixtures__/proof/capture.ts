@@ -30,6 +30,8 @@ import {
   ACQUIRE,
   type Box,
   git,
+  IGNORED_CASE,
+  ignoredSpec,
   LEDGER_CASES,
   ledgerSpec,
   readSim,
@@ -86,6 +88,11 @@ try {
     semctxRecords[name] = acquire(semctx, worktree(semctx, name, sha), pr)
   }
   records.semctx = { sha: semctx.sha, records: semctxRecords }
+
+  const ignored = sandbox(ignoredSpec({ path: [bin] }))
+  roots.push(ignored.root)
+  const ignoredWt = worktree(ignored, 'ignored', ignored.sha[IGNORED_CASE.branch] as string)
+  records.ignored = { sha: ignored.sha, records: { verified: acquire(ignored, ignoredWt, IGNORED_CASE.pr) } }
 
   const ledger = sandbox(ledgerSpec({ path: [bin] }))
   roots.push(ledger.root)
