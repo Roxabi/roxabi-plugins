@@ -2889,6 +2889,74 @@ describe('native arming uses the freshly approved head', () => {
   })
 })
 
+describe('a landing stays armed only at the head it admitted', () => {
+  // The epilogue's records read: the last arming write and its head check are done.
+  const EPILOGUE = [
+    ['native', NATIVE, 4],
+    ['merge-on-green', MOG, 3],
+  ]
+
+  it.each(EPILOGUE)(
+    '%s: a head approved after the last arming write, never admitted, ends unarmed',
+    async (_mode, opts, nth) => {
+      const fake = armedPr({
+        records: [approve()],
+        start: 'none',
+        script: { moves: [{ when: 'before', on: 'comments', nth, head: MOVED, reviews: [approve(MOVED)] }] },
+      })
+      const outcome = await exec({ fn: 'land', opts }, fake)
+
+      expect(outcome.error).toBeUndefined()
+      expect(outcome.result).toMatchObject({ status: 'not-approved', reason: 'head-moved' })
+      expect(fake.pr.head).toBe(MOVED)
+      expect(armedNames(fake)).toEqual([])
+    },
+  )
+
+  it.each(EPILOGUE)('%s: a fresh approval of the admitted head keeps it armed', async (_mode, opts, nth) => {
+    const fake = armedPr({
+      records: [approve()],
+      start: 'none',
+      script: { moves: [{ when: 'before', on: 'comments', nth, reviews: [approve()] }] },
+    })
+    const outcome = await exec({ fn: 'land', opts }, fake)
+
+    expect(outcome.error).toBeUndefined()
+    expect(outcome.result).toMatchObject({ status: 'watching', proof: ADMITTED })
+    expect(fake.pr.labels.has('reviewed')).toBe(true)
+    expect(holds(fake, outcome)).toBe(true)
+  })
+})
+
+describe('a proof refusal on an armed PR disarms, or names what stays armed', () => {
+  // The operator's checkout is not at the PR head: the admission refuses its local tip.
+  const REFUSING = plainGit(MOVED, CHECKOUT)
+  const DISARMS = [
+    ['native', NATIVE, 'both', 'disable', 'auto-merge'],
+    ['merge-on-green', MOG, 'label', 'remove', 'the reviewed label'],
+  ]
+
+  it.each(DISARMS)('%s: the refusal disarms the gate', async (_mode, opts, start) => {
+    const fake = armedPr({ records: [approve()], start })
+    const outcome = await exec({ fn: 'land', opts: { ...opts, git: REFUSING } }, fake)
+
+    expect(outcome.error).toBeUndefined()
+    expect(outcome.result).toMatchObject({ status: 'proof-blocked', producer: 'candidate', disarmed: true })
+    expect(armedNames(fake)).toEqual([])
+    expect(truthful(fake, outcome)).toBe(true)
+  })
+
+  it.each(DISARMS)('%s: a clearing write that fails throws naming %s', async (_mode, opts, start, on, what) => {
+    const fake = armedPr({ records: [approve()], start, script: { fail: [{ on }] } })
+    const outcome = await exec({ fn: 'land', opts: { ...opts, git: REFUSING } }, fake)
+
+    expect(outcome.result).toBeUndefined()
+    expect(outcome.error.message).toMatch(stays(what))
+    expect(armedNames(fake)).toEqual([what])
+    expect(holds(fake, outcome)).toBe(true)
+  })
+})
+
 // --- #731: a refused pin, then a head read that fails ---------------------------------------------
 
 /**

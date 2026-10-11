@@ -26,9 +26,13 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import type { Git, SemctxRecord } from '../../proof'
+import { candidateFacts, changedContracts, mergeBaseOf, readSemctxRecord, renderRecord, semctxSteps } from '../../proof'
 import {
   ACQUIRE,
+  BOTH_CASE,
   type Box,
+  bothSpec,
   git,
   IGNORED_CASE,
   ignoredSpec,
@@ -56,6 +60,123 @@ function acquire(box: Box, cwd: string, pr: number, extra: string[] = []): Captu
     .filter((comment) => comment.body.startsWith('<!-- omp-build:proof producer='))
     .map((comment) => comment.body)
   return { code: run.status, stdout: run.stdout, stderr: run.stderr, ...(posted.length > 0 && { record: posted }) }
+}
+
+/**
+ * A negative fixture from the public native steps, not proof-acquire: Semctx
+ * really verifies the older contract the candidate only modifies, but that
+ * VERIFIED result must never stand in for this ticket's own added contract.
+ * Keep its genuine record to prove admission refuses it, not just missing data.
+ */
+async function modifiedNative(box: Box): Promise<Captured> {
+  const { pr, branch, base } = SEMCTX_CASES.modified
+  const candidate = box.sha[branch] as string
+  const root = worktree(box, 'modified-native', candidate)
+  const runner: Git = async (cwd, args) => {
+    const out = spawnSync('git', args, { cwd, env: box.env, encoding: 'utf8' })
+    return { code: out.status ?? 1, stdout: out.stdout, stderr: out.stderr }
+  }
+  const facts = await candidateFacts(root, candidate, base, runner)
+  if ('ok' in facts || !facts.config) throw new Error('the native modified-contract fixture is not configured')
+  const mergeBase = await mergeBaseOf(runner, root, base, candidate)
+  if (mergeBase instanceof Error) throw mergeBase
+  const changed = await changedContracts(runner, root, mergeBase, candidate)
+  if (changed instanceof Error) throw changed
+  const contracts = changed.map((entry) => entry.path)
+  const config = { source: facts.config.source, sha256: facts.config.sha256 }
+  const executable = realpathSync(Bun.which('semctx', { PATH: box.env.PATH }) ?? which('semctx'))
+  const version = spawnSync(executable, ['--version'], { env: box.env, encoding: 'utf8' })
+  if (version.status !== 0) throw new Error(version.stderr)
+  const statusArgs = ['status', '--porcelain', '-z', '--untracked-files=all']
+  const before = git(box, root, statusArgs)
+  const native = []
+  for (const argv of semctxSteps(root, contracts, mergeBase, candidate)) {
+    const run = spawnSync(executable, argv, { cwd: root, env: box.env, encoding: 'utf8' })
+    if (run.status !== 0) throw new Error(run.stderr || run.stdout)
+    native.push({ argv, exit: run.status, stdout: run.stdout })
+  }
+  const after = git(box, root, statusArgs)
+  const ignored = git(box, root, ['status', '--porcelain', '-z', '--ignored', '--untracked-files=all'])
+    .split('\0')
+    .filter((entry) => entry.startsWith('!! '))
+    .map((entry) => entry.slice(3))
+  const record: SemctxRecord = {
+    producer: 'semctx',
+    invocation: {
+      repository: 'acme/app',
+      pr,
+      candidate,
+      base,
+      mergeBase,
+      contracts,
+      root,
+      config,
+      tool: { path: executable, version: version.stdout.trim() },
+      status: { before, after },
+      ignored,
+    },
+    native,
+  }
+  const results = readSemctxRecord(record, {
+    repository: 'acme/app',
+    pr,
+    candidate,
+    base,
+    mergeBase,
+    contracts,
+    config,
+    changeFiles: facts.changeFiles,
+  })
+  if ('ok' in results || results.some((result) => result.verdict !== 'VERIFIED'))
+    throw new Error(`the older contract is not natively VERIFIED: ${JSON.stringify(results)}`)
+  return {
+    code: native.at(-1)?.exit ?? null,
+    stdout: JSON.stringify(results),
+    stderr: '',
+    record: renderRecord('semctx', candidate, ['Native VERIFIED, but no contract added for this ticket'], record),
+  }
+}
+
+type Detected = Captured & { check: { code: number | null; stderr: string } }
+
+/**
+ * The operator's `assertledger check` of a candidate against its buggy world (the
+ * `-buggy` branch when the sandbox has one, else `main`) and its `-neutral`
+ * branch, then the acquisition that replays the manifest and posts every record
+ * that applies.
+ */
+function detect(box: Box, name: string, { pr, branch, test }: { pr: number; branch: string; test: string }): Detected {
+  const sha = box.sha[branch] as string
+  const wt = worktree(box, name, sha)
+  const out = `.al/${name}`
+  const check = spawnSync(
+    'assertledger',
+    [
+      'check',
+      '.',
+      '--before',
+      box.sha[`${branch}-buggy`] ?? (box.sha.main as string),
+      '--after',
+      sha,
+      '--neutral',
+      box.sha[`${branch}-neutral`] as string,
+      '--neutral-reason',
+      'comment-only change on the fixed tree',
+      '--test',
+      `test/${test}.test.js`,
+      '--base-test',
+      'test/base.test.js',
+      '--out',
+      out,
+      '--allow-unsafe-execution',
+      '--json',
+    ],
+    { cwd: wt, env: box.env, encoding: 'utf8' },
+  )
+  return {
+    ...acquire(box, wt, pr, ['--assertledger-manifest', path.join(wt, out, 'manifest.json')]),
+    check: { code: check.status, stderr: check.stderr },
+  }
 }
 
 function which(name: string): string {
@@ -89,6 +210,7 @@ try {
     const sha = semctx.sha[branch] as string
     semctxRecords[name] = acquire(semctx, worktree(semctx, name, sha), pr)
   }
+  semctxRecords.modifiedNative = await modifiedNative(semctx)
   records.semctx = { sha: semctx.sha, records: semctxRecords }
 
   const ignored = sandbox(ignoredSpec({ path: [bin] }))
@@ -98,41 +220,13 @@ try {
 
   const ledger = sandbox(ledgerSpec({ path: [bin] }))
   roots.push(ledger.root)
-  const ledgerRecords: Record<string, Captured & { check?: { code: number | null; stderr: string } }> = {}
-  for (const [name, { pr, branch, test }] of Object.entries(LEDGER_CASES)) {
-    const sha = ledger.sha[branch] as string
-    const wt = worktree(ledger, name, sha)
-    const out = `.al/${name}`
-    const check = spawnSync(
-      'assertledger',
-      [
-        'check',
-        '.',
-        '--before',
-        ledger.sha.main as string,
-        '--after',
-        sha,
-        '--neutral',
-        ledger.sha[`${branch}-neutral`] as string,
-        '--neutral-reason',
-        'comment-only change on the fixed tree',
-        '--test',
-        `test/${test}.test.js`,
-        '--base-test',
-        'test/base.test.js',
-        '--out',
-        out,
-        '--allow-unsafe-execution',
-        '--json',
-      ],
-      { cwd: wt, env: ledger.env, encoding: 'utf8' },
-    )
-    ledgerRecords[name] = {
-      ...acquire(ledger, wt, pr, ['--assertledger-manifest', path.join(wt, out, 'manifest.json')]),
-      check: { code: check.status, stderr: check.stderr },
-    }
-  }
+  const ledgerRecords: Record<string, Detected> = {}
+  for (const [name, spec] of Object.entries(LEDGER_CASES)) ledgerRecords[name] = detect(ledger, name, spec)
   records.assertledger = { sha: ledger.sha, records: ledgerRecords }
+
+  const both = sandbox(bothSpec({ path: [bin] }))
+  roots.push(both.root)
+  records.both = { sha: both.sha, records: { both: detect(both, 'both', BOTH_CASE) } }
   records.tools = {
     semctx: spawnSync(path.join(bin, 'semctx'), ['--version'], { encoding: 'utf8' }).stdout.trim(),
     assertledger: spawnSync(path.join(bin, 'assertledger'), ['--version'], {

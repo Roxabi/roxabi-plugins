@@ -319,8 +319,11 @@ export const SEMCTX_BASE: Files = {
  * contract: a candidate that only modifies it (never recorded), and one that
  * adds its own and modifies the old one. On a `stray` base whose `changes/`
  * holds a file with no change: a VERIFIED candidate that declares another
- * active change outside `changes/`, so the counts still match. And a VERIFIED
+ * active change outside `changes/`, so the counts still match. A VERIFIED
  * change whose statement is long enough that its record exceeds one comment.
+ * And PARTIAL under a `stack` the candidate commits besides its base's: an e2e
+ * command left blank or empty declares none, and a stack that is not a map, or
+ * whose commands are a list, cannot be read.
  */
 export const SEMCTX_CASES = {
   partial: { pr: 10, branch: 'fix/1-partial' },
@@ -335,6 +338,11 @@ export const SEMCTX_CASES = {
   amended: { pr: 27, branch: 'fix/1-amended', base: 'legacy' },
   hidden: { pr: 28, branch: 'fix/1-hidden', base: 'stray' },
   large: { pr: 29, branch: 'fix/1-large' },
+  e2eBlank: { pr: 31, branch: 'fix/1-e2e-blank', stack: `${STACK}commands:\n  test_e2e: ' '\n` },
+  e2eNull: { pr: 32, branch: 'fix/1-e2e-null', stack: `${STACK}commands:\n  test_e2e:\n` },
+  stackList: { pr: 33, branch: 'fix/1-stack-list', stack: '- landing\n' },
+  commandList: { pr: 34, branch: 'fix/1-command-list', stack: `${STACK}commands:\n  - bun run e2e\n` },
+  mixedResults: { pr: 35, branch: 'fix/1-mixed-results', base: 'legacy' },
 } as const
 
 const OLD_CONTRACT = '.semctx/semantic/changes/change.fx.old.sem'
@@ -452,6 +460,14 @@ export function semctxSpec(overrides: Partial<Spec> = {}): Spec {
         ],
       },
       {
+        name: SEMCTX_CASES.mixedResults.branch,
+        from: 'legacy',
+        commits: [
+          fix,
+          { message: 'docs: old contract (#1)', files: { [OLD_CONTRACT]: old('Keep add total and finite') } },
+        ],
+      },
+      {
         name: 'stray',
         from: 'main',
         commits: [
@@ -476,6 +492,13 @@ export function semctxSpec(overrides: Partial<Spec> = {}): Spec {
           },
         ],
       },
+      ...Object.values(SEMCTX_CASES)
+        .filter((pr) => 'stack' in pr)
+        .map((pr) => ({
+          name: pr.branch,
+          from: 'main',
+          commits: [fixWith([SERVES, PRESERVES, REQUIRES, LINK], { '.dev/stack.yml': pr.stack })],
+        })),
     ],
     issues: [{ number: 1, title: 'fix: finite add', issueType: 'fix' }],
     prs: Object.values(SEMCTX_CASES).map((pr) => ({
@@ -581,23 +604,27 @@ export const LEDGER_CASES = {
   weak: { pr: 21, branch: 'fix/2-weak', test: 'weak' },
 } as const
 
+/** The fix commit of a ledger candidate: `clamp` corrected, with the selected test. */
+const clampFix = (test: keyof typeof LEDGER_TESTS): Commit => ({
+  message: 'fix: clamp above range (#2)',
+  files: { 'src/lib.js': CLAMP, [`test/${test}.test.js`]: LEDGER_TESTS[test] },
+})
+/** The comment-only revision of a fixed tree assertledger checks as neutral. */
+const CLAMP_NEUTRAL: Commit = { message: 'chore: comment', files: { 'src/lib.js': `// clamp\n${CLAMP}` } }
+
 export function ledgerSpec(overrides: Partial<Spec> = {}): Spec {
-  const fixed = (test: keyof typeof LEDGER_TESTS): Commit => ({
-    message: 'fix: clamp above range (#2)',
-    files: { 'src/lib.js': CLAMP, [`test/${test}.test.js`]: LEDGER_TESTS[test] },
-  })
   return {
     base: LEDGER_BASE,
     branches: [
       ...Object.values(LEDGER_CASES).map(({ branch, test }) => ({
         name: branch,
         from: 'main',
-        commits: [fixed(test)],
+        commits: [clampFix(test)],
       })),
       ...Object.values(LEDGER_CASES).map(({ branch }) => ({
         name: `${branch}-neutral`,
         from: branch,
-        commits: [{ message: 'chore: comment', files: { 'src/lib.js': `// clamp\n${CLAMP}` } }],
+        commits: [CLAMP_NEUTRAL],
       })),
     ],
     issues: [
@@ -612,6 +639,34 @@ export function ledgerSpec(overrides: Partial<Spec> = {}): Spec {
       body: 'Closes #2\n',
       closes: [2],
     })),
+    ...overrides,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Both producers: Semctx configured and an assertledger adapter
+// ---------------------------------------------------------------------------
+
+/**
+ * One fix PR both producers apply to: a VERIFIED change and a detection, posted
+ * by one acquisition. assertledger checks worlds of one path set besides the
+ * selected test, each an ancestor of the next, and the candidate adds a change
+ * contract: its buggy world is the PR's first commit, `-buggy`, which opens and
+ * proves the contract before the second fixes `clamp`.
+ */
+export const BOTH_CASE = { pr: 60, branch: 'fix/2-both', test: 'regression' } as const
+
+export function bothSpec(overrides: Partial<Spec> = {}): Spec {
+  const { pr, branch, test } = BOTH_CASE
+  return {
+    base: { ...SEMCTX_BASE, ...LEDGER_BASE },
+    branches: [
+      { name: `${branch}-buggy`, from: 'main', commits: [fix, proven] },
+      { name: branch, from: `${branch}-buggy`, commits: [clampFix(test)] },
+      { name: `${branch}-neutral`, from: branch, commits: [CLAMP_NEUTRAL] },
+    ],
+    issues: [{ number: 2, title: 'fix: clamp', issueType: 'fix' }],
+    prs: [{ number: pr, branch, title: 'fix: clamp above range', body: 'Closes #2\n', closes: [2] }],
     ...overrides,
   }
 }
