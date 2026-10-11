@@ -14,6 +14,7 @@ import {
   admitLanding,
   type ChangeResult,
   candidateFacts,
+  changedContracts,
   findRecord,
   type Git,
   justifyGaps,
@@ -262,7 +263,10 @@ const expectedFor = (pr: number, candidate: string): SemctxExpected => ({
 type Native = { argv: string[]; exit: number; stdout: string }
 /** index, status, check, change inspect, change verify, status — one change. */
 type Steps = [Native, Native, Native, Native, Native, Native]
-type SemctxShape = { invocation: { status: Record<string, string>; ignored: string[] }; native: Steps }
+type SemctxShape = {
+  invocation: { root: string; status: Record<string, string>; ignored: string[] }
+  native: Steps
+}
 /** The fields of the native JSON the mutations below vary. */
 type NativeJson = {
   verdict: string
@@ -338,6 +342,23 @@ describe('readSemctxRecord', () => {
       /not clean/,
     ],
     [
+      'a private checkout dirty before the run',
+      varied('verified', (r) => (r.invocation.status.before = ' M src/a.ts\0')),
+      'unbound',
+      /not clean/,
+    ],
+    [
+      'a relative checkout root',
+      varied('verified', (r, stdout) => {
+        const root = r.invocation.root
+        r.invocation.root = 'relative/root'
+        for (const step of r.native) step.argv = step.argv.map((arg) => (arg === root ? 'relative/root' : arg))
+        for (const i of [1, 5] as const) stdout(i, (s) => (s.freshnessSeal.indexedRepositoryRoot = 'relative/root'))
+      }),
+      'unbound',
+      /no private checkout root/,
+    ],
+    [
       'ignored Semctx working state in the private checkout',
       varied('verified', (r) => r.invocation.ignored.push('.semctx/working/active-change.sem')),
       'unbound',
@@ -370,6 +391,22 @@ describe('readSemctxRecord', () => {
       varied('verified', (_r, stdout) => stdout(5, (s) => (s.freshnessSeal.sealHash = `sha256:${'0'.repeat(64)}`))),
       'unbound',
       /seal changed/,
+    ],
+    [
+      'an index of another head, whatever the capture head',
+      varied('verified', (_r, stdout) => {
+        for (const i of [1, 5] as const) stdout(i, (s) => (s.freshnessSeal.indexedHeadCommit = OTHER))
+      }),
+      'unbound',
+      /sealed at/,
+    ],
+    [
+      'an index of another root',
+      varied('verified', (_r, stdout) => {
+        for (const i of [1, 5] as const) stdout(i, (s) => (s.freshnessSeal.indexedRepositoryRoot = '/elsewhere'))
+      }),
+      'unbound',
+      /indexed another root/,
     ],
     [
       'a model with more changes than change files',
@@ -428,6 +465,36 @@ describe('readSemctxRecord', () => {
       /lifecycle/,
     ],
     [
+      'a lifecycle the inspect does not share',
+      varied('verified', (_r, stdout) => stdout(3, (s) => (s.lifecycle = 'draft'))),
+      'unreadable',
+      /lifecycle/,
+    ],
+    [
+      'a blocked change',
+      varied('verified', (_r, stdout) => {
+        for (const i of [3, 4] as const) stdout(i, (s) => (s.lifecycle = 'blocked'))
+      }),
+      'verdict',
+      /is blocked; only/,
+    ],
+    [
+      'a stale change',
+      varied('verified', (_r, stdout) => {
+        for (const i of [3, 4] as const) stdout(i, (s) => (s.lifecycle = 'stale'))
+      }),
+      'verdict',
+      /is stale; only/,
+    ],
+    [
+      'a superseded change',
+      varied('verified', (_r, stdout) => {
+        for (const i of [3, 4] as const) stdout(i, (s) => (s.lifecycle = 'superseded'))
+      }),
+      'verdict',
+      /is superseded; only/,
+    ],
+    [
       'BLOCKED',
       varied('verified', (_r, stdout) =>
         stdout(4, (s) => {
@@ -456,6 +523,36 @@ describe('readSemctxRecord', () => {
       varied('verified', (_r, stdout) => stdout(4, (s) => (s.preserved[0].state = 'missing'))),
       'verdict',
       /neither proved nor untouched/,
+    ],
+    [
+      'VERIFIED with a finding',
+      varied('verified', (_r, stdout) =>
+        stdout(4, (s) => s.findings.push({ kind: 'invariant_unproven', severity: 'warn', message: 'm', refs: [] })),
+      ),
+      'verdict',
+      /with 1 finding\(s\)/,
+    ],
+    [
+      'VERIFIED with an open unknown',
+      varied('verified', (_r, stdout) =>
+        stdout(4, (s) => s.openUnknowns.push({ id: 'unknown.fx.x', statement: 'x', critical: false, present: true })),
+      ),
+      'verdict',
+      /with 1 open unknown\(s\)/,
+    ],
+    [
+      'VERIFIED with a stale link',
+      varied('verified', (_r, stdout) =>
+        stdout(4, (s) => s.stale.push({ kind: 'stale_link', severity: 'stale', message: 'gone', refs: [] })),
+      ),
+      'verdict',
+      /with 1 stale link\(s\)/,
+    ],
+    [
+      'VERIFIED with an impact that warns',
+      varied('verified', (_r, stdout) => stdout(4, (s) => (s.underlying.verdict = 'WARN'))),
+      'verdict',
+      /with impact WARN/,
     ],
     [
       'VERIFIED with its required evidence unproved',
@@ -541,11 +638,58 @@ describe('readSemctxRecord', () => {
         'unreadable',
         /names no id/,
       ],
+      [
+        'a blocking finding',
+        varied('partial', (_r, stdout) =>
+          stdout(4, (s) =>
+            s.findings.push({ kind: 'invariant_contradicted', severity: 'block', message: 'm', refs: ['x'] }),
+          ),
+        ),
+        'verdict',
+        /PARTIAL with a blocking or stale finding: contradictory/,
+      ],
+      [
+        'a finding that names no gap',
+        varied('partial', (_r, stdout) =>
+          stdout(4, (s) => s.findings.push({ kind: '', severity: 'warn', message: 'm', refs: [] })),
+        ),
+        'unjustified',
+        /no named gap/,
+      ],
     ] as const)('a PARTIAL with %s refuses', (_label, record, reason, error) => {
       const outcome = readSemctxRecord(record, expected)
       expect(outcome).toMatchObject({ ok: false, producer: 'semctx', reason })
       expect('error' in outcome && outcome.error).toMatch(error)
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// changedContracts: the contracts a candidate changes, from git's name-status
+// ---------------------------------------------------------------------------
+
+describe('changedContracts', () => {
+  const diff =
+    (stdout: string): Git =>
+    async () => ({ code: 0, stdout, stderr: '' })
+  const at = (name: string) => `.semctx/semantic/changes/${name}`
+
+  it('lists the added and modified contracts directly in changes/, by path, and skips other files', async () => {
+    const listed = diff(`M\0${at('b.sem')}\0A\0${at('a.sem')}\0A\0${at('notes.md')}\0`)
+    expect(await changedContracts(listed, '/repo', MAIN, C)).toEqual([
+      { path: at('a.sem'), status: 'A' },
+      { path: at('b.sem'), status: 'M' },
+    ])
+  })
+
+  it.each([
+    ['nested under changes/', `A\0${at('sub/x.sem')}\0`, /must sit directly in/],
+    ['deleted', `D\0${at('x.sem')}\0`, /status D is not supported/],
+    ['retyped', `T\0${at('x.sem')}\0`, /status T is not supported/],
+  ])('a contract %s fails closed', async (_label, stdout, error) => {
+    const out = await changedContracts(diff(`A\0${at('a.sem')}\0${stdout}`), '/repo', MAIN, C)
+    expect(out).toBeInstanceOf(Error)
+    expect(String(out)).toMatch(error)
   })
 })
 
@@ -591,7 +735,11 @@ describe('justifyGaps', () => {
 
 const DETECTED = shaOf('assertledger', 'fix/2-detection')
 type LedgerShape = { invocation: Record<string, unknown>; native: { manifest: string; replay: Native } }
-type Manifest = { decision: { status: string }; evidenceContext: { worlds: { id: string; provenance: string }[] } }
+type Manifest = {
+  decision: { status: string; selectedCandidateIds: string[] }
+  candidates: { id: string; status: string }[]
+  evidenceContext: { worlds: { id: string; provenance: string }[] }
+}
 
 function detection(edit: (record: LedgerShape, manifest: Manifest) => void = () => {}) {
   const record = conserved<LedgerShape>('assertledger', 'detection', DETECTED)
@@ -640,6 +788,25 @@ describe('readAssertledgerRecord', () => {
       detection((r) => (r.native.replay.stdout = '{"valid":false}')),
       'unreadable',
       /replay valid/,
+    ],
+    [
+      'a replay that is valid but not schema-valid',
+      detection((r) => {
+        const flags = JSON.parse(r.native.replay.stdout)
+        r.native.replay.stdout = JSON.stringify({ ...flags, schemaValid: false })
+      }),
+      'unreadable',
+      /replay valid/,
+    ],
+    ['a replay that exited non-zero', detection((r) => (r.native.replay.exit = 1)), 'unreadable', /replay valid/],
+    [
+      'a selected candidate that is not ELIGIBLE',
+      detection((_r, m) => {
+        for (const candidate of m.candidates)
+          if (m.decision.selectedCandidateIds.includes(candidate.id)) candidate.status = 'INELIGIBLE'
+      }),
+      'verdict',
+      /no detection/,
     ],
     ['another PR', detection((r) => (r.invocation.pr = 21)), 'unbound', /pr 21 ≠ 20/],
     [

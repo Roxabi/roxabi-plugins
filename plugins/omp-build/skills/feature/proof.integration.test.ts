@@ -12,7 +12,9 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync }
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
+  BOTH_CASE,
   type Box,
+  bothSpec,
   git,
   IGNORED_CASE,
   ignoredSpec,
@@ -30,11 +32,12 @@ import {
   worktree,
   writeSim,
 } from './__fixtures__/proof/sandbox'
-import { findRecord, renderRecord } from './proof'
+import type { SemctxRecord } from './proof'
+import { findRecord, proofMark, renderRecord } from './proof'
 
 type Captured = { code: number | null; stdout: string; stderr: string; record?: string[] }
 type Capture = { sha: Record<string, string>; records: Record<string, Captured> }
-type Records = { semctx: Capture; ignored: Capture; assertledger: Capture }
+type Records = { semctx: Capture; ignored: Capture; assertledger: Capture; both: Capture }
 const RECORDS: Records = JSON.parse(
   readFileSync(path.join(import.meta.dirname, '__fixtures__/proof/records.json'), 'utf8'),
 )
@@ -328,6 +331,43 @@ describe('landPr admission against conserved Semctx records', () => {
     }
   })
 
+  describe('a ui-manual-only gap reads the whole stack the candidate commits for its e2e command', () => {
+    it.each([
+      ['blank', 'e2eBlank'],
+      ['empty', 'e2eNull'],
+    ] as const)('an e2e command left %s declares none: ui-manual-only admits', (_label, name) => {
+      const { pr, branch } = SEMCTX_CASES[name]
+      prepare(box, pr, { comments: [approve(sha(branch)), ...conserved(RECORDS.semctx, name)], body: browser() })
+      const { result, gate, producers } = land(box, wt[name] as string, pr)
+      expect(result).toMatchObject({
+        status: 'watching',
+        proof: { semctx: { verdict: 'PARTIAL', gaps: [{ gap: GAP, reason: 'ui-manual-only' }] } },
+      })
+      expect(gate.labels).toEqual(['reviewed'])
+      expect(producers).toEqual([])
+    })
+
+    it.each([
+      ['is not a map', 'stackList', /cannot be read: the document is not a map/],
+      ['lists its commands', 'commandList', /cannot be read: commands is not a map/],
+    ] as const)(
+      'a stack that %s refuses ui-manual-only as unreadable; out-of-scope needs no e2e proof',
+      (_label, name, error) => {
+        const { pr, branch } = SEMCTX_CASES[name]
+        const comments = [approve(sha(branch)), ...conserved(RECORDS.semctx, name)]
+        prepare(box, pr, { comments, body: browser() })
+        const refused = land(box, wt[name] as string, pr)
+        expect(refused.result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'unreadable' })
+        expect(refused.result.error).toMatch(error)
+        expect(refused.gate).toEqual(UNARMED)
+        prepare(box, pr, { comments, body: noTest('out-of-scope') })
+        const admitted = land(box, wt[name] as string, pr)
+        expect(admitted.result).toMatchObject({ status: 'watching', proof: { semctx: { verdict: 'PARTIAL' } } })
+        expect([...refused.producers, ...admitted.producers]).toEqual([])
+      },
+    )
+  })
+
   describe('the base decides with the candidate: a PR never relaxes the policy it is judged by', () => {
     it.each([
       [
@@ -368,13 +408,15 @@ describe('landPr admission against conserved Semctx records', () => {
   })
 
   describe('the proof is the change contract the candidate adds, and every open change is in its own file', () => {
-    it('a candidate that only modifies an older contract has no proof of its own: never recorded, refused', () => {
+    it('a candidate that only modifies an older contract cannot land even with that contract’s native VERIFIED record', () => {
       expect(RECORDS.semctx.records.modified).toMatchObject({ code: 1 })
-      expect(RECORDS.semctx.records.modified?.stderr).toMatch(
-        /adds no .*only modifies \.semctx\/semantic\/changes\/change\.fx\.old\.sem/,
-      )
+      const native = RECORDS.semctx.records.modifiedNative
+      expect(native?.code).toBe(0)
+      expect(JSON.parse(native?.stdout ?? 'null')).toMatchObject([
+        { id: 'change.fx.old', verdict: 'VERIFIED', lifecycle: 'verified', gaps: [] },
+      ])
       const { pr, branch } = SEMCTX_CASES.modified
-      prepare(box, pr, { comments: [approve(sha(branch))] })
+      prepare(box, pr, { comments: [approve(sha(branch)), ...conserved(RECORDS.semctx, 'modifiedNative')] })
       const { result, gate, producers } = land(box, wt.modified as string, pr)
       expect(result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'missing' })
       expect(result.error).toMatch(/adds no .*only modifies \.semctx\/semantic\/changes\/change\.fx\.old\.sem/)
@@ -399,6 +441,33 @@ describe('landPr admission against conserved Semctx records', () => {
         },
       })
       expect(producers).toEqual([])
+    })
+
+    it('mixed VERIFIED and PARTIAL changes stay PARTIAL; the partial gap still needs its own row', () => {
+      const { pr, branch } = SEMCTX_CASES.mixedResults
+      const comments = [approve(sha(branch)), ...conserved(RECORDS.semctx, 'mixedResults')]
+      prepare(box, pr, { comments })
+      const refused = land(box, wt.mixedResults as string, pr)
+      expect(refused.result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'unjustified' })
+      expect(refused.result.error).toContain(`gap ${GAP} has no NO TEST row`)
+      expect(refused.gate).toEqual(UNARMED)
+
+      prepare(box, pr, { comments, body: noTest('out-of-scope') })
+      const admitted = land(box, wt.mixedResults as string, pr)
+      expect(admitted.result).toMatchObject({
+        status: 'watching',
+        proof: {
+          semctx: {
+            verdict: 'PARTIAL',
+            changes: [
+              { id: 'change.fx.add', verdict: 'PARTIAL' },
+              { id: 'change.fx.old', verdict: 'VERIFIED' },
+            ],
+            gaps: [{ gap: GAP, reason: 'out-of-scope' }],
+          },
+        },
+      })
+      expect([...refused.producers, ...admitted.producers]).toEqual([])
     })
 
     it('an active change declared outside the contract files refuses, though the change counts match', () => {
@@ -451,6 +520,53 @@ describe('landPr admission against conserved Semctx records', () => {
       expect(result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'missing' })
       expect(result.error).toContain(`records by ${ME} name ${sha(verified.branch)}`)
       expect(gate).toEqual(UNARMED)
+    })
+
+    it('a record posted by another login proves nothing; the same record by the operator admits', () => {
+      const comments = [approve(sha(verified.branch)), ...conserved(RECORDS.semctx, 'verified')]
+      prepare(box, verified.pr, { comments })
+      writeSim(box, (state) => {
+        for (const comment of state.prs[String(verified.pr)]?.comments.slice(1) ?? []) comment.author = 'mallory'
+      })
+      const other = land(box, wt.verified as string, verified.pr)
+      expect(other.result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'missing' })
+      expect(other.result.error).toContain(`no semctx record by ${ME} for candidate ${sha(verified.branch)}`)
+      expect(other.gate).toEqual(UNARMED)
+
+      prepare(box, verified.pr, { comments })
+      const own = land(box, wt.verified as string, verified.pr)
+      expect(own.result).toMatchObject({ status: 'watching', proof: { semctx: { verdict: 'VERIFIED' } } })
+      expect([...other.producers, ...own.producers]).toEqual([])
+    })
+
+    it('the latest complete record wins: a newer refusal never falls back to an older VERIFIED record', () => {
+      const older = conserved(RECORDS.semctx, 'verified')
+      const found = findRecord(
+        older.map((body) => ({ author: { login: ME }, body })),
+        ME,
+        'semctx',
+        sha(verified.branch),
+      )
+      if (!('record' in found)) throw new Error('the conserved record does not parse')
+      const record = structuredClone(found.record) as SemctxRecord
+      const step = record.native[4]
+      if (!step) throw new Error('the conserved record holds no verify')
+      step.stdout = JSON.stringify({
+        ...JSON.parse(step.stdout),
+        verdict: 'BLOCKED',
+        findings: [{ kind: 'underlying_block', severity: 'block', message: 'invariant unproved', refs: [] }],
+      })
+      const newer = renderRecord('semctx', sha(verified.branch), ['BLOCKED'], record)
+      prepare(box, verified.pr, { comments: [approve(sha(verified.branch)), ...older, ...newer] })
+      const refused = land(box, wt.verified as string, verified.pr)
+      expect(refused.result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'verdict' })
+      expect(refused.result.error).toContain('BLOCKED: invariant unproved')
+      expect(refused.gate).toEqual(UNARMED)
+
+      prepare(box, verified.pr, { comments: [approve(sha(verified.branch)), ...newer, ...older] })
+      const admitted = land(box, wt.verified as string, verified.pr)
+      expect(admitted.result).toMatchObject({ status: 'watching', proof: { semctx: { verdict: 'VERIFIED' } } })
+      expect([...refused.producers, ...admitted.producers]).toEqual([])
     })
 
     it('a PR whose head moved past the proven commit has no proof for its new head', () => {
@@ -785,18 +901,73 @@ describe('landPr admission against conserved assertledger records', () => {
   })
 })
 
+describe('landPr admission where Semctx and an assertledger adapter both apply', () => {
+  const { pr, branch } = BOTH_CASE
+  const posted = conserved(RECORDS.both, 'both')
+  let box: Box
+  let dir: string
+
+  beforeAll(() => {
+    box = sandbox(bothSpec())
+    for (const [name, value] of Object.entries(RECORDS.both.sha)) {
+      if (box.sha[name] !== value)
+        throw new Error(`${name} rebuilt as ${box.sha[name]}, recorded ${value}: re-run capture.ts`)
+    }
+    instrument(box)
+    dir = worktree(box, 'both', box.sha[branch] as string)
+  })
+  afterAll(() => rmSync(box.root, { recursive: true, force: true }))
+
+  it('an admitted Semctx record does not waive the detection; both records admit', () => {
+    const candidate = box.sha[branch] as string
+    const semctx = posted.filter((body) => body.startsWith(proofMark('semctx')))
+    prepare(box, pr, { comments: [approve(candidate), ...semctx], body: 'Closes #2\n' })
+    const refused = land(box, dir, pr)
+    expect(refused.result).toMatchObject({ status: 'proof-blocked', producer: 'assertledger', reason: 'missing' })
+    expect(refused.gate).toEqual(UNARMED)
+
+    prepare(box, pr, { comments: [approve(candidate), ...posted], body: 'Closes #2\n' })
+    const admitted = land(box, dir, pr)
+    expect(admitted.result).toMatchObject({
+      status: 'watching',
+      proof: { semctx: { verdict: 'VERIFIED' }, assertledger: 'detection' },
+    })
+    expect(admitted.gate.labels).toEqual(['reviewed'])
+    expect([...refused.producers, ...admitted.producers]).toEqual([])
+  })
+})
+
 describe('Semctx applicability is decided from the base, the candidate and the checkouts', () => {
   // The principal's directory name ends in a space and a newline; Git paths are kept byte for byte.
   const PRINCIPAL = 'principal \n'
   let box: Box
   let wt: string
+  let malformedWt: string
   const head = () => box.sha['fix/5-plain'] as string
   const PR = 30
+  // A candidate that commits a Semctx configuration that is not JSON.
+  const MALFORMED = { pr: 31, branch: 'fix/5-malformed' }
 
   beforeAll(() => {
-    box = sandbox(plainSpec({ principalName: PRINCIPAL }))
+    const spec = plainSpec({ principalName: PRINCIPAL })
+    box = sandbox({
+      ...spec,
+      branches: [
+        ...spec.branches,
+        {
+          name: MALFORMED.branch,
+          from: 'fix/5-plain',
+          commits: [{ message: 'chore: semctx (#5)', files: { '.semctx/config.json': '{"include": [\n' } }],
+        },
+      ],
+      prs: [
+        ...spec.prs,
+        { number: MALFORMED.pr, branch: MALFORMED.branch, title: 'fix: plain', body: 'Closes #5\n', closes: [5] },
+      ],
+    })
     instrument(box)
     wt = worktree(box, 'plain', head())
+    malformedWt = worktree(box, 'malformed', box.sha[MALFORMED.branch] as string)
   })
   afterAll(() => rmSync(box.root, { recursive: true, force: true }))
 
@@ -827,6 +998,70 @@ describe('Semctx applicability is decided from the base, the candidate and the c
       rmSync(state(), { recursive: true })
     }
   })
+
+  it('a local tip that cannot be read — an unborn HEAD — refuses with Git’s cause, never as absence', () => {
+    const headFile = git(box, wt, ['rev-parse', '--git-path', 'HEAD'])
+    const at = path.isAbsolute(headFile) ? headFile : path.join(wt, headFile)
+    const detached = readFileSync(at, 'utf8')
+    writeFileSync(at, 'ref: refs/heads/unborn\n')
+    try {
+      prepare(box, PR, { comments: [approve(head())], body: 'Closes #5\n' })
+      const { result, gate, producers } = land(box, wt, PR)
+      expect(result).toMatchObject({ status: 'proof-blocked', producer: 'candidate', reason: 'unreadable' })
+      expect(result.error).toContain('the local tip cannot be read — git rev-parse --verify HEAD^{commit}')
+      expect(gate).toEqual(UNARMED)
+      expect(producers).toEqual([])
+    } finally {
+      writeFileSync(at, detached)
+    }
+    prepare(box, PR, { comments: [approve(head())], body: 'Closes #5\n' })
+    expect(land(box, wt, PR).result).toMatchObject({ status: 'watching', proof: { semctx: 'absent' } })
+  })
+
+  it('a committed Semctx configuration that is not JSON refuses as unreadable, never as absence', () => {
+    const candidate = box.sha[MALFORMED.branch] as string
+    prepare(box, MALFORMED.pr, { comments: [approve(candidate)], body: 'Closes #5\n' })
+    const { result, gate, producers } = land(box, malformedWt, MALFORMED.pr)
+    expect(result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'unreadable' })
+    expect(result.error).toContain(`.semctx/config.json at ${candidate} is malformed`)
+    expect(gate).toEqual(UNARMED)
+    expect(producers).toEqual([])
+  })
+
+  it.skipIf(process.getuid?.() === 0)(
+    'a principal root that loses search permission after Git reads its declarations refuses; restoring access admits',
+    () => {
+      const bin = path.join(box.root, 'fault-git')
+      const realGit = execFileSync('which', ['git'], { encoding: 'utf8', env: box.env }).trim()
+      mkdirSync(bin)
+      const shim = path.join(bin, 'git')
+      // Run real Git unchanged, then inject the filesystem race immediately
+      // before admission stats .semctx. No Git answer or absence is fabricated.
+      writeFileSync(
+        shim,
+        `#!/bin/sh\n'${realGit}' "$@"\ncode=$?\nif [ "$3" = ls-tree ] && [ "$7" = 'refs/remotes/origin/main^{commit}' ]; then chmod 000 '${box.principal}'; fi\nexit "$code"\n`,
+      )
+      chmodSync(shim, 0o755)
+      const originalPath = box.env.PATH
+      box.env.PATH = `${bin}:${originalPath}`
+      try {
+        prepare(box, PR, { comments: [approve(head())], body: 'Closes #5\n' })
+        const { result, gate, producers } = land(box, wt, PR)
+        expect(result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'unreadable' })
+        expect(result.error).toContain(`${JSON.stringify(path.join(box.principal, '.semctx'))} cannot be read`)
+        expect(result.error).toContain('EACCES')
+        expect(gate).toEqual(UNARMED)
+        expect(producers).toEqual([])
+      } finally {
+        chmodSync(box.principal, 0o755)
+        box.env.PATH = originalPath
+      }
+      prepare(box, PR, { comments: [approve(head())], body: 'Closes #5\n' })
+      const admitted = land(box, wt, PR)
+      expect(admitted.result).toMatchObject({ status: 'watching', proof: { semctx: 'absent' } })
+      expect(admitted.producers).toEqual([])
+    },
+  )
 
   it('a candidate whose tree object is missing refuses with Git’s cause, never as absence', () => {
     const tree = git(box, wt, ['rev-parse', `${head()}^{tree}`])
