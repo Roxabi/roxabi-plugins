@@ -13,6 +13,7 @@ const payload = JSON.parse(payloadText ?? '{}') as {
   pr?: number
   code?: number
   mode?: string
+  landing?: { mode: string; required_checks: string[] }
 }
 
 const result =
@@ -24,7 +25,7 @@ const result =
         title: payload.title ?? '',
       })
     : fn === 'landPr'
-      ? await landPr(cwd ?? '', payload.pr ?? 0)
+      ? await landPr(cwd ?? '', payload.pr ?? 0, { landing: payload.landing })
       : fn === 'applyCiWatchExit'
         ? await applyCiWatchExit(cwd ?? '', payload.pr ?? 0, payload.code ?? 1, { mode: payload.mode })
         : null

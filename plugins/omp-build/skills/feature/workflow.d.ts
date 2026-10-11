@@ -3,7 +3,7 @@
  * (`epic-driver.ts`). Keep in step with the JSDoc in `workflow.js`.
  */
 
-import type { ProofSummary } from './proof'
+import type { Git, ProofSummary } from './proof'
 
 type Gh = (cwd: string, args: string[]) => Promise<string>
 
@@ -48,6 +48,13 @@ export declare function openPr(
 export declare function landPr(
   cwd: string,
   pr: number | string,
+  opts?: {
+    gh?: Gh
+    git?: Git
+    requiredContexts?: string[]
+    landing?: { mode: string; required_checks: string[] }
+    sleep?: (ms: number) => Promise<void>
+  },
 ): Promise<{
   status: string
   mode?: string

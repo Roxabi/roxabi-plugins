@@ -8,7 +8,7 @@
  * `semctx` and `assertledger` on PATH log and fail: admission must never call them.
  */
 import { execFileSync, spawnSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
@@ -24,6 +24,7 @@ import {
   readSim,
   SEMCTX_CASES,
   SEMCTX_CONFIG,
+  SIM,
   STACK,
   STACK_E2E,
   sandbox,
@@ -102,9 +103,10 @@ function prepare(
 }
 
 /** The real `landPr`, forked under bun, and what it did to the simulated PR. */
-function land(box: Box, cwd: string, pr: number) {
+function land(box: Box, cwd: string, pr: number, mode?: 'native' | 'merge-on-green') {
   const before = readSim(box).calls.length
-  const out = spawnSync(REAL_BUN, [WORKFLOW, 'landPr', cwd, JSON.stringify({ pr })], {
+  const payload = { pr, ...(mode && { landing: { mode, required_checks: ['ci'] } }) }
+  const out = spawnSync(REAL_BUN, [WORKFLOW, 'landPr', cwd, JSON.stringify(payload)], {
     cwd,
     env: box.env,
     encoding: 'utf8',
@@ -118,6 +120,57 @@ function land(box: Box, cwd: string, pr: number) {
     calls: state.calls.slice(before),
     gate: { labels: pull?.labels, autoMerge: pull?.autoMerge ?? null },
     producers: producerCalls(box),
+  }
+}
+
+/** Change an external input after gh has read it, while the real caller awaits its reply. */
+function mutateAfter(
+  box: Box,
+  when: 'body-read' | 'label-write' | 'admission-comments' | 'classification-read',
+  change: string,
+  failClear?: '--disable-auto' | '--remove-label',
+): () => void {
+  const dir = mkdtempSync(path.join(box.root, 'gh-move-'))
+  const originalPath = box.env.PATH
+  const once = path.join(dir, 'changed')
+  const shim = path.join(dir, 'gh')
+  writeFileSync(
+    shim,
+    `#!${REAL_BUN}
+import { spawnSync } from 'node:child_process'
+import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+const args = process.argv.slice(2)
+if (${JSON.stringify(failClear ?? '')} && args.includes(${JSON.stringify(failClear ?? '')}) && existsSync(${JSON.stringify(once)})) {
+  process.stderr.write('injected clear failure\\n')
+  process.exit(1)
+}
+const out = spawnSync(${JSON.stringify(REAL_BUN)}, [${JSON.stringify(SIM)}, ...args], { env: process.env, encoding: 'utf8' })
+const query = args.find((arg) => arg.startsWith('query=')) ?? ''
+const comments = args.some((arg) => arg.endsWith('/comments'))
+const countFile = ${JSON.stringify(path.join(dir, 'comment-reads'))}
+const count = comments ? (existsSync(countFile) ? Number(readFileSync(countFile, 'utf8')) : 0) + 1 : 0
+if (comments) writeFileSync(countFile, String(count))
+const when = ${JSON.stringify(when)}
+const matches = when === 'body-read' ? query.includes('lastEditedAt')
+  : when === 'classification-read' ? query.includes('issueType')
+  : when === 'admission-comments' ? comments && count === 2
+  : args[0] === 'pr' && args[1] === 'edit' && args.includes('--add-label')
+if (out.status === 0 && matches && !existsSync(${JSON.stringify(once)})) {
+  const state = JSON.parse(readFileSync(process.env.GH_SIM_STATE, 'utf8'))
+  ${change}
+  writeFileSync(process.env.GH_SIM_STATE, JSON.stringify(state))
+  writeFileSync(${JSON.stringify(once)}, 'changed\\n')
+}
+process.stdout.write(out.stdout)
+process.stderr.write(out.stderr)
+process.exit(out.status ?? 1)
+`,
+  )
+  chmodSync(shim, 0o755)
+  box.env.PATH = `${dir}:${originalPath}`
+  return () => {
+    box.env.PATH = originalPath
+    rmSync(dir, { recursive: true, force: true })
   }
 }
 
@@ -199,6 +252,19 @@ describe('landPr admission against conserved Semctx records', () => {
     expect(gate).toEqual({ labels: ['reviewed'], autoMerge: expect.objectContaining({ matchHeadCommit: sha(branch) }) })
     expect(producers).toEqual([])
     expect(calls.filter((args) => args[1] === 'comment')).toEqual([])
+  })
+
+  it('retains an unchanged VERIFIED input under merge-on-green without producing it again', () => {
+    const { pr, branch } = SEMCTX_CASES.verified
+    prepare(box, pr, { comments: [approve(sha(branch)), ...conserved(RECORDS.semctx, 'verified')] })
+    const { result, gate, producers } = land(box, wt.verified as string, pr, 'merge-on-green')
+    expect(result).toMatchObject({
+      status: 'watching',
+      mode: 'merge-on-green',
+      proof: { semctx: { verdict: 'VERIFIED' } },
+    })
+    expect(gate).toEqual({ labels: ['reviewed'], autoMerge: null })
+    expect(producers).toEqual([])
   })
 
   it('Semctx working state on disk in the operator checkout grants nothing and refuses nothing', () => {
@@ -299,6 +365,96 @@ describe('landPr admission against conserved Semctx records', () => {
         proof: { semctx: { verdict: 'PARTIAL', gaps: [{ gap: GAP, reason: 'ui-manual-only' }] } },
       })
       expect([...edited.producers, ...reviewed.producers]).toEqual([])
+    })
+
+    it.each([
+      ['native', 'body-read'],
+      ['merge-on-green', 'body-read'],
+      ['native', 'label-write'],
+      ['merge-on-green', 'label-write'],
+    ] as const)('%s refuses a PARTIAL body edited after %s at the same approved head', (mode, when) => {
+      prepare(box, pr, {
+        comments: [approve(sha(branch)), ...conserved(RECORDS.semctx, 'partial')],
+        body: noTest('out-of-scope'),
+      })
+      const restore = mutateAfter(
+        box,
+        when,
+        `state.prs[${pr}].lastEditedAt = '2027-01-01T00:00:00Z'; state.prs[${pr}].body = 'Closes #1\\n';`,
+      )
+      try {
+        const { result, gate, calls, producers } = land(box, wt.partial as string, pr, mode)
+        expect(result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'unjustified' })
+        expect(gate).toEqual(UNARMED)
+        expect(producers).toEqual([])
+        if (when === 'body-read') {
+          expect(calls.some((args) => args.includes('--auto') || args.includes('--add-label'))).toBe(false)
+        }
+      } finally {
+        restore()
+      }
+    })
+
+    it.each([
+      ['native', 'body-read'],
+      ['merge-on-green', 'body-read'],
+      ['native', 'label-write'],
+      ['merge-on-green', 'label-write'],
+    ] as const)('%s refuses a newer same-head record with a STALE native response after %s', (mode, when) => {
+      const parts = conserved(RECORDS.semctx, 'partial')
+      const found = findRecord(
+        parts.map((body) => ({ author: { login: ME }, body })),
+        ME,
+        'semctx',
+        sha(branch),
+      )
+      if (!('record' in found)) throw new Error('the conserved PARTIAL record does not parse')
+      // Controlled provider-input mutation, not a claim that this test ran Semctx.
+      const record = structuredClone(found.record) as SemctxRecord
+      const before = record.native[1]
+      if (!before) throw new Error('the conserved record has no pre-run status')
+      before.stdout = JSON.stringify({ ...JSON.parse(before.stdout), verdict: 'STALE' })
+      const newer = renderRecord('semctx', sha(branch), ['STALE'], record)
+      prepare(box, pr, { comments: [approve(sha(branch)), ...parts], body: noTest('out-of-scope') })
+      const restore = mutateAfter(
+        box,
+        when,
+        `state.prs[${pr}].comments.push(...${JSON.stringify(newer.map((body) => ({ author: ME, body })))});`,
+      )
+      try {
+        const { result, gate, calls, producers } = land(box, wt.partial as string, pr, mode)
+        expect(result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'unbound' })
+        expect(result.error).toMatch(/status before the run is not FRESH/)
+        expect(gate).toEqual(UNARMED)
+        expect(producers).toEqual([])
+        if (when === 'body-read') {
+          expect(calls.some((args) => args.includes('--auto') || args.includes('--add-label'))).toBe(false)
+        }
+      } finally {
+        restore()
+      }
+    })
+
+    it.each([
+      ['native', '--disable-auto', /stays armed.*auto-merge/],
+      ['merge-on-green', '--remove-label', /stays armed.*reviewed label/],
+    ] as const)('%s names the arm that a new proof refusal cannot clear', (mode, failClear, error) => {
+      prepare(box, pr, {
+        comments: [approve(sha(branch)), ...conserved(RECORDS.semctx, 'partial')],
+        body: noTest('out-of-scope'),
+      })
+      const restore = mutateAfter(box, 'label-write', `state.prs[${pr}].body = 'Closes #1\\n';`, failClear)
+      try {
+        expect(() => land(box, wt.partial as string, pr, mode)).toThrow(error)
+        const pull = readSim(box).prs[String(pr)]
+        expect(pull?.labels).toEqual(mode === 'native' ? [] : ['reviewed'])
+        expect(pull?.autoMerge).toEqual(
+          mode === 'native' ? expect.objectContaining({ matchHeadCommit: sha(branch) }) : null,
+        )
+        expect(producerCalls(box)).toEqual([])
+      } finally {
+        restore()
+      }
     })
   })
 
@@ -731,6 +887,49 @@ describe('landPr admission in a repository whose Semctx configuration is the ope
       writeFileSync(config(), original)
     }
   })
+
+  for (const fault of ['principal-edit', 'root-disagreement', 'principal-unreadable'] as const) {
+    // Root bypasses Unix read permission: it cannot exercise this real EACCES path.
+    it
+      .skipIf(fault === 'principal-unreadable' && process.getuid?.() === 0)
+      .each(
+        (['native', 'merge-on-green'] as const).flatMap((mode) =>
+          (['admission-comments', 'label-write'] as const).map((when) => [mode, when] as const),
+        ),
+      )(`%s refuses %s-time ${fault} at the same approved head`, (mode, when) => {
+      const original = readFileSync(config(), 'utf8')
+      const rootConfig = path.join(wt, '.semctx/config.json')
+      prepare(box, pr, { comments: [approve(head()), ...conserved(RECORDS.ignored, 'verified')] })
+      const change =
+        fault === 'principal-unreadable'
+          ? `chmodSync(${JSON.stringify(config())}, 0);`
+          : `writeFileSync(${JSON.stringify(fault === 'principal-edit' ? config() : rootConfig)}, ${JSON.stringify(original.replaceAll('"block"', '"warn"'))});`
+      const restore = mutateAfter(box, when, change)
+      try {
+        const { result, gate, calls, producers } = land(box, wt, pr, mode)
+        const reason =
+          fault === 'principal-edit' ? 'unbound' : fault === 'root-disagreement' ? 'ambiguous' : 'unreadable'
+        expect(result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason })
+        expect(result.error).toMatch(
+          fault === 'principal-edit'
+            ? /is not the ignored one in force now/
+            : fault === 'root-disagreement'
+              ? /disagrees with the Semctx configuration/
+              : /EACCES/,
+        )
+        expect(gate).toEqual(UNARMED)
+        expect(producers).toEqual([])
+        if (when === 'admission-comments') {
+          expect(calls.some((args) => args.includes('--auto') || args.includes('--add-label'))).toBe(false)
+        }
+      } finally {
+        restore()
+        chmodSync(config(), 0o644)
+        writeFileSync(config(), original)
+        rmSync(rootConfig, { force: true })
+      }
+    })
+  }
 })
 
 describe('landPr admission against conserved assertledger records', () => {
@@ -861,6 +1060,28 @@ describe('landPr admission against conserved assertledger records', () => {
       prepare(box, detection.pr, { comments: [approve(sha(detection.branch))], body: 'Closes #2\n' })
       const { result } = land(box, wt.detection as string, detection.pr)
       expect(result).toMatchObject({ status: 'watching', proof: { semctx: 'absent', assertledger: 'not-applicable' } })
+    })
+
+    it.each([
+      ['native', 'classification-read'],
+      ['merge-on-green', 'classification-read'],
+      ['native', 'label-write'],
+      ['merge-on-green', 'label-write'],
+    ] as const)('%s refuses a closing ticket retyped to Bug after %s at the same approved head', (mode, when) => {
+      shape('feat/2-clamp', { ...NEUTRAL, title: 'feat: clamp', issueType: 'feat' })
+      prepare(box, detection.pr, { comments: [approve(sha(detection.branch))], body: 'Closes #2\n' })
+      const restore = mutateAfter(box, when, "state.issues['2'].issueType = 'Bug';")
+      try {
+        const { result, gate, calls, producers } = land(box, wt.detection as string, detection.pr, mode)
+        expect(result).toMatchObject({ status: 'proof-blocked', producer: 'assertledger', reason: 'missing' })
+        expect(gate).toEqual(UNARMED)
+        expect(producers).toEqual([])
+        if (when === 'classification-read') {
+          expect(calls.some((args) => args.includes('--auto') || args.includes('--add-label'))).toBe(false)
+        }
+      } finally {
+        restore()
+      }
     })
 
     it('nothing establishing a type refuses: whether a detection is owed is unknown', () => {

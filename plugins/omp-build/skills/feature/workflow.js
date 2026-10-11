@@ -744,16 +744,20 @@ export async function landPr(
     }
     return null
   }
-  const refreshReviewAuthorization = async () => {
+  const refreshReviewAuthorization = async (retaining = false) => {
     // Every pre-arm checkpoint reads records first, then the caller reads the
     // head last. Preparation awaits must not retain same-head authorization.
     records = await readReviewRecords(cwd, pr, { gh: ghFn })
     if (records.spent) return exit(refused('review-bound'), { policy: 'unarmed' })
     if (!approves(records.verdict)) return exit(refused(), { policy: 'unarmed' })
     if (!isCommitSha(records.head)) return exit(refused('no-review-head'), { policy: 'unarmed' })
-    // A fresh approval of another head arms only once that head is admitted too.
-    if (records.head !== admitted) return admit()
-    return null
+    // Retention cannot transfer an arm already written for H to a later H2.
+    if (retaining && admitted !== undefined && records.head !== admitted) {
+      return exit(refused('head-moved'), { policy: 'unarmed' })
+    }
+    // Body, ignored configuration, classification and native records can change
+    // without a push. A head is a binding, never a cache key for authorization.
+    return admit()
   }
   // A refused pin: a moved head is cleared via `moved`, a readable stable head is
   // the native refusal, and an unreadable head forces the known gate clear and
@@ -920,14 +924,19 @@ export async function landPr(
     try {
       // Intervening awaits can change both the latest record and the head. Read
       // records first and the head last; an old snapshot is only a clearing target.
-      records = await readReviewRecords(cwd, pr, { gh: ghFn })
+      const refusal = await refreshReviewAuthorization(true)
       seen = { ...seen, headRefOid: await readHeadRefOid(cwd, pr, ghFn) }
+      if (refusal) {
+        terminal.policy = 'unarmed'
+        if (!terminal.failure) terminal.result = refusal.result
+      }
       if (!mayStayArmed(records, seen, false) || (admitted !== undefined && seen.headRefOid !== admitted)) {
         terminal.policy = 'unarmed'
         if (!terminal.failure && terminal.result?.status === 'watching') {
           terminal.result = refused('head-moved')
         }
       }
+      if (terminal.result?.status === 'watching') terminal.result.proof = proof
     } catch (failure) {
       terminal.policy = 'unarmed'
       terminal.failure ??= failure
