@@ -1,6 +1,6 @@
 /**
  * Deterministic core `/feature` uses: open a PR, derive the review loop's next step, and land.
- * `detectPrincipal` names the base when `landPr` has none. No worktree driver.
+ * Landing binds the selected PR's base coordinates. No worktree driver.
  */
 
 import { spawnSync } from 'node:child_process'
@@ -459,23 +459,13 @@ export function parseRequiredContexts(apiJson) {
   return out
 }
 
-/** @param {string} cwd @param {string | number} pr @param {(cwd: string, args: string[]) => Promise<string>} ghFn */
-async function resolveRequiredContexts(cwd, pr, ghFn) {
+/** @param {string} cwd @param {string} base @param {(cwd: string, args: string[]) => Promise<string>} ghFn */
+async function resolveRequiredContexts(cwd, base, ghFn) {
   const out = new Set()
   try {
     const { nameWithOwner } = JSON.parse(await ghFn(cwd, ['repo', 'view', '--json', 'nameWithOwner']))
     const [owner, repo] = (nameWithOwner || '').split('/')
     if (!owner || !repo) return []
-
-    let base
-    try {
-      const prJson = JSON.parse(await ghFn(cwd, ['pr', 'view', String(pr), '--json', 'baseRefName']))
-      base = prJson.baseRefName
-    } catch {
-      base = null
-    }
-    if (!base) base = await detectPrincipal(cwd)
-    if (!base) return []
 
     try {
       const classic = await ghFn(cwd, [
@@ -574,15 +564,10 @@ export function readLanding(cwd, { base } = {}) {
   return parseLanding(stackText, { mergeOnGreenWorkflow: workflow.status === 0 })
 }
 
-/** PR base when known, else the principal branch. Used by landPr before readLanding. */
+/** The selected PR's base coordinates, never a guessed principal branch. */
 async function resolveLandingBase(cwd, pr, ghFn) {
-  try {
-    const prJson = JSON.parse(await ghFn(cwd, ['pr', 'view', String(pr), '--json', 'baseRefName']))
-    if (typeof prJson.baseRefName === 'string' && prJson.baseRefName) return prJson.baseRefName
-  } catch {
-    /* fall through */
-  }
-  return detectPrincipal(cwd)
+  const data = await readPrFields(cwd, pr, ghFn, 'baseRefName,baseRefOid')
+  return { name: data.baseRefName, tip: data.baseRefOid }
 }
 
 /** Attempts to read a labeled-reviewed time newer than the pre-add snapshot. */
@@ -671,6 +656,7 @@ export async function landPr(
   /** What the admission read for it, reported with the watch. */
   let proof
   let landingBase
+  let landingContext
   const armedByUs = { auto: false, label: false }
   const knownGate = () =>
     gate && {
@@ -698,14 +684,37 @@ export async function landPr(
     }
     return exit(refused('head-moved'), { policy: 'unarmed', gate: seen, adapter })
   }
-  const headMoved = async () => {
-    const head = await readHeadRefOid(cwd, pr, ghFn)
-    return !isCommitSha(head) || head !== records.head
+  const baseBlocked = (reason, error) =>
+    exit({ status: 'proof-blocked', producer: 'candidate', reason, error }, { policy: 'unarmed' })
+  const bindBase = (current) => {
+    if (typeof current.name !== 'string' || !current.name || !isCommitSha(current.tip)) {
+      return baseBlocked(
+        'unreadable',
+        `PR base ${JSON.stringify(current.name)} has no readable tip (${JSON.stringify(current.tip)})`,
+      )
+    }
+    if (landingContext && (current.name !== landingContext.name || current.tip !== landingContext.tip)) {
+      return baseBlocked(
+        'unbound',
+        `PR base ${current.name}@${current.tip} conflicts with captured ${landingContext.name}@${landingContext.tip}; re-enter landing with the current base`,
+      )
+    }
+    return null
+  }
+  const readCoordinates = async () => {
+    const data = await readPrFields(cwd, pr, ghFn, 'headRefOid,baseRefName,baseRefOid')
+    return { head: data.headRefOid, base: { name: data.baseRefName, tip: data.baseRefOid } }
+  }
+  const checkCoordinates = async (adapter) => {
+    const current = await readCoordinates()
+    const blocked = bindBase(current.base)
+    if (blocked) return blocked
+    return !isCommitSha(current.head) || current.head !== records.head ? moved(adapter) : null
   }
   const refuseIfMoved = async () => {
     let readError
     try {
-      if (!(await headMoved())) return null
+      return await checkCoordinates()
     } catch (error) {
       readError = error
     }
@@ -719,6 +728,14 @@ export async function landPr(
    * forced-unarmed `proof-blocked` exit.
    */
   const admit = async () => {
+    let current
+    try {
+      current = await resolveLandingBase(cwd, pr, ghFn)
+    } catch (error) {
+      return baseBlocked('unreadable', `PR base cannot be read: ${errorText(error)}`)
+    }
+    const changed = bindBase(current)
+    if (changed) return changed
     const admission = await admitLanding(
       cwd,
       { pr: Number(pr), candidate: records.head, base: landingBase, reviewedAt: records.at },
@@ -738,11 +755,10 @@ export async function landPr(
         const refusal = await refreshReviewAuthorization()
         if (refusal) return { ...refusal, adapter }
       }
-      if (await headMoved()) return moved(adapter)
+      return await checkCoordinates(adapter)
     } catch (failure) {
       return exit(undefined, { policy: 'unarmed', failure, adapter })
     }
-    return null
   }
   const refreshReviewAuthorization = async (retaining = false) => {
     // Every pre-arm checkpoint reads records first, then the caller reads the
@@ -764,7 +780,8 @@ export async function landPr(
   // then propagates the original read failure through the epilogue.
   const pinRefused = async () => {
     try {
-      if (await headMoved()) return moved()
+      const refusal = await checkCoordinates()
+      if (refusal) return refusal
     } catch (failure) {
       return exit(undefined, { policy: 'unarmed', failure })
     }
@@ -797,19 +814,21 @@ export async function landPr(
       if (!isCommitSha(gate.headRefOid) || gate.headRefOid !== records.head) {
         return exit(refused('head-moved'), { policy: 'unarmed' })
       }
+      try {
+        const selected = await resolveLandingBase(cwd, pr, ghFn)
+        const blocked = bindBase(selected)
+        if (blocked) return blocked
+        landingContext = selected
+        landingBase = selected.name
+      } catch (error) {
+        return baseBlocked('unreadable', `PR base cannot be read: ${errorText(error)}`)
+      }
       let resolved = landing
       if (!resolved) {
         try {
-          landingBase = await resolveLandingBase(cwd, pr, ghFn)
           resolved = readLanding(cwd, { base: landingBase })
         } catch (error) {
           return exit({ status: 'bad-landing', error: errorText(error) })
-        }
-      } else {
-        try {
-          landingBase = await resolveLandingBase(cwd, pr, ghFn)
-        } catch {
-          landingBase = undefined
         }
       }
       if (resolved.mode === 'native') {
@@ -818,7 +837,7 @@ export async function landPr(
             ? [...requiredContexts]
             : resolved.required_checks.length
               ? resolved.required_checks
-              : await resolveRequiredContexts(cwd, pr, ghFn)
+              : await resolveRequiredContexts(cwd, landingBase, ghFn)
         if (required.length === 0) return exit({ status: 'no-required-checks' }, { policy: 'unarmed' })
       }
       const blocked = await admit()
@@ -830,14 +849,16 @@ export async function landPr(
         if (!Array.isArray(labels)) throw new Error(`landPr: gh pr view ${pr} carried no labels`)
         const beforeLabel = await refreshReviewAuthorization()
         if (beforeLabel) return beforeLabel
-        if (await headMoved()) return moved()
+        const beforeLabelHead = await checkCoordinates()
+        if (beforeLabelHead) return beforeLabelHead
         if (labels.some((label) => label?.name === 'reviewed')) {
           // Preparation for a fresh labeled event, not a terminal disarm.
           const removed = await labelWrite(['pr', 'edit', String(pr), '--remove-label', 'reviewed'], false)
           if (removed) return removed
           const afterRemove = await refreshReviewAuthorization()
           if (afterRemove) return afterRemove
-          if (await headMoved()) return moved()
+          const afterRemoveHead = await checkCoordinates()
+          if (afterRemoveHead) return afterRemoveHead
         }
         const added = await labelWrite(['pr', 'edit', String(pr), '--add-label', 'reviewed'], true)
         if (added) return added
@@ -856,7 +877,8 @@ export async function landPr(
       } else {
         const beforePin = await refreshReviewAuthorization()
         if (beforePin) return beforePin
-        if (await headMoved()) return moved()
+        const beforePinHead = await checkCoordinates()
+        if (beforePinHead) return beforePinHead
         const pin = ['pr', 'merge', String(pr), '--auto', '--merge', '--match-head-commit', records.head]
         armedByUs.auto = true
         try {
@@ -871,7 +893,10 @@ export async function landPr(
             let gone = true
             let readError
             try {
-              gone = await headMoved()
+              const current = await readCoordinates()
+              const blocked = bindBase(current.base)
+              if (blocked) return blocked
+              gone = !isCommitSha(current.head) || current.head !== records.head
             } catch (error) {
               readError = error
             }
@@ -890,7 +915,8 @@ export async function landPr(
           }
           const beforeRepin = await refreshReviewAuthorization()
           if (beforeRepin) return beforeRepin
-          if (await headMoved()) return moved()
+          const beforeRepinHead = await checkCoordinates()
+          if (beforeRepinHead) return beforeRepinHead
           pin[pin.length - 1] = records.head
           try {
             await ghFn(cwd, pin)
@@ -925,10 +951,12 @@ export async function landPr(
       // Intervening awaits can change both the latest record and the head. Read
       // records first and the head last; an old snapshot is only a clearing target.
       const refusal = await refreshReviewAuthorization(true)
-      seen = { ...seen, headRefOid: await readHeadRefOid(cwd, pr, ghFn) }
-      if (refusal) {
+      const current = await readCoordinates()
+      seen = { ...seen, headRefOid: current.head }
+      const authorization = refusal ?? bindBase(current.base)
+      if (authorization) {
         terminal.policy = 'unarmed'
-        if (!terminal.failure) terminal.result = refusal.result
+        if (!terminal.failure) terminal.result = authorization.result
       }
       if (!mayStayArmed(records, seen, false) || (admitted !== undefined && seen.headRefOid !== admitted)) {
         terminal.policy = 'unarmed'
@@ -1157,15 +1185,15 @@ function isCommitSha(value) {
 }
 
 /**
- * The PR head, or whatever the view returned. A non-JSON answer throws: an
- * unreadable head authorizes nothing and must not be folded into `head-moved`.
+ * The selected PR fields, or whatever the view returned. A non-JSON answer
+ * throws: an unreadable view authorizes nothing.
  *
  * @param {string} cwd
  * @param {string | number} pr
  * @param {(cwd: string, args: string[]) => Promise<string>} ghFn
  */
-async function readHeadRefOid(cwd, pr, ghFn) {
-  const raw = await ghFn(cwd, ['pr', 'view', String(pr), '--json', 'headRefOid'])
+async function readPrFields(cwd, pr, ghFn, fields) {
+  const raw = await ghFn(cwd, ['pr', 'view', String(pr), '--json', fields])
   let data
   try {
     data = JSON.parse(raw)
@@ -1175,7 +1203,11 @@ async function readHeadRefOid(cwd, pr, ghFn) {
   if (typeof data !== 'object' || data === null) {
     throw new Error(`landPr: gh pr view ${pr} returned no JSON — ${preview(raw)}`)
   }
-  return data.headRefOid
+  return data
+}
+
+async function readHeadRefOid(cwd, pr, ghFn) {
+  return (await readPrFields(cwd, pr, ghFn, 'headRefOid')).headRefOid
 }
 
 /**

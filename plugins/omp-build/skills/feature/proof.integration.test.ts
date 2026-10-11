@@ -126,7 +126,14 @@ function land(box: Box, cwd: string, pr: number, mode?: 'native' | 'merge-on-gre
 /** Change an external input after gh has read it, while the real caller awaits its reply. */
 function mutateAfter(
   box: Box,
-  when: 'body-read' | 'label-write' | 'admission-comments' | 'classification-read',
+  when:
+    | 'body-read'
+    | 'label-write'
+    | 'admission-comments'
+    | 'classification-read'
+    | 'pin-write'
+    | 'disable-write'
+    | 'remove-label-write',
   change: string,
   failClear?: '--disable-auto' | '--remove-label',
 ): () => void {
@@ -154,6 +161,9 @@ const when = ${JSON.stringify(when)}
 const matches = when === 'body-read' ? query.includes('lastEditedAt')
   : when === 'classification-read' ? query.includes('issueType')
   : when === 'admission-comments' ? comments && count === 2
+  : when === 'pin-write' ? args[0] === 'pr' && args[1] === 'merge' && args.includes('--auto')
+  : when === 'disable-write' ? args[0] === 'pr' && args[1] === 'merge' && args.includes('--disable-auto')
+  : when === 'remove-label-write' ? args[0] === 'pr' && args[1] === 'edit' && args.includes('--remove-label')
   : args[0] === 'pr' && args[1] === 'edit' && args.includes('--add-label')
 if (out.status === 0 && matches && !existsSync(${JSON.stringify(once)})) {
   const state = JSON.parse(readFileSync(process.env.GH_SIM_STATE, 'utf8'))
@@ -184,6 +194,150 @@ const browser = ({
   observed = 'RangeError shown',
 } = {}) =>
   `${noTest('ui-manual-only')}\n### Browser check ${heading}\n- Steps: ${steps}\n- URL: ${url}\n- Observed: ${observed}\n`
+
+describe('landPr retains the selected base name and tip', () => {
+  let box: Box
+  let wt: string
+  const pr = 30
+  const first = 'fix/5-plain'
+  const next = 'fix/5-next'
+  const head = () => box.sha[first] as string
+  beforeAll(() => {
+    const spec = plainSpec()
+    box = sandbox({
+      ...spec,
+      branches: [
+        ...spec.branches,
+        { name: next, from: first, commits: [{ message: 'fix: next (#5)', files: { 'NOTE.md': 'next\n' } }] },
+        {
+          name: 'staging',
+          from: 'main',
+          commits: [
+            {
+              message: 'chore: staging policy',
+              files: {
+                '.dev/stack.yml': 'landing:\n  mode: merge-on-green\n  required_checks:\n    - staging-ci\n',
+                '.semctx/config.json': SEMCTX_CONFIG,
+                'assertledger.config.json': '{}\n',
+              },
+            },
+          ],
+        },
+      ],
+    })
+    instrument(box)
+    wt = worktree(box, 'base-bound', head())
+  })
+  afterAll(() => rmSync(box.root, { recursive: true, force: true }))
+
+  function reset(armed: boolean): void {
+    git(box, box.origin, ['update-ref', 'refs/heads/main', box.sha.main as string])
+    git(box, wt, ['checkout', '-q', '--detach', head()])
+    writeSim(box, (state) => {
+      const pull = state.prs[String(pr)]
+      if (!pull) throw new Error('no plain PR')
+      pull.baseRefName = 'main'
+      pull.headRefName = first
+    })
+    prepare(box, pr, { comments: [approve(head())], body: 'Closes #5\n', armed: armed ? head() : null })
+  }
+
+  it.each([
+    ['native', 'admission-comments', false],
+    ['merge-on-green', 'admission-comments', false],
+    ['native', 'pin-write', false],
+    ['native', 'disable-write', true],
+    ['merge-on-green', 'remove-label-write', true],
+    ['native', 'label-write', false],
+    ['merge-on-green', 'label-write', false],
+  ] as const)('%s refuses a base retarget after %s (previous arm: %s)', (mode, when, armed) => {
+    reset(armed)
+    const restore = mutateAfter(box, when, `state.prs[${pr}].baseRefName = 'staging';`)
+    try {
+      const { result, gate, calls, producers } = land(box, wt, pr, mode)
+      expect(result).toMatchObject({ status: 'proof-blocked', producer: 'candidate', reason: 'unbound' })
+      expect(result.error).toContain(`staging@${box.sha.staging}`)
+      expect(result.error).toContain(`main@${box.sha.main}`)
+      expect(gate).toEqual(UNARMED)
+      expect(producers).toEqual([])
+      if (when === 'admission-comments' || when === 'disable-write' || when === 'remove-label-write') {
+        expect(calls.some((args) => args.includes('--add-label'))).toBe(false)
+        if (!armed) expect(calls.some((args) => args.includes('--auto'))).toBe(false)
+      }
+    } finally {
+      restore()
+    }
+  })
+
+  it.each([
+    ['native', 'disable-write'],
+    ['merge-on-green', 'remove-label-write'],
+  ] as const)('%s cannot re-admit a freshly approved H2 against the old base after %s', (mode, when) => {
+    reset(true)
+    const h2 = box.sha[next] as string
+    const restore = mutateAfter(
+      box,
+      when,
+      `
+      state.prs[${pr}].baseRefName = 'staging';
+      state.prs[${pr}].headRefName = ${JSON.stringify(next)};
+      state.prs[${pr}].comments.push({ author: ${JSON.stringify(ME)}, body: ${JSON.stringify(approve(h2))} });
+      const checkout = spawnSync('git', ['-C', ${JSON.stringify(wt)}, 'checkout', '-q', '--detach', ${JSON.stringify(h2)}], { env: process.env, encoding: 'utf8' });
+      if (checkout.status !== 0) throw new Error(checkout.stderr);
+    `,
+    )
+    try {
+      const { result, gate, producers } = land(box, wt, pr, mode)
+      expect(result).toMatchObject({ status: 'proof-blocked', producer: 'candidate', reason: 'unbound' })
+      expect(result.error).toContain(`staging@${box.sha.staging}`)
+      expect(result.error).toContain(`main@${box.sha.main}`)
+      expect(gate).toEqual(UNARMED)
+      expect(producers).toEqual([])
+      expect(git(box, wt, ['rev-parse', 'HEAD'])).toBe(h2)
+    } finally {
+      restore()
+    }
+  })
+
+  it.each(['native', 'merge-on-green'] as const)(
+    '%s refuses a same-name base whose authoritative tip moved',
+    (mode) => {
+      reset(false)
+      const restore = mutateAfter(
+        box,
+        'label-write',
+        `
+      const moved = spawnSync('git', ['--git-dir', ${JSON.stringify(box.origin)}, 'update-ref', 'refs/heads/main', ${JSON.stringify(box.sha.staging)}], { env: process.env, encoding: 'utf8' });
+      if (moved.status !== 0) throw new Error(moved.stderr);
+    `,
+      )
+      try {
+        const { result, gate, producers } = land(box, wt, pr, mode)
+        expect(result).toMatchObject({ status: 'proof-blocked', producer: 'candidate', reason: 'unbound' })
+        expect(result.error).toContain(`main@${box.sha.staging}`)
+        expect(gate).toEqual(UNARMED)
+        expect(producers).toEqual([])
+      } finally {
+        restore()
+        git(box, box.origin, ['update-ref', 'refs/heads/main', box.sha.main as string])
+      }
+    },
+  )
+
+  it.each(['native', 'merge-on-green'] as const)('%s refuses a selected base with no readable tip', (mode) => {
+    reset(false)
+    const restore = mutateAfter(box, 'label-write', `state.prs[${pr}].baseRefName = 'missing';`)
+    try {
+      const { result, gate, producers } = land(box, wt, pr, mode)
+      expect(result).toMatchObject({ status: 'proof-blocked', producer: 'candidate', reason: 'unreadable' })
+      expect(result.error).toMatch(/base.*(missing|readable|coordinate|tip)/)
+      expect(gate).toEqual(UNARMED)
+      expect(producers).toEqual([])
+    } finally {
+      restore()
+    }
+  })
+})
 
 describe('landPr admission against conserved Semctx records', () => {
   const extraPrs = [

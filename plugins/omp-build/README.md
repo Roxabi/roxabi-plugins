@@ -184,6 +184,11 @@ before its diff; the review-start test exercises the fence, not model compliance
   Native auto-merge pins that refreshed reviewed head with `--match-head-commit`. Merge-on-green is
   label-driven: a later push by another actor is not refused by GitHub. A review
   posted before the head line existed needs one re-review before it can land.
+  The selected PR base's name and tip are captured too. Each pre-arm and
+  retained-arm checkpoint re-reads those coordinates alongside the head.
+  A retarget or moved tip is `proof-blocked` / `candidate` / `unbound`;
+  missing coordinates are `unreadable`. Both force clearing, never silently
+  switch landing policy; re-entry captures the current base normally.
 - Then `landPr` admits that head (`admitLanding`, `proof.ts`), reading only: the
   local tip must be it; Semctx applies when `origin/<base>`, the head or the
   uncommitted `.semctx/config.json` on disk at the root and the principal

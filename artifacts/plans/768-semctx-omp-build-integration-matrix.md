@@ -141,8 +141,8 @@ RC-7 and RC-12 are normative documentation: **falsification skipped — NO TEST:
 ## Second review — bounded final fix round
 
 Review [6112206661](https://github.com/Roxabi/roxabi-plugins/pull/776#issuecomment-6112206661)
-returned Request changes for `3843c2ce`. Five executable causes and two unplanned
-blockers remain; this is the second and last allowed automatic fix, not a clean review.
+returned Request changes for `3843c2ce`: five executable causes were planned
+alongside two unplanned blockers. This is the final allowed fix, not a clean review.
 
 - **RC-1:** real `landPr` CLI regressions mutate the PARTIAL body, ignored principal
   configuration, disagreeing root configuration, real file readability (EACCES),
@@ -154,6 +154,16 @@ blockers remain; this is the second and last allowed automatic fix, not a clean 
   Removing checkpoint re-admission made **26 named regressions fail**; restored,
   the admission/armed-gate/landing suites passed **1,150 tests**, including the
   unchanged configured candidate's merge-on-green counterpart with zero producers.
+- **RC-2:** thirteen real-Git `landPr` cases cover retarget before pin/label,
+  after pin/label, during re-pin/re-label preparation, freshly approved H2,
+  same-name tip movement and an unreadable base tip. Each observes candidate
+  refusal and cleared arms; pre-arm cases observe no new arm. Disabling the
+  common base-coordinate guard made **all 13 fail** with `watching`; restored,
+  the four landing/admission suites passed **1,204 tests** after the final writers. The captured base
+  also owns required-CI discovery: replacing it with an unbound second peek
+  made the additional cross-base CI regression fail (`watching` instead of
+  `no-required-checks`). The obsolete exact-RPC-order assertion was removed,
+  not re-pinned.
 - **Unresolved:** browser observation and NO TEST reason truth have no accepted
   replacement oracle. Filing or a safe unarmed state is not delivery or resolution.
 

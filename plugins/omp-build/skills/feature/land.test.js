@@ -134,11 +134,12 @@ function mockLand({
         autoMergeRequest: gateAuto,
       })
     }
-    if (args[0] === 'pr' && args[1] === 'view' && same(fields, ['baseRefName'])) {
-      return JSON.stringify({ baseRefName: 'main' })
-    }
-    if (args[0] === 'pr' && args[1] === 'view' && same(fields, ['headRefOid'])) {
-      return JSON.stringify({ headRefOid: REVIEWED_HEAD })
+    if (
+      args[0] === 'pr' &&
+      args[1] === 'view' &&
+      fields.every((field) => ['headRefOid', 'baseRefName', 'baseRefOid'].includes(field))
+    ) {
+      return JSON.stringify({ headRefOid: REVIEWED_HEAD, baseRefName: 'main', baseRefOid: REVIEWED_HEAD })
     }
     if (args[0] === 'pr' && args[1] === 'view' && fields.includes('state')) {
       return JSON.stringify({ state: gateState, autoMergeRequest: gateAuto })
@@ -242,31 +243,6 @@ describe('landPr', () => {
     expect(calls.some((a) => a.includes('--auto'))).toBe(false)
   })
 
-  it('merge-on-green re-entry with reviewed on the PR removes it, then re-adds it and reads a newer labeled event', async () => {
-    const { calls, gh, sleep } = mockLand({
-      labels: ['reviewed'],
-      events: [BEFORE_AT, `${BEFORE_AT}\n${EVENT_AT}\n`],
-    })
-    const result = await land('/tmp/wt', 7, {
-      gh,
-      sleep,
-      landing: { mode: 'merge-on-green', required_checks: [] },
-    })
-    // After the review-history and gate reads: the pre-add time, remove, re-add, then the newer time.
-    const historyRead = [IDENTITY, commentPageArgs(7), GATE_READ(7), ['pr', 'view', '7', '--json', 'headRefOid']]
-    expect(calls.filter((args) => !historyRead.some((read) => same(args, read)))).toEqual([
-      ['pr', 'view', '7', '--json', 'baseRefName'],
-      ['repo', 'view', '--json', 'nameWithOwner'],
-      EVENTS_CALL,
-      ['pr', 'view', '7', '--json', 'labels'],
-      ['pr', 'edit', '7', '--remove-label', 'reviewed'],
-      ['pr', 'edit', '7', '--add-label', 'reviewed'],
-      ['repo', 'view', '--json', 'nameWithOwner'],
-      EVENTS_CALL,
-    ])
-    expect(result.watch).toContain(`--since ${EVENT_AT}`)
-  })
-
   it('merge-on-green returns watch-failed when the labeled-event read fails', async () => {
     const { calls, gh, sleep } = mockLand({ eventsThrow: 'boom' })
     const result = await land('/tmp/wt', 7, {
@@ -349,11 +325,12 @@ describe('landPr', () => {
       if (same(args, GATE_READ(7))) {
         return JSON.stringify({ headRefOid: REVIEWED_HEAD, state: 'OPEN', labels: [], autoMergeRequest: null })
       }
-      if (same(args, ['pr', 'view', '7', '--json', 'headRefOid'])) {
-        return JSON.stringify({ headRefOid: REVIEWED_HEAD })
+      if (args[0] === 'pr' && args[1] === 'view' && args[4].split(',').includes('headRefOid')) {
+        return JSON.stringify({ headRefOid: REVIEWED_HEAD, baseRefName: 'main', baseRefOid: REVIEWED_HEAD })
       }
       if (args[0] === 'repo') return JSON.stringify({ nameWithOwner: 'acme/app' })
-      if (args[0] === 'pr' && args[1] === 'view') return JSON.stringify({ baseRefName: 'main' })
+      if (args[0] === 'pr' && args[1] === 'view')
+        return JSON.stringify({ baseRefName: 'main', baseRefOid: REVIEWED_HEAD })
       if (args[0] === 'api') throw new Error('HTTP 403')
       return ''
     }
@@ -399,6 +376,7 @@ function gatePr({ comments, labels = [], autoMerge = null, state = 'OPEN', headR
         else if (field === 'state') view.state = pr.state
         else if (field === 'headRefOid') view.headRefOid = pr.headRefOid
         else if (field === 'baseRefName') view.baseRefName = 'main'
+        else if (field === 'baseRefOid') view.baseRefOid = REVIEWED_HEAD
         else throw new Error(`unexpected field: ${field}`)
       }
       return JSON.stringify(view)
@@ -497,7 +475,8 @@ describe('landPr — a refusal disarms a gate armed for an earlier approval', ()
     async (_mode, options) => {
       const fake = gatePr({ comments: [green()], headRefOid: REVIEWED_HEAD, ...ARMED })
       const gh = async (cwd, args) => {
-        if (same(args, ['pr', 'view', '7', '--json', 'headRefOid'])) fake.pr.headRefOid = MOVED_HEAD
+        if (same(args, ['pr', 'view', '7', '--json', 'headRefOid,baseRefName,baseRefOid']))
+          fake.pr.headRefOid = MOVED_HEAD
         return fake.gh(cwd, args)
       }
       const result = await land('/tmp/wt', 7, { gh, sleep: async () => {}, ...options })
@@ -765,7 +744,7 @@ describe('landPr — configuration failures after acquiring the gate', () => {
     const original = new Error('landing configuration unavailable')
     const gh = async (cwd, args) => {
       const answer = await fake.gh(cwd, args)
-      if (moved && same(args, ['pr', 'view', '7', '--json', 'baseRefName'])) {
+      if (moved && same(args, ['pr', 'view', '7', '--json', 'baseRefName,baseRefOid'])) {
         await Promise.resolve()
         fake.pr.headRefOid = MOVED_HEAD
       }
@@ -867,7 +846,7 @@ describe('landPr — an approval arms only the commit it reviewed', () => {
       headRefOid: REVIEWED_HEAD,
     })
     const gh = async (cwd, args) => {
-      if (args[1] === 'view' && args[4] === 'headRefOid') return 'not json'
+      if (args[1] === 'view' && args[4] === 'headRefOid,baseRefName,baseRefOid') return 'not json'
       return fake.gh(cwd, args)
     }
     await expect(land('/tmp/wt', 7, { gh, ...NATIVE })).rejects.toThrow(/no JSON/)
@@ -938,7 +917,7 @@ describe('landPr — an approval arms only the commit it reviewed', () => {
     let reads = 0
     let merges = 0
     return async (cwd, args) => {
-      if (args[1] === 'view' && args[4] === 'headRefOid') {
+      if (args[1] === 'view' && args[4] === 'headRefOid,baseRefName,baseRefOid') {
         reads += 1
         if (reads >= moveAt) fake.pr.headRefOid = MOVED_HEAD
       }
@@ -995,6 +974,23 @@ describe('landPr — an approval arms only the commit it reviewed', () => {
 })
 
 describe('landPr — a native refusal for want of required checks disarms an armed gate', () => {
+  it('native cannot borrow another branch’s green checks when the captured base has none', async () => {
+    const fake = gatePr({ comments: [green()], headRefOid: REVIEWED_HEAD, ...ARMED })
+    const gh = async (cwd, args) => {
+      if (args[0] === 'repo') return JSON.stringify({ nameWithOwner: 'acme/app' })
+      if (same(args, ['pr', 'view', '7', '--json', 'baseRefName'])) return JSON.stringify({ baseRefName: 'staging' })
+      if (args[0] === 'api' && String(args[1]).includes('/staging/'))
+        return JSON.stringify({ contexts: ['staging-green'] })
+      if (args[0] === 'api' && (String(args[1]).includes('/protection/') || String(args[1]).includes('/rules/')))
+        return '[]'
+      return fake.gh(cwd, args)
+    }
+    const result = await land('/tmp/wt', 7, { gh, landing: { mode: 'native', required_checks: [] } })
+    expect(result).toMatchObject({ status: 'no-required-checks', disarmed: true })
+    expect([...fake.pr.labels]).toEqual(['size:F-lite'])
+    expect(fake.pr.autoMerge).toBe(null)
+  })
+
   /** An approved, armed PR whose protection read fails and whose rules are empty; the head can move at the repo read. */
   function armedForLookup({ headMovesAt } = {}) {
     const fake = gatePr({

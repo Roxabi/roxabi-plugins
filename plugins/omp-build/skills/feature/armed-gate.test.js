@@ -78,8 +78,10 @@ function kindOf(args) {
       {
         [GATE_FIELDS]: 'gate',
         headRefOid: 'head',
+        'headRefOid,baseRefName,baseRefOid': 'head',
         labels: 'labels',
         baseRefName: 'base',
+        'baseRefName,baseRefOid': 'base',
         'state,autoMergeRequest': 'state',
       }[args[4]] ?? 'unexpected'
     )
@@ -162,7 +164,7 @@ function armedPr({ records = [], start = 'both', state = 'OPEN', head = HEAD, sc
           autoMergeRequest: pr.autoMerge,
         })
       case 'head':
-        return JSON.stringify({ headRefOid: pr.head })
+        return JSON.stringify({ headRefOid: pr.head, baseRefName: 'main', baseRefOid: HEAD })
       case 'state':
         return JSON.stringify({ state: pr.state, autoMergeRequest: pr.autoMerge })
       case 'labels':
@@ -185,7 +187,7 @@ function armedPr({ records = [], start = 'both', state = 'OPEN', head = HEAD, sc
       case 'repo':
         return JSON.stringify({ nameWithOwner: 'acme/app' })
       case 'base':
-        return JSON.stringify({ baseRefName: 'main' })
+        return JSON.stringify({ baseRefName: 'main', baseRefOid: HEAD })
       case 'protection':
         return JSON.stringify({ contexts: found.classic ?? [] })
       case 'rules':
