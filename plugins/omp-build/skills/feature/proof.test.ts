@@ -273,16 +273,22 @@ type NativeJson = {
   underlying: Record<string, string>
   findings: Record<string, unknown>[]
   lifecycleFindings: { code: string; severity: string; subjectIds: string[] }[] | null
-  pendingEvidence: string[]
+  pendingEvidence: { id?: string; statement: string; proved: boolean; status: string }[]
+  openUnknowns: { id: string; statement: string; critical: boolean; present: boolean }[]
+  stale: Record<string, unknown>[]
   preserved: { state: string }[]
   provedEvidence: unknown[]
 }
 
-/** The verified record with one change; `stdout` edits a native step's JSON. */
-function verified(
+/** The conserved record of each one-change case, and the candidate it was acquired for. */
+const ONE_CHANGE = { verified: VERIFIED, partial: PARTIAL }
+
+/** A conserved one-change record; `stdout` edits a native step's JSON. */
+function varied(
+  name: keyof typeof ONE_CHANGE,
   edit: (record: SemctxShape, stdout: (i: 0 | 1 | 2 | 3 | 4 | 5, change: (json: NativeJson) => void) => void) => void,
 ) {
-  const record = conserved<SemctxShape>('semctx', 'verified', VERIFIED)
+  const record = conserved<SemctxShape>('semctx', name, ONE_CHANGE[name])
   edit(record, (i, change) => {
     const step = record.native[i]
     const json: NativeJson = JSON.parse(step.stdout)
@@ -327,59 +333,61 @@ describe('readSemctxRecord', () => {
   it.each([
     [
       'a private checkout left dirty',
-      verified((r) => (r.invocation.status.after = ' M src/a.ts\0')),
+      varied('verified', (r) => (r.invocation.status.after = ' M src/a.ts\0')),
       'unbound',
       /not clean/,
     ],
     [
       'ignored Semctx working state in the private checkout',
-      verified((r) => r.invocation.ignored.push('.semctx/working/active-change.sem')),
+      varied('verified', (r) => r.invocation.ignored.push('.semctx/working/active-change.sem')),
       'unbound',
       /working state/,
     ],
     [
       'a verify over another range',
-      verified((r) => {
+      varied('verified', (r) => {
         const verify = r.native[4]
         verify.argv = verify.argv.map((arg) => (arg === MAIN ? OTHER : arg))
       }),
       'unbound',
       /step 5 ran/,
     ],
-    ['a step that failed', verified((r) => (r.native[2].exit = 1)), 'unbound', /step 3 exited 1/],
+    ['a step that failed', varied('verified', (r) => (r.native[2].exit = 1)), 'unbound', /step 3 exited 1/],
     [
       'an index that was not FRESH',
-      verified((_r, stdout) => stdout(1, (s) => (s.verdict = 'DIRTY_KNOWN'))),
+      varied('verified', (_r, stdout) => stdout(1, (s) => (s.verdict = 'DIRTY_KNOWN'))),
       'unbound',
       /not FRESH/,
     ],
     [
       'a seal at another head',
-      verified((_r, stdout) => stdout(5, (s) => (s.freshnessSeal.headAtCapture = OTHER))),
+      varied('verified', (_r, stdout) => stdout(5, (s) => (s.freshnessSeal.headAtCapture = OTHER))),
       'unbound',
       /sealed at/,
     ],
     [
       'a seal that changed during the run',
-      verified((_r, stdout) => stdout(5, (s) => (s.freshnessSeal.sealHash = `sha256:${'0'.repeat(64)}`))),
+      varied('verified', (_r, stdout) => stdout(5, (s) => (s.freshnessSeal.sealHash = `sha256:${'0'.repeat(64)}`))),
       'unbound',
       /seal changed/,
     ],
     [
       'a model with more changes than change files',
-      verified((_r, stdout) => stdout(2, (s) => (s.counts.changes = 2))),
+      varied('verified', (_r, stdout) => stdout(2, (s) => (s.counts.changes = 2))),
       'verdict',
       /declares 2 change/,
     ],
     [
       'a non-terminal change committed outside its own contract file',
-      verified((_r, stdout) => stdout(2, (s) => s.lifecycleFindings?.[0]?.subjectIds.splice(0, 1, 'change.real'))),
+      varied('verified', (_r, stdout) =>
+        stdout(2, (s) => s.lifecycleFindings?.[0]?.subjectIds.splice(0, 1, 'change.real')),
+      ),
       'verdict',
       /change\(s\) change\.real are not committed/,
     ],
     [
       'an active-pointer finding other than a missing pointer',
-      verified((_r, stdout) =>
+      varied('verified', (_r, stdout) =>
         stdout(2, (s) =>
           s.lifecycleFindings?.push({ code: 'ACTIVE_CHANGE_POINTER_INVALID', severity: 'warning', subjectIds: [] }),
         ),
@@ -389,19 +397,19 @@ describe('readSemctxRecord', () => {
     ],
     [
       'a check with no lifecycle findings',
-      verified((_r, stdout) => stdout(2, (s) => (s.lifecycleFindings = null))),
+      varied('verified', (_r, stdout) => stdout(2, (s) => (s.lifecycleFindings = null))),
       'unreadable',
       /no lifecycleFindings/,
     ],
     [
       'a model with errors',
-      verified((_r, stdout) => stdout(2, (s) => (s.counts.errors = 1))),
+      varied('verified', (_r, stdout) => stdout(2, (s) => (s.counts.errors = 1))),
       'verdict',
       /semantic check/,
     ],
     [
       'a change read from another file',
-      verified((_r, stdout) =>
+      varied('verified', (_r, stdout) =>
         stdout(3, (s) => (s.sourceRefs = [{ file: '.semctx/semantic/changes/other.sem', line: 1 }])),
       ),
       'unbound',
@@ -409,19 +417,19 @@ describe('readSemctxRecord', () => {
     ],
     [
       'a verify of another head',
-      verified((_r, stdout) => stdout(4, (s) => (s.underlying.head = OTHER))),
+      varied('verified', (_r, stdout) => stdout(4, (s) => (s.underlying.head = OTHER))),
       'unbound',
       /verified range/,
     ],
     [
       'an unknown lifecycle',
-      verified((_r, stdout) => stdout(4, (s) => (s.lifecycle = 'archived'))),
+      varied('verified', (_r, stdout) => stdout(4, (s) => (s.lifecycle = 'archived'))),
       'unreadable',
       /lifecycle/,
     ],
     [
       'BLOCKED',
-      verified((_r, stdout) =>
+      varied('verified', (_r, stdout) =>
         stdout(4, (s) => {
           s.verdict = 'BLOCKED'
           s.findings = [
@@ -434,31 +442,36 @@ describe('readSemctxRecord', () => {
     ],
     [
       'VERIFIED with pending evidence',
-      verified((_r, stdout) => stdout(4, (s) => (s.pendingEvidence = [GAP]))),
+      varied('verified', (_r, stdout) =>
+        stdout(
+          4,
+          (s) => (s.pendingEvidence = [{ id: GAP, statement: 'the add test runs', proved: false, status: 'declared' }]),
+        ),
+      ),
       'verdict',
       /contradictory/,
     ],
     [
       'VERIFIED with an invariant neither proved nor untouched',
-      verified((_r, stdout) => stdout(4, (s) => (s.preserved[0].state = 'missing'))),
+      varied('verified', (_r, stdout) => stdout(4, (s) => (s.preserved[0].state = 'missing'))),
       'verdict',
       /neither proved nor untouched/,
     ],
     [
       'VERIFIED with its required evidence unproved',
-      verified((_r, stdout) => stdout(4, (s) => (s.provedEvidence = []))),
+      varied('verified', (_r, stdout) => stdout(4, (s) => (s.provedEvidence = []))),
       'verdict',
       /not every required evidence/,
     ],
     [
       'PARTIAL with no named gap',
-      verified((_r, stdout) => stdout(4, (s) => (s.verdict = 'PARTIAL'))),
+      varied('verified', (_r, stdout) => stdout(4, (s) => (s.verdict = 'PARTIAL'))),
       'unjustified',
       /no named gap/,
     ],
     [
       'native output that is not JSON',
-      verified((r) => (r.native[4].stdout = 'ERROR')),
+      varied('verified', (r) => (r.native[4].stdout = 'ERROR')),
       'unreadable',
       /printed no JSON/,
     ],
@@ -466,6 +479,73 @@ describe('readSemctxRecord', () => {
     const outcome = readSemctxRecord(record, expectedFor(11, VERIFIED))
     expect(outcome).toMatchObject({ ok: false, producer: 'semctx', reason })
     expect('error' in outcome && outcome.error).toMatch(error)
+  })
+
+  describe('a PARTIAL is read from every native field, not from its findings alone', () => {
+    const PENDING = { id: 'proof.fx.other-test', statement: 'another test runs', proved: false, status: 'declared' }
+    const UNKNOWN = { id: 'unknown.fx.rounding', statement: 'rounding of large sums', critical: false, present: true }
+    const expected = expectedFor(10, PARTIAL)
+    const rows = (gaps: string[]) => gaps.map((gap) => `| \`${gap}\` | why | ⚠ NO TEST — out-of-scope |`).join('\n')
+
+    it.each([
+      [
+        'a pending evidence',
+        varied('partial', (_r, stdout) => stdout(4, (s) => s.pendingEvidence.push(PENDING))),
+        PENDING.id,
+      ],
+      [
+        'an open unknown',
+        varied('partial', (_r, stdout) => stdout(4, (s) => s.openUnknowns.push(UNKNOWN))),
+        UNKNOWN.id,
+      ],
+    ])('%s no finding mirrors is a gap that needs its own NO TEST row', (_label, record, gap) => {
+      const results = readSemctxRecord(record, expected)
+      expect(results).toEqual([{ id: 'change.fx.add', verdict: 'PARTIAL', lifecycle: 'active', gaps: [GAP, gap] }])
+      if (!Array.isArray(results)) throw new Error('the varied PARTIAL record does not read')
+      expect(justifyGaps(results, rows([GAP]), () => false)).toMatchObject({
+        ok: false,
+        reason: 'unjustified',
+        error: expect.stringContaining(`gap ${gap} has no NO TEST row`),
+      })
+      expect(justifyGaps(results, rows([GAP, gap]), () => false)).toEqual([
+        { gap: GAP, reason: 'out-of-scope' },
+        { gap, reason: 'out-of-scope' },
+      ])
+    })
+
+    it('an impact that only warns keeps the PARTIAL and its gaps', () => {
+      const record = varied('partial', (_r, stdout) => stdout(4, (s) => (s.underlying.verdict = 'WARN')))
+      expect(readSemctxRecord(record, expected)).toEqual([
+        { id: 'change.fx.add', verdict: 'PARTIAL', lifecycle: 'active', gaps: [GAP] },
+      ])
+    })
+
+    it.each([
+      [
+        'a stale link',
+        varied('partial', (_r, stdout) =>
+          stdout(4, (s) => s.stale.push({ kind: 'stale_link', severity: 'stale', message: 'link gone', refs: [] })),
+        ),
+        'verdict',
+        /PARTIAL with 1 stale link\(s\): contradictory/,
+      ],
+      [
+        'an impact that blocks',
+        varied('partial', (_r, stdout) => stdout(4, (s) => (s.underlying.verdict = 'BLOCK'))),
+        'verdict',
+        /PARTIAL with impact BLOCK: contradictory/,
+      ],
+      [
+        'a pending evidence with no id',
+        varied('partial', (_r, stdout) => stdout(4, (s) => delete s.pendingEvidence[0]?.id)),
+        'unreadable',
+        /names no id/,
+      ],
+    ] as const)('a PARTIAL with %s refuses', (_label, record, reason, error) => {
+      const outcome = readSemctxRecord(record, expected)
+      expect(outcome).toMatchObject({ ok: false, producer: 'semctx', reason })
+      expect('error' in outcome && outcome.error).toMatch(error)
+    })
   })
 })
 
