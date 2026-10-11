@@ -262,6 +262,7 @@ export function landOutcome(
     case 'ci-blocked':
     case 'stopped':
     case 'closed':
+    case 'proof-blocked':
       return { stop: status, class: 'ticket' }
     case 'watch-failed':
     case 'bad-landing':

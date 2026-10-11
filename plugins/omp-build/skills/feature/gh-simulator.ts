@@ -35,6 +35,8 @@ type Issue = {
   comments: Comment[]
   subIssues: number[]
   blockedBy: number[]
+  /** The org issue type's name (`fix`, `feat`, …); absent or null when the issue is untyped. */
+  issueType?: string | null
 }
 type Pull = {
   number: number
@@ -453,6 +455,18 @@ function graphql(state: State, query: string, vars: Record<string, string>): unk
         repository: {
           object: sha ? { statusCheckRollup: { contexts: { nodes } } } : null,
         },
+      },
+    }
+  }
+  if (query.includes('closingIssuesReferences')) {
+    const pr = state.prs[String(vars.number)]
+    const nodes = (pr?.closes ?? []).map((number) => {
+      const type = state.issues[String(number)]?.issueType
+      return { number, issueType: type ? { name: type } : null }
+    })
+    return {
+      data: {
+        repository: { pullRequest: pr ? { closingIssuesReferences: { totalCount: nodes.length, nodes } } : null },
       },
     }
   }

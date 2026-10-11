@@ -1,4 +1,8 @@
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { plainGit } from './__fixtures__/proof/plain-git.js'
 import { applyCiWatchExit, commentPageArgs, disarmReviewedBeforePush, landPr, nextReviewStep } from './workflow.js'
 
 /**
@@ -36,6 +40,8 @@ const MOVED = 'fedcba9876543210fedcba9876543210fedcba98'
 const EVENT_AT = '2026-09-29T10:00:05Z'
 const IDENTITY = ['api', 'user', '--jq', '.login']
 const GATE_FIELDS = 'headRefOid,state,labels,autoMergeRequest'
+/** A checkout of HEAD with no `.semctx` and no adapter: the proof admission admits it without a gh call. */
+const PLAIN = plainGit(HEAD, mkdtempSync(join(tmpdir(), 'armed-gate-')))
 const OTHER_LABEL = 'size:F-lite'
 
 /** @param {unknown[]} args @param {unknown[]} expected */
@@ -296,7 +302,7 @@ async function exec(what, fake) {
     const cwd = what.cwd ?? '/tmp/wt'
     const result =
       what.fn === 'land'
-        ? await landPr(cwd, PR, { gh: fake.gh, sleep: async () => {}, ...what.opts })
+        ? await landPr(cwd, PR, { gh: fake.gh, git: PLAIN, sleep: async () => {}, ...what.opts })
         : what.fn === 'watch'
           ? await applyCiWatchExit(cwd, PR, what.opts?.code ?? 1, { mode: what.opts?.mode ?? 'native', gh: fake.gh })
           : what.fn === 'push'
@@ -389,7 +395,9 @@ const REVIEW_GATES = [
   ['approval without a head', [noHead('Approve')], HEAD, false],
 ]
 const REFUSED = { status: 'no-required-checks', disarmed: true }
-const WATCHING = { status: 'watching', mode: 'native', watch: expect.any(String) }
+/** What the proof admission reads in the plain checkout PLAIN stands for. */
+const ADMITTED = { semctx: 'absent', assertledger: 'not-applicable' }
+const WATCHING = { status: 'watching', mode: 'native', watch: expect.any(String), proof: ADMITTED }
 /** A stable, approved head: only the policy — not the records — can explain an unarmed end state. */
 const NRC = { fn: 'land', records: [approve()], strict: true }
 
@@ -981,7 +989,12 @@ const ROWS = [
       opts: MOG,
       records: [approve()],
       start: 'none',
-      result: { status: 'watching', mode: 'merge-on-green', watch: expect.stringContaining('--since') },
+      result: {
+        status: 'watching',
+        mode: 'merge-on-green',
+        watch: expect.stringContaining('--since'),
+        proof: ADMITTED,
+      },
       labels: REVIEWED,
       auto: false,
     },
@@ -1248,7 +1261,7 @@ const ROWS = [
       opts: NATIVE,
       records: [approve()],
       start: 'both',
-      result: { status: 'watching', mode: 'native', watch: expect.any(String) },
+      result: { status: 'watching', mode: 'native', watch: expect.any(String), proof: ADMITTED },
       labels: REVIEWED,
       auto: true,
     },
@@ -1659,7 +1672,7 @@ const ROWS = [
       opts: NATIVE,
       records: [approve()],
       start: 'none',
-      result: { status: 'watching', mode: 'native', watch: expect.any(String) },
+      result: { status: 'watching', mode: 'native', watch: expect.any(String), proof: ADMITTED },
       labels: REVIEWED,
       auto: true,
     },
@@ -2838,7 +2851,7 @@ describe('same-head revocation during preparation for the next arming write', ()
   }
 })
 
-describe('native arming uses the freshly approved head', () => {
+describe('native arming never pins a head the proof admission did not admit', () => {
   it.each([
     ['initial pin after discovery', 'none', 'base'],
     ['re-pin after disabling the old arm', 'both', 'disable'],
@@ -2850,11 +2863,11 @@ describe('native arming uses the freshly approved head', () => {
     })
     const outcome = await exec({ fn: 'land', opts: NATIVE }, fake)
 
+    // The fresh approval names MOVED, but admission read the proof of HEAD only.
     expect(outcome.error).toBeUndefined()
-    expect(outcome.result).toMatchObject({ status: 'watching', mode: 'native' })
+    expect(outcome.result).toMatchObject({ status: 'not-approved', reason: 'head-moved' })
     expect(fake.pr.head).toBe(MOVED)
-    expect(fake.pr.autoMerge).not.toBeNull()
-    expect(fake.pr.labels.has('reviewed')).toBe(true)
+    expect(armedNames(fake)).toEqual([])
     expect(holds(fake, outcome)).toBe(true)
   })
 })

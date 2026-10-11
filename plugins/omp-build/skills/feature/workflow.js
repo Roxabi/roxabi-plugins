@@ -6,6 +6,7 @@
 import { spawnSync } from 'node:child_process'
 import { realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { admitLanding } from './proof'
 
 /** @param {string} value */
 function shellQuote(value) {
@@ -36,7 +37,16 @@ function stripGitHookEnv(env = process.env) {
   return out
 }
 
-async function git(cwd, args) {
+/**
+ * Lossless, non-throwing git: exit code and both streams exactly as printed, for
+ * readers that must tell a failure, an empty answer and a path ending in
+ * whitespace apart.
+ *
+ * @param {string} cwd
+ * @param {string[]} args
+ * @returns {Promise<{ code: number, stdout: string, stderr: string }>}
+ */
+export async function gitResult(cwd, args) {
   const proc = Bun.spawn(['git', '-C', cwd, ...args], {
     cwd,
     env: stripGitHookEnv(),
@@ -45,7 +55,11 @@ async function git(cwd, args) {
   })
   const stdout = await new Response(proc.stdout).text()
   const stderr = await new Response(proc.stderr).text()
-  const code = await proc.exited
+  return { code: await proc.exited, stdout, stderr }
+}
+
+async function git(cwd, args) {
+  const { code, stdout, stderr } = await gitResult(cwd, args)
   if (code !== 0) {
     throw new Error(`git ${args.join(' ')} failed (${code}): ${stderr || stdout}`)
   }
@@ -588,6 +602,14 @@ const SINCE_RETRY_MS = 200
  * none, which is not proof that protection is absent) — returns
  * `no-required-checks` and disarms the known armed gate the same way, even on an
  * unchanged approved head. Nothing re-arms it: re-entry passes the normal gate.
+ * Then the landing admission (`admitLanding`, proof.ts) reads, never produces,
+ * the evidence for that reviewed candidate: the local tip must be it, Semctx is
+ * decided from the candidate's committed tree and the checkouts' `.semctx`, and
+ * applicable Semctx/assertledger records conserved on the PR are bound to the
+ * re-derived inputs. A refusal returns `proof-blocked` with `producer`, `reason`
+ * and `error` through the same forced-unarmed exit; a transport failure throws
+ * through it. Every later arm is bound to the admitted candidate, and `watching`
+ * carries `proof`: what was admitted, so a PARTIAL lands visibly as PARTIAL.
  * `disarmed: true` is reported only when a read-back confirmed the disarm; a no-op
  * claims nothing. A disarm that cannot finish throws an error naming what stays
  * armed — except after native auto-merge was pinned, or an already-enabled disable
@@ -623,6 +645,7 @@ const SINCE_RETRY_MS = 200
  * @param {string | number} pr
  * @param {{
  *   gh?: (cwd: string, args: string[]) => Promise<string>,
+ *   git?: (cwd: string, args: string[]) => Promise<{ code: number, stdout: string, stderr: string }>,
  *   requiredContexts?: string[],
  *   landing?: { mode: string, required_checks: string[] },
  *   sleep?: (ms: number) => Promise<void>,
@@ -631,10 +654,20 @@ const SINCE_RETRY_MS = 200
 export async function landPr(
   cwd,
   pr,
-  { gh: ghFn = gh, requiredContexts, landing, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {},
+  {
+    gh: ghFn = gh,
+    git: gitFn = gitResult,
+    requiredContexts,
+    landing,
+    sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  } = {},
 ) {
   let records
   let gate
+  /** The candidate the proof admission admitted; every later arm is bound to it. */
+  let admitted
+  /** What the admission read for it, reported with the watch. */
+  let proof
   const armedByUs = { auto: false, label: false }
   const knownGate = () =>
     gate && {
@@ -694,6 +727,7 @@ export async function landPr(
     if (records.spent) return exit(refused('review-bound'), { policy: 'unarmed' })
     if (!approves(records.verdict)) return exit(refused(), { policy: 'unarmed' })
     if (!isCommitSha(records.head)) return exit(refused('no-review-head'), { policy: 'unarmed' })
+    if (records.head !== admitted) return exit(refused('head-moved'), { policy: 'unarmed' })
     return null
   }
   // A refused pin: a moved head is cleared via `moved`, a readable stable head is
@@ -759,6 +793,19 @@ export async function landPr(
               : await resolveRequiredContexts(cwd, pr, ghFn)
         if (required.length === 0) return exit({ status: 'no-required-checks' }, { policy: 'unarmed' })
       }
+      // Landing admission (#768): reads conserved producer evidence for exactly
+      // this candidate; it never runs a producer, a test or a reviewer.
+      const admission = await admitLanding(
+        cwd,
+        { pr: Number(pr), candidate: records.head, base: landingBase },
+        { gh: ghFn, git: gitFn, comments: () => readComments(cwd, pr, { gh: ghFn }) },
+      )
+      if (!admission.ok) {
+        const { producer, reason, error } = admission
+        return exit({ status: 'proof-blocked', producer, reason, error }, { policy: 'unarmed' })
+      }
+      admitted = records.head
+      proof = admission.proof
       let since = ''
       if (resolved.mode === 'merge-on-green') {
         const before = await labeledReviewedAt(cwd, pr, ghFn)
@@ -849,6 +896,7 @@ export async function landPr(
         status: 'watching',
         mode: resolved.mode,
         watch: `bash ${shellQuote(ciWatchSh())} ${shellQuote(String(pr))} --merge-mode ${resolved.mode} --base ${landingBase}${sinceArg}`,
+        proof,
       })
     })()
   } catch (failure) {
@@ -861,7 +909,7 @@ export async function landPr(
       // records first and the head last; an old snapshot is only a clearing target.
       records = await readReviewRecords(cwd, pr, { gh: ghFn })
       seen = { ...seen, headRefOid: await readHeadRefOid(cwd, pr, ghFn) }
-      if (!mayStayArmed(records, seen, false)) {
+      if (!mayStayArmed(records, seen, false) || (admitted !== undefined && seen.headRefOid !== admitted)) {
         terminal.policy = 'unarmed'
         if (!terminal.failure && terminal.result?.status === 'watching') {
           terminal.result = refused('head-moved')
@@ -1293,16 +1341,16 @@ function commentsFromPages(raw, pr) {
   try {
     pages = JSON.parse(raw)
   } catch {
-    throw new Error(`readReviewRecords: comment pages for ${pr} returned no JSON — ${preview(raw)}`)
+    throw new Error(`readComments: comment pages for ${pr} returned no JSON — ${preview(raw)}`)
   }
   if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) {
-    throw new Error(`readReviewRecords: comment pages for ${pr} are incomplete`)
+    throw new Error(`readComments: comment pages for ${pr} are incomplete`)
   }
   const entries = pages.flat()
   entries.sort((a, b) => String(a?.created_at ?? '').localeCompare(String(b?.created_at ?? '')))
   return entries.map((entry) => {
     if (typeof entry?.body !== 'string') {
-      throw new Error(`readReviewRecords: a comment page entry for ${pr} has no body`)
+      throw new Error(`readComments: a comment page entry for ${pr} has no body`)
     }
     const login = entry?.user?.login
     return { author: { login: typeof login === 'string' ? login : '' }, body: entry.body }
@@ -1310,17 +1358,31 @@ function commentsFromPages(raw, pr) {
 }
 
 /**
- * Fresh records for `pr`: the automation login (`gh api user`), then every
- * comment page. An unreadable identity or page throws — it authorizes nothing.
+ * The automation login (`gh api user`), then every comment page of `pr` in
+ * creation order. An unreadable identity or page throws — it authorizes nothing.
+ * Review records and conserved proof records are both read from this.
+ *
+ * @param {string} cwd
+ * @param {number | string} pr
+ * @param {{ gh?: (cwd: string, args: string[]) => Promise<string> }} [deps]
+ * @returns {Promise<{ me: string, comments: { body: string, author: { login: string } }[] }>}
+ */
+export async function readComments(cwd, pr, { gh: ghFn = gh } = {}) {
+  const me = reviewIdentity(await ghFn(cwd, ['api', 'user', '--jq', '.login']))
+  const raw = await ghFn(cwd, commentPageArgs(pr))
+  return { me, comments: commentsFromPages(raw, pr) }
+}
+
+/**
+ * Fresh records for `pr` from `readComments`.
  *
  * @param {string} cwd
  * @param {number | string} pr
  * @param {{ gh?: (cwd: string, args: string[]) => Promise<string> }} [deps]
  */
 export async function readReviewRecords(cwd, pr, { gh: ghFn = gh } = {}) {
-  const me = reviewIdentity(await ghFn(cwd, ['api', 'user', '--jq', '.login']))
-  const raw = await ghFn(cwd, commentPageArgs(pr))
-  return reviewRecords(commentsFromPages(raw, pr), { me })
+  const { me, comments } = await readComments(cwd, pr, { gh: ghFn })
+  return reviewRecords(comments, { me })
 }
 
 const STOP_GUIDANCE =

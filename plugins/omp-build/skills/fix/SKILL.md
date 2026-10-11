@@ -4,7 +4,7 @@ argument-hint: '[#PR]'
 description: >-
   OMP-only — apply one fix per blocking root cause from a review, inline, no per-finding choice.
   Triggers: "fix findings" | "fix review" | "apply fixes" | "fix these" | "apply review comments" | "apply the review" | "fix the review issues" | "address review feedback" | "fix PR comments".
-version: 0.3.0
+version: 0.3.1
 ---
 
 # Fix
@@ -430,7 +430,7 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 
 ## Exit
 
-- **Success:** blocking causes applied or filed, non-blocking causes deferred in one issue or already deferred, receipt posted. A run that applied nothing is success without a commit or a push. Print Applied (each with its falsification result) / Falsification P·S·F / Deferred / Filed / Failed, the `Unplanned record` line when it applies, + `Next: re-review with skill://dev-review`. A filed blocker still blocks: a run that filed one is never reported as a clean review, whatever it applied. Stop.
+- **Success:** blocking causes applied or filed, non-blocking causes deferred in one issue or already deferred, receipt posted. A run that applied nothing is success without a commit or a push. Print Applied (each with its falsification result) / Falsification P·S·F / Deferred / Filed / Failed, the `Unplanned record` line when it applies, + `Next: re-review with skill://dev-review`. A filed blocker still blocks: a run that filed one is never reported as a clean review, whatever it applied. Stop. This run owns its lint, tests, commits, push and receipt: a caller (`/feature` §6.5) does not repeat them; it records proof for a moved head, then reviews it.
 - **Failure (quality gate, ¬findings, unrecoverable):** return the error and stop — the caller decides next steps outside the automatic bound.
 - **Loop cap:** at most 2 automatic fixes, derived by the caller's `nextReviewStep`
   from the review records. On `stop`, follow `skill://dev-review` Phase 8 —

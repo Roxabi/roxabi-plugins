@@ -5,7 +5,7 @@ description: >-
   OMP-only multi-domain code review — five-role evidence-selected panel, Conventional Comments, common root causes, findings + verdict.
   Triggers: "dev-review" | "code review" | "review changes" | "review PR #42" | "check my code" | "review my changes" | "review this PR" | "do a code review" | "review the diff".
   Not the host native /review, not Matt code-review.
-version: 0.2.0
+version: 0.2.1
 ---
 
 # Code Review
@@ -124,8 +124,10 @@ git diff origin/${BASE}...HEAD | grep -iE '(password|passwd|secret|api[_-]?key|a
 4. σ ∃ → ∀ criterion: met → ∅ | ¬met → `issue(blocking):` | ∀ met → `praise:`
 4a. **Retain Σ (review-output display input, ¬a finding source):** Σ := [{criterion_text, verdict ∈ {met, missing}}] ∀ criterion — a **mirror of step 4**, same binary call, ¬a second judgement. `criterion_text` is the σ line already read in step 4 (verbatim, trimmed); `missing` ⟺ step 4 emitted `issue(blocking):` for that criterion. ¬`ac_id` (no AC-numbering scheme exists — a positional id would be fabricated), ¬`partial`, ¬scope-creep set: none has a producer in steps 1–4, and an unproduced row is an invented one. Σ carries ¬label, ¬C, ¬class: it adds no blocker and ¬enters F.
 5. SC→Test matrix (τ≠S): matrix ∃ in PR body → verify no silent gaps (every SC has a row), NO TEST reasons ∈ `{infra-not-wired, prompt-logic-only, ui-manual-only, out-of-scope}` enum. ¬matrix ∧ τ≠S → `issue(blocking):` missing SC→Test matrix.
-In a repo with `.semctx/`, that matrix is the proof section `/feature` generated
-from the closed change contract. The issue body remains the spec if they diverge.
+Where a Semctx record on the reviewed head is PARTIAL (`## Proof — semctx`, posted by
+`/feature`'s `proof-acquire`), each gap it names has its own row there; judge whether the
+reason is true — `landPr` checks only its form. The record is read, never re-run. The
+issue body remains the spec if they diverge.
 5a. **UI proof.** When Δ touches `frontend.path` or `shared.ui` and `.dev/stack.yml` declares `commands.test_e2e`, a `ui-manual-only` row is an `issue(blocking):` — the e2e command is the proof, not a hand check. Without an e2e command, `ui-manual-only` is legal only when the PR body records an agent browser check: steps, URL, observed result. The NO TEST enum itself is unchanged.
 
 A finding emitted in steps 4–5a whose only gap is a missing or weak test is not finally labelled in this phase. Phase 4 step 3b rewrites that label. A missing SC→Test matrix stays `issue(blocking):`. An unmet criterion whose gap is the behaviour itself, not the test, stays `issue(blocking):`.
