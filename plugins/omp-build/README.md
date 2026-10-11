@@ -204,6 +204,16 @@ before its diff; the review-start test exercises the fence, not model compliance
   binds, so an unchanged head is never re-proved. Assertledger records bind only
   `assertledger check` manifests (git provenance); the kit adapter's `verify`
   manifests carry a working-tree provenance and refuse as unbound.
+- What admission does not establish. VERIFIED attests Semctx's composition over
+  the evidence statuses the contract declares, never a test run: the runtime
+  proof is the base-required CI `landPr` waits on for the same head, and the
+  review judges that each `tested` evidence names a test that exercises the
+  change. Admission governs only the arms `landPr` writes: a `reviewed` label or
+  auto-merge set by another actor is an override that GitHub's auto-merge and
+  the merge-on-green workflow honour without proof, and the armed-gate retention
+  keeps it once the review approves. A record is a PR comment by the automation
+  account; any account with write access can edit or delete it, so it attests
+  what the producer printed, not who ran it.
 
 The bound guards against agent mistakes, not against an agent that bypasses it:
 records by other accounts are ignored, and edits or deletions of the account's
