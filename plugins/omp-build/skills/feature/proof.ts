@@ -1,14 +1,15 @@
 /**
  * Landing admission from producer evidence (#768).
  *
- * `admitLanding` only reads: Git objects of the selected candidate, the worktree
- * and principal `.semctx` paths, the PR's comments and body. It never runs
+ * `admitLanding` only reads: Git objects of `origin/<base>` and the selected
+ * candidate, the worktree and principal `.semctx` paths, the PR's comments and body. It never runs
  * Semctx, assertledger, a test or an LLM. The evidence was acquired earlier by
  * `proof-acquire.ts` in a private checkout of the candidate and conserved as a
  * PR comment by the automation login (`renderRecord`); admission re-reads that
  * comment, re-derives every binding input itself, and applies the policy.
  */
-import { lstatSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { lstatSync, readFileSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 
 export type GitResult = { code: number; stdout: string; stderr: string }
@@ -56,22 +57,37 @@ function errorMessage(error: unknown): string {
 }
 
 // ---------------------------------------------------------------------------
-// Candidate facts: the bound root, the principal, the candidate's committed tree
+// Candidate facts: the bound root, the principal, the base's and the candidate's
+// committed trees, and the configured Semctx state on disk
 // ---------------------------------------------------------------------------
 
 type TreeEntry = { mode: string; type: string; oid: string; path: string }
+/** A declaration committed at `at`: `origin/<base>` or the candidate sha. */
+export type Declared = { at: string; entry: TreeEntry }
+
+/**
+ * The Semctx configuration the producer runs under: the one committed at the
+ * candidate (equal to the base's when the base commits one), else the
+ * operator's uncommitted `.semctx/config.json` on disk (`ignored`), which
+ * acquisition copies into its private checkout. `sha256` is of `text`.
+ */
+export type SemctxConfig = { source: 'committed' | 'ignored'; path: string; text: string; sha256: string }
 
 export type CandidateFacts = {
   /** `git rev-parse --show-toplevel` of the caller's cwd, lossless. */
   toplevel: string
   candidate: string
+  /** The PR base branch; its tree is read at `refs/remotes/origin/<base>`. */
+  base: string
   semctx: 'absent' | 'configured'
+  /** Set exactly when Semctx is configured. */
+  config: SemctxConfig | null
   /** Every `.semctx/semantic/changes/**.sem` committed at the candidate. */
   changeFiles: string[]
-  /** `.dev/stack.yml` at the candidate, if committed. */
-  stack: TreeEntry | null
-  /** The assertledger adapter declaration at the candidate, if any. */
-  adapter: TreeEntry | null
+  /** `.dev/stack.yml` as the base and the candidate commit it. */
+  stacks: Declared[]
+  /** The assertledger adapter declarations the base and the candidate commit. */
+  adapters: Declared[]
 }
 
 function parseTree(stdout: string): TreeEntry[] {
@@ -108,31 +124,79 @@ function onDisk(dir: string): 'present' | 'absent' | Error {
   }
 }
 
+/** The text of the regular file `path`, null when it does not exist, or the read error. */
+function diskText(path: string): string | null | Error {
+  try {
+    if (!lstatSync(path).isFile()) return new Error('not a regular file')
+    return readFileSync(path, 'utf8')
+  } catch (error) {
+    const code = error instanceof Error && 'code' in error ? error.code : undefined
+    if (code === 'ENOENT') return null
+    return error instanceof Error ? error : new Error(String(error))
+  }
+}
+
 const REGULAR: Record<string, true> = { '100644': true, '100755': true }
 
 export async function blob(git: Git, toplevel: string, entry: TreeEntry): Promise<string> {
   if (entry.type !== 'blob' || !REGULAR[entry.mode]) {
-    throw new Error(`${entry.path} is not a regular file at the candidate (mode ${entry.mode})`)
+    throw new Error(`${entry.path} is not a regular file (mode ${entry.mode})`)
   }
   const result = await git(toplevel, ['cat-file', 'blob', entry.oid])
   if (result.code !== 0) throw new Error(gitError(['cat-file', 'blob', entry.oid], result))
   return result.stdout
 }
 
+/** The entries `rev` commits under the paths applicability reads, or the Git error. */
+async function declarations(git: Git, toplevel: string, rev: string): Promise<TreeEntry[] | Error> {
+  const args = [
+    'ls-tree',
+    '-r',
+    '-z',
+    '--full-tree',
+    `${rev}^{commit}`,
+    '--',
+    '.semctx',
+    STACK,
+    ASSERTLEDGER_CONFIG,
+    KIT_ADAPTER,
+  ]
+  const tree = await git(toplevel, args)
+  if (tree.code !== 0) return new Error(gitError(args, tree))
+  try {
+    return parseTree(tree.stdout)
+  } catch (error) {
+    return error instanceof Error ? error : new Error(String(error))
+  }
+}
+
 /**
- * What the candidate commits and what the checkouts hold, bound to the
- * repository root — never to the caller's cwd — and to a local tip that is the
- * candidate. Semctx is `configured` when the candidate commits a regular,
- * parseable `.semctx/config.json` at its root, and `absent` only when the
- * candidate commits no `.semctx` and neither the bound worktree nor the
- * principal holds one on disk. Anything else refuses: Git or read errors (a
- * failed HEAD probe is not an unborn branch), a missing or corrupt candidate, a
- * `.semctx` committed without its config, a malformed config, committed working
- * state, or configured state on disk that the candidate does not commit.
+ * What the base and the candidate commit and what the checkouts hold, bound to
+ * the repository root — never to the caller's cwd — and to a local tip that is
+ * the candidate. Applicability is the union of `origin/<base>`, the candidate
+ * and the configured state on disk, so a PR cannot exempt itself by deleting a
+ * declaration: Semctx applies when any of them holds `.semctx`, an adapter or
+ * `test_e2e` applies when the base or the candidate declares it. Semctx runs
+ * under the candidate's committed config, which must equal the base's when the
+ * base commits one (a PR never relaxes the policy it is judged by); with none
+ * committed, under the operator's uncommitted config on disk (the bound
+ * worktree and the principal must agree). `absent` is only none of these.
+ * Anything else refuses: Git or read errors (a failed HEAD probe is not an
+ * unborn branch), a missing or corrupt base or candidate, a malformed config,
+ * committed working state, configurations that disagree, or Semctx state with
+ * no configuration.
  */
-export async function candidateFacts(cwd: string, candidate: string, git: Git): Promise<CandidateFacts | Refusal> {
+export async function candidateFacts(
+  cwd: string,
+  candidate: string,
+  base: string | undefined,
+  git: Git,
+): Promise<CandidateFacts | Refusal> {
   if (!SHA.test(candidate))
     return refuse('candidate', 'unreadable', `candidate ${JSON.stringify(candidate)} is not a commit sha`)
+  if (!base || base.startsWith('-')) {
+    return refuse('candidate', 'unreadable', `the PR base ${JSON.stringify(base ?? null)} is not a branch name`)
+  }
   const top = await git(cwd, ['rev-parse', '--show-toplevel'])
   if (top.code !== 0) return refuse('candidate', 'unreadable', gitError(['rev-parse', '--show-toplevel'], top))
   const toplevel = oneLine(top.stdout)
@@ -159,40 +223,42 @@ export async function candidateFacts(cwd: string, candidate: string, git: Git): 
   } catch (error) {
     return refuse('candidate', 'unreadable', errorMessage(error))
   }
-  const treeArgs = [
-    'ls-tree',
-    '-r',
-    '-z',
-    '--full-tree',
-    `${candidate}^{commit}`,
-    '--',
-    '.semctx',
-    STACK,
-    ASSERTLEDGER_CONFIG,
-    KIT_ADAPTER,
+  const entries = await declarations(git, toplevel, candidate)
+  if (entries instanceof Error) {
+    return refuse('candidate', 'unreadable', `candidate ${candidate} cannot be read — ${entries.message}`)
+  }
+  const baseRef = `origin/${base}`
+  const baseEntries = await declarations(git, toplevel, `refs/remotes/${baseRef}`)
+  if (baseEntries instanceof Error) {
+    return refuse('candidate', 'unreadable', `${baseRef} cannot be read — ${baseEntries.message}`)
+  }
+  const sides: [string, TreeEntry[]][] = [
+    [baseRef, baseEntries],
+    [candidate, entries],
   ]
-  const tree = await git(toplevel, treeArgs)
-  if (tree.code !== 0) {
-    return refuse('candidate', 'unreadable', `candidate ${candidate} cannot be read — ${gitError(treeArgs, tree)}`)
+  const declared = (pick: (tree: TreeEntry[]) => TreeEntry | null): Declared[] => {
+    const out: Declared[] = []
+    for (const [at, tree] of sides) {
+      const entry = pick(tree)
+      if (entry && !out.some((seen) => seen.entry.path === entry.path && seen.entry.oid === entry.oid)) {
+        out.push({ at, entry })
+      }
+    }
+    return out
   }
-  let entries: TreeEntry[]
-  try {
-    entries = parseTree(tree.stdout)
-  } catch (error) {
-    return refuse('candidate', 'unreadable', errorMessage(error))
-  }
-  const at = (path: string) => entries.find((entry) => entry.path === path) ?? null
-  const semctxEntries = entries.filter((entry) => entry.path === '.semctx' || entry.path.startsWith('.semctx/'))
-  const adapterConfig = at(ASSERTLEDGER_CONFIG)
+  const find = (tree: TreeEntry[], path: string) => tree.find((entry) => entry.path === path) ?? null
+  const isSemctx = (entry: TreeEntry) => entry.path === '.semctx' || entry.path.startsWith('.semctx/')
+  const semctxEntries = entries.filter(isSemctx)
   const facts = {
     toplevel,
     candidate,
+    base,
     changeFiles: semctxEntries
       .map((entry) => entry.path)
       .filter((path) => path.startsWith(CHANGES_DIR) && path.endsWith('.sem'))
       .sort(),
-    stack: at(STACK),
-    adapter: adapterConfig ?? at(KIT_ADAPTER),
+    stacks: declared((tree) => find(tree, STACK)),
+    adapters: declared((tree) => find(tree, ASSERTLEDGER_CONFIG) ?? find(tree, KIT_ADAPTER)),
   }
   const working = semctxEntries.filter(
     (entry) => entry.path.startsWith('.semctx/working/') && entry.path !== '.semctx/working/.gitkeep',
@@ -204,43 +270,78 @@ export async function candidateFacts(cwd: string, candidate: string, git: Git): 
       `candidate ${candidate} commits Semctx working state (${working.map((entry) => entry.path).join(', ')}); it overrides committed contracts — remove it from the branch`,
     )
   }
-  const config = at(CONFIG)
-  if (config) {
-    let text: string
-    try {
-      text = await blob(git, toplevel, config)
-    } catch (error) {
-      return refuse('semctx', 'unreadable', `${CONFIG} at ${candidate}: ${errorMessage(error)}`)
-    }
-    try {
-      if (!isMap(JSON.parse(text))) throw new Error('not a JSON object')
-    } catch (error) {
-      return refuse('semctx', 'unreadable', `${CONFIG} at ${candidate} is malformed: ${errorMessage(error)}`)
-    }
-    return { ...facts, semctx: 'configured' }
-  }
-  if (semctxEntries.length) {
+  const baseConfig = find(baseEntries, CONFIG)
+  const committed = find(entries, CONFIG)
+  if (baseConfig && committed?.oid !== baseConfig.oid) {
     return refuse(
       'semctx',
       'ambiguous',
-      `candidate ${candidate} commits .semctx (${semctxEntries[0]?.path}) without a regular ${CONFIG}; Semctx state that is not configured is not absence`,
+      `candidate ${candidate} ${committed ? 'changes' : 'deletes'} the ${CONFIG} ${baseRef} commits: a PR is judged under the base's Semctx policy, never its own — a configuration change lands outside landPr`,
     )
   }
   const dirs = [toplevel, ...(principal !== null && principal !== toplevel ? [principal] : [])]
+  const present: string[] = []
+  const local: { path: string; text: string }[] = []
   for (const dir of dirs) {
     const state = onDisk(dir)
     if (state instanceof Error) {
       return refuse('semctx', 'unreadable', `${JSON.stringify(join(dir, '.semctx'))} cannot be read: ${state.message}`)
     }
-    if (state === 'present') {
-      return refuse(
-        'semctx',
-        'ambiguous',
-        `${JSON.stringify(join(dir, '.semctx'))} exists but candidate ${candidate} commits no ${CONFIG}: configured state outside the candidate is not absence — commit the configuration or remove that state`,
-      )
-    }
+    if (state === 'absent') continue
+    present.push(join(dir, '.semctx'))
+    // A committed base config is the policy; copies on disk are checkouts of it, never another source.
+    if (baseConfig) continue
+    const path = join(dir, CONFIG)
+    const text = diskText(path)
+    if (text instanceof Error)
+      return refuse('semctx', 'unreadable', `${JSON.stringify(path)} cannot be read: ${text.message}`)
+    if (text !== null) local.push({ path, text })
   }
-  return { ...facts, semctx: 'absent' }
+  let config: Omit<SemctxConfig, 'sha256'> | null = null
+  if (committed) {
+    try {
+      config = { source: 'committed', path: CONFIG, text: await blob(git, toplevel, committed) }
+    } catch (error) {
+      return refuse('semctx', 'unreadable', `${CONFIG} at ${candidate}: ${errorMessage(error)}`)
+    }
+  } else if (local[0]) {
+    config = { source: 'ignored', path: local[0].path, text: local[0].text }
+  }
+  const disagreeing = local.filter((copy) => copy.text !== config?.text)
+  if (disagreeing.length) {
+    return refuse(
+      'semctx',
+      'ambiguous',
+      `${disagreeing.map((copy) => JSON.stringify(copy.path)).join(', ')} disagree${disagreeing.length === 1 ? 's' : ''} with the Semctx configuration ${config?.source === 'committed' ? `candidate ${candidate} commits` : `at ${JSON.stringify(config?.path)}`}: one configuration decides — make them equal`,
+    )
+  }
+  if (config) {
+    try {
+      if (!isMap(JSON.parse(config.text))) throw new Error('not a JSON object')
+    } catch (error) {
+      const where = config.source === 'committed' ? `${CONFIG} at ${candidate}` : JSON.stringify(config.path)
+      return refuse('semctx', 'unreadable', `${where} is malformed: ${errorMessage(error)}`)
+    }
+    const digest = createHash('sha256').update(config.text).digest('hex')
+    return { ...facts, semctx: 'configured', config: { ...config, sha256: digest } }
+  }
+  const committedState = semctxEntries[0] ?? baseEntries.find(isSemctx)
+  if (committedState) {
+    const where = semctxEntries.length ? `candidate ${candidate}` : `${baseRef} (the candidate removes it)`
+    return refuse(
+      'semctx',
+      'ambiguous',
+      `${where} commits .semctx (${committedState.path}) without a regular ${CONFIG}, and no configuration is on disk; Semctx state that is not configured is not absence`,
+    )
+  }
+  if (present[0]) {
+    return refuse(
+      'semctx',
+      'ambiguous',
+      `${JSON.stringify(present[0])} exists but neither ${baseRef} nor candidate ${candidate} commits a ${CONFIG}, and none is on disk: configured state outside the candidate is not absence — configure it or remove that state`,
+    )
+  }
+  return { ...facts, semctx: 'absent', config: null }
 }
 
 // ---------------------------------------------------------------------------
@@ -327,6 +428,8 @@ export type SemctxInvocation = {
   /** The private checkout the producer ran in. */
   root: string
   tool: { path: string; version: string }
+  /** The Semctx configuration the run used (`CandidateFacts.config`), by source and digest. */
+  config: { source: SemctxConfig['source']; sha256: string }
   /** `git status --porcelain -z --untracked-files=all` of the private checkout, before and after. */
   status: { before: string; after: string }
   /** Ignored paths of the private checkout after the run. */
@@ -393,7 +496,7 @@ export async function mergeBaseOf(
   base: string,
   candidate: string,
 ): Promise<string | Error> {
-  if (!base || base.startsWith('-')) return new Error(`base ${JSON.stringify(base)} is not a branch name`)
+  // `base` was checked by `candidateFacts`: a branch name, never an option.
   const args = ['merge-base', `refs/remotes/origin/${base}`, candidate]
   const result = await git(toplevel, args)
   const sha = oneLine(result.stdout)
@@ -414,6 +517,7 @@ export type SemctxExpected = {
   mergeBase: string
   contracts: string[]
   changeFiles: string[]
+  config: { source: SemctxConfig['source']; sha256: string }
 }
 
 function parseJson(step: Step | undefined): unknown {
@@ -484,6 +588,15 @@ export function readSemctxRecord(record: unknown, expected: SemctxExpected): Cha
   }
   if (!sameList(inv.contracts, expected.contracts)) {
     return unbound(`contracts ${JSON.stringify(inv.contracts)} ≠ changed ${JSON.stringify(expected.contracts)}`)
+  }
+  if (
+    !isMap(inv.config) ||
+    inv.config.source !== expected.config.source ||
+    inv.config.sha256 !== expected.config.sha256
+  ) {
+    return unbound(
+      `the run's Semctx configuration ${JSON.stringify(inv.config)} is not the ${expected.config.source} one in force now (sha256 ${expected.config.sha256})`,
+    )
   }
   if (typeof inv.root !== 'string' || !isAbsolute(inv.root)) return unbound('no private checkout root')
   if (!isMap(inv.status) || inv.status.before !== '' || inv.status.after !== '') {
@@ -747,8 +860,8 @@ export type Justification = { gap: string; reason: NoTestReason }
 
 /**
  * Every PARTIAL gap needs exactly one NO TEST reason from the closed enum in the
- * selected PR body. `ui-manual-only` is refused when the candidate commits an e2e
- * command; otherwise the body carries that gap's browser check with nonblank
+ * selected PR body. `ui-manual-only` is refused when the base or the candidate
+ * commits an e2e command; otherwise the body carries that gap's browser check with nonblank
  * steps, an http(s) URL and a nonblank observed result.
  */
 export function justifyGaps(results: ChangeResult[], body: string, e2e: () => boolean): Refusal | Justification[] {
@@ -780,7 +893,7 @@ export function justifyGaps(results: ChangeResult[], body: string, e2e: () => bo
           return refuse(
             'semctx',
             'unjustified',
-            `change ${result.id}: gap ${gap} is ui-manual-only but the candidate's ${STACK} declares commands.test_e2e — that command is the proof`,
+            `change ${result.id}: gap ${gap} is ui-manual-only but ${STACK} on the base or the candidate declares commands.test_e2e — that command is the proof`,
           )
         }
         const check = browserCheck(body, gap)
@@ -842,26 +955,26 @@ export async function repositoryOf(gh: Gh, cwd: string): Promise<string> {
   return name
 }
 
-/** The Semctx inputs admission and acquisition derive the same way from Git. */
+/** The Semctx inputs admission and acquisition derive the same way from Git and the facts. */
 export async function semctxInputs(
   facts: CandidateFacts,
-  target: Target,
   git: Git,
-): Promise<{ base: string; mergeBase: string; contracts: string[] } | Refusal> {
-  if (!target.base) return refuse('semctx', 'unreadable', `PR #${target.pr}: its base could not be resolved`)
-  const mergeBase = await mergeBaseOf(git, facts.toplevel, target.base, target.candidate)
+): Promise<Pick<SemctxExpected, 'base' | 'mergeBase' | 'contracts' | 'config'> | Refusal> {
+  if (!facts.config) return refuse('semctx', 'unreadable', `candidate ${facts.candidate} has no Semctx configuration`)
+  const mergeBase = await mergeBaseOf(git, facts.toplevel, facts.base, facts.candidate)
   if (mergeBase instanceof Error)
-    return refuse('semctx', 'unreadable', `merge-base with origin/${target.base}: ${mergeBase.message}`)
-  const contracts = await changedContracts(git, facts.toplevel, mergeBase, target.candidate)
+    return refuse('semctx', 'unreadable', `merge-base with origin/${facts.base}: ${mergeBase.message}`)
+  const contracts = await changedContracts(git, facts.toplevel, mergeBase, facts.candidate)
   if (contracts instanceof Error) return refuse('semctx', 'unbound', contracts.message)
   if (!contracts.length) {
     return refuse(
       'semctx',
       'missing',
-      `candidate ${target.candidate} changes no ${CHANGES_DIR}<id>.sem since ${mergeBase}: open the change contract for this ticket (feature §6.0)`,
+      `candidate ${facts.candidate} changes no ${CHANGES_DIR}<id>.sem since ${mergeBase}: open the change contract for this ticket (feature §6.0)`,
     )
   }
-  return { base: target.base, mergeBase, contracts }
+  const config = { source: facts.config.source, sha256: facts.config.sha256 }
+  return { base: facts.base, mergeBase, contracts, config }
 }
 
 async function admitSemctx(
@@ -871,7 +984,7 @@ async function admitSemctx(
   deps: Deps,
   read: Read,
 ): Promise<SemctxOutcome | Refusal> {
-  const inputs = await semctxInputs(facts, target, deps.git)
+  const inputs = await semctxInputs(facts, deps.git)
   if ('ok' in inputs) return inputs
   const found = findRecord(read.comments, read.me, 'semctx', target.candidate)
   if ('missing' in found) {
@@ -891,12 +1004,14 @@ async function admitSemctx(
   const raw = await deps.gh(cwd, ['pr', 'view', String(target.pr), '--json', 'body'])
   const body = jsonField(raw, 'body')
   if (typeof body !== 'string') throw new Error(`gh pr view ${target.pr} returned no body`)
+  // The base's or the candidate's `test_e2e` makes it the proof: deleting it in the PR exempts nothing.
   let e2e: boolean | Error = false
-  if (facts.stack) {
+  for (const { at, entry } of facts.stacks) {
     try {
-      e2e = declaresE2e(await blob(deps.git, facts.toplevel, facts.stack))
+      if (declaresE2e(await blob(deps.git, facts.toplevel, entry))) e2e = true
     } catch (error) {
-      e2e = new Error(`${STACK} at ${target.candidate} cannot be read: ${errorMessage(error)}`)
+      e2e = new Error(`${STACK} at ${at} cannot be read: ${errorMessage(error)}`)
+      break
     }
   }
   let gaps: Refusal | Justification[]
@@ -925,10 +1040,11 @@ const CLOSING_ISSUES = `query($owner: String!, $name: String!, $number: Int!) {
 }`
 
 /**
- * Whether the assertledger requirement applies: the candidate declares an
- * adapter (`assertledger.config.json` with an `adapter`, or the kit's vitest
- * adapter) and an issue the selected PR closes has the org issue type `fix`,
- * both read from their sources. An unreadable declaration or ticket type refuses.
+ * Whether the assertledger requirement applies: the base or the candidate
+ * declares an adapter (`assertledger.config.json` with an `adapter`, or the
+ * kit's vitest adapter) and an issue the selected PR closes has the org issue
+ * type `fix`, both read from their sources. An unreadable declaration or ticket
+ * type refuses.
  */
 export async function assertledgerApplies(
   cwd: string,
@@ -937,23 +1053,20 @@ export async function assertledgerApplies(
   deps: { gh: Gh; git: Git },
   repository: string,
 ): Promise<boolean | Refusal> {
-  const adapter = facts.adapter
-  if (!adapter) return false
-  if (adapter.path === ASSERTLEDGER_CONFIG) {
+  if (!facts.adapters.length) return false
+  for (const { at, entry } of facts.adapters) {
+    if (entry.path !== ASSERTLEDGER_CONFIG) continue
     let config: unknown
     try {
-      config = JSON.parse(await blob(deps.git, facts.toplevel, adapter))
+      config = JSON.parse(await blob(deps.git, facts.toplevel, entry))
     } catch (error) {
-      return refuse(
-        'assertledger',
-        'unreadable',
-        `${ASSERTLEDGER_CONFIG} at ${target.candidate}: ${errorMessage(error)}`,
-      )
+      return refuse('assertledger', 'unreadable', `${ASSERTLEDGER_CONFIG} at ${at}: ${errorMessage(error)}`)
     }
     if (!isMap(config) || !isMap(config.adapter)) {
-      return refuse('assertledger', 'ambiguous', `${ASSERTLEDGER_CONFIG} at ${target.candidate} declares no adapter`)
+      return refuse('assertledger', 'ambiguous', `${ASSERTLEDGER_CONFIG} at ${at} declares no adapter`)
     }
   }
+  const adapter = facts.adapters.map(({ at, entry }) => `${entry.path} at ${at}`).join(', ')
   const [owner, name] = repository.split('/')
   const raw = await deps.gh(cwd, [
     'api',
@@ -984,7 +1097,7 @@ export async function assertledgerApplies(
     return refuse(
       'assertledger',
       'unreadable',
-      `PR #${target.pr} closes no issue: the ticket type that decides the assertledger requirement (${adapter.path}) is unknown`,
+      `PR #${target.pr} closes no issue: the ticket type that decides the assertledger requirement (${adapter}) is unknown`,
     )
   }
   // An untyped closing issue is not a fix ticket; a typed one is read by name.
@@ -1126,13 +1239,13 @@ async function admitAssertledger(
  * only Semctx non-applicable; the assertledger requirement is decided apart.
  */
 export async function admitLanding(cwd: string, target: Target, deps: Deps): Promise<Admission> {
-  const facts = await candidateFacts(cwd, target.candidate, deps.git)
+  const facts = await candidateFacts(cwd, target.candidate, target.base, deps.git)
   if ('ok' in facts) return facts
-  if (facts.semctx === 'absent' && !facts.adapter) {
+  if (facts.semctx === 'absent' && !facts.adapters.length) {
     return { ok: true, proof: { semctx: 'absent', assertledger: 'not-applicable' } }
   }
   const repository = await repositoryOf(deps.gh, cwd)
-  const ledger = facts.adapter ? await assertledgerApplies(cwd, facts, target, deps, repository) : false
+  const ledger = await assertledgerApplies(cwd, facts, target, deps, repository)
   if (typeof ledger === 'object') return ledger
   if (facts.semctx === 'absent' && !ledger)
     return { ok: true, proof: { semctx: 'absent', assertledger: 'not-applicable' } }

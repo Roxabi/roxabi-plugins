@@ -14,11 +14,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   type Box,
   git,
+  IGNORED_CASE,
+  ignoredSpec,
   LEDGER_CASES,
   ledgerSpec,
   plainSpec,
   readSim,
   SEMCTX_CASES,
+  SEMCTX_CONFIG,
   STACK,
   STACK_E2E,
   sandbox,
@@ -31,7 +34,7 @@ import { findRecord, renderRecord } from './proof'
 
 type Captured = { code: number | null; stdout: string; stderr: string; record?: string }
 type Capture = { sha: Record<string, string>; records: Record<string, Captured> }
-type Records = { semctx: Capture; assertledger: Capture }
+type Records = { semctx: Capture; ignored: Capture; assertledger: Capture }
 const RECORDS: Records = JSON.parse(
   readFileSync(path.join(import.meta.dirname, '__fixtures__/proof/records.json'), 'utf8'),
 )
@@ -129,6 +132,9 @@ describe('landPr admission against conserved Semctx records', () => {
     { number: 17, branch: SEMCTX_CASES.verified.branch, title: 'fix: finite add', body: 'Closes #1\n', closes: [1] },
     // #18's head is a commit on top of #11's candidate.
     { number: 18, branch: 'fix/1-moved', title: 'fix: finite add', body: 'Closes #1\n', closes: [1] },
+    // #50 relaxes the base's blocking rules, #51 removes the base's Semctx configuration.
+    { number: 50, branch: 'fix/1-relaxed', title: 'fix: finite add', body: 'Closes #1\n', closes: [1] },
+    { number: 51, branch: 'fix/1-unconfigured', title: 'fix: finite add', body: 'Closes #1\n', closes: [1] },
   ]
   let box: Box
   const wt: Record<string, string> = {}
@@ -136,14 +142,26 @@ describe('landPr admission against conserved Semctx records', () => {
 
   beforeAll(() => {
     const spec = semctxSpec()
+    const verified = SEMCTX_CASES.verified.branch
+    const relaxed = SEMCTX_CONFIG.replaceAll('"block"', '"warn"')
     box = sandbox({
       ...spec,
       branches: [
         ...spec.branches,
         {
           name: 'fix/1-moved',
-          from: SEMCTX_CASES.verified.branch,
+          from: verified,
           commits: [{ message: 'docs: note (#1)', files: { 'NOTES.md': 'finite only\n' } }],
+        },
+        {
+          name: 'fix/1-relaxed',
+          from: verified,
+          commits: [{ message: 'chore: warn only (#1)', files: { '.semctx/config.json': relaxed } }],
+        },
+        {
+          name: 'fix/1-unconfigured',
+          from: verified,
+          commits: [{ message: 'chore: drop semctx (#1)', files: { '.semctx': null } }],
         },
       ],
       prs: [...spec.prs, ...extraPrs],
@@ -155,6 +173,8 @@ describe('landPr admission against conserved Semctx records', () => {
     instrument(box)
     for (const [name, { branch }] of Object.entries(SEMCTX_CASES)) wt[name] = worktree(box, name, sha(branch))
     wt.moved = worktree(box, 'moved', sha('fix/1-moved'))
+    wt.relaxed = worktree(box, 'relaxed', sha('fix/1-relaxed'))
+    wt.unconfigured = worktree(box, 'unconfigured', sha('fix/1-unconfigured'))
   })
   afterAll(() => rmSync(box.root, { recursive: true, force: true }))
 
@@ -277,6 +297,45 @@ describe('landPr admission against conserved Semctx records', () => {
     }
   })
 
+  describe('the base decides with the candidate: a PR never relaxes the policy it is judged by', () => {
+    it.each([
+      [
+        'relaxes the blocking rules the base commits',
+        50,
+        'relaxed',
+        /changes the \.semctx\/config\.json origin\/main commits/,
+      ],
+      [
+        'deletes the Semctx configuration the base commits',
+        51,
+        'unconfigured',
+        /deletes the \.semctx\/config\.json origin\/main commits/,
+      ],
+    ])('a candidate that %s refuses before any record is read', (_label, pr, name, error) => {
+      prepare(box, pr, { comments: [approve(sha(`fix/1-${name}`)), conserved(RECORDS.semctx, 'verified')] })
+      const { result, gate, calls, producers } = land(box, wt[name] as string, pr)
+      expect(result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'ambiguous' })
+      expect(result.error).toMatch(error)
+      expect(gate).toEqual(UNARMED)
+      expect(calls.some((args) => args.includes('nameWithOwner'))).toBe(false)
+      expect(producers).toEqual([])
+    })
+
+    it('a candidate that deletes the e2e command its base declares cannot justify a gap as ui-manual-only', () => {
+      const { pr, branch } = SEMCTX_CASES.e2eDeleted
+      const comments = [approve(sha(branch)), conserved(RECORDS.semctx, 'e2eDeleted')]
+      prepare(box, pr, { comments, body: browser() })
+      const refused = land(box, wt.e2eDeleted as string, pr)
+      expect(refused.result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'unjustified' })
+      expect(refused.result.error).toMatch(/on the base or the candidate declares commands\.test_e2e/)
+      expect(refused.gate).toEqual(UNARMED)
+      prepare(box, pr, { comments, body: noTest('out-of-scope') })
+      const admitted = land(box, wt.e2eDeleted as string, pr)
+      expect(admitted.result).toMatchObject({ status: 'watching', proof: { semctx: { verdict: 'PARTIAL' } } })
+      expect([...refused.producers, ...admitted.producers]).toEqual([])
+    })
+  })
+
   it.each([
     ['a draft change', 'draft', /is draft; only an active, partial or verified change lands/],
     ['a PARTIAL change declared verified (a forced close)', 'closed', /closed as verified while its result is PARTIAL/],
@@ -396,6 +455,48 @@ describe('landPr admission against conserved Semctx records', () => {
   })
 })
 
+describe('landPr admission in a repository whose Semctx configuration is the operator’s, uncommitted', () => {
+  let box: Box
+  let wt: string
+  const { pr, branch } = IGNORED_CASE
+  const head = () => box.sha[branch] as string
+  const config = () => path.join(box.principal, '.semctx', 'config.json')
+
+  beforeAll(() => {
+    box = sandbox(ignoredSpec())
+    for (const [ref, value] of Object.entries(RECORDS.ignored.sha)) {
+      if (box.sha[ref] !== value)
+        throw new Error(`${ref} rebuilt as ${box.sha[ref]}, recorded ${value}: re-run capture.ts`)
+    }
+    instrument(box)
+    wt = worktree(box, 'ignored', head())
+  })
+  afterAll(() => rmSync(box.root, { recursive: true, force: true }))
+
+  it('lands on the record acquired under that configuration, with no producer call', () => {
+    prepare(box, pr, { comments: [approve(head()), conserved(RECORDS.ignored, 'verified')] })
+    const { result, gate, producers } = land(box, wt, pr)
+    expect(result).toMatchObject({ status: 'watching', proof: { semctx: { verdict: 'VERIFIED' } } })
+    expect(gate.labels).toEqual(['reviewed'])
+    expect(producers).toEqual([])
+  })
+
+  it('a configuration edited since the run does not bind the record', () => {
+    const original = readFileSync(config(), 'utf8')
+    writeFileSync(config(), original.replaceAll('"block"', '"warn"'))
+    try {
+      prepare(box, pr, { comments: [approve(head()), conserved(RECORDS.ignored, 'verified')] })
+      const { result, gate, producers } = land(box, wt, pr)
+      expect(result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'unbound' })
+      expect(result.error).toMatch(/is not the ignored one in force now/)
+      expect(gate).toEqual(UNARMED)
+      expect(producers).toEqual([])
+    } finally {
+      writeFileSync(config(), original)
+    }
+  })
+})
+
 describe('landPr admission against conserved assertledger records', () => {
   let box: Box
   const wt: Record<string, string> = {}
@@ -412,7 +513,24 @@ describe('landPr admission against conserved assertledger records', () => {
 
   beforeAll(() => {
     const spec = ledgerSpec()
-    box = sandbox({ ...spec, prs: [...spec.prs, extra(22, [3]), extra(23, [4]), extra(24, [])] })
+    box = sandbox({
+      ...spec,
+      branches: [
+        ...spec.branches,
+        {
+          name: 'fix/2-unadapted',
+          from: detection.branch,
+          commits: [{ message: 'chore: drop the adapter (#2)', files: { 'assertledger.config.json': null } }],
+        },
+      ],
+      prs: [
+        ...spec.prs,
+        extra(22, [3]),
+        extra(23, [4]),
+        extra(24, []),
+        { number: 25, branch: 'fix/2-unadapted', title: 'fix: clamp', body: 'Closes #2\n', closes: [2] },
+      ],
+    })
     for (const [branch, value] of Object.entries(RECORDS.assertledger.sha)) {
       if (box.sha[branch] !== value)
         throw new Error(`${branch} rebuilt as ${box.sha[branch]}, recorded ${value}: re-run capture.ts`)
@@ -420,6 +538,7 @@ describe('landPr admission against conserved assertledger records', () => {
     instrument(box)
     wt.detection = worktree(box, 'detection', sha(detection.branch))
     wt.weak = worktree(box, 'weak', sha(weak.branch))
+    wt.unadapted = worktree(box, 'unadapted', sha('fix/2-unadapted'))
   })
   afterAll(() => rmSync(box.root, { recursive: true, force: true }))
 
@@ -431,6 +550,14 @@ describe('landPr admission against conserved assertledger records', () => {
     const { result, gate, producers } = land(box, wt.detection as string, detection.pr)
     expect(result).toMatchObject({ status: 'watching', proof: { semctx: 'absent', assertledger: 'detection' } })
     expect(gate.labels).toEqual(['reviewed'])
+    expect(producers).toEqual([])
+  })
+
+  it('a fix PR that deletes the adapter its base declares still owes the detection', () => {
+    prepare(box, 25, { comments: [approve(sha('fix/2-unadapted'))], body: 'Closes #2\n' })
+    const { result, gate, producers } = land(box, wt.unadapted as string, 25)
+    expect(result).toMatchObject({ status: 'proof-blocked', producer: 'assertledger', reason: 'missing' })
+    expect(gate).toEqual(UNARMED)
     expect(producers).toEqual([])
   })
 
@@ -471,7 +598,7 @@ describe('landPr admission against conserved assertledger records', () => {
   })
 })
 
-describe('Semctx applicability is decided from the candidate and the checkouts', () => {
+describe('Semctx applicability is decided from the base, the candidate and the checkouts', () => {
   // The principal's directory name ends in a space and a newline; Git paths are kept byte for byte.
   const PRINCIPAL = 'principal \n'
   let box: Box

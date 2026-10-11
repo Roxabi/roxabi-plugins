@@ -14,11 +14,12 @@ export const SIM = path.resolve(import.meta.dirname, '..', '..', 'gh-simulator.t
 export const WORKFLOW = path.resolve(import.meta.dirname, '..', '..', 'goal-scenario-workflow.ts')
 export const ACQUIRE = path.resolve(import.meta.dirname, '..', '..', 'proof-acquire.ts')
 
-/** File contents by path; `null` deletes. */
+/** File contents by path; `null` deletes (a directory recursively). */
 export type Files = Record<string, string | null>
 export type Commit = { message: string; files: Files }
 export type BranchSpec = { name: string; from: string; commits: Commit[] }
-export type PrSpec = { number: number; branch: string; title: string; body: string; closes: number[] }
+/** `base` is the PR's base branch (`main` when omitted). */
+export type PrSpec = { number: number; branch: string; title: string; body: string; closes: number[]; base?: string }
 export type IssueSpec = { number: number; title: string; issueType?: string | null }
 export type Spec = {
   base: Files
@@ -28,6 +29,8 @@ export type Spec = {
   prs: PrSpec[]
   /** The principal checkout's directory name; trailing whitespace is kept. */
   principalName?: string
+  /** Files written into the principal checkout and never committed (the operator's ignored state). */
+  principalFiles?: Record<string, string>
   /** Extra PATH entries before the simulator's bin. */
   path?: string[]
 }
@@ -79,7 +82,7 @@ function write(dir: string, files: Files, box: Box): void {
   for (const [file, content] of Object.entries(files)) {
     const at = path.join(dir, file)
     if (content === null) {
-      git(box, dir, ['rm', '-q', '--', file])
+      git(box, dir, ['rm', '-r', '-q', '--', file])
       continue
     }
     mkdirSync(path.dirname(at), { recursive: true })
@@ -135,6 +138,10 @@ export function sandbox(spec: Spec): Box {
   }
   git(box, principal, ['checkout', '-q', 'main'])
   git(box, principal, ['fetch', '-q', 'origin'])
+  for (const [file, content] of Object.entries(spec.principalFiles ?? {})) {
+    mkdirSync(path.dirname(path.join(principal, file)), { recursive: true })
+    writeFileSync(path.join(principal, file), content)
+  }
   const issues: Record<string, unknown> = {}
   for (const issue of spec.issues) {
     issues[issue.number] = {
@@ -158,7 +165,7 @@ export function sandbox(spec: Spec): Box {
       body: pr.body,
       state: 'OPEN',
       headRefName: pr.branch,
-      baseRefName: 'main',
+      baseRefName: pr.base ?? 'main',
       headRefOid: box.sha[pr.branch],
       isCrossRepository: false,
       labels: [],
@@ -216,7 +223,7 @@ export function worktree(box: Box, name: string, sha: string): string {
 // ---------------------------------------------------------------------------
 
 /** `semctx setup`'s config.json (0.4.2), verbatim: Semctx validates it against its schema. */
-const SEMCTX_CONFIG = `${JSON.stringify(
+export const SEMCTX_CONFIG = `${JSON.stringify(
   {
     include: ['src/**/*.ts'],
     exclude: ['node_modules', 'dist', '.semctx', '.git', 'coverage'],
@@ -305,7 +312,9 @@ export const SEMCTX_BASE: Files = {
  * PR number → the branch whose tip is the candidate. Native results: PARTIAL
  * (evidence pending), VERIFIED, PARTIAL with lifecycle `draft`, PARTIAL with
  * lifecycle `verified` (a forced close), VERIFIED with no required evidence,
- * and a non-change block under `changes/` that acquisition cannot record.
+ * a non-change block under `changes/` that acquisition cannot record, PARTIAL
+ * with an e2e command, and PARTIAL on a `release` base that declares an e2e
+ * command the candidate deletes.
  */
 export const SEMCTX_CASES = {
   partial: { pr: 10, branch: 'fix/1-partial' },
@@ -315,6 +324,7 @@ export const SEMCTX_CASES = {
   vacuous: { pr: 14, branch: 'fix/1-vacuous' },
   mixed: { pr: 15, branch: 'fix/1-mixed' },
   e2e: { pr: 16, branch: 'fix/1-e2e' },
+  e2eDeleted: { pr: 19, branch: 'fix/1-e2e-deleted', base: 'release' },
 } as const
 
 const fixWith = (lines: string[], extra: Files = {}): Commit => ({
@@ -360,15 +370,55 @@ export function semctxSpec(overrides: Partial<Spec> = {}): Spec {
         from: 'main',
         commits: [fixWith([SERVES, PRESERVES, REQUIRES, LINK], { '.dev/stack.yml': STACK_E2E })],
       },
+      { name: 'release', from: 'main', commits: [{ message: 'ci: e2e', files: { '.dev/stack.yml': STACK_E2E } }] },
+      {
+        name: SEMCTX_CASES.e2eDeleted.branch,
+        from: 'release',
+        commits: [fixWith([SERVES, PRESERVES, REQUIRES, LINK], { '.dev/stack.yml': STACK })],
+      },
     ],
     issues: [{ number: 1, title: 'fix: finite add', issueType: 'fix' }],
-    prs: Object.values(SEMCTX_CASES).map(({ pr, branch }) => ({
-      number: pr,
-      branch,
+    prs: Object.values(SEMCTX_CASES).map((pr) => ({
+      number: pr.pr,
+      branch: pr.branch,
+      ...('base' in pr && { base: pr.base }),
       title: 'fix: finite add',
       body: 'Closes #1\n',
       closes: [1],
     })),
+    ...overrides,
+  }
+}
+
+/** The ignored-config repository's one PR: a VERIFIED change. */
+export const IGNORED_CASE = { pr: 40, branch: 'fix/1-ignored' } as const
+
+/**
+ * Semctx configured by the operator's uncommitted `.semctx/config.json` in the
+ * principal checkout, which `.gitignore` ignores; the contracts are committed.
+ */
+export function ignoredSpec(overrides: Partial<Spec> = {}): Spec {
+  const { '.semctx/config.json': _config, ...committed } = SEMCTX_BASE
+  return {
+    base: { ...committed, '.gitignore': '.semctx/*\n!.semctx/semantic/\n' },
+    principalFiles: { '.semctx/config.json': SEMCTX_CONFIG },
+    branches: [
+      {
+        name: IGNORED_CASE.branch,
+        from: 'main',
+        commits: [fix, { message: 'test: add proven (#1)', files: { [EVIDENCE]: evidence('tested') } }],
+      },
+    ],
+    issues: [{ number: 1, title: 'fix: finite add', issueType: 'fix' }],
+    prs: [
+      {
+        number: IGNORED_CASE.pr,
+        branch: IGNORED_CASE.branch,
+        title: 'fix: finite add',
+        body: 'Closes #1\n',
+        closes: [1],
+      },
+    ],
     ...overrides,
   }
 }

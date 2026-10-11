@@ -14,6 +14,10 @@
  *   candidate, then `index`, `status`, `semantic check`, `change inspect` and
  *   `change verify --base <merge-base> --head <candidate>` for each change
  *   contract the PR changes, then `status` again. The clone must stay clean.
+ *   Semctx runs under the configuration `candidateFacts` decides: the committed
+ *   one, else the operator's uncommitted `.semctx/config.json`, copied into the
+ *   clone (where the candidate's `.gitignore` must ignore it). The record binds
+ *   that configuration's source and sha256.
  * - assertledger: the operator's manifest is replayed (`assertledger replay`).
  *
  * The result is posted as one PR comment per producer (`renderRecord`) with the
@@ -27,7 +31,7 @@
  * has a record for the candidate; 1 on a protocol failure or a missing input;
  * 2 on usage.
  */
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import {
@@ -139,8 +143,7 @@ function isUnbound(outcome: unknown): outcome is Refusal {
 }
 
 async function acquireSemctx(ctx: Context): Promise<Outcome> {
-  const target = { pr: ctx.pr, candidate: ctx.candidate, base: ctx.base }
-  const inputs = await semctxInputs(ctx.facts, target, gitResult)
+  const inputs = await semctxInputs(ctx.facts, gitResult)
   if ('ok' in inputs) throw new ProtocolError(refusalText(inputs))
   const expected: SemctxExpected = {
     repository: ctx.repository,
@@ -162,6 +165,11 @@ async function acquireSemctx(ctx: Context): Promise<Outcome> {
       const result = await gitResult(cwd, [...args])
       if (result.code !== 0)
         throw new ProtocolError(`git ${args.join(' ')} failed (${result.code}): ${result.stderr.trim()}`)
+    }
+    const config = ctx.facts.config
+    if (config?.source === 'ignored') {
+      mkdirSync(join(root, '.semctx'), { recursive: true })
+      writeFileSync(join(root, '.semctx', 'config.json'), config.text)
     }
     const statusArgs = ['status', '--porcelain', '-z', '--untracked-files=all']
     const before = await gitResult(root, statusArgs)
@@ -195,6 +203,7 @@ async function acquireSemctx(ctx: Context): Promise<Outcome> {
         mergeBase: inputs.mergeBase,
         contracts: inputs.contracts,
         root,
+        config: inputs.config,
         tool: semctx,
         status: { before: before.stdout, after: after.stdout },
         ignored,
@@ -277,12 +286,16 @@ export async function main(argv: string[], cwd: string): Promise<number> {
     if (typeof candidate !== 'string' || typeof base !== 'string' || state !== 'OPEN') {
       throw new ProtocolError(`PR #${args.pr} is not an open PR with a head and a base`)
     }
-    const facts = await candidateFacts(cwd, candidate, gitResult)
+    const facts = await candidateFacts(cwd, candidate, base, gitResult)
     if ('ok' in facts) throw new ProtocolError(refusalText(facts))
     const repository = await repositoryOf(gh, cwd)
-    const ledger = facts.adapter
-      ? await assertledgerApplies(cwd, facts, { pr: args.pr, candidate, base }, { gh, git: gitResult }, repository)
-      : false
+    const ledger = await assertledgerApplies(
+      cwd,
+      facts,
+      { pr: args.pr, candidate, base },
+      { gh, git: gitResult },
+      repository,
+    )
     if (typeof ledger === 'object') throw new ProtocolError(refusalText(ledger))
     const { me, comments } = await readComments(cwd, args.pr, { gh })
     const ctx: Context = { cwd, pr: args.pr, candidate, base, repository, me, comments, facts }
