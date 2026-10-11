@@ -319,7 +319,8 @@ export const SEMCTX_BASE: Files = {
  * contract: a candidate that only modifies it (never recorded), and one that
  * adds its own and modifies the old one. On a `stray` base whose `changes/`
  * holds a file with no change: a VERIFIED candidate that declares another
- * active change outside `changes/`, so the counts still match.
+ * active change outside `changes/`, so the counts still match. And a VERIFIED
+ * change whose statement is long enough that its record exceeds one comment.
  */
 export const SEMCTX_CASES = {
   partial: { pr: 10, branch: 'fix/1-partial' },
@@ -333,6 +334,7 @@ export const SEMCTX_CASES = {
   modified: { pr: 26, branch: 'fix/1-modified', base: 'legacy' },
   amended: { pr: 27, branch: 'fix/1-amended', base: 'legacy' },
   hidden: { pr: 28, branch: 'fix/1-hidden', base: 'stray' },
+  large: { pr: 29, branch: 'fix/1-large' },
 } as const
 
 const OLD_CONTRACT = '.semctx/semantic/changes/change.fx.old.sem'
@@ -367,6 +369,23 @@ export function semctxSpec(overrides: Partial<Spec> = {}): Spec {
         name: SEMCTX_CASES.verified.branch,
         from: 'main',
         commits: [fix, proven],
+      },
+      {
+        name: SEMCTX_CASES.large.branch,
+        from: 'main',
+        commits: [
+          {
+            ...fix,
+            files: {
+              ...fix.files,
+              [CONTRACT]: contract([SERVES, PRESERVES, REQUIRES, LINK]).replace(
+                'statement: Harden add',
+                `statement: Harden add${' so that a sum of finite numbers stays finite'.repeat(2000)}`,
+              ),
+            },
+          },
+          proven,
+        ],
       },
       {
         name: SEMCTX_CASES.draft.branch,

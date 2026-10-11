@@ -20,7 +20,7 @@
  *   that configuration's source and sha256.
  * - assertledger: the operator's manifest is replayed (`assertledger replay`).
  *
- * The result is posted as one PR comment per producer (`renderRecord`) with the
+ * The result is posted as one PR comment per producer, or a run of parts above GitHub's ceiling (`renderRecord`), with the
  * invocation facts and the native output as printed. A run that breaks the
  * protocol — an unexpected exit, an unclean clone, a result that does not bind
  * to the candidate — posts nothing and exits 1. Producer verdicts (PARTIAL,
@@ -57,9 +57,6 @@ import {
   stepExitAllowed,
 } from './proof'
 import { gitResult, readComments } from './workflow.js'
-
-/** GitHub rejects an issue comment body above this many characters. */
-const COMMENT_LIMIT = 65536
 
 class ProtocolError extends Error {}
 
@@ -109,14 +106,14 @@ function refusalText(refusal: Refusal): string {
   return `${refusal.producer} ${refusal.reason}: ${refusal.error}`
 }
 
-async function post(ctx: Context, body: string): Promise<void> {
-  if (body.length > COMMENT_LIMIT) {
-    throw new ProtocolError(`the record is ${body.length} characters, above GitHub's ${COMMENT_LIMIT}: nothing posted`)
+/** One comment per part, in order: a part that fails leaves the run incomplete, which reads as missing. */
+async function post(ctx: Context, parts: string[]): Promise<void> {
+  for (const body of parts) {
+    const args = ['pr', 'comment', String(ctx.pr), '--body-file', '-']
+    const result = await run(['gh', ...args], { cwd: ctx.cwd, input: body })
+    if (result.code !== 0)
+      throw new Error(`gh ${args.join(' ')} failed (${result.code}): ${result.stderr || result.stdout}`)
   }
-  const args = ['pr', 'comment', String(ctx.pr), '--body-file', '-']
-  const result = await run(['gh', ...args], { cwd: ctx.cwd, input: body })
-  if (result.code !== 0)
-    throw new Error(`gh ${args.join(' ')} failed (${result.code}): ${result.stderr || result.stdout}`)
 }
 
 async function tool(name: string, local: string | null): Promise<{ path: string; version: string }> {

@@ -5,8 +5,8 @@
  * candidate, the worktree and principal `.semctx` paths, the PR's comments and body. It never runs
  * Semctx, assertledger, a test or an LLM. The evidence was acquired earlier by
  * `proof-acquire.ts` in a private checkout of the candidate and conserved as a
- * PR comment by the automation login (`renderRecord`); admission re-reads that
- * comment, re-derives every binding input itself, and applies the policy.
+ * PR comment by the automation login, or a run of parts (`renderRecord`);
+ * admission re-reads it, re-derives every binding input itself, and applies the policy.
  */
 import { createHash } from 'node:crypto'
 import { lstatSync, readFileSync } from 'node:fs'
@@ -346,67 +346,106 @@ export async function candidateFacts(
 }
 
 // ---------------------------------------------------------------------------
-// Conserved records: one PR comment per producer and candidate
+// Conserved records: one PR comment per producer and candidate, or one run of parts
 // ---------------------------------------------------------------------------
 
+/** GitHub rejects an issue comment body above this many characters. */
+export const COMMENT_LIMIT = 65536
 export const proofMark = (producer: Producer) => `<!-- omp-build:proof producer=${producer} -->`
-const PROOF_HEAD = /^<!-- omp-build:proof-head sha=([0-9a-f]{40}) -->$/
+const PROOF_HEAD = /^<!-- omp-build:proof-head sha=([0-9a-f]{40})(?: part=([1-9]\d*)\/([1-9]\d*))? -->$/
 const FENCE_OPEN = '```json'
 const FENCE_CLOSE = '```'
 
 /**
- * The comment body for one producer result. Line 1 names the producer, line 2
- * the candidate; the record is the one `json` block, on one line. A backtick
- * inside a JSON string is written `\u0060`, so native output never closes the fence.
+ * The comment bodies for one producer result. Line 1 names the producer, line 2
+ * the candidate; the record is one `json` block, on one line. A backtick
+ * inside a JSON string is written `\u0060`, so native output never closes the
+ * fence. A record that fits one comment (measured in UTF-8 bytes, the strictest
+ * count) is one body; a larger one is a run of bodies headed `part=<i>/<n>`,
+ * each holding the next slice of that line, its JSON first escaped to ASCII so
+ * no slice splits a character.
  */
-export function renderRecord(producer: Producer, candidate: string, summary: string[], record: unknown): string {
+export function renderRecord(producer: Producer, candidate: string, summary: string[], record: unknown): string[] {
   const json = JSON.stringify(record).replace(/`/g, '\\u0060')
-  return [
-    proofMark(producer),
-    `<!-- omp-build:proof-head sha=${candidate} -->`,
-    `## Proof — ${producer}`,
-    '',
-    ...summary,
-    '',
-    '<details><summary>Native results and invocation</summary>',
-    '',
-    FENCE_OPEN,
-    json,
-    FENCE_CLOSE,
-    '',
-    '</details>',
-  ].join('\n')
+  const render = (part: string, lines: string[], block: string) =>
+    [
+      proofMark(producer),
+      `<!-- omp-build:proof-head sha=${candidate}${part ? ` ${part}` : ''} -->`,
+      `## Proof — ${producer}${part ? ` (${part})` : ''}`,
+      '',
+      ...lines,
+      '',
+      '<details><summary>Native results and invocation</summary>',
+      '',
+      FENCE_OPEN,
+      block,
+      FENCE_CLOSE,
+      '',
+      '</details>',
+    ].join('\n')
+  const whole = render('', summary, json)
+  if (Buffer.byteLength(whole) <= COMMENT_LIMIT) return [whole]
+  const ascii = json.replace(/[\u0080-\uffff]/g, (unit) => `\\u${unit.charCodeAt(0).toString(16).padStart(4, '0')}`)
+  // The widest frame: part 1 carries the summary, and a seven-digit count bounds every n.
+  const room = COMMENT_LIMIT - Buffer.byteLength(render('part=9999999/9999999', summary, ''))
+  if (room < 1) throw new Error(`the ${producer} record summary alone exceeds GitHub's ${COMMENT_LIMIT}`)
+  const total = Math.ceil(ascii.length / room)
+  return Array.from({ length: total }, (_, i) =>
+    render(`part=${i + 1}/${total}`, i === 0 ? summary : [], ascii.slice(i * room, (i + 1) * room)),
+  )
 }
 
 type Found = { record: unknown } | { missing: string } | { unreadable: string }
+/** The bodies of one posting of a record: a one-comment record, or a run of `total` parts in order. */
+type Run = { bodies: string[]; total: number; broken: boolean }
 
 /**
  * The latest record of `producer` for `candidate` by the automation login, in
  * comment order. Records of other authors, producers or candidates are not
- * read; a matching record whose block does not parse is unreadable.
+ * read. A run of parts is read whole: its parts 1..n in order, other comments
+ * between them ignored; when the latest run lacks a part, or a part comes out
+ * of order, the record is missing. A matching record whose blocks do not parse
+ * is unreadable.
  */
 export function findRecord(comments: PrComment[], me: string, producer: Producer, candidate: string): Found {
   const mark = proofMark(producer)
-  let latest: string | null = null
+  let latest: Run | null = null
   const others: string[] = []
   for (const comment of comments) {
     if (comment.author?.login !== me) continue
     const lines = comment.body.split('\n')
     if ((lines[0] ?? '').trimEnd() !== mark) continue
-    const head = (lines[1] ?? '').trimEnd().match(PROOF_HEAD)?.[1]
-    if (head === candidate) latest = comment.body
-    else others.push(head ?? '(no head line)')
+    const head = (lines[1] ?? '').trimEnd().match(PROOF_HEAD)
+    if (!head || head[1] !== candidate) {
+      others.push(head?.[1] ?? '(no head line)')
+      continue
+    }
+    const part = Number(head[2] ?? 1)
+    const total = Number(head[3] ?? 1)
+    if (part === 1) latest = { bodies: [comment.body], total, broken: false }
+    else if (latest && !latest.broken && latest.total === total && latest.bodies.length === part - 1)
+      latest.bodies.push(comment.body)
+    else latest = { bodies: [], total, broken: true }
   }
   if (latest === null) {
     const seen = others.length ? `; records by ${me} name ${[...new Set(others)].join(', ')}` : ''
     return { missing: `no ${producer} record by ${me} for candidate ${candidate}${seen}` }
   }
-  const lines = latest.split('\n')
-  const open = lines.indexOf(FENCE_OPEN)
-  const close = open < 0 ? -1 : lines.indexOf(FENCE_CLOSE, open + 1)
-  if (open < 0 || close < 0) return { unreadable: `the ${producer} record for ${candidate} carries no json block` }
+  if (latest.broken || latest.bodies.length !== latest.total) {
+    return {
+      missing: `the latest ${producer} record by ${me} for candidate ${candidate} is incomplete: its ${latest.total} parts are not all present in order`,
+    }
+  }
+  let json = ''
+  for (const body of latest.bodies) {
+    const lines = body.split('\n')
+    const open = lines.indexOf(FENCE_OPEN)
+    const close = open < 0 ? -1 : lines.indexOf(FENCE_CLOSE, open + 1)
+    if (open < 0 || close < 0) return { unreadable: `the ${producer} record for ${candidate} carries no json block` }
+    json += lines.slice(open + 1, close).join('\n')
+  }
   try {
-    return { record: JSON.parse(lines.slice(open + 1, close).join('\n')) }
+    return { record: JSON.parse(json) }
   } catch (error) {
     return { unreadable: `the ${producer} record for ${candidate} is not JSON: ${errorMessage(error)}` }
   }

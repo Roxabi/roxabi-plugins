@@ -212,8 +212,9 @@ before its diff; the review-start test exercises the fence, not model compliance
   auto-merge set by another actor is an override that GitHub's auto-merge and
   the merge-on-green workflow honour without proof, and the armed-gate retention
   keeps it once the review approves. A record is a PR comment by the automation
-  account; any account with write access can edit or delete it, so it attests
-  what the producer printed, not who ran it.
+  account (a run of `part=<i>/<n>` comments when it exceeds GitHub's comment
+  ceiling, read only whole); any account with write access can edit or delete
+  it, so it attests what the producer printed, not who ran it.
 
 The bound guards against agent mistakes, not against an agent that bypasses it:
 records by other accounts are ignored, and edits or deletions of the account's

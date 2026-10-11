@@ -32,7 +32,7 @@ import {
 } from './__fixtures__/proof/sandbox'
 import { findRecord, renderRecord } from './proof'
 
-type Captured = { code: number | null; stdout: string; stderr: string; record?: string }
+type Captured = { code: number | null; stdout: string; stderr: string; record?: string[] }
 type Capture = { sha: Record<string, string>; records: Record<string, Captured> }
 type Records = { semctx: Capture; ignored: Capture; assertledger: Capture }
 const RECORDS: Records = JSON.parse(
@@ -58,7 +58,8 @@ const review = (sha: string, verdict: string) =>
 const approve = (sha: string) => review(sha, 'Approve (clean)')
 const red = (sha: string) => review(sha, 'Request changes')
 
-function conserved(capture: Capture, name: string): string {
+/** The proof comments a capture run posted, in order: one, or every part of a multipart record. */
+function conserved(capture: Capture, name: string): string[] {
   const record = capture.records[name]?.record
   if (!record) throw new Error(`records.json holds no ${name} record — re-run __fixtures__/proof/capture.ts`)
   return record
@@ -182,7 +183,7 @@ describe('landPr admission against conserved Semctx records', () => {
 
   it('admits a VERIFIED record of the candidate with no producer call, then pins that candidate', () => {
     const { pr, branch } = SEMCTX_CASES.verified
-    prepare(box, pr, { comments: [approve(sha(branch)), conserved(RECORDS.semctx, 'verified')] })
+    prepare(box, pr, { comments: [approve(sha(branch)), ...conserved(RECORDS.semctx, 'verified')] })
     const { result, calls, gate, producers } = land(box, wt.verified as string, pr)
     expect(result).toMatchObject({
       status: 'watching',
@@ -211,13 +212,13 @@ describe('landPr admission against conserved Semctx records', () => {
     }
     try {
       const partial = SEMCTX_CASES.partial
-      prepare(box, partial.pr, { comments: [approve(sha(partial.branch)), conserved(RECORDS.semctx, 'partial')] })
+      prepare(box, partial.pr, { comments: [approve(sha(partial.branch)), ...conserved(RECORDS.semctx, 'partial')] })
       const grants = land(box, wt.partial as string, partial.pr)
       expect(grants.result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'unjustified' })
       expect(grants.gate).toEqual(UNARMED)
 
       const verified = SEMCTX_CASES.verified
-      prepare(box, verified.pr, { comments: [approve(sha(verified.branch)), conserved(RECORDS.semctx, 'verified')] })
+      prepare(box, verified.pr, { comments: [approve(sha(verified.branch)), ...conserved(RECORDS.semctx, 'verified')] })
       const refuses = land(box, wt.verified as string, verified.pr)
       expect(refuses.result).toMatchObject({ status: 'watching', proof: { semctx: { verdict: 'VERIFIED' } } })
       expect([...grants.producers, ...refuses.producers]).toEqual([])
@@ -233,7 +234,7 @@ describe('landPr admission against conserved Semctx records', () => {
       ['ui-manual-only with its browser check', browser(), 'ui-manual-only'],
       ['ui-manual-only with its browser check headed by the bare gap', browser({ heading: GAP }), 'ui-manual-only'],
     ])('%s admits PARTIAL and reports the gap', (_label, body, reason) => {
-      prepare(box, pr, { comments: [approve(sha(branch)), conserved(RECORDS.semctx, 'partial')], body })
+      prepare(box, pr, { comments: [approve(sha(branch)), ...conserved(RECORDS.semctx, 'partial')], body })
       const { result, gate, producers } = land(box, wt.partial as string, pr)
       expect(result).toMatchObject({
         status: 'watching',
@@ -271,7 +272,7 @@ describe('landPr admission against conserved Semctx records', () => {
         /lacks the browser check block/,
       ],
     ])('%s refuses, unarmed', (_label, body, error) => {
-      prepare(box, pr, { comments: [approve(sha(branch)), conserved(RECORDS.semctx, 'partial')], body })
+      prepare(box, pr, { comments: [approve(sha(branch)), ...conserved(RECORDS.semctx, 'partial')], body })
       const { result, gate } = land(box, wt.partial as string, pr)
       expect(result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'unjustified' })
       expect(result.error).toMatch(error)
@@ -280,7 +281,7 @@ describe('landPr admission against conserved Semctx records', () => {
 
     it('a justification edited into the body after the approving review refuses until a review follows the edit', () => {
       const dir = wt.partial as string
-      prepare(box, pr, { comments: [approve(sha(branch)), conserved(RECORDS.semctx, 'partial')] })
+      prepare(box, pr, { comments: [approve(sha(branch)), ...conserved(RECORDS.semctx, 'partial')] })
       const file = path.join(box.root, 'edited-body.md')
       writeFileSync(file, browser())
       execFileSync('gh', ['pr', 'edit', String(pr), '--body-file', file], { cwd: dir, env: box.env })
@@ -306,7 +307,10 @@ describe('landPr admission against conserved Semctx records', () => {
     try {
       // The candidate commits test_e2e; a dirty stack that drops it changes nothing.
       writeFileSync(path.join(e2eDir, '.dev/stack.yml'), STACK)
-      prepare(box, e2e.pr, { comments: [approve(sha(e2e.branch)), conserved(RECORDS.semctx, 'e2e')], body: browser() })
+      prepare(box, e2e.pr, {
+        comments: [approve(sha(e2e.branch)), ...conserved(RECORDS.semctx, 'e2e')],
+        body: browser(),
+      })
       const refused = land(box, e2eDir, e2e.pr)
       expect(refused.result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'unjustified' })
       expect(refused.result.error).toMatch(/declares commands.test_e2e/)
@@ -314,7 +318,7 @@ describe('landPr admission against conserved Semctx records', () => {
       // The candidate commits none; a dirty stack that adds one changes nothing either.
       writeFileSync(path.join(partialDir, '.dev/stack.yml'), STACK_E2E)
       prepare(box, partial.pr, {
-        comments: [approve(sha(partial.branch)), conserved(RECORDS.semctx, 'partial')],
+        comments: [approve(sha(partial.branch)), ...conserved(RECORDS.semctx, 'partial')],
         body: browser(),
       })
       expect(land(box, partialDir, partial.pr).result).toMatchObject({ status: 'watching' })
@@ -339,7 +343,7 @@ describe('landPr admission against conserved Semctx records', () => {
         /deletes the \.semctx\/config\.json origin\/main commits/,
       ],
     ])('a candidate that %s refuses before any record is read', (_label, pr, name, error) => {
-      prepare(box, pr, { comments: [approve(sha(`fix/1-${name}`)), conserved(RECORDS.semctx, 'verified')] })
+      prepare(box, pr, { comments: [approve(sha(`fix/1-${name}`)), ...conserved(RECORDS.semctx, 'verified')] })
       const { result, gate, calls, producers } = land(box, wt[name] as string, pr)
       expect(result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'ambiguous' })
       expect(result.error).toMatch(error)
@@ -350,7 +354,7 @@ describe('landPr admission against conserved Semctx records', () => {
 
     it('a candidate that deletes the e2e command its base declares cannot justify a gap as ui-manual-only', () => {
       const { pr, branch } = SEMCTX_CASES.e2eDeleted
-      const comments = [approve(sha(branch)), conserved(RECORDS.semctx, 'e2eDeleted')]
+      const comments = [approve(sha(branch)), ...conserved(RECORDS.semctx, 'e2eDeleted')]
       prepare(box, pr, { comments, body: browser() })
       const refused = land(box, wt.e2eDeleted as string, pr)
       expect(refused.result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'unjustified' })
@@ -380,7 +384,7 @@ describe('landPr admission against conserved Semctx records', () => {
 
     it('a candidate that adds its own contract and modifies an older one lands with both verified', () => {
       const { pr, branch } = SEMCTX_CASES.amended
-      prepare(box, pr, { comments: [approve(sha(branch)), conserved(RECORDS.semctx, 'amended')] })
+      prepare(box, pr, { comments: [approve(sha(branch)), ...conserved(RECORDS.semctx, 'amended')] })
       const { result, producers } = land(box, wt.amended as string, pr)
       expect(result).toMatchObject({
         status: 'watching',
@@ -399,7 +403,7 @@ describe('landPr admission against conserved Semctx records', () => {
 
     it('an active change declared outside the contract files refuses, though the change counts match', () => {
       const { pr, branch } = SEMCTX_CASES.hidden
-      prepare(box, pr, { comments: [approve(sha(branch)), conserved(RECORDS.semctx, 'hidden')] })
+      prepare(box, pr, { comments: [approve(sha(branch)), ...conserved(RECORDS.semctx, 'hidden')] })
       const { result, gate, producers } = land(box, wt.hidden as string, pr)
       expect(result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'verdict' })
       expect(result.error).toMatch(/change\(s\) change\.real are not committed as their own/)
@@ -415,7 +419,7 @@ describe('landPr admission against conserved Semctx records', () => {
   ] as const)('%s refuses on its native verdict, unarmed', (_label, name, error) => {
     const { pr, branch } = SEMCTX_CASES[name]
     prepare(box, pr, {
-      comments: [approve(sha(branch)), conserved(RECORDS.semctx, name)],
+      comments: [approve(sha(branch)), ...conserved(RECORDS.semctx, name)],
       body: noTest('out-of-scope'),
     })
     const { result, gate, producers } = land(box, wt[name] as string, pr)
@@ -431,7 +435,7 @@ describe('landPr admission against conserved Semctx records', () => {
       /change inspect change\.fx\.note .*no change contract "change\.fx\.note"/s,
     )
     const { pr, branch } = SEMCTX_CASES.mixed
-    prepare(box, pr, { comments: [approve(sha(branch)), conserved(RECORDS.semctx, 'verified')] })
+    prepare(box, pr, { comments: [approve(sha(branch)), ...conserved(RECORDS.semctx, 'verified')] })
     const { result, gate } = land(box, wt.mixed as string, pr)
     expect(result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'missing' })
     expect(result.error).toContain(`proof-acquire.ts' --pr ${pr}`)
@@ -442,7 +446,7 @@ describe('landPr admission against conserved Semctx records', () => {
     const verified = SEMCTX_CASES.verified
     it('a record of another candidate does not prove this one', () => {
       const { pr, branch } = SEMCTX_CASES.partial
-      prepare(box, pr, { comments: [approve(sha(branch)), conserved(RECORDS.semctx, 'verified')] })
+      prepare(box, pr, { comments: [approve(sha(branch)), ...conserved(RECORDS.semctx, 'verified')] })
       const { result, gate } = land(box, wt.partial as string, pr)
       expect(result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'missing' })
       expect(result.error).toContain(`records by ${ME} name ${sha(verified.branch)}`)
@@ -450,14 +454,14 @@ describe('landPr admission against conserved Semctx records', () => {
     })
 
     it('a PR whose head moved past the proven commit has no proof for its new head', () => {
-      prepare(box, 18, { comments: [approve(sha('fix/1-moved')), conserved(RECORDS.semctx, 'verified')] })
+      prepare(box, 18, { comments: [approve(sha('fix/1-moved')), ...conserved(RECORDS.semctx, 'verified')] })
       const { result, gate } = land(box, wt.moved as string, 18)
       expect(result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'missing' })
       expect(gate).toEqual(UNARMED)
     })
 
     it('a record conserved for another PR of the same head does not bind this PR', () => {
-      prepare(box, 17, { comments: [approve(sha(verified.branch)), conserved(RECORDS.semctx, 'verified')] })
+      prepare(box, 17, { comments: [approve(sha(verified.branch)), ...conserved(RECORDS.semctx, 'verified')] })
       const { result, gate } = land(box, wt.verified as string, 17)
       expect(result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'unbound' })
       expect(result.error).toMatch(/pr/i)
@@ -465,7 +469,7 @@ describe('landPr admission against conserved Semctx records', () => {
     })
 
     it('landing from a checkout whose tip is not the candidate refuses before reading any record', () => {
-      prepare(box, verified.pr, { comments: [approve(sha(verified.branch)), conserved(RECORDS.semctx, 'verified')] })
+      prepare(box, verified.pr, { comments: [approve(sha(verified.branch)), ...conserved(RECORDS.semctx, 'verified')] })
       const { result, gate, calls } = land(box, wt.partial as string, verified.pr)
       expect(result).toMatchObject({ status: 'proof-blocked', producer: 'candidate', reason: 'unbound' })
       expect(result.error).toContain(
@@ -477,7 +481,7 @@ describe('landPr admission against conserved Semctx records', () => {
 
     it('a record whose analysed merge base is not the one Git derives now does not bind', () => {
       const found = findRecord(
-        [{ author: { login: ME }, body: conserved(RECORDS.semctx, 'verified') }],
+        conserved(RECORDS.semctx, 'verified').map((body) => ({ author: { login: ME }, body })),
         ME,
         'semctx',
         sha(verified.branch),
@@ -486,10 +490,54 @@ describe('landPr admission against conserved Semctx records', () => {
       const record = structuredClone(found.record) as { invocation: { mergeBase: string } }
       record.invocation.mergeBase = sha(SEMCTX_CASES.partial.branch)
       const forged = renderRecord('semctx', sha(verified.branch), ['forged'], record)
-      prepare(box, verified.pr, { comments: [approve(sha(verified.branch)), forged] })
+      prepare(box, verified.pr, { comments: [approve(sha(verified.branch)), ...forged] })
       const { result, gate } = land(box, wt.verified as string, verified.pr)
       expect(result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'unbound' })
       expect(gate).toEqual(UNARMED)
+    })
+  })
+
+  describe('a record above one comment is posted as a run of parts and admitted only whole', () => {
+    const { pr, branch } = SEMCTX_CASES.large
+    const parts = conserved(RECORDS.semctx, 'large')
+    const [first = '', last = ''] = [parts[0], parts.at(-1)]
+
+    it('proof-acquire posted it in parts, each within the simulated GitHub ceiling', () => {
+      expect(RECORDS.semctx.records.large?.code).toBe(0)
+      expect(parts.length).toBeGreaterThan(1)
+      expect(parts.join('').length).toBeGreaterThan(65536)
+    })
+
+    it.each([
+      ['interleaved with another comment', [first, 'unrelated note', ...parts.slice(1)]],
+      ['after an earlier posting that stopped short', [first, ...parts]],
+    ])('admits the parts %s, with no producer call', (_label, comments) => {
+      prepare(box, pr, { comments: [approve(sha(branch)), ...comments] })
+      const { result, gate, calls, producers } = land(box, wt.large as string, pr)
+      expect(result).toMatchObject({
+        status: 'watching',
+        proof: { semctx: { verdict: 'VERIFIED', changes: [{ id: 'change.fx.add', verdict: 'VERIFIED' }] } },
+      })
+      expect(gate).toEqual({
+        labels: ['reviewed'],
+        autoMerge: expect.objectContaining({ matchHeadCommit: sha(branch) }),
+      })
+      expect(producers).toEqual([])
+      expect(calls.filter((args) => args[1] === 'comment')).toEqual([])
+    })
+
+    it.each([
+      ['its first part deleted', parts.slice(1)],
+      ['its last part deleted', parts.slice(0, -1)],
+      ['its parts out of order', [last, ...parts.slice(0, -1)]],
+      ['a later posting that stops short', [...parts, first]],
+    ])('with %s, the record is missing, unarmed', (_label, comments) => {
+      prepare(box, pr, { comments: [approve(sha(branch)), ...comments] })
+      const { result, gate, producers } = land(box, wt.large as string, pr)
+      expect(result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'missing' })
+      expect(result.error).toMatch(/incomplete/)
+      expect(gate).toEqual(UNARMED)
+      expect(producers).toEqual([])
     })
   })
 
@@ -508,7 +556,7 @@ describe('landPr admission against conserved Semctx records', () => {
         { status: 'proof-blocked', reason: 'verdict' },
       ],
     ])('%s', (_label, reviews, expected) => {
-      prepare(box, pr, { comments: [...reviews(), conserved(RECORDS.semctx, 'vacuous')] })
+      prepare(box, pr, { comments: [...reviews(), ...conserved(RECORDS.semctx, 'vacuous')] })
       const { result, gate } = land(box, wt.vacuous as string, pr)
       expect(result).toMatchObject(expected)
       if (expected.status === 'not-approved') expect(result.status).not.toBe('proof-blocked')
@@ -518,7 +566,7 @@ describe('landPr admission against conserved Semctx records', () => {
 
   it('a refusal on an armed PR disarms it through the shared exit and confirms by read-back', () => {
     const { pr, branch } = SEMCTX_CASES.draft
-    prepare(box, pr, { comments: [approve(sha(branch)), conserved(RECORDS.semctx, 'draft')], armed: sha(branch) })
+    prepare(box, pr, { comments: [approve(sha(branch)), ...conserved(RECORDS.semctx, 'draft')], armed: sha(branch) })
     const { result, calls, gate } = land(box, wt.draft as string, pr)
     expect(result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'verdict', disarmed: true })
     expect(gate).toEqual(UNARMED)
@@ -546,7 +594,7 @@ describe('landPr admission in a repository whose Semctx configuration is the ope
   afterAll(() => rmSync(box.root, { recursive: true, force: true }))
 
   it('lands on the record acquired under that configuration, with no producer call', () => {
-    prepare(box, pr, { comments: [approve(head()), conserved(RECORDS.ignored, 'verified')] })
+    prepare(box, pr, { comments: [approve(head()), ...conserved(RECORDS.ignored, 'verified')] })
     const { result, gate, producers } = land(box, wt, pr)
     expect(result).toMatchObject({ status: 'watching', proof: { semctx: { verdict: 'VERIFIED' } } })
     expect(gate.labels).toEqual(['reviewed'])
@@ -557,7 +605,7 @@ describe('landPr admission in a repository whose Semctx configuration is the ope
     const original = readFileSync(config(), 'utf8')
     writeFileSync(config(), original.replaceAll('"block"', '"warn"'))
     try {
-      prepare(box, pr, { comments: [approve(head()), conserved(RECORDS.ignored, 'verified')] })
+      prepare(box, pr, { comments: [approve(head()), ...conserved(RECORDS.ignored, 'verified')] })
       const { result, gate, producers } = land(box, wt, pr)
       expect(result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'unbound' })
       expect(result.error).toMatch(/is not the ignored one in force now/)
@@ -615,7 +663,7 @@ describe('landPr admission against conserved assertledger records', () => {
 
   it('a fix ticket with an adapter admits a detection bound to the candidate, without Semctx and without running assertledger', () => {
     prepare(box, detection.pr, {
-      comments: [approve(sha(detection.branch)), conserved(RECORDS.assertledger, 'detection')],
+      comments: [approve(sha(detection.branch)), ...conserved(RECORDS.assertledger, 'detection')],
       body: 'Closes #2\n',
     })
     const { result, gate, producers } = land(box, wt.detection as string, detection.pr)
@@ -644,7 +692,7 @@ describe('landPr admission against conserved assertledger records', () => {
       /records by operator name/,
     ],
   ] as const)('%s refuses, unarmed', (_label, pr, branch, name, reason, error) => {
-    const comments = [approve(sha(branch)), ...(name ? [conserved(RECORDS.assertledger, name)] : [])]
+    const comments = [approve(sha(branch)), ...(name ? conserved(RECORDS.assertledger, name) : [])]
     prepare(box, pr, { comments, body: 'Closes #2\n' })
     const { result, gate } = land(box, wt[branch === weak.branch ? 'weak' : 'detection'] as string, pr)
     expect(result).toMatchObject({ status: 'proof-blocked', producer: 'assertledger', reason })
@@ -680,7 +728,7 @@ describe('landPr admission against conserved assertledger records', () => {
       expect(refused.result).toMatchObject({ status: 'proof-blocked', producer: 'assertledger', reason: 'missing' })
       expect(refused.gate).toEqual(UNARMED)
       prepare(box, detection.pr, {
-        comments: [approve(candidate), conserved(RECORDS.assertledger, 'detection')],
+        comments: [approve(candidate), ...conserved(RECORDS.assertledger, 'detection')],
         body: 'Closes #2\n',
       })
       const admitted = land(box, wt.detection as string, detection.pr)
