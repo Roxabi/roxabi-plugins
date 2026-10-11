@@ -91,6 +91,7 @@ function prepare(
     if (!pull) throw new Error(`no PR ${pr}`)
     pull.comments = comments.map((text) => ({ author: ME, body: text }))
     pull.body = body
+    pull.lastEditedAt = null
     pull.labels = armed ? ['reviewed'] : []
     pull.autoMerge = armed ? { enabledAt: '2026-01-01T00:00:00Z', matchHeadCommit: armed } : null
   })
@@ -275,6 +276,25 @@ describe('landPr admission against conserved Semctx records', () => {
       expect(result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'unjustified' })
       expect(result.error).toMatch(error)
       expect(gate).toEqual(UNARMED)
+    })
+
+    it('a justification edited into the body after the approving review refuses until a review follows the edit', () => {
+      const dir = wt.partial as string
+      prepare(box, pr, { comments: [approve(sha(branch)), conserved(RECORDS.semctx, 'partial')] })
+      const file = path.join(box.root, 'edited-body.md')
+      writeFileSync(file, browser())
+      execFileSync('gh', ['pr', 'edit', String(pr), '--body-file', file], { cwd: dir, env: box.env })
+      const edited = land(box, dir, pr)
+      expect(edited.result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'unjustified' })
+      expect(edited.result.error).toMatch(/edited at \S+, not before the review record that approved/)
+      expect(edited.gate).toEqual(UNARMED)
+      execFileSync('gh', ['pr', 'comment', String(pr), '--body', approve(sha(branch))], { cwd: dir, env: box.env })
+      const reviewed = land(box, dir, pr)
+      expect(reviewed.result).toMatchObject({
+        status: 'watching',
+        proof: { semctx: { verdict: 'PARTIAL', gaps: [{ gap: GAP, reason: 'ui-manual-only' }] } },
+      })
+      expect([...edited.producers, ...reviewed.producers]).toEqual([])
     })
   })
 

@@ -17,7 +17,8 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-type Comment = { author: string; body: string }
+/** `createdAt` is stamped on the simulator clock the first time the simulator sees the comment. */
+type Comment = { author: string; body: string; createdAt?: string }
 type Check = {
   name: string
   status: string
@@ -52,6 +53,8 @@ type Pull = {
   mergeCommit: { oid: string; parents: string[] } | null
   mergedAt: string | null
   comments: Comment[]
+  /** When `pr edit --body` last changed the body; null or absent when it was never edited. */
+  lastEditedAt?: string | null
   /** Issues this PR closes (`Closes #N` and the same grammar). */
   closes: number[]
 }
@@ -110,6 +113,9 @@ function withState<T>(fn: (state: State) => T): T {
   }
   try {
     const state = JSON.parse(readFileSync(path, 'utf8')) as State
+    for (const thread of [...Object.values(state.prs), ...Object.values(state.issues)]) {
+      for (const comment of thread.comments) comment.createdAt ??= stamp(state)
+    }
     const result = fn(state)
     persist(state)
     return result
@@ -482,6 +488,12 @@ function graphql(state: State, query: string, vars: Record<string, string>): unk
       },
     }
   }
+  if (query.includes('lastEditedAt')) {
+    const pr = state.prs[String(vars.number)]
+    return {
+      data: { repository: { pullRequest: pr ? { body: pr.body, lastEditedAt: pr.lastEditedAt ?? null } : null } },
+    }
+  }
   const pulls = [...query.matchAll(/(\w+):\s*pullRequest\(number:\s*(\d+)\)/g)]
   if (pulls.length) {
     settleAll(state)
@@ -561,10 +573,10 @@ function handle(state: State, argv: string[]): void {
     const number = sub.match(/issues\/(\d+)\/comments$/)?.[1]
     if (!number) fail(`gh: unhandled ${argv.join(' ')}`)
     const comments = state.prs[number]?.comments ?? state.issues[number]?.comments ?? []
-    const page = comments.map((comment, index) => ({
+    const page = comments.map((comment) => ({
       user: { login: comment.author },
       body: comment.body,
-      created_at: `2026-01-01T00:00:${String(index).padStart(2, '0')}Z`,
+      created_at: comment.createdAt,
     }))
     process.stdout.write(`${JSON.stringify([page])}\n`)
     return
@@ -599,7 +611,7 @@ function handle(state: State, argv: string[]): void {
     const file = one(flag, '--body-file')
     const body =
       file === '-' ? readFileSync(0, 'utf8') : file ? readFileSync(file, 'utf8') : (one(flag, '--body') ?? '')
-    issue.comments.push({ author: state.viewer, body })
+    issue.comments.push({ author: state.viewer, body, createdAt: stamp(state) })
     process.stdout.write(
       `https://example.test/${fullName(state)}/issues/${number}#issuecomment-${issue.comments.length}\n`,
     )
@@ -632,7 +644,7 @@ function handle(state: State, argv: string[]): void {
     const file = one(flag, '--body-file')
     const body =
       file === '-' ? readFileSync(0, 'utf8') : file ? readFileSync(file, 'utf8') : (one(flag, '--body') ?? '')
-    pr.comments.push({ author: state.viewer, body })
+    pr.comments.push({ author: state.viewer, body, createdAt: stamp(state) })
     process.stdout.write(
       `https://example.test/${fullName(state)}/pull/${pr.number}#issuecomment-${pr.comments.length}\n`,
     )
@@ -650,6 +662,13 @@ function handle(state: State, argv: string[]): void {
       state.events[String(pr.number)] = events
     }
     if (remove) pr.labels = pr.labels.filter((label) => label !== remove)
+    const file = one(flag, '--body-file')
+    const body = file === '-' ? readFileSync(0, 'utf8') : file ? readFileSync(file, 'utf8') : one(flag, '--body')
+    if (body !== undefined) {
+      pr.body = body
+      pr.closes = closesOf(body)
+      pr.lastEditedAt = stamp(state)
+    }
     process.stdout.write(`https://example.test/${fullName(state)}/pull/${pr.number}\n`)
     return
   }

@@ -289,13 +289,7 @@ export async function main(argv: string[], cwd: string): Promise<number> {
     const facts = await candidateFacts(cwd, candidate, base, gitResult)
     if ('ok' in facts) throw new ProtocolError(refusalText(facts))
     const repository = await repositoryOf(gh, cwd)
-    const ledger = await assertledgerApplies(
-      cwd,
-      facts,
-      { pr: args.pr, candidate, base },
-      { gh, git: gitResult },
-      repository,
-    )
+    const ledger = await assertledgerApplies(cwd, facts, { pr: args.pr }, { gh, git: gitResult }, repository)
     if (typeof ledger === 'object') throw new ProtocolError(refusalText(ledger))
     const { me, comments } = await readComments(cwd, args.pr, { gh })
     const ctx: Context = { cwd, pr: args.pr, candidate, base, repository, me, comments, facts }

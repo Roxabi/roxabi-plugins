@@ -21,11 +21,11 @@ export declare function disarmReviewedBeforePush(
   deps?: { gh?: Gh; push?: () => Promise<void> | void },
 ): Promise<{ disarmed?: true }>
 
-/** The review records by `me` (#710): count, latest verdict and head, and whether the bound is spent. */
+/** The review records by `me` (#710): count, latest verdict, head and creation time, and whether the bound is spent. */
 export declare function reviewRecords(
-  comments: { body: string; author: { login: string } | null }[],
+  comments: { body: string; author: { login: string } | null; createdAt?: string }[],
   options: { me: string },
-): { reviews: number; verdict: string | null; head: string | null; spent: boolean }
+): { reviews: number; verdict: string | null; head: string | null; at: string | null; spent: boolean }
 
 /** Lossless, non-throwing git: exit code and both streams exactly as printed. */
 export declare function gitResult(
@@ -38,7 +38,7 @@ export declare function readComments(
   cwd: string,
   pr: number | string,
   deps?: { gh?: Gh },
-): Promise<{ me: string; comments: { body: string; author: { login: string } }[] }>
+): Promise<{ me: string; comments: { body: string; author: { login: string }; createdAt?: string }[] }>
 
 export declare function openPr(
   cwd: string,

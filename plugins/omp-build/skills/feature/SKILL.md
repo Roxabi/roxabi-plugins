@@ -414,7 +414,9 @@ it decides nothing. A PARTIAL stays PARTIAL: each gap its record names needs one
 PR-body row `| <gap> | … | ⚠ NO TEST — <reason> |` with a reason from the closed
 enum, and a `ui-manual-only` gap a `### Browser check <gap>` block (the gap bare
 or in backticks; `- Steps:`, `- URL:` http(s), `- Observed:`), legal only when neither the base's nor the head's
-`.dev/stack.yml` declares `commands.test_e2e`. Never close a PARTIAL change as
+`.dev/stack.yml` declares `commands.test_e2e`. The review judges those rows, so
+write them before §6.4: `landPr` reads only a body last edited before the
+approving record, and an edit after it returns the PR to review. Never close a PARTIAL change as
 verified. Semctx runs under the head's committed `.semctx/config.json`, which
 must equal the base's when the base commits one (a PR never changes or deletes
 the policy it is judged by); with none committed, under the uncommitted one,

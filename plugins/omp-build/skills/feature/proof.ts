@@ -961,7 +961,8 @@ export type SemctxOutcome =
     }
 export type ProofSummary = { semctx: SemctxOutcome; assertledger: 'not-applicable' | 'detection' }
 export type Admission = { ok: true; proof: ProofSummary } | Refusal
-export type Target = { pr: number; candidate: string; base: string | undefined }
+/** `reviewedAt`: the creation time of the review record that approved `candidate`, which bounds the PR body it judged. */
+export type Target = { pr: number; candidate: string; base: string | undefined; reviewedAt: string | null }
 export type Deps = { gh: Gh; git: Git; comments: Comments }
 type Read = { me: string; comments: PrComment[]; repository: string }
 
@@ -1014,6 +1015,59 @@ export async function semctxInputs(
   return { base: facts.base, mergeBase, contracts, config }
 }
 
+const PR_BODY = `query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) { body lastEditedAt }
+  }
+}`
+
+/**
+ * The PR body the approving review judged: the current body, refused when it
+ * was last edited at or after that review record. An edit returns the PR to
+ * review; a body never edited predates every record.
+ */
+async function reviewedBody(
+  cwd: string,
+  target: Target,
+  gh: Gh,
+  repository: string,
+): Promise<{ body: string } | Refusal> {
+  const [owner, name] = repository.split('/')
+  const raw = await gh(cwd, [
+    'api',
+    'graphql',
+    '-f',
+    `query=${PR_BODY}`,
+    '-f',
+    `owner=${owner}`,
+    '-f',
+    `name=${name}`,
+    '-F',
+    `number=${target.pr}`,
+  ])
+  const data = jsonField(raw, 'data')
+  const repo = isMap(data) ? data.repository : undefined
+  const pull = isMap(repo) ? repo.pullRequest : undefined
+  const body = isMap(pull) ? pull.body : undefined
+  const edited = isMap(pull) ? pull.lastEditedAt : undefined
+  if (
+    typeof body !== 'string' ||
+    (edited !== null && (typeof edited !== 'string' || Number.isNaN(Date.parse(edited))))
+  ) {
+    throw new Error(`the body of PR #${target.pr} could not be read — ${raw.slice(0, 200)}`)
+  }
+  if (edited === null) return { body }
+  const reviewed = target.reviewedAt === null ? Number.NaN : Date.parse(target.reviewedAt)
+  if (!(Date.parse(edited) < reviewed)) {
+    return refuse(
+      'semctx',
+      'unjustified',
+      `the PR #${target.pr} body that justifies the PARTIAL gaps was edited at ${edited}, not before the review record that approved ${target.candidate} (${target.reviewedAt ?? 'no time'}): that review never judged it — re-review the head (feature §6.4)`,
+    )
+  }
+  return { body }
+}
+
 async function admitSemctx(
   cwd: string,
   facts: CandidateFacts,
@@ -1038,9 +1092,9 @@ async function admitSemctx(
   if ('ok' in results) return results
   const changes = results.map(({ id, verdict }) => ({ id, verdict }))
   if (results.every((result) => result.verdict === 'VERIFIED')) return { verdict: 'VERIFIED', changes, gaps: [] }
-  const raw = await deps.gh(cwd, ['pr', 'view', String(target.pr), '--json', 'body'])
-  const body = jsonField(raw, 'body')
-  if (typeof body !== 'string') throw new Error(`gh pr view ${target.pr} returned no body`)
+  const pull = await reviewedBody(cwd, target, deps.gh, read.repository)
+  if ('ok' in pull) return pull
+  const { body } = pull
   // The base's or the candidate's `test_e2e` makes it the proof: deleting it in the PR exempts nothing.
   let e2e: boolean | Error = false
   for (const { at, entry } of facts.stacks) {
@@ -1103,7 +1157,7 @@ function signalsOf(node: unknown): TicketSignals | null {
 export async function assertledgerApplies(
   cwd: string,
   facts: CandidateFacts,
-  target: Target,
+  target: Pick<Target, 'pr'>,
   deps: { gh: Gh; git: Git },
   repository: string,
 ): Promise<boolean | Refusal> {
