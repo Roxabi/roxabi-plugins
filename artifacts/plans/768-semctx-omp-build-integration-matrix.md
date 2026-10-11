@@ -164,6 +164,18 @@ alongside two unplanned blockers. This is the final allowed fix, not a clean rev
   made the additional cross-base CI regression fail (`watching` instead of
   `no-required-checks`). The obsolete exact-RPC-order assertion was removed,
   not re-pinned.
+- **RC-3:** seventeen real-consumer scenarios exercise acquisition and both
+  landing modes against newly committed Semctx/adapter obligations, a changed
+  or malformed base policy, failed fetches, lagging selected API tips, mutable
+  tracking refs and acquisition coordinate drift. Twelve initial cases failed
+  before the correction. With the production freshness guard removed, five
+  failed; restoring mutable-ref declaration/range reads made three fail;
+  removing acquisition coordinate revalidation made its CLI drift case fail.
+  All guards restored, the seventeen passed. No producer runs at admission.
+  The obsolete invalid-policy test that pinned retention of an existing arm
+  was deleted; malformed current policy now confirms clearing.
+  Final writers: lint and typecheck passed; five admission/landing suites passed
+  **1,309 tests**, including the migrated real EACCES race.
 - **Unresolved:** browser observation and NO TEST reason truth have no accepted
   replacement oracle. Filing or a safe unarmed state is not delivery or resolution.
 

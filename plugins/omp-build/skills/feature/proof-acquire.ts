@@ -47,6 +47,7 @@ import {
   type Refusal,
   readAssertledgerRecord,
   readSemctxRecord,
+  refreshSelectedBase,
   renderRecord,
   repositoryOf,
   type SemctxExpected,
@@ -66,6 +67,7 @@ type Context = {
   pr: number
   candidate: string
   base: string
+  baseTip: string
   repository: string
   me: string
   comments: PrComment[]
@@ -106,13 +108,33 @@ function refusalText(refusal: Refusal): string {
   return `${refusal.producer} ${refusal.reason}: ${refusal.error}`
 }
 
+/** No reuse, absence report or publication switches the attempt's native coordinates. */
+async function assertCurrent(ctx: Context): Promise<void> {
+  const current: unknown = JSON.parse(
+    await gh(ctx.cwd, ['pr', 'view', String(ctx.pr), '--json', 'headRefOid,baseRefName,baseRefOid,state']),
+  )
+  if (
+    !isMap(current) ||
+    current.state !== 'OPEN' ||
+    current.headRefOid !== ctx.candidate ||
+    current.baseRefName !== ctx.base ||
+    current.baseRefOid !== ctx.baseTip
+  ) {
+    throw new ProtocolError(
+      `PR #${ctx.pr} coordinates changed during acquisition; re-enter with the current head and base`,
+    )
+  }
+}
+
 /** One comment per part, in order: a part that fails leaves the run incomplete, which reads as missing. */
 async function post(ctx: Context, parts: string[]): Promise<void> {
   for (const body of parts) {
+    await assertCurrent(ctx)
     const args = ['pr', 'comment', String(ctx.pr), '--body-file', '-']
     const result = await run(['gh', ...args], { cwd: ctx.cwd, input: body })
     if (result.code !== 0)
       throw new Error(`gh ${args.join(' ')} failed (${result.code}): ${result.stderr || result.stdout}`)
+    await assertCurrent(ctx)
   }
 }
 
@@ -275,21 +297,25 @@ export async function main(argv: string[], cwd: string): Promise<number> {
   }
   try {
     const view: unknown = JSON.parse(
-      await gh(cwd, ['pr', 'view', String(args.pr), '--json', 'headRefOid,baseRefName,state']),
+      await gh(cwd, ['pr', 'view', String(args.pr), '--json', 'headRefOid,baseRefName,baseRefOid,state']),
     )
     const candidate = isMap(view) ? view.headRefOid : undefined
     const base = isMap(view) ? view.baseRefName : undefined
+    const baseTip = isMap(view) ? view.baseRefOid : undefined
     const state = isMap(view) ? view.state : undefined
-    if (typeof candidate !== 'string' || typeof base !== 'string' || state !== 'OPEN') {
+    if (typeof candidate !== 'string' || typeof base !== 'string' || typeof baseTip !== 'string' || state !== 'OPEN') {
       throw new ProtocolError(`PR #${args.pr} is not an open PR with a head and a base`)
     }
-    const facts = await candidateFacts(cwd, candidate, base, gitResult)
+    const refused = await refreshSelectedBase(cwd, base, baseTip, gitResult)
+    if (refused) throw new ProtocolError(refusalText(refused))
+    const facts = await candidateFacts(cwd, candidate, base, baseTip, gitResult)
     if ('ok' in facts) throw new ProtocolError(refusalText(facts))
     const repository = await repositoryOf(gh, cwd)
     const ledger = await assertledgerApplies(cwd, facts, { pr: args.pr }, { gh, git: gitResult }, repository)
     if (typeof ledger === 'object') throw new ProtocolError(refusalText(ledger))
     const { me, comments } = await readComments(cwd, args.pr, { gh })
-    const ctx: Context = { cwd, pr: args.pr, candidate, base, repository, me, comments, facts }
+    const ctx: Context = { cwd, pr: args.pr, candidate, base, baseTip, repository, me, comments, facts }
+    await assertCurrent(ctx)
     const report: Record<string, unknown> = {
       pr: args.pr,
       candidate,
@@ -300,6 +326,7 @@ export async function main(argv: string[], cwd: string): Promise<number> {
     if (ledger) report.assertledger = await acquireAssertledger(ctx, args.manifest)
     else if (args.manifest !== undefined)
       console.error(`assertledger does not apply to PR #${args.pr}: the manifest was not posted`)
+    await assertCurrent(ctx)
     console.log(JSON.stringify(report))
     return 0
   } catch (error) {

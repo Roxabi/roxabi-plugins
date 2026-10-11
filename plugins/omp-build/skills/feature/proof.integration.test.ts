@@ -12,12 +12,14 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
+  ACQUIRE,
   BOTH_CASE,
   type Box,
   bothSpec,
   git,
   IGNORED_CASE,
   ignoredSpec,
+  LEDGER_BASE,
   LEDGER_CASES,
   ledgerSpec,
   plainSpec,
@@ -133,9 +135,14 @@ function mutateAfter(
     | 'classification-read'
     | 'pin-write'
     | 'disable-write'
-    | 'remove-label-write',
+    | 'remove-label-write'
+    | 'base-read'
+    | 'acquisition-comments'
+    | 'repository-read'
+    | 'admission-base-read',
   change: string,
   failClear?: '--disable-auto' | '--remove-label',
+  frozenBaseTip?: string,
 ): () => void {
   const dir = mkdtempSync(path.join(box.root, 'gh-move-'))
   const originalPath = box.env.PATH
@@ -157,8 +164,16 @@ const comments = args.some((arg) => arg.endsWith('/comments'))
 const countFile = ${JSON.stringify(path.join(dir, 'comment-reads'))}
 const count = comments ? (existsSync(countFile) ? Number(readFileSync(countFile, 'utf8')) : 0) + 1 : 0
 if (comments) writeFileSync(countFile, String(count))
+const baseRead = (args[args.indexOf('--json') + 1] ?? '') === 'baseRefName,baseRefOid'
+const baseCountFile = ${JSON.stringify(path.join(dir, 'base-reads'))}
+const baseCount = baseRead ? (existsSync(baseCountFile) ? Number(readFileSync(baseCountFile, 'utf8')) : 0) + 1 : 0
+if (baseRead) writeFileSync(baseCountFile, String(baseCount))
 const when = ${JSON.stringify(when)}
-const matches = when === 'body-read' ? query.includes('lastEditedAt')
+const matches = when === 'base-read' ? (args[args.indexOf('--json') + 1] ?? '').includes('baseRefName,baseRefOid')
+  : when === 'admission-base-read' ? baseRead && baseCount === 2
+  : when === 'repository-read' ? args[0] === 'repo' && args[1] === 'view'
+  : when === 'acquisition-comments' ? comments && count === 1
+  : when === 'body-read' ? query.includes('lastEditedAt')
   : when === 'classification-read' ? query.includes('issueType')
   : when === 'admission-comments' ? comments && count === 2
   : when === 'pin-write' ? args[0] === 'pr' && args[1] === 'merge' && args.includes('--auto')
@@ -170,6 +185,11 @@ if (out.status === 0 && matches && !existsSync(${JSON.stringify(once)})) {
   ${change}
   writeFileSync(process.env.GH_SIM_STATE, JSON.stringify(state))
   writeFileSync(${JSON.stringify(once)}, 'changed\\n')
+}
+if (${JSON.stringify(frozenBaseTip ?? '')} && out.status === 0 && args.includes('--json') && (args[args.indexOf('--json') + 1] ?? '').includes('baseRefOid')) {
+  const fields = JSON.parse(out.stdout)
+  fields.baseRefOid = ${JSON.stringify(frozenBaseTip ?? '')}
+  out.stdout = JSON.stringify(fields) + '\\n'
 }
 process.stdout.write(out.stdout)
 process.stderr.write(out.stderr)
@@ -339,6 +359,174 @@ describe('landPr retains the selected base name and tip', () => {
   })
 })
 
+describe('selected base acquisition precedes policy and applicability', () => {
+  let box: Box
+  let wt: string
+  const pr = 30
+  const branch = 'fix/5-plain'
+  const head = () => box.sha[branch] as string
+  beforeAll(() => {
+    const spec = plainSpec()
+    box = sandbox({
+      ...spec,
+      branches: [
+        ...spec.branches,
+        ...Object.entries<Record<string, string>>({
+          configured: { '.semctx/config.json': SEMCTX_CONFIG },
+          adapter: { 'assertledger.config.json': LEDGER_BASE['assertledger.config.json'] as string },
+          policy: { '.dev/stack.yml': 'landing:\n  mode: merge-on-green\n' },
+          malformed: { '.dev/stack.yml': 'landing: [\n' },
+        }).map(([name, files]) => ({
+          name,
+          from: 'main',
+          commits: [{ message: `chore: ${name}`, files }],
+        })),
+      ],
+    })
+    instrument(box)
+    wt = worktree(box, 'fresh-base', head())
+  })
+  afterAll(() => rmSync(box.root, { recursive: true, force: true }))
+  function reset(next = 'main', armed = true): void {
+    git(box, wt, ['remote', 'set-url', 'origin', box.origin])
+    git(box, wt, ['update-ref', 'refs/remotes/origin/main', box.sha.main as string])
+    git(box, box.origin, ['update-ref', 'refs/heads/main', box.sha[next] as string])
+    prepare(box, pr, { comments: [approve(head())], body: 'Closes #5\n', armed: armed ? head() : null })
+  }
+  function acquire() {
+    return spawnSync(REAL_BUN, [ACQUIRE, '--pr', String(pr)], { cwd: wt, env: box.env, encoding: 'utf8' })
+  }
+  it.each([
+    ['native', 'configured', 'semctx', 'ambiguous'],
+    ['merge-on-green', 'configured', 'semctx', 'ambiguous'],
+    ['native', 'adapter', 'assertledger', 'missing'],
+    ['merge-on-green', 'adapter', 'assertledger', 'missing'],
+  ] as const)(
+    '%s refuses the newly committed %s obligation despite an absent cached base',
+    (mode, next, producer, reason) => {
+      reset(next)
+      const run = land(box, wt, pr, mode)
+      expect(run.result).toMatchObject({ status: 'proof-blocked', producer, reason, disarmed: true })
+      expect(run.gate).toEqual(UNARMED)
+      expect(run.producers).toEqual([])
+    },
+  )
+  it.each(['configured', 'adapter'])(
+    'acquisition does not report absence when the authoritative base adds %s',
+    (next) => {
+      reset(next)
+      const run = acquire()
+      expect(run.status).toBe(1)
+      expect(run.stderr).toContain(next === 'configured' ? 'semctx ambiguous' : 'manifest')
+      expect(producerCalls(box)).toEqual([])
+    },
+  )
+  it('reads the new base policy, not the cached native policy or the candidate policy', () => {
+    reset('policy', false)
+    const run = land(box, wt, pr)
+    expect(run.result).toMatchObject({ status: 'watching', mode: 'merge-on-green' })
+    expect(run.gate).toEqual({ labels: ['reviewed'], autoMerge: null })
+    expect(run.producers).toEqual([])
+  })
+  it('a newly malformed base policy clears the existing arm', () => {
+    reset('malformed')
+    const run = land(box, wt, pr)
+    expect(run.result).toMatchObject({ status: 'bad-landing', disarmed: true })
+    expect(run.gate).toEqual(UNARMED)
+  })
+  it.each(['native', 'merge-on-green'] as const)(
+    '%s refuses failed base acquisition instead of trusting the cached absence',
+    (mode) => {
+      reset()
+      git(box, wt, ['remote', 'set-url', 'origin', path.join(box.root, 'missing-origin')])
+      const run = land(box, wt, pr, mode)
+      expect(run.result).toMatchObject({
+        status: 'proof-blocked',
+        producer: 'candidate',
+        reason: 'unreadable',
+        disarmed: true,
+      })
+      expect(run.result.error).toContain('fetch')
+      expect(run.gate).toEqual(UNARMED)
+      expect(run.producers).toEqual([])
+    },
+  )
+  it('acquisition fails on fetch failure even when both cached obligations are absent', () => {
+    reset()
+    git(box, wt, ['remote', 'set-url', 'origin', path.join(box.root, 'missing-origin')])
+    const run = acquire()
+    expect(run.status).toBe(1)
+    expect(run.stderr).toContain('fetch')
+    expect(producerCalls(box)).toEqual([])
+  })
+  it.each(['native', 'merge-on-green'] as const)(
+    '%s refuses origin drift even while the selected API projection still reports the old tip',
+    (mode) => {
+      reset()
+      const restore = mutateAfter(
+        box,
+        'base-read',
+        `spawnSync('git', ['--git-dir', state.origin, 'update-ref', 'refs/heads/main', ${JSON.stringify(box.sha.configured)}], { env: process.env });`,
+        undefined,
+        box.sha.main,
+      )
+      try {
+        const run = land(box, wt, pr, mode)
+        expect(run.result).toMatchObject({
+          status: 'proof-blocked',
+          producer: 'candidate',
+          reason: 'unbound',
+          disarmed: true,
+        })
+        expect(run.result.error).toContain(box.sha.configured)
+        expect(run.result.error).toContain(box.sha.main)
+        expect(run.gate).toEqual(UNARMED)
+        expect(run.producers).toEqual([])
+      } finally {
+        restore()
+      }
+    },
+  )
+  it.each([
+    ['configured', 'semctx', 'ambiguous'],
+    ['adapter', 'assertledger', 'missing'],
+  ] as const)(
+    'reads the established %s base object even if the tracking ref is rewritten after fetch',
+    (next, producer, reason) => {
+      reset(next)
+      const restore = mutateAfter(
+        box,
+        'admission-base-read',
+        `spawnSync('git', ['-C', ${JSON.stringify(wt)}, 'update-ref', 'refs/remotes/origin/main', ${JSON.stringify(box.sha.main)}], { env: process.env });`,
+      )
+      try {
+        const run = land(box, wt, pr)
+        expect(run.result).toMatchObject({ status: 'proof-blocked', producer, reason, disarmed: true })
+        expect(run.gate).toEqual(UNARMED)
+        expect(run.producers).toEqual([])
+      } finally {
+        restore()
+      }
+    },
+  )
+  it('acquisition refuses base drift after reading applicability and before reporting reuse or absence', () => {
+    reset()
+    const restore = mutateAfter(
+      box,
+      'acquisition-comments',
+      `spawnSync('git', ['--git-dir', state.origin, 'update-ref', 'refs/heads/main', ${JSON.stringify(box.sha.configured)}], { env: process.env });`,
+    )
+    try {
+      const run = acquire()
+      expect(run.status).toBe(1)
+      expect(run.stderr).toContain('coordinates changed')
+      expect(producerCalls(box)).toEqual([])
+    } finally {
+      restore()
+    }
+  })
+})
+
 describe('landPr admission against conserved Semctx records', () => {
   const extraPrs = [
     // Same head as #11: a record conserved for #11 does not bind #17.
@@ -406,6 +594,28 @@ describe('landPr admission against conserved Semctx records', () => {
     expect(gate).toEqual({ labels: ['reviewed'], autoMerge: expect.objectContaining({ matchHeadCommit: sha(branch) }) })
     expect(producers).toEqual([])
     expect(calls.filter((args) => args[1] === 'comment')).toEqual([])
+  })
+
+  it('reuses the native input range of the established base, not a subsequently rewritten tracking ref', () => {
+    const { pr, branch } = SEMCTX_CASES.verified
+    prepare(box, pr, { comments: [approve(sha(branch)), ...conserved(RECORDS.semctx, 'verified')] })
+    const restore = mutateAfter(
+      box,
+      'repository-read',
+      `spawnSync('git', ['-C', ${JSON.stringify(wt.verified)}, 'update-ref', 'refs/remotes/origin/main', ${JSON.stringify(sha(branch))}], { env: process.env });`,
+    )
+    try {
+      const run = land(box, wt.verified as string, pr)
+      expect(run.result).toMatchObject({ status: 'watching', proof: { semctx: { verdict: 'VERIFIED' } } })
+      expect(run.gate).toEqual({
+        labels: ['reviewed'],
+        autoMerge: expect.objectContaining({ matchHeadCommit: sha(branch) }),
+      })
+      expect(run.producers).toEqual([])
+    } finally {
+      restore()
+      git(box, wt.verified as string, ['update-ref', 'refs/remotes/origin/main', sha('main')])
+    }
   })
 
   it('retains an unchanged VERIFIED input under merge-on-green without producing it again', () => {
@@ -1414,7 +1624,7 @@ describe('Semctx applicability is decided from the base, the candidate and the c
       // before admission stats .semctx. No Git answer or absence is fabricated.
       writeFileSync(
         shim,
-        `#!/bin/sh\n'${realGit}' "$@"\ncode=$?\nif [ "$3" = ls-tree ] && [ "$7" = 'refs/remotes/origin/main^{commit}' ]; then chmod 000 '${box.principal}'; fi\nexit "$code"\n`,
+        `#!/bin/sh\n'${realGit}' "$@"\ncode=$?\nif [ "$3" = ls-tree ] && [ "$7" = '${box.sha.main}^{commit}' ]; then chmod 000 '${box.principal}'; fi\nexit "$code"\n`,
       )
       chmodSync(shim, 0o755)
       const originalPath = box.env.PATH

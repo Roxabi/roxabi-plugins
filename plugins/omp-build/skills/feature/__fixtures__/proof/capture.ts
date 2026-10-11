@@ -27,7 +27,15 @@ import {
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { Git, SemctxRecord } from '../../proof'
-import { candidateFacts, changedContracts, mergeBaseOf, readSemctxRecord, renderRecord, semctxSteps } from '../../proof'
+import {
+  candidateFacts,
+  changedContracts,
+  mergeBaseOf,
+  readSemctxRecord,
+  refreshSelectedBase,
+  renderRecord,
+  semctxSteps,
+} from '../../proof'
 import {
   ACQUIRE,
   BOTH_CASE,
@@ -76,9 +84,12 @@ async function modifiedNative(box: Box): Promise<Captured> {
     const out = spawnSync('git', args, { cwd, env: box.env, encoding: 'utf8' })
     return { code: out.status ?? 1, stdout: out.stdout, stderr: out.stderr }
   }
-  const facts = await candidateFacts(root, candidate, base, runner)
+  const baseTip = box.sha[base] as string
+  const refused = await refreshSelectedBase(root, base, baseTip, runner)
+  if (refused) throw new Error(refused.error)
+  const facts = await candidateFacts(root, candidate, base, baseTip, runner)
   if ('ok' in facts || !facts.config) throw new Error('the native modified-contract fixture is not configured')
-  const mergeBase = await mergeBaseOf(runner, root, base, candidate)
+  const mergeBase = await mergeBaseOf(runner, root, baseTip, candidate)
   if (mergeBase instanceof Error) throw mergeBase
   const changed = await changedContracts(runner, root, mergeBase, candidate)
   if (changed instanceof Error) throw changed

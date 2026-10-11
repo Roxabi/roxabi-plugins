@@ -2867,7 +2867,7 @@ describe('native arming uses the freshly approved head', () => {
   it.each(PATHS)('%s, once that head is admitted', async (_path, start, move) => {
     const fake = freshApproval(start, move)
     // The operator's checkout follows the PR: its tip is the head the admission is asked about.
-    const following = (cwd, args) => plainGit(fake.pr.head, CHECKOUT)(cwd, args)
+    const following = (cwd, args) => plainGit(fake.pr.head, CHECKOUT, HEAD)(cwd, args)
     const outcome = await exec({ fn: 'land', opts: { ...NATIVE, git: following } }, fake)
 
     expect(outcome.error).toBeUndefined()

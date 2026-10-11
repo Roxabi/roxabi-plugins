@@ -34,6 +34,7 @@ const CONTRACT = '.semctx/semantic/changes/change.fx.add.sem'
 const GAP = 'proof.fx.add-test'
 const C = '1111111111111111111111111111111111111111'
 const OTHER = '2222222222222222222222222222222222222222'
+const BASE_TIP = '3333333333333333333333333333333333333333'
 
 function shaOf(producer: Producer, branch: string): string {
   const sha = RECORDS[producer].sha[branch]
@@ -95,7 +96,7 @@ function repoGit(repo: Repo): Git {
     if (key === 'rev-parse --show-toplevel') return { code: 0, stdout: `${repo.toplevel}\n`, stderr: '' }
     if (key === 'rev-parse --verify HEAD^{commit}') return repo.tip ?? { code: 0, stdout: `${C}\n`, stderr: '' }
     if (key === 'worktree list --porcelain -z') return { code: 0, stdout: list, stderr: '' }
-    if (args[0] === 'ls-tree' && args[4] === 'refs/remotes/origin/main^{commit}') {
+    if (args[0] === 'ls-tree' && args[4] === `${BASE_TIP}^{commit}`) {
       return { code: 0, stdout: listing(repo.baseTree ?? repo.tree ?? []), stderr: '' }
     }
     if (args[0] === 'ls-tree' && args[4] === `${C}^{commit}`)
@@ -116,7 +117,7 @@ const configured = (text = '{"include":["src/**/*.ts"]}', mode = '100644'): Pick
 describe('candidateFacts', () => {
   it('reads genuine absence: no committed .semctx, none on disk at the root', async () => {
     const toplevel = temp()
-    expect(await candidateFacts(toplevel, C, 'main', repoGit({ toplevel }))).toMatchObject({
+    expect(await candidateFacts(toplevel, C, 'main', BASE_TIP, repoGit({ toplevel }))).toMatchObject({
       toplevel,
       base: 'main',
       semctx: 'absent',
@@ -130,7 +131,7 @@ describe('candidateFacts', () => {
     ['an option', '-main'],
   ])('a PR base that is %s refuses before Git reads it', async (_label, base) => {
     const toplevel = temp()
-    expect(await candidateFacts(toplevel, C, base, repoGit({ toplevel }))).toMatchObject({
+    expect(await candidateFacts(toplevel, C, base, BASE_TIP, repoGit({ toplevel }))).toMatchObject({
       producer: 'candidate',
       reason: 'unreadable',
       error: expect.stringContaining('is not a branch name'),
@@ -140,7 +141,7 @@ describe('candidateFacts', () => {
   it('a failed HEAD probe refuses with its cause; it is never an unborn branch', async () => {
     const toplevel = temp()
     const tip = { code: 128, stdout: '', stderr: "fatal: ambiguous argument 'HEAD^{commit}': unknown revision" }
-    const facts = await candidateFacts(toplevel, C, 'main', repoGit({ toplevel, tip }))
+    const facts = await candidateFacts(toplevel, C, 'main', BASE_TIP, repoGit({ toplevel, tip }))
     expect(facts).toMatchObject({ ok: false, producer: 'candidate', reason: 'unreadable' })
     expect('error' in facts && facts.error).toContain('the local tip cannot be read')
     expect('error' in facts && facts.error).toContain('unknown revision')
@@ -149,7 +150,7 @@ describe('candidateFacts', () => {
   it('a local tip that is not the candidate refuses as unbound', async () => {
     const toplevel = temp()
     const tip = { code: 0, stdout: `${OTHER}\n`, stderr: '' }
-    expect(await candidateFacts(toplevel, C, 'main', repoGit({ toplevel, tip }))).toMatchObject({
+    expect(await candidateFacts(toplevel, C, 'main', BASE_TIP, repoGit({ toplevel, tip }))).toMatchObject({
       producer: 'candidate',
       reason: 'unbound',
     })
@@ -158,12 +159,12 @@ describe('candidateFacts', () => {
   it('keeps a root whose path ends in a space and a newline byte for byte', async () => {
     const toplevel = path.join(temp(), 'wt \n')
     mkdirSync(toplevel)
-    expect(await candidateFacts(toplevel, C, 'main', repoGit({ toplevel }))).toMatchObject({
+    expect(await candidateFacts(toplevel, C, 'main', BASE_TIP, repoGit({ toplevel }))).toMatchObject({
       toplevel,
       semctx: 'absent',
     })
     mkdirSync(path.join(toplevel, '.semctx'))
-    const facts = await candidateFacts(toplevel, C, 'main', repoGit({ toplevel }))
+    const facts = await candidateFacts(toplevel, C, 'main', BASE_TIP, repoGit({ toplevel }))
     expect(facts).toMatchObject({ producer: 'semctx', reason: 'ambiguous' })
     expect('error' in facts && facts.error).toContain(JSON.stringify(path.join(toplevel, '.semctx')))
   })
@@ -174,7 +175,7 @@ describe('candidateFacts', () => {
     mkdirSync(toplevel)
     chmodSync(locked, 0o000)
     try {
-      const facts = await candidateFacts(toplevel, C, 'main', repoGit({ toplevel }))
+      const facts = await candidateFacts(toplevel, C, 'main', BASE_TIP, repoGit({ toplevel }))
       expect(facts).toMatchObject({ producer: 'semctx', reason: 'unreadable' })
       expect('error' in facts && facts.error).toContain('EACCES')
     } finally {
@@ -184,7 +185,7 @@ describe('candidateFacts', () => {
 
   it('a bare principal has no checkout to read; the bound root still decides', async () => {
     const toplevel = temp()
-    expect(await candidateFacts(toplevel, C, 'main', repoGit({ toplevel, principal: null }))).toMatchObject({
+    expect(await candidateFacts(toplevel, C, 'main', BASE_TIP, repoGit({ toplevel, principal: null }))).toMatchObject({
       semctx: 'absent',
     })
   })
@@ -197,7 +198,7 @@ describe('candidateFacts', () => {
       writeFileSync(path.join(dir, '.semctx', 'config.json'), SEMCTX_CONFIG)
     }
     const tree = [{ path: '.semctx/semantic/goals.sem' }]
-    expect(await candidateFacts(toplevel, C, 'main', repoGit({ toplevel, principal, tree }))).toMatchObject({
+    expect(await candidateFacts(toplevel, C, 'main', BASE_TIP, repoGit({ toplevel, principal, tree }))).toMatchObject({
       semctx: 'configured',
       config: {
         source: 'ignored',
@@ -206,7 +207,7 @@ describe('candidateFacts', () => {
       },
     })
     writeFileSync(path.join(principal, '.semctx', 'config.json'), SEMCTX_CONFIG.replace('"block"', '"warn"'))
-    const facts = await candidateFacts(toplevel, C, 'main', repoGit({ toplevel, principal, tree }))
+    const facts = await candidateFacts(toplevel, C, 'main', BASE_TIP, repoGit({ toplevel, principal, tree }))
     expect(facts).toMatchObject({ producer: 'semctx', reason: 'ambiguous' })
     expect('error' in facts && facts.error).toContain(JSON.stringify(path.join(principal, '.semctx', 'config.json')))
   })
@@ -218,13 +219,15 @@ describe('candidateFacts', () => {
     const toplevel = temp()
     const repo = configured()
     const tree = [...(repo.tree ?? []), { path: file }]
-    expect(await candidateFacts(toplevel, C, 'main', repoGit({ toplevel, ...repo, tree }))).toMatchObject(expected)
+    expect(await candidateFacts(toplevel, C, 'main', BASE_TIP, repoGit({ toplevel, ...repo, tree }))).toMatchObject(
+      expected,
+    )
   })
 
   it('committed .semctx without its config is not absence', async () => {
     const toplevel = temp()
     const tree = [{ path: '.semctx/semantic/goals.sem' }]
-    expect(await candidateFacts(toplevel, C, 'main', repoGit({ toplevel, tree }))).toMatchObject({
+    expect(await candidateFacts(toplevel, C, 'main', BASE_TIP, repoGit({ toplevel, tree }))).toMatchObject({
       producer: 'semctx',
       reason: 'ambiguous',
     })
@@ -236,7 +239,7 @@ describe('candidateFacts', () => {
     ['a JSON array', configured('[]'), /not a JSON object/],
   ])('a config that is %s refuses as unreadable', async (_label, repo, error) => {
     const toplevel = temp()
-    const facts = await candidateFacts(toplevel, C, 'main', repoGit({ toplevel, ...repo }))
+    const facts = await candidateFacts(toplevel, C, 'main', BASE_TIP, repoGit({ toplevel, ...repo }))
     expect(facts).toMatchObject({ producer: 'semctx', reason: 'unreadable' })
     expect('error' in facts && facts.error).toMatch(error)
   })
@@ -850,7 +853,7 @@ describe('admitLanding', () => {
     expect(
       await admitLanding(
         toplevel,
-        { pr: 5, candidate: C, base: 'main', reviewedAt: null },
+        { pr: 5, candidate: C, base: 'main', baseTip: BASE_TIP, reviewedAt: null },
         { gh: silent, git: repoGit({ toplevel }), comments: silent },
       ),
     ).toEqual({ ok: true, proof: { semctx: 'absent', assertledger: 'not-applicable' } })
@@ -861,7 +864,11 @@ describe('admitLanding', () => {
     const git = repoGit({ toplevel, ...configured() })
     const gh = async () => JSON.stringify({ nameWithOwner: REPOSITORY })
     await expect(
-      admitLanding(toplevel, { pr: 5, candidate: C, base: 'main', reviewedAt: null }, { gh, git, comments: silent }),
+      admitLanding(
+        toplevel,
+        { pr: 5, candidate: C, base: 'main', baseTip: BASE_TIP, reviewedAt: null },
+        { gh, git, comments: silent },
+      ),
     ).rejects.toThrow('GitHub was asked')
   })
 
@@ -879,7 +886,7 @@ describe('admitLanding', () => {
     expect(
       await admitLanding(
         toplevel,
-        { pr: 5, candidate: C, base: 'main', reviewedAt: null },
+        { pr: 5, candidate: C, base: 'main', baseTip: BASE_TIP, reviewedAt: null },
         { gh, git, comments: silent },
       ),
     ).toMatchObject({
@@ -913,7 +920,7 @@ describe('admitLanding', () => {
         : JSON.stringify({ nameWithOwner: REPOSITORY })
     const admitted = admitLanding(
       toplevel,
-      { pr: 5, candidate: C, base: 'main', reviewedAt: null },
+      { pr: 5, candidate: C, base: 'main', baseTip: BASE_TIP, reviewedAt: null },
       { gh, git, comments: silent },
     )
     if (totalCount === nodes.length) {
