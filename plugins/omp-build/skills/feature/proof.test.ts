@@ -614,18 +614,33 @@ describe('admitLanding', () => {
     })
   })
 
-  it('a truncated closing-issue list throws rather than deciding on part of it', async () => {
+  it.each([
+    ['a truncated closing-issue list throws rather than deciding on part of it', 26],
+    ['a complete one decides', 25],
+  ])('%s', async (_label, totalCount) => {
     const toplevel = temp()
     const git = repoGit({ toplevel, tree: [{ path: 'scripts/kit/assertledger/vitest-adapter.mjs' }] })
-    const nodes = Array.from({ length: 25 }, (_, i) => ({ number: i + 1, issueType: { name: 'feat' } }))
+    const nodes = Array.from({ length: 25 }, (_, i) => ({
+      number: i + 1,
+      title: 'feat: more',
+      labels: { totalCount: 0, nodes: [] },
+      issueType: { name: 'feat' },
+    }))
     const gh = async (_cwd: string, args: string[]) =>
       args.includes('graphql')
         ? JSON.stringify({
-            data: { repository: { pullRequest: { closingIssuesReferences: { totalCount: 26, nodes } } } },
+            data: {
+              repository: {
+                pullRequest: { headRefName: 'feat/5-more', closingIssuesReferences: { totalCount, nodes } },
+              },
+            },
           })
         : JSON.stringify({ nameWithOwner: REPOSITORY })
-    await expect(
-      admitLanding(toplevel, { pr: 5, candidate: C, base: 'main' }, { gh, git, comments: silent }),
-    ).rejects.toThrow(/closing issues of PR #5 could not be read/)
+    const admitted = admitLanding(toplevel, { pr: 5, candidate: C, base: 'main' }, { gh, git, comments: silent })
+    if (totalCount === nodes.length) {
+      expect(await admitted).toEqual({ ok: true, proof: { semctx: 'absent', assertledger: 'not-applicable' } })
+    } else {
+      await expect(admitted).rejects.toThrow(/closing issues of PR #5 could not be read/)
+    }
   })
 })

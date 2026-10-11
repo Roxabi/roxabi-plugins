@@ -460,13 +460,25 @@ function graphql(state: State, query: string, vars: Record<string, string>): unk
   }
   if (query.includes('closingIssuesReferences')) {
     const pr = state.prs[String(vars.number)]
-    const nodes = (pr?.closes ?? []).map((number) => {
-      const type = state.issues[String(number)]?.issueType
-      return { number, issueType: type ? { name: type } : null }
+    const nodes = (pr?.closes ?? []).flatMap((number) => {
+      const issue = state.issues[String(number)]
+      if (!issue) return []
+      return [
+        {
+          number,
+          title: issue.title,
+          labels: { totalCount: issue.labels.length, nodes: issue.labels.map((label) => ({ name: label })) },
+          issueType: issue.issueType ? { name: issue.issueType } : null,
+        },
+      ]
     })
     return {
       data: {
-        repository: { pullRequest: pr ? { closingIssuesReferences: { totalCount: nodes.length, nodes } } : null },
+        repository: {
+          pullRequest: pr
+            ? { headRefName: pr.headRefName, closingIssuesReferences: { totalCount: nodes.length, nodes } }
+            : null,
+        },
       },
     }
   }
