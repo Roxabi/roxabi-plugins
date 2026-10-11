@@ -23,8 +23,10 @@
  * The result is posted as one PR comment per producer, or a run of parts above GitHub's ceiling (`renderRecord`), with the
  * invocation facts and the native output as printed. A run that breaks the
  * protocol — an unexpected exit, an unclean clone, a result that does not bind
- * to the candidate — posts nothing and exits 1. Producer verdicts (PARTIAL,
- * BLOCKED, WEAK_ORACLE, a miss) are posted as they are: admission refuses them.
+ * to the candidate — posts nothing and exits 1. Native verdicts are posted as
+ * they are. BLOCKED/STALE, WEAK_ORACLE and a miss refuse admission; a meaningful
+ * PARTIAL can admit with policy/form/chronology checks and review-judged gaps,
+ * never as VERIFIED or independent observation/reason-truth certification.
  *
  * stdout: one JSON line `{ pr, candidate, semctx, assertledger }`, each
  * `not-applicable` | `reused` | `posted`. Exit 0 when every applicable producer
