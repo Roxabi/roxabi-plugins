@@ -120,11 +120,12 @@ const UNARMED = { labels: [], autoMerge: null }
 const noTest = (reason: string) =>
   `Closes #1\n\n| Gap | Why | Proof |\n|---|---|---|\n| \`${GAP}\` | finite inputs | ⚠ NO TEST — ${reason} |\n`
 const browser = ({
+  heading = `\`${GAP}\``,
   steps = 'open the calculator, add 1 and Infinity',
   url = 'http://localhost:3000/add',
   observed = 'RangeError shown',
 } = {}) =>
-  `${noTest('ui-manual-only')}\n### Browser check \`${GAP}\`\n- Steps: ${steps}\n- URL: ${url}\n- Observed: ${observed}\n`
+  `${noTest('ui-manual-only')}\n### Browser check ${heading}\n- Steps: ${steps}\n- URL: ${url}\n- Observed: ${observed}\n`
 
 describe('landPr admission against conserved Semctx records', () => {
   const extraPrs = [
@@ -229,6 +230,7 @@ describe('landPr admission against conserved Semctx records', () => {
     it.each([
       ['out-of-scope', noTest('out-of-scope'), 'out-of-scope'],
       ['ui-manual-only with its browser check', browser(), 'ui-manual-only'],
+      ['ui-manual-only with its browser check headed by the bare gap', browser({ heading: GAP }), 'ui-manual-only'],
     ])('%s admits PARTIAL and reports the gap', (_label, body, reason) => {
       prepare(box, pr, { comments: [approve(sha(branch)), conserved(RECORDS.semctx, 'partial')], body })
       const { result, gate, producers } = land(box, wt.partial as string, pr)
@@ -262,6 +264,11 @@ describe('landPr admission against conserved Semctx records', () => {
         /lacks a valid http\(s\) URL/,
       ],
       ['ui-manual-only with no browser check', noTest('ui-manual-only'), /lacks the browser check block/],
+      [
+        'ui-manual-only whose browser check names another gap',
+        browser({ heading: 'proof.fx.other-test' }),
+        /lacks the browser check block/,
+      ],
     ])('%s refuses, unarmed', (_label, body, error) => {
       prepare(box, pr, { comments: [approve(sha(branch)), conserved(RECORDS.semctx, 'partial')], body })
       const { result, gate } = land(box, wt.partial as string, pr)
