@@ -421,9 +421,13 @@ PR-body row `| <gap> | … | ⚠ NO TEST — <reason> |` with a reason from the 
 enum, and a `ui-manual-only` gap a `### Browser check <gap>` block (the gap bare
 or in backticks; `- Steps:`, `- URL:` http(s), `- Observed:`), legal only when neither the base's nor the head's
 `.dev/stack.yml` declares `commands.test_e2e`. The review judges those rows, so
-write them before §6.4: `landPr` reads only a body last edited before the
-approving record, and an edit after it returns the PR to review. Never close a PARTIAL change as
-verified. Semctx runs under the head's committed `.semctx/config.json`, which
+publish the complete PARTIAL record and write those rows before §6.4.
+`landPr` reads native GitHub creation/revision times of every selected record
+part and a body last edited before the approving record. Missing or unreadable
+times refuse; a later publication, part revision or body edit needs a new review
+of the same head (§6.4), reusing the record without a producer. VERIFIED reuse
+borrows no gap justification and has no such chronology requirement. Never close
+a PARTIAL change as verified. Semctx runs under the head's committed `.semctx/config.json`, which
 must equal the base's when the base commits one (a PR never changes or deletes
 the policy it is judged by); with none committed, under the uncommitted one,
 copied into the private checkout — the head's `.gitignore` must ignore it and
@@ -629,7 +633,7 @@ Neither a fix round nor another review action may write that label in this cycle
 | `no-pr` | Stop; no PR was resolved and no gate was armed |
 | `not-approved` | Stop; the latest review record does not approve the current head, or the bound is spent (`reason: 'review-bound'`). `landPr` disarmed a gate that was armed (`disarmed: true`). Review again only when the bound is not spent; do not merge |
 | `watching` | Report `land.proof` — Semctx `absent`, or each change's VERIFIED/PARTIAL and every justified gap; assertledger `not-applicable` or `detection` — then start the async `/ci-watch` job named in `land.watch` |
-| `proof-blocked` | Stop; report `land.producer`, `land.reason` and `land.error`. Nothing was armed; a gate found armed was disarmed (`disarmed: true` after read-back). Re-enter §6.7 once the cause the error names is fixed: `missing` → §6.3's proof records for this head; a change that moves the head goes back through §6.4 |
+| `proof-blocked` | Stop; report `land.producer`, `land.reason` and `land.error`. Nothing was armed; a gate found armed was disarmed (`disarmed: true` after read-back). Re-enter §6.7 once the named cause is fixed: `missing` → §6.3's proof records; late/revised PARTIAL or edited justification → a new same-head review (§6.4), reuse the proof without a producer; unreadable publication facts → obtain native metadata first. A moved head goes through §6.4. The review bound stays sticky |
 | `merged` | Report issue + PR; offer the optional tail (§0), stop |
 | `ci-failed` | Gate already disarmed; `step = await nextReviewStep(cwd, pr, { ciFailed: true })`, then §6.6 |
 | `ci-cancelled` | Gate disarmed; stop, report the cancelled checks; operator re-runs CI then re-enters §6.7 |

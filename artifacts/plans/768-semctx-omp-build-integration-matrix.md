@@ -191,6 +191,28 @@ alongside two unplanned blockers. This is the final allowed fix, not a clean rev
   counterparts successfully (Semctx 0.4.2, assertledger 1.4.0).
   Final writers: lint and typecheck passed; the five admission/landing suites
   passed **1,311 tests** against the regenerated native corpus.
+- **RC-5:** native `created_at` and `updated_at` from every part of the selected
+  complete PARTIAL run bound it to the approving review; no time is inferred.
+  Semctx 0.4.2 actually produced the added two-part PARTIAL fixture. Sixteen
+  consumer cases cover later publication, every-part revisions, missing/bad
+  native dates, invalid calendar dates, same-second ambiguity, no approval
+  time, an irrelevant older run, and chronology-independent VERIFIED reuse.
+  The thirteen negative cases failed before the correction and again when the
+  chronology call was removed. With it present all sixteen passed.
+  The actual CLI smoke (real native record, simulated GitHub transport) observes
+  late final part → refusal + confirmed clearing → new same-head approval →
+  PARTIAL admission → first-part revision → refusal + confirmed clearing;
+  zero producer calls throughout. Feature/reviewer/ADR recovery agrees.
+  After the final writers, the complete repository suite passed **132 files /
+  4,185 tests**; lint and typecheck passed with no lint diagnostics.
+  Native GitHub calls also confirmed both publication fields on #776 and the
+  frozen pre-merge `baseRefOid` on merged PRs #774/#773/#771. The continuous
+  goal's transport now preserves that native base fact instead of manufacturing
+  drift after merge; production base guards are unchanged.
+  The Semctx MCP impact reader returned `CONFIG_NOT_FOUND` for this genuinely
+  unconfigured repository: no index/config was created and no PASS is claimed.
+  The two uncited blockers are preserved in full on siblings **#779** (browser)
+  and **#778** (reason truth), parent #720, blocked-by origin #768; still blocking.
 - **Unresolved:** browser observation and NO TEST reason truth have no accepted
   replacement oracle. Filing or a safe unarmed state is not delivery or resolution.
 

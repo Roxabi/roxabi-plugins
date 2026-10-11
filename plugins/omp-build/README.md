@@ -208,6 +208,10 @@ before its diff; the review-start test exercises the fence, not model compliance
   and open unknown it names) justified by a closed-enum NO TEST row in
   a PR body last edited before the approving record (an edit after it returns
   the PR to review); a PARTIAL with a stale link or a blocking impact refuses.
+  Every selected PARTIAL part's native GitHub creation and revision times must
+  precede that approval too: missing/bad facts refuse, and a later/revised part
+  requires a new same-head review, reusing the record without a producer.
+  VERIFIED reuse borrows no gap justification and stays chronology-independent.
   A fix PR — a `fix/…` head branch, or a closing ticket typed Fix or Bug,
   labelled `bug` or titled `fix…:` — needs a detection when the base or the head
   declares an assertledger adapter; a PR whose type nothing establishes refuses.

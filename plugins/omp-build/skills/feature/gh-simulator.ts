@@ -17,8 +17,8 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-/** `createdAt` is stamped on the simulator clock the first time the simulator sees the comment. */
-type Comment = { author: string; body: string; createdAt?: string }
+/** Native creation/revision facts are stamped on first publication; explicit unreadable facts stay unreadable. */
+type Comment = { author: string; body: string; createdAt?: string | null; updatedAt?: string | null }
 type Check = {
   name: string
   status: string
@@ -126,7 +126,10 @@ function withState<T>(fn: (state: State) => T): T {
   try {
     const state = JSON.parse(readFileSync(path, 'utf8')) as State
     for (const thread of [...Object.values(state.prs), ...Object.values(state.issues)]) {
-      for (const comment of thread.comments) comment.createdAt ??= stamp(state)
+      for (const comment of thread.comments) {
+        if (!Object.hasOwn(comment, 'createdAt')) comment.createdAt = stamp(state)
+        if (!Object.hasOwn(comment, 'updatedAt')) comment.updatedAt = comment.createdAt
+      }
     }
     const result = fn(state)
     persist(state)
@@ -388,7 +391,8 @@ function fields(flag: Map<string, string[]>, pr: Pull, state: State): Record<str
     title: pr.title,
     body: pr.body,
     baseRefName: pr.baseRefName,
-    baseRefOid: tip(state.origin, pr.baseRefName),
+    // Native merged PRs retain their pre-merge base, not today's branch tip.
+    baseRefOid: pr.state === 'MERGED' ? pr.mergeCommit?.parents[0] : tip(state.origin, pr.baseRefName),
     headRefName: pr.headRefName,
     headRefOid: pr.headRefOid,
     isCrossRepository: pr.isCrossRepository,
@@ -590,6 +594,7 @@ function handle(state: State, argv: string[]): void {
       user: { login: comment.author },
       body: comment.body,
       created_at: comment.createdAt,
+      updated_at: comment.updatedAt,
     }))
     process.stdout.write(`${JSON.stringify([page])}\n`)
     return

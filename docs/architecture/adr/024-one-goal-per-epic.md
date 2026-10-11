@@ -105,6 +105,11 @@ ADR-020 no longer bind:
    exercises the change. A PARTIAL lands as PARTIAL only when every gap it
    names has a closed-enum NO TEST row in a PR body the approving review
    judged.
+   Every part of that selected record, including its last revision, must have
+   native GitHub publication facts strictly before the approving record, as
+   must the current justification body. A later or revised PARTIAL returns the
+   same head to review without another producer; unreadable times refuse.
+   VERIFIED reuse borrows no gap justification and is chronology-independent.
 
 3. **§8 — executable falsification returns through assertledger, where an
    adapter exists.** The adapter is the producer of that gate, and of no other.
