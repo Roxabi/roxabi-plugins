@@ -388,6 +388,7 @@ function fields(flag: Map<string, string[]>, pr: Pull, state: State): Record<str
     title: pr.title,
     body: pr.body,
     baseRefName: pr.baseRefName,
+    baseRefOid: tip(state.origin, pr.baseRefName),
     headRefName: pr.headRefName,
     headRefOid: pr.headRefOid,
     isCrossRepository: pr.isCrossRepository,

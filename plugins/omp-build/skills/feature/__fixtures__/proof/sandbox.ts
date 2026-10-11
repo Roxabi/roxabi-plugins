@@ -42,6 +42,7 @@ type SimPull = {
   state: string
   headRefName: string
   headRefOid: string
+  baseRefName: string
   labels: string[]
   autoMerge: { enabledAt: string; matchHeadCommit?: string } | null
   comments: SimComment[]
