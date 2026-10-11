@@ -29,7 +29,7 @@ Four facts since then changed the cost of those clauses:
   worktree created that way inherits whatever the Principal happened to hold.
 - A semctx change contract written as a second spec reintroduces the
   `artifacts/specs` split ADR-020 retired. Derived from the issue, the same
-  record is proof.
+  contract is proof.
 - assertledger, where an adapter exists, is a separate gate. It is not the
   `R-pr` / `oracle_ok` producer, and it does not discharge the refuse line
   against restoring the `R-tester` falsify gate. Where no adapter exists that
@@ -88,6 +88,9 @@ ADR-020 no longer bind:
    the issue diverge, the issue wins: the contract is re-derived, and it cannot
    add a requirement the issue does not contain. ADR-020's refuse line against
    a second spec home stays in force; renaming the home does not satisfy it.
+   The contract's native result reaches landing as a proof record that
+   `landPr` reads and never produces (#768); its lifecycle stays Semctx's own,
+   so nothing closes it to open or land a PR.
 
 3. **§8 — executable falsification returns through assertledger, where an
    adapter exists.** The adapter is the producer of that gate, and of no other.

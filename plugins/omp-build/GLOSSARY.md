@@ -33,12 +33,16 @@ The GitHub issue body: agreed scope, acceptance criteria, invariants and exclusi
 _Avoid_: artifacts/specs, validated, /R-spec
 
 **Change contract**:
-The semctx record derived from the issue body. It is proof, not a second Spec.
-_Avoid_: artifacts/specs, a second spec home, the contract as what to build
+The Semctx change declaration derived from the issue body. It is proof, not a second Spec, and its lifecycle is Semctx's own.
+_Avoid_: artifacts/specs, a second spec home, the contract as what to build, closing it to open or land a PR
 
-**Proof gate**:
-The bar a change must clear before its PR opens: a verified Change contract, and assertledger where an adapter exists.
-_Avoid_: a green test run standing in for it, a falsify gate with no producer
+**Proof record**:
+A producer's native output for one candidate head, conserved on its PR before landing and reused while it still binds that head's inputs.
+_Avoid_: a ledger, a cache, a caller's boolean, a re-run at landing
+
+**Landing admission**:
+The read-only check that lets a reviewed head land: Semctx genuinely absent, or its native VERIFIED or justified PARTIAL result; and a detection for a fix ticket whose repository has an assertledger adapter. It produces nothing.
+_Avoid_: proof gate, a check before the PR opens, a green test run standing in for it, a PARTIAL reported as verified
 
 **TDD**:
 Test-first implementation at the seams agreed with the operator, using the model-invoked `tdd` skill.

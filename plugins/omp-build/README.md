@@ -99,7 +99,7 @@ next → start/resume child (branch from origin/<base>) → implement → dev-re
 ```
 
 Children run in `blocked_by` order. A **ticket stop** (review bound spent, watch
-timeout, cancelled or blocked checks, proof blocked, no scope, foreign commit…) is
+timeout, cancelled or blocked checks, `proof-blocked`, no scope, foreign commit…) is
 recorded on the child as a `goal-stop` marker, its PR disarmed; its dependents are
 skipped and independent children continue. A **shared-state stop** (base CI red,
 `base-ci-pending` at finalization, a dirty tree, `hook-stale`, landing or tracker
@@ -184,6 +184,19 @@ before its diff; the review-start test exercises the fence, not model compliance
   Native auto-merge pins that refreshed reviewed head with `--match-head-commit`. Merge-on-green is
   label-driven: a later push by another actor is not refused by GitHub. A review
   posted before the head line existed needs one re-review before it can land.
+- Then `landPr` admits that head (`admitLanding`, `proof.ts`), reading only: the
+  local tip must be it; Semctx applies from its committed tree and the `.semctx` on
+  disk at the root and the principal; applicable proof records — PR comments
+  `proof-acquire.ts` posted after the push, one per producer and head — must bind
+  the repository, PR, head, base, merge base and changed contracts, and carry
+  VERIFIED, or PARTIAL with each gap justified by a closed-enum NO TEST row.
+  A `type: fix` ticket whose candidate commits an assertledger adapter needs a
+  detection. No producer, test or model runs at landing. A refusal is
+  `proof-blocked` with `producer`, `reason` and `error`, unarmed; `watching`
+  reports the admitted `proof`. `proof-acquire` reuses a record that still
+  binds, so an unchanged head is never re-proved. Assertledger records bind only
+  `assertledger check` manifests (git provenance); the kit adapter's `verify`
+  manifests carry a working-tree provenance and refuse as unbound.
 
 The bound guards against agent mistakes, not against an agent that bypasses it:
 records by other accounts are ignored, and edits or deletions of the account's

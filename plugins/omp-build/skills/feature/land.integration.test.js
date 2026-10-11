@@ -23,7 +23,9 @@ if (fn === 'readLanding') {
   process.exit(0)
 }
 const ME = 'omp-bot'
-const review = (verdict) => '<!-- omp-build:code-review -->\\n<!-- omp-build:review-head sha=0123456789abcdef0123456789abcdef01234567 -->\\n## Code Review\\n\\n**Verdict: ' + verdict + '** — summary'
+// The PR head is the checkout's own tip: the proof admission binds the reviewed head to the local tip.
+const HEAD = Bun.spawnSync(['git', '-C', cwd, 'rev-parse', '--verify', 'HEAD^{commit}']).stdout.toString().trim() || '0123456789abcdef0123456789abcdef01234567'
+const review = (verdict) => '<!-- omp-build:code-review -->\\n<!-- omp-build:review-head sha=' + HEAD + ' -->\\n## Code Review\\n\\n**Verdict: ' + verdict + '** — summary'
 // approved: a first-round green. unapproved: a red latest record at the current head.
 // spent: a third red, which exhausts the bound.
 const HISTORIES = {
@@ -59,10 +61,7 @@ const gh = async (_cwd, args) => {
       if (field === 'baseRefName') view.baseRefName = 'main'
       if (field === 'headRefOid') {
         headReads++
-        view.headRefOid =
-          headMode === 'moved' && headReads > 1
-            ? 'fedcba9876543210fedcba9876543210fedcba98'
-            : '0123456789abcdef0123456789abcdef01234567'
+        view.headRefOid = headMode === 'moved' && headReads > 1 ? 'fedcba9876543210fedcba9876543210fedcba98' : HEAD
       }
     }
     return JSON.stringify(view)
@@ -165,6 +164,9 @@ function onBranch(files) {
     mkdirSync(join(dir, path, '..'), { recursive: true })
     writeFileSync(join(dir, path), content)
   }
+  // The branch needs a tip: the proof admission binds the reviewed head to it, and an unborn HEAD binds nothing.
+  execFileSync('git', ['add', '-A'], { cwd: dir, env })
+  execFileSync('git', ['commit', '-qm', 'head', '--allow-empty'], { cwd: dir, env })
   return dir
 }
 
