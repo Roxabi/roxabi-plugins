@@ -205,6 +205,10 @@ before its diff; the review-start test exercises the fence, not model compliance
   binds, so an unchanged head is never re-proved. Assertledger records bind only
   `assertledger check` manifests (git provenance); the kit adapter's `verify`
   manifests carry a working-tree provenance and refuse as unbound.
+  Every pre-arm checkpoint and the retained-arm epilogue re-read these inputs,
+  even at the same head: body revisions, ignored configuration/access, ticket
+  classification and the latest native record are not immutable with a commit.
+  Retention never transfers an existing arm to a later approved head.
 - What admission does not establish. VERIFIED attests Semctx's composition over
   the evidence statuses the contract declares, never a test run: the runtime
   proof is the base-required CI `landPr` waits on for the same head, and the

@@ -138,6 +138,26 @@ RC-10: `proof.test.ts` + `proof.integration.test.ts` = **167 passing tests**. Fo
 For the modified-only candidate, `capture.ts` also records the public native Semctx steps directly: its older contract is genuinely VERIFIED, yet the candidate adds no ticket-owned contract. This is an intentionally inadmissible native record, separate from `proof-acquire`'s refusal to produce it. The integration test supplies that complete record and still expects `missing`; adding the candidate's own contract is its admissible counterpart. It does not infer safety from an absent comment or from diagnostic wording.
 RC-7 and RC-12 are normative documentation: **falsification skipped — NO TEST: prompt-logic-only**, never counted as pass. No source-text or wording test was added. RC-13 was not applied.
 
+## Second review — bounded final fix round
+
+Review [6112206661](https://github.com/Roxabi/roxabi-plugins/pull/776#issuecomment-6112206661)
+returned Request changes for `3843c2ce`. Five executable causes and two unplanned
+blockers remain; this is the second and last allowed automatic fix, not a clean review.
+
+- **RC-1:** real `landPr` CLI regressions mutate the PARTIAL body, ignored principal
+  configuration, disagreeing root configuration, real file readability (EACCES),
+  closing-ticket type and latest native record during awaits, independently before
+  arming and after the label write in both modes. They observe precise refusal,
+  no pre-arm write or confirmed clearing; two clearing-failure cases observe the
+  actual remaining arm and its named error. The STALE response is a controlled
+  mutation of a genuinely conserved native fixture, not a producer execution.
+  Removing checkpoint re-admission made **26 named regressions fail**; restored,
+  the admission/armed-gate/landing suites passed **1,150 tests**, including the
+  unchanged configured candidate's merge-on-green counterpart with zero producers.
+- **Unresolved:** browser observation and NO TEST reason truth have no accepted
+  replacement oracle. Filing or a safe unarmed state is not delivery or resolution.
+
+
 
 ## Observed preflight and safety state (historical, 2026-10-09)
 
