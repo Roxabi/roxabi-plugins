@@ -1,8 +1,9 @@
 /**
- * The Git a landing admission (#768) reads in a checkout of `head` that commits
- * neither `.semctx` nor an assertledger adapter: it admits without a gh call.
- * `toplevel` must be a real directory with no `.semctx` — admission lstat()s it.
- * Any other git call fails, so a test sees an unexpected read as a refusal.
+ * The Git a landing admission (#768) reads in a checkout of `head` whose tree
+ * and base (`origin/<base>`) commit neither `.semctx` nor an assertledger
+ * adapter: it admits without a gh call. `toplevel` must be a real directory
+ * with no `.semctx` — admission lstat()s it. Any other git call fails, so a
+ * test sees an unexpected read as a refusal.
  *
  * @param {string} head
  * @param {string} toplevel
@@ -17,7 +18,11 @@ export function plainGit(head, toplevel) {
   return async (_cwd, args) => {
     const key = args.join(' ')
     if (Object.hasOwn(answers, key)) return { code: 0, stdout: answers[key], stderr: '' }
-    if (args[0] === 'ls-tree' && args.includes(`${head}^{commit}`)) return { code: 0, stdout: '', stderr: '' }
+    if (
+      args[0] === 'ls-tree' &&
+      (args.includes(`${head}^{commit}`) || args.some((arg) => /^refs\/remotes\/origin\/[^\s]+\^\{commit\}$/.test(arg)))
+    )
+      return { code: 0, stdout: '', stderr: '' }
     return { code: 128, stdout: '', stderr: `plainGit: no answer for git ${key}` }
   }
 }
