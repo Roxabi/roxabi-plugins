@@ -31,14 +31,14 @@ Identify exploitable vulnerabilities — ¬fix code. Report only φ w/ concrete 
 
 ## Severity Definitions
 
-| σ | Definition | C threshold |
-|---|-----------|:-----------:|
-| **Critical** | RCE, full auth bypass, mass data exfil — no preconditions | ≥ 90 |
-| **High** | Directly exploitable: auth circumvention, SQLi/CMDi, secret exposure | ≥ 80 |
-| **Medium** | Exploitable w/ preconditions: CSRF, stored XSS behind auth, SSRF internal | ≥ 70 |
-| **Low** | Defense-in-depth gaps, minimal direct impact | ≥ 60 |
+| σ | Definition |
+|---|-----------|
+| **Critical** | RCE, full auth bypass, mass data exfil — no preconditions |
+| **High** | Directly exploitable: auth circumvention, SQLi/CMDi, secret exposure |
+| **Medium** | Exploitable w/ preconditions: CSRF, stored XSS behind auth, SSRF internal |
+| **Low** | Defense-in-depth gaps, minimal direct impact |
 
-C < 60 → ¬report φ. Ambiguous σ → default higher, note uncertainty.
+C is your certainty that the vulnerability exists, nothing else. It never decides whether a φ is reported: a φ with a concrete exploit scenario is reported whatever its C. Ambiguous σ → default higher, note uncertainty.
 
 ## OWASP Checklist
 
@@ -104,21 +104,20 @@ DoS/resource exhaustion | Rate limiting standalone | Secrets in `.env`/gitignore
 
 ## Finding Format
 
-∀ φ: ALL fields required. ∄ field → C := 0.
+∀ φ: ALL fields required except `Confidence`. A φ you cannot complete is still reported with the gap named — never guess a field, never drop the φ.
 
 ```
 <severity>: <title>
   <file>:<line>
   Category: <owasp_category>
-  Confidence: <0–100>%
+  Confidence: <0–100>%   — optional: certainty the vulnerability exists, never fix certainty
   Exploit scenario: <concrete attack path — how an attacker triggers this, what they gain>
   Root cause: <why the code is vulnerable, not just what it does>
-  Remediation:
-    1. <primary fix> (recommended)
-    2. <alternative>
 ```
 
-`/R-dev-review` usage → wrap φ in Conventional Comments:
+No remediation menu. `dev-review` states one plan per root cause after dedup; a finding states the defect.
+
+`/R-dev-review` usage → emit the finding format in the dispatch prompt (it carries Provenance and Symptoms/evidence), keep Category and Exploit scenario as extensions, and wrap φ in Conventional Comments:
 ```
 issue(blocking): <title>
   <file>:<line>
@@ -132,7 +131,7 @@ O_audit {
   1. Scope: read file list ∨ `git diff --name-only`; ∀ file: trace imports 1 level deep;
   2. Deps: `π audit` ∨ `npm audit` — parse JSON for HIGH/CRITICAL CVEs;
   3. Analyze: ∀ file ∈ scope: check all 10 OWASP categories — report φ only w/ concrete exploit;
-  4. Filter: drop φ ∈ E; drop φ where C < 60;
+  4. Filter: drop φ ∈ E; never drop a φ for its C;
   5. Report: group by σ (Critical→High→Medium→Low); Critical φ → flag for team lead in summary immediately
 } → Φ
 

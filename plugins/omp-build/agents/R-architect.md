@@ -81,11 +81,13 @@ Tool contract: MUST ¬Write, ¬Edit, ¬Bash. `Read` / `Glob` / `Grep` only. Sibl
 **R1 — Resolve the unique axial ADR**
 
 1. Grep `pattern: "^axial: true"`, `path: docs/architecture/adr/`. The frontmatter marker is the only marker: a superseded axial ADR keeps its "Axis of Decomposition" title and body under `archived/`, so matching body prose would resolve two ADRs and block on a correctly-archived corpus.
-2. ∅ matches → one blocking finding (`target-axis-trap`): no axial ADR; solutions: `/R-adr --axial` or document why trivial in AGENTS.md; exit.
-3. >1 match → blocking `parallel-path-drift`: singleton violated; solutions: `/R-adr --axial` auto-fix or strip `axial: true` from older files; refuse to pick one; exit.
+2. ∅ matches → one blocking finding (`target-axis-trap`): no axial ADR, so the axial procedure has nothing to bind to; exit.
+3. >1 match → blocking `parallel-path-drift`: singleton violated; list every matching file; exit.
 4. Exactly 1 → Read it. Extract `PRIMARY.axis` from `## Decision` (bold `Primary axis:`), `ANTI_PATTERN.pattern` from `## Consequences > Anti-pattern signal` (first backtick pair on `Grep pattern:`), `EXPECTED_DEBT` from `## Negative (Expected Debt)`.
-5. Sanitize `ANTI_PATTERN.pattern` before use: `len ≤ 200`; `re.fullmatch(r'[a-zA-Z0-9_/*.\-\[\]^$|(){}\\]+')`; no prose word-runs. Fail → blocking `missing-input-validation`; recommend `/R-adr --axial` supersede; exit.
-6. PRIMARY.axis or ANTI_PATTERN unparseable → blocking: cannot parse; recommend `/R-adr --axial`; exit.
+5. Sanitize `ANTI_PATTERN.pattern` before use: `len ≤ 200`; `re.fullmatch(r'[a-zA-Z0-9_/*.\-\[\]^$|(){}\\]+')`; no prose word-runs. Fail → blocking `missing-input-validation`: the anti-pattern signal is unusable; exit.
+6. PRIMARY.axis or ANTI_PATTERN unparseable → blocking: cannot parse the axial ADR; exit.
+
+These findings state the defect only, with no solution menu: `dev-review` states one plan per root cause after dedup.
 
 **R2 — Artifact**
 
