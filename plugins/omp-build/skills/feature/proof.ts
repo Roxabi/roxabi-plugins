@@ -463,22 +463,25 @@ export function stepExitAllowed(argv: string[]): number[] {
   return verb === 'change verify' ? [0, 3] : [0]
 }
 
+/** A changed contract file in `mergeBase..candidate`: `A` added, `M` modified. */
+export type ChangedContract = { path: string; status: 'A' | 'M' }
+
 /**
- * Changed contract files in `mergeBase..candidate`. Only added or modified
- * `<id>.sem` files directly in `.semctx/semantic/changes/` are supported: a
- * deleted, renamed, retyped or nested contract fails closed.
+ * Changed contract files in `mergeBase..candidate`, sorted by path. Only added
+ * or modified `<id>.sem` files directly in `.semctx/semantic/changes/` are
+ * supported: a deleted, renamed, retyped or nested contract fails closed.
  */
 export async function changedContracts(
   git: Git,
   toplevel: string,
   mergeBase: string,
   candidate: string,
-): Promise<string[] | Error> {
+): Promise<ChangedContract[] | Error> {
   const args = ['diff', '--name-status', '-z', '--no-renames', mergeBase, candidate, '--', CHANGES_DIR]
   const diff = await git(toplevel, args)
   if (diff.code !== 0) return new Error(gitError(args, diff))
   const parts = diff.stdout.split('\0')
-  const out: string[] = []
+  const out: ChangedContract[] = []
   for (let i = 0; i + 1 < parts.length; i += 2) {
     const status = parts[i] ?? ''
     const path = parts[i + 1] ?? ''
@@ -486,9 +489,9 @@ export async function changedContracts(
     if (path.slice(CHANGES_DIR.length).includes('/'))
       return new Error(`${path}: a change contract must sit directly in ${CHANGES_DIR}`)
     if (status !== 'A' && status !== 'M') return new Error(`${path}: change contract status ${status} is not supported`)
-    out.push(path)
+    out.push({ path, status })
   }
-  return out.sort()
+  return out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
 }
 
 export async function mergeBaseOf(
@@ -644,9 +647,37 @@ export function readSemctxRecord(record: unknown, expected: SemctxExpected): Cha
     if (check.counts.changes !== expected.changeFiles.length) {
       return refuse(
         'semctx',
-        'unbound',
+        'verdict',
         `the model declares ${String(check.counts.changes)} change(s) but the candidate commits ${expected.changeFiles.length} change file(s): each change must be the one block of its own ${CHANGES_DIR}<id>.sem`,
       )
+    }
+    // The clean checkout holds no active pointer, so Semctx names every non-terminal change in
+    // ACTIVE_CHANGE_POINTER_MISSING: each must be committed as its own contract file.
+    if (!Array.isArray(check.lifecycleFindings)) throw new Error('semantic check reports no lifecycleFindings')
+    const committed = new Set(expected.changeFiles.map(changeIdOf))
+    for (const finding of check.lifecycleFindings) {
+      if (!isMap(finding) || typeof finding.code !== 'string')
+        throw new Error('semantic check reports a malformed lifecycle finding')
+      if (!finding.code.startsWith('ACTIVE_CHANGE_')) continue
+      if (finding.code !== 'ACTIVE_CHANGE_POINTER_MISSING') {
+        return refuse(
+          'semctx',
+          'unbound',
+          `semantic check reports ${finding.code} in a checkout that holds no active pointer`,
+        )
+      }
+      const ids = finding.subjectIds
+      if (!Array.isArray(ids) || !ids.every((id) => typeof id === 'string')) {
+        throw new Error(`${finding.code} names no subject ids`)
+      }
+      const hidden = ids.filter((id) => !committed.has(id))
+      if (hidden.length) {
+        return refuse(
+          'semctx',
+          'verdict',
+          `non-terminal change(s) ${hidden.join(', ')} are not committed as their own ${CHANGES_DIR}<id>.sem: a change outside its contract file escapes verification`,
+        )
+      }
     }
     const results: ChangeResult[] = []
     for (const [n, path] of expected.contracts.entries()) {
@@ -956,7 +987,11 @@ export async function repositoryOf(gh: Gh, cwd: string): Promise<string> {
   return name
 }
 
-/** The Semctx inputs admission and acquisition derive the same way from Git and the facts. */
+/**
+ * The Semctx inputs admission and acquisition derive the same way from Git and
+ * the facts. The candidate must add a change contract of its own; contracts it
+ * modifies are verified beside it but never stand in for it.
+ */
 export async function semctxInputs(
   facts: CandidateFacts,
   git: Git,
@@ -965,15 +1000,17 @@ export async function semctxInputs(
   const mergeBase = await mergeBaseOf(git, facts.toplevel, facts.base, facts.candidate)
   if (mergeBase instanceof Error)
     return refuse('semctx', 'unreadable', `merge-base with origin/${facts.base}: ${mergeBase.message}`)
-  const contracts = await changedContracts(git, facts.toplevel, mergeBase, facts.candidate)
-  if (contracts instanceof Error) return refuse('semctx', 'unbound', contracts.message)
-  if (!contracts.length) {
+  const changed = await changedContracts(git, facts.toplevel, mergeBase, facts.candidate)
+  if (changed instanceof Error) return refuse('semctx', 'unbound', changed.message)
+  if (!changed.some((contract) => contract.status === 'A')) {
+    const modified = changed.map((contract) => contract.path)
     return refuse(
       'semctx',
       'missing',
-      `candidate ${facts.candidate} changes no ${CHANGES_DIR}<id>.sem since ${mergeBase}: open the change contract for this ticket (feature §6.0)`,
+      `candidate ${facts.candidate} adds no ${CHANGES_DIR}<id>.sem since ${mergeBase}${modified.length ? ` (it only modifies ${modified.join(', ')}, which cannot stand in for this ticket's own)` : ''}: open the change contract for this ticket (feature §6.0)`,
     )
   }
+  const contracts = changed.map((contract) => contract.path)
   const config = { source: facts.config.source, sha256: facts.config.sha256 }
   return { base: facts.base, mergeBase, contracts, config }
 }

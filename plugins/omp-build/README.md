@@ -190,8 +190,8 @@ before its diff; the review-start test exercises the fence, not model compliance
   configures it, and a PR that changes or deletes the base's committed
   configuration refuses; applicable proof records — PR comments
   `proof-acquire.ts` posted after the push, one per producer and head — must bind
-  the repository, PR, head, base, merge base, changed contracts and the Semctx
-  configuration's sha256, and carry
+  the repository, PR, head, base, merge base, changed contracts (at least one
+  added by the head) and the Semctx configuration's sha256, and carry
   VERIFIED, or PARTIAL with each gap justified by a closed-enum NO TEST row.
   A fix PR — a `fix/…` head branch, or a closing ticket typed Fix or Bug,
   labelled `bug` or titled `fix…:` — needs a detection when the base or the head

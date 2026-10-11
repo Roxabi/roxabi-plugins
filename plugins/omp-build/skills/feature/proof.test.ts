@@ -271,6 +271,7 @@ type NativeJson = {
   sourceRefs: { file: string; line: number }[]
   underlying: Record<string, string>
   findings: Record<string, unknown>[]
+  lifecycleFindings: { code: string; severity: string; subjectIds: string[] }[] | null
   pendingEvidence: string[]
   preserved: { state: string }[]
   provedEvidence: unknown[]
@@ -366,8 +367,30 @@ describe('readSemctxRecord', () => {
     [
       'a model with more changes than change files',
       verified((_r, stdout) => stdout(2, (s) => (s.counts.changes = 2))),
-      'unbound',
+      'verdict',
       /declares 2 change/,
+    ],
+    [
+      'a non-terminal change committed outside its own contract file',
+      verified((_r, stdout) => stdout(2, (s) => s.lifecycleFindings?.[0]?.subjectIds.splice(0, 1, 'change.real'))),
+      'verdict',
+      /change\(s\) change\.real are not committed/,
+    ],
+    [
+      'an active-pointer finding other than a missing pointer',
+      verified((_r, stdout) =>
+        stdout(2, (s) =>
+          s.lifecycleFindings?.push({ code: 'ACTIVE_CHANGE_POINTER_INVALID', severity: 'warning', subjectIds: [] }),
+        ),
+      ),
+      'unbound',
+      /ACTIVE_CHANGE_POINTER_INVALID/,
+    ],
+    [
+      'a check with no lifecycle findings',
+      verified((_r, stdout) => stdout(2, (s) => (s.lifecycleFindings = null))),
+      'unreadable',
+      /no lifecycleFindings/,
     ],
     [
       'a model with errors',
