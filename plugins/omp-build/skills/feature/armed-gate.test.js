@@ -40,8 +40,10 @@ const MOVED = 'fedcba9876543210fedcba9876543210fedcba98'
 const EVENT_AT = '2026-09-29T10:00:05Z'
 const IDENTITY = ['api', 'user', '--jq', '.login']
 const GATE_FIELDS = 'headRefOid,state,labels,autoMergeRequest'
-/** A checkout of HEAD with no `.semctx` and no adapter: the proof admission admits it without a gh call. */
-const PLAIN = plainGit(HEAD, mkdtempSync(join(tmpdir(), 'armed-gate-')))
+/** A plain checkout: no `.semctx` and no adapter, so the proof admission admits its tip without a gh call. */
+const CHECKOUT = mkdtempSync(join(tmpdir(), 'armed-gate-'))
+/** The checkout of HEAD. */
+const PLAIN = plainGit(HEAD, CHECKOUT)
 const OTHER_LABEL = 'size:F-lite'
 
 /** @param {unknown[]} args @param {unknown[]} expected */
@@ -2851,24 +2853,39 @@ describe('same-head revocation during preparation for the next arming write', ()
   }
 })
 
-describe('native arming never pins a head the proof admission did not admit', () => {
-  it.each([
-    ['initial pin after discovery', 'none', 'base'],
-    ['re-pin after disabling the old arm', 'both', 'disable'],
-  ])('%s', async (_path, start, on) => {
-    const fake = armedPr({
-      records: [approve()],
-      start,
-      script: { moves: [{ when: 'after', on, head: MOVED, reviews: [approve(MOVED)] }] },
-    })
+describe('native arming uses the freshly approved head', () => {
+  // Each head move lands after the first admission (of HEAD), with an approval of the new head.
+  const PATHS = [
+    ['initial pin, re-approved at the pre-pin refresh', 'none', { when: 'before', on: 'comments', nth: 2 }],
+    ['re-pin after disabling the old arm', 'both', { when: 'after', on: 'disable' }],
+  ]
+  const freshApproval = (start, move) =>
+    armedPr({ records: [approve()], start, script: { moves: [{ ...move, head: MOVED, reviews: [approve(MOVED)] }] } })
+
+  it.each(PATHS)('%s, once that head is admitted', async (_path, start, move) => {
+    const fake = freshApproval(start, move)
+    // The operator's checkout follows the PR: its tip is the head the admission is asked about.
+    const following = (cwd, args) => plainGit(fake.pr.head, CHECKOUT)(cwd, args)
+    const outcome = await exec({ fn: 'land', opts: { ...NATIVE, git: following } }, fake)
+
+    expect(outcome.error).toBeUndefined()
+    expect(outcome.result).toMatchObject({ status: 'watching', mode: 'native', proof: ADMITTED })
+    expect(fake.pr.head).toBe(MOVED)
+    expect(fake.pr.autoMerge).not.toBeNull()
+    expect(fake.pr.labels.has('reviewed')).toBe(true)
+    expect(holds(fake, outcome)).toBe(true)
+  })
+
+  it.each(PATHS)('%s, refused unarmed when that head is not admitted', async (_path, start, move) => {
+    const fake = freshApproval(start, move)
+    // The checkout stays on HEAD: the admission of MOVED refuses its local tip.
     const outcome = await exec({ fn: 'land', opts: NATIVE }, fake)
 
-    // The fresh approval names MOVED, but admission read the proof of HEAD only.
     expect(outcome.error).toBeUndefined()
-    expect(outcome.result).toMatchObject({ status: 'not-approved', reason: 'head-moved' })
+    expect(outcome.result).toMatchObject({ status: 'proof-blocked', producer: 'candidate', reason: 'unbound' })
+    expect(outcome.result.error).toContain(`is not candidate ${MOVED}`)
     expect(fake.pr.head).toBe(MOVED)
     expect(armedNames(fake)).toEqual([])
-    expect(holds(fake, outcome)).toBe(true)
   })
 })
 

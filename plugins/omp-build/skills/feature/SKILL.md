@@ -542,7 +542,9 @@ it re-reads the latest review records and then `headRefOid`, including after
 disable/remove preparation. Red or spent records refuse arming; missing,
 moved or unreadable authorization never permits that write. Known OPEN arms
 are cleared through the exit policy, or its error names the remainder.
-Native pins use the refreshed reviewed head. Under merge-on-green
+Native pins use the refreshed reviewed head; a refreshed approval of another
+head arms it only once the landing admission admits that head too (otherwise
+`proof-blocked`, unarmed). Under merge-on-green
 it then adds `reviewed` — a pre-existing label is removed first so a fresh
 labeled run exists — and returns
 `{ status: 'watching', mode, watch, proof }`. `watch` is the absolute real path of

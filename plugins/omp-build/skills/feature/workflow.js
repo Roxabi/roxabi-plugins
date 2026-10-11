@@ -608,7 +608,9 @@ const SINCE_RETRY_MS = 200
  * applicable Semctx/assertledger records conserved on the PR are bound to the
  * re-derived inputs. A refusal returns `proof-blocked` with `producer`, `reason`
  * and `error` through the same forced-unarmed exit; a transport failure throws
- * through it. Every later arm is bound to the admitted candidate, and `watching`
+ * through it. Every later arm is bound to the admitted candidate: a pre-arm
+ * refresh whose fresh approval names another head admits that head the same
+ * way, and arms it only on admit (else `proof-blocked`, unarmed). `watching`
  * carries `proof`: what was admitted, so a PARTIAL lands visibly as PARTIAL.
  * `disarmed: true` is reported only when a read-back confirmed the disarm; a no-op
  * claims nothing. A disarm that cannot finish throws an error naming what stays
@@ -668,6 +670,7 @@ export async function landPr(
   let admitted
   /** What the admission read for it, reported with the watch. */
   let proof
+  let landingBase
   const armedByUs = { auto: false, label: false }
   const knownGate = () =>
     gate && {
@@ -708,6 +711,27 @@ export async function landPr(
     }
     return exit(refused('head-moved'), { policy: 'unarmed', readError })
   }
+  /**
+   * The landing admission (#768) of `records.head`: reads conserved producer
+   * evidence for exactly that candidate, never runs a producer, a test or a
+   * reviewer; the approving record's time bounds which PR body that review
+   * judged. On admit every later arm is rebound to it; a refusal is the
+   * forced-unarmed `proof-blocked` exit.
+   */
+  const admit = async () => {
+    const admission = await admitLanding(
+      cwd,
+      { pr: Number(pr), candidate: records.head, base: landingBase, reviewedAt: records.at },
+      { gh: ghFn, git: gitFn, comments: () => readComments(cwd, pr, { gh: ghFn }) },
+    )
+    if (!admission.ok) {
+      const { producer, reason, error } = admission
+      return exit({ status: 'proof-blocked', producer, reason, error }, { policy: 'unarmed' })
+    }
+    admitted = records.head
+    proof = admission.proof
+    return null
+  }
   const afterWrite = async (adapter) => {
     try {
       if (adapter === 'native') {
@@ -727,7 +751,8 @@ export async function landPr(
     if (records.spent) return exit(refused('review-bound'), { policy: 'unarmed' })
     if (!approves(records.verdict)) return exit(refused(), { policy: 'unarmed' })
     if (!isCommitSha(records.head)) return exit(refused('no-review-head'), { policy: 'unarmed' })
-    if (records.head !== admitted) return exit(refused('head-moved'), { policy: 'unarmed' })
+    // A fresh approval of another head arms only once that head is admitted too.
+    if (records.head !== admitted) return admit()
     return null
   }
   // A refused pin: a moved head is cleared via `moved`, a readable stable head is
@@ -769,7 +794,6 @@ export async function landPr(
         return exit(refused('head-moved'), { policy: 'unarmed' })
       }
       let resolved = landing
-      let landingBase
       if (!resolved) {
         try {
           landingBase = await resolveLandingBase(cwd, pr, ghFn)
@@ -793,20 +817,8 @@ export async function landPr(
               : await resolveRequiredContexts(cwd, pr, ghFn)
         if (required.length === 0) return exit({ status: 'no-required-checks' }, { policy: 'unarmed' })
       }
-      // Landing admission (#768): reads conserved producer evidence for exactly
-      // this candidate; it never runs a producer, a test or a reviewer. The
-      // approving record's time bounds which PR body that review judged.
-      const admission = await admitLanding(
-        cwd,
-        { pr: Number(pr), candidate: records.head, base: landingBase, reviewedAt: records.at },
-        { gh: ghFn, git: gitFn, comments: () => readComments(cwd, pr, { gh: ghFn }) },
-      )
-      if (!admission.ok) {
-        const { producer, reason, error } = admission
-        return exit({ status: 'proof-blocked', producer, reason, error }, { policy: 'unarmed' })
-      }
-      admitted = records.head
-      proof = admission.proof
+      const blocked = await admit()
+      if (blocked) return blocked
       let since = ''
       if (resolved.mode === 'merge-on-green') {
         const before = await labeledReviewedAt(cwd, pr, ghFn)
