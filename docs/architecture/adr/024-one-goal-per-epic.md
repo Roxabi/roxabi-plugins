@@ -110,6 +110,14 @@ ADR-020 no longer bind:
    must the current justification body. A later or revised PARTIAL returns the
    same head to review without another producer; unreadable times refuse.
    VERIFIED reuse borrows no gap justification and is chronology-independent.
+   *Reviewer ceiling explicitly authorized 2026-10-11*
+   ([operator decision](https://github.com/Roxabi/roxabi-plugins/issues/768#issuecomment-6114046814)):
+   admission checks gap policy/form/chronology; reason truth and credible browser
+   performance are the proof-aware review's judgement. Unsupported claims block
+   that review. Publication dates show availability, not reading or truth;
+   approval is judgement, not runtime certification. Neither it, native VERIFIED
+   nor body form certifies the still-unproved gap. No native observation/reason
+   oracle was implemented; all binding, CI, e2e and clearing guards remain.
 
 3. **§8 — executable falsification returns through assertledger, where an
    adapter exists.** The adapter is the producer of that gate, and of no other.

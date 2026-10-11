@@ -426,8 +426,13 @@ publish the complete PARTIAL record and write those rows before §6.4.
 part and a body last edited before the approving record. Missing or unreadable
 times refuse; a later publication, part revision or body edit needs a new review
 of the same head (§6.4), reusing the record without a producer. VERIFIED reuse
-borrows no gap justification and has no such chronology requirement. Never close
-a PARTIAL change as verified. Semctx runs under the head's committed `.semctx/config.json`, which
+borrows no gap justification and has no such chronology requirement.
+**Reviewer trust ceiling** ([operator-authorized #768 amendment](https://github.com/Roxabi/roxabi-plugins/issues/768#issuecomment-6114046814)):
+the proof-aware review judges reason truth and whether a browser check was
+credibly performed for this head; unsupported claims block review. Admission
+checks native binding, policy, form and chronology, not those two truths.
+Approval and timestamps are not runtime certification; an admitted gap remains
+unproved. Never close a PARTIAL change as verified. Semctx runs under the head's committed `.semctx/config.json`, which
 must equal the base's when the base commits one (a PR never changes or deletes
 the policy it is judged by); with none committed, under the uncommitted one,
 copied into the private checkout — the head's `.gitignore` must ignore it and
@@ -589,7 +594,7 @@ repository, PR, head, base, merge base, the changed contracts — at least one
 added by the head; a modified older contract never stands in for it — and the
 Semctx configuration (assertledger's
 reference world: the head's commit and tree), and are read with their native
-verdicts: VERIFIED, or PARTIAL with every gap justified — a gap is each
+verdicts: VERIFIED, or PARTIAL with every gap review-judged — a gap is each
 warning finding, pending evidence and open unknown the result names, mirrored
 or not; draft, blocked, stale, superseded, a PARTIAL closed as verified, a
 PARTIAL with a stale link or a blocking impact, a VERIFIED that requires no
@@ -632,7 +637,7 @@ Neither a fix round nor another review action may write that label in this cycle
 |---|---|
 | `no-pr` | Stop; no PR was resolved and no gate was armed |
 | `not-approved` | Stop; the latest review record does not approve the current head, or the bound is spent (`reason: 'review-bound'`). `landPr` disarmed a gate that was armed (`disarmed: true`). Review again only when the bound is not spent; do not merge |
-| `watching` | Report `land.proof` — Semctx `absent`, or each change's VERIFIED/PARTIAL and every justified gap; assertledger `not-applicable` or `detection` — then start the async `/ci-watch` job named in `land.watch` |
+| `watching` | Report `land.proof` — Semctx `absent`, or each change's VERIFIED/PARTIAL and every review-judged gap (form checked, still unproved); assertledger `not-applicable` or `detection` — then start the async `/ci-watch` job named in `land.watch` |
 | `proof-blocked` | Stop; report `land.producer`, `land.reason` and `land.error`. Nothing was armed; a gate found armed was disarmed (`disarmed: true` after read-back). Re-enter §6.7 once the named cause is fixed: `missing` → §6.3's proof records; late/revised PARTIAL or edited justification → a new same-head review (§6.4), reuse the proof without a producer; unreadable publication facts → obtain native metadata first. A moved head goes through §6.4. The review bound stays sticky |
 | `merged` | Report issue + PR; offer the optional tail (§0), stop |
 | `ci-failed` | Gate already disarmed; `step = await nextReviewStep(cwd, pr, { ciFailed: true })`, then §6.6 |

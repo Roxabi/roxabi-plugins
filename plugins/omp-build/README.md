@@ -233,7 +233,14 @@ before its diff; the review-start test exercises the fence, not model compliance
   the evidence statuses the contract declares, never a test run: the runtime
   proof is the base-required CI `landPr` waits on for the same head, and the
   review judges that each `tested` evidence names a test that exercises the
-  change. Admission governs only the arms `landPr` writes: a `reviewed` label or
+  change. Under the [operator-authorized reviewer ceiling](https://github.com/Roxabi/roxabi-plugins/issues/768#issuecomment-6114046814),
+  reason truth and credible browser-check performance belong to the proof-aware
+  review; unsupported claims block it. Admission checks their policy/form and
+  availability to approval, not those two truths. A row/block is form, native
+  dates show availability (not that it was read), and approval is judgement:
+  none certifies an unproved gap. An invented check or false reason accepted
+  by that trusted reviewer is not independently detected by admission.
+  Admission governs only the arms `landPr` writes: a `reviewed` label or
   auto-merge set by another actor is an override that GitHub's auto-merge and
   the merge-on-green workflow honour without proof, and the armed-gate retention
   keeps it once the review approves. A record is a PR comment by the automation

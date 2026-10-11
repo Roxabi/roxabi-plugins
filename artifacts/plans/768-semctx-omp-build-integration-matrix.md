@@ -37,7 +37,7 @@ Plan of record, written before implementation: every row was pending then. Execu
 | AC4 working state not closure/freshness evidence | Same native reader; feature guidance | Remove working emptiness and forced VERIFIED close | Changed ignored overlay refuses; nonempty legitimate native working state does not itself refuse |
 | AC5 closed NO TEST enum | Existing `proof-gate.ts` policy consumer | Remove `acceptedReasons` widening; exactly infra-not-wired/prompt-logic-only/ui-manual-only/out-of-scope | Fixed enum permits justified counterpart, refuses caller-added reason |
 | AC5 meaningful PARTIAL/contradictions | Native composed verdict + existing policy consumer | Preserve PARTIAL; require all named gaps justified; reject empty gaps and VERIFIED with unresolved obligations | Actual PARTIAL positive; empty/unjustified/contradictory refusal; no close/upgrade |
-| AC5 actual selected-body UI observation and committed e2e | Review UI policy; committed stack reader; native observation producer | Read actual selected PR body and candidate `commands.test_e2e`; narration alone never produces observation | Dirty stack cannot hide e2e; blank steps/result, invalid URL, missing body/underlying observation refuse |
+| AC5 amended selected-body UI form, committed e2e and review judgement | Proof-aware review (truth ceiling); committed stack and admission form/chronology readers | Read the selected body and both base/head e2e declarations; review judges reason truth/credible performance; no native observation oracle | Dirty stack cannot hide e2e; blank fields, invalid URL, missing block/body and late proof/body refuse. Truth/performance are review-judged, not established by regressions |
 | AC6 actual fix+adapter detection independent of Semctx | Existing assertledger producer/adapter policy | Derive applicability from ticket/adapter/native result; retain native verdict and tested input facts | Current detection admits; WEAK_ORACLE/miss/missing/unreadable refuse; no adapter nonblocks; absent Semctx does not waive adapter |
 | AC7 shared proof-blocked forced-unarmed epilogue | `landPr`, `enforceArmedGate`, `disarmGate` | No new cleanup convention or arm/pin on proof refusal | Known label/auto-merge cleared and read back; failed clear names uncertain/remainder arms |
 | AC7 red/spent precedence | Existing review-record and bound owners | Keep ordinary review/spent/head refusals before proof assessment | Single non-spent red + bad proof still review refusal; spent bound cannot be reset |
@@ -103,7 +103,7 @@ Observed on the final worktree state, after the last writer of each file. The PR
 | AC2 no producer | Admission reads only | Every integration scenario uses failing, logging `semctx`/`assertledger` stand-ins first on PATH; positive admissions and paired refusals observe zero producer calls. A VERIFIED admission posts no comment |
 | AC3 | Base∪candidate∪checkouts decide applicability before any producer call | Integration: ignored operator config copied into the private acquisition checkout binds and admits; removing/relaxing base policy or adapter/e2e declarations grants no exemption. Real Git: unborn local HEAD, malformed committed JSON, missing tree object and actual principal-root EACCES after declaration reads refuse precisely, with gates unarmed; restoring HEAD/access admits. Unit: symlink/array config, unresolved/option base and ambiguous root state refuse |
 | AC4 | The candidate must add its own contract; every open change must have its own file | Integration: modified-only → `missing`; added+modified with both VERIFIED admits; a hidden active change refuses even when counts match; a goal block under `changes/` is never recorded. Unit: only `ACTIVE_CHANGE_POINTER_MISSING` is tolerated, other pointer findings or unreadable lifecycle findings refuse; nested, deleted and retyped contracts fail closed |
-| AC5 | PARTIAL gaps = findings∪pending evidence∪open unknowns; stale links, blocking findings and impact BLOCK refuse; browser proof is gap-bound | Integration: enum/browser/e2e and post-review body edits refuse or admit their paired valid cases; blank/null e2e declares none, non-map document/commands refuses ui-manual-only. A mixed VERIFIED+PARTIAL record stays PARTIAL and needs the pending gap's row. Unit: each VERIFIED/PARTIAL contradiction term and lifecycle guard is discriminated; impact WARN preserves PARTIAL |
+| AC5 (amended) | PARTIAL gaps = findings∪pending evidence∪open unknowns; stale links, blocking findings and impact BLOCK refuse; browser check form is gap-bound; truth is review-judged | Integration: enum/browser/e2e and post-review body edits refuse or admit their paired valid cases; blank/null e2e declares none, non-map document/commands refuses ui-manual-only. A mixed VERIFIED+PARTIAL record stays PARTIAL and needs the pending gap's row. Unit: each VERIFIED/PARTIAL contradiction term and lifecycle guard is discriminated; impact WARN preserves PARTIAL. No regression claims observation/reason truth |
 | AC6 | Shared `fixKind` signals on head branch or any closing issue; either side's adapter applies independently of Semctx | Integration: branch/title/label/org Bug signals each require detection; Semctx VERIFIED alone in a repository with both producers refuses missing assertledger, both records admit. Detection admits; WEAK_ORACLE and absent/unbound records refuse. Unit: selected candidate ELIGIBLE, every replay validity flag and replay exit are checked separately |
 | AC7 | Existing forced-unarmed epilogue; current approval and admitted head bind every arm | Integration: proof refusals disarm with read-back, red/spent precedence preserved. Stateful armed-gate: a freshly approved new head is re-admitted before pin/re-pin; an unbound new head refuses. Head+approval moved only at the epilogue → `head-moved`, unarmed; same-head fresh approval stays armed. Native and merge-on-green proof refusals either confirm disarm or throw naming exactly what remains armed |
 | AC8 | Real consumers on disposable repositories | Records are the real producers' output (Semctx 0.4.2, assertledger 1.4.0, node v24.18.1, git 2.56.0) conserved by `capture.ts`; the sandbox rebuilds every sha byte for byte and the test fails on drift. Smokes below |
@@ -211,10 +211,16 @@ alongside two unplanned blockers. This is the final allowed fix, not a clean rev
   drift after merge; production base guards are unchanged.
   The Semctx MCP impact reader returned `CONFIG_NOT_FOUND` for this genuinely
   unconfigured repository: no index/config was created and no PASS is claimed.
-  The two uncited blockers are preserved in full on siblings **#779** (browser)
-  and **#778** (reason truth), parent #720, blocked-by origin #768; still blocking.
-- **Unresolved:** browser observation and NO TEST reason truth have no accepted
-  replacement oracle. Filing or a safe unarmed state is not delivery or resolution.
+  At review 2 the two uncited blockers were preserved in full on siblings
+  **#779** (browser) and **#778** (truth), parent #720, blocked-by origin #768;
+  still blocking then. Their authorized later disposition is below.
+- **At that review, unresolved:** browser observation and NO TEST reason truth
+  had no accepted replacement oracle; filing/unarmed was not resolution.
+  The [explicit human amendment](https://github.com/Roxabi/roxabi-plugins/issues/768#issuecomment-6114046814)
+  now accepts a proof-aware reviewer ceiling for those two truths only.
+  #779/#778 are superseded obligations, not code-fixed/native-proved gaps.
+  Admission still checks binding, enum, e2e, form and native chronology; the
+  reviewer blocks unsupported claims. Approval and timestamps certify no gap.
 
 
 

@@ -44,6 +44,10 @@ _Avoid_: a ledger, a cache, a caller's boolean, a re-run at landing, a signed at
 The read-only check that lets a reviewed head land through the arms `landPr` writes. Semctx applies when the base, the head or the operator's uncommitted configuration configures it; it then needs the record of the change contract the head adds, VERIFIED or PARTIAL with every gap justified by a NO TEST row in a PR body the approving review judged. A fix PR needs a detection when the base or the head declares an assertledger adapter. Each record binds one head; a new head needs its own. VERIFIED attests Semctx's composition over declared evidence statuses, never a test run: required CI on the same head is the runtime proof. A `reviewed` label or auto-merge set by another actor is an override that admission does not govern. It produces nothing.
 _Avoid_: proof gate, a check before the PR opens, a green test run standing in for it, a PARTIAL reported as verified, VERIFIED read as tests passed, every merge proved
 
+**Reviewer trust ceiling**:
+The operator-authorized split for a PARTIAL gap: admission checks native producer/input/candidate/base binding, policy, form and publication/body chronology; the proof-aware review judges reason truth and credible browser-check performance. Unsupported claims block review. A row/block is form, timestamps show availability, approval is judgement, and VERIFIED composes authored statuses — none independently certifies the unproved gap. Required CI and applicable assertledger remain independent.
+_Avoid_: approval as runtime certification, a Browser check block as an observation, a NO TEST row as proof, a review-judged gap called producer-certified
+
 **TDD**:
 Test-first implementation at the seams agreed with the operator, using the model-invoked `tdd` skill.
 _Avoid_: automatic tests for every change, a mandatory user slash
