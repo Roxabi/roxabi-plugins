@@ -97,7 +97,10 @@ function prepare(
   writeSim(box, (state) => {
     const pull = state.prs[String(pr)]
     if (!pull) throw new Error(`no PR ${pr}`)
-    pull.comments = comments.map((text) => ({ author: ME, body: text }))
+    // This fixture's proofs are published before its reviews; preserve order within each stream.
+    const proofs = comments.filter((text) => text.startsWith('<!-- omp-build:proof producer='))
+    const reviews = comments.filter((text) => !text.startsWith('<!-- omp-build:proof producer='))
+    pull.comments = [...proofs, ...reviews].map((text) => ({ author: ME, body: text }))
     pull.body = body
     pull.lastEditedAt = null
     pull.labels = armed ? ['reviewed'] : []
@@ -525,6 +528,157 @@ describe('selected base acquisition precedes policy and applicability', () => {
     } finally {
       restore()
     }
+  })
+})
+
+describe('PARTIAL publication and revision must precede the approving review', () => {
+  let box: Box
+  const wt: Record<string, string> = {}
+  const EARLY = '2026-01-01T00:00:00Z'
+  const APPROVED = '2026-01-01T00:00:10Z'
+  const LATE = '2026-01-01T00:00:20Z'
+  const REAPPROVED = '2026-01-01T00:00:30Z'
+  beforeAll(() => {
+    box = sandbox(semctxSpec())
+    instrument(box)
+    for (const name of ['partial', 'largePartial', 'verified'] as const) {
+      wt[name] = worktree(box, `chronology-${name}`, box.sha[SEMCTX_CASES[name].branch] as string)
+    }
+  })
+  afterAll(() => rmSync(box.root, { recursive: true, force: true }))
+  function prime(name: 'partial' | 'largePartial' | 'verified') {
+    const { pr, branch } = SEMCTX_CASES[name]
+    const head = box.sha[branch] as string
+    const parts = conserved(RECORDS.semctx, name)
+    writeSim(box, (state) => {
+      const pull = state.prs[String(pr)]
+      if (!pull) throw new Error(`missing fixture PR ${pr}`)
+      pull.body = noTest('out-of-scope')
+      pull.lastEditedAt = null
+      pull.comments = [
+        ...parts.map((body, index) => ({
+          author: ME,
+          body,
+          createdAt: `2026-01-01T00:00:0${index}Z`,
+          updatedAt: `2026-01-01T00:00:0${index}Z`,
+        })),
+        { author: ME, body: approve(head), createdAt: APPROVED, updatedAt: APPROVED },
+      ]
+      pull.labels = ['reviewed']
+      pull.autoMerge = { enabledAt: EARLY, matchHeadCommit: head }
+    })
+    return { pr, head, parts }
+  }
+  function facts(pr: number, index: number, changed: { createdAt?: string | null; updatedAt?: string | null }) {
+    writeSim(box, (state) => {
+      const comment = state.prs[String(pr)]?.comments.at(index)
+      if (!comment) throw new Error(`missing fixture comment ${pr}/${index}`)
+      Object.assign(comment, changed)
+    })
+  }
+  it.each(['native', 'merge-on-green'] as const)(
+    '%s refuses a later PARTIAL and admits only after a new same-head review, without a producer',
+    (mode) => {
+      const { pr, head } = prime('partial')
+      facts(pr, 0, { createdAt: LATE, updatedAt: LATE })
+      const refused = land(box, wt.partial as string, pr, mode)
+      expect(refused.result).toMatchObject({
+        status: 'proof-blocked',
+        producer: 'semctx',
+        reason: 'unjustified',
+        disarmed: true,
+      })
+      expect(refused.gate).toEqual(UNARMED)
+      expect(refused.producers).toEqual([])
+      writeSim(box, (state) => {
+        const pull = state.prs[String(pr)]
+        if (!pull) throw new Error(`missing fixture PR ${pr}`)
+        pull.comments.push({
+          author: ME,
+          body: approve(head),
+          createdAt: REAPPROVED,
+          updatedAt: REAPPROVED,
+        })
+      })
+      const admitted = land(box, wt.partial as string, pr, mode)
+      expect(admitted.result).toMatchObject({ status: 'watching', proof: { semctx: { verdict: 'PARTIAL' } } })
+      expect(admitted.gate.labels).toEqual(['reviewed'])
+      expect(admitted.producers).toEqual([])
+    },
+  )
+  it.each([
+    ['a late final part', -1, { createdAt: LATE, updatedAt: LATE }],
+    ['its first part revised later', 0, { updatedAt: LATE }],
+    ['its final part revised later', -1, { updatedAt: LATE }],
+  ] as const)('the complete native multipart PARTIAL refuses with %s', (_name, index, changed) => {
+    const { pr, parts } = prime('largePartial')
+    facts(pr, index < 0 ? parts.length - 1 : index, changed)
+    const run = land(box, wt.largePartial as string, pr)
+    expect(run.result).toMatchObject({
+      status: 'proof-blocked',
+      producer: 'semctx',
+      reason: 'unjustified',
+      disarmed: true,
+    })
+    expect(run.gate).toEqual(UNARMED)
+    expect(run.producers).toEqual([])
+  })
+  it.each([
+    ['missing creation', { createdAt: null }, 'unreadable'],
+    ['missing revision', { updatedAt: null }, 'unreadable'],
+    ['malformed creation', { createdAt: 'not a native instant' }, 'unreadable'],
+    ['malformed revision', { updatedAt: 'not a native instant' }, 'unreadable'],
+    ['invalid calendar date', { createdAt: '2026-02-31T00:00:00Z' }, 'unreadable'],
+    ['revision before creation', { updatedAt: '2025-12-31T23:59:59Z' }, 'unreadable'],
+    ['creation tied with approval', { createdAt: APPROVED, updatedAt: APPROVED }, 'unjustified'],
+  ] as const)('PARTIAL refuses %s facts', (_name, changed, reason) => {
+    const { pr } = prime('partial')
+    facts(pr, 0, changed)
+    const run = land(box, wt.partial as string, pr)
+    expect(run.result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason, disarmed: true })
+    expect(run.gate).toEqual(UNARMED)
+    expect(run.producers).toEqual([])
+  })
+  it('PARTIAL cannot borrow an approval whose native creation time is missing', () => {
+    const { pr } = prime('partial')
+    facts(pr, -1, { createdAt: null })
+    const run = land(box, wt.partial as string, pr)
+    expect(run.result).toMatchObject({
+      status: 'proof-blocked',
+      producer: 'semctx',
+      reason: 'unjustified',
+      disarmed: true,
+    })
+    expect(run.gate).toEqual(UNARMED)
+    expect(run.producers).toEqual([])
+  })
+  it.each([
+    ['late publication', { createdAt: LATE, updatedAt: LATE }],
+    ['unreadable publication', { createdAt: null, updatedAt: null }],
+  ])('VERIFIED remains reusable with %s facts; it borrows no gap justification', (_name, changed) => {
+    const { pr } = prime('verified')
+    facts(pr, 0, changed)
+    const run = land(box, wt.verified as string, pr)
+    expect(run.result).toMatchObject({ status: 'watching', proof: { semctx: { verdict: 'VERIFIED' } } })
+    expect(run.producers).toEqual([])
+  })
+  it('only the selected complete run is judged: an older run’s late revision does not taint the reviewed replacement', () => {
+    const { pr, parts } = prime('largePartial')
+    writeSim(box, (state) => {
+      const pull = state.prs[String(pr)]
+      if (!pull) throw new Error(`missing fixture PR ${pr}`)
+      pull.comments.unshift(
+        ...parts.map((body, index) => ({
+          author: ME,
+          body,
+          createdAt: `2025-12-31T23:59:5${index}Z`,
+          updatedAt: LATE,
+        })),
+      )
+    })
+    const run = land(box, wt.largePartial as string, pr)
+    expect(run.result).toMatchObject({ status: 'watching', proof: { semctx: { verdict: 'PARTIAL' } } })
+    expect(run.producers).toEqual([])
   })
 })
 
@@ -1047,7 +1201,8 @@ describe('landPr admission against conserved Semctx records', () => {
       const comments = [approve(sha(verified.branch)), ...conserved(RECORDS.semctx, 'verified')]
       prepare(box, verified.pr, { comments })
       writeSim(box, (state) => {
-        for (const comment of state.prs[String(verified.pr)]?.comments.slice(1) ?? []) comment.author = 'mallory'
+        for (const comment of state.prs[String(verified.pr)]?.comments ?? [])
+          if (comment.body.includes('## Proof — semctx')) comment.author = 'mallory'
       })
       const other = land(box, wt.verified as string, verified.pr)
       expect(other.result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'missing' })

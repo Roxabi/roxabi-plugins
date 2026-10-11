@@ -130,9 +130,12 @@ statuses, never a test run: each evidence it counts as `tested` must name a test
 the base that exercises the change, else `issue(blocking):`. Where it is PARTIAL, each
 gap it names has its own row there; judge whether the
 reason is true and, for `ui-manual-only`, whether the browser check was observed — `landPr`
-checks only its form, and only on a body last edited before this approving record: an edit
-after it returns the PR to review. The record is read, never re-run. The issue body
-remains the spec if they diverge.
+checks only its form. Judge the complete selected run and its native GitHub
+creation/revision facts for every part; publish the approving record only after
+those parts and the justification body are available. A later part, revision or
+body edit requires a new same-head review; reuse the record without a producer.
+Unreadable native times authorize no PARTIAL. VERIFIED reuse borrows no gap
+justification. The issue body remains the spec if they diverge.
 5a. **UI proof.** When Δ touches `frontend.path` or `shared.ui` and the base's or the head's `.dev/stack.yml` declares `commands.test_e2e`, a `ui-manual-only` row is an `issue(blocking):` — the e2e command is the proof, not a hand check. Without an e2e command, `ui-manual-only` is legal only when the PR body records an agent browser check as `### Browser check <gap>` (the gap bare or in backticks) with `- Steps:`, `- URL:` (http/https) and `- Observed:` lines. The NO TEST enum itself is unchanged.
 
 A finding emitted in steps 4–5a whose only gap is a missing or weak test is not finally labelled in this phase. Phase 4 step 3b rewrites that label. A missing SC→Test matrix stays `issue(blocking):`. An unmet criterion whose gap is the behaviour itself, not the test, stays `issue(blocking):`.

@@ -522,10 +522,10 @@ describe('stateful gh — one continuous goal', () => {
       title: 'feat(b): child b',
     })
     approve(openedB.number, shaB)
-    const landedB = callWorkflow<{ status: string; mode?: string; watch?: string }>('landPr', epic, {
+    const landedB = callWorkflow<{ status: string; error?: string; mode?: string; watch?: string }>('landPr', epic, {
       pr: openedB.number,
     })
-    expect(landedB.status).toBe('watching')
+    expect(landedB.status, landedB.error).toBe('watching')
     if (!landedB.watch) throw new Error('landPr returned no watch')
     const watched = spawnSync('bash', ['-lc', landedB.watch], { cwd: epic, env: box?.env, encoding: 'utf8' })
     expect(watched.status).toBe(0)

@@ -17,7 +17,7 @@ export type GitResult = { code: number; stdout: string; stderr: string }
 /** Non-throwing, lossless git: stdout exactly as printed. */
 export type Git = (cwd: string, args: string[]) => Promise<GitResult>
 export type Gh = (cwd: string, args: string[]) => Promise<string>
-export type PrComment = { author: { login: string }; body: string }
+export type PrComment = { author: { login: string }; body: string; createdAt?: string; updatedAt?: string }
 export type Comments = () => Promise<{ me: string; comments: PrComment[] }>
 
 export type Producer = 'semctx' | 'assertledger'
@@ -30,6 +30,7 @@ export const NO_TEST_REASONS = ['infra-not-wired', 'prompt-logic-only', 'ui-manu
 export type NoTestReason = (typeof NO_TEST_REASONS)[number]
 
 const SHA = /^[0-9a-f]{40}$/
+const NATIVE_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/
 const CHANGES_DIR = '.semctx/semantic/changes/'
 const CONFIG = '.semctx/config.json'
 const STACK = '.dev/stack.yml'
@@ -423,9 +424,9 @@ export function renderRecord(producer: Producer, candidate: string, summary: str
   )
 }
 
-type Found = { record: unknown } | { missing: string } | { unreadable: string }
-/** The bodies of one posting of a record: a one-comment record, or a run of `total` parts in order. */
-type Run = { bodies: string[]; total: number; broken: boolean }
+type Found = { record: unknown; parts: PrComment[] } | { missing: string } | { unreadable: string }
+/** Native comments of one posting: a single record or a complete ordered run of parts. */
+type Run = { parts: PrComment[]; total: number; broken: boolean }
 
 /**
  * The latest record of `producer` for `candidate` by the automation login, in
@@ -450,22 +451,22 @@ export function findRecord(comments: PrComment[], me: string, producer: Producer
     }
     const part = Number(head[2] ?? 1)
     const total = Number(head[3] ?? 1)
-    if (part === 1) latest = { bodies: [comment.body], total, broken: false }
-    else if (latest && !latest.broken && latest.total === total && latest.bodies.length === part - 1)
-      latest.bodies.push(comment.body)
-    else latest = { bodies: [], total, broken: true }
+    if (part === 1) latest = { parts: [comment], total, broken: false }
+    else if (latest && !latest.broken && latest.total === total && latest.parts.length === part - 1)
+      latest.parts.push(comment)
+    else latest = { parts: [], total, broken: true }
   }
   if (latest === null) {
     const seen = others.length ? `; records by ${me} name ${[...new Set(others)].join(', ')}` : ''
     return { missing: `no ${producer} record by ${me} for candidate ${candidate}${seen}` }
   }
-  if (latest.broken || latest.bodies.length !== latest.total) {
+  if (latest.broken || latest.parts.length !== latest.total) {
     return {
       missing: `the latest ${producer} record by ${me} for candidate ${candidate} is incomplete: its ${latest.total} parts are not all present in order`,
     }
   }
   let json = ''
-  for (const body of latest.bodies) {
+  for (const { body } of latest.parts) {
     const lines = body.split('\n')
     const open = lines.indexOf(FENCE_OPEN)
     const close = open < 0 ? -1 : lines.indexOf(FENCE_CLOSE, open + 1)
@@ -473,7 +474,7 @@ export function findRecord(comments: PrComment[], me: string, producer: Producer
     json += lines.slice(open + 1, close).join('\n')
   }
   try {
-    return { record: JSON.parse(json) }
+    return { record: JSON.parse(json), parts: latest.parts }
   } catch (error) {
     return { unreadable: `the ${producer} record for ${candidate} is not JSON: ${errorMessage(error)}` }
   }
@@ -1100,6 +1101,46 @@ export async function semctxInputs(
   return { base: facts.base, mergeBase, contracts, config }
 }
 
+/** GitHub's native UTC instants, including a real calendar date; no inferred timestamp. */
+function nativeInstant(value: string | null | undefined): number | null {
+  if (typeof value !== 'string' || !NATIVE_INSTANT.test(value)) return null
+  const time = Date.parse(value)
+  if (!Number.isFinite(time) || new Date(time).toISOString().slice(0, 19) !== value.slice(0, 19)) return null
+  return time
+}
+
+/** Every selected PARTIAL part, including its last revision, was available to this review. */
+function reviewedPartial(parts: PrComment[], target: Target): Refusal | null {
+  const approved = nativeInstant(target.reviewedAt)
+  if (approved === null)
+    return refuse(
+      'semctx',
+      'unjustified',
+      `the review of PARTIAL candidate ${target.candidate} has no readable native creation time: re-review the head (feature §6.4)`,
+    )
+  let index = 0
+  for (const part of parts) {
+    index++
+    const created = nativeInstant(part.createdAt)
+    const revised = nativeInstant(part.updatedAt)
+    if (created === null || revised === null || revised < created) {
+      return refuse(
+        'semctx',
+        'unreadable',
+        `PARTIAL proof part ${index}/${parts.length} has unreadable native creation/revision facts (${JSON.stringify(part.createdAt)}, ${JSON.stringify(part.updatedAt)}); obtain readable GitHub metadata before re-review`,
+      )
+    }
+    if (!(created < approved && revised < approved)) {
+      return refuse(
+        'semctx',
+        'unjustified',
+        `PARTIAL proof part ${index}/${parts.length} was published/revised at ${part.createdAt}/${part.updatedAt}, not before approving review ${target.reviewedAt}: re-review the same head (feature §6.4), reuse the record without a producer`,
+      )
+    }
+  }
+  return null
+}
+
 const PR_BODY = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) { body lastEditedAt }
@@ -1177,6 +1218,8 @@ async function admitSemctx(
   if ('ok' in results) return results
   const changes = results.map(({ id, verdict }) => ({ id, verdict }))
   if (results.every((result) => result.verdict === 'VERIFIED')) return { verdict: 'VERIFIED', changes, gaps: [] }
+  const chronology = reviewedPartial(found.parts, target)
+  if (chronology) return chronology
   const pull = await reviewedBody(cwd, target, deps.gh, read.repository)
   if ('ok' in pull) return pull
   const { body } = pull

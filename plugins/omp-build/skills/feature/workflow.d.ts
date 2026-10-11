@@ -38,7 +38,10 @@ export declare function readComments(
   cwd: string,
   pr: number | string,
   deps?: { gh?: Gh },
-): Promise<{ me: string; comments: { body: string; author: { login: string }; createdAt?: string }[] }>
+): Promise<{
+  me: string
+  comments: { body: string; author: { login: string }; createdAt?: string; updatedAt?: string }[]
+}>
 
 export declare function openPr(
   cwd: string,

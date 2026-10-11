@@ -35,7 +35,7 @@ export type Spec = {
   path?: string[]
 }
 
-type SimComment = { author: string; body: string; createdAt?: string }
+type SimComment = { author: string; body: string; createdAt?: string | null; updatedAt?: string | null }
 type SimPull = {
   number: number
   body: string
@@ -339,6 +339,7 @@ export const SEMCTX_CASES = {
   amended: { pr: 27, branch: 'fix/1-amended', base: 'legacy' },
   hidden: { pr: 28, branch: 'fix/1-hidden', base: 'stray' },
   large: { pr: 29, branch: 'fix/1-large' },
+  largePartial: { pr: 36, branch: 'fix/1-large-partial' },
   e2eBlank: { pr: 31, branch: 'fix/1-e2e-blank', stack: `${STACK}commands:\n  test_e2e: ' '\n` },
   e2eNull: { pr: 32, branch: 'fix/1-e2e-null', stack: `${STACK}commands:\n  test_e2e:\n` },
   stackList: { pr: 33, branch: 'fix/1-stack-list', stack: '- landing\n' },
@@ -395,6 +396,11 @@ export function semctxSpec(overrides: Partial<Spec> = {}): Spec {
           },
           proven,
         ],
+      },
+      {
+        name: SEMCTX_CASES.largePartial.branch,
+        from: SEMCTX_CASES.large.branch,
+        commits: [{ message: 'test: evidence still pending (#1)', files: { [EVIDENCE]: evidence('declared') } }],
       },
       {
         name: SEMCTX_CASES.draft.branch,

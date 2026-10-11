@@ -1422,18 +1422,19 @@ function commentsFromPages(raw, pr) {
   }
   const entries = pages.flat()
   entries.sort((a, b) => String(a?.created_at ?? '').localeCompare(String(b?.created_at ?? '')))
-  // `createdAt` is carried only when readable: a record with no time judged no
-  // PR body edit, so the admission refuses every edited one (fails closed).
+  // Native facts stay optional/unreadable; PARTIAL admission never invents a missing time.
   return entries.map((entry) => {
     if (typeof entry?.body !== 'string') {
       throw new Error(`readComments: a comment page entry for ${pr} has no body`)
     }
     const login = entry?.user?.login
     const createdAt = entry.created_at
+    const updatedAt = entry.updated_at
     return {
       author: { login: typeof login === 'string' ? login : '' },
       body: entry.body,
-      ...(typeof createdAt === 'string' && !Number.isNaN(Date.parse(createdAt)) && { createdAt }),
+      ...(typeof createdAt === 'string' && { createdAt }),
+      ...(typeof updatedAt === 'string' && { updatedAt }),
     }
   })
 }
