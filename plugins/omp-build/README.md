@@ -193,8 +193,10 @@ before its diff; the review-start test exercises the fence, not model compliance
   the repository, PR, head, base, merge base, changed contracts and the Semctx
   configuration's sha256, and carry
   VERIFIED, or PARTIAL with each gap justified by a closed-enum NO TEST row.
-  A `type: fix` ticket needs a detection when the base or the head declares an
-  assertledger adapter. No producer, test or model runs at landing. A refusal is
+  A fix PR — a `fix/…` head branch, or a closing ticket typed Fix or Bug,
+  labelled `bug` or titled `fix…:` — needs a detection when the base or the head
+  declares an assertledger adapter; a PR whose type nothing establishes refuses.
+  No producer, test or model runs at landing. A refusal is
   `proof-blocked` with `producer`, `reason` and `error`, unarmed; `watching`
   reports the admitted `proof`. `proof-acquire` reuses a record that still
   binds, so an unchanged head is never re-proved. Assertledger records bind only

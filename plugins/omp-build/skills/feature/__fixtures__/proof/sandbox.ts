@@ -50,7 +50,7 @@ type SimPull = {
 export type SimState = {
   viewer: string
   prs: Record<string, SimPull>
-  issues: Record<string, { issueType?: string | null; comments: SimComment[] }>
+  issues: Record<string, { title: string; labels: string[]; issueType?: string | null; comments: SimComment[] }>
   checks: Record<
     string,
     { name: string; status: string; conclusion: string; workflowName: string; startedAt: string }[]

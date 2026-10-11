@@ -525,8 +525,7 @@ describe('landPr admission against conserved assertledger records', () => {
       ],
       prs: [
         ...spec.prs,
-        extra(22, [3]),
-        extra(23, [4]),
+        extra(22, [2, 3]),
         extra(24, []),
         { number: 25, branch: 'fix/2-unadapted', title: 'fix: clamp', body: 'Closes #2\n', closes: [2] },
       ],
@@ -581,19 +580,87 @@ describe('landPr admission against conserved assertledger records', () => {
     expect(gate).toEqual(UNARMED)
   })
 
-  it.each([
-    ['a feat ticket', 22],
-    ['an untyped ticket', 23],
-  ])('%s needs no detection: the adapter alone does not apply it', (_label, pr) => {
-    prepare(box, pr, { comments: [approve(sha(detection.branch))], body: 'x' })
-    const { result } = land(box, wt.detection as string, pr)
-    expect(result).toMatchObject({ status: 'watching', proof: { semctx: 'absent', assertledger: 'not-applicable' } })
+  describe('a fix is any fix signal of the head branch or a closing ticket', () => {
+    // The ticket and head branch of PR #20, whose detection record binds PR #20 and its candidate.
+    const NEUTRAL = { title: 'clamp above range', labels: ['size:F-lite'], issueType: null }
+    const shape = (head: string, ticket: { title: string; labels: string[]; issueType: string | null }) =>
+      writeSim(box, (state) => {
+        const pull = state.prs[String(detection.pr)]
+        const issue = state.issues['2']
+        if (!pull || !issue) throw new Error('PR #20 or issue #2 is missing')
+        pull.headRefName = head
+        Object.assign(issue, ticket)
+      })
+    afterAll(() => shape(detection.branch, { title: 'fix: clamp', labels: ['size:F-lite'], issueType: 'fix' }))
+
+    it.each([
+      ['a Fix-typed ticket', '2-clamp', { ...NEUTRAL, issueType: 'Fix' }],
+      ['a Bug-typed ticket', '2-clamp', { ...NEUTRAL, issueType: 'Bug' }],
+      ['a Bug-labelled ticket', '2-clamp', { ...NEUTRAL, labels: ['size:F-lite', 'Bug'] }],
+      ['a fix(…)-titled ticket', '2-clamp', { ...NEUTRAL, title: 'fix(clamp): above range' }],
+      ['a fix/ head branch', 'fix/2-clamp', NEUTRAL],
+      ['a Bug-typed ticket on a feat/ branch', 'feat/2-clamp', { ...NEUTRAL, issueType: 'Bug' }],
+    ])('%s owes a detection: refused without it, admitted with it', (_label, head, ticket) => {
+      shape(head, ticket)
+      const candidate = sha(detection.branch)
+      prepare(box, detection.pr, { comments: [approve(candidate)], body: 'Closes #2\n' })
+      const refused = land(box, wt.detection as string, detection.pr)
+      expect(refused.result).toMatchObject({ status: 'proof-blocked', producer: 'assertledger', reason: 'missing' })
+      expect(refused.gate).toEqual(UNARMED)
+      prepare(box, detection.pr, {
+        comments: [approve(candidate), conserved(RECORDS.assertledger, 'detection')],
+        body: 'Closes #2\n',
+      })
+      const admitted = land(box, wt.detection as string, detection.pr)
+      expect(admitted.result).toMatchObject({ status: 'watching', proof: { assertledger: 'detection' } })
+      expect([...refused.producers, ...admitted.producers]).toEqual([])
+    })
+
+    it.each([
+      ['a feat/ branch closing a feat ticket', 'feat/2-clamp', { ...NEUTRAL, title: 'feat: clamp', issueType: 'feat' }],
+      ['a feat/ branch closing an untyped ticket', 'feat/2-clamp', NEUTRAL],
+      ['an untyped branch closing a Feature-typed ticket', '2-clamp', { ...NEUTRAL, issueType: 'Feature' }],
+    ])('%s owes none: the adapter alone does not apply it', (_label, head, ticket) => {
+      shape(head, ticket)
+      prepare(box, detection.pr, { comments: [approve(sha(detection.branch))], body: 'Closes #2\n' })
+      const { result } = land(box, wt.detection as string, detection.pr)
+      expect(result).toMatchObject({ status: 'watching', proof: { semctx: 'absent', assertledger: 'not-applicable' } })
+    })
+
+    it('nothing establishing a type refuses: whether a detection is owed is unknown', () => {
+      shape('2-clamp', NEUTRAL)
+      prepare(box, detection.pr, { comments: [approve(sha(detection.branch))], body: 'Closes #2\n' })
+      const { result, gate } = land(box, wt.detection as string, detection.pr)
+      expect(result).toMatchObject({ status: 'proof-blocked', producer: 'assertledger', reason: 'unreadable' })
+      expect(result.error).toMatch(/establishes no ticket type/)
+      expect(gate).toEqual(UNARMED)
+    })
   })
 
-  it('a PR that closes no ticket cannot say whether a detection is owed, and refuses', () => {
+  it('a PR on an untyped branch closing a fix ticket and a feat ticket owes the detection', () => {
+    writeSim(box, (state) => {
+      const pull = state.prs['22']
+      if (!pull) throw new Error('no PR 22')
+      pull.headRefName = '2-clamp'
+    })
+    prepare(box, 22, { comments: [approve(sha(detection.branch))], body: 'Closes #2\nCloses #3' })
+    const { result, gate } = land(box, wt.detection as string, 22)
+    expect(result).toMatchObject({ status: 'proof-blocked', producer: 'assertledger', reason: 'missing' })
+    expect(gate).toEqual(UNARMED)
+  })
+
+  it.each([
+    ['an untyped branch cannot say whether a detection is owed, and refuses', '2-clamp', { reason: 'unreadable' }],
+    ['a fix/ branch owes the detection', 'fix/2-clamp', { reason: 'missing' }],
+  ])('a PR that closes no ticket on %s', (_label, head, expected) => {
+    writeSim(box, (state) => {
+      const pull = state.prs['24']
+      if (!pull) throw new Error('no PR 24')
+      pull.headRefName = head
+    })
     prepare(box, 24, { comments: [approve(sha(detection.branch))], body: 'x' })
     const { result, gate } = land(box, wt.detection as string, 24)
-    expect(result).toMatchObject({ status: 'proof-blocked', producer: 'assertledger', reason: 'unreadable' })
+    expect(result).toMatchObject({ status: 'proof-blocked', producer: 'assertledger', ...expected })
     expect(gate).toEqual(UNARMED)
   })
 })

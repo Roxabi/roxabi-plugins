@@ -11,6 +11,7 @@
 import { createHash } from 'node:crypto'
 import { lstatSync, readFileSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
+import { fixKind, type TicketSignals } from './epic'
 
 export type GitResult = { code: number; stdout: string; stderr: string }
 /** Non-throwing, lossless git: stdout exactly as printed. */
@@ -1034,17 +1035,34 @@ async function admitSemctx(
 const CLOSING_ISSUES = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
-      closingIssuesReferences(first: 25) { totalCount nodes { number issueType { name } } }
+      headRefName
+      closingIssuesReferences(first: 25) {
+        totalCount
+        nodes { number title labels(first: 50) { totalCount nodes { name } } issueType { name } }
+      }
     }
   }
 }`
 
+/** A closing issue node's type signals, or null when the node is not readable as one. */
+function signalsOf(node: unknown): TicketSignals | null {
+  if (!isMap(node) || typeof node.title !== 'string' || !isMap(node.labels) || !('issueType' in node)) return null
+  const labels = node.labels.nodes
+  if (!Array.isArray(labels) || node.labels.totalCount !== labels.length) return null
+  const names = labels.map((label) => (isMap(label) && typeof label.name === 'string' ? label.name : null))
+  const type = node.issueType
+  const issueType = isMap(type) && typeof type.name === 'string' ? type.name : null
+  if (names.includes(null) || (type !== null && issueType === null)) return null
+  return { title: node.title, labels: names.filter((label) => label !== null), issueType }
+}
+
 /**
  * Whether the assertledger requirement applies: the base or the candidate
  * declares an adapter (`assertledger.config.json` with an `adapter`, or the
- * kit's vitest adapter) and an issue the selected PR closes has the org issue
- * type `fix`, both read from their sources. An unreadable declaration or ticket
- * type refuses.
+ * kit's vitest adapter) and the selected PR is a fix (`fixKind`: its head
+ * branch, or a closing issue's title, labels or org issue type), all read from
+ * their sources. An unreadable declaration refuses, and so does a PR whose
+ * type nothing establishes.
  */
 export async function assertledgerApplies(
   cwd: string,
@@ -1085,23 +1103,29 @@ export async function assertledgerApplies(
   const pull = isMap(repo) ? repo.pullRequest : undefined
   const closing = isMap(pull) ? pull.closingIssuesReferences : undefined
   const nodes = isMap(closing) && Array.isArray(closing.nodes) ? closing.nodes : null
+  const tickets = nodes?.map(signalsOf) ?? []
   if (
+    !isMap(pull) ||
+    typeof pull.headRefName !== 'string' ||
     !isMap(closing) ||
     !nodes ||
     closing.totalCount !== nodes.length ||
-    !nodes.every((node) => isMap(node) && 'issueType' in node && (node.issueType === null || isMap(node.issueType)))
+    tickets.includes(null)
   ) {
     throw new Error(`the closing issues of PR #${target.pr} could not be read — ${raw.slice(0, 200)}`)
   }
-  if (!nodes.length) {
+  const kind = fixKind(
+    pull.headRefName,
+    tickets.filter((ticket) => ticket !== null),
+  )
+  if (kind === 'unknown') {
     return refuse(
       'assertledger',
       'unreadable',
-      `PR #${target.pr} closes no issue: the ticket type that decides the assertledger requirement (${adapter}) is unknown`,
+      `PR #${target.pr} (branch ${JSON.stringify(pull.headRefName)}, closing ${nodes.length} issue(s)) establishes no ticket type: whether ${adapter} owes a detection is unknown — type the ticket or name the branch <type>/<N>-<slug>`,
     )
   }
-  // An untyped closing issue is not a fix ticket; a typed one is read by name.
-  return nodes.some((node) => isMap(node) && isMap(node.issueType) && node.issueType.name === 'fix')
+  return kind === 'fix'
 }
 
 export type AssertledgerInvocation = {
