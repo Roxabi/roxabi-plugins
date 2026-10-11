@@ -314,7 +314,11 @@ export const SEMCTX_BASE: Files = {
  * lifecycle `verified` (a forced close), VERIFIED with no required evidence,
  * a non-change block under `changes/` that acquisition cannot record, PARTIAL
  * with an e2e command, and PARTIAL on a `release` base that declares an e2e
- * command the candidate deletes.
+ * command the candidate deletes. On a `legacy` base that holds a verified
+ * contract: a candidate that only modifies it (never recorded), and one that
+ * adds its own and modifies the old one. On a `stray` base whose `changes/`
+ * holds a file with no change: a VERIFIED candidate that declares another
+ * active change outside `changes/`, so the counts still match.
  */
 export const SEMCTX_CASES = {
   partial: { pr: 10, branch: 'fix/1-partial' },
@@ -325,13 +329,31 @@ export const SEMCTX_CASES = {
   mixed: { pr: 15, branch: 'fix/1-mixed' },
   e2e: { pr: 16, branch: 'fix/1-e2e' },
   e2eDeleted: { pr: 19, branch: 'fix/1-e2e-deleted', base: 'release' },
+  modified: { pr: 26, branch: 'fix/1-modified', base: 'legacy' },
+  amended: { pr: 27, branch: 'fix/1-amended', base: 'legacy' },
+  hidden: { pr: 28, branch: 'fix/1-hidden', base: 'stray' },
 } as const
+
+const OLD_CONTRACT = '.semctx/semantic/changes/change.fx.old.sem'
+const old = (statement: string) =>
+  [
+    'change change.fx.old',
+    `  statement: ${statement}`,
+    '  status: verified',
+    '  provenance: author',
+    SERVES,
+    PRESERVES,
+    '  requires_evidence: proof.fx.old-test',
+    LINK,
+    '',
+  ].join('\n')
 
 const fixWith = (lines: string[], extra: Files = {}): Commit => ({
   message: 'fix: finite add (#1)',
   files: { [CONTRACT]: contract(lines), 'src/a.ts': FINITE_ADD, ...extra },
 })
 const fix = fixWith([SERVES, PRESERVES, REQUIRES, LINK])
+const proven: Commit = { message: 'test: add proven (#1)', files: { [EVIDENCE]: evidence('tested') } }
 
 export function semctxSpec(overrides: Partial<Spec> = {}): Spec {
   const statusOf = (status: string) =>
@@ -343,7 +365,7 @@ export function semctxSpec(overrides: Partial<Spec> = {}): Spec {
       {
         name: SEMCTX_CASES.verified.branch,
         from: 'main',
-        commits: [fix, { message: 'test: add proven (#1)', files: { [EVIDENCE]: evidence('tested') } }],
+        commits: [fix, proven],
       },
       {
         name: SEMCTX_CASES.draft.branch,
@@ -375,6 +397,64 @@ export function semctxSpec(overrides: Partial<Spec> = {}): Spec {
         name: SEMCTX_CASES.e2eDeleted.branch,
         from: 'release',
         commits: [fixWith([SERVES, PRESERVES, REQUIRES, LINK], { '.dev/stack.yml': STACK })],
+      },
+      {
+        name: 'legacy',
+        from: 'main',
+        commits: [
+          {
+            message: 'feat: total add',
+            files: {
+              [OLD_CONTRACT]: old('Keep add total'),
+              '.semctx/semantic/evidence-old.sem':
+                'evidence proof.fx.old-test\n  statement: the add test runs\n  status: tested\n  link: test:src/a.test.ts\n',
+            },
+          },
+        ],
+      },
+      {
+        name: SEMCTX_CASES.modified.branch,
+        from: 'legacy',
+        commits: [
+          {
+            message: 'fix: finite add (#1)',
+            files: { [OLD_CONTRACT]: old('Keep add total and finite'), 'src/a.ts': FINITE_ADD },
+          },
+        ],
+      },
+      {
+        name: SEMCTX_CASES.amended.branch,
+        from: 'legacy',
+        commits: [
+          fix,
+          proven,
+          { message: 'docs: old contract (#1)', files: { [OLD_CONTRACT]: old('Keep add total and finite') } },
+        ],
+      },
+      {
+        name: 'stray',
+        from: 'main',
+        commits: [
+          {
+            message: 'docs: x',
+            files: { '.semctx/semantic/changes/x.sem': 'goal goal.fx.x\n  statement: not a change\n' },
+          },
+        ],
+      },
+      {
+        name: SEMCTX_CASES.hidden.branch,
+        from: 'stray',
+        commits: [
+          fix,
+          proven,
+          {
+            message: 'feat: real (#1)',
+            files: {
+              '.semctx/semantic/other.sem':
+                'change change.real\n  statement: The real change\n  status: active\n  provenance: author\n  serves: goal.fx.add\n  link: file:src/a.ts\n',
+            },
+          },
+        ],
       },
     ],
     issues: [{ number: 1, title: 'fix: finite add', issueType: 'fix' }],

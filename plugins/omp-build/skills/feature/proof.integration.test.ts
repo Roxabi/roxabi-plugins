@@ -336,6 +336,51 @@ describe('landPr admission against conserved Semctx records', () => {
     })
   })
 
+  describe('the proof is the change contract the candidate adds, and every open change is in its own file', () => {
+    it('a candidate that only modifies an older contract has no proof of its own: never recorded, refused', () => {
+      expect(RECORDS.semctx.records.modified).toMatchObject({ code: 1 })
+      expect(RECORDS.semctx.records.modified?.stderr).toMatch(
+        /adds no .*only modifies \.semctx\/semantic\/changes\/change\.fx\.old\.sem/,
+      )
+      const { pr, branch } = SEMCTX_CASES.modified
+      prepare(box, pr, { comments: [approve(sha(branch))] })
+      const { result, gate, producers } = land(box, wt.modified as string, pr)
+      expect(result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'missing' })
+      expect(result.error).toMatch(/adds no .*only modifies \.semctx\/semantic\/changes\/change\.fx\.old\.sem/)
+      expect(gate).toEqual(UNARMED)
+      expect(producers).toEqual([])
+    })
+
+    it('a candidate that adds its own contract and modifies an older one lands with both verified', () => {
+      const { pr, branch } = SEMCTX_CASES.amended
+      prepare(box, pr, { comments: [approve(sha(branch)), conserved(RECORDS.semctx, 'amended')] })
+      const { result, producers } = land(box, wt.amended as string, pr)
+      expect(result).toMatchObject({
+        status: 'watching',
+        proof: {
+          semctx: {
+            verdict: 'VERIFIED',
+            changes: [
+              { id: 'change.fx.add', verdict: 'VERIFIED' },
+              { id: 'change.fx.old', verdict: 'VERIFIED' },
+            ],
+          },
+        },
+      })
+      expect(producers).toEqual([])
+    })
+
+    it('an active change declared outside the contract files refuses, though the change counts match', () => {
+      const { pr, branch } = SEMCTX_CASES.hidden
+      prepare(box, pr, { comments: [approve(sha(branch)), conserved(RECORDS.semctx, 'hidden')] })
+      const { result, gate, producers } = land(box, wt.hidden as string, pr)
+      expect(result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'verdict' })
+      expect(result.error).toMatch(/change\(s\) change\.real are not committed as their own/)
+      expect(gate).toEqual(UNARMED)
+      expect(producers).toEqual([])
+    })
+  })
+
   it.each([
     ['a draft change', 'draft', /is draft; only an active, partial or verified change lands/],
     ['a PARTIAL change declared verified (a forced close)', 'closed', /closed as verified while its result is PARTIAL/],

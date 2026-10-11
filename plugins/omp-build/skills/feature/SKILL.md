@@ -571,11 +571,14 @@ and never produces: no producer, test or model call. The local tip must be that
 head. Semctx applies when `origin/<base>`, the head or the uncommitted
 configuration on disk at the root and the principal configures it; an adapter or
 `commands.test_e2e` applies when the base or the head declares it. Applicable §6.3 records must bind
-repository, PR, head, base, merge base and the changed contracts (assertledger's
+repository, PR, head, base, merge base, the changed contracts — at least one
+added by the head; a modified older contract never stands in for it — and the
+Semctx configuration (assertledger's
 reference world: the head's commit and tree), and are read with their native
 verdicts: VERIFIED, or PARTIAL with every gap justified; draft, blocked, stale,
-superseded, a PARTIAL closed as verified, and a VERIFIED that requires no
-evidence refuse. A refusal returns `proof-blocked` with `producer`
+superseded, a PARTIAL closed as verified, a VERIFIED that requires no
+evidence, and a non-terminal change that is not the one block of its own
+`changes/<id>.sem` refuse. A refusal returns `proof-blocked` with `producer`
 (`candidate` | `semctx` | `assertledger`), `reason` and `error` through the
 forced-unarmed exit; every arm binds the admitted head, and `watching` reports
 `proof`.
