@@ -1,8 +1,8 @@
 /**
  * Landing admission from producer evidence (#768).
  *
- * `admitLanding` only reads: Git objects of `origin/<base>` and the selected
- * candidate, the worktree and principal `.semctx` paths, the PR's comments and body. It never runs
+ * `admitLanding` only reads: Git objects of the freshly established selected base
+ * and candidate, the worktree and principal `.semctx` paths, the PR's comments and body. It never runs
  * Semctx, assertledger, a test or an LLM. The evidence was acquired earlier by
  * `proof-acquire.ts` in a private checkout of the candidate and conserved as a
  * PR comment by the automation login, or a run of parts (`renderRecord`);
@@ -57,13 +57,37 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/** Establish the selected origin branch once per attempt, before policy or applicability reads. */
+export async function refreshSelectedBase(cwd: string, base: string, tip: string, git: Git): Promise<Refusal | null> {
+  if (!base || base.startsWith('-') || !SHA.test(tip))
+    return refuse(
+      'candidate',
+      'unreadable',
+      `PR base ${JSON.stringify(base)} has no readable tip (${JSON.stringify(tip)})`,
+    )
+  const fetchArgs = ['fetch', '--quiet', '--no-tags', 'origin', `+refs/heads/${base}:refs/remotes/origin/${base}`]
+  const fetched = await git(cwd, fetchArgs)
+  if (fetched.code !== 0) return refuse('candidate', 'unreadable', gitError(fetchArgs, fetched))
+  const args = ['rev-parse', '--verify', `refs/remotes/origin/${base}^{commit}`]
+  const read = await git(cwd, args)
+  const actual = oneLine(read.stdout)
+  if (read.code !== 0 || !SHA.test(actual)) return refuse('candidate', 'unreadable', gitError(args, read))
+  return actual === tip
+    ? null
+    : refuse(
+        'candidate',
+        'unbound',
+        `Fetched base ${base}@${actual} conflicts with selected ${base}@${tip}; re-enter with the current coordinates`,
+      )
+}
+
 // ---------------------------------------------------------------------------
 // Candidate facts: the bound root, the principal, the base's and the candidate's
 // committed trees, and the configured Semctx state on disk
 // ---------------------------------------------------------------------------
 
 type TreeEntry = { mode: string; type: string; oid: string; path: string }
-/** A declaration committed at `at`: `origin/<base>` or the candidate sha. */
+/** A declaration committed at `at`: the established base tip or the candidate sha. */
 export type Declared = { at: string; entry: TreeEntry }
 
 /**
@@ -78,8 +102,9 @@ export type CandidateFacts = {
   /** `git rev-parse --show-toplevel` of the caller's cwd, lossless. */
   toplevel: string
   candidate: string
-  /** The PR base branch; its tree is read at `refs/remotes/origin/<base>`. */
+  /** The selected PR base branch and its freshly established, immutable commit. */
   base: string
+  baseTip: string
   semctx: 'absent' | 'configured'
   /** Set exactly when Semctx is configured. */
   config: SemctxConfig | null
@@ -174,7 +199,7 @@ async function declarations(git: Git, toplevel: string, rev: string): Promise<Tr
 /**
  * What the base and the candidate commit and what the checkouts hold, bound to
  * the repository root — never to the caller's cwd — and to a local tip that is
- * the candidate. Applicability is the union of `origin/<base>`, the candidate
+ * the candidate. Applicability is the union of the established base commit, the candidate
  * and the configured state on disk, so a PR cannot exempt itself by deleting a
  * declaration: Semctx applies when any of them holds `.semctx`, an adapter or
  * `test_e2e` applies when the base or the candidate declares it. Semctx runs
@@ -191,6 +216,7 @@ export async function candidateFacts(
   cwd: string,
   candidate: string,
   base: string | undefined,
+  baseTip: string,
   git: Git,
 ): Promise<CandidateFacts | Refusal> {
   if (!SHA.test(candidate))
@@ -198,6 +224,7 @@ export async function candidateFacts(
   if (!base || base.startsWith('-')) {
     return refuse('candidate', 'unreadable', `the PR base ${JSON.stringify(base ?? null)} is not a branch name`)
   }
+  if (!SHA.test(baseTip)) return refuse('candidate', 'unreadable', `PR base ${base} has no commit sha`)
   const top = await git(cwd, ['rev-parse', '--show-toplevel'])
   if (top.code !== 0) return refuse('candidate', 'unreadable', gitError(['rev-parse', '--show-toplevel'], top))
   const toplevel = oneLine(top.stdout)
@@ -229,12 +256,12 @@ export async function candidateFacts(
     return refuse('candidate', 'unreadable', `candidate ${candidate} cannot be read — ${entries.message}`)
   }
   const baseRef = `origin/${base}`
-  const baseEntries = await declarations(git, toplevel, `refs/remotes/${baseRef}`)
+  const baseEntries = await declarations(git, toplevel, baseTip)
   if (baseEntries instanceof Error) {
     return refuse('candidate', 'unreadable', `${baseRef} cannot be read — ${baseEntries.message}`)
   }
   const sides: [string, TreeEntry[]][] = [
-    [baseRef, baseEntries],
+    [baseTip, baseEntries],
     [candidate, entries],
   ]
   const declared = (pick: (tree: TreeEntry[]) => TreeEntry | null): Declared[] => {
@@ -254,6 +281,7 @@ export async function candidateFacts(
     toplevel,
     candidate,
     base,
+    baseTip,
     changeFiles: semctxEntries
       .map((entry) => entry.path)
       .filter((path) => path.startsWith(CHANGES_DIR) && path.endsWith('.sem'))
@@ -536,11 +564,10 @@ export async function changedContracts(
 export async function mergeBaseOf(
   git: Git,
   toplevel: string,
-  base: string,
+  baseTip: string,
   candidate: string,
 ): Promise<string | Error> {
-  // `base` was checked by `candidateFacts`: a branch name, never an option.
-  const args = ['merge-base', `refs/remotes/origin/${base}`, candidate]
+  const args = ['merge-base', baseTip, candidate]
   const result = await git(toplevel, args)
   const sha = oneLine(result.stdout)
   if (result.code !== 0 || !SHA.test(sha)) return new Error(gitError(args, result))
@@ -1014,7 +1041,13 @@ export type SemctxOutcome =
 export type ProofSummary = { semctx: SemctxOutcome; assertledger: 'not-applicable' | 'detection' }
 export type Admission = { ok: true; proof: ProofSummary } | Refusal
 /** `reviewedAt`: the creation time of the review record that approved `candidate`, which bounds the PR body it judged. */
-export type Target = { pr: number; candidate: string; base: string | undefined; reviewedAt: string | null }
+export type Target = {
+  pr: number
+  candidate: string
+  base: string | undefined
+  baseTip: string
+  reviewedAt: string | null
+}
 export type Deps = { gh: Gh; git: Git; comments: Comments }
 type Read = { me: string; comments: PrComment[]; repository: string }
 
@@ -1049,7 +1082,7 @@ export async function semctxInputs(
   git: Git,
 ): Promise<Pick<SemctxExpected, 'base' | 'mergeBase' | 'contracts' | 'config'> | Refusal> {
   if (!facts.config) return refuse('semctx', 'unreadable', `candidate ${facts.candidate} has no Semctx configuration`)
-  const mergeBase = await mergeBaseOf(git, facts.toplevel, facts.base, facts.candidate)
+  const mergeBase = await mergeBaseOf(git, facts.toplevel, facts.baseTip, facts.candidate)
   if (mergeBase instanceof Error)
     return refuse('semctx', 'unreadable', `merge-base with origin/${facts.base}: ${mergeBase.message}`)
   const changed = await changedContracts(git, facts.toplevel, mergeBase, facts.candidate)
@@ -1405,7 +1438,7 @@ async function admitAssertledger(
  * only Semctx non-applicable; the assertledger requirement is decided apart.
  */
 export async function admitLanding(cwd: string, target: Target, deps: Deps): Promise<Admission> {
-  const facts = await candidateFacts(cwd, target.candidate, target.base, deps.git)
+  const facts = await candidateFacts(cwd, target.candidate, target.base, target.baseTip, deps.git)
   if ('ok' in facts) return facts
   if (facts.semctx === 'absent' && !facts.adapters.length) {
     return { ok: true, proof: { semctx: 'absent', assertledger: 'not-applicable' } }

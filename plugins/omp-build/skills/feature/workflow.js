@@ -6,7 +6,7 @@
 import { spawnSync } from 'node:child_process'
 import { realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { admitLanding } from './proof'
+import { admitLanding, refreshSelectedBase } from './proof'
 
 /** @param {string} value */
 function shellQuote(value) {
@@ -557,7 +557,12 @@ export function readLanding(cwd, { base } = {}) {
   if (typeof base !== 'string' || !base) {
     throw new Error('readLanding: base is required — landing is read from origin/<base>, never the working tree')
   }
-  const refPath = (path) => `origin/${base}:${path}`
+  return readLandingAt(cwd, `refs/remotes/origin/${base}`)
+}
+
+/** Policy of the established base object, never a moving ref or the candidate. */
+function readLandingAt(cwd, at) {
+  const refPath = (path) => `${at}:${path}`
   const stack = gitSync(cwd, ['show', refPath('.dev/stack.yml')])
   const stackText = stack.status === 0 ? stack.stdout : ''
   const workflow = gitSync(cwd, ['cat-file', '-e', refPath('.github/workflows/merge-on-green.yml')])
@@ -738,7 +743,13 @@ export async function landPr(
     if (changed) return changed
     const admission = await admitLanding(
       cwd,
-      { pr: Number(pr), candidate: records.head, base: landingBase, reviewedAt: records.at },
+      {
+        pr: Number(pr),
+        candidate: records.head,
+        base: landingBase,
+        baseTip: landingContext.tip,
+        reviewedAt: records.at,
+      },
       { gh: ghFn, git: gitFn, comments: () => readComments(cwd, pr, { gh: ghFn }) },
     )
     if (!admission.ok) {
@@ -823,12 +834,14 @@ export async function landPr(
       } catch (error) {
         return baseBlocked('unreadable', `PR base cannot be read: ${errorText(error)}`)
       }
+      const baseRefused = await refreshSelectedBase(cwd, landingBase, landingContext.tip, gitFn)
+      if (baseRefused) return baseBlocked(baseRefused.reason, baseRefused.error)
       let resolved = landing
       if (!resolved) {
         try {
-          resolved = readLanding(cwd, { base: landingBase })
+          resolved = readLandingAt(cwd, landingContext.tip)
         } catch (error) {
-          return exit({ status: 'bad-landing', error: errorText(error) })
+          return exit({ status: 'bad-landing', error: errorText(error) }, { policy: 'unarmed' })
         }
       }
       if (resolved.mode === 'native') {

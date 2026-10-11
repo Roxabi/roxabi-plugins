@@ -189,6 +189,13 @@ before its diff; the review-start test exercises the fence, not model compliance
   A retarget or moved tip is `proof-blocked` / `candidate` / `unbound`;
   missing coordinates are `unreadable`. Both force clearing, never silently
   switch landing policy; re-entry captures the current base normally.
+  Each landing or acquisition attempt first fetches the selected origin branch
+  (not the principal-detection cache) and matches its tip to GitHub's selected
+  `baseRefOid`. Policy, declarations and merge-base consume that immutable
+  commit, not a tracking ref another await can rewrite. Failed fetches refuse
+  as `candidate/unreadable`; a different fetched tip is `candidate/unbound`.
+  Acquisition revalidates head, base name/tip and OPEN state before producers,
+  every publication part and its final reuse/absence report.
 - Then `landPr` admits that head (`admitLanding`, `proof.ts`), reading only: the
   local tip must be it; Semctx applies when `origin/<base>`, the head or the
   uncommitted `.semctx/config.json` on disk at the root and the principal
