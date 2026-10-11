@@ -85,6 +85,18 @@ function fail(message: string): never {
   throw new SimError(message)
 }
 
+/** GitHub's documented comment ceiling, modelled here apart from the code under test. */
+const GITHUB_COMMENT_LIMIT = 65536
+
+/** The comment body of `gh issue|pr comment`; GitHub refuses one above its ceiling and posts nothing. */
+function commentBody(flag: Map<string, string[]>): string {
+  const file = one(flag, '--body-file')
+  const body = file === '-' ? readFileSync(0, 'utf8') : file ? readFileSync(file, 'utf8') : (one(flag, '--body') ?? '')
+  if (body.length > GITHUB_COMMENT_LIMIT)
+    fail(`GraphQL: Body is too long (maximum is ${GITHUB_COMMENT_LIMIT} characters) (addComment)`)
+  return body
+}
+
 function statePath(): string {
   const path = process.env.GH_SIM_STATE
   if (!path) fail('gh: GH_SIM_STATE is unset')
@@ -608,9 +620,7 @@ function handle(state: State, argv: string[]): void {
     const number = positionals[2] ?? ''
     const issue = state.issues[number]
     if (!issue) fail(`gh: issue #${number} not found`)
-    const file = one(flag, '--body-file')
-    const body =
-      file === '-' ? readFileSync(0, 'utf8') : file ? readFileSync(file, 'utf8') : (one(flag, '--body') ?? '')
+    const body = commentBody(flag)
     issue.comments.push({ author: state.viewer, body, createdAt: stamp(state) })
     process.stdout.write(
       `https://example.test/${fullName(state)}/issues/${number}#issuecomment-${issue.comments.length}\n`,
@@ -641,9 +651,7 @@ function handle(state: State, argv: string[]): void {
 
   if (cmd === 'pr' && sub === 'comment') {
     const pr = requirePr(state, positionals[2] ?? '')
-    const file = one(flag, '--body-file')
-    const body =
-      file === '-' ? readFileSync(0, 'utf8') : file ? readFileSync(file, 'utf8') : (one(flag, '--body') ?? '')
+    const body = commentBody(flag)
     pr.comments.push({ author: state.viewer, body, createdAt: stamp(state) })
     process.stdout.write(
       `https://example.test/${fullName(state)}/pull/${pr.number}#issuecomment-${pr.comments.length}\n`,

@@ -408,7 +408,10 @@ bun "$SKILL_DIR/proof-acquire.ts" --pr <pr> [--assertledger-manifest <path>]
 It runs the producers for that head outside admission — Semctx in a private
 clean checkout of the candidate; assertledger as a replay of the manifest of an
 `assertledger check . --after <head> …` you ran — and conserves their native
-output as one PR comment per producer and head. A record that still binds is
+output as one PR comment per producer and head — a record above GitHub's
+65,536-character comment ceiling as an ordered run of `part=<i>/<n>` comments,
+which admission reads only whole (a part missing or out of order is a missing
+record; acquire again). A record that still binds is
 reused: same head and inputs, nothing runs again. Exit 1 names what is missing;
 it decides nothing. VERIFIED is Semctx's composition over the evidence statuses
 the contract declares, never a test run: mark evidence `tested` only for a test

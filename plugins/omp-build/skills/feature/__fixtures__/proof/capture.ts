@@ -42,18 +42,20 @@ import {
 } from './sandbox'
 
 const OUT = path.join(import.meta.dirname, 'records.json')
-type Captured = { code: number | null; stdout: string; stderr: string; record?: string }
+/** `record`: the proof comments the run posted, in order — one, or every part of a multipart record. */
+type Captured = { code: number | null; stdout: string; stderr: string; record?: string[] }
 
 function acquire(box: Box, cwd: string, pr: number, extra: string[] = []): Captured {
+  const before = readSim(box).prs[String(pr)]?.comments.length ?? 0
   const run = spawnSync(process.execPath, [ACQUIRE, '--pr', String(pr), ...extra], {
     cwd,
     env: box.env,
     encoding: 'utf8',
   })
-  const posted = readSim(box)
-    .prs[String(pr)]?.comments.filter((comment) => comment.body.startsWith('<!-- omp-build:proof producer='))
-    .at(-1)?.body
-  return { code: run.status, stdout: run.stdout, stderr: run.stderr, ...(posted !== undefined && { record: posted }) }
+  const posted = (readSim(box).prs[String(pr)]?.comments.slice(before) ?? [])
+    .filter((comment) => comment.body.startsWith('<!-- omp-build:proof producer='))
+    .map((comment) => comment.body)
+  return { code: run.status, stdout: run.stdout, stderr: run.stderr, ...(posted.length > 0 && { record: posted }) }
 }
 
 function which(name: string): string {
@@ -141,7 +143,13 @@ try {
     git: git(semctx, semctx.root, ['--version']),
   }
   writeFileSync(OUT, `${JSON.stringify(records, null, 2)}\n`)
-  console.log(JSON.stringify(records, (key, value) => (key === 'record' ? `${String(value).length} chars` : value), 2))
+  console.log(
+    JSON.stringify(
+      records,
+      (key, value) => (key === 'record' ? (value as string[]).map((part) => `${part.length} chars`) : value),
+      2,
+    ),
+  )
 } finally {
   for (const root of roots) rmSync(root, { recursive: true, force: true })
 }

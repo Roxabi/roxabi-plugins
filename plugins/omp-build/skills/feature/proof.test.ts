@@ -22,7 +22,7 @@ import {
   type SemctxExpected,
 } from './proof'
 
-type Capture = { sha: Record<string, string>; records: Record<string, { record?: string }> }
+type Capture = { sha: Record<string, string>; records: Record<string, { record?: string[] }> }
 type Producer = 'semctx' | 'assertledger'
 const RECORDS: Record<Producer, Capture> = JSON.parse(
   readFileSync(path.join(import.meta.dirname, '__fixtures__/proof/records.json'), 'utf8'),
@@ -42,9 +42,10 @@ function shaOf(producer: Producer, branch: string): string {
 
 /** A fresh copy of a conserved record, found in a PR comment the way admission finds it. */
 function conserved<Shape>(producer: Producer, name: string, candidate: string): Shape {
-  const body = RECORDS[producer].records[name]?.record
-  if (!body) throw new Error(`records.json holds no ${producer} ${name} record`)
-  const found = findRecord([{ author: { login: ME }, body }], ME, producer, candidate)
+  const parts = RECORDS[producer].records[name]?.record
+  if (!parts) throw new Error(`records.json holds no ${producer} ${name} record`)
+  const comments = parts.map((body) => ({ author: { login: ME }, body }))
+  const found = findRecord(comments, ME, producer, candidate)
   if (!('record' in found)) throw new Error(`the ${name} record does not parse`)
   return JSON.parse(JSON.stringify(found.record))
 }
