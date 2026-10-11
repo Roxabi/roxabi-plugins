@@ -113,6 +113,7 @@ The record is the one review F and R come from. Nothing else on the PR is input:
 2. ¬PR# → record := the latest `dev-review` output in this conversation, read with the same rules. No `dev-review` output → record := the findings the operator gave in the conversation; it has no `## Root causes` section.
 3. Record whether `## Root causes` is present. R_posted := its lines up to the next `##` heading.
    - body exactly `none` → R_posted = ∅, with the section still present. Parse F before any empty halt. An actionable finding in F makes the record `unplanned`: every actionable finding is uncited, and the run reports it (Phase 2 print, Exit, receipt). It is never read as a clean review.
+   - a `### RC-` block with `mechanism:`, `fix:` and `findings:` and none of `failure:`, `restored:`, `paths:`, `proof:` was written under the three-line cause contract that predates the seven-line plan → halt before any filing: `review record on PR #${PR} predates the seven-line cause plan — re-run dev-review`. Nothing is applied, filed or deferred.
    - `### RC-` blocks → R_posted. A block missing any of its seven lines — `mechanism:`, `fix:`, `failure:`, `restored:`, `paths:`, `proof:`, `findings:` — or carrying an empty one is malformed: it is not applied. Unambiguously cited findings that satisfy `blocks(f)` are filed per finding; the rest join the single deferral.
    - any other line in the section (text outside the blocks, a Conventional Comment) → halt: `review record on PR #${PR} has a malformed ## Root causes section — re-run dev-review`.
    - no section → R_posted = ∅ (a finding list from the conversation); only this case permits clustering.
@@ -385,6 +386,7 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 | No marked record by ME on the PR | Halt — run dev-review first |
 | `## Root causes` is exactly `none` | Parse F. No actionable finding → halt `No actionable findings`. Otherwise the record is `unplanned`: actionable findings stay uncited and file/defer without clustering; the plan print, receipt and Exit name it, and the run is never reported clean |
 | `## Root causes` has a line outside `### RC-` blocks | Halt — malformed record |
+| A `### RC-` block carries only `mechanism:`, `fix:` and `findings:` (a record from before the seven-line plan) | Halt before any filing — re-run dev-review. Nothing is applied, filed or deferred |
 | A block misses one of its seven lines, or one is empty | Not applied. Cited findings that satisfy `blocks(f)` are filed per finding. Cited findings that do not are deferred in the one issue |
 | Zero/multi-match member reference or conflicting memberships | Affected causes are not applied; retain findings in per-finding/uncited file/single-deferral paths exactly once. No anchor-only binding or reclustering |
 | Record has `### RC-` blocks | Use those blocks; do not recluster. Apply only the apply bucket. A malformed block is not in that bucket. Defer every well-formed block with no blocking member |

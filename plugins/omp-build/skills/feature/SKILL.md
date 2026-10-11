@@ -428,7 +428,9 @@ step from the records.
   one plan of each well-formed posted root cause that contains a blocking finding, and
   falsifies it against the cause's own proof. A block missing any of its seven lines
   (`skill://dev-review/root-causes.md` § Record) is not applied; its blocking cited
-  findings are filed per finding. It does not stop for a per-finding choice.
+  findings are filed per finding. A record from before the seven-line plan (blocks
+  with only `mechanism:`, `fix:` and `findings:`) halts it with nothing applied or
+  filed: that PR needs one re-review. It does not stop for a per-finding choice.
   Non-blocking causes are not applied; they go into one sibling follow-up, blocked by
   the origin. A blocking cause it cannot apply becomes its own sibling issue, and it
   still blocks.
