@@ -35,7 +35,7 @@ export type Spec = {
   path?: string[]
 }
 
-type SimComment = { author: string; body: string }
+type SimComment = { author: string; body: string; createdAt?: string }
 type SimPull = {
   number: number
   body: string
@@ -45,6 +45,7 @@ type SimPull = {
   labels: string[]
   autoMerge: { enabledAt: string; matchHeadCommit?: string } | null
   comments: SimComment[]
+  lastEditedAt?: string | null
   closes: number[]
 }
 export type SimState = {

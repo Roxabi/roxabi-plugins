@@ -502,7 +502,7 @@ describe('resolveReviewPr — a fork PR is not this branch’s PR', () => {
 
 describe('reviewRecords — strict, author-bound, first-line records', () => {
   it('reads nothing from an empty history', () => {
-    expect(reviewRecords([], { me: ME })).toEqual({ reviews: 0, verdict: null, head: null, spent: false })
+    expect(reviewRecords([], { me: ME })).toEqual({ reviews: 0, verdict: null, head: null, at: null, spent: false })
   })
 
   it('counts every record and reads the verdict and head of the latest', () => {
@@ -510,8 +510,20 @@ describe('reviewRecords — strict, author-bound, first-line records', () => {
       reviews: 2,
       verdict: 'Approve with comments',
       head: C2,
+      at: null,
       spent: false,
     })
+  })
+
+  it('reads the creation time of the latest record, never of a later comment that is not one', () => {
+    const at = (entry, createdAt) => ({ ...entry, createdAt })
+    const comments = [
+      at(red(C1), '2026-01-01T00:00:01Z'),
+      at(approve(C2), '2026-01-01T00:00:02Z'),
+      at(comment('a receipt'), '2026-01-01T00:00:03Z'),
+      at(comment(RED, 'attacker'), '2026-01-01T00:00:04Z'),
+    ]
+    expect(reviewRecords(comments, { me: ME })).toMatchObject({ head: C2, at: '2026-01-01T00:00:02Z' })
   })
 
   it.each(['Request changes', 'Approve with comments', 'Approve (clean)', 'Approve'])(
@@ -571,7 +583,7 @@ describe('reviewRecords — strict, author-bound, first-line records', () => {
         ],
         { me: ME },
       ),
-    ).toEqual({ reviews: 1, verdict: 'Approve', head: C1, spent: false })
+    ).toEqual({ reviews: 1, verdict: 'Approve', head: C1, at: null, spent: false })
   })
 
   it('reads a record only from its first line', () => {
@@ -581,7 +593,13 @@ describe('reviewRecords — strict, author-bound, first-line records', () => {
       comment(`\`\`\`\n${RED}\n\`\`\``),
       comment(RED.replace('-->', '--> and more')),
     ]
-    expect(reviewRecords(notRecords, { me: ME })).toEqual({ reviews: 0, verdict: null, head: null, spent: false })
+    expect(reviewRecords(notRecords, { me: ME })).toEqual({
+      reviews: 0,
+      verdict: null,
+      head: null,
+      at: null,
+      spent: false,
+    })
   })
 
   it('reads a record whose lines end in CRLF', () => {
@@ -590,6 +608,7 @@ describe('reviewRecords — strict, author-bound, first-line records', () => {
       reviews: 1,
       verdict: 'Request changes',
       head: C1,
+      at: null,
       spent: false,
     })
   })
@@ -635,6 +654,7 @@ describe('reviewRecords — strict, author-bound, first-line records', () => {
       reviews: 2,
       verdict: 'Approve',
       head: null,
+      at: null,
       spent: false,
     })
   })
@@ -658,6 +678,7 @@ describe('reviewRecords — strict, author-bound, first-line records', () => {
       reviews: 4,
       verdict: 'Approve',
       head: C3,
+      at: null,
       spent: true,
     })
   })

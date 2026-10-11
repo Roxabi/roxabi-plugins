@@ -602,7 +602,7 @@ describe('admitLanding', () => {
     expect(
       await admitLanding(
         toplevel,
-        { pr: 5, candidate: C, base: 'main' },
+        { pr: 5, candidate: C, base: 'main', reviewedAt: null },
         { gh: silent, git: repoGit({ toplevel }), comments: silent },
       ),
     ).toEqual({ ok: true, proof: { semctx: 'absent', assertledger: 'not-applicable' } })
@@ -613,7 +613,7 @@ describe('admitLanding', () => {
     const git = repoGit({ toplevel, ...configured() })
     const gh = async () => JSON.stringify({ nameWithOwner: REPOSITORY })
     await expect(
-      admitLanding(toplevel, { pr: 5, candidate: C, base: 'main' }, { gh, git, comments: silent }),
+      admitLanding(toplevel, { pr: 5, candidate: C, base: 'main', reviewedAt: null }, { gh, git, comments: silent }),
     ).rejects.toThrow('GitHub was asked')
   })
 
@@ -629,7 +629,11 @@ describe('admitLanding', () => {
       return JSON.stringify({ nameWithOwner: REPOSITORY })
     }
     expect(
-      await admitLanding(toplevel, { pr: 5, candidate: C, base: 'main' }, { gh, git, comments: silent }),
+      await admitLanding(
+        toplevel,
+        { pr: 5, candidate: C, base: 'main', reviewedAt: null },
+        { gh, git, comments: silent },
+      ),
     ).toMatchObject({
       ok: false,
       producer: 'assertledger',
@@ -659,7 +663,11 @@ describe('admitLanding', () => {
             },
           })
         : JSON.stringify({ nameWithOwner: REPOSITORY })
-    const admitted = admitLanding(toplevel, { pr: 5, candidate: C, base: 'main' }, { gh, git, comments: silent })
+    const admitted = admitLanding(
+      toplevel,
+      { pr: 5, candidate: C, base: 'main', reviewedAt: null },
+      { gh, git, comments: silent },
+    )
     if (totalCount === nodes.length) {
       expect(await admitted).toEqual({ ok: true, proof: { semctx: 'absent', assertledger: 'not-applicable' } })
     } else {

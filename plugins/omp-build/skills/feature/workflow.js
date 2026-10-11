@@ -794,10 +794,11 @@ export async function landPr(
         if (required.length === 0) return exit({ status: 'no-required-checks' }, { policy: 'unarmed' })
       }
       // Landing admission (#768): reads conserved producer evidence for exactly
-      // this candidate; it never runs a producer, a test or a reviewer.
+      // this candidate; it never runs a producer, a test or a reviewer. The
+      // approving record's time bounds which PR body that review judged.
       const admission = await admitLanding(
         cwd,
-        { pr: Number(pr), candidate: records.head, base: landingBase },
+        { pr: Number(pr), candidate: records.head, base: landingBase, reviewedAt: records.at },
         { gh: ghFn, git: gitFn, comments: () => readComments(cwd, pr, { gh: ghFn }) },
       )
       if (!admission.ok) {
@@ -1301,20 +1302,21 @@ function reviewIdentity(me) {
 
 /**
  * The review records by `me` among `comments`, in the order given (GitHub
- * creation order). `verdict` and `head` are the latest record's; `verdict` is
- * null when its declarations are missing or conflict, `head` when line 2 is not
- * a review-head line. `spent`: a record past the `MAX_FIX_ROUNDS`-th does not
- * approve. The bound is then spent for good — a later green does not lift it.
+ * creation order). `verdict`, `head` and `at` are the latest record's; `verdict`
+ * is null when its declarations are missing or conflict, `head` when line 2 is
+ * not a review-head line, `at` when the comment carries no `createdAt`. `spent`:
+ * a record past the `MAX_FIX_ROUNDS`-th does not approve. The bound is then
+ * spent for good — a later green does not lift it.
  *
- * @param {{ body: string, author: { login: string } | null }[]} comments
+ * @param {{ body: string, author: { login: string } | null, createdAt?: string }[]} comments
  * @param {{ me: string }} options
- * @returns {{ reviews: number, verdict: string | null, head: string | null, spent: boolean }}
+ * @returns {{ reviews: number, verdict: string | null, head: string | null, at: string | null, spent: boolean }}
  */
 export function reviewRecords(comments, { me } = {}) {
   if (!Array.isArray(comments)) throw new TypeError('reviewRecords: comments must be an array')
   const who = reviewIdentity(me)
   let reviews = 0
-  /** @type {string | null} */
+  /** @type {{ body: string, createdAt?: string } | null} */
   let latest = null
   let spent = false
   for (const entry of comments) {
@@ -1324,10 +1326,16 @@ export function reviewRecords(comments, { me } = {}) {
     if (typeof entry.body !== 'string') throw new TypeError('reviewRecords: comment body must be a string')
     if (!CODE_REVIEW_FIRST_LINE.test(commentFirstLine(entry.body))) continue
     reviews++
-    latest = entry.body
+    latest = entry
     if (reviews > MAX_FIX_ROUNDS && !approves(reviewVerdict(entry.body))) spent = true
   }
-  return { reviews, verdict: latest === null ? null : reviewVerdict(latest), head: reviewHeadOf(latest), spent }
+  return {
+    reviews,
+    verdict: latest === null ? null : reviewVerdict(latest.body),
+    head: reviewHeadOf(latest?.body ?? null),
+    at: typeof latest?.createdAt === 'string' ? latest.createdAt : null,
+    spent,
+  }
 }
 
 /** Issue-comment pages, every page. `gh pr view --json comments` is a silent first 100. */
@@ -1348,12 +1356,19 @@ function commentsFromPages(raw, pr) {
   }
   const entries = pages.flat()
   entries.sort((a, b) => String(a?.created_at ?? '').localeCompare(String(b?.created_at ?? '')))
+  // `createdAt` is carried only when readable: a record with no time judged no
+  // PR body edit, so the admission refuses every edited one (fails closed).
   return entries.map((entry) => {
     if (typeof entry?.body !== 'string') {
       throw new Error(`readComments: a comment page entry for ${pr} has no body`)
     }
     const login = entry?.user?.login
-    return { author: { login: typeof login === 'string' ? login : '' }, body: entry.body }
+    const createdAt = entry.created_at
+    return {
+      author: { login: typeof login === 'string' ? login : '' },
+      body: entry.body,
+      ...(typeof createdAt === 'string' && !Number.isNaN(Date.parse(createdAt)) && { createdAt }),
+    }
   })
 }
 
@@ -1365,7 +1380,7 @@ function commentsFromPages(raw, pr) {
  * @param {string} cwd
  * @param {number | string} pr
  * @param {{ gh?: (cwd: string, args: string[]) => Promise<string> }} [deps]
- * @returns {Promise<{ me: string, comments: { body: string, author: { login: string } }[] }>}
+ * @returns {Promise<{ me: string, comments: { body: string, author: { login: string }, createdAt?: string }[] }>}
  */
 export async function readComments(cwd, pr, { gh: ghFn = gh } = {}) {
   const me = reviewIdentity(await ghFn(cwd, ['api', 'user', '--jq', '.login']))

@@ -192,7 +192,9 @@ before its diff; the review-start test exercises the fence, not model compliance
   `proof-acquire.ts` posted after the push, one per producer and head — must bind
   the repository, PR, head, base, merge base, changed contracts (at least one
   added by the head) and the Semctx configuration's sha256, and carry
-  VERIFIED, or PARTIAL with each gap justified by a closed-enum NO TEST row.
+  VERIFIED, or PARTIAL with each gap justified by a closed-enum NO TEST row in
+  a PR body last edited before the approving record (an edit after it returns
+  the PR to review).
   A fix PR — a `fix/…` head branch, or a closing ticket typed Fix or Bug,
   labelled `bug` or titled `fix…:` — needs a detection when the base or the head
   declares an assertledger adapter; a PR whose type nothing establishes refuses.
