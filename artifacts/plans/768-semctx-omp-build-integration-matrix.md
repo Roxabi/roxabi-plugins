@@ -294,6 +294,14 @@ the PR body names that pushed candidate and the actual final check counts.
 Falsification disposition is six passes (code/proof causes) and three explicit
 NO TEST — prompt-logic-only skips (RC-3/RC-4/RC-7); a skip is never a pass.
 
+The first final whole-suite run at `5b781844` passed 4,246 behavioral/other
+tests and failed two obsolete wording pins in `review-head-contract.test.ts`
+and `taxonomy-edge.test.ts`. Both files assert prose/source wiring only, not
+review publication or fix behaviour. RC-5's contract migration removes those
+tests rather than re-pinning the new wording; its native pre-post/admission
+comparison and current-head consumer proofs remain the behavioral evidence.
+The canonical final receipt records the subsequent post-writer suite result.
+
 Non-blocking provenance is conserved in [#783](https://github.com/Roxabi/roxabi-plugins/issues/783):
 body timestamp classification, ADR banner attribution, combined re-entry proof,
 CLI boundary/reuse-policy suggestions, and assertion/title residue. Existing
