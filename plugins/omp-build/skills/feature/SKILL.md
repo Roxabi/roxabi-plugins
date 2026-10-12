@@ -515,21 +515,27 @@ step from the records.
 pre-review (`skill://fix` Phase 3 § Local pre-review: read-only plan conformity, not
 `dev-review`, no post/label/gate, no review bound spent) → falsification → clean tree,
 global lint/tests, actual-path runtime smoke → the final costly or infrastructure
-proof on the final head → push only that final pre-reviewed, verified head. Any later
-permanent change is pre-reviewed again and its affected proof refreshed per the
+proof on the final head → push only that final pre-reviewed, verified head with
+resolved conformity. Any later permanent change is pre-reviewed again and its affected proof refreshed per the
 `skill://fix` Phase 3 post-commit rule. A red or unavailable required smoke, proof or
 authorization halts with the commits local — no push, no receipt — and is reported as
 red or unavailable, never as checked.
 
 **`ci-failed` fixes** stay inline and never run `fix`: baseline := the head whose CI
 failed; equivalent light checks → commit → the same plain pre-review of the actual
-unpublished diff from that baseline, judged against the failed checks and their logs
-(there is no root-cause record) → the `skill://fix` post-commit rule for any later
-delta, where the failed checks and logs (`land.failed`) stand in for the cause plan —
-no RC is required and `fix` is not run, so a correction within that CI scope uses the
-same bounded verification instead of halting for want of an `r` → the Phase 5 order
-above (clean tree, global lint/tests, smoke, costly proof; same halt rule) → push only
-the matching pre-reviewed, clean head.
+unpublished diff from that baseline, judged against `land.failed` and its logs
+(there is no root-cause record). Retain the last read head `P` and its conformity
+result: a mismatch is not cleared merely by reading it or setting `P = HEAD`.
+A mismatch correction stays inside those failed checks/logs: inline light checks →
+scoped commit → pre-review only the new delta. Each such attempt, including one
+with green checks or a conforming retry, consumes the remaining Phase 5 max-3
+lint/test retry allowance; carry it into global verification without resetting it.
+Out of allowance or an unbound correction → halt locally, no push or receipt:
+no invented RC, filing or new counter. Later permanent deltas use the shared
+post-commit rule with `land.failed` standing in for the cause plan. Then follow the
+Phase 5 order above (clean tree, global lint/tests, smoke, costly proof; same halt
+rule). Push requires matching clean `HEAD = P` **and resolved conformity**, not
+just a read of the delta.
 
 **Receipt:** in a review-driven round, `fix` posts it even when no cause was
 applied and no push was needed. For an inline `ci-failed` correction with new
