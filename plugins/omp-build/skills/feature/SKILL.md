@@ -462,6 +462,8 @@ the matching pre-reviewed, clean head.
 applied and no push was needed. For an inline `ci-failed` correction with new
 commits, post it after the required push succeeds. A failed push or required-proof
 halt produces no success receipt.
+A review-driven halt returns its known failed/filed issue links in the error;
+re-entry uses `fix` Phase 2's receipt-free disposition lookup before any reapplication.
 The receipt is for humans: no gate reads it, and a failed post is reported, not
 retried. It never reports a falsification skip as a pass, nor a `none` record
 with actionable findings as clean. State `step.remaining`, then §6.4 — the
