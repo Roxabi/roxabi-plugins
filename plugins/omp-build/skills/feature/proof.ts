@@ -58,28 +58,28 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-/** Establish the selected origin branch once per attempt, before policy or applicability reads. */
-export async function refreshSelectedBase(cwd: string, base: string, tip: string, git: Git): Promise<Refusal | null> {
-  if (!base || base.startsWith('-') || !SHA.test(tip))
-    return refuse(
-      'candidate',
-      'unreadable',
-      `PR base ${JSON.stringify(base)} has no readable tip (${JSON.stringify(tip)})`,
-    )
+/**
+ * Establish the selected base: fetch the PR's base branch from origin and return
+ * the fetched tip, before policy or applicability reads. GitHub's `baseRefOid` is
+ * recorded when the PR is opened, its head pushed or its base retargeted, and does
+ * not follow the branch: the fetch, never that field, is the selected tip, and a
+ * later fetch that differs from it is a moved base.
+ */
+export async function refreshSelectedBase(
+  cwd: string,
+  base: string,
+  git: Git,
+): Promise<{ ok: true; tip: string } | Refusal> {
+  if (!base || base.startsWith('-'))
+    return refuse('candidate', 'unreadable', `PR base ${JSON.stringify(base)} is not a branch name`)
   const fetchArgs = ['fetch', '--quiet', '--no-tags', 'origin', `+refs/heads/${base}:refs/remotes/origin/${base}`]
   const fetched = await git(cwd, fetchArgs)
   if (fetched.code !== 0) return refuse('candidate', 'unreadable', gitError(fetchArgs, fetched))
   const args = ['rev-parse', '--verify', `refs/remotes/origin/${base}^{commit}`]
   const read = await git(cwd, args)
-  const actual = oneLine(read.stdout)
-  if (read.code !== 0 || !SHA.test(actual)) return refuse('candidate', 'unreadable', gitError(args, read))
-  return actual === tip
-    ? null
-    : refuse(
-        'candidate',
-        'unbound',
-        `Fetched base ${base}@${actual} conflicts with selected ${base}@${tip}; re-enter with the current coordinates`,
-      )
+  const tip = oneLine(read.stdout)
+  if (read.code !== 0 || !SHA.test(tip)) return refuse('candidate', 'unreadable', gitError(args, read))
+  return { ok: true, tip }
 }
 
 // ---------------------------------------------------------------------------

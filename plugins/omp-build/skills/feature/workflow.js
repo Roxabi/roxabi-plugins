@@ -569,10 +569,21 @@ function readLandingAt(cwd, at) {
   return parseLanding(stackText, { mergeOnGreenWorkflow: workflow.status === 0 })
 }
 
-/** The selected PR's base coordinates, never a guessed principal branch. */
-async function resolveLandingBase(cwd, pr, ghFn) {
-  const data = await readPrFields(cwd, pr, ghFn, 'baseRefName,baseRefOid')
-  return { name: data.baseRefName, tip: data.baseRefOid }
+/**
+ * The selected base branch `name`, at the tip a fresh fetch of it reads — never
+ * a guessed principal branch, and never `baseRefOid`, which GitHub records at
+ * creation, head push or retarget and does not advance when the branch moves.
+ * A failed fetch is carried as `refusal`.
+ */
+async function fetchBase(cwd, name, gitFn) {
+  const fetched = await refreshSelectedBase(cwd, typeof name === 'string' ? name : '', gitFn)
+  return fetched.ok ? { name, tip: fetched.tip } : { name, refusal: fetched }
+}
+
+/** The selected PR's base coordinates: its base name read from GitHub, its tip fetched. */
+async function resolveLandingBase(cwd, pr, ghFn, gitFn) {
+  const data = await readPrFields(cwd, pr, ghFn, 'baseRefName')
+  return fetchBase(cwd, data.baseRefName, gitFn)
 }
 
 /** Attempts to read a labeled-reviewed time newer than the pre-add snapshot. */
@@ -696,11 +707,8 @@ export async function landPr(
   const baseBlocked = (reason, error) =>
     exit({ status: 'proof-blocked', producer: 'candidate', reason, error }, { policy: 'unarmed' })
   const bindBase = (current) => {
-    if (typeof current.name !== 'string' || !current.name || !isCommitSha(current.tip)) {
-      return baseBlocked(
-        'unreadable',
-        `PR base ${JSON.stringify(current.name)} has no readable tip (${JSON.stringify(current.tip)})`,
-      )
+    if (current.refusal) {
+      return baseBlocked(current.refusal.reason, `PR base ${JSON.stringify(current.name)}: ${current.refusal.error}`)
     }
     if (landingContext && (current.name !== landingContext.name || current.tip !== landingContext.tip)) {
       return baseBlocked(
@@ -711,8 +719,8 @@ export async function landPr(
     return null
   }
   const readCoordinates = async () => {
-    const data = await readPrFields(cwd, pr, ghFn, 'headRefOid,baseRefName,baseRefOid')
-    return { head: data.headRefOid, base: { name: data.baseRefName, tip: data.baseRefOid } }
+    const data = await readPrFields(cwd, pr, ghFn, 'headRefOid,baseRefName')
+    return { head: data.headRefOid, base: await fetchBase(cwd, data.baseRefName, gitFn) }
   }
   const checkCoordinates = async (adapter) => {
     const current = await readCoordinates()
@@ -739,7 +747,7 @@ export async function landPr(
   const admit = async () => {
     let current
     try {
-      current = await resolveLandingBase(cwd, pr, ghFn)
+      current = await resolveLandingBase(cwd, pr, ghFn, gitFn)
     } catch (error) {
       return baseBlocked('unreadable', `PR base cannot be read: ${errorText(error)}`)
     }
@@ -831,7 +839,7 @@ export async function landPr(
         return exit(refused('head-moved'), { policy: 'unarmed' })
       }
       try {
-        const selected = await resolveLandingBase(cwd, pr, ghFn)
+        const selected = await resolveLandingBase(cwd, pr, ghFn, gitFn)
         const blocked = bindBase(selected)
         if (blocked) return blocked
         landingContext = selected
@@ -839,8 +847,6 @@ export async function landPr(
       } catch (error) {
         return baseBlocked('unreadable', `PR base cannot be read: ${errorText(error)}`)
       }
-      const baseRefused = await refreshSelectedBase(cwd, landingBase, landingContext.tip, gitFn)
-      if (baseRefused) return baseBlocked(baseRefused.reason, baseRefused.error)
       let resolved = landing
       if (!resolved) {
         try {

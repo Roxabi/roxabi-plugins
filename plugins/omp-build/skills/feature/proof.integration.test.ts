@@ -89,6 +89,18 @@ function producerCalls(box: Box): string[] {
   return existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n') : []
 }
 
+/** The `baseRefOid` GitHub reports for `pr`: the tip it recorded, which a push to the base branch leaves. */
+function recordedBaseOf(box: Box, pr: number): string | undefined {
+  const view: { baseRefOid?: string } = JSON.parse(
+    execFileSync('gh', ['pr', 'view', String(pr), '--json', 'baseRefOid'], {
+      cwd: box.principal,
+      env: box.env,
+      encoding: 'utf8',
+    }),
+  )
+  return view.baseRefOid
+}
+
 function prepare(
   box: Box,
   pr: number,
@@ -143,10 +155,10 @@ function mutateAfter(
     | 'base-read'
     | 'acquisition-comments'
     | 'repository-read'
-    | 'admission-base-read',
+    | 'admission-base-read'
+    | 'comment-write',
   change: string,
   failClear?: '--disable-auto' | '--remove-label',
-  frozenBaseTip?: string,
 ): () => void {
   const dir = mkdtempSync(path.join(box.root, 'gh-move-'))
   const originalPath = box.env.PATH
@@ -168,12 +180,12 @@ const comments = args.some((arg) => arg.endsWith('/comments'))
 const countFile = ${JSON.stringify(path.join(dir, 'comment-reads'))}
 const count = comments ? (existsSync(countFile) ? Number(readFileSync(countFile, 'utf8')) : 0) + 1 : 0
 if (comments) writeFileSync(countFile, String(count))
-const baseRead = (args[args.indexOf('--json') + 1] ?? '') === 'baseRefName,baseRefOid'
+const baseRead = (args[args.indexOf('--json') + 1] ?? '') === 'baseRefName'
 const baseCountFile = ${JSON.stringify(path.join(dir, 'base-reads'))}
 const baseCount = baseRead ? (existsSync(baseCountFile) ? Number(readFileSync(baseCountFile, 'utf8')) : 0) + 1 : 0
 if (baseRead) writeFileSync(baseCountFile, String(baseCount))
 const when = ${JSON.stringify(when)}
-const matches = when === 'base-read' ? (args[args.indexOf('--json') + 1] ?? '').includes('baseRefName,baseRefOid')
+const matches = when === 'base-read' ? baseRead
   : when === 'admission-base-read' ? baseRead && baseCount === 2
   : when === 'repository-read' ? args[0] === 'repo' && args[1] === 'view'
   : when === 'acquisition-comments' ? comments && count === 1
@@ -181,6 +193,7 @@ const matches = when === 'base-read' ? (args[args.indexOf('--json') + 1] ?? '').
   : when === 'classification-read' ? query.includes('issueType')
   : when === 'admission-comments' ? comments && count === 2
   : when === 'pin-write' ? args[0] === 'pr' && args[1] === 'merge' && args.includes('--auto')
+  : when === 'comment-write' ? args[0] === 'pr' && args[1] === 'comment'
   : when === 'disable-write' ? args[0] === 'pr' && args[1] === 'merge' && args.includes('--disable-auto')
   : when === 'remove-label-write' ? args[0] === 'pr' && args[1] === 'edit' && args.includes('--remove-label')
   : args[0] === 'pr' && args[1] === 'edit' && args.includes('--add-label')
@@ -189,11 +202,6 @@ if (out.status === 0 && matches && !existsSync(${JSON.stringify(once)})) {
   ${change}
   writeFileSync(process.env.GH_SIM_STATE, JSON.stringify(state))
   writeFileSync(${JSON.stringify(once)}, 'changed\\n')
-}
-if (${JSON.stringify(frozenBaseTip ?? '')} && out.status === 0 && args.includes('--json') && (args[args.indexOf('--json') + 1] ?? '').includes('baseRefOid')) {
-  const fields = JSON.parse(out.stdout)
-  fields.baseRefOid = ${JSON.stringify(frozenBaseTip ?? '')}
-  out.stdout = JSON.stringify(fields) + '\\n'
 }
 process.stdout.write(out.stdout)
 process.stderr.write(out.stderr)
@@ -373,7 +381,7 @@ describe('landPr retains the selected base name and tip', () => {
   })
 
   it.each(['native', 'merge-on-green'] as const)(
-    '%s refuses a same-name base whose authoritative tip moved',
+    '%s refuses a base that moves after selection while baseRefOid still reports the selected tip',
     (mode) => {
       reset(false)
       const restore = mutateAfter(
@@ -388,8 +396,10 @@ describe('landPr retains the selected base name and tip', () => {
         const { result, gate, producers } = land(box, wt, pr, mode)
         expect(result).toMatchObject({ status: 'proof-blocked', producer: 'candidate', reason: 'unbound' })
         expect(result.error).toContain(`main@${box.sha.staging}`)
+        expect(result.error).toContain(`main@${box.sha.main}`)
         expect(gate).toEqual(UNARMED)
         expect(producers).toEqual([])
+        expect(recordedBaseOf(box, pr)).toBe(box.sha.main)
       } finally {
         restore()
         git(box, box.origin, ['update-ref', 'refs/heads/main', box.sha.main as string])
@@ -429,6 +439,7 @@ describe('selected base acquisition precedes policy and applicability', () => {
           adapter: { 'assertledger.config.json': LEDGER_BASE['assertledger.config.json'] as string },
           policy: { '.dev/stack.yml': 'landing:\n  mode: merge-on-green\n' },
           malformed: { '.dev/stack.yml': 'landing: [\n' },
+          moved: { 'docs/BASE.md': 'the base moved on\n' },
         }).map(([name, files]) => ({
           name,
           from: 'main',
@@ -488,6 +499,17 @@ describe('selected base acquisition precedes policy and applicability', () => {
     expect(run.gate).toEqual(UNARMED)
   })
   it.each(['native', 'merge-on-green'] as const)(
+    '%s lands against the fetched base tip that GitHub’s recorded baseRefOid predates',
+    (mode) => {
+      reset('moved', false)
+      expect(recordedBaseOf(box, pr)).toBe(box.sha.main)
+      const run = land(box, wt, pr, mode)
+      expect(run.result).toMatchObject({ status: 'watching', mode })
+      expect(run.gate.labels).toEqual(['reviewed'])
+      expect(run.producers).toEqual([])
+    },
+  )
+  it.each(['native', 'merge-on-green'] as const)(
     '%s refuses failed base acquisition instead of trusting the cached absence',
     (mode) => {
       reset()
@@ -513,15 +535,13 @@ describe('selected base acquisition precedes policy and applicability', () => {
     expect(producerCalls(box)).toEqual([])
   })
   it.each(['native', 'merge-on-green'] as const)(
-    '%s refuses origin drift even while the selected API projection still reports the old tip',
+    '%s refuses a base that moves between selection and admission while baseRefOid still reports the selected tip',
     (mode) => {
       reset()
       const restore = mutateAfter(
         box,
-        'base-read',
+        'admission-base-read',
         `spawnSync('git', ['--git-dir', state.origin, 'update-ref', 'refs/heads/main', ${JSON.stringify(box.sha.configured)}], { env: process.env });`,
-        undefined,
-        box.sha.main,
       )
       try {
         const run = land(box, wt, pr, mode)
@@ -535,6 +555,7 @@ describe('selected base acquisition precedes policy and applicability', () => {
         expect(run.result.error).toContain(box.sha.main)
         expect(run.gate).toEqual(UNARMED)
         expect(run.producers).toEqual([])
+        expect(recordedBaseOf(box, pr)).toBe(box.sha.main)
       } finally {
         restore()
       }
@@ -544,7 +565,7 @@ describe('selected base acquisition precedes policy and applicability', () => {
     ['configured', 'semctx', 'ambiguous'],
     ['adapter', 'assertledger', 'missing'],
   ] as const)(
-    'reads the established %s base object even if the tracking ref is rewritten after fetch',
+    'reads the established %s base object even if the tracking ref is rewritten between selection and admission',
     (next, producer, reason) => {
       reset(next)
       const restore = mutateAfter(
@@ -1592,6 +1613,28 @@ process.exit(result.code)
     expect(run.result).toMatchObject({ status: 'watching', proof: { assertledger: 'detection' } })
     expect(run.gate).toEqual({ labels: ['reviewed'], autoMerge: expect.objectContaining({ matchHeadCommit: head }) })
     expect(run.producers).toEqual(before)
+  })
+  it('stops publishing once the base moves, though baseRefOid still reports the selected tip', () => {
+    const head = box.sha[branch] as string
+    const moved = box.sha[LEDGER_CASES.weak.branch] as string
+    prepare(box, pr, { comments: [approve(head)], body: 'Closes #2\n' })
+    writeFileSync(exporter, valid)
+    mutateExporterAtVersion(valid)
+    const restore = mutateAfter(
+      box,
+      'comment-write',
+      `spawnSync('git', ['--git-dir', state.origin, 'update-ref', 'refs/heads/main', ${JSON.stringify(moved)}], { env: process.env });`,
+    )
+    try {
+      const acquired = acquire()
+      expect(acquired.status).toBe(1)
+      expect(acquired.stderr).toContain('coordinates changed')
+      expect(acquired.stderr).toContain(`main@${box.sha.main} → ${moved}`)
+      expect(recordedBaseOf(box, pr)).toBe(box.sha.main)
+    } finally {
+      restore()
+      git(box, box.origin, ['update-ref', 'refs/heads/main', box.sha.main as string])
+    }
   })
 })
 

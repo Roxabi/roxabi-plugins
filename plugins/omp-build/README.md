@@ -187,17 +187,19 @@ before its diff; the review-start test exercises the fence, not model compliance
   by another actor is not refused by GitHub. A review
   posted before the head line existed needs one re-review before it can land.
   The selected PR base's name and tip are captured too. Each pre-arm checkpoint
-  and the retained-arm epilogue re-read those coordinates alongside the head.
-  A retarget or moved tip is `proof-blocked` / `candidate` / `unbound`;
-  missing coordinates are `unreadable`. Both force clearing, never silently
-  switch landing policy; re-entry captures the current base normally.
+  and the retained-arm epilogue re-read the base name alongside the head and
+  re-fetch the base. A retarget or moved tip is `proof-blocked` / `candidate` /
+  `unbound`; missing coordinates are `unreadable`. Both force clearing, never
+  silently switch landing policy; re-entry captures the current base normally.
   Each landing or acquisition attempt first fetches the selected origin branch
-  (not the principal-detection cache) and matches its tip to GitHub's selected
-  `baseRefOid`. Policy, declarations and merge-base consume that immutable
-  commit, not a tracking ref another await can rewrite. Failed fetches refuse
-  as `candidate/unreadable`; a different fetched tip is `candidate/unbound`.
-  Acquisition revalidates head, base name/tip and OPEN state before producers,
-  every publication part and its final reuse/absence report.
+  (not the principal-detection cache) and selects the tip that fetch reads —
+  never GitHub's `baseRefOid`, which is recorded when the PR opens, its head is
+  pushed or it is retargeted, and does not follow later pushes to the base.
+  Policy, declarations and merge-base consume that immutable commit, not a
+  tracking ref another await can rewrite. Failed fetches refuse as
+  `candidate/unreadable`. Acquisition revalidates head, base name, a re-fetched
+  base tip and OPEN state before producers, every publication part and its
+  final reuse/absence report.
 - Then `landPr` admits that head (`admitLanding`, `proof.ts`), reading only: the
   local tip must be it; Semctx applies when `origin/<base>`, the head or the
   uncommitted `.semctx/config.json` on disk at the root and the principal

@@ -262,15 +262,15 @@ describe('refreshSelectedBase', () => {
       return { code: 128, stdout: '', stderr: `fatal: no answer for ${args.join(' ')}` }
     }
 
-  it('establishes a branch base whose fetched tip is the selected one', async () => {
+  it('selects the tip the fetch reads', async () => {
     const calls: string[][] = []
-    expect(await refreshSelectedBase(temp(), 'main', BASE_TIP, fetching(calls))).toBeNull()
+    expect(await refreshSelectedBase(temp(), 'main', fetching(calls))).toEqual({ ok: true, tip: BASE_TIP })
     expect(calls.map((args) => args[0])).toEqual(['fetch', 'rev-parse'])
   })
 
   it('refuses an option-shaped base name before fetching it', async () => {
     const calls: string[][] = []
-    expect(await refreshSelectedBase(temp(), '-main', BASE_TIP, fetching(calls))).toMatchObject({
+    expect(await refreshSelectedBase(temp(), '-main', fetching(calls))).toMatchObject({
       producer: 'candidate',
       reason: 'unreadable',
     })

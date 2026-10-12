@@ -85,9 +85,9 @@ async function modifiedNative(box: Box): Promise<Captured> {
     const out = spawnSync('git', args, { cwd, env: box.env, encoding: 'utf8' })
     return { code: out.status ?? 1, stdout: out.stdout, stderr: out.stderr }
   }
-  const baseTip = box.sha[base] as string
-  const refused = await refreshSelectedBase(root, base, baseTip, runner)
-  if (refused) throw new Error(refused.error)
+  const selected = await refreshSelectedBase(root, base, runner)
+  if (!selected.ok) throw new Error(selected.error)
+  const baseTip = selected.tip
   const facts = await candidateFacts(root, candidate, base, baseTip, runner)
   if ('ok' in facts || !facts.config) throw new Error('the native modified-contract fixture is not configured')
   const mergeBase = await mergeBaseOf(runner, root, baseTip, candidate)

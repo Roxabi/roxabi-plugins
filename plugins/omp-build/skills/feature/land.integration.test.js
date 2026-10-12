@@ -25,7 +25,6 @@ if (fn === 'readLanding') {
 const ME = 'omp-bot'
 // The PR head is the checkout's own tip: the proof admission binds the reviewed head to the local tip.
 const HEAD = Bun.spawnSync(['git', '-C', cwd, 'rev-parse', '--verify', 'HEAD^{commit}']).stdout.toString().trim() || '0123456789abcdef0123456789abcdef01234567'
-const BASE = Bun.spawnSync(['git', '-C', cwd, 'ls-remote', '--exit-code', 'origin', 'refs/heads/main']).stdout.toString().trim().split(/\\s+/)[0]
 const review = (verdict) => '<!-- omp-build:code-review -->\\n<!-- omp-build:review-head sha=' + HEAD + ' -->\\n## Code Review\\n\\n**Verdict: ' + verdict + '** — summary'
 // approved: a first-round green. unapproved: a red latest record at the current head.
 // spent: a third red, which exhausts the bound.
@@ -51,7 +50,7 @@ const gh = async (_cwd, args) => {
   if (args[0] === 'pr' && args[1] === 'list') return prList
   if (args[0] === 'repo') return JSON.stringify({ nameWithOwner: 'acme/app' })
   // Missing selected coordinates never authorize a guessed principal branch.
-  if (baseMode === 'fail' && same(args, ['pr', 'view', '7', '--json', 'baseRefName,baseRefOid'])) throw new Error('HTTP 502')
+  if (baseMode === 'fail' && same(args, ['pr', 'view', '7', '--json', 'baseRefName'])) throw new Error('HTTP 502')
   if (args[0] === 'pr' && args[1] === 'view') {
     const view = {}
     for (const field of String(args[4]).split(',')) {
@@ -60,7 +59,6 @@ const gh = async (_cwd, args) => {
       if (field === 'autoMergeRequest') view.autoMergeRequest = arms.auto ? { mergeMethod: 'MERGE' } : null
       if (field === 'state') view.state = 'OPEN'
       if (field === 'baseRefName') view.baseRefName = 'main'
-      if (field === 'baseRefOid') view.baseRefOid = BASE
       if (field === 'headRefOid') {
         headReads++
         view.headRefOid = headMode === 'moved' && headReads > 1 ? 'fedcba9876543210fedcba9876543210fedcba98' : HEAD

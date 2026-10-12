@@ -110,22 +110,27 @@ function refusalText(refusal: Refusal): string {
   return `${refusal.producer} ${refusal.reason}: ${refusal.error}`
 }
 
-/** No reuse, absence report or publication switches the attempt's native coordinates. */
+/**
+ * No reuse, absence report or publication switches the attempt's native coordinates:
+ * the head, base name and OPEN state GitHub reports, and the base tip a fresh fetch
+ * reads (`baseRefOid` does not follow the branch).
+ */
 async function assertCurrent(ctx: Context): Promise<void> {
   const current: unknown = JSON.parse(
-    await gh(ctx.cwd, ['pr', 'view', String(ctx.pr), '--json', 'headRefOid,baseRefName,baseRefOid,state']),
+    await gh(ctx.cwd, ['pr', 'view', String(ctx.pr), '--json', 'headRefOid,baseRefName,state']),
   )
+  const changed = `PR #${ctx.pr} coordinates changed during acquisition; re-enter with the current head and base`
   if (
     !isMap(current) ||
     current.state !== 'OPEN' ||
     current.headRefOid !== ctx.candidate ||
-    current.baseRefName !== ctx.base ||
-    current.baseRefOid !== ctx.baseTip
+    current.baseRefName !== ctx.base
   ) {
-    throw new ProtocolError(
-      `PR #${ctx.pr} coordinates changed during acquisition; re-enter with the current head and base`,
-    )
+    throw new ProtocolError(changed)
   }
+  const fetched = await refreshSelectedBase(ctx.cwd, ctx.base, gitResult)
+  if (!fetched.ok) throw new ProtocolError(refusalText(fetched))
+  if (fetched.tip !== ctx.baseTip) throw new ProtocolError(`${changed} (${ctx.base}@${ctx.baseTip} → ${fetched.tip})`)
 }
 
 /** One comment per part, in order: a part that fails leaves the run incomplete, which reads as missing. */
@@ -307,17 +312,17 @@ export async function main(argv: string[], cwd: string): Promise<number> {
   }
   try {
     const view: unknown = JSON.parse(
-      await gh(cwd, ['pr', 'view', String(args.pr), '--json', 'headRefOid,baseRefName,baseRefOid,state']),
+      await gh(cwd, ['pr', 'view', String(args.pr), '--json', 'headRefOid,baseRefName,state']),
     )
     const candidate = isMap(view) ? view.headRefOid : undefined
     const base = isMap(view) ? view.baseRefName : undefined
-    const baseTip = isMap(view) ? view.baseRefOid : undefined
     const state = isMap(view) ? view.state : undefined
-    if (typeof candidate !== 'string' || typeof base !== 'string' || typeof baseTip !== 'string' || state !== 'OPEN') {
+    if (typeof candidate !== 'string' || typeof base !== 'string' || state !== 'OPEN') {
       throw new ProtocolError(`PR #${args.pr} is not an open PR with a head and a base`)
     }
-    const refused = await refreshSelectedBase(cwd, base, baseTip, gitResult)
-    if (refused) throw new ProtocolError(refusalText(refused))
+    const selected = await refreshSelectedBase(cwd, base, gitResult)
+    if (!selected.ok) throw new ProtocolError(refusalText(selected))
+    const baseTip = selected.tip
     const facts = await candidateFacts(cwd, candidate, base, baseTip, gitResult)
     if ('ok' in facts) throw new ProtocolError(refusalText(facts))
     const repository = await repositoryOf(gh, cwd)

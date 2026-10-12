@@ -48,6 +48,8 @@ type SimPull = {
   comments: SimComment[]
   lastEditedAt?: string | null
   closes: number[]
+  /** GitHub's recorded `baseRefOid`, keyed by the `<base>@<head>` it was recorded for. */
+  baseRecord?: { at: string; oid: string | null }
 }
 export type SimState = {
   viewer: string
@@ -161,14 +163,16 @@ export function sandbox(spec: Spec): Box {
   }
   const prs: Record<string, unknown> = {}
   for (const pr of spec.prs) {
+    const base = pr.base ?? 'main'
+    const head = box.sha[pr.branch]
     prs[pr.number] = {
       number: pr.number,
       title: pr.title,
       body: pr.body,
       state: 'OPEN',
       headRefName: pr.branch,
-      baseRefName: pr.base ?? 'main',
-      headRefOid: box.sha[pr.branch],
+      baseRefName: base,
+      headRefOid: head,
       isCrossRepository: false,
       labels: [],
       autoMerge: null,
@@ -176,6 +180,8 @@ export function sandbox(spec: Spec): Box {
       mergedAt: null,
       comments: [],
       closes: pr.closes,
+      // GitHub records the base tip when the PR opens; pushes to the base leave it.
+      baseRecord: { at: `${base}@${head}`, oid: box.sha[base] ?? null },
     }
   }
   writeFileSync(

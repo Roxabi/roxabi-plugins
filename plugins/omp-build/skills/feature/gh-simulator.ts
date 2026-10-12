@@ -57,6 +57,12 @@ type Pull = {
   lastEditedAt?: string | null
   /** Issues this PR closes (`Closes #N` and the same grammar). */
   closes: number[]
+  /**
+   * GitHub's `baseRefOid` and the `<base>@<head>` it was recorded for: set when
+   * the PR opens, its head moves or its base is retargeted; a push to the base
+   * branch leaves it.
+   */
+  baseRecord?: { at: string; oid: string | null }
 }
 type Event = { event: string; label?: { name: string }; created_at: string }
 type State = {
@@ -221,6 +227,13 @@ function green(state: State, sha: string): boolean {
 function refreshHead(state: State, pr: Pull): void {
   const sha = tip(state.origin, pr.headRefName)
   if (sha) pr.headRefOid = sha
+}
+
+/** The base tip GitHub recorded for the PR's current base name and head, never today's branch tip. */
+function recordedBase(state: State, pr: Pull): string | null {
+  const at = `${pr.baseRefName}@${pr.headRefOid}`
+  if (pr.baseRecord?.at !== at) pr.baseRecord = { at, oid: tip(state.origin, pr.baseRefName) }
+  return pr.baseRecord.oid
 }
 
 /** Real merge commit into the bare origin. First parent is the base tip. */
@@ -391,8 +404,9 @@ function fields(flag: Map<string, string[]>, pr: Pull, state: State): Record<str
     title: pr.title,
     body: pr.body,
     baseRefName: pr.baseRefName,
-    // Native merged PRs retain their pre-merge base, not today's branch tip.
-    baseRefOid: pr.state === 'MERGED' ? pr.mergeCommit?.parents[0] : tip(state.origin, pr.baseRefName),
+    // GitHub's recorded base: merged PRs retain their pre-merge base, open ones the
+    // tip recorded at creation, last head move or retarget — not today's branch tip.
+    baseRefOid: pr.state === 'MERGED' ? pr.mergeCommit?.parents[0] : recordedBase(state, pr),
     headRefName: pr.headRefName,
     headRefOid: pr.headRefOid,
     isCrossRepository: pr.isCrossRepository,
@@ -582,6 +596,7 @@ function handle(state: State, argv: string[]): void {
       closes: closesOf(form.body ?? ''),
     }
     state.prs[String(number)] = pr
+    recordedBase(state, pr)
     emit({ number, html_url: `https://example.test/${fullName(state)}/pull/${number}` }, expression)
     return
   }

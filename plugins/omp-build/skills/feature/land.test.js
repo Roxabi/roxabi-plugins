@@ -137,9 +137,9 @@ function mockLand({
     if (
       args[0] === 'pr' &&
       args[1] === 'view' &&
-      fields.every((field) => ['headRefOid', 'baseRefName', 'baseRefOid'].includes(field))
+      fields.every((field) => ['headRefOid', 'baseRefName'].includes(field))
     ) {
-      return JSON.stringify({ headRefOid: REVIEWED_HEAD, baseRefName: 'main', baseRefOid: REVIEWED_HEAD })
+      return JSON.stringify({ headRefOid: REVIEWED_HEAD, baseRefName: 'main' })
     }
     if (args[0] === 'pr' && args[1] === 'view' && fields.includes('state')) {
       return JSON.stringify({ state: gateState, autoMergeRequest: gateAuto })
@@ -326,11 +326,10 @@ describe('landPr', () => {
         return JSON.stringify({ headRefOid: REVIEWED_HEAD, state: 'OPEN', labels: [], autoMergeRequest: null })
       }
       if (args[0] === 'pr' && args[1] === 'view' && args[4].split(',').includes('headRefOid')) {
-        return JSON.stringify({ headRefOid: REVIEWED_HEAD, baseRefName: 'main', baseRefOid: REVIEWED_HEAD })
+        return JSON.stringify({ headRefOid: REVIEWED_HEAD, baseRefName: 'main' })
       }
       if (args[0] === 'repo') return JSON.stringify({ nameWithOwner: 'acme/app' })
-      if (args[0] === 'pr' && args[1] === 'view')
-        return JSON.stringify({ baseRefName: 'main', baseRefOid: REVIEWED_HEAD })
+      if (args[0] === 'pr' && args[1] === 'view') return JSON.stringify({ baseRefName: 'main' })
       if (args[0] === 'api') throw new Error('HTTP 403')
       return ''
     }
@@ -376,7 +375,6 @@ function gatePr({ comments, labels = [], autoMerge = null, state = 'OPEN', headR
         else if (field === 'state') view.state = pr.state
         else if (field === 'headRefOid') view.headRefOid = pr.headRefOid
         else if (field === 'baseRefName') view.baseRefName = 'main'
-        else if (field === 'baseRefOid') view.baseRefOid = REVIEWED_HEAD
         else throw new Error(`unexpected field: ${field}`)
       }
       return JSON.stringify(view)
@@ -475,8 +473,7 @@ describe('landPr — a refusal disarms a gate armed for an earlier approval', ()
     async (_mode, options) => {
       const fake = gatePr({ comments: [green()], headRefOid: REVIEWED_HEAD, ...ARMED })
       const gh = async (cwd, args) => {
-        if (same(args, ['pr', 'view', '7', '--json', 'headRefOid,baseRefName,baseRefOid']))
-          fake.pr.headRefOid = MOVED_HEAD
+        if (same(args, ['pr', 'view', '7', '--json', 'headRefOid,baseRefName'])) fake.pr.headRefOid = MOVED_HEAD
         return fake.gh(cwd, args)
       }
       const result = await land('/tmp/wt', 7, { gh, sleep: async () => {}, ...options })
@@ -744,7 +741,7 @@ describe('landPr — configuration failures after acquiring the gate', () => {
     const original = new Error('landing configuration unavailable')
     const gh = async (cwd, args) => {
       const answer = await fake.gh(cwd, args)
-      if (moved && same(args, ['pr', 'view', '7', '--json', 'baseRefName,baseRefOid'])) {
+      if (moved && same(args, ['pr', 'view', '7', '--json', 'baseRefName'])) {
         await Promise.resolve()
         fake.pr.headRefOid = MOVED_HEAD
       }
@@ -846,7 +843,7 @@ describe('landPr — an approval arms only the commit it reviewed', () => {
       headRefOid: REVIEWED_HEAD,
     })
     const gh = async (cwd, args) => {
-      if (args[1] === 'view' && args[4] === 'headRefOid,baseRefName,baseRefOid') return 'not json'
+      if (args[1] === 'view' && args[4] === 'headRefOid,baseRefName') return 'not json'
       return fake.gh(cwd, args)
     }
     await expect(land('/tmp/wt', 7, { gh, ...NATIVE })).rejects.toThrow(/no JSON/)
@@ -917,7 +914,7 @@ describe('landPr — an approval arms only the commit it reviewed', () => {
     let reads = 0
     let merges = 0
     return async (cwd, args) => {
-      if (args[1] === 'view' && args[4] === 'headRefOid,baseRefName,baseRefOid') {
+      if (args[1] === 'view' && args[4] === 'headRefOid,baseRefName') {
         reads += 1
         if (reads >= moveAt) fake.pr.headRefOid = MOVED_HEAD
       }
@@ -978,7 +975,6 @@ describe('landPr — a native refusal for want of required checks disarms an arm
     const fake = gatePr({ comments: [green()], headRefOid: REVIEWED_HEAD, ...ARMED })
     const gh = async (cwd, args) => {
       if (args[0] === 'repo') return JSON.stringify({ nameWithOwner: 'acme/app' })
-      if (same(args, ['pr', 'view', '7', '--json', 'baseRefName'])) return JSON.stringify({ baseRefName: 'staging' })
       if (args[0] === 'api' && String(args[1]).includes('/staging/'))
         return JSON.stringify({ contexts: ['staging-green'] })
       if (args[0] === 'api' && (String(args[1]).includes('/protection/') || String(args[1]).includes('/rules/')))
