@@ -18,7 +18,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 /** Native creation/revision facts are stamped on first publication; explicit unreadable facts stay unreadable. */
-type Comment = { author: string; body: string; createdAt?: string | null; updatedAt?: string | null }
+type Comment = { id?: number; author: string; body: string; createdAt?: string | null; updatedAt?: string | null }
 type Check = {
   name: string
   status: string
@@ -75,6 +75,7 @@ type State = {
   requiredChecks: string[]
   nextPr: number
   clock: number
+  nextCommentId?: number
   issues: Record<string, Issue>
   prs: Record<string, Pull>
   checks: Record<string, Check[]>
@@ -131,8 +132,14 @@ function withState<T>(fn: (state: State) => T): T {
   }
   try {
     const state = JSON.parse(readFileSync(path, 'utf8')) as State
+    if (state.nextCommentId === undefined) {
+      state.nextCommentId = 0
+      for (const thread of [...Object.values(state.prs), ...Object.values(state.issues)])
+        for (const comment of thread.comments) state.nextCommentId = Math.max(state.nextCommentId, comment.id ?? 0)
+    }
     for (const thread of [...Object.values(state.prs), ...Object.values(state.issues)]) {
       for (const comment of thread.comments) {
+        if (!Object.hasOwn(comment, 'id')) comment.id = state.nextCommentId = (state.nextCommentId ?? 0) + 1
         if (!Object.hasOwn(comment, 'createdAt')) comment.createdAt = stamp(state)
         if (!Object.hasOwn(comment, 'updatedAt')) comment.updatedAt = comment.createdAt
       }
@@ -617,6 +624,7 @@ function handle(state: State, argv: string[]): void {
     if (!number) fail(`gh: unhandled ${argv.join(' ')}`)
     const comments = state.prs[number]?.comments ?? state.issues[number]?.comments ?? []
     const page = comments.map((comment) => ({
+      id: comment.id,
       user: { login: comment.author },
       body: comment.body,
       created_at: comment.createdAt,

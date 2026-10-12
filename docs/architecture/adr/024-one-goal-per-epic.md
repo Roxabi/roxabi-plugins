@@ -117,14 +117,24 @@ ADR-020 no longer bind:
    changing PARTIAL into VERIFIED does not evade the check. Reacquire a revised
    record, then review; reuse an unmodified late publication after re-review.
    The current justification body must also predate approval.
+   The proof-aware review now captures and judges the exact observed body and
+   complete applicable producer runs. Its retained line-3 `review-input v=1`
+   SHA256 binds repository/PR/head, body bytes + `lastEditedAt`, and each selected
+   part's native ID/body/creation/revision facts, including VERIFIED and detection.
+   Fresh equality is required before posting and at admission; missing/malformed
+   marker or a difference needs same-head review, never an automatic rebind.
+   Genuine no-proof repositories gain no marker prerequisite. The capture is
+   in memory only: no manifest, cache or ledger is persisted.
    *Reviewer ceiling explicitly authorized 2026-10-11*
    ([operator decision](https://github.com/Roxabi/roxabi-plugins/issues/768#issuecomment-6114046814)):
-   admission checks gap policy/form/chronology; reason truth and credible browser
-   performance are the proof-aware review's judgement. Unsupported claims block
-   that review. Publication dates show availability, not reading or truth;
-   approval is judgement, not runtime certification. Neither it, native VERIFIED
-   nor body form certifies the still-unproved gap. No native observation/reason
-   oracle was implemented; all binding, CI, e2e and clearing guards remain.
+   admission checks gap policy/form/chronology and exact observed input equality;
+   reason truth and credible browser performance are the proof-aware review's
+   judgement. Unsupported claims block that review. Dates show availability,
+   and the digest identifies the captured inputs, not who actually read them or
+   their truth. Approval is judgement, not runtime certification. Neither it,
+   native VERIFIED nor body form certifies the still-unproved gap.
+   No native observation/reason oracle was implemented; all binding, CI, e2e
+   and clearing guards remain.
 
 3. **§8 — executable falsification returns through assertledger, where an
    adapter exists.** The adapter is the producer of that gate, and of no other.
@@ -156,6 +166,9 @@ ADR-020 no longer bind:
    printed nor who ran it. Both producers check readable native publication
    and revision facts and require publication before approval with no recorded
    edit; PARTIAL→VERIFIED and WEAK_ORACLE/miss→detection edits refuse.
+   The digest is not authentication or a lasting head pin. Reads, review posting
+   and arming are not transactional; a change after the final read is detected
+   at the next existing refresh, not prevented.
 
 4. **§9 — the agent creates the worktree** from a freshly fetched
    `refs/remotes/origin/<base>`, never from `HEAD`, and never carrying the

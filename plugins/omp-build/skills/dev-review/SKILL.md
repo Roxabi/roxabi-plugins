@@ -5,7 +5,7 @@ description: >-
   OMP-only multi-domain code review — five-role evidence-selected panel, Conventional Comments, common root causes, findings + verdict.
   Triggers: "dev-review" | "code review" | "review changes" | "review PR #42" | "check my code" | "review my changes" | "review this PR" | "do a code review" | "review the diff".
   Not the host native /review, not Matt code-review.
-version: 0.2.1
+version: 0.2.2
 ---
 
 # Code Review
@@ -63,7 +63,7 @@ Steps: gather-changes → secret-scan → spec-compliance → multi-domain-revie
    ```javascript
    const { pathToFileURL } = await import('node:url')
    const { join } = await import('node:path')
-   const { resolveReviewPr, nextReviewStep, landPr, applyCiWatchExit } =
+   const { resolveReviewPr, nextReviewStep, landPr, applyCiWatchExit, captureReviewInput, validateReviewInput } =
      await import(pathToFileURL(join(SKILL_DIR, '../feature/workflow.js')).href)
    const pr = await resolveReviewPr(cwd, explicitPr)
    if (pr !== null && (await nextReviewStep(cwd, pr, { reviewing: true })).action === 'stop') {
@@ -116,8 +116,20 @@ git diff origin/${BASE}...HEAD | grep -iE '(password|passwd|secret|api[_-]?key|a
 
 **Resolve issue + spec (deterministic):**
 
+Before reading a bound PR's matrix, justification or producer publications,
+retain `reviewCapture = await captureReviewInput(cwd, pr, REVIEWED_HEAD)`.
+For a successful applicable capture, consume **its** `body.body` and complete
+`semctx` / `assertledger` `record` + `parts` throughout this review, including
+issue resolution below. Never hash one response and judge an independently
+fetched replacement. Its `input` is the exact line-3 marker to retain unchanged.
+`input: null` with `ok: true` is genuine non-applicability; use the ordinary PR
+body read below and emit no input marker. A capture refusal cannot approve:
+retain the actual failure as blocking evidence, continue the independent
+review, and publish only Request changes without inventing a binding or an
+applicability exemption. A local-only review has no capture or marker.
+
 1. **issue_num** — priority:
-   - bound `pr` from Phase 1 → `gh pr view PR --json body,headRefName` → `(Fixes|Closes|Resolves) #(\d+)` in body; else first `N` from `<type>/{N}-*` in `headRefName`
+   - bound `pr` from Phase 1 → use the captured `body.body` when supplied, otherwise `gh pr view PR --json body,headRefName`; `(Fixes|Closes|Resolves) #(\d+)` in that body, else first `N` from `<type>/{N}-*` in `headRefName`
    - else current branch → `<type>/{N}-*` match; else first `\d+` run (warn: legacy branch fallback)
 2. **σ is the tracker issue body** (ADR-020 §4) — `gh issue view {issue_num} --json body --jq .body`. There is no `artifacts/specs` on OMP: ¬glob for one, ¬read frontmatter for `status`, ¬gate on `validated`.
 3. σ ∄ (no issue resolved) → skip steps 4–4a; path-only roster.
@@ -134,12 +146,13 @@ performed for this head: possible Steps and a concrete Observed result, not
 a restatement of the steps or criterion. Unsupported/absent support →
 `issue(blocking):`; absence of contrary evidence is not truth. This is the
 reviewer's judgement, not native/runtime certification. `landPr` checks policy,
-form and chronology, not those two truths. Judge the complete selected run and
-its native GitHub creation/revision facts for every part; publish approval after
-those parts and the justification body are available. A later part, revision or
-body edit requires a new same-head review; reuse the record without a producer.
-Unreadable native times authorize no PARTIAL. VERIFIED reuse borrows no gap
-justification. The issue body remains the spec if they diverge.
+form, native chronology and exact observed read-input equality, not those two
+truths. Judge the captured complete selected runs and native creation/revision
+facts for every applicable producer part, regardless of verdict. An unreadable
+time authorizes nothing; a recorded revision needs acquisition again and then
+review. A new unmodified publication or body edit needs same-head review.
+Every selected part must be published before approval. The issue body remains
+the spec if they diverge.
 5a. **UI proof.** When Δ touches `frontend.path` or `shared.ui` and the base's or the head's `.dev/stack.yml` declares `commands.test_e2e`, a `ui-manual-only` row is an `issue(blocking):` — the e2e command is the proof, not a hand check. Without an e2e command, a `ui-manual-only` row requires the PR body to record a gap-bound agent browser check as `### Browser check <gap>` (the gap bare or in backticks) with `- Steps:`, `- URL:` (http/https) and `- Observed:` lines; step 5 judges its credible performance for this head and blocks unsupported claims. The NO TEST enum itself is unchanged. The block, approval and its native timestamps are not an independent runtime attestation.
 
 A finding emitted in steps 4–5a whose only gap is a missing or weak test is not finally labelled in this phase. Phase 4 step 3b rewrites that label. A missing SC→Test matrix stays `issue(blocking):`. An unmet criterion whose gap is the behaviour itself, not the test, stays `issue(blocking):`.
@@ -458,7 +471,7 @@ No blocker and Warnings nonempty → `Approve with comments`, even when praise, 
 
 ### Render once
 
-Build one body. Its first line is exactly `<!-- omp-build:code-review -->`: that marker is how `skill://fix` finds the record, together with the comment author. When a PR exists, line 2 is exactly `<!-- omp-build:review-head sha=<40 lowercase hex> -->` naming the Phase 1 `REVIEWED_HEAD` snapshot, never a fresh read and never a worktree oid. Immediately before `gh pr comment`, re-read `headRefOid`. If it differs from `REVIEWED_HEAD`, do not post — not an approval, not a request for changes, and not a head line for the new oid. Stop and say the head moved; the review has to be re-run against the new commit. A sha anywhere else is not the reviewed commit. A local-only body has no line 2. Then, in this order:
+Build one body. First line: exactly `<!-- omp-build:code-review -->`, the author-bound record `fix` reads. A bound PR's line 2 is exactly `<!-- omp-build:review-head sha=<40 lowercase hex> -->` from Phase 1's retained `REVIEWED_HEAD`, never a fresh oid. Successful applicable capture: line 3 is the retained `reviewCapture.input`, exactly `<!-- omp-build:review-input v=1 sha256=<64 lowercase hex> -->`. This SHA256 binds repository, PR, head, exact body + `lastEditedAt`, and every selected applicable native part's ID, body, creation and revision facts, independent of verdict. Store no snapshot/manifest/ledger/cache; keep the captured inputs in memory. A local-only review has neither head nor input marker. Genuine non-applicability or a Request changes with failed capture has no input marker. A sha elsewhere is not a binding. Then, in this order:
 
 1. `## Code Review`, then `## Spec` — render Σ from Phase 2, one row per criterion in σ order: `✓` met / `✗` missing, quoting `criterion_text`. σ ∄ → `no spec available — spec axis not evaluated`.
 2. `## Standards` — the orchestrator reads `skill://dev-review/review-smells.md` once, walks Δ against the baseline, and emits at most one `possible <Smell>` row per smell. Render the receipt in `## Standards (judgement pass — {n} smells walked, {k} fired)`. These rows never enter F, carry `Class:`, or affect verdict.
@@ -480,13 +493,14 @@ Build one body. Its first line is exactly `<!-- omp-build:code-review -->`: that
    trap 'rm -rf "$TMPDIR"' EXIT
    BODY="$TMPDIR/body.md"
    ```
-3. Write the single rendered body to `"$BODY"`. PR ∃ → `gh pr comment "$PR" --body-file "$BODY"`. PR ∄ → render that body to the user and skip only the comment call.
+3. Write the single rendered body to `"$BODY"`. Immediately before posting, re-read `headRefOid`; a changed head stops **any** post and requires a fresh review, not a replacement oid. For a successful capture call `check = await validateReviewInput(cwd, pr, REVIEWED_HEAD, reviewCapture.input)`. `!check.ok` → do not post this stale review or replace its marker; report the observed change and start a fresh review against the current inputs. A failed initial capture permits only the non-approving, unbound Request changes described in Phase 2. PR ∃ → `gh pr comment "$PR" --body-file "$BODY"`; PR ∄ → display locally. Reads and posting are not atomic: admission rechecks, and a change after the final read is caught at the next existing refresh, not prevented by the digest.
 
 **Comment shape (order normative, content illustrative):**
 
 ```markdown
 <!-- omp-build:code-review -->
 <!-- omp-build:review-head sha=0123456789abcdef0123456789abcdef01234567 -->
+<!-- omp-build:review-input v=1 sha256=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef -->
 ## Code Review
 
 ## Spec

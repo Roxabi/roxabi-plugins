@@ -6,7 +6,7 @@
 import { spawnSync } from 'node:child_process'
 import { realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { admitLanding, refreshSelectedBase } from './proof'
+import { admitLanding, captureReviewInput as captureProofReviewInput, refreshSelectedBase } from './proof'
 
 /** @param {string} value */
 function shellQuote(value) {
@@ -586,6 +586,61 @@ async function resolveLandingBase(cwd, pr, ghFn, gitFn) {
   return fetchBase(cwd, data.baseRefName, gitFn)
 }
 
+/**
+ * Read the body and complete producer publications that this review will judge.
+ * No approval, comment, producer invocation or gate write is performed.
+ * @param {string} cwd
+ * @param {number | string} pr
+ * @param {string} head The head captured at review start; never replace it during review.
+ * @param {{ gh?: (cwd: string, args: string[]) => Promise<string>, git?: import('./proof').Git }} [deps]
+ */
+export async function captureReviewInput(cwd, pr, head, { gh: ghFn = gh, git: gitFn = gitResult } = {}) {
+  const selected = await readPrFields(cwd, pr, ghFn, 'headRefOid,baseRefName')
+  if (!isCommitSha(head) || selected.headRefOid !== head)
+    return {
+      ok: false,
+      producer: 'candidate',
+      reason: 'unbound',
+      error: 'the review head changed; start a fresh review',
+    }
+  const base = await fetchBase(cwd, selected.baseRefName, gitFn)
+  if (base.refusal) return base.refusal
+  const snapshot = await captureProofReviewInput(
+    cwd,
+    { pr: Number(pr), candidate: head, base: base.name, baseTip: base.tip },
+    { gh: ghFn, git: gitFn, comments: () => readComments(cwd, pr, { gh: ghFn }) },
+  )
+  if (!snapshot.ok) return snapshot
+  return {
+    ok: true,
+    input: snapshot.input,
+    body: snapshot.body,
+    semctx: snapshot.semctx,
+    assertledger: snapshot.assertledger,
+  }
+}
+
+/** Freshly compare the retained read binding before posting; never rebind a stale review.
+ * @param {string} cwd
+ * @param {number | string} pr
+ * @param {string} head
+ * @param {string | null} input
+ * @param {{ gh?: (cwd: string, args: string[]) => Promise<string>, git?: import('./proof').Git }} [deps]
+ */
+export async function validateReviewInput(cwd, pr, head, input, deps = {}) {
+  const current = await captureReviewInput(cwd, pr, head, deps)
+  if (!current.ok) return current
+  if (current.input !== input)
+    return {
+      ok: false,
+      producer: 'candidate',
+      reason: 'unbound',
+      error:
+        'review inputs changed during review; do not post this approval or replace its binding — start a fresh review',
+    }
+  return { ok: true }
+}
+
 /** Attempts to read a labeled-reviewed time newer than the pre-add snapshot. */
 const SINCE_ATTEMPTS = 5
 /** Delay between post-add events reads (tests inject a no-op `sleep`). */
@@ -770,6 +825,7 @@ export async function landPr(
         base: landingBase,
         baseTip: landingContext.tip,
         reviewedAt: records.at,
+        reviewInput: records.input,
       },
       { gh: ghFn, git: gitFn, comments: () => readComments(cwd, pr, { gh: ghFn }) },
     )
@@ -1209,6 +1265,12 @@ function reviewHeadOf(body) {
   return match ? match[1] : null
 }
 
+/** Line 3 only; retain a malformed marker so admission can diagnose it, not silently upgrade it. */
+function reviewInputOf(body) {
+  const line = typeof body === 'string' ? body.split('\n')[2]?.trimEnd() : undefined
+  return line?.startsWith('<!-- omp-build:review-input') ? line : null
+}
+
 /** @param {unknown} value */
 function isCommitSha(value) {
   return typeof value === 'string' && /^[0-9a-f]{40}$/.test(value)
@@ -1385,15 +1447,15 @@ function reviewIdentity(me) {
 
 /**
  * The review records by `me` among `comments`, in the order given (GitHub
- * creation order). `verdict`, `head` and `at` are the latest record's; `verdict`
- * is null when its declarations are missing or conflict, `head` when line 2 is
- * not a review-head line, `at` when the comment carries no `createdAt`. `spent`:
+ * creation order). `verdict`, `head`, `input` and `at` are the latest record's;
+ * verdict is null when declarations conflict, head when line 2 is invalid,
+ * input when line 3 has no review-input marker, at when there is no `createdAt`. `spent`:
  * a record past the `MAX_FIX_ROUNDS`-th does not approve. The bound is then
  * spent for good — a later green does not lift it.
  *
  * @param {{ body: string, author: { login: string } | null, createdAt?: string }[]} comments
  * @param {{ me: string }} options
- * @returns {{ reviews: number, verdict: string | null, head: string | null, at: string | null, spent: boolean }}
+ * @returns {{ reviews: number, verdict: string | null, head: string | null, input: string | null, at: string | null, spent: boolean }}
  */
 export function reviewRecords(comments, { me } = {}) {
   if (!Array.isArray(comments)) throw new TypeError('reviewRecords: comments must be an array')
@@ -1416,6 +1478,7 @@ export function reviewRecords(comments, { me } = {}) {
     reviews,
     verdict: latest === null ? null : reviewVerdict(latest.body),
     head: reviewHeadOf(latest?.body ?? null),
+    input: reviewInputOf(latest?.body ?? null),
     at: typeof latest?.createdAt === 'string' ? latest.createdAt : null,
     spent,
   }
@@ -1438,8 +1501,11 @@ function commentsFromPages(raw, pr) {
     throw new Error(`readComments: comment pages for ${pr} are incomplete`)
   }
   const entries = pages.flat()
-  entries.sort((a, b) => String(a?.created_at ?? '').localeCompare(String(b?.created_at ?? '')))
-  // Native facts stay optional/unreadable; PARTIAL admission never invents a missing time.
+  entries.sort(
+    (a, b) =>
+      String(a?.created_at ?? '').localeCompare(String(b?.created_at ?? '')) || Number(a?.id ?? 0) - Number(b?.id ?? 0),
+  )
+  // Native identities/revisions stay optional/unreadable; admission invents none.
   return entries.map((entry) => {
     if (typeof entry?.body !== 'string') {
       throw new Error(`readComments: a comment page entry for ${pr} has no body`)
@@ -1450,6 +1516,7 @@ function commentsFromPages(raw, pr) {
     return {
       author: { login: typeof login === 'string' ? login : '' },
       body: entry.body,
+      ...(typeof entry.id === 'number' && { id: entry.id }),
       ...(typeof createdAt === 'string' && { createdAt }),
       ...(typeof updatedAt === 'string' && { updatedAt }),
     }
@@ -1464,7 +1531,7 @@ function commentsFromPages(raw, pr) {
  * @param {string} cwd
  * @param {number | string} pr
  * @param {{ gh?: (cwd: string, args: string[]) => Promise<string> }} [deps]
- * @returns {Promise<{ me: string, comments: { body: string, author: { login: string }, createdAt?: string }[] }>}
+ * @returns {Promise<{ me: string, comments: import('./proof').PrComment[] }>}
  */
 export async function readComments(cwd, pr, { gh: ghFn = gh } = {}) {
   const me = reviewIdentity(await ghFn(cwd, ['api', 'user', '--jq', '.login']))

@@ -17,7 +17,7 @@ export type GitResult = { code: number; stdout: string; stderr: string }
 /** Non-throwing, lossless git: stdout exactly as printed. */
 export type Git = (cwd: string, args: string[]) => Promise<GitResult>
 export type Gh = (cwd: string, args: string[]) => Promise<string>
-export type PrComment = { author: { login: string }; body: string; createdAt?: string; updatedAt?: string }
+export type PrComment = { id?: number; author: { login: string }; body: string; createdAt?: string; updatedAt?: string }
 export type Comments = () => Promise<{ me: string; comments: PrComment[] }>
 
 export type Producer = 'semctx' | 'assertledger'
@@ -425,6 +425,7 @@ export function renderRecord(producer: Producer, candidate: string, summary: str
 }
 
 type Found = { record: unknown; parts: PrComment[] } | { missing: string } | { unreadable: string }
+type SelectedRecord = Extract<Found, { record: unknown }>
 /** Native comments of one posting: a single record or a complete ordered run of parts. */
 type Run = { parts: PrComment[]; total: number; broken: boolean }
 
@@ -1042,16 +1043,50 @@ export type SemctxOutcome =
     }
 export type ProofSummary = { semctx: SemctxOutcome; assertledger: 'not-applicable' | 'detection' }
 export type Admission = { ok: true; proof: ProofSummary } | Refusal
-/** `reviewedAt`: the creation time of the review record that approved `candidate`, which bounds the PR body it judged. */
+/** Approval publication time and the retained exact line-3 read binding are separate constraints. */
 export type Target = {
   pr: number
   candidate: string
   base: string | undefined
   baseTip: string
   reviewedAt: string | null
+  reviewInput: string | null
 }
 export type Deps = { gh: Gh; git: Git; comments: Comments }
 type Read = { me: string; comments: PrComment[]; repository: string }
+type PrBody = { body: string; lastEditedAt: string | null }
+type ReviewSnapshot = {
+  ok: true
+  input: string | null
+  body: PrBody | null
+  facts: CandidateFacts
+  read: Read | null
+  semctx: SelectedRecord | null
+  assertledger: SelectedRecord | null
+}
+
+/** Exact observed bytes and native publication identities, not an authenticity certificate. */
+export function hashReviewInput(
+  repository: string,
+  target: Pick<Target, 'pr' | 'candidate'>,
+  body: PrBody,
+  semctx: PrComment[] | null,
+  assertledger: PrComment[] | null,
+): string {
+  const parts = (run: PrComment[] | null) =>
+    run?.map((part) => [part.id, part.body, part.createdAt, part.updatedAt]) ?? null
+  const bytes = JSON.stringify([
+    'omp-build:review-input/1',
+    repository,
+    target.pr,
+    target.candidate,
+    [body.body, body.lastEditedAt],
+    parts(semctx),
+    parts(assertledger),
+  ])
+  const digest = createHash('sha256').update(bytes, 'utf8').digest('hex')
+  return `<!-- omp-build:review-input v=1 sha256=${digest} -->`
+}
 
 /** The producer command an admission refusal names; run in the normal workflow, never by admission. */
 export function acquireCommand(pr: number, extra = ''): string {
@@ -1163,17 +1198,8 @@ const PR_BODY = `query($owner: String!, $name: String!, $number: Int!) {
   }
 }`
 
-/**
- * The PR body the approving review judged: the current body, refused when it
- * was last edited at or after that review record. An edit returns the PR to
- * review; a body never edited predates every record.
- */
-async function reviewedBody(
-  cwd: string,
-  target: Target,
-  gh: Gh,
-  repository: string,
-): Promise<{ body: string } | Refusal> {
+/** Current body and native edit metadata from one response, without tightening the existing date policy. */
+async function readPrBody(cwd: string, pr: number, gh: Gh, repository: string): Promise<PrBody> {
   const [owner, name] = repository.split('/')
   const raw = await gh(cwd, [
     'api',
@@ -1185,7 +1211,7 @@ async function reviewedBody(
     '-f',
     `name=${name}`,
     '-F',
-    `number=${target.pr}`,
+    `number=${pr}`,
   ])
   const data = jsonField(raw, 'data')
   const repo = isMap(data) ? data.repository : undefined
@@ -1196,8 +1222,14 @@ async function reviewedBody(
     typeof body !== 'string' ||
     (edited !== null && (typeof edited !== 'string' || Number.isNaN(Date.parse(edited))))
   ) {
-    throw new Error(`the body of PR #${target.pr} could not be read — ${raw.slice(0, 200)}`)
+    throw new Error(`the body of PR #${pr} could not be read — ${raw.slice(0, 200)}`)
   }
+  return { body, lastEditedAt: edited }
+}
+
+/** Preserve the existing PARTIAL body chronology policy against the captured body. */
+function reviewedBody(target: Target, pull: PrBody): { body: string } | Refusal {
+  const { body, lastEditedAt: edited } = pull
   if (edited === null) return { body }
   const reviewed = target.reviewedAt === null ? Number.NaN : Date.parse(target.reviewedAt)
   if (!(Date.parse(edited) < reviewed)) {
@@ -1211,19 +1243,15 @@ async function reviewedBody(
 }
 
 async function admitSemctx(
-  cwd: string,
   facts: CandidateFacts,
   target: Target,
   deps: Deps,
   read: Read,
+  found: SelectedRecord,
+  capturedBody: PrBody,
 ): Promise<SemctxOutcome | Refusal> {
   const inputs = await semctxInputs(facts, deps.git)
   if ('ok' in inputs) return inputs
-  const found = findRecord(read.comments, read.me, 'semctx', target.candidate)
-  if ('missing' in found) {
-    return refuse('semctx', 'missing', `${found.missing}. Produce it outside admission: ${acquireCommand(target.pr)}`)
-  }
-  if ('unreadable' in found) return refuse('semctx', 'unreadable', found.unreadable)
   const results = readSemctxRecord(found.record, {
     repository: read.repository,
     pr: target.pr,
@@ -1236,7 +1264,7 @@ async function admitSemctx(
   if (chronology) return chronology
   const changes = results.map(({ id, verdict }) => ({ id, verdict }))
   if (results.every((result) => result.verdict === 'VERIFIED')) return { verdict: 'VERIFIED', changes, gaps: [] }
-  const pull = await reviewedBody(cwd, target, deps.gh, read.repository)
+  const pull = reviewedBody(target, capturedBody)
   if ('ok' in pull) return pull
   const { body } = pull
   // The base's or the candidate's `test_e2e` makes it the proof: deleting it in the PR exempts nothing.
@@ -1495,16 +1523,8 @@ async function admitAssertledger(
   target: Target,
   deps: Deps,
   read: Read,
+  found: SelectedRecord,
 ): Promise<Refusal | null> {
-  const found = findRecord(read.comments, read.me, 'assertledger', target.candidate)
-  if ('missing' in found) {
-    return refuse(
-      'assertledger',
-      'missing',
-      `${found.missing}: a fix ticket with an adapter needs a detection. Produce it outside admission: ${acquireCommand(target.pr, ' --assertledger-manifest <manifest.json>')}`,
-    )
-  }
-  if ('unreadable' in found) return refuse('assertledger', 'unreadable', found.unreadable)
   const args = ['rev-parse', `${target.candidate}^{tree}`]
   const tree = await deps.git(facts.toplevel, args)
   if (tree.code !== 0) return refuse('assertledger', 'unreadable', gitError(args, tree))
@@ -1527,26 +1547,90 @@ async function admitAssertledger(
  * (`gh`) throw: an unreadable source authorizes nothing. Semctx absence makes
  * only Semctx non-applicable; the assertledger requirement is decided apart.
  */
-export async function admitLanding(cwd: string, target: Target, deps: Deps): Promise<Admission> {
+export async function captureReviewInput(
+  cwd: string,
+  target: Pick<Target, 'pr' | 'candidate' | 'base' | 'baseTip'>,
+  deps: Deps,
+): Promise<ReviewSnapshot | Refusal> {
   const facts = await candidateFacts(cwd, target.candidate, target.base, target.baseTip, deps.git)
   if ('ok' in facts) return facts
-  if (facts.semctx === 'absent' && !facts.adapters.length) {
-    return { ok: true, proof: { semctx: 'absent', assertledger: 'not-applicable' } }
-  }
+  const absent = (): ReviewSnapshot => ({
+    ok: true,
+    input: null,
+    body: null,
+    facts,
+    read: null,
+    semctx: null,
+    assertledger: null,
+  })
+  if (facts.semctx === 'absent' && !facts.adapters.length) return absent()
   const repository = await repositoryOf(deps.gh, cwd)
   const ledger = await assertledgerApplies(cwd, facts, target, deps, repository)
   if (typeof ledger === 'object') return ledger
-  if (facts.semctx === 'absent' && !ledger)
-    return { ok: true, proof: { semctx: 'absent', assertledger: 'not-applicable' } }
+  if (facts.semctx === 'absent' && !ledger) return absent()
   const { me, comments } = await deps.comments()
   const read = { me, comments, repository }
+  const select = (producer: Producer): SelectedRecord | Refusal => {
+    const found = findRecord(comments, me, producer, target.candidate)
+    if ('missing' in found) {
+      const extra = producer === 'assertledger' ? ' --assertledger-manifest <manifest.json>' : ''
+      return refuse(
+        producer,
+        'missing',
+        `${found.missing}. Produce it outside admission: ${acquireCommand(target.pr, extra)}`,
+      )
+    }
+    if ('unreadable' in found) return refuse(producer, 'unreadable', found.unreadable)
+    if (found.parts.some((part) => !Number.isSafeInteger(part.id) || Number(part.id) < 1))
+      return refuse(producer, 'unreadable', 'the selected producer publication has no readable native comment identity')
+    return found
+  }
+  const semctx = facts.semctx === 'configured' ? select('semctx') : null
+  if (semctx && 'ok' in semctx) return semctx
+  const assertledger = ledger ? select('assertledger') : null
+  if (assertledger && 'ok' in assertledger) return assertledger
+  const body = await readPrBody(cwd, target.pr, deps.gh, repository)
+  return {
+    ok: true,
+    input: hashReviewInput(repository, target, body, semctx?.parts ?? null, assertledger?.parts ?? null),
+    body,
+    facts,
+    read,
+    semctx,
+    assertledger,
+  }
+}
+
+/** Admission evaluates the very selections/body whose read binding it compares. */
+export async function admitLanding(cwd: string, target: Target, deps: Deps): Promise<Admission> {
+  const snapshot = await captureReviewInput(cwd, target, deps)
+  if (!snapshot.ok) return snapshot
+  const { facts, read, body } = snapshot
+  if (!read || !body) return { ok: true, proof: { semctx: 'absent', assertledger: 'not-applicable' } }
   let semctx: SemctxOutcome = 'absent'
-  if (facts.semctx === 'configured') {
-    const outcome = await admitSemctx(cwd, facts, target, deps, read)
+  if (snapshot.semctx) {
+    const outcome = await admitSemctx(facts, target, deps, read, snapshot.semctx, body)
     if (typeof outcome === 'object' && 'ok' in outcome) return outcome
     semctx = outcome
   }
-  if (!ledger) return { ok: true, proof: { semctx, assertledger: 'not-applicable' } }
-  const refused = await admitAssertledger(facts, target, deps, read)
-  return refused ?? { ok: true, proof: { semctx, assertledger: 'detection' } }
+  if (snapshot.assertledger) {
+    const refused = await admitAssertledger(facts, target, deps, read, snapshot.assertledger)
+    if (refused) return refused
+  }
+  const next = `re-read the exact body and selected producer parts and re-review the same head (feature §6.4)`
+  if (target.reviewInput === null)
+    return refuse('candidate', 'missing', `the approval has no line-3 review-input binding — ${next}`)
+  if (!/^<!-- omp-build:review-input v=1 sha256=[0-9a-f]{64} -->$/.test(target.reviewInput))
+    return refuse(
+      'candidate',
+      'unreadable',
+      `the approval's line-3 review-input binding is malformed or unsupported — ${next}`,
+    )
+  if (target.reviewInput !== snapshot.input)
+    return refuse(
+      'candidate',
+      'unbound',
+      `the current PR body or selected producer publication is not the exact input that was reviewed — ${next}`,
+    )
+  return { ok: true, proof: { semctx, assertledger: snapshot.assertledger ? 'detection' : 'not-applicable' } }
 }

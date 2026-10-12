@@ -502,7 +502,14 @@ describe('resolveReviewPr — a fork PR is not this branch’s PR', () => {
 
 describe('reviewRecords — strict, author-bound, first-line records', () => {
   it('reads nothing from an empty history', () => {
-    expect(reviewRecords([], { me: ME })).toEqual({ reviews: 0, verdict: null, head: null, at: null, spent: false })
+    expect(reviewRecords([], { me: ME })).toEqual({
+      reviews: 0,
+      verdict: null,
+      head: null,
+      input: null,
+      at: null,
+      spent: false,
+    })
   })
 
   it('counts every record and reads the verdict and head of the latest', () => {
@@ -510,6 +517,7 @@ describe('reviewRecords — strict, author-bound, first-line records', () => {
       reviews: 2,
       verdict: 'Approve with comments',
       head: C2,
+      input: null,
       at: null,
       spent: false,
     })
@@ -583,7 +591,7 @@ describe('reviewRecords — strict, author-bound, first-line records', () => {
         ],
         { me: ME },
       ),
-    ).toEqual({ reviews: 1, verdict: 'Approve', head: C1, at: null, spent: false })
+    ).toMatchObject({ reviews: 1, verdict: 'Approve', head: C1, at: null, spent: false })
   })
 
   it('reads a record only from its first line', () => {
@@ -597,6 +605,7 @@ describe('reviewRecords — strict, author-bound, first-line records', () => {
       reviews: 0,
       verdict: null,
       head: null,
+      input: null,
       at: null,
       spent: false,
     })
@@ -608,9 +617,25 @@ describe('reviewRecords — strict, author-bound, first-line records', () => {
       reviews: 1,
       verdict: 'Request changes',
       head: C1,
+      input: null,
       at: null,
       spent: false,
     })
+  })
+
+  it('reads only the retained line-3 input marker without changing the sticky review count', () => {
+    const input = `<!-- omp-build:review-input v=1 sha256=${'a'.repeat(64)} -->`
+    const bound = review('Approve').replace('\n## Code Review', `\n${input}\n## Code Review`)
+    expect(reviewRecords([comment(bound)], { me: ME })).toMatchObject({
+      reviews: 1,
+      verdict: 'Approve',
+      head: HEAD,
+      input,
+    })
+    const elsewhere = review('Approve', { before: input })
+    expect(reviewRecords([comment(elsewhere)], { me: ME }).input).toBeNull()
+    const spent = reviewRecords([red(), red(), red(), comment(bound)], { me: ME })
+    expect(spent).toMatchObject({ reviews: 4, verdict: 'Approve', input, spent: true })
   })
 
   it('does not read a quoted verdict as a declaration', () => {
@@ -650,7 +675,7 @@ describe('reviewRecords — strict, author-bound, first-line records', () => {
       `<!-- omp-build:code-review -->\n<!-- omp-build:review-head sha=${'A'.repeat(40)} -->\n**Verdict: Approve** — x`,
     ],
   ])('reads a review head that is %s as no head', (_label, body) => {
-    expect(reviewRecords([approve(C1), comment(body)], { me: ME })).toEqual({
+    expect(reviewRecords([approve(C1), comment(body)], { me: ME })).toMatchObject({
       reviews: 2,
       verdict: 'Approve',
       head: null,
@@ -674,7 +699,7 @@ describe('reviewRecords — strict, author-bound, first-line records', () => {
   })
 
   it('keeps the latest verdict and head when a green follows a spent bound', () => {
-    expect(reviewRecords([red(C1), red(C2), red(C3), approve(C3)], { me: ME })).toEqual({
+    expect(reviewRecords([red(C1), red(C2), red(C3), approve(C3)], { me: ME })).toMatchObject({
       reviews: 4,
       verdict: 'Approve',
       head: C3,

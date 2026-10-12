@@ -35,7 +35,7 @@ export type Spec = {
   path?: string[]
 }
 
-type SimComment = { author: string; body: string; createdAt?: string | null; updatedAt?: string | null }
+type SimComment = { id?: number; author: string; body: string; createdAt?: string | null; updatedAt?: string | null }
 type SimPull = {
   number: number
   body: string

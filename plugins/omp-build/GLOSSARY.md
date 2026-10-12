@@ -45,7 +45,7 @@ The read-only check that lets a reviewed head land through the arms `landPr` wri
 _Avoid_: proof gate, a check before the PR opens, a green test run standing in for it, a PARTIAL reported as verified, VERIFIED read as tests passed, every merge proved
 
 **Reviewer trust ceiling**:
-The operator-authorized split for a PARTIAL gap: admission checks native producer/input/candidate/base binding, policy, form and publication/body chronology; the proof-aware review judges reason truth and credible browser-check performance. Unsupported claims block review. A row/block is form, timestamps show availability, approval is judgement, and VERIFIED composes authored statuses — none independently certifies the unproved gap. Required CI and applicable assertledger remain independent.
+The operator-authorized split for a PARTIAL gap: admission checks native producer/input/candidate/base binding, policy, form, publication/body chronology and exact observed review-input equality; the proof-aware review judges reason truth and credible browser-check performance. Unsupported claims block review. A row/block is form, timestamps show availability, the digest identifies captured inputs (not who actually read them), approval is judgement, and VERIFIED composes authored statuses — none independently certifies the unproved gap. Required CI and applicable assertledger remain independent.
 _Avoid_: approval as runtime certification, a Browser check block as an observation, a NO TEST row as proof, a review-judged gap called producer-certified
 
 **TDD**:
@@ -149,6 +149,10 @@ _Avoid_: the finding itself, a class slug alone, a file, a menu of solutions
 **Review record**:
 The one PR comment `fix` reads: first line `<!-- omp-build:code-review -->`, authored by the account running `fix`, newest wins. Root causes and findings both come from it. It is also the unit the Review bound counts. Line 2, when a PR was reviewed, is `<!-- omp-build:review-head sha=<40 lowercase hex> -->` — the commit that approval names. `fix` does not read it. `landPr` arms only when it matches the PR's current `headRefOid`; a record without it does not arm, so a PR reviewed before the line existed needs one re-review. Native auto-merge is then pinned with `--match-head-commit`. Merge-on-green remains label-driven: a push by another actor after `reviewed` is applied is not refused by GitHub. A record whose cause blocks predate the seven-line plan (only `mechanism:`, `fix:` and `findings:`) is not a plan `fix` can apply: `fix` halts before any filing, so a PR reviewed before the plan existed also needs one re-review.
 _Avoid_: scraping every PR comment, matching `## Code Review` as a substring, reading a sha from prose or from any line but line 2
+
+**Review input binding**:
+The line-3 `<!-- omp-build:review-input v=1 sha256=<64 lowercase hex> -->` retained by a proof-aware review before judgement. Its domain-separated SHA256 covers repository/PR/head, exact body plus `lastEditedAt`, and every complete selected applicable producer part's native ID/body/creation/revision facts, independent of verdict. The reviewer consumes that capture and compares again before posting; admission independently captures and compares the same inputs. Missing, malformed or changed binding refuses applicable proof; genuine no-proof repositories retain their existing admission path. It is equality of observed inputs, not authentication, reading certification or an atomic/lasting pin.
+_Avoid_: an acquisition attestation, a frozen manifest, a cached snapshot, a digest rebound after panel work, PARTIAL-only binding
 
 **Panel**:
 The five dispatchable review roles: the `R-adversarial` floor plus at most two specialists the roster proved relevant.

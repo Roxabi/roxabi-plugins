@@ -104,7 +104,12 @@ function recordedBaseOf(box: Box, pr: number): string | undefined {
 function prepare(
   box: Box,
   pr: number,
-  { comments, body = 'Closes #1\n', armed = null }: { comments: string[]; body?: string; armed?: string | null },
+  {
+    comments,
+    body = 'Closes #1\n',
+    armed = null,
+    binding = true,
+  }: { comments: string[]; body?: string; armed?: string | null; binding?: boolean },
 ): void {
   writeSim(box, (state) => {
     const pull = state.prs[String(pr)]
@@ -118,6 +123,67 @@ function prepare(
     pull.labels = armed ? ['reviewed'] : []
     pull.autoMerge = armed ? { enabledAt: '2026-01-01T00:00:00Z', matchHeadCommit: armed } : null
   })
+  if (binding) bindFixtureReview(box, pr)
+}
+
+/** Publish the fixture approval with the exact inputs, before any deliberate drift. */
+function bindFixtureReview(box: Box, pr: number): void {
+  const view: { headRefOid: string } = JSON.parse(
+    execFileSync('gh', ['pr', 'view', String(pr), '--json', 'headRefOid'], {
+      cwd: box.principal,
+      env: box.env,
+      encoding: 'utf8',
+    }),
+  )
+  const checkout = git(box, box.principal, ['worktree', 'list', '--porcelain', '-z'])
+    .split('\0\0')
+    .find((entry) => entry.split('\0').includes(`HEAD ${view.headRefOid}`))
+    ?.split('\0')[0]
+    ?.slice('worktree '.length)
+  if (!checkout) return
+  const captured = workflowRead(box, checkout, pr, view.headRefOid, 'captureReviewInput')
+  const input = captured.input
+  if (!captured.ok || !input) return
+  writeSim(box, (state) => {
+    const pull = state.prs[String(pr)]
+    if (!pull) throw new Error(`no PR ${pr}`)
+    const comment = pull.comments.findLast((entry) => {
+      const lines = entry.body.split('\n')
+      return (
+        lines[0] === '<!-- omp-build:code-review -->' &&
+        lines[1] === `<!-- omp-build:review-head sha=${view.headRefOid} -->`
+      )
+    })
+    if (!comment) return
+    const lines = comment.body.split('\n')
+    if (lines[2]?.startsWith('<!-- omp-build:review-input')) lines[2] = input
+    else lines.splice(2, 0, input)
+    comment.body = lines.join('\n')
+  })
+}
+
+/** Fork the real read/validation owners, not a copied digest or producer result. */
+function workflowRead(
+  box: Box,
+  cwd: string,
+  pr: number,
+  head: string,
+  fn: 'captureReviewInput' | 'validateReviewInput',
+  input?: string | null,
+): {
+  ok: boolean
+  input?: string | null
+  body?: { body: string; lastEditedAt: string | null } | null
+  reason?: string
+  error?: string
+} {
+  const out = spawnSync(REAL_BUN, [WORKFLOW, fn, cwd, JSON.stringify({ pr, head, input })], {
+    cwd,
+    env: box.env,
+    encoding: 'utf8',
+  })
+  if (out.status !== 0) throw new Error(`${fn} failed: ${out.stderr}`)
+  return JSON.parse(out.stdout)
 }
 
 /** The real `landPr`, forked under bun, and what it did to the simulated PR. */
@@ -706,6 +772,7 @@ describe('PARTIAL publication and revision must precede the approving review', (
       pull.labels = ['reviewed']
       pull.autoMerge = { enabledAt: EARLY, matchHeadCommit: head }
     })
+    bindFixtureReview(box, pr)
     return { pr, head, parts }
   }
   function facts(pr: number, index: number, changed: { createdAt?: string | null; updatedAt?: string | null }) {
@@ -739,6 +806,7 @@ describe('PARTIAL publication and revision must precede the approving review', (
           updatedAt: REAPPROVED,
         })
       })
+      bindFixtureReview(box, pr)
       const admitted = land(box, wt.partial as string, pr, mode)
       expect(admitted.result).toMatchObject({ status: 'watching', proof: { semctx: { verdict: 'PARTIAL' } } })
       expect(admitted.gate.labels).toEqual(['reviewed'])
@@ -896,6 +964,209 @@ describe('PARTIAL publication and revision must precede the approving review', (
     expect(revised.status).toBe(1)
     expect(revised.stderr).toContain('--version failed')
     expect(producerCalls(box)).toEqual(['semctx --version'])
+  })
+
+  describe('exact review inputs', () => {
+    beforeAll(() => rmSync(path.join(box.root, 'producer-calls.log'), { force: true }))
+    function dir(name: 'partial' | 'largePartial' | 'verified'): string {
+      const value = wt[name]
+      if (!value) throw new Error(`missing checkout ${name}`)
+      return value
+    }
+    function approvalInput(pr: number): string {
+      const body = readSim(box).prs[String(pr)]?.comments.at(-1)?.body
+      const input = body?.split('\n')[2]
+      if (!input?.startsWith('<!-- omp-build:review-input')) throw new Error('missing captured approval input')
+      return input
+    }
+    function unchanged(name: 'partial' | 'largePartial' | 'verified', pr: number): void {
+      const allowed = land(box, dir(name), pr)
+      expect(allowed.result).toMatchObject({
+        status: 'watching',
+        proof: { semctx: { verdict: name === 'verified' ? 'VERIFIED' : 'PARTIAL' } },
+      })
+      expect(allowed.producers).toEqual([])
+    }
+    function unbound(name: 'partial' | 'largePartial' | 'verified', pr: number): void {
+      const refused = land(box, dir(name), pr)
+      expect(refused.result).toMatchObject({
+        status: 'proof-blocked',
+        producer: 'candidate',
+        reason: 'unbound',
+        disarmed: true,
+      })
+      expect(refused.gate).toEqual(UNARMED)
+      expect(refused.producers).toEqual([])
+    }
+
+    it('refuses a body changed during panel work even when its native edit timestamp is unchanged', () => {
+      const { pr, head } = prime('partial')
+      writeSim(box, (state) => {
+        const pull = state.prs[String(pr)]
+        if (!pull) throw new Error('missing PR')
+        pull.lastEditedAt = EARLY
+      })
+      bindFixtureReview(box, pr)
+      const retained = approvalInput(pr)
+      const captured = workflowRead(box, dir('partial'), pr, head, 'captureReviewInput')
+      expect(captured).toMatchObject({
+        ok: true,
+        input: retained,
+        body: { body: noTest('out-of-scope'), lastEditedAt: EARLY },
+      })
+      expect(workflowRead(box, dir('partial'), pr, head, 'validateReviewInput', retained)).toEqual({ ok: true })
+      writeSim(box, (state) => {
+        const pull = state.prs[String(pr)]
+        if (!pull) throw new Error('missing PR')
+        pull.body += '\nChanged support read during the panel.\n'
+      })
+      expect(workflowRead(box, dir('partial'), pr, head, 'validateReviewInput', retained)).toMatchObject({
+        ok: false,
+        reason: 'unbound',
+      })
+      unbound('partial', pr)
+      prime('partial')
+      unchanged('partial', pr)
+    })
+
+    it('refuses restored body text whose lastEditedAt changed before approval', () => {
+      const { pr, head } = prime('partial')
+      const retained = approvalInput(pr)
+      writeSim(box, (state) => {
+        const pull = state.prs[String(pr)]
+        if (!pull) throw new Error('missing PR')
+        // The text is restored; a later native revision still was not the captured input.
+        pull.lastEditedAt = '2026-01-01T00:00:05Z'
+      })
+      expect(workflowRead(box, dir('partial'), pr, head, 'validateReviewInput', retained)).toMatchObject({
+        ok: false,
+        reason: 'unbound',
+      })
+      unbound('partial', pr)
+      prime('partial')
+      unchanged('partial', pr)
+    })
+
+    it('binds the selected VERIFIED part bytes even when parsing and native timestamps do not change', () => {
+      const { pr } = prime('verified')
+      writeSim(box, (state) => {
+        const part = state.prs[String(pr)]?.comments[0]
+        if (!part) throw new Error('missing proof')
+        part.body = part.body.replace('## Proof — semctx', '## Proof — semctx\nChanged producer summary.')
+      })
+      unbound('verified', pr)
+      prime('verified')
+      unchanged('verified', pr)
+    })
+
+    it('a coherent PARTIAL-to-VERIFIED rewrite cannot disable the exact read binding', () => {
+      const { pr, head, parts } = prime('partial')
+      const json = parts[0]?.match(/^```json\n([\s\S]*?)\n```/m)?.[1]
+      if (!json) throw new Error('missing native single-part JSON frame')
+      const record: SemctxRecord = JSON.parse(json)
+      const step = record.native.find((entry) => entry.argv.includes('verify'))
+      if (!step) throw new Error('missing native verification')
+      const result: {
+        verdict: string
+        findings: unknown[]
+        pendingEvidence: { id: string }[]
+        openUnknowns: unknown[]
+        provedEvidence: { id: string }[]
+      } = JSON.parse(step.stdout)
+      result.verdict = 'VERIFIED'
+      result.findings = []
+      result.provedEvidence = result.pendingEvidence.map((evidence) => ({
+        ...evidence,
+        proved: true,
+        status: 'tested',
+      }))
+      result.pendingEvidence = []
+      result.openUnknowns = []
+      step.stdout = JSON.stringify(result)
+      const rewritten = renderRecord('semctx', head, [], record)
+      if (rewritten.length !== 1 || !rewritten[0]) throw new Error('expected one replacement part')
+      const replacement = rewritten[0]
+      writeSim(box, (state) => {
+        const part = state.prs[String(pr)]?.comments[0]
+        if (!part) throw new Error('missing selected part')
+        part.body = replacement
+      })
+      unbound('partial', pr)
+      prime('partial')
+      unchanged('partial', pr)
+    })
+
+    it('binds the native identity of each selected multipart publication', () => {
+      const { pr } = prime('largePartial')
+      writeSim(box, (state) => {
+        const part = state.prs[String(pr)]?.comments[1]
+        if (!part?.id) throw new Error('missing native second-part identity')
+        part.id += 1_000_000
+      })
+      unbound('largePartial', pr)
+      prime('largePartial')
+      unchanged('largePartial', pr)
+    })
+
+    it('keeps tied-time multipart selection stable across presentation order and refuses a newer incomplete run', () => {
+      const { pr, head, parts } = prime('largePartial')
+      writeSim(box, (state) => {
+        const pull = state.prs[String(pr)]
+        if (!pull) throw new Error('missing PR')
+        for (const part of pull.comments.filter((comment) => comment.body.startsWith(proofMark('semctx')))) {
+          part.createdAt = EARLY
+          part.updatedAt = EARLY
+        }
+      })
+      bindFixtureReview(box, pr)
+      const retained = approvalInput(pr)
+      writeSim(box, (state) => {
+        const pull = state.prs[String(pr)]
+        if (!pull) throw new Error('missing PR')
+        pull.comments.reverse()
+      })
+      expect(workflowRead(box, dir('largePartial'), pr, head, 'validateReviewInput', retained)).toEqual({ ok: true })
+      unchanged('largePartial', pr)
+      const first = parts[0]
+      if (!first) throw new Error('missing first native part')
+      writeSim(box, (state) => {
+        const pull = state.prs[String(pr)]
+        if (!pull) throw new Error('missing PR')
+        pull.comments.push({ author: ME, body: first, createdAt: EARLY, updatedAt: EARLY })
+      })
+      const refused = land(box, dir('largePartial'), pr)
+      expect(refused.result).toMatchObject({
+        status: 'proof-blocked',
+        producer: 'semctx',
+        reason: 'missing',
+        disarmed: true,
+      })
+      expect(refused.gate).toEqual(UNARMED)
+      expect(refused.producers).toEqual([])
+      prime('largePartial')
+      unchanged('largePartial', pr)
+    })
+
+    it.each([
+      ['no line-3 marker', null, 'missing'],
+      ['unsupported marker version', '<!-- omp-build:review-input v=2 sha256=abc -->', 'unreadable'],
+    ] as const)('applicable proof refuses %s rather than upgrading old approval', (_label, marker, reason) => {
+      const { pr } = prime('verified')
+      writeSim(box, (state) => {
+        const comment = state.prs[String(pr)]?.comments.at(-1)
+        if (!comment) throw new Error('missing review')
+        const lines = comment.body.split('\n')
+        if (marker === null) lines.splice(2, 1)
+        else lines[2] = marker
+        comment.body = lines.join('\n')
+      })
+      const refused = land(box, dir('verified'), pr)
+      expect(refused.result).toMatchObject({ status: 'proof-blocked', producer: 'candidate', reason, disarmed: true })
+      expect(refused.gate).toEqual(UNARMED)
+      expect(refused.producers).toEqual([])
+      prime('verified')
+      unchanged('verified', pr)
+    })
   })
 })
 
@@ -1133,6 +1404,7 @@ describe('landPr admission against conserved Semctx records', () => {
       expect(edited.result.error).toMatch(/edited at \S+, not before the review record that approved/)
       expect(edited.gate).toEqual(UNARMED)
       execFileSync('gh', ['pr', 'comment', String(pr), '--body', approve(sha(branch))], { cwd: dir, env: box.env })
+      bindFixtureReview(box, pr)
       const reviewed = land(box, dir, pr)
       expect(reviewed.result).toMatchObject({
         status: 'watching',
@@ -1799,6 +2071,7 @@ process.exit(result.code)
       if (!pull) throw new Error('missing PR')
       pull.comments.push({ author: ME, body: approve(head) })
     })
+    bindFixtureReview(box, pr)
     const run = land(box, wt, pr)
     expect(run.result).toMatchObject({ status: 'watching', proof: { assertledger: 'detection' } })
     expect(run.gate).toEqual({ labels: ['reviewed'], autoMerge: expect.objectContaining({ matchHeadCommit: head }) })
@@ -2200,6 +2473,32 @@ describe('landPr admission where Semctx and an assertledger adapter both apply',
     expect(admitted.gate.labels).toEqual(['reviewed'])
     expect([...refused.producers, ...admitted.producers]).toEqual([])
   })
+  it('exact review inputs include the assertledger publication, not only Semctx or PARTIAL', () => {
+    const candidate = box.sha[branch]
+    if (!candidate) throw new Error('missing dual-producer head')
+    prepare(box, pr, { comments: [approve(candidate), ...posted], body: 'Closes #2\n', armed: candidate })
+    writeSim(box, (state) => {
+      const part = state.prs[String(pr)]?.comments.find((comment) => comment.body.startsWith(proofMark('assertledger')))
+      if (!part) throw new Error('missing native assertledger publication')
+      part.body = part.body.replace('## Proof — assertledger', '## Proof — assertledger\nChanged assertledger summary.')
+    })
+    const refused = land(box, dir, pr)
+    expect(refused.result).toMatchObject({
+      status: 'proof-blocked',
+      producer: 'candidate',
+      reason: 'unbound',
+      disarmed: true,
+    })
+    expect(refused.gate).toEqual(UNARMED)
+    expect(refused.producers).toEqual([])
+    prepare(box, pr, { comments: [approve(candidate), ...posted], body: 'Closes #2\n' })
+    const admitted = land(box, dir, pr)
+    expect(admitted.result).toMatchObject({
+      status: 'watching',
+      proof: { semctx: { verdict: 'VERIFIED' }, assertledger: 'detection' },
+    })
+    expect(admitted.producers).toEqual([])
+  })
 })
 
 describe('Semctx applicability is decided from the base, the candidate and the checkouts', () => {
@@ -2297,6 +2596,7 @@ describe('Semctx applicability is decided from the base, the candidate and the c
     'a principal root that loses search permission after Git reads its declarations refuses; restoring access admits',
     () => {
       const bin = path.join(box.root, 'fault-git')
+      prepare(box, PR, { comments: [approve(head())], body: 'Closes #5\n' })
       const realGit = execFileSync('which', ['git'], { encoding: 'utf8', env: box.env }).trim()
       mkdirSync(bin)
       const shim = path.join(bin, 'git')
@@ -2310,7 +2610,6 @@ describe('Semctx applicability is decided from the base, the candidate and the c
       const originalPath = box.env.PATH
       box.env.PATH = `${bin}:${originalPath}`
       try {
-        prepare(box, PR, { comments: [approve(head())], body: 'Closes #5\n' })
         const { result, gate, producers } = land(box, wt, PR)
         expect(result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'unreadable' })
         expect(result.error).toContain(`${JSON.stringify(path.join(box.principal, '.semctx'))} cannot be read`)

@@ -3,7 +3,7 @@
  * (`epic-driver.ts`). Keep in step with the JSDoc in `workflow.js`.
  */
 
-import type { Git, ProofSummary } from './proof'
+import type { Git, PrComment, ProofSummary, captureReviewInput as proofReviewInput, Refusal } from './proof'
 
 type Gh = (cwd: string, args: string[]) => Promise<string>
 
@@ -21,11 +21,18 @@ export declare function disarmReviewedBeforePush(
   deps?: { gh?: Gh; push?: () => Promise<void> | void },
 ): Promise<{ disarmed?: true }>
 
-/** The review records by `me` (#710): count, latest verdict, head and creation time, and whether the bound is spent. */
+/** The latest author-bound review's verdict, head, exact input marker, creation time and sticky bound. */
 export declare function reviewRecords(
   comments: { body: string; author: { login: string } | null; createdAt?: string }[],
   options: { me: string },
-): { reviews: number; verdict: string | null; head: string | null; at: string | null; spent: boolean }
+): {
+  reviews: number
+  verdict: string | null
+  head: string | null
+  input: string | null
+  at: string | null
+  spent: boolean
+}
 
 /** Lossless, non-throwing git: exit code and both streams exactly as printed. */
 export declare function gitResult(
@@ -40,8 +47,28 @@ export declare function readComments(
   deps?: { gh?: Gh },
 ): Promise<{
   me: string
-  comments: { body: string; author: { login: string }; createdAt?: string; updatedAt?: string }[]
+  comments: PrComment[]
 }>
+
+type ReviewCapture = Pick<
+  Extract<Awaited<ReturnType<typeof proofReviewInput>>, { ok: true }>,
+  'ok' | 'input' | 'body' | 'semctx' | 'assertledger'
+>
+/** Read-only review input capture at the already selected head; no gate or producer writes. */
+export declare function captureReviewInput(
+  cwd: string,
+  pr: number | string,
+  head: string,
+  deps?: { gh?: Gh; git?: Git },
+): Promise<ReviewCapture | Refusal>
+/** Refuse changed inputs before posting, without replacing the retained capture. */
+export declare function validateReviewInput(
+  cwd: string,
+  pr: number | string,
+  head: string,
+  input: string | null,
+  deps?: { gh?: Gh; git?: Git },
+): Promise<{ ok: true } | Refusal>
 
 export declare function openPr(
   cwd: string,

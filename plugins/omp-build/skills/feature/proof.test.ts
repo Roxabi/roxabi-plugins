@@ -935,7 +935,7 @@ describe('admitLanding', () => {
     expect(
       await admitLanding(
         toplevel,
-        { pr: 5, candidate: C, base: 'main', baseTip: BASE_TIP, reviewedAt: null },
+        { pr: 5, candidate: C, base: 'main', baseTip: BASE_TIP, reviewedAt: null, reviewInput: null },
         { gh: silent, git: repoGit({ toplevel }), comments: silent },
       ),
     ).toEqual({ ok: true, proof: { semctx: 'absent', assertledger: 'not-applicable' } })
@@ -948,7 +948,7 @@ describe('admitLanding', () => {
     await expect(
       admitLanding(
         toplevel,
-        { pr: 5, candidate: C, base: 'main', baseTip: BASE_TIP, reviewedAt: null },
+        { pr: 5, candidate: C, base: 'main', baseTip: BASE_TIP, reviewedAt: null, reviewInput: null },
         { gh, git, comments: silent },
       ),
     ).rejects.toThrow('GitHub was asked')
@@ -968,7 +968,7 @@ describe('admitLanding', () => {
     expect(
       await admitLanding(
         toplevel,
-        { pr: 5, candidate: C, base: 'main', baseTip: BASE_TIP, reviewedAt: null },
+        { pr: 5, candidate: C, base: 'main', baseTip: BASE_TIP, reviewedAt: null, reviewInput: null },
         { gh, git, comments: silent },
       ),
     ).toMatchObject({
@@ -1002,7 +1002,7 @@ describe('admitLanding', () => {
         : JSON.stringify({ nameWithOwner: REPOSITORY })
     const admitted = admitLanding(
       toplevel,
-      { pr: 5, candidate: C, base: 'main', baseTip: BASE_TIP, reviewedAt: null },
+      { pr: 5, candidate: C, base: 'main', baseTip: BASE_TIP, reviewedAt: null, reviewInput: null },
       { gh, git, comments: silent },
     )
     if (totalCount === nodes.length) {

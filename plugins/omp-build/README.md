@@ -219,6 +219,13 @@ before its diff; the review-start test exercises the fence, not model compliance
   unmodified and published before approval, regardless of producer or verdict.
   A recorded edit requires acquisition again; a late publication requires
   same-head review without a producer at admission.
+  A proof-aware review captures the exact body and complete selected producer
+  runs before judgement and binds them in its line-3 `review-input v=1` SHA256
+  marker; it compares again before posting. Admission compares the same body's
+  bytes + native edit metadata and each selected part's ID/body/native times,
+  including VERIFIED and detection. Missing/malformed binding or any difference
+  requires same-head review; a recorded proof revision still needs acquisition
+  first. Genuine no-proof repositories acquire no new landing prerequisite.
   A fix PR — a `fix/…` head branch, or a closing ticket or the ticket the head
   branch names (`<type>/<N>-…`) typed Fix or Bug, labelled `bug` or titled
   `fix…:` — needs a detection when the base or the head declares an
@@ -252,8 +259,9 @@ before its diff; the review-start test exercises the fence, not model compliance
   Under the [operator-authorized reviewer ceiling](https://github.com/Roxabi/roxabi-plugins/issues/768#issuecomment-6114046814),
   reason truth and credible browser-check performance belong to the proof-aware
   review; unsupported claims block it. Admission checks their policy/form and
-  availability to approval, not those two truths. A row/block is form, native
-  dates show availability (not that it was read), and approval is judgement:
+  availability and exact observed input equality to approval, not those two
+  truths. A row/block is form, dates show availability, the digest identifies
+  the observed inputs (not who actually read them), and approval is judgement:
   none certifies an unproved gap. An invented check or false reason accepted
   by that trusted reviewer is not independently detected by admission.
   Admission governs only the arms `landPr` writes: a `reviewed` label or
@@ -266,6 +274,9 @@ before its diff; the review-start test exercises the fence, not model compliance
   nor who ran it. Both producers' parts are checked for native publication and
   revision facts; a recorded edit refuses, including a PARTIAL edited into
   VERIFIED or a WEAK_ORACLE/miss edited into detection.
+  The digest is not a signature or lasting pin. GitHub reads, the review post
+  and arming are not one transaction; a change after the last read is detected
+  at the next existing refresh, not prevented.
 
 The bound guards against agent mistakes, not against an agent that bypasses it:
 records by other accounts are ignored, and edits or deletions of the account's

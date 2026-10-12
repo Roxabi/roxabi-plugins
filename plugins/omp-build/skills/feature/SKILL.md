@@ -3,7 +3,7 @@ name: feature
 disable-model-invocation: true
 argument-hint: '[#N | <subject>]'
 description: OMP-only feature cycle — frame a GitHub issue, create the worktree from origin/<base>, hand off /move and /goal, then implement, review, fix and land.
-version: 0.1.3
+version: 0.1.4
 ---
 
 # Feature
@@ -432,10 +432,21 @@ before approval. Missing or unreadable times refuse. Any recorded part revision
 requires acquisition again, then review; an unmodified later publication or
 body edit requires same-head review (§6.4), without a producer at admission.
 PARTIAL→VERIFIED and WEAK_ORACLE/miss→detection edits do not disable this guard.
+§6.4 captures the exact body and complete applicable producer runs before
+judgement, consumes that capture and compares again before posting. The approval's
+line 3 retains `<!-- omp-build:review-input v=1 sha256=<64 lowercase hex> -->`.
+Admission compares repository/PR/head, body bytes + `lastEditedAt`, and each
+selected part's ID/body/native creation/revision values, even for VERIFIED or
+detection. Missing/malformed marker or changed inputs requires same-head review,
+not an automatic digest update; a recorded producer revision needs acquisition
+first. Genuine no-proof repositories have no new marker prerequisite.
+This equality binding is not a signature, a lasting pin or an atomic read/post/arm:
+a later change is detected at the next existing refresh.
 **Reviewer trust ceiling** ([operator-authorized #768 amendment](https://github.com/Roxabi/roxabi-plugins/issues/768#issuecomment-6114046814)):
 the proof-aware review judges reason truth and whether a browser check was
 credibly performed for this head; unsupported claims block review. Admission
-checks native binding, policy, form and chronology, not those two truths.
+checks native binding, policy, form, chronology and exact observed review-input
+equality, not those two truths.
 Approval and timestamps are not runtime certification; an admitted gap remains
 unproved. Never close a PARTIAL change as verified. Semctx runs under the head's committed `.semctx/config.json`, which
 must equal the base's when the base commits one (a PR never changes or deletes
@@ -645,7 +656,7 @@ Neither a fix round nor another review action may write that label in this cycle
 | `no-pr` | Stop; no PR was resolved and no gate was armed |
 | `not-approved` | Stop; the latest review record does not approve the current head, or the bound is spent (`reason: 'review-bound'`), or — `reason: 'head-moved'` — the head moved from the one this call admitted. `landPr` disarmed a gate that was armed (`disarmed: true`). When the latest record already approves the new current head, re-run `nextReviewStep(cwd, pr)` (§6.6): its `land` re-enters §6.7 without a new review. Otherwise review again only when the bound is not spent; do not merge |
 | `watching` | Report `land.proof` — Semctx `absent`, or each change's VERIFIED/PARTIAL and every review-judged gap (form checked, still unproved); assertledger `not-applicable` or `detection` — then start the async `/ci-watch` job named in `land.watch` |
-| `proof-blocked` | Stop; report `land.producer`, `land.reason` and `land.error`. No arm remains: a gate found armed, or one this call wrote before a later checkpoint refused, was cleared (`disarmed: true` after read-back). Re-enter §6.7 once the named cause is fixed: `missing` → §6.3's proof records; late/revised PARTIAL or edited justification → a new same-head review (§6.4), reuse the proof without a producer; unreadable publication facts → obtain native metadata first. A moved head goes through §6.4. The review bound stays sticky |
+| `proof-blocked` | Stop; report `land.producer`, `land.reason` and `land.error`. No arm remains; clearing is read back (`disarmed: true`). Re-enter §6.7 once the named cause is fixed: missing producer record → §6.3; recorded proof revision → acquisition again, then §6.4; late unmodified publication, edited body or missing/malformed/changed review-input binding → same-head review (§6.4), no producer at admission; unreadable native facts → obtain native metadata. A moved head goes through §6.4. The review bound stays sticky |
 | `merged` | Report issue + PR; offer the optional tail (§0), stop |
 | `ci-failed` | Gate already disarmed; `step = await nextReviewStep(cwd, pr, { ciFailed: true })`, then §6.6 |
 | `ci-cancelled` | Gate disarmed; stop, report the cancelled checks; operator re-runs CI then re-enters §6.7 |
