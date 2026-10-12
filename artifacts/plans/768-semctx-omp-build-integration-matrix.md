@@ -269,7 +269,7 @@ Observed after r1's final writers: lint/typecheck/version check passed and the c
 repository suite passed **132 files / 4,214 tests**. This is r1 evidence, not a
 suite count for subsequent r2 edits. Deferrals remain on #782.
 
-### Review 2 / fix r2 — receipts obtained so far
+### Review 2 / fix r2 — code candidate `0f13114b893c4b7862a4b0237f143273abab08a2`
 
 Source review: [6120629290](https://github.com/Roxabi/roxabi-plugins/pull/781#issuecomment-6120629290)
 at `ca4ac43f`; `nextReviewStep` returned fix with two reviews and no remaining fix round.
@@ -279,10 +279,34 @@ at `ca4ac43f`; `nextReviewStep` returned fix with two reviews and no remaining f
 | r2 RC-1 all-verdict Semctx integrity | `627eb5de` | 19 chronology/reuse cases pass; removing admission gate fails 17 rows, removing reuse integrity fails its own row. Real Semctx 0.4.2 reacquires a revised record (one new comment, seven producer invocations); reuse performs zero new calls. |
 | r2 RC-2 assertledger integrity | `da99a3af` | 31 ledger/snapshot cases pass; removing admission guard fails four unsafe rows, removing reuse guard fails its row. Real assertledger 1.4.0 reacquires revised detection with its manifest (one new comment, two producer calls); no-manifest reuse refuses, then unchanged reuse adds zero calls. Admission refusal cases assert confirmed unarmed state and zero producers. |
 | r2 RC-3 root catalogue | `b9462503` | NO TEST — prompt-logic-only; documentation summary/attribution, falsification skipped, not a pass. |
+| r2 RC-4 current attribution | `97d6e7d2`, final receipt-attribution commit | The #776 frozen-tip/chronology bypass receipts are marked historical counterevidence and the actual #781 candidate guards/receipts are named. NO TEST — prompt-logic-only; documentation-only falsification skipped, not a pass. |
 | r2 RC-5 exact observed review inputs | `7a02323a` | 572 scoped consumer tests pass and typecheck passes. Removing admission equality fails six rows; removing pre-post equality fails two. Real Semctx acquisition posts PARTIAL (seven native calls): unchanged pre-post capture succeeds, panel-time body change refuses both pre-post validation and stale admission, confirmed clear is `labels: []` / `autoMerge: null`, and fresh same-head review admits PARTIAL with zero capture/admission producer calls. |
-| r2 RC-6 independent native clauses | This cause's test commit | 107 native-reader tests pass and typecheck passes. Each of six separate clause removals fails its own row (106 other rows skipped), with restoration in `finally`: `underlying.base`, `underlying.mergeBase`, `inspect.id`, empty `sourceRefs`, invocation candidate and invocation tool metadata. Fresh real Semctx acquisition yields VERIFIED; the shared native reader admits that result and rejects each separately corrupted field as `semctx/unbound`, with correct surrounding bindings. These are native-reader receipts, not a live GitHub merge claim. |
+| r2 RC-6 independent native clauses | `691ec68e` | 107 native-reader tests pass and typecheck passes. Each of six separate clause removals fails its own row (106 other rows skipped), with restoration in `finally`: `underlying.base`, `underlying.mergeBase`, `inspect.id`, empty `sourceRefs`, invocation candidate and invocation tool metadata. Fresh real Semctx acquisition yields VERIFIED; the shared native reader admits that result and rejects each separately corrupted field as `semctx/unbound`, with correct surrounding bindings. These are native-reader receipts, not a live GitHub merge claim. |
+| r2 RC-7 declared CI versus enforcement | `cc6113d4` | Native guard code is unchanged. Docs distinguish declared/watch names from GitHub enforcement and name the guard's priority; NO TEST — prompt-logic-only, falsification skipped, not a pass. The live unprotected GitHub immediate-merge counterexample remains unexercised. |
+| r2 RC-8 origin repository binding | `2eb1e855` | 1,194 scoped landing/reader/invariant tests and six selected origin/fetch consumer tests pass; typecheck passes. Removing repository equality fails all three origin consumer rows; fetching the mutable remote instead fails the separate verified-URL row. Real Bun smoke changes origin after identity lookup: the fetch still reads the canonical configured tip, fork-origin landing/acquisition refuse `candidate/unbound`, landing confirms both arms clear, matching origin admits genuine absence, and producer calls stay zero. Native gh resolves both SSH and HTTPS Roxabi URLs. URL-resolution awaits preserve head-last coordinates; incidental pin-adjacency assertions were deleted, not re-pinned. |
+| r2 RC-9 trailing native frame | `0f13114b` | 114 native-reader tests and twelve multipart consumer rows pass; typecheck passes. Restoring first-fence selection fails all five summary/frame rows, restored in `finally`. Real Semctx 0.4.2 posts PARTIAL (seven calls) and assertledger 1.4.0 posts detection (two calls): explicit adversarial summary fences preserve native admission, missing final frame refuses and confirms both arms clear, with zero admission calls. This does not claim either real producer emitted the attack string. |
 
-These are attributed cause-local receipts, not a final r2 approval or full-suite claim.
+These are cause-local receipts at their named commits, not interchangeable full-suite
+counts or a final approval. After this documentation writer, final whole-repository
+checks and fresh live-producer smokes are recorded in the canonical
+[`Review Fixes Applied` receipt on #781](https://github.com/Roxabi/roxabi-plugins/pull/781);
+the PR body names that pushed candidate and the actual final check counts.
+Falsification disposition is six passes (code/proof causes) and three explicit
+NO TEST — prompt-logic-only skips (RC-3/RC-4/RC-7); a skip is never a pass.
+
+Non-blocking provenance is conserved in [#783](https://github.com/Roxabi/roxabi-plugins/issues/783):
+body timestamp classification, ADR banner attribution, combined re-entry proof,
+CLI boundary/reuse-policy suggestions, and assertion/title residue. Existing
+ADR decision-log work remains #782 RC-8 and module-load fixture cleanup remains
+#777. The matrix predicate warning was reconciled within RC-4, not counted as a
+separate applied non-blocking cause. No deferral is a claim of native proof.
+
+Current v2 verification preflight: the mounted MCP impact reader rejected this
+worktree as `REPOSITORY_ROOT_MISMATCH`; the same-version Semctx 0.4.2 CLI,
+executed in v2 with `verify diff --base origin/main --json`, returned
+`CONFIG_NOT_FOUND`. No index/config was created and no own-repository Semctx
+PASS is claimed. The live native proofs above run in their configured disposable
+repositories, not by relabelling this unavailable root-impact check.
 
 
 
