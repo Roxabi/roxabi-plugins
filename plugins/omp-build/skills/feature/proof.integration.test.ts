@@ -937,6 +937,44 @@ describe('landPr admission against conserved Semctx records', () => {
       expect(gate).toEqual(UNARMED)
     })
 
+    it.each([
+      ['another gap’s headed browser check', '### Browser check `proof.fx.other-test`'],
+      ['another gap’s bare browser check', 'Browser check `proof.fx.other-test`'],
+      ['the next section', '## Test plan'],
+    ])('a browser check ends at %s: its observed result is its own, never borrowed', (_label, next) => {
+      const comments = [approve(sha(branch)), ...conserved(RECORDS.semctx, 'partial')]
+      const body = (own: string) =>
+        `${noTest('ui-manual-only')}\n### Browser check \`${GAP}\`\n- Steps: open the calculator, add 1 and Infinity\n- URL: http://localhost:3000/add\n${own}\n${next}\n- Observed: RangeError shown\n`
+      prepare(box, pr, { comments, body: body('') })
+      const borrowed = land(box, wt.partial as string, pr)
+      expect(borrowed.result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'unjustified' })
+      expect(borrowed.result.error).toMatch(/lacks the observed result/)
+      expect(borrowed.gate).toEqual(UNARMED)
+      prepare(box, pr, { comments, body: body('- Observed: RangeError shown\n') })
+      const own = land(box, wt.partial as string, pr)
+      expect(own.result).toMatchObject({
+        status: 'watching',
+        proof: { semctx: { verdict: 'PARTIAL', gaps: [{ gap: GAP, reason: 'ui-manual-only' }] } },
+      })
+      expect([...borrowed.producers, ...own.producers]).toEqual([])
+    })
+
+    it('a browser check URL must be http(s), not merely carry a host', () => {
+      const comments = [approve(sha(branch)), ...conserved(RECORDS.semctx, 'partial')]
+      prepare(box, pr, { comments, body: browser({ url: 'ftp://example.com/add' }) })
+      const ftp = land(box, wt.partial as string, pr)
+      expect(ftp.result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'unjustified' })
+      expect(ftp.result.error).toMatch(/lacks a valid http\(s\) URL/)
+      expect(ftp.gate).toEqual(UNARMED)
+      prepare(box, pr, { comments, body: browser({ url: 'https://example.com/add' }) })
+      const https = land(box, wt.partial as string, pr)
+      expect(https.result).toMatchObject({
+        status: 'watching',
+        proof: { semctx: { verdict: 'PARTIAL', gaps: [{ gap: GAP, reason: 'ui-manual-only' }] } },
+      })
+      expect([...ftp.producers, ...https.producers]).toEqual([])
+    })
+
     it('a justification edited into the body after the approving review refuses until a review follows the edit', () => {
       const dir = wt.partial as string
       prepare(box, pr, { comments: [approve(sha(branch)), ...conserved(RECORDS.semctx, 'partial')] })

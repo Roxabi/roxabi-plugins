@@ -942,10 +942,11 @@ export function browserCheck(body: string, gap: string): Partial<BrowserCheck> |
   return out
 }
 
+/** An http(s) URL. WHATWG parsing already rejects an http(s) URL with an empty host. */
 function validUrl(text: string): boolean {
   try {
-    const url = new URL(text)
-    return (url.protocol === 'http:' || url.protocol === 'https:') && url.hostname.length > 0
+    const { protocol } = new URL(text)
+    return protocol === 'http:' || protocol === 'https:'
   } catch {
     return false
   }
