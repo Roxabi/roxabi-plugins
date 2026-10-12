@@ -4,7 +4,7 @@ Date: 2026-10-09, updated 2026-10-11 after implementation and 2026-10-12 for the
 
 ## Status and authority
 
-**Historical (2026-10-09):** implementation was stopped at the native prerequisite barrier #768 → OPEN #737 → CLOSED #734. **Current (2026-10-11):** #737 closed by PR #774; the implementation is on the branch and its current evidence is § Implementation evidence. The tables between that section and this one are the plan of record written before implementation; their "pending/owed" wording is historical.
+**Historical (2026-10-09):** implementation was stopped at the native prerequisite barrier #768 → OPEN #737 → CLOSED #734. #737 was later closed by PR #774. **Current route (2026-10-12):** PR #781 supersedes stopped PR #776; current attributed receipts are in § PR #781 review-fix evidence. Earlier implementation/review sections remain historical, not blanket certification of the current head. The pre-implementation tables retain their historical "pending/owed" wording.
 
 Sources: current [#768](https://github.com/Roxabi/roxabi-plugins/issues/768), [#737](https://github.com/Roxabi/roxabi-plugins/issues/737), [#734](https://github.com/Roxabi/roxabi-plugins/issues/734); direct `gh api .../dependencies/blocked_by`; current source paths below. #734 closure is observed tracker state, not a new certification of every #734 criterion.
 
@@ -81,7 +81,7 @@ Assertledger (source 1.4.0, installed 1.1.0, npm 2.0.2): no native `detection`/`
 
 ### Protocol
 
-**Superseded in part — current rules.** Steps 2, 6 and 7 and § Relevant inputs below are the plan of record written before implementation; where they differ, the implemented owners (`proof.ts`, plugin README `landPr` bullet) govern. Semctx applies when `origin/<base>`, the head or the operator's uncommitted `.semctx/config.json` (at the root or the principal) configures it; acquisition snapshots that ignored configuration into its private clone and the record binds its source and sha256. A `commands.test_e2e` declared by the base's or the candidate's `.dev/stack.yml` refuses `ui-manual-only`. Assertledger applies when the base or the head declares an adapter and the shared fix predicate holds — a `fix/…` head branch, or a closing ticket typed Fix or Bug, labelled `bug` or titled `fix…:`; a PR whose type nothing establishes refuses. A record attests its comment's current body: only a PARTIAL's publication and revision are bound to the approving review.
+**Superseded in part — current rules.** Steps 2, 6 and 7 and § Relevant inputs below are the pre-implementation plan; the implemented owners (`proof.ts`, plugin README `landPr` bullet) govern where they differ. Semctx applies when the committed selected base, the head or uncommitted root/principal `.semctx/config.json` configures it. Acquisition snapshots ignored configuration and binds its source/hash. Either committed base/head `commands.test_e2e` refuses `ui-manual-only`. Assertledger applies when either base/head declares an adapter and a fix signal holds: `fix/…` branch, or a closing ticket **or the branch-named ticket** typed Fix/Bug, labelled `bug` or titled `fix…:`; unknown PR type refuses. Applicable producer parts need readable native publication/revision facts, publication before approval and no recorded edit. A late unmodified record needs review; revised proof needs acquisition again. Records remain editable comments, not signed attestations.
 
 1. **Selection (one identity).** The selected PR `N` (driver/`resolveReviewPr`), its current `headRefOid` `C` (GitHub), its base and `nameWithOwner`. Local tip, branch name or PR body never substitute for `C`.
 2. **Applicability before any call** (`proof.ts` `candidateFacts`, Git + `lstat` only, lossless paths from `git worktree list --porcelain -z` and a single-newline strip of `rev-parse --show-toplevel`): the local tip must be `C` (`rev-parse --verify HEAD^{commit}`; a failed probe refuses with its cause, never as an unborn branch); `ls-tree` of `C` failing (missing/corrupt object) → refuse with Git's stderr; committed `.semctx/working/*` other than `.gitkeep` → ambiguous; committed root `.semctx/config.json` (regular file, JSON object) → applicable, else unreadable; committed root `.semctx/**` without that config → ambiguous; nothing committed but `.semctx` present on disk at the toplevel or the principal worktree → ambiguous, and an unreadable one → unreadable; nothing anywhere → **absent**: only the Semctx proof is non-applicable. A `.semctx` committed deeper in the tree is not Semctx's root state and does not decide (decision below).
@@ -156,6 +156,10 @@ alongside two unplanned blockers. This is the final allowed fix, not a clean rev
   Removing checkpoint re-admission made **26 named regressions fail**; restored,
   the admission/armed-gate/landing suites passed **1,150 tests**, including the
   unchanged configured candidate's merge-on-green counterpart with zero producers.
+  **Overturned base-tip attribution:** the following #776 aggregate is historical.
+  Its same-name movement row relied on the OPEN simulator incorrectly moving
+  `baseRefOid`; #781 review 1 exposed that cheap proxy. It is not accepted current
+  evidence for movement of the selected base. The r1 fetched-tip rows below replace it.
 - **RC-2:** thirteen real-Git `landPr` cases cover retarget before pin/label,
   after pin/label, during re-pin/re-label preparation, freshly approved H2,
   same-name tip movement and an unreadable base tip. Each observes candidate
@@ -166,6 +170,10 @@ alongside two unplanned blockers. This is the final allowed fix, not a clean rev
   made the additional cross-base CI regression fail (`watching` instead of
   `no-required-checks`). The obsolete exact-RPC-order assertion was removed,
   not re-pinned.
+  **Overturned lagging-API refusal:** the following #776 aggregate is historical.
+  Refusing a selected API tip older than the branch was a fleet regression, not
+  a freshness proof. #781 r1 instead admits the fetched branch tip when the
+  recorded `baseRefOid` predates it and refuses movement during an attempt.
 - **RC-3:** seventeen real-consumer scenarios exercise acquisition and both
   landing modes against newly committed Semctx/adapter obligations, a changed
   or malformed base policy, failed fetches, lagging selected API tips, mutable
@@ -193,6 +201,9 @@ alongside two unplanned blockers. This is the final allowed fix, not a clean rev
   counterparts successfully (Semctx 0.4.2, assertledger 1.4.0).
   Final writers: lint and typecheck passed; the five admission/landing suites
   passed **1,311 tests** against the regenerated native corpus.
+  **Historical publication policy:** this #776 receipt included chronology-independent
+  VERIFIED reuse. #781 r2 RC-1/RC-2 supersede that policy across both producers;
+  the original observed counts below are not current-head proof.
 - **RC-5:** native `created_at` and `updated_at` from every part of the selected
   complete PARTIAL run bound it to the approving review; no time is inferred.
   Semctx 0.4.2 actually produced the added two-part PARTIAL fixture. Sixteen
@@ -207,10 +218,10 @@ alongside two unplanned blockers. This is the final allowed fix, not a clean rev
   zero producer calls throughout. Feature/reviewer/ADR recovery agrees.
   After the final writers, the complete repository suite passed **132 files /
   4,185 tests**; lint and typecheck passed with no lint diagnostics.
-  Native GitHub calls also confirmed both publication fields on #776 and the
-  frozen pre-merge `baseRefOid` on merged PRs #774/#773/#771. The continuous
-  goal's transport now preserves that native base fact instead of manufacturing
-  drift after merge; production base guards are unchanged.
+  Native GitHub calls then confirmed both publication fields on #776 and frozen
+  `baseRefOid` on merged PRs #774/#773/#771. That simulator correction covered
+  MERGED only; #781 review 1 later exposed the same frozen fact on OPEN PRs.
+  Production base guards were subsequently changed by `824cedcf` and `ca4ac43f`.
   The Semctx MCP impact reader returned `CONFIG_NOT_FOUND` for this genuinely
   unconfigured repository: no index/config was created and no PASS is claimed.
   At review 2 the two uncited blockers were preserved in full on siblings
@@ -226,17 +237,51 @@ alongside two unplanned blockers. This is the final allowed fix, not a clean rev
 
 ## Superseding diagnostic PR (2026-10-12)
 
-Review 3 of #776 ([6114522205](https://github.com/Roxabi/roxabi-plugins/pull/776#issuecomment-6114522205), head `3f8c56d48560a9dc77a93400e8227154fc83a1e1`) requested changes with three blockers and spent the bound. The operator chose a new diagnostic PR; #776 stays open, unarmed, as evidence. Attribution: every receipt above was exercised on #776's heads — `3843c2ce` (rejected by review 2), `c1c01bf5` (last runtime change), `3f8c56d4` (docs only, CI green). The v2 branch re-applies those 20 commits in order from `2c44cc10` as new SHAs; its tree equalled `3f8c56d4` (empty `git diff --stat`), and lint, typecheck and the full suite (132 files / 4,185 tests) passed there before any change. The PR body names the reviewed head.
+Review 3 of #776 ([6114522205](https://github.com/Roxabi/roxabi-plugins/pull/776#issuecomment-6114522205), head `3f8c56d48560a9dc77a93400e8227154fc83a1e1`) requested changes and spent its bound. The operator chose a new diagnostic PR; #776 stays open, unarmed, as evidence. Every earlier receipt was exercised on #776's named heads (`3843c2ce`, `c1c01bf5`, `3f8c56d4`), not on the later #781 fixes. Before the diagnostic edits, the v2 branch re-applied those 20 commits from `2c44cc10` as new SHAs; its tree equalled `3f8c56d4` and lint/typecheck/full suite (132 files / 4,185 tests) passed at that re-application baseline only. See the next section for later #781 candidates, changes and receipts.
 
 Each blocker was reproduced through the real consumer on disposable repositories (simulated GitHub transport, failing producer stand-ins) before its layer was chosen:
 
 - **D1 (code).** Native `landPr` with H approved and pinned: right after the pin, the PR moves to an approved H2. Before the fix the result was `watching` — the post-pin refresh re-admitted H2 under H's pin. Fix: the post-write refresh retains the armed head (`workflow.js` `afterWrite('native')`, which runs after both the first pin and a re-pin). After: `not-approved` / `head-moved`, gate cleared, one recorded pin naming H only, no label, zero producers; without the move, both modes stay `watching` on H. Siblings: the re-pin path (gate armed beforehand: `--disable-auto` precedes the pin) is refused the same way; the native and merge-on-green label writes were already refused by the head check. Reverting the fix fails exactly the two pin-write rows (first pin, re-pin). omp-build suite after the first fix: 44 files / 2,549 tests.
 - **D2 (docs).** After `landPr` armed H, the PR base was retargeted to `staging`. `applyCiWatchExit` exit 5 (`timeout`) and exit 0 (`stopped`, still open) and the `nextReviewStep` `land` step kept both arms, with 0 base reads and 0 producer calls; `landPr` refused the same retarget and cleared. The root and plugin READMEs, ADR-024's Negative and feature §6.7 now limit re-admission to `landPr`'s checkpoints and epilogue. NO TEST — prompt-logic-only.
-- **D3 (docs).** A PARTIAL published before approval lands; the same record revised after approval refuses `unjustified`; edited after approval into a coherent VERIFIED body (no NO TEST row) it lands VERIFIED and armed. A WEAK_ORACLE record refuses; edited after approval into a detection it lands armed. Zero producer calls throughout. ADR-024, the GLOSSARY, the plugin and root READMEs and feature §6.3 now say a record attests its comment's current body, that chronology binds only a record whose current body is PARTIAL, and that a later VERIFIED/assertledger edit or a PARTIAL edited into VERIFIED is not detected. NO TEST — prompt-logic-only.
+- **D3 (historical docs-only disposition at `8be6fc39`, superseded by #781 r2 RC-1/RC-2).** A PARTIAL published before approval landed; PARTIAL revised after approval refused `unjustified`, but edited into coherent VERIFIED it landed VERIFIED/armed. WEAK_ORACLE edited into detection also landed. Zero producers. The documentation then described those editable-current-body limits (NO TEST — prompt-logic-only). Review 2 recalled the mechanisms as blockers; the new native integrity guards refuse recorded edits regardless of producer/verdict. The old successful bypass probe is counterevidence, not proof of delivered AC5/AC6.
 
 Round-3 non-blocking findings addressed here: the protocol and relevant-inputs text above (marked superseded); the `proof-blocked` row when this call wrote and cleared an arm; the unreachable `bad-landing` branch deleted and the remaining one described as forced clearing; the ADR banner's item numbering, its runtime-proof sentence and a Negative entry for what admission does not detect; the root README's acquisition/admission attribution; regressions for the option-shaped base in `refreshSelectedBase` and a failed or empty `mergeBaseOf` (including a failed read that still prints a sha), each failing against its mutant. Not addressed: the catalogue-key uniqueness check running only in the local pre-push hook is a pre-existing process gap outside #768.
 
 Feature §6.1 plan review (R-architect + R-adversarial, read-only, one round, run on the diagnostic plan before this PR opened): no blocking finding. Their non-blocking items were applied above (re-pin row, scoped D2/D3 wording in feature §6.3/§6.7, the `not-approved`/`head-moved` re-entry, native write-access drift in ADR-024's Negative). Observed but outside #768 and filed standalone as [#780](https://github.com/Roxabi/roxabi-plugins/issues/780): the landing watch command interpolates the base name unquoted (`workflow.js`, pre-existing since #623; `main;id` passes `git check-ref-format`; GitHub acceptance not verified).
+
+## PR #781 review-fix evidence (2026-10-12)
+
+### Review 1 / fix r1 — candidate `ca4ac43ff414700369a53791c2c16a6b5ed3e223`
+
+Source review: [6119513777](https://github.com/Roxabi/roxabi-plugins/pull/781#issuecomment-6119513777)
+at `8be6fc39`; receipt: [6120003585](https://github.com/Roxabi/roxabi-plugins/pull/781#issuecomment-6120003585).
+This round changed the inherited guards; the #776 base receipts were not re-applied unchanged.
+
+| Cause | Applied commits | Exercised evidence |
+|---|---|---|
+| r1 RC-1 fetched selected base | `824cedcf`, `ca4ac43f` | Seven new/changed rows distinguish stale recorded `baseRefOid` from actual fetched branch movement; exact fetched-tip reuse admits. Clean own merge onto the captured first parent stays watching in both modes; merge onto a base moved after capture refuses. Pre-fix/mutated guards fail those cases. |
+| r1 RC-2 browser form | `defcdb81` | Removing block boundary makes three rows fail; heading/section/protocol removals each fail their own row. Dead hostname clause removed, not pinned. |
+| r1 RC-3 branch-named ticket | `ecdf0b13` | Staging-target PR still requires detection when its branch-named ticket is a fix; forcing no named ticket makes it watch incorrectly. |
+| r1 RC-4 VERIFIED limits | `356727ae` | NO TEST — prompt-logic-only; documentation only, falsification skipped. |
+| r1 RC-5 native replay guards | `efc5d0be` | Reference-role removal fails two rows; empty selection fails one; each remaining replay validity flag fails its own row. |
+
+Observed after r1's final writers: lint/typecheck/version check passed and the complete
+repository suite passed **132 files / 4,214 tests**. This is r1 evidence, not a
+suite count for subsequent r2 edits. Deferrals remain on #782.
+
+### Review 2 / fix r2 — receipts obtained so far
+
+Source review: [6120629290](https://github.com/Roxabi/roxabi-plugins/pull/781#issuecomment-6120629290)
+at `ca4ac43f`; `nextReviewStep` returned fix with two reviews and no remaining fix round.
+
+| Cause | Commit | Observed evidence |
+|---|---|---|
+| r2 RC-1 all-verdict Semctx integrity | `627eb5de` | 19 chronology/reuse cases pass; removing admission gate fails 17 rows, removing reuse integrity fails its own row. Real Semctx 0.4.2 reacquires a revised record (one new comment, seven producer invocations); reuse performs zero new calls. |
+| r2 RC-2 assertledger integrity | `da99a3af` | 31 ledger/snapshot cases pass; removing admission guard fails four unsafe rows, removing reuse guard fails its row. Real assertledger 1.4.0 reacquires revised detection with its manifest (one new comment, two producer calls); no-manifest reuse refuses, then unchanged reuse adds zero calls. Admission refusal cases assert confirmed unarmed state and zero producers. |
+| r2 RC-3 root catalogue | `b9462503` | NO TEST — prompt-logic-only; documentation summary/attribution, falsification skipped, not a pass. |
+
+These are attributed cause-local receipts, not a final r2 approval or full-suite claim.
+
 
 
 
