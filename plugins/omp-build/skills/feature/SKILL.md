@@ -3,7 +3,7 @@ name: feature
 disable-model-invocation: true
 argument-hint: '[#N | <subject>]'
 description: OMP-only feature cycle — frame a GitHub issue, create the worktree from origin/<base>, hand off /move and /goal, then implement, review, fix and land.
-version: 0.1.2
+version: 0.1.3
 ---
 
 # Feature
@@ -458,11 +458,14 @@ same bounded verification instead of halting for want of an `r` → the Phase 5 
 above (clean tree, global lint/tests, smoke, costly proof; same halt rule) → push only
 the matching pre-reviewed, clean head.
 
-Then post `## Review Fixes Applied` — only when the push landed.
+**Receipt:** in a review-driven round, `fix` posts it even when no cause was
+applied and no push was needed. For an inline `ci-failed` correction with new
+commits, post it after the required push succeeds. A failed push or required-proof
+halt produces no success receipt.
 The receipt is for humans: no gate reads it, and a failed post is reported, not
 retried. It never reports a falsification skip as a pass, nor a `none` record
-with actionable findings as clean. State `step.remaining`, then §6.4 — the push
-moved the head, so the next step needs the official review of it.
+with actionable findings as clean. State `step.remaining`, then §6.4 — the
+current candidate still needs its ordinary official review.
 
 ### 6.6 Bound
 
