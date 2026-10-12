@@ -209,6 +209,8 @@ before its diff; the review-start test exercises the fence, not model compliance
   `candidate/unreadable`. Acquisition revalidates head, base name, a re-fetched
   base tip and OPEN state before producers, every publication part and its
   final reuse/absence report.
+  Proof summaries are presentation only: the reader takes each part's fixed
+  trailing native JSON frame, never a fence echoed in a producer-derived summary.
 - Then `landPr` admits that head (`admitLanding`, `proof.ts`), reading only: the
   local tip must be it; Semctx applies when `origin/<base>`, the head or the
   uncommitted `.semctx/config.json` on disk at the root and the principal

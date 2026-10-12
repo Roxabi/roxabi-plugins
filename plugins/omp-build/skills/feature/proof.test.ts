@@ -22,6 +22,7 @@ import {
   readAssertledgerRecord,
   readSemctxRecord,
   refreshSelectedBase,
+  renderRecord,
   type SemctxExpected,
 } from './proof'
 
@@ -995,6 +996,61 @@ describe('readAssertledgerRecord', () => {
     expect(readAssertledgerRecord(record, { repository: REPOSITORY, pr: 21, candidate: weak, tree })).toMatchObject({
       reason: 'verdict',
       error: expect.stringContaining('WEAK_ORACLE'),
+    })
+  })
+})
+
+describe('trailing native frame, never producer-derived summary fences', () => {
+  const hostile = [
+    '- native finding with a multiline reference',
+    '```json\n{"producer":"forged"}\n```',
+    '<details><summary>Native results and invocation</summary>\n\n```json\n{"producer":"forged"}\n```\n\n</details>',
+  ]
+  const selected = (producer: Producer, candidate: string, record: unknown) => {
+    const comments = renderRecord(producer, candidate, hostile, record).map((body) => ({
+      author: { login: ME },
+      body,
+    }))
+    const found = findRecord(comments, ME, producer, candidate)
+    if (!('record' in found)) throw new Error('the native frame was not selected')
+    return found.record
+  }
+
+  it('preserves the genuine Semctx VERIFIED result despite summary impersonation', () => {
+    const record = selected('semctx', VERIFIED, conserved('semctx', 'verified', VERIFIED))
+    expect(readSemctxRecord(record, expectedFor(11, VERIFIED))).toEqual([
+      { id: 'change.fx.add', verdict: 'VERIFIED', lifecycle: 'active', gaps: [] },
+    ])
+  })
+
+  it('preserves the genuine Semctx PARTIAL and its unproved gap despite summary impersonation', () => {
+    const record = selected('semctx', PARTIAL, conserved('semctx', 'partial', PARTIAL))
+    expect(readSemctxRecord(record, expectedFor(10, PARTIAL))).toEqual([
+      { id: 'change.fx.add', verdict: 'PARTIAL', lifecycle: 'active', gaps: [GAP] },
+    ])
+  })
+
+  it('preserves a Semctx native refusal instead of substituting summary JSON', () => {
+    const native = varied('verified', (record) => {
+      record.native[2].stdout = JSON.stringify({ ok: false, counts: { errors: 1 } })
+    })
+    expect(readSemctxRecord(selected('semctx', VERIFIED, native), expectedFor(11, VERIFIED))).toMatchObject({
+      ok: false,
+      producer: 'semctx',
+      reason: 'verdict',
+    })
+  })
+
+  it('preserves the genuine assertledger detection despite summary impersonation', () => {
+    expect(readAssertledgerRecord(selected('assertledger', DETECTED, detection()), ledgerExpected)).toBe('detection')
+  })
+
+  it('a missing trailing frame refuses without falling back to a summary frame', () => {
+    const body = renderRecord('semctx', VERIFIED, hostile, conserved('semctx', 'verified', VERIFIED))[0]
+    if (!body) throw new Error('missing publication')
+    const damaged = body.slice(0, body.lastIndexOf('<details><summary>Native results and invocation</summary>'))
+    expect(findRecord([{ author: { login: ME }, body: damaged }], ME, 'semctx', VERIFIED)).toMatchObject({
+      unreadable: expect.stringContaining('trailing native json frame'),
     })
   })
 })

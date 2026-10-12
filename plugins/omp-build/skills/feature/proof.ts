@@ -405,6 +405,8 @@ export const proofMark = (producer: Producer) => `<!-- omp-build:proof producer=
 const PROOF_HEAD = /^<!-- omp-build:proof-head sha=([0-9a-f]{40})(?: part=([1-9]\d*)\/([1-9]\d*))? -->$/
 const FENCE_OPEN = '```json'
 const FENCE_CLOSE = '```'
+const NATIVE_OPEN = '<details><summary>Native results and invocation</summary>'
+const NATIVE_CLOSE = '</details>'
 
 /**
  * The comment bodies for one producer result. Line 1 names the producer, line 2
@@ -425,13 +427,13 @@ export function renderRecord(producer: Producer, candidate: string, summary: str
       '',
       ...lines,
       '',
-      '<details><summary>Native results and invocation</summary>',
+      NATIVE_OPEN,
       '',
       FENCE_OPEN,
       block,
       FENCE_CLOSE,
       '',
-      '</details>',
+      NATIVE_CLOSE,
     ].join('\n')
   const whole = render('', summary, json)
   if (Buffer.byteLength(whole) <= COMMENT_LIMIT) return [whole]
@@ -490,10 +492,21 @@ export function findRecord(comments: PrComment[], me: string, producer: Producer
   let json = ''
   for (const { body } of latest.parts) {
     const lines = body.split('\n')
-    const open = lines.indexOf(FENCE_OPEN)
-    const close = open < 0 ? -1 : lines.indexOf(FENCE_CLOSE, open + 1)
-    if (open < 0 || close < 0) return { unreadable: `the ${producer} record for ${candidate} carries no json block` }
-    json += lines.slice(open + 1, close).join('\n')
+    // Only the writer's seven-line trailing frame is authoritative. Summary
+    // text can contain arbitrary fences or even a complete earlier frame.
+    const last = lines.length - 1
+    const fragment = lines[last - 3]
+    if (
+      lines[last - 6] !== NATIVE_OPEN ||
+      lines[last - 5] !== '' ||
+      lines[last - 4] !== FENCE_OPEN ||
+      typeof fragment !== 'string' ||
+      lines[last - 2] !== FENCE_CLOSE ||
+      lines[last - 1] !== '' ||
+      lines[last] !== NATIVE_CLOSE
+    )
+      return { unreadable: `the ${producer} record for ${candidate} carries no trailing native json frame` }
+    json += fragment
   }
   try {
     return { record: JSON.parse(json), parts: latest.parts }
