@@ -42,8 +42,8 @@ use `/feature` §6.5, not this review-comment consumer.
 |-------|----|----------|---------------|-------|
 | 1 | gather | ✓ | record found, F + R_posted parsed | the marked review record only |
 | 2 | causes | ✓ | R named, eligibility decided | posted blocks, else cluster |
-| 3 | apply | — | one commit per applied cause, then the local pre-review of `B..S` (Phase 3 tail) | empty apply bucket → no commit, no pre-review; defer and file still run |
-| 4 | falsify | — | pass / fail / skipped per applied cause | no applied cause → skip; a permanent retry or revert re-enters the Phase 3 local pre-review |
+| 3 | apply / resume verification | — | one commit per newly applied cause; local pre-review of the complete new or recovered unpublished `B..S` candidate (Phase 3 tail) | empty new apply bucket AND no bound paused candidate → no new commit or pre-review; an empty new bucket alone never skips the paused candidate; defer and file still run |
+| 4 | falsify | — | pass / fail / skipped per new or recovered applied cause | no applied cause, new or recovered → skip; a permanent retry or revert re-enters the Phase 3 local pre-review |
 | 5 | push | ✓ | clean tree, global lint/tests, actual-path smoke and final costly proof on the pre-reviewed head, then `git push` when a cause was committed | no cause commit → skip the push; a red or unavailable required smoke/proof halts, commits local; never writes `reviewed` on a review-driven fix |
 | 6 | post-comment | — | comment posted | ∄ PR → skip |
 
@@ -51,7 +51,7 @@ use `/feature` §6.5, not this review-comment consumer.
 
 Success: ∀ blocking r → applied ∨ filed ∧ deferred set in one issue or empty ∧ PR comment posted
 Evidence: `gh pr view {N} --comments | grep "## Review Fixes Applied"`
-Steps: gather → causes → apply (cause commits → local pre-review) → falsify → push (global checks → smoke → costly proof → push) → post-comment
+Steps: gather → causes → apply or resume verification (new or recovered cause commits → local pre-review) → falsify → push (global checks → smoke → costly proof → push) → post-comment
 ¬clear → STOP + ask: "Do you have review findings to fix?"
 
 Let:
