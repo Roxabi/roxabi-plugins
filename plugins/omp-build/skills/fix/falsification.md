@@ -28,7 +28,7 @@ cause:     the applied cause (id, fix, failure, restored, paths, proof, its comm
 
 1. `proof: NO TEST: <reason>` → `skipped`, note the reason. Nothing runs: a justified NO TEST is an explicit skip, not coverage.
 2. The proof could not run in Phase 3 — it needs infrastructure, a command or a service the repository does not have → `skipped`, note what is missing. The receipt carries that reason; no parking-lot entry is added for it.
-3. Otherwise, for each guard the cause's commit introduced — one per path when the fix guards each path, one when a single source guards every path. When the commit only adds the proof (a missing-test cause, root-causes.md § Proof), the guards are the existing production guards that proof observes:
+3. Otherwise snapshot the complete current cause guard/path and proof/fixture/setup sets, then run each guard the cause's commit introduced — one per path when the fix guards each path, one when a single source guards every path. When the commit only adds the proof (a missing-test cause, root-causes.md § Proof), the guards are the existing production guards that proof observes:
    1. Identify the guard: the production condition, check or routing the commit added, or for a missing-test cause the existing one the proof observes. Never the proof's own test, assertion, fixture or setup. No guard identifiable → inconclusive.
    2. Temporarily remove it (do NOT commit).
    3. Re-run the proof through the repository's test command, scoped to the proof's test.
@@ -54,8 +54,10 @@ notes:    string           — the skip or inconclusive reason; optional otherwi
 ```
 cause_result = "fail"     if a guard removal left the proof passing
              = "skipped"  if the proof is NO TEST, could not run, no guard was identifiable, or a run was inconclusive
-             = "pass"     only when at least one guard was removed and every removal made the proof fail on its `failure:` scenario
+             = "pass"     only for the unchanged complete current sets, with at least one guard removed and every current guard removal making the proof fail on its `failure:` scenario
 ```
+
+The aggregate is bound to those complete guard/path and proof/fixture/setup sets, not just the guards previously tested. Any addition, removal or change invalidates an earlier `pass`, including a new guard alongside untouched old guards. Refresh the affected cause's full current guard-set gate before push; retain the existing retry limits, and never turn a legal skip or a stale aggregate into pass.
 
 `skipped` is never a pass. Nothing counts it as one: not this aggregation, not Phase 4 of
 `skill://fix`, not the receipt. Phase 4 in SKILL.md consumes `cause_result`. A cause whose own
