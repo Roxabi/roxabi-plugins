@@ -50,11 +50,16 @@ type SimPull = {
   closes: number[]
   /** GitHub's recorded `baseRefOid`, keyed by the `<base>@<head>` it was recorded for. */
   baseRecord?: { at: string; oid: string | null }
+  mergeCommit?: { oid: string; parents: string[] } | null
+  mergedAt?: string | null
 }
 export type SimState = {
   viewer: string
   prs: Record<string, SimPull>
-  issues: Record<string, { title: string; labels: string[]; issueType?: string | null; comments: SimComment[] }>
+  issues: Record<
+    string,
+    { title: string; state?: string; labels: string[]; issueType?: string | null; comments: SimComment[] }
+  >
   checks: Record<
     string,
     { name: string; status: string; conclusion: string; workflowName: string; startedAt: string }[]

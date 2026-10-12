@@ -191,6 +191,9 @@ before its diff; the review-start test exercises the fence, not model compliance
   re-fetch the base. A retarget or moved tip is `proof-blocked` / `candidate` /
   `unbound`; missing coordinates are `unreadable`. Both force clearing, never
   silently switch landing policy; re-entry captures the current base normally.
+  A clean PR merges as soon as it is armed, moving the base itself: a PR whose
+  merge commit's first parent is the selected tip keeps its base; merged onto
+  another tip it is refused, and the disarm reports the merge.
   Each landing or acquisition attempt first fetches the selected origin branch
   (not the principal-detection cache) and selects the tip that fetch reads —
   never GitHub's `baseRefOid`, which is recorded when the PR opens, its head is

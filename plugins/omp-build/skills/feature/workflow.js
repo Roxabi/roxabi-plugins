@@ -706,17 +706,26 @@ export async function landPr(
   }
   const baseBlocked = (reason, error) =>
     exit({ status: 'proof-blocked', producer: 'candidate', reason, error }, { policy: 'unarmed' })
-  const bindBase = (current) => {
+  // A clean PR merges as soon as it is armed (`gh pr merge --auto` merges it at
+  // once; native auto-merge within seconds), moving its own base. Merged onto
+  // the selected tip — the merge commit's first parent — the base was not lost.
+  const mergedOnto = async (tip) => {
+    const data = await readPrFields(cwd, pr, ghFn, 'state,mergeCommit')
+    const oid = data.mergeCommit?.oid
+    if (data.state !== 'MERGED' || !isCommitSha(oid)) return false
+    const parent = await gitFn(cwd, ['rev-parse', '--verify', `${oid}^1`])
+    return parent.code === 0 && parent.stdout.trim() === tip
+  }
+  const bindBase = async (current) => {
     if (current.refusal) {
       return baseBlocked(current.refusal.reason, `PR base ${JSON.stringify(current.name)}: ${current.refusal.error}`)
     }
-    if (landingContext && (current.name !== landingContext.name || current.tip !== landingContext.tip)) {
-      return baseBlocked(
-        'unbound',
-        `PR base ${current.name}@${current.tip} conflicts with captured ${landingContext.name}@${landingContext.tip}; re-enter landing with the current base`,
-      )
-    }
-    return null
+    if (!landingContext || (current.name === landingContext.name && current.tip === landingContext.tip)) return null
+    if (current.name === landingContext.name && (await mergedOnto(landingContext.tip))) return null
+    return baseBlocked(
+      'unbound',
+      `PR base ${current.name}@${current.tip} conflicts with captured ${landingContext.name}@${landingContext.tip}; re-enter landing with the current base`,
+    )
   }
   const readCoordinates = async () => {
     const data = await readPrFields(cwd, pr, ghFn, 'headRefOid,baseRefName')
@@ -724,7 +733,7 @@ export async function landPr(
   }
   const checkCoordinates = async (adapter) => {
     const current = await readCoordinates()
-    const blocked = bindBase(current.base)
+    const blocked = await bindBase(current.base)
     if (blocked) return blocked
     return !isCommitSha(current.head) || current.head !== records.head ? moved(adapter) : null
   }
@@ -751,7 +760,7 @@ export async function landPr(
     } catch (error) {
       return baseBlocked('unreadable', `PR base cannot be read: ${errorText(error)}`)
     }
-    const changed = bindBase(current)
+    const changed = await bindBase(current)
     if (changed) return changed
     const admission = await admitLanding(
       cwd,
@@ -840,7 +849,7 @@ export async function landPr(
       }
       try {
         const selected = await resolveLandingBase(cwd, pr, ghFn, gitFn)
-        const blocked = bindBase(selected)
+        const blocked = await bindBase(selected)
         if (blocked) return blocked
         landingContext = selected
         landingBase = selected.name
@@ -918,7 +927,7 @@ export async function landPr(
             let readError
             try {
               const current = await readCoordinates()
-              const blocked = bindBase(current.base)
+              const blocked = await bindBase(current.base)
               if (blocked) return blocked
               gone = !isCommitSha(current.head) || current.head !== records.head
             } catch (error) {
@@ -974,7 +983,7 @@ export async function landPr(
       const refusal = await refreshReviewAuthorization(true)
       const current = await readCoordinates()
       seen = { ...seen, headRefOid: current.head }
-      const authorization = refusal ?? bindBase(current.base)
+      const authorization = refusal ?? (await bindBase(current.base))
       if (authorization) {
         terminal.policy = 'unarmed'
         if (!terminal.failure) terminal.result = authorization.result

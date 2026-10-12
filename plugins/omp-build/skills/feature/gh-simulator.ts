@@ -410,6 +410,8 @@ function fields(flag: Map<string, string[]>, pr: Pull, state: State): Record<str
     headRefName: pr.headRefName,
     headRefOid: pr.headRefOid,
     isCrossRepository: pr.isCrossRepository,
+    // gh exports only the merge commit's oid; its parents are Git's to read.
+    mergeCommit: pr.mergeCommit ? { oid: pr.mergeCommit.oid } : null,
     mergeStateStatus: pr.state === 'MERGED' ? 'UNKNOWN' : 'CLEAN',
     autoMergeRequest: pr.autoMerge ? { enabledAt: pr.autoMerge.enabledAt } : null,
     labels: pr.labels.map((name) => ({ name })),

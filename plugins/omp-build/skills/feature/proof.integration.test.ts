@@ -407,6 +407,75 @@ describe('landPr retains the selected base name and tip', () => {
     },
   )
 
+  describe('a clean PR merges as soon as it is armed, moving the base itself', () => {
+    function armGreen(): void {
+      writeSim(box, (state) => {
+        state.checks[head()] = [
+          {
+            name: 'ci',
+            status: 'completed',
+            conclusion: 'success',
+            workflowName: 'ci',
+            startedAt: '2026-01-01T00:00:00Z',
+          },
+        ]
+      })
+    }
+    function reopen(): void {
+      writeSim(box, (state) => {
+        const pull = state.prs[String(pr)]
+        if (!pull) throw new Error('no plain PR')
+        pull.state = 'OPEN'
+        pull.mergeCommit = null
+        pull.mergedAt = null
+        delete state.checks[head()]
+        for (const number of pull.closes) {
+          const issue = state.issues[String(number)]
+          if (issue) issue.state = 'OPEN'
+        }
+      })
+      git(box, box.origin, ['update-ref', 'refs/heads/main', box.sha.main as string])
+    }
+
+    it.each(['native', 'merge-on-green'] as const)('%s lands it onto the selected tip as watching', (mode) => {
+      reset(false)
+      armGreen()
+      try {
+        const { result, producers } = land(box, wt, pr, mode)
+        expect(result).toMatchObject({ status: 'watching', mode })
+        const merged = readSim(box).prs[String(pr)]
+        expect(merged?.state).toBe('MERGED')
+        expect(merged?.mergeCommit?.parents).toEqual([box.sha.main, head()])
+        expect(producers).toEqual([])
+      } finally {
+        reopen()
+      }
+    })
+
+    it('native refuses it once it merged onto a base that moved after selection', () => {
+      reset(false)
+      armGreen()
+      const restore = mutateAfter(
+        box,
+        'pin-write',
+        `
+      const moved = spawnSync('git', ['--git-dir', ${JSON.stringify(box.origin)}, 'update-ref', 'refs/heads/main', ${JSON.stringify(box.sha.staging)}], { env: process.env, encoding: 'utf8' });
+      if (moved.status !== 0) throw new Error(moved.stderr);
+    `,
+      )
+      try {
+        const { result, producers } = land(box, wt, pr, 'native')
+        expect(result).toMatchObject({ status: 'auto-merge-failed' })
+        expect(result.error).toMatch(/merged while being disarmed/)
+        expect(readSim(box).prs[String(pr)]?.mergeCommit?.parents).toEqual([box.sha.staging, head()])
+        expect(producers).toEqual([])
+      } finally {
+        restore()
+        reopen()
+      }
+    })
+  })
+
   it.each(['native', 'merge-on-green'] as const)('%s refuses a selected base with no readable tip', (mode) => {
     reset(false)
     const restore = mutateAfter(box, 'label-write', `state.prs[${pr}].baseRefName = 'missing';`)
