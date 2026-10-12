@@ -196,7 +196,7 @@ Two dispositions, one wiring. A non-blocking cause is not filed on its own: it j
 
 **Comment text never reaches a command line.** Titles and bodies come from PR comments, which anyone can write. Write them with the `write` tool into a mktemp dir and pass the files; a double-quoted `$(…)` or backtick in an argument runs in the operator's shell.
 
-**Triage starts outside the checkout.** Bun reads `bunfig.toml` and `.env` from the directory it starts in. Started in the PR's checkout, a tracked `bunfig.toml` preload runs before triage, and it can print `Created #N` and exit 0 with nothing filed; `--no-env-file` alone does not stop it. So `triage` starts Bun in issue-triage's own directory, with `--no-env-file`, the target repository in `GITHUB_REPO` and absolute file paths. Without `GITHUB_REPO`, triage started there would resolve the plugin's own repository; it also no longer reads a `.dev/dev-core.yml` `github_repo` pin. An unresolved script or repository refuses; nothing falls back to the checkout.
+**Triage starts outside the checkout.** Bun reads `bunfig.toml` and `.env` from the directory it starts in. Started in the PR's checkout, a tracked `bunfig.toml` preload runs before triage, and it can print `Created #N` and exit 0 with nothing filed; `--no-env-file` alone does not stop it. So `triage` starts Bun in issue-triage's own directory, with `--no-env-file`, the target repository in `GITHUB_REPO` and absolute file paths. The target is the operator's `GITHUB_REPO` when set, else the checkout's `gh repo view`; without it, triage started there would resolve the plugin's own repository. It never reads the checkout's `.dev/dev-core.yml` `github_repo` pin. An unresolved script or repository refuses; nothing falls back to the checkout.
 
 **Deferral — one issue per run.** Every cause that is not `blocking(r)`, every uncited finding that does not satisfy `blocks(f)`, and every cited finding of a malformed block that does not satisfy `blocks(f)`, and that is not already deferred or filed, goes into exactly one follow-up. They are not applied. One `create`, not one per cause. The title file is the bundle title `Deferred non-blocking review findings`. The body file opens with `**Origin:** PR #<N>`, then `## Acceptance criteria` with one checkbox per deferred item, then the details: every deferred mechanism, its fix line, and its findings, plus each uncited non-blocking finding, plus each cited non-blocking finding of a malformed block. Same `--blocked-by` / `--parent` / `--size` / `--type` wiring as the bullets under the fence. Empty set after the already-deferred filter → no issue. Do not use the per-cause sentence `could not be applied` for this issue. Do not copy a non-blocking member of an applied cause into it.
 
@@ -204,7 +204,7 @@ Two dispositions, one wiring. A non-blocking cause is not filed on its own: it j
 FILE_DIR=$(mktemp -d -t "omp-build-fix-file-XXXXXX")
 trap 'rm -rf "$FILE_DIR"' EXIT
 # write "$FILE_DIR/title.txt" and "$FILE_DIR/body.md" with the write tool, then:
-TRIAGE=$(realpath skill://issue-triage/triage.ts) && TRIAGE_REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+TRIAGE=$(realpath skill://issue-triage/triage.ts) && TRIAGE_REPO="${GITHUB_REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
 triage() { (: "${TRIAGE:?issue-triage unresolved}" "${TRIAGE_REPO:?repository unresolved}" && cd "$(dirname "$TRIAGE")" && GITHUB_REPO="$TRIAGE_REPO" bun --no-env-file "$TRIAGE" "$@"); }
 triage create --title-file "$FILE_DIR/title.txt" --body-file "$FILE_DIR/body.md" ...
 ```

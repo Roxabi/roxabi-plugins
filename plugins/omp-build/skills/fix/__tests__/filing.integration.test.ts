@@ -46,7 +46,7 @@ afterEach(async () => {
 /** A hostile checkout of Acme/app, a trusted triage copy, stub gh and realpath. */
 async function world(realpathOk = true) {
   root = mkdtempSync(path.join(tmpdir(), 'omp-fix-filing-'))
-  fake = await startGitHub(root, ['Acme/app#70', 'Acme/app#80'])
+  fake = await startGitHub(root, ['Acme/app#70', 'Acme/app#80', 'Other/tracker#70', 'Other/tracker#80'])
   const { script } = trustedTriage(path.join(root, 'trusted'))
   const bin = path.join(root, 'bin')
   writeGh(bin)
@@ -115,6 +115,30 @@ describe('fix Filing block', () => {
     })
     expect(writes.map((call) => call.cwd)).toEqual(writes.map(() => w.triageDir))
     expect(writes.at(-1)?.args).toBe('issue edit 101 --repo Acme/app --add-label size:S')
+  })
+
+  it('files into the operator’s exported GITHUB_REPO, not the checkout’s repository', async () => {
+    const w = await world()
+    const ran = await run(`${LAUNCH}\n${CREATE.replace(/ \.\.\.$/, ` ${FLAGS}`)}`, w.repo, {
+      ...w.env,
+      GITHUB_REPO: 'Other/tracker',
+    })
+
+    expect(ran.stderr).toBe('')
+    expect(ran.code).toBe(0)
+    expect(w.fake.created).toEqual([
+      {
+        repo: 'Other/tracker',
+        number: 101,
+        nodeId: 'I_Other/tracker#101',
+        title: TITLE,
+        body: BODY,
+        type: 'fix',
+        parent: 70,
+        blockedBy: [80],
+      },
+    ])
+    expect(ghCalls(w.ghLog).at(-1)?.args).toBe('issue edit 101 --repo Other/tracker --add-label size:S')
   })
 
   it('pre-#762 block: the checkout preload forges the receipt and nothing is filed', async () => {

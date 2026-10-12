@@ -36,7 +36,7 @@ afterEach(async () => {
 
 async function world() {
   root = mkdtempSync(path.join(tmpdir(), 'issue-triage-defer-'))
-  fake = await startGitHub(root, ['Acme/app#70', 'Acme/app#80'])
+  fake = await startGitHub(root, ['Acme/app#70', 'Acme/app#80', 'Other/tracker#70', 'Other/tracker#80'])
   const { pluginRoot, script } = trustedTriage(path.join(root, 'trusted'))
   const bin = path.join(root, 'bin')
   writeGh(bin)
@@ -85,6 +85,28 @@ describe('issue-triage deferral recipe', () => {
     expect(resolve).toEqual({ cwd: w.repo, env: '', args: 'repo view --json nameWithOwner --jq .nameWithOwner' })
     expect(parent.cwd).toBe(w.repo)
     expect(parent.args).toContain('repository(owner:"Acme",name:"app"){issue(number:80)')
+    expect(rest).toEqual([])
+  })
+
+  it('files into the operator’s exported GITHUB_REPO, not the checkout’s repository', async () => {
+    const w = await world()
+    const ran = await run(RECIPE, w.repo, { ...w.env, GITHUB_REPO: 'Other/tracker' })
+
+    expect(ran.stderr).toBe('')
+    expect(ran.code).toBe(0)
+    expect(w.fake.created).toEqual([
+      {
+        repo: 'Other/tracker',
+        number: 101,
+        nodeId: 'I_Other/tracker#101',
+        title: TITLE,
+        body: BODY,
+        parent: 70,
+        blockedBy: [80],
+      },
+    ])
+    const [parent, ...rest] = ghCalls(w.ghLog)
+    expect(parent.args).toContain('repository(owner:"Other",name:"tracker"){issue(number:80)')
     expect(rest).toEqual([])
   })
 

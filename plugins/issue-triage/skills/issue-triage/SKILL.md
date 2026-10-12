@@ -132,7 +132,7 @@ Cross-repo **relations** (`--blocked-by`, `--blocks`, `--parent`, `--add-child`)
 
 **Caveat — keep refs fully-qualified:** `GITHUB_REPO` retargets the entire invocation. A bare `#N` in any ref resolves against the overridden repo, not the cwd repo → always use `OWNER/REPO#N` for any cross-repo ref when the env var is set.
 
-**Resolution order** (`detectGitHubRepo`): (1) `github_repo` in dev-core config ∨ `GITHUB_REPO` env var (validated as `owner/repo`) → (2) fallback `git remote get-url origin` of the cwd.
+**Resolution order** (`detectGitHubRepo`): (1) `github_repo` in dev-core config ∨ `GITHUB_REPO` env var (validated as `owner/repo`) → (2) fallback `git remote get-url origin` of the cwd. The Deferred Follow-Ups recipe below starts triage in its own directory, so it resolves the target itself: the operator's `GITHUB_REPO` when set, else the checkout's `gh repo view`. It never reads the checkout's `.dev/dev-core.yml` pin.
 
 ## Deferred Follow-Ups — Sibling Rule
 
@@ -160,14 +160,14 @@ Cross-repo **relations** (`--blocked-by`, `--blocks`, `--parent`, `--add-child`)
 
 **Recipe — defer A → create follow-up B:**
 
-Triage starts in its own directory, never the checkout: Bun reads `bunfig.toml` and `.env` from the directory it starts in, and a tracked preload there runs before triage and can print `Created #N` and exit 0 with nothing filed (`--no-env-file` alone does not stop it). The target repository is resolved in the checkout and passed as `GITHUB_REPO`; started from its own directory without it, triage would resolve the plugin's repository, and it no longer reads a `.dev/dev-core.yml` `github_repo` pin. An unresolved script or repository refuses.
+Triage starts in its own directory, never the checkout: Bun reads `bunfig.toml` and `.env` from the directory it starts in, and a tracked preload there runs before triage and can print `Created #N` and exit 0 with nothing filed (`--no-env-file` alone does not stop it). The target repository is the operator's `GITHUB_REPO` when set, else the checkout's `gh repo view`, and is passed as `GITHUB_REPO`; started from its own directory without it, triage would resolve the plugin's repository. The recipe never reads the checkout's `.dev/dev-core.yml` `github_repo` pin. An unresolved script or repository refuses.
 
 ```bash
 # Title and body go through files — both often quote review text you did not write.
 DIR=$(mktemp -d -t "issue-triage-defer-XXXXXX")
 # write "$DIR/title.txt" ({deferred title}) and "$DIR/body.md" (**Origin:** #A
 # (deferred from ...), then {details}) with an editor or a write tool, then:
-TRIAGE=$(realpath "${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts") && TRIAGE_REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+TRIAGE=$(realpath "${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts") && TRIAGE_REPO="${GITHUB_REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
 triage() { (: "${TRIAGE:?issue-triage unresolved}" "${TRIAGE_REPO:?repository unresolved}" && cd "$(dirname "$TRIAGE")" && GITHUB_REPO="$TRIAGE_REPO" bun --no-env-file "$TRIAGE" "$@"); }
 # A's parent, empty when A is top-level. B takes it, and is blocked by A.
 A_PARENT=$(gh api graphql -f query="query{repository(owner:\"${TRIAGE_REPO%/*}\",name:\"${TRIAGE_REPO#*/}\"){issue(number:$A){parent{number}}}}" \
@@ -186,7 +186,7 @@ triage create \
 - A is already top-level epic → defer creates child of A (epic decomposition pattern applies).
 - Existing follow-up issue B mis-parented under A → fix retroactively, with the same launch:
   ```bash
-  TRIAGE=$(realpath "${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts") && TRIAGE_REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+  TRIAGE=$(realpath "${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts") && TRIAGE_REPO="${GITHUB_REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
   triage() { (: "${TRIAGE:?issue-triage unresolved}" "${TRIAGE_REPO:?repository unresolved}" && cd "$(dirname "$TRIAGE")" && GITHUB_REPO="$TRIAGE_REPO" bun --no-env-file "$TRIAGE" "$@"); }
   triage set <B> --rm-parent
   triage set <B> --parent "#${A_PARENT}"
