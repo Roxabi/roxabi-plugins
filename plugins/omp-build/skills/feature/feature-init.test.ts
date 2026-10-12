@@ -92,7 +92,7 @@ describe('feature init on the fictional acme fixture', () => {
       'label migration',
       'semctx hooks',
       'CI job semctx-working-empty',
-      '3 orphan contracts',
+      '3 active semctx contracts',
       'assertledger + vitest adapter',
       'landing = merge-on-green (every check; gates: widget-audit ; (widget-build|widget-build-full) ; Widget scan, nightly|widget-scan)',
       'worktree block',

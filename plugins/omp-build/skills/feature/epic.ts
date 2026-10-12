@@ -79,11 +79,44 @@ const BRANCH_TYPES: Record<string, true> = {
   refactor: true,
 }
 
+const TITLE = /^(\w+)(?:\([^)]*\))?!?:\s*(.*)$/
+
+/** The Conventional type a title declares (`fix(scope)!: …` → `fix`), or null for none or an unknown one. */
+export function titleType(title: string): string | null {
+  const prefix = TITLE.exec(title)?.[1]?.toLowerCase() ?? ''
+  return Object.hasOwn(BRANCH_TYPES, prefix) ? prefix : null
+}
+
+/** A closing ticket's type signals as the tracker carries them. */
+export type TicketSignals = { title: string; labels: string[]; issueType: string | null }
+
+const FIX_TYPES: Record<string, true> = { fix: true, bug: true }
+
+/**
+ * Whether a PR is a fix, from its head branch and the tickets it closes: `fix`
+ * when any signal says so — a `fix/…` branch (`branchFor`'s name for a fix
+ * ticket), a ticket's `fix` Conventional title, `bug` label, or Fix or Bug
+ * issue type, in any case; `other` when a known branch type, title type or issue
+ * type establishes another type; `unknown` when nothing establishes one.
+ */
+export function fixKind(head: string, tickets: TicketSignals[]): 'fix' | 'other' | 'unknown' {
+  const branch = /^([^/]+)\//.exec(head)?.[1]?.toLowerCase() ?? ''
+  const types = [
+    Object.hasOwn(BRANCH_TYPES, branch) ? branch : null,
+    ...tickets.flatMap((ticket) => [
+      titleType(ticket.title),
+      ticket.issueType?.toLowerCase() ?? null,
+      ticket.labels.some((label) => label.toLowerCase() === 'bug') ? 'fix' : null,
+    ]),
+  ]
+  if (types.some((type) => type !== null && Object.hasOwn(FIX_TYPES, type))) return 'fix'
+  return types.some((type) => type !== null) ? 'other' : 'unknown'
+}
+
 /** `<type>/<N>-<slug>` from the Conventional title (`bug` label → `fix`, else `feat`). */
 export function branchFor(child: { number: number; title: string; labels: string[] }): string {
-  const match = /^(\w+)(?:\([^)]*\))?!?:\s*(.*)$/.exec(child.title)
-  const prefix = match?.[1]?.toLowerCase() ?? ''
-  const type = Object.hasOwn(BRANCH_TYPES, prefix) ? prefix : child.labels.includes('bug') ? 'fix' : 'feat'
+  const match = TITLE.exec(child.title)
+  const type = titleType(child.title) ?? (child.labels.includes('bug') ? 'fix' : 'feat')
   const slug = (match ? (match[2] ?? '') : child.title)
     .toLowerCase()
     .normalize('NFKD')
@@ -262,6 +295,7 @@ export function landOutcome(
     case 'ci-blocked':
     case 'stopped':
     case 'closed':
+    case 'proof-blocked':
       return { stop: status, class: 'ticket' }
     case 'watch-failed':
     case 'bad-landing':

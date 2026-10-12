@@ -124,7 +124,7 @@ export function plan(facts: Facts): string[] {
     : HOOK_LINES[facts.hooks as keyof typeof HOOK_LINES]
   if (facts.hasSemctx && hookLine) lines.push(hookLine)
   if (facts.hasSemctx && !facts.hasWorkingEmptyJob) lines.push('CI job semctx-working-empty')
-  if (facts.activeContracts > 0) lines.push(`${facts.activeContracts} orphan contracts`)
+  if (facts.activeContracts > 0) lines.push(`${facts.activeContracts} active semctx contracts`)
   if (!facts.hasAssertledger) {
     lines.push(facts.vitest ? 'assertledger + vitest adapter' : 'assertledger')
   }

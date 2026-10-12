@@ -12,6 +12,13 @@ date: 2026-09-24
 > consequences §3 and §8 reverse: the per-ticket frontier stop, and the claim
 > that OMP loses every executable check. Those sentences are qualified in
 > ADR-020. They are not still law.
+>
+> **Amended 2026-10-11 by #768** — Decision items 2 (ADR-020 §4, the change
+> contract) and 3 (ADR-020 §8, assertledger) now also say how the change
+> contract and assertledger reach landing: `landPr` reads their conserved
+> proof records for the reviewed head and runs neither. The open-time proof
+> gate this ADR implied is retired; that admission governs only the arms
+> `landPr` writes, and a record attests only its comment's current body.
 
 ## Context
 
@@ -29,7 +36,7 @@ Four facts since then changed the cost of those clauses:
   worktree created that way inherits whatever the Principal happened to hold.
 - A semctx change contract written as a second spec reintroduces the
   `artifacts/specs` split ADR-020 retired. Derived from the issue, the same
-  record is proof.
+  contract is proof.
 - assertledger, where an adapter exists, is a separate gate. It is not the
   `R-pr` / `oracle_ok` producer, and it does not discharge the refuse line
   against restoring the `R-tester` falsify gate. Where no adapter exists that
@@ -88,6 +95,51 @@ ADR-020 no longer bind:
    the issue diverge, the issue wins: the contract is re-derived, and it cannot
    add a requirement the issue does not contain. ADR-020's refuse line against
    a second spec home stays in force; renaming the home does not satisfy it.
+   *Amended 2026-10-11 by #768:* where Semctx applies — `origin/<base>`, the
+   head or the operator's uncommitted configuration configures it — the
+   change contract the head adds reaches landing as a proof record that
+   `landPr` reads and never produces. Its lifecycle stays Semctx's own, so
+   nothing closes it to open or land a PR. VERIFIED attests Semctx's
+   composition over the evidence statuses the contract declares, never a test
+   run: landing's runtime-proof claim depends on CI GitHub actually enforces
+   on the selected base and head, not the names declared in stack. The existing
+   native guard accepts explicit/nonempty declared names and discovers enforced
+   checks only otherwise; it does not establish enforcement for that list.
+   An unprotected native PR can merge before those checks finish. The review
+   judges that each `tested` evidence names a test that exercises the change.
+   Every selected Semctx part must predate the approval
+   and carry readable native creation/revision facts with no recorded edit;
+   this applies to VERIFIED as well as PARTIAL. A late publication needs a
+   new review; a recorded revision needs acquisition again. Nothing ties
+   base-required checks to the tests a `tested` evidence names. A PARTIAL lands as PARTIAL only when every gap it
+   names has a closed-enum NO TEST row in a PR body the approving review
+   judged.
+   Every part of that selected Semctx record must have readable native GitHub
+   creation/revision facts and be published strictly before the approving
+   record. Any recorded edit refuses before reading its current verdict:
+   changing PARTIAL into VERIFIED does not evade the check. Reacquire a revised
+   record, then review; reuse an unmodified late publication after re-review.
+   The current justification body must also predate approval.
+   The proof-aware review now captures and judges the exact observed body and
+   complete applicable producer runs. Its retained line-3 `review-input v=1`
+   SHA256 binds repository/PR/head, body bytes + `lastEditedAt`, and each selected
+   part's native ID/body/creation/revision facts, including VERIFIED and detection.
+   Fresh equality is required before posting and at admission; missing/malformed
+   marker or a difference needs same-head review, never an automatic rebind.
+   An approval that carries a marker refuses when no producer applies at
+   landing (applicability changed after review): the binding is never dropped.
+   Genuine no-proof repositories gain no marker prerequisite. The capture is
+   in memory only: no manifest, cache or ledger is persisted.
+   *Reviewer ceiling explicitly authorized 2026-10-11*
+   ([operator decision](https://github.com/Roxabi/roxabi-plugins/issues/768#issuecomment-6114046814)):
+   admission checks gap policy/form/chronology and exact observed input equality;
+   reason truth and credible browser performance are the proof-aware review's
+   judgement. Unsupported claims block that review. Dates show availability,
+   and the digest identifies the captured inputs, not who actually read them or
+   their truth. Approval is judgement, not runtime certification. Neither it,
+   native VERIFIED nor body form certifies the still-unproved gap.
+   No native observation/reason oracle was implemented; all binding, CI, e2e
+   and clearing guards remain.
 
 3. **§8 — executable falsification returns through assertledger, where an
    adapter exists.** The adapter is the producer of that gate, and of no other.
@@ -101,6 +153,33 @@ ADR-020 no longer bind:
    `R-pr` / `oracle_ok` oracle. `superseded_in_part_by` records that
    qualification and no other ADR-019 clause. The same reading applies to
    ADR-020's preamble and Negative.
+   *Amended 2026-10-11 by #768:* the detection is read at landing too. For a
+   fix PR whose base or head declares an adapter, `landPr` reads the
+   conserved replay of the `assertledger check` the author ran on the
+   reviewed head and never runs it; there is no open-time gate.
+
+   Both readings govern only the arms `landPr` writes. A `reviewed` label or
+   auto-merge set by another actor is an override: GitHub's auto-merge and
+   the merge-on-green workflow honour it without proof, and the armed-gate
+   retention keeps it once the review approves. An arm `landPr` wrote for H
+   is not bound to H either: the native pin is checked when auto-merge is
+   enabled, and a push after the `reviewed` label is not refused by GitHub.
+   In native mode the `reviewed` label `landPr` itself writes also triggers the
+   standard `.github/workflows/auto-merge.yml`, an asynchronous writer that
+   reads neither proof nor the current labels; whether a run queued before a
+   proof refusal's confirmed clear can re-arm the PR is unexercised and tracked
+   in [#787](https://github.com/Roxabi/roxabi-plugins/issues/787).
+   A proof record is a PR
+   comment by the automation account; admission reads that account's latest
+   record for the head, and any account with write access can still edit or
+   delete it. It attests that comment's current body, not what the producer
+   printed nor who ran it. Both producers check readable native publication
+   and revision facts and require publication before approval with no recorded
+   edit; PARTIAL→VERIFIED and WEAK_ORACLE/miss→detection edits refuse.
+   The digest is not authentication or a lasting head pin. Reads, review posting
+   and arming are not transactional; `landPr` re-reads proof inputs only at its
+   own checkpoints and on re-entry, so a change after its final read goes
+   undetected while observers retain the arm (Negative below).
 
 4. **§9 — the agent creates the worktree** from a freshly fetched
    `refs/remotes/origin/<base>`, never from `HEAD`, and never carrying the
@@ -132,6 +211,16 @@ ADR-020 no longer bind:
 - A repository with no assertledger adapter has no assertledger gate. That
   absence is stated, not a permanent `false`, and it is not the `R-pr` oracle,
   which stays cut.
+- Landing admission (#768) does not independently detect: an invented check
+  or false reason the trusted reviewer accepts; whether the
+  base-required checks run the tests a `tested` evidence names; an arm another
+  actor sets. Nor does an arm `landPr` wrote stay bound to the admitted head:
+  a push or base switch by an account with write access leaves native
+  auto-merge enabled (GitHub disables it only for accounts without write
+  access), and a push after the `reviewed` label is not refused under
+  merge-on-green. CI-watch observer exits and the review step's `land` retain
+  an arm on current-head approval and an unspent bound alone; only re-entering
+  `landPr` re-admits its inputs.
 
 ### Neutral
 

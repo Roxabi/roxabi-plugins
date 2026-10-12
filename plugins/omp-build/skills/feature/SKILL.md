@@ -3,7 +3,7 @@ name: feature
 disable-model-invocation: true
 argument-hint: '[#N | <subject>]'
 description: OMP-only feature cycle — frame a GitHub issue, create the worktree from origin/<base>, hand off /move and /goal, then implement, review, fix and land.
-version: 0.1.3
+version: 0.1.6
 ---
 
 # Feature
@@ -39,8 +39,9 @@ the CLI from a path inside the skill body. Do not write issues by hand. An
 existing `docs/agents/issue-tracker.md` is left untouched by that command
 (`contract: keep-existing`). The command does not write the
 `omp-build-feature-init` marker, because the tracker step has not run. It does
-not index ccc or codegraph without consent already recorded there. Orphan
-semctx contracts are listed, not closed.
+not index ccc or codegraph without consent already recorded there. Active
+semctx contracts are listed, never closed: a change may land active or partial,
+and only Semctx closes one, from a VERIFIED result.
 Exit 3 with `init=blocked issue-triage missing` → stop and name issue-triage; nothing was written.
 
 ## 1. Route-specific prerequisites
@@ -172,10 +173,10 @@ each already disarmed and recorded exactly like the `stop` subcommand does.
 | `land.status` `watching` | Run `land.watch` as in §6.7, map its exit with `applyCiWatchExit`, then this table |
 | `land.status` `merged` | Nothing: `next` re-reads the PR (MERGED into the base, head claiming the child, tip equal), detaches and deletes the local branch |
 | `ci-failed` | `step = await nextReviewStep(cwd, pr, { ciFailed: true })`, then §6.6 |
-| `timeout`, `ci-cancelled`, `ci-blocked`, `stopped`, `closed` | Ticket stop `--reason <status>`. A timeout is never re-attached under a goal |
+| `timeout`, `ci-cancelled`, `ci-blocked`, `stopped`, `closed`, `proof-blocked` | Ticket stop `--reason <status>`, with `land.error` as detail when present. A timeout is never re-attached under a goal |
 | `nextReviewStep` `stop`, any reason | Ticket stop `--reason review-bound`; the step already disarmed the PR |
 | `nextReviewStep` or `landPr` throws | Ticket stop `--reason stopped`, the error as detail |
-| proof gate BLOCKED | Ticket stop `--reason proof-blocked` |
+| `proof-acquire` exits 1 (§6.3) | Ticket stop `--reason proof-blocked`, its stderr as detail |
 | `watch-failed`, `bad-landing`, `no-required-checks`, `evaluate-only`, `auto-merge-failed`, any other status | Shared-state stop: the `drop` row, `--reason <status>` |
 | issue-triage CLI unresolvable | Shared-state stop: the `drop` row, `--reason tracker-unresolvable` |
 | driver exit 1 | Shared-state stop: the `drop` row, `--reason driver-error` (`hook-failed` for `hook`) |
@@ -196,7 +197,7 @@ ticket stays armed.
 
 | Class | Triggers | Effect |
 |---|---|---|
-| Ticket stop | review loop stop; proof BLOCKED; foreign commit, branch mismatch; child without scope; `timeout`; `ci-cancelled`; `ci-blocked`; `stopped`; `closed` | report, `goal-stop` marker; dependents skipped by their open blocker edge; independent children continue |
+| Ticket stop | review loop stop; `proof-blocked` or a failed `proof-acquire`; foreign commit, branch mismatch; child without scope; `timeout`; `ci-cancelled`; `ci-blocked`; `stopped`; `closed` | report, `goal-stop` marker; dependents skipped by their open blocker edge; independent children continue |
 | Shared-state stop | base CI red; `base-ci-pending` at finalization; dirty tree between tickets, before the hook, or before a none-merged complete; `hook-stale`; `watch-failed`; `bad-landing`; `no-required-checks`; `evaluate-only`; `auto-merge-failed`; tracker CLI unresolvable; post-merge hook failure; final review still blocking after its fix round | disarm, report, `goal({op:"drop"})` |
 | No progress | no actionable child while children remain open | report, `goal({op:"drop"})` |
 
@@ -336,8 +337,13 @@ let step = pr === null ? null : await nextReviewStep(cwd, pr)
 Discovery/read errors stop with evidence; never substitute a local review.
 An existing PR follows `step` through §6.6: `review` → §6.4, `fix` → §6.5,
 `land` → §6.7, `stop` → the dossier, and exit before any edit.
-For a new PR only, when `.semctx/` exists, derive/open the change contract from the
-issue (goal, invariants, evidence, unknowns); the issue stays the spec. Then §6.1.
+For a new PR only, decide Semctx once, before any Semctx call: it applies when
+`.semctx/` exists at this worktree's root or at the principal. Then open the change
+contract from the issue (goal, invariants, evidence, unknowns) and follow Semctx's
+own cycle — this skill adds no lifecycle step to it; the issue stays the spec.
+Otherwise run no Semctx step. `landPr` re-derives the same decision from the
+candidate (§6.7): a committed `.semctx` without its config, committed working
+state, or a root it cannot read is not absence and refuses there. Then §6.1.
 
 ### 6.1 Plan against acceptance criteria
 
@@ -353,15 +359,15 @@ never calls the review loop: it spends no fix round and writes no PR marker.
 Implement in this worktree, delegating independent slices when useful. Use `tdd`
 for agreed test-first seams. Run the actual changed path and relevant existing
 checks; keep regression tests for plausible failures, not to inflate coverage.
-Update affected docs. Finish every acceptance criterion before opening the PR.
+Update affected docs. Finish every acceptance criterion before the review (§6.4);
+the PR itself may open earlier (§6.3) — it authorizes nothing.
 For a criterion whose surface is `frontend.path` or `shared.ui`, run the app and
 check it with the OMP `browser`, and record the steps, URL and observed result
 in the PR. If `.dev/stack.yml` declares `commands.test_e2e`, that command is the
 proof — do not record `ui-manual-only`.
-When a contract is open, record each piece of evidence on it as it is produced.
 Re-entry on an existing PR skips §§6.1–6.3 and retains its PR and step from preflight.
 
-### 6.3 Commit, push, open or resume
+### 6.3 Commit, push, open or resume, proof records
 
 Stage only task-owned files, commit with a Conventional Commit subject ending with
 `(#N)`, the ticket's number, and push this branch. The Epic goal refuses a branch
@@ -385,14 +391,76 @@ SC→Test contract, including justified NO TEST rows. An `existing` PR is not ne
 an earlier run may have left it armed, so §6.4 runs the review's step 0 before
 anything reads or reviews it.
 
-**Proof gate, before `openPr`, when `.semctx/` exists.** `proofGate` in
-`$SKILL_DIR/proof-gate.ts` must pass: VERIFIED, or PARTIAL where every gap is a
-NO TEST row with an accepted reason. BLOCKED stops. A `type: fix` ticket with an
-assertledger adapter stops on any verdict other than detection, including
-`WEAK_ORACLE`. No adapter is non-blocking. Then close the contract and leave
-`.semctx/working/` empty apart from `.gitkeep`. No PR opened by `/feature` in a
-semctx repo carries any other file there. The PR body's proof section is the
-criterion → evidence map from the contract.
+**Proof records, after each push.** When Semctx applies — `origin/<base>` or
+the head commits `.semctx`, or the operator keeps an uncommitted (ignored)
+`.semctx/config.json` in this worktree or the principal checkout — or the
+PR is a fix — a `fix/…` head branch, or a closing ticket or the ticket the
+head branch names (`<type>/<N>-…`; GitHub links closing keywords only into
+the default branch) typed Fix or Bug, labelled `bug` or titled `fix…:` (any
+case; nothing establishing a type refuses) — and the base or the head
+declares an assertledger adapter (`assertledger.config.json` with an `adapter`, or
+`scripts/kit/assertledger/vitest-adapter.mjs`), run from this worktree at the
+pushed head:
+
+```bash
+bun "$SKILL_DIR/proof-acquire.ts" --pr <pr> [--assertledger-manifest <path>]
+```
+
+It runs the producers for that head outside admission — Semctx in a private
+clean checkout of the candidate; assertledger as a replay of the manifest of an
+`assertledger check . --after <head> …` you ran — and conserves their native
+output as one PR comment per producer and head — a record above GitHub's
+65,536-character comment ceiling as an ordered run of `part=<i>/<n>` comments,
+which admission reads only whole (a part missing or out of order is a missing
+record; acquire again). A record that still binds is
+reused: same head and inputs, nothing runs again. Exit 1 names what is missing;
+it decides nothing. VERIFIED is Semctx's composition over the evidence statuses
+the contract declares, never a test run: mark evidence `tested` only for a test
+that exercises the change — the review judges it. Landing's runtime-proof claim
+depends on CI GitHub actually enforces on this base/head. The pre-existing native
+guard accepts explicit check names or a nonempty `landing.required_checks`;
+only otherwise does it discover protection/ruleset checks. Declared names do not
+establish enforcement: an unprotected native PR can merge before they finish.
+Publish every Semctx record before §6.4;
+a later publication needs a new review, and a recorded edit needs acquisition
+again, regardless of verdict. Nothing ties the required checks to the tests
+a `tested` evidence names. A PARTIAL stays PARTIAL: each gap its record names needs one
+PR-body row `| <gap> | … | ⚠ NO TEST — <reason> |` with a reason from the closed
+enum, and a `ui-manual-only` gap a `### Browser check <gap>` block (the gap bare
+or in backticks; `- Steps:`, `- URL:` http(s), `- Observed:`), legal only when neither the base's nor the head's
+`.dev/stack.yml` declares `commands.test_e2e`. The review judges those rows, so
+publish the complete PARTIAL record and write those rows before §6.4.
+`landPr` reads native GitHub creation/revision times of every selected applicable
+producer record part, regardless of producer or verdict, and a body last edited
+before approval. Missing or unreadable times refuse. Any recorded part revision
+requires acquisition again, then review; an unmodified later publication or
+body edit requires same-head review (§6.4), without a producer at admission.
+PARTIAL→VERIFIED and WEAK_ORACLE/miss→detection edits do not disable this guard.
+§6.4 captures the exact body and complete applicable producer runs before
+judgement, consumes that capture and compares again before posting. The approval's
+line 3 retains `<!-- omp-build:review-input v=1 sha256=<64 lowercase hex> -->`.
+Admission compares repository/PR/head, body bytes + `lastEditedAt`, and each
+selected part's ID/body/native creation/revision values, even for VERIFIED or
+detection. Missing/malformed marker or changed inputs requires same-head review,
+not an automatic digest update; a recorded producer revision needs acquisition
+first. Genuine no-proof repositories have no new marker prerequisite.
+This equality binding is not a signature, a lasting pin or an atomic read/post/arm:
+`landPr` re-reads these inputs only at its own checkpoints and on re-entry. After
+`watching`, CI-watch and review-step observers read approval/head/bound, not
+proof, so a later change goes undetected unless `landPr` is re-entered.
+**Reviewer trust ceiling** ([operator-authorized #768 amendment](https://github.com/Roxabi/roxabi-plugins/issues/768#issuecomment-6114046814)):
+the proof-aware review judges reason truth and whether a browser check was
+credibly performed for this head; unsupported claims block review. Admission
+checks native binding, policy, form, chronology and exact observed review-input
+equality, not those two truths.
+Approval and timestamps are not runtime certification; an admitted gap remains
+unproved. Never close a PARTIAL change as verified. Semctx runs under the head's committed `.semctx/config.json`, which
+must equal the base's when the base commits one (a PR never changes or deletes
+the policy it is judged by); with none committed, under the uncommitted one,
+copied into the private checkout — the head's `.gitignore` must ignore it and
+every copy on disk must agree. The record binds that configuration's source
+and sha256. `.semctx/working/` is Semctx's own ignored state; the clean checkout
+never sees it, so nothing asks to empty it. Only `landPr` admits (§6.7).
 
 ### 6.4 Review
 
@@ -413,6 +481,11 @@ step = await nextReviewStep(cwd, pr, { posted: { verdict, head: REVIEWED_HEAD } 
 `Approve (clean)` or `Approve with comments`. `nextReviewStep` re-reads the PR:
 the latest review record must be that post, or it throws and decides nothing.
 Every posted review counts toward the bound, whether or not a fix follows it.
+A capture refusal in dev-review Phase 2 posts nothing and counts nothing: stop
+with its `producer` / `reason` / `error`. A missing producer record goes to the
+acquisition in §6.3 (even for an `existing` PR), then §6.4 again; any other
+refusal is an environment precondition (checkout at the head, base fetch,
+transport) fixed before re-running §6.4. Epic goal: ticket stop `stopped`.
 
 Present the Phase 8 human choice constrained by `step` (§6.6). Never choose on
 the user's behalf or offer “Merge as-is” for a red verdict — except under the
@@ -466,8 +539,9 @@ A review-driven halt returns its known failed/filed issue links in the error;
 re-entry uses `fix` Phase 2's receipt-free disposition lookup before any reapplication.
 The receipt is for humans: no gate reads it, and a failed post is reported, not
 retried. It never reports a falsification skip as a pass, nor a `none` record
-with actionable findings as clean. State `step.remaining`, then §6.4 — the
-current candidate still needs its ordinary official review.
+with actionable findings as clean. When a push moved the head, run §6.3's proof records for it;
+state `step.remaining`, then §6.4 — the current candidate still needs its
+ordinary official review.
 
 ### 6.6 Bound
 
@@ -527,10 +601,12 @@ it re-reads the latest review records and then `headRefOid`, including after
 disable/remove preparation. Red or spent records refuse arming; missing,
 moved or unreadable authorization never permits that write. Known OPEN arms
 are cleared through the exit policy, or its error names the remainder.
-Native pins use the refreshed reviewed head. Under merge-on-green
+Native pins use the refreshed reviewed head; a refreshed approval of another
+head arms it only once the landing admission admits that head too (otherwise
+`proof-blocked`, unarmed). Under merge-on-green
 it then adds `reviewed` — a pre-existing label is removed first so a fresh
 labeled run exists — and returns
-`{ status: 'watching', mode, watch }`. `watch` is the absolute real path of
+`{ status: 'watching', mode, watch, proof }`. `watch` is the absolute real path of
 `ci-watch.sh` (derived from this module), carrying `--merge-mode <mode>` and,
 under merge-on-green, always `--since <GitHub labeled time>` of that new event.
 If the labeled event cannot be read after re-label, `landPr` returns
@@ -558,6 +634,26 @@ equivalent pin: once `reviewed` is applied, a push by another actor is not
 refused by GitHub.
 merge-on-green never returns `no-required-checks`; native returns it only after its own disarm (table).
 
+**Landing admission (#768).** After the review gate and `no-required-checks`,
+`landPr` admits the reviewed head through `admitLanding` (`proof.ts`). It reads
+and never produces: no producer, test or model call. The local tip must be that
+head. Semctx applies when `origin/<base>`, the head or the uncommitted
+configuration on disk at the root and the principal configures it; an adapter or
+`commands.test_e2e` applies when the base or the head declares it. Applicable §6.3 records must bind
+repository, PR, head, base, merge base, the changed contracts — at least one
+added by the head; a modified older contract never stands in for it — and the
+Semctx configuration (assertledger's
+reference world: the head's commit and tree), and are read with their native
+verdicts: VERIFIED, or PARTIAL with every gap review-judged — a gap is each
+warning finding, pending evidence and open unknown the result names, mirrored
+or not; draft, blocked, stale, superseded, a PARTIAL closed as verified, a
+PARTIAL with a stale link or a blocking impact, a VERIFIED that requires no
+evidence, and a non-terminal change that is not the one block of its own
+`changes/<id>.sem` refuse. A refusal returns `proof-blocked` with `producer`
+(`candidate` | `semctx` | `assertledger`), `reason` and `error` through the
+forced-unarmed exit; every arm `landPr` writes targets the admitted head, and `watching` reports
+`proof`.
+
 Run `watch` as an async bash job (`timeout: 0`). Map the exit with
 `applyCiWatchExit(cwd, pr, code, { mode: land.mode })`:
 
@@ -577,6 +673,8 @@ Every mapped exit passes the shared policy. Observer exits (0/4/5/6/70/other)
 preserve their status but clear moved, red or spent OPEN gates. If those review/head
 reads fail after acquiring the gate, clear the known arms before surfacing the read
 error. Forced exits 1–3 need no review-service reads. A no-op never claims `disarmed`.
+Observer exits never re-admit: a base retarget, body edit, ignored configuration
+or classification change keeps the arm until §6.7 re-enters `landPr`.
 
 Before any push that follows a `reviewed` label, call
 `disarmReviewedBeforePush(cwd, pr, { push })`. Disable auto-merge, remove the label
@@ -590,16 +688,17 @@ Neither a fix round nor another review action may write that label in this cycle
 | `land.status` | Action |
 |---|---|
 | `no-pr` | Stop; no PR was resolved and no gate was armed |
-| `not-approved` | Stop; the latest review record does not approve the current head, or the bound is spent (`reason: 'review-bound'`). `landPr` disarmed a gate that was armed (`disarmed: true`). Review again only when the bound is not spent; do not merge |
-| `watching` | Start the async `/ci-watch` job named in `land.watch` |
+| `not-approved` | Stop; the latest review record does not approve the current head, or the bound is spent (`reason: 'review-bound'`), or — `reason: 'head-moved'` — the head moved from the one this call admitted. `landPr` disarmed a gate that was armed (`disarmed: true`). When the latest record already approves the new current head, re-run `nextReviewStep(cwd, pr)` (§6.6): its `land` re-enters §6.7 without a new review. Otherwise review again only when the bound is not spent; do not merge |
+| `watching` | Report `land.proof` — Semctx `absent`, or each change's VERIFIED/PARTIAL and every review-judged gap (form checked, still unproved); assertledger `not-applicable` or `detection` — then start the async `/ci-watch` job named in `land.watch` |
+| `proof-blocked` | Stop; report `land.producer`, `land.reason` and `land.error`. No arm remains; clearing is read back (`disarmed: true`). Re-enter §6.7 once the named cause is fixed: missing producer record → §6.3; recorded proof revision → acquisition again, then §6.4; late unmodified publication, edited body or missing/malformed/changed review-input binding → same-head review (§6.4), no producer at admission; unreadable native facts → obtain native metadata. A moved head goes through §6.4. The review bound stays sticky |
 | `merged` | Report issue + PR; offer the optional tail (§0), stop |
 | `ci-failed` | Gate already disarmed; `step = await nextReviewStep(cwd, pr, { ciFailed: true })`, then §6.6 |
 | `ci-cancelled` | Gate disarmed; stop, report the cancelled checks; operator re-runs CI then re-enters §6.7 |
 | `ci-blocked` | Gate disarmed; stop, report the checks named on stderr; operator resolves the named checks or re-runs CI, then re-enters §6.7 |
 | `watch-failed` | Stop; report code or error. The gate is retained only with current authorization; invalid arms are cleared or the error names their remainder. Do not claim merged |
 | `evaluate-only` | Stop; report "evaluate-only — manual merge required" and `docs/kit/ci-app-setup.md`. The gate is retained only with current authorization; the operator merges by hand. Do not claim merged; do not wait |
-| `bad-landing` | Stop; report `land.error` (configuration/base-resolution problem). An armed gate is retained only after fresh authorization; invalid arms are cleared or the error names their remainder. Fix the base configuration, then re-enter §6.7 |
-| `no-required-checks` | Stop; report missing protection. Native only, when no required context was found (declared `landing.required_checks`, protection or rulesets); an API error in that discovery reads as none — merge-on-green does not return this. `landPr` first disarmed a gate it found armed, at the approved current head too (`disarmed: true` only when it confirmed that disarm; a PR found unarmed carries no flag and no write was made). Nothing restores the label or auto-merge: configure the checks, then re-enter §6.7 through the normal gate. A disarm that cannot finish throws instead (below) |
+| `bad-landing` | Stop; report `land.error` (landing configuration problem). Any armed gate is cleared, or the error names its remainder. Fix the landing configuration, then re-enter §6.7 |
+| `no-required-checks` | Stop; native guard found no check name: explicit list, otherwise nonempty stack `landing.required_checks`, otherwise protection/ruleset discovery. Discovery error is not evidence that protection is absent. Merge-on-green does not return this. Applicable arms are cleared and read back (`disarmed: true`); a failed clear throws. Resolve the lookup/configuration and verify actual GitHub enforcement before re-entering §6.7. Nonempty declared names alone do not establish protection |
 | `timeout` | Re-attach the watch. Do not claim merged. Epic goal: ticket stop, no re-attach |
 | `stopped` | Stop and report. Do not claim merged |
 | `auto-merge-failed` | Stop; inspect and report actual PR/label/auto-merge state, never claim merged. Every `armed: true` carries an `error` naming what stays armed — remove that remainder by hand before anything else |
