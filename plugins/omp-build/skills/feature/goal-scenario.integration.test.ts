@@ -553,10 +553,11 @@ describe('stateful gh — one continuous goal', () => {
     // The documented launch: Bun started in the skill directory, the target in --repo.
     const findings = path.join(box?.root ?? '', 'findings.md')
     writeFileSync(findings, 'No blocking finding.\n')
-    const recordReview = recipeAfterWrite(
-      readFileSync(path.join(import.meta.dirname, 'SKILL.md'), 'utf8'),
-      '**Recording the final review.**',
-    ).join('\n')
+    const skill = readFileSync(path.join(import.meta.dirname, 'SKILL.md'), 'utf8')
+    const recordReview = [
+      ...recipeAfterWrite(skill, '**Launching the driver.**'),
+      ...recipeAfterWrite(skill, '**Recording the final review.**'),
+    ].join('\n')
     const reviewed = spawnSync('bash', ['-c', recordReview], {
       cwd: epic,
       env: {

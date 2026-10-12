@@ -112,7 +112,7 @@ or a batch of tickets. Reuse an already tracked issue instead of minting a dupli
    For an existing issue, say “Issue #N sélectionnée”. **The proposal is not a
    branch-creation receipt.** Only report creation after observing the branch.
 5. Stop for the operator. Print `/move <path>` and, for an epic, the generated
-   `/goal` line: `bun "$SKILL_DIR/epic-driver.ts" objective --epic <E>` prints it
+   `/goal` line: `driver objective --epic <E>` (§ Epic goal, `EPIC_WT` = that worktree) prints it
    once every open child is framed, and prints none while one is not (that child
    goes to §4). `/feature #E` in the epic worktree prints it too. Do not switch the
    Principal's branch or implement while waiting.
@@ -135,12 +135,27 @@ from GitHub and git, so a compaction or a new `/goal` resumes from that state.
 A goal reaches this body through the `skill:` URL its objective names; `SKILL_DIR`
 is then the `realpath` of that URL.
 
+**Launching the driver.** Bun reads `bunfig.toml` and `.env` from the directory it
+starts in, so a preload tracked in the epic worktree would run before the driver and
+could print its JSON or its report itself. Every driver call below therefore goes
+through `driver`, which starts Bun in `$SKILL_DIR` with `--no-env-file` and the epic
+worktree in `--repo`. Every path it is given is absolute:
+
+```bash
+# SKILL_DIR as above; EPIC_WT=the epic worktree, absolute; then:
+driver() { (cd "${SKILL_DIR:?}" && bun --no-env-file "$SKILL_DIR/epic-driver.ts" "$@" --repo "${EPIC_WT:?}"); }
+```
+
+Two calls keep a raw `bun "$D" …` launch, with `D="$SKILL_DIR/epic-driver.ts"`: the
+ticket `stop` and `report --outcome drop`. They are the halt launcher, and issue #767
+owns their startup.
+
 **Gate.** Call `goal({op:"get"})`. This section applies only when all three hold:
 its status is `active` (paused or budget-limited do not count), its objective
 contains `/feature #E` with one `run=<id>` and one `base=<branch>`, and the ticket
 is a sub-issue of E — the driver acts on nothing else. Otherwise `/feature` stays
 assisted and unchanged: `/feature #E` in the epic worktree prints the line from
-`bun "$SKILL_DIR/epic-driver.ts" objective --epic E` and stops.
+`driver objective --epic E` and stops.
 Every other driver call carries the gate as `--goal-status <status> --goal-objective-file <file>`
 (`<gate>` below); the driver re-checks it and exits 3 when it fails. Free text never
 reaches a command line: write the objective, and each `--detail-file`, with the
@@ -150,7 +165,7 @@ Under the gate three things are pre-authorized, and nothing else: the Phase 8
 choice follows `step.action`, the goal is the merge approval, and deleting a
 merged child's local branch plus running the post-merge hook need no question.
 
-**Loop.** With `D="$SKILL_DIR/epic-driver.ts"`, repeat `bun "$D" next --epic E <gate>`
+**Loop.** Repeat `driver next --epic E <gate>`
 and act on its JSON `step.action`. Print `step.report` (merged, stopped, skipped,
 pending base checks), each entry of `reconciled` (a stopped child's armed PR the
 driver disarmed, or would disarm under `--dry-run`), and each entry of `recorded`:
@@ -162,20 +177,17 @@ each already disarmed and recorded exactly like the `stop` subcommand does.
 | `start` / `resume` | The driver fetched, checked the tree and base CI, switched to `step.branch` (new from `refs/remotes/origin/<base>`, or the existing one), validated it with `resolveTicketBranch` and `refuseForeignCommits`, and disarmed an armed PR. Run §6 for `step.ticket` in this worktree: §6.0 without the operator handoff, then §6.1–§6.7. The PR is `step.pr?.number ?? null`, never discovered by branch name (a branch name also matches fork PRs): `resume` with `step.pr` continues that PR from its `nextReviewStep` (§6.0), and no `step.pr` means a new PR through `openPr`. |
 | `final-review`, `stage: review` | R-architect and R-adversarial, read-only, on `git diff <step.range>`. Write the findings with the `write` tool, then record the verdict with the block below this table. |
 | `final-review`, `stage: fix-ticket` | One fix ticket, filed with the `skill://fix` § Filing block run in the epic worktree: `triage create --parent "#E" --type fix --size … --priority … --title-file … --body-file …`, body's first line `<!-- omp-build:epic-fix -->`, an `## Acceptance criteria` heading holding the blocking findings. The next `next` starts it. Non-blocking findings are follow-up siblings, each scoped the same way: an `## Acceptance criteria` heading and a `size:` label (`skill://fix` § Filing). |
-| `post-merge` | Only after a clean final review, a clean tree, and base CI green or absent. This run's hook `ok` or `skipped` at another commit is `drop hook-stale`, not another run. Then `bun --no-env-file "$D" hook --epic E <gate> --repo <epic worktree>`, with the bash `cwd` outside the repository (`$SKILL_DIR`): the runner must load nothing from the epic worktree. |
-| `complete` | `bun "$D" report --epic E <gate> --outcome complete` refuses unless `next` is `complete`. Print it, `goal({op:"complete"})`, offer `/cleanup`. |
+| `post-merge` | Only after a clean final review, a clean tree, and base CI green or absent. This run's hook `ok` or `skipped` at another commit is `drop hook-stale`, not another run. Then `driver hook --epic E <gate>`: the runner loads nothing from the epic worktree. |
+| `complete` | `driver report --epic E <gate> --outcome complete` refuses unless `next` is `complete`. Print it, `goal({op:"complete"})`, offer `/cleanup`. |
 | `drop` | `bun "$D" report --epic E <gate> --outcome drop --reason <step.stop>`, print it, `goal({op:"drop"})`. If that command fails, print the error, then `goal({op:"drop"})`. A failing drop still drops the goal. |
 
-**Recording the final review.** Bun reads `bunfig.toml` and `.env` from the
-directory it starts in, and a tracked preload in the epic worktree runs before the
-driver and can print the verdict JSON itself. So the verdict, like the post-merge
-hook, starts in `$SKILL_DIR` with `--no-env-file`, the target in `--repo`, and
-every path absolute:
+**Recording the final review.** Through `driver`, so a preload in the epic worktree
+cannot print the verdict JSON:
 
 ```bash
 # EPIC=E; GOAL_STATUS and OBJECTIVE = the gate; VERDICT=clean or blocking; RANGE=step.range;
-# EPIC_WT=the epic worktree; write the findings with the write tool to FINDINGS, then:
-(cd "${SKILL_DIR:?}" && bun --no-env-file "$SKILL_DIR/epic-driver.ts" review --epic "$EPIC" --goal-status "$GOAL_STATUS" --goal-objective-file "${OBJECTIVE:?}" --repo "${EPIC_WT:?}" --verdict "$VERDICT" --range "$RANGE" --detail-file "${FINDINGS:?}")
+# write the findings with the write tool to FINDINGS, then:
+driver review --epic "$EPIC" --goal-status "$GOAL_STATUS" --goal-objective-file "${OBJECTIVE:?}" --verdict "$VERDICT" --range "$RANGE" --detail-file "${FINDINGS:?}"
 ```
 
 **Inside a child**, map each outcome, then call `next` again (`landOutcome` in `epic.ts`):
