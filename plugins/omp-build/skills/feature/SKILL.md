@@ -3,7 +3,7 @@ name: feature
 disable-model-invocation: true
 argument-hint: '[#N | <subject>]'
 description: OMP-only feature cycle — frame a GitHub issue, create the worktree from origin/<base>, hand off /move and /goal, then implement, review, fix and land.
-version: 0.1.1
+version: 0.1.2
 ---
 
 # Feature
@@ -437,11 +437,32 @@ step from the records.
 - `ci-failed` → fix inline from the failed checks (`land.failed`) and their
   logs. `fix` reads review comments, not CI: running it here replays stale findings.
 
-Verify, commit and push the fixes, then post `## Review Fixes Applied`. The
-receipt is for humans: no gate reads it, and a failed post is reported, not
+**Order, review-driven round** (`skill://fix` owns it): per-cause light checks
+(lint, covering tests, the proof) → one local commit per cause → local plain
+pre-review (`skill://fix` Phase 3 § Local pre-review: read-only plan conformity, not
+`dev-review`, no post/label/gate, no review bound spent) → falsification → clean tree,
+global lint/tests, actual-path runtime smoke → the final costly or infrastructure
+proof on the final head → push only that final pre-reviewed, verified head. Any later
+permanent change is pre-reviewed again and its affected proof refreshed per the
+`skill://fix` Phase 3 post-commit rule. A red or unavailable required smoke, proof or
+authorization halts with the commits local — no push, no receipt — and is reported as
+red or unavailable, never as checked.
+
+**`ci-failed` fixes** stay inline and never run `fix`: baseline := the head whose CI
+failed; equivalent light checks → commit → the same plain pre-review of the actual
+unpublished diff from that baseline, judged against the failed checks and their logs
+(there is no root-cause record) → the `skill://fix` post-commit rule for any later
+delta, where the failed checks and logs (`land.failed`) stand in for the cause plan —
+no RC is required and `fix` is not run, so a correction within that CI scope uses the
+same bounded verification instead of halting for want of an `r` → the Phase 5 order
+above (clean tree, global lint/tests, smoke, costly proof; same halt rule) → push only
+the matching pre-reviewed, clean head.
+
+Then post `## Review Fixes Applied` — only when the push landed.
+The receipt is for humans: no gate reads it, and a failed post is reported, not
 retried. It never reports a falsification skip as a pass, nor a `none` record
 with actionable findings as clean. State `step.remaining`, then §6.4 — the push
-moved the head, so the next step needs a review of it.
+moved the head, so the next step needs the official review of it.
 
 ### 6.6 Bound
 

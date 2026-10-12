@@ -21,7 +21,7 @@ parser, one `package.json` script) must change.
 ## Input
 
 ```
-cause:     the applied cause (id, fix, failure, restored, paths, proof, commit sha)
+cause:     the applied cause (id, fix, failure, restored, paths, proof, its commit sha(s) — a retry adds one)
 ```
 
 ## Procedure
@@ -36,7 +36,7 @@ cause:     the applied cause (id, fix, failure, restored, paths, proof, commit s
       - the proof's assertion fails on the `failure:` scenario, on the path that guard protects → that guard holds
       - the proof still passes → tautological → `fail`
       - the run errors (syntax, import, missing fixture) or fails on an assertion that does not observe the `failure:` scenario → inconclusive
-   5. Restore the removed code.
+   5. Restore the removed code completely: `git status --porcelain` must be empty before the next guard, cause or phase (`skill://fix` Phase 3 post-commit rule); an incomplete restoration halts.
 
 Removing wording — a comment, a message no consumer reads, an identifier — is never a falsification
 step. The proof must fail because the unsafe behaviour returned, not because text changed.
@@ -83,7 +83,7 @@ Parking lot entries are surfaced in Phase 6 under a dedicated `### Parking Lot` 
 `fail` → re-apply that cause once, inline, in the same session, as a new commit (max 1
 falsification-retry per cause — there is no fixer agent to hand it to). The retry re-implements
 the same `fix:` and `proof:`; it never adopts another plan or another proof.
-This retry budget is independent of the CI retry budget in Phase 3 (max 3 CI retries).
+This retry budget is independent of the CI retry budget in Phase 3 (max 3 CI retries). The retry commit is a permanent change: `skill://fix` Phase 3 § Local pre-review (post-commit rule) pre-reviews its new delta and refreshes the affected proof before the retry gate or any costly check.
 Second `fail` → `git revert --no-edit` the cause's commits; cause marked `[failed]` and filed;
 surfaced in Phase 6.
 `skipped` → no retry. The commit stands and is reported as skipped, with its reason.

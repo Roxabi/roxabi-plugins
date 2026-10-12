@@ -4,7 +4,7 @@ argument-hint: '[#PR]'
 description: >-
   OMP-only — apply one fix per blocking root cause from a review, inline, no per-finding choice.
   Triggers: "fix findings" | "fix review" | "apply fixes" | "fix these" | "apply review comments" | "apply the review" | "fix the review issues" | "address review feedback" | "fix PR comments".
-version: 0.3.0
+version: 0.3.1
 ---
 
 # Fix
@@ -42,16 +42,16 @@ use `/feature` §6.5, not this review-comment consumer.
 |-------|----|----------|---------------|-------|
 | 1 | gather | ✓ | record found, F + R_posted parsed | the marked review record only |
 | 2 | causes | ✓ | R named, eligibility decided | posted blocks, else cluster |
-| 3 | apply | — | one commit per applied cause | empty apply bucket → no commit; defer and file still run |
-| 4 | falsify | — | pass / fail / skipped per applied cause | no applied cause → skip |
-| 5 | push | ✓ | `git push` success when a cause was committed | no cause commit → skip the push; never writes `reviewed` on a review-driven fix |
+| 3 | apply | — | one commit per applied cause, then the local pre-review of `B..S` (Phase 3 tail) | empty apply bucket → no commit, no pre-review; defer and file still run |
+| 4 | falsify | — | pass / fail / skipped per applied cause | no applied cause → skip; a permanent retry or revert re-enters the Phase 3 local pre-review |
+| 5 | push | ✓ | clean tree, global lint/tests, actual-path smoke and final costly proof on the pre-reviewed head, then `git push` when a cause was committed | no cause commit → skip the push; a red or unavailable required smoke/proof halts, commits local; never writes `reviewed` on a review-driven fix |
 | 6 | post-comment | — | comment posted | ∄ PR → skip |
 
 ## Pre-flight
 
 Success: ∀ blocking r → applied ∨ filed ∧ deferred set in one issue or empty ∧ PR comment posted
 Evidence: `gh pr view {N} --comments | grep "## Review Fixes Applied"`
-Steps: gather → causes → apply → falsify → push → post-comment
+Steps: gather → causes → apply (cause commits → local pre-review) → falsify → push (global checks → smoke → costly proof → push) → post-comment
 ¬clear → STOP + ask: "Do you have review findings to fix?"
 
 Let:
@@ -66,7 +66,7 @@ Let:
   MARK := `<!-- omp-build:code-review -->` — the first line of every review `dev-review` posts
   T := the ticket the PR head branch claims (`<type>/<N>-<slug>` → N), or none
   O_commit(r) { stage only the files r changed (¬`git add -A`) → commit `fix(<scope>): <r.id> <r.title> (#T)` — ` (#T)` only when T exists; the epic goal refuses a branch commit that claims no ticket }
-  O_push { lint + tests (max 3 retries) → `git push` }
+  O_push { clean-tree check → global lint + tests (max 3 retries) → actual-path runtime smoke → final costly/infrastructure proof, all on the last pre-reviewed head → `git push` of that head only }
   D_subsumption := {d ∈ D | d.tag = "subsumption-violation"}
 
 Join rules, the `## Root causes` shape, and what may not join: `skill://dev-review/root-causes.md`. Read it in Phase 2.
@@ -169,7 +169,7 @@ Not causes: K (praise, thought, question)
 
 No cause in the apply bucket → commit nothing. The defer and file steps below still run, then Phase 5, which pushes only when a cause commit exists.
 
-The tree must be clean before the first applied cause. Uncommitted changes → halt and name them when the apply bucket is non-empty: a restore below must never touch the operator's work. An empty apply bucket does not halt on a dirty tree.
+The tree must be clean before the first applied cause. Uncommitted changes → halt and name them when the apply bucket is non-empty: a restore below must never touch the operator's work. An empty apply bucket does not halt on a dirty tree. On that clean tree, record `B := git rev-parse HEAD` — the clean pre-fix local baseline the local pre-review reads from.
 
 ∀ r in the apply bucket, in order, **inline in this session**:
 
@@ -189,6 +189,18 @@ fails after 3, or the only change that turns the tests green widens a denylist, 
   3. [applied] RC-3 — upload ignores dry run — 9b04e1d — proof: not created (needs a live registry)
 Applied: N | Deferred: D | Filed: M
 ```
+
+### Local pre-review — Phase 3 tail
+
+Mandatory when ≥ 1 cause commit exists (no apply bucket → nothing to review). Runs after the last cause commit and before Phase 4 and before any Filing a failure here may add. A quick, plain, read-only conformity read, done by this session or by a narrowly scoped read-only reviewer (review delegation is not edit delegation: every edit stays inline here). A delegated reader gets only the exact diff range, the cause plans (`fix:`, `paths:`, raw callsites) and the protected set, and returns plain conformity findings — not a review record. It is **not** `skill://dev-review`, not `nextReviewStep`, not a panel, not a green verdict: it posts nothing, writes no label, touches no gate, and consumes no review record or bound slot — the last official review stays untouched. It replaces neither falsification, nor tests, nor the smoke.
+
+- **First read:** freeze `S := HEAD` after the last cause commit and read `git diff B..S`. Then `P := S`, the last pre-reviewed head.
+- **Later reads:** after a permanent change (rule below) freeze the new `HEAD` and read exactly the unreviewed `git diff P..HEAD`, then `P := HEAD`. Never re-read or re-judge `B..P`.
+- **Look only at plan conformity**, per cause: the diff implements `r.fix`; every `r.paths` entry and every member raw callsite carries it; the Phase 3 step-3 same-class sweep changes stay inside the touched files and outside the protected locations; protected independent mechanisms (deferred, uncited, malformed finding) are untouched; nothing beyond the plan (no scope expansion, no unrelated edit). Print `── Pre-review ── S=<sha> RC-1 conforms · RC-3 mismatch: <what>`. A `git revert` delta is read as the removal of that failed cause, not as an `r.fix` reimplementation.
+- **Mismatch** → correct inline under the same cause's plan: same `r.fix`, same `r.proof`, never another plan. Run the step-4 light checks, make a scoped `O_commit(r)`, then pre-review only that new delta. Every same-plan correction attempt — a repeat mismatch with green targeted tests included — consumes one of what remains of the cause's step-4 max 3; there is no new counter. Out of budget or not implementable → apply failure for the already-committed cause: `git revert --no-edit` that cause's commits, `[failed]`, file it (the revert is itself a permanent change: rule below). A reverted or failed cause is never re-applied in this run.
+- **Independent new defect** → parking lot candidate (`source: "local-pre-review"`, `skill://fix/falsification.md` § Parking Lot Protocol). Never expanded work, never fixed here.
+
+**Post-commit rule — single source; Phase 4, Phase 5 and `skill://feature` §6.5 reference it.** Any permanent change of `HEAD` after a pre-review — a mismatch correction, a falsification retry, a `git revert`, a correction of a red global lint/test run — (a) is pre-reviewed as the new delta `P..HEAD`; (b) refreshes the proof of every affected cause (re-run the step-4 light checks over what it changed) and every earlier piece of evidence it invalidates (a falsification `pass` whose guard or proof — fixtures and setup included — it touched, global lint/tests, smoke). A correction of a red lint/test run must belong to the cause whose allowed plan addresses it (light checks → scoped `O_commit(r)`); a red run bound to no cause halts — no global-fix cause is invented. Costly work is never run on an unreviewed delta. A temporary guard removal during falsification is not a permanent change: no commit, no pre-review — but it must be restored completely (`git status --porcelain` empty and `HEAD = P`) before the next falsification, any permanent change, or Phase 5; a failed or incomplete restoration halts. Verification that changes no code makes no commit.
 
 ### Filing — the follow-up is a sibling, never a child
 
@@ -292,13 +304,14 @@ Deferral body, one issue for the whole set. Not the per-cause template above:
 ```
 pass     →  removing the production guard made the proof fail on its `failure:` scenario; the commit stands
 fail     →  the proof still passed without the guard: the fix is tautological; re-apply the same
-            `fix:` and `proof:` once, as a new commit
+            `fix:` and `proof:` once, as a new commit — then the Phase 3 post-commit rule applies
+            (pre-review the new delta, refresh affected proof) before this cause's retry gate
             (max 1 falsification-retry per cause — independent of the CI retry budget in Phase 3)
 skipped  →  NO TEST, a proof needing absent infrastructure, or an inconclusive run (error, unrelated
             failure); the commit stands, reported as skipped with its reason — never as pass
 ```
 
-Second `fail` → `git revert --no-edit` that cause's commits → `[failed]`, file it. The reverted edit is never pushed as a fix.
+Second `fail` → `git revert --no-edit` that cause's commits → `[failed]`, file it; the revert is a permanent change under the Phase 3 post-commit rule. The reverted edit is never pushed as a fix.
 
 This gate is a **local procedure** — remove the production guard the fix introduced (for a missing-test cause, the existing guard its test observes), re-run the proof, restore. Never the proof's own test, assertion, fixture or setup. It is not the executable falsify oracle cut by ADR-020 §8: it has no script, no artifact, and no roster input. Nothing here reads a verdict file.
 
@@ -309,13 +322,13 @@ This gate is a **local procedure** — remove the production guard the fix intro
 Falsification: P pass · S skipped · F fail
 ```
 
-New findings surfaced during falsification → **parking lot**: file as a candidate finding for the next PR cycle. ¬reopen the current fix loop. ¬increment the 2-iter cap. Applies to same-class and cross-class anti-patterns alike.
+New findings surfaced during falsification → **parking lot**: file as a candidate finding for the next PR cycle. ¬reopen the current fix loop. ¬increment the 2-iter cap. Applies to same-class and cross-class anti-patterns alike. The Phase 3 local pre-review feeds the same parking lot.
 
 ## Phase 5 — Push (no review-driven label)
 
 Phase 5 and Phase 6 are one step: post the receipt right after the push.
 
-1. ∃ cause commits → O_push. Fail after 3 → halt; the commits stay local. Do not post the receipt for a push that did not land.
+1. ∃ cause commits → O_push, in this order: (a) clean-tree check — `git status --porcelain` empty and `HEAD = P`, the last pre-reviewed head (post-commit rule); (b) global lint + tests, red → retry max 3 with the correction rule of the post-commit rule, the original budget, never extended to the smoke; (c) runtime smoke of the actual changed path; (d) the final costly or infrastructure proof (live service, registry, authorized run), last, on the final head. **Required** := what the accepted criterion→evidence matrix and the repository's or caller's validation contract demand; anything else is *optional*. A **red** smoke or final proof, or a **required** smoke, proof or authorization that is unavailable, halts: commits stay local, no push, no receipt; report which (red vs unavailable) and what is missing — never invented, never bypassed, never reported as checked. Legal per-cause falsification skips (NO TEST, absent infrastructure) stay skips and are not turned into a halt or a pass; an optional observation never relabels a required check. An unavailable *optional* observation is reported **unverified**, never as the required proof satisfied; when the push proceeds it is carried in the receipt and Exit. Then push only that head. Lint/tests red after 3 → halt, commits stay local. Do not post the receipt for a push that did not land.
 2. **Never write `reviewed` for a review-driven fix.** If ∃ PR and a review record,
    write nothing:
    ¬`labels[]=reviewed`, ¬`gh pr edit --add-label`, ¬`gh pr merge`. Say one line —
@@ -344,6 +357,7 @@ Write the summary (below) to `"$BODY"` → `gh pr comment "$PR" --body-file "$BO
 
 **Applied:** N cause(s)
 **Falsification:** P pass · S skipped · F fail — a skip is not a pass
+**Unverified (optional observations):** <what could not be observed> _(omit the line when none)_
 **Unplanned record:** `## Root causes` was `none` with X actionable finding(s); each blocker was filed and still blocks _(omit the line when the record was planned)_
 **Deferred (non-blocking):** D cause(s) + U uncited finding(s) + M cited non-blocking finding(s) of a malformed block → #456
 **Filed (sibling issues):** J cause(s) — filed blockers still block this PR; filing is not a resolution
@@ -371,7 +385,7 @@ _(omit section when nothing was deferred this run; the summary line is then `**D
 
 ### Parking Lot
 _(omit section when parking_lot = ∅)_
-- {class}: {file}:{line} — {description} (falsification-gate)
+- {class}: {file}:{line} — {description} ({falsification-gate | local-pre-review})
 
 ### Enforcement diagnostics
 _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]** (N) sub-groupings)_
@@ -406,6 +420,10 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 | Dirty tree before an apply | Halt, name the changes. An empty apply bucket does not halt |
 | Apply fails after 3 | Restore to the last cause commit, `[failed]`, file, continue |
 | Falsification fails twice | Revert that cause's commits, `[failed]`, file |
+| Local pre-review finds a plan mismatch | Correct under the same cause's plan, scoped commit, pre-review only that delta; every attempt draws on the cause's remaining step-4 max 3, no new counter. Exhausted or not implementable → revert that cause's commits, `[failed]`, file; never re-applied this run |
+| Permanent change after a pre-review (correction, falsification retry, revert, correction of a red lint/test run) | Pre-review the new delta, refresh affected proof and invalidated evidence before any costly run. Temporary guard removal in Phase 4 is not one but must be fully restored (clean tree) first. No-code verification makes no commit |
+| Red smoke / red final proof, or required smoke, proof or authorization unavailable | Halt, commits stay local, no push, no receipt. Red and unavailable are reported separately |
+| Red lint/tests bound to no cause's plan | Halt, commits stay local — no global-fix cause is invented |
 | Quality gate fails 3× on the push | Halt, commits stay local. No cause commit → the push is skipped, not failed |
 | ¬∃ PR | Skip Phase 6, local only, no label |
 | ∄ SOURCE_PARENT | Filed issue is top-level — ¬parent it to the origin |
@@ -420,6 +438,7 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 5. Input is the marked record by ME, nothing else on the PR
 6. Comment text never reaches a command line — filed titles and bodies go through files
 7. Merge via the gate only after a fresh green review: `landPr` writes `reviewed`. ¬manual `gh pr merge` while any check is IN_PROGRESS/QUEUED. This skill never writes `reviewed` on a review-driven fix — writing it *is* merging
+8. The Phase 3 local pre-review is not a review: never `skill://dev-review`, never a GitHub post, label or gate action, never a consumed review bound
 
 ## Chain Position
 
@@ -430,8 +449,8 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 
 ## Exit
 
-- **Success:** blocking causes applied or filed, non-blocking causes deferred in one issue or already deferred, receipt posted. A run that applied nothing is success without a commit or a push. Print Applied (each with its falsification result) / Falsification P·S·F / Deferred / Filed / Failed, the `Unplanned record` line when it applies, + `Next: re-review with skill://dev-review`. A filed blocker still blocks: a run that filed one is never reported as a clean review, whatever it applied. Stop.
-- **Failure (quality gate, ¬findings, unrecoverable):** return the error and stop — the caller decides next steps outside the automatic bound.
+- **Success:** blocking causes applied or filed, non-blocking causes deferred in one issue or already deferred, receipt posted. A run that applied nothing is success without a commit or a push. Print Applied (each with its falsification result) / the local pre-review line / Falsification P·S·F / Deferred / Filed / Failed, the `Unplanned record` and `Unverified` lines when they apply, + `Next: re-review with skill://dev-review`. A filed blocker still blocks: a run that filed one is never reported as a clean review, whatever it applied. Stop.
+- **Failure (quality gate, ¬findings, unrecoverable):** return the error and stop — the caller decides next steps outside the automatic bound. A Phase 5 halt (red or unavailable required smoke/proof, red lint/tests unbound to a cause, incomplete guard restoration) is a failure: commits stay local, no push, no receipt; report red vs unavailable.
 - **Loop cap:** at most 2 automatic fixes, derived by the caller's `nextReviewStep`
   from the review records. On `stop`, follow `skill://dev-review` Phase 8 —
   escalation dossier. Automation on that PR is finished; resumption is a NEW
