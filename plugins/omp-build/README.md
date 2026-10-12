@@ -111,6 +111,8 @@ naming the epic, `/feature` is unchanged.
 
 Every `next` re-disarms a stopped child's armed PR before it moves on (`reconciled`); a failed disarm, or a PR that already merged, is a drop and creates no branch. `report --outcome drop` disarms without reading base CI or the landing, and exits non-zero naming any PR still armed. If that command fails, print the error, then drop the goal.
 
+The final-review verdict and the post-merge hook start Bun in the skill directory with `--no-env-file` and the epic worktree in `--repo`; fix's follow-up filing starts issue-triage in its own directory with the target in `GITHUB_REPO`. A `bunfig.toml` preload or `.env` committed in the checkout under review therefore runs before neither, and cannot print a forged receipt.
+
 ## Slash commands
 
 | Command | Lane |

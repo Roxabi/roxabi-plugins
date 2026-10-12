@@ -3,7 +3,7 @@ name: feature
 disable-model-invocation: true
 argument-hint: '[#N | <subject>]'
 description: OMP-only feature cycle — frame a GitHub issue, create the worktree from origin/<base>, hand off /move and /goal, then implement, review, fix and land.
-version: 0.1.5
+version: 0.1.6
 ---
 
 # Feature
@@ -53,7 +53,7 @@ repository-documented commands; do not guess an installer or release model.
 | Route | Read before executing |
 |---|---|
 | Frame | `skill://grilling`, `skill://issue-triage` |
-| Build | `skill://dev-review`, `skill://fix`; `T=$(realpath skill://issue-triage/triage.ts) && bun "$T"` before a deferral |
+| Build | `skill://dev-review`, `skill://fix`; issue-triage, resolved and started by `skill://fix` § Filing, before a deferral |
 | Agreed test-first work | `skill://tdd` |
 
 Check only the selected route. A missing required skill stops that route with its
@@ -160,11 +160,23 @@ each already disarmed and recorded exactly like the `stop` subcommand does.
 | `step.action` | Do |
 |---|---|
 | `start` / `resume` | The driver fetched, checked the tree and base CI, switched to `step.branch` (new from `refs/remotes/origin/<base>`, or the existing one), validated it with `resolveTicketBranch` and `refuseForeignCommits`, and disarmed an armed PR. Run §6 for `step.ticket` in this worktree: §6.0 without the operator handoff, then §6.1–§6.7. The PR is `step.pr?.number ?? null`, never discovered by branch name (a branch name also matches fork PRs): `resume` with `step.pr` continues that PR from its `nextReviewStep` (§6.0), and no `step.pr` means a new PR through `openPr`. |
-| `final-review`, `stage: review` | R-architect and R-adversarial, read-only, on `git diff <step.range>`. Then `bun "$D" review --epic E <gate> --verdict clean\|blocking --range <step.range> --detail-file <findings file>`. |
-| `final-review`, `stage: fix-ticket` | One fix ticket through issue-triage: `create --parent "#E" --type fix --size … --priority … --body-file <f>`, body's first line `<!-- omp-build:epic-fix -->`, an `## Acceptance criteria` heading holding the blocking findings. The next `next` starts it. Non-blocking findings are follow-up siblings, each scoped the same way: an `## Acceptance criteria` heading and a `size:` label (`skill://fix` § Filing). |
+| `final-review`, `stage: review` | R-architect and R-adversarial, read-only, on `git diff <step.range>`. Write the findings with the `write` tool, then record the verdict with the block below this table. |
+| `final-review`, `stage: fix-ticket` | One fix ticket, filed with the `skill://fix` § Filing block run in the epic worktree: `triage create --parent "#E" --type fix --size … --priority … --title-file … --body-file …`, body's first line `<!-- omp-build:epic-fix -->`, an `## Acceptance criteria` heading holding the blocking findings. The next `next` starts it. Non-blocking findings are follow-up siblings, each scoped the same way: an `## Acceptance criteria` heading and a `size:` label (`skill://fix` § Filing). |
 | `post-merge` | Only after a clean final review, a clean tree, and base CI green or absent. This run's hook `ok` or `skipped` at another commit is `drop hook-stale`, not another run. Then `bun --no-env-file "$D" hook --epic E <gate> --repo <epic worktree>`, with the bash `cwd` outside the repository (`$SKILL_DIR`): the runner must load nothing from the epic worktree. |
 | `complete` | `bun "$D" report --epic E <gate> --outcome complete` refuses unless `next` is `complete`. Print it, `goal({op:"complete"})`, offer `/cleanup`. |
 | `drop` | `bun "$D" report --epic E <gate> --outcome drop --reason <step.stop>`, print it, `goal({op:"drop"})`. If that command fails, print the error, then `goal({op:"drop"})`. A failing drop still drops the goal. |
+
+**Recording the final review.** Bun reads `bunfig.toml` and `.env` from the
+directory it starts in, and a tracked preload in the epic worktree runs before the
+driver and can print the verdict JSON itself. So the verdict, like the post-merge
+hook, starts in `$SKILL_DIR` with `--no-env-file`, the target in `--repo`, and
+every path absolute:
+
+```bash
+# EPIC=E; GOAL_STATUS and OBJECTIVE = the gate; VERDICT=clean or blocking; RANGE=step.range;
+# EPIC_WT=the epic worktree; write the findings with the write tool to FINDINGS, then:
+(cd "${SKILL_DIR:?}" && bun --no-env-file "$SKILL_DIR/epic-driver.ts" review --epic "$EPIC" --goal-status "$GOAL_STATUS" --goal-objective-file "${OBJECTIVE:?}" --repo "${EPIC_WT:?}" --verdict "$VERDICT" --range "$RANGE" --detail-file "${FINDINGS:?}")
+```
 
 **Inside a child**, map each outcome, then call `next` again (`landOutcome` in `epic.ts`):
 

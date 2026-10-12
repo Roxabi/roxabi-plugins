@@ -4,7 +4,7 @@ argument-hint: '[#PR]'
 description: >-
   OMP-only — apply one fix per blocking root cause from a review, inline, no per-finding choice.
   Triggers: "fix findings" | "fix review" | "apply fixes" | "fix these" | "apply review comments" | "apply the review" | "fix the review issues" | "address review feedback" | "fix PR comments".
-version: 0.3.1
+version: 0.3.2
 ---
 
 # Fix
@@ -192,9 +192,11 @@ Applied: N | Deferred: D | Filed: M
 
 ### Filing — the follow-up is a sibling, never a child
 
-Two dispositions, one wiring. A non-blocking cause is not filed on its own: it joins the single deferral below. Today's filing is only an ineligible or failed blocking cause, an uncited finding that satisfies `blocks(f)`, or a cited finding of a malformed block that satisfies `blocks(f)`. Each of those gets its own issue. Create every follow-up with `T=$(realpath skill://issue-triage/triage.ts) && bun "$T" create --title-file … --body-file …`. If that command cannot be resolved, stop and name issue-triage. Never raw `gh issue create`: issue mutations go through that CLI so blocked-by and parent are wired atomically, and a `Blocked by: #12` line in a body is invisible to `gh issue view` and to the frontier query.
+Two dispositions, one wiring. A non-blocking cause is not filed on its own: it joins the single deferral below. Today's filing is only an ineligible or failed blocking cause, an uncited finding that satisfies `blocks(f)`, or a cited finding of a malformed block that satisfies `blocks(f)`. Each of those gets its own issue. Create every follow-up with `triage create --title-file … --body-file …`, from the fence below. If issue-triage cannot be resolved, `triage` refuses: stop and name issue-triage. Never raw `gh issue create`: issue mutations go through that CLI so blocked-by and parent are wired atomically, and a `Blocked by: #12` line in a body is invisible to `gh issue view` and to the frontier query.
 
 **Comment text never reaches a command line.** Titles and bodies come from PR comments, which anyone can write. Write them with the `write` tool into a mktemp dir and pass the files; a double-quoted `$(…)` or backtick in an argument runs in the operator's shell.
+
+**Triage starts outside the checkout.** Bun reads `bunfig.toml` and `.env` from the directory it starts in. Started in the PR's checkout, a tracked `bunfig.toml` preload runs before triage, and it can print `Created #N` and exit 0 with nothing filed; `--no-env-file` alone does not stop it. So `triage` starts Bun in issue-triage's own directory, with `--no-env-file`, the target repository in `GITHUB_REPO` and absolute file paths. Without `GITHUB_REPO`, triage started there would resolve the plugin's own repository; it also no longer reads a `.dev/dev-core.yml` `github_repo` pin. An unresolved script or repository refuses; nothing falls back to the checkout.
 
 **Deferral — one issue per run.** Every cause that is not `blocking(r)`, every uncited finding that does not satisfy `blocks(f)`, and every cited finding of a malformed block that does not satisfy `blocks(f)`, and that is not already deferred or filed, goes into exactly one follow-up. They are not applied. One `create`, not one per cause. The title file is the bundle title `Deferred non-blocking review findings`. The body file opens with `**Origin:** PR #<N>`, then `## Acceptance criteria` with one checkbox per deferred item, then the details: every deferred mechanism, its fix line, and its findings, plus each uncited non-blocking finding, plus each cited non-blocking finding of a malformed block. Same `--blocked-by` / `--parent` / `--size` / `--type` wiring as the bullets under the fence. Empty set after the already-deferred filter → no issue. Do not use the per-cause sentence `could not be applied` for this issue. Do not copy a non-blocking member of an applied cause into it.
 
@@ -202,8 +204,12 @@ Two dispositions, one wiring. A non-blocking cause is not filed on its own: it j
 FILE_DIR=$(mktemp -d -t "omp-build-fix-file-XXXXXX")
 trap 'rm -rf "$FILE_DIR"' EXIT
 # write "$FILE_DIR/title.txt" and "$FILE_DIR/body.md" with the write tool, then:
-T=$(realpath skill://issue-triage/triage.ts) && bun "$T" create --title-file "$FILE_DIR/title.txt" --body-file "$FILE_DIR/body.md" ...
+TRIAGE=$(realpath skill://issue-triage/triage.ts) && TRIAGE_REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+triage() { (: "${TRIAGE:?issue-triage unresolved}" "${TRIAGE_REPO:?repository unresolved}" && cd "$(dirname "$TRIAGE")" && GITHUB_REPO="$TRIAGE_REPO" bun --no-env-file "$TRIAGE" "$@"); }
+triage create --title-file "$FILE_DIR/title.txt" --body-file "$FILE_DIR/body.md" ...
 ```
+
+**A partial create is never created again.** `create` prints `Created #N` first, then one line per write: `Type=`, `Priority=`, `Size=`, `Parent=`, `BlockedBy=`. A nonzero exit after `Created #N` leaves #N filed but incomplete. Record #N as filed, and run the same block with `triage set N` as its last line, passing only the flags whose line is missing.
 
 `docs/agents/issue-tracker.md` § "Deferred follow-ups are siblings":
 
