@@ -104,20 +104,19 @@ ADR-020 no longer bind:
    run: runtime proof is the base-required CI on the same head that the
    landing watch (`/ci-watch`, started once `landPr` arms) waits on, and the
    review judges that each `tested` evidence names a test that
-   exercises the change. That judgement covers only a record present at the
-   reviewed head: admission binds neither it nor the required checks to the
-   VERIFIED record, so a VERIFIED first published after the approval is
-   admitted unreviewed, and nothing ties the base-required checks to the tests
-   a `tested` evidence names. A PARTIAL lands as PARTIAL only when every gap it
+   exercises the change. Every selected Semctx part must predate the approval
+   and carry readable native creation/revision facts with no recorded edit;
+   this applies to VERIFIED as well as PARTIAL. A late publication needs a
+   new review; a recorded revision needs acquisition again. Nothing ties
+   base-required checks to the tests a `tested` evidence names. A PARTIAL lands as PARTIAL only when every gap it
    names has a closed-enum NO TEST row in a PR body the approving review
    judged.
-   Every part of that selected record, including its last revision, must have
-   native GitHub publication facts strictly before the approving record, as
-   must the current justification body. While the selected record's current
-   body is PARTIAL, a later or revised part returns the same head to review
-   without another producer; unreadable times refuse. VERIFIED reuse borrows
-   no gap justification and is chronology-independent: a PARTIAL comment
-   edited after approval into a VERIFIED body is admitted as VERIFIED.
+   Every part of that selected Semctx record must have readable native GitHub
+   creation/revision facts and be published strictly before the approving
+   record. Any recorded edit refuses before reading its current verdict:
+   changing PARTIAL into VERIFIED does not evade the check. Reacquire a revised
+   record, then review; reuse an unmodified late publication after re-review.
+   The current justification body must also predate approval.
    *Reviewer ceiling explicitly authorized 2026-10-11*
    ([operator decision](https://github.com/Roxabi/roxabi-plugins/issues/768#issuecomment-6114046814)):
    admission checks gap policy/form/chronology; reason truth and credible browser
@@ -154,9 +153,9 @@ ADR-020 no longer bind:
    comment by the automation account; admission reads that account's latest
    record for the head, and any account with write access can still edit or
    delete it. It attests that comment's current body, not what the producer
-   printed nor who ran it: only a PARTIAL's publication and revision must
-   precede the approving review, so a later edit of a VERIFIED or
-   assertledger record is not detected.
+   printed nor who ran it. Semctx checks readable native publication/revision
+   facts before its verdict and refuses recorded edits, including a PARTIAL
+   edited into VERIFIED; assertledger has its own admission obligation.
 
 4. **§9 — the agent creates the worktree** from a freshly fetched
    `refs/remotes/origin/<base>`, never from `HEAD`, and never carrying the
@@ -189,9 +188,7 @@ ADR-020 no longer bind:
   absence is stated, not a permanent `false`, and it is not the `R-pr` oracle,
   which stays cut.
 - Landing admission (#768) does not independently detect: an invented check
-  or false reason the trusted reviewer accepts; a later edit of a VERIFIED or
-  assertledger record, or of a PARTIAL into a VERIFIED body; a VERIFIED record
-  first published after the approval, which no review judged; whether the
+  or false reason the trusted reviewer accepts; whether the
   base-required checks run the tests a `tested` evidence names; an arm another
   actor sets. Nor does an arm `landPr` wrote stay bound to the admitted head:
   a push or base switch by an account with write access leaves native

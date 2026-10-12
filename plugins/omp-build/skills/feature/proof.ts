@@ -1110,32 +1110,47 @@ function nativeInstant(value: string | null | undefined): number | null {
   return time
 }
 
-/** Every selected PARTIAL part, including its last revision, was available to this review. */
-function reviewedPartial(parts: PrComment[], target: Target): Refusal | null {
-  const approved = nativeInstant(target.reviewedAt)
-  if (approved === null)
-    return refuse(
-      'semctx',
-      'unjustified',
-      `the review of PARTIAL candidate ${target.candidate} has no readable native creation time: re-review the head (feature §6.4)`,
-    )
-  let index = 0
-  for (const part of parts) {
-    index++
+/** Acquisition only creates parts: a readable native revision invalidates reuse. */
+export function recordIntegrity(parts: PrComment[], producer: Producer): Refusal | null {
+  for (const [index, part] of parts.entries()) {
     const created = nativeInstant(part.createdAt)
     const revised = nativeInstant(part.updatedAt)
     if (created === null || revised === null || revised < created) {
       return refuse(
-        'semctx',
+        producer,
         'unreadable',
-        `PARTIAL proof part ${index}/${parts.length} has unreadable native creation/revision facts (${JSON.stringify(part.createdAt)}, ${JSON.stringify(part.updatedAt)}); obtain readable GitHub metadata before re-review`,
+        `proof part ${index + 1}/${parts.length} has unreadable native creation/revision facts (${JSON.stringify(part.createdAt)}, ${JSON.stringify(part.updatedAt)}); obtain readable GitHub metadata before re-review`,
       )
     }
-    if (!(created < approved && revised < approved)) {
+    if (revised !== created) {
       return refuse(
-        'semctx',
+        producer,
+        'unbound',
+        `proof part ${index + 1}/${parts.length} was revised after publication; acquire a new producer record, then review the head (feature §6.4)`,
+      )
+    }
+  }
+  return null
+}
+
+/** Every selected native part was published, unmodified, before this approval. */
+function reviewedRecord(parts: PrComment[], target: Target, producer: Producer): Refusal | null {
+  const integrity = recordIntegrity(parts, producer)
+  if (integrity) return integrity
+  const approved = nativeInstant(target.reviewedAt)
+  if (approved === null)
+    return refuse(
+      producer,
+      'unjustified',
+      `the review of candidate ${target.candidate} has no readable native creation time: re-review the head (feature §6.4)`,
+    )
+  for (const [index, part] of parts.entries()) {
+    const created = nativeInstant(part.createdAt)
+    if (created === null || created >= approved) {
+      return refuse(
+        producer,
         'unjustified',
-        `PARTIAL proof part ${index}/${parts.length} was published/revised at ${part.createdAt}/${part.updatedAt}, not before approving review ${target.reviewedAt}: re-review the same head (feature §6.4), reuse the record without a producer`,
+        `proof part ${index + 1}/${parts.length} was published at ${part.createdAt}, not before approving review ${target.reviewedAt}: re-review the same head (feature §6.4), reuse the unmodified record without a producer`,
       )
     }
   }
@@ -1217,10 +1232,10 @@ async function admitSemctx(
     changeFiles: facts.changeFiles,
   })
   if ('ok' in results) return results
+  const chronology = reviewedRecord(found.parts, target, 'semctx')
+  if (chronology) return chronology
   const changes = results.map(({ id, verdict }) => ({ id, verdict }))
   if (results.every((result) => result.verdict === 'VERIFIED')) return { verdict: 'VERIFIED', changes, gaps: [] }
-  const chronology = reviewedPartial(found.parts, target)
-  if (chronology) return chronology
   const pull = await reviewedBody(cwd, target, deps.gh, read.repository)
   if ('ok' in pull) return pull
   const { body } = pull

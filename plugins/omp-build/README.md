@@ -215,10 +215,10 @@ before its diff; the review-start test exercises the fence, not model compliance
   and open unknown it names) justified by a closed-enum NO TEST row in
   a PR body last edited before the approving record (an edit after it returns
   the PR to review); a PARTIAL with a stale link or a blocking impact refuses.
-  Every selected PARTIAL part's native GitHub creation and revision times must
-  precede that approval too: missing/bad facts refuse, and a later/revised part
-  requires a new same-head review, reusing the record without a producer.
-  VERIFIED reuse borrows no gap justification and stays chronology-independent.
+  Every selected Semctx part's native creation/revision facts must be readable,
+  unmodified and published before approval, regardless of verdict. A recorded
+  edit requires acquisition again; a late publication requires same-head review
+  without a producer at admission. VERIFIED borrows no gap justification.
   A fix PR — a `fix/…` head branch, or a closing ticket or the ticket the head
   branch names (`<type>/<N>-…`) typed Fix or Bug, labelled `bug` or titled
   `fix…:` — needs a detection when the base or the head declares an
@@ -245,10 +245,10 @@ before its diff; the review-start test exercises the fence, not model compliance
   the evidence statuses the contract declares, never a test run: the runtime
   proof is the base-required CI on the same head that the landing watch waits on, and the
   review judges that each `tested` evidence names a test that exercises the
-  change. That judgement covers only a record present at the reviewed head:
-  admission binds neither it nor the required checks to the VERIFIED record,
-  so a VERIFIED first published after the approval is admitted unreviewed, and
-  nothing ties the base-required checks to the tests a `tested` evidence names.
+  change. Semctx records must be published before approval, with readable native
+  creation/revision times and no recorded edit, regardless of verdict.
+  A later publication needs a new review; a revised record needs acquisition
+  again. Nothing ties the required checks to the tests a `tested` evidence names.
   Under the [operator-authorized reviewer ceiling](https://github.com/Roxabi/roxabi-plugins/issues/768#issuecomment-6114046814),
   reason truth and credible browser-check performance belong to the proof-aware
   review; unsupported claims block it. Admission checks their policy/form and
@@ -263,9 +263,9 @@ before its diff; the review-start test exercises the fence, not model compliance
   account (a run of `part=<i>/<n>` comments when it exceeds GitHub's comment
   ceiling, read only whole); any account with write access can edit or delete
   it, so it attests that comment's current body, not what the producer printed
-  nor who ran it. Chronology binds only a record whose current body is
-  PARTIAL: a later edit of a VERIFIED or assertledger record, or one that
-  turns a PARTIAL into a VERIFIED body, is not detected.
+  nor who ran it. Every Semctx record part is checked before its verdict:
+  a recorded edit refuses, including a PARTIAL edited into VERIFIED.
+  Assertledger revision checking is a separate admission obligation.
 
 The bound guards against agent mistakes, not against an agent that bypasses it:
 records by other accounts are ignored, and edits or deletions of the account's

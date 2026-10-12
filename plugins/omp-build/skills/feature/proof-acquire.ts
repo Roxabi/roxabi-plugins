@@ -49,6 +49,7 @@ import {
   type Refusal,
   readAssertledgerRecord,
   readSemctxRecord,
+  recordIntegrity,
   refreshSelectedBase,
   renderRecord,
   repositoryOf,
@@ -179,7 +180,12 @@ async function acquireSemctx(ctx: Context): Promise<Outcome> {
     changeFiles: ctx.facts.changeFiles,
   }
   const found = findRecord(ctx.comments, ctx.me, 'semctx', ctx.candidate)
-  if ('record' in found && !isUnbound(readSemctxRecord(found.record, expected))) return 'reused'
+  if (
+    'record' in found &&
+    !recordIntegrity(found.parts, 'semctx') &&
+    !isUnbound(readSemctxRecord(found.record, expected))
+  )
+    return 'reused'
   const semctx = await tool('semctx', null)
   const work = mkdtempSync(join(tmpdir(), 'omp-proof-'))
   try {

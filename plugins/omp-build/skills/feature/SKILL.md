@@ -3,7 +3,7 @@ name: feature
 disable-model-invocation: true
 argument-hint: '[#N | <subject>]'
 description: OMP-only feature cycle — frame a GitHub issue, create the worktree from origin/<base>, hand off /move and /goal, then implement, review, fix and land.
-version: 0.1.2
+version: 0.1.3
 ---
 
 # Feature
@@ -417,22 +417,21 @@ reused: same head and inputs, nothing runs again. Exit 1 names what is missing;
 it decides nothing. VERIFIED is Semctx's composition over the evidence statuses
 the contract declares, never a test run: mark evidence `tested` only for a test
 that exercises the change — the review judges it, and the base-required CI on
-the same head stays the runtime proof. That judgement covers only a record
-present at the reviewed head: publish VERIFIED before §6.4, since one first
-published after the approval is admitted unreviewed, and nothing ties the
-required checks to the tests a `tested` evidence names. A PARTIAL stays PARTIAL: each gap its record names needs one
+the same head stays the runtime proof. Publish every Semctx record before §6.4;
+a later publication needs a new review, and a recorded edit needs acquisition
+again, regardless of verdict. Nothing ties the required checks to the tests
+a `tested` evidence names. A PARTIAL stays PARTIAL: each gap its record names needs one
 PR-body row `| <gap> | … | ⚠ NO TEST — <reason> |` with a reason from the closed
 enum, and a `ui-manual-only` gap a `### Browser check <gap>` block (the gap bare
 or in backticks; `- Steps:`, `- URL:` http(s), `- Observed:`), legal only when neither the base's nor the head's
 `.dev/stack.yml` declares `commands.test_e2e`. The review judges those rows, so
 publish the complete PARTIAL record and write those rows before §6.4.
-`landPr` reads native GitHub creation/revision times of every selected PARTIAL
-record part and a body last edited before the approving record. Missing or unreadable
-times refuse; a later publication, part revision or body edit needs a new review
-of the same head (§6.4), reusing the record without a producer. VERIFIED reuse
-borrows no gap justification and has no such chronology requirement: a later edit
-of a VERIFIED or assertledger record, or of a PARTIAL into a VERIFIED body, is not
-detected.
+`landPr` reads native GitHub creation/revision times of every selected Semctx
+record part before its verdict, and a body last edited before approval.
+Missing or unreadable times refuse. Any recorded part revision requires
+acquisition again, then review; an unmodified later publication or body edit
+requires a new same-head review (§6.4), without running a producer at admission.
+Editing PARTIAL into VERIFIED does not disable this guard.
 **Reviewer trust ceiling** ([operator-authorized #768 amendment](https://github.com/Roxabi/roxabi-plugins/issues/768#issuecomment-6114046814)):
 the proof-aware review judges reason truth and whether a browser check was
 credibly performed for this head; unsupported claims block review. Admission

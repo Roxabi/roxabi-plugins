@@ -746,17 +746,17 @@ describe('PARTIAL publication and revision must precede the approving review', (
     },
   )
   it.each([
-    ['a late final part', -1, { createdAt: LATE, updatedAt: LATE }],
-    ['its first part revised later', 0, { updatedAt: LATE }],
-    ['its final part revised later', -1, { updatedAt: LATE }],
-  ] as const)('the complete native multipart PARTIAL refuses with %s', (_name, index, changed) => {
+    ['a late final part', -1, { createdAt: LATE, updatedAt: LATE }, 'unjustified'],
+    ['its first part revised later', 0, { updatedAt: LATE }, 'unbound'],
+    ['its final part revised later', -1, { updatedAt: LATE }, 'unbound'],
+  ] as const)('the complete native multipart PARTIAL refuses with %s', (_name, index, changed, reason) => {
     const { pr, parts } = prime('largePartial')
     facts(pr, index < 0 ? parts.length - 1 : index, changed)
     const run = land(box, wt.largePartial as string, pr)
     expect(run.result).toMatchObject({
       status: 'proof-blocked',
       producer: 'semctx',
-      reason: 'unjustified',
+      reason,
       disarmed: true,
     })
     expect(run.gate).toEqual(UNARMED)
@@ -792,14 +792,74 @@ describe('PARTIAL publication and revision must precede the approving review', (
     expect(run.producers).toEqual([])
   })
   it.each([
-    ['late publication', { createdAt: LATE, updatedAt: LATE }],
-    ['unreadable publication', { createdAt: null, updatedAt: null }],
-  ])('VERIFIED remains reusable with %s facts; it borrows no gap justification', (_name, changed) => {
+    ['late publication', { createdAt: LATE, updatedAt: LATE }, 'unjustified'],
+    ['unreadable publication', { createdAt: null, updatedAt: null }, 'unreadable'],
+    ['a revised native result', { updatedAt: LATE }, 'unbound'],
+  ])('VERIFIED refuses %s facts and admits the original unmodified record', (_name, changed, reason) => {
     const { pr } = prime('verified')
     facts(pr, 0, changed)
-    const run = land(box, wt.verified as string, pr)
-    expect(run.result).toMatchObject({ status: 'watching', proof: { semctx: { verdict: 'VERIFIED' } } })
-    expect(run.producers).toEqual([])
+    const refused = land(box, wt.verified as string, pr)
+    expect(refused.result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason, disarmed: true })
+    expect(refused.gate).toEqual(UNARMED)
+    expect(refused.producers).toEqual([])
+    prime('verified')
+    const admitted = land(box, wt.verified as string, pr)
+    expect(admitted.result).toMatchObject({ status: 'watching', proof: { semctx: { verdict: 'VERIFIED' } } })
+    expect(admitted.producers).toEqual([])
+  })
+  it('a PARTIAL edited into a coherent VERIFIED body cannot borrow its approval', () => {
+    const { pr, head } = prime('partial')
+    const source = findRecord(
+      conserved(RECORDS.semctx, 'partial').map((body) => ({ author: { login: ME }, body })),
+      ME,
+      'semctx',
+      head,
+    )
+    if (!('record' in source)) throw new Error('missing native PARTIAL fixture')
+    const record: SemctxRecord = JSON.parse(JSON.stringify(source.record))
+    const step = record.native.find((entry) => entry.argv.includes('verify'))
+    if (!step) throw new Error('missing verify output')
+    const result: {
+      verdict: string
+      findings: unknown[]
+      pendingEvidence: { id: string }[]
+      openUnknowns: unknown[]
+      provedEvidence: { id: string }[]
+    } = JSON.parse(step.stdout)
+    result.verdict = 'VERIFIED'
+    result.findings = []
+    result.provedEvidence = result.pendingEvidence.map((evidence) => ({ ...evidence, proved: true, status: 'tested' }))
+    result.pendingEvidence = []
+    result.openUnknowns = []
+    step.stdout = JSON.stringify(result)
+    const bodies = renderRecord('semctx', head, [], record)
+    writeSim(box, (state) => {
+      const pull = state.prs[String(pr)]
+      if (!pull) throw new Error('missing PR')
+      pull.comments.splice(
+        0,
+        source.parts.length,
+        ...bodies.map((body) => ({
+          author: ME,
+          body,
+          createdAt: EARLY,
+          updatedAt: LATE,
+        })),
+      )
+    })
+    const refused = land(box, wt.partial as string, pr)
+    expect(refused.result).toMatchObject({
+      status: 'proof-blocked',
+      producer: 'semctx',
+      reason: 'unbound',
+      disarmed: true,
+    })
+    expect(refused.gate).toEqual(UNARMED)
+    expect(refused.producers).toEqual([])
+    prime('partial')
+    const admitted = land(box, wt.partial as string, pr)
+    expect(admitted.result).toMatchObject({ status: 'watching', proof: { semctx: { verdict: 'PARTIAL' } } })
+    expect(admitted.producers).toEqual([])
   })
   it('only the selected complete run is judged: an older run’s late revision does not taint the reviewed replacement', () => {
     const { pr, parts } = prime('largePartial')
@@ -818,6 +878,24 @@ describe('PARTIAL publication and revision must precede the approving review', (
     const run = land(box, wt.largePartial as string, pr)
     expect(run.result).toMatchObject({ status: 'watching', proof: { semctx: { verdict: 'PARTIAL' } } })
     expect(run.producers).toEqual([])
+  })
+  it('acquisition reuses an unmodified result but never reuses a revised result', () => {
+    const { pr } = prime('verified')
+    const acquire = () =>
+      spawnSync(REAL_BUN, [ACQUIRE, '--pr', String(pr)], {
+        cwd: wt.verified,
+        env: box.env,
+        encoding: 'utf8',
+      })
+    const reusable = acquire()
+    expect(reusable.status).toBe(0)
+    expect(JSON.parse(reusable.stdout)).toMatchObject({ semctx: 'reused' })
+    expect(producerCalls(box)).toEqual([])
+    facts(pr, 0, { updatedAt: LATE })
+    const revised = acquire()
+    expect(revised.status).toBe(1)
+    expect(revised.stderr).toContain('--version failed')
+    expect(producerCalls(box)).toEqual(['semctx --version'])
   })
 })
 
