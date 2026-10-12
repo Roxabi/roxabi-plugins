@@ -141,7 +141,7 @@ Review → fix record contract: [root causes and member references](skills/dev-r
 
 Fix order after a review: light per-cause checks → one local commit per cause → a quick, plain, read-only **local pre-review** of the new delta (plan conformity only — not `dev-review`, no GitHub post/label/gate, no review bound spent) → falsification → clean tree, global lint/tests and actual-path smoke → final costly proof on the final head (a red or unavailable required proof halts, commits local) → push that head → receipt. A later permanent change (correction, falsification retry, revert) is pre-reviewed again and its affected proof refreshed before any costly run. The official `dev-review` of the pushed head is unchanged.
 
-No applied cause → no commit, pre-review or push; filing/deferral and the receipt still run. A failed required push or proof halts without a success receipt.
+No new or recovered unpublished cause commit → no commit, pre-review or push; filing/deferral and the receipt still run. A failed required push or proof halts without a success receipt. Same-review re-entry resumes full verification only for cause commits attributable to that exact review in Git, with the original baseline, failed dispositions and remaining allowances preserved; it never reapplies them. A foreign prefix or unrecoverable allowance halts untouched.
 
 The review bound is two reads of the PR's review records (#710) — the comments
 by the automation login (`gh api user`) whose first line is

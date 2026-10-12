@@ -3,7 +3,7 @@ name: feature
 disable-model-invocation: true
 argument-hint: '[#N | <subject>]'
 description: OMP-only feature cycle — frame a GitHub issue, create the worktree from origin/<base>, hand off /move and /goal, then implement, review, fix and land.
-version: 0.1.6
+version: 0.1.7
 ---
 
 # Feature
@@ -535,8 +535,11 @@ the matching pre-reviewed, clean head.
 applied and no push was needed. For an inline `ci-failed` correction with new
 commits, post it after the required push succeeds. A failed push or required-proof
 halt produces no success receipt.
-A review-driven halt returns its known failed/filed issue links in the error;
-re-entry uses `fix` Phase 2's receipt-free disposition lookup before any reapplication.
+A review-driven halt returns its bound source review/B, known applied-cause SHAs,
+remaining original allowances and failed/filed issue links in the error. Same-review
+re-entry uses `fix` Phase 2's receipt-free dispositions and attributable paused-candidate
+history before new eligibility; it resumes full pre-review/verification without
+reapplying owned changes. Foreign prefixes or unprovable ownership/allowances halt.
 The receipt is for humans: no gate reads it, and a failed post is reported, not
 retried. It never reports a falsification skip as a pass, nor a `none` record
 with actionable findings as clean. When a push moved the head, run §6.3's proof records for it;
