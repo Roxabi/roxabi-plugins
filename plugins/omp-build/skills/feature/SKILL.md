@@ -3,7 +3,7 @@ name: feature
 disable-model-invocation: true
 argument-hint: '[#N | <subject>]'
 description: OMP-only feature cycle — frame a GitHub issue, create the worktree from origin/<base>, hand off /move and /goal, then implement, review, fix and land.
-version: 0.1.4
+version: 0.1.5
 ---
 
 # Feature
@@ -416,8 +416,12 @@ record; acquire again). A record that still binds is
 reused: same head and inputs, nothing runs again. Exit 1 names what is missing;
 it decides nothing. VERIFIED is Semctx's composition over the evidence statuses
 the contract declares, never a test run: mark evidence `tested` only for a test
-that exercises the change — the review judges it, and the base-required CI on
-the same head stays the runtime proof. Publish every Semctx record before §6.4;
+that exercises the change — the review judges it. Landing's runtime-proof claim
+depends on CI GitHub actually enforces on this base/head. The pre-existing native
+guard accepts explicit check names or a nonempty `landing.required_checks`;
+only otherwise does it discover protection/ruleset checks. Declared names do not
+establish enforcement: an unprotected native PR can merge before they finish.
+Publish every Semctx record before §6.4;
 a later publication needs a new review, and a recorded edit needs acquisition
 again, regardless of verdict. Nothing ties the required checks to the tests
 a `tested` evidence names. A PARTIAL stays PARTIAL: each gap its record names needs one
@@ -664,7 +668,7 @@ Neither a fix round nor another review action may write that label in this cycle
 | `watch-failed` | Stop; report code or error. The gate is retained only with current authorization; invalid arms are cleared or the error names their remainder. Do not claim merged |
 | `evaluate-only` | Stop; report "evaluate-only — manual merge required" and `docs/kit/ci-app-setup.md`. The gate is retained only with current authorization; the operator merges by hand. Do not claim merged; do not wait |
 | `bad-landing` | Stop; report `land.error` (landing configuration problem). Any armed gate is cleared, or the error names its remainder. Fix the landing configuration, then re-enter §6.7 |
-| `no-required-checks` | Stop; report missing protection. Native only, when no required context was found (declared `landing.required_checks`, protection or rulesets); an API error in that discovery reads as none — merge-on-green does not return this. `landPr` first disarmed a gate it found armed, at the approved current head too (`disarmed: true` only when it confirmed that disarm; a PR found unarmed carries no flag and no write was made). Nothing restores the label or auto-merge: configure the checks, then re-enter §6.7 through the normal gate. A disarm that cannot finish throws instead (below) |
+| `no-required-checks` | Stop; native guard found no check name: explicit list, otherwise nonempty stack `landing.required_checks`, otherwise protection/ruleset discovery. Discovery error is not evidence that protection is absent. Merge-on-green does not return this. Applicable arms are cleared and read back (`disarmed: true`); a failed clear throws. Resolve the lookup/configuration and verify actual GitHub enforcement before re-entering §6.7. Nonempty declared names alone do not establish protection |
 | `timeout` | Re-attach the watch. Do not claim merged. Epic goal: ticket stop, no re-attach |
 | `stopped` | Stop and report. Do not claim merged |
 | `auto-merge-failed` | Stop; inspect and report actual PR/label/auto-merge state, never claim merged. Every `armed: true` carries an `error` naming what stays armed — remove that remainder by hand before anything else |

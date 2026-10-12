@@ -101,10 +101,13 @@ ADR-020 no longer bind:
    `landPr` reads and never produces. Its lifecycle stays Semctx's own, so
    nothing closes it to open or land a PR. VERIFIED attests Semctx's
    composition over the evidence statuses the contract declares, never a test
-   run: runtime proof is the base-required CI on the same head that the
-   landing watch (`/ci-watch`, started once `landPr` arms) waits on, and the
-   review judges that each `tested` evidence names a test that
-   exercises the change. Every selected Semctx part must predate the approval
+   run: landing's runtime-proof claim depends on CI GitHub actually enforces
+   on the selected base and head, not the names declared in stack. The existing
+   native guard accepts explicit/nonempty declared names and discovers enforced
+   checks only otherwise; it does not establish enforcement for that list.
+   An unprotected native PR can merge before those checks finish. The review
+   judges that each `tested` evidence names a test that exercises the change.
+   Every selected Semctx part must predate the approval
    and carry readable native creation/revision facts with no recorded edit;
    this applies to VERIFIED as well as PARTIAL. A late publication needs a
    new review; a recorded revision needs acquisition again. Nothing ties

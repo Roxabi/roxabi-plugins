@@ -249,10 +249,15 @@ before its diff; the review-start test exercises the fence, not model compliance
   head; CI-watch observer exits and the review step's `land` retain an arm on
   current-head approval and an unspent bound alone, and never re-admit.
 - What admission does not establish. VERIFIED attests Semctx's composition over
-  the evidence statuses the contract declares, never a test run: the runtime
-  proof is the base-required CI on the same head that the landing watch waits on, and the
-  review judges that each `tested` evidence names a test that exercises the
-  change. Applicable producer records must be published before approval, with
+  declared evidence statuses, never a test run. Landing's runtime-proof claim
+  depends on CI GitHub actually enforces on the selected base and head.
+  The existing native `no-required-checks` guard takes explicit `requiredContexts`,
+  otherwise a nonempty stack `landing.required_checks`, otherwise GitHub
+  protection/ruleset discovery. A supplied/declared name is not evidence of
+  enforcement: an unprotected native PR can merge before that check completes.
+  The watch's declared list names what it observes, not what GitHub enforces.
+  The review judges each `tested` evidence's named test; nothing binds CI to it.
+  Applicable producer records must be published before approval, with
   readable native creation/revision times and no recorded edit, regardless of
   verdict. A late publication needs a new review; a revised record needs
   acquisition again. Nothing ties required checks to a `tested` evidence's test.
