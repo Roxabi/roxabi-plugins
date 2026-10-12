@@ -1,11 +1,12 @@
 /**
  * Deterministic core `/feature` uses: open a PR, derive the review loop's next step, and land.
- * `detectPrincipal` names the base when `landPr` has none. No worktree driver.
+ * Landing binds the selected PR's base coordinates. No worktree driver.
  */
 
 import { spawnSync } from 'node:child_process'
 import { realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { admitLanding, captureReviewInput as captureProofReviewInput, refreshSelectedBase } from './proof'
 
 /** @param {string} value */
 function shellQuote(value) {
@@ -36,7 +37,16 @@ function stripGitHookEnv(env = process.env) {
   return out
 }
 
-async function git(cwd, args) {
+/**
+ * Lossless, non-throwing git: exit code and both streams exactly as printed, for
+ * readers that must tell a failure, an empty answer and a path ending in
+ * whitespace apart.
+ *
+ * @param {string} cwd
+ * @param {string[]} args
+ * @returns {Promise<{ code: number, stdout: string, stderr: string }>}
+ */
+export async function gitResult(cwd, args) {
   const proc = Bun.spawn(['git', '-C', cwd, ...args], {
     cwd,
     env: stripGitHookEnv(),
@@ -45,7 +55,11 @@ async function git(cwd, args) {
   })
   const stdout = await new Response(proc.stdout).text()
   const stderr = await new Response(proc.stderr).text()
-  const code = await proc.exited
+  return { code: await proc.exited, stdout, stderr }
+}
+
+async function git(cwd, args) {
+  const { code, stdout, stderr } = await gitResult(cwd, args)
   if (code !== 0) {
     throw new Error(`git ${args.join(' ')} failed (${code}): ${stderr || stdout}`)
   }
@@ -445,23 +459,13 @@ export function parseRequiredContexts(apiJson) {
   return out
 }
 
-/** @param {string} cwd @param {string | number} pr @param {(cwd: string, args: string[]) => Promise<string>} ghFn */
-async function resolveRequiredContexts(cwd, pr, ghFn) {
+/** @param {string} cwd @param {string} base @param {(cwd: string, args: string[]) => Promise<string>} ghFn */
+async function resolveRequiredContexts(cwd, base, ghFn) {
   const out = new Set()
   try {
     const { nameWithOwner } = JSON.parse(await ghFn(cwd, ['repo', 'view', '--json', 'nameWithOwner']))
     const [owner, repo] = (nameWithOwner || '').split('/')
     if (!owner || !repo) return []
-
-    let base
-    try {
-      const prJson = JSON.parse(await ghFn(cwd, ['pr', 'view', String(pr), '--json', 'baseRefName']))
-      base = prJson.baseRefName
-    } catch {
-      base = null
-    }
-    if (!base) base = await detectPrincipal(cwd)
-    if (!base) return []
 
     try {
       const classic = await ghFn(cwd, [
@@ -553,22 +557,88 @@ export function readLanding(cwd, { base } = {}) {
   if (typeof base !== 'string' || !base) {
     throw new Error('readLanding: base is required — landing is read from origin/<base>, never the working tree')
   }
-  const refPath = (path) => `origin/${base}:${path}`
+  return readLandingAt(cwd, `refs/remotes/origin/${base}`)
+}
+
+/** Policy of the established base object, never a moving ref or the candidate. */
+function readLandingAt(cwd, at) {
+  const refPath = (path) => `${at}:${path}`
   const stack = gitSync(cwd, ['show', refPath('.dev/stack.yml')])
   const stackText = stack.status === 0 ? stack.stdout : ''
   const workflow = gitSync(cwd, ['cat-file', '-e', refPath('.github/workflows/merge-on-green.yml')])
   return parseLanding(stackText, { mergeOnGreenWorkflow: workflow.status === 0 })
 }
 
-/** PR base when known, else the principal branch. Used by landPr before readLanding. */
-async function resolveLandingBase(cwd, pr, ghFn) {
-  try {
-    const prJson = JSON.parse(await ghFn(cwd, ['pr', 'view', String(pr), '--json', 'baseRefName']))
-    if (typeof prJson.baseRefName === 'string' && prJson.baseRefName) return prJson.baseRefName
-  } catch {
-    /* fall through */
+/**
+ * The selected base branch `name`, at the tip a fresh fetch of it reads — never
+ * a guessed principal branch, and never `baseRefOid`, which GitHub records at
+ * creation, head push or retarget and does not advance when the branch moves.
+ * A failed fetch is carried as `refusal`.
+ */
+async function fetchBase(cwd, name, gitFn, ghFn) {
+  const fetched = await refreshSelectedBase(cwd, typeof name === 'string' ? name : '', gitFn, ghFn)
+  return fetched.ok ? { name, tip: fetched.tip } : { name, refusal: fetched }
+}
+
+/** The selected PR's base coordinates: its base name read from GitHub, its tip fetched. */
+async function resolveLandingBase(cwd, pr, ghFn, gitFn) {
+  const data = await readPrFields(cwd, pr, ghFn, 'baseRefName')
+  return fetchBase(cwd, data.baseRefName, gitFn, ghFn)
+}
+
+/**
+ * Read the body and complete producer publications that this review will judge.
+ * No approval, comment, producer invocation or gate write is performed.
+ * @param {string} cwd
+ * @param {number | string} pr
+ * @param {string} head The head captured at review start; never replace it during review.
+ * @param {{ gh?: (cwd: string, args: string[]) => Promise<string>, git?: import('./proof').Git }} [deps]
+ */
+export async function captureReviewInput(cwd, pr, head, { gh: ghFn = gh, git: gitFn = gitResult } = {}) {
+  const selected = await readPrFields(cwd, pr, ghFn, 'headRefOid,baseRefName')
+  if (!isCommitSha(head) || selected.headRefOid !== head)
+    return {
+      ok: false,
+      producer: 'candidate',
+      reason: 'unbound',
+      error: 'the review head changed; start a fresh review',
+    }
+  const base = await fetchBase(cwd, selected.baseRefName, gitFn, ghFn)
+  if (base.refusal) return base.refusal
+  const snapshot = await captureProofReviewInput(
+    cwd,
+    { pr: Number(pr), candidate: head, base: base.name, baseTip: base.tip },
+    { gh: ghFn, git: gitFn, comments: () => readComments(cwd, pr, { gh: ghFn }) },
+  )
+  if (!snapshot.ok) return snapshot
+  return {
+    ok: true,
+    input: snapshot.input,
+    body: snapshot.body,
+    semctx: snapshot.semctx,
+    assertledger: snapshot.assertledger,
   }
-  return detectPrincipal(cwd)
+}
+
+/** Freshly compare the retained read binding before posting; never rebind a stale review.
+ * @param {string} cwd
+ * @param {number | string} pr
+ * @param {string} head
+ * @param {string | null} input
+ * @param {{ gh?: (cwd: string, args: string[]) => Promise<string>, git?: import('./proof').Git }} [deps]
+ */
+export async function validateReviewInput(cwd, pr, head, input, deps = {}) {
+  const current = await captureReviewInput(cwd, pr, head, deps)
+  if (!current.ok) return current
+  if (current.input !== input)
+    return {
+      ok: false,
+      producer: 'candidate',
+      reason: 'unbound',
+      error:
+        'review inputs changed during review; do not post this approval or replace its binding — start a fresh review',
+    }
+  return { ok: true }
 }
 
 /** Attempts to read a labeled-reviewed time newer than the pre-add snapshot. */
@@ -588,6 +658,19 @@ const SINCE_RETRY_MS = 200
  * none, which is not proof that protection is absent) — returns
  * `no-required-checks` and disarms the known armed gate the same way, even on an
  * unchanged approved head. Nothing re-arms it: re-entry passes the normal gate.
+ * Then the landing admission (`admitLanding`, proof.ts) reads, never produces,
+ * the evidence for that reviewed candidate: the local tip must be it, Semctx is
+ * decided from the candidate's committed tree and the checkouts' `.semctx`, and
+ * applicable Semctx/assertledger records conserved on the PR are bound to the
+ * re-derived inputs. A refusal returns `proof-blocked` with `producer`, `reason`
+ * and `error` through the same forced-unarmed exit; a transport failure throws
+ * through it. Every arm this call writes targets the admitted candidate: before
+ * the first arming write, and before a re-pin after disabling the old arm, a
+ * refresh whose fresh approval names another head admits that head the same
+ * way and arms it only on admit (else `proof-blocked`, unarmed); after an
+ * arming write the refresh retains the admitted head and refuses a later one
+ * (`head-moved`). `watching`
+ * carries `proof`: what was admitted, so a PARTIAL lands visibly as PARTIAL.
  * `disarmed: true` is reported only when a read-back confirmed the disarm; a no-op
  * claims nothing. A disarm that cannot finish throws an error naming what stays
  * armed — except after native auto-merge was pinned, or an already-enabled disable
@@ -605,8 +688,9 @@ const SINCE_RETRY_MS = 200
  * A label write (`--add-label`, or merge-on-green's `--remove-label`) that throws
  * at a still-approved current head preserves the write error, never `watching`;
  * a moved or unreadable head returns `not-approved` / `head-moved` after clearing.
- * `bad-landing` and `watch-failed` are enforced too: an already-armed gate stays
- * only when the refreshed records and verified head still authorize it.
+ * `bad-landing` forces clearing like every refusal. `watch-failed` is enforced
+ * too: an already-armed gate stays only when the refreshed records and verified
+ * head still authorize it.
  * Native auto-merge is then requested with `--match-head-commit` of that reviewed
  * sha — an enable-time pin, not a later-push lease.
  * Native also enables merge-commit auto-merge. merge-on-green never returns
@@ -623,6 +707,7 @@ const SINCE_RETRY_MS = 200
  * @param {string | number} pr
  * @param {{
  *   gh?: (cwd: string, args: string[]) => Promise<string>,
+ *   git?: (cwd: string, args: string[]) => Promise<{ code: number, stdout: string, stderr: string }>,
  *   requiredContexts?: string[],
  *   landing?: { mode: string, required_checks: string[] },
  *   sleep?: (ms: number) => Promise<void>,
@@ -631,10 +716,22 @@ const SINCE_RETRY_MS = 200
 export async function landPr(
   cwd,
   pr,
-  { gh: ghFn = gh, requiredContexts, landing, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {},
+  {
+    gh: ghFn = gh,
+    git: gitFn = gitResult,
+    requiredContexts,
+    landing,
+    sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  } = {},
 ) {
   let records
   let gate
+  /** The candidate the proof admission admitted; every later arm is bound to it. */
+  let admitted
+  /** What the admission read for it, reported with the watch. */
+  let proof
+  let landingBase
+  let landingContext
   const armedByUs = { auto: false, label: false }
   const knownGate = () =>
     gate && {
@@ -662,46 +759,131 @@ export async function landPr(
     }
     return exit(refused('head-moved'), { policy: 'unarmed', gate: seen, adapter })
   }
-  const headMoved = async () => {
-    const head = await readHeadRefOid(cwd, pr, ghFn)
-    return !isCommitSha(head) || head !== records.head
+  const baseBlocked = (reason, error) =>
+    exit({ status: 'proof-blocked', producer: 'candidate', reason, error }, { policy: 'unarmed' })
+  // A clean PR merges as soon as it is armed (`gh pr merge --auto` merges it at
+  // once; native auto-merge within seconds), moving its own base. Merged onto
+  // the selected tip — the merge commit's first parent — the base was not lost.
+  const mergedOnto = async (tip) => {
+    const data = await readPrFields(cwd, pr, ghFn, 'state,mergeCommit')
+    const oid = data.mergeCommit?.oid
+    if (data.state !== 'MERGED' || !isCommitSha(oid)) return false
+    const parent = await gitFn(cwd, ['rev-parse', '--verify', `${oid}^1`])
+    return parent.code === 0 && parent.stdout.trim() === tip
+  }
+  const bindBase = async (current) => {
+    if (current.refusal) {
+      return baseBlocked(current.refusal.reason, `PR base ${JSON.stringify(current.name)}: ${current.refusal.error}`)
+    }
+    if (!landingContext || (current.name === landingContext.name && current.tip === landingContext.tip)) return null
+    if (current.name === landingContext.name && (await mergedOnto(landingContext.tip))) return null
+    return baseBlocked(
+      'unbound',
+      `PR base ${current.name}@${current.tip} conflicts with captured ${landingContext.name}@${landingContext.tip}; re-enter landing with the current base`,
+    )
+  }
+  const readCoordinates = async () => {
+    const base = await resolveLandingBase(cwd, pr, ghFn, gitFn)
+    // URL resolution adds awaits: the PR coordinates remain the last observation.
+    const data = await readPrFields(cwd, pr, ghFn, 'headRefOid,baseRefName')
+    if (data.baseRefName !== base.name)
+      return {
+        head: data.headRefOid,
+        base: {
+          name: data.baseRefName,
+          refusal: {
+            reason: 'unbound',
+            error: 'the PR base changed during its repository-bound fetch; re-enter with the current base',
+          },
+        },
+      }
+    return { head: data.headRefOid, base }
+  }
+  const checkCoordinates = async (adapter) => {
+    const current = await readCoordinates()
+    const blocked = await bindBase(current.base)
+    if (blocked) return blocked
+    return !isCommitSha(current.head) || current.head !== records.head ? moved(adapter) : null
   }
   const refuseIfMoved = async () => {
     let readError
     try {
-      if (!(await headMoved())) return null
+      return await checkCoordinates()
     } catch (error) {
       readError = error
     }
     return exit(refused('head-moved'), { policy: 'unarmed', readError })
   }
+  /**
+   * The landing admission (#768) of `records.head`: reads conserved producer
+   * evidence for exactly that candidate, never runs a producer, a test or a
+   * reviewer; the approving record's time bounds which PR body that review
+   * judged. On admit every later arm is rebound to it; a refusal is the
+   * forced-unarmed `proof-blocked` exit.
+   */
+  const admit = async () => {
+    let current
+    try {
+      current = await resolveLandingBase(cwd, pr, ghFn, gitFn)
+    } catch (error) {
+      return baseBlocked('unreadable', `PR base cannot be read: ${errorText(error)}`)
+    }
+    const changed = await bindBase(current)
+    if (changed) return changed
+    const admission = await admitLanding(
+      cwd,
+      {
+        pr: Number(pr),
+        candidate: records.head,
+        base: landingBase,
+        baseTip: landingContext.tip,
+        reviewedAt: records.at,
+        reviewInput: records.input,
+      },
+      { gh: ghFn, git: gitFn, comments: () => readComments(cwd, pr, { gh: ghFn }) },
+    )
+    if (!admission.ok) {
+      const { producer, reason, error } = admission
+      return exit({ status: 'proof-blocked', producer, reason, error }, { policy: 'unarmed' })
+    }
+    admitted = records.head
+    proof = admission.proof
+    return null
+  }
   const afterWrite = async (adapter) => {
     try {
       if (adapter === 'native') {
-        const refusal = await refreshReviewAuthorization()
+        // The pin is already written for the admitted head: retain it, never re-admit a later one.
+        const refusal = await refreshReviewAuthorization(true)
         if (refusal) return { ...refusal, adapter }
       }
-      if (await headMoved()) return moved(adapter)
+      return await checkCoordinates(adapter)
     } catch (failure) {
       return exit(undefined, { policy: 'unarmed', failure, adapter })
     }
-    return null
   }
-  const refreshReviewAuthorization = async () => {
+  const refreshReviewAuthorization = async (retaining = false) => {
     // Every pre-arm checkpoint reads records first, then the caller reads the
     // head last. Preparation awaits must not retain same-head authorization.
     records = await readReviewRecords(cwd, pr, { gh: ghFn })
     if (records.spent) return exit(refused('review-bound'), { policy: 'unarmed' })
     if (!approves(records.verdict)) return exit(refused(), { policy: 'unarmed' })
     if (!isCommitSha(records.head)) return exit(refused('no-review-head'), { policy: 'unarmed' })
-    return null
+    // Retention cannot transfer an arm already written for H to a later H2.
+    if (retaining && admitted !== undefined && records.head !== admitted) {
+      return exit(refused('head-moved'), { policy: 'unarmed' })
+    }
+    // Body, ignored configuration, classification and native records can change
+    // without a push. A head is a binding, never a cache key for authorization.
+    return admit()
   }
   // A refused pin: a moved head is cleared via `moved`, a readable stable head is
   // the native refusal, and an unreadable head forces the known gate clear and
   // then propagates the original read failure through the epilogue.
   const pinRefused = async () => {
     try {
-      if (await headMoved()) return moved()
+      const refusal = await checkCoordinates()
+      if (refusal) return refusal
     } catch (failure) {
       return exit(undefined, { policy: 'unarmed', failure })
     }
@@ -734,20 +916,21 @@ export async function landPr(
       if (!isCommitSha(gate.headRefOid) || gate.headRefOid !== records.head) {
         return exit(refused('head-moved'), { policy: 'unarmed' })
       }
+      try {
+        const selected = await resolveLandingBase(cwd, pr, ghFn, gitFn)
+        const blocked = await bindBase(selected)
+        if (blocked) return blocked
+        landingContext = selected
+        landingBase = selected.name
+      } catch (error) {
+        return baseBlocked('unreadable', `PR base cannot be read: ${errorText(error)}`)
+      }
       let resolved = landing
-      let landingBase
       if (!resolved) {
         try {
-          landingBase = await resolveLandingBase(cwd, pr, ghFn)
-          resolved = readLanding(cwd, { base: landingBase })
+          resolved = readLandingAt(cwd, landingContext.tip)
         } catch (error) {
-          return exit({ status: 'bad-landing', error: errorText(error) })
-        }
-      } else {
-        try {
-          landingBase = await resolveLandingBase(cwd, pr, ghFn)
-        } catch {
-          landingBase = undefined
+          return exit({ status: 'bad-landing', error: errorText(error) }, { policy: 'unarmed' })
         }
       }
       if (resolved.mode === 'native') {
@@ -756,9 +939,11 @@ export async function landPr(
             ? [...requiredContexts]
             : resolved.required_checks.length
               ? resolved.required_checks
-              : await resolveRequiredContexts(cwd, pr, ghFn)
+              : await resolveRequiredContexts(cwd, landingBase, ghFn)
         if (required.length === 0) return exit({ status: 'no-required-checks' }, { policy: 'unarmed' })
       }
+      const blocked = await admit()
+      if (blocked) return blocked
       let since = ''
       if (resolved.mode === 'merge-on-green') {
         const before = await labeledReviewedAt(cwd, pr, ghFn)
@@ -766,14 +951,16 @@ export async function landPr(
         if (!Array.isArray(labels)) throw new Error(`landPr: gh pr view ${pr} carried no labels`)
         const beforeLabel = await refreshReviewAuthorization()
         if (beforeLabel) return beforeLabel
-        if (await headMoved()) return moved()
+        const beforeLabelHead = await checkCoordinates()
+        if (beforeLabelHead) return beforeLabelHead
         if (labels.some((label) => label?.name === 'reviewed')) {
           // Preparation for a fresh labeled event, not a terminal disarm.
           const removed = await labelWrite(['pr', 'edit', String(pr), '--remove-label', 'reviewed'], false)
           if (removed) return removed
           const afterRemove = await refreshReviewAuthorization()
           if (afterRemove) return afterRemove
-          if (await headMoved()) return moved()
+          const afterRemoveHead = await checkCoordinates()
+          if (afterRemoveHead) return afterRemoveHead
         }
         const added = await labelWrite(['pr', 'edit', String(pr), '--add-label', 'reviewed'], true)
         if (added) return added
@@ -792,7 +979,8 @@ export async function landPr(
       } else {
         const beforePin = await refreshReviewAuthorization()
         if (beforePin) return beforePin
-        if (await headMoved()) return moved()
+        const beforePinHead = await checkCoordinates()
+        if (beforePinHead) return beforePinHead
         const pin = ['pr', 'merge', String(pr), '--auto', '--merge', '--match-head-commit', records.head]
         armedByUs.auto = true
         try {
@@ -807,7 +995,10 @@ export async function landPr(
             let gone = true
             let readError
             try {
-              gone = await headMoved()
+              const current = await readCoordinates()
+              const blocked = await bindBase(current.base)
+              if (blocked) return blocked
+              gone = !isCommitSha(current.head) || current.head !== records.head
             } catch (error) {
               readError = error
             }
@@ -826,7 +1017,8 @@ export async function landPr(
           }
           const beforeRepin = await refreshReviewAuthorization()
           if (beforeRepin) return beforeRepin
-          if (await headMoved()) return moved()
+          const beforeRepinHead = await checkCoordinates()
+          if (beforeRepinHead) return beforeRepinHead
           pin[pin.length - 1] = records.head
           try {
             await ghFn(cwd, pin)
@@ -841,14 +1033,12 @@ export async function landPr(
         const afterAdd = await refuseIfMoved()
         if (afterAdd) return afterAdd
       }
-      if (!landingBase) {
-        return exit({ status: 'bad-landing', error: 'landPr: could not resolve the PR base for the landing watch' })
-      }
       const sinceArg = since ? ` --since ${since}` : ''
       return exit({
         status: 'watching',
         mode: resolved.mode,
         watch: `bash ${shellQuote(ciWatchSh())} ${shellQuote(String(pr))} --merge-mode ${resolved.mode} --base ${landingBase}${sinceArg}`,
+        proof,
       })
     })()
   } catch (failure) {
@@ -859,14 +1049,21 @@ export async function landPr(
     try {
       // Intervening awaits can change both the latest record and the head. Read
       // records first and the head last; an old snapshot is only a clearing target.
-      records = await readReviewRecords(cwd, pr, { gh: ghFn })
-      seen = { ...seen, headRefOid: await readHeadRefOid(cwd, pr, ghFn) }
-      if (!mayStayArmed(records, seen, false)) {
+      const refusal = await refreshReviewAuthorization(true)
+      const current = await readCoordinates()
+      seen = { ...seen, headRefOid: current.head }
+      const authorization = refusal ?? (await bindBase(current.base))
+      if (authorization) {
+        terminal.policy = 'unarmed'
+        if (!terminal.failure) terminal.result = authorization.result
+      }
+      if (!mayStayArmed(records, seen, false) || (admitted !== undefined && seen.headRefOid !== admitted)) {
         terminal.policy = 'unarmed'
         if (!terminal.failure && terminal.result?.status === 'watching') {
           terminal.result = refused('head-moved')
         }
       }
+      if (terminal.result?.status === 'watching') terminal.result.proof = proof
     } catch (failure) {
       terminal.policy = 'unarmed'
       terminal.failure ??= failure
@@ -1081,21 +1278,27 @@ function reviewHeadOf(body) {
   return match ? match[1] : null
 }
 
+/** Line 3 only; retain a malformed marker so admission can diagnose it, not silently upgrade it. */
+function reviewInputOf(body) {
+  const line = typeof body === 'string' ? body.split('\n')[2]?.trimEnd() : undefined
+  return line?.startsWith('<!-- omp-build:review-input') ? line : null
+}
+
 /** @param {unknown} value */
 function isCommitSha(value) {
   return typeof value === 'string' && /^[0-9a-f]{40}$/.test(value)
 }
 
 /**
- * The PR head, or whatever the view returned. A non-JSON answer throws: an
- * unreadable head authorizes nothing and must not be folded into `head-moved`.
+ * The selected PR fields, or whatever the view returned. A non-JSON answer
+ * throws: an unreadable view authorizes nothing.
  *
  * @param {string} cwd
  * @param {string | number} pr
  * @param {(cwd: string, args: string[]) => Promise<string>} ghFn
  */
-async function readHeadRefOid(cwd, pr, ghFn) {
-  const raw = await ghFn(cwd, ['pr', 'view', String(pr), '--json', 'headRefOid'])
+async function readPrFields(cwd, pr, ghFn, fields) {
+  const raw = await ghFn(cwd, ['pr', 'view', String(pr), '--json', fields])
   let data
   try {
     data = JSON.parse(raw)
@@ -1105,7 +1308,11 @@ async function readHeadRefOid(cwd, pr, ghFn) {
   if (typeof data !== 'object' || data === null) {
     throw new Error(`landPr: gh pr view ${pr} returned no JSON — ${preview(raw)}`)
   }
-  return data.headRefOid
+  return data
+}
+
+async function readHeadRefOid(cwd, pr, ghFn) {
+  return (await readPrFields(cwd, pr, ghFn, 'headRefOid')).headRefOid
 }
 
 /**
@@ -1253,20 +1460,21 @@ function reviewIdentity(me) {
 
 /**
  * The review records by `me` among `comments`, in the order given (GitHub
- * creation order). `verdict` and `head` are the latest record's; `verdict` is
- * null when its declarations are missing or conflict, `head` when line 2 is not
- * a review-head line. `spent`: a record past the `MAX_FIX_ROUNDS`-th does not
- * approve. The bound is then spent for good — a later green does not lift it.
+ * creation order). `verdict`, `head`, `input` and `at` are the latest record's;
+ * verdict is null when declarations conflict, head when line 2 is invalid,
+ * input when line 3 has no review-input marker, at when there is no `createdAt`. `spent`:
+ * a record past the `MAX_FIX_ROUNDS`-th does not approve. The bound is then
+ * spent for good — a later green does not lift it.
  *
- * @param {{ body: string, author: { login: string } | null }[]} comments
+ * @param {{ body: string, author: { login: string } | null, createdAt?: string }[]} comments
  * @param {{ me: string }} options
- * @returns {{ reviews: number, verdict: string | null, head: string | null, spent: boolean }}
+ * @returns {{ reviews: number, verdict: string | null, head: string | null, input: string | null, at: string | null, spent: boolean }}
  */
 export function reviewRecords(comments, { me } = {}) {
   if (!Array.isArray(comments)) throw new TypeError('reviewRecords: comments must be an array')
   const who = reviewIdentity(me)
   let reviews = 0
-  /** @type {string | null} */
+  /** @type {{ body: string, createdAt?: string } | null} */
   let latest = null
   let spent = false
   for (const entry of comments) {
@@ -1276,10 +1484,17 @@ export function reviewRecords(comments, { me } = {}) {
     if (typeof entry.body !== 'string') throw new TypeError('reviewRecords: comment body must be a string')
     if (!CODE_REVIEW_FIRST_LINE.test(commentFirstLine(entry.body))) continue
     reviews++
-    latest = entry.body
+    latest = entry
     if (reviews > MAX_FIX_ROUNDS && !approves(reviewVerdict(entry.body))) spent = true
   }
-  return { reviews, verdict: latest === null ? null : reviewVerdict(latest), head: reviewHeadOf(latest), spent }
+  return {
+    reviews,
+    verdict: latest === null ? null : reviewVerdict(latest.body),
+    head: reviewHeadOf(latest?.body ?? null),
+    input: reviewInputOf(latest?.body ?? null),
+    at: typeof latest?.createdAt === 'string' ? latest.createdAt : null,
+    spent,
+  }
 }
 
 /** Issue-comment pages, every page. `gh pr view --json comments` is a silent first 100. */
@@ -1293,34 +1508,60 @@ function commentsFromPages(raw, pr) {
   try {
     pages = JSON.parse(raw)
   } catch {
-    throw new Error(`readReviewRecords: comment pages for ${pr} returned no JSON — ${preview(raw)}`)
+    throw new Error(`readComments: comment pages for ${pr} returned no JSON — ${preview(raw)}`)
   }
   if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) {
-    throw new Error(`readReviewRecords: comment pages for ${pr} are incomplete`)
+    throw new Error(`readComments: comment pages for ${pr} are incomplete`)
   }
   const entries = pages.flat()
-  entries.sort((a, b) => String(a?.created_at ?? '').localeCompare(String(b?.created_at ?? '')))
+  entries.sort(
+    (a, b) =>
+      String(a?.created_at ?? '').localeCompare(String(b?.created_at ?? '')) || Number(a?.id ?? 0) - Number(b?.id ?? 0),
+  )
+  // Native identities/revisions stay optional/unreadable; admission invents none.
   return entries.map((entry) => {
     if (typeof entry?.body !== 'string') {
-      throw new Error(`readReviewRecords: a comment page entry for ${pr} has no body`)
+      throw new Error(`readComments: a comment page entry for ${pr} has no body`)
     }
     const login = entry?.user?.login
-    return { author: { login: typeof login === 'string' ? login : '' }, body: entry.body }
+    const createdAt = entry.created_at
+    const updatedAt = entry.updated_at
+    return {
+      author: { login: typeof login === 'string' ? login : '' },
+      body: entry.body,
+      ...(typeof entry.id === 'number' && { id: entry.id }),
+      ...(typeof createdAt === 'string' && { createdAt }),
+      ...(typeof updatedAt === 'string' && { updatedAt }),
+    }
   })
 }
 
 /**
- * Fresh records for `pr`: the automation login (`gh api user`), then every
- * comment page. An unreadable identity or page throws — it authorizes nothing.
+ * The automation login (`gh api user`), then every comment page of `pr` in
+ * creation order. An unreadable identity or page throws — it authorizes nothing.
+ * Review records and conserved proof records are both read from this.
+ *
+ * @param {string} cwd
+ * @param {number | string} pr
+ * @param {{ gh?: (cwd: string, args: string[]) => Promise<string> }} [deps]
+ * @returns {Promise<{ me: string, comments: import('./proof').PrComment[] }>}
+ */
+export async function readComments(cwd, pr, { gh: ghFn = gh } = {}) {
+  const me = reviewIdentity(await ghFn(cwd, ['api', 'user', '--jq', '.login']))
+  const raw = await ghFn(cwd, commentPageArgs(pr))
+  return { me, comments: commentsFromPages(raw, pr) }
+}
+
+/**
+ * Fresh records for `pr` from `readComments`.
  *
  * @param {string} cwd
  * @param {number | string} pr
  * @param {{ gh?: (cwd: string, args: string[]) => Promise<string> }} [deps]
  */
 export async function readReviewRecords(cwd, pr, { gh: ghFn = gh } = {}) {
-  const me = reviewIdentity(await ghFn(cwd, ['api', 'user', '--jq', '.login']))
-  const raw = await ghFn(cwd, commentPageArgs(pr))
-  return reviewRecords(commentsFromPages(raw, pr), { me })
+  const { me, comments } = await readComments(cwd, pr, { gh: ghFn })
+  return reviewRecords(comments, { me })
 }
 
 const STOP_GUIDANCE =

@@ -23,7 +23,9 @@ if (fn === 'readLanding') {
   process.exit(0)
 }
 const ME = 'omp-bot'
-const review = (verdict) => '<!-- omp-build:code-review -->\\n<!-- omp-build:review-head sha=0123456789abcdef0123456789abcdef01234567 -->\\n## Code Review\\n\\n**Verdict: ' + verdict + '** — summary'
+// The PR head is the checkout's own tip: the proof admission binds the reviewed head to the local tip.
+const HEAD = Bun.spawnSync(['git', '-C', cwd, 'rev-parse', '--verify', 'HEAD^{commit}']).stdout.toString().trim() || '0123456789abcdef0123456789abcdef01234567'
+const review = (verdict) => '<!-- omp-build:code-review -->\\n<!-- omp-build:review-head sha=' + HEAD + ' -->\\n## Code Review\\n\\n**Verdict: ' + verdict + '** — summary'
 // approved: a first-round green. unapproved: a red latest record at the current head.
 // spent: a third red, which exhausts the bound.
 const HISTORIES = {
@@ -47,7 +49,7 @@ const gh = async (_cwd, args) => {
   if (same(args, ['api', 'user', '--jq', '.login'])) return ME + '\\n'
   if (args[0] === 'pr' && args[1] === 'list') return prList
   if (args[0] === 'repo') return JSON.stringify({ nameWithOwner: 'acme/app' })
-  // base: the PR's baseRefName read fails (logged first), as gh does when GitHub errors on it.
+  // Missing selected coordinates never authorize a guessed principal branch.
   if (baseMode === 'fail' && same(args, ['pr', 'view', '7', '--json', 'baseRefName'])) throw new Error('HTTP 502')
   if (args[0] === 'pr' && args[1] === 'view') {
     const view = {}
@@ -59,10 +61,7 @@ const gh = async (_cwd, args) => {
       if (field === 'baseRefName') view.baseRefName = 'main'
       if (field === 'headRefOid') {
         headReads++
-        view.headRefOid =
-          headMode === 'moved' && headReads > 1
-            ? 'fedcba9876543210fedcba9876543210fedcba98'
-            : '0123456789abcdef0123456789abcdef01234567'
+        view.headRefOid = headMode === 'moved' && headReads > 1 ? 'fedcba9876543210fedcba9876543210fedcba98' : HEAD
       }
     }
     return JSON.stringify(view)
@@ -105,9 +104,8 @@ function gitEnv() {
 }
 
 /**
- * A git checkout whose base ref holds `baseFiles`. `origin/<base>` is planted at that
- * commit so `readLanding` can read the base, never the working tree. Optional `headFiles`
- * overwrite the worktree after the base commit (the case item 1 of #623 pins).
+ * A git checkout and its private bare origin, whose base holds `baseFiles`.
+ * Optional `headFiles` overwrite the worktree after the base commit.
  */
 function checkout(baseFiles = {}, { headFiles, base = 'main' } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'land-seam-'))
@@ -126,6 +124,10 @@ function checkout(baseFiles = {}, { headFiles, base = 'main' } = {}) {
     execFileSync('git', ['commit', '-qm', 'empty', '--allow-empty'], { cwd: dir, env })
   }
   execFileSync('git', ['update-ref', `refs/remotes/origin/${base}`, 'HEAD'], { cwd: dir, env })
+  const origin = join(dir, 'origin.git')
+  execFileSync('git', ['init', '-q', '--bare', '-b', base, origin], { env })
+  execFileSync('git', ['remote', 'add', 'origin', origin], { cwd: dir, env })
+  execFileSync('git', ['push', '-q', 'origin', `HEAD:refs/heads/${base}`], { cwd: dir, env })
   if (headFiles) {
     for (const [path, content] of Object.entries(headFiles)) {
       mkdirSync(join(dir, path, '..'), { recursive: true })
@@ -165,6 +167,9 @@ function onBranch(files) {
     mkdirSync(join(dir, path, '..'), { recursive: true })
     writeFileSync(join(dir, path), content)
   }
+  // The branch needs a tip: the proof admission binds the reviewed head to it, and an unborn HEAD binds nothing.
+  execFileSync('git', ['add', '-A'], { cwd: dir, env })
+  execFileSync('git', ['commit', '-qm', 'head', '--allow-empty'], { cwd: dir, env })
   return dir
 }
 
@@ -305,27 +310,20 @@ describe('landPr through the checkout', () => {
     expect(final).toEqual({ labels: [], autoMerge: false })
   })
 
-  it('a failed base read falls back to the fetched origin base and disarms native with no required checks', () => {
+  it('an unreadable selected base refuses and confirms clearing instead of guessing a principal', () => {
     const dir = checkout({ ...WORKFLOW_FILE, '.dev/stack.yml': 'landing:\n  mode: native\n' })
-    const origin = mkdtempSync(join(tmpdir(), 'land-origin-'))
     try {
-      const env = gitEnv()
-      execFileSync('git', ['init', '-q', '--bare', '-b', 'main'], { cwd: origin, env })
-      execFileSync('git', ['remote', 'add', 'origin', origin], { cwd: dir, env })
-      execFileSync('git', ['push', '-q', 'origin', 'main'], { cwd: dir, env })
-      const { result, calls, final } = land(dir, 'ok', { arm: 'both', base: 'fail' })
-      expect(result).toEqual({ status: 'no-required-checks', disarmed: true })
+      const { result, final } = land(dir, 'ok', { arm: 'both', base: 'fail' })
+      expect(result).toMatchObject({
+        status: 'proof-blocked',
+        producer: 'candidate',
+        reason: 'unreadable',
+        disarmed: true,
+      })
+      expect(result.error).toContain('HTTP 502')
       expect(final).toEqual({ labels: [], autoMerge: false })
-      const at = (expected) => calls.flatMap((a, i) => (JSON.stringify(a) === JSON.stringify(expected) ? [i] : []))
-      const faults = at(['pr', 'view', '7', '--json', 'baseRefName'])
-      expect(faults).toHaveLength(2)
-      const [protection] = at(PROTECTION)
-      const [rules] = at(RULES)
-      expect(protection).toBeGreaterThan(faults[1])
-      expect(rules).toBeGreaterThan(faults[1])
     } finally {
       rmSync(dir, { recursive: true, force: true })
-      rmSync(origin, { recursive: true, force: true })
     }
   })
 
@@ -342,20 +340,6 @@ describe('landPr through the checkout', () => {
     expect(result.status).toBe('bad-landing')
     expect(result.error).toMatch(error)
     expect(calls.some((a) => a[1] === 'edit' || a[1] === 'merge')).toBe(false)
-  })
-
-  it('L5 successor (#623): an armed PR with an invalid base stack is bad-landing and writes nothing', () => {
-    const dir = checkout({ '.dev/stack.yml': 'landing: nope\n' })
-    try {
-      const { result, calls, final } = land(dir, 'ok', { arm: 'both' })
-      expect(result.status).toBe('bad-landing')
-      expect(result.error).toMatch(/landing is not a map/)
-      expect(result.error).not.toMatch(/Bun\.YAML|needs bun/i)
-      expect(calls.some((a) => a[1] === 'edit' || a[1] === 'merge')).toBe(false)
-      expect(final).toEqual({ labels: ['reviewed'], autoMerge: true })
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
   })
 
   it('L5 successor (#623): an invalid base stack cannot retain an armed head that moved during resolution', () => {

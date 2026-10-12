@@ -1,4 +1,8 @@
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { plainGit } from './__fixtures__/proof/plain-git.js'
 import { applyCiWatchExit, commentPageArgs, disarmReviewedBeforePush, landPr, nextReviewStep } from './workflow.js'
 
 /**
@@ -36,6 +40,10 @@ const MOVED = 'fedcba9876543210fedcba9876543210fedcba98'
 const EVENT_AT = '2026-09-29T10:00:05Z'
 const IDENTITY = ['api', 'user', '--jq', '.login']
 const GATE_FIELDS = 'headRefOid,state,labels,autoMergeRequest'
+/** A plain checkout: no `.semctx` and no adapter, so the proof admission admits its tip without a gh call. */
+const CHECKOUT = mkdtempSync(join(tmpdir(), 'armed-gate-'))
+/** The checkout of HEAD. */
+const PLAIN = plainGit(HEAD, CHECKOUT)
 const OTHER_LABEL = 'size:F-lite'
 
 /** @param {unknown[]} args @param {unknown[]} expected */
@@ -70,6 +78,7 @@ function kindOf(args) {
       {
         [GATE_FIELDS]: 'gate',
         headRefOid: 'head',
+        'headRefOid,baseRefName': 'head',
         labels: 'labels',
         baseRefName: 'base',
         'state,autoMergeRequest': 'state',
@@ -80,7 +89,7 @@ function kindOf(args) {
   if (same(args, ['pr', 'edit', String(PR), '--remove-label', 'reviewed'])) return 'remove'
   if (same(args, ['pr', 'edit', String(PR), '--add-label', 'reviewed'])) return 'add'
   if (args[0] === 'pr' && args[1] === 'merge' && args[3] === '--auto' && args[5] === '--match-head-commit') return 'pin'
-  if (same(args, ['repo', 'view', '--json', 'nameWithOwner'])) return 'repo'
+  if (args[0] === 'repo' && args[1] === 'view' && args.includes('nameWithOwner')) return 'repo'
   if (same(args, ['api', 'repos/acme/app/branches/main/protection/required_status_checks'])) return 'protection'
   if (same(args, ['api', 'repos/acme/app/rules/branches/main'])) return 'rules'
   if (args[0] === 'api' && String(args[1]).endsWith('/events')) return 'events'
@@ -154,7 +163,7 @@ function armedPr({ records = [], start = 'both', state = 'OPEN', head = HEAD, sc
           autoMergeRequest: pr.autoMerge,
         })
       case 'head':
-        return JSON.stringify({ headRefOid: pr.head })
+        return JSON.stringify({ headRefOid: pr.head, baseRefName: 'main' })
       case 'state':
         return JSON.stringify({ state: pr.state, autoMergeRequest: pr.autoMerge })
       case 'labels':
@@ -296,7 +305,7 @@ async function exec(what, fake) {
     const cwd = what.cwd ?? '/tmp/wt'
     const result =
       what.fn === 'land'
-        ? await landPr(cwd, PR, { gh: fake.gh, sleep: async () => {}, ...what.opts })
+        ? await landPr(cwd, PR, { gh: fake.gh, git: PLAIN, sleep: async () => {}, ...what.opts })
         : what.fn === 'watch'
           ? await applyCiWatchExit(cwd, PR, what.opts?.code ?? 1, { mode: what.opts?.mode ?? 'native', gh: fake.gh })
           : what.fn === 'push'
@@ -389,7 +398,9 @@ const REVIEW_GATES = [
   ['approval without a head', [noHead('Approve')], HEAD, false],
 ]
 const REFUSED = { status: 'no-required-checks', disarmed: true }
-const WATCHING = { status: 'watching', mode: 'native', watch: expect.any(String) }
+/** What the proof admission reads in the plain checkout PLAIN stands for. */
+const ADMITTED = { semctx: 'absent', assertledger: 'not-applicable' }
+const WATCHING = { status: 'watching', mode: 'native', watch: expect.any(String), proof: ADMITTED }
 /** A stable, approved head: only the policy — not the records — can explain an unarmed end state. */
 const NRC = { fn: 'land', records: [approve()], strict: true }
 
@@ -404,8 +415,9 @@ const LOOKUP_FAILURES = [
       { on: 'rules', error: 'HTTP 403' },
     ],
   ],
-  ['the repo read throws', [{ on: 'repo', error: 'HTTP 502' }]],
-  ['the repo read is not JSON', [{ on: 'repo', answer: 'not json' }]],
+  // The first two repo reads bind origin; the next is the protection resolver's lookup.
+  ['the repo read throws', [{ on: 'repo', nth: 3, error: 'HTTP 502' }]],
+  ['the repo read is not JSON', [{ on: 'repo', nth: 3, answer: 'not json' }]],
   [
     'protection and rules answer garbage',
     [
@@ -981,7 +993,12 @@ const ROWS = [
       opts: MOG,
       records: [approve()],
       start: 'none',
-      result: { status: 'watching', mode: 'merge-on-green', watch: expect.stringContaining('--since') },
+      result: {
+        status: 'watching',
+        mode: 'merge-on-green',
+        watch: expect.stringContaining('--since'),
+        proof: ADMITTED,
+      },
       labels: REVIEWED,
       auto: false,
     },
@@ -1248,7 +1265,7 @@ const ROWS = [
       opts: NATIVE,
       records: [approve()],
       start: 'both',
-      result: { status: 'watching', mode: 'native', watch: expect.any(String) },
+      result: { status: 'watching', mode: 'native', watch: expect.any(String), proof: ADMITTED },
       labels: REVIEWED,
       auto: true,
     },
@@ -1659,7 +1676,7 @@ const ROWS = [
       opts: NATIVE,
       records: [approve()],
       start: 'none',
-      result: { status: 'watching', mode: 'native', watch: expect.any(String) },
+      result: { status: 'watching', mode: 'native', watch: expect.any(String), proof: ADMITTED },
       labels: REVIEWED,
       auto: true,
     },
@@ -2839,22 +2856,105 @@ describe('same-head revocation during preparation for the next arming write', ()
 })
 
 describe('native arming uses the freshly approved head', () => {
-  it.each([
-    ['initial pin after discovery', 'none', 'base'],
-    ['re-pin after disabling the old arm', 'both', 'disable'],
-  ])('%s', async (_path, start, on) => {
-    const fake = armedPr({
-      records: [approve()],
-      start,
-      script: { moves: [{ when: 'after', on, head: MOVED, reviews: [approve(MOVED)] }] },
-    })
-    const outcome = await exec({ fn: 'land', opts: NATIVE }, fake)
+  // Each head move lands after the first admission (of HEAD), with an approval of the new head.
+  const PATHS = [
+    ['initial pin, re-approved at the pre-pin refresh', 'none', { when: 'before', on: 'comments', nth: 2 }],
+    ['re-pin after disabling the old arm', 'both', { when: 'after', on: 'disable' }],
+  ]
+  const freshApproval = (start, move) =>
+    armedPr({ records: [approve()], start, script: { moves: [{ ...move, head: MOVED, reviews: [approve(MOVED)] }] } })
+
+  it.each(PATHS)('%s, once that head is admitted', async (_path, start, move) => {
+    const fake = freshApproval(start, move)
+    // The operator's checkout follows the PR: its tip is the head the admission is asked about.
+    const following = (cwd, args) => plainGit(fake.pr.head, CHECKOUT, HEAD)(cwd, args)
+    const outcome = await exec({ fn: 'land', opts: { ...NATIVE, git: following } }, fake)
 
     expect(outcome.error).toBeUndefined()
-    expect(outcome.result).toMatchObject({ status: 'watching', mode: 'native' })
+    expect(outcome.result).toMatchObject({ status: 'watching', mode: 'native', proof: ADMITTED })
     expect(fake.pr.head).toBe(MOVED)
     expect(fake.pr.autoMerge).not.toBeNull()
     expect(fake.pr.labels.has('reviewed')).toBe(true)
+    expect(holds(fake, outcome)).toBe(true)
+  })
+
+  it.each(PATHS)('%s, refused unarmed when that head is not admitted', async (_path, start, move) => {
+    const fake = freshApproval(start, move)
+    // The checkout stays on HEAD: the admission of MOVED refuses its local tip.
+    const outcome = await exec({ fn: 'land', opts: NATIVE }, fake)
+
+    expect(outcome.error).toBeUndefined()
+    expect(outcome.result).toMatchObject({ status: 'proof-blocked', producer: 'candidate', reason: 'unbound' })
+    expect(outcome.result.error).toContain(`is not candidate ${MOVED}`)
+    expect(fake.pr.head).toBe(MOVED)
+    expect(armedNames(fake)).toEqual([])
+  })
+})
+
+describe('a landing stays armed only at the head it admitted', () => {
+  // The epilogue's records read: the last arming write and its head check are done.
+  const EPILOGUE = [
+    ['native', NATIVE, 4],
+    ['merge-on-green', MOG, 3],
+  ]
+
+  it.each(EPILOGUE)(
+    '%s: a head approved after the last arming write, never admitted, ends unarmed',
+    async (_mode, opts, nth) => {
+      const fake = armedPr({
+        records: [approve()],
+        start: 'none',
+        script: { moves: [{ when: 'before', on: 'comments', nth, head: MOVED, reviews: [approve(MOVED)] }] },
+      })
+      const outcome = await exec({ fn: 'land', opts }, fake)
+
+      expect(outcome.error).toBeUndefined()
+      expect(outcome.result).toMatchObject({ status: 'not-approved', reason: 'head-moved' })
+      expect(fake.pr.head).toBe(MOVED)
+      expect(armedNames(fake)).toEqual([])
+    },
+  )
+
+  it.each(EPILOGUE)('%s: a fresh approval of the admitted head keeps it armed', async (_mode, opts, nth) => {
+    const fake = armedPr({
+      records: [approve()],
+      start: 'none',
+      script: { moves: [{ when: 'before', on: 'comments', nth, reviews: [approve()] }] },
+    })
+    const outcome = await exec({ fn: 'land', opts }, fake)
+
+    expect(outcome.error).toBeUndefined()
+    expect(outcome.result).toMatchObject({ status: 'watching', proof: ADMITTED })
+    expect(fake.pr.labels.has('reviewed')).toBe(true)
+    expect(holds(fake, outcome)).toBe(true)
+  })
+})
+
+describe('a proof refusal on an armed PR disarms, or names what stays armed', () => {
+  // The operator's checkout is not at the PR head: the admission refuses its local tip.
+  const REFUSING = plainGit(MOVED, CHECKOUT)
+  const DISARMS = [
+    ['native', NATIVE, 'both', 'disable', 'auto-merge'],
+    ['merge-on-green', MOG, 'label', 'remove', 'the reviewed label'],
+  ]
+
+  it.each(DISARMS)('%s: the refusal disarms the gate', async (_mode, opts, start) => {
+    const fake = armedPr({ records: [approve()], start })
+    const outcome = await exec({ fn: 'land', opts: { ...opts, git: REFUSING } }, fake)
+
+    expect(outcome.error).toBeUndefined()
+    expect(outcome.result).toMatchObject({ status: 'proof-blocked', producer: 'candidate', disarmed: true })
+    expect(armedNames(fake)).toEqual([])
+    expect(truthful(fake, outcome)).toBe(true)
+  })
+
+  it.each(DISARMS)('%s: a clearing write that fails throws naming %s', async (_mode, opts, start, on, what) => {
+    const fake = armedPr({ records: [approve()], start, script: { fail: [{ on }] } })
+    const outcome = await exec({ fn: 'land', opts: { ...opts, git: REFUSING } }, fake)
+
+    expect(outcome.result).toBeUndefined()
+    expect(outcome.error.message).toMatch(stays(what))
+    expect(armedNames(fake)).toEqual([what])
     expect(holds(fake, outcome)).toBe(true)
   })
 })
@@ -2978,7 +3078,6 @@ function expectCause(error, origin) {
 function expectClearingTail(fake, site, start) {
   const headAt = nthIndex(fake.log, 'head', site.headNth)
   expect(headAt, 'the failing head read ran').toBeGreaterThan(0)
-  expect(fake.log[headAt - 1].kind, 'it directly follows the refused pin').toBe('pin')
   expect(fake.log.filter((entry) => entry.kind === 'head')).toHaveLength(site.headNth)
   expect(fake.log.slice(headAt).map((entry) => entry.kind)).toEqual(['head', ...clearing(start), 'gate'])
   expect(writesOf(fake)).toEqual([...site.before, ...clearing(start)])
@@ -3221,7 +3320,6 @@ describe('#731 — the PR leaves OPEN around the unreadable head', () => {
 
       expectOriginalError(outcome, origin)
       const headAt = nthIndex(fake.log, 'head', site.headNth)
-      expect(fake.log[headAt - 1].kind).toBe('pin')
       // The refused pin(s) were attempted; nothing follows the failed read — no write, no read-back.
       expect(fake.log).toHaveLength(headAt + 1)
       expect(writesOf(fake)).toEqual(site.before)

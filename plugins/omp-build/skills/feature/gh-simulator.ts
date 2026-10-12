@@ -17,7 +17,8 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-type Comment = { author: string; body: string }
+/** Native creation/revision facts are stamped on first publication; explicit unreadable facts stay unreadable. */
+type Comment = { id?: number; author: string; body: string; createdAt?: string | null; updatedAt?: string | null }
 type Check = {
   name: string
   status: string
@@ -35,6 +36,8 @@ type Issue = {
   comments: Comment[]
   subIssues: number[]
   blockedBy: number[]
+  /** The org issue type's name (`fix`, `feat`, …); absent or null when the issue is untyped. */
+  issueType?: string | null
 }
 type Pull = {
   number: number
@@ -50,8 +53,16 @@ type Pull = {
   mergeCommit: { oid: string; parents: string[] } | null
   mergedAt: string | null
   comments: Comment[]
+  /** When `pr edit --body` last changed the body; null or absent when it was never edited. */
+  lastEditedAt?: string | null
   /** Issues this PR closes (`Closes #N` and the same grammar). */
   closes: number[]
+  /**
+   * GitHub's `baseRefOid` and the `<base>@<head>` it was recorded for: set when
+   * the PR opens, its head moves or its base is retargeted; a push to the base
+   * branch leaves it.
+   */
+  baseRecord?: { at: string; oid: string | null }
 }
 type Event = { event: string; label?: { name: string }; created_at: string }
 type State = {
@@ -61,9 +72,12 @@ type State = {
   defaultBranch: string
   /** Bare origin. Merge-on-read runs `git merge --no-ff` into it. */
   origin: string
+  /** Explicit repository URL identities, besides this state's canonical origin. */
+  repositoryUrls?: Record<string, string>
   requiredChecks: string[]
   nextPr: number
   clock: number
+  nextCommentId?: number
   issues: Record<string, Issue>
   prs: Record<string, Pull>
   checks: Record<string, Check[]>
@@ -78,6 +92,18 @@ class SimError extends Error {}
 
 function fail(message: string): never {
   throw new SimError(message)
+}
+
+/** GitHub's documented comment ceiling, modelled here apart from the code under test. */
+const GITHUB_COMMENT_LIMIT = 65536
+
+/** The comment body of `gh issue|pr comment`; GitHub refuses one above its ceiling and posts nothing. */
+function commentBody(flag: Map<string, string[]>): string {
+  const file = one(flag, '--body-file')
+  const body = file === '-' ? readFileSync(0, 'utf8') : file ? readFileSync(file, 'utf8') : (one(flag, '--body') ?? '')
+  if (body.length > GITHUB_COMMENT_LIMIT)
+    fail(`GraphQL: Body is too long (maximum is ${GITHUB_COMMENT_LIMIT} characters) (addComment)`)
+  return body
 }
 
 function statePath(): string {
@@ -108,6 +134,18 @@ function withState<T>(fn: (state: State) => T): T {
   }
   try {
     const state = JSON.parse(readFileSync(path, 'utf8')) as State
+    if (state.nextCommentId === undefined) {
+      state.nextCommentId = 0
+      for (const thread of [...Object.values(state.prs), ...Object.values(state.issues)])
+        for (const comment of thread.comments) state.nextCommentId = Math.max(state.nextCommentId, comment.id ?? 0)
+    }
+    for (const thread of [...Object.values(state.prs), ...Object.values(state.issues)]) {
+      for (const comment of thread.comments) {
+        if (!Object.hasOwn(comment, 'id')) comment.id = state.nextCommentId = (state.nextCommentId ?? 0) + 1
+        if (!Object.hasOwn(comment, 'createdAt')) comment.createdAt = stamp(state)
+        if (!Object.hasOwn(comment, 'updatedAt')) comment.updatedAt = comment.createdAt
+      }
+    }
     const result = fn(state)
     persist(state)
     return result
@@ -198,6 +236,13 @@ function green(state: State, sha: string): boolean {
 function refreshHead(state: State, pr: Pull): void {
   const sha = tip(state.origin, pr.headRefName)
   if (sha) pr.headRefOid = sha
+}
+
+/** The base tip GitHub recorded for the PR's current base name and head, never today's branch tip. */
+function recordedBase(state: State, pr: Pull): string | null {
+  const at = `${pr.baseRefName}@${pr.headRefOid}`
+  if (pr.baseRecord?.at !== at) pr.baseRecord = { at, oid: tip(state.origin, pr.baseRefName) }
+  return pr.baseRecord.oid
 }
 
 /** Real merge commit into the bare origin. First parent is the base tip. */
@@ -368,9 +413,14 @@ function fields(flag: Map<string, string[]>, pr: Pull, state: State): Record<str
     title: pr.title,
     body: pr.body,
     baseRefName: pr.baseRefName,
+    // GitHub's recorded base: merged PRs retain their pre-merge base, open ones the
+    // tip recorded at creation, last head move or retarget — not today's branch tip.
+    baseRefOid: pr.state === 'MERGED' ? pr.mergeCommit?.parents[0] : recordedBase(state, pr),
     headRefName: pr.headRefName,
     headRefOid: pr.headRefOid,
     isCrossRepository: pr.isCrossRepository,
+    // gh exports only the merge commit's oid; its parents are Git's to read.
+    mergeCommit: pr.mergeCommit ? { oid: pr.mergeCommit.oid } : null,
     mergeStateStatus: pr.state === 'MERGED' ? 'UNKNOWN' : 'CLEAN',
     autoMergeRequest: pr.autoMerge ? { enabledAt: pr.autoMerge.enabledAt } : null,
     labels: pr.labels.map((name) => ({ name })),
@@ -410,6 +460,16 @@ function varsOf(flag: Map<string, string[]>): Record<string, string> {
     vars[pair.slice(0, at)] = pair.slice(at + 1)
   }
   return vars
+}
+
+/** An issue's ticket-type signals as GraphQL returns them. */
+function ticketNode(number: number, issue: Issue): Record<string, unknown> {
+  return {
+    number,
+    title: issue.title,
+    labels: { totalCount: issue.labels.length, nodes: issue.labels.map((label) => ({ name: label })) },
+    issueType: issue.issueType ? { name: issue.issueType } : null,
+  }
 }
 
 function graphql(state: State, query: string, vars: Record<string, string>): unknown {
@@ -456,6 +516,35 @@ function graphql(state: State, query: string, vars: Record<string, string>): unk
       },
     }
   }
+  if (query.includes('closingIssuesReferences')) {
+    const pr = state.prs[String(vars.number)]
+    // GitHub links closing keywords only for a PR into the default branch.
+    const linked = pr && pr.baseRefName === state.defaultBranch ? pr.closes : []
+    const nodes = linked.flatMap((number) => {
+      const issue = state.issues[String(number)]
+      return issue ? [ticketNode(number, issue)] : []
+    })
+    return {
+      data: {
+        repository: {
+          pullRequest: pr
+            ? { headRefName: pr.headRefName, closingIssuesReferences: { totalCount: nodes.length, nodes } }
+            : null,
+        },
+      },
+    }
+  }
+  if (query.includes('issueType') && /\bissue\(number:/.test(query)) {
+    const issue = state.issues[String(vars.number)]
+    if (!issue) fail(`GraphQL: Could not resolve to an Issue with the number of ${vars.number}. (repository.issue)`)
+    return { data: { repository: { issue: ticketNode(Number(vars.number), issue) } } }
+  }
+  if (query.includes('lastEditedAt')) {
+    const pr = state.prs[String(vars.number)]
+    return {
+      data: { repository: { pullRequest: pr ? { body: pr.body, lastEditedAt: pr.lastEditedAt ?? null } : null } },
+    }
+  }
   const pulls = [...query.matchAll(/(\w+):\s*pullRequest\(number:\s*(\d+)\)/g)]
   if (pulls.length) {
     settleAll(state)
@@ -483,8 +572,11 @@ function handle(state: State, argv: string[]): void {
   const expression = one(flag, '--jq')
 
   if (cmd === 'repo' && sub === 'view') {
+    const url = positionals[2]
+    const name = url === undefined || url === state.origin ? fullName(state) : state.repositoryUrls?.[url]
+    if (!name) fail('gh: cannot resolve repository URL')
     const repo = {
-      nameWithOwner: fullName(state),
+      nameWithOwner: name,
       defaultBranchRef: { name: state.defaultBranch },
     }
     emit(repo, expression)
@@ -527,6 +619,7 @@ function handle(state: State, argv: string[]): void {
       closes: closesOf(form.body ?? ''),
     }
     state.prs[String(number)] = pr
+    recordedBase(state, pr)
     emit({ number, html_url: `https://example.test/${fullName(state)}/pull/${number}` }, expression)
     return
   }
@@ -535,10 +628,12 @@ function handle(state: State, argv: string[]): void {
     const number = sub.match(/issues\/(\d+)\/comments$/)?.[1]
     if (!number) fail(`gh: unhandled ${argv.join(' ')}`)
     const comments = state.prs[number]?.comments ?? state.issues[number]?.comments ?? []
-    const page = comments.map((comment, index) => ({
+    const page = comments.map((comment) => ({
+      id: comment.id,
       user: { login: comment.author },
       body: comment.body,
-      created_at: `2026-01-01T00:00:${String(index).padStart(2, '0')}Z`,
+      created_at: comment.createdAt,
+      updated_at: comment.updatedAt,
     }))
     process.stdout.write(`${JSON.stringify([page])}\n`)
     return
@@ -570,10 +665,8 @@ function handle(state: State, argv: string[]): void {
     const number = positionals[2] ?? ''
     const issue = state.issues[number]
     if (!issue) fail(`gh: issue #${number} not found`)
-    const file = one(flag, '--body-file')
-    const body =
-      file === '-' ? readFileSync(0, 'utf8') : file ? readFileSync(file, 'utf8') : (one(flag, '--body') ?? '')
-    issue.comments.push({ author: state.viewer, body })
+    const body = commentBody(flag)
+    issue.comments.push({ author: state.viewer, body, createdAt: stamp(state) })
     process.stdout.write(
       `https://example.test/${fullName(state)}/issues/${number}#issuecomment-${issue.comments.length}\n`,
     )
@@ -603,10 +696,8 @@ function handle(state: State, argv: string[]): void {
 
   if (cmd === 'pr' && sub === 'comment') {
     const pr = requirePr(state, positionals[2] ?? '')
-    const file = one(flag, '--body-file')
-    const body =
-      file === '-' ? readFileSync(0, 'utf8') : file ? readFileSync(file, 'utf8') : (one(flag, '--body') ?? '')
-    pr.comments.push({ author: state.viewer, body })
+    const body = commentBody(flag)
+    pr.comments.push({ author: state.viewer, body, createdAt: stamp(state) })
     process.stdout.write(
       `https://example.test/${fullName(state)}/pull/${pr.number}#issuecomment-${pr.comments.length}\n`,
     )
@@ -624,6 +715,13 @@ function handle(state: State, argv: string[]): void {
       state.events[String(pr.number)] = events
     }
     if (remove) pr.labels = pr.labels.filter((label) => label !== remove)
+    const file = one(flag, '--body-file')
+    const body = file === '-' ? readFileSync(0, 'utf8') : file ? readFileSync(file, 'utf8') : one(flag, '--body')
+    if (body !== undefined) {
+      pr.body = body
+      pr.closes = closesOf(body)
+      pr.lastEditedAt = stamp(state)
+    }
     process.stdout.write(`https://example.test/${fullName(state)}/pull/${pr.number}\n`)
     return
   }

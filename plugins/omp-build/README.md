@@ -99,7 +99,7 @@ next → start/resume child (branch from origin/<base>) → implement → dev-re
 ```
 
 Children run in `blocked_by` order. A **ticket stop** (review bound spent, watch
-timeout, cancelled or blocked checks, proof blocked, no scope, foreign commit…) is
+timeout, cancelled or blocked checks, `proof-blocked`, no scope, foreign commit…) is
 recorded on the child as a `goal-stop` marker, its PR disarmed; its dependents are
 skipped and independent children continue. A **shared-state stop** (base CI red,
 `base-ci-pending` at finalization, a dirty tree, `hook-stale`, landing or tracker
@@ -181,9 +181,120 @@ before its diff; the review-start test exercises the fence, not model compliance
   preparation. A spent bound is `not-approved` with reason `review-bound`; a missing
   line-2 sha is `no-review-head`, and a moved head is `head-moved`. Unreadable
   authorization never permits arming; acquired gates use the shared exit policy.
-  Native auto-merge pins that refreshed reviewed head with `--match-head-commit`. Merge-on-green is
-  label-driven: a later push by another actor is not refused by GitHub. A review
+  Native auto-merge pins that refreshed reviewed head with `--match-head-commit`,
+  checked when it is enabled: a later push or base switch by an account with
+  write access leaves it enabled. Merge-on-green is label-driven: a later push
+  by another actor is not refused by GitHub. A review
   posted before the head line existed needs one re-review before it can land.
+  The selected PR base's name and tip are captured too. Each pre-arm checkpoint
+  and the retained-arm epilogue re-read the base name alongside the head and
+  re-fetch the base. A retarget or moved tip is `proof-blocked` / `candidate` /
+  `unbound`; missing coordinates are `unreadable`. Both force clearing, never
+  silently switch landing policy; re-entry captures the current base normally.
+  A clean PR merges as soon as it is armed, moving the base itself: a PR whose
+  merge commit's first parent is the selected tip keeps its base; merged onto
+  another tip it is refused, and the disarm reports the merge.
+  Each landing or acquisition attempt resolves `git remote get-url origin`
+  through `gh repo view <URL> --json nameWithOwner` and requires that repository
+  to match the selected GitHub repository before reading policy or applicability.
+  Mismatch is `candidate/unbound`; missing/unresolved identity is
+  `candidate/unreadable`, never an exemption based on a fork's absent config.
+  The fetch uses that verified explicit URL, not the mutable remote name, while
+  retaining the established `refs/remotes/origin/<base>` readers. Each refresh
+  revalidates the identity. It selects the tip the fetch reads —
+  never GitHub's `baseRefOid`, which is recorded when the PR opens, its head is
+  pushed or it is retargeted, and does not follow later pushes to the base.
+  Policy, declarations and merge-base consume that immutable commit, not a
+  tracking ref another await can rewrite. Failed fetches refuse as
+  `candidate/unreadable`. Acquisition revalidates head, base name, a re-fetched
+  base tip and OPEN state before producers, every publication part and its
+  final reuse/absence report.
+  Proof summaries are presentation only: the reader takes each part's fixed
+  trailing native JSON frame, never a fence echoed in a producer-derived summary.
+- Then `landPr` admits that head (`admitLanding`, `proof.ts`), reading only: the
+  local tip must be it; Semctx applies when `origin/<base>`, the head or the
+  uncommitted `.semctx/config.json` on disk at the root and the principal
+  configures it, and a PR that changes or deletes the base's committed
+  configuration refuses; applicable proof records — PR comments
+  `proof-acquire.ts` posted after the push, one per producer and head — must bind
+  the repository, PR, head, base, merge base, changed contracts (at least one
+  added by the head) and the Semctx configuration's sha256, and carry
+  VERIFIED, or PARTIAL with each gap (every warning finding, pending evidence
+  and open unknown it names) justified by a closed-enum NO TEST row in
+  a PR body last edited before the approving record (an edit after it returns
+  the PR to review); a PARTIAL with a stale link or a blocking impact refuses.
+  Every applicable native proof part's creation/revision facts must be readable,
+  unmodified and published before approval, regardless of producer or verdict.
+  A recorded edit requires acquisition again; a late publication requires
+  same-head review without a producer at admission.
+  A proof-aware review captures the exact body and complete selected producer
+  runs before judgement and binds them in its line-3 `review-input v=1` SHA256
+  marker; it compares again before posting. Admission compares the same body's
+  bytes + native edit metadata and each selected part's ID/body/native times,
+  including VERIFIED and detection. Missing/malformed binding or any difference
+  requires same-head review; a recorded proof revision still needs acquisition
+  first. Genuine no-proof repositories acquire no new landing prerequisite.
+  A fix PR — a `fix/…` head branch, or a closing ticket or the ticket the head
+  branch names (`<type>/<N>-…`) typed Fix or Bug, labelled `bug` or titled
+  `fix…:` — needs a detection when the base or the head declares an
+  assertledger adapter; a PR whose type nothing establishes refuses. GitHub
+  links closing keywords only for a PR into the default branch, so the named
+  ticket is what classifies a PR into another base.
+  No producer, test or model runs at landing. A refusal is
+  `proof-blocked` with `producer`, `reason` and `error`, unarmed; `watching`
+  reports the admitted `proof`. `proof-acquire` reuses a record that still
+  binds, so an unchanged head is never re-proved. Assertledger records bind only
+  `assertledger check` manifests (git provenance); the kit adapter's `verify`
+  manifests carry a working-tree provenance and refuse as unbound.
+  Assertledger acquisition freezes the exporter bytes in an owned read-only
+  private manifest before awaiting the tool, replays only that file, conserves
+  those same UTF-8 bytes and native result, and removes only its snapshot in
+  `finally`. An exporter rewrite cannot lend another manifest's valid replay.
+  Every pre-arm checkpoint and the retained-arm epilogue re-read these inputs,
+  even at the same head: body revisions, ignored configuration/access, ticket
+  classification and the latest native record are not immutable with a commit.
+  `landPr`'s retention never transfers an arm it wrote to a later approved
+  head; CI-watch observer exits and the review step's `land` retain an arm on
+  current-head approval and an unspent bound alone, and never re-admit.
+- What admission does not establish. VERIFIED attests Semctx's composition over
+  declared evidence statuses, never a test run. Landing's runtime-proof claim
+  depends on CI GitHub actually enforces on the selected base and head.
+  The existing native `no-required-checks` guard takes explicit `requiredContexts`,
+  otherwise a nonempty stack `landing.required_checks`, otherwise GitHub
+  protection/ruleset discovery. A supplied/declared name is not evidence of
+  enforcement: an unprotected native PR can merge before that check completes.
+  The watch's declared list names what it observes, not what GitHub enforces.
+  The review judges each `tested` evidence's named test; nothing binds CI to it.
+  Applicable producer records must be published before approval, with
+  readable native creation/revision times and no recorded edit, regardless of
+  verdict. A late publication needs a new review; a revised record needs
+  acquisition again. Nothing ties required checks to a `tested` evidence's test.
+  Under the [operator-authorized reviewer ceiling](https://github.com/Roxabi/roxabi-plugins/issues/768#issuecomment-6114046814),
+  reason truth and credible browser-check performance belong to the proof-aware
+  review; unsupported claims block it. Admission checks their policy/form and
+  availability and exact observed input equality to approval, not those two
+  truths. A row/block is form, dates show availability, the digest identifies
+  the observed inputs (not who actually read them), and approval is judgement:
+  none certifies an unproved gap. An invented check or false reason accepted
+  by that trusted reviewer is not independently detected by admission.
+  Admission governs only the arms `landPr` writes: a `reviewed` label or
+  auto-merge set by another actor is an override that GitHub's auto-merge and
+  the merge-on-green workflow honour without proof, and the armed-gate retention
+  keeps it once the review approves. In native mode the `reviewed` label
+  `landPr` writes also triggers `.github/workflows/auto-merge.yml`, which reads
+  neither proof nor current labels; whether a run queued before a refusal's
+  confirmed clear can re-arm is unexercised ([#787](https://github.com/Roxabi/roxabi-plugins/issues/787)).
+  A record is a PR comment by the automation
+  account (a run of `part=<i>/<n>` comments when it exceeds GitHub's comment
+  ceiling, read only whole); any account with write access can edit or delete
+  it, so it attests that comment's current body, not what the producer printed
+  nor who ran it. Both producers' parts are checked for native publication and
+  revision facts; a recorded edit refuses, including a PARTIAL edited into
+  VERIFIED or a WEAK_ORACLE/miss edited into detection.
+  The digest is not a signature or lasting pin. GitHub reads, the review post
+  and arming are not one transaction; `landPr` re-reads the inputs only at its
+  own checkpoints and on re-entry, so a change after its last read goes
+  undetected while observers retain the arm.
 
 The bound guards against agent mistakes, not against an agent that bypasses it:
 records by other accounts are ignored, and edits or deletions of the account's

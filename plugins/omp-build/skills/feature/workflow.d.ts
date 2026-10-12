@@ -3,6 +3,8 @@
  * (`epic-driver.ts`). Keep in step with the JSDoc in `workflow.js`.
  */
 
+import type { Git, PrComment, ProofSummary, captureReviewInput as proofReviewInput, Refusal } from './proof'
+
 type Gh = (cwd: string, args: string[]) => Promise<string>
 
 export declare function readLanding(
@@ -19,11 +21,54 @@ export declare function disarmReviewedBeforePush(
   deps?: { gh?: Gh; push?: () => Promise<void> | void },
 ): Promise<{ disarmed?: true }>
 
-/** The review records by `me` (#710): count, latest verdict and head, and whether the bound is spent. */
+/** The latest author-bound review's verdict, head, exact input marker, creation time and sticky bound. */
 export declare function reviewRecords(
-  comments: { body: string; author: { login: string } | null }[],
+  comments: { body: string; author: { login: string } | null; createdAt?: string }[],
   options: { me: string },
-): { reviews: number; verdict: string | null; head: string | null; spent: boolean }
+): {
+  reviews: number
+  verdict: string | null
+  head: string | null
+  input: string | null
+  at: string | null
+  spent: boolean
+}
+
+/** Lossless, non-throwing git: exit code and both streams exactly as printed. */
+export declare function gitResult(
+  cwd: string,
+  args: string[],
+): Promise<{ code: number; stdout: string; stderr: string }>
+
+/** The automation login, then every comment of `pr` in creation order; an unreadable source throws. */
+export declare function readComments(
+  cwd: string,
+  pr: number | string,
+  deps?: { gh?: Gh },
+): Promise<{
+  me: string
+  comments: PrComment[]
+}>
+
+type ReviewCapture = Pick<
+  Extract<Awaited<ReturnType<typeof proofReviewInput>>, { ok: true }>,
+  'ok' | 'input' | 'body' | 'semctx' | 'assertledger'
+>
+/** Read-only review input capture at the already selected head; no gate or producer writes. */
+export declare function captureReviewInput(
+  cwd: string,
+  pr: number | string,
+  head: string,
+  deps?: { gh?: Gh; git?: Git },
+): Promise<ReviewCapture | Refusal>
+/** Refuse changed inputs before posting, without replacing the retained capture. */
+export declare function validateReviewInput(
+  cwd: string,
+  pr: number | string,
+  head: string,
+  input: string | null,
+  deps?: { gh?: Gh; git?: Git },
+): Promise<{ ok: true } | Refusal>
 
 export declare function openPr(
   cwd: string,
@@ -33,16 +78,28 @@ export declare function openPr(
 export declare function landPr(
   cwd: string,
   pr: number | string,
+  opts?: {
+    gh?: Gh
+    git?: Git
+    requiredContexts?: string[]
+    landing?: { mode: string; required_checks: string[] }
+    sleep?: (ms: number) => Promise<void>
+  },
 ): Promise<{
   status: string
   mode?: string
   watch?: string
+  /** `not-approved`: `review-bound` | `no-review-head` | `head-moved`. `proof-blocked`: `unreadable` | `ambiguous` | `missing` | `unbound` | `verdict` | `unjustified`. */
   reason?: string
+  /** `proof-blocked` only: whose evidence refused — the candidate binding itself, Semctx or assertledger. */
+  producer?: 'candidate' | 'semctx' | 'assertledger'
   /** Only `true`, only when a read-back confirmed the disarm; never a no-op claim. */
   disarmed?: true
   /** `auto-merge-failed` only: `false` after a confirmed clear or a refused pin (not a clear claim), `true` when something stays armed. */
   armed?: boolean
-  /** The reason for `bad-landing` or `watch-failed`; for `auto-merge-failed`, what stays armed or why the gate was disarmed. Only two fragments are contract: the remaining arms follow `stays armed — <arms>`, and unconfirmed state is named by `could not be read back`. The prefix and causal prose around them are not a stable API. */
+  /** `watching` only: what the landing admission admitted for the armed candidate — Semctx `absent` or its native VERIFIED/PARTIAL result with each PARTIAL gap's NO TEST reason, and assertledger `not-applicable` or `detection`. */
+  proof?: ProofSummary
+  /** The reason for `bad-landing` or `watch-failed`; for `proof-blocked`, what must be produced outside admission; for `auto-merge-failed`, what stays armed or why the gate was disarmed. Only two fragments are contract: the remaining arms follow `stays armed — <arms>`, and unconfirmed state is named by `could not be read back`. The prefix and causal prose around them are not a stable API. */
   error?: string
 }>
 

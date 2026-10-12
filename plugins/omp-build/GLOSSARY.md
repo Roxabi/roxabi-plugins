@@ -33,12 +33,20 @@ The GitHub issue body: agreed scope, acceptance criteria, invariants and exclusi
 _Avoid_: artifacts/specs, validated, /R-spec
 
 **Change contract**:
-The semctx record derived from the issue body. It is proof, not a second Spec.
-_Avoid_: artifacts/specs, a second spec home, the contract as what to build
+The Semctx change declaration derived from the issue body. It is proof, not a second Spec, and its lifecycle is Semctx's own.
+_Avoid_: artifacts/specs, a second spec home, the contract as what to build, closing it to open or land a PR
 
-**Proof gate**:
-The bar a change must clear before its PR opens: a verified Change contract, and assertledger where an adapter exists.
-_Avoid_: a green test run standing in for it, a falsify gate with no producer
+**Proof record**:
+A producer's native output for one candidate head, posted on its PR by the automation account before landing and reused while it still binds that head's inputs. It attests the selected comment's current body, not what the producer printed nor who ran it: any account with write access can edit or delete the comment. Every applicable native part must have readable creation/revision facts, predate approval and have no recorded edit, regardless of producer or current verdict.
+_Avoid_: a ledger, a cache, a caller's boolean, a re-run at landing, a signed attestation
+
+**Landing admission**:
+The read-only check that lets a reviewed head land through the arms `landPr` writes. Semctx applies when the base, the head or the operator's uncommitted configuration configures it; it then needs the record of the change contract the head adds, VERIFIED or PARTIAL with every gap justified by a NO TEST row in a PR body the approving review judged. A fix PR needs a detection when the base or the head declares an assertledger adapter. Each record binds one head; a new head needs its own. VERIFIED composes declared evidence statuses, never a test run: landing's runtime-proof claim depends on CI GitHub actually enforces on the selected base and head. Supplied or stack-declared check names do not establish that enforcement, and unprotected native merge need not wait for them. A `reviewed` label or auto-merge set by another actor is an override that admission does not govern. It produces nothing.
+_Avoid_: proof gate, a check before the PR opens, a green test run standing in for it, a PARTIAL reported as verified, VERIFIED read as tests passed, every merge proved
+
+**Reviewer trust ceiling**:
+The operator-authorized split for a PARTIAL gap: admission checks native producer/input/candidate/base binding, policy, form, publication/body chronology and exact observed review-input equality; the proof-aware review judges reason truth and credible browser-check performance. Unsupported claims block review. A row/block is form, timestamps show availability, the digest identifies captured inputs (not who actually read them), approval is judgement, and VERIFIED composes authored statuses — none independently certifies the unproved gap. Required CI and applicable assertledger remain independent.
+_Avoid_: approval as runtime certification, a Browser check block as an observation, a NO TEST row as proof, a review-judged gap called producer-certified
 
 **TDD**:
 Test-first implementation at the seams agreed with the operator, using the model-invoked `tdd` skill.
@@ -141,6 +149,10 @@ _Avoid_: the finding itself, a class slug alone, a file, a menu of solutions
 **Review record**:
 The one PR comment `fix` reads: first line `<!-- omp-build:code-review -->`, authored by the account running `fix`, newest wins. Root causes and findings both come from it. It is also the unit the Review bound counts. Line 2, when a PR was reviewed, is `<!-- omp-build:review-head sha=<40 lowercase hex> -->` — the commit that approval names. `fix` does not read it. `landPr` arms only when it matches the PR's current `headRefOid`; a record without it does not arm, so a PR reviewed before the line existed needs one re-review. Native auto-merge is then pinned with `--match-head-commit`. Merge-on-green remains label-driven: a push by another actor after `reviewed` is applied is not refused by GitHub. A record whose cause blocks predate the seven-line plan (only `mechanism:`, `fix:` and `findings:`) is not a plan `fix` can apply: `fix` halts before any filing, so a PR reviewed before the plan existed also needs one re-review.
 _Avoid_: scraping every PR comment, matching `## Code Review` as a substring, reading a sha from prose or from any line but line 2
+
+**Review input binding**:
+The line-3 `<!-- omp-build:review-input v=1 sha256=<64 lowercase hex> -->` retained by a proof-aware review before judgement. Its domain-separated SHA256 covers repository/PR/head, exact body plus `lastEditedAt`, and every complete selected applicable producer part's native ID/body/creation/revision facts, independent of verdict. The reviewer consumes that capture and compares again before posting; admission independently captures and compares the same inputs. Missing, malformed or changed binding refuses applicable proof; genuine no-proof repositories retain their existing admission path. It is equality of observed inputs, not authentication, reading certification or an atomic/lasting pin.
+_Avoid_: an acquisition attestation, a frozen manifest, a cached snapshot, a digest rebound after panel work, PARTIAL-only binding
 
 **Panel**:
 The five dispatchable review roles: the `R-adversarial` floor plus at most two specialists the roster proved relevant.

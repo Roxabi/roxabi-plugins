@@ -2,7 +2,7 @@
 name: ci-watch
 disable-model-invocation: true
 description: Watch every check on a PR head, then the merge, with a deadline the script owns.
-version: 0.1.0
+version: 0.1.1
 ---
 
 # ci-watch
@@ -32,6 +32,14 @@ A pipe (`cat skill://… | bash -s`) or a copy of the script alone exits 70:
 | `--interval <seconds>` | `15` | Poll interval. |
 
 Checks watched: every run on the PR head, or exactly `landing.required_checks` when that list is declared. A commit status (`state`, no `conclusion`) is normalised first: `SUCCESS` passes, `PENDING` and `EXPECTED` stay pending, `FAILURE` and `ERROR` fail; a check run is left unchanged. `skipped` and `neutral` are passing either way — a declared required check with either conclusion does not stop the watch and does not block `GREEN`. GitHub counts both as passing for a required context. A green result waits one more poll so a late run is not missed.
+
+`landing.required_checks` declares what this watch observes; it does not make
+those names GitHub-required. The native landing guard uses nonempty declared
+names without verifying their enforcement. Branch protection/rulesets must
+actually enforce the intended checks on the selected base/head to support
+landing's runtime-proof claim; without that enforcement, native merge can occur
+before the declared checks finish. No enforcement policy is installed by this
+watch, and `GREEN` alone is not proof that any named test ran.
 
 ## Exit codes
 
