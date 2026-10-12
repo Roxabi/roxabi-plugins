@@ -2439,6 +2439,27 @@ describe('landPr admission against conserved assertledger records', () => {
       expect(result).toMatchObject({ status: 'watching', proof: { semctx: 'absent', assertledger: 'not-applicable' } })
     })
 
+    it('a reviewed detection binding refuses once the ticket is reclassified out of fix; re-review admits', () => {
+      shape('feat/2-clamp', { ...NEUTRAL, issueType: 'Bug' })
+      const candidate = sha(detection.branch)
+      const records = {
+        comments: [approve(candidate), ...conserved(RECORDS.assertledger, 'detection')],
+        body: 'Closes #2\n',
+      }
+      prepare(box, detection.pr, records)
+      shape('feat/2-clamp', { ...NEUTRAL, title: 'feat: clamp', issueType: 'feat' })
+      const refused = land(box, wt.detection as string, detection.pr)
+      expect(refused.result).toMatchObject({ status: 'proof-blocked', producer: 'candidate', reason: 'unbound' })
+      expect(refused.gate).toEqual(UNARMED)
+      prepare(box, detection.pr, records)
+      const admitted = land(box, wt.detection as string, detection.pr)
+      expect(admitted.result).toMatchObject({
+        status: 'watching',
+        proof: { semctx: 'absent', assertledger: 'not-applicable' },
+      })
+      expect([...refused.producers, ...admitted.producers]).toEqual([])
+    })
+
     it.each([
       ['native', 'classification-read'],
       ['merge-on-green', 'classification-read'],

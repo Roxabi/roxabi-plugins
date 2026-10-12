@@ -126,6 +126,8 @@ ADR-020 no longer bind:
    part's native ID/body/creation/revision facts, including VERIFIED and detection.
    Fresh equality is required before posting and at admission; missing/malformed
    marker or a difference needs same-head review, never an automatic rebind.
+   An approval that carries a marker refuses when no producer applies at
+   landing (applicability changed after review): the binding is never dropped.
    Genuine no-proof repositories gain no marker prerequisite. The capture is
    in memory only: no manifest, cache or ledger is persisted.
    *Reviewer ceiling explicitly authorized 2026-10-11*
@@ -162,6 +164,11 @@ ADR-020 no longer bind:
    retention keeps it once the review approves. An arm `landPr` wrote for H
    is not bound to H either: the native pin is checked when auto-merge is
    enabled, and a push after the `reviewed` label is not refused by GitHub.
+   In native mode the `reviewed` label `landPr` itself writes also triggers the
+   standard `.github/workflows/auto-merge.yml`, an asynchronous writer that
+   reads neither proof nor the current labels; whether a run queued before a
+   proof refusal's confirmed clear can re-arm the PR is unexercised and tracked
+   in [#787](https://github.com/Roxabi/roxabi-plugins/issues/787).
    A proof record is a PR
    comment by the automation account; admission reads that account's latest
    record for the head, and any account with write access can still edit or
@@ -170,8 +177,9 @@ ADR-020 no longer bind:
    and revision facts and require publication before approval with no recorded
    edit; PARTIAL→VERIFIED and WEAK_ORACLE/miss→detection edits refuse.
    The digest is not authentication or a lasting head pin. Reads, review posting
-   and arming are not transactional; a change after the final read is detected
-   at the next existing refresh, not prevented.
+   and arming are not transactional; `landPr` re-reads proof inputs only at its
+   own checkpoints and on re-entry, so a change after its final read goes
+   undetected while observers retain the arm (Negative below).
 
 4. **§9 — the agent creates the worktree** from a freshly fetched
    `refs/remotes/origin/<base>`, never from `HEAD`, and never carrying the

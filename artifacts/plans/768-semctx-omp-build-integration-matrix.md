@@ -115,7 +115,7 @@ Observed on that worktree state, after the last writer of each file. Later round
 Throwaway smokes (real `landPr`, `nextReviewStep`, `proof-acquire`, simulator transport):
 
 - **Reuse/resume.** A second `proof-acquire` on the same head reports `reused` for Semctx VERIFIED, Semctx PARTIAL and assertledger detection, with failing stand-ins first on PATH: 0 producer calls, no new comment.
-- **/fix → /feature.** PR 11: acquire C1 `posted` → approval of C1 → `nextReviewStep` `land` → a fix commit pushed as C2 → `nextReviewStep` `review`/`head-moved` → `landPr` `not-approved`/`head-moved` → approval of C2 → `landPr` `proof-blocked`/`semctx`/`missing` → acquire C2 `posted` (inputs changed) → acquire C2 `reused` → `landPr` `watching` with `proof` VERIFIED. Every `landPr` and the second acquire: 0 producer calls.
+- **/fix → /feature (historical, #776-era rules; superseded by #781 r2 RC-1/RC-2/RC-5, not a current receipt).** PR 11: acquire C1 `posted` → approval of C1 → `nextReviewStep` `land` → a fix commit pushed as C2 → `nextReviewStep` `review`/`head-moved` → `landPr` `not-approved`/`head-moved` → approval of C2 → `landPr` `proof-blocked`/`semctx`/`missing` → acquire C2 `posted` (inputs changed) → acquire C2 `reused` → `landPr` `watching` with `proof` VERIFIED. Every `landPr` and the second acquire: 0 producer calls. Current guards refuse the last step: a part published after approval needs a same-head review whose line-3 binding then admits.
 
 ## Decisions and limits
 
@@ -127,7 +127,7 @@ Throwaway smokes (real `landPr`, `nextReviewStep`, `proof-acquire`, simulator tr
 - **Fixture records.** CI has no Semctx, so tests read records the real producers emitted; `capture.ts` regenerates them, copying the tools into a temporary directory so no record names a home or a surviving path.
 - **Local validation deleted** (equivalence shown): `proof-gate.ts` and its test (a predicate over caller-supplied verdicts, replaced by native records read at landing); the opening gate, forced VERIFIED close and `.semctx/working/` emptiness (feature §6.3); `/feature`'s verify/commit/push/receipt after `/fix` (`/fix` already runs lint and tests per cause and on push, commits, pushes and posts on the same head); `dev-review/__tests__/ui-proof.test.ts` (a wording pin; the behavior is exercised in `proof.integration.test.ts`).
 - **Retained.** Independent CI and CCC triggers; `worktree-bootstrap.sh` `semctx index`; `feature-init`'s `semctx-working-empty` CI recommendation — it checks the same committed fact admission refuses, but also covers landings that never pass through `landPr`, so no equivalence. `feature-init` now lists "active semctx contracts" instead of "orphan": a change may land active or partial, and only Semctx closes one from VERIFIED.
-- **Record boundary.** Records are native output plus invocation observations posted by the operator account, not cryptographic attestations: each attests its comment's current body. Multipart runs are read only whole. Only a PARTIAL's publication and revision are bound to the approving review; a later edit of a VERIFIED or assertledger record is not detected (§ Superseding diagnostic PR, D3). Admission governs arms `landPr` writes; another actor's `reviewed`/auto-merge is an override the server-side executors honour without reading these records. Independent CI remains in place.
+- **Record boundary (current rule after #781 r2).** Records are native output plus invocation observations posted by the operator account, not cryptographic attestations: each attests its selected comment's current body, not what the producer printed nor who ran it. Multipart runs are read only whole. Every applicable part, whatever its verdict (VERIFIED, PARTIAL, detection), must be published before approval with no recorded in-place edit, and the approval's line-3 review-input digest binds the body and the selected parts (`proof.ts` `reviewedRecord`, `admitLanding`). Not independently detected: a same-login repost or hand-built record the trusted reviewer accepted before approval. The earlier PARTIAL-only chronology limit (§ Superseding diagnostic PR, D3) is historical. Admission governs arms `landPr` writes; another actor's `reviewed`/auto-merge is an override the server-side executors honour without reading these records, and the label `landPr` writes also triggers `auto-merge.yml` ([#787](https://github.com/Roxabi/roxabi-plugins/issues/787), unexercised). Independent CI remains in place.
 - **Combined producer fixture.** assertledger 1.4.0 requires equal world path sets besides the selected test and ancestor ordering. Its combined fixture's buggy world is the PR's intermediate commit after opening/proving the Semctx contract and before the clamp fix; `main` is still the landing base. Only the reference/fixed world is admitted as the candidate. Both producers' real records are captured together.
 
 ## Review-fix evidence (2026-10-11, before re-review)
@@ -316,8 +316,20 @@ executed in v2 with `verify diff --base origin/main --json`, returned
 PASS is claimed. The live native proofs above run in their configured disposable
 repositories, not by relabelling this unavailable root-impact check.
 
+### Review 3 / operator closure (2026-10-12)
 
+[Review 3](https://github.com/Roxabi/roxabi-plugins/pull/781#issuecomment-6124561786) at `2541f83b` requested changes (6 blockers, 26 non-blocking); `nextReviewStep` returned `stop` / `review-bound` and the [escalation dossier](https://github.com/Roxabi/roxabi-plugins/pull/781#issuecomment-6124620605) offered three routes. The operator chose route 3 (finish #781 by hand): one closing commit for the blockers, then a manual merge once required CI passes, with no fourth automated review. That merge is the operator's decision, not an admission or an approving review.
 
+| Blocker | Disposition | Evidence |
+|---|---|---|
+| B1 stale matrix (130/118) | Walk 118 flagged historical; 130 rewritten to the current all-verdict rule | NO TEST — prompt-logic-only |
+| B2 post-watching detection | ADR-024 item 3, plugin README, feature §6.3 and dev-review Phase 8 limit re-reads to `landPr` checkpoints and re-entry | NO TEST — prompt-logic-only |
+| B3 applicability flip | `admitLanding` refuses `candidate`/`unbound` when the approval carries a line-3 marker and no producer applies at landing | Unit row + real `landPr` row (Bug ticket approved with detection binding → reclassified feat → `proof-blocked`, unarmed, 0 producers; same-head re-review → `watching`). Removing the guard fails both rows |
+| B4 root README disclosure | States selected-comment current body, in-place edit refusal, repost/hand-built limits | NO TEST — prompt-logic-only |
+| B5 capture refusal as verdict | dev-review Phase 2/8 and feature §6.4: a capture refusal posts nothing and counts nothing; missing record → §6.3 acquisition | NO TEST — prompt-logic-only; executable capture unchanged |
+| B6 queued `auto-merge.yml` re-arm | Named in ADR-024 item 3 and the plugin README; tracked in [#787](https://github.com/Roxabi/roxabi-plugins/issues/787) (P1, not reproduced) | Not exercised |
+
+The 26 non-blocking findings are listed in [#786](https://github.com/Roxabi/roxabi-plugins/issues/786); none is claimed fixed.
 
 ## Observed preflight and safety state (historical, 2026-10-09)
 

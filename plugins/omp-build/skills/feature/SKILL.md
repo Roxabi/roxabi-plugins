@@ -445,7 +445,9 @@ detection. Missing/malformed marker or changed inputs requires same-head review,
 not an automatic digest update; a recorded producer revision needs acquisition
 first. Genuine no-proof repositories have no new marker prerequisite.
 This equality binding is not a signature, a lasting pin or an atomic read/post/arm:
-a later change is detected at the next existing refresh.
+`landPr` re-reads these inputs only at its own checkpoints and on re-entry. After
+`watching`, CI-watch and review-step observers read approval/head/bound, not
+proof, so a later change goes undetected unless `landPr` is re-entered.
 **Reviewer trust ceiling** ([operator-authorized #768 amendment](https://github.com/Roxabi/roxabi-plugins/issues/768#issuecomment-6114046814)):
 the proof-aware review judges reason truth and whether a browser check was
 credibly performed for this head; unsupported claims block review. Admission
@@ -479,6 +481,11 @@ step = await nextReviewStep(cwd, pr, { posted: { verdict, head: REVIEWED_HEAD } 
 `Approve (clean)` or `Approve with comments`. `nextReviewStep` re-reads the PR:
 the latest review record must be that post, or it throws and decides nothing.
 Every posted review counts toward the bound, whether or not a fix follows it.
+A capture refusal in dev-review Phase 2 posts nothing and counts nothing: stop
+with its `producer` / `reason` / `error`. A missing producer record goes to the
+acquisition in §6.3 (even for an `existing` PR), then §6.4 again; any other
+refusal is an environment precondition (checkout at the head, base fetch,
+transport) fixed before re-running §6.4. Epic goal: ticket stop `stopped`.
 
 Present the Phase 8 human choice constrained by `step` (§6.6). Never choose on
 the user's behalf or offer “Merge as-is” for a red verdict — except under the

@@ -1075,6 +1075,18 @@ describe('admitLanding', () => {
     ).toEqual({ ok: true, proof: { semctx: 'absent', assertledger: 'not-applicable' } })
   })
 
+  it('genuine absence refuses an approval whose line 3 bound producer evidence, without asking GitHub', async () => {
+    const toplevel = temp()
+    const reviewInput = `<!-- omp-build:review-input v=1 sha256=${'a'.repeat(64)} -->`
+    expect(
+      await admitLanding(
+        toplevel,
+        { pr: 5, candidate: C, base: 'main', baseTip: BASE_TIP, reviewedAt: null, reviewInput },
+        { gh: silent, git: repoGit({ toplevel }), comments: silent },
+      ),
+    ).toMatchObject({ ok: false, producer: 'candidate', reason: 'unbound' })
+  })
+
   it('an unreadable comment list authorizes nothing: it throws', async () => {
     const toplevel = temp()
     const git = repoGit({ toplevel, ...configured() })

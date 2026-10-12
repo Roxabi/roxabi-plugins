@@ -123,9 +123,12 @@ For a successful applicable capture, consume **its** `body.body` and complete
 issue resolution below. Never hash one response and judge an independently
 fetched replacement. Its `input` is the exact line-3 marker to retain unchanged.
 `input: null` with `ok: true` is genuine non-applicability; use the ordinary PR
-body read below and emit no input marker. A capture refusal cannot approve:
-retain the actual failure as blocking evidence, continue the independent
-review, and publish only Request changes without inventing a binding or an
+body read below and emit no input marker. A capture refusal is a precondition
+stop, not a verdict: post nothing (no review record, so nothing counts against
+the bound), report its `producer` / `reason` / `error` and stop. A missing
+producer record is acquired outside the review (`/feature` §6.3), a wrong
+checkout, base fetch or transport failure is fixed in the environment; then the
+review runs again. Never approve around it, invent a binding or claim an
 applicability exemption. A local-only review has no capture or marker.
 
 1. **issue_num** — priority:
@@ -471,7 +474,7 @@ No blocker and Warnings nonempty → `Approve with comments`, even when praise, 
 
 ### Render once
 
-Build one body. First line: exactly `<!-- omp-build:code-review -->`, the author-bound record `fix` reads. A bound PR's line 2 is exactly `<!-- omp-build:review-head sha=<40 lowercase hex> -->` from Phase 1's retained `REVIEWED_HEAD`, never a fresh oid. Successful applicable capture: line 3 is the retained `reviewCapture.input`, exactly `<!-- omp-build:review-input v=1 sha256=<64 lowercase hex> -->`. This SHA256 binds repository, PR, head, exact body + `lastEditedAt`, and every selected applicable native part's ID, body, creation and revision facts, independent of verdict. Store no snapshot/manifest/ledger/cache; keep the captured inputs in memory. A local-only review has neither head nor input marker. Genuine non-applicability or a Request changes with failed capture has no input marker. A sha elsewhere is not a binding. Then, in this order:
+Build one body. First line: exactly `<!-- omp-build:code-review -->`, the author-bound record `fix` reads. A bound PR's line 2 is exactly `<!-- omp-build:review-head sha=<40 lowercase hex> -->` from Phase 1's retained `REVIEWED_HEAD`, never a fresh oid. Successful applicable capture: line 3 is the retained `reviewCapture.input`, exactly `<!-- omp-build:review-input v=1 sha256=<64 lowercase hex> -->`. This SHA256 binds repository, PR, head, exact body + `lastEditedAt`, and every selected applicable native part's ID, body, creation and revision facts, independent of verdict. Store no snapshot/manifest/ledger/cache; keep the captured inputs in memory. A local-only review has neither head nor input marker. Genuine non-applicability has no input marker; a failed capture posts nothing (Phase 2). A sha elsewhere is not a binding. Then, in this order:
 
 1. `## Code Review`, then `## Spec` — render Σ from Phase 2, one row per criterion in σ order: `✓` met / `✗` missing, quoting `criterion_text`. σ ∄ → `no spec available — spec axis not evaluated`.
 2. `## Standards` — the orchestrator reads `skill://dev-review/review-smells.md` once, walks Δ against the baseline, and emits at most one `possible <Smell>` row per smell. Render the receipt in `## Standards (judgement pass — {n} smells walked, {k} fired)`. These rows never enter F, carry `Class:`, or affect verdict.
@@ -493,7 +496,7 @@ Build one body. First line: exactly `<!-- omp-build:code-review -->`, the author
    trap 'rm -rf "$TMPDIR"' EXIT
    BODY="$TMPDIR/body.md"
    ```
-3. Write the single rendered body to `"$BODY"`. Immediately before posting, re-read `headRefOid`; a changed head stops **any** post and requires a fresh review, not a replacement oid. For a successful capture call `check = await validateReviewInput(cwd, pr, REVIEWED_HEAD, reviewCapture.input)`. `!check.ok` → do not post this stale review or replace its marker; report the observed change and start a fresh review against the current inputs. A failed initial capture permits only the non-approving, unbound Request changes described in Phase 2. PR ∃ → `gh pr comment "$PR" --body-file "$BODY"`; PR ∄ → display locally. Reads and posting are not atomic: admission rechecks, and a change after the final read is caught at the next existing refresh, not prevented by the digest.
+3. Write the single rendered body to `"$BODY"`. Immediately before posting, re-read `headRefOid`; a changed head stops **any** post and requires a fresh review, not a replacement oid. For a successful capture call `check = await validateReviewInput(cwd, pr, REVIEWED_HEAD, reviewCapture.input)`. `!check.ok` → do not post this stale review or replace its marker; report the observed change and start a fresh review against the current inputs. A failed initial capture never reaches this step: Phase 2 stopped without posting. PR ∃ → `gh pr comment "$PR" --body-file "$BODY"`; PR ∄ → display locally. Reads and posting are not atomic: a change after the final read is caught only when `landPr` reads the inputs again (its own checkpoints, or a re-entry), not prevented by the digest and not by CI-watch or review-step observers.
 
 **Comment shape (order normative, content illustrative):**
 

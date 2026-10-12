@@ -280,7 +280,11 @@ before its diff; the review-start test exercises the fence, not model compliance
   Admission governs only the arms `landPr` writes: a `reviewed` label or
   auto-merge set by another actor is an override that GitHub's auto-merge and
   the merge-on-green workflow honour without proof, and the armed-gate retention
-  keeps it once the review approves. A record is a PR comment by the automation
+  keeps it once the review approves. In native mode the `reviewed` label
+  `landPr` writes also triggers `.github/workflows/auto-merge.yml`, which reads
+  neither proof nor current labels; whether a run queued before a refusal's
+  confirmed clear can re-arm is unexercised ([#787](https://github.com/Roxabi/roxabi-plugins/issues/787)).
+  A record is a PR comment by the automation
   account (a run of `part=<i>/<n>` comments when it exceeds GitHub's comment
   ceiling, read only whole); any account with write access can edit or delete
   it, so it attests that comment's current body, not what the producer printed
@@ -288,8 +292,9 @@ before its diff; the review-start test exercises the fence, not model compliance
   revision facts; a recorded edit refuses, including a PARTIAL edited into
   VERIFIED or a WEAK_ORACLE/miss edited into detection.
   The digest is not a signature or lasting pin. GitHub reads, the review post
-  and arming are not one transaction; a change after the last read is detected
-  at the next existing refresh, not prevented.
+  and arming are not one transaction; `landPr` re-reads the inputs only at its
+  own checkpoints and on re-entry, so a change after its last read goes
+  undetected while observers retain the arm.
 
 The bound guards against agent mistakes, not against an agent that bypasses it:
 records by other accounts are ignored, and edits or deletions of the account's

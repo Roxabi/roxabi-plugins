@@ -1640,7 +1640,18 @@ export async function admitLanding(cwd: string, target: Target, deps: Deps): Pro
   const snapshot = await captureReviewInput(cwd, target, deps)
   if (!snapshot.ok) return snapshot
   const { facts, read, body } = snapshot
-  if (!read || !body) return { ok: true, proof: { semctx: 'absent', assertledger: 'not-applicable' } }
+  const next = `re-read the exact body and selected producer parts and re-review the same head (feature §6.4)`
+  if (!read || !body) {
+    // No producer applies now. An approval that bound producer evidence was judged
+    // under inputs that no longer hold (ticket/branch reclassified, adapter or
+    // ignored Semctx config gone): the reviewed binding is not silently dropped.
+    if (target.reviewInput === null) return { ok: true, proof: { semctx: 'absent', assertledger: 'not-applicable' } }
+    return refuse(
+      'candidate',
+      'unbound',
+      `the approval's line-3 review-input binding names producer evidence, but no producer applies to this landing: applicability changed after review — ${next}`,
+    )
+  }
   let semctx: SemctxOutcome = 'absent'
   if (snapshot.semctx) {
     const outcome = await admitSemctx(facts, target, deps, read, snapshot.semctx, body)
@@ -1651,7 +1662,6 @@ export async function admitLanding(cwd: string, target: Target, deps: Deps): Pro
     const refused = await admitAssertledger(facts, target, deps, read, snapshot.assertledger)
     if (refused) return refused
   }
-  const next = `re-read the exact body and selected producer parts and re-review the same head (feature §6.4)`
   if (target.reviewInput === null)
     return refuse('candidate', 'missing', `the approval has no line-3 review-input binding — ${next}`)
   if (!/^<!-- omp-build:review-input v=1 sha256=[0-9a-f]{64} -->$/.test(target.reviewInput))
