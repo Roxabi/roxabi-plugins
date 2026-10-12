@@ -216,9 +216,12 @@ before its diff; the review-start test exercises the fence, not model compliance
   precede that approval too: missing/bad facts refuse, and a later/revised part
   requires a new same-head review, reusing the record without a producer.
   VERIFIED reuse borrows no gap justification and stays chronology-independent.
-  A fix PR — a `fix/…` head branch, or a closing ticket typed Fix or Bug,
-  labelled `bug` or titled `fix…:` — needs a detection when the base or the head
-  declares an assertledger adapter; a PR whose type nothing establishes refuses.
+  A fix PR — a `fix/…` head branch, or a closing ticket or the ticket the head
+  branch names (`<type>/<N>-…`) typed Fix or Bug, labelled `bug` or titled
+  `fix…:` — needs a detection when the base or the head declares an
+  assertledger adapter; a PR whose type nothing establishes refuses. GitHub
+  links closing keywords only for a PR into the default branch, so the named
+  ticket is what classifies a PR into another base.
   No producer, test or model runs at landing. A refusal is
   `proof-blocked` with `producer`, `reason` and `error`, unarmed; `watching`
   reports the admitted `proof`. `proof-acquire` reuses a record that still

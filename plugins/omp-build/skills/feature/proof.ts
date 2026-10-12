@@ -11,7 +11,7 @@
 import { createHash } from 'node:crypto'
 import { lstatSync, readFileSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
-import { fixKind, type TicketSignals } from './epic'
+import { fixKind, type TicketSignals, ticketOfBranch } from './epic'
 
 export type GitResult = { code: number; stdout: string; stderr: string }
 /** Non-throwing, lossless git: stdout exactly as printed. */
@@ -1263,6 +1263,13 @@ const CLOSING_ISSUES = `query($owner: String!, $name: String!, $number: Int!) {
   }
 }`
 
+/** The ticket a head branch names (`<type>/<N>-<slug>`), with the same signals a closing reference carries. */
+const NAMED_TICKET = `query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    issue(number: $number) { number title labels(first: 50) { totalCount nodes { name } } issueType { name } }
+  }
+}`
+
 /** A closing issue node's type signals, or null when the node is not readable as one. */
 function signalsOf(node: unknown): TicketSignals | null {
   if (!isMap(node) || typeof node.title !== 'string' || !isMap(node.labels) || !('issueType' in node)) return null
@@ -1279,9 +1286,12 @@ function signalsOf(node: unknown): TicketSignals | null {
  * Whether the assertledger requirement applies: the base or the candidate
  * declares an adapter (`assertledger.config.json` with an `adapter`, or the
  * kit's vitest adapter) and the selected PR is a fix (`fixKind`: its head
- * branch, or a closing issue's title, labels or org issue type), all read from
- * their sources. An unreadable declaration refuses, and so does a PR whose
- * type nothing establishes.
+ * branch, or the title, labels or org issue type of a closing issue or of the
+ * ticket the head branch names), all read from their sources. GitHub links
+ * closing keywords only for a PR into the default branch, so the named ticket
+ * is read even when nothing closes it. An unreadable declaration refuses, an
+ * unreadable closing list or named ticket throws, and a PR whose type nothing
+ * establishes refuses.
  */
 export async function assertledgerApplies(
   cwd: string,
@@ -1333,10 +1343,31 @@ export async function assertledgerApplies(
   ) {
     throw new Error(`the closing issues of PR #${target.pr} could not be read — ${raw.slice(0, 200)}`)
   }
-  const kind = fixKind(
-    pull.headRefName,
-    tickets.filter((ticket) => ticket !== null),
-  )
+  const signals = tickets.filter((ticket) => ticket !== null)
+  const named = ticketOfBranch(pull.headRefName)
+  if (named !== null && !nodes.some((node) => isMap(node) && node.number === named)) {
+    const read = await deps.gh(cwd, [
+      'api',
+      'graphql',
+      '-f',
+      `query=${NAMED_TICKET}`,
+      '-f',
+      `owner=${owner}`,
+      '-f',
+      `name=${name}`,
+      '-F',
+      `number=${named}`,
+    ])
+    const found = jsonField(read, 'data')
+    const issue = isMap(found) && isMap(found.repository) ? signalsOf(found.repository.issue) : null
+    if (!issue) {
+      throw new Error(
+        `issue #${named}, which branch ${JSON.stringify(pull.headRefName)} names, could not be read — ${read.slice(0, 200)}`,
+      )
+    }
+    signals.push(issue)
+  }
+  const kind = fixKind(pull.headRefName, signals)
   if (kind === 'unknown') {
     return refuse(
       'assertledger',

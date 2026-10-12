@@ -1697,6 +1697,11 @@ describe('landPr admission against conserved assertledger records', () => {
       branches: [
         ...spec.branches,
         {
+          name: 'staging',
+          from: 'main',
+          commits: [{ message: 'chore: staging', files: { 'STAGING.md': 'staging\n' } }],
+        },
+        {
           name: 'fix/2-unadapted',
           from: detection.branch,
           commits: [{ message: 'chore: drop the adapter (#2)', files: { 'assertledger.config.json': null } }],
@@ -1759,7 +1764,7 @@ describe('landPr admission against conserved assertledger records', () => {
     expect(gate).toEqual(UNARMED)
   })
 
-  describe('a fix is any fix signal of the head branch or a closing ticket', () => {
+  describe('a fix is any fix signal of the head branch, a closing ticket or the ticket the branch names', () => {
     // The ticket and head branch of PR #20, whose detection record binds PR #20 and its candidate.
     const NEUTRAL = { title: 'clamp above range', labels: ['size:F-lite'], issueType: null }
     const shape = (head: string, ticket: { title: string; labels: string[]; issueType: string | null }) =>
@@ -1835,6 +1840,33 @@ describe('landPr admission against conserved assertledger records', () => {
       expect(result).toMatchObject({ status: 'proof-blocked', producer: 'assertledger', reason: 'unreadable' })
       expect(result.error).toMatch(/establishes no ticket type/)
       expect(gate).toEqual(UNARMED)
+    })
+
+    it('a PR into another base, whose closing keywords GitHub does not link, is classified by the ticket its branch names', () => {
+      shape('feat/2-clamp', { ...NEUTRAL, labels: ['size:F-lite', 'bug'] })
+      const retarget = (base: string) =>
+        writeSim(box, (state) => {
+          const pull = state.prs[String(detection.pr)]
+          if (!pull) throw new Error('PR #20 is missing')
+          pull.baseRefName = base
+        })
+      retarget('staging')
+      try {
+        const candidate = sha(detection.branch)
+        prepare(box, detection.pr, { comments: [approve(candidate)], body: 'Closes #2\n' })
+        const refused = land(box, wt.detection as string, detection.pr)
+        expect(refused.result).toMatchObject({ status: 'proof-blocked', producer: 'assertledger', reason: 'missing' })
+        expect(refused.gate).toEqual(UNARMED)
+        prepare(box, detection.pr, {
+          comments: [approve(candidate), ...conserved(RECORDS.assertledger, 'detection')],
+          body: 'Closes #2\n',
+        })
+        const admitted = land(box, wt.detection as string, detection.pr)
+        expect(admitted.result).toMatchObject({ status: 'watching', proof: { assertledger: 'detection' } })
+        expect([...refused.producers, ...admitted.producers]).toEqual([])
+      } finally {
+        retarget('main')
+      }
     })
   })
 

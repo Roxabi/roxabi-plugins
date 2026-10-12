@@ -394,10 +394,11 @@ anything reads or reviews it.
 **Proof records, after each push.** When Semctx applies — `origin/<base>` or
 the head commits `.semctx`, or the operator keeps an uncommitted (ignored)
 `.semctx/config.json` in this worktree or the principal checkout — or the
-PR is a fix — a `fix/…` head branch, or a closing ticket typed Fix or Bug,
-labelled `bug` or titled `fix…:` (any case; nothing establishing a type
-refuses) — and the base or the head declares an assertledger adapter
-(`assertledger.config.json` with an `adapter`, or
+PR is a fix — a `fix/…` head branch, or a closing ticket or the ticket the
+head branch names (`<type>/<N>-…`; GitHub links closing keywords only into
+the default branch) typed Fix or Bug, labelled `bug` or titled `fix…:` (any
+case; nothing establishing a type refuses) — and the base or the head
+declares an assertledger adapter (`assertledger.config.json` with an `adapter`, or
 `scripts/kit/assertledger/vitest-adapter.mjs`), run from this worktree at the
 pushed head:
 

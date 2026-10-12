@@ -451,6 +451,16 @@ function varsOf(flag: Map<string, string[]>): Record<string, string> {
   return vars
 }
 
+/** An issue's ticket-type signals as GraphQL returns them. */
+function ticketNode(number: number, issue: Issue): Record<string, unknown> {
+  return {
+    number,
+    title: issue.title,
+    labels: { totalCount: issue.labels.length, nodes: issue.labels.map((label) => ({ name: label })) },
+    issueType: issue.issueType ? { name: issue.issueType } : null,
+  }
+}
+
 function graphql(state: State, query: string, vars: Record<string, string>): unknown {
   const owner = vars.owner
   const name = vars.name
@@ -497,17 +507,11 @@ function graphql(state: State, query: string, vars: Record<string, string>): unk
   }
   if (query.includes('closingIssuesReferences')) {
     const pr = state.prs[String(vars.number)]
-    const nodes = (pr?.closes ?? []).flatMap((number) => {
+    // GitHub links closing keywords only for a PR into the default branch.
+    const linked = pr && pr.baseRefName === state.defaultBranch ? pr.closes : []
+    const nodes = linked.flatMap((number) => {
       const issue = state.issues[String(number)]
-      if (!issue) return []
-      return [
-        {
-          number,
-          title: issue.title,
-          labels: { totalCount: issue.labels.length, nodes: issue.labels.map((label) => ({ name: label })) },
-          issueType: issue.issueType ? { name: issue.issueType } : null,
-        },
-      ]
+      return issue ? [ticketNode(number, issue)] : []
     })
     return {
       data: {
@@ -518,6 +522,11 @@ function graphql(state: State, query: string, vars: Record<string, string>): unk
         },
       },
     }
+  }
+  if (query.includes('issueType') && /\bissue\(number:/.test(query)) {
+    const issue = state.issues[String(vars.number)]
+    if (!issue) fail(`GraphQL: Could not resolve to an Issue with the number of ${vars.number}. (repository.issue)`)
+    return { data: { repository: { issue: ticketNode(Number(vars.number), issue) } } }
   }
   if (query.includes('lastEditedAt')) {
     const pr = state.prs[String(vars.number)]
