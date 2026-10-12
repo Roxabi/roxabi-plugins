@@ -417,7 +417,10 @@ reused: same head and inputs, nothing runs again. Exit 1 names what is missing;
 it decides nothing. VERIFIED is Semctx's composition over the evidence statuses
 the contract declares, never a test run: mark evidence `tested` only for a test
 that exercises the change — the review judges it, and the base-required CI on
-the same head stays the runtime proof. A PARTIAL stays PARTIAL: each gap its record names needs one
+the same head stays the runtime proof. That judgement covers only a record
+present at the reviewed head: publish VERIFIED before §6.4, since one first
+published after the approval is admitted unreviewed, and nothing ties the
+required checks to the tests a `tested` evidence names. A PARTIAL stays PARTIAL: each gap its record names needs one
 PR-body row `| <gap> | … | ⚠ NO TEST — <reason> |` with a reason from the closed
 enum, and a `ui-manual-only` gap a `### Browser check <gap>` block (the gap bare
 or in backticks; `- Steps:`, `- URL:` http(s), `- Observed:`), legal only when neither the base's nor the head's

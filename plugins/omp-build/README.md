@@ -242,7 +242,11 @@ before its diff; the review-start test exercises the fence, not model compliance
   the evidence statuses the contract declares, never a test run: the runtime
   proof is the base-required CI on the same head that the landing watch waits on, and the
   review judges that each `tested` evidence names a test that exercises the
-  change. Under the [operator-authorized reviewer ceiling](https://github.com/Roxabi/roxabi-plugins/issues/768#issuecomment-6114046814),
+  change. That judgement covers only a record present at the reviewed head:
+  admission binds neither it nor the required checks to the VERIFIED record,
+  so a VERIFIED first published after the approval is admitted unreviewed, and
+  nothing ties the base-required checks to the tests a `tested` evidence names.
+  Under the [operator-authorized reviewer ceiling](https://github.com/Roxabi/roxabi-plugins/issues/768#issuecomment-6114046814),
   reason truth and credible browser-check performance belong to the proof-aware
   review; unsupported claims block it. Admission checks their policy/form and
   availability to approval, not those two truths. A row/block is form, native

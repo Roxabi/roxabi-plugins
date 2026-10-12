@@ -104,7 +104,11 @@ ADR-020 no longer bind:
    run: runtime proof is the base-required CI on the same head that the
    landing watch (`/ci-watch`, started once `landPr` arms) waits on, and the
    review judges that each `tested` evidence names a test that
-   exercises the change. A PARTIAL lands as PARTIAL only when every gap it
+   exercises the change. That judgement covers only a record present at the
+   reviewed head: admission binds neither it nor the required checks to the
+   VERIFIED record, so a VERIFIED first published after the approval is
+   admitted unreviewed, and nothing ties the base-required checks to the tests
+   a `tested` evidence names. A PARTIAL lands as PARTIAL only when every gap it
    names has a closed-enum NO TEST row in a PR body the approving review
    judged.
    Every part of that selected record, including its last revision, must have
@@ -186,7 +190,9 @@ ADR-020 no longer bind:
   which stays cut.
 - Landing admission (#768) does not independently detect: an invented check
   or false reason the trusted reviewer accepts; a later edit of a VERIFIED or
-  assertledger record, or of a PARTIAL into a VERIFIED body; an arm another
+  assertledger record, or of a PARTIAL into a VERIFIED body; a VERIFIED record
+  first published after the approval, which no review judged; whether the
+  base-required checks run the tests a `tested` evidence names; an arm another
   actor sets. Nor does an arm `landPr` wrote stay bound to the admitted head:
   a push or base switch by an account with write access leaves native
   auto-merge enabled (GitHub disables it only for accounts without write
