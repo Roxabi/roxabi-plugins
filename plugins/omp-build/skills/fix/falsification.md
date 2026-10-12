@@ -21,15 +21,15 @@ parser, one `package.json` script) must change.
 ## Input
 
 ```
-cause:     the applied cause (id, fix, failure, restored, paths, proof, its commit sha(s) — a retry adds one)
+cause:     the applied cause (id, fix, failure, restored, paths, proof, its complete existing ordered SHA list — initial application, mismatch/global corrections and retry)
 ```
 
 ## Procedure
 
 1. `proof: NO TEST: <reason>` → `skipped`, note the reason. Nothing runs: a justified NO TEST is an explicit skip, not coverage.
 2. The proof could not run in Phase 3 — it needs infrastructure, a command or a service the repository does not have → `skipped`, note what is missing. The receipt carries that reason; no parking-lot entry is added for it.
-3. Otherwise snapshot the complete current cause guard/path and proof/fixture/setup sets, then run each guard the cause's commit introduced — one per path when the fix guards each path, one when a single source guards every path. When the commit only adds the proof (a missing-test cause, root-causes.md § Proof), the guards are the existing production guards that proof observes:
-   1. Identify the guard: the production condition, check or routing the commit added, or for a missing-test cause the existing one the proof observes. Never the proof's own test, assertion, fixture or setup. No guard identifiable → inconclusive.
+3. Otherwise snapshot the complete current cause guard/path and proof/fixture/setup sets. Read the full diffs of every SHA in that cause's existing list, then enumerate every production guard still present in the current set that those commits introduced, not only the initial or latest commit's guards. Include multiple guards on one path; count a single shared source once. For a missing-test cause whose commits only add proof, enumerate the existing production guards that the current proof observes:
+   1. Identify each production condition, check or routing introduced by any listed cause commit, or for a missing-test cause the existing one the proof observes. Never the proof's own test, assertion, fixture or setup. No guard identifiable → inconclusive.
    2. Temporarily remove it (do NOT commit).
    3. Re-run the proof through the repository's test command, scoped to the proof's test.
    4. Evaluate:
@@ -85,7 +85,6 @@ Parking lot entries are surfaced in Phase 6 under a dedicated `### Parking Lot` 
 `fail` → re-apply that cause once, inline, in the same session, as a new commit (max 1
 falsification-retry per cause — there is no fixer agent to hand it to). The retry re-implements
 the same `fix:` and `proof:`; it never adopts another plan or another proof.
-This retry budget is independent of the CI retry budget in Phase 3 (max 3 CI retries). The retry commit is a permanent change: `skill://fix` Phase 3 § Local pre-review (post-commit rule) pre-reviews its new delta and refreshes the affected proof before the retry gate or any costly check.
-Second `fail` → `git revert --no-edit` the cause's commits; cause marked `[failed]` and filed;
-surfaced in Phase 6.
+This retry budget is independent of the CI retry budget in Phase 3 (max 3 CI retries). The scoped `O_commit(r)` appends its SHA to the same complete cause list, never replacing its initial or mismatch/global correction SHAs. The retry is a permanent change: the Phase 3 post-commit rule pre-reviews its new delta and refreshes affected proof before the retry gate or any costly check.
+Second `fail` → `git revert --no-edit` the complete cause SHA list newest first, including mismatch/global corrections and retry, preserving other causes; mark `[failed]` and file. Report complete versus failed/partial removal honestly; remaining cause changes are not pushed as a fix. Surface the result and complete SHA list in Phase 6.
 `skipped` → no retry. The commit stands and is reported as skipped, with its reason.

@@ -65,7 +65,7 @@ Let:
   ME := `gh api user --jq .login`
   MARK := `<!-- omp-build:code-review -->` — the first line of every review `dev-review` posts
   T := the ticket the PR head branch claims (`<type>/<N>-<slug>` → N), or none
-  O_commit(r) { stage only the files r changed (¬`git add -A`) → commit `fix(<scope>): <r.id> <r.title> (#T)` — ` (#T)` only when T exists; cite the source PR, exact marked review comment and r.id in the commit body, so existing Git history can attribute a halted run; the epic goal refuses a branch commit that claims no ticket }
+  O_commit(r) { stage only the files r changed (¬`git add -A`) → commit `fix(<scope>): <r.id> <r.title> (#T)` — ` (#T)` only when T exists; cite the source PR, exact marked review comment and r.id in the commit body; append its SHA to r's one existing ordered commit list, never replace an earlier SHA: initial application, mismatch/global corrections and falsification retry all belong to it; temporary removals do not. Git history attributes a halted run, with no new ledger or counter; the epic goal refuses a branch commit that claims no ticket }
   O_push { clean-tree check + HEAD=P + resolved plan conformity → global lint + tests (max 3 retries) → actual-path runtime smoke → final costly/infrastructure proof → final clean-tree/HEAD=P/conformity fence → `git push` of only that verified head }
   D_subsumption := {d ∈ D | d.tag = "subsumption-violation"}
 
@@ -189,7 +189,7 @@ The tree must be clean before the first applied cause. Uncommitted changes → h
 3. Sweep the touched files for the same-class anti-pattern. The sweep may justify a hit of a class already on a member finding. It must not apply the independent mechanism of a deferred cause, an uncited non-blocking finding, or a malformed block's finding, whether filed per finding or deferred. At their cited/raw locations, only the explicitly bound eligible cause correction from step 2 is authorized; no additional sweep correction is authorized there. An uncited hit outside that protected set may be fixed. Keep this existing touched-file/same-class sweep boundary.
 4. Run lint, the tests covering the changed files, and the proof test from step 2b. Red → retry max 3, with the same `r.fix` and `r.proof`.
 
-succeeds → O_commit(r) → `[applied]`, keep the commit sha.
+succeeds → O_commit(r) → `[applied]`, retain the complete cause SHA list. Guard enumeration, second-fail removal and the receipt consume that same list, not merely the first, last or retry SHA.
 fails after 3, or the only change that turns the tests green widens a denylist, adds a grep, or copies an inventory list → restore the tree to the last cause commit (`git restore --staged --worktree -- .`, then delete the files r created) → `[failed]`, file r, continue with the next cause. Earlier causes keep their commits.
 
 ```
@@ -207,7 +207,7 @@ Mandatory when ≥ 1 new or recovered cause commit remains unpublished. Runs aft
 - **First read:** freeze `S := HEAD` after the last cause commit, or at the bound paused candidate, and read the complete unpublished `git diff B..S`. Phase 2 accepted only an attributable paused prefix; foreign local work was not accepted. Then `P := S`, the last pre-reviewed head.
 - **Later reads:** after a permanent change (rule below) freeze the new `HEAD` and read exactly the unreviewed `git diff P..HEAD`, then `P := HEAD`. Never re-read or re-judge `B..P`.
 - **Look only at plan conformity**, per cause: the diff implements `r.fix`; every `r.paths` entry and every member raw callsite carries it; the Phase 3 step-3 same-class sweep changes stay inside the touched files and outside the protected locations; protected independent mechanisms (deferred, uncited, malformed finding) are untouched; nothing beyond the plan (no scope expansion, no unrelated edit). Print `── Pre-review ── S=<sha> RC-1 conforms · RC-3 mismatch: <what>`. A `git revert` delta is read as the removal of that failed cause, not as an `r.fix` reimplementation. `P` names the last read head, not clearance: retain its conformity result and unresolved mismatches. Push requires resolved conformity on `P`; a read that advances `P` does not clear a mismatch.
-- **Mismatch** → correct inline under the same cause's plan: same `r.fix`, same `r.proof`, never another plan. Run the step-4 light checks, make a scoped `O_commit(r)`, then pre-review only that new delta. Every same-plan correction attempt — a repeat mismatch with green targeted tests included — consumes one of what remains of the cause's step-4 max 3; there is no new counter. Out of budget or not implementable → apply failure for the already-committed cause: `git revert --no-edit` that cause's commits, `[failed]`, file it (the revert is itself a permanent change: rule below). A reverted or failed cause is never re-applied in this run; re-entry for the same review preserves its existing failed/filed disposition through Phase 2's receipt-free lookup.
+- **Mismatch** → correct inline under the same cause's plan: same `r.fix`, same `r.proof`, never another plan. Run the step-4 light checks, make a scoped `O_commit(r)` (append its SHA), then pre-review only that new delta. Every same-plan correction attempt — a repeat mismatch with green targeted tests included — consumes one of what remains of the cause's step-4 max 3; there is no new counter. Out of budget or not implementable → apply failure for the already-committed cause: `git revert --no-edit` its complete ordered cause SHA list, newest first, preserving other causes; `[failed]`, file it (the revert is itself a permanent change: rule below). Do not report a failed/partial removal as complete. A reverted or failed cause is never re-applied in this run; re-entry for the same review preserves its existing failed/filed disposition through Phase 2's receipt-free lookup.
 - **Independent new defect** → parking lot candidate (`source: "local-pre-review"`, `skill://fix/falsification.md` § Parking Lot Protocol). Never expanded work, never fixed here.
 
 **Post-commit rule — single source; Phase 4, Phase 5 and `skill://feature` §6.5 reference it.** Any permanent change of `HEAD` after a pre-review — a mismatch correction, a falsification retry, a `git revert`, a correction of a red global lint/test run — (a) is pre-reviewed as the new delta `P..HEAD`; (b) refreshes the proof of every affected cause (re-run the step-4 light checks over what it changed) and every earlier piece of evidence it invalidates (global lint/tests, smoke and falsification). A falsification `pass` is bound to the cause's complete current guard/path and proof/fixture/setup sets: any addition, removal or change invalidates that aggregate, even if no previously observed guard changed. Before push, refresh the affected cause's full current guard-set gate, within the original retry limits, not merely the new guard; a legal skip stays a skip. A correction of a red lint/test run must belong to the cause whose allowed plan addresses it (light checks → scoped `O_commit(r)`); a red run bound to no cause halts — no global-fix cause is invented. Costly work is never run on an unreviewed delta. A temporary guard removal during falsification is not a permanent change: no commit, no pre-review — but it must be restored completely (`git status --porcelain` empty and `HEAD = P`) before the next falsification, any permanent change, or Phase 5; a failed or incomplete restoration halts. Verification that changes no code makes no commit. If verification dirties the tree or moves `HEAD`, it cannot push or post success: only an attributable correction authorized by the same cause plan (or the CI caller's failed-check scope) may become a scoped commit, followed by delta pre-review and refresh of all evidence it invalidated. Other work remains untouched and halts.
@@ -314,14 +314,14 @@ Deferral body, one issue for the whole set. Not the per-cause template above:
 ```
 pass     →  removing the production guard made the proof fail on its `failure:` scenario; the commit stands
 fail     →  the proof still passed without the guard: the fix is tautological; re-apply the same
-            `fix:` and `proof:` once, as a new commit — then the Phase 3 post-commit rule applies
+            `fix:` and `proof:` once, as a scoped `O_commit(r)` appended to its existing complete SHA list — then the Phase 3 post-commit rule applies
             (pre-review the new delta, refresh affected proof) before this cause's retry gate
             (max 1 falsification-retry per cause — independent of the CI retry budget in Phase 3)
 skipped  →  NO TEST, a proof needing absent infrastructure, or an inconclusive run (error, unrelated
             failure); the commit stands, reported as skipped with its reason — never as pass
 ```
 
-Second `fail` → `git revert --no-edit` that cause's commits → `[failed]`, file it; the revert is a permanent change under the Phase 3 post-commit rule. The reverted edit is never pushed as a fix.
+Second `fail` → `git revert --no-edit` the complete cause SHA list, newest first, including mismatch/global corrections and retry; preserve other causes. Mark `[failed]` and file it; report whether the complete list's changes were removed, never call a failed/partial removal complete. The revert is a permanent change under the Phase 3 post-commit rule. Remaining cause changes are never pushed as a fix.
 
 This gate is a **local procedure** — remove the production guard the fix introduced (for a missing-test cause, the existing guard its test observes), re-run the proof, restore. Never the proof's own test, assertion, fixture or setup. It is not the executable falsify oracle cut by ADR-020 §8: it has no script, no artifact, and no roster input. Nothing here reads a verdict file.
 
@@ -353,6 +353,8 @@ Phase 5 and Phase 6 are one step: post the receipt right after the push.
 If the push succeeded and `gh pr comment` fails, report it and do not push
 again. The receipt is for humans; no gate reads it.
 
+The receipt retains each cause's complete existing SHA list (initial, mismatch/global corrections and retry), the same input used by guard enumeration and cause-only removal. Report failed/partial removal honestly; a listed SHA alone proves neither complete removal nor a fresh aggregate pass.
+
 Write the body into a mktemp dir — never a fixed `/tmp` path:
 ```bash
 [[ "$PR" =~ ^[0-9]+$ ]] || { echo "Invalid PR number: $PR" >&2; exit 1; }
@@ -377,7 +379,7 @@ Write the summary (below) to `"$BODY"` → `gh pr comment "$PR" --body-file "$BO
 **Enforcement diagnostics:** |D_subsumption| subsumption violation(s) (0 if none)
 
 ### Applied
-- [applied] RC-1 — missing roster SSoT — `3f2a1c0` — falsification: pass (current complete guard/path and proof/fixture/setup sets)
+- [applied] RC-1 — missing roster SSoT — `3f2a1c0`, `6d7e8f9` (complete cause SHA list) — falsification: pass (current complete guard/path and proof/fixture/setup sets)
 - [applied] RC-4 — upload ignores dry run — `9b04e1d` — falsification: skipped (proof needs a live registry)
 
 ### Deferred

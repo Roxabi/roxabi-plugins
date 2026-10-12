@@ -143,6 +143,8 @@ Fix order after a review: light per-cause checks → one local commit per cause 
 
 A falsification pass applies only to the complete current guard/path and proof/fixture/setup sets. Any set addition, removal or change invalidates it; refresh the affected full guard-set gate before push, within the existing retry limits. Legal skips never become coverage.
 
+Every permanent cause commit (initial application, mismatch/global correction and retry) appends to one existing ordered SHA list. Guard enumeration, cause-only rollback and the receipt consume that complete list; other causes are preserved and partial/failed removal is not reported as complete.
+
 No new or recovered unpublished cause commit → no commit, pre-review or push; filing/deferral and the receipt still run. A failed required push or proof halts without a success receipt. Same-review re-entry resumes full verification only for cause commits attributable to that exact review in Git, with the original baseline, failed dispositions and remaining allowances preserved; it never reapplies them. A foreign prefix or unrecoverable allowance halts untouched.
 
 The review bound is two reads of the PR's review records (#710) — the comments
