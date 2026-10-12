@@ -153,9 +153,9 @@ ADR-020 no longer bind:
    comment by the automation account; admission reads that account's latest
    record for the head, and any account with write access can still edit or
    delete it. It attests that comment's current body, not what the producer
-   printed nor who ran it. Semctx checks readable native publication/revision
-   facts before its verdict and refuses recorded edits, including a PARTIAL
-   edited into VERIFIED; assertledger has its own admission obligation.
+   printed nor who ran it. Both producers check readable native publication
+   and revision facts and require publication before approval with no recorded
+   edit; PARTIAL→VERIFIED and WEAK_ORACLE/miss→detection edits refuse.
 
 4. **§9 — the agent creates the worktree** from a freshly fetched
    `refs/remotes/origin/<base>`, never from `HEAD`, and never carrying the

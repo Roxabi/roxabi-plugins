@@ -1794,6 +1794,11 @@ process.exit(result.code)
     const resumed = acquire(false)
     expect(resumed.status).toBe(0)
     expect(JSON.parse(resumed.stdout)).toMatchObject({ assertledger: 'reused' })
+    writeSim(box, (state) => {
+      const pull = state.prs[String(pr)]
+      if (!pull) throw new Error('missing PR')
+      pull.comments.push({ author: ME, body: approve(head) })
+    })
     const run = land(box, wt, pr)
     expect(run.result).toMatchObject({ status: 'watching', proof: { assertledger: 'detection' } })
     expect(run.gate).toEqual({ labels: ['reviewed'], autoMerge: expect.objectContaining({ matchHeadCommit: head }) })
@@ -1881,6 +1886,122 @@ describe('landPr admission against conserved assertledger records', () => {
     expect(result).toMatchObject({ status: 'watching', proof: { semctx: 'absent', assertledger: 'detection' } })
     expect(gate.labels).toEqual(['reviewed'])
     expect(producers).toEqual([])
+  })
+  it.each([
+    ['a recorded edit', '2026-01-01T00:00:00Z', '2026-01-01T00:00:20Z', 'unbound'],
+    ['a late publication', '2026-01-01T00:00:20Z', '2026-01-01T00:00:20Z', 'unjustified'],
+    ['unreadable publication', null, null, 'unreadable'],
+  ] as const)(
+    'a detection refuses %s, while its unmodified reviewed counterpart admits',
+    (_name, createdAt, updatedAt, reason) => {
+      const head = sha(detection.branch)
+      const dir = wt.detection
+      if (!dir) throw new Error('missing detection checkout')
+      const prime = () =>
+        prepare(box, detection.pr, {
+          comments: [...conserved(RECORDS.assertledger, 'detection'), approve(head)],
+          body: 'Closes #2\n',
+          armed: head,
+        })
+      prime()
+      writeSim(box, (state) => {
+        const pull = state.prs[String(detection.pr)]
+        if (!pull?.comments[0] || !pull.comments[1]) throw new Error('missing detection fixture')
+        Object.assign(pull.comments[0], { createdAt, updatedAt })
+        Object.assign(pull.comments[1], { createdAt: '2026-01-01T00:00:10Z', updatedAt: '2026-01-01T00:00:10Z' })
+      })
+      const refused = land(box, dir, detection.pr)
+      expect(refused.result).toMatchObject({
+        status: 'proof-blocked',
+        producer: 'assertledger',
+        reason,
+        disarmed: true,
+      })
+      expect(refused.gate).toEqual(UNARMED)
+      expect(refused.producers).toEqual([])
+      prime()
+      const admitted = land(box, dir, detection.pr)
+      expect(admitted.result).toMatchObject({ status: 'watching', proof: { assertledger: 'detection' } })
+      expect(admitted.producers).toEqual([])
+    },
+  )
+  it('a WEAK_ORACLE edited into detection cannot borrow the approving review', () => {
+    const head = sha(detection.branch)
+    const dir = wt.detection
+    if (!dir) throw new Error('missing detection checkout')
+    const native = findRecord(
+      conserved(RECORDS.assertledger, 'detection').map((body) => ({ author: { login: ME }, body })),
+      ME,
+      'assertledger',
+      head,
+    )
+    if (!('record' in native)) throw new Error('missing detection record')
+    const record: AssertledgerRecord = JSON.parse(JSON.stringify(native.record))
+    const manifest: { decision: { status: string }; candidates: { status: string }[] } = JSON.parse(
+      record.native.manifest,
+    )
+    manifest.decision.status = 'PARTIAL'
+    for (const candidate of manifest.candidates) candidate.status = 'WEAK_ORACLE'
+    record.native.manifest = JSON.stringify(manifest)
+    prepare(box, detection.pr, {
+      comments: [...renderRecord('assertledger', head, [], record), approve(head)],
+      body: 'Closes #2\n',
+      armed: head,
+    })
+    const weakRun = land(box, dir, detection.pr)
+    expect(weakRun.result).toMatchObject({ status: 'proof-blocked', producer: 'assertledger', reason: 'verdict' })
+    writeSim(box, (state) => {
+      const pull = state.prs[String(detection.pr)]
+      const comment = pull?.comments[0]
+      if (!pull || !comment) throw new Error('missing proof comment')
+      const body = conserved(RECORDS.assertledger, 'detection')[0]
+      if (!body) throw new Error('missing conserved detection body')
+      comment.body = body
+      comment.updatedAt = '2030-01-01T00:00:00Z'
+      pull.labels = ['reviewed']
+      pull.autoMerge = { enabledAt: '2026-01-01T00:00:00Z', matchHeadCommit: head }
+    })
+    const refused = land(box, dir, detection.pr)
+    expect(refused.result).toMatchObject({
+      status: 'proof-blocked',
+      producer: 'assertledger',
+      reason: 'unbound',
+      disarmed: true,
+    })
+    expect(refused.gate).toEqual(UNARMED)
+    expect(refused.producers).toEqual([])
+    prepare(box, detection.pr, {
+      comments: [...conserved(RECORDS.assertledger, 'detection'), approve(head)],
+      body: 'Closes #2\n',
+    })
+    expect(land(box, dir, detection.pr).result).toMatchObject({ status: 'watching' })
+  })
+  it('acquisition rejects revised detection reuse and requests its manifest again', () => {
+    const head = sha(detection.branch)
+    const dir = wt.detection
+    if (!dir) throw new Error('missing detection checkout')
+    prepare(box, detection.pr, {
+      comments: [...conserved(RECORDS.assertledger, 'detection'), approve(head)],
+      body: 'Closes #2\n',
+    })
+    const acquire = () =>
+      spawnSync(REAL_BUN, [ACQUIRE, '--pr', String(detection.pr)], {
+        cwd: dir,
+        env: box.env,
+        encoding: 'utf8',
+      })
+    const reusable = acquire()
+    expect(reusable.status).toBe(0)
+    expect(JSON.parse(reusable.stdout)).toMatchObject({ assertledger: 'reused' })
+    writeSim(box, (state) => {
+      const comment = state.prs[String(detection.pr)]?.comments[0]
+      if (!comment) throw new Error('missing detection comment')
+      comment.updatedAt = '2030-01-01T00:00:00Z'
+    })
+    const revised = acquire()
+    expect(revised.status).toBe(1)
+    expect(revised.stderr).toContain('--assertledger-manifest')
+    expect(producerCalls(box)).toEqual([])
   })
 
   it('a fix PR that deletes the adapter its base declares still owes the detection', () => {

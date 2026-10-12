@@ -1514,7 +1514,7 @@ async function admitAssertledger(
     candidate: target.candidate,
     tree: oneLine(tree.stdout),
   })
-  return outcome === 'detection' ? null : outcome
+  return outcome === 'detection' ? reviewedRecord(found.parts, target, 'assertledger') : outcome
 }
 
 // ---------------------------------------------------------------------------

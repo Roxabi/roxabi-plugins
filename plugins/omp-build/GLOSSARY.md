@@ -37,7 +37,7 @@ The Semctx change declaration derived from the issue body. It is proof, not a se
 _Avoid_: artifacts/specs, a second spec home, the contract as what to build, closing it to open or land a PR
 
 **Proof record**:
-A producer's native output for one candidate head, posted on its PR by the automation account before landing and reused while it still binds that head's inputs. It attests the selected comment's current body, not what the producer printed nor who ran it: any account with write access can edit or delete the comment. Every Semctx part must have readable native creation/revision facts, predate approval and have no recorded edit, regardless of its current verdict.
+A producer's native output for one candidate head, posted on its PR by the automation account before landing and reused while it still binds that head's inputs. It attests the selected comment's current body, not what the producer printed nor who ran it: any account with write access can edit or delete the comment. Every applicable native part must have readable creation/revision facts, predate approval and have no recorded edit, regardless of producer or current verdict.
 _Avoid_: a ledger, a cache, a caller's boolean, a re-run at landing, a signed attestation
 
 **Landing admission**:

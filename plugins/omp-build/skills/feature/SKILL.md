@@ -426,12 +426,12 @@ enum, and a `ui-manual-only` gap a `### Browser check <gap>` block (the gap bare
 or in backticks; `- Steps:`, `- URL:` http(s), `- Observed:`), legal only when neither the base's nor the head's
 `.dev/stack.yml` declares `commands.test_e2e`. The review judges those rows, so
 publish the complete PARTIAL record and write those rows before §6.4.
-`landPr` reads native GitHub creation/revision times of every selected Semctx
-record part before its verdict, and a body last edited before approval.
-Missing or unreadable times refuse. Any recorded part revision requires
-acquisition again, then review; an unmodified later publication or body edit
-requires a new same-head review (§6.4), without running a producer at admission.
-Editing PARTIAL into VERIFIED does not disable this guard.
+`landPr` reads native GitHub creation/revision times of every selected applicable
+producer record part, regardless of producer or verdict, and a body last edited
+before approval. Missing or unreadable times refuse. Any recorded part revision
+requires acquisition again, then review; an unmodified later publication or
+body edit requires same-head review (§6.4), without a producer at admission.
+PARTIAL→VERIFIED and WEAK_ORACLE/miss→detection edits do not disable this guard.
 **Reviewer trust ceiling** ([operator-authorized #768 amendment](https://github.com/Roxabi/roxabi-plugins/issues/768#issuecomment-6114046814)):
 the proof-aware review judges reason truth and whether a browser check was
 credibly performed for this head; unsupported claims block review. Admission

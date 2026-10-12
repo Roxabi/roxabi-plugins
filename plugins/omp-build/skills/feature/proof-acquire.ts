@@ -258,7 +258,12 @@ async function acquireAssertledger(ctx: Context, manifestPath: string | undefine
   const expected = { repository: ctx.repository, pr: ctx.pr, candidate: ctx.candidate, tree: treeRun.stdout.trim() }
   const found = findRecord(ctx.comments, ctx.me, 'assertledger', ctx.candidate)
   if (manifestPath === undefined) {
-    if ('record' in found && !isUnbound(readAssertledgerRecord(found.record, expected))) return 'reused'
+    if (
+      'record' in found &&
+      !recordIntegrity(found.parts, 'assertledger') &&
+      !isUnbound(readAssertledgerRecord(found.record, expected))
+    )
+      return 'reused'
     throw new ProtocolError(
       `assertledger applies to PR #${ctx.pr} (fix ticket with an adapter) and no record binds ${ctx.candidate}: run \`assertledger check . --after ${ctx.candidate} …\` and pass its manifest with --assertledger-manifest`,
     )
