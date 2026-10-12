@@ -405,7 +405,8 @@ function gatePr({ comments, labels = [], autoMerge = null, state = 'OPEN', headR
       pr.autoMerge = { mergeMethod: 'MERGE' }
       return ''
     }
-    if (same(args, ['repo', 'view', '--json', 'nameWithOwner'])) return JSON.stringify({ nameWithOwner: 'acme/app' })
+    if (args[0] === 'repo' && args[1] === 'view' && args.includes('nameWithOwner'))
+      return JSON.stringify({ nameWithOwner: 'acme/app' })
     if (same(args, EVENTS_CALL)) return pr.labeledAt.join('\n')
     throw new Error(`unexpected gh call: ${args.join(' ')}`)
   }

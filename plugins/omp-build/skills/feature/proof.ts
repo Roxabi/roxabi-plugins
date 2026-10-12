@@ -59,8 +59,8 @@ function errorMessage(error: unknown): string {
 }
 
 /**
- * Establish the selected base: fetch the PR's base branch from origin and return
- * the fetched tip, before policy or applicability reads. GitHub's `baseRefOid` is
+ * Establish the selected base: resolve origin's explicit URL through gh and
+ * require the selected repository before fetching it. GitHub's `baseRefOid` is
  * recorded when the PR is opened, its head pushed or its base retargeted, and does
  * not follow the branch: the fetch, never that field, is the selected tip, and a
  * later fetch that differs from it is a moved base.
@@ -69,12 +69,33 @@ export async function refreshSelectedBase(
   cwd: string,
   base: string,
   git: Git,
+  gh: Gh,
 ): Promise<{ ok: true; tip: string } | Refusal> {
   if (!base || base.startsWith('-'))
     return refuse('candidate', 'unreadable', `PR base ${JSON.stringify(base)} is not a branch name`)
-  const fetchArgs = ['fetch', '--quiet', '--no-tags', 'origin', `+refs/heads/${base}:refs/remotes/origin/${base}`]
+  const remote = await git(cwd, ['remote', 'get-url', 'origin'])
+  const url = oneLine(remote.stdout)
+  if (remote.code !== 0 || !url || url.startsWith('-'))
+    return refuse('candidate', 'unreadable', 'origin has no readable repository URL')
+  let selected: string
+  let source: string
+  try {
+    selected = await repositoryOf(gh, cwd)
+    source = await repositoryOf(gh, cwd, url)
+  } catch {
+    return refuse('candidate', 'unreadable', 'gh cannot resolve origin and selected repository identities')
+  }
+  if (source !== selected)
+    return refuse('candidate', 'unbound', `origin repository ${source} conflicts with selected repository ${selected}`)
+  // Keep the verified URL, not the mutable remote name, as this fetch's source.
+  const fetchArgs = ['fetch', '--quiet', '--no-tags', url, `+refs/heads/${base}:refs/remotes/origin/${base}`]
   const fetched = await git(cwd, fetchArgs)
-  if (fetched.code !== 0) return refuse('candidate', 'unreadable', gitError(fetchArgs, fetched))
+  if (fetched.code !== 0)
+    return refuse(
+      'candidate',
+      'unreadable',
+      `verified origin base ${JSON.stringify(base)} fetch failed (${fetched.code})`,
+    )
   const args = ['rev-parse', '--verify', `refs/remotes/origin/${base}^{commit}`]
   const read = await git(cwd, args)
   const tip = oneLine(read.stdout)
@@ -1100,8 +1121,8 @@ function jsonField(raw: string, key: string): unknown {
   return isMap(data) ? data[key] : undefined
 }
 
-export async function repositoryOf(gh: Gh, cwd: string): Promise<string> {
-  const raw = await gh(cwd, ['repo', 'view', '--json', 'nameWithOwner'])
+export async function repositoryOf(gh: Gh, cwd: string, url?: string): Promise<string> {
+  const raw = await gh(cwd, ['repo', 'view', ...(url === undefined ? [] : [url]), '--json', 'nameWithOwner'])
   const name = jsonField(raw, 'nameWithOwner')
   if (typeof name !== 'string' || !/^[^/\s]+\/[^/\s]+$/.test(name)) {
     throw new Error(`gh repo view returned no nameWithOwner — ${raw.slice(0, 200)}`)

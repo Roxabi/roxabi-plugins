@@ -575,15 +575,15 @@ function readLandingAt(cwd, at) {
  * creation, head push or retarget and does not advance when the branch moves.
  * A failed fetch is carried as `refusal`.
  */
-async function fetchBase(cwd, name, gitFn) {
-  const fetched = await refreshSelectedBase(cwd, typeof name === 'string' ? name : '', gitFn)
+async function fetchBase(cwd, name, gitFn, ghFn) {
+  const fetched = await refreshSelectedBase(cwd, typeof name === 'string' ? name : '', gitFn, ghFn)
   return fetched.ok ? { name, tip: fetched.tip } : { name, refusal: fetched }
 }
 
 /** The selected PR's base coordinates: its base name read from GitHub, its tip fetched. */
 async function resolveLandingBase(cwd, pr, ghFn, gitFn) {
   const data = await readPrFields(cwd, pr, ghFn, 'baseRefName')
-  return fetchBase(cwd, data.baseRefName, gitFn)
+  return fetchBase(cwd, data.baseRefName, gitFn, ghFn)
 }
 
 /**
@@ -603,7 +603,7 @@ export async function captureReviewInput(cwd, pr, head, { gh: ghFn = gh, git: gi
       reason: 'unbound',
       error: 'the review head changed; start a fresh review',
     }
-  const base = await fetchBase(cwd, selected.baseRefName, gitFn)
+  const base = await fetchBase(cwd, selected.baseRefName, gitFn, ghFn)
   if (base.refusal) return base.refusal
   const snapshot = await captureProofReviewInput(
     cwd,
@@ -783,8 +783,21 @@ export async function landPr(
     )
   }
   const readCoordinates = async () => {
+    const base = await resolveLandingBase(cwd, pr, ghFn, gitFn)
+    // URL resolution adds awaits: the PR coordinates remain the last observation.
     const data = await readPrFields(cwd, pr, ghFn, 'headRefOid,baseRefName')
-    return { head: data.headRefOid, base: await fetchBase(cwd, data.baseRefName, gitFn) }
+    if (data.baseRefName !== base.name)
+      return {
+        head: data.headRefOid,
+        base: {
+          name: data.baseRefName,
+          refusal: {
+            reason: 'unbound',
+            error: 'the PR base changed during its repository-bound fetch; re-enter with the current base',
+          },
+        },
+      }
+    return { head: data.headRefOid, base }
   }
   const checkCoordinates = async (adapter) => {
     const current = await readCoordinates()

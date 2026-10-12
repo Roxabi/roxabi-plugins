@@ -55,6 +55,7 @@ type SimPull = {
 }
 export type SimState = {
   viewer: string
+  repositoryUrls?: Record<string, string>
   prs: Record<string, SimPull>
   issues: Record<
     string,

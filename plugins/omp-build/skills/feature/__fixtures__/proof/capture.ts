@@ -85,7 +85,11 @@ async function modifiedNative(box: Box): Promise<Captured> {
     const out = spawnSync('git', args, { cwd, env: box.env, encoding: 'utf8' })
     return { code: out.status ?? 1, stdout: out.stdout, stderr: out.stderr }
   }
-  const selected = await refreshSelectedBase(root, base, runner)
+  const selected = await refreshSelectedBase(root, base, runner, async (cwd, args) => {
+    const out = spawnSync('gh', args, { cwd, env: box.env, encoding: 'utf8' })
+    if (out.status !== 0) throw new Error(out.stderr)
+    return out.stdout
+  })
   if (!selected.ok) throw new Error(selected.error)
   const baseTip = selected.tip
   const facts = await candidateFacts(root, candidate, base, baseTip, runner)

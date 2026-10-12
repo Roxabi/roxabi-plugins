@@ -89,7 +89,7 @@ function kindOf(args) {
   if (same(args, ['pr', 'edit', String(PR), '--remove-label', 'reviewed'])) return 'remove'
   if (same(args, ['pr', 'edit', String(PR), '--add-label', 'reviewed'])) return 'add'
   if (args[0] === 'pr' && args[1] === 'merge' && args[3] === '--auto' && args[5] === '--match-head-commit') return 'pin'
-  if (same(args, ['repo', 'view', '--json', 'nameWithOwner'])) return 'repo'
+  if (args[0] === 'repo' && args[1] === 'view' && args.includes('nameWithOwner')) return 'repo'
   if (same(args, ['api', 'repos/acme/app/branches/main/protection/required_status_checks'])) return 'protection'
   if (same(args, ['api', 'repos/acme/app/rules/branches/main'])) return 'rules'
   if (args[0] === 'api' && String(args[1]).endsWith('/events')) return 'events'
@@ -415,8 +415,9 @@ const LOOKUP_FAILURES = [
       { on: 'rules', error: 'HTTP 403' },
     ],
   ],
-  ['the repo read throws', [{ on: 'repo', error: 'HTTP 502' }]],
-  ['the repo read is not JSON', [{ on: 'repo', answer: 'not json' }]],
+  // The first two repo reads bind origin; the next is the protection resolver's lookup.
+  ['the repo read throws', [{ on: 'repo', nth: 3, error: 'HTTP 502' }]],
+  ['the repo read is not JSON', [{ on: 'repo', nth: 3, answer: 'not json' }]],
   [
     'protection and rules answer garbage',
     [
@@ -3077,7 +3078,6 @@ function expectCause(error, origin) {
 function expectClearingTail(fake, site, start) {
   const headAt = nthIndex(fake.log, 'head', site.headNth)
   expect(headAt, 'the failing head read ran').toBeGreaterThan(0)
-  expect(fake.log[headAt - 1].kind, 'it directly follows the refused pin').toBe('pin')
   expect(fake.log.filter((entry) => entry.kind === 'head')).toHaveLength(site.headNth)
   expect(fake.log.slice(headAt).map((entry) => entry.kind)).toEqual(['head', ...clearing(start), 'gate'])
   expect(writesOf(fake)).toEqual([...site.before, ...clearing(start)])
@@ -3320,7 +3320,6 @@ describe('#731 — the PR leaves OPEN around the unreadable head', () => {
 
       expectOriginalError(outcome, origin)
       const headAt = nthIndex(fake.log, 'head', site.headNth)
-      expect(fake.log[headAt - 1].kind).toBe('pin')
       // The refused pin(s) were attempted; nothing follows the failed read — no write, no read-back.
       expect(fake.log).toHaveLength(headAt + 1)
       expect(writesOf(fake)).toEqual(site.before)

@@ -293,6 +293,89 @@ const browser = ({
 } = {}) =>
   `${noTest('ui-manual-only')}\n### Browser check ${heading}\n- Steps: ${steps}\n- URL: ${url}\n- Observed: ${observed}\n`
 
+describe('origin identity is bound to the selected repository before base policy', () => {
+  let box: Box
+  let wt: string
+  let fork: string
+  const pr = 30
+  const head = () => box.sha['fix/5-plain'] as string
+  beforeAll(() => {
+    const spec = plainSpec()
+    box = sandbox({
+      ...spec,
+      branches: [
+        ...spec.branches,
+        {
+          name: 'canonical-configured',
+          from: 'main',
+          commits: [{ message: 'chore: canonical obligation', files: { '.semctx/config.json': SEMCTX_CONFIG } }],
+        },
+      ],
+    })
+    fork = path.join(box.root, 'fork.git')
+    git(box, box.root, ['clone', '-q', '--bare', box.origin, fork])
+    writeSim(box, (state) => {
+      state.repositoryUrls = { [fork]: 'fork/app' }
+    })
+    instrument(box)
+    wt = worktree(box, 'repository-bound', head())
+  })
+  afterAll(() => rmSync(box.root, { recursive: true, force: true }))
+
+  function reset(armed = false): void {
+    git(box, wt, ['remote', 'set-url', 'origin', box.origin])
+    git(box, box.origin, ['update-ref', 'refs/heads/main', box.sha.main as string])
+    prepare(box, pr, { comments: [approve(head())], body: 'Closes #5\n', armed: armed ? head() : null })
+  }
+
+  it.each(['native', 'merge-on-green'] as const)(
+    '%s refuses fork absence instead of exempting the canonical base configuration',
+    (mode) => {
+      reset(true)
+      git(box, box.origin, ['update-ref', 'refs/heads/main', box.sha['canonical-configured'] as string])
+      git(box, wt, ['remote', 'set-url', 'origin', fork])
+      const refused = land(box, wt, pr, mode)
+      expect(refused.result).toMatchObject({
+        status: 'proof-blocked',
+        producer: 'candidate',
+        reason: 'unbound',
+        disarmed: true,
+      })
+      expect(refused.result.error).toContain('fork/app')
+      expect(refused.gate).toEqual(UNARMED)
+      expect(refused.producers).toEqual([])
+
+      reset()
+      const admitted = land(box, wt, pr, mode)
+      expect(admitted.result).toMatchObject({
+        status: 'watching',
+        proof: { semctx: 'absent', assertledger: 'not-applicable' },
+      })
+      expect(admitted.gate.labels).toEqual(['reviewed'])
+      expect(admitted.producers).toEqual([])
+    },
+  )
+
+  it('acquisition refuses the same mismatch; matching origin can report genuine absence', () => {
+    reset()
+    git(box, wt, ['remote', 'set-url', 'origin', fork])
+    const refused = spawnSync(REAL_BUN, [ACQUIRE, '--pr', String(pr)], { cwd: wt, env: box.env, encoding: 'utf8' })
+    expect(refused.status).toBe(1)
+    expect(refused.stderr).toContain('candidate unbound')
+    expect(refused.stderr).toContain('fork/app')
+    expect(producerCalls(box)).toEqual([])
+
+    reset()
+    const admitted = spawnSync(REAL_BUN, [ACQUIRE, '--pr', String(pr)], { cwd: wt, env: box.env, encoding: 'utf8' })
+    expect(admitted.status).toBe(0)
+    expect(JSON.parse(admitted.stdout)).toMatchObject({
+      semctx: 'not-applicable',
+      assertledger: 'not-applicable',
+    })
+    expect(producerCalls(box)).toEqual([])
+  })
+})
+
 describe('landPr retains the selected base name and tip', () => {
   let box: Box
   let wt: string
@@ -649,6 +732,9 @@ describe('selected base acquisition precedes policy and applicability', () => {
     (mode) => {
       reset()
       git(box, wt, ['remote', 'set-url', 'origin', path.join(box.root, 'missing-origin')])
+      writeSim(box, (state) => {
+        state.repositoryUrls = { [path.join(box.root, 'missing-origin')]: 'acme/app' }
+      })
       const run = land(box, wt, pr, mode)
       expect(run.result).toMatchObject({
         status: 'proof-blocked',
@@ -664,6 +750,9 @@ describe('selected base acquisition precedes policy and applicability', () => {
   it('acquisition fails on fetch failure even when both cached obligations are absent', () => {
     reset()
     git(box, wt, ['remote', 'set-url', 'origin', path.join(box.root, 'missing-origin')])
+    writeSim(box, (state) => {
+      state.repositoryUrls = { [path.join(box.root, 'missing-origin')]: 'acme/app' }
+    })
     const run = acquire()
     expect(run.status).toBe(1)
     expect(run.stderr).toContain('fetch')
@@ -1586,11 +1675,10 @@ describe('landPr admission against conserved Semctx records', () => {
       ],
     ])('a candidate that %s refuses before any record is read', (_label, pr, name, error) => {
       prepare(box, pr, { comments: [approve(sha(`fix/1-${name}`)), ...conserved(RECORDS.semctx, 'verified')] })
-      const { result, gate, calls, producers } = land(box, wt[name] as string, pr)
+      const { result, gate, producers } = land(box, wt[name] as string, pr)
       expect(result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'ambiguous' })
       expect(result.error).toMatch(error)
       expect(gate).toEqual(UNARMED)
-      expect(calls.some((args) => args.includes('nameWithOwner'))).toBe(false)
       expect(producers).toEqual([])
     })
 
@@ -1789,13 +1877,12 @@ describe('landPr admission against conserved Semctx records', () => {
 
     it('landing from a checkout whose tip is not the candidate refuses before reading any record', () => {
       prepare(box, verified.pr, { comments: [approve(sha(verified.branch)), ...conserved(RECORDS.semctx, 'verified')] })
-      const { result, gate, calls } = land(box, wt.partial as string, verified.pr)
+      const { result, gate } = land(box, wt.partial as string, verified.pr)
       expect(result).toMatchObject({ status: 'proof-blocked', producer: 'candidate', reason: 'unbound' })
       expect(result.error).toContain(
         `the local tip ${sha(SEMCTX_CASES.partial.branch)} is not candidate ${sha(verified.branch)}`,
       )
       expect(gate).toEqual(UNARMED)
-      expect(calls.some((args) => args.includes('nameWithOwner'))).toBe(false)
     })
 
     it('a record whose analysed merge base is not the one Git derives now does not bind', () => {
@@ -2538,12 +2625,12 @@ describe('Semctx applicability is decided from the base, the candidate and the c
   it.each([
     ['the worktree root', () => wt],
     ['a nested directory', () => path.join(wt, 'src')],
-  ])('genuine absence, from %s, makes only Semctx non-applicable and asks GitHub nothing for it', (_label, cwd) => {
+  ])('genuine absence, from %s, makes only Semctx non-applicable', (_label, cwd) => {
     prepare(box, PR, { comments: [approve(head())], body: 'Closes #5\n' })
     const { result, calls, gate } = land(box, cwd(), PR)
     expect(result).toMatchObject({ status: 'watching', proof: { semctx: 'absent', assertledger: 'not-applicable' } })
     expect(gate.labels).toEqual(['reviewed'])
-    expect(calls.some((args) => args.includes('graphql') || args.includes('nameWithOwner'))).toBe(false)
+    expect(calls.some((args) => args.includes('graphql'))).toBe(false)
   })
 
   it.each([

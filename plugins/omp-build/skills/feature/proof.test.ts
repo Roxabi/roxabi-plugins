@@ -257,24 +257,60 @@ describe('refreshSelectedBase', () => {
     (calls: string[][]): Git =>
     async (_cwd, args) => {
       calls.push(args)
+      if (args[0] === 'remote') return { code: 0, stdout: 'git@github.com:acme/app.git\n', stderr: '' }
       if (args[0] === 'fetch') return { code: 0, stdout: '', stderr: '' }
       if (args[0] === 'rev-parse') return { code: 0, stdout: `${BASE_TIP}\n`, stderr: '' }
       return { code: 128, stdout: '', stderr: `fatal: no answer for ${args.join(' ')}` }
     }
 
+  const repository = async () => JSON.stringify({ nameWithOwner: REPOSITORY })
+
   it('selects the tip the fetch reads', async () => {
     const calls: string[][] = []
-    expect(await refreshSelectedBase(temp(), 'main', fetching(calls))).toEqual({ ok: true, tip: BASE_TIP })
-    expect(calls.map((args) => args[0])).toEqual(['fetch', 'rev-parse'])
+    expect(await refreshSelectedBase(temp(), 'main', fetching(calls), repository)).toEqual({
+      ok: true,
+      tip: BASE_TIP,
+    })
   })
 
   it('refuses an option-shaped base name before fetching it', async () => {
     const calls: string[][] = []
-    expect(await refreshSelectedBase(temp(), '-main', fetching(calls))).toMatchObject({
+    expect(await refreshSelectedBase(temp(), '-main', fetching(calls), repository)).toMatchObject({
       producer: 'candidate',
       reason: 'unreadable',
     })
     expect(calls).toEqual([])
+  })
+
+  it('refuses a fork origin before reading its base as selected-repository policy', async () => {
+    const calls: string[][] = []
+    const gh = async (_cwd: string, args: string[]) =>
+      JSON.stringify({ nameWithOwner: args[2] === '--json' ? REPOSITORY : 'fork/app' })
+    expect(await refreshSelectedBase(temp(), 'main', fetching(calls), gh)).toMatchObject({
+      ok: false,
+      producer: 'candidate',
+      reason: 'unbound',
+    })
+    expect(calls.some((args) => args[0] === 'fetch')).toBe(false)
+  })
+
+  it('fetches the verified URL even when origin changes after its repository lookup', async () => {
+    const original = 'git@github.com:acme/app.git'
+    let remote = original
+    let tip = OTHER
+    const git: Git = async (_cwd, args) => {
+      if (args[0] === 'remote') return { code: 0, stdout: `${remote}\n`, stderr: '' }
+      if (args[0] === 'fetch') {
+        tip = args[3] === original ? BASE_TIP : OTHER
+        return { code: 0, stdout: '', stderr: '' }
+      }
+      return { code: 0, stdout: `${tip}\n`, stderr: '' }
+    }
+    const gh = async (_cwd: string, args: string[]) => {
+      if (args[2] === original) remote = 'git@github.com:fork/app.git'
+      return JSON.stringify({ nameWithOwner: REPOSITORY })
+    }
+    expect(await refreshSelectedBase(temp(), 'main', git, gh)).toEqual({ ok: true, tip: BASE_TIP })
   })
 })
 

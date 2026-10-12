@@ -72,6 +72,8 @@ type State = {
   defaultBranch: string
   /** Bare origin. Merge-on-read runs `git merge --no-ff` into it. */
   origin: string
+  /** Explicit repository URL identities, besides this state's canonical origin. */
+  repositoryUrls?: Record<string, string>
   requiredChecks: string[]
   nextPr: number
   clock: number
@@ -570,8 +572,11 @@ function handle(state: State, argv: string[]): void {
   const expression = one(flag, '--jq')
 
   if (cmd === 'repo' && sub === 'view') {
+    const url = positionals[2]
+    const name = url === undefined || url === state.origin ? fullName(state) : state.repositoryUrls?.[url]
+    if (!name) fail('gh: cannot resolve repository URL')
     const repo = {
-      nameWithOwner: fullName(state),
+      nameWithOwner: name,
       defaultBranchRef: { name: state.defaultBranch },
     }
     emit(repo, expression)

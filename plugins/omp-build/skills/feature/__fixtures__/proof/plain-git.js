@@ -15,6 +15,7 @@ export function plainGit(head, toplevel, baseTip = head) {
     'rev-parse --show-toplevel': `${toplevel}\n`,
     'rev-parse --verify HEAD^{commit}': `${head}\n`,
     'worktree list --porcelain -z': `worktree ${toplevel}\0HEAD ${head}\0detached\0\0`,
+    'remote get-url origin': 'https://github.com/acme/app.git\n',
   }
   return async (_cwd, args) => {
     const key = args.join(' ')

@@ -129,7 +129,7 @@ async function assertCurrent(ctx: Context): Promise<void> {
   ) {
     throw new ProtocolError(changed)
   }
-  const fetched = await refreshSelectedBase(ctx.cwd, ctx.base, gitResult)
+  const fetched = await refreshSelectedBase(ctx.cwd, ctx.base, gitResult, gh)
   if (!fetched.ok) throw new ProtocolError(refusalText(fetched))
   if (fetched.tip !== ctx.baseTip) throw new ProtocolError(`${changed} (${ctx.base}@${ctx.baseTip} → ${fetched.tip})`)
 }
@@ -331,7 +331,7 @@ export async function main(argv: string[], cwd: string): Promise<number> {
     if (typeof candidate !== 'string' || typeof base !== 'string' || state !== 'OPEN') {
       throw new ProtocolError(`PR #${args.pr} is not an open PR with a head and a base`)
     }
-    const selected = await refreshSelectedBase(cwd, base, gitResult)
+    const selected = await refreshSelectedBase(cwd, base, gitResult, gh)
     if (!selected.ok) throw new ProtocolError(refusalText(selected))
     const baseTip = selected.tip
     const facts = await candidateFacts(cwd, candidate, base, baseTip, gitResult)

@@ -194,8 +194,14 @@ before its diff; the review-start test exercises the fence, not model compliance
   A clean PR merges as soon as it is armed, moving the base itself: a PR whose
   merge commit's first parent is the selected tip keeps its base; merged onto
   another tip it is refused, and the disarm reports the merge.
-  Each landing or acquisition attempt first fetches the selected origin branch
-  (not the principal-detection cache) and selects the tip that fetch reads —
+  Each landing or acquisition attempt resolves `git remote get-url origin`
+  through `gh repo view <URL> --json nameWithOwner` and requires that repository
+  to match the selected GitHub repository before reading policy or applicability.
+  Mismatch is `candidate/unbound`; missing/unresolved identity is
+  `candidate/unreadable`, never an exemption based on a fork's absent config.
+  The fetch uses that verified explicit URL, not the mutable remote name, while
+  retaining the established `refs/remotes/origin/<base>` readers. Each refresh
+  revalidates the identity. It selects the tip the fetch reads —
   never GitHub's `baseRefOid`, which is recorded when the PR opens, its head is
   pushed or it is retargeted, and does not follow later pushes to the base.
   Policy, declarations and merge-base consume that immutable commit, not a
