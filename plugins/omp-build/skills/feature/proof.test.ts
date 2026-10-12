@@ -18,8 +18,10 @@ import {
   findRecord,
   type Git,
   justifyGaps,
+  mergeBaseOf,
   readAssertledgerRecord,
   readSemctxRecord,
+  refreshSelectedBase,
   type SemctxExpected,
 } from './proof'
 
@@ -242,6 +244,57 @@ describe('candidateFacts', () => {
     const facts = await candidateFacts(toplevel, C, 'main', BASE_TIP, repoGit({ toplevel, ...repo }))
     expect(facts).toMatchObject({ producer: 'semctx', reason: 'unreadable' })
     expect('error' in facts && facts.error).toMatch(error)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Selected base and merge-base reads on an injected Git
+// ---------------------------------------------------------------------------
+
+describe('refreshSelectedBase', () => {
+  /** A Git whose fetch succeeds and whose fetched ref names `BASE_TIP`, logging every call. */
+  const fetching =
+    (calls: string[][]): Git =>
+    async (_cwd, args) => {
+      calls.push(args)
+      if (args[0] === 'fetch') return { code: 0, stdout: '', stderr: '' }
+      if (args[0] === 'rev-parse') return { code: 0, stdout: `${BASE_TIP}\n`, stderr: '' }
+      return { code: 128, stdout: '', stderr: `fatal: no answer for ${args.join(' ')}` }
+    }
+
+  it('establishes a branch base whose fetched tip is the selected one', async () => {
+    const calls: string[][] = []
+    expect(await refreshSelectedBase(temp(), 'main', BASE_TIP, fetching(calls))).toBeNull()
+    expect(calls.map((args) => args[0])).toEqual(['fetch', 'rev-parse'])
+  })
+
+  it('refuses an option-shaped base name before fetching it', async () => {
+    const calls: string[][] = []
+    expect(await refreshSelectedBase(temp(), '-main', BASE_TIP, fetching(calls))).toMatchObject({
+      producer: 'candidate',
+      reason: 'unreadable',
+    })
+    expect(calls).toEqual([])
+  })
+})
+
+describe('mergeBaseOf', () => {
+  const answering =
+    (result: { code: number; stdout: string; stderr: string }): Git =>
+    async () =>
+      result
+
+  it('returns the common ancestor Git names', async () => {
+    expect(await mergeBaseOf(answering({ code: 0, stdout: `${OTHER}\n`, stderr: '' }), temp(), BASE_TIP, C)).toBe(OTHER)
+  })
+
+  it.each([
+    ['no common ancestor', { code: 1, stdout: '', stderr: '' }],
+    ['a failed read', { code: 128, stdout: '', stderr: 'fatal: shallow clone' }],
+    ['a failed read that still printed a sha', { code: 128, stdout: `${OTHER}\n`, stderr: 'fatal: shallow clone' }],
+    ['an empty answer', { code: 0, stdout: '\n', stderr: '' }],
+  ])('%s is an error, never an empty range', async (_label, result) => {
+    expect(await mergeBaseOf(answering(result), temp(), BASE_TIP, C)).toBeInstanceOf(Error)
   })
 })
 
