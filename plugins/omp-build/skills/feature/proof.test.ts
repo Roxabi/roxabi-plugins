@@ -320,11 +320,18 @@ type Native = { argv: string[]; exit: number; stdout: string }
 /** index, status, check, change inspect, change verify, status — one change. */
 type Steps = [Native, Native, Native, Native, Native, Native]
 type SemctxShape = {
-  invocation: { root: string; status: Record<string, string>; ignored: string[] }
+  invocation: {
+    candidate: string
+    tool: { path: string; version?: string }
+    root: string
+    status: Record<string, string>
+    ignored: string[]
+  }
   native: Steps
 }
 /** The fields of the native JSON the mutations below vary. */
 type NativeJson = {
+  id: string
   verdict: string
   lifecycle: string
   freshnessSeal: Record<string, string>
@@ -366,6 +373,41 @@ describe('readSemctxRecord', () => {
     expect(readSemctxRecord(conserved('semctx', 'partial', PARTIAL), expectedFor(10, PARTIAL))).toEqual([
       { id: 'change.fx.add', verdict: 'PARTIAL', lifecycle: 'active', gaps: [GAP] },
     ] satisfies ChangeResult[])
+  })
+
+  it.each([
+    [
+      'underlying base',
+      varied('verified', (_r, stdout) => stdout(4, (s) => (s.underlying.base = OTHER))),
+      /verified range/,
+    ],
+    [
+      'underlying mergeBase',
+      varied('verified', (_r, stdout) => stdout(4, (s) => (s.underlying.mergeBase = OTHER))),
+      /verified range/,
+    ],
+    [
+      'inspect id',
+      varied('verified', (_r, stdout) => stdout(3, (s) => (s.id = 'change.fx.other'))),
+      /inspect did not read/,
+    ],
+    [
+      'empty sourceRefs',
+      varied('verified', (_r, stdout) => stdout(3, (s) => (s.sourceRefs = []))),
+      /inspect did not read/,
+    ],
+    ['invocation candidate', varied('verified', (r) => (r.invocation.candidate = OTHER)), /candidate/],
+    [
+      'invocation tool',
+      varied('verified', (r) => {
+        delete r.invocation.tool.version
+      }),
+      /no tool path\/version/,
+    ],
+  ])('independent native binding: %s refuses with every surrounding binding correct', (_label, record, error) => {
+    const outcome = readSemctxRecord(record, expectedFor(11, VERIFIED))
+    expect(outcome).toMatchObject({ ok: false, producer: 'semctx', reason: 'unbound' })
+    expect('error' in outcome && outcome.error).toMatch(error)
   })
 
   it.each<[string, Partial<SemctxExpected>, RegExp]>([
