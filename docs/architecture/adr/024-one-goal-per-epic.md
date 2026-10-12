@@ -13,11 +13,12 @@ date: 2026-09-24
 > that OMP loses every executable check. Those sentences are qualified in
 > ADR-020. They are not still law.
 >
-> **Amended 2026-10-11 by #768** — §2 and §3 now also say how the change
+> **Amended 2026-10-11 by #768** — Decision items 2 (ADR-020 §4, the change
+> contract) and 3 (ADR-020 §8, assertledger) now also say how the change
 > contract and assertledger reach landing: `landPr` reads their conserved
 > proof records for the reviewed head and runs neither. The open-time proof
 > gate this ADR implied is retired; that admission governs only the arms
-> `landPr` writes, and a record proves only what its producer composed.
+> `landPr` writes, and a record attests only its comment's current body.
 
 ## Context
 
@@ -100,16 +101,19 @@ ADR-020 no longer bind:
    `landPr` reads and never produces. Its lifecycle stays Semctx's own, so
    nothing closes it to open or land a PR. VERIFIED attests Semctx's
    composition over the evidence statuses the contract declares, never a test
-   run: runtime proof is the base-required CI `landPr` waits on for the same
-   head, and the review judges that each `tested` evidence names a test that
+   run: runtime proof is the base-required CI on the same head that the
+   landing watch (`/ci-watch`, started once `landPr` arms) waits on, and the
+   review judges that each `tested` evidence names a test that
    exercises the change. A PARTIAL lands as PARTIAL only when every gap it
    names has a closed-enum NO TEST row in a PR body the approving review
    judged.
    Every part of that selected record, including its last revision, must have
    native GitHub publication facts strictly before the approving record, as
-   must the current justification body. A later or revised PARTIAL returns the
-   same head to review without another producer; unreadable times refuse.
-   VERIFIED reuse borrows no gap justification and is chronology-independent.
+   must the current justification body. While the selected record's current
+   body is PARTIAL, a later or revised part returns the same head to review
+   without another producer; unreadable times refuse. VERIFIED reuse borrows
+   no gap justification and is chronology-independent: a PARTIAL comment
+   edited after approval into a VERIFIED body is admitted as VERIFIED.
    *Reviewer ceiling explicitly authorized 2026-10-11*
    ([operator decision](https://github.com/Roxabi/roxabi-plugins/issues/768#issuecomment-6114046814)):
    admission checks gap policy/form/chronology; reason truth and credible browser
@@ -139,10 +143,16 @@ ADR-020 no longer bind:
    Both readings govern only the arms `landPr` writes. A `reviewed` label or
    auto-merge set by another actor is an override: GitHub's auto-merge and
    the merge-on-green workflow honour it without proof, and the armed-gate
-   retention keeps it once the review approves. A proof record is a PR
+   retention keeps it once the review approves. An arm `landPr` wrote for H
+   is not bound to H either: the native pin is checked when auto-merge is
+   enabled, and a push after the `reviewed` label is not refused by GitHub.
+   A proof record is a PR
    comment by the automation account; admission reads that account's latest
    record for the head, and any account with write access can still edit or
-   delete it, so it attests what the producer printed, not who ran it.
+   delete it. It attests that comment's current body, not what the producer
+   printed nor who ran it: only a PARTIAL's publication and revision must
+   precede the approving review, so a later edit of a VERIFIED or
+   assertledger record is not detected.
 
 4. **§9 — the agent creates the worktree** from a freshly fetched
    `refs/remotes/origin/<base>`, never from `HEAD`, and never carrying the
@@ -174,6 +184,16 @@ ADR-020 no longer bind:
 - A repository with no assertledger adapter has no assertledger gate. That
   absence is stated, not a permanent `false`, and it is not the `R-pr` oracle,
   which stays cut.
+- Landing admission (#768) does not independently detect: an invented check
+  or false reason the trusted reviewer accepts; a later edit of a VERIFIED or
+  assertledger record, or of a PARTIAL into a VERIFIED body; an arm another
+  actor sets. Nor does an arm `landPr` wrote stay bound to the admitted head:
+  a push or base switch by an account with write access leaves native
+  auto-merge enabled (GitHub disables it only for accounts without write
+  access), and a push after the `reviewed` label is not refused under
+  merge-on-green. CI-watch observer exits and the review step's `land` retain
+  an arm on current-head approval and an unspent bound alone; only re-entering
+  `landPr` re-admits its inputs.
 
 ### Neutral
 

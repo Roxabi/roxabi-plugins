@@ -422,11 +422,13 @@ enum, and a `ui-manual-only` gap a `### Browser check <gap>` block (the gap bare
 or in backticks; `- Steps:`, `- URL:` http(s), `- Observed:`), legal only when neither the base's nor the head's
 `.dev/stack.yml` declares `commands.test_e2e`. The review judges those rows, so
 publish the complete PARTIAL record and write those rows before §6.4.
-`landPr` reads native GitHub creation/revision times of every selected record
-part and a body last edited before the approving record. Missing or unreadable
+`landPr` reads native GitHub creation/revision times of every selected PARTIAL
+record part and a body last edited before the approving record. Missing or unreadable
 times refuse; a later publication, part revision or body edit needs a new review
 of the same head (§6.4), reusing the record without a producer. VERIFIED reuse
-borrows no gap justification and has no such chronology requirement.
+borrows no gap justification and has no such chronology requirement: a later edit
+of a VERIFIED or assertledger record, or of a PARTIAL into a VERIFIED body, is not
+detected.
 **Reviewer trust ceiling** ([operator-authorized #768 amendment](https://github.com/Roxabi/roxabi-plugins/issues/768#issuecomment-6114046814)):
 the proof-aware review judges reason truth and whether a browser check was
 credibly performed for this head; unsupported claims block review. Admission
@@ -601,7 +603,7 @@ PARTIAL with a stale link or a blocking impact, a VERIFIED that requires no
 evidence, and a non-terminal change that is not the one block of its own
 `changes/<id>.sem` refuse. A refusal returns `proof-blocked` with `producer`
 (`candidate` | `semctx` | `assertledger`), `reason` and `error` through the
-forced-unarmed exit; every arm binds the admitted head, and `watching` reports
+forced-unarmed exit; every arm `landPr` writes targets the admitted head, and `watching` reports
 `proof`.
 
 Run `watch` as an async bash job (`timeout: 0`). Map the exit with
@@ -623,6 +625,8 @@ Every mapped exit passes the shared policy. Observer exits (0/4/5/6/70/other)
 preserve their status but clear moved, red or spent OPEN gates. If those review/head
 reads fail after acquiring the gate, clear the known arms before surfacing the read
 error. Forced exits 1–3 need no review-service reads. A no-op never claims `disarmed`.
+Observer exits never re-admit: a base retarget, body edit, ignored configuration
+or classification change keeps the arm until §6.7 re-enters `landPr`.
 
 Before any push that follows a `reviewed` label, call
 `disarmReviewedBeforePush(cwd, pr, { push })`. Disable auto-merge, remove the label
@@ -636,16 +640,16 @@ Neither a fix round nor another review action may write that label in this cycle
 | `land.status` | Action |
 |---|---|
 | `no-pr` | Stop; no PR was resolved and no gate was armed |
-| `not-approved` | Stop; the latest review record does not approve the current head, or the bound is spent (`reason: 'review-bound'`). `landPr` disarmed a gate that was armed (`disarmed: true`). Review again only when the bound is not spent; do not merge |
+| `not-approved` | Stop; the latest review record does not approve the current head, or the bound is spent (`reason: 'review-bound'`), or — `reason: 'head-moved'` — the head moved from the one this call admitted. `landPr` disarmed a gate that was armed (`disarmed: true`). When the latest record already approves the new current head, re-run `nextReviewStep(cwd, pr)` (§6.6): its `land` re-enters §6.7 without a new review. Otherwise review again only when the bound is not spent; do not merge |
 | `watching` | Report `land.proof` — Semctx `absent`, or each change's VERIFIED/PARTIAL and every review-judged gap (form checked, still unproved); assertledger `not-applicable` or `detection` — then start the async `/ci-watch` job named in `land.watch` |
-| `proof-blocked` | Stop; report `land.producer`, `land.reason` and `land.error`. Nothing was armed; a gate found armed was disarmed (`disarmed: true` after read-back). Re-enter §6.7 once the named cause is fixed: `missing` → §6.3's proof records; late/revised PARTIAL or edited justification → a new same-head review (§6.4), reuse the proof without a producer; unreadable publication facts → obtain native metadata first. A moved head goes through §6.4. The review bound stays sticky |
+| `proof-blocked` | Stop; report `land.producer`, `land.reason` and `land.error`. No arm remains: a gate found armed, or one this call wrote before a later checkpoint refused, was cleared (`disarmed: true` after read-back). Re-enter §6.7 once the named cause is fixed: `missing` → §6.3's proof records; late/revised PARTIAL or edited justification → a new same-head review (§6.4), reuse the proof without a producer; unreadable publication facts → obtain native metadata first. A moved head goes through §6.4. The review bound stays sticky |
 | `merged` | Report issue + PR; offer the optional tail (§0), stop |
 | `ci-failed` | Gate already disarmed; `step = await nextReviewStep(cwd, pr, { ciFailed: true })`, then §6.6 |
 | `ci-cancelled` | Gate disarmed; stop, report the cancelled checks; operator re-runs CI then re-enters §6.7 |
 | `ci-blocked` | Gate disarmed; stop, report the checks named on stderr; operator resolves the named checks or re-runs CI, then re-enters §6.7 |
 | `watch-failed` | Stop; report code or error. The gate is retained only with current authorization; invalid arms are cleared or the error names their remainder. Do not claim merged |
 | `evaluate-only` | Stop; report "evaluate-only — manual merge required" and `docs/kit/ci-app-setup.md`. The gate is retained only with current authorization; the operator merges by hand. Do not claim merged; do not wait |
-| `bad-landing` | Stop; report `land.error` (configuration/base-resolution problem). An armed gate is retained only after fresh authorization; invalid arms are cleared or the error names their remainder. Fix the base configuration, then re-enter §6.7 |
+| `bad-landing` | Stop; report `land.error` (landing configuration problem). Any armed gate is cleared, or the error names its remainder. Fix the landing configuration, then re-enter §6.7 |
 | `no-required-checks` | Stop; report missing protection. Native only, when no required context was found (declared `landing.required_checks`, protection or rulesets); an API error in that discovery reads as none — merge-on-green does not return this. `landPr` first disarmed a gate it found armed, at the approved current head too (`disarmed: true` only when it confirmed that disarm; a PR found unarmed carries no flag and no write was made). Nothing restores the label or auto-merge: configure the checks, then re-enter §6.7 through the normal gate. A disarm that cannot finish throws instead (below) |
 | `timeout` | Re-attach the watch. Do not claim merged. Epic goal: ticket stop, no re-attach |
 | `stopped` | Stop and report. Do not claim merged |

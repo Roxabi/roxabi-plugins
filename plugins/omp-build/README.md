@@ -181,11 +181,13 @@ before its diff; the review-start test exercises the fence, not model compliance
   preparation. A spent bound is `not-approved` with reason `review-bound`; a missing
   line-2 sha is `no-review-head`, and a moved head is `head-moved`. Unreadable
   authorization never permits arming; acquired gates use the shared exit policy.
-  Native auto-merge pins that refreshed reviewed head with `--match-head-commit`. Merge-on-green is
-  label-driven: a later push by another actor is not refused by GitHub. A review
+  Native auto-merge pins that refreshed reviewed head with `--match-head-commit`,
+  checked when it is enabled: a later push or base switch by an account with
+  write access leaves it enabled. Merge-on-green is label-driven: a later push
+  by another actor is not refused by GitHub. A review
   posted before the head line existed needs one re-review before it can land.
-  The selected PR base's name and tip are captured too. Each pre-arm and
-  retained-arm checkpoint re-reads those coordinates alongside the head.
+  The selected PR base's name and tip are captured too. Each pre-arm checkpoint
+  and the retained-arm epilogue re-read those coordinates alongside the head.
   A retarget or moved tip is `proof-blocked` / `candidate` / `unbound`;
   missing coordinates are `unreadable`. Both force clearing, never silently
   switch landing policy; re-entry captures the current base normally.
@@ -228,10 +230,12 @@ before its diff; the review-start test exercises the fence, not model compliance
   Every pre-arm checkpoint and the retained-arm epilogue re-read these inputs,
   even at the same head: body revisions, ignored configuration/access, ticket
   classification and the latest native record are not immutable with a commit.
-  Retention never transfers an existing arm to a later approved head.
+  `landPr`'s retention never transfers an arm it wrote to a later approved
+  head; CI-watch observer exits and the review step's `land` retain an arm on
+  current-head approval and an unspent bound alone, and never re-admit.
 - What admission does not establish. VERIFIED attests Semctx's composition over
   the evidence statuses the contract declares, never a test run: the runtime
-  proof is the base-required CI `landPr` waits on for the same head, and the
+  proof is the base-required CI on the same head that the landing watch waits on, and the
   review judges that each `tested` evidence names a test that exercises the
   change. Under the [operator-authorized reviewer ceiling](https://github.com/Roxabi/roxabi-plugins/issues/768#issuecomment-6114046814),
   reason truth and credible browser-check performance belong to the proof-aware
@@ -246,7 +250,10 @@ before its diff; the review-start test exercises the fence, not model compliance
   keeps it once the review approves. A record is a PR comment by the automation
   account (a run of `part=<i>/<n>` comments when it exceeds GitHub's comment
   ceiling, read only whole); any account with write access can edit or delete
-  it, so it attests what the producer printed, not who ran it.
+  it, so it attests that comment's current body, not what the producer printed
+  nor who ran it. Chronology binds only a record whose current body is
+  PARTIAL: a later edit of a VERIFIED or assertledger record, or one that
+  turns a PARTIAL into a VERIFIED body, is not detected.
 
 The bound guards against agent mistakes, not against an agent that bypasses it:
 records by other accounts are ignored, and edits or deletions of the account's

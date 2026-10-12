@@ -37,7 +37,7 @@ The Semctx change declaration derived from the issue body. It is proof, not a se
 _Avoid_: artifacts/specs, a second spec home, the contract as what to build, closing it to open or land a PR
 
 **Proof record**:
-A producer's native output for one candidate head, posted on its PR by the automation account before landing and reused while it still binds that head's inputs. It attests what the producer printed, not who ran it: any account with write access can edit or delete the comment.
+A producer's native output for one candidate head, posted on its PR by the automation account before landing and reused while it still binds that head's inputs. It attests the selected comment's current body, not what the producer printed nor who ran it: any account with write access can edit or delete the comment, and chronology binds only a record whose current body is PARTIAL — a later edit of a VERIFIED or assertledger record, or of a PARTIAL into a VERIFIED body, is not detected.
 _Avoid_: a ledger, a cache, a caller's boolean, a re-run at landing, a signed attestation
 
 **Landing admission**:
