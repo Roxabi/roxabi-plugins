@@ -598,9 +598,12 @@ const SINCE_RETRY_MS = 200
  * applicable Semctx/assertledger records conserved on the PR are bound to the
  * re-derived inputs. A refusal returns `proof-blocked` with `producer`, `reason`
  * and `error` through the same forced-unarmed exit; a transport failure throws
- * through it. Every later arm is bound to the admitted candidate: a pre-arm
+ * through it. Every arm this call writes targets the admitted candidate: before
+ * the first arming write, and before a re-pin after disabling the old arm, a
  * refresh whose fresh approval names another head admits that head the same
- * way, and arms it only on admit (else `proof-blocked`, unarmed). `watching`
+ * way and arms it only on admit (else `proof-blocked`, unarmed); after an
+ * arming write the refresh retains the admitted head and refuses a later one
+ * (`head-moved`). `watching`
  * carries `proof`: what was admitted, so a PARTIAL lands visibly as PARTIAL.
  * `disarmed: true` is reported only when a read-back confirmed the disarm; a no-op
  * claims nothing. A disarm that cannot finish throws an error naming what stays
@@ -619,8 +622,9 @@ const SINCE_RETRY_MS = 200
  * A label write (`--add-label`, or merge-on-green's `--remove-label`) that throws
  * at a still-approved current head preserves the write error, never `watching`;
  * a moved or unreadable head returns `not-approved` / `head-moved` after clearing.
- * `bad-landing` and `watch-failed` are enforced too: an already-armed gate stays
- * only when the refreshed records and verified head still authorize it.
+ * `bad-landing` forces clearing like every refusal. `watch-failed` is enforced
+ * too: an already-armed gate stays only when the refreshed records and verified
+ * head still authorize it.
  * Native auto-merge is then requested with `--match-head-commit` of that reviewed
  * sha — an enable-time pin, not a later-push lease.
  * Native also enables merge-commit auto-merge. merge-on-green never returns
@@ -763,7 +767,8 @@ export async function landPr(
   const afterWrite = async (adapter) => {
     try {
       if (adapter === 'native') {
-        const refusal = await refreshReviewAuthorization()
+        // The pin is already written for the admitted head: retain it, never re-admit a later one.
+        const refusal = await refreshReviewAuthorization(true)
         if (refusal) return { ...refusal, adapter }
       }
       return await checkCoordinates(adapter)
@@ -943,9 +948,6 @@ export async function landPr(
         if (added) return added
         const afterAdd = await refuseIfMoved()
         if (afterAdd) return afterAdd
-      }
-      if (!landingBase) {
-        return exit({ status: 'bad-landing', error: 'landPr: could not resolve the PR base for the landing watch' })
       }
       const sinceArg = since ? ` --since ${since}` : ''
       return exit({

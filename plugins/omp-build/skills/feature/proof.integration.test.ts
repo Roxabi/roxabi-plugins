@@ -323,6 +323,55 @@ describe('landPr retains the selected base name and tip', () => {
     }
   })
 
+  it.each([
+    ['native', 'pin-write', false],
+    ['native', 'pin-write', true],
+    ['native', 'label-write', false],
+    ['merge-on-green', 'label-write', false],
+  ] as const)(
+    '%s refuses a freshly approved H2 that replaces the armed H after %s (previous arm: %s)',
+    (mode, when, armed) => {
+      reset(armed)
+      const h2 = box.sha[next] as string
+      const restore = mutateAfter(
+        box,
+        when,
+        `
+      state.prs[${pr}].headRefName = ${JSON.stringify(next)};
+      state.prs[${pr}].comments.push({ author: ${JSON.stringify(ME)}, body: ${JSON.stringify(approve(h2))} });
+      const checkout = spawnSync('git', ['-C', ${JSON.stringify(wt)}, 'checkout', '-q', '--detach', ${JSON.stringify(h2)}], { env: process.env, encoding: 'utf8' });
+      if (checkout.status !== 0) throw new Error(checkout.stderr);
+    `,
+      )
+      try {
+        const { result, calls, gate, producers } = land(box, wt, pr, mode)
+        expect(result).toMatchObject({ status: 'not-approved', reason: 'head-moved' })
+        expect(gate).toEqual(UNARMED)
+        expect(producers).toEqual([])
+        const pins = calls.filter((args) => args.includes('--match-head-commit')).map((args) => args.at(-1))
+        expect(pins).toEqual(mode === 'native' ? [head()] : [])
+        const disabledAt = calls.findIndex((args) => args.includes('--disable-auto'))
+        const pinnedAt = calls.findIndex((args) => args.includes('--match-head-commit'))
+        expect(disabledAt !== -1 && disabledAt < pinnedAt).toBe(mode === 'native' && armed)
+        if (when === 'pin-write') expect(calls.some((args) => args.includes('--add-label'))).toBe(false)
+      } finally {
+        restore()
+      }
+    },
+  )
+
+  it.each(['native', 'merge-on-green'] as const)('%s keeps watching the armed H when nothing moves', (mode) => {
+    reset(false)
+    const { result, gate, producers } = land(box, wt, pr, mode)
+    expect(result).toMatchObject({ status: 'watching', mode })
+    expect(gate).toEqual(
+      mode === 'native'
+        ? { labels: ['reviewed'], autoMerge: expect.objectContaining({ matchHeadCommit: head() }) }
+        : { labels: ['reviewed'], autoMerge: null },
+    )
+    expect(producers).toEqual([])
+  })
+
   it.each(['native', 'merge-on-green'] as const)(
     '%s refuses a same-name base whose authoritative tip moved',
     (mode) => {
