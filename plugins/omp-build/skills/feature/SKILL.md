@@ -437,7 +437,7 @@ step from the records.
 - `ci-failed` → fix inline from the failed checks (`land.failed`) and their
   logs. `fix` reads review comments, not CI: running it here replays stale findings.
 
-**Order, review-driven round** (`skill://fix` owns it): per-cause light checks
+**Order, review-driven round** (`skill://fix` owns it, including its published-candidate baseline binding when a cause is applied): per-cause light checks
 (lint, covering tests, the proof) → one local commit per cause → local plain
 pre-review (`skill://fix` Phase 3 § Local pre-review: read-only plan conformity, not
 `dev-review`, no post/label/gate, no review bound spent) → falsification → clean tree,

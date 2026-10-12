@@ -4,7 +4,7 @@ argument-hint: '[#PR]'
 description: >-
   OMP-only — apply one fix per blocking root cause from a review, inline, no per-finding choice.
   Triggers: "fix findings" | "fix review" | "apply fixes" | "fix these" | "apply review comments" | "apply the review" | "fix the review issues" | "address review feedback" | "fix PR comments".
-version: 0.3.1
+version: 0.3.2
 ---
 
 # Fix
@@ -169,7 +169,9 @@ Not causes: K (praise, thought, question)
 
 No cause in the apply bucket → commit nothing. The defer and file steps below still run, then Phase 5, which pushes only when a cause commit exists.
 
-The tree must be clean before the first applied cause. Uncommitted changes → halt and name them when the apply bucket is non-empty: a restore below must never touch the operator's work. An empty apply bucket does not halt on a dirty tree. On that clean tree, record `B := git rev-parse HEAD` — the clean pre-fix local baseline the local pre-review reads from.
+The tree must be clean before the first applied cause. Uncommitted changes → halt and name them when the apply bucket is non-empty: a restore below must never touch the operator's work. An empty apply bucket does not halt on a dirty tree.
+
+**Non-empty apply bucket: bind `B` once, before any apply or filing.** With a PR, read its current published `headRefOid` and the marked review's line-2 SHA; both must match each other and the clean local `git rev-parse HEAD`. Set `B` to that published candidate and keep it unchanged through this run. A missing/unreadable reference, moved published head or pre-existing local-only prefix halts before new side effects: report the mismatch and preserve those commits, without restoring, applying or pushing them. Never silently place them below `B`. Without a PR, retain the local-only baseline `B := git rev-parse HEAD` on the clean pre-fix tree. An empty apply bucket needs no baseline and keeps its filing/deferral/receipt path, without a push.
 
 ∀ r in the apply bucket, in order, **inline in this session**:
 
@@ -194,7 +196,7 @@ Applied: N | Deferred: D | Filed: M
 
 Mandatory when ≥ 1 cause commit exists (no apply bucket → nothing to review). Runs after the last cause commit and before Phase 4 and before any Filing a failure here may add. A quick, plain, read-only conformity read, done by this session or by a narrowly scoped read-only reviewer (review delegation is not edit delegation: every edit stays inline here). A delegated reader gets only the exact diff range, the cause plans (`fix:`, `paths:`, raw callsites) and the protected set, and returns plain conformity findings — not a review record. It is **not** `skill://dev-review`, not `nextReviewStep`, not a panel, not a green verdict: it posts nothing, writes no label, touches no gate, and consumes no review record or bound slot — the last official review stays untouched. It replaces neither falsification, nor tests, nor the smoke.
 
-- **First read:** freeze `S := HEAD` after the last cause commit and read `git diff B..S`. Then `P := S`, the last pre-reviewed head.
+- **First read:** freeze `S := HEAD` after the last cause commit and read `git diff B..S` from the entry-bound candidate. For a PR this is the complete unpublished range; no local-only prefix was accepted at entry. Then `P := S`, the last pre-reviewed head.
 - **Later reads:** after a permanent change (rule below) freeze the new `HEAD` and read exactly the unreviewed `git diff P..HEAD`, then `P := HEAD`. Never re-read or re-judge `B..P`.
 - **Look only at plan conformity**, per cause: the diff implements `r.fix`; every `r.paths` entry and every member raw callsite carries it; the Phase 3 step-3 same-class sweep changes stay inside the touched files and outside the protected locations; protected independent mechanisms (deferred, uncited, malformed finding) are untouched; nothing beyond the plan (no scope expansion, no unrelated edit). Print `── Pre-review ── S=<sha> RC-1 conforms · RC-3 mismatch: <what>`. A `git revert` delta is read as the removal of that failed cause, not as an `r.fix` reimplementation.
 - **Mismatch** → correct inline under the same cause's plan: same `r.fix`, same `r.proof`, never another plan. Run the step-4 light checks, make a scoped `O_commit(r)`, then pre-review only that new delta. Every same-plan correction attempt — a repeat mismatch with green targeted tests included — consumes one of what remains of the cause's step-4 max 3; there is no new counter. Out of budget or not implementable → apply failure for the already-committed cause: `git revert --no-edit` that cause's commits, `[failed]`, file it (the revert is itself a permanent change: rule below). A reverted or failed cause is never re-applied in this run.
