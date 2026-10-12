@@ -840,6 +840,17 @@ describe('readAssertledgerRecord', () => {
       /is 2222/,
     ],
     [
+      'a non-reference world bound to the candidate ahead of an unbound reference',
+      detection((_r, m) => {
+        const world = reference(m)
+        const bound: Record<string, unknown> = JSON.parse(world.provenance)
+        m.evidenceContext.worlds.unshift({ id: 'stand-in', provenance: JSON.stringify({ ...bound, role: 'target' }) })
+        world.provenance = JSON.stringify({ ...bound, commit: OTHER })
+      }),
+      'unbound',
+      /reference world is 2222/,
+    ],
+    [
       'a replay that is not valid',
       detection((r) => (r.native.replay.stdout = '{"valid":false}')),
       'unreadable',
@@ -855,6 +866,18 @@ describe('readAssertledgerRecord', () => {
       /replay valid/,
     ],
     ['a replay that exited non-zero', detection((r) => (r.native.replay.exit = 1)), 'unreadable', /replay valid/],
+    ...(['decisionDigestValid', 'artifactDigestValid', 'decisionSemanticsValid'] as const).map(
+      (flag) =>
+        [
+          `a replay whose ${flag} alone is false`,
+          detection((r) => {
+            const flags = JSON.parse(r.native.replay.stdout)
+            r.native.replay.stdout = JSON.stringify({ ...flags, [flag]: false })
+          }),
+          'unreadable',
+          /replay valid/,
+        ] as const,
+    ),
     [
       'a selected candidate that is not ELIGIBLE',
       detection((_r, m) => {
@@ -870,6 +893,12 @@ describe('readAssertledgerRecord', () => {
       detection((_r, m) => (m.decision.status = 'NOT_VERIFIED')),
       'verdict',
       /no detection .*NOT_VERIFIED/,
+    ],
+    [
+      'a VERIFIED decision that selects no candidate',
+      detection((_r, m) => (m.decision.selectedCandidateIds = [])),
+      'verdict',
+      /no detection .*\(miss: VERIFIED\)/,
     ],
   ] as const)('%s refuses', (_label, record, reason, error) => {
     const outcome = readAssertledgerRecord(record, ledgerExpected)
