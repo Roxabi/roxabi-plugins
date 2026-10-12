@@ -50,6 +50,8 @@ Run the `issue-triage` skill's CLI: `init [--dry-run] [--repo owner/repo]`.
 
 Cross-repo: prefix `GITHUB_REPO=<owner/repo>`, and use fully-qualified `OWNER/REPO#N` refs when that env is set.
 
+Filing from a checkout you do not trust (a PR under review): start Bun in this skill's directory with `--no-env-file`, the target in `GITHUB_REPO` and absolute `--title-file` / `--body-file` paths — the skill's Deferred Follow-Ups recipe does. Bun reads `bunfig.toml` and `.env` from the directory it starts in, so a preload committed in the checkout would otherwise run first.
+
 ## Size
 
 | Size | Description |

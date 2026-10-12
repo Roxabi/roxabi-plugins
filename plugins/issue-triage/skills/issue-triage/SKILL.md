@@ -2,7 +2,7 @@
 name: issue-triage
 argument-hint: '[list | set <num> | create --title "..." [--parent N] [--size S] [--priority P] [--type T] [--lane L]]'
 description: Triage/create GitHub issues — set size/priority/lane/type labels, manage dependencies & parent/child. Run before `/feature` picks a ticket up. Triggers: "triage" | "create issue" | "set size" | "set priority" | "blocked by" | "set parent" | "child of" | "sub-issue" | "file an issue" | "log a bug" | "open an issue" | "file a bug" | "add issue" | "new issue" | "set lane" | "set type".
-version: 0.6.0
+version: 0.6.1
 allowed-tools: Bash, Read, ToolSearch
 ---
 
@@ -160,32 +160,37 @@ Cross-repo **relations** (`--blocked-by`, `--blocks`, `--parent`, `--add-child`)
 
 **Recipe — defer A → create follow-up B:**
 
-```bash
-# 1. Resolve A's parent (may be null if A is top-level)
-A_PARENT=$(gh api graphql -f query="query{repository(owner:\"$OWNER\",name:\"$REPO\"){issue(number:$A){parent{number}}}}" \
-  --jq '.data.repository.issue.parent.number // empty')
+Triage starts in its own directory, never the checkout: Bun reads `bunfig.toml` and `.env` from the directory it starts in, and a tracked preload there runs before triage and can print `Created #N` and exit 0 with nothing filed (`--no-env-file` alone does not stop it). The target repository is resolved in the checkout and passed as `GITHUB_REPO`; started from its own directory without it, triage would resolve the plugin's repository, and it no longer reads a `.dev/dev-core.yml` `github_repo` pin. An unresolved script or repository refuses.
 
-# 2. Create B as sibling: same parent as A, blocked-by A.
-#    Title and body go through files — both often quote review text you did not write.
+```bash
+# Title and body go through files — both often quote review text you did not write.
 DIR=$(mktemp -d -t "issue-triage-defer-XXXXXX")
-# write "$DIR/title.txt" ({deferred title}) and "$DIR/body.md"
-# (**Origin:** #A (deferred from ...), then {details}) with an editor or a write tool
-T create \
+# write "$DIR/title.txt" ({deferred title}) and "$DIR/body.md" (**Origin:** #A
+# (deferred from ...), then {details}) with an editor or a write tool, then:
+TRIAGE=$(realpath "${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts") && TRIAGE_REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+triage() { (: "${TRIAGE:?issue-triage unresolved}" "${TRIAGE_REPO:?repository unresolved}" && cd "$(dirname "$TRIAGE")" && GITHUB_REPO="$TRIAGE_REPO" bun --no-env-file "$TRIAGE" "$@"); }
+# A's parent, empty when A is top-level. B takes it, and is blocked by A.
+A_PARENT=$(gh api graphql -f query="query{repository(owner:\"${TRIAGE_REPO%/*}\",name:\"${TRIAGE_REPO#*/}\"){issue(number:$A){parent{number}}}}" \
+  --jq '.data.repository.issue.parent.number // empty')
+triage create \
   --title-file "$DIR/title.txt" \
   --body-file "$DIR/body.md" \
   --blocked-by "#${A}" \
-  ${A_PARENT:+--parent "#${A_PARENT}"}
-rm -rf "$DIR"
+  ${A_PARENT:+--parent "#${A_PARENT}"} && rm -rf "$DIR"
 ```
+
+`create` prints `Created #N` first, then one line per write (`Type=`, `Size=`, `Parent=`, `BlockedBy=`…). A nonzero exit after `Created #N` leaves #N filed but incomplete: never create it again. Run the same block with `triage set N` as its last command, passing only the flags whose line is missing.
 
 **Edge cases:**
 - A has no parent → B has no parent either (both top-level). Consider whether A should be re-parented under a freshly-created epic if the fan-out grows.
 - A is already top-level epic → defer creates child of A (epic decomposition pattern applies).
-- Existing follow-up issue B mis-parented under A → fix retroactively:
+- Existing follow-up issue B mis-parented under A → fix retroactively, with the same launch:
   ```bash
-  T set <B> --rm-parent
-  T set <B> --parent "#${A_PARENT}"
-  T set <B> --blocked-by "#${A}"  # ensure traceability link
+  TRIAGE=$(realpath "${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts") && TRIAGE_REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+  triage() { (: "${TRIAGE:?issue-triage unresolved}" "${TRIAGE_REPO:?repository unresolved}" && cd "$(dirname "$TRIAGE")" && GITHUB_REPO="$TRIAGE_REPO" bun --no-env-file "$TRIAGE" "$@"); }
+  triage set <B> --rm-parent
+  triage set <B> --parent "#${A_PARENT}"
+  triage set <B> --blocked-by "#${A}"  # ensure traceability link
   ```
 
 ## Complexity Scoring
