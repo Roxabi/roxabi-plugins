@@ -87,8 +87,14 @@ function fakeIndexers(dir: string): { env: NodeJS.ProcessEnv; log: string } {
 }
 
 describe('worktree bootstrap', () => {
-  it('copies, seeds and runs setup once, then no-ops', () => {
-    const { repo, wt } = principalWith(STACK)
+  it.each([
+    { name: 'block lists', stack: STACK },
+    {
+      name: 'flow lists',
+      stack: 'worktree:\n  copy: [.env]\n  seed: [cache/state.db]\n  setup: touch setup-ran\n',
+    },
+  ])('copies, seeds and runs setup once, then no-ops with $name', ({ stack }) => {
+    const { repo, wt } = principalWith(stack)
     const before = statSync(path.join(repo, '.env')).mtimeMs
     const first = execFileSync('bash', [BOOT], { cwd: wt, env: ENV, encoding: 'utf8' })
     expect(first.trim()).toBe('bootstrap=done')
@@ -101,6 +107,47 @@ describe('worktree bootstrap', () => {
     expect(statSync(path.join(wt, 'setup-ran')).mtimeMs).toBe(stamped)
     expect(statSync(path.join(repo, '.env')).mtimeMs).toBe(before)
     expect(readFileSync(path.join(repo, '.env'), 'utf8')).toBe('REAL=1\n')
+  })
+
+  it('treats producer-shaped empty lists as no transfer', () => {
+    const { wt } = principalWith('worktree:\n  copy: []\n  seed: []\n  setup: ""\n')
+
+    const out = execFileSync('bash', [BOOT], { cwd: wt, env: ENV, encoding: 'utf8' })
+
+    expect(out.trim()).toBe('bootstrap=done')
+    expect(existsSync(path.join(wt, '.env'))).toBe(false)
+    expect(existsSync(path.join(wt, 'cache', 'state.db'))).toBe(false)
+    expect(existsSync(path.join(wt, 'setup-ran'))).toBe(false)
+  })
+
+  it('boots without a stack file', () => {
+    const { wt } = principalWith('')
+    rmSync(path.join(wt, '.dev', 'stack.yml'))
+
+    const out = execFileSync('bash', [BOOT], { cwd: wt, env: ENV, encoding: 'utf8' })
+
+    expect(out.trim()).toBe('bootstrap=done')
+  })
+
+  it('copies and seeds through newline-ending parent directories without changing the source', () => {
+    const copy = 'copy-parent\n/value.txt'
+    const seed = 'seed-parent\n/state.db'
+    const stack = `worktree:
+  copy: [${JSON.stringify(copy)}]
+  seed: [${JSON.stringify(seed)}]
+`
+    const { repo, wt } = principalWith(stack)
+    mkdirSync(path.dirname(path.join(repo, copy)), { recursive: true })
+    mkdirSync(path.dirname(path.join(repo, seed)), { recursive: true })
+    writeFileSync(path.join(repo, copy), 'copy through newline\n')
+    writeFileSync(path.join(repo, seed), 'seed through newline\n')
+
+    execFileSync('bash', [BOOT], { cwd: wt, env: ENV, encoding: 'utf8' })
+
+    expect(readFileSync(path.join(wt, copy), 'utf8')).toBe('copy through newline\n')
+    expect(readFileSync(path.join(wt, seed), 'utf8')).toBe('seed through newline\n')
+    expect(readFileSync(path.join(repo, copy), 'utf8')).toBe('copy through newline\n')
+    expect(readFileSync(path.join(repo, seed), 'utf8')).toBe('seed through newline\n')
   })
 
   it('runs the declared setup file from the worktree once when only commands.worktree_setup exists', () => {
@@ -123,8 +170,10 @@ describe('worktree bootstrap', () => {
     { name: 'empty setup', prefix: 'worktree:\n  setup: ""\n', file: 'tools/setup.sh' },
     { name: 'whitespace setup', prefix: 'worktree:\n  setup: "  "\n', file: 'tools/setup.sh' },
     { name: 'option-like filename', prefix: '', file: '--version' },
+    { name: 'delimiter-like filename', prefix: '', file: '---' },
+    { name: 'quoted filename with spaces', prefix: '', file: "tools/quote ' space.sh" },
   ])('runs the fallback file for $name', ({ prefix, file }) => {
-    const { wt } = principalWith(`${prefix}commands:\n  worktree_setup: "${file}" # script path\n`, {
+    const { wt } = principalWith(`${prefix}commands:\n  worktree_setup: ${JSON.stringify(file)} # script path\n`, {
       [file]: 'printf "fallback\\n" > setup-runs\n',
     })
 
@@ -148,6 +197,18 @@ commands:
     execFileSync('bash', [BOOT], { cwd: wt, env: ENV, encoding: 'utf8' })
 
     expect(readFileSync(path.join(wt, 'setup-runs'), 'utf8')).toBe('snippet\nsecond\n')
+  })
+
+  it('keeps the terminal setup newline that completes a Bash continuation', () => {
+    const { wt } = principalWith(`worktree:
+  setup: |
+    touch terminal-continuation\\
+`)
+
+    execFileSync('bash', [BOOT], { cwd: wt, env: ENV, encoding: 'utf8' })
+
+    expect(existsSync(path.join(wt, 'terminal-continuation'))).toBe(true)
+    expect(existsSync(path.join(wt, 'terminal-continuation\\'))).toBe(false)
   })
 
   it('keeps multiline setup contents out of the copy list', () => {
@@ -190,6 +251,76 @@ commands:
     expect(retry.trim()).toBe('bootstrap=done')
     expect(readFileSync(path.join(wt, 'setup-runs'), 'utf8')).toBe('failed\nretry\n')
     expect(existsSync(path.join(gitDir, 'omp-build-bootstrapped'))).toBe(true)
+    expect(() => lstatSync(path.join(gitDir, 'omp-build-bootstrap.lock'))).toThrow(/ENOENT/)
+  })
+
+  it('fails malformed YAML before transfer, setup, indexing or marking, then retries after correction', () => {
+    const { repo, wt } = principalWith('worktree:\n  copy: [.env\n  setup: touch setup-ran\n')
+    const gitDir = path.join(repo, '.git', 'worktrees', 'wt')
+    const ccc = path.join(repo, '.cocoindex_code')
+    mkdirSync(ccc)
+    writeFileSync(path.join(ccc, 'settings.yml'), 'include_patterns: []\n')
+    mkdirSync(path.join(repo, '.codegraph'))
+    writeFileSync(path.join(repo, '.codegraph', 'codegraph.db'), 'graph\n')
+    const { env, log } = fakeIndexers(path.dirname(repo))
+
+    const failed = spawnSync('bash', [BOOT], { cwd: wt, env, encoding: 'utf8' })
+
+    expect(failed.status).not.toBe(0)
+    expect(failed.stderr).toContain(path.join(wt, '.dev', 'stack.yml'))
+    expect(existsSync(path.join(wt, '.env'))).toBe(false)
+    expect(existsSync(path.join(wt, 'setup-ran'))).toBe(false)
+    expect(existsSync(log)).toBe(false)
+    expect(existsSync(path.join(gitDir, 'omp-build-bootstrapped'))).toBe(false)
+    expect(() => lstatSync(path.join(gitDir, 'omp-build-bootstrap.lock'))).toThrow(/ENOENT/)
+
+    writeFileSync(path.join(wt, '.dev', 'stack.yml'), 'worktree:\n  copy: [.env]\n  setup: touch setup-ran\n')
+    execFileSync('bash', [BOOT], { cwd: wt, env, encoding: 'utf8' })
+
+    expect(readFileSync(path.join(wt, '.env'), 'utf8')).toBe('REAL=1\n')
+    expect(existsSync(path.join(wt, 'setup-ran'))).toBe(true)
+    expect(readFileSync(log, 'utf8')).toContain('ccc index|')
+    expect(readFileSync(log, 'utf8')).toContain('codegraph init -y')
+    expect(existsSync(path.join(gitDir, 'omp-build-bootstrapped'))).toBe(true)
+    expect(() => lstatSync(path.join(gitDir, 'omp-build-bootstrap.lock'))).toThrow(/ENOENT/)
+  })
+
+  it.each([
+    { name: 'a scalar copy field', stack: 'worktree:\n  copy: .env\n' },
+    { name: 'a NUL list value', stack: 'worktree:\n  copy: ["unsafe\u0000"]\n' },
+  ])('rejects $name at the stack transport boundary', ({ stack }) => {
+    const { repo, wt } = principalWith(stack)
+    const gitDir = path.join(repo, '.git', 'worktrees', 'wt')
+
+    const failed = spawnSync('bash', [BOOT], { cwd: wt, env: ENV, encoding: 'utf8' })
+
+    expect(failed.status).not.toBe(0)
+    expect(failed.stderr).toContain(path.join(wt, '.dev', 'stack.yml'))
+    expect(existsSync(path.join(wt, '.env'))).toBe(false)
+    expect(existsSync(path.join(gitDir, 'omp-build-bootstrapped'))).toBe(false)
+    expect(() => lstatSync(path.join(gitDir, 'omp-build-bootstrap.lock'))).toThrow(/ENOENT/)
+  })
+
+  it.each([
+    { name: 'missing records', body: 'exit 0\n' },
+    { name: 'a truncated record', body: "printf 'copy\\0'\n" },
+  ])('rejects missing or truncated Bun output with $name', ({ body }) => {
+    const { repo, wt } = principalWith('worktree:\n  copy: []\n')
+    const bin = path.join(path.dirname(repo), 'bin')
+    mkdirSync(bin)
+    writeFileSync(path.join(bin, 'bun'), `#!/usr/bin/env bash\n${body}`)
+    chmodSync(path.join(bin, 'bun'), 0o755)
+    const gitDir = path.join(repo, '.git', 'worktrees', 'wt')
+
+    const failed = spawnSync('bash', [BOOT], {
+      cwd: wt,
+      env: { ...ENV, PATH: `${bin}:${ENV.PATH}` },
+      encoding: 'utf8',
+    })
+
+    expect(failed.status).not.toBe(0)
+    expect(failed.stderr).toContain(path.join(wt, '.dev', 'stack.yml'))
+    expect(existsSync(path.join(gitDir, 'omp-build-bootstrapped'))).toBe(false)
     expect(() => lstatSync(path.join(gitDir, 'omp-build-bootstrap.lock'))).toThrow(/ENOENT/)
   })
 

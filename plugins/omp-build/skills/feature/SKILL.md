@@ -372,6 +372,10 @@ rebuilt; `.codegraph` is a fresh `codegraph init -y`. A marker under
 `git rev-parse --git-dir` makes a second run a no-op, and a lock there
 serialises concurrent runs. It refuses to write on the principal and never
 copies `*.example` in place of a missing real file.
+When the stack exists, Bun.YAML (Bun ≥1.2.21) reads the lists and selected setup
+before transfers or indexing. Block and flow string lists agree; `[]` means no
+transfer. Invalid YAML or consumed list shape fails nonzero, names
+`.dev/stack.yml`, and leaves no completion marker; correct it before retrying.
 Agent-created worktrees live at `<worktree base>/<repo>/<slug>`, where the base
 is `OMP_WORKTREE_DIR`, else `.dev/stack.yml` `worktree.base`, else `~/.omp/wt`.
 Resolve the review target before opening a semantic contract. An existing PR
