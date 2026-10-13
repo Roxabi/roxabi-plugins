@@ -169,6 +169,23 @@ describe('triage init --root', () => {
     expect(readFileSync(w.trustedContract, 'utf8')).toBe(w.trustedBytes)
   })
 
+  it.each(['existing', 'missing'])('writes through a trailing-slash internal %s directory ancestor', async (state) => {
+    const w = await world()
+    const physicalDocs = path.join(w.target, 'physical-docs')
+    if (state === 'existing') mkdirSync(physicalDocs)
+    symlinkSync('physical-docs/', path.join(w.target, 'docs'), 'dir')
+    const ran = await run(
+      `bun --no-env-file ${JSON.stringify(w.script)} init --root ${JSON.stringify(w.target)}`,
+      path.dirname(w.script),
+      w.env,
+    )
+
+    expect(ran.code).toBe(0)
+    expect(existsSync(path.join(physicalDocs, 'agents', 'issue-tracker.md'))).toBe(true)
+    expect(readFileSync(w.targetContract, 'utf8')).toContain('Acme/app')
+    expect(readFileSync(w.trustedContract, 'utf8')).toBe(w.trustedBytes)
+  })
+
   it('refuses a dangling contract symlink before every write', async () => {
     const w = await world()
     const outside = path.join(root!, 'outside')

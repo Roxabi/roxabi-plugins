@@ -48,6 +48,8 @@ Run the `issue-triage` skill's CLI: `init [--dry-run] [--repo owner/repo] [--roo
 
 Contract-path confinement resolves every ancestor and final symlink. External targets, non-directory ancestors, cycles and chains exceeding 40 symlink expansions are refused before GitHub or contract writes. Missing internal targets retain their full path and are created at the resolved physical destination. The original contract path is rechecked after creating its physical parent; this is not atomic protection against concurrent filesystem changes.
 
+A trailing slash on an internal directory ancestor is allowed, including when that directory must be created. A trailing slash on the final contract target is refused: the contract must remain a usable file.
+
 `create` accepts the same field flags as `set`: `--size`, `--priority`, `--lane`, `--type`, plus `--parent`, `--add-child`, `--blocked-by`, `--blocks`.
 
 Cross-repo: prefix `GITHUB_REPO=<owner/repo>`, and use fully-qualified `OWNER/REPO#N` refs when that env is set. Sibling deferral preserves the origin parent's full coordinate, even when another repository contains the same issue number. `set --rm-parent` resolves that actual parent and prints `RemovedParent=OWNER/REPO#N`; it never rebinds the parent's number to the subject repository. The shared lookup helper is `getParentRef`, returning the complete reference or `null`; the numeric-only helper was removed.

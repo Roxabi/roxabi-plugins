@@ -113,7 +113,11 @@ export function containedContract(root: string): string {
       index++
       continue
     }
-    if (component === '') throw new Error('init: contract symlink target is not a file')
+    if (component === '') {
+      if (index === components.length - 1) throw new Error('init: contract symlink target is not a file')
+      index++
+      continue
+    }
     if (component === '..') {
       const parent = dirname(current)
       if (contained(checkout, current) && !contained(checkout, parent)) {
@@ -132,7 +136,7 @@ export function containedContract(root: string): string {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       const suffix = components.slice(index)
       if (suffix.includes('..')) throw new Error('init: contract symlink target has unresolved ..')
-      if (suffix.includes('')) throw new Error('init: contract symlink target is not a file')
+      if (suffix[suffix.length - 1] === '') throw new Error('init: contract symlink target is not a file')
       const destination = join(current, ...suffix)
       if (!contained(checkout, current) || !contained(checkout, destination)) {
         throw new Error('init: contract symlink resolves outside the selected checkout')
