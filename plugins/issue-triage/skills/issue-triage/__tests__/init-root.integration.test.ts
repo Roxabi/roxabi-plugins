@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -119,6 +119,224 @@ describe('triage init --root', () => {
     expect(ran.stdout).toContain('dry-run: true')
     expect(existsSync(w.labels)).toBe(false)
     expect(existsSync(w.targetContract)).toBe(false)
+    expect(readFileSync(w.trustedContract, 'utf8')).toBe(w.trustedBytes)
+  })
+
+  it('refuses an explicit --root without a value before every write', async () => {
+    const w = await world()
+    const ran = await run(`bun --no-env-file ${JSON.stringify(w.script)} init --root`, path.dirname(w.script), w.env)
+
+    expect(ran.code).not.toBe(0)
+    expect(ran.stderr).toContain('init: --root needs a checkout path')
+    expect(existsSync(w.targetContract)).toBe(false)
+    expect(readFileSync(w.trustedContract, 'utf8')).toBe(w.trustedBytes)
+    expect(existsSync(w.labels)).toBe(false)
+    expect(ghCalls(w.ghLog)).toEqual([])
+    expect(fake?.calls ?? []).toEqual([])
+  })
+
+  it('follows a contract symlink that resolves inside the selected checkout', async () => {
+    const w = await world()
+    const internal = path.join(w.target, 'internal-contract.md')
+    mkdirSync(path.dirname(w.targetContract), { recursive: true })
+    symlinkSync(internal, w.targetContract)
+    const ran = await run(
+      `bun --no-env-file ${JSON.stringify(w.script)} init --root ${JSON.stringify(w.target)}`,
+      path.dirname(w.script),
+      w.env,
+    )
+
+    expect(ran.code).toBe(0)
+    expect(ran.stdout).toContain('contract: write')
+    expect(readFileSync(internal, 'utf8')).toContain('Acme/app')
+    expect(readFileSync(w.trustedContract, 'utf8')).toBe(w.trustedBytes)
+  })
+
+  it('refuses a dangling contract symlink before every write', async () => {
+    const w = await world()
+    const outside = path.join(root!, 'outside')
+    mkdirSync(outside)
+    const external = path.join(outside, 'issue-tracker.md')
+    mkdirSync(path.dirname(w.targetContract), { recursive: true })
+    symlinkSync(external, w.targetContract)
+    const ran = await run(
+      `bun --no-env-file ${JSON.stringify(w.script)} init --root ${JSON.stringify(w.target)}`,
+      path.dirname(w.script),
+      w.env,
+    )
+
+    expect(ran.code).not.toBe(0)
+    expect(ran.stderr).toContain('init: contract symlink resolves outside the selected checkout')
+    expect(existsSync(external)).toBe(false)
+    expect(existsSync(w.labels)).toBe(false)
+    expect(ghCalls(w.ghLog)).toEqual([])
+    expect(readFileSync(w.trustedContract, 'utf8')).toBe(w.trustedBytes)
+  })
+
+  it('refuses an ancestor directory symlink before every write', async () => {
+    const w = await world()
+    const outside = path.join(root!, 'outside')
+    mkdirSync(outside)
+    symlinkSync(outside, path.join(w.target, 'docs'), 'dir')
+    const external = path.join(outside, 'agents', 'issue-tracker.md')
+    const ran = await run(
+      `bun --no-env-file ${JSON.stringify(w.script)} init --root ${JSON.stringify(w.target)}`,
+      path.dirname(w.script),
+      w.env,
+    )
+
+    expect(ran.code).not.toBe(0)
+    expect(ran.stderr).toContain('init: contract symlink resolves outside the selected checkout')
+    expect(existsSync(external)).toBe(false)
+    expect(existsSync(w.labels)).toBe(false)
+    expect(ghCalls(w.ghLog)).toEqual([])
+  })
+
+  it('refuses a lexical in-checkout link whose existing prefix is outside', async () => {
+    const w = await world()
+    const outside = path.join(root!, 'outside')
+    mkdirSync(path.join(w.target, 'docs/agents'), { recursive: true })
+    mkdirSync(outside)
+    symlinkSync(outside, path.join(w.target, 'docs/agents/escape'), 'dir')
+    symlinkSync(path.join(w.target, 'docs/agents/escape/issue-tracker.md'), w.targetContract)
+    const external = path.join(outside, 'issue-tracker.md')
+    const ran = await run(
+      `bun --no-env-file ${JSON.stringify(w.script)} init --root ${JSON.stringify(w.target)}`,
+      path.dirname(w.script),
+      w.env,
+    )
+
+    expect(ran.code).not.toBe(0)
+    expect(ran.stderr).toContain('init: contract symlink resolves outside the selected checkout')
+    expect(existsSync(external)).toBe(false)
+    expect(existsSync(w.labels)).toBe(false)
+    expect(ghCalls(w.ghLog)).toEqual([])
+  })
+
+  it('refuses a final internal symlink chain that ends at an absent external contract', async () => {
+    const w = await world()
+    const outside = path.join(path.dirname(w.target), 'outside')
+    const external = path.join(outside, 'issue-tracker.md')
+    const internal = path.join(w.target, 'internal-contract.md')
+    mkdirSync(outside)
+    mkdirSync(path.dirname(w.targetContract), { recursive: true })
+    symlinkSync(internal, w.targetContract)
+    symlinkSync(external, internal)
+    const ran = await run(
+      `bun --no-env-file ${JSON.stringify(w.script)} init --root ${JSON.stringify(w.target)}`,
+      path.dirname(w.script),
+      w.env,
+    )
+
+    expect(existsSync(external)).toBe(false)
+    expect(ran.code).not.toBe(0)
+    expect(ran.stderr).toMatch(/contract.*symlink|symlink.*contract/i)
+    expect(existsSync(w.labels)).toBe(false)
+    expect(ghCalls(w.ghLog)).toEqual([])
+    expect(fake?.calls ?? []).toEqual([])
+    expect(readFileSync(w.trustedContract, 'utf8')).toBe(w.trustedBytes)
+  })
+
+  it('writes through a final internal symlink chain to the physical contract target', async () => {
+    const w = await world()
+    const internal = path.join(w.target, 'internal-contract.md')
+    const rendered = path.join(w.target, 'contracts', 'rendered-issue-tracker.md')
+    mkdirSync(path.dirname(w.targetContract), { recursive: true })
+    mkdirSync(path.dirname(rendered), { recursive: true })
+    symlinkSync(internal, w.targetContract)
+    symlinkSync(rendered, internal)
+    const ran = await run(
+      `bun --no-env-file ${JSON.stringify(w.script)} init --root ${JSON.stringify(w.target)}`,
+      path.dirname(w.script),
+      w.env,
+    )
+
+    expect(ran.code).toBe(0)
+    expect(ran.stdout).toContain('contract: write')
+    expect(readFileSync(rendered, 'utf8')).toContain('Acme/app')
+    expect(readFileSync(w.trustedContract, 'utf8')).toBe(w.trustedBytes)
+  })
+
+  it('creates a missing internal symlink target with its full intended suffix', async () => {
+    const w = await world()
+    const intended = path.join(w.target, 'generated', 'contracts', 'issue-tracker.md')
+    mkdirSync(path.dirname(w.targetContract), { recursive: true })
+    symlinkSync(intended, w.targetContract)
+    const ran = await run(
+      `bun --no-env-file ${JSON.stringify(w.script)} init --root ${JSON.stringify(w.target)}`,
+      path.dirname(w.script),
+      w.env,
+    )
+
+    expect(ran.code).toBe(0)
+    expect(ran.stdout).toContain('contract: write')
+    expect(readFileSync(intended, 'utf8')).toContain('Acme/app')
+    expect(readFileSync(w.trustedContract, 'utf8')).toBe(w.trustedBytes)
+  })
+
+  it('refuses a self-referential contract symlink without timing out or mutating GitHub', async () => {
+    const w = await world()
+    mkdirSync(path.dirname(w.targetContract), { recursive: true })
+    symlinkSync(w.targetContract, w.targetContract)
+    const ran = await run(
+      `bun --no-env-file ${JSON.stringify(w.script)} init --root ${JSON.stringify(w.target)}`,
+      path.dirname(w.script),
+      w.env,
+      1_000,
+    )
+
+    expect(ran.signal).not.toBe('SIGKILL')
+    expect(ran.code).not.toBe(0)
+    expect(ran.stderr).toMatch(/contract.*symlink|symlink.*contract/i)
+    expect(existsSync(w.labels)).toBe(false)
+    expect(ghCalls(w.ghLog)).toEqual([])
+    expect(fake?.calls ?? []).toEqual([])
+    expect(readFileSync(w.trustedContract, 'utf8')).toBe(w.trustedBytes)
+  })
+
+  it('refuses mutually referential contract symlinks without timing out or mutating GitHub', async () => {
+    const w = await world()
+    const first = path.join(w.target, 'first-contract.md')
+    const second = path.join(w.target, 'second-contract.md')
+    mkdirSync(path.dirname(w.targetContract), { recursive: true })
+    symlinkSync(first, w.targetContract)
+    symlinkSync(second, first)
+    symlinkSync(first, second)
+    const ran = await run(
+      `bun --no-env-file ${JSON.stringify(w.script)} init --root ${JSON.stringify(w.target)}`,
+      path.dirname(w.script),
+      w.env,
+      1_000,
+    )
+
+    expect(ran.signal).not.toBe('SIGKILL')
+    expect(ran.code).not.toBe(0)
+    expect(ran.stderr).toMatch(/contract.*symlink|symlink.*contract/i)
+    expect(existsSync(w.labels)).toBe(false)
+    expect(ghCalls(w.ghLog)).toEqual([])
+    expect(fake?.calls ?? []).toEqual([])
+    expect(readFileSync(w.trustedContract, 'utf8')).toBe(w.trustedBytes)
+  })
+
+  it('refuses an expanding contract symlink path without timing out or mutating GitHub', async () => {
+    const w = await world()
+    const expanding = path.join(w.target, 'expanding')
+    mkdirSync(path.dirname(w.targetContract), { recursive: true })
+    symlinkSync(path.join(expanding, 'issue-tracker.md'), w.targetContract)
+    symlinkSync(path.join(expanding, 'expanding'), expanding, 'dir')
+    const ran = await run(
+      `bun --no-env-file ${JSON.stringify(w.script)} init --root ${JSON.stringify(w.target)}`,
+      path.dirname(w.script),
+      w.env,
+      1_000,
+    )
+
+    expect(ran.signal).not.toBe('SIGKILL')
+    expect(ran.code).not.toBe(0)
+    expect(ran.stderr).toMatch(/contract.*symlink|symlink.*contract/i)
+    expect(existsSync(w.labels)).toBe(false)
+    expect(ghCalls(w.ghLog)).toEqual([])
+    expect(fake?.calls ?? []).toEqual([])
     expect(readFileSync(w.trustedContract, 'utf8')).toBe(w.trustedBytes)
   })
 })

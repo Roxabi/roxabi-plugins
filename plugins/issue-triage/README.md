@@ -46,6 +46,8 @@ Adopt a repository. `init` writes `docs/agents/issue-tracker.md` only when that 
 
 Run the `issue-triage` skill's CLI: `init [--dry-run] [--repo owner/repo] [--root checkout]`. `--root` selects the local contract's git toplevel for reading and writing; it does not change Bun's startup directory or select the GitHub repository. When starting in the trusted CLI directory, preserve the target separately with `GITHUB_REPO`. Without `--root`, contract lookup retains the current-directory behavior.
 
+Contract-path confinement resolves every ancestor and final symlink. External targets, non-directory ancestors, cycles and chains exceeding 40 symlink expansions are refused before GitHub or contract writes. Missing internal targets retain their full path and are created at the resolved physical destination. The original contract path is rechecked after creating its physical parent; this is not atomic protection against concurrent filesystem changes.
+
 `create` accepts the same field flags as `set`: `--size`, `--priority`, `--lane`, `--type`, plus `--parent`, `--add-child`, `--blocked-by`, `--blocks`.
 
 Cross-repo: prefix `GITHUB_REPO=<owner/repo>`, and use fully-qualified `OWNER/REPO#N` refs when that env is set. Sibling deferral preserves the origin parent's full coordinate, even when another repository contains the same issue number. `set --rm-parent` resolves that actual parent and prints `RemovedParent=OWNER/REPO#N`; it never rebinds the parent's number to the subject repository. The shared lookup helper is `getParentRef`, returning the complete reference or `null`; the numeric-only helper was removed.
@@ -80,6 +82,21 @@ P1 fires on either of two triggers: the milestone in progress, or a shipped chec
 ## Maintenance
 
 Keep literal harness placeholders intact when changing the OMP path-rewrite implementation; lint maintenance must not change expansion behavior. Publish OMP changes with matching, newer versions in `package.json` and `.omp-plugin/marketplace.json`; Claude's hash-keyed delivery is unchanged.
+
+## Verification
+
+Use CI's native package entrypoint for contract confinement and Linux process-lifetime checks:
+
+```bash
+bun run test \
+  plugins/issue-triage/skills/issue-triage/__tests__/init-root.integration.test.ts \
+  plugins/issue-triage/skills/issue-triage/__tests__/init.test.ts \
+  plugins/issue-triage/skills/issue-triage/__tests__/runner-lifetime.integration.test.ts
+```
+
+The contract integration suite exercises the actual CLI and filesystem: internal chains and missing parents, external-target refusal, and simple, mutual and expanding cycles without GitHub mutations.
+
+The lifetime suite starts real child processes, checks that owned descendants stop executing, and accepts a zombie independently of PID disappearance. Unexpected `/proc` read errors remain failures. Process checks use native child-process APIs rather than the test setup's Bun shim; a direct Bun invocation of Vitest is not a substitute for the CI entrypoint.
 
 ## License
 

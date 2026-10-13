@@ -13,8 +13,17 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  type Stats,
+  writeFileSync,
+} from 'node:fs'
+import { dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { detectGitHubRepo } from '../../shared/adapters/config-helpers'
 import { ensureLabel, listIssueLabelSets, listLabelNames, updateLabels } from '../../shared/adapters/github-adapter'
@@ -86,8 +95,72 @@ export function repoToplevel(cwd: string, revParse: (cwd: string) => string = gi
   return revParse(cwd)
 }
 
+function contained(root: string, candidate: string): boolean {
+  const fromRoot = relative(root, candidate)
+  return fromRoot === '' || (!fromRoot.startsWith(`..${sep}`) && fromRoot !== '..' && !isAbsolute(fromRoot))
+}
+
+/** A contract symlink is usable only when every link resolves inside the checkout. */
+export function containedContract(root: string): string {
+  const checkout = realpathSync(root)
+  const components = CONTRACT_REL.split('/')
+  let current = checkout
+  let expansions = 0
+
+  for (let index = 0; index < components.length; ) {
+    const component = components[index]
+    if (component === '' || component === '.') {
+      index++
+      continue
+    }
+    if (component === '..') {
+      const parent = dirname(current)
+      if (contained(checkout, current) && !contained(checkout, parent)) {
+        throw new Error('init: contract symlink resolves outside the selected checkout')
+      }
+      current = parent
+      index++
+      continue
+    }
+
+    const candidate = join(current, component)
+    let stat: Stats
+    try {
+      stat = lstatSync(candidate)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      const suffix = components.slice(index)
+      if (suffix.includes('..')) throw new Error('init: contract symlink target has unresolved ..')
+      const destination = join(current, ...suffix)
+      if (!contained(checkout, current) || !contained(checkout, destination)) {
+        throw new Error('init: contract symlink resolves outside the selected checkout')
+      }
+      return destination
+    }
+
+    if (stat.isSymbolicLink()) {
+      if (++expansions > 40) throw new Error('init: contract symlink resolution exceeds 40 expansions')
+      const target = readlinkSync(candidate)
+      components.splice(index, 1, ...target.split(sep).filter(Boolean))
+      if (isAbsolute(target)) current = sep
+      continue
+    }
+
+    if (index < components.length - 1 && !stat.isDirectory()) {
+      throw new Error('init: contract path contains a non-directory')
+    }
+    current = candidate
+    index++
+  }
+
+  if (!contained(checkout, current)) {
+    throw new Error('init: contract symlink resolves outside the selected checkout')
+  }
+  return current
+}
+
 export function readContractFile(root: string): string | null {
-  const file = contractFile(root)
+  const file = containedContract(root)
   return existsSync(file) ? readFileSync(file, 'utf8') : null
 }
 
@@ -99,7 +172,7 @@ function renderContract(repo: string, labels: string[]): string {
 }
 
 export function contractReader(cwd: string, revParse: (cwd: string) => string = gitRevParse): () => string | null {
-  const file = contractFile(repoToplevel(cwd, revParse))
+  const file = containedContract(repoToplevel(cwd, revParse))
   return () => (existsSync(file) ? readFileSync(file, 'utf8') : null)
 }
 export function contractAction(
@@ -324,7 +397,7 @@ function parseArgs(args: string[]): { dryRun: boolean; repo?: string; root?: str
 }
 
 function defaultDeps(cwdRepo: string, cwd = process.cwd()): InitDeps {
-  const file = contractFile(repoToplevel(cwd))
+  const root = repoToplevel(cwd)
   return {
     listLabelNames,
     listIssueLabelSets,
@@ -333,8 +406,10 @@ function defaultDeps(cwdRepo: string, cwd = process.cwd()): InitDeps {
     cwdRepo,
     readContract: contractReader(cwd),
     writeContract: (text) => {
-      mkdirSync(dirname(file), { recursive: true })
-      writeFileSync(file, text)
+      const destination = containedContract(root)
+      mkdirSync(dirname(destination), { recursive: true })
+      const physical = containedContract(root)
+      writeFileSync(physical, text)
     },
   }
 }
