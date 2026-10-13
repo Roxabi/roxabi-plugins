@@ -6,6 +6,7 @@ const exclude = [
   '**/cli/__tests__/**',
   // worktrees are isolated checkouts — their tests run in their own context
   '**/.claude/worktrees/**',
+  '**/archived/**',
 ]
 
 // A test that forks a real process pays for process startup plus whatever the

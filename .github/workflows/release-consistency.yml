@@ -42,7 +42,7 @@
 #       clears and writes it only when it RUNS; when it is `skipped`
 #       (job.workflow_* unpopulated — they are documented as unavailable on
 #       GHES) or `failure`d, nothing touches the path, so a
-#       `.gate-tools/plugins/dev-core/skills/promote/price.sh` COMMITTED BY THE
+#       `.gate-tools/plugins/omp-build/skills/promote/price.sh` COMMITTED BY THE
 #       PR would be what executes. Two answers, both required: the workflow
 #       clears the path unconditionally before the pinned checkout (so it owns
 #       it), and the gate decides on PROVENANCE, not presence — the deriver
@@ -116,7 +116,7 @@ jobs:
       # author's own tree on the pull_request path. The pinned checkout below
       # clears and writes it ONLY WHEN IT RUNS; skipped (job.workflow_*
       # unpopulated) or failed (continue-on-error), nothing touches the path and
-      # a `.gate-tools/plugins/dev-core/skills/promote/price.sh` committed by the
+      # a `.gate-tools/plugins/omp-build/skills/promote/price.sh` committed by the
       # PR is what `$PRICE` would find. Clear it unconditionally so the workflow
       # owns the path whatever the pinned step does next.
       #
@@ -171,7 +171,7 @@ jobs:
           set -euo pipefail
 
           # THE DERIVER IS THE PINNED COPY, NOT THE CHECKOUT (#385 item 1).
-          # `plugins/dev-core/skills/promote/price.sh` in the checkout is the PR
+          # `plugins/omp-build/skills/promote/price.sh` in the checkout is the PR
           # author's file on the pull_request path; running it would let a PR
           # that rewrites price.sh dictate its own verdict. This path lives in
           # .gate-tools/, which the `Clear the pinned gate-tooling path` step
@@ -187,7 +187,7 @@ jobs:
           # There is NO fallback to a head-writable copy. A fallback is a silent
           # restoration of the hole, so an unavailable pin is a hard red — but
           # only where a version is actually derived (see `price_available`).
-          PRICE=".gate-tools/plugins/dev-core/skills/promote/price.sh"
+          PRICE=".gate-tools/plugins/omp-build/skills/promote/price.sh"
           STACK=".dev/stack.yml"
 
           # ── config readers (yq preferred, python3 YAML fallback — S2/D15) ──

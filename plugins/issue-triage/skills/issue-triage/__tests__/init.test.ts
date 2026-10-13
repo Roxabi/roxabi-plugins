@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  applyApprovedPlan,
+  canonicalPlan,
   classifyVocabulary,
   contractAction,
   contractFile,
@@ -103,6 +105,64 @@ describe('init', () => {
     expect(second.createLabels).toEqual([])
     expect(second.contract).toBe('unchanged')
     vi.restoreAllMocks()
+  })
+})
+
+describe('approved tracker plan', () => {
+  it('canonicalizes mutations and refuses before every writer', async () => {
+    const writes = { ensure: 0, relabel: 0, contract: 0 }
+    const plan = {
+      repo: 'Acme/app',
+      createLabels: ['P1-high', 'size:S'],
+      labelColors: { 'size:S': 'one', 'P1-high': 'two' },
+      relabels: [{ number: 8, add: ['size:S'], remove: ['size: XS'] }],
+      proseBlockedBy: [],
+      contract: 'write' as const,
+      vocabulary: 'canonical' as const,
+      refused: [],
+    }
+    expect(canonicalPlan(plan, 'contract')).toContain('"contractTextSha256"')
+    await applyApprovedPlan(plan, 'contract', {
+      cwdRepo: 'Acme/app',
+      listLabelNames: async () => [],
+      listIssueLabelSets: async () => [],
+      readContract: () => null,
+      ensureLabel: async () => {
+        writes.ensure++
+        return 'created'
+      },
+      updateLabels: async () => {
+        writes.relabel++
+      },
+      writeContract: () => {
+        writes.contract++
+      },
+    })
+    expect(writes).toEqual({ ensure: 2, relabel: 1, contract: 1 })
+
+    await expect(
+      applyApprovedPlan(
+        { ...plan, refused: ['vocabulary unknown'] },
+        'contract',
+        {
+          cwdRepo: 'Acme/app',
+          listLabelNames: async () => [],
+          listIssueLabelSets: async () => [],
+          readContract: () => null,
+          ensureLabel: async () => {
+            writes.ensure++
+            return 'created'
+          },
+          updateLabels: async () => {
+            writes.relabel++
+          },
+          writeContract: () => {
+            writes.contract++
+          },
+        },
+      ),
+    ).rejects.toThrow('vocabulary unknown')
+    expect(writes).toEqual({ ensure: 2, relabel: 1, contract: 1 })
   })
 })
 

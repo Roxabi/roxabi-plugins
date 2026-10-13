@@ -10,33 +10,23 @@ pre-commit:
       # worktree, where node_modules (and therefore tsc) does not exist yet.
       run: bun run typecheck
       glob: "*.{ts,tsx}"
-    detectLocalPath-guard:
-      run: |
-        # Fail on detectLocalPath imports outside canonical module
-        # Allowed: cwd-resolver.ts (definition), github-discovery.ts (canonical consumer)
-        bad=$(grep -l "detectLocalPath" plugins/dev-core/cli/lib/*.ts 2>/dev/null | grep -v "cwd-resolver.ts\|github-discovery.ts" || true)
-        if [ -n "$bad" ]; then
-          echo "ERROR: detectLocalPath imported outside canonical modules (cwd-resolver.ts, github-discovery.ts):"
-          echo "$bad"
-          exit 1
-        fi
     trufflehog:
       run: scripts/trufflehog-check.sh
       skip:
         - merge
         - rebase
     principal-freeze:
-      run: bash plugins/dev-core/scripts/check-principal-branch.sh
+      run: bash scripts/check-principal-branch.sh
     license-check:
       run: "if [ -f .venv/bin/python ]; then .venv/bin/python tools/license_check.py; else echo 'SKIP: license-check (no .venv)' >&2; fi"
     taxonomy-sync:
       run: "if [ -f .venv/bin/python ]; then .venv/bin/python tools/validate_plugins.py; else echo 'SKIP: taxonomy-sync (no .venv)' >&2; fi"
     taxonomy-class-list-sync:
       run: "if [ -f .venv/bin/python ]; then .venv/bin/python tools/validate_plugins.py --check class-list-sync; else echo 'SKIP: taxonomy-class-list-sync (no .venv)' >&2; fi"
-      glob: "plugins/dev-core/skills/dev-review/{review-classes.yml,SKILL.md}"
+      glob: "plugins/omp-build/skills/dev-review/{review-classes.yml,SKILL.md}"
     taxonomy-subsumption-pairs:
       run: "if [ -f .venv/bin/python ]; then .venv/bin/python tools/validate_plugins.py --check subsumption-pairs; else echo 'SKIP: taxonomy-subsumption-pairs (no .venv)' >&2; fi"
-      glob: "plugins/dev-core/skills/dev-review/{review-classes.yml,SKILL.md}"
+      glob: "plugins/omp-build/skills/dev-review/{review-classes.yml,SKILL.md}"
 
 commit-msg:
   commands:
@@ -51,7 +41,7 @@ pre-push:
     trufflehog:
       run: scripts/trufflehog-check.sh
     principal-freeze:
-      run: bash plugins/dev-core/scripts/check-principal-branch.sh
+      run: bash scripts/check-principal-branch.sh
     check-no-claude-comments:
       run: scripts/check-no-claude-comments.sh
     check-skill-version:

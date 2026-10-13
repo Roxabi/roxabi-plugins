@@ -30,11 +30,11 @@ Optional Q5: **Revisit trigger** (default: sibling-fix rate > 3/week ∨ 6-month
 
 - ADR with `axial: true` in frontmatter → **canonical marker** (grep-discoverable)
 - No YAML pointer needed — `grep -rli "^axial: true" docs/architecture/adr/` finds it in O(N) ADR files (<50 in practice)
-- Downstream consumers: `/init`, `/R-spec`, `/code-review`, `/checkup`, `/axis-check`, lint rules, sibling-rate detection all read this ADR directly
+- Downstream consumers read the ADR directly: the live review panel, project lint, and sibling-rate detection. Retired factory routes are not consumers.
 
-## Why mandatory at `/init`
+## Why the decision used to be forced at init
 
-`/init` is the only moment where the cost of asking is **zero**. Once scaffolding lands, the axis is implicit in the code structure — changing it costs a refactor. Forcing the decision now makes it:
+The factory `/init` route is retired. Do not invoke it. The historical reason the decision was forced there: once scaffolding lands, the axis is implicit in the code structure, and changing it costs a refactor. Forcing the decision at that moment made it:
 
 - **Defendable** — written rationale, not folklore
 - **Revisitable** — superseded, not lost
@@ -64,16 +64,16 @@ If a concern X appears in 3+ sibling dirs, it's no longer a coincidence — it's
 
 ## Dispatch asymmetry (intentional)
 
-`/R-spec` and `/R-dev-review` both recruit **R-architect axial mode** (same durable agent, extra prompt — ¬a second manifest), with different conditions:
+Design review and `dev-review` (prose label `/R-dev-review`, not a command) both recruit **R-architect axial mode** (same durable agent, extra prompt — not a second manifest), with different conditions:
 
 | Skill | Trigger | Nature |
 |-------|---------|--------|
-| `/R-spec` | spec adds adapter/integration/target ∨ touches `infrastructure/` | **Semantic/intent** — reviews design proposals |
-| `/R-dev-review` | Δ ∩ {`infrastructure/`, `adapters/`, `domains/`, `stages/`} ≠ ∅ ∧ unique `axial: true` ADR | **Structural** — reviews actual file changes |
+| Design review | the proposal adds an adapter, integration, or target, or touches an infrastructure boundary | **Semantic/intent** — reviews design proposals |
+| `dev-review` | the diff touches infrastructure, adapters, domains, or stages, and a unique `axial: true` ADR exists | **Structural** — reviews actual file changes |
 
-Create/supersede the ADR with `/R-adr --axial` (from `/R-dev-init` Phase 3a or standalone).
+Create or supersede the axial ADR through the project's own ADR process. Do not invoke retired `/R-adr` or `/R-dev-init` routes.
 
-This asymmetry is intentional. A spec may add `infrastructure/` changes without proposing a new adapter (e.g., refactoring existing stage wiring). In that case, the axial concern is not relevant at the spec level because no new axis-crossing is being proposed — but it becomes relevant at code-review if the diff shows structural drift. The two gates are complementary: `/R-spec` catches intent-level N×M violations, `/R-dev-review` catches implementation-level ones.
+This asymmetry is intentional. A proposal may touch infrastructure without adding an adapter. In that case the axial concern may be irrelevant at design review, then become relevant if the diff shows structural drift. Design review catches intent-level N×M violations; `dev-review` catches implementation-level ones.
 
 ## Boundaries
 

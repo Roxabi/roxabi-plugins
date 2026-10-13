@@ -33,30 +33,30 @@ feature_init() { (cd "$(dirname "$FEATURE_INIT")" && bun --no-env-file "$FEATURE
 feature_init
 ```
 
-Pass `--dry-run` to `feature_init` when requested. It adopts a repository from
-a worktree, never the Principal. `--dry-run` prints the plan and writes nothing.
-A real run keeps a declared `commands.worktree_setup` instead of stamping an empty
-`worktree.setup`; otherwise it fills missing `worktree` configuration. When discovered,
-it adds merge-on-green `landing` in the target's `.dev/stack.yml`, then prints this tracker command:
+This is a preview by default; `--dry-run` is the same non-mutating preview.
+It discovers only repository evidence and prints proposed `.dev/stack.yml`
+additions, conflicts, the exact tracker plan, and a digest. The digest is **not**
+authorization. Preview does not run `worktree-bootstrap.sh`, create a stack,
+write tracker labels/contracts, or execute a tracker command.
+
+Stop and wait for the operator's own reply. If they approve, copy that reply
+verbatim into `--operator-approval` and pass the displayed digest separately:
 
 ```bash
-TARGET_ROOT=$(git rev-parse --show-toplevel) && TRIAGE=$(realpath skill://issue-triage/triage.ts) && TRIAGE_REPO="${GITHUB_REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
-triage() { (: "${TARGET_ROOT:?target root unresolved}" "${TRIAGE:?issue-triage unresolved}" "${TRIAGE_REPO:?repository unresolved}" && cd "$(dirname "$TRIAGE")" && GITHUB_REPO="$TRIAGE_REPO" bun --no-env-file "$TRIAGE" "$@"); }
-triage init --root "$TARGET_ROOT"
+feature_init --approve '<digest>' --operator-approval '<operator reply>'
 ```
 
-Run the printed command as given. It captures the target root and repository
-before starting Bun in issue-triage's directory; `--root` selects the target
-contract while `GITHUB_REPO` keeps the target repository. `--dry-run` is
-appended to `triage init`. If the root, CLI, or repository cannot be resolved,
-the command refuses; an older CLI that rejects `--root` remains nonzero rather
-than falling back. Existing `docs/agents/issue-tracker.md` is left untouched
-by that command (`contract: keep-existing`). The command does not write the
-`omp-build-feature-init` marker, because the tracker step has not run. It does
-not index ccc or codegraph without consent already recorded there. Active
-semctx contracts are listed, never closed: a change may land active or partial,
-and only Semctx closes one, from a VERIFIED result.
-Exit 3 with `init=blocked issue-triage missing` → stop and name issue-triage; nothing was written.
+Never invent approval. A digest, silence, a later agent turn, or `--approve`
+alone is not approval. A decline runs nothing. A changed digest, a refused
+tracker plan, unreadable or unsafe YAML, or a Principal checkout refuses before
+any local or remote write. An unchanged proposal reports `init=noop`.
+
+The approved writer preserves comments and existing values. A nonblank declared
+`commands.worktree_setup` suppresses an empty `worktree.setup`; existing
+worktree and merge-on-green landing contracts remain proposals only when absent.
+Existing tracker vocabulary and authored contracts remain preserved by the
+approved tracker plan; the feature initializer does not print or run a second
+mutating tracker command after apply.
 
 ## 1. Route-specific prerequisites
 
@@ -357,9 +357,9 @@ or a fork point off `<base>`, → stop and name it; a correct branch name proves
 Install dependencies with the repository's documented command in this worktree
 before running hooks/builds; no unconditional `bun install` for unrelated stacks.
 On entering a worktree that is not the principal, run
-`bash "$SKILL_DIR/worktree-bootstrap.sh"`; omp-build's extension has usually
-started it in the background already, and this call then waits for it and
-no-ops. It copies `worktree.copy` and `worktree.seed` from the principal, builds
+`bash "$SKILL_DIR/worktree-bootstrap.sh"`: this explicit call is the working
+entry. The extension no longer starts it on session start, and `/feature init`
+does not run it. It copies `worktree.copy` and `worktree.seed` from the principal, builds
 each code index the principal has (never one it lacks: ccc without its own
 `settings.yml` indexes an ancestor directory), then selects setup: a non-empty
 `worktree.setup` string runs as `bash -c`; otherwise a non-empty

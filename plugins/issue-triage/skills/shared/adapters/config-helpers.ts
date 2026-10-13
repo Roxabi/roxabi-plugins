@@ -7,18 +7,11 @@ import { readFileSync } from 'node:fs'
 import { ConfigError } from '../domain/errors'
 
 /**
- * dev-core project contract file, relative to the repo root.
+ * Project contract file, relative to the repo root.
  *
- * Deliberate duplicate of dev-core's own contract constant
- * (`plugins/dev-core/hooks/lib/contract-paths.cjs` → `DEV_CORE_YML`).
- * Importing that resolver is excluded by design: AGENTS.md requires every
- * plugin to stay self-contained and individually installable, so issue-triage
- * must not resolve a path through a sibling plugin at runtime — and the
- * cross-plugin shared-import mechanism was retired
- * (ADR 014 `docs/architecture/adr/014-shared-ts-governance-scope.mdx`,
- * `status: superseded`).
- * ⚠ Must follow dev-core if it ever relocates the contract again. There is no
- * fallback to the pre-cutover `.claude/` location: the old path is never read.
+ * This plugin owns its constant so it remains self-contained and individually
+ * installable. There is no fallback to the pre-cutover `.claude/` location:
+ * the old path is never read.
  */
 const DEV_CORE_YML = '.dev/dev-core.yml'
 

@@ -19,12 +19,8 @@ Standard locations and naming for procedural guides in Roxabi ecosystem.
 ### Cookbooks
 
 ```
-roxabi-plugins/plugins/<plugin>/cookbooks/   # Plugin-specific
-  dev-core/skills/dev-checkup/cookbooks/
-    devcore-checks.md
-    infra-checks.md
-  ci-setup/cookbooks/
-    ...
+roxabi-plugins/plugins/<plugin>/cookbooks/
+  <topic>.md
 ```
 
 **Rule:** Cookbook that applies to >1 plugin → plugin-local copies or a skill reference. Do not add `plugins/shared/cookbooks/` (removed, unused).
@@ -76,7 +72,7 @@ Read [references/templates.md](${CLAUDE_SKILL_DIR}/references/templates.md)
 ### From cookbooks (plugin-local)
 
 ```markdown
-Read [devcore-checks.md](${CLAUDE_PLUGIN_ROOT}/skills/dev-checkup/cookbooks/devcore-checks.md)
+Read [<topic>.md](${CLAUDE_PLUGIN_ROOT}/cookbooks/<topic>.md)
 ```
 
 ### From playbooks (centralized)
@@ -106,12 +102,7 @@ None — `plugins/shared/cookbooks/` was removed (unused).
 
 ### Plugin Cookbooks (`plugins/*/cookbooks/`)
 
-| Plugin | Cookbooks |
-|--------|-----------|
-| `dev-core/dev-checkup` | `devcore-checks.md`, `infra-checks.md`, `stack-checks.md` |
-| `dev-core/ci-setup` | `marketplace.md`, `scanning.md`, `workflows.md`, `hooks.md` |
-| `dev-core/cleanup-context` | `analysis.md`, `discovery.md`, `resolution.md` |
-| `dev-core/release-setup` | `quality-gates.md`, `release-automation.md`, `commit-standards.md`, `hook-runner.md` |
+None in the retained catalog. The former `dev-core` cookbooks moved with that plugin under `archived/` and are not operational.
 
 ### Playbooks (`roxabi-plugins/playbooks/`)
 

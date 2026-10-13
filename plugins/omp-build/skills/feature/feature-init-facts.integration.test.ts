@@ -103,8 +103,10 @@ describe('feature init names the github.com host', () => {
     const target = acmeRepo(path.join(root, 'target'), env)
     const result = spawnSync(REAL_BUN, [CLI, '--dir', target, '--dry-run'], { env, encoding: 'utf8' })
     expect(result.status).toBe(0)
-    expect(gh.calls()).toEqual([ARGV])
-    expect(gh.calls()[0]).toContain('github.com/acme/app')
+    const calls = gh.calls()
+    expect(calls[0]).toEqual(ARGV)
+    expect(calls.every((call) => call.join(' ').includes('github.com/acme/app'))).toBe(true)
+    expect(JSON.stringify(calls)).not.toContain('ghe.example')
   })
 })
 
@@ -144,12 +146,20 @@ describe('feature init landing via readLanding', () => {
     const repo = acmeRepo(path.join(root, 'repo'), gh.env)
     const wt = path.join(root, 'wt')
     git(repo, gh.env, 'worktree', 'add', '-q', wt, '-b', 'feat/init')
+    const before = readFileSync(path.join(wt, '.dev', 'stack.yml'), 'utf8')
 
-    const apply = spawnSync(REAL_BUN, [CLI, '--dir', wt], { env: gh.env, encoding: 'utf8' })
+    const preview = spawnSync(REAL_BUN, [CLI, '--dir', wt], { env: gh.env, encoding: 'utf8' })
+    expect(preview.status).toBe(0)
+    expect(readFileSync(path.join(wt, '.dev', 'stack.yml'), 'utf8')).toBe(before)
+    const digest = /^digest: ([0-9a-f]+)$/m.exec(preview.stdout)?.[1]
+    expect(digest).toBeTruthy()
+
+    const apply = spawnSync(
+      REAL_BUN,
+      [CLI, '--dir', wt, '--approve', digest ?? '', '--operator-approval', 'apply the displayed proposal'],
+      { env: gh.env, encoding: 'utf8' },
+    )
     expect(apply.status).toBe(0)
-    const stack = readFileSync(path.join(wt, '.dev', 'stack.yml'), 'utf8')
-    expect(stack).toMatch(/^landing:\n {2}mode: merge-on-green\n/m)
-    expect(stack).not.toContain('required_checks')
 
     // Landing is read from origin/<base>, never the worktree (#623). Plant the
     // written stack on origin/main so readLanding sees what init just wrote.

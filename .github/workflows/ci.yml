@@ -43,10 +43,6 @@ jobs:
         run: actionlint
       - name: Test (vitest)
         run: bun run test
-      - name: Test (cli — bun:test)
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: cd plugins/dev-core/cli && bun test
       - name: Verify action pins resolve
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -56,11 +52,7 @@ jobs:
           python-version: '3.12'
       - run: pip install pytest==8.3.5 pyyaml git+https://github.com/Roxabi/roxabi-vault.git@df12ba1c447ca6f01434db017c57f7645662813c  # main
       - name: Test (pytest)
-        # Isolate hex packages: cv and linkedin-apply both own adapters/domain/use_cases.
-        run: |
-          python3 -m pytest tests/ -v
-          python3 -m pytest plugins/cv/tests -v
-          python3 -m pytest plugins/linkedin-apply/tests -v
+        run: python3 -m pytest tests/ -v
       - name: Validate plugins
         run: python3 tools/validate_plugins.py
       - name: Validate registry sync

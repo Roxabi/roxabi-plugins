@@ -278,16 +278,16 @@ Skip: tester → ¬`delta_test_hit` ∧ ¬`untested-change` (source files, no te
 Only when R-security-auditor is actually spawned (`spawn_security_auditor` from the roster oracle — `path_hit`, ¬default):
 
 1. ∀ f ∈ Δ: imports(f) = static `from '...'` ∪ dynamic `import('...')`
-2. Resolve aliases:
+2. Resolve imports in this order:
 
    | Pattern | Resolution |
    |---------|-----------|
-   | `./`, `../` | relative, try `.ts`, `/index.ts` |
-   | `@repo/<pkg>` | → `packages/<pkg>/src/index.ts` (skip vitest/playwright config) |
-   | `@/*` | → `{frontend.path}/src/` + rest, try `.ts`, `.tsx`, `/index.{ts,tsx}` |
-   | External | skip |
+   | `./`, `../` | Resolve relative to the importing file using the repository's configured resolver and existing neighboring-source convention. |
+   | Alias | Resolve only from project-defined `tsconfig`/`jsconfig` `paths`, package `exports`, or workspace configuration. |
+   | Unmapped alias | Unresolved; record it rather than guessing a filesystem path. |
+   | External package | Do not add source files solely for that import. |
 
-3. scope = Δ ∪ ⋃{resolve(imports(f)) | f ∈ Δ} ∪ `{backend.path}/src/auth/**` — deduplicate
+3. scope = Δ ∪ ⋃{resolved project-source imports(f) | f ∈ Δ}; deduplicate. Unresolved aliases remain an explicit scope limitation.
 
 # SYNC REQUIRED: inline class list must match review-classes.yml slugs
 # CROSS-SKILL CONSUMER: fix/SKILL.md Phase 0 reads this YAML via `skill://dev-review/review-classes.yml`, and fix Phase 2 reads `skill://dev-review/root-causes.md` — moving or renaming either HALTs /fix

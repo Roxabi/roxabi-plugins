@@ -1,80 +1,11 @@
 #!/usr/bin/env bun
 
-/**
- * Verify every action SHA the generators emit is a real commit, and that none
- * escapes ACTION_PINS.
- *
- * Usage:
- *   bun run tools/verify-action-pins.ts            — verify pins resolve + are governed
- *   bun run tools/verify-action-pins.ts --tags     — also report pins that drifted off their tag
- *
- * These pins live in a TypeScript constant, not in a workflow file, so Dependabot
- * never sees them and nothing else proves the SHAs exist. Two hallucinated SHAs
- * (setup-node, setup-uv) shipped this way and would have failed every generated
- * CI run at "Set up job". A length check is not enough — one of the two was a
- * well-formed 40-char SHA that simply did not exist. Only the API answers that.
- *
- * Resolving ACTION_PINS alone is also not enough: a pin written inline in a
- * generator template bypasses the constant entirely and this check with it
- * (fetch-metadata sat at v2.5.0 that way). So every `uses: owner/repo@ref`
- * literal in the emitter sources must match an (action, sha) pair that
- * ACTION_PINS declares — matching the SHA alone would let a floating tag
- * (unpinned) or a wrong action reusing a governed SHA slip through unflagged.
- *
- * The source scan reads text, so a pin built by string concat (not a literal
- * `uses: owner/repo@ref`) escapes it — the exact blind spot this tool exists to
- * close, one indirection deeper. To catch that, every zero-arity generator is
- * also RENDERED and its output `uses:` lines checked against the same governed
- * pairs (F12). Generators taking WorkflowOpts stay source-scanned (their `uses:`
- * are `${ACTION_PINS.*}` templates); a concat pin hidden inside one is the sole
- * residual, and is noted rather than silently dropped.
- *
- * Requires network + gh auth (GITHUB_TOKEN in CI). Exits 1 on any unresolvable
- * or ungoverned pin.
- */
-
+/** Verify committed GitHub Actions workflow references are immutable SHA pins. */
 import { readdirSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const REPO_ROOT = resolve(import.meta.dirname ?? '.', '..')
-const PINS_PATH = resolve(REPO_ROOT, 'plugins/dev-core/skills/shared/workflows/workflow-pins.ts')
-
-/** Sources that emit workflow YAML, all canonical in dev-core's copy-synced skills/shared.
- *  Every file that could carry an inline `uses:` literal is listed — an excluded emitter is
- *  an invisible bypass (a future `uses: actions/cache@v4` there would be caught by nothing).
- *  workflow-pins.ts holds APP_MINT_STEP's `uses:` (#369); github-infra.ts is defensive — both
- *  currently emit only `${ACTION_PINS.*}` template refs, which parseInlinePins skips, so they
- *  cost nothing today while restoring the tripwire. */
-export const EMITTER_PATHS = [
-  'plugins/dev-core/skills/shared/workflows/workflow-generators.ts',
-  'plugins/dev-core/skills/shared/workflows/workflows-fleet.ts',
-  'plugins/dev-core/skills/shared/workflows/workflow-pins.ts',
-  'plugins/dev-core/skills/shared/adapters/github-infra.ts',
-]
-
-/** Emitter modules whose zero-arity generators are rendered and scanned (F12 — a pin built by
- *  string concat is not a literal `uses: owner/repo@ref` and bypasses the source scan; it only
- *  materialises in the rendered YAML). Arity-0 enumeration auto-covers future generators.
- *  Generators taking WorkflowOpts remain source-scanned (their `uses:` are `${ACTION_PINS.*}`
- *  templates, unrenderable without a synthetic opts — the residual concat risk there is noted). */
-export const RENDER_MODULES = [
-  'plugins/dev-core/skills/shared/workflows/workflow-generators.ts',
-  'plugins/dev-core/skills/shared/workflows/workflows-fleet.ts',
-]
-
-const checkTags = process.argv.includes('--tags')
-
-export interface Pin {
-  name: string
-  action: string
-  sha: string
-  tag: string
-}
-
-export function parsePins(source: string): Pin[] {
-  const re = /(\w+):\s*'([^@']+)@([0-9a-fA-F]+)',\s*\/\/\s*(\S+)/g
-  return [...source.matchAll(re)].map((m) => ({ name: m[1], action: m[2], sha: m[3], tag: m[4] }))
-}
+const HEX_SHA_RE = /^[0-9a-fA-F]{40}$/
 
 export interface InlineRef {
   action: string
@@ -85,15 +16,10 @@ export interface InlinePin extends InlineRef {
   file: string
 }
 
-const HEX_SHA_RE = /^[0-9a-fA-F]{7,}$/
-
-/** `uses: owner/repo@<ref>` literal, `ref` being anything up to whitespace/quote/comment —
- *  a floating tag (`@v3`) must be caught same as a SHA, or it is a worse, invisible bypass.
- *  The action pattern (`word.-/word.-`) already excludes `${ACTION_PINS.x}` template refs:
- *  they contain no `/` before the `@`, so the whole match fails to anchor on those lines. */
+/** Parse quoted and unquoted `uses: owner/repo@ref` workflow values. */
 export function parseInlinePins(source: string): InlineRef[] {
-  const re = /uses:\s*([\w.-]+\/[\w.-]+)@([^\s'"#]+)/g
-  return [...source.matchAll(re)].map((m) => ({ action: m[1], ref: m[2] }))
+  const re = /uses:\s*(?:["']\s*)?([\w.-]+\/[\w.-]+)@([^\s'"#]+)(?:\s*["'])?/g
+  return [...source.matchAll(re)].map((match) => ({ action: match[1], ref: match[2] }))
 }
 
 export function findInlinePins(files: string[]): InlinePin[] {
@@ -103,150 +29,22 @@ export function findInlinePins(files: string[]): InlinePin[] {
   })
 }
 
-/** Render every zero-arity generator in the emitter modules and collect the `uses:` pins in
- *  their OUTPUT — the form a concat-built pin only reveals at runtime. Arity-0 enumeration
- *  auto-covers future zero-arg generators; a generator that throws is reported, never dropped
- *  silently. Returns [] plus a warning list rather than importing at load time. */
-export async function renderInlinePins(
-  modulePaths: string[],
-): Promise<{ pins: InlinePin[]; rendered: string[]; warnings: string[] }> {
-  const pins: InlinePin[] = []
-  const rendered: string[] = []
-  const warnings: string[] = []
-  for (const modulePath of modulePaths) {
-    const mod = (await import(resolve(REPO_ROOT, modulePath))) as Record<string, unknown>
-    for (const [name, value] of Object.entries(mod)) {
-      if (typeof value !== 'function' || value.length !== 0) continue
-      let out: unknown
-      try {
-        out = (value as () => unknown)()
-      } catch (err) {
-        warnings.push(`${modulePath}: rendering ${name}() threw (${err}) — not output-scanned`)
-        continue
-      }
-      if (typeof out !== 'string') continue
-      rendered.push(`${name}()`)
-      for (const pin of parseInlinePins(out)) pins.push({ file: `${modulePath}::${name}()`, ...pin })
-    }
-  }
-  return { pins, rendered, warnings }
-}
-
-function governedKey(action: string, ref: string): string {
-  return `${action}@${ref}`.toLowerCase()
-}
-
-export function buildGovernedPairs(pins: Pin[]): Set<string> {
-  return new Set(pins.map((p) => governedKey(p.action, p.sha)))
-}
-
-/** An inline pin is governed only when its (action, ref) pair matches ACTION_PINS —
- *  matching the ref/SHA alone would let a wrong-action reuse of a governed SHA, or a
- *  floating tag on an otherwise-governed action, pass silently. */
-export function findUngovernedPins(inlinePins: InlinePin[], governedPairs: Set<string>): InlinePin[] {
-  return inlinePins.filter((pin) => !governedPairs.has(governedKey(pin.action, pin.ref)))
-}
-
-/** Committed workflow files under `.github/workflows/`. Their invariant is WEAKER than the
- *  emitter sources' (ACTION_PINS governance): a hand-written workflow, or one using an action
- *  no generator emits (setup-python, a different checkout minor), legitimately pins a SHA that
- *  is not in ACTION_PINS — so `findUngovernedPins` is the WRONG check here (it would flag valid
- *  SHA pins). The invariant that DOES hold: every `uses: owner/repo@<ref>` must be a SHA, never
- *  a mutable tag/branch. This is the layer the governance scan never covered — `context-lint.yml`
- *  shipped `actions/checkout@v6` unnoticed because nothing scanned committed YAML (#375 FU-3).
- *  `parseInlinePins`'s `owner/repo@` shape already skips local (`./…`) and reusable-workflow refs. */
+/** Every third-party action in committed workflows must be pinned to a full SHA. */
 export function findFloatingWorkflowPins(dir = '.github/workflows'): InlinePin[] {
   const absDir = resolve(REPO_ROOT, dir)
   const files = readdirSync(absDir)
-    .filter((f) => f.endsWith('.yml') || f.endsWith('.yaml'))
-    .map((f) => `${dir}/${f}`)
+    .filter((file) => file.endsWith('.yml') || file.endsWith('.yaml'))
+    .map((file) => `${dir}/${file}`)
   return findInlinePins(files).filter((pin) => !HEX_SHA_RE.test(pin.ref))
 }
 
-async function gh(path: string): Promise<unknown | null> {
-  const proc = Bun.spawnSync(['gh', 'api', path], { stdout: 'pipe', stderr: 'pipe' })
-  if (proc.exitCode !== 0) return null
-  try {
-    return JSON.parse(proc.stdout.toString())
-  } catch {
-    return null
+function main(): void {
+  const floatingPins = findFloatingWorkflowPins()
+  for (const pin of floatingPins) {
+    console.error(`FAIL ${pin.file}: uses ${pin.action}@${pin.ref} — floating ref in a committed workflow; pin to a 40-hex SHA.`)
   }
+  if (floatingPins.length > 0) process.exit(1)
+  console.log('All committed workflow action references are pinned to 40-hex SHAs.')
 }
 
-/** Resolve a tag ref to its commit, dereferencing annotated tags (object.type === 'tag'). */
-async function commitForTag(action: string, tag: string): Promise<string | null> {
-  const ref = (await gh(`repos/${action}/git/ref/tags/${tag}`)) as { object?: { sha?: string; type?: string } } | null
-  const obj = ref?.object
-  if (!obj?.sha) return null
-  if (obj.type !== 'tag') return obj.sha
-  const deref = (await gh(`repos/${action}/git/tags/${obj.sha}`)) as { object?: { sha?: string } } | null
-  return deref?.object?.sha ?? null
-}
-
-async function main() {
-  const pins = parsePins(readFileSync(PINS_PATH, 'utf-8'))
-  if (pins.length === 0) {
-    console.error(`No pins parsed from ${PINS_PATH} — the file shape changed and this check is now blind.`)
-    process.exit(1)
-  }
-
-  let failed = 0
-  for (const pin of pins) {
-    const commit = (await gh(`repos/${pin.action}/commits/${pin.sha}`)) as { sha?: string } | null
-    if (!commit?.sha) {
-      failed++
-      const actual = await commitForTag(pin.action, pin.tag)
-      console.error(`FAIL ${pin.name}: ${pin.action}@${pin.sha} is not a commit (${pin.sha.length} chars)`)
-      if (actual) console.error(`     ${pin.tag} is ${actual}`)
-      continue
-    }
-    if (!checkTags) {
-      console.log(`ok   ${pin.name}: ${pin.action}@${pin.sha.slice(0, 12)} (${pin.tag})`)
-      continue
-    }
-    const tagSha = await commitForTag(pin.action, pin.tag)
-    const drifted = tagSha && tagSha !== pin.sha
-    console.log(
-      drifted
-        ? `drift ${pin.name}: pinned ${pin.sha.slice(0, 12)}, ${pin.tag} now ${tagSha.slice(0, 12)}`
-        : `ok   ${pin.name}: ${pin.action}@${pin.sha.slice(0, 12)} (${pin.tag})`,
-    )
-  }
-
-  const governedPairs = buildGovernedPairs(pins)
-  const { pins: renderedPins, rendered, warnings } = await renderInlinePins(RENDER_MODULES)
-  for (const w of warnings) console.error(`WARN ${w}`)
-  if (rendered.length > 0)
-    console.log(`rendered+scanned ${rendered.length} zero-arity generator(s): ${rendered.join(', ')}`)
-  const ungovernedPins = findUngovernedPins([...findInlinePins(EMITTER_PATHS), ...renderedPins], governedPairs)
-  for (const inline of ungovernedPins) {
-    const reason = HEX_SHA_RE.test(inline.ref) ? 'not declared in ACTION_PINS' : 'floating ref, not pinned to a SHA'
-    console.error(`FAIL ${inline.file}: uses ${inline.action}@${inline.ref} — ${reason}`)
-    console.error('     Add it to workflow-pins.ts and reference it, or this pin is never verified.')
-  }
-
-  // Committed workflows (hand-written + generator-drifted): SHA-pinned, but NOT
-  // required to be governed by ACTION_PINS. Only floating (non-SHA) refs fail.
-  const floatingWorkflowPins = findFloatingWorkflowPins()
-  for (const pin of floatingWorkflowPins) {
-    console.error(
-      `FAIL ${pin.file}: uses ${pin.action}@${pin.ref} — floating ref in a committed workflow; pin to a SHA.`,
-    )
-  }
-
-  if (failed > 0 || ungovernedPins.length > 0 || floatingWorkflowPins.length > 0) {
-    if (failed > 0)
-      console.error(`\n${failed}/${pins.length} pins do not resolve — generated CI would fail at "Set up job".`)
-    if (ungovernedPins.length > 0) console.error(`${ungovernedPins.length} inline pin(s) bypass ACTION_PINS.`)
-    if (floatingWorkflowPins.length > 0)
-      console.error(`${floatingWorkflowPins.length} committed-workflow pin(s) are floating tags, not SHAs.`)
-    process.exit(1)
-  }
-  console.log(
-    `\nAll ${pins.length} pins resolve; no inline or rendered pin bypasses ACTION_PINS; committed workflows are SHA-pinned.`,
-  )
-}
-
-if (import.meta.main) {
-  await main()
-}
+if (import.meta.main) main()

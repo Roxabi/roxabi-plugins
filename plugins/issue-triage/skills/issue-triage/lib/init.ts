@@ -12,6 +12,7 @@
  * deleted or recoloured. Issue bodies are never edited.
  */
 
+import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import {
   existsSync,
@@ -370,6 +371,36 @@ export async function buildPlan(
   }
 }
 
+/** Stable representation of exactly the tracker mutations an approval covers. */
+export function canonicalPlan(plan: InitPlan, contractText: string): string {
+  const createLabels = [...plan.createLabels].sort()
+  const relabels = [...plan.relabels]
+    .map((row) => ({ number: row.number, add: [...row.add].sort(), remove: [...row.remove].sort() }))
+    .sort((left, right) => left.number - right.number)
+  const labelColors = Object.fromEntries(
+    createLabels.map((name) => [name, plan.labelColors[name] ?? DEFAULT_LABEL_COLOR]),
+  )
+  return JSON.stringify({
+    createLabels,
+    labelColors,
+    relabels,
+    contract: plan.contract,
+    contractTextSha256: createHash('sha256').update(contractText).digest('hex'),
+    refused: [...plan.refused].sort(),
+  })
+}
+
+/** Applies a plan only after its caller has authenticated the exact canonical plan. */
+export async function applyApprovedPlan(plan: InitPlan, contractText: string, deps: InitDeps): Promise<InitPlan> {
+  if (plan.refused.length > 0) throw new Error(plan.refused.join('\n'))
+  for (const name of plan.createLabels) {
+    await deps.ensureLabel(name, plan.repo, plan.labelColors[name] ?? DEFAULT_LABEL_COLOR)
+  }
+  for (const row of plan.relabels) await deps.updateLabels(row.number, row.add, row.remove, plan.repo)
+  if (plan.contract === 'write') deps.writeContract(contractText)
+  return plan
+}
+
 /** True when a second pass over the post-migration labels has nothing to do. */
 export function secondPassIsNoop(
   issues: IssueLabels[],
@@ -413,7 +444,7 @@ function parseArgs(args: string[]): { dryRun: boolean; repo?: string; root?: str
   return { dryRun, repo, root }
 }
 
-function defaultDeps(cwdRepo: string, cwd = process.cwd()): InitDeps {
+export function defaultInitDeps(cwdRepo: string, cwd = process.cwd()): InitDeps {
   const root = repoToplevel(cwd)
   return {
     listLabelNames,
@@ -435,16 +466,9 @@ export async function initIssues(args: string[], deps?: InitDeps): Promise<InitP
   const { dryRun, repo: repoFlag, root } = parseArgs(args)
   const cwdRepo = deps?.cwdRepo ?? detectGitHubRepo()
   const repo = repoFlag ?? cwdRepo
-  const bound = deps ?? defaultDeps(cwdRepo, root)
+  const bound = deps ?? defaultInitDeps(cwdRepo, root)
   const { plan, contractText } = await buildPlan(repo, cwdRepo, bound)
   console.log(formatPlan(plan, dryRun))
   if (dryRun) return plan
-  if (plan.refused.length > 0) throw new Error(plan.refused.join('\n'))
-
-  for (const name of plan.createLabels) {
-    await bound.ensureLabel(name, repo, plan.labelColors[name] ?? DEFAULT_LABEL_COLOR)
-  }
-  for (const row of plan.relabels) await bound.updateLabels(row.number, row.add, row.remove, repo)
-  if (plan.contract === 'write') bound.writeContract(contractText)
-  return plan
+  return applyApprovedPlan(plan, contractText, bound)
 }

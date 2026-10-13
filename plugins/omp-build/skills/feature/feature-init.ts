@@ -1,8 +1,10 @@
 #!/usr/bin/env bun
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, isAbsolute, join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import type { InitDeps, InitPlan } from '../../../issue-triage/skills/issue-triage/lib/init'
 
 export type MigrateLabel = (name: string) => { add: string | null; remove: boolean }
 
@@ -73,6 +75,44 @@ export async function resolveMigrateLabel(
   const fn = await loader()
   if (typeof fn !== 'function') throw new IssueTriageMissing('migrateLabel is not a function')
   return fn
+}
+
+const TRIAGE_INIT = join('skills', 'issue-triage', 'lib', 'init.ts')
+
+export type TriageInit = {
+  buildPlan: (
+    repo: string,
+    cwdRepo: string,
+    deps: Pick<InitDeps, 'listLabelNames' | 'listIssueLabelSets' | 'readContract'>,
+  ) => Promise<{ plan: InitPlan; issues: unknown[]; contractText: string }>
+  canonicalPlan: (plan: InitPlan, contractText: string) => string
+  applyApprovedPlan: (plan: InitPlan, contractText: string, deps: InitDeps) => Promise<InitPlan>
+  defaultInitDeps: (cwdRepo: string, cwd?: string) => InitDeps
+}
+
+function triageInitCandidates(from: string): string[] {
+  return migrateLabelCandidates(from).map((file) => `${file.slice(0, -MIGRATE_LABELS.length)}${TRIAGE_INIT}`)
+}
+
+/** Loads the tracker planner beside the runtime-selected trusted issue-triage package. */
+export async function loadTriageInit(from: string = fileURLToPath(import.meta.url)): Promise<TriageInit> {
+  const file = triageInitCandidates(from).find((candidate) => existsSync(candidate))
+  if (!file) throw new IssueTriageMissing('init planner not found next to omp-build or in node_modules')
+  let mod: Partial<TriageInit>
+  try {
+    mod = await import(pathToFileURL(file).href)
+  } catch (err) {
+    throw new IssueTriageMissing(`${file}: ${err instanceof Error ? err.message : String(err)}`)
+  }
+  if (
+    typeof mod.buildPlan !== 'function' ||
+    typeof mod.canonicalPlan !== 'function' ||
+    typeof mod.applyApprovedPlan !== 'function' ||
+    typeof mod.defaultInitDeps !== 'function'
+  ) {
+    throw new IssueTriageMissing(`${file}: missing tracker approval exports`)
+  }
+  return mod as TriageInit
 }
 
 /** `ok`, or why the repository's labels are not known. */
@@ -539,14 +579,6 @@ export async function readFacts(dir: string, opts: ReadFactsOpts = {}): Promise<
   }
 }
 
-/** Agent-layer command. `realpath` is an OMP builtin; bare skill:// as a bun argv is not. */
-export const TRACKER_INIT_NEXT = `next: TARGET_ROOT=$(git rev-parse --show-toplevel) && TRIAGE=$(realpath skill://issue-triage/triage.ts) && TRIAGE_REPO="\${GITHUB_REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
-triage() { (: "\${TARGET_ROOT:?target root unresolved}" "\${TRIAGE:?issue-triage unresolved}" "\${TRIAGE_REPO:?repository unresolved}" && cd "$(dirname "$TRIAGE")" && GITHUB_REPO="$TRIAGE_REPO" bun --no-env-file "$TRIAGE" "$@"); }
-triage init --root "$TARGET_ROOT"`
-
-export function trackerNext(dry: boolean): string {
-  return dry ? `${TRACKER_INIT_NEXT} --dry-run` : TRACKER_INIT_NEXT
-}
 
 function isPrincipal(dir: string): boolean {
   const out = execFileSync('git', ['worktree', 'list', '--porcelain'], { cwd: dir, encoding: 'utf8' })
@@ -556,50 +588,368 @@ function isPrincipal(dir: string): boolean {
   return here === first
 }
 
-export function applyStack(dir: string, facts: Facts, parseYaml: ParseYaml = bunYamlParse): void {
-  const stackPath = join(dir, '.dev', 'stack.yml')
-  let stack = existsSync(stackPath) ? readFileSync(stackPath, 'utf8') : 'schema_version: "1.0"\n'
-  if (!facts.hasWorktree) {
-    const config = parseYaml(stack)
-    const setup = isMap(config) && isMap(config.commands) ? config.commands.worktree_setup : undefined
-    if (typeof setup !== 'string' || !setup.trim()) {
-      stack += '\nworktree:\n  copy: []\n  seed: []\n  setup: ""\n'
+export type StackAddition = { key: 'commands.test' | 'worktree' | 'landing'; text: string; source: string }
+export type StackProposal = {
+  additions: StackAddition[]
+  conflicts: string[]
+  refusal: string | null
+  before: string | null
+  after: string | null
+}
+
+function hasOwn(map: YamlMap, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(map, key)
+}
+
+function rootMappingLines(text: string, key: string): number[] {
+  return text
+    .split('\n')
+    .flatMap((line, index) => (new RegExp(`^${key}:\\s*(?:#.*)?$`).test(line) ? [index] : []))
+}
+
+
+export type CommandEvidence = { command: string; source: string }
+
+function packageRunner(dir: string, pkg: YamlMap | null): string | null {
+  const declared = typeof pkg?.packageManager === 'string' ? pkg.packageManager.split('@')[0] : null
+  if (declared === 'npm' || declared === 'pnpm' || declared === 'yarn' || declared === 'bun') return declared
+  if (existsSync(join(dir, 'pnpm-lock.yaml'))) return 'pnpm'
+  if (existsSync(join(dir, 'yarn.lock'))) return 'yarn'
+  if (existsSync(join(dir, 'package-lock.json')) || existsSync(join(dir, 'npm-shrinkwrap.json'))) return 'npm'
+  if (existsSync(join(dir, 'bun.lock')) || existsSync(join(dir, 'bun.lockb'))) return 'bun'
+  return null
+}
+
+/** Commands require repository evidence; manifests alone never invent flags or a runner. */
+export function discoverTestCommands(dir: string): CommandEvidence[] {
+  const out: CommandEvidence[] = []
+  const pkg = readPackage(dir)
+  const scripts = isMap(pkg?.scripts) ? pkg.scripts : null
+  const runner = packageRunner(dir, pkg)
+  if (runner && typeof scripts?.test === 'string' && scripts.test.trim()) {
+    out.push({ command: runner === 'npm' || runner === 'bun' ? `${runner} run test` : `${runner} test`, source: 'package.json scripts.test' })
+  }
+  for (const name of ['Makefile', 'makefile']) {
+    const file = join(dir, name)
+    if (existsSync(file) && /^test\s*:/m.test(readFileSync(file, 'utf8'))) {
+      out.push({ command: 'make test', source: name })
     }
   }
-  if (facts.mergeOnGreen && !/^landing:/m.test(stack)) {
-    stack += '\nlanding:\n  mode: merge-on-green\n'
+  const workflows = join(dir, '.github', 'workflows')
+  if (existsSync(workflows)) {
+    for (const name of readdirSync(workflows)) {
+      if (!/\.(?:ya?ml)$/i.test(name)) continue
+      const file = join(workflows, name)
+      let workingDirectory = '.'
+      for (const line of readFileSync(file, 'utf8').split('\n')) {
+        const workdir = line.match(/^\s*working-directory:\s*(\S.*?)\s*$/)
+        if (workdir) workingDirectory = workdir[1]
+        const run = line.match(/^\s*(?:-\s*)?run:\s*(\S.*?)\s*$/)
+        if (run && /(?:^|\s)(?:npm|pnpm|yarn|bun|go|cargo|pytest|make)\b/.test(run[1]) && /\btest\b|pytest/.test(run[1])) {
+          out.push({ command: run[1], source: `.github/workflows/${name} (working-directory: ${workingDirectory})` })
+        }
+      }
+    }
   }
+  return out.filter(
+    (candidate, index, all) =>
+      all.findIndex((other) => other.command === candidate.command && other.source === candidate.source) === index,
+  )
+}
+
+function manifestCommandUnknowns(dir: string): string[] {
+  return ['pyproject.toml', 'setup.py', 'go.mod', 'Cargo.toml'].filter((name) => existsSync(join(dir, name)))
+}
+/** A textual, comment-preserving stack proposal. It never serializes YAML. */
+export function proposeStack(dir: string, facts: Facts, parseYaml: ParseYaml = bunYamlParse): StackProposal {
+  const stackPath = join(dir, '.dev', 'stack.yml')
+  const before = existsSync(stackPath) ? readFileSync(stackPath, 'utf8') : null
+  if (before === null) {
+    const additions: StackAddition[] = []
+    if (!facts.hasWorktree) additions.push({ key: 'worktree', text: 'worktree:\n  copy: []\n  seed: []\n  setup: ""\n', source: '.dev/stack.yml: missing worktree' })
+    if (facts.mergeOnGreen) additions.push({ key: 'landing', text: 'landing:\n  mode: merge-on-green\n', source: '.github/workflows/merge-on-green.yml' })
+    const after = additions.length
+      ? `schema_version: "1.0"\n${additions.map((addition) => `\n${addition.text}`).join('')}`
+      : null
+    return { additions, conflicts: [], refusal: null, before, after }
+  }
+  const firstContent = before.split('\n').find((line) => line.trim() && !line.trimStart().startsWith('#')) ?? ''
+  if (/^\s*[{[]/.test(firstContent) || /^\s*\.\.\.\s*$/.test(before)) {
+    return { additions: [], conflicts: [], refusal: '.dev/stack.yml cannot be safely extended without reformatting', before, after: null }
+  }
+  let config: unknown
+  try {
+    config = parseYaml(before)
+  } catch {
+    return { additions: [], conflicts: [], refusal: '.dev/stack.yml is unreadable', before, after: null }
+  }
+  if (!isMap(config)) {
+    return { additions: [], conflicts: [], refusal: '.dev/stack.yml root is not a mapping', before, after: null }
+  }
+  const additions: StackAddition[] = []
+  const conflicts: string[] = []
+  const commands = config.commands
+  const worktreeSetup = isMap(commands) ? commands.worktree_setup : undefined
+  const testCommands = discoverTestCommands(dir)
+  const distinctTestCommands = [...new Set(testCommands.map((candidate) => candidate.command))]
+  if (distinctTestCommands.length === 1 && (!isMap(commands) || !hasOwn(commands, 'test'))) {
+    const evidence = testCommands[0]
+    if (commands !== undefined && !isMap(commands)) {
+      conflicts.push('commands exists with a non-mapping value')
+    } else if (commands !== undefined && rootMappingLines(before, 'commands').length !== 1) {
+      return { additions: [], conflicts, refusal: '.dev/stack.yml commands block is not uniquely locatable', before, after: null }
+    } else {
+      additions.push({
+        key: 'commands.test',
+        text: commands === undefined ? `commands:\n  test: ${JSON.stringify(evidence.command)}\n` : `  test: ${JSON.stringify(evidence.command)}\n`,
+        source: evidence.source,
+      })
+    }
+  } else if (distinctTestCommands.length > 1) {
+    conflicts.push(`commands.test withheld: independent test commands (${distinctTestCommands.join(' ; ')})`)
+  } else if (isMap(commands) && hasOwn(commands, 'test')) {
+    conflicts.push('commands.test preserved')
+  }
+  if (distinctTestCommands.length === 0) {
+    const manifests = manifestCommandUnknowns(dir)
+    if (manifests.length) conflicts.push(`commands.test withheld: no executable test command in ${manifests.join(', ')}`)
+  }
+  if (!hasOwn(config, 'worktree')) {
+    if (typeof worktreeSetup === 'string' && worktreeSetup.trim()) {
+      conflicts.push('worktree preserved: commands.worktree_setup is declared')
+    } else {
+      additions.push({ key: 'worktree', text: 'worktree:\n  copy: []\n  seed: []\n  setup: ""\n', source: '.dev/stack.yml: missing worktree' })
+    }
+  } else if (!isMap(config.worktree)) {
+    conflicts.push('worktree exists with a non-mapping value')
+  }
+  if (facts.mergeOnGreen && !hasOwn(config, 'landing')) {
+    additions.push({ key: 'landing', text: 'landing:\n  mode: merge-on-green\n', source: '.github/workflows/merge-on-green.yml' })
+  } else if (facts.mergeOnGreen && !isMap(config.landing)) {
+    conflicts.push('landing exists with a non-mapping value')
+  }
+  if (['commands', 'worktree', 'landing'].some((key) => rootMappingLines(before, key).length > 1)) {
+    return { additions: [], conflicts, refusal: '.dev/stack.yml has ambiguous top-level mappings', before, after: null }
+  }
+  let after = before
+  const nested = additions.find((addition) => addition.key === 'commands.test' && commands !== undefined)
+  if (nested) {
+    const lines = after.split('\n')
+    const start = rootMappingLines(after, 'commands')[0]
+    const end = lines.findIndex((line, index) => index > start && /^[^\s]/.test(line))
+    lines.splice(end === -1 ? lines.length - 1 : end, 0, nested.text.trimEnd())
+    after = lines.join('\n')
+  }
+  const suffix = additions
+    .filter((addition) => addition !== nested)
+    .map((addition) => `${after.endsWith('\n') ? '\n' : '\n\n'}${addition.text}`)
+    .join('')
+  return { additions, conflicts, refusal: null, before, after: `${after}${suffix}` }
+}
+
+export function applyStack(dir: string, facts: Facts, parseYaml: ParseYaml = bunYamlParse): void {
+  const proposal = proposeStack(dir, facts, parseYaml)
+  if (proposal.refusal || proposal.after === null || proposal.before === proposal.after) return
+  const stackPath = join(dir, '.dev', 'stack.yml')
   mkdirSync(dirname(stackPath), { recursive: true })
-  writeFileSync(stackPath, stack)
+  writeFileSync(stackPath, proposal.after)
+}
+
+type FeatureArgs = { dryRun: boolean; approve?: string; operatorApproval?: string; dir?: string }
+
+function featureArgs(args: string[]): FeatureArgs {
+  const out: FeatureArgs = { dryRun: false }
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]
+    if (arg === '--dry-run') out.dryRun = true
+    else if (arg === '--approve' || arg === '--operator-approval' || arg === '--dir') {
+      const value = args[index + 1]
+      if (value === undefined || value.startsWith('--')) throw new Error(`init: ${arg} needs a value`)
+      if (arg === '--approve') out.approve = value
+      else if (arg === '--operator-approval') out.operatorApproval = value
+      else out.dir = value
+      index++
+    } else throw new Error(`init: unknown argument ${arg}`)
+  }
+  return out
+}
+
+type TrackerProposal = { plan: InitPlan; contractText: string; canonical: string; deps: InitDeps }
+export type FeatureProposal = {
+  checkout: string
+  repository: string | null
+  facts: Facts
+  stack: StackProposal
+  tracker: TrackerProposal | null
+  withheld: string | null
+  refusal: string | null
+  digest: string
+}
+
+function hostPinned(repo: string): string {
+  return repo.startsWith('github.com/') || repo.includes('://') ? repo : `github.com/${repo}`
+}
+
+function pinTrackerDeps(deps: InitDeps): InitDeps {
+  return {
+    ...deps,
+    listLabelNames: (repo) => deps.listLabelNames(hostPinned(repo)),
+    listIssueLabelSets: (repo) => deps.listIssueLabelSets(hostPinned(repo)),
+    ensureLabel: (name, repo, color) => deps.ensureLabel(name, hostPinned(repo), color),
+    updateLabels: (number, add, remove, repo) => deps.updateLabels(number, add, remove, hostPinned(repo)),
+  }
+}
+
+async function trackerProposal(
+  dir: string,
+  facts: Facts,
+  triage: TriageInit,
+  repository: string | null = ownerRepoFromRemote(realGitRemoteUrl(dir)('origin')),
+): Promise<TrackerProposal | null> {
+  if (!repository || facts.labelsState !== 'ok') return null
+  const deps = pinTrackerDeps(triage.defaultInitDeps(repository, dir))
+  const built = await triage.buildPlan(repository, repository, deps)
+  return { ...built, deps, canonical: triage.canonicalPlan(built.plan, built.contractText) }
+}
+
+function digestFor(
+  checkout: string,
+  repository: string | null,
+  stack: StackProposal,
+  tracker: TrackerProposal | null,
+  withheld: string | null,
+  refusal: string | null,
+): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        checkout,
+        repository,
+        additions: [...stack.additions].sort((left, right) => left.key.localeCompare(right.key)),
+        tracker: tracker?.canonical ?? null,
+        withheld,
+        refusal,
+      }),
+    )
+    .digest('hex')
+}
+
+
+export type FeatureInitDeps = {
+  facts?: Facts
+  parseYaml?: ParseYaml
+  triage?: TriageInit
+  repository?: string | null
+  principal?: boolean
+}
+
+export async function previewFeatureInit(dir: string, deps: FeatureInitDeps = {}): Promise<FeatureProposal> {
+  const checkout = realpathSync(dir)
+  const facts = deps.facts ?? (await readFacts(checkout))
+  const stack = proposeStack(checkout, facts, deps.parseYaml)
+  const repository = deps.repository ?? ownerRepoFromRemote(realGitRemoteUrl(checkout)('origin'))
+  let tracker: TrackerProposal | null = null
+  let withheld: string | null = null
+  let refusal = stack.refusal
+  if (refusal) {
+    // An unreadable stack is a hard stop; do not discover a tracker against it.
+  } else if (facts.labelsState !== 'ok') withheld = `labels ${facts.labelsState}`
+  else if (!repository) withheld = 'no GitHub origin'
+  else {
+    try {
+      tracker = await trackerProposal(checkout, facts, deps.triage ?? (await loadTriageInit()), repository)
+      if (tracker?.plan.refused.length) {
+        refusal = tracker.plan.refused.join('\n')
+        tracker = null
+      }
+    } catch (err) {
+      withheld = err instanceof Error ? err.message : String(err)
+      tracker = null
+    }
+  }
+  return {
+    checkout,
+    repository,
+    facts,
+    stack,
+    tracker,
+    withheld,
+    refusal,
+    digest: digestFor(checkout, repository, stack, tracker, withheld, refusal),
+  }
+}
+
+function trackerChanges(tracker: TrackerProposal | null): boolean {
+  return Boolean(
+    tracker &&
+      (tracker.plan.createLabels.length || tracker.plan.relabels.length || tracker.plan.contract === 'write'),
+  )
+}
+
+function printProposal(proposal: FeatureProposal): void {
+  console.log(`checkout: ${proposal.checkout}`)
+  console.log(`repository: ${proposal.repository ?? 'unknown'}`)
+  for (const line of plan(proposal.facts)) console.log(line)
+  for (const addition of proposal.stack.additions) console.log(`stack add ${addition.key}: ${addition.source}`)
+  for (const conflict of proposal.stack.conflicts) console.log(`stack conflict: ${conflict}`)
+  console.log(
+    `tracker: ${proposal.tracker?.canonical ?? (proposal.withheld ? `withheld (${proposal.withheld})` : 'withheld')}`,
+  )
+  if (proposal.refusal) console.log(`refused: ${proposal.refusal}`)
+  console.log(`digest: ${proposal.digest}`)
+  console.log('digest is not authorization')
+}
+
+/** Preview by default; apply requires a matching digest and separate operator text. */
+export async function initFeature(args: string[], deps: FeatureInitDeps = {}): Promise<FeatureProposal> {
+  const parsed = featureArgs(args)
+  const dir = parsed.dir ?? process.cwd()
+  const preview = await previewFeatureInit(dir, deps)
+  printProposal(preview)
+  if (parsed.dryRun || parsed.approve === undefined) return preview
+  if (!parsed.approve || !parsed.operatorApproval?.trim() || parsed.operatorApproval === parsed.approve) {
+    throw new Error('init=refused explicit operator approval is required')
+  }
+  if (parsed.approve !== preview.digest) throw new Error('init=refused approval digest does not match the preview')
+  if (deps.principal ?? isPrincipal(preview.checkout)) {
+    const error = new Error('init=refused principal')
+    ;(error as Error & { exitCode?: number }).exitCode = 2
+    throw error
+  }
+  if (preview.refusal) throw new Error(`init=refused ${preview.refusal}`)
+  if (!preview.stack.additions.length && !trackerChanges(preview.tracker)) {
+    console.log('init=noop')
+    return preview
+  }
+  const reread = await previewFeatureInit(preview.checkout, deps)
+  if (reread.digest !== preview.digest || Boolean(reread.tracker) !== Boolean(preview.tracker)) {
+    throw new Error('init=refused plan changed before apply')
+  }
+  if (reread.stack.after !== null && reread.stack.after !== reread.stack.before) {
+    const stackPath = join(reread.checkout, '.dev', 'stack.yml')
+    mkdirSync(dirname(stackPath), { recursive: true })
+    writeFileSync(stackPath, reread.stack.after)
+  }
+  if (reread.tracker && trackerChanges(reread.tracker)) {
+    await (deps.triage ?? (await loadTriageInit())).applyApprovedPlan(
+      reread.tracker.plan,
+      reread.tracker.contractText,
+      reread.tracker.deps,
+    )
+  }
+  return preview
 }
 
 if (import.meta.main) {
-  const dir = process.argv.includes('--dir') ? process.argv[process.argv.indexOf('--dir') + 1] : process.cwd()
-  const dry = process.argv.includes('--dry-run')
-  if (!dry && isPrincipal(dir)) {
-    console.error('init=refused principal')
-    process.exit(2)
-  }
-  const gitDirRaw = execFileSync('git', ['rev-parse', '--git-dir'], { cwd: dir, encoding: 'utf8' }).trim()
-  const gitDir = isAbsolute(gitDirRaw) ? gitDirRaw : join(dir, gitDirRaw)
-  if (!dry && existsSync(join(gitDir, 'omp-build-feature-init'))) {
-    console.log('init=noop')
-    process.exit(0)
-  }
-  let facts: Facts
   try {
-    facts = await readFacts(dir)
+    await initFeature(process.argv.slice(2))
   } catch (err) {
-    if (!(err instanceof IssueTriageMissing)) throw err
-    console.error(`init=blocked ${err.message}`)
-    process.exit(3)
+    const error = err as Error & { exitCode?: number }
+    if (err instanceof IssueTriageMissing) {
+      console.error(`init=blocked ${error.message}`)
+      process.exit(3)
+    }
+    console.error(error.message)
+    process.exit(error.exitCode ?? 1)
   }
-  const planned = plan(facts)
-  console.log(trackerNext(dry))
-  if (dry) {
-    for (const line of planned) console.log(line)
-    process.exit(0)
-  }
-  applyStack(dir, facts)
-  for (const line of planned) console.log(line)
 }
