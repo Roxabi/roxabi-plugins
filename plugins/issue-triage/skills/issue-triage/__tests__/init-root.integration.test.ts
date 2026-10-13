@@ -393,4 +393,24 @@ describe('triage init --root', () => {
     expect(fake?.calls ?? []).toEqual([])
     expect(readFileSync(w.trustedContract, 'utf8')).toBe(w.trustedBytes)
   })
+
+  it('refuses a directory-required dot suffix before creating a stripped file', async () => {
+    const w = await world()
+    const stripped = path.join(path.dirname(w.targetContract), 'generated-contract.md')
+    mkdirSync(path.dirname(w.targetContract), { recursive: true })
+    symlinkSync('generated-contract.md/.', w.targetContract)
+    const ran = await run(
+      `bun --no-env-file ${JSON.stringify(w.script)} init --root ${JSON.stringify(w.target)}`,
+      path.dirname(w.script),
+      w.env,
+    )
+
+    expect(existsSync(stripped)).toBe(false)
+    expect(ran.code).not.toBe(0)
+    expect(ran.stderr).toContain('init: contract symlink target is not a file')
+    expect(existsSync(w.labels)).toBe(false)
+    expect(ghCalls(w.ghLog)).toEqual([])
+    expect(fake?.calls ?? []).toEqual([])
+    expect(readFileSync(w.trustedContract, 'utf8')).toBe(w.trustedBytes)
+  })
 })

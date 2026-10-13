@@ -48,7 +48,7 @@ Run the `issue-triage` skill's CLI: `init [--dry-run] [--repo owner/repo] [--roo
 
 Contract-path confinement resolves every ancestor and final symlink. External targets, non-directory ancestors, cycles and chains exceeding 40 symlink expansions are refused before GitHub or contract writes. Missing internal targets retain their full path and are created at the resolved physical destination. The original contract path is rechecked after creating its physical parent; this is not atomic protection against concurrent filesystem changes.
 
-A trailing slash on an internal directory ancestor is allowed, including when that directory must be created. A trailing slash on the final contract target is refused: the contract must remain a usable file.
+A trailing slash on an internal directory ancestor is allowed, including when that directory must be created. A final contract target ending in `/` or `/.` is directory-required and is refused: the contract must remain a usable file.
 
 `create` accepts the same field flags as `set`: `--size`, `--priority`, `--lane`, `--type`, plus `--parent`, `--add-child`, `--blocked-by`, `--blocks`.
 
