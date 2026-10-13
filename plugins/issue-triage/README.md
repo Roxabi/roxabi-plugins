@@ -44,13 +44,15 @@ Triggers: `"triage"` | `"create issue"` | `"set size"` | `"set priority"` | `"bl
 
 Adopt a repository. `init` writes `docs/agents/issue-tracker.md` only when that file is absent, at the git toplevel. An existing contract is kept (`contract: keep-existing`) and is the label vocabulary: a `Label | Colour` table, or canonical names in the template list. A contract that does not parse prints `vocabulary: none parsed from docs/agents/issue-tracker.md` and exits non-zero. `--repo` other than the local repo is refused. Missing labels are created in the contract's colours; an existing label is never recoloured, and a case mismatch is reported instead of created.
 
-Run the `issue-triage` skill's CLI: `init [--dry-run] [--repo owner/repo]`.
+Run the `issue-triage` skill's CLI: `init [--dry-run] [--repo owner/repo] [--root checkout]`. `--root` selects the local contract's git toplevel for reading and writing; it does not change Bun's startup directory or select the GitHub repository. When starting in the trusted CLI directory, preserve the target separately with `GITHUB_REPO`. Without `--root`, contract lookup retains the current-directory behavior.
 
 `create` accepts the same field flags as `set`: `--size`, `--priority`, `--lane`, `--type`, plus `--parent`, `--add-child`, `--blocked-by`, `--blocks`.
 
 Cross-repo: prefix `GITHUB_REPO=<owner/repo>`, and use fully-qualified `OWNER/REPO#N` refs when that env is set.
 
-Filing from a checkout you do not trust (a PR under review): start Bun in this skill's directory with `--no-env-file`, the target in `GITHUB_REPO` (yours when exported, else the checkout's `gh repo view`, never the checkout's `.dev/dev-core.yml` pin) and absolute `--title-file` / `--body-file` paths — the skill's Deferred Follow-Ups recipe does. Bun reads `bunfig.toml` and `.env` from the directory it starts in, so a preload committed in the checkout would otherwise run first.
+Filing from a checkout you do not trust (a PR under review): start Bun in this skill's directory with `--no-env-file`, the target in `GITHUB_REPO` (yours when exported, else the checkout's `gh repo view`, never the checkout's `.dev/dev-core.yml` pin) and absolute `--title-file` / `--body-file` paths. The Deferred Follow-Ups recipe requires the origin issue and a successful parent lookup before creating its sibling; an empty parent keeps both issues top-level. Mis-parent repair reuses that launcher and parent value in the same shell, stopping if removal or restoration fails. Bun reads `bunfig.toml` and `.env` from its startup directory, so a preload committed in the checkout would otherwise run first.
+
+Startup separation assumes the resolved CLI and its directory are operator-trusted. A normal installed cache is separate from the candidate checkout; a development link into candidate-controlled source does not establish that trust boundary. This launcher is not a validator or sandbox for the CLI it resolves.
 
 ## Size
 

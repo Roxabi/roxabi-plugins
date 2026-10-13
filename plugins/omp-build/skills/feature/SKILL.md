@@ -3,7 +3,7 @@ name: feature
 disable-model-invocation: true
 argument-hint: '[#N | <subject>]'
 description: OMP-only feature cycle — frame a GitHub issue, create the worktree from origin/<base>, hand off /move and /goal, then implement, review, fix and land.
-version: 0.1.6
+version: 0.1.8
 ---
 
 # Feature
@@ -26,18 +26,22 @@ use the current repository conventions, not a separate spec-file lifecycle.
 
 `/feature init [--dry-run]` runs `bun "$SKILL_DIR/feature-init.ts"` (with
 `--dry-run` when requested). It adopts a repository from a worktree, never the
-Principal. `--dry-run` prints the plan and writes nothing, and its next line
-includes `--dry-run`. A real run fills `landing` and `worktree` in
-`.dev/stack.yml` and prints
-`next: T=$(realpath skill://issue-triage/triage.ts) && bun "$T" init`.
-It does not run that command and does not print `init=done`. Run the printed
-command as given — `T=$(realpath …) && bun "$T"` fails closed as the last
-command of a line, or with `|| { …; exit 1; }` on its own line when more
-commands follow (`realpath` is an OMP builtin). If it cannot be resolved, stop
-and name issue-triage. Do not resolve
-the CLI from a path inside the skill body. Do not write issues by hand. An
-existing `docs/agents/issue-tracker.md` is left untouched by that command
-(`contract: keep-existing`). The command does not write the
+Principal. `--dry-run` prints the plan and writes nothing. A real run fills
+`landing` and `worktree` in `.dev/stack.yml` and prints this command:
+
+```bash
+TARGET_ROOT=$(git rev-parse --show-toplevel) && TRIAGE=$(realpath skill://issue-triage/triage.ts) && TRIAGE_REPO="${GITHUB_REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
+triage() { (: "${TARGET_ROOT:?target root unresolved}" "${TRIAGE:?issue-triage unresolved}" "${TRIAGE_REPO:?repository unresolved}" && cd "$(dirname "$TRIAGE")" && GITHUB_REPO="$TRIAGE_REPO" bun --no-env-file "$TRIAGE" "$@"); }
+triage init --root "$TARGET_ROOT"
+```
+
+Run the printed command as given. It captures the target root and repository
+before starting Bun in issue-triage's directory; `--root` selects the target
+contract while `GITHUB_REPO` keeps the target repository. `--dry-run` is
+appended to `triage init`. If the root, CLI, or repository cannot be resolved,
+the command refuses; an older CLI that rejects `--root` remains nonzero rather
+than falling back. Existing `docs/agents/issue-tracker.md` is left untouched
+by that command (`contract: keep-existing`). The command does not write the
 `omp-build-feature-init` marker, because the tracker step has not run. It does
 not index ccc or codegraph without consent already recorded there. Active
 semctx contracts are listed, never closed: a change may land active or partial,
@@ -281,17 +285,28 @@ the final review and the hook are the operator's call.
    For τ ≠ `size:S`, write a **decision brief** into the issue body before
    publishing: what, why, chosen solution, pros, cons, and rejected alternatives.
    Skip the brief for `size:S`.
-   Publish with `T=$(realpath skill://issue-triage/triage.ts) && bun "$T" create`, or `set` to amend
-   an existing issue. Titles and bodies you did not write go through
-   `--title-file` and `--body-file`. Amending a body with `set --body` or `set --body-file` requires issue-triage ≥ 0.2.0 (the `.omp-plugin/marketplace.json` cache key). An older cached CLI skips an unknown flag and can exit 0 when another flag is present, leaving the body unwritten. If that command cannot be resolved, stop and name issue-triage. Do not resolve the CLI from a path inside the skill body.
-   **A newly returned issue number immediately triggers §3**, even mid-framing.
+   Start `triage` in issue-triage's own directory, with the target repository
+   captured before that directory change:
+
+   ```bash
+   TRIAGE=$(realpath skill://issue-triage/triage.ts) && TRIAGE_REPO="${GITHUB_REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
+   triage() { (: "${TRIAGE:?issue-triage unresolved}" "${TRIAGE_REPO:?repository unresolved}" && cd "$(dirname "$TRIAGE")" && GITHUB_REPO="$TRIAGE_REPO" bun --no-env-file "$TRIAGE" "$@"); }
+   # after writing absolute title/body files, then:
+   triage create --title-file "$FILE_DIR/title.txt" --body-file "$FILE_DIR/body.md" ...
+   ```
+
+   Use `triage set` to amend an existing issue. Titles and bodies you did not
+   write go through `--title-file` and `--body-file`. If the CLI or repository
+   cannot be resolved, the launcher refuses; do not resolve the CLI from a path
+   inside the skill body. **A newly returned issue number immediately triggers
+   §3**, even mid-framing.
 3. Record durable vocabulary/decisions only in the matching worktree, using the
    project's glossary and ADR conventions when warranted. The issue remains the
    spec home; no `artifacts/specs` or `status: validated` gate.
-4. Split only when needed into independently landable tickets. Through
-   `T=$(realpath skill://issue-triage/triage.ts) && bun "$T" create`, each gets `--size`, `--priority`,
-   `--type`; add `--parent` only for actual decomposition and `--blocked-by` only
-   for actual dependencies.
+4. Split only when needed into independently landable tickets. Through the
+   `triage create` launcher above, each gets `--size`, `--priority`, `--type`;
+   add `--parent` only for actual decomposition and `--blocked-by` only for
+   actual dependencies.
    Every newly created ticket gets its branch proposal immediately; a declined
    proposal does not authorize creating branches for the rest of the batch.
    A child that is not framed yet carries a heading containing "needs framing"

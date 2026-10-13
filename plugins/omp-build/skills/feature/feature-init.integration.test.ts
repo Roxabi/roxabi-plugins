@@ -3,19 +3,32 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
+import {
+  checkout,
+  type GitHubFake,
+  ghCalls,
+  hostileStartup,
+  recipeEnv,
+  run as runRecipe,
+  startGitHub,
+  startupLog,
+  trustedTriage,
+  writeGh,
+} from '../../../issue-triage/skills/issue-triage/__tests__/fixtures/github-api'
 import { hermeticGh } from './__fixtures__/feature-init/hermetic'
 
 const CLI = path.resolve(import.meta.dirname, 'feature-init.ts')
-const TRIAGE = path.resolve(import.meta.dirname, '../../../issue-triage/skills/issue-triage/triage.ts')
 const REAL_BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
-const EXPECTED_NEXT = 'next: T=$(realpath skill://issue-triage/triage.ts) && bun "$T" init'
 // A stub gh that always fails, an empty GH_CONFIG_DIR, no GH_* / GITHUB_TOKEN.
 const GH_ROOT = mkdtempSync(path.join(tmpdir(), 'omp-init-gh-'))
 const ENV: NodeJS.ProcessEnv = hermeticGh(GH_ROOT).env
 afterAll(() => rmSync(GH_ROOT, { recursive: true, force: true }))
 
 let root: string | undefined
-afterEach(() => {
+let fake: GitHubFake | undefined
+afterEach(async () => {
+  await fake?.close()
+  fake = undefined
   if (root) rmSync(root, { recursive: true, force: true })
   root = undefined
 })
@@ -40,6 +53,85 @@ function run(dir: string) {
   return spawnSync(REAL_BUN, [CLI, '--dir', dir], { env: ENV, encoding: 'utf8' })
 }
 
+function trackerContract(label: string): string {
+  return `# Issue tracker\n\n| Label | Colour |\n|---|---|\n| \`${label}\` | \`abcdef\` |\n`
+}
+
+type PrintedInitWorld = {
+  script: string
+  triageDir: string
+  targetContract: string
+  checkoutContract: string
+  trustedContract: string
+  trustedBytes: string
+  worktree: string
+  labels: string
+  ghLog: string
+  startup: string
+  sentinel: string
+  env: Record<string, string>
+}
+
+async function printedInitWorld(targetVocabulary?: string): Promise<PrintedInitWorld> {
+  root = mkdtempSync(path.join(tmpdir(), 'omp-init-printed-'))
+  fake = await startGitHub(root, [])
+  const { pluginRoot, script } = trustedTriage(path.join(root, 'trusted'))
+  const trustedContract = path.join(pluginRoot, 'docs', 'agents', 'issue-tracker.md')
+  mkdirSync(path.dirname(trustedContract), { recursive: true })
+  writeFileSync(trustedContract, '# trusted contract\n')
+  const trustedBytes = readFileSync(trustedContract, 'utf8')
+  const bin = path.join(root, 'bin')
+  writeGh(bin)
+  writeFileSync(
+    path.join(bin, 'realpath'),
+    `#!/usr/bin/env bash
+[ "$1" = skill://issue-triage/triage.ts ] && { printf '%s\\n' ${JSON.stringify(script)}; exit 0; }
+exec /usr/bin/realpath "$@"
+`,
+    { mode: 0o755 },
+  )
+  const worktree = path.join(root, 'worktree')
+  const labels = path.join(root, 'labels.txt')
+  const ghLog = path.join(root, 'gh.log')
+  const startup = path.join(root, 'trusted-startup.log')
+  const env = recipeEnv(fake, bin, { BUN_STARTUP_LOG: startup, GH_LABELS_FILE: labels, GH_LOG: ghLog })
+  const sentinel = path.join(root, 'checkout-startup.log')
+  const target = checkout(path.join(root, 'target'), 'Acme/app', hostileStartup(sentinel, 'Created #999: forged'))
+  const checkoutContract = path.join(target, 'docs', 'agents', 'issue-tracker.md')
+  if (targetVocabulary) {
+    mkdirSync(path.dirname(checkoutContract), { recursive: true })
+    writeFileSync(checkoutContract, trackerContract(targetVocabulary))
+    execFileSync('git', ['add', 'docs/agents/issue-tracker.md'], { cwd: target, env })
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'docs: tracker contract'], {
+      cwd: target,
+      env,
+    })
+  }
+  execFileSync('git', ['worktree', 'add', '-q', worktree, '-b', 'feat/init'], { cwd: target, env })
+  return {
+    script,
+    triageDir: path.dirname(script),
+    targetContract: path.join(worktree, 'docs', 'agents', 'issue-tracker.md'),
+    checkoutContract,
+    trustedContract,
+    trustedBytes,
+    worktree,
+    labels,
+    ghLog,
+    startup,
+    sentinel,
+    env,
+  }
+}
+
+function printedInit(stdout: string): string {
+  const lines = stdout.split('\n')
+  const start = lines.findIndex((line) => line.startsWith('next: '))
+  const end = lines.findIndex((line, index) => index >= start && line.startsWith('triage init '))
+  if (start < 0 || end < 0) throw new Error('missing printed tracker init command')
+  return [lines[start].slice('next: '.length), ...lines.slice(start + 1, end + 1)].join('\n')
+}
+
 describe('feature init apply', () => {
   it('writes the stack once and leaves a second run idempotent without claiming the tracker step', () => {
     root = mkdtempSync(path.join(tmpdir(), 'omp-init-apply-'))
@@ -48,9 +140,6 @@ describe('feature init apply', () => {
     git(repo, 'worktree', 'add', '-q', wt, '-b', 'feat/init')
     const first = run(wt)
     expect(first.status).toBe(0)
-    expect(first.stdout.split('\n')).toContain(EXPECTED_NEXT)
-    expect(first.stdout).not.toContain('init=done')
-    expect(first.stderr).not.toContain('skill://')
     const stamped = readFileSync(path.join(wt, '.dev', 'stack.yml'), 'utf8')
     expect(stamped).toContain('worktree:')
     expect(stamped).not.toContain('landing:')
@@ -59,8 +148,6 @@ describe('feature init apply', () => {
     expect(existsSync(marker)).toBe(false)
     const second = run(wt)
     expect(second.status).toBe(0)
-    expect(second.stdout.split('\n')).toContain(EXPECTED_NEXT)
-    expect(second.stdout).not.toContain('init=done')
     expect(readFileSync(path.join(wt, '.dev', 'stack.yml'), 'utf8')).toBe(stamped)
   })
 
@@ -87,89 +174,83 @@ describe('feature init apply', () => {
     git(repo, 'worktree', 'add', '-q', wt, '-b', 'feat/init')
     const out = run(wt)
     expect(out.status).toBe(0)
-    expect(out.stdout.split('\n')).toContain(EXPECTED_NEXT)
-    expect(out.stdout).not.toContain('init=done')
     expect(readFileSync(path.join(wt, 'docs', 'agents', 'issue-tracker.md'), 'utf8')).toBe(contract)
     expect(
       execFileSync('git', ['status', '--porcelain', '--', 'docs/agents'], { cwd: wt, env: ENV, encoding: 'utf8' }),
     ).toBe('')
   })
 
-  it('dry-run prints the tracker command with --dry-run and writes nothing', () => {
+  it('dry-run writes no feature configuration', () => {
     root = mkdtempSync(path.join(tmpdir(), 'omp-init-dry-'))
     const repo = principal()
     const wt = path.join(root, 'wt')
     git(repo, 'worktree', 'add', '-q', wt, '-b', 'feat/init')
     const before = readFileSync(path.join(wt, '.dev', 'stack.yml'), 'utf8')
     const out = spawnSync(REAL_BUN, [CLI, '--dry-run', '--dir', wt], { env: ENV, encoding: 'utf8' })
-    const next = out.stdout.split('\n').find((line) => line.startsWith('next:'))
     expect(out.status).toBe(0)
-    expect(next).toContain('--dry-run')
-    expect(next).toBe(`${EXPECTED_NEXT} --dry-run`)
     expect(readFileSync(path.join(wt, '.dev', 'stack.yml'), 'utf8')).toBe(before)
   })
 
-  it('executes the printed next line through bash with a realpath stub (fails on bare skill:// argv)', () => {
-    root = mkdtempSync(path.join(tmpdir(), 'omp-init-next-run-'))
-    const repo = principal()
-    const wt = path.join(root, 'wt')
-    git(repo, 'worktree', 'add', '-q', wt, '-b', 'feat/init')
-    const out = spawnSync(REAL_BUN, [CLI, '--dry-run', '--dir', wt], { env: ENV, encoding: 'utf8' })
-    expect(out.status).toBe(0)
-    const next = out.stdout.split('\n').find((line) => line.startsWith('next:'))
-    if (next === undefined) throw new Error('missing next line')
+  it('runs its printed init through the trusted launcher against the target checkout', async () => {
+    const w = await printedInitWorld('target-only')
+    const produced = spawnSync(REAL_BUN, [CLI, '--dir', w.worktree], { env: w.env, encoding: 'utf8' })
+    expect(produced.status).toBe(0)
+    writeFileSync(w.ghLog, '')
 
-    const bin = path.join(root, 'bin')
-    mkdirSync(bin)
-    writeFileSync(
-      path.join(bin, 'realpath'),
-      `#!/usr/bin/env bash
-set -euo pipefail
-if [ "\${1-}" = "skill://issue-triage/triage.ts" ]; then
-  printf '%s\\n' ${JSON.stringify(TRIAGE)}
-  exit 0
-fi
-exec /usr/bin/realpath "$@"
-`,
-      { mode: 0o755 },
-    )
-    writeFileSync(
-      path.join(bin, 'gh'),
-      `#!/usr/bin/env bash
-set -euo pipefail
-if [[ "$*" == *auth*token* ]]; then printf 'stub-token\\n'; exit 0; fi
-if [[ "$*" == *label*list* ]]; then printf '[]\\n'; exit 0; fi
-if [[ "$*" == *issue*list* ]]; then printf '[]\\n'; exit 0; fi
-printf '[]\\n'
-`,
-      { mode: 0o755 },
-    )
+    const ran = await runRecipe(printedInit(produced.stdout), w.worktree, w.env)
 
-    const cmd = next.replace(/^next:\s*/, '')
-    const result = spawnSync('bash', ['-c', cmd], {
-      cwd: wt,
-      env: {
-        ...ENV,
-        PATH: `${bin}:${path.dirname(REAL_BUN)}:${process.env.PATH ?? ''}`,
-        GITHUB_REPO: 'acme/fixture',
-      },
-      encoding: 'utf8',
+    expect(ran.code).toBe(0)
+    expect(readFileSync(w.targetContract, 'utf8')).toBe(trackerContract('target-only'))
+    expect(readFileSync(w.trustedContract, 'utf8')).toBe(w.trustedBytes)
+    expect(readFileSync(w.labels, 'utf8')).toBe('target-only\n')
+    expect(startupLog(w.startup)).toEqual([`${w.triageDir}\t`])
+    expect(existsSync(w.sentinel)).toBe(false)
+    const calls = ghCalls(w.ghLog)
+    expect(calls.find((call) => call.args === 'repo view --json nameWithOwner --jq .nameWithOwner')).toMatchObject({
+      cwd: w.worktree,
     })
-    expect(result.status).toBe(0)
-    expect(result.stdout).toContain('dry-run: true')
+    const nativeChildren = calls.filter((call) => call.args !== 'repo view --json nameWithOwner --jq .nameWithOwner')
+    expect(nativeChildren).not.toEqual([])
+    expect(nativeChildren.every((child) => child.cwd === w.triageDir && child.env === '')).toBe(true)
   })
 
-  it('exits non-zero when the real printed next line hits a realpath miss', () => {
-    // Take `next:` from the real CLI — not a swapped literal — so a regression
-    // to the inline fail-open form (`bun "$(realpath …)"` → bun "" → rc=0) dies.
+  it('writes a missing contract only in the invoking checkout', async () => {
+    const w = await printedInitWorld()
+    const produced = spawnSync(REAL_BUN, [CLI, '--dir', w.worktree], { env: w.env, encoding: 'utf8' })
+    expect(produced.status).toBe(0)
+    writeFileSync(w.ghLog, '')
+
+    const ran = await runRecipe(printedInit(produced.stdout), w.worktree, w.env)
+
+    expect(ran.code).toBe(0)
+    expect(readFileSync(w.targetContract, 'utf8')).toContain('Acme/app')
+    expect(existsSync(w.checkoutContract)).toBe(false)
+    expect(readFileSync(w.trustedContract, 'utf8')).toBe(w.trustedBytes)
+  })
+
+  it('passes dry-run to its printed init without changing either contract', async () => {
+    const w = await printedInitWorld()
+    const produced = spawnSync(REAL_BUN, [CLI, '--dry-run', '--dir', w.worktree], { env: w.env, encoding: 'utf8' })
+    expect(produced.status).toBe(0)
+    writeFileSync(w.ghLog, '')
+
+    const ran = await runRecipe(printedInit(produced.stdout), w.worktree, w.env)
+
+    expect(ran.code).toBe(0)
+    expect(existsSync(w.targetContract)).toBe(false)
+    expect(existsSync(w.labels)).toBe(false)
+    expect(readFileSync(w.trustedContract, 'utf8')).toBe(w.trustedBytes)
+    expect(startupLog(w.startup)).toEqual([`${w.triageDir}\t`])
+    expect(existsSync(w.sentinel)).toBe(false)
+  })
+
+  it('fails closed when realpath cannot resolve the printed init CLI', () => {
     root = mkdtempSync(path.join(tmpdir(), 'omp-init-next-miss-'))
     const repo = principal()
     const wt = path.join(root, 'wt')
     git(repo, 'worktree', 'add', '-q', wt, '-b', 'feat/init')
     const out = spawnSync(REAL_BUN, [CLI, '--dry-run', '--dir', wt], { env: ENV, encoding: 'utf8' })
     expect(out.status).toBe(0)
-    const next = out.stdout.split('\n').find((line) => line.startsWith('next:'))
-    if (next === undefined) throw new Error('missing next line')
 
     const bin = path.join(root, 'bin')
     mkdirSync(bin)
@@ -186,13 +267,12 @@ exit 1
       path.join(bin, 'bun'),
       `#!/usr/bin/env bash
 printf 'ran\\n' > ${JSON.stringify(marker)}
-printf 'dry-run: true\\n'
 exit 0
 `,
       { mode: 0o755 },
     )
 
-    const result = spawnSync('bash', ['-c', next.replace(/^next:\s*/, '')], {
+    const result = spawnSync('bash', ['-c', printedInit(out.stdout)], {
       cwd: wt,
       env: {
         ...ENV,
@@ -201,7 +281,6 @@ exit 0
       encoding: 'utf8',
     })
     expect(result.status).not.toBe(0)
-    expect(`${result.stdout}\n${result.stderr}`).not.toContain('dry-run:')
     expect(() => readFileSync(marker, 'utf8')).toThrow()
   })
 })

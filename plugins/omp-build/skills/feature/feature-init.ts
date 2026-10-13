@@ -540,7 +540,9 @@ export async function readFacts(dir: string, opts: ReadFactsOpts = {}): Promise<
 }
 
 /** Agent-layer command. `realpath` is an OMP builtin; bare skill:// as a bun argv is not. */
-export const TRACKER_INIT_NEXT = 'next: T=$(realpath skill://issue-triage/triage.ts) && bun "$T" init'
+export const TRACKER_INIT_NEXT = `next: TARGET_ROOT=$(git rev-parse --show-toplevel) && TRIAGE=$(realpath skill://issue-triage/triage.ts) && TRIAGE_REPO="\${GITHUB_REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
+triage() { (: "\${TARGET_ROOT:?target root unresolved}" "\${TRIAGE:?issue-triage unresolved}" "\${TRIAGE_REPO:?repository unresolved}" && cd "$(dirname "$TRIAGE")" && GITHUB_REPO="$TRIAGE_REPO" bun --no-env-file "$TRIAGE" "$@"); }
+triage init --root "$TARGET_ROOT"`
 
 export function trackerNext(dry: boolean): string {
   return dry ? `${TRACKER_INIT_NEXT} --dry-run` : TRACKER_INIT_NEXT
