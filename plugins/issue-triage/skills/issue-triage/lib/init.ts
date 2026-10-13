@@ -100,7 +100,7 @@ function contained(root: string, candidate: string): boolean {
   return fromRoot === '' || (!fromRoot.startsWith(`..${sep}`) && fromRoot !== '..' && !isAbsolute(fromRoot))
 }
 
-/** A contract symlink is usable only when every link resolves inside the checkout. */
+/** Resolve the physical contract destination before enforcing checkout confinement. */
 export function containedContract(root: string): string {
   const checkout = realpathSync(root)
   const components = CONTRACT_REL.split('/')
@@ -119,11 +119,7 @@ export function containedContract(root: string): string {
       continue
     }
     if (component === '..') {
-      const parent = dirname(current)
-      if (contained(checkout, current) && !contained(checkout, parent)) {
-        throw new Error('init: contract symlink resolves outside the selected checkout')
-      }
-      current = parent
+      current = dirname(current)
       index++
       continue
     }

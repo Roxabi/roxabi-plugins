@@ -413,4 +413,41 @@ describe('triage init --root', () => {
     expect(fake?.calls ?? []).toEqual([])
     expect(readFileSync(w.trustedContract, 'utf8')).toBe(w.trustedBytes)
   })
+
+  it('reads an internal relative ancestor that returns through the checkout parent', async () => {
+    const w = await world()
+    const physical = path.join(w.target, 'physical-docs/agents/issue-tracker.md')
+    mkdirSync(path.dirname(physical), { recursive: true })
+    writeFileSync(physical, contract('target-only'))
+    symlinkSync(path.join('..', path.basename(w.target), 'physical-docs'), path.join(w.target, 'docs'), 'dir')
+    const ran = await run(
+      `bun --no-env-file ${JSON.stringify(w.script)} init --root ${JSON.stringify(w.target)}`,
+      path.dirname(w.script),
+      w.env,
+    )
+
+    expect(ran.code).toBe(0)
+    expect(ran.stdout).toContain('vocabulary: table')
+    expect(readFileSync(w.labels, 'utf8')).toBe('target-only\n')
+    expect(readFileSync(physical, 'utf8')).toBe(contract('target-only'))
+    expect(readFileSync(w.targetContract, 'utf8')).toBe(contract('target-only'))
+    expect(readFileSync(w.trustedContract, 'utf8')).toBe(w.trustedBytes)
+  })
+
+  it('writes through an internal relative ancestor that returns through the checkout parent', async () => {
+    const w = await world()
+    const physical = path.join(w.target, 'physical-docs/agents/issue-tracker.md')
+    symlinkSync(path.join('..', path.basename(w.target), 'physical-docs'), path.join(w.target, 'docs'), 'dir')
+    const ran = await run(
+      `bun --no-env-file ${JSON.stringify(w.script)} init --root ${JSON.stringify(w.target)}`,
+      path.dirname(w.script),
+      w.env,
+    )
+
+    expect(ran.code).toBe(0)
+    expect(ran.stdout).toContain('contract: write')
+    expect(readFileSync(physical, 'utf8')).toContain('Acme/app')
+    expect(readFileSync(w.targetContract, 'utf8')).toBe(readFileSync(physical, 'utf8'))
+    expect(readFileSync(w.trustedContract, 'utf8')).toBe(w.trustedBytes)
+  })
 })
