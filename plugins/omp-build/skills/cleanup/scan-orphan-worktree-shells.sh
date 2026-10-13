@@ -97,9 +97,7 @@ read_stack_worktree_base() {
   while IFS= read -r -d '' field; do
     fields+=("$field")
   done < <(
-    if (
-      cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
-      bun --no-env-file -e '
+    if cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && bun --no-env-file -e '
         import { readFileSync } from "node:fs"
 
         const stackPath = process.argv[1]
@@ -122,8 +120,7 @@ read_stack_worktree_base() {
           console.error(`${stackPath}: invalid worktree configuration: ${message}`)
           process.exit(1)
         }
-      ' "$stack"
-    ); then
+      ' "$stack"; then
       printf '%s\0%s\0' '__OMP_STACK_STATUS__' '0'
     else
       status=$?

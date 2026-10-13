@@ -1,8 +1,9 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { git, initRepo, scanRaw, scanStatus } from './fixture'
+import { FIXTURE_ENV, git, initRepo, SCAN, scanRaw, scanStatus } from './fixture'
 
 let root: string | undefined
 
@@ -173,5 +174,40 @@ describe('OMP worktree base orphan scan', () => {
     const result = scanStatus(repo, { HOME: home })
     expect(result.status).not.toBe(0)
     expect(result.stderr).toContain(stackPath)
+  })
+
+  it('fails before checkout Bun startup when the scanner directory disappears', () => {
+    const { repo, home } = fixture('startup-directory')
+    const forged = path.join(home, 'forged-base')
+    shell(forged, 'repo', 'forged-shell')
+    writeStack(repo, 'worktree:\n  base: ~/configured-base\n')
+    const install = path.join(root as string, 'scanner-install')
+    mkdirSync(install)
+    const sourceRef = `${'$'}{BASH_SOURCE[0]}`
+    const trustedEntry = `cd -- "$(dirname -- "${sourceRef}")"`
+    writeFileSync(
+      path.join(install, 'scan-orphan-worktree-shells.sh'),
+      readFileSync(SCAN, 'utf8').replace(trustedEntry, `rmdir -- "$(dirname -- "${sourceRef}")" && ${trustedEntry}`),
+    )
+    chmodSync(path.join(install, 'scan-orphan-worktree-shells.sh'), 0o755)
+    writeFileSync(path.join(repo, 'bunfig.toml'), 'preload = ["./preload.js"]\n')
+    writeFileSync(
+      path.join(repo, 'preload.js'),
+      [
+        'require("node:fs").appendFileSync(process.env.PRELOAD_MARKER, "ran\\n"); process.stdout.write("base\\0" + process.env.HOME + "/forged-base\\0"); process.exit(0)\n',
+      ].join(''),
+    )
+    const marker = path.join(home, 'preload-ran')
+
+    const result = spawnSync('bash', [path.join(install, 'scan-orphan-worktree-shells.sh')], {
+      cwd: repo,
+      env: { ...FIXTURE_ENV, HOME: home, PATH: process.env.PATH, PRELOAD_MARKER: marker },
+      encoding: 'utf8',
+    })
+
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toContain(path.join(repo, '.dev', 'stack.yml'))
+    expect(result.stdout).not.toContain('forged-shell')
+    expect(existsSync(marker)).toBe(false)
   })
 })

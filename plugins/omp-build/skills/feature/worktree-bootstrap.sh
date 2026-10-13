@@ -67,8 +67,7 @@ if [ -f "$stack" ]; then
   while IFS= read -r -d '' field; do
     fields+=("$field")
   done < <(
-    cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
-    if bun --no-env-file -e '
+    if cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && bun --no-env-file -e '
       import { readFileSync } from "node:fs"
 
       const path = process.argv[1]
