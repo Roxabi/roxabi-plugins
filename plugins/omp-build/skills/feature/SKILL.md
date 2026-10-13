@@ -3,7 +3,7 @@ name: feature
 disable-model-invocation: true
 argument-hint: '[#N | <subject>]'
 description: OMP-only feature cycle — frame a GitHub issue, create the worktree from origin/<base>, hand off /move and /goal, then implement, review, fix and land.
-version: 0.1.8
+version: 0.1.9
 ---
 
 # Feature
@@ -24,10 +24,19 @@ use the current repository conventions, not a separate spec-file lifecycle.
   Under the Epic goal the loop deletes each merged child's local branch itself and
   offers `/cleanup` once, when the goal ends (§ Epic goal).
 
-`/feature init [--dry-run]` runs `bun "$SKILL_DIR/feature-init.ts"` (with
-`--dry-run` when requested). It adopts a repository from a worktree, never the
-Principal. `--dry-run` prints the plan and writes nothing. A real run fills
-`landing` and `worktree` in `.dev/stack.yml` and prints this command:
+`/feature init [--dry-run]` captures the invoking target before starting its
+operator-trusted producer in this skill's directory:
+
+```bash
+TARGET_ROOT=$(git rev-parse --show-toplevel) && FEATURE_INIT=$(realpath "${SKILL_DIR:?feature skill unresolved}/feature-init.ts") &&
+feature_init() { (cd "$(dirname "$FEATURE_INIT")" && bun --no-env-file "$FEATURE_INIT" --dir "$TARGET_ROOT" "$@"); } &&
+feature_init
+```
+
+Pass `--dry-run` to `feature_init` when requested. It adopts a repository from
+a worktree, never the Principal. `--dry-run` prints the plan and writes nothing.
+A real run fills missing `worktree` configuration and, when discovered, merge-on-green
+`landing` in the target's `.dev/stack.yml`, then prints this tracker command:
 
 ```bash
 TARGET_ROOT=$(git rev-parse --show-toplevel) && TRIAGE=$(realpath skill://issue-triage/triage.ts) && TRIAGE_REPO="${GITHUB_REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"

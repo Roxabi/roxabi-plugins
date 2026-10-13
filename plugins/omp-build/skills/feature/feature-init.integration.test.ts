@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
@@ -8,6 +8,7 @@ import {
   type GitHubFake,
   ghCalls,
   hostileStartup,
+  observeStartup,
   recipeEnv,
   run as runRecipe,
   startGitHub,
@@ -18,6 +19,10 @@ import {
 import { hermeticGh } from './__fixtures__/feature-init/hermetic'
 
 const CLI = path.resolve(import.meta.dirname, 'feature-init.ts')
+const FEATURE_SKILL = readFileSync(path.join(import.meta.dirname, 'SKILL.md'), 'utf8')
+const producerMatch = /`\/feature init \[--dry-run\]`[\s\S]*?```bash\n([\s\S]*?)```/.exec(FEATURE_SKILL)
+if (!producerMatch) throw new Error('initial feature init launcher missing')
+const INITIAL_INIT = producerMatch[1].trimEnd()
 const REAL_BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
 // A stub gh that always fails, an empty GH_CONFIG_DIR, no GH_* / GITHUB_TOKEN.
 const GH_ROOT = mkdtempSync(path.join(tmpdir(), 'omp-init-gh-'))
@@ -59,6 +64,7 @@ function trackerContract(label: string): string {
 
 type PrintedInitWorld = {
   script: string
+  producerDir: string
   triageDir: string
   targetContract: string
   checkoutContract: string
@@ -76,6 +82,12 @@ async function printedInitWorld(targetVocabulary?: string): Promise<PrintedInitW
   root = mkdtempSync(path.join(tmpdir(), 'omp-init-printed-'))
   fake = await startGitHub(root, [])
   const { pluginRoot, script } = trustedTriage(path.join(root, 'trusted'))
+  const producerRoot = path.join(root, 'trusted', 'omp-build')
+  const producerDir = path.join(producerRoot, 'skills', 'feature')
+  mkdirSync(producerDir, { recursive: true })
+  copyFileSync(CLI, path.join(producerDir, 'feature-init.ts'))
+  observeStartup(producerDir)
+  checkout(producerRoot, 'Trusted/plugins')
   const trustedContract = path.join(pluginRoot, 'docs', 'agents', 'issue-tracker.md')
   mkdirSync(path.dirname(trustedContract), { recursive: true })
   writeFileSync(trustedContract, '# trusted contract\n')
@@ -110,6 +122,7 @@ exec /usr/bin/realpath "$@"
   execFileSync('git', ['worktree', 'add', '-q', worktree, '-b', 'feat/init'], { cwd: target, env })
   return {
     script,
+    producerDir,
     triageDir: path.dirname(script),
     targetContract: path.join(worktree, 'docs', 'agents', 'issue-tracker.md'),
     checkoutContract,
@@ -122,6 +135,21 @@ exec /usr/bin/realpath "$@"
     sentinel,
     env,
   }
+}
+
+async function initialInit(w: PrintedInitWorld, dryRun = false) {
+  const produced = await runRecipe(`${INITIAL_INIT}${dryRun ? ' --dry-run' : ''}`, w.worktree, {
+    ...w.env,
+    SKILL_DIR: w.producerDir,
+  })
+  expect(produced.code).toBe(0)
+  expect(existsSync(w.sentinel)).toBe(false)
+  expect(startupLog(w.startup)).toEqual([`${w.producerDir}\t`])
+  const labelReads = ghCalls(w.ghLog).filter((call) => call.args.startsWith('label list '))
+  expect(labelReads).not.toEqual([])
+  expect(labelReads.every((call) => call.cwd === w.worktree && call.env === '')).toBe(true)
+  expect(existsSync(path.resolve(w.producerDir, '../../.dev/stack.yml'))).toBe(false)
+  return produced
 }
 
 function printedInit(stdout: string): string {
@@ -193,8 +221,7 @@ describe('feature init apply', () => {
 
   it('runs its printed init through the trusted launcher against the target checkout', async () => {
     const w = await printedInitWorld('target-only')
-    const produced = spawnSync(REAL_BUN, [CLI, '--dir', w.worktree], { env: w.env, encoding: 'utf8' })
-    expect(produced.status).toBe(0)
+    const produced = await initialInit(w)
     writeFileSync(w.ghLog, '')
 
     const ran = await runRecipe(printedInit(produced.stdout), w.worktree, w.env)
@@ -203,7 +230,7 @@ describe('feature init apply', () => {
     expect(readFileSync(w.targetContract, 'utf8')).toBe(trackerContract('target-only'))
     expect(readFileSync(w.trustedContract, 'utf8')).toBe(w.trustedBytes)
     expect(readFileSync(w.labels, 'utf8')).toBe('target-only\n')
-    expect(startupLog(w.startup)).toEqual([`${w.triageDir}\t`])
+    expect(startupLog(w.startup)).toEqual([`${w.producerDir}\t`, `${w.triageDir}\t`])
     expect(existsSync(w.sentinel)).toBe(false)
     const calls = ghCalls(w.ghLog)
     expect(calls.find((call) => call.args === 'repo view --json nameWithOwner --jq .nameWithOwner')).toMatchObject({
@@ -216,8 +243,7 @@ describe('feature init apply', () => {
 
   it('writes a missing contract only in the invoking checkout', async () => {
     const w = await printedInitWorld()
-    const produced = spawnSync(REAL_BUN, [CLI, '--dir', w.worktree], { env: w.env, encoding: 'utf8' })
-    expect(produced.status).toBe(0)
+    const produced = await initialInit(w)
     writeFileSync(w.ghLog, '')
 
     const ran = await runRecipe(printedInit(produced.stdout), w.worktree, w.env)
@@ -230,8 +256,7 @@ describe('feature init apply', () => {
 
   it('passes dry-run to its printed init without changing either contract', async () => {
     const w = await printedInitWorld()
-    const produced = spawnSync(REAL_BUN, [CLI, '--dry-run', '--dir', w.worktree], { env: w.env, encoding: 'utf8' })
-    expect(produced.status).toBe(0)
+    const produced = await initialInit(w, true)
     writeFileSync(w.ghLog, '')
 
     const ran = await runRecipe(printedInit(produced.stdout), w.worktree, w.env)
@@ -240,7 +265,7 @@ describe('feature init apply', () => {
     expect(existsSync(w.targetContract)).toBe(false)
     expect(existsSync(w.labels)).toBe(false)
     expect(readFileSync(w.trustedContract, 'utf8')).toBe(w.trustedBytes)
-    expect(startupLog(w.startup)).toEqual([`${w.triageDir}\t`])
+    expect(startupLog(w.startup)).toEqual([`${w.producerDir}\t`, `${w.triageDir}\t`])
     expect(existsSync(w.sentinel)).toBe(false)
   })
 
