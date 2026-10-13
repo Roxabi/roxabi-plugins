@@ -28,8 +28,8 @@ export function hermeticGh(root: string, answer?: { argv: string[]; body: string
   writeFileSync(
     path.join(bin, 'gh'),
     `#!/usr/bin/env bash
-for arg in "$@"; do printf '%s\\n' "$arg" >> ${quote(log)}; done
-printf '%s\\n' '<end>' >> ${quote(log)}
+for arg in "$@"; do printf '%s\\n' "$arg" >> ${quote(log)} || true; done
+printf '%s\\n' '<end>' >> ${quote(log)} || true
 ${
   answer
     ? `expected=(${expected})

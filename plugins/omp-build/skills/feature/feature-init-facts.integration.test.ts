@@ -159,7 +159,7 @@ describe('feature init landing via readLanding', () => {
       [CLI, '--dir', wt, '--approve', digest ?? '', '--operator-approval', 'apply the displayed proposal'],
       { env: gh.env, encoding: 'utf8' },
     )
-    expect(apply.status).toBe(0)
+    expect(apply.status, `${apply.stderr}\n${apply.stdout}`).toBe(0)
 
     // Landing is read from origin/<base>, never the worktree (#623). Plant the
     // written stack on origin/main so readLanding sees what init just wrote.

@@ -4,6 +4,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   applyApprovedPlan,
+  buildPlan,
   canonicalPlan,
   classifyVocabulary,
   contractAction,
@@ -30,6 +31,19 @@ const CANONICAL = [
 ]
 
 describe('init', () => {
+  it('reports the label discovery failure before the issue discovery failure', async () => {
+    const deps = {
+      listLabelNames: async () => {
+        throw new Error('labels down')
+      },
+      listIssueLabelSets: async () => {
+        throw new Error('issues down')
+      },
+      readContract: () => null,
+    }
+    await expect(buildPlan('Acme/app', 'Acme/app', deps)).rejects.toThrow('labels down')
+  })
+
   it('dry-run lists the plan and calls no writer', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {})
     const writes = { ensure: 0, update: 0, contract: 0 }

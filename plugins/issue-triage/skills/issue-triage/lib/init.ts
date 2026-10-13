@@ -330,11 +330,11 @@ export async function buildPlan(
   deps: Pick<InitDeps, 'listLabelNames' | 'listIssueLabelSets' | 'readContract'>,
 ): Promise<{ plan: InitPlan; issues: IssueLabels[]; contractText: string }> {
   const otherRepo = repo !== cwdRepo
-  const [defined, issues, current] = await Promise.all([
-    deps.listLabelNames(repo),
-    deps.listIssueLabelSets(repo),
-    otherRepo ? Promise.resolve(null) : Promise.resolve(deps.readContract()),
-  ])
+  // Sequential: a parallel rejection would put whichever call failed first into
+  // the error, so two previews of the same repo could disagree and refuse approval.
+  const defined = await deps.listLabelNames(repo)
+  const issues = await deps.listIssueLabelSets(repo)
+  const current = otherRepo ? null : deps.readContract()
   const parsed = otherRepo ? { source: 'none' as const, labels: [] } : vocabularyFor(current)
   const createLabels: string[] = []
   const mismatches: string[] = []
