@@ -13,8 +13,17 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  type Stats,
+  writeFileSync,
+} from 'node:fs'
+import { dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { detectGitHubRepo } from '../../shared/adapters/config-helpers'
 import { ensureLabel, listIssueLabelSets, listLabelNames, updateLabels } from '../../shared/adapters/github-adapter'
@@ -86,8 +95,85 @@ export function repoToplevel(cwd: string, revParse: (cwd: string) => string = gi
   return revParse(cwd)
 }
 
+function contained(root: string, candidate: string): boolean {
+  const fromRoot = relative(root, candidate)
+  return fromRoot === '' || (!fromRoot.startsWith(`..${sep}`) && fromRoot !== '..' && !isAbsolute(fromRoot))
+}
+
+/** Resolve the physical contract destination before enforcing checkout confinement. */
+export function containedContract(root: string): string {
+  const checkout = realpathSync(root)
+  const components = CONTRACT_REL.split('/')
+  let current = checkout
+  let expansions = 0
+
+  for (let index = 0; index < components.length; ) {
+    const component = components[index]
+    if (component === '.') {
+      index++
+      continue
+    }
+    if (component === '') {
+      if (index === components.length - 1) throw new Error('init: contract symlink target is not a file')
+      index++
+      continue
+    }
+    if (component === '..') {
+      current = dirname(current)
+      index++
+      continue
+    }
+
+    const candidate = join(current, component)
+    let stat: Stats
+    try {
+      stat = lstatSync(candidate)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      const suffix = components.slice(index)
+      if (suffix.includes('..')) throw new Error('init: contract symlink target has unresolved ..')
+      const finalName = suffix[suffix.length - 1]
+      if (finalName === '' || finalName === '.') throw new Error('init: contract symlink target is not a file')
+      const destination = join(current, ...suffix)
+      if (!contained(checkout, current) || !contained(checkout, destination)) {
+        throw new Error('init: contract symlink resolves outside the selected checkout')
+      }
+      return destination
+    }
+
+    if (stat.isSymbolicLink()) {
+      if (++expansions > 40) throw new Error('init: contract symlink resolution exceeds 40 expansions')
+      const bytes = readlinkSync(candidate, { encoding: 'buffer' })
+      if (!Buffer.from(bytes.toString('utf8')).equals(bytes)) {
+        throw new Error('init: contract symlink target is not valid text')
+      }
+      const target = bytes.toString('utf8')
+      const parts = target.split(sep)
+      const expanded: string[] = []
+      for (let partIndex = 0; partIndex < parts.length; partIndex++) {
+        if (parts[partIndex] !== '') expanded.push(parts[partIndex])
+        else if (partIndex === parts.length - 1 && target.endsWith(sep)) expanded.push('')
+      }
+      components.splice(index, 1, ...expanded)
+      if (isAbsolute(target)) current = sep
+      continue
+    }
+
+    if (index === components.length - 1 ? !stat.isFile() : !stat.isDirectory()) {
+      throw new Error('init: contract target is not a regular file')
+    }
+    current = candidate
+    index++
+  }
+
+  if (!contained(checkout, current)) {
+    throw new Error('init: contract symlink resolves outside the selected checkout')
+  }
+  return current
+}
+
 export function readContractFile(root: string): string | null {
-  const file = contractFile(root)
+  const file = containedContract(root)
   return existsSync(file) ? readFileSync(file, 'utf8') : null
 }
 
@@ -99,7 +185,7 @@ function renderContract(repo: string, labels: string[]): string {
 }
 
 export function contractReader(cwd: string, revParse: (cwd: string) => string = gitRevParse): () => string | null {
-  const file = contractFile(repoToplevel(cwd, revParse))
+  const file = containedContract(repoToplevel(cwd, revParse))
   return () => (existsSync(file) ? readFileSync(file, 'utf8') : null)
 }
 export function contractAction(
@@ -309,13 +395,17 @@ function parseArgs(args: string[]): { dryRun: boolean; repo?: string; root?: str
       continue
     }
     if (arg === '--repo') {
-      repo = args[++i]
-      if (!repo) throw new Error('init: --repo needs owner/repo')
+      const value = args[i + 1]
+      if (!value || value.startsWith('-')) throw new Error('init: --repo needs owner/repo')
+      repo = value
+      i++
       continue
     }
     if (arg === '--root') {
-      root = args[++i]
-      if (!root) throw new Error('init: --root needs a checkout path')
+      const value = args[i + 1]
+      if (!value || value.startsWith('-')) throw new Error('init: --root needs a checkout path')
+      root = value
+      i++
       continue
     }
     throw new Error(`init: unknown argument ${arg}`)
@@ -324,7 +414,7 @@ function parseArgs(args: string[]): { dryRun: boolean; repo?: string; root?: str
 }
 
 function defaultDeps(cwdRepo: string, cwd = process.cwd()): InitDeps {
-  const file = contractFile(repoToplevel(cwd))
+  const root = repoToplevel(cwd)
   return {
     listLabelNames,
     listIssueLabelSets,
@@ -333,8 +423,10 @@ function defaultDeps(cwdRepo: string, cwd = process.cwd()): InitDeps {
     cwdRepo,
     readContract: contractReader(cwd),
     writeContract: (text) => {
-      mkdirSync(dirname(file), { recursive: true })
-      writeFileSync(file, text)
+      const destination = containedContract(root)
+      mkdirSync(dirname(destination), { recursive: true })
+      const physical = containedContract(root)
+      writeFileSync(physical, text)
     },
   }
 }
