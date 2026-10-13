@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Idempotent worktree bootstrap. Never writes on the principal.
 # Marker: $(git rev-parse --git-dir)/omp-build-bootstrapped
-# Reads .dev/stack.yml worktree.copy / worktree.seed / worktree.setup, then
-# builds each code index (ccc, codegraph, semctx) the principal has.
+# Reads .dev/stack.yml worktree.copy / worktree.seed; runs the selected setup
+# after ccc/codegraph and before semctx.
 set -euo pipefail
 
 toplevel="$(git rev-parse --show-toplevel)"
@@ -55,7 +55,6 @@ fi
 stack="$here/.dev/stack.yml"
 copy_list=""
 seed_list=""
-setup=""
 if [ -f "$stack" ]; then
   parsed="$(python3 - "$stack" << 'PY'
 import sys
@@ -63,7 +62,7 @@ path = sys.argv[1]
 lines = open(path, encoding="utf-8").read().splitlines()
 section = None
 key = None
-copy, seed, setup = [], [], ""
+copy, seed = [], []
 for raw in lines:
     if not raw.strip() or raw.lstrip().startswith("#"):
         continue
@@ -83,19 +82,14 @@ for raw in lines:
         (copy if key == "copy" else seed).append(item)
         continue
     if indent == 2 and ":" in text:
-        name, value = text.split(":", 1)
-        if name.strip() == "setup":
-            setup = value.strip().strip("'\"")
+        key = None
 print("\n".join(copy))
 print("---")
 print("\n".join(seed))
-print("---")
-print(setup)
 PY
 )"
   copy_list="$(printf '%s\n' "$parsed" | awk 'BEGIN{p=0} /^---$/{p++; next} p==0')"
   seed_list="$(printf '%s\n' "$parsed" | awk 'BEGIN{p=0} /^---$/{p++; next} p==1')"
-  setup="$(printf '%s\n' "$parsed" | awk 'BEGIN{p=0} /^---$/{p++; next} p==2')"
 fi
 
 refuse_example() {
@@ -205,8 +199,27 @@ if [ -f "$principal/.codegraph/codegraph.db" ]; then
   codegraph init -y "$here"
 fi
 
-if [ -n "$setup" ]; then
-  (cd "$here" && bash -c "$setup")
+if [ -f "$stack" ]; then
+  need_cli bun bun
+  (
+    cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
+    bun --no-env-file -e "
+      import { spawnSync } from 'node:child_process'
+      import { readFileSync } from 'node:fs'
+
+      const config = Bun.YAML.parse(readFileSync(process.argv[1], 'utf8'))
+      const snippet = config?.worktree?.setup
+      const file = config?.commands?.worktree_setup
+      const args = typeof snippet === 'string' && snippet.trim()
+        ? ['-c', snippet]
+        : typeof file === 'string' && file.trim() ? ['--', file] : null
+      if (args) {
+        const child = spawnSync('bash', args, { cwd: process.argv[2], stdio: 'inherit' })
+        if (child.error) throw child.error
+        process.exit(child.status ?? 1)
+      }
+    " "$stack" "$here"
+  )
 fi
 
 if [ -d "$here/.semctx" ]; then

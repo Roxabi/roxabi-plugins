@@ -2,6 +2,7 @@ import { execFile, execFileSync, spawnSync } from 'node:child_process'
 import {
   chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -38,7 +39,7 @@ function git(cwd: string, ...args: string[]): void {
   execFileSync('git', args, { cwd, env: ENV, stdio: 'ignore' })
 }
 
-function principalWith(stack: string): { repo: string; wt: string } {
+function principalWith(stack: string, files: Record<string, string> = {}): { repo: string; wt: string } {
   root = mkdtempSync(path.join(tmpdir(), 'omp-build-bootstrap-'))
   const repo = path.join(root, 'repo')
   mkdirSync(path.join(repo, '.dev'), { recursive: true })
@@ -47,8 +48,13 @@ function principalWith(stack: string): { repo: string; wt: string } {
   writeFileSync(path.join(repo, '.env.example'), 'EXAMPLE=1\n')
   mkdirSync(path.join(repo, 'cache'))
   writeFileSync(path.join(repo, 'cache', 'state.db'), 'seed\n')
+  for (const [rel, contents] of Object.entries(files)) {
+    const file = path.join(repo, rel)
+    mkdirSync(path.dirname(file), { recursive: true })
+    writeFileSync(file, contents)
+  }
   git(repo, 'init', '-q', '-b', 'main')
-  git(repo, 'add', '.dev/stack.yml', '.env.example')
+  git(repo, 'add', '--', '.dev/stack.yml', '.env.example', ...Object.keys(files))
   git(repo, 'commit', '-q', '-m', 'chore: base')
   const wt = path.join(root, 'wt')
   git(repo, 'worktree', 'add', '-q', wt, '-b', 'feat/x')
@@ -95,6 +101,96 @@ describe('worktree bootstrap', () => {
     expect(statSync(path.join(wt, 'setup-ran')).mtimeMs).toBe(stamped)
     expect(statSync(path.join(repo, '.env')).mtimeMs).toBe(before)
     expect(readFileSync(path.join(repo, '.env'), 'utf8')).toBe('REAL=1\n')
+  })
+
+  it('runs the declared setup file from the worktree once when only commands.worktree_setup exists', () => {
+    const { repo, wt } = principalWith('commands:\n  worktree_setup: "tools/worktree setup.sh"\n', {
+      'tools/worktree setup.sh': 'printf "%s\\n" "$PWD" >> setup-runs\n',
+    })
+
+    const first = execFileSync('bash', [BOOT], { cwd: wt, env: ENV, encoding: 'utf8' })
+    expect(first.trim()).toBe('bootstrap=done')
+    expect(readFileSync(path.join(wt, 'setup-runs'), 'utf8')).toBe(`${realpathSync(wt)}\n`)
+    expect(existsSync(path.join(repo, 'setup-runs'))).toBe(false)
+
+    const second = execFileSync('bash', [BOOT], { cwd: wt, env: ENV, encoding: 'utf8' })
+    expect(second.trim()).toBe('bootstrap=noop')
+    expect(readFileSync(path.join(wt, 'setup-runs'), 'utf8')).toBe(`${realpathSync(wt)}\n`)
+  })
+
+  it.each([
+    { name: 'absent setup', prefix: 'worktree:\n', file: 'tools/setup.sh' },
+    { name: 'empty setup', prefix: 'worktree:\n  setup: ""\n', file: 'tools/setup.sh' },
+    { name: 'whitespace setup', prefix: 'worktree:\n  setup: "  "\n', file: 'tools/setup.sh' },
+    { name: 'option-like filename', prefix: '', file: '--version' },
+  ])('runs the fallback file for $name', ({ prefix, file }) => {
+    const { wt } = principalWith(`${prefix}commands:\n  worktree_setup: "${file}" # script path\n`, {
+      [file]: 'printf "fallback\\n" > setup-runs\n',
+    })
+
+    execFileSync('bash', [BOOT], { cwd: wt, env: ENV, encoding: 'utf8' })
+
+    expect(readFileSync(path.join(wt, 'setup-runs'), 'utf8')).toBe('fallback\n')
+  })
+
+  it('runs only a nonempty multiline snippet when a fallback file is also declared', () => {
+    const { wt } = principalWith(
+      `worktree:
+  setup: |
+    printf 'snippet\\n' >> setup-runs
+    printf 'second\\n' >> setup-runs
+commands:
+  worktree_setup: tools/setup.sh
+`,
+      { 'tools/setup.sh': 'printf "fallback\\n" >> setup-runs\n' },
+    )
+
+    execFileSync('bash', [BOOT], { cwd: wt, env: ENV, encoding: 'utf8' })
+
+    expect(readFileSync(path.join(wt, 'setup-runs'), 'utf8')).toBe('snippet\nsecond\n')
+  })
+
+  it('keeps multiline setup contents out of the copy list', () => {
+    const { wt } = principalWith(`worktree:
+  copy:
+    - .env
+  setup: |
+    cat > generated.yml <<'EOF'
+    - cache/state.db
+    EOF
+`)
+
+    execFileSync('bash', [BOOT], { cwd: wt, env: ENV, encoding: 'utf8' })
+
+    expect(readFileSync(path.join(wt, '.env'), 'utf8')).toBe('REAL=1\n')
+    expect(readFileSync(path.join(wt, 'generated.yml'), 'utf8')).toBe('- cache/state.db\n')
+    expect(existsSync(path.join(wt, 'cache', 'state.db'))).toBe(false)
+  })
+
+  it.each([
+    { name: 'exit code', ending: 'exit 19', status: 19 },
+    { name: 'signal', ending: 'kill -TERM $$', status: null },
+  ])('leaves setup retryable after a child $name failure', ({ ending, status }) => {
+    const { repo, wt } = principalWith('commands:\n  worktree_setup: tools/setup.sh\n', {
+      'tools/setup.sh': `printf 'failed\\n' >> setup-runs\n${ending}\n`,
+    })
+    const gitDir = path.join(repo, '.git', 'worktrees', 'wt')
+
+    const failed = spawnSync('bash', [BOOT], { cwd: wt, env: ENV, encoding: 'utf8' })
+
+    expect(failed.status).not.toBe(0)
+    if (status !== null) expect(failed.status).toBe(status)
+    expect(readFileSync(path.join(wt, 'setup-runs'), 'utf8')).toBe('failed\n')
+    expect(existsSync(path.join(gitDir, 'omp-build-bootstrapped'))).toBe(false)
+    expect(() => lstatSync(path.join(gitDir, 'omp-build-bootstrap.lock'))).toThrow(/ENOENT/)
+
+    writeFileSync(path.join(wt, 'tools', 'setup.sh'), 'printf "retry\\n" >> setup-runs\n')
+    const retry = execFileSync('bash', [BOOT], { cwd: wt, env: ENV, encoding: 'utf8' })
+
+    expect(retry.trim()).toBe('bootstrap=done')
+    expect(readFileSync(path.join(wt, 'setup-runs'), 'utf8')).toBe('failed\nretry\n')
+    expect(existsSync(path.join(gitDir, 'omp-build-bootstrapped'))).toBe(true)
+    expect(() => lstatSync(path.join(gitDir, 'omp-build-bootstrap.lock'))).toThrow(/ENOENT/)
   })
 
   it('does not copy an example in place of a missing real file', () => {
@@ -193,6 +289,6 @@ describe('worktree bootstrap', () => {
     const out = execFileSync('bash', [BOOT], { cwd: wt, env: ENV, encoding: 'utf8', timeout: 10_000 })
 
     expect(out.trim()).toBe('bootstrap=done')
-    expect(existsSync(lock)).toBe(false)
+    expect(() => lstatSync(lock)).toThrow(/ENOENT/)
   })
 })

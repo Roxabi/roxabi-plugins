@@ -556,11 +556,15 @@ function isPrincipal(dir: string): boolean {
   return here === first
 }
 
-export function applyStack(dir: string, facts: Facts): void {
+export function applyStack(dir: string, facts: Facts, parseYaml: ParseYaml = bunYamlParse): void {
   const stackPath = join(dir, '.dev', 'stack.yml')
   let stack = existsSync(stackPath) ? readFileSync(stackPath, 'utf8') : 'schema_version: "1.0"\n'
   if (!facts.hasWorktree) {
-    stack += '\nworktree:\n  copy: []\n  seed: []\n  setup: ""\n'
+    const config = parseYaml(stack)
+    const setup = isMap(config) && isMap(config.commands) ? config.commands.worktree_setup : undefined
+    if (typeof setup !== 'string' || !setup.trim()) {
+      stack += '\nworktree:\n  copy: []\n  seed: []\n  setup: ""\n'
+    }
   }
   if (facts.mergeOnGreen && !/^landing:/m.test(stack)) {
     stack += '\nlanding:\n  mode: merge-on-green\n'
