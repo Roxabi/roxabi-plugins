@@ -135,6 +135,23 @@ describe('triage init --root', () => {
     expect(fake?.calls ?? []).toEqual([])
   })
 
+  it('refuses --root followed by another option before every write', async () => {
+    const w = await world()
+    const ran = await run(
+      `bun --no-env-file ${JSON.stringify(w.script)} init --root --dry-run`,
+      path.dirname(w.script),
+      w.env,
+    )
+
+    expect(ran.code).not.toBe(0)
+    expect(ran.stderr).toContain('init: --root needs a checkout path')
+    expect(existsSync(w.targetContract)).toBe(false)
+    expect(readFileSync(w.trustedContract, 'utf8')).toBe(w.trustedBytes)
+    expect(existsSync(w.labels)).toBe(false)
+    expect(ghCalls(w.ghLog)).toEqual([])
+    expect(fake?.calls ?? []).toEqual([])
+  })
+
   it('follows a contract symlink that resolves inside the selected checkout', async () => {
     const w = await world()
     const internal = path.join(w.target, 'internal-contract.md')

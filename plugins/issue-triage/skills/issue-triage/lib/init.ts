@@ -390,13 +390,17 @@ function parseArgs(args: string[]): { dryRun: boolean; repo?: string; root?: str
       continue
     }
     if (arg === '--repo') {
-      repo = args[++i]
-      if (!repo) throw new Error('init: --repo needs owner/repo')
+      const value = args[i + 1]
+      if (!value || value.startsWith('-')) throw new Error('init: --repo needs owner/repo')
+      repo = value
+      i++
       continue
     }
     if (arg === '--root') {
-      root = args[++i]
-      if (!root) throw new Error('init: --root needs a checkout path')
+      const value = args[i + 1]
+      if (!value || value.startsWith('-')) throw new Error('init: --root needs a checkout path')
+      root = value
+      i++
       continue
     }
     throw new Error(`init: unknown argument ${arg}`)
