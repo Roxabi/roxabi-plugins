@@ -4,6 +4,7 @@
  */
 
 import { ConfigError, DevCoreError, GitHubApiError } from '../domain/errors'
+import type { ParsedIssueRef } from '../domain/types'
 import {
   ADD_BLOCKED_BY_MUTATION,
   ADD_SUB_ISSUE_MUTATION,
@@ -245,13 +246,14 @@ export async function resolveIssueTypeId(org: string, typeName: string): Promise
   return match.id
 }
 
-/** Get the parent issue number for an issue, or null if none. */
-export async function getParentNumber(issueNumber: number): Promise<number | null> {
+/** Get the parent's complete issue reference, or null if none. */
+export async function getParentRef(issueNumber: number): Promise<ParsedIssueRef | null> {
   const [owner, repo] = GITHUB_REPO.split('/')
   const data = (await ghGraphQL(PARENT_QUERY, { owner, repo, number: issueNumber })) as {
-    data: { repository: { issue: { parent: { number: number } | null } } }
+    data: { repository: { issue: { parent: { number: number; repository: { nameWithOwner: string } } | null } } }
   }
-  return data.data.repository.issue.parent?.number ?? null
+  const parent = data.data.repository.issue.parent
+  return parent ? { number: parent.number, repo: parent.repository.nameWithOwner } : null
 }
 
 export interface IssueLabelSet {

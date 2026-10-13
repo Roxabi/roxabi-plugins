@@ -39,7 +39,14 @@ afterEach(async () => {
 
 async function world({ parent = '70' }: { parent?: string } = {}) {
   root = mkdtempSync(path.join(tmpdir(), 'issue-triage-defer-'))
-  fake = await startGitHub(root, ['Acme/app#70', 'Acme/app#80', 'Acme/app#81', 'Other/tracker#70', 'Other/tracker#80'])
+  fake = await startGitHub(root, [
+    'Acme/app#70',
+    'Acme/app#80',
+    'Acme/app#81',
+    'Acme/planning#70',
+    'Other/tracker#70',
+    'Other/tracker#80',
+  ])
   const { pluginRoot, script } = trustedTriage(path.join(root, 'trusted'))
   const bin = path.join(root, 'bin')
   writeGh(bin)
@@ -69,7 +76,11 @@ describe('issue-triage deferral recipe', () => {
 
     expect(ran.stderr).toBe('')
     expect(ran.code).toBe(0)
-    expect(ran.stdout.trim().split('\n')).toEqual([`Created #101: ${TITLE}`, 'Parent=#70 #101', 'BlockedBy=#80 #101'])
+    expect(ran.stdout.trim().split('\n')).toEqual([
+      `Created #101: ${TITLE}`,
+      'Parent=Acme/app#70 #101',
+      'BlockedBy=#80 #101',
+    ])
     expect(w.fake.created).toEqual([
       {
         repo: 'Acme/app',
@@ -155,6 +166,37 @@ describe('issue-triage deferral recipe', () => {
     expect(b).toMatchObject({ parent: 70, blockedBy: [80] })
   })
 
+  it('files a sibling under the foreign parent rather than a colliding local issue', async () => {
+    const w = await world()
+    const origin = w.fake.issues.get('Acme/app#80')
+    if (!origin) throw new Error('origin fixture issue missing')
+    origin.parent = 70
+    origin.parentRepo = 'Acme/planning'
+
+    const ran = await run(RECIPE, w.repo, { ...w.env, GH_PARENT_REPO: 'Acme/planning' })
+
+    expect(ran.code).toBe(0)
+    expect(w.fake.created[0]).toMatchObject({ parent: 70, parentRepo: 'Acme/planning', blockedBy: [80] })
+    expect(w.fake.calls.some((call) => call.path === '/repos/Acme/planning/issues/70')).toBe(true)
+    expect(w.fake.calls.some((call) => call.path === '/repos/Acme/app/issues/70')).toBe(false)
+  })
+
+  it('repairs B under the foreign shared parent without selecting the colliding local issue', async () => {
+    const w = await world()
+    const origin = w.fake.issues.get('Acme/app#80')
+    const b = w.fake.issues.get('Acme/app#81')
+    if (!origin || !b) throw new Error('repair fixture issue missing')
+    origin.parent = 70
+    origin.parentRepo = 'Acme/planning'
+    b.parent = 80
+
+    const ran = await run(`${RECIPE}\n${REPAIR}`, w.repo, { ...w.env, GH_PARENT_REPO: 'Acme/planning' })
+
+    expect(ran.code).toBe(0)
+    expect(b).toMatchObject({ parent: 70, parentRepo: 'Acme/planning', blockedBy: [80] })
+    expect(w.fake.calls.some((call) => call.path === '/repos/Acme/app/issues/70')).toBe(false)
+  })
+
   it('stops before creation when A is omitted', async () => {
     const w = await world()
     const ran = await run(RECIPE, w.repo, { ...w.env, A: '' })
@@ -231,7 +273,7 @@ describe('issue-triage deferral recipe', () => {
     const ran = await run(RECIPE, w.repo, w.env)
 
     expect(ran.code).not.toBe(0)
-    expect(ran.stdout.trim().split('\n')).toEqual([`Created #101: ${TITLE}`, 'Parent=#70 #101'])
+    expect(ran.stdout.trim().split('\n')).toEqual([`Created #101: ${TITLE}`, 'Parent=Acme/app#70 #101'])
     expect(existsSync(w.dir)).toBe(true)
     expect(w.fake.created).toHaveLength(1)
   })

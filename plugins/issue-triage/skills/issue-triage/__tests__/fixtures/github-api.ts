@@ -32,6 +32,7 @@ export type Issue = {
   body: string
   type?: string
   parent?: number
+  parentRepo?: string
   blockedBy: number[]
 }
 
@@ -97,7 +98,7 @@ export async function startGitHub(dir: string, seed: string[]): Promise<GitHubFa
   }
   let next = 100
 
-  function graphql(op: string, vars: Record<string, unknown>): { status: number; data: unknown } {
+  function graphql(op: string, vars: Record<string, unknown>, query: string): { status: number; data: unknown } {
     const call = (operationCalls.get(op) ?? 0) + 1
     operationCalls.set(op, call)
     if (fail.has(op) || failOnCall.get(op) === call) {
@@ -106,10 +107,15 @@ export async function startGitHub(dir: string, seed: string[]): Promise<GitHubFa
     if (op === 'parent') {
       const issue = issues.get(`${vars.owner}/${vars.repo}#${vars.number}`)
       if (!issue) return { status: 200, data: { errors: [{ message: 'unknown issue' }] } }
-      return {
-        status: 200,
-        data: { data: { repository: { issue: { parent: issue.parent ? { number: issue.parent } : null } } } },
-      }
+      const parent = issue.parent
+        ? {
+            number: issue.parent,
+            ...(/\brepository\s*{\s*nameWithOwner\b/.test(query)
+              ? { repository: { nameWithOwner: issue.parentRepo ?? issue.repo } }
+              : {}),
+          }
+        : null
+      return { status: 200, data: { data: { repository: { issue: { parent } } } } }
     }
     if (op === 'issueTypes') {
       return { status: 200, data: { data: { organization: { id: 'O', issueTypes: { nodes: ISSUE_TYPES } } } } }
@@ -126,15 +132,18 @@ export async function startGitHub(dir: string, seed: string[]): Promise<GitHubFa
       const child = byNode(vars.childId)
       if (!parent || !child) return { status: 200, data: { errors: [{ message: 'unknown node' }] } }
       child.parent = parent.number
+      if (parent.repo === child.repo) delete child.parentRepo
+      else child.parentRepo = parent.repo
       return { status: 200, data: { data: { addSubIssue: { issue: { number: parent.number } } } } }
     }
     if (op === 'removeSubIssue') {
       const parent = byNode(vars.parentId)
       const child = byNode(vars.childId)
-      if (!parent || !child || child.parent !== parent.number) {
+      if (!parent || !child || child.parent !== parent.number || (child.parentRepo ?? child.repo) !== parent.repo) {
         return { status: 200, data: { errors: [{ message: 'unknown parent relationship' }] } }
       }
       delete child.parent
+      delete child.parentRepo
       return { status: 200, data: { data: { removeSubIssue: { issue: { number: parent.number } } } } }
     }
     if (op === 'addBlockedBy') {
@@ -185,7 +194,7 @@ export async function startGitHub(dir: string, seed: string[]): Promise<GitHubFa
         const op =
           /\b(addSubIssue|removeSubIssue|addBlockedBy|updateIssueIssueType|issueTypes)\b/.exec(query)?.[1] ??
           (query.includes('issue(number:') ? 'parent' : 'unknown')
-        const { status, data } = graphql(op, variables)
+        const { status, data } = graphql(op, variables, query)
         return reply(status, data, op)
       }
       return reply(404, { message: `no fixture route ${req.method} ${url}` }, 'unknown')
@@ -241,7 +250,29 @@ case "$1 \${2:-}" in
       echo "gh: parent lookup failed" >&2
       exit "$GH_PARENT_LOOKUP_EXIT"
     fi
-    printf '%s\\n' "\${GH_PARENT:-}" ;;
+    query= filter=
+    shift 2
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        -f|-F) case "$2" in query=*) query=\${2#query=} ;; esac; shift 2 ;;
+        --jq) filter=$2; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    repo_pattern='repository\\(owner:"([^"]*)",name:"([^"]*)"\\)'
+    if [[ "$query" =~ $repo_pattern ]]; then
+      parent_repo=\${GH_PARENT_REPO:-\${BASH_REMATCH[1]}/\${BASH_REMATCH[2]}}
+    else
+      echo "gh: fixture parent query has no explicit repository" >&2
+      exit 9
+    fi
+    compact=\${query//[[:space:]]/}
+    repository_requested=false
+    case "$compact" in *parent\\{numberrepository\\{nameWithOwner\\}\\}*) repository_requested=true ;; esac
+    jq -cn --arg repo "$parent_repo" --argjson number "\${GH_PARENT:-null}" \\
+      --argjson repository_requested "$repository_requested" \\
+      '{data:{repository:{issue:{parent:(if $number == null then null else ({number:$number} + (if $repository_requested then {repository:{nameWithOwner:$repo}} else {} end)) end)}}}}' |
+      jq -r "$filter" ;;
   "auth token") printf '%s\\n' "\${GH_AUTH_TOKEN:-fixture}" ;;
   "label list") if [ -n "\${GH_LABELS_FILE:-}" ] && [ -f "$GH_LABELS_FILE" ]; then cat "$GH_LABELS_FILE"; fi ;;
   "label create")

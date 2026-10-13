@@ -12,7 +12,7 @@ import {
   addBlockedBy,
   addSubIssue,
   getNodeId,
-  getParentNumber,
+  getParentRef,
   removeBlockedBy,
   removeSubIssue,
   resolveIssueTypeId,
@@ -80,7 +80,7 @@ interface ResolvedWrites {
   parent?: BoundRef
   children: BoundRef[]
   rmChildren: BoundRef[]
-  removedParent?: { parentNum: number; parentNodeId: string }
+  removedParent?: BoundRef
 }
 
 function fail(message: string): never {
@@ -249,9 +249,9 @@ async function resolveWrites(issueNumber: number, opts: SetOptions, type: string
   const org = GITHUB_REPO.split('/')[0]
   const typeId = applyType && type ? await lookup(() => resolveIssueTypeId(org, type)) : undefined
 
-  let parentNum: number | null = null
+  let parentRef: ParsedIssueRef | null = null
   if (opts.rmParent) {
-    parentNum = await lookup(() => getParentNumber(issueNumber))
+    parentRef = await lookup(() => getParentRef(issueNumber))
   }
 
   const needsSubject = Boolean(
@@ -263,15 +263,15 @@ async function resolveWrites(issueNumber: number, opts: SetOptions, type: string
       parent ||
       children.length ||
       rmChildren.length ||
-      parentNum,
+      parentRef,
   )
   const subjectNodeId = needsSubject ? await lookup(() => getNodeId(issueNumber, opts.subjectRepo)) : undefined
 
   const removedParent =
-    parentNum && subjectNodeId
+    parentRef && subjectNodeId
       ? {
-          parentNum,
-          parentNodeId: await lookup(() => getNodeId(parentNum)),
+          ref: parentRef,
+          nodeId: await lookup(() => getNodeId(parentRef.number, parentRef.repo)),
         }
       : undefined
 
@@ -348,8 +348,8 @@ async function applyParentChild(issueNumber: number, opts: SetOptions, resolved:
 
   if (opts.rmParent) {
     if (resolved.removedParent && subjectNodeId) {
-      await removeSubIssue(resolved.removedParent.parentNodeId, subjectNodeId)
-      console.log(`RemovedParent=#${resolved.removedParent.parentNum} ${subjStr}`)
+      await removeSubIssue(resolved.removedParent.nodeId, subjectNodeId)
+      console.log(`RemovedParent=${formatRef(resolved.removedParent.ref)} ${subjStr}`)
     } else {
       console.log(`No parent found for ${subjStr}`)
     }

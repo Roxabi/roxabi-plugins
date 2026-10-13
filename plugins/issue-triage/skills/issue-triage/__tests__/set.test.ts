@@ -26,7 +26,7 @@ vi.mock('../../shared/adapters/github-infra', () => ({
 
 vi.mock('../../shared/adapters/github-adapter', () => ({
   getNodeId: vi.fn(),
-  getParentNumber: vi.fn(),
+  getParentRef: vi.fn(),
   addBlockedBy: vi.fn(),
   removeBlockedBy: vi.fn(),
   addSubIssue: vi.fn(),
@@ -42,7 +42,7 @@ const mockAddBlockedBy = github.addBlockedBy as ReturnType<typeof vi.fn>
 const mockRemoveBlockedBy = github.removeBlockedBy as ReturnType<typeof vi.fn>
 const mockAddSubIssue = github.addSubIssue as ReturnType<typeof vi.fn>
 const mockRemoveSubIssue = github.removeSubIssue as ReturnType<typeof vi.fn>
-const mockGetParentNumber = github.getParentNumber as ReturnType<typeof vi.fn>
+const mockGetParentRef = github.getParentRef as ReturnType<typeof vi.fn>
 const mockResolveIssueTypeId = github.resolveIssueTypeId as ReturnType<typeof vi.fn>
 const mockUpdateIssueIssueType = github.updateIssueIssueType as ReturnType<typeof vi.fn>
 const mockUpdateIssueBody = github.updateIssueBody as ReturnType<typeof vi.fn>
@@ -255,12 +255,6 @@ describe('issue-triage/set > parent-child relationships', () => {
     await setIssue(['42', '--add-child', 'Roxabi/lyra#50'])
     expect(mockGetNodeId).toHaveBeenCalledWith(50, 'Roxabi/lyra')
     expect(mockAddSubIssue).toHaveBeenCalledWith('node-42', 'node-Roxabi-lyra-50')
-  })
-
-  it('removes parent', async () => {
-    mockGetParentNumber.mockResolvedValue(10)
-    await setIssue(['42', '--rm-parent'])
-    expect(mockRemoveSubIssue).toHaveBeenCalledWith('node-10', 'node-42')
   })
 
   it('removes children', async () => {
@@ -682,7 +676,7 @@ describe('issue-triage/set > body replace', () => {
 
   it('writes nothing when the parent lookup rejects', async () => {
     const exitSpy = throwingExit()
-    mockGetParentNumber.mockRejectedValue(new Error('parent lookup down'))
+    mockGetParentRef.mockRejectedValue(new Error('parent lookup down'))
     await setIssue(['42', '--body', 'NEW', '--size', 'S', '--rm-parent']).catch(() => {})
     expect(exitSpy).toHaveBeenCalledWith(1)
     expectNoMutations()

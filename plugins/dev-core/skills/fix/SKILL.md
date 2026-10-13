@@ -2,7 +2,7 @@
 name: R-fix
 argument-hint: '[#PR]'
 description: 'Apply review findings — auto-apply high-confidence, 1b1 for rest, then batch-apply. Triggers: "fix findings" | "fix review" | "apply fixes" | "fix these" | "apply review comments" | "apply the review" | "fix the review issues" | "address review feedback" | "fix PR comments".'
-version: 0.4.3
+version: 0.4.4
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, Task, Skill, ToolSearch
 ---
 
@@ -74,7 +74,7 @@ Used in Phase 1 steps 4–5 to validate class[] values against the live YAML (¬
 
 ## Phase 1 — Gather Findings
 
-1. PR# → `gh pr view <#> --json comments,closingIssuesReferences`; parse Conventional Comments from `.comments[].body`; capture `SOURCE_ISSUE` = `.closingIssuesReferences[0].number` (∅ if none — used in Phase 5 Defer to wire blocked-by). When `SOURCE_ISSUE ≠ ∅`, also resolve `SOURCE_PARENT` = `gh api graphql -f query='query{repository(owner:"<O>",name:"<R>"){issue(number:<SOURCE_ISSUE>){parent{number}}}}' --jq '.data.repository.issue.parent.number // empty'` — used in Phase 5 Defer to wire deferred issue as **sibling** under shared parent (see `issue-triage:issue-triage` "Deferred Follow-Ups — Sibling Rule").
+1. PR# → `gh pr view <#> --json comments,closingIssuesReferences`; parse Conventional Comments from `.comments[].body`; capture `SOURCE_ISSUE` = `.closingIssuesReferences[0].number` (∅ if none — used in Phase 5 Defer to wire blocked-by). When `SOURCE_ISSUE ≠ ∅`, also resolve `SOURCE_PARENT` = `gh api graphql -f query='query{repository(owner:"<O>",name:"<R>"){issue(number:<SOURCE_ISSUE>){parent{number repository{nameWithOwner}}}}}' --jq '.data.repository.issue.parent | select(. != null) | "\(.repository.nameWithOwner)#\(.number)"'` — used to wire deferred issue as **sibling** under its parent's fully-qualified repository coordinate (see `issue-triage:issue-triage` "Deferred Follow-Ups — Sibling Rule").
 1a. **Strip historical finding-verifier HTML** — ∀ comment body: remove everything from `<summary>Filtered by finding-verifier` through the next `</details>` **before** parsing. That keep/drop filter is retired; current `/R-dev-review` keeps findings after deterministic dedup (especially blockers) and does ¬drop on C alone. Strip leftover HTML so old PR comments cannot re-ingest dropped rows.
 2. ¬PR# → scan conversation for latest `/R-dev-review` output
 3. F = ∅ → halt
@@ -158,7 +158,7 @@ Invoke `Skill(skill: "issue-triage:issue-triage")` in **create** mode (requires 
 - `--title "{cat}: {summary}"`
 - `--body "{details}"`
 - `--blocked-by "#${SOURCE_ISSUE}"`  — omit when `SOURCE_ISSUE = ∅`
-- `--parent "#${SOURCE_PARENT}"`  — omit when `SOURCE_PARENT = ∅`
+- `--parent "${SOURCE_PARENT}"`  — omit when `SOURCE_PARENT = ∅`
 
 `SOURCE_ISSUE` (captured Phase 1, step 1) → blocked-by ensures the deferred finding is traceable back to the issue whose review surfaced it. `SOURCE_PARENT` (also captured Phase 1, step 1) → parent makes the deferred issue a sibling of `SOURCE_ISSUE` under the same epic, so `gh issue view <epic>` shows the full fan-out flat. ∄ SOURCE_ISSUE → create without `--blocked-by` or `--parent`; `{details}` MUST include `**Origin:** PR #<N>` so traceability is preserved. ∄ SOURCE_PARENT (SOURCE_ISSUE is top-level) → create without `--parent` (the deferred issue is also top-level).
 

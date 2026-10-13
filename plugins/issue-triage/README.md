@@ -48,7 +48,7 @@ Run the `issue-triage` skill's CLI: `init [--dry-run] [--repo owner/repo] [--roo
 
 `create` accepts the same field flags as `set`: `--size`, `--priority`, `--lane`, `--type`, plus `--parent`, `--add-child`, `--blocked-by`, `--blocks`.
 
-Cross-repo: prefix `GITHUB_REPO=<owner/repo>`, and use fully-qualified `OWNER/REPO#N` refs when that env is set.
+Cross-repo: prefix `GITHUB_REPO=<owner/repo>`, and use fully-qualified `OWNER/REPO#N` refs when that env is set. Sibling deferral preserves the origin parent's full coordinate, even when another repository contains the same issue number. `set --rm-parent` resolves that actual parent and prints `RemovedParent=OWNER/REPO#N`; it never rebinds the parent's number to the subject repository. The shared lookup helper is `getParentRef`, returning the complete reference or `null`; the numeric-only helper was removed.
 
 Filing from a checkout you do not trust (a PR under review): start Bun in this skill's directory with `--no-env-file`, the target in `GITHUB_REPO` (yours when exported, else the checkout's `gh repo view`, never the checkout's `.dev/dev-core.yml` pin) and absolute `--title-file` / `--body-file` paths. The Deferred Follow-Ups recipe requires the origin issue and a successful parent lookup before creating its sibling; an empty parent keeps both issues top-level. Mis-parent repair reuses that launcher, parent value and confirmed-read state in the same shell: a failed or unattempted lookup refuses before any repair mutation, and removal or restoration failure stops later writes. Bun reads `bunfig.toml` and `.env` from its startup directory, so a preload committed in the checkout would otherwise run first.
 

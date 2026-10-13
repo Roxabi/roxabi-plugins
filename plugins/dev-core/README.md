@@ -129,7 +129,7 @@ Skills organized by workflow phase:
 | `R-dev-implement` | Build | Executes implementation from plan — merge conflict recovery, abandon-on-3-failures option |
 | `R-pr` | Build | Creates pull request with proper format |
 | `R-dev-review` | Verify | Code review against quality gates — secret scan before spawning agents |
-| `R-fix` | Verify | Applies fixes from review feedback |
+| `R-fix` | Verify | Applies fixes from review feedback; deferred siblings retain their parent's qualified repository coordinate |
 | `R-validate` | Verify | Validates implementation against spec |
 | `R-cleanup` | Ship | Post-merge cleanup |
 | `R-promote` | Ship | Staging-train repos: promotes staging→main. Trunk repos: pre-flight only — a release is cut by pushing an annotated tag |
@@ -140,6 +140,8 @@ Skills organized by workflow phase:
 | `R-cleanup-context` | Supporting | Audits and cleans CLAUDE.md, memory, skills, and rules — resolves every finding (fix/promote/relocate/delete), tracks recurrences, targets bloat=0 |
 | `R-ci-watch` | Supporting | Watch a CI run with live emoji dashboard — polls every Ns, shows job/step status, dumps failed logs on error. Auto-detects `ci.yml` workflow |
 | `R-release-setup` | Supporting | Wires release-please for a repo — tag convention, manifest, config, workflow. Re-run with `--force` to patch. **Quality gates** (Python only) — optional `quality_gates:` section in `stack.yml` installs file-length / folder-size / import-layer pre-commit hooks. See [`skills/release-setup/cookbooks/quality-gates.md`](skills/release-setup/cookbooks/quality-gates.md) |
+
+Parent lookup uses `getParentRef`: a complete repository/issue reference or `null`, not a repository-local number. The old numeric-only helper was removed. Deferred review findings retain that qualified parent when filed through issue-triage, including cross-repository parents.
 
 ## Agents
 

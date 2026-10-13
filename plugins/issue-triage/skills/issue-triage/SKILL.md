@@ -2,7 +2,7 @@
 name: issue-triage
 argument-hint: '[list | set <num> | create --title "..." [--parent N] [--size S] [--priority P] [--type T] [--lane L]]'
 description: Triage/create GitHub issues — set size/priority/lane/type labels, manage dependencies & parent/child. Run before `/feature` picks a ticket up. Triggers: "triage" | "create issue" | "set size" | "set priority" | "blocked by" | "set parent" | "child of" | "sub-issue" | "file an issue" | "log a bug" | "open an issue" | "file a bug" | "add issue" | "new issue" | "set lane" | "set type".
-version: 0.6.3
+version: 0.6.4
 allowed-tools: Bash, Read, ToolSearch
 ---
 
@@ -170,12 +170,12 @@ DIR=$(mktemp -d -t "issue-triage-defer-XXXXXX")
 TRIAGE=$(realpath "${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts") && TRIAGE_REPO="${GITHUB_REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
 triage() { (: "${TRIAGE:?issue-triage unresolved}" "${TRIAGE_REPO:?repository unresolved}" && cd "$(dirname "$TRIAGE")" && GITHUB_REPO="$TRIAGE_REPO" bun --no-env-file "$TRIAGE" "$@"); }
 # A's parent, empty when A is top-level. B takes it, and is blocked by A.
-A_PARENT_READY= && : "${A:?origin issue number required}" && A_PARENT=$(gh api graphql -f query="query{repository(owner:\"${TRIAGE_REPO%/*}\",name:\"${TRIAGE_REPO#*/}\"){issue(number:$A){parent{number}}}}" \
-  --jq '.data.repository.issue.parent.number // empty') && A_PARENT_READY=1 && triage create \
+A_PARENT_READY= && : "${A:?origin issue number required}" && A_PARENT=$(gh api graphql -f query="query{repository(owner:\"${TRIAGE_REPO%/*}\",name:\"${TRIAGE_REPO#*/}\"){issue(number:$A){parent{number repository{nameWithOwner}}}}}" \
+  --jq '.data.repository.issue.parent | select(. != null) | "\(.repository.nameWithOwner)#\(.number)"') && A_PARENT_READY=1 && triage create \
   --title-file "$DIR/title.txt" \
   --body-file "$DIR/body.md" \
   --blocked-by "#${A}" \
-  ${A_PARENT:+--parent "#${A_PARENT}"} && rm -rf "$DIR"
+  ${A_PARENT:+--parent "$A_PARENT"} && rm -rf "$DIR"
 ```
 
 `create` prints `Created #N` first, then one line per write (`Type=`, `Size=`, `Parent=`, `BlockedBy=`…). A nonzero exit after `Created #N` leaves #N filed but incomplete: never create it again. Run the same block with `triage set N` as its last command, passing only the flags whose line is missing.
@@ -186,7 +186,7 @@ A_PARENT_READY= && : "${A:?origin issue number required}" && A_PARENT=$(gh api g
   ```bash
   : "${A_PARENT_READY:?origin parent lookup not completed}" &&
   triage set <B> --rm-parent &&
-    { [ -z "$A_PARENT" ] || triage set <B> --parent "#${A_PARENT}"; } &&
+    { [ -z "$A_PARENT" ] || triage set <B> --parent "$A_PARENT"; } &&
     triage set <B> --blocked-by "#${A}"  # ensure traceability link
   ```
 

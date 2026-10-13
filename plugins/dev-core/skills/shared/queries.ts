@@ -7,11 +7,11 @@
  * This makes query refactors immediately visible in test output.
  */
 
-/** Get parent issue number. */
+/** Get the parent issue's complete repository coordinate. */
 export const PARENT_QUERY = `
 query($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
-    issue(number: $number) { parent { number } }
+    issue(number: $number) { parent { number repository { nameWithOwner } } }
   }
 }`
 

@@ -4,7 +4,7 @@ argument-hint: '[#PR]'
 description: >-
   OMP-only — apply one fix per blocking root cause from a review, inline, no per-finding choice.
   Triggers: "fix findings" | "fix review" | "apply fixes" | "fix these" | "apply review comments" | "apply the review" | "fix the review issues" | "address review feedback" | "fix PR comments".
-version: 0.3.2
+version: 0.3.3
 ---
 
 # Fix
@@ -102,8 +102,8 @@ The record is the one review F and R come from. Nothing else on the PR is input:
    record := the newest comment whose **first line** is exactly MARK and whose `author.login` = ME. A quote-reply starts with `>`, so it never matches. No such comment → halt: `no dev-review record by ${ME} on PR #${PR} — run dev-review first`.
    Capture `SOURCE_ISSUE` = `.closingIssuesReferences[0].number` (∅ if none — used when a cause is filed, to wire blocked-by). When `SOURCE_ISSUE ≠ ∅`, also resolve `SOURCE_PARENT`:
    ```bash
-   gh api graphql -f query='query{repository(owner:"<O>",name:"<R>"){issue(number:<SOURCE_ISSUE>){parent{number}}}}' \
-     --jq '.data.repository.issue.parent.number // empty'
+   gh api graphql -f query='query{repository(owner:"<O>",name:"<R>"){issue(number:<SOURCE_ISSUE>){parent{number repository{nameWithOwner}}}}}' \
+     --jq '.data.repository.issue.parent | select(. != null) | "\(.repository.nameWithOwner)#\(.number)"'
    ```
    — used to wire the filed issue as a **sibling** under the shared parent. Then resolve `SOURCE_SIZE`, the `--size` of every issue this run files (`S` when `SOURCE_ISSUE = ∅`):
    ```bash
@@ -220,7 +220,7 @@ So the filed issue takes the **origin's** parent, not the origin:
 - `--title-file` — the cause title
 - `--body-file` — the `{details}` below
 - `--blocked-by "#${SOURCE_ISSUE}"` — the origin. Omit when `SOURCE_ISSUE = ∅`
-- `--parent "#${SOURCE_PARENT}"` — the origin's **parent**. Omit when `SOURCE_PARENT = ∅`
+- `--parent "${SOURCE_PARENT}"` — the origin's qualified **parent**. Omit when `SOURCE_PARENT = ∅`
 - `--size "${SOURCE_SIZE}"` — mandatory, from Phase 1
 - `--type` — per `issue-triage`
 
