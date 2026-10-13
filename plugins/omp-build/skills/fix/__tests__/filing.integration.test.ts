@@ -1,107 +1,205 @@
-import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import {
+  checkout,
+  type GitHubFake,
+  ghCalls,
+  hostileStartup,
+  recipeAfterWrite,
+  recipeEnv,
+  run,
+  startGitHub,
+  startupLog,
+  trustedTriage,
+  writeGh,
+} from '../../../../issue-triage/skills/issue-triage/__tests__/fixtures/github-api'
 
 /**
- * The ### Filing fenced block (after `# write … then:`) is what operators paste.
- * Run the whole trailing block so a multi-line fail-closed form stays green and
- * a newline fail-open form reaches bun on a miss (#619).
+ * The ### Filing block after `# write … then:` is what an operator pastes in a
+ * PR's checkout. It runs here as pasted, with the real Bun and the real triage
+ * CLI, against GitHub isolated at the transport (#762): the checkout is hostile
+ * (a tracked `bunfig.toml` preload that forges `Created #999` and exits 0, and a
+ * `.env`), and triage's own directory observes where Bun started.
  */
 const FIX = readFileSync(path.resolve(import.meta.dirname, '..', 'SKILL.md'), 'utf8')
-const TRIAGE = path.resolve(import.meta.dirname, '../../../../issue-triage/skills/issue-triage/triage.ts')
-const REAL_BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
+const RECIPE = recipeAfterWrite(FIX, '### Filing')
+const LAUNCH = RECIPE.slice(0, -1).join('\n')
+const CREATE = RECIPE.at(-1) ?? ''
+const FLAGS = "--type fix --size S --parent '#70' --blocked-by '#80'"
+/** The pre-#762 block: Bun started in the shell's cwd, the checkout. */
+const PRE_762 = `T=$(realpath skill://issue-triage/triage.ts) && bun "$T" create --title-file "$FILE_DIR/title.txt" --body-file "$FILE_DIR/body.md" ${FLAGS}`
+const FORGED = 'Created #999: forged'
+const TITLE = 'Deferred non-blocking review findings'
+const BODY = '**Origin:** PR #12\n\n## Acceptance criteria\n\n- [ ] a\n'
 
 let root: string | undefined
-afterEach(() => {
+let fake: GitHubFake | undefined
+afterEach(async () => {
+  await fake?.close()
+  fake = undefined
   if (root) rmSync(root, { recursive: true, force: true })
   root = undefined
 })
 
-/** Body of the Filing ```bash fence after the `# write … then:` comment. */
-function filingBlockAfterWrite(): string {
-  const block = /### Filing[\s\S]*?```bash\n([\s\S]*?)```/.exec(FIX)?.[1]
-  if (!block) throw new Error('### Filing bash block missing from fix/SKILL.md')
-  const lines = block.split('\n')
-  const idx = lines.findIndex((l) => /#\s*write\b.*\bthen\s*:/.test(l))
-  if (idx < 0) throw new Error('Filing "# write … then:" marker missing')
-  const tail = lines
-    .slice(idx + 1)
-    .join('\n')
-    .replace(/\s+\.\.\.\s*$/, '')
-    .trim()
-  if (!tail) throw new Error('Filing block empty after write marker')
-  return tail
-}
-
-function writeRealpathStub(bin: string, ok: boolean) {
+/** A hostile checkout of Acme/app, a trusted triage copy, stub gh and realpath. */
+async function world(realpathOk = true) {
+  root = mkdtempSync(path.join(tmpdir(), 'omp-fix-filing-'))
+  fake = await startGitHub(root, ['Acme/app#70', 'Acme/app#80', 'Other/tracker#70', 'Other/tracker#80'])
+  const { script } = trustedTriage(path.join(root, 'trusted'))
+  const bin = path.join(root, 'bin')
+  writeGh(bin)
   writeFileSync(
     path.join(bin, 'realpath'),
-    ok
-      ? `#!/usr/bin/env bash
-set -euo pipefail
-if [ "\${1-}" = "skill://issue-triage/triage.ts" ]; then
-  printf '%s\\n' ${JSON.stringify(TRIAGE)}
-  exit 0
-fi
-exec /usr/bin/realpath "$@"
-`
-      : `#!/usr/bin/env bash
-echo "realpath: $1: No such file or directory" >&2
-exit 1
-`,
+    realpathOk
+      ? `#!/usr/bin/env bash\n[ "$1" = skill://issue-triage/triage.ts ] && { printf '%s\\n' ${JSON.stringify(script)}; exit 0; }\nexec /usr/bin/realpath "$@"\n`
+      : '#!/usr/bin/env bash\necho "realpath: $1: No such file or directory" >&2\nexit 1\n',
     { mode: 0o755 },
   )
+  const sentinel = path.join(root, 'checkout-startup.log')
+  const repo = checkout(path.join(root, 'checkout'), 'Acme/app', hostileStartup(sentinel, FORGED))
+  mkdirSync(path.join(repo, 'sub'))
+  const files = path.join(root, 'files')
+  mkdirSync(files)
+  writeFileSync(path.join(files, 'title.txt'), TITLE)
+  writeFileSync(path.join(files, 'body.md'), BODY)
+  const ghLog = path.join(root, 'gh.log')
+  const startup = path.join(root, 'trusted-startup.log')
+  const env = recipeEnv(fake, bin, { FILE_DIR: files, GH_LOG: ghLog, BUN_STARTUP_LOG: startup })
+  return { fake, script, triageDir: path.dirname(script), repo, sentinel, ghLog, startup, env, bin }
 }
 
-describe('fix Filing command', () => {
-  it('reaches triage through a realpath stub and surfaces --title-file, not Module not found', () => {
-    root = mkdtempSync(path.join(tmpdir(), 'omp-fix-filing-'))
-    const bin = path.join(root, 'bin')
-    mkdirSync(bin)
-    writeRealpathStub(bin, true)
-
-    const fileDir = path.join(root, 'files')
-    mkdirSync(fileDir)
-    const result = spawnSync('bash', ['-c', filingBlockAfterWrite()], {
-      env: {
-        PATH: `${bin}:${path.dirname(REAL_BUN)}:${process.env.PATH ?? ''}`,
-        FILE_DIR: fileDir,
-      },
-      encoding: 'utf8',
-    })
-    const combined = `${result.stdout}\n${result.stderr}`
-    expect(result.status).not.toBe(0)
-    expect(combined).toMatch(/--title-file cannot read/)
-    expect(combined).not.toContain('Module not found')
+describe('fix Filing block', () => {
+  it('ends in the create an operator completes with its flags', () => {
+    expect(CREATE).toBe('triage create --title-file "$FILE_DIR/title.txt" --body-file "$FILE_DIR/body.md" ...')
   })
 
-  it('exits non-zero on a realpath miss and never reaches triage', () => {
-    root = mkdtempSync(path.join(tmpdir(), 'omp-fix-filing-miss-'))
-    const bin = path.join(root, 'bin')
-    mkdirSync(bin)
-    writeRealpathStub(bin, false)
-    const marker = path.join(root, 'bun-ran')
+  it.each([
+    ['the checkout', ''],
+    ['a checkout subdirectory', 'sub'],
+  ])('files from %s with Bun started in the triage directory', async (_where, sub) => {
+    const w = await world()
+    const ran = await run(`${LAUNCH}\n${CREATE.replace(/ \.\.\.$/, ` ${FLAGS}`)}`, path.join(w.repo, sub), w.env)
+
+    expect(ran.stderr).toBe('')
+    expect(ran.code).toBe(0)
+    expect(ran.stdout.trim().split('\n')).toEqual([
+      `Created #101: ${TITLE}`,
+      'Type=fix #101',
+      'Size=S #101',
+      'Parent=#70 #101',
+      'BlockedBy=#80 #101',
+    ])
+    expect(w.fake.created).toEqual([
+      {
+        repo: 'Acme/app',
+        number: 101,
+        nodeId: 'I_Acme/app#101',
+        title: TITLE,
+        body: BODY,
+        type: 'fix',
+        parent: 70,
+        blockedBy: [80],
+      },
+    ])
+    // Bun started once, in the trusted triage directory, without its .env.
+    expect(startupLog(w.startup)).toEqual([`${w.triageDir}\t`])
+    expect(existsSync(w.sentinel)).toBe(false)
+    expect(w.fake.calls.every((call) => call.authorization.endsWith('fixture'))).toBe(true)
+    const [resolve, ...writes] = ghCalls(w.ghLog)
+    expect(resolve).toEqual({
+      cwd: path.join(w.repo, sub),
+      env: '',
+      args: 'repo view --json nameWithOwner --jq .nameWithOwner',
+    })
+    expect(writes.map((call) => call.cwd)).toEqual(writes.map(() => w.triageDir))
+    expect(writes.at(-1)?.args).toBe('issue edit 101 --repo Acme/app --add-label size:S')
+  })
+
+  it('files into the operator’s exported GITHUB_REPO, not the checkout’s repository', async () => {
+    const w = await world()
+    const ran = await run(`${LAUNCH}\n${CREATE.replace(/ \.\.\.$/, ` ${FLAGS}`)}`, w.repo, {
+      ...w.env,
+      GITHUB_REPO: 'Other/tracker',
+    })
+
+    expect(ran.stderr).toBe('')
+    expect(ran.code).toBe(0)
+    expect(w.fake.created).toEqual([
+      {
+        repo: 'Other/tracker',
+        number: 101,
+        nodeId: 'I_Other/tracker#101',
+        title: TITLE,
+        body: BODY,
+        type: 'fix',
+        parent: 70,
+        blockedBy: [80],
+      },
+    ])
+    expect(ghCalls(w.ghLog).at(-1)?.args).toBe('issue edit 101 --repo Other/tracker --add-label size:S')
+  })
+
+  it('pre-#762 block: the checkout preload forges the receipt and nothing is filed', async () => {
+    const w = await world()
+    const ran = await run(PRE_762, w.repo, w.env)
+
+    expect(ran.code).toBe(0)
+    expect(ran.stdout.trim()).toBe(FORGED)
+    expect(readFileSync(w.sentinel, 'utf8')).toBe(`${w.repo}\tcheckout-dotenv\n`)
+    expect(w.fake.calls).toEqual([])
+    expect(startupLog(w.startup)).toEqual([])
+  })
+
+  it('refuses before Bun starts when the repository does not resolve', async () => {
+    const w = await world()
+    const neutral = path.join(root ?? '', 'neutral')
+    mkdirSync(neutral)
+    const ran = await run(`${LAUNCH}\n${CREATE.replace(/ \.\.\.$/, ` ${FLAGS}`)}`, neutral, w.env)
+
+    expect(ran.code).not.toBe(0)
+    expect(ran.stderr).toContain('repository unresolved')
+    expect(startupLog(w.startup)).toEqual([])
+    expect(w.fake.calls).toEqual([])
+    expect(ghCalls(w.ghLog).map((call) => call.args)).toEqual(['repo view --json nameWithOwner --jq .nameWithOwner'])
+  })
+
+  it('refuses before Bun starts when issue-triage does not resolve', async () => {
+    const w = await world(false)
+    const marker = path.join(root ?? '', 'bun-ran')
     writeFileSync(
-      path.join(bin, 'bun'),
-      `#!/usr/bin/env bash
-printf 'ran\\n' > ${JSON.stringify(marker)}
-exit 42
-`,
+      path.join(w.bin, 'bun'),
+      `#!/usr/bin/env bash\nprintf 'ran\\n' > ${JSON.stringify(marker)}\nexit 42\n`,
       { mode: 0o755 },
     )
+    const ran = await run(`${LAUNCH}\n${CREATE.replace(/ \.\.\.$/, ` ${FLAGS}`)}`, w.repo, w.env)
 
-    const fileDir = path.join(root, 'files')
-    mkdirSync(fileDir)
-    const result = spawnSync('bash', ['-c', filingBlockAfterWrite()], {
-      env: { PATH: `${bin}:/usr/bin:/bin`, FILE_DIR: fileDir },
-      encoding: 'utf8',
-    })
-    expect(result.status).not.toBe(0)
-    expect(result.status).not.toBe(42)
-    expect(() => readFileSync(marker, 'utf8')).toThrow()
-    expect(`${result.stdout}\n${result.stderr}`).not.toContain('Module not found')
-    expect(`${result.stdout}\n${result.stderr}`).not.toMatch(/--title-file/)
+    expect(ran.code).not.toBe(0)
+    expect(ran.code).not.toBe(42)
+    expect(ran.stderr).toContain('issue-triage unresolved')
+    expect(existsSync(marker)).toBe(false)
+    expect(existsSync(w.sentinel)).toBe(false)
+    expect(w.fake.calls).toEqual([])
+  })
+
+  it('finishes a partial create with set, never a second create', async () => {
+    const w = await world()
+    w.fake.fail.add('addSubIssue')
+    const partial = await run(`${LAUNCH}\n${CREATE.replace(/ \.\.\.$/, ` ${FLAGS}`)}`, w.repo, w.env)
+
+    expect(partial.code).not.toBe(0)
+    expect(partial.stdout.trim().split('\n')).toEqual([`Created #101: ${TITLE}`, 'Type=fix #101', 'Size=S #101'])
+
+    w.fake.fail.delete('addSubIssue')
+    const recovered = await run(`${LAUNCH}\ntriage set 101 --parent '#70' --blocked-by '#80'`, w.repo, w.env)
+
+    expect(recovered.code).toBe(0)
+    expect(recovered.stdout).toContain('Parent=#70 #101')
+    expect(recovered.stdout).toContain('BlockedBy=#80 #101')
+    expect(w.fake.created.map((issue) => issue.number)).toEqual([101])
+    expect(w.fake.issues.get('Acme/app#101')).toMatchObject({ type: 'fix', parent: 70, blockedBy: [80] })
+    expect(startupLog(w.startup)).toEqual([`${w.triageDir}\t`, `${w.triageDir}\t`])
+    expect(existsSync(w.sentinel)).toBe(false)
   })
 })

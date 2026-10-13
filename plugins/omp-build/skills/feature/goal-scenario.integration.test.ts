@@ -12,6 +12,7 @@ import {
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { recipeAfterWrite } from '../../../issue-triage/skills/issue-triage/__tests__/fixtures/github-api'
 import { readMarker } from './epic'
 
 /**
@@ -549,8 +550,31 @@ describe('stateful gh — one continuous goal', () => {
     const range = afterStop.step.range ?? ''
     expect(range).toMatch(/^[0-9a-f]{40}\.\.[0-9a-f]{40}$/)
 
-    const reviewed = drive(['review', '--verdict', 'clean', '--range', range], RUN_B)
-    expect(reviewed.code).toBe(0)
+    // The documented launch: Bun started in the skill directory, the target in --repo.
+    const findings = path.join(box?.root ?? '', 'findings.md')
+    writeFileSync(findings, 'No blocking finding.\n')
+    const skill = readFileSync(path.join(import.meta.dirname, 'SKILL.md'), 'utf8')
+    const recordReview = [
+      ...recipeAfterWrite(skill, '**Launching the driver.**'),
+      ...recipeAfterWrite(skill, '**Recording the final review.**'),
+    ].join('\n')
+    const reviewed = spawnSync('bash', ['-c', recordReview], {
+      cwd: epic,
+      env: {
+        ...box?.env,
+        SKILL_DIR: import.meta.dirname,
+        EPIC: String(EPIC),
+        GOAL_STATUS: 'active',
+        OBJECTIVE: path.join(box?.root ?? '', `objective-${RUN_B}.txt`),
+        VERDICT: 'clean',
+        RANGE: range,
+        EPIC_WT: epic,
+        FINDINGS: findings,
+      },
+      encoding: 'utf8',
+    })
+    expect(reviewed.stderr).toBe('')
+    expect(reviewed.status).toBe(0)
     writeFileSync(path.join(epic, 'dirty.txt'), 'no\n')
     const dirty = jsonOf(drive(['next'], RUN_B))
     expect(dirty.step).toMatchObject({ action: 'drop', stop: 'dirty-tree' })
