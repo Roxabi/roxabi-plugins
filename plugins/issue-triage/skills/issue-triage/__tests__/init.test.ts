@@ -141,26 +141,22 @@ describe('approved tracker plan', () => {
     expect(writes).toEqual({ ensure: 2, relabel: 1, contract: 1 })
 
     await expect(
-      applyApprovedPlan(
-        { ...plan, refused: ['vocabulary unknown'] },
-        'contract',
-        {
-          cwdRepo: 'Acme/app',
-          listLabelNames: async () => [],
-          listIssueLabelSets: async () => [],
-          readContract: () => null,
-          ensureLabel: async () => {
-            writes.ensure++
-            return 'created'
-          },
-          updateLabels: async () => {
-            writes.relabel++
-          },
-          writeContract: () => {
-            writes.contract++
-          },
+      applyApprovedPlan({ ...plan, refused: ['vocabulary unknown'] }, 'contract', {
+        cwdRepo: 'Acme/app',
+        listLabelNames: async () => [],
+        listIssueLabelSets: async () => [],
+        readContract: () => null,
+        ensureLabel: async () => {
+          writes.ensure++
+          return 'created'
         },
-      ),
+        updateLabels: async () => {
+          writes.relabel++
+        },
+        writeContract: () => {
+          writes.contract++
+        },
+      }),
     ).rejects.toThrow('vocabulary unknown')
     expect(writes).toEqual({ ensure: 2, relabel: 1, contract: 1 })
   })

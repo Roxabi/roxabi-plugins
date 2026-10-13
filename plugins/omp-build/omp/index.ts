@@ -181,7 +181,6 @@ export default function ompBuildExtension(
     }
   })
 
-
   // format hook + principal post-nudge: deferred. Never sendUserMessage on tool_result
   // (OMP treats that as a user turn and the agent may git-switch off the feature branch).
 }

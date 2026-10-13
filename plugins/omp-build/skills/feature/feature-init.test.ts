@@ -1,4 +1,14 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
@@ -9,8 +19,8 @@ import {
   type Facts,
   type Gh,
   hasSemctxGitHooks,
-  initFeature,
   IssueTriageMissing,
+  initFeature,
   loadMigrateLabel,
   type MigrateLabel,
   migrateLabelCandidates,
@@ -293,7 +303,10 @@ describe('feature init on the fictional acme fixture', () => {
 })
 
 describe('stack adoption proposal', () => {
-  const parse = (value: unknown): ParseYaml => () => value
+  const parse =
+    (value: unknown): ParseYaml =>
+    () =>
+      value
 
   it('preserves comments while inserting one uniquely located command', () => {
     scratch = mkdtempSync(path.join(tmpdir(), 'omp-init-comment-'))
@@ -304,9 +317,13 @@ describe('stack adoption proposal', () => {
     writeFileSync(path.join(scratch, 'package.json'), JSON.stringify({ scripts: { test: 'vitest run' } }))
     writeFileSync(path.join(scratch, 'package-lock.json'), '{}')
 
-    const proposal = proposeStack(scratch, { ...baseFacts(), hasWorktree: false, mergeOnGreen: false }, parse({
-      commands: { worktree_setup: 'tools/setup.sh' },
-    }))
+    const proposal = proposeStack(
+      scratch,
+      { ...baseFacts(), hasWorktree: false, mergeOnGreen: false },
+      parse({
+        commands: { worktree_setup: 'tools/setup.sh' },
+      }),
+    )
 
     expect(proposal.after).toContain('  test: "npm run test"\n# keep this too\n')
     expect(proposal.after).toContain('# keep me')
@@ -330,7 +347,15 @@ describe('stack adoption proposal', () => {
           }
         : parse(parsed),
     )
-    applyStack(scratch, { ...baseFacts(), hasWorktree: false }, parsed === null ? () => { throw new Error('bad yaml') } : parse(parsed))
+    applyStack(
+      scratch,
+      { ...baseFacts(), hasWorktree: false },
+      parsed === null
+        ? () => {
+            throw new Error('bad yaml')
+          }
+        : parse(parsed),
+    )
     expect(proposal.refusal).not.toBeNull()
     expect(readFileSync(stackPath, 'utf8')).toBe(stack)
   })
@@ -340,7 +365,10 @@ describe('stack adoption proposal', () => {
     mkdirSync(path.join(scratch, '.dev'), { recursive: true })
     writeFileSync(path.join(scratch, '.dev', 'stack.yml'), 'schema_version: "1.0"\n')
     mkdirSync(path.join(scratch, '.github', 'workflows'), { recursive: true })
-    writeFileSync(path.join(scratch, '.github', 'workflows', 'ci.yml'), 'jobs:\n  unit:\n    steps:\n      - run: npm test\n  integration:\n    steps:\n      - run: make test\n')
+    writeFileSync(
+      path.join(scratch, '.github', 'workflows', 'ci.yml'),
+      'jobs:\n  unit:\n    steps:\n      - run: npm test\n  integration:\n    steps:\n      - run: make test\n',
+    )
     const proposal = proposeStack(scratch, baseFacts(), parse({ schema_version: '1.0' }))
     expect(proposal.additions.map((addition) => addition.key)).not.toContain('commands.test')
     expect(proposal.conflicts.join('\n')).toContain('independent test commands')

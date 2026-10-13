@@ -41,7 +41,9 @@ export function findFloatingWorkflowPins(dir = '.github/workflows'): InlinePin[]
 function main(): void {
   const floatingPins = findFloatingWorkflowPins()
   for (const pin of floatingPins) {
-    console.error(`FAIL ${pin.file}: uses ${pin.action}@${pin.ref} — floating ref in a committed workflow; pin to a 40-hex SHA.`)
+    console.error(
+      `FAIL ${pin.file}: uses ${pin.action}@${pin.ref} — floating ref in a committed workflow; pin to a 40-hex SHA.`,
+    )
   }
   if (floatingPins.length > 0) process.exit(1)
   console.log('All committed workflow action references are pinned to 40-hex SHAs.')

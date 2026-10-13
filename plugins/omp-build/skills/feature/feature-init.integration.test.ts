@@ -38,7 +38,6 @@ function run(dir: string, ...args: string[]) {
   return spawnSync(REAL_BUN, [CLI, '--dir', dir, ...args], { env: ENV, encoding: 'utf8' })
 }
 
-
 describe('feature init preview', () => {
   it('prints a non-authorizing proposal and leaves the worktree byte-identical', () => {
     root = mkdtempSync(path.join(tmpdir(), 'omp-init-preview-'))

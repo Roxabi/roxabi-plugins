@@ -8,9 +8,12 @@ describe('parseInlinePins', () => {
     expect(parseInlinePins('uses: actions/checkout@v7\n')).toEqual([{ action: 'actions/checkout', ref: 'v7' }])
   })
 
-  it.each(['uses: "actions/checkout@v7"\n', "uses: 'actions/checkout@v7'\n"])('parses quoted floating references', (source) => {
-    expect(parseInlinePins(source)).toEqual([{ action: 'actions/checkout', ref: 'v7' }])
-  })
+  it.each(['uses: "actions/checkout@v7"\n', "uses: 'actions/checkout@v7'\n"])(
+    'parses quoted floating references',
+    (source) => {
+      expect(parseInlinePins(source)).toEqual([{ action: 'actions/checkout', ref: 'v7' }])
+    },
+  )
 
   it('does not treat local or expression-based uses values as third-party actions', () => {
     expect(parseInlinePins('uses: ./local-action\nuses: ${{ inputs.action }}\n')).toEqual([])
@@ -46,13 +49,18 @@ describe('findFloatingWorkflowPins', () => {
   ])('rejects a %s floating pin', (name, source) => {
     fs.mkdirSync(dirAbs, { recursive: true })
     fs.writeFileSync(path.join(dirAbs, name), source)
-    expect(findFloatingWorkflowPins(dirRel)).toEqual([{ file: `${dirRel}/${name}`, action: 'actions/checkout', ref: 'v7' }])
+    expect(findFloatingWorkflowPins(dirRel)).toEqual([
+      { file: `${dirRel}/${name}`, action: 'actions/checkout', ref: 'v7' },
+    ])
   })
 
   it('accepts an equivalent quoted or unquoted 40-hex SHA pin', () => {
     fs.mkdirSync(dirAbs, { recursive: true })
     const sha = '0123456789abcdef0123456789abcdef01234567'
-    fs.writeFileSync(path.join(dirAbs, 'pins.yml'), `uses: actions/checkout@${sha}\nuses: "actions/checkout@${sha}"\nuses: 'actions/checkout@${sha}'\n`)
+    fs.writeFileSync(
+      path.join(dirAbs, 'pins.yml'),
+      `uses: actions/checkout@${sha}\nuses: "actions/checkout@${sha}"\nuses: 'actions/checkout@${sha}'\n`,
+    )
     expect(findFloatingWorkflowPins(dirRel)).toEqual([])
   })
 })

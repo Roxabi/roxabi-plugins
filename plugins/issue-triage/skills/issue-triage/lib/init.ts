@@ -12,8 +12,8 @@
  * deleted or recoloured. Issue bodies are never edited.
  */
 
-import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import {
   existsSync,
   lstatSync,

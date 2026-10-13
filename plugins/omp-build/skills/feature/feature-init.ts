@@ -579,7 +579,6 @@ export async function readFacts(dir: string, opts: ReadFactsOpts = {}): Promise<
   }
 }
 
-
 function isPrincipal(dir: string): boolean {
   const out = execFileSync('git', ['worktree', 'list', '--porcelain'], { cwd: dir, encoding: 'utf8' })
   const first = out.match(/^worktree (.+)$/m)?.[1]
@@ -598,15 +597,12 @@ export type StackProposal = {
 }
 
 function hasOwn(map: YamlMap, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(map, key)
+  return Object.hasOwn(map, key)
 }
 
 function rootMappingLines(text: string, key: string): number[] {
-  return text
-    .split('\n')
-    .flatMap((line, index) => (new RegExp(`^${key}:\\s*(?:#.*)?$`).test(line) ? [index] : []))
+  return text.split('\n').flatMap((line, index) => (new RegExp(`^${key}:\\s*(?:#.*)?$`).test(line) ? [index] : []))
 }
-
 
 export type CommandEvidence = { command: string; source: string }
 
@@ -627,7 +623,10 @@ export function discoverTestCommands(dir: string): CommandEvidence[] {
   const scripts = isMap(pkg?.scripts) ? pkg.scripts : null
   const runner = packageRunner(dir, pkg)
   if (runner && typeof scripts?.test === 'string' && scripts.test.trim()) {
-    out.push({ command: runner === 'npm' || runner === 'bun' ? `${runner} run test` : `${runner} test`, source: 'package.json scripts.test' })
+    out.push({
+      command: runner === 'npm' || runner === 'bun' ? `${runner} run test` : `${runner} test`,
+      source: 'package.json scripts.test',
+    })
   }
   for (const name of ['Makefile', 'makefile']) {
     const file = join(dir, name)
@@ -645,7 +644,11 @@ export function discoverTestCommands(dir: string): CommandEvidence[] {
         const workdir = line.match(/^\s*working-directory:\s*(\S.*?)\s*$/)
         if (workdir) workingDirectory = workdir[1]
         const run = line.match(/^\s*(?:-\s*)?run:\s*(\S.*?)\s*$/)
-        if (run && /(?:^|\s)(?:npm|pnpm|yarn|bun|go|cargo|pytest|make)\b/.test(run[1]) && /\btest\b|pytest/.test(run[1])) {
+        if (
+          run &&
+          /(?:^|\s)(?:npm|pnpm|yarn|bun|go|cargo|pytest|make)\b/.test(run[1]) &&
+          /\btest\b|pytest/.test(run[1])
+        ) {
           out.push({ command: run[1], source: `.github/workflows/${name} (working-directory: ${workingDirectory})` })
         }
       }
@@ -666,8 +669,18 @@ export function proposeStack(dir: string, facts: Facts, parseYaml: ParseYaml = b
   const before = existsSync(stackPath) ? readFileSync(stackPath, 'utf8') : null
   if (before === null) {
     const additions: StackAddition[] = []
-    if (!facts.hasWorktree) additions.push({ key: 'worktree', text: 'worktree:\n  copy: []\n  seed: []\n  setup: ""\n', source: '.dev/stack.yml: missing worktree' })
-    if (facts.mergeOnGreen) additions.push({ key: 'landing', text: 'landing:\n  mode: merge-on-green\n', source: '.github/workflows/merge-on-green.yml' })
+    if (!facts.hasWorktree)
+      additions.push({
+        key: 'worktree',
+        text: 'worktree:\n  copy: []\n  seed: []\n  setup: ""\n',
+        source: '.dev/stack.yml: missing worktree',
+      })
+    if (facts.mergeOnGreen)
+      additions.push({
+        key: 'landing',
+        text: 'landing:\n  mode: merge-on-green\n',
+        source: '.github/workflows/merge-on-green.yml',
+      })
     const after = additions.length
       ? `schema_version: "1.0"\n${additions.map((addition) => `\n${addition.text}`).join('')}`
       : null
@@ -675,7 +688,13 @@ export function proposeStack(dir: string, facts: Facts, parseYaml: ParseYaml = b
   }
   const firstContent = before.split('\n').find((line) => line.trim() && !line.trimStart().startsWith('#')) ?? ''
   if (/^\s*[{[]/.test(firstContent) || /^\s*\.\.\.\s*$/.test(before)) {
-    return { additions: [], conflicts: [], refusal: '.dev/stack.yml cannot be safely extended without reformatting', before, after: null }
+    return {
+      additions: [],
+      conflicts: [],
+      refusal: '.dev/stack.yml cannot be safely extended without reformatting',
+      before,
+      after: null,
+    }
   }
   let config: unknown
   try {
@@ -697,11 +716,20 @@ export function proposeStack(dir: string, facts: Facts, parseYaml: ParseYaml = b
     if (commands !== undefined && !isMap(commands)) {
       conflicts.push('commands exists with a non-mapping value')
     } else if (commands !== undefined && rootMappingLines(before, 'commands').length !== 1) {
-      return { additions: [], conflicts, refusal: '.dev/stack.yml commands block is not uniquely locatable', before, after: null }
+      return {
+        additions: [],
+        conflicts,
+        refusal: '.dev/stack.yml commands block is not uniquely locatable',
+        before,
+        after: null,
+      }
     } else {
       additions.push({
         key: 'commands.test',
-        text: commands === undefined ? `commands:\n  test: ${JSON.stringify(evidence.command)}\n` : `  test: ${JSON.stringify(evidence.command)}\n`,
+        text:
+          commands === undefined
+            ? `commands:\n  test: ${JSON.stringify(evidence.command)}\n`
+            : `  test: ${JSON.stringify(evidence.command)}\n`,
         source: evidence.source,
       })
     }
@@ -712,19 +740,28 @@ export function proposeStack(dir: string, facts: Facts, parseYaml: ParseYaml = b
   }
   if (distinctTestCommands.length === 0) {
     const manifests = manifestCommandUnknowns(dir)
-    if (manifests.length) conflicts.push(`commands.test withheld: no executable test command in ${manifests.join(', ')}`)
+    if (manifests.length)
+      conflicts.push(`commands.test withheld: no executable test command in ${manifests.join(', ')}`)
   }
   if (!hasOwn(config, 'worktree')) {
     if (typeof worktreeSetup === 'string' && worktreeSetup.trim()) {
       conflicts.push('worktree preserved: commands.worktree_setup is declared')
     } else {
-      additions.push({ key: 'worktree', text: 'worktree:\n  copy: []\n  seed: []\n  setup: ""\n', source: '.dev/stack.yml: missing worktree' })
+      additions.push({
+        key: 'worktree',
+        text: 'worktree:\n  copy: []\n  seed: []\n  setup: ""\n',
+        source: '.dev/stack.yml: missing worktree',
+      })
     }
   } else if (!isMap(config.worktree)) {
     conflicts.push('worktree exists with a non-mapping value')
   }
   if (facts.mergeOnGreen && !hasOwn(config, 'landing')) {
-    additions.push({ key: 'landing', text: 'landing:\n  mode: merge-on-green\n', source: '.github/workflows/merge-on-green.yml' })
+    additions.push({
+      key: 'landing',
+      text: 'landing:\n  mode: merge-on-green\n',
+      source: '.github/workflows/merge-on-green.yml',
+    })
   } else if (facts.mergeOnGreen && !isMap(config.landing)) {
     conflicts.push('landing exists with a non-mapping value')
   }
@@ -834,7 +871,6 @@ function digestFor(
     .digest('hex')
 }
 
-
 export type FeatureInitDeps = {
   facts?: Facts
   parseYaml?: ParseYaml
@@ -881,8 +917,7 @@ export async function previewFeatureInit(dir: string, deps: FeatureInitDeps = {}
 
 function trackerChanges(tracker: TrackerProposal | null): boolean {
   return Boolean(
-    tracker &&
-      (tracker.plan.createLabels.length || tracker.plan.relabels.length || tracker.plan.contract === 'write'),
+    tracker && (tracker.plan.createLabels.length || tracker.plan.relabels.length || tracker.plan.contract === 'write'),
   )
 }
 
