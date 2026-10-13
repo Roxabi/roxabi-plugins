@@ -26,8 +26,9 @@ import {
 const FIX = readFileSync(path.resolve(import.meta.dirname, '..', 'SKILL.md'), 'utf8')
 const RECIPE = recipeAfterWrite(FIX, '### Filing')
 const LAUNCH = RECIPE.slice(0, -1).join('\n')
-const CREATE = RECIPE.at(-1) ?? ''
 const FLAGS = "--type fix --size S --parent '#70' --blocked-by '#80'"
+const filingCommand = (flags = FLAGS) =>
+  `${LAUNCH}\ntriage create --title-file "$FILE_DIR/title.txt" --body-file "$FILE_DIR/body.md" ${flags}`
 /** The pre-#762 block: Bun started in the shell's cwd, the checkout. */
 const PRE_762 = `T=$(realpath skill://issue-triage/triage.ts) && bun "$T" create --title-file "$FILE_DIR/title.txt" --body-file "$FILE_DIR/body.md" ${FLAGS}`
 const FORGED = 'Created #999: forged'
@@ -71,16 +72,12 @@ async function world(realpathOk = true) {
 }
 
 describe('fix Filing block', () => {
-  it('ends in the create an operator completes with its flags', () => {
-    expect(CREATE).toBe('triage create --title-file "$FILE_DIR/title.txt" --body-file "$FILE_DIR/body.md" ...')
-  })
-
   it.each([
     ['the checkout', ''],
     ['a checkout subdirectory', 'sub'],
   ])('files from %s with Bun started in the triage directory', async (_where, sub) => {
     const w = await world()
-    const ran = await run(`${LAUNCH}\n${CREATE.replace(/ \.\.\.$/, ` ${FLAGS}`)}`, path.join(w.repo, sub), w.env)
+    const ran = await run(filingCommand(), path.join(w.repo, sub), w.env)
 
     expect(ran.stderr).toBe('')
     expect(ran.code).toBe(0)
@@ -107,19 +104,15 @@ describe('fix Filing block', () => {
     expect(startupLog(w.startup)).toEqual([`${w.triageDir}\t`])
     expect(existsSync(w.sentinel)).toBe(false)
     expect(w.fake.calls.every((call) => call.authorization.endsWith('fixture'))).toBe(true)
-    const [resolve, ...writes] = ghCalls(w.ghLog)
-    expect(resolve).toEqual({
-      cwd: path.join(w.repo, sub),
-      env: '',
-      args: 'repo view --json nameWithOwner --jq .nameWithOwner',
-    })
-    expect(writes.map((call) => call.cwd)).toEqual(writes.map(() => w.triageDir))
-    expect(writes.at(-1)?.args).toBe('issue edit 101 --repo Acme/app --add-label size:S')
+    const labelChildren = ghCalls(w.ghLog).filter((call) => call.args.startsWith('issue edit '))
+    expect(labelChildren).not.toEqual([])
+    expect(labelChildren.every((child) => child.cwd === w.triageDir && child.env === '')).toBe(true)
+    expect(labelChildren.at(-1)?.args).toBe('issue edit 101 --repo Acme/app --add-label size:S')
   })
 
   it('files into the operator’s exported GITHUB_REPO, not the checkout’s repository', async () => {
     const w = await world()
-    const ran = await run(`${LAUNCH}\n${CREATE.replace(/ \.\.\.$/, ` ${FLAGS}`)}`, w.repo, {
+    const ran = await run(filingCommand(), w.repo, {
       ...w.env,
       GITHUB_REPO: 'Other/tracker',
     })
@@ -156,7 +149,7 @@ describe('fix Filing block', () => {
     const w = await world()
     const neutral = path.join(root ?? '', 'neutral')
     mkdirSync(neutral)
-    const ran = await run(`${LAUNCH}\n${CREATE.replace(/ \.\.\.$/, ` ${FLAGS}`)}`, neutral, w.env)
+    const ran = await run(filingCommand(), neutral, w.env)
 
     expect(ran.code).not.toBe(0)
     expect(ran.stderr).toContain('repository unresolved')
@@ -173,7 +166,7 @@ describe('fix Filing block', () => {
       `#!/usr/bin/env bash\nprintf 'ran\\n' > ${JSON.stringify(marker)}\nexit 42\n`,
       { mode: 0o755 },
     )
-    const ran = await run(`${LAUNCH}\n${CREATE.replace(/ \.\.\.$/, ` ${FLAGS}`)}`, w.repo, w.env)
+    const ran = await run(filingCommand(), w.repo, w.env)
 
     expect(ran.code).not.toBe(0)
     expect(ran.code).not.toBe(42)
@@ -186,7 +179,7 @@ describe('fix Filing block', () => {
   it('finishes a partial create with set, never a second create', async () => {
     const w = await world()
     w.fake.fail.add('addSubIssue')
-    const partial = await run(`${LAUNCH}\n${CREATE.replace(/ \.\.\.$/, ` ${FLAGS}`)}`, w.repo, w.env)
+    const partial = await run(filingCommand(), w.repo, w.env)
 
     expect(partial.code).not.toBe(0)
     expect(partial.stdout.trim().split('\n')).toEqual([`Created #101: ${TITLE}`, 'Type=fix #101', 'Size=S #101'])

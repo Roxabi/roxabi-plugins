@@ -9,7 +9,7 @@
  *   through `NODE_EXTRA_CA_CERTS`, and answers the REST and GraphQL calls
  *   triage makes. Any other host is refused.
  * - `gh` on PATH is a stub that logs its cwd, `ENV_SENTINEL` and argv. It
- *   answers `repo view` from the cwd's `origin` remote, as gh does.
+ *   answers repository, auth, and init label-list/create calls without replacing Bun.
  *
  * The proxy lives in the test process, so a child must be awaited (`run`), not
  * spawned synchronously: a sync spawn would block the server it talks to.
@@ -32,6 +32,7 @@ export type Issue = {
   body: string
   type?: string
   parent?: number
+  parentRepo?: string
   blockedBy: number[]
 }
 
@@ -47,8 +48,10 @@ export type GitHubFake = {
   /** Issues created through `POST /repos/:o/:r/issues`, in order. */
   created: Issue[]
   calls: Call[]
-  /** GraphQL operations that answer with an error (e.g. `addSubIssue`). */
+  /** GraphQL operations that always answer with an error (e.g. `addSubIssue`). */
   fail: Set<string>
+  /** GraphQL operation invocation numbers that answer with an error. */
+  failOnCall: Map<string, number>
   close(): Promise<void>
 }
 
@@ -76,7 +79,14 @@ export async function startGitHub(dir: string, seed: string[]): Promise<GitHubFa
   const created: Issue[] = []
   const calls: Call[] = []
   const fail = new Set<string>()
-  const byNode = (id: unknown) => [...issues.values()].find((issue) => issue.nodeId === id)
+  const failOnCall = new Map<string, number>()
+  const operationCalls = new Map<string, number>()
+  const byNode = (id: unknown): Issue | undefined => {
+    for (const issue of issues.values()) {
+      if (issue.nodeId === id) return issue
+    }
+    return undefined
+  }
   const add = (repo: string, number: number, title = '', body = ''): Issue => {
     const issue: Issue = { repo, number, nodeId: `I_${repo}#${number}`, title, body, blockedBy: [] }
     issues.set(`${repo}#${number}`, issue)
@@ -88,10 +98,28 @@ export async function startGitHub(dir: string, seed: string[]): Promise<GitHubFa
   }
   let next = 100
 
-  function graphql(op: string, vars: Record<string, unknown>): { status: number; data: unknown } {
-    if (fail.has(op)) return { status: 200, data: { errors: [{ message: `${op} refused by the fixture` }] } }
-    if (op === 'issueTypes')
+  function graphql(op: string, vars: Record<string, unknown>, query: string): { status: number; data: unknown } {
+    const call = (operationCalls.get(op) ?? 0) + 1
+    operationCalls.set(op, call)
+    if (fail.has(op) || failOnCall.get(op) === call) {
+      return { status: 200, data: { errors: [{ message: `${op} refused by the fixture` }] } }
+    }
+    if (op === 'parent') {
+      const issue = issues.get(`${vars.owner}/${vars.repo}#${vars.number}`)
+      if (!issue) return { status: 200, data: { errors: [{ message: 'unknown issue' }] } }
+      const parent = issue.parent
+        ? {
+            number: issue.parent,
+            ...(/\brepository\s*{\s*nameWithOwner\b/.test(query)
+              ? { repository: { nameWithOwner: issue.parentRepo ?? issue.repo } }
+              : {}),
+          }
+        : null
+      return { status: 200, data: { data: { repository: { issue: { parent } } } } }
+    }
+    if (op === 'issueTypes') {
       return { status: 200, data: { data: { organization: { id: 'O', issueTypes: { nodes: ISSUE_TYPES } } } } }
+    }
     if (op === 'updateIssueIssueType') {
       const issue = byNode(vars.issueId)
       const type = ISSUE_TYPES.find((t) => t.id === vars.issueTypeId)
@@ -104,7 +132,19 @@ export async function startGitHub(dir: string, seed: string[]): Promise<GitHubFa
       const child = byNode(vars.childId)
       if (!parent || !child) return { status: 200, data: { errors: [{ message: 'unknown node' }] } }
       child.parent = parent.number
+      if (parent.repo === child.repo) delete child.parentRepo
+      else child.parentRepo = parent.repo
       return { status: 200, data: { data: { addSubIssue: { issue: { number: parent.number } } } } }
+    }
+    if (op === 'removeSubIssue') {
+      const parent = byNode(vars.parentId)
+      const child = byNode(vars.childId)
+      if (!parent || !child || child.parent !== parent.number || (child.parentRepo ?? child.repo) !== parent.repo) {
+        return { status: 200, data: { errors: [{ message: 'unknown parent relationship' }] } }
+      }
+      delete child.parent
+      delete child.parentRepo
+      return { status: 200, data: { data: { removeSubIssue: { issue: { number: parent.number } } } } }
     }
     if (op === 'addBlockedBy') {
       const issue = byNode(vars.issueId)
@@ -151,8 +191,10 @@ export async function startGitHub(dir: string, seed: string[]): Promise<GitHubFa
       }
       if (url === '/graphql' && req.method === 'POST') {
         const { query, variables } = JSON.parse(raw) as { query: string; variables: Record<string, unknown> }
-        const op = /\b(addSubIssue|addBlockedBy|updateIssueIssueType|issueTypes)\b/.exec(query)?.[1] ?? 'unknown'
-        const { status, data } = graphql(op, variables)
+        const op =
+          /\b(addSubIssue|removeSubIssue|addBlockedBy|updateIssueIssueType|issueTypes)\b/.exec(query)?.[1] ??
+          (query.includes('issue(number:') ? 'parent' : 'unknown')
+        const { status, data } = graphql(op, variables, query)
         return reply(status, data, op)
       }
       return reply(404, { message: `no fixture route ${req.method} ${url}` }, 'unknown')
@@ -183,6 +225,7 @@ export async function startGitHub(dir: string, seed: string[]): Promise<GitHubFa
     created,
     calls,
     fail,
+    failOnCall,
     close: () => {
       const closed = Promise.withResolvers<void>()
       proxy.closeAllConnections()
@@ -202,8 +245,41 @@ case "$1 \${2:-}" in
   "repo view")
     url=$(git remote get-url origin 2>/dev/null) || { echo "gh: no git remote here" >&2; exit 1; }
     url=\${url%.git}; printf '%s\\n' "\${url#https://github.com/}" ;;
-  "api graphql") printf '%s\\n' "\${GH_PARENT:-}" ;;
-  "label list") ;;
+  "api graphql")
+    if [ -n "\${GH_PARENT_LOOKUP_EXIT:-}" ]; then
+      echo "gh: parent lookup failed" >&2
+      exit "$GH_PARENT_LOOKUP_EXIT"
+    fi
+    query= filter=
+    shift 2
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        -f|-F) case "$2" in query=*) query=\${2#query=} ;; esac; shift 2 ;;
+        --jq) filter=$2; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    repo_pattern='repository\\(owner:"([^"]*)",name:"([^"]*)"\\)'
+    if [[ "$query" =~ $repo_pattern ]]; then
+      parent_repo=\${GH_PARENT_REPO:-\${BASH_REMATCH[1]}/\${BASH_REMATCH[2]}}
+    else
+      echo "gh: fixture parent query has no explicit repository" >&2
+      exit 9
+    fi
+    compact=\${query//[[:space:]]/}
+    repository_requested=false
+    case "$compact" in *parent\\{numberrepository\\{nameWithOwner\\}\\}*) repository_requested=true ;; esac
+    jq -cn --arg repo "$parent_repo" --argjson number "\${GH_PARENT:-null}" \\
+      --argjson repository_requested "$repository_requested" \\
+      '{data:{repository:{issue:{parent:(if $number == null then null else ({number:$number} + (if $repository_requested then {repository:{nameWithOwner:$repo}} else {} end)) end)}}}}' |
+      jq -r "$filter" ;;
+  "auth token") printf '%s\\n' "\${GH_AUTH_TOKEN:-fixture}" ;;
+  "label list") if [ -n "\${GH_LABELS_FILE:-}" ] && [ -f "$GH_LABELS_FILE" ]; then cat "$GH_LABELS_FILE"; fi ;;
+  "label create")
+    if [ -n "\${GH_LABELS_FILE:-}" ]; then
+      printf '%s\\n' "$3" >> "$GH_LABELS_FILE"
+    fi ;;
+  "issue list") printf '[]\\n' ;;
   "issue edit") ;;
   *) echo "stub gh: unhandled $*" >&2; exit 9 ;;
 esac
@@ -325,22 +401,83 @@ export function recipeEnv(fake: GitHubFake, bin: string, extra: Record<string, s
   }
 }
 
-export type Ran = { code: number | null; stdout: string; stderr: string }
+export type Ran = { code: number | null; stdout: string; stderr: string; signal: NodeJS.Signals | null }
 
-/** Runs `script` under bash, awaited so the in-process fake keeps answering. */
-export function run(script: string, cwd: string, env: Record<string, string>): Promise<Ran> {
+/**
+ * Runs `script` under an owned Bash process group. A deadline reports SIGKILL
+ * for the owned run even when Bash had already exited while a descendant held a
+ * pipe open; a normal close preserves Bash's code and signal.
+ */
+export function run(script: string, cwd: string, env: Record<string, string>, timeoutMs = 10_000): Promise<Ran> {
   const { promise, resolve, reject } = Promise.withResolvers<Ran>()
-  const child = spawn('bash', ['-c', script], { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] })
+  const child = spawn('bash', ['-c', script], { cwd, detached: true, env, stdio: ['ignore', 'pipe', 'pipe'] })
   let stdout = ''
   let stderr = ''
-  child.stdout.on('data', (chunk) => {
+  let settled = false
+
+  const cleanup = () => {
+    clearTimeout(deadline)
+    child.removeListener('error', onError)
+    child.removeListener('close', onClose)
+    child.stdout?.destroy()
+    child.stderr?.destroy()
+  }
+  const settle = (result: Ran) => {
+    if (settled) return
+    settled = true
+    cleanup()
+    resolve(result)
+  }
+  const rejectOnce = (error: Error) => {
+    if (settled) return
+    settled = true
+    cleanup()
+    reject(error)
+  }
+  const disposeGroup = () => {
+    if (!child.pid) return
+    try {
+      process.kill(-child.pid, 'SIGKILL')
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
+    }
+  }
+  const onError = (error: Error) => {
+    try {
+      disposeGroup()
+    } catch (cleanupError) {
+      rejectOnce(cleanupError as Error)
+      return
+    }
+    rejectOnce(error)
+  }
+  const onClose = (code: number | null, signal: NodeJS.Signals | null) => {
+    try {
+      disposeGroup()
+    } catch (error) {
+      rejectOnce(error as Error)
+      return
+    }
+    settle({ code, stdout, stderr, signal })
+  }
+  const deadline = setTimeout(() => {
+    try {
+      disposeGroup()
+    } catch (error) {
+      rejectOnce(error as Error)
+      return
+    }
+    settle({ code: null, stdout, stderr, signal: 'SIGKILL' })
+  }, timeoutMs)
+
+  child.stdout?.on('data', (chunk) => {
     stdout += chunk
   })
-  child.stderr.on('data', (chunk) => {
+  child.stderr?.on('data', (chunk) => {
     stderr += chunk
   })
-  child.on('error', reject)
-  child.on('close', (code) => resolve({ code, stdout, stderr }))
+  child.once('error', onError)
+  child.once('close', onClose)
   return promise
 }
 

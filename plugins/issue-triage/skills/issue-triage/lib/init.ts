@@ -298,9 +298,10 @@ export function secondPassIsNoop(
   return planRelabels(nextIssues).length === 0 && missing.length === 0
 }
 
-function parseArgs(args: string[]): { dryRun: boolean; repo?: string } {
+function parseArgs(args: string[]): { dryRun: boolean; repo?: string; root?: string } {
   let dryRun = false
   let repo: string | undefined
+  let root: string | undefined
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]
     if (arg === '--dry-run') {
@@ -312,9 +313,14 @@ function parseArgs(args: string[]): { dryRun: boolean; repo?: string } {
       if (!repo) throw new Error('init: --repo needs owner/repo')
       continue
     }
+    if (arg === '--root') {
+      root = args[++i]
+      if (!root) throw new Error('init: --root needs a checkout path')
+      continue
+    }
     throw new Error(`init: unknown argument ${arg}`)
   }
-  return { dryRun, repo }
+  return { dryRun, repo, root }
 }
 
 function defaultDeps(cwdRepo: string, cwd = process.cwd()): InitDeps {
@@ -334,10 +340,10 @@ function defaultDeps(cwdRepo: string, cwd = process.cwd()): InitDeps {
 }
 
 export async function initIssues(args: string[], deps?: InitDeps): Promise<InitPlan> {
-  const { dryRun, repo: repoFlag } = parseArgs(args)
+  const { dryRun, repo: repoFlag, root } = parseArgs(args)
   const cwdRepo = deps?.cwdRepo ?? detectGitHubRepo()
   const repo = repoFlag ?? cwdRepo
-  const bound = deps ?? defaultDeps(cwdRepo)
+  const bound = deps ?? defaultDeps(cwdRepo, root)
   const { plan, contractText } = await buildPlan(repo, cwdRepo, bound)
   console.log(formatPlan(plan, dryRun))
   if (dryRun) return plan

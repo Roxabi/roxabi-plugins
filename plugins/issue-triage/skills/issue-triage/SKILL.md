@@ -2,7 +2,7 @@
 name: issue-triage
 argument-hint: '[list | set <num> | create --title "..." [--parent N] [--size S] [--priority P] [--type T] [--lane L]]'
 description: Triage/create GitHub issues — set size/priority/lane/type labels, manage dependencies & parent/child. Run before `/feature` picks a ticket up. Triggers: "triage" | "create issue" | "set size" | "set priority" | "blocked by" | "set parent" | "child of" | "sub-issue" | "file an issue" | "log a bug" | "open an issue" | "file a bug" | "add issue" | "new issue" | "set lane" | "set type".
-version: 0.6.1
+version: 0.6.4
 allowed-tools: Bash, Read, ToolSearch
 ---
 
@@ -27,7 +27,7 @@ only through issue-triage.
 2. ∀ issue: determine Size, κ (see [Complexity Scoring](#complexity-scoring)) and Priority (see [Priority Guidelines](#priority-guidelines))
 3. Set values: `T set <number> --size <S> --priority <P>`
 4. Create issues: `T create --title "Title" [--body "Body"] [--label "bug,frontend"] [--size M] [--priority High] [--type feat] [--lane b] [--parent 163]`
-5. Adopt a repository: `T init [--dry-run] [--repo owner/repo]`. Writes `docs/agents/issue-tracker.md` only when that file is absent, and only at the git toplevel — not the process cwd. An existing contract is authoritative: init prints `contract: keep-existing` and never rewrites it. Labels come from its `Label | Colour` table (a leading pipe is optional), or from canonical names in the template list; `bug` and other non-canonical snapshot entries are not a vocabulary. `epic` and `reviewed` are created only when that vocabulary lists them. An existing label is never recoloured; a case mismatch is reported, not created. A contract that parses to no vocabulary prints `vocabulary: none parsed from docs/agents/issue-tracker.md` and exits non-zero. `--repo` other than the local repo is refused: the local file is not that repo's vocabulary. A relabel target outside the vocabulary and the repo labels is refused before any write.
+5. Adopt a repository: `T init [--dry-run] [--repo owner/repo] [--root path]`. `--root` selects the checkout whose `docs/agents/issue-tracker.md` is read or written when trusted triage starts elsewhere; it does not change the GitHub repository. Without it, init uses the current checkout. The contract is written only when absent and only at the selected checkout’s git toplevel. An existing contract is authoritative: init prints `contract: keep-existing` and never rewrites it. Labels come from its `Label | Colour` table (a leading pipe is optional), or from canonical names in the template list; `bug` and other non-canonical snapshot entries are not a vocabulary. `epic` and `reviewed` are created only when that vocabulary lists them. An existing label is never recoloured; a case mismatch is reported, not created. A contract that parses to no vocabulary prints `vocabulary: none parsed from docs/agents/issue-tracker.md` and exits non-zero. `--repo` other than the local repository refuses before label writes because the local contract cannot supply another repository’s vocabulary.
 6. → ask userif unsure about Size ∨ Priority.
 
 ## Size Guidelines
@@ -170,27 +170,24 @@ DIR=$(mktemp -d -t "issue-triage-defer-XXXXXX")
 TRIAGE=$(realpath "${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts") && TRIAGE_REPO="${GITHUB_REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
 triage() { (: "${TRIAGE:?issue-triage unresolved}" "${TRIAGE_REPO:?repository unresolved}" && cd "$(dirname "$TRIAGE")" && GITHUB_REPO="$TRIAGE_REPO" bun --no-env-file "$TRIAGE" "$@"); }
 # A's parent, empty when A is top-level. B takes it, and is blocked by A.
-A_PARENT=$(gh api graphql -f query="query{repository(owner:\"${TRIAGE_REPO%/*}\",name:\"${TRIAGE_REPO#*/}\"){issue(number:$A){parent{number}}}}" \
-  --jq '.data.repository.issue.parent.number // empty')
-triage create \
+A_PARENT_READY= && : "${A:?origin issue number required}" && A_PARENT=$(gh api graphql -f query="query{repository(owner:\"${TRIAGE_REPO%/*}\",name:\"${TRIAGE_REPO#*/}\"){issue(number:$A){parent{number repository{nameWithOwner}}}}}" \
+  --jq '.data.repository.issue.parent | select(. != null) | "\(.repository.nameWithOwner)#\(.number)"') && A_PARENT_READY=1 && triage create \
   --title-file "$DIR/title.txt" \
   --body-file "$DIR/body.md" \
   --blocked-by "#${A}" \
-  ${A_PARENT:+--parent "#${A_PARENT}"} && rm -rf "$DIR"
+  ${A_PARENT:+--parent "$A_PARENT"} && rm -rf "$DIR"
 ```
 
 `create` prints `Created #N` first, then one line per write (`Type=`, `Size=`, `Parent=`, `BlockedBy=`…). A nonzero exit after `Created #N` leaves #N filed but incomplete: never create it again. Run the same block with `triage set N` as its last command, passing only the flags whose line is missing.
 
 **Edge cases:**
 - A has no parent → B has no parent either (both top-level). Consider whether A should be re-parented under a freshly-created epic if the fan-out grows.
-- A is already top-level epic → defer creates child of A (epic decomposition pattern applies).
-- Existing follow-up issue B mis-parented under A → fix retroactively, with the same launch:
+- Existing follow-up issue B mis-parented under A → continue in the same shell after the defer recipe, reusing `triage` and `A_PARENT`:
   ```bash
-  TRIAGE=$(realpath "${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts") && TRIAGE_REPO="${GITHUB_REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
-  triage() { (: "${TRIAGE:?issue-triage unresolved}" "${TRIAGE_REPO:?repository unresolved}" && cd "$(dirname "$TRIAGE")" && GITHUB_REPO="$TRIAGE_REPO" bun --no-env-file "$TRIAGE" "$@"); }
-  triage set <B> --rm-parent
-  triage set <B> --parent "#${A_PARENT}"
-  triage set <B> --blocked-by "#${A}"  # ensure traceability link
+  : "${A_PARENT_READY:?origin parent lookup not completed}" &&
+  triage set <B> --rm-parent &&
+    { [ -z "$A_PARENT" ] || triage set <B> --parent "$A_PARENT"; } &&
+    triage set <B> --blocked-by "#${A}"  # ensure traceability link
   ```
 
 ## Complexity Scoring
