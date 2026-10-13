@@ -200,6 +200,12 @@ Never run any of these against the principal's path or its branch.
 
 `git worktree list` only knows registered worktrees. After `git worktree remove`, leftovers stay behind in the three roots the scanner walks — `<worktree base>/<repo>/<slug>` (the `/feature` root: `OMP_WORKTREE_DIR`, else `.dev/stack.yml` `worktree.base`, else `~/.omp/wt`), `<principal>/.claude/worktrees/` (harness), and `~/.omp/worktrees/<repo>/` (legacy leftover of the retired `ensureWorktree`):
 
+Without an environment override, Bun.YAML (Bun ≥1.2.21) reads `worktree.base`
+from the principal's stack. Quoted and block scalars retain their value; `~/`
+expands against `$HOME` and relative paths resolve against the principal.
+Invalid YAML or a non-string base fails nonzero and names `.dev/stack.yml`.
+A failed scan is not an empty orphan inventory.
+
 | kind | Example | Deletable? |
 |------|---------|------------|
 | `empty_parent` | proven-empty real directory, outside any git work tree, no symlink below its trusted anchor | **`--yes` allowlist** — `rmdir` only; never `rm -rf` |

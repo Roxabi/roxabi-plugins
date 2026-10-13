@@ -53,43 +53,124 @@ if [ -f "$marker" ]; then
 fi
 
 stack="$here/.dev/stack.yml"
-copy_list=""
-seed_list=""
+
+need_cli() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "bootstrap=$2-cli-missing" >&2
+    exit 3
+  }
+}
+
 if [ -f "$stack" ]; then
-  parsed="$(python3 - "$stack" << 'PY'
-import sys
-path = sys.argv[1]
-lines = open(path, encoding="utf-8").read().splitlines()
-section = None
-key = None
-copy, seed = [], []
-for raw in lines:
-    if not raw.strip() or raw.lstrip().startswith("#"):
-        continue
-    indent = len(raw) - len(raw.lstrip(" "))
-    text = raw.strip()
-    if indent == 0 and text.endswith(":"):
-        section = text[:-1]
-        key = None
-        continue
-    if section != "worktree" or indent < 2:
-        continue
-    if indent == 2 and text.endswith(":") and not text.startswith("-"):
-        key = text[:-1]
-        continue
-    if text.startswith("- ") and key in {"copy", "seed"}:
-        item = text[2:].strip().strip("'\"")
-        (copy if key == "copy" else seed).append(item)
-        continue
-    if indent == 2 and ":" in text:
-        key = None
-print("\n".join(copy))
-print("---")
-print("\n".join(seed))
-PY
-)"
-  copy_list="$(printf '%s\n' "$parsed" | awk 'BEGIN{p=0} /^---$/{p++; next} p==0')"
-  seed_list="$(printf '%s\n' "$parsed" | awk 'BEGIN{p=0} /^---$/{p++; next} p==1')"
+  need_cli bun bun
+  fields=()
+  while IFS= read -r -d '' field; do
+    fields+=("$field")
+  done < <(
+    cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
+    if bun --no-env-file -e '
+      import { readFileSync } from "node:fs"
+
+      const path = process.argv[1]
+      const invalid = (message) => {
+        throw new Error(message)
+      }
+      const isMap = (value) => value == null || (typeof value === "object" && !Array.isArray(value))
+      const list = (value, name) => {
+        if (value == null) return []
+        if (!Array.isArray(value) || value.some((item) => typeof item !== "string"))
+          invalid(`${name} must be a list of strings or null`)
+        if (value.some((item) => item.includes("\0"))) invalid(`${name} must not contain NUL`)
+        return value
+      }
+      const record = (key, value) => process.stdout.write(`${key}\0${value}\0`)
+
+      try {
+        const config = Bun.YAML.parse(readFileSync(path, "utf8"))
+        if (!isMap(config)) invalid("document must be a map or null")
+        const worktree = config?.worktree
+        const commands = config?.commands
+        if (!isMap(worktree)) invalid("worktree must be a map or null")
+        const copy = list(worktree?.copy, "worktree.copy")
+        const seed = list(worktree?.seed, "worktree.seed")
+        const setup = typeof worktree?.setup === "string" && worktree.setup.trim()
+          ? ["snippet", worktree.setup]
+          : typeof commands?.worktree_setup === "string" && commands.worktree_setup.trim()
+            ? ["file", commands.worktree_setup]
+            : ["none", ""]
+        if (setup[1].includes("\0")) invalid("selected setup must not contain NUL")
+        for (const value of copy.length ? copy : [""]) record("copy", value)
+        for (const value of seed.length ? seed : [""]) record("seed", value)
+        record("setup_mode", setup[0])
+        record("setup", setup[1])
+      } catch (error) {
+        console.error(`${path}: ${error instanceof Error ? error.message : String(error)}`)
+        process.exit(1)
+      }
+    ' "$stack"; then
+      printf 'status\0%s\0' 0
+    else
+      status=$?
+      printf 'status\0%s\0' "$status"
+    fi
+  )
+  if [ $(( ${#fields[@]} % 2 )) -ne 0 ] || [ "${#fields[@]}" -lt 2 ]; then
+    echo "bootstrap=stack-invalid $stack" >&2
+    exit 1
+  fi
+  status_index=$((${#fields[@]} - 2))
+  if [ "${fields[$status_index]}" != "status" ] || ! [[ "${fields[$((status_index + 1))]}" =~ ^[0-9]+$ ]]; then
+    echo "bootstrap=stack-invalid $stack" >&2
+    exit 1
+  fi
+  if [ "${fields[$((status_index + 1))]}" -ne 0 ]; then
+    echo "bootstrap=stack-invalid $stack" >&2
+    exit "${fields[$((status_index + 1))]}"
+  fi
+  if [ "${#fields[@]}" -lt 10 ]; then
+    echo "bootstrap=stack-invalid $stack" >&2
+    exit 1
+  fi
+
+  copy_values=()
+  seed_values=()
+  setup_mode=""
+  setup_value=""
+  phase=copy
+  index=0
+  while [ "$index" -lt "$status_index" ]; do
+    key="${fields[$index]}"
+    value="${fields[$((index + 1))]}"
+    case "$key:$phase" in
+      copy:copy)
+        copy_values+=("$value")
+        ;;
+      seed:copy | seed:seed)
+        phase=seed
+        seed_values+=("$value")
+        ;;
+      setup_mode:seed)
+        phase=setup_mode
+        setup_mode="$value"
+        ;;
+      setup:setup_mode)
+        phase=setup
+        setup_value="$value"
+        ;;
+      *)
+        echo "bootstrap=stack-invalid $stack" >&2
+        exit 1
+        ;;
+    esac
+    index=$((index + 2))
+  done
+  case "$phase:$setup_mode" in
+    setup:snippet | setup:file | setup:none) ;;
+    *)
+      echo "bootstrap=stack-invalid $stack" >&2
+      exit 1
+      ;;
+  esac
 fi
 
 refuse_example() {
@@ -100,7 +181,7 @@ refuse_example() {
 }
 
 path_stays_here() {
-  local rel="$1" acc="$here" part probe canon
+  local rel="$1" acc="$here" part probe canon captured
   case "$rel" in
     /* | .. | ../* | */.. | */../*) return 1 ;;
   esac
@@ -113,9 +194,11 @@ path_stays_here() {
   done
   probe="$here/$rel"
   while [ ! -e "$probe" ] && [ "$probe" != "$here" ]; do
-    probe="$(dirname "$probe")"
+    captured="$(dirname -- "$probe" && printf '.')" || return 1
+    probe="${captured%$'\n.'}"
   done
-  canon="$(realpath -- "$probe")"
+  captured="$(realpath -- "$probe" && printf '.')" || return 1
+  canon="${captured%$'\n.'}"
   case "$canon" in
     "$here" | "$here"/*) return 0 ;;
   esac
@@ -123,32 +206,32 @@ path_stays_here() {
 }
 
 copy_from_principal() {
-  local rel="$1"
+  local rel="$1" src dest parent
   refuse_example "$rel" && return 0
-  local src="$principal/$rel"
+  src="$principal/$rel"
   [ -e "$src" ] || return 0
   if ! path_stays_here "$rel"; then
     echo "bootstrap=refused symlink $rel" >&2
     exit 2
   fi
-  local dest="$here/$rel"
+  dest="$here/$rel"
   [ -e "$dest" ] || [ -L "$dest" ] && return 0
-  mkdir -p "$(dirname "$dest")"
+  parent="$(dirname -- "$dest" && printf '.')" || return 1
+  parent="${parent%$'\n.'}"
+  mkdir -p "$parent"
   cp -a "$src" "$dest"
 }
 
-while IFS= read -r rel; do
-  [ -n "$rel" ] || continue
-  copy_from_principal "$rel"
-done <<< "$copy_list
-$seed_list"
-
-need_cli() {
-  command -v "$1" >/dev/null 2>&1 || {
-    echo "bootstrap=$2-cli-missing" >&2
-    exit 3
-  }
-}
+if [ -f "$stack" ]; then
+  for rel in "${copy_values[@]}"; do
+    [ -n "$rel" ] || continue
+    copy_from_principal "$rel"
+  done
+  for rel in "${seed_values[@]}"; do
+    [ -n "$rel" ] || continue
+    copy_from_principal "$rel"
+  done
+fi
 
 # Copies the principal's ccc stores. Both hold repo-relative paths, so the copy
 # is valid here and `ccc index` reprocesses only the branch delta. A copy that
@@ -200,26 +283,14 @@ if [ -f "$principal/.codegraph/codegraph.db" ]; then
 fi
 
 if [ -f "$stack" ]; then
-  need_cli bun bun
-  (
-    cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
-    bun --no-env-file -e "
-      import { spawnSync } from 'node:child_process'
-      import { readFileSync } from 'node:fs'
-
-      const config = Bun.YAML.parse(readFileSync(process.argv[1], 'utf8'))
-      const snippet = config?.worktree?.setup
-      const file = config?.commands?.worktree_setup
-      const args = typeof snippet === 'string' && snippet.trim()
-        ? ['-c', snippet]
-        : typeof file === 'string' && file.trim() ? ['--', file] : null
-      if (args) {
-        const child = spawnSync('bash', args, { cwd: process.argv[2], stdio: 'inherit' })
-        if (child.error) throw child.error
-        process.exit(child.status ?? 1)
-      }
-    " "$stack" "$here"
-  )
+  case "$setup_mode" in
+    snippet)
+      (cd "$here" && bash -c "$setup_value")
+      ;;
+    file)
+      (cd "$here" && bash -- "$setup_value")
+      ;;
+  esac
 fi
 
 if [ -d "$here/.semctx" ]; then
