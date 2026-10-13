@@ -347,6 +347,7 @@ The same extension bootstraps worktrees it did not create. On `session_start` an
 - The principal, a directory outside git, and subagents (task isolations) never start one. No project contract is required: without `.dev/stack.yml` only the code indexes are built.
 - The script holds a lock in the git dir, so `/feature`'s explicit call waits for a background run and then no-ops.
 - ccc's `settings.yml` lands before `worktree.setup`, so ccc never indexes an ancestor directory while an install runs.
+- Setup scalars are read with Bun.YAML (Bun ≥ 1.2.21). A non-empty `worktree.setup` runs as a Bash snippet; absent, empty or whitespace-only setup falls back to the file declared by `commands.worktree_setup`, from the worktree root. A failed setup leaves no completion marker and releases the lock for a retry. `feature init` preserves a declared setup command instead of adding an empty override.
 
 ## Agents
 

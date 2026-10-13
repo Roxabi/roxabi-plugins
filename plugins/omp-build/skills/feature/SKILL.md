@@ -35,8 +35,9 @@ feature_init
 
 Pass `--dry-run` to `feature_init` when requested. It adopts a repository from
 a worktree, never the Principal. `--dry-run` prints the plan and writes nothing.
-A real run fills missing `worktree` configuration and, when discovered, merge-on-green
-`landing` in the target's `.dev/stack.yml`, then prints this tracker command:
+A real run keeps a declared `commands.worktree_setup` instead of stamping an empty
+`worktree.setup`; otherwise it fills missing `worktree` configuration. When discovered,
+it adds merge-on-green `landing` in the target's `.dev/stack.yml`, then prints this tracker command:
 
 ```bash
 TARGET_ROOT=$(git rev-parse --show-toplevel) && TRIAGE=$(realpath skill://issue-triage/triage.ts) && TRIAGE_REPO="${GITHUB_REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
@@ -360,8 +361,11 @@ On entering a worktree that is not the principal, run
 started it in the background already, and this call then waits for it and
 no-ops. It copies `worktree.copy` and `worktree.seed` from the principal, builds
 each code index the principal has (never one it lacks: ccc without its own
-`settings.yml` indexes an ancestor directory), then runs `worktree.setup` and
-`semctx index` when `.semctx/` exists. `.cocoindex_code` starts from a copy of
+`settings.yml` indexes an ancestor directory), then selects setup: a non-empty
+`worktree.setup` string runs as `bash -c`; otherwise a non-empty
+`commands.worktree_setup` string runs as `bash -- <file>` from the worktree root.
+Empty or whitespace-only `worktree.setup` is not an override. `semctx index`
+follows setup when `.semctx/` exists. `.cocoindex_code` starts from a copy of
 the principal's (repo-relative paths), so `ccc index` reprocesses only the
 branch delta, and a copy that races a principal re-index or fails to load is
 rebuilt; `.codegraph` is a fresh `codegraph init -y`. A marker under

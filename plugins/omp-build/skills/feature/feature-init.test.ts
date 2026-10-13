@@ -258,7 +258,7 @@ describe('feature init on the fictional acme fixture', () => {
 
   it('writes a landing without required_checks under merge-on-green', async () => {
     const dir = scratchCopy('acme')
-    applyStack(dir, await factsIn(dir, 'acme'))
+    applyStack(dir, await factsIn(dir, 'acme'), recordedParseYaml('acme'))
     const stack = readFileSync(path.join(dir, '.dev', 'stack.yml'), 'utf8')
     expect(stack).toMatch(/^landing:\n {2}mode: merge-on-green\n/m)
     expect(stack).not.toContain('required_checks')
@@ -266,8 +266,26 @@ describe('feature init on the fictional acme fixture', () => {
 
   it('creates .dev before writing the stack', async () => {
     scratch = mkdtempSync(path.join(tmpdir(), 'omp-init-mkdir-'))
-    applyStack(scratch, { ...(await factsFor('acme')), hasWorktree: false, hasLanding: false, mergeOnGreen: true })
+    applyStack(
+      scratch,
+      { ...(await factsFor('acme')), hasWorktree: false, hasLanding: false, mergeOnGreen: true },
+      () => ({ schema_version: '1.0' }),
+    )
     expect(readFileSync(path.join(scratch, '.dev', 'stack.yml'), 'utf8')).toContain('mode: merge-on-green')
+  })
+
+  it('preserves a declared setup command without adding an empty worktree override', () => {
+    scratch = mkdtempSync(path.join(tmpdir(), 'omp-init-setup-'))
+    mkdirSync(path.join(scratch, '.dev'))
+    const stackPath = path.join(scratch, '.dev', 'stack.yml')
+    const stack = 'commands:\n  worktree_setup: tools/worktree-setup.sh # adopted script\n'
+    writeFileSync(stackPath, stack)
+
+    applyStack(scratch, { ...baseFacts(), hasWorktree: false, mergeOnGreen: false }, () => ({
+      commands: { worktree_setup: 'tools/worktree-setup.sh' },
+    }))
+
+    expect(readFileSync(stackPath, 'utf8')).toBe(stack)
   })
 })
 
