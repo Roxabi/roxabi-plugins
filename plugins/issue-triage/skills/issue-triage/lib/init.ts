@@ -143,7 +143,11 @@ export function containedContract(root: string): string {
 
     if (stat.isSymbolicLink()) {
       if (++expansions > 40) throw new Error('init: contract symlink resolution exceeds 40 expansions')
-      const target = readlinkSync(candidate)
+      const bytes = readlinkSync(candidate, { encoding: 'buffer' })
+      if (!Buffer.from(bytes.toString('utf8')).equals(bytes)) {
+        throw new Error('init: contract symlink target is not valid text')
+      }
+      const target = bytes.toString('utf8')
       const parts = target.split(sep)
       const expanded: string[] = []
       for (let partIndex = 0; partIndex < parts.length; partIndex++) {

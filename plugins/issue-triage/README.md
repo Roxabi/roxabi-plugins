@@ -52,6 +52,8 @@ A trailing slash on an internal directory ancestor is allowed, including when th
 
 Internal relative targets remain usable when their spelling traverses the checkout's parent before returning inside. Containment is checked on the physical contract destination, not on an intermediate traversal position.
 
+Symlink targets are read as bytes and accepted only when UTF-8 decoding preserves them exactly. A non-text target is refused before GitHub or contract writes rather than replaced by a different filename.
+
 `create` accepts the same field flags as `set`: `--size`, `--priority`, `--lane`, `--type`, plus `--parent`, `--add-child`, `--blocked-by`, `--blocks`.
 
 Cross-repo: prefix `GITHUB_REPO=<owner/repo>`, and use fully-qualified `OWNER/REPO#N` refs when that env is set. Sibling deferral preserves the origin parent's full coordinate, even when another repository contains the same issue number. `set --rm-parent` resolves that actual parent and prints `RemovedParent=OWNER/REPO#N`; it never rebinds the parent's number to the subject repository. The shared lookup helper is `getParentRef`, returning the complete reference or `null`; the numeric-only helper was removed.

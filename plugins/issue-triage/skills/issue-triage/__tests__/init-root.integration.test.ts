@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -448,6 +449,36 @@ describe('triage init --root', () => {
     expect(ran.stdout).toContain('contract: write')
     expect(readFileSync(physical, 'utf8')).toContain('Acme/app')
     expect(readFileSync(w.targetContract, 'utf8')).toBe(readFileSync(physical, 'utf8'))
+    expect(readFileSync(w.trustedContract, 'utf8')).toBe(w.trustedBytes)
+  })
+
+  it('preserves a non-UTF-8 symlink target before creating a substituted file', async () => {
+    const w = await world()
+    const substituted = path.join(w.target, 'generated-\uFFFD.md')
+    mkdirSync(path.dirname(w.targetContract), { recursive: true })
+    const linked = spawnSync(
+      'python3',
+      [
+        '-c',
+        'import os,sys; os.symlink(bytes([int(item) for item in sys.argv[1].split(",")]), sys.argv[2])',
+        '255',
+        w.targetContract,
+      ],
+      { encoding: 'utf8' },
+    )
+    expect(linked.status, linked.stderr).toBe(0)
+    const ran = await run(
+      `bun --no-env-file ${JSON.stringify(w.script)} init --root ${JSON.stringify(w.target)}`,
+      path.dirname(w.script),
+      w.env,
+    )
+
+    expect(existsSync(substituted)).toBe(false)
+    expect(ran.code).not.toBe(0)
+    expect(ran.stderr).toContain('init: contract symlink target is not valid text')
+    expect(existsSync(w.labels)).toBe(false)
+    expect(ghCalls(w.ghLog)).toEqual([])
+    expect(fake?.calls ?? []).toEqual([])
     expect(readFileSync(w.trustedContract, 'utf8')).toBe(w.trustedBytes)
   })
 })
