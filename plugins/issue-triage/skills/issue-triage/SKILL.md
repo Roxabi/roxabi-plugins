@@ -2,7 +2,7 @@
 name: issue-triage
 argument-hint: '[list | set <num> | create --title "..." [--parent N] [--size S] [--priority P] [--type T] [--lane L]]'
 description: Triage/create GitHub issues — set size/priority/lane/type labels, manage dependencies & parent/child. Run before `/feature` picks a ticket up. Triggers: "triage" | "create issue" | "set size" | "set priority" | "blocked by" | "set parent" | "child of" | "sub-issue" | "file an issue" | "log a bug" | "open an issue" | "file a bug" | "add issue" | "new issue" | "set lane" | "set type".
-version: 0.6.2
+version: 0.6.3
 allowed-tools: Bash, Read, ToolSearch
 ---
 
@@ -170,8 +170,8 @@ DIR=$(mktemp -d -t "issue-triage-defer-XXXXXX")
 TRIAGE=$(realpath "${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts") && TRIAGE_REPO="${GITHUB_REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
 triage() { (: "${TRIAGE:?issue-triage unresolved}" "${TRIAGE_REPO:?repository unresolved}" && cd "$(dirname "$TRIAGE")" && GITHUB_REPO="$TRIAGE_REPO" bun --no-env-file "$TRIAGE" "$@"); }
 # A's parent, empty when A is top-level. B takes it, and is blocked by A.
-: "${A:?origin issue number required}" && A_PARENT=$(gh api graphql -f query="query{repository(owner:\"${TRIAGE_REPO%/*}\",name:\"${TRIAGE_REPO#*/}\"){issue(number:$A){parent{number}}}}" \
-  --jq '.data.repository.issue.parent.number // empty') && triage create \
+A_PARENT_READY= && : "${A:?origin issue number required}" && A_PARENT=$(gh api graphql -f query="query{repository(owner:\"${TRIAGE_REPO%/*}\",name:\"${TRIAGE_REPO#*/}\"){issue(number:$A){parent{number}}}}" \
+  --jq '.data.repository.issue.parent.number // empty') && A_PARENT_READY=1 && triage create \
   --title-file "$DIR/title.txt" \
   --body-file "$DIR/body.md" \
   --blocked-by "#${A}" \
@@ -184,6 +184,7 @@ triage() { (: "${TRIAGE:?issue-triage unresolved}" "${TRIAGE_REPO:?repository un
 - A has no parent → B has no parent either (both top-level). Consider whether A should be re-parented under a freshly-created epic if the fan-out grows.
 - Existing follow-up issue B mis-parented under A → continue in the same shell after the defer recipe, reusing `triage` and `A_PARENT`:
   ```bash
+  : "${A_PARENT_READY:?origin parent lookup not completed}" &&
   triage set <B> --rm-parent &&
     { [ -z "$A_PARENT" ] || triage set <B> --parent "#${A_PARENT}"; } &&
     triage set <B> --blocked-by "#${A}"  # ensure traceability link

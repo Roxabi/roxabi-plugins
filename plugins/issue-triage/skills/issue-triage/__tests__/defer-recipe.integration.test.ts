@@ -177,6 +177,26 @@ describe('issue-triage deferral recipe', () => {
     expect(existsSync(w.dir)).toBe(true)
   })
 
+  it('does not repair B after a failed lookup, even with inherited successful-read state', async () => {
+    const w = await world()
+    const b = w.fake.issues.get('Acme/app#81')
+    if (!b) throw new Error('repair fixture issue missing')
+    b.parent = 80
+
+    const ran = await run(`${RECIPE}\n${REPAIR}`, w.repo, {
+      ...w.env,
+      A_PARENT_READY: '1',
+      GH_PARENT_LOOKUP_EXIT: '7',
+    })
+
+    expect(ran.stderr).toContain('parent lookup failed')
+    expect(ran.code).not.toBe(0)
+    expect(w.fake.created).toEqual([])
+    expect(b).toMatchObject({ parent: 80, blockedBy: [] })
+    expect(startupLog(w.startup)).toEqual([])
+    expect(existsSync(w.dir)).toBe(true)
+  })
+
   it('stops repair after a failed parent removal without applying later mutations', async () => {
     const w = await world()
     const b = w.fake.issues.get('Acme/app#81')
