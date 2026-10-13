@@ -481,4 +481,27 @@ describe('triage init --root', () => {
     expect(fake?.calls ?? []).toEqual([])
     expect(readFileSync(w.trustedContract, 'utf8')).toBe(w.trustedBytes)
   })
+
+  it('refuses an internal FIFO contract before blocking on a read', async () => {
+    const w = await world()
+    const fifo = path.join(w.target, 'contract.pipe')
+    mkdirSync(path.dirname(w.targetContract), { recursive: true })
+    const created = spawnSync('mkfifo', [fifo], { encoding: 'utf8' })
+    expect(created.status, created.stderr).toBe(0)
+    symlinkSync(fifo, w.targetContract)
+    const ran = await run(
+      `bun --no-env-file ${JSON.stringify(w.script)} init --root ${JSON.stringify(w.target)} --dry-run`,
+      path.dirname(w.script),
+      w.env,
+      1_000,
+    )
+
+    expect(ran.signal).not.toBe('SIGKILL')
+    expect(ran.code).not.toBe(0)
+    expect(ran.stderr).toContain('init: contract target is not a regular file')
+    expect(existsSync(w.labels)).toBe(false)
+    expect(ghCalls(w.ghLog)).toEqual([])
+    expect(fake?.calls ?? []).toEqual([])
+    expect(readFileSync(w.trustedContract, 'utf8')).toBe(w.trustedBytes)
+  })
 })

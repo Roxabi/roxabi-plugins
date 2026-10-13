@@ -159,8 +159,8 @@ export function containedContract(root: string): string {
       continue
     }
 
-    if (index < components.length - 1 && !stat.isDirectory()) {
-      throw new Error('init: contract path contains a non-directory')
+    if (index === components.length - 1 ? !stat.isFile() : !stat.isDirectory()) {
+      throw new Error('init: contract target is not a regular file')
     }
     current = candidate
     index++
