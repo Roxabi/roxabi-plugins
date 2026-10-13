@@ -2,7 +2,7 @@
 
 The unit of a fix. A finding is a symptom. A root cause is the shared mechanism behind one or more actionable findings, stated with its one plan. `dev-review` names them after dedup, before it posts. `fix` applies the plan of each well-formed cause that contains a blocking finding. A block missing any of its seven lines (§ Record) is malformed and is not applied, even when it contains a blocking finding. A well-formed cause with no blocking member is deferred, not applied. The plan is the decision: findings carry no solutions, so there is nothing else to pick from.
 
-Three readers: `dev-review` Phase 4 writes the section, `fix` Phase 2 reads it, and `skill://fix/falsification.md` tries to break each applied plan under § Proof. `dev-review` and `fix` reach this file as `skill://dev-review/root-causes.md`.
+Three readers: `dev-review` Phase 4 writes the section, `fix` Phase 2 reads it, and `skill://feature/falsification.md` tries to break every applied plan once in §6.7 before landing. `dev-review` and `fix` reach this file as `skill://dev-review/root-causes.md`.
 
 ## Who enters
 
@@ -71,12 +71,12 @@ none
 
 ## Proof
 
-One rule, shared by the review that states `proof:`, the `fix` that runs it, and the falsification gate that tries to break it.
+One rule, shared by the review that states `proof:`, the `fix` that runs it, and the falsification pass that tries to break it.
 
 - A proof is an executable observation of consumer-visible behaviour, a boundary, a transition, or an error, and it exercises every `paths:` entry. Where the repository has what it needs, it runs as a test inside the repository, through the repository's own test command.
 - It fails while the mechanism holds — on the `failure:` scenario — and passes once `restored:` holds.
 - Not proof: an assertion on source or prose text, a check that one place copies another (a wiring copy), or a mock that echoes what the test fed it. A cause whose `proof:` is one of these is not eligible to apply.
-- A cause whose mechanism is a missing or weak test is planned like any other: `failure:` is the unsafe behaviour the existing guard prevents, left unobserved when that guard breaks; `fix:` adds the test; `proof:` is that test. The falsification gate breaks the existing guard instead of one the commit introduced.
+- A cause whose mechanism is a missing or weak test is planned like any other: `failure:` is the unsafe behaviour the existing guard prevents, left unobserved when that guard breaks; `fix:` adds the test; `proof:` is that test. The falsification pass breaks the existing guard instead of one the commit introduced.
 - `proof: NO TEST: <reason>` is legal only with a reason the review's NO TEST policy allows (`dev-review` Phase 2 steps 5–5a), plus the evidence that stands instead. It is an explicit skip: never recorded as a passing test, never reported as proven.
-- A proof that needs infrastructure, a command or a service the repository does not have cannot run here. `fix` does not create it, and the falsification gate reports `skipped` with that reason.
-- An accepted proof is a test in the diff that meets this rule for the behaviour, or, outside a safety invariant, a NO TEST row legal under that policy. Evidence that a test in the diff survives the removal of the guard it covers, or asserts nothing the behaviour decides, is evidence of a defect: that test is not accepted. A NO TEST row is a skip and never clears a gap on a safety invariant (`dev-review` § Finding categories, **Missing or weak test**). A skip reported in a fix receipt is not an accepted proof. A later review does not demand an accepted proof again without new evidence of a defect (`dev-review` Phase 4 step 3b).
+- A proof that needs infrastructure, a command or a service the repository does not have cannot run here. `fix` does not create it, and the falsification pass reports `skipped` with that reason.
+- An accepted proof is a test in the diff that meets this rule for the behaviour, or, outside a safety invariant, a NO TEST row legal under that policy. Evidence that a test in the diff survives the removal of the guard it covers, or asserts nothing the behaviour decides, is evidence of a defect: that test is not accepted. A NO TEST row is a skip and never clears a gap on a safety invariant (`dev-review` § Finding categories, **Missing or weak test**). A reported skip is not an accepted proof. A later review does not demand an accepted proof again without new evidence of a defect (`dev-review` Phase 4 step 3b).

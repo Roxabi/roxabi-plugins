@@ -139,7 +139,7 @@ The skill holding Roxabi's multi-domain review on OMP: roster, Conventional Comm
 _Avoid_: R-dev-review as the skill name, code-review (Matt), /review (host builtin)
 
 **fix**:
-The skill that applies the one plan of each blocking root cause from a review, inline, with no per-finding choice, then tries to break it against the cause's own proof. Non-blocking causes are deferred into one sibling issue, not applied; a blocker it cannot apply is filed and still blocks.
+The skill that applies the one plan of each blocking root cause from a review, inline, and runs the cause's own proof; `/feature` §6.7 tries to break the applied plans once, before landing. Non-blocking causes are deferred into one sibling issue, not applied; a blocker it cannot apply is filed and still blocks.
 _Avoid_: R-fix as the skill name, R-fixer, spawning a fixer agent, a per-finding walkthrough, applying a non-blocking cause, picking a fix from a finding's solutions
 
 **Root cause**:

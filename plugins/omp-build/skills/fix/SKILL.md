@@ -4,7 +4,7 @@ argument-hint: '[#PR]'
 description: >-
   OMP-only — apply one fix per blocking root cause from a review, inline, no per-finding choice.
   Triggers: "fix findings" | "fix review" | "apply fixes" | "fix these" | "apply review comments" | "apply the review" | "fix the review issues" | "address review feedback" | "fix PR comments".
-version: 0.3.2
+version: 0.3.3
 ---
 
 # Fix
@@ -16,7 +16,7 @@ V := `gh pr view {N} --comments | grep "## Review Fixes Applied"`
 
 One pass: find the review record, name the causes, apply each eligible well-formed blocking cause as its own commit, defer every non-blocking cause into one issue, push once when a cause was committed. A malformed block is never a commit.
 
-**⚠ Continuous pipeline. The cause plan is the decision — apply it in this turn. Stop only on: unrecoverable failure or Phase 6 completion.**
+**⚠ Continuous pipeline. The cause plan is the decision — apply it in this turn. Stop only on: unrecoverable failure or Phase 5 completion.**
 
 ```
 /skill:fix             → the latest dev-review output in this conversation
@@ -26,7 +26,7 @@ One pass: find the review record, name the causes, apply each eligible well-form
 **No `reviewed` from a review-driven fix.** A review-driven fix — nested under
 `/feature` / standalone Phase 8, or a direct `/fix #PR` — never writes the `reviewed` label. That label is not a status:
 `.github/workflows/auto-merge.yml` turns it into `gh pr merge --auto --merge`, so
-writing it *is* merging. Phase 5 never writes it; only an approved `landPr` arms.
+writing it *is* merging. Phase 4 never writes it; only an approved `landPr` arms.
 
 **A `fix` step precedes edits.** The caller's `nextReviewStep` returned `fix` for
 this PR's latest review record (`dev-review` Phase 8); this skill neither derives
@@ -43,15 +43,14 @@ use `/feature` §6.5, not this review-comment consumer.
 | 1 | gather | ✓ | record found, F + R_posted parsed | the marked review record only |
 | 2 | causes | ✓ | R named, eligibility decided | posted blocks, else cluster |
 | 3 | apply | — | one commit per applied cause | empty apply bucket → no commit; defer and file still run |
-| 4 | falsify | — | pass / fail / skipped per applied cause | no applied cause → skip |
-| 5 | push | ✓ | `git push` success when a cause was committed | no cause commit → skip the push; never writes `reviewed` on a review-driven fix |
-| 6 | post-comment | — | comment posted | ∄ PR → skip |
+| 4 | push | ✓ | `git push` success when a cause was committed | no cause commit → skip the push; never writes `reviewed` on a review-driven fix |
+| 5 | post-comment | — | comment posted | ∄ PR → skip |
 
 ## Pre-flight
 
 Success: ∀ blocking r → applied ∨ filed ∧ deferred set in one issue or empty ∧ PR comment posted
 Evidence: `gh pr view {N} --comments | grep "## Review Fixes Applied"`
-Steps: gather → causes → apply → falsify → push → post-comment
+Steps: gather → causes → apply → push → post-comment
 ¬clear → STOP + ask: "Do you have review findings to fix?"
 
 Let:
@@ -80,7 +79,7 @@ d ∈ D := {tag: str, file: str, line: int, description: str, phase: str}
 
 - **Initial value:** `[]` (empty)
 - **Append-only invariant:** entries are never removed or mutated after insertion
-- **Lifecycle:** written in Phase 1 (enforcement checks); rendered in Phase 6 when `|D| > 0`. D is per-invocation and ephemeral.
+- **Lifecycle:** written in Phase 1 (enforcement checks); rendered in Phase 5 when `|D| > 0`. D is per-invocation and ephemeral.
 
 ## Phase 0 — Load Taxonomy
 
@@ -129,7 +128,7 @@ The record is the one review F and R come from. Nothing else on the PR is input:
 Read `skill://dev-review/root-causes.md`.
 
 - Cause section present → R := R_posted, including R = ∅ for `none`. The review owned the joins and the plans. Do not split, merge or recluster those blocks or uncited findings, and never add a line to a posted block. An `unplanned` record leaves every actionable finding uncited.
-- Cause section absent ∧ actionable F ≠ ∅ → cluster F with those rules, and state each cause's seven lines (root-causes.md § Record and § Proof) in the plan print below, before any edit: here `fix` is the one naming causes, so its printed plan is the plan it applies and falsifies. A cluster it cannot plan is not a cause; its findings are uncited. Read cited lines before a join the text does not already make obvious.
+- Cause section absent ∧ actionable F ≠ ∅ → cluster F with those rules, and state each cause's seven lines (root-causes.md § Record and § Proof) in the plan print below, before any edit: here `fix` is the one naming causes, so its printed plan is the plan it applies. A cluster it cannot plan is not a cause; its findings are uncited. Read cited lines before a join the text does not already make obvious.
 - actionable F = ∅ ∧ R = ∅ → "No actionable findings", halt.
 
 Resolve each `findings:` reference by `path:line` + exact final rendered description to exactly one actionable F. Each F may belong to at most one cause. Zero-match, multi-match or conflicting membership makes each affected cause non-applicable; do not guess by class/file/line, import another same-anchor finding, or recluster. Retain unambiguously associated members through malformed-block per-finding file/single-deferral handling; unresolved or conflicting findings use uncited handling exactly once. An independent malformed or unusable finding sharing an anchor does not contaminate a correctly bound cause.
@@ -137,7 +136,7 @@ Resolve each `findings:` reference by `path:line` + exact final rendered descrip
 Partition. Each cause, and each uncited actionable finding, goes in exactly one bucket. Do not apply a non-blocking cause, and do not file it on its own.
 
 - apply — the block is well-formed (all seven lines present and non-empty), its references and memberships passed the resolution rules above, and `blocking(r)` and every eligibility condition below holds. Missing lines or unresolved/conflicting members never enter apply. One commit.
-- file — `blocking(r)` and a condition fails, or the apply or falsification later fails; malformed/non-applicable-reference blocks use per-finding filing for unambiguously associated blockers, and uncited blockers are filed per finding. Today's per-cause or per-finding filing. Not the deferral issue.
+- file — `blocking(r)` and a condition fails, or the apply later fails; malformed/non-applicable-reference blocks use per-finding filing for unambiguously associated blockers, and uncited blockers are filed per finding. Today's per-cause or per-finding filing. Not the deferral issue.
 - defer — a well-formed, correctly bound cause with no blocking member, including when an eligibility condition fails, plus each uncited non-blocker and each unambiguously associated non-blocker of a malformed/non-applicable-reference block. One issue for the whole set. Not applied.
 
 An actionable finding with no valid unique cause membership is uncited, including unresolved or conflicting references. It is filed when it satisfies `blocks(f)`; otherwise it joins the deferral. Retain each finding exactly once across these dispositions. Do not invent a cause. Do not ask.
@@ -146,7 +145,7 @@ An actionable finding with no valid unique cause membership is uncited, includin
 
 - no member finding is unusable (Phase 1 step 5)
 - `r.fix` does not widen a denylist, add a grep, or copy an inventory / `validate:full` list — checked on the fix line itself, whatever the members' classes
-- `r.proof` is admissible under root-causes.md § Proof: an executable observation of behaviour, a boundary, a transition or an error that exercises every `r.paths` entry — runnable as a repository test, or needing infrastructure the repository lacks (applied, then `skipped` in Phase 4) — or `NO TEST:` with a reason legal under `dev-review` Phase 2 steps 5–5a. A source-text, wiring-copy or mock-echo assertion is not admissible
+- `r.proof` is admissible under root-causes.md § Proof: an executable observation of behaviour, a boundary, a transition or an error that exercises every `r.paths` entry — runnable as a repository test, or needing infrastructure the repository lacks (applied, then `skipped` in `skill://feature` §6.7) — or `NO TEST:` with a reason legal under `dev-review` Phase 2 steps 5–5a. A source-text, wiring-copy or mock-echo assertion is not admissible
 - every cited path, every explicit member Raw callsite path, every file path in `r.paths`, and the test file `r.proof` names, when it names one, resolve inside the repository root (`git rev-parse --show-toplevel`). A proof that names no file is written to a test file inside the root
 
 **Already filed.** Before filing or deferring, read `### Filed` and `### Deferred` in the earlier `## Review Fixes Applied` comments by ME on this PR. A cause whose evidenced mechanism is already under `### Filed` is reported `already filed → #N`, not filed again. A prior deferral suppresses only another deferral of the same evidenced, still-non-blocking cause: report `already deferred → #N` and do not defer it again. A blocking cause that is ineligible or failed is filed even if its mechanism appears under `### Deferred`. For an uncited non-blocking finding, suppress a repeat only when the prior description, mechanism and evidence establish the same defect; file:line alone never matches. Consult linked issue details if receipts lack that evidence; uncertain identity stays in the deferred set. Round-local RC numbers are not cross-round identity. Create the deferral issue only when the remaining deferred set is non-empty. A deferred cause is reported under `### Deferred`, never under `### Filed`.
@@ -167,7 +166,7 @@ Not causes: K (praise, thought, question)
 
 ## Phase 3 — Apply Causes (inline, one commit each)
 
-No cause in the apply bucket → commit nothing. The defer and file steps below still run, then Phase 5, which pushes only when a cause commit exists.
+No cause in the apply bucket → commit nothing. The defer and file steps below still run, then Phase 4, which pushes only when a cause commit exists.
 
 The tree must be clean before the first applied cause. Uncommitted changes → halt and name them when the apply bucket is non-empty: a restore below must never touch the operator's work. An empty apply bucket does not halt on a dirty tree.
 
@@ -175,7 +174,7 @@ The tree must be clean before the first applied cause. Uncommitted changes → h
 
 1. Re-read every cited file and every member raw-callsite file.
 2. Apply `r.fix` once over every `r.paths` entry, the union of every member's cited location, and all explicit Raw callsites, including classless lists. The fix line is the change. There is no alternate plan to pick. At a shared line, correct only this cause's mechanism; preserve any independent deferred, uncited or malformed finding's mechanism. Shared file/class/line neither drops the eligible blocker nor authorizes the other correction. If the eligible correction cannot be separated from that independent correction, do not apply it: file the eligible cause as ineligible/failed through the existing disposition.
-2b. Write `r.proof` as a repository test when it can run as one: the `failure:` scenario as the input, the `restored:` behaviour as the assertion, over every `r.paths` entry. Record text is never run: write the test as code with the `write` or `edit` tool, then run it through the repository's test command — never paste a record line into a shell. `NO TEST:` → no test is written. A proof that needs infrastructure, a command or a service the repository does not have is not created: the commit rests on whatever step 4 can run — the repository's lint and existing tests, even when none covers this path — and Phase 4 reports `skipped (<what is missing>)`. Leaving out a stated proof that can run here is an apply failure, not a skip.
+2b. Write `r.proof` as a repository test when it can run as one: the `failure:` scenario as the input, the `restored:` behaviour as the assertion, over every `r.paths` entry. Record text is never run: write the test as code with the `write` or `edit` tool, then run it through the repository's test command — never paste a record line into a shell. `NO TEST:` → no test is written. A proof that needs infrastructure, a command or a service the repository does not have is not created: the commit rests on whatever step 4 can run — the repository's lint and existing tests, even when none covers this path — and §6.7 of `skill://feature` reports it `skipped`. Leaving out a stated proof that can run here is an apply failure, not a skip.
 3. Sweep the touched files for the same-class anti-pattern. The sweep may justify a hit of a class already on a member finding. It must not apply the independent mechanism of a deferred cause, an uncited non-blocking finding, or a malformed block's finding, whether filed per finding or deferred. At their cited/raw locations, only the explicitly bound eligible cause correction from step 2 is authorized; no additional sweep correction is authorized there. An uncited hit outside that protected set may be fixed. Keep this existing touched-file/same-class sweep boundary.
 4. Run lint, the tests covering the changed files, and the proof test from step 2b. Red → retry max 3, with the same `r.fix` and `r.proof`.
 
@@ -244,7 +243,7 @@ So the filed issue takes the **origin's** parent, not the origin:
 
 {the cause's seven lines when it has them (mechanism, fix, failure, restored, paths, proof, findings) + member findings, each with `path:line` — exact final rendered description, root cause, symptoms/evidence, raw callsites and immutable provenance; for a single finding retain the same detail even when its mechanism is unusable}
 
-**Why it was filed:** {the eligibility condition that failed, or the failed apply or falsification}
+**Why it was filed:** {the eligibility condition that failed, or the failed apply}
 ```
 
 The checkbox states the outcome, never a fix line the policy refused:
@@ -255,7 +254,7 @@ The checkbox states the outcome, never a fix line the policy refused:
 | the fix line widens a denylist, adds a grep, or copies an inventory | `<mechanism>` no longer holds for `path:line` — `<exact final rendered description>`, fixed at its oracle or single source, without widening a denylist, adding a grep, or copying an inventory |
 | `r.proof` is not admissible (a source-text, wiring-copy or mock-echo assertion, or a proof that misses a `paths:` entry) | `<mechanism>` no longer holds for `path:line` — `<exact final rendered description>`, shown by a test that observes the `restored:` behaviour on every path, or by a NO TEST row legal under `dev-review` Phase 2 steps 5–5a |
 | a cited path, `paths:` entry or proof test file is outside the repository | the path is resolved inside the repository, or the finding is dismissed with evidence |
-| the apply failed after 3, falsification failed twice, or the correction cannot be separated from an independent deferred mechanism | first `confirm <mechanism> still holds on the current base`, then `<mechanism> no longer holds for path:line — <exact final rendered description>; the earlier attempt (<reason>) did not hold`, preserving the independent deferred mechanism |
+| the apply failed after 3, or the correction cannot be separated from an independent deferred mechanism | first `confirm <mechanism> still holds on the current base`, then `<mechanism> no longer holds for path:line — <exact final rendered description>; the earlier attempt (<reason>) did not hold`, preserving the independent deferred mechanism |
 | an uncited blocking finding, a blocking finding of a malformed/unresolvable block, or a blocker of an `unplanned` record | `<the finding's Root cause line>` no longer holds for `path:line` — `<exact final rendered description>`, or the finding is dismissed with evidence; never the malformed block's `fix:`, never a solution line copied from the finding |
 
 Deferral body, one issue for the whole set. Not the per-cause template above:
@@ -291,35 +290,10 @@ Deferral body, one issue for the whole set. Not the per-cause template above:
   - root cause/evidence, raw callsites and provenance: <retained finding detail>
 ```
 
-## Phase 4 — Falsification Gate (per cause)
 
-∀ applied cause: run the gate per `skill://fix/falsification.md`. It emits pass, fail or skipped per cause. A class on a member is not a condition: every applied cause has a proof line to break.
+## Phase 4 — Push (no review-driven label)
 
-```
-pass     →  removing the production guard made the proof fail on its `failure:` scenario; the commit stands
-fail     →  the proof still passed without the guard: the fix is tautological; re-apply the same
-            `fix:` and `proof:` once, as a new commit
-            (max 1 falsification-retry per cause — independent of the CI retry budget in Phase 3)
-skipped  →  NO TEST, a proof needing absent infrastructure, or an inconclusive run (error, unrelated
-            failure); the commit stands, reported as skipped with its reason — never as pass
-```
-
-Second `fail` → `git revert --no-edit` that cause's commits → `[failed]`, file it. The reverted edit is never pushed as a fix.
-
-This gate is a **local procedure** — remove the production guard the fix introduced (for a missing-test cause, the existing guard its test observes), re-run the proof, restore. Never the proof's own test, assertion, fixture or setup. It is not the executable falsify oracle cut by ADR-020 §8: it has no script, no artifact, and no roster input. Nothing here reads a verdict file.
-
-```
-── Falsification ──
-  RC-1 — pass
-  RC-3 — skipped (proof needs a live registry)
-Falsification: P pass · S skipped · F fail
-```
-
-New findings surfaced during falsification → **parking lot**: file as a candidate finding for the next PR cycle. ¬reopen the current fix loop. ¬increment the 2-iter cap. Applies to same-class and cross-class anti-patterns alike.
-
-## Phase 5 — Push (no review-driven label)
-
-Phase 5 and Phase 6 are one step: post the receipt right after the push.
+Phase 4 and Phase 5 are one step: post the receipt right after the push.
 
 1. ∃ cause commits → O_push. Fail after 3 → halt; the commits stay local. Do not post the receipt for a push that did not land.
 2. **Never write `reviewed` for a review-driven fix.** If ∃ PR and a review record,
@@ -330,11 +304,10 @@ Phase 5 and Phase 6 are one step: post the receipt right after the push.
    that judges this fix; see `skill://dev-review` Phase 8.
 3. No option enables labelling here: automatic landing belongs to `landPr` alone.
 
-## Phase 6 — Post Follow-Up Comment
+## Phase 5 — Post Follow-Up Comment
 
 ∄ PR → skip. This comment is the rest of the push step, not a later session.
-If the push succeeded and `gh pr comment` fails, report it and do not push
-again. The receipt is for humans; no gate reads it.
+If posting this receipt fails, report it and halt the cycle. Resume only after publishing this original receipt before any re-review; do not repeat the fix or push. Review-round `### Applied` lines feed `skill://feature` §6.7; review-bound and admission readers ignore this receipt.
 
 Write the body into a mktemp dir — never a fixed `/tmp` path:
 ```bash
@@ -349,7 +322,6 @@ Write the summary (below) to `"$BODY"` → `gh pr comment "$PR" --body-file "$BO
 ## Review Fixes Applied
 
 **Applied:** N cause(s)
-**Falsification:** P pass · S skipped · F fail — a skip is not a pass
 **Unplanned record:** `## Root causes` was `none` with X actionable finding(s); each blocker was filed and still blocks _(omit the line when the record was planned)_
 **Deferred (non-blocking):** D cause(s) + U uncited finding(s) + M cited non-blocking finding(s) of a malformed block → #456
 **Filed (sibling issues):** J cause(s) — filed blockers still block this PR; filing is not a resolution
@@ -359,8 +331,8 @@ Write the summary (below) to `"$BODY"` → `gh pr comment "$PR" --body-file "$BO
 **Enforcement diagnostics:** |D_subsumption| subsumption violation(s) (0 if none)
 
 ### Applied
-- [applied] RC-1 — missing roster SSoT — `3f2a1c0` — falsification: pass
-- [applied] RC-4 — upload ignores dry run — `9b04e1d` — falsification: skipped (proof needs a live registry)
+- [applied] RC-1 — missing roster SSoT — `3f2a1c0`
+- [applied] RC-4 — upload ignores dry run — `9b04e1d`
 
 ### Deferred
 _(omit section when nothing was deferred this run; the summary line is then `**Deferred (non-blocking):** 0`)_
@@ -375,9 +347,6 @@ _(omit section when nothing was deferred this run; the summary line is then `**D
 ### Failed
 - [failed] RC-3 — unused import in dashboard.tsx:3 — test failure
 
-### Parking Lot
-_(omit section when parking_lot = ∅)_
-- {class}: {file}:{line} — {description} (falsification-gate)
 
 ### Enforcement diagnostics
 _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]** (N) sub-groupings)_
@@ -401,8 +370,7 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 | A member is unusable | A blocking cause is filed, not applied. A non-blocking cause is deferred, not filed on its own |
 | A member has low or absent confidence | No effect on the bucket: confidence orders, it is never a condition |
 | `proof:` is a source-text, wiring-copy or mock-echo assertion, or misses a `paths:` entry | A blocking cause is filed, not applied. A non-blocking cause is deferred |
-| `proof:` needs infrastructure the repository lacks | Apply; no proof test is created; Phase 4 reports `skipped (<what is missing>)`, never pass |
-| Proof run errors or fails on another assertion during falsification | `skipped (inconclusive)`, never pass; the commit stands |
+| `proof:` needs infrastructure the repository lacks | Apply; no proof test is created; §6.7 of `skill://feature` reports it `skipped` |
 | Fix line widens a denylist / adds a grep / copies an inventory | A blocking cause is filed, not applied. A non-blocking cause is deferred |
 | Cited path, `paths:` entry or proof test file outside the repository | A blocking cause is filed, not applied. A non-blocking cause is deferred |
 | Eligible and independent deferred mechanisms share a line | Apply only the eligible mechanism and all its member raw callsites; no additional sweep correction at protected locations. If inseparable, file the eligible cause |
@@ -411,16 +379,15 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 | Mixed causes | Apply the well-formed blocking eligible ones. A malformed block is not applied. One deferral issue holds every non-blocking cause, every uncited non-blocking finding, and every cited non-blocking finding of a malformed block |
 | Dirty tree before an apply | Halt, name the changes. An empty apply bucket does not halt |
 | Apply fails after 3 | Restore to the last cause commit, `[failed]`, file, continue |
-| Falsification fails twice | Revert that cause's commits, `[failed]`, file |
 | Quality gate fails 3× on the push | Halt, commits stay local. No cause commit → the push is skipped, not failed |
-| ¬∃ PR | Skip Phase 6, local only, no label |
+| ¬∃ PR | Skip Phase 5, local only, no label |
 | ∄ SOURCE_PARENT | Filed issue is top-level — ¬parent it to the origin |
-| review-driven fix | Phase 5 writes no `reviewed`; landing owns the gate |
+| review-driven fix | Phase 4 writes no `reviewed`; landing owns the gate |
 
 ## Safety Rules
 
 1. Human can `git log` / `git diff` anytime — each applied cause is its own local commit
-2. ∃ PR → must post the follow-up comment (Phase 6)
+2. ∃ PR → must post the follow-up comment (Phase 5)
 3. Every edit is made here, inline — ¬spawn a fixer, ¬delegate the edit
 4. Stage specific files only — ¬`git add -A` (risk of .env, secrets)
 5. Input is the marked record by ME, nothing else on the PR
@@ -436,7 +403,7 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 
 ## Exit
 
-- **Success:** blocking causes applied or filed, non-blocking causes deferred in one issue or already deferred, receipt posted. A run that applied nothing is success without a commit or a push. Print Applied (each with its falsification result) / Falsification P·S·F / Deferred / Filed / Failed, the `Unplanned record` line when it applies, + `Next: re-review with skill://dev-review`. A filed blocker still blocks: a run that filed one is never reported as a clean review, whatever it applied. Stop. This run owns its lint, tests, commits, push and receipt: a caller (`/feature` §6.5) does not repeat them; it records proof for a moved head, then reviews it.
+- **Success:** blocking causes applied or filed, non-blocking causes deferred in one issue or already deferred, receipt posted. A run that applied nothing is success without a commit or a push. Print Applied / Deferred / Filed / Failed, the `Unplanned record` line when it applies, + `Next: re-review with skill://dev-review`. A filed blocker still blocks: a run that filed one is never reported as a clean review, whatever it applied. Stop. This run owns its lint, tests, commits, push and receipt: a caller (`/feature` §6.5) does not repeat them; it records proof for a moved head, then reviews it.
 - **Failure (quality gate, ¬findings, unrecoverable):** return the error and stop — the caller decides next steps outside the automatic bound.
 - **Loop cap:** at most 2 automatic fixes, derived by the caller's `nextReviewStep`
   from the review records. On `stop`, follow `skill://dev-review` Phase 8 —

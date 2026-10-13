@@ -133,7 +133,7 @@ the prompt listing while `skill://<name>` and `/skill:<name>` still reach it
 It does not hand the operator a `/wt` line. Existing worktrees are entered by
 `/move <path>`, not recreated.
 
-In the matching worktree: implement → `dev-review` → `fix` → land.
+In the matching worktree: implement → `dev-review` → `fix` → falsify the applied causes (§6.7) → land.
 `resolveReviewPr` binds an explicit number or the current branch before any
 review read; lookup failure is never treated as a local review. A closed PR on
 the branch refuses implicit reuse, so its bound cannot be reset. Existing PRs
@@ -302,7 +302,7 @@ The bound guards against agent mistakes, not against an agent that bypasses it:
 records by other accounts are ignored, and edits or deletions of the account's
 comments are not detected. Every posted review counts, with or without a fix
 before it. Older accounting comments and the `## Review Fixes Applied` receipt
-decide nothing.
+do not count; §6.7's falsification pass reads the receipt's applied causes.
 
 The canonical choices and escalation dossier live in `skills/dev-review/SKILL.md`
 Phase 8. Skills route through `nextReviewStep` and `landPr`; they do not own

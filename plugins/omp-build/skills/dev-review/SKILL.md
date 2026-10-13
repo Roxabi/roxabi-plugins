@@ -5,7 +5,7 @@ description: >-
   OMP-only multi-domain code review — five-role evidence-selected panel, Conventional Comments, common root causes, findings + verdict.
   Triggers: "dev-review" | "code review" | "review changes" | "review PR #42" | "check my code" | "review my changes" | "review this PR" | "do a code review" | "review the diff".
   Not the host native /review, not Matt code-review.
-version: 0.2.2
+version: 0.2.3
 ---
 
 # Code Review

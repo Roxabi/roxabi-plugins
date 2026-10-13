@@ -3,7 +3,7 @@ name: feature
 disable-model-invocation: true
 argument-hint: '[#N | <subject>]'
 description: OMP-only feature cycle — frame a GitHub issue, create the worktree from origin/<base>, hand off /move and /goal, then implement, review, fix and land.
-version: 0.1.6
+version: 0.1.7
 ---
 
 # Feature
@@ -197,6 +197,7 @@ driver review --epic "$EPIC" --goal-status "$GOAL_STATUS" --goal-objective-file 
 | `land.status` `watching` | Run `land.watch` as in §6.7, map its exit with `applyCiWatchExit`, then this table |
 | `land.status` `merged` | Nothing: `next` re-reads the PR (MERGED into the base, head claiming the child, tip equal), detaches and deletes the local branch |
 | `ci-failed` | `step = await nextReviewStep(cwd, pr, { ciFailed: true })`, then §6.6 |
+| §6.7 falsification `fail`, input-read error or comment-post error | Ticket stop `--reason proof-blocked`; detail is the posted comment URL plus failing RC ids, otherwise the actual error |
 | `timeout`, `ci-cancelled`, `ci-blocked`, `stopped`, `closed`, `proof-blocked` | Ticket stop `--reason <status>`, with `land.error` as detail when present. A timeout is never re-attached under a goal |
 | `nextReviewStep` `stop`, any reason | Ticket stop `--reason review-bound`; the step already disarmed the PR |
 | `nextReviewStep` or `landPr` throws | Ticket stop `--reason stopped`, the error as detail |
@@ -221,7 +222,7 @@ ticket stays armed.
 
 | Class | Triggers | Effect |
 |---|---|---|
-| Ticket stop | review loop stop; `proof-blocked` or a failed `proof-acquire`; foreign commit, branch mismatch; child without scope; `timeout`; `ci-cancelled`; `ci-blocked`; `stopped`; `closed` | report, `goal-stop` marker; dependents skipped by their open blocker edge; independent children continue |
+| Ticket stop | review loop stop; `proof-blocked`, failed `proof-acquire` or failed falsification; foreign commit, branch mismatch; child without scope; `timeout`; `ci-cancelled`; `ci-blocked`; `stopped`; `closed` | report, `goal-stop` marker; dependents skipped by their open blocker edge; independent children continue |
 | Shared-state stop | base CI red; `base-ci-pending` at finalization; dirty tree between tickets, before the hook, or before a none-merged complete; `hook-stale`; `watch-failed`; `bad-landing`; `no-required-checks`; `evaluate-only`; `auto-merge-failed`; tracker CLI unresolvable; post-merge hook failure; final review still blocking after its fix round | disarm, report, `goal({op:"drop"})` |
 | No progress | no actionable child while children remain open | report, `goal({op:"drop"})` |
 
@@ -497,6 +498,9 @@ directory separately. The review returns its posted verdict
 and `REVIEWED_HEAD` before its Phase 8 decision. This cycle owns the fix and
 landing actions; the nested review does not execute them.
 
+A failed review-round receipt blocks this step: on resumption, publish that original
+receipt before re-reviewing, without repeating its fix or push.
+
 ```javascript
 step = await nextReviewStep(cwd, pr, { posted: { verdict, head: REVIEWED_HEAD } })
 ```
@@ -522,8 +526,8 @@ step from the records.
 `step.action === 'fix'`, by `step.reason`:
 
 - review round (no reason) → execute `skill://fix` with `#<pr>`. It applies the
-  one plan of each well-formed posted root cause that contains a blocking finding, and
-  falsifies it against the cause's own proof. A block missing any of its seven lines
+  one plan of each well-formed posted root cause that contains a blocking finding and
+  runs the cause's own proof. A block missing any of its seven lines
   (`skill://dev-review/root-causes.md` § Record) is not applied; its blocking cited
   findings are filed per finding. A record from before the seven-line plan (blocks
   with only `mechanism:`, `fix:` and `findings:`) halts it with nothing applied or
@@ -538,11 +542,12 @@ A review round ends inside `skill://fix`: lint and tests per cause, one commit
 each, one push, the `## Review Fixes Applied` receipt. Do not verify, commit,
 push or post again. A `ci-failed` fix has no such owner: verify it (the failed
 checks' commands and the tests covering the change), commit, push, then post
-`## Review Fixes Applied`. The receipt is for humans: no gate reads it, and a
-failed post is reported, not retried. It never reports a falsification skip as a
-pass, nor a `none` record with actionable findings as clean. When a push moved
-the head, run §6.3's proof records for it; state `step.remaining`, then §6.4 —
-the moved head needs its own review.
+`## Review Fixes Applied`. Review-round `### Applied` lines feed §6.7;
+`ci-failed` receipts are excluded, and review-bound and admission ignore both.
+A failed post stops the cycle: resume only by publishing the original receipt
+before any re-review, without repeating the fix or push. A `none` record with
+actionable findings is never clean. When a push moved the head, run §6.3's proof
+records for it; state `step.remaining`, then §6.4 — the moved head needs its own review.
 
 ### 6.6 Bound
 
@@ -583,7 +588,15 @@ throws (only the watch mapper translates that race to `merged`).
 Only `step.action === 'land'` may reach this step. Obtain the operator's merge
 approval if not already explicit for this PR; under the Epic goal the goal is that
 approval, and each `land.status` maps through § Epic goal instead of the table
-below. Then `await landPr(cwd, pr)`
+below. Before every falsification pass, including re-entry on an already armed PR,
+call `await disarmReviewedBeforePush(cwd, pr)` with no push callback; enter the
+pass only after it succeeds. Run the sibling [falsification.md](falsification.md) from
+feature's saved skill directory against the current approved head. Any `fail`, input-read
+error or failed comment post blocks `landPr`: under the Epic goal, ticket-stop `proof-blocked` with the posted comment
+URL plus failing RC ids, otherwise the actual error; outside it, stop and report the
+actual result or clearing error, never claiming unarmed without confirmation. `pass`
+and `skipped` proceed to `await landPr(cwd, pr)`. Every `land` re-entry repeats the
+pass on its current head. `landPr`
 resolves the landing mode itself from the PR base through `readLanding(cwd, { base })` — the same
 resolver `/ci-watch` uses: `landing.mode` in `origin/<base>:.dev/stack.yml` (parsed as YAML),
 else merge-on-green when `origin/<base>:.github/workflows/merge-on-green.yml` exists, else
