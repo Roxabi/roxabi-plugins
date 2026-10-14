@@ -122,6 +122,12 @@ describe('init', () => {
     await expect(
       initIssues(['--repo', 'Acme/app', '--approve', digest, '--operator-approval', ` ${digest} `], deps),
     ).rejects.toThrow('explicit operator approval is required')
+    await expect(
+      initIssues(['--repo', 'Acme/app', '--approve', digest, '--operator-approval', `${digest}\u200B`], deps),
+    ).rejects.toThrow('explicit operator approval is required')
+    await expect(
+      initIssues(['--repo', 'Acme/app', '--approve', digest, '--operator-approval', `\u200C${digest}`], deps),
+    ).rejects.toThrow('explicit operator approval is required')
     expect(writes).toEqual({ ensure: 0, update: 0, contract: 0 })
     vi.restoreAllMocks()
   })

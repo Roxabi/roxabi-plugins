@@ -69,6 +69,9 @@ describe('worktree bootstrap entry', () => {
       interval: 50,
     })
     expect(readFileSync(path.join(wt, '.env'), 'utf8')).toBe('REAL=1\n')
-    expect(readFileSync(path.join(wtGitDir, 'omp-build-bootstrap.log'), 'utf8').trim()).toBe('bootstrap=done')
+    await vi.waitFor(
+      () => expect(readFileSync(path.join(wtGitDir, 'omp-build-bootstrap.log'), 'utf8').trim()).toBe('bootstrap=done'),
+      { timeout: 15_000, interval: 50 },
+    )
   })
 })

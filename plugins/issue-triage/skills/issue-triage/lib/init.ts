@@ -494,7 +494,10 @@ export async function initIssues(args: string[], deps?: InitDeps): Promise<InitP
   console.log(`digest: ${digest}`)
   console.log('digest is not authorization')
   if (dryRun || approve === undefined) return plan
-  if (!approve || !operatorApproval?.trim() || operatorApproval.trim() === approve) {
+  // Strip whitespace + Cf (ZWSP/ZWNJ/…) so digest±format-chars cannot pass as a
+  // distinct operator reply (Spec B: digest is not authorization).
+  const normalizedApproval = (operatorApproval ?? '').replace(/[\s\p{Cf}]/gu, '')
+  if (!approve || !normalizedApproval || normalizedApproval === approve || normalizedApproval === digest) {
     throw new Error('init=refused explicit operator approval is required')
   }
   if (approve !== digest) throw new Error('init=refused approval digest does not match the preview')

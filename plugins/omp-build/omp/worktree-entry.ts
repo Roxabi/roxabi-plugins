@@ -32,11 +32,15 @@ export function unbootstrappedWorktree(cwd: string): LinkedWorktree | null {
  */
 export function startBootstrap(script: string, worktree: LinkedWorktree): void {
   const log = openSync(join(worktree.gitDir, 'omp-build-bootstrap.log'), 'a')
-  try {
-    const child = spawn('bash', [script], { cwd: worktree.top, detached: true, stdio: ['ignore', log, log] })
-    child.on('error', () => {})
-    child.unref()
-  } finally {
-    closeSync(log)
+  const child = spawn('bash', [script], { cwd: worktree.top, detached: true, stdio: ['ignore', log, log] })
+  const release = () => {
+    try {
+      closeSync(log)
+    } catch {
+      /* already closed */
+    }
   }
+  child.on('exit', release)
+  child.on('error', release)
+  child.unref()
 }
