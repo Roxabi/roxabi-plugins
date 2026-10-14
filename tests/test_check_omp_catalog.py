@@ -172,6 +172,55 @@ def test_claude_marketplace_archived_source_is_refused(tmp_path):
     ]
 
 
+def test_omp_catalog_bare_and_git_subdir_archived_sources_are_refused(tmp_path):
+    mod = _load_tool()
+    catalog = tmp_path / '.omp-plugin' / 'marketplace.json'
+    catalog.parent.mkdir(parents=True)
+    archived = tmp_path / 'archived' / 'plugins' / 'dev-core'
+    archived.mkdir(parents=True)
+    (archived / 'package.json').write_text(json.dumps({'name': 'dev-core', 'version': '1.0.0'}), encoding='utf-8')
+
+    catalog.write_text(
+        json.dumps(
+            {
+                'name': 'mp',
+                'owner': {'name': 'o'},
+                'plugins': [{'name': 'dev-core', 'version': '1.0.0', 'source': 'archived/plugins/dev-core'}],
+            }
+        ),
+        encoding='utf-8',
+    )
+    bare = mod.check_omp_catalog(catalog, tmp_path)
+    assert bare == [
+        'dev-core: OMP catalog source archived/plugins/dev-core points at archived/; archives are not installable'
+    ]
+
+    catalog.write_text(
+        json.dumps(
+            {
+                'name': 'mp',
+                'owner': {'name': 'o'},
+                'plugins': [
+                    {
+                        'name': 'dev-core',
+                        'version': '1.0.0',
+                        'source': {
+                            'source': 'git-subdir',
+                            'url': 'Roxabi/roxabi-plugins',
+                            'path': 'archived/plugins/dev-core',
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding='utf-8',
+    )
+    git_subdir = mod.check_omp_catalog(catalog, tmp_path)
+    assert git_subdir == [
+        'dev-core: OMP catalog source archived/plugins/dev-core points at archived/; archives are not installable'
+    ]
+
+
 def test_claude_marketplace_git_subdir_and_plugin_root_are_refused(tmp_path):
     mod = _load_tool()
     catalog = tmp_path / '.claude-plugin' / 'marketplace.json'

@@ -575,15 +575,22 @@ def check_omp_catalog(catalog_path=None, repo_root=None) -> list[str]:
         if not name:
             errors.append(f'OMP catalog row without a name: {row!r}')
             continue
+        # Spec A / #805: refuse archived installs for every local spelling
+        # (bare archived/…, git-subdir.path), not only the `./…` package-compare path.
+        archived_hit = False
+        for path_text in catalog_row_local_paths(row, None):
+            if catalog_source_in_archive(path_text, repo_root):
+                errors.append(
+                    f'{name}: OMP catalog source {path_text} points at archived/; '
+                    f'archives are not installable'
+                )
+                archived_hit = True
+                break
+        if archived_hit:
+            continue
         source = row.get('source')
         if not isinstance(source, str) or not source.startswith('./'):
             continue  # a remote source has no local package to compare
-        if catalog_source_in_archive(source, repo_root):
-            errors.append(
-                f'{name}: OMP catalog source {source} points at archived/; '
-                f'archives are not installable'
-            )
-            continue
         plugin_dir = repo_root / source
         if not plugin_dir.is_dir():
             errors.append(f'{name}: OMP catalog source {source} is not a directory')
