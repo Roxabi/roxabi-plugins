@@ -1,7 +1,7 @@
 {
   "name": "roxabi-marketplace",
   "version": "1.0.0",
-  "description": "Open-source Claude Code plugins by Roxabi — context engineering tools for teams.",
+  "description": "Open-source Claude Code plugins by Roxabi \u2014 context engineering tools for teams.",
   "owner": {
     "name": "Roxabi",
     "url": "https://github.com/Roxabi"
@@ -9,8 +9,8 @@
   "plugins": [
     {
       "name": "issue-triage",
-      "version": "0.2.8",
-      "description": "Triage/create GitHub issues — size/priority/lane/type labels, blocked-by deps, parent/child. Labels + native relations, no Projects V2.",
+      "version": "0.2.9",
+      "description": "Triage/create GitHub issues \u2014 size/priority/lane/type labels, blocked-by deps, parent/child. Labels + native relations, no Projects V2.",
       "source": "./plugins/issue-triage",
       "category": "development"
     }

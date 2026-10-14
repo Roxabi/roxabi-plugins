@@ -1,7 +1,12 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { findFloatingWorkflowPins, findInlinePins, parseInlinePins } from '../verify-action-pins'
+import {
+  findFloatingWorkflowPins,
+  findInlinePins,
+  findUnresolvedWorkflowPins,
+  parseInlinePins,
+} from '../verify-action-pins'
 
 describe('parseInlinePins', () => {
   it('parses unquoted workflow action references', () => {
@@ -16,7 +21,8 @@ describe('parseInlinePins', () => {
   )
 
   it('does not treat local or expression-based uses values as third-party actions', () => {
-    expect(parseInlinePins('uses: ./local-action\nuses: ${{ inputs.action }}\n')).toEqual([])
+    const expression = ['uses: ./local-action\nuses: ${{', ' inputs.action }}\n'].join('')
+    expect(parseInlinePins(expression)).toEqual([])
   })
 })
 
@@ -62,5 +68,20 @@ describe('findFloatingWorkflowPins', () => {
       `uses: actions/checkout@${sha}\nuses: "actions/checkout@${sha}"\nuses: 'actions/checkout@${sha}'\n`,
     )
     expect(findFloatingWorkflowPins(dirRel)).toEqual([])
+  })
+})
+
+describe('findUnresolvedWorkflowPins', () => {
+  it('keeps only SHA pins that the API cannot resolve', async () => {
+    const sha = '0123456789abcdef0123456789abcdef01234567'
+    const pins = [
+      { file: 'a.yml', action: 'actions/checkout', ref: 'v7' },
+      { file: 'b.yml', action: 'actions/checkout', ref: sha },
+      { file: 'c.yml', action: 'actions/setup-node', ref: sha },
+    ]
+    const unresolved = await findUnresolvedWorkflowPins(pins, async (path) =>
+      path.includes('actions/checkout') ? { sha } : null,
+    )
+    expect(unresolved).toEqual([{ file: 'c.yml', action: 'actions/setup-node', ref: sha }])
   })
 })

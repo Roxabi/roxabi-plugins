@@ -584,7 +584,12 @@ function isPrincipal(dir: string): boolean {
   const first = out.match(/^worktree (.+)$/m)?.[1]
   if (!first) return true
   const here = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: dir, encoding: 'utf8' }).trim()
-  return here === first
+  // Match scripts/check-principal-branch.sh: compare physical paths, not symlink spellings.
+  try {
+    return realpathSync(here) === realpathSync(first)
+  } catch {
+    return here === first
+  }
 }
 
 export type StackAddition = { key: 'commands.test' | 'worktree' | 'landing'; text: string; source: string }
@@ -862,6 +867,11 @@ function digestFor(
       JSON.stringify({
         checkout,
         repository,
+        // Bind the bytes that apply would write, not only the addition keys.
+        // Otherwise a preserved stack body can change between preview and apply
+        // while additions stay identical and the digest still matches.
+        before: stack.before,
+        after: stack.after,
         additions: [...stack.additions].sort((left, right) => left.key.localeCompare(right.key)),
         tracker: tracker?.canonical ?? null,
         withheld,

@@ -488,6 +488,14 @@ def check_omp_catalog(catalog_path=None, repo_root=None) -> list[str]:
         source = row.get('source')
         if not isinstance(source, str) or not source.startswith('./'):
             continue  # a remote source has no local package to compare
+        # Spec A / #805: archives stay inert — a catalog row must not reinstall them.
+        source_parts = Path(source).parts
+        if source_parts and source_parts[0] == 'archived':
+            errors.append(
+                f'{name}: OMP catalog source {source} points at archived/; '
+                f'archives are not installable'
+            )
+            continue
         plugin_dir = repo_root / source
         if not plugin_dir.is_dir():
             errors.append(f'{name}: OMP catalog source {source} is not a directory')

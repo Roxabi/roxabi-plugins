@@ -8,8 +8,9 @@
  * `CANONICAL_LABELS`. A contract that parses to no vocabulary is a refusal,
  * not an empty plan. `--repo` other than the local repo is refused: the local
  * file is not that repo's vocabulary. Label writes go through the GitHub
- * adapter. `--dry-run` writes nothing. A repository label definition is never
- * deleted or recoloured. Issue bodies are never edited.
+ * adapter. Preview (default) and `--dry-run` write nothing. Writes require
+ * `--approve <digest>` plus a separate `--operator-approval` reply. A repository
+ * label definition is never deleted or recoloured. Issue bodies are never edited.
  */
 
 import { execFileSync } from 'node:child_process'
@@ -401,6 +402,11 @@ export async function applyApprovedPlan(plan: InitPlan, contractText: string, de
   return plan
 }
 
+/** Stable digest of the exact mutations applyApprovedPlan would perform. */
+export function planDigest(plan: InitPlan, contractText: string): string {
+  return createHash('sha256').update(canonicalPlan(plan, contractText)).digest('hex')
+}
+
 /** True when a second pass over the post-migration labels has nothing to do. */
 export function secondPassIsNoop(
   issues: IssueLabels[],
@@ -415,8 +421,16 @@ export function secondPassIsNoop(
   return planRelabels(nextIssues).length === 0 && missing.length === 0
 }
 
-function parseArgs(args: string[]): { dryRun: boolean; repo?: string; root?: string } {
+function parseArgs(args: string[]): {
+  dryRun: boolean
+  approve?: string
+  operatorApproval?: string
+  repo?: string
+  root?: string
+} {
   let dryRun = false
+  let approve: string | undefined
+  let operatorApproval: string | undefined
   let repo: string | undefined
   let root: string | undefined
   for (let i = 0; i < args.length; i++) {
@@ -425,23 +439,29 @@ function parseArgs(args: string[]): { dryRun: boolean; repo?: string; root?: str
       dryRun = true
       continue
     }
-    if (arg === '--repo') {
+    if (arg === '--approve' || arg === '--operator-approval' || arg === '--repo' || arg === '--root') {
       const value = args[i + 1]
-      if (!value || value.startsWith('-')) throw new Error('init: --repo needs owner/repo')
-      repo = value
-      i++
-      continue
-    }
-    if (arg === '--root') {
-      const value = args[i + 1]
-      if (!value || value.startsWith('-')) throw new Error('init: --root needs a checkout path')
-      root = value
+      if (!value || value.startsWith('-')) {
+        throw new Error(
+          arg === '--approve'
+            ? 'init: --approve needs a digest'
+            : arg === '--operator-approval'
+              ? 'init: --operator-approval needs the operator reply'
+              : arg === '--repo'
+                ? 'init: --repo needs owner/repo'
+                : 'init: --root needs a checkout path',
+        )
+      }
+      if (arg === '--approve') approve = value
+      else if (arg === '--operator-approval') operatorApproval = value
+      else if (arg === '--repo') repo = value
+      else root = value
       i++
       continue
     }
     throw new Error(`init: unknown argument ${arg}`)
   }
-  return { dryRun, repo, root }
+  return { dryRun, approve, operatorApproval, repo, root }
 }
 
 export function defaultInitDeps(cwdRepo: string, cwd = process.cwd()): InitDeps {
@@ -463,12 +483,20 @@ export function defaultInitDeps(cwdRepo: string, cwd = process.cwd()): InitDeps 
 }
 
 export async function initIssues(args: string[], deps?: InitDeps): Promise<InitPlan> {
-  const { dryRun, repo: repoFlag, root } = parseArgs(args)
+  const { dryRun, approve, operatorApproval, repo: repoFlag, root } = parseArgs(args)
   const cwdRepo = deps?.cwdRepo ?? detectGitHubRepo()
   const repo = repoFlag ?? cwdRepo
   const bound = deps ?? defaultInitDeps(cwdRepo, root)
   const { plan, contractText } = await buildPlan(repo, cwdRepo, bound)
-  console.log(formatPlan(plan, dryRun))
-  if (dryRun) return plan
+  const digest = planDigest(plan, contractText)
+  // Preview is the default. Printing the plan is not approval (Spec B / #805).
+  console.log(formatPlan(plan, dryRun || approve === undefined))
+  console.log(`digest: ${digest}`)
+  console.log('digest is not authorization')
+  if (dryRun || approve === undefined) return plan
+  if (!approve || !operatorApproval?.trim() || operatorApproval === approve) {
+    throw new Error('init=refused explicit operator approval is required')
+  }
+  if (approve !== digest) throw new Error('init=refused approval digest does not match the preview')
   return applyApprovedPlan(plan, contractText, bound)
 }

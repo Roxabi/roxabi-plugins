@@ -90,3 +90,26 @@ def test_matching_versions_and_unpackaged_rows_pass(tmp_path):
         },
     )
     assert mod.check_omp_catalog(catalog, tmp_path) == []
+
+
+def test_archived_catalog_source_is_refused(tmp_path):
+    mod = _load_tool()
+    catalog = tmp_path / '.omp-plugin' / 'marketplace.json'
+    catalog.parent.mkdir(parents=True)
+    archived = tmp_path / 'archived' / 'plugins' / 'dev-core'
+    archived.mkdir(parents=True)
+    (archived / 'package.json').write_text(json.dumps({'name': 'dev-core', 'version': '1.0.0'}), encoding='utf-8')
+    catalog.write_text(
+        json.dumps(
+            {
+                'name': 'mp',
+                'owner': {'name': 'o'},
+                'plugins': [{'name': 'dev-core', 'version': '1.0.0', 'source': './archived/plugins/dev-core'}],
+            }
+        ),
+        encoding='utf-8',
+    )
+    errors = mod.check_omp_catalog(catalog, tmp_path)
+    assert errors == [
+        'dev-core: OMP catalog source ./archived/plugins/dev-core points at archived/; archives are not installable'
+    ]

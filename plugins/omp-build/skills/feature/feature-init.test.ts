@@ -386,10 +386,8 @@ describe('stack adoption proposal', () => {
 })
 
 describe('feature init authorization', () => {
-  it('refuses digest-only approval before stack or tracker writes', async () => {
-    scratch = mkdtempSync(path.join(tmpdir(), 'omp-init-approval-'))
-    const writes = { tracker: 0 }
-    const triage = {
+  function authTriage(writes: { tracker: number }): TriageInit {
+    return {
       defaultInitDeps: () => ({
         cwdRepo: 'Acme/app',
         listLabelNames: async () => [],
@@ -419,10 +417,15 @@ describe('feature init authorization', () => {
         throw new Error('must not run')
       },
     } as unknown as TriageInit
+  }
+
+  it('refuses digest-only approval before stack or tracker writes', async () => {
+    scratch = mkdtempSync(path.join(tmpdir(), 'omp-init-approval-'))
+    const writes = { tracker: 0 }
     const deps = {
       facts: { ...baseFacts(), mergeOnGreen: false },
       parseYaml: () => ({ schema_version: '1.0' }),
-      triage,
+      triage: authTriage(writes),
       repository: 'Acme/app',
       principal: false,
     }
@@ -433,6 +436,95 @@ describe('feature init authorization', () => {
     )
     expect(existsSync(path.join(scratch, '.dev', 'stack.yml'))).toBe(false)
     expect(writes.tracker).toBe(0)
+    vi.restoreAllMocks()
+  })
+
+  it('refuses a wrong approval digest before stack or tracker writes', async () => {
+    scratch = mkdtempSync(path.join(tmpdir(), 'omp-init-wrong-digest-'))
+    const writes = { tracker: 0 }
+    const deps = {
+      facts: { ...baseFacts(), hasWorktree: false, mergeOnGreen: false },
+      parseYaml: () => ({ schema_version: '1.0' }),
+      triage: authTriage(writes),
+      repository: 'Acme/app',
+      principal: false,
+    }
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    await expect(
+      initFeature(['--dir', scratch, '--approve', '0'.repeat(64), '--operator-approval', 'ship it'], deps),
+    ).rejects.toThrow('approval digest does not match the preview')
+    expect(existsSync(path.join(scratch, '.dev', 'stack.yml'))).toBe(false)
+    expect(writes.tracker).toBe(0)
+    vi.restoreAllMocks()
+  })
+
+  it('refuses digest pasted as operator approval before stack or tracker writes', async () => {
+    scratch = mkdtempSync(path.join(tmpdir(), 'omp-init-digest-as-approval-'))
+    const writes = { tracker: 0 }
+    const deps = {
+      facts: { ...baseFacts(), hasWorktree: false, mergeOnGreen: false },
+      parseYaml: () => ({ schema_version: '1.0' }),
+      triage: authTriage(writes),
+      repository: 'Acme/app',
+      principal: false,
+    }
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const preview = await initFeature(['--dir', scratch], deps)
+    await expect(
+      initFeature(['--dir', scratch, '--approve', preview.digest, '--operator-approval', preview.digest], deps),
+    ).rejects.toThrow('explicit operator approval is required')
+    expect(existsSync(path.join(scratch, '.dev', 'stack.yml'))).toBe(false)
+    expect(writes.tracker).toBe(0)
+    vi.restoreAllMocks()
+  })
+
+  it('refuses apply on the principal before stack or tracker writes', async () => {
+    scratch = mkdtempSync(path.join(tmpdir(), 'omp-init-principal-apply-'))
+    const writes = { tracker: 0 }
+    const deps = {
+      facts: { ...baseFacts(), hasWorktree: false, mergeOnGreen: false },
+      parseYaml: () => ({ schema_version: '1.0' }),
+      triage: authTriage(writes),
+      repository: 'Acme/app',
+      principal: true,
+    }
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const preview = await initFeature(['--dir', scratch], deps)
+    await expect(
+      initFeature(['--dir', scratch, '--approve', preview.digest, '--operator-approval', 'ship it'], deps),
+    ).rejects.toThrow('init=refused principal')
+    expect(existsSync(path.join(scratch, '.dev', 'stack.yml'))).toBe(false)
+    expect(writes.tracker).toBe(0)
+    vi.restoreAllMocks()
+  })
+
+  it('binds preserved stack bytes into the approval digest', async () => {
+    scratch = mkdtempSync(path.join(tmpdir(), 'omp-init-digest-bytes-'))
+    mkdirSync(path.join(scratch, '.dev'), { recursive: true })
+    writeFileSync(path.join(scratch, '.dev', 'stack.yml'), 'schema_version: "1.0"\nkeep: one\n')
+    const deps = {
+      facts: { ...baseFacts(), hasWorktree: false, mergeOnGreen: false },
+      parseYaml: (text: string) => {
+        const map: Record<string, unknown> = {}
+        for (const line of text.split('\n')) {
+          const match = /^([A-Za-z0-9_]+):\s*(.*)$/.exec(line)
+          if (match) map[match[1]] = match[2].replace(/^"|"$/g, '')
+        }
+        return map
+      },
+      triage: authTriage({ tracker: 0 }),
+      repository: 'Acme/app',
+      principal: false,
+    }
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const first = await initFeature(['--dir', scratch], deps)
+    writeFileSync(path.join(scratch, '.dev', 'stack.yml'), 'schema_version: "1.0"\nkeep: tampered\n')
+    const second = await initFeature(['--dir', scratch], deps)
+    expect(second.digest).not.toBe(first.digest)
+    await expect(
+      initFeature(['--dir', scratch, '--approve', first.digest, '--operator-approval', 'ship it'], deps),
+    ).rejects.toThrow('approval digest does not match the preview')
+    expect(readFileSync(path.join(scratch, '.dev', 'stack.yml'), 'utf8')).toContain('tampered')
     vi.restoreAllMocks()
   })
 
