@@ -90,3 +90,180 @@ def test_matching_versions_and_unpackaged_rows_pass(tmp_path):
         },
     )
     assert mod.check_omp_catalog(catalog, tmp_path) == []
+
+
+def test_archived_catalog_source_is_refused(tmp_path):
+    mod = _load_tool()
+    catalog = tmp_path / '.omp-plugin' / 'marketplace.json'
+    catalog.parent.mkdir(parents=True)
+    archived = tmp_path / 'archived' / 'plugins' / 'dev-core'
+    archived.mkdir(parents=True)
+    (archived / 'package.json').write_text(json.dumps({'name': 'dev-core', 'version': '1.0.0'}), encoding='utf-8')
+    catalog.write_text(
+        json.dumps(
+            {
+                'name': 'mp',
+                'owner': {'name': 'o'},
+                'plugins': [{'name': 'dev-core', 'version': '1.0.0', 'source': './archived/plugins/dev-core'}],
+            }
+        ),
+        encoding='utf-8',
+    )
+    errors = mod.check_omp_catalog(catalog, tmp_path)
+    assert errors == [
+        'dev-core: OMP catalog source ./archived/plugins/dev-core points at archived/; archives are not installable'
+    ]
+
+
+def test_archived_catalog_source_traversal_and_symlink_are_refused(tmp_path):
+    mod = _load_tool()
+    archived = tmp_path / 'archived' / 'plugins' / 'dev-core'
+    archived.mkdir(parents=True)
+    (archived / 'package.json').write_text(json.dumps({'name': 'dev-core', 'version': '1.0.0'}), encoding='utf-8')
+    plugins = tmp_path / 'plugins'
+    plugins.mkdir()
+    (plugins / 'dev-core').symlink_to(archived)
+
+    def catalog_with(source: str):
+        catalog = tmp_path / '.omp-plugin' / 'marketplace.json'
+        catalog.parent.mkdir(parents=True, exist_ok=True)
+        catalog.write_text(
+            json.dumps(
+                {
+                    'name': 'mp',
+                    'owner': {'name': 'o'},
+                    'plugins': [{'name': 'dev-core', 'version': '1.0.0', 'source': source}],
+                }
+            ),
+            encoding='utf-8',
+        )
+        return catalog
+
+    traversal = mod.check_omp_catalog(catalog_with('./plugins/../archived/plugins/dev-core'), tmp_path)
+    assert traversal == [
+        'dev-core: OMP catalog source ./plugins/../archived/plugins/dev-core points at archived/; '
+        'archives are not installable'
+    ]
+    symlink = mod.check_omp_catalog(catalog_with('./plugins/dev-core'), tmp_path)
+    assert symlink == [
+        'dev-core: OMP catalog source ./plugins/dev-core points at archived/; archives are not installable'
+    ]
+
+
+def test_claude_marketplace_archived_source_is_refused(tmp_path):
+    mod = _load_tool()
+    catalog = tmp_path / '.claude-plugin' / 'marketplace.json'
+    catalog.parent.mkdir(parents=True)
+    archived = tmp_path / 'archived' / 'plugins' / 'dev-core'
+    archived.mkdir(parents=True)
+    catalog.write_text(
+        json.dumps(
+            {
+                'name': 'mp',
+                'owner': {'name': 'o'},
+                'plugins': [{'name': 'dev-core', 'source': './archived/plugins/dev-core'}],
+            }
+        ),
+        encoding='utf-8',
+    )
+    errors = mod.check_claude_catalog_archived_sources(catalog, tmp_path)
+    assert errors == [
+        'dev-core: Claude catalog source ./archived/plugins/dev-core points at archived/; archives are not installable'
+    ]
+
+
+def test_omp_catalog_bare_and_git_subdir_archived_sources_are_refused(tmp_path):
+    mod = _load_tool()
+    catalog = tmp_path / '.omp-plugin' / 'marketplace.json'
+    catalog.parent.mkdir(parents=True)
+    archived = tmp_path / 'archived' / 'plugins' / 'dev-core'
+    archived.mkdir(parents=True)
+    (archived / 'package.json').write_text(json.dumps({'name': 'dev-core', 'version': '1.0.0'}), encoding='utf-8')
+
+    catalog.write_text(
+        json.dumps(
+            {
+                'name': 'mp',
+                'owner': {'name': 'o'},
+                'plugins': [{'name': 'dev-core', 'version': '1.0.0', 'source': 'archived/plugins/dev-core'}],
+            }
+        ),
+        encoding='utf-8',
+    )
+    bare = mod.check_omp_catalog(catalog, tmp_path)
+    assert bare == [
+        'dev-core: OMP catalog source archived/plugins/dev-core points at archived/; archives are not installable'
+    ]
+
+    catalog.write_text(
+        json.dumps(
+            {
+                'name': 'mp',
+                'owner': {'name': 'o'},
+                'plugins': [
+                    {
+                        'name': 'dev-core',
+                        'version': '1.0.0',
+                        'source': {
+                            'source': 'git-subdir',
+                            'url': 'Roxabi/roxabi-plugins',
+                            'path': 'archived/plugins/dev-core',
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding='utf-8',
+    )
+    git_subdir = mod.check_omp_catalog(catalog, tmp_path)
+    assert git_subdir == [
+        'dev-core: OMP catalog source archived/plugins/dev-core points at archived/; archives are not installable'
+    ]
+
+
+def test_claude_marketplace_git_subdir_and_plugin_root_are_refused(tmp_path):
+    mod = _load_tool()
+    catalog = tmp_path / '.claude-plugin' / 'marketplace.json'
+    catalog.parent.mkdir(parents=True)
+    archived = tmp_path / 'archived' / 'plugins' / 'dev-core'
+    archived.mkdir(parents=True)
+
+    catalog.write_text(
+        json.dumps(
+            {
+                'name': 'mp',
+                'owner': {'name': 'o'},
+                'plugins': [
+                    {
+                        'name': 'dev-core',
+                        'source': {
+                            'source': 'git-subdir',
+                            'url': 'Roxabi/roxabi-plugins',
+                            'path': 'archived/plugins/dev-core',
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding='utf-8',
+    )
+    git_subdir = mod.check_claude_catalog_archived_sources(catalog, tmp_path)
+    assert git_subdir == [
+        'dev-core: Claude catalog source archived/plugins/dev-core points at archived/; archives are not installable'
+    ]
+
+    catalog.write_text(
+        json.dumps(
+            {
+                'name': 'mp',
+                'owner': {'name': 'o'},
+                'metadata': {'pluginRoot': './archived/plugins'},
+                'plugins': [{'name': 'dev-core', 'source': 'dev-core'}],
+            }
+        ),
+        encoding='utf-8',
+    )
+    plugin_root = mod.check_claude_catalog_archived_sources(catalog, tmp_path)
+    assert plugin_root == [
+        'dev-core: Claude catalog source archived/plugins/dev-core points at archived/; archives are not installable'
+    ]

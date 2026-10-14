@@ -340,12 +340,11 @@ Guards are **off** unless the project declares the host-neutral contract (`.dev/
 
 > **Known caveat, this slice only.** While both this plugin and `dev-core` are installed, both interceptors see the same `tool_call` and reach the same verdict — the snapshots are byte-identical and read the same escape hatch. Expect the refusal, and the no-contract warning, to be reported **once per plugin**: each extension owns a private warned-cwd set, so neither dedupes the other.
 
-## Worktree bootstrap on entry
+## Worktree bootstrap
 
-The same extension bootstraps worktrees it did not create. On `session_start` and `agent_start`, when the main agent's cwd is inside a linked worktree with no `omp-build-bootstrapped` marker in its git dir, it starts `skills/feature/worktree-bootstrap.sh` there, detached, logging to `<git dir>/omp-build-bootstrap.log`. Each cwd is checked once per session. This covers every way a worktree appears — `git worktree add`, `github` `pr_checkout`, `/wt`, a terminal — as soon as a session works in it, because omp emits no event for a new worktree or a `/move` while `ctx.cwd` follows the session.
+Worktree bootstrap is explicit: `/feature init` calls `skills/feature/worktree-bootstrap.sh` after it creates a linked worktree. `session_start` and `agent_start` never start background bootstrap work, create markers, copy files, or write bootstrap logs.
 
-- The principal, a directory outside git, and subagents (task isolations) never start one. No project contract is required: without `.dev/stack.yml` only the code indexes are built.
-- The script holds a lock in the git dir, so `/feature`'s explicit call waits for a background run and then no-ops.
+- The script holds a lock in the git dir, so repeated explicit calls wait for a running invocation and then no-op.
 - ccc's `settings.yml` lands before `worktree.setup`, so ccc never indexes an ancestor directory while an install runs.
 - Worktree lists and setup scalars are read with Bun.YAML (Bun ≥1.2.21) before any transfer or indexing. Flow/block string lists agree and `[]` means no transfer. Invalid YAML or consumed list types fail with the stack filename, leave no completion marker and release the lock. A non-empty `worktree.setup` runs as a Bash snippet; absent, empty or whitespace-only setup falls back to the file declared by `commands.worktree_setup`, from the worktree root. A failed setup also stays retryable. `feature init` preserves a declared setup command instead of adding an empty override. Cleanup uses the same YAML parser for the principal's `worktree.base`, preserving environment > stack > default precedence and quoted/block scalars.
 
@@ -396,7 +395,7 @@ Two behaviours changed in the copy: `promote/preflight.sh` is now read-only (dev
 instead of the Grok roots this plugin never writes to. dev-core's `shared/references/release-convention.md` did not travel: its two
 rules are inlined in `promote/SKILL.md` § Merge method.
 
-**The names are deliberately not `R-dev-review`/`R-fix`.** Skill discovery dedups by `name` across every provider, first-wins: while `dev-core` is still installed next to this plugin, identical names would make one of the two workflows shadow the other silently — and the shadowed one is the panel the operator thinks is running. Snapshotted agent bodies still call the workflow `/R-dev-review` in prose; that is a label, not an invocation, and the dispatch prompt in `skills/dev-review/SKILL.md` is the contract they actually obey.
+**The names are deliberately not `R-dev-review`/`R-fix`.** Skill discovery dedups by `name` across every provider, first-wins. `dev-core` is archived and is not an installable sibling. Snapshotted agent bodies still call the workflow `/R-dev-review` in prose; that is a label, not an invocation, and the dispatch prompt in `skills/dev-review/SKILL.md` is the contract they actually obey.
 
 ## Maintenance
 

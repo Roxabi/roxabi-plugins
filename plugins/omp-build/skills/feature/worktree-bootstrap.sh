@@ -297,5 +297,9 @@ if [ -d "$here/.semctx" ]; then
   (cd "$here" && semctx index)
 fi
 
-date -u +%Y-%m-%dT%H:%M:%SZ > "$marker"
+# Emit status before the stamp, then flush file-backed stdout. glibc fully
+# buffers non-TTY stdout; without the flush, waiters can see the stamp while
+# omp-build-bootstrap.log is still empty (CI flake on startBootstrap).
 echo "bootstrap=done"
+exec 1>/dev/null
+date -u +%Y-%m-%dT%H:%M:%SZ > "$marker"

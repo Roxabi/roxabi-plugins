@@ -62,7 +62,7 @@ classes:
       log, sanitize) appears in ≥3 sibling target/adapter dirs instead of
       being composed as a primary-axis primitive.
       Threshold: ≥3 sibling dirs is the canonical trigger (the "three-strikes"
-      rule from shared/references/axial-decomposition.md — 2 = coincidence,
+      rule from plugins/omp-build/skills/dev-review/references/axial-decomposition.md — 2 = coincidence,
       3+ = duplication that must be promoted to a shared primitive).
       Detected against the project's axial ADR (`axial: true` frontmatter
       in `docs/architecture/adr/`).

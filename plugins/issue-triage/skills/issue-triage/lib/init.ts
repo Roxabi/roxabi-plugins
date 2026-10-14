@@ -8,11 +8,13 @@
  * `CANONICAL_LABELS`. A contract that parses to no vocabulary is a refusal,
  * not an empty plan. `--repo` other than the local repo is refused: the local
  * file is not that repo's vocabulary. Label writes go through the GitHub
- * adapter. `--dry-run` writes nothing. A repository label definition is never
- * deleted or recoloured. Issue bodies are never edited.
+ * adapter. Preview (default) and `--dry-run` write nothing. Writes require
+ * `--approve <digest>` plus a separate `--operator-approval` reply. A repository
+ * label definition is never deleted or recoloured. Issue bodies are never edited.
  */
 
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import {
   existsSync,
   lstatSync,
@@ -329,11 +331,11 @@ export async function buildPlan(
   deps: Pick<InitDeps, 'listLabelNames' | 'listIssueLabelSets' | 'readContract'>,
 ): Promise<{ plan: InitPlan; issues: IssueLabels[]; contractText: string }> {
   const otherRepo = repo !== cwdRepo
-  const [defined, issues, current] = await Promise.all([
-    deps.listLabelNames(repo),
-    deps.listIssueLabelSets(repo),
-    otherRepo ? Promise.resolve(null) : Promise.resolve(deps.readContract()),
-  ])
+  // Sequential: a parallel rejection would put whichever call failed first into
+  // the error, so two previews of the same repo could disagree and refuse approval.
+  const defined = await deps.listLabelNames(repo)
+  const issues = await deps.listIssueLabelSets(repo)
+  const current = otherRepo ? null : deps.readContract()
   const parsed = otherRepo ? { source: 'none' as const, labels: [] } : vocabularyFor(current)
   const createLabels: string[] = []
   const mismatches: string[] = []
@@ -370,6 +372,41 @@ export async function buildPlan(
   }
 }
 
+/** Stable representation of exactly the tracker mutations an approval covers. */
+export function canonicalPlan(plan: InitPlan, contractText: string): string {
+  const createLabels = [...plan.createLabels].sort()
+  const relabels = [...plan.relabels]
+    .map((row) => ({ number: row.number, add: [...row.add].sort(), remove: [...row.remove].sort() }))
+    .sort((left, right) => left.number - right.number)
+  const labelColors = Object.fromEntries(
+    createLabels.map((name) => [name, plan.labelColors[name] ?? DEFAULT_LABEL_COLOR]),
+  )
+  return JSON.stringify({
+    createLabels,
+    labelColors,
+    relabels,
+    contract: plan.contract,
+    contractTextSha256: createHash('sha256').update(contractText).digest('hex'),
+    refused: [...plan.refused].sort(),
+  })
+}
+
+/** Applies a plan only after its caller has authenticated the exact canonical plan. */
+export async function applyApprovedPlan(plan: InitPlan, contractText: string, deps: InitDeps): Promise<InitPlan> {
+  if (plan.refused.length > 0) throw new Error(plan.refused.join('\n'))
+  for (const name of plan.createLabels) {
+    await deps.ensureLabel(name, plan.repo, plan.labelColors[name] ?? DEFAULT_LABEL_COLOR)
+  }
+  for (const row of plan.relabels) await deps.updateLabels(row.number, row.add, row.remove, plan.repo)
+  if (plan.contract === 'write') deps.writeContract(contractText)
+  return plan
+}
+
+/** Stable digest of the exact mutations applyApprovedPlan would perform. */
+export function planDigest(plan: InitPlan, contractText: string): string {
+  return createHash('sha256').update(canonicalPlan(plan, contractText)).digest('hex')
+}
+
 /** True when a second pass over the post-migration labels has nothing to do. */
 export function secondPassIsNoop(
   issues: IssueLabels[],
@@ -384,8 +421,16 @@ export function secondPassIsNoop(
   return planRelabels(nextIssues).length === 0 && missing.length === 0
 }
 
-function parseArgs(args: string[]): { dryRun: boolean; repo?: string; root?: string } {
+function parseArgs(args: string[]): {
+  dryRun: boolean
+  approve?: string
+  operatorApproval?: string
+  repo?: string
+  root?: string
+} {
   let dryRun = false
+  let approve: string | undefined
+  let operatorApproval: string | undefined
   let repo: string | undefined
   let root: string | undefined
   for (let i = 0; i < args.length; i++) {
@@ -394,26 +439,32 @@ function parseArgs(args: string[]): { dryRun: boolean; repo?: string; root?: str
       dryRun = true
       continue
     }
-    if (arg === '--repo') {
+    if (arg === '--approve' || arg === '--operator-approval' || arg === '--repo' || arg === '--root') {
       const value = args[i + 1]
-      if (!value || value.startsWith('-')) throw new Error('init: --repo needs owner/repo')
-      repo = value
-      i++
-      continue
-    }
-    if (arg === '--root') {
-      const value = args[i + 1]
-      if (!value || value.startsWith('-')) throw new Error('init: --root needs a checkout path')
-      root = value
+      if (!value || value.startsWith('-')) {
+        throw new Error(
+          arg === '--approve'
+            ? 'init: --approve needs a digest'
+            : arg === '--operator-approval'
+              ? 'init: --operator-approval needs the operator reply'
+              : arg === '--repo'
+                ? 'init: --repo needs owner/repo'
+                : 'init: --root needs a checkout path',
+        )
+      }
+      if (arg === '--approve') approve = value
+      else if (arg === '--operator-approval') operatorApproval = value
+      else if (arg === '--repo') repo = value
+      else root = value
       i++
       continue
     }
     throw new Error(`init: unknown argument ${arg}`)
   }
-  return { dryRun, repo, root }
+  return { dryRun, approve, operatorApproval, repo, root }
 }
 
-function defaultDeps(cwdRepo: string, cwd = process.cwd()): InitDeps {
+export function defaultInitDeps(cwdRepo: string, cwd = process.cwd()): InitDeps {
   const root = repoToplevel(cwd)
   return {
     listLabelNames,
@@ -432,19 +483,23 @@ function defaultDeps(cwdRepo: string, cwd = process.cwd()): InitDeps {
 }
 
 export async function initIssues(args: string[], deps?: InitDeps): Promise<InitPlan> {
-  const { dryRun, repo: repoFlag, root } = parseArgs(args)
+  const { dryRun, approve, operatorApproval, repo: repoFlag, root } = parseArgs(args)
   const cwdRepo = deps?.cwdRepo ?? detectGitHubRepo()
   const repo = repoFlag ?? cwdRepo
-  const bound = deps ?? defaultDeps(cwdRepo, root)
+  const bound = deps ?? defaultInitDeps(cwdRepo, root)
   const { plan, contractText } = await buildPlan(repo, cwdRepo, bound)
-  console.log(formatPlan(plan, dryRun))
-  if (dryRun) return plan
-  if (plan.refused.length > 0) throw new Error(plan.refused.join('\n'))
-
-  for (const name of plan.createLabels) {
-    await bound.ensureLabel(name, repo, plan.labelColors[name] ?? DEFAULT_LABEL_COLOR)
+  const digest = planDigest(plan, contractText)
+  // Preview is the default. Printing the plan is not approval (Spec B / #805).
+  console.log(formatPlan(plan, dryRun || approve === undefined))
+  console.log(`digest: ${digest}`)
+  console.log('digest is not authorization')
+  if (dryRun || approve === undefined) return plan
+  // Strip whitespace + Cf (ZWSP/ZWNJ/…) so digest±format-chars cannot pass as a
+  // distinct operator reply (Spec B: digest is not authorization).
+  const normalizedApproval = (operatorApproval ?? '').replace(/[\s\p{Cf}]/gu, '')
+  if (!approve || !normalizedApproval || normalizedApproval === approve || normalizedApproval === digest) {
+    throw new Error('init=refused explicit operator approval is required')
   }
-  for (const row of plan.relabels) await bound.updateLabels(row.number, row.add, row.remove, repo)
-  if (plan.contract === 'write') bound.writeContract(contractText)
-  return plan
+  if (approve !== digest) throw new Error('init=refused approval digest does not match the preview')
+  return applyApprovedPlan(plan, contractText, bound)
 }

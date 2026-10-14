@@ -99,7 +99,7 @@ oracles: ["z"]
 
   it('path_hit when delta touches auth path', () => {
     expect(pathHit(['src/auth/login.ts'])).toBe(true)
-    expect(pathHit(['plugins/dev-core/skills/foo.ts'])).toBe(false)
+    expect(pathHit(['plugins/example/skills/foo.ts'])).toBe(false)
   })
 })
 
@@ -132,7 +132,7 @@ oracles: ["z"]
 `)
     const parsed = parsePricedFences(readFileSync(spec, 'utf-8'))
     const out = roster({
-      delta: ['plugins/dev-core/skills/foo.ts'],
+      delta: ['plugins/example/skills/foo.ts'],
       claims: parsed.claims,
       pricedClaimOk: parsed.pricedClaimOk,
     })
@@ -375,9 +375,9 @@ describe('structural signals', () => {
     }
   })
 
-  it('plugins/dev-core/skills/adr path is not a structural signal alone', () => {
-    expect(structureHit(['plugins/dev-core/skills/adr/SKILL.md'], emptyPaths())).toBe(false)
-    const out = roster({ delta: ['plugins/dev-core/skills/adr/SKILL.md'] })
+  it('a plugin skill path is not a structural signal alone', () => {
+    expect(structureHit(['plugins/example/skills/adr/SKILL.md'], emptyPaths())).toBe(false)
+    const out = roster({ delta: ['plugins/example/skills/adr/SKILL.md'] })
     expect(out.agents).not.toContain('R-architect')
     expect(gate(out, 'R-architect')).toMatchObject({ spawn: false, reason: 'no-structure' })
   })

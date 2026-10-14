@@ -56,7 +56,7 @@ The file has two parts: a YAML frontmatter header and a markdown body with instr
 
 **Frontmatter (required fields):**
 
-- `name` — the skill identifier, in kebab-case (e.g. `compress`)
+- `name` — the skill identifier, in kebab-case (e.g. `summarize-content`)
 - `description` — shape depends on invocation mode (see below)
 - `version` — semantic version starting at `0.1.0`
 - `allowed-tools` — comma-separated list of tools **pre-approved** to run without a permission prompt while the skill is active (e.g. `Read, Edit, Write, Bash, Glob`). It does **not** restrict availability — every tool stays callable regardless; use `disallowed-tools` to actually remove tools from the pool. List every tool the skill drives so it runs prompt-free, including `Agent` if it spawns sub-agents. Always include `ToolSearch` — required to load deferred tools (`EnterWorktree`, `Agent`, `WebFetch`, etc.). 
@@ -70,8 +70,8 @@ The file has two parts: a YAML frontmatter header and a markdown body with instr
 
 ```yaml
 ---
-name: compress
-description: 'Compress agent/skill definitions using math/logic notation. Triggers: "compress" | "compress skill" | "compress agent" | "compress context" | "shorten this" | "make it formal" | "use formal notation" | "expand notation" | "lint notation" | "derive pattern from skills".'
+name: summarize-content
+description: 'Summarize a scoped document set. Triggers: "summarize these files" | "summarize this document".'
 version: 0.1.0
 allowed-tools: Read, Edit, Write, Bash, Glob
 ---
@@ -108,7 +108,7 @@ allowed-tools: Write, Read, Glob, ToolSearch
 - How it works (brief explanation of the approach, no code notation)
 - Reload vs restart table if the plugin ships agents, hooks, or `omp.extensions`
 
-See `plugins/compress/README.md` (marketplace) or `plugins/omp-build/README.md` (OMP catalog + link) for examples.
+See `plugins/issue-triage/README.md` (Claude Code catalog) or `plugins/omp-build/README.md` (OMP catalog + link) for examples.
 
 ### Step 4 — Register in marketplace catalogs (marketplace path only)
 
@@ -172,7 +172,7 @@ feat(plugins): add <plugin-name> — short description
 
 When adopting a high-quality external skill rather than building from scratch, use `git subtree` to vendor it into the marketplace while keeping the ability to pull upstream updates.
 
-> **Native vs Wrapped plugins** — plugins built by Roxabi are *native*. Plugins forked from external raw-skill repos (no versioning, no install mechanism) are *wrapped*: Roxabi adds the plugin structure (frontmatter, README, marketplace entries) and vendors the source via `git subtree`. Both appear in `.claude-plugin/marketplace.json` and `.omp-plugin/marketplace.json`. For endorsed external repos that already ship as proper plugin marketplaces, add them to `curated-marketplaces.json` instead — `/ci-setup` discovers and offers them at runtime without vendoring.
+> **Native vs Wrapped plugins** — plugins built by Roxabi are *native*. Plugins forked from external raw-skill repos (no versioning, no install mechanism) are *wrapped*: Roxabi adds the plugin structure (frontmatter, README, marketplace entries) and vendors the source via `git subtree`. Both appear in `.claude-plugin/marketplace.json` and `.omp-plugin/marketplace.json`. For endorsed external repos that already ship as proper plugin marketplaces, add them to `curated-marketplaces.json` instead of vendoring. There is no install-time skill that offers them.
 
 ### Step 1 — Add as a subtree
 

@@ -9,12 +9,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const EXCLUDE_PATHS = path.join(REPO_ROOT, 'scripts/trufflehog-exclude-paths.txt')
 
-// This repo's own hook, and the copy dev-init seeds into every fleet repo
-// (seed-trufflehog.ts). The fix once landed in the first only, so the fleet kept
-// committing empty trees from linked worktrees.
+// This repo's root hook is the sole active secret-scan entry point.
 const SCRIPTS = {
   'scripts/trufflehog-check.sh': path.join(REPO_ROOT, 'scripts/trufflehog-check.sh'),
-  'plugins/dev-core/scripts/trufflehog-check.sh': path.join(REPO_ROOT, 'plugins/dev-core/scripts/trufflehog-check.sh'),
 }
 
 // ─── Clean env (isolate from the outer git context) ──────────────────────────

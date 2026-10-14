@@ -300,7 +300,8 @@ describe('external programs never take bare skill:// argv', () => {
     expect(corpus.some((f) => f.endsWith('/SKILL.md'))).toBe(true)
     expect(corpus.some((f) => f.includes('/templates/') && f.endsWith('.md'))).toBe(true)
     expect(corpus.some((f) => f.endsWith('/README.md'))).toBe(true)
-    expect(corpus.length).toBeGreaterThan(80)
+    expect(corpus.some((f) => f.startsWith('plugins/omp-build/'))).toBe(true)
+    expect(corpus.some((f) => f.startsWith('plugins/issue-triage/'))).toBe(true)
   })
 
   it('finds no unsafe skill:// in shell contexts across the corpus', () => {

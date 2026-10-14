@@ -4,8 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import ompBuildExtension from '../index'
-
-type EntryHandler = (event: unknown, ctx: { cwd: string; agent?: { kind: 'main' | 'sub' } }) => Promise<void>
+import { startBootstrap, unbootstrappedWorktree } from '../worktree-entry'
 
 const ENV: NodeJS.ProcessEnv = {
   ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))),
@@ -39,47 +38,40 @@ function fixture(): { repo: string; wt: string; wtGitDir: string } {
   return { repo, wt, wtGitDir: path.join(repo, '.git', 'worktrees', 'wt') }
 }
 
-function entryHandlers(): Record<'session_start' | 'agent_start', EntryHandler> {
-  const handlers: Partial<Record<string, EntryHandler>> = {}
-  ompBuildExtension({
-    on: (event: string, fn: unknown) => {
-      handlers[event] = fn as EntryHandler
-    },
-    registerCommand: () => {},
-    sendUserMessage: () => {},
+describe('worktree bootstrap entry', () => {
+  it('does not register session or agent start bootstrap handlers', () => {
+    const { repo, wt, wtGitDir } = fixture()
+    const handlers: Record<string, unknown> = {}
+    ompBuildExtension({
+      on: (event: string, handler: unknown) => {
+        handlers[event] = handler
+      },
+      registerCommand: () => {},
+      sendUserMessage: () => {},
+    })
+
+    expect(handlers.session_start).toBeUndefined()
+    expect(handlers.agent_start).toBeUndefined()
+    expect(existsSync(path.join(wtGitDir, 'omp-build-bootstrap.log'))).toBe(false)
+    expect(existsSync(path.join(wtGitDir, 'omp-build-bootstrapped'))).toBe(false)
+    expect(existsSync(path.join(wt, '.env'))).toBe(false)
+    expect(existsSync(path.join(repo, '.git', 'omp-build-bootstrap.log'))).toBe(false)
   })
-  const { session_start, agent_start } = handlers
-  if (!session_start || !agent_start) throw new Error('extension registered no worktree entry handler')
-  return { session_start, agent_start }
-}
 
-describe('worktree entry bootstrap', () => {
-  it('bootstraps a linked worktree once the main agent works in it, from any of its subdirectories', async () => {
+  it('still bootstraps when startBootstrap is called explicitly', async () => {
     const { wt, wtGitDir } = fixture()
-    mkdirSync(path.join(wt, 'src'))
-    const { agent_start } = entryHandlers()
-
-    await agent_start({}, { cwd: path.join(wt, 'src'), agent: { kind: 'main' } })
+    const worktree = unbootstrappedWorktree(wt)
+    expect(worktree).not.toBeNull()
+    startBootstrap(path.resolve(import.meta.dirname, '../../skills/feature/worktree-bootstrap.sh'), worktree!)
 
     await vi.waitFor(() => expect(existsSync(path.join(wtGitDir, 'omp-build-bootstrapped'))).toBe(true), {
       timeout: 15_000,
       interval: 50,
     })
     expect(readFileSync(path.join(wt, '.env'), 'utf8')).toBe('REAL=1\n')
-    expect(readFileSync(path.join(wtGitDir, 'omp-build-bootstrap.log'), 'utf8').trim()).toBe('bootstrap=done')
-  })
-
-  it('starts nothing for a subagent, the principal, or a worktree already bootstrapped', async () => {
-    const { repo, wt, wtGitDir } = fixture()
-    const { session_start, agent_start } = entryHandlers()
-
-    await agent_start({}, { cwd: wt, agent: { kind: 'sub' } })
-    await session_start({}, { cwd: repo, agent: { kind: 'main' } })
-    writeFileSync(path.join(wtGitDir, 'omp-build-bootstrapped'), 'earlier\n')
-    await entryHandlers().agent_start({}, { cwd: wt, agent: { kind: 'main' } })
-
-    expect(existsSync(path.join(wtGitDir, 'omp-build-bootstrap.log'))).toBe(false)
-    expect(existsSync(path.join(repo, '.git', 'omp-build-bootstrap.log'))).toBe(false)
-    expect(existsSync(path.join(wt, '.env'))).toBe(false)
+    await vi.waitFor(
+      () => expect(readFileSync(path.join(wtGitDir, 'omp-build-bootstrap.log'), 'utf8').trim()).toBe('bootstrap=done'),
+      { timeout: 15_000, interval: 50 },
+    )
   })
 })

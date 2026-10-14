@@ -8,16 +8,10 @@ Checks:
 - data.root is unique across all plugin.json files (never metadata.json)
 - No leftover .claude-plugin/metadata.json (data.* lives in plugin.json)
 - Example files referenced in plugin.json exist
-- No leftover plugins/*/scripts/_lib/paths.py (use roxabi_sdk.paths)
-- Fixed /tmp/ literals in SKILL.md files (tempfile-convention.md)
+- Fixed /tmp/ literals in active SKILL.md files
 - Inline class list in dev-review/SKILL.md spawn template matches review-classes.yml
 - Subsumption pairs declared in review-classes.yml notes are mentioned together in
   dev-review/SKILL.md (prevents drift in pair definitions across files)
-- Budgeted SKILL.md files stay within their physical line budgets
-- Gated dev-core legend lines are one-line pointers to the canonical notation
-  glossary, and compress's inline whitelist stays set-equal to its core table
-- Golden compressed artifacts stay inventory-equivalent to their expected
-  inventories (compress read-back goldens, issue #311)
 - Catalogued `.claude-plugin/marketplace.json` plugin names appear in root
   `README.md` (link-only plugins are exempt)
 
@@ -29,10 +23,10 @@ Usage:
 """
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
-import unicodedata
 from pathlib import Path
 
 import yaml
@@ -47,32 +41,9 @@ OMP_MARKETPLACE_JSON = REPO_ROOT / '.omp-plugin' / 'marketplace.json'
 README_MD = REPO_ROOT / 'README.md'
 
 
-# Plugin name → max physical lines of its skills/*/SKILL.md (issue #309 Decision 5)
-SKILL_LINE_BUDGETS = {'compress': 110}
 
-# Notation-legends check (issue #310 Decision 9): gated legend files must carry a
-# one-line pointer to the canonical glossary, whose core table must stay set-equal
-# to the compress whitelist.
-NOTATION_LEGEND_FILES = [
-    PLUGINS_DIR / 'dev-core' / 'skills' / 'shared' / 'references' / 'base.md',
-    PLUGINS_DIR / 'dev-core' / 'agents' / 'R-doc-writer.md',
-]
-NOTATION_GLOSSARY = PLUGINS_DIR / 'shared' / 'references' / 'notation.md'
-COMPRESS_SKILL = PLUGINS_DIR / 'compress' / 'skills' / 'compress' / 'SKILL.md'
-
-# Golden read-back triples (issue #311 Decision 6)
-GOLDEN_DIR = PLUGINS_DIR / 'compress' / 'skills' / 'compress' / 'references' / 'golden'
-
-# Inventory anchor on its own line: <!-- INV-<category>-<n> -->
-_INV_ANCHOR_RE = re.compile(r'^\s*<!--\s*(INV-[a-z]+-\d+)\s*-->\s*$')
-
-# Decision-6 charset: normalized keys keep only [a-z0-9 ∀∃∄∈∉∧∨¬→⟺∅≥≤]
-_INV_NORM_DROP_RE = re.compile(r'[^a-z0-9∀∃∄∈∉∧∨¬→⟺∅≥≤]')
-
-_BACKTICK_SPAN_RE = re.compile(r'`([^`]+)`')
-
-_DEFAULT_YAML_PATH = PLUGINS_DIR / 'dev-core' / 'skills' / 'dev-review' / 'review-classes.yml'
-_DEFAULT_SKILL_PATH = PLUGINS_DIR / 'dev-core' / 'skills' / 'dev-review' / 'SKILL.md'
+_DEFAULT_YAML_PATH = PLUGINS_DIR / 'omp-build' / 'skills' / 'dev-review' / 'review-classes.yml'
+_DEFAULT_SKILL_PATH = PLUGINS_DIR / 'omp-build' / 'skills' / 'dev-review' / 'SKILL.md'
 
 # Anchor in SKILL.md: "Canonical classes (use slug only): <slug1>, ...<slugN>."
 _SPAWN_LIST_RE = re.compile(
@@ -188,30 +159,9 @@ def check_examples_exist() -> list[str]:
     return errors
 
 
-def check_vendored_paths() -> list[str]:
-    """Fail if any plugin vendors a path helper; roxabi_sdk.paths is the only home.
-
-    Depth-agnostic on purpose: the pre-SDK copies lived at both
-    `<plugin>/scripts/_lib/paths.py` and `<plugin>/_lib/paths.py` (ADR-001).
-    """
-    vendored_names = {'paths.py', '_paths.py'}
-    errors = []
-    for candidate in sorted(PLUGINS_DIR.rglob('*.py')):
-        is_module = candidate.name in vendored_names
-        is_package = candidate.name == '__init__.py' and candidate.parent.name == 'paths'
-        if not (is_module or is_package):
-            continue
-        rel = candidate.relative_to(REPO_ROOT)
-        errors.append(
-            f'vendored path helper: {rel} — import from roxabi_sdk.paths instead'
-        )
-    return errors
-
-
 def check_tempfile_convention() -> list[str]:
     """SKILL.md files must not hardcode /tmp/<name> literals.
 
-    Enforces plugins/shared/references/tempfile-convention.md.
     Any fixed path must be replaced by `mktemp -d -t <plugin>-<purpose>-<scope>-XXXXXX`
     with a `trap 'rm -rf "$TMPDIR"' EXIT` cleanup.
     """
@@ -454,287 +404,6 @@ def check_subsumption_pairs(
 
 
 
-def check_skill_line_budget(budgets=None, plugins_dir=None) -> list[str]:
-    """Budgeted plugins' SKILL.md files must not exceed their line budgets.
-
-    Budgets are keyed by plugin name — this assumes one budgeted SKILL.md per
-    plugin; every skills/*/SKILL.md under a budgeted plugin is held to the
-    same cap. A budgeted plugin with no SKILL.md is skipped (not an error).
-    """
-    errors = []
-    if budgets is None:
-        budgets = SKILL_LINE_BUDGETS
-    if plugins_dir is None:
-        plugins_dir = PLUGINS_DIR
-    plugins_dir = Path(plugins_dir)
-    for plugin_name, budget in sorted(budgets.items()):
-        for skill_md in sorted(plugins_dir.glob(f'{plugin_name}/skills/*/SKILL.md')):
-            actual = len(skill_md.read_text(encoding='utf-8').splitlines())
-            if actual > budget:
-                rel = skill_md.relative_to(plugins_dir)
-                errors.append(
-                    f'{plugin_name}: {rel} is {actual} lines (budget {budget})'
-                )
-    return errors
-
-
-def check_notation_legends(legend_files=None, skill_path=None, glossary_path=None) -> list[str]:
-    """Gated legend lines must point at notation.md; whitelist ≡ core table.
-
-    Two gates (issue #310 Decision 9):
-    - Pointer gate: each gated dev-core file carries exactly one line containing
-      'notation.md' — the one-line pointer replacing its former inline legend.
-    - Set-equality gate: backtick spans of compress SKILL.md's 'Whitelist:' line
-      must be set-equal to the column-1 backtick spans of notation.md's active
-      core-table rows ('## Core Table' up to the next '##' heading, cell-1
-      '\\|' escapes unescaped). Separator rows (e.g. '|---|:---:|') are inert
-      by construction — column 1 of a separator row carries no backtick spans,
-      so the column-1 extraction naturally contributes nothing; no explicit
-      skip is needed. Both sets must be non-empty so an empty ≡ empty
-      comparison never vacuously passes.
-
-    Exit semantics when called from main():
-      - errors containing 'not found at' (missing file) → caller returns 2
-      - errors containing 'not valid utf-8' (decode failure) → caller returns 2
-      - pointer/set drift (incl. missing anchors) → caller returns 1
-    """
-    errors = []
-    if legend_files is None:
-        legend_files = NOTATION_LEGEND_FILES
-    if skill_path is None:
-        skill_path = COMPRESS_SKILL
-    if glossary_path is None:
-        glossary_path = NOTATION_GLOSSARY
-    skill_path = Path(skill_path)
-    glossary_path = Path(glossary_path)
-
-    # Gate (a): one-line pointers in the gated legend files
-    for legend in legend_files:
-        legend = Path(legend)
-        if not legend.exists():
-            errors.append(f'gated legend file not found at {legend}')
-            continue
-        try:
-            legend_text = legend.read_text(encoding='utf-8')
-        except UnicodeDecodeError as e:
-            errors.append(f'{legend} is not valid UTF-8: {e}')
-            continue
-        pointer_lines = [
-            line for line in legend_text.splitlines()
-            if 'notation.md' in line
-        ]
-        if not pointer_lines:
-            errors.append(
-                f'{legend}: legend is not a one-line pointer — '
-                f'no line references notation.md'
-            )
-        elif len(pointer_lines) > 1:
-            errors.append(
-                f'{legend}: expected exactly one pointer line referencing '
-                f'notation.md, found {len(pointer_lines)}'
-            )
-
-    # Gate (b): whitelist ≡ core-table active rows
-    whitelist: set[str] = set()
-    if not skill_path.exists():
-        errors.append(f'compress SKILL.md not found at {skill_path}')
-    else:
-        try:
-            skill_text = skill_path.read_text(encoding='utf-8')
-        except UnicodeDecodeError as e:
-            errors.append(f'{skill_path} is not valid UTF-8: {e}')
-        else:
-            wl_lines = [
-                line for line in skill_text.splitlines()
-                if line.startswith('Whitelist:')
-            ]
-            if not wl_lines:
-                errors.append(f'{skill_path}: no line starting "Whitelist:" found')
-            else:
-                whitelist = set(_BACKTICK_SPAN_RE.findall(wl_lines[0]))
-                if not whitelist:
-                    errors.append(
-                        f'{skill_path}: Whitelist: line carries no backtick spans'
-                    )
-
-    core: set[str] = set()
-    if not glossary_path.exists():
-        errors.append(f'notation glossary not found at {glossary_path}')
-    else:
-        try:
-            glossary_text = glossary_path.read_text(encoding='utf-8')
-        except UnicodeDecodeError as e:
-            errors.append(f'{glossary_path} is not valid UTF-8: {e}')
-        else:
-            lines = glossary_text.splitlines()
-            in_section = False
-            anchor_seen = False
-            for line in lines:
-                if line.startswith('## '):
-                    in_section = line.strip() == '## Core Table'
-                    anchor_seen = anchor_seen or in_section
-                    continue
-                if not in_section or not line.lstrip().startswith('|'):
-                    continue
-                cells = re.split(r'(?<!\\)\|', line)
-                if len(cells) < 2:
-                    continue
-                for span in _BACKTICK_SPAN_RE.findall(cells[1]):
-                    core.add(span.replace('\\|', '|'))
-            if not anchor_seen:
-                errors.append(
-                    f'{glossary_path}: core table anchor "## Core Table" not found in file'
-                )
-            elif not core:
-                errors.append(
-                    f'{glossary_path}: core table has no active glyph rows — '
-                    f'empty set would vacuously pass'
-                )
-    # Header row ('| glyph | ...') carries no backtick spans, so it never
-    # contributes; only glyph rows populate the set.
-
-    if whitelist and core:
-        missing = whitelist - core
-        extra = core - whitelist
-        if missing:
-            errors.append(
-                f'whitelist glyphs missing from the notation.md core table: {sorted(missing)}'
-            )
-        if extra:
-            errors.append(
-                f'core-table glyphs missing from the SKILL.md whitelist: {sorted(extra)}'
-            )
-    return errors
-
-
-def _normalize_inventory_text(text: str) -> str:
-    """Decision-6 text-key normalization (issue #311).
-
-    NFC-normalize (composed vs. decomposed Unicode forms of logically
-    identical text must key identically) → lowercase → strip leading/
-    trailing whitespace → collapse internal whitespace runs to one space →
-    drop characters outside the `[a-z0-9 ∀∃∄∈∉∧∨¬→⟺∅≥≤]` class
-    (punctuation-only tokens vanish).
-    """
-    # lockstep: keep identical to plugins/compress/scripts/inventory_diff.py::normalize
-    # (Decision-6 charset parity, NFC-first step) — see #311
-    text = unicodedata.normalize('NFC', text)
-    tokens = []
-    for token in text.lower().split():
-        token = _INV_NORM_DROP_RE.sub('', token)
-        if token:
-            tokens.append(token)
-    return ' '.join(tokens)
-
-
-def _parse_compressed_anchors(text: str) -> set[tuple[str, str]]:
-    """Extract (anchor, normalized text key) pairs from a compressed artifact.
-
-    Each anchor sits on its own line; its item is the next non-empty line
-    (grammar: compress skill references/verify.md). The lookahead stops at
-    (and never consumes) another anchor-comment line — adjacent anchors each
-    get their own following text — and raises if an anchor is left with no
-    item text at all.
-    """
-    pairs = set()
-    lines = text.splitlines()
-    for lineno, line in enumerate(lines):
-        m = _INV_ANCHOR_RE.match(line)
-        if not m:
-            continue
-        item_text = ''
-        for follower in lines[lineno + 1:]:
-            if not follower.strip():
-                continue
-            if _INV_ANCHOR_RE.match(follower):
-                break
-            item_text = follower.strip()
-            break
-        if not item_text:
-            raise ValueError(
-                f'anchor {m.group(1)} has no following item text '
-                f'(line {lineno + 1})'
-            )
-        pairs.add((m.group(1), _normalize_inventory_text(item_text)))
-    return pairs
-
-
-def _validate_inventory_shape(data) -> str | None:
-    """Return an error string if `data` is not list-of-{anchor: str, text: str}, else None."""
-    if not isinstance(data, list):
-        return 'not valid inventory shape — expected a JSON array'
-    for i, item in enumerate(data):
-        if not isinstance(item, dict):
-            return f'not valid inventory shape — item {i} is not an object'
-        if not isinstance(item.get('anchor'), str) or not isinstance(item.get('text'), str):
-            return f'not valid inventory shape — item {i} must have string "anchor" and "text"'
-    return None
-
-
-def check_golden_inventories(golden_dir=None) -> list[str]:
-    """Golden compressed artifacts must be inventory-equivalent to their JSONs.
-
-    For each `NN-name.compressed.md` in the golden dir, set-compare its
-    (anchor, normalized text key) pairs against the sibling
-    `NN-name.inventory.json` — both directions, never bytes, no LLM.
-
-    Activation semantic: a MISSING golden dir returns [] (the check is inert
-    until the goldens land — their commit activates the gate); an EXISTING
-    dir with zero triples is a loud error, never a silent pass.
-
-    Each triple's shape/anchor validation is wrapped so one malformed triple
-    (bad inventory shape, or a compressed file that violates the anchor
-    grammar) FAILs only that triple with a clean message — never a traceback,
-    and never an abort of the rest of the validator run.
-    """
-    errors = []
-    golden_dir = Path(golden_dir) if golden_dir is not None else GOLDEN_DIR
-    if not golden_dir.exists():
-        return errors
-    compressed_files = sorted(golden_dir.glob('*.compressed.md'))
-    if not compressed_files:
-        errors.append(f'no golden triples found in {golden_dir} — empty golden dir')
-        return errors
-
-    for compressed in compressed_files:
-        triple = compressed.name.removesuffix('.compressed.md')
-        inventory_path = golden_dir / f'{triple}.inventory.json'
-        if not inventory_path.exists():
-            errors.append(f'{triple}: expected inventory not found at {inventory_path}')
-            continue
-        try:
-            with open(inventory_path, encoding='utf-8') as f:
-                expected_items = json.load(f)
-        except (json.JSONDecodeError, UnicodeDecodeError) as e:
-            errors.append(f'{triple}: failed to parse {inventory_path.name}: {e}')
-            continue
-
-        try:
-            shape_error = _validate_inventory_shape(expected_items)
-            if shape_error:
-                errors.append(f'{triple}: {inventory_path.name} {shape_error}')
-                continue
-
-            actual = _parse_compressed_anchors(compressed.read_text(encoding='utf-8'))
-            expected = {
-                (item['anchor'], _normalize_inventory_text(item['text']))
-                for item in expected_items
-            }
-            for anchor, key in sorted(expected - actual):
-                errors.append(
-                    f'{triple}: inventory item missing from compressed artifact: '
-                    f'{anchor} ("{key}")'
-                )
-            for anchor, key in sorted(actual - expected):
-                errors.append(
-                    f'{triple}: compressed anchor not matching expected inventory: '
-                    f'{anchor} ("{key}")'
-                )
-        except Exception as e:
-            errors.append(f'{triple}: {e}')
-            continue
-    return errors
-
 def check_marketplace_readme_catalog(
     marketplace_path=None,
     readme_path=None,
@@ -789,6 +458,95 @@ def check_marketplace_readme_catalog(
     return errors
 
 
+def _strip_dot_slash(path_text: str) -> str:
+    text = path_text.strip()
+    while text.startswith('./'):
+        text = text[2:]
+    return text
+
+
+def catalog_source_in_archive(source: str, repo_root: Path) -> bool:
+    """True when a local catalog path lands under archived/.
+
+    Spec A / #805: refuse the inert archive as an installable source. Lexical
+    collapse catches `./plugins/../archived/…`; resolve catches a symlink whose
+    final target is under archived/. Accepts `./…`, `archived/…`, and other
+    repo-relative spellings (not only the `./` prefix).
+    """
+    if not isinstance(source, str) or not source.strip():
+        return False
+    text = source.strip()
+    if '://' in text:
+        return False  # remote URL — not a local archive path
+    relative_text = _strip_dot_slash(text)
+    lexical = Path(os.path.normpath(relative_text))
+    if lexical.parts and lexical.parts[0] == 'archived':
+        return True
+    candidate = repo_root / relative_text
+    if not candidate.exists():
+        return False
+    try:
+        relative = candidate.resolve().relative_to(repo_root.resolve())
+    except ValueError:
+        return False
+    return bool(relative.parts) and relative.parts[0] == 'archived'
+
+
+def catalog_row_local_paths(row: dict, metadata: dict | None = None) -> list[str]:
+    """Local path spellings a catalog row can use to reach archive content."""
+    paths: list[str] = []
+    source = row.get('source')
+    plugin_root = metadata.get('pluginRoot') if isinstance(metadata, dict) else None
+    if isinstance(source, str):
+        paths.append(source)
+        # Bare plugin names resolve under metadata.pluginRoot on Claude catalogs.
+        if (
+            isinstance(plugin_root, str)
+            and plugin_root.strip()
+            and '/' not in source
+            and not source.startswith('.')
+            and '://' not in source
+        ):
+            paths.append(str(Path(plugin_root) / source))
+            paths.append(plugin_root)
+    elif isinstance(source, dict):
+        nested = source.get('path')
+        if isinstance(nested, str) and nested.strip():
+            paths.append(nested)
+    return paths
+
+
+def check_catalog_archived_sources(catalog_path=None, repo_root=None, label='catalog') -> list[str]:
+    """Refuse marketplace rows whose local source resolves under archived/."""
+    catalog_path = Path(catalog_path) if catalog_path is not None else OMP_MARKETPLACE_JSON
+    repo_root = Path(repo_root) if repo_root is not None else REPO_ROOT
+    if not catalog_path.is_file():
+        return [f'{label} marketplace.json not found at {catalog_path}']
+    try:
+        data = json.loads(catalog_path.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError) as e:
+        return [f'failed to parse {label} marketplace.json: {e}']
+    plugins = data.get('plugins') if isinstance(data, dict) else None
+    if not isinstance(plugins, list):
+        return [f'failed to parse {label} marketplace.json: plugins is not a list']
+    metadata = data.get('metadata') if isinstance(data, dict) else None
+    errors = []
+    for row in plugins:
+        if not isinstance(row, dict):
+            continue
+        name = row.get('name') or '<unnamed>'
+        for path_text in catalog_row_local_paths(row, metadata if isinstance(metadata, dict) else None):
+            if catalog_source_in_archive(path_text, repo_root):
+                display = row.get('source')
+                display_text = path_text if not isinstance(display, dict) else path_text
+                errors.append(
+                    f'{name}: {label} catalog source {display_text} points at archived/; '
+                    f'archives are not installable'
+                )
+                break
+    return errors
+
+
 def check_omp_catalog(catalog_path=None, repo_root=None) -> list[str]:
     """The OMP catalog must parse, point at real plugin dirs, and carry the package version.
 
@@ -817,6 +575,19 @@ def check_omp_catalog(catalog_path=None, repo_root=None) -> list[str]:
         if not name:
             errors.append(f'OMP catalog row without a name: {row!r}')
             continue
+        # Spec A / #805: refuse archived installs for every local spelling
+        # (bare archived/…, git-subdir.path), not only the `./…` package-compare path.
+        archived_hit = False
+        for path_text in catalog_row_local_paths(row, None):
+            if catalog_source_in_archive(path_text, repo_root):
+                errors.append(
+                    f'{name}: OMP catalog source {path_text} points at archived/; '
+                    f'archives are not installable'
+                )
+                archived_hit = True
+                break
+        if archived_hit:
+            continue
         source = row.get('source')
         if not isinstance(source, str) or not source.startswith('./'):
             continue  # a remote source has no local package to compare
@@ -842,6 +613,15 @@ def check_omp_catalog(catalog_path=None, repo_root=None) -> list[str]:
     return errors
 
 
+def check_claude_catalog_archived_sources(catalog_path=None, repo_root=None) -> list[str]:
+    """Claude marketplace rows must not reinstall archived/ sources (Spec A / #805)."""
+    return check_catalog_archived_sources(
+        catalog_path if catalog_path is not None else MARKETPLACE_JSON,
+        repo_root,
+        label='Claude',
+    )
+
+
 
 
 def _is_io_error(msg: str) -> bool:
@@ -861,7 +641,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description='Validate plugin structure and data conventions.')
     parser.add_argument(
         '--check',
-        choices=['class-list-sync', 'subsumption-pairs', 'notation-legends'],
+        choices=['class-list-sync', 'subsumption-pairs'],
         help='Run only the named check (default: run all checks)',
     )
     args = parser.parse_args(argv)
@@ -885,14 +665,6 @@ def main(argv: list[str] | None = None) -> int:
             return 2 if any(_is_io_error(e) for e in errors) else 1
         return 0
 
-    if args.check == 'notation-legends':
-        errors = check_notation_legends()
-        if errors:
-            print('FAIL: Notation legends', file=sys.stderr)
-            for e in errors:
-                print(f'  {e}', file=sys.stderr)
-            return 2 if any(_is_io_error(e) for e in errors) else 1
-        return 0
 
     # Default: run all checks
     all_errors = []
@@ -902,16 +674,13 @@ def main(argv: list[str] | None = None) -> int:
         ('data.root uniqueness', check_data_root_uniqueness),
         ('No metadata.json', check_no_metadata_json),
         ('Example files exist', check_examples_exist),
-        ('No vendored paths.py', check_vendored_paths),
         ('Tempfile convention', check_tempfile_convention),
         ('SKILL.md frontmatter scalars', check_skill_frontmatter_scalars),
         ('Class list sync', check_class_list_sync),
         ('Subsumption pairs', check_subsumption_pairs),
-        ('SKILL.md line budget', check_skill_line_budget),
-        ('Notation legends', check_notation_legends),
-        ('Golden inventories', check_golden_inventories),
         ('Marketplace README catalog', check_marketplace_readme_catalog),
         ('OMP catalog versions', check_omp_catalog),
+        ('Claude catalog archived sources', check_claude_catalog_archived_sources),
     ]
 
     for name, check_fn in checks:

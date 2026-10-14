@@ -24,6 +24,10 @@ function contract(label: string): string {
 
 let root: string | undefined
 let fake: GitHubFake | undefined
+function requireRoot(): string {
+  if (!root) throw new Error('test root missing')
+  return root
+}
 afterEach(async () => {
   await fake?.close()
   fake = undefined
@@ -72,14 +76,26 @@ async function world(targetVocabulary?: string) {
   }
 }
 
+/** Preview is default; mutate only with the printed digest + operator reply. */
+async function runApprovedInit(script: string, rootArg: string, cwd: string, env: Record<string, string>) {
+  const base = `bun --no-env-file ${JSON.stringify(script)} init --root ${JSON.stringify(rootArg)}`
+  const preview = await run(base, cwd, env)
+  if (preview.code !== 0) return preview
+  const digest = preview.stdout.match(/^digest: ([0-9a-f]{64})$/m)?.[1]
+  if (!digest) {
+    return { ...preview, code: 99, stderr: `${preview.stderr}\nmissing digest` }
+  }
+  return run(
+    `${base} --approve ${JSON.stringify(digest)} --operator-approval ${JSON.stringify('operator yes')}`,
+    cwd,
+    env,
+  )
+}
+
 describe('triage init --root', () => {
   it('reads the target contract rather than the trusted installation contract', async () => {
     const w = await world('target-only')
-    const ran = await run(
-      `bun --no-env-file ${JSON.stringify(w.script)} init --root ${JSON.stringify(w.target)}`,
-      path.dirname(w.script),
-      w.env,
-    )
+    const ran = await runApprovedInit(w.script, w.target, path.dirname(w.script), w.env)
 
     expect(ran.code).toBe(0)
     expect(ran.stdout).toContain('vocabulary: table')
@@ -87,7 +103,8 @@ describe('triage init --root', () => {
     expect(readFileSync(w.targetContract, 'utf8')).toBe(contract('target-only'))
     expect(readFileSync(w.trustedContract, 'utf8')).toBe(w.trustedBytes)
     expect(readFileSync(w.labels, 'utf8')).toBe('target-only\n')
-    expect(startupLog(w.startup)).toEqual([`${path.dirname(w.script)}\t`])
+    // Preview then approve each start triage once in the trusted plugin directory.
+    expect(startupLog(w.startup)).toEqual([`${path.dirname(w.script)}\t`, `${path.dirname(w.script)}\t`])
     expect(existsSync(w.sentinel)).toBe(false)
     const children = ghCalls(w.ghLog)
     expect(children).not.toEqual([])
@@ -96,11 +113,7 @@ describe('triage init --root', () => {
 
   it('writes an absent contract only under the selected target checkout', async () => {
     const w = await world()
-    const ran = await run(
-      `bun --no-env-file ${JSON.stringify(w.script)} init --root ${JSON.stringify(w.target)}`,
-      path.dirname(w.script),
-      w.env,
-    )
+    const ran = await runApprovedInit(w.script, w.target, path.dirname(w.script), w.env)
 
     expect(ran.code).toBe(0)
     expect(ran.stdout).toContain('contract: write')
@@ -158,11 +171,7 @@ describe('triage init --root', () => {
     const internal = path.join(w.target, 'internal-contract.md')
     mkdirSync(path.dirname(w.targetContract), { recursive: true })
     symlinkSync(internal, w.targetContract)
-    const ran = await run(
-      `bun --no-env-file ${JSON.stringify(w.script)} init --root ${JSON.stringify(w.target)}`,
-      path.dirname(w.script),
-      w.env,
-    )
+    const ran = await runApprovedInit(w.script, w.target, path.dirname(w.script), w.env)
 
     expect(ran.code).toBe(0)
     expect(ran.stdout).toContain('contract: write')
@@ -175,11 +184,7 @@ describe('triage init --root', () => {
     const physicalDocs = path.join(w.target, 'physical-docs')
     if (state === 'existing') mkdirSync(physicalDocs)
     symlinkSync('physical-docs/', path.join(w.target, 'docs'), 'dir')
-    const ran = await run(
-      `bun --no-env-file ${JSON.stringify(w.script)} init --root ${JSON.stringify(w.target)}`,
-      path.dirname(w.script),
-      w.env,
-    )
+    const ran = await runApprovedInit(w.script, w.target, path.dirname(w.script), w.env)
 
     expect(ran.code).toBe(0)
     expect(existsSync(path.join(physicalDocs, 'agents', 'issue-tracker.md'))).toBe(true)
@@ -189,7 +194,7 @@ describe('triage init --root', () => {
 
   it('refuses a dangling contract symlink before every write', async () => {
     const w = await world()
-    const outside = path.join(root!, 'outside')
+    const outside = path.join(requireRoot(), 'outside')
     mkdirSync(outside)
     const external = path.join(outside, 'issue-tracker.md')
     mkdirSync(path.dirname(w.targetContract), { recursive: true })
@@ -210,7 +215,7 @@ describe('triage init --root', () => {
 
   it('refuses an ancestor directory symlink before every write', async () => {
     const w = await world()
-    const outside = path.join(root!, 'outside')
+    const outside = path.join(requireRoot(), 'outside')
     mkdirSync(outside)
     symlinkSync(outside, path.join(w.target, 'docs'), 'dir')
     const external = path.join(outside, 'agents', 'issue-tracker.md')
@@ -229,7 +234,7 @@ describe('triage init --root', () => {
 
   it('refuses a lexical in-checkout link whose existing prefix is outside', async () => {
     const w = await world()
-    const outside = path.join(root!, 'outside')
+    const outside = path.join(requireRoot(), 'outside')
     mkdirSync(path.join(w.target, 'docs/agents'), { recursive: true })
     mkdirSync(outside)
     symlinkSync(outside, path.join(w.target, 'docs/agents/escape'), 'dir')
@@ -280,11 +285,7 @@ describe('triage init --root', () => {
     mkdirSync(path.dirname(rendered), { recursive: true })
     symlinkSync(internal, w.targetContract)
     symlinkSync(rendered, internal)
-    const ran = await run(
-      `bun --no-env-file ${JSON.stringify(w.script)} init --root ${JSON.stringify(w.target)}`,
-      path.dirname(w.script),
-      w.env,
-    )
+    const ran = await runApprovedInit(w.script, w.target, path.dirname(w.script), w.env)
 
     expect(ran.code).toBe(0)
     expect(ran.stdout).toContain('contract: write')
@@ -297,11 +298,7 @@ describe('triage init --root', () => {
     const intended = path.join(w.target, 'generated', 'contracts', 'issue-tracker.md')
     mkdirSync(path.dirname(w.targetContract), { recursive: true })
     symlinkSync(intended, w.targetContract)
-    const ran = await run(
-      `bun --no-env-file ${JSON.stringify(w.script)} init --root ${JSON.stringify(w.target)}`,
-      path.dirname(w.script),
-      w.env,
-    )
+    const ran = await runApprovedInit(w.script, w.target, path.dirname(w.script), w.env)
 
     expect(ran.code).toBe(0)
     expect(ran.stdout).toContain('contract: write')
@@ -421,11 +418,7 @@ describe('triage init --root', () => {
     mkdirSync(path.dirname(physical), { recursive: true })
     writeFileSync(physical, contract('target-only'))
     symlinkSync(path.join('..', path.basename(w.target), 'physical-docs'), path.join(w.target, 'docs'), 'dir')
-    const ran = await run(
-      `bun --no-env-file ${JSON.stringify(w.script)} init --root ${JSON.stringify(w.target)}`,
-      path.dirname(w.script),
-      w.env,
-    )
+    const ran = await runApprovedInit(w.script, w.target, path.dirname(w.script), w.env)
 
     expect(ran.code).toBe(0)
     expect(ran.stdout).toContain('vocabulary: table')
@@ -439,11 +432,7 @@ describe('triage init --root', () => {
     const w = await world()
     const physical = path.join(w.target, 'physical-docs/agents/issue-tracker.md')
     symlinkSync(path.join('..', path.basename(w.target), 'physical-docs'), path.join(w.target, 'docs'), 'dir')
-    const ran = await run(
-      `bun --no-env-file ${JSON.stringify(w.script)} init --root ${JSON.stringify(w.target)}`,
-      path.dirname(w.script),
-      w.env,
-    )
+    const ran = await runApprovedInit(w.script, w.target, path.dirname(w.script), w.env)
 
     expect(ran.code).toBe(0)
     expect(ran.stdout).toContain('contract: write')

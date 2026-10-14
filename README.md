@@ -21,21 +21,20 @@ Roxabi plugins are the reusable layer on top of Claude Code. Each plugin ships o
 ## Quick Start
 
 ```bash
-# 1. Add the marketplace (once per machine)
+# Claude Code: add the marketplace once, then install the retained plugin.
 claude plugin marketplace add Roxabi/roxabi-plugins
+claude plugin install issue-triage
 
-# 2. Install the plugin you need
-claude plugin install dev-core        # full dev lifecycle + /R-dev-init setup
-claude plugin install compress        # token-efficient skill notation
+# Oh My Pi: omp-build is catalogued for OMP only.
+omp plugin marketplace add Roxabi/roxabi-plugins
+omp plugin install omp-build@roxabi-marketplace
 ```
 
-Then trigger any skill by describing what you want — no slash commands to memorize:
+Then describe the task or invoke the installed command:
 
 ```
-"start working on issue #42"    → /R-dev
-"improve readme"                → /R-readme-upgrade
-"sync docs after this refactor" → /R-doc-sync
-"scrape and summarize this URL" → /summarize  (install roxabi-intel marketplace)
+"triage issue #42"              → issue-triage
+"/feature #42"                  → omp-build
 ```
 
 ## How it works
@@ -51,43 +50,16 @@ flowchart LR
     E --> F[Result in your repo]
 ```
 
-Plugins are project-agnostic: they read your stack from `.dev/stack.yml` at runtime and adapt to your framework, package manager, and file layout. The same `dev-core` plugin works on a NestJS monorepo and a Django service.
+Retained plugins are project-agnostic: they read the project contract at runtime and adapt to its workflow and repository layout.
 
-## Plugins
+## Retained plugins
 
-### Development lifecycle
+| Plugin | Host | Description |
+|--------|------|-------------|
+| [issue-triage](plugins/issue-triage/README.md) | Claude Code, OMP | Triage and create GitHub issues with labels and native relations. |
+| [omp-build](plugins/omp-build/README.md) | OMP | Feature cycle: frame → issue → worktree → implement → review/fix → land. |
 
-| Plugin | Description |
-|--------|-------------|
-| [dev-core](plugins/dev-core/README.md) | Full dev workflow — frame, analyze, spec, plan, implement, review, ship. Includes `/R-dev-init` project setup (env-setup → axial → ci-setup → release-setup). Lifecycle skills, agents, safety hooks. Issues-only (no Projects V2 board); issue triage is the companion [issue-triage](plugins/issue-triage/README.md) plugin. Deferred siblings retain qualified parent coordinates. Project-agnostic via `stack.yml`. Quality gates (Python): file-length / folder-size / import-layer pre-commit hooks via `quality_gates:` in `stack.yml` |
-| [issue-triage](plugins/issue-triage/README.md) | Triage/create GitHub issues — size/priority/lane/type labels, blocked-by deps, parent/child. Trusted-directory, confirmed-read sibling filing preserves qualified parent coordinates; `init --root` preserves target contract context. Native integration checks cover contract-path confinement and owned-process lifetime. Labels + native relations, no Projects V2 |
-| [gitnexus](plugins/gitnexus/README.md) | GitNexus CLI — code knowledge graph (impact, symbol context, query). CLI-only alternative to MCP for minimal token overhead |
-| [omp-build](plugins/omp-build/README.md) | OMP-only feature cycle — frame → GitHub issue → worktree → `/move` + `/goal` → implement → bounded review/fix → land. [Review → fix record contract](plugins/omp-build/skills/dev-review/root-causes.md). A PR may open early; `landPr` reads conserved evidence for the selected reviewed head, without running producers: Semctx VERIFIED or honestly justified PARTIAL when configured on the base, head or operator checkout, and assertledger detection for a fix with an applicable adapter. Every applicable record part must predate approval and have readable publication/revision facts with no recorded in-place edit; a part published after approval needs same-head review, and an edited selected comment refuses until the proof is acquired again. Review binds the exact observed body and complete selected publications before judgement and rechecks that SHA256 before posting and admission; an approval binding producer evidence refuses if none applies at landing. A record attests its selected comment's current body, not what the producer printed nor who ran it: these are automation-account comments, not signed acquisition attestations, and any write-access account can edit, delete or repost them. Review judges NO TEST reason truth and browser-check performance; a gap stays unproved. Shared exits confirm applicable disarms and current-head approval, but other actors can override arms and an arm is not a lasting head pin. CI-watch/review observers retain on approval and bound, not proof re-admission. VERIFIED composes declared evidence, not a test run; landing's runtime-proof claim depends on CI GitHub actually enforces on that head, not merely stack-declared names. [Full landing and retention contract](plugins/omp-build/README.md#slash-commands). Issue writes use [issue-triage](plugins/issue-triage/README.md); feature init starts its trusted producer outside checkout startup, while Frame and printed tracker init use issue-triage's trusted-directory launcher, with `--root` retaining target contract context, and deferred siblings retain qualified parent coordinates. Worktree YAML uses Bun consistently for lists, setup and cleanup base, with named failures instead of silent empty configuration; setup keeps snippet overrides and declared-file fallback. OMP catalog only: `omp plugin install omp-build@roxabi-marketplace` |
-
-### Content & branding
-
-| Plugin | Description |
-|--------|-------------|
-| [linkedin-post-generator](plugins/linkedin-post-generator/README.md) | Generate LinkedIn posts with best practices and visual identity |
-| [image-prompt-generator](plugins/image-prompt-generator/README.md) | Generate AI image prompts with style consistency |
-
-> **Forge** has moved to its own marketplace: [Roxabi/roxabi-forge](https://github.com/Roxabi/roxabi-forge). Install: `claude plugin marketplace add Roxabi/roxabi-forge`
-> **IDNA** is now a standalone Python service at [Roxabi/roxabi-idna](https://github.com/Roxabi/roxabi-idna) — no longer shipped as a Claude Code plugin.
-
-### Career tools
-
-| Plugin | Description |
-|--------|-------------|
-| [cv](plugins/cv/README.md) | Generate and adapt CVs from structured data |
-| [linkedin-apply](plugins/linkedin-apply/README.md) | Scrape and score LinkedIn job offers with LLM matching |
-
-### Utilities
-
-| Plugin | Description |
-|--------|-------------|
-| [compress](plugins/compress/README.md) | Rewrite agent/skill definitions using compact math/logic notation to reduce token usage |
-| [1b1](plugins/1b1/README.md) | Walk through a list of items one by one — brief, decide, execute, repeat |
-| [get-invoice-details](plugins/get-invoice-details/README.md) | Extract and store invoice details from documents |
+Retired plugins are retained only under [`archived/`](archived/); they are inert historical source and are not installable from either marketplace catalog.
 
 ### Endorsed marketplaces
 
@@ -113,33 +85,19 @@ claude plugin marketplace add <source>
 
 ## Data storage
 
-Data-producing plugins store user data in `~/.roxabi-vault/` — never in the repo. Override the location with the `ROXABI_VAULT_HOME` environment variable. Vault functionality is provided by [roxabi-vault](https://github.com/Roxabi/roxabi-vault).
-
-| Plugin | Data location |
-|--------|--------------|
-| cv | `~/.roxabi-vault/cv/` |
-| linkedin-post-generator | `~/.roxabi-vault/content/` (shared) |
-| get-invoice-details | `~/.roxabi-vault/invoices/` |
-| image-prompt-generator | `~/.roxabi-vault/config/`, `~/.roxabi-vault/image-prompts/` |
-| linkedin-apply | `~/.roxabi-vault/linkedin-apply/` |
+The retained catalog does not ship a data-producing plugin. User data belongs outside this repository; see [roxabi-vault](https://github.com/Roxabi/roxabi-vault) for vault storage.
 
 ## Marketplace architecture
 
-Two kinds of plugins live in this repo:
+The active catalogs contain `issue-triage` and `omp-build` only. `issue-triage` appears in both catalogs; `omp-build` is OMP-only and is catalogued in [`.omp-plugin/marketplace.json`](.omp-plugin/marketplace.json), never in the Claude Code catalog.
 
-**Native plugins** — built and maintained by Roxabi. We own the full lifecycle: `dev-core`, `issue-triage`, `gitnexus`, `compress`, `1b1`, `cv`, `linkedin-post-generator`, `image-prompt-generator`, `get-invoice-details`, `linkedin-apply`.
-
-`omp-build` is OMP-only — it is catalogued in [`.omp-plugin/marketplace.json`](.omp-plugin/marketplace.json) alone, never in the Claude Code catalog, because it does not run on Claude. Install it with `omp plugin install omp-build@roxabi-marketplace`; `omp plugin link ./plugins/omp-build` stays the local-authoring route.
-
-**Wrapped plugins** — high-quality external skills with no versioning or install mechanism in their source repo. Roxabi adds plugin structure and vendors the source (via `git subtree` or file copy) so they become installable. New wrapped plugins go into `external/`.
-
-External plugin marketplaces we endorse are tracked in [`.claude-plugin/external-registry.json`](.claude-plugin/external-registry.json) (source of truth). [`.claude-plugin/curated-marketplaces.json`](.claude-plugin/curated-marketplaces.json) mirrors the curated list for runtime discovery — the `/R-ci-setup` skill reads it and offers installation — no skill edits needed to add a new endorsed source.
+External plugin marketplaces we endorse are tracked in [`.claude-plugin/external-registry.json`](.claude-plugin/external-registry.json) (source of truth). [`.claude-plugin/curated-marketplaces.json`](.claude-plugin/curated-marketplaces.json) mirrors that list. CI checks the two name sets stay equal. Adding an endorsed source does not require a skill edit.
 
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for how to add a plugin, wrap an external skill, or improve an existing one.
 
-Repository maintenance uses the locked Biome version with the recommended rules; keep lint fixes literal-safe and preserve runtime behavior rather than suppressing diagnostics. In JavaScript/TypeScript fixtures, escape literal `${...}` openers as `\${...}` in ordinary, untagged template literals and preserve the cooked string bytes. OMP changes to `dev-core`, `omp-build`, or `issue-triage` also require matching, newer package and OMP catalog versions so installed caches can pick them up.
+Repository maintenance uses the locked Biome version with the recommended rules; keep lint fixes literal-safe and preserve runtime behavior rather than suppressing diagnostics. In JavaScript/TypeScript fixtures, escape literal `${...}` openers as `\${...}` in ordinary, untagged template literals and preserve the cooked string bytes. OMP changes to `omp-build` or `issue-triage` require matching, newer package and OMP catalog versions so installed caches can pick them up.
 
 > [!TIP]
 > The fastest way to add a plugin is to follow the step-by-step guide in [docs/CREATE-PLUGIN-GUIDE.md](docs/CREATE-PLUGIN-GUIDE.md) — it covers directory structure, frontmatter, marketplace registration, and the commit format.

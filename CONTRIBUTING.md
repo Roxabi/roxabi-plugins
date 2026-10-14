@@ -7,7 +7,7 @@ feature/fix branch → PR → main
 git tag -a roxabi-plugins/vX.Y.Z → release.yml publishes the GitHub Release
 ```
 
-1. Create a branch from `main`: `feat/plugins/new-skill`, `fix/plugins/compress-edge-case`
+1. Create a branch from `main`: `feat/plugins/new-skill`, `fix/plugins/edge-case`
 2. Open a PR targeting `main`
 3. Pass CI (`bun lint`, `bun typecheck`, `bun test`)
 4. Merge
@@ -26,12 +26,12 @@ Follow [docs/CREATE-PLUGIN-GUIDE.md](docs/CREATE-PLUGIN-GUIDE.md) — marketplac
 
 ```
 feat(plugins): add voice-me — TTS script authoring skill
-fix(compress): handle nested code blocks
+fix(voice-me): handle nested code blocks
 chore: bump biome to 2.0
-docs(plugins): update compress README
+docs(plugins): update voice-me README
 ```
 
-- Scope: `plugins`, or a specific plugin name (`compress`, `vault`, `voice-me`)
+- Scope: `plugins`, or a specific active plugin name (`issue-triage`, `omp-build`, `voice-me`)
 
 ## PR conventions
 

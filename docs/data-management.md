@@ -4,12 +4,11 @@ Plugins that produce or consume user data follow these rules.
 
 ## Storage
 
-- **Default location:** `~/.roxabi-vault/` — all user data lives here, never in the repo
-- **Override:** set `ROXABI_VAULT_HOME` environment variable for a custom location
+- **Default location:** `~/.roxabi-vault/` — user data lives outside this repository
+- **Override:** set `ROXABI_VAULT_HOME` for a custom location
 - **Permissions:** directories created with mode `0o700`
-- **Shared directories:** `content/`, `ideas/`, `learnings/` — used by multiple plugins
-- **Exclusive directories:** `cv/`, `invoices/`, `linkedin-apply/` — owned by one plugin (`data.root` in `plugin.json`)
-
+- **Shared directories:** declare only active, documented shared storage
+- **Exclusive directories:** declare a unique active plugin-owned root in `plugin.json`
 ## plugin.json extended format
 
 Plugins with data declare it in `plugin.json`:
@@ -17,13 +16,13 @@ Plugins with data declare it in `plugin.json`:
 ```json
 {
   "data": {
-    "root": "cv",
-    "directories": ["generated", "adapted"],
+    "root": "plugin-data",
+    "directories": ["generated"],
     "files": {
-      "cv_data.json": {
-        "description": "Master CV data",
+      "example.json": {
+        "description": "Example user data",
         "sensitive": true,
-        "example": "examples/cv_data.example.json"
+        "example": "examples/example.json"
       }
     },
     "shared": []
@@ -37,23 +36,12 @@ Plugins with data declare it in `plugin.json`:
 
 ## Path Resolution
 
-All plugins use `roxabi_sdk/paths.py` for path resolution.
-
-The canonical copy lives at `roxabi_sdk/paths.py` (marketplace/repo root). Plugins import it via per-plugin `_sdk_bootstrap.py` (env override, upward walk, then cache→marketplaces hop). It is **not** copied into per-plugin hash caches.
-
-Key functions:
-- `get_vault_home()`
-- `get_plugin_data(name)`
-- `get_shared_dir(name)`
-- `get_config(name)`
-- `ensure_dir(path)`
-
-Vault/indexing functionality has moved to [roxabi-vault](https://github.com/Roxabi/roxabi-vault).
+Active plugins must resolve user-data paths from their own maintained runtime dependency or the external [roxabi-vault](https://github.com/Roxabi/roxabi-vault). Do not import helpers from retired plugins or archive source.
 
 ## Rules
 
 1. **Zero personal data** in the repo — use fictional data in `examples/`
-2. **English names** — `invoices/` not `factures/`, skills in English
-3. **Self-check in skills** — verify preconditions at start, suggest init skill if data missing
-4. **Shared SDK** — `roxabi_sdk/` at marketplace/repo root is the single source of truth for path resolution. Import via `from roxabi_sdk.paths import ...`. Do not vendor copies into plugin caches.
-5. **CI checks** — `tools/validate_plugins.py` enforces no personal data, unique `data.root`, examples exist
+2. **English names** — use stable, descriptive storage names
+3. **Self-check in skills** — verify preconditions at start, suggest an active setup path if data is missing
+4. **No archive dependencies** — active code and instructions never import or execute content below `archived/`
+5. **CI checks** — `tools/validate_plugins.py` enforces no personal data, unique `data.root`, and referenced examples

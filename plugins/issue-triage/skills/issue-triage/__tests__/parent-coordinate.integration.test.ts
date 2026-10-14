@@ -74,23 +74,20 @@ function parentArgument(markdown: string): string {
 }
 
 describe('qualified parent coordinates', () => {
-  it.each(['issue-triage', 'dev-core'])(
-    '%s parent reader retains the foreign repository and distinguishes no parent',
-    async (name) => {
-      const w = await world()
-      const program = path.join(w.root, 'reader.ts')
-      writeFileSync(
-        program,
-        `import { getParentRef } from ${quoted(pluginPath(name, 'skills/shared/adapters/github-adapter.ts'))}\nconsole.log(JSON.stringify({parent:await getParentRef(80),topLevel:await getParentRef(81)}))\n`,
-      )
+  it('issue-triage parent reader retains the foreign repository and distinguishes no parent', async () => {
+    const w = await world()
+    const program = path.join(w.root, 'reader.ts')
+    writeFileSync(
+      program,
+      `import { getParentRef } from ${quoted(pluginPath('issue-triage', 'skills/shared/adapters/github-adapter.ts'))}\nconsole.log(JSON.stringify({parent:await getParentRef(80),topLevel:await getParentRef(81)}))\n`,
+    )
 
-      const ran = await run(`bun --no-env-file ${quoted(program)}`, w.root, w.env)
+    const ran = await run(`bun --no-env-file ${quoted(program)}`, w.root, w.env)
 
-      expect(ran.code).toBe(0)
-      expect(JSON.parse(ran.stdout)).toEqual({ parent: { number: 70, repo: 'Acme/planning' }, topLevel: null })
-      expect(w.fake.calls.filter((call) => call.op === 'parent')).toHaveLength(2)
-    },
-  )
+    expect(ran.code).toBe(0)
+    expect(JSON.parse(ran.stdout)).toEqual({ parent: { number: 70, repo: 'Acme/planning' }, topLevel: null })
+    expect(w.fake.calls.filter((call) => call.op === 'parent')).toHaveLength(2)
+  })
 
   it('removes the actual foreign parent, not a same-number local relationship', async () => {
     const w = await world()
@@ -112,8 +109,6 @@ describe('qualified parent coordinates', () => {
   it.each([
     { name: 'omp-build', topLevel: false },
     { name: 'omp-build', topLevel: true },
-    { name: 'dev-core', topLevel: false },
-    { name: 'dev-core', topLevel: true },
   ])('$name authored lookup and filing preserve parent identity (top-level=$topLevel)', async ({ name, topLevel }) => {
     const w = await world()
     const markdown = readFileSync(pluginPath(name, 'skills/fix/SKILL.md'), 'utf8')

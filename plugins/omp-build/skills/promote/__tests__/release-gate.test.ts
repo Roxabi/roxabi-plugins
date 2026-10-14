@@ -6,7 +6,7 @@ import { STACK_YML } from '../../../hooks/lib/contract-paths.cjs'
 // The two D15 artifacts under test. Resolved relative to this file (never a
 // hardcoded worktree path) so the suite survives the worktree being merged
 // away — repo root is five levels up from __tests__/.
-//   __tests__ → promote → skills → dev-core → plugins → <repo root>
+//   __tests__ → promote → skills → omp-build → plugins → <repo root>
 const REUSABLE_PATH = fileURLToPath(
   new URL('../../../../../.github/workflows/release-consistency.yml', import.meta.url),
 )
@@ -202,7 +202,7 @@ describe('release-consistency — pinned gate tooling step (#385 item 1)', () =>
   })
 
   it('runs the pinned deriver and never the checked-out one', () => {
-    expect(reusableSrc).toContain('PRICE=".gate-tools/plugins/dev-core/skills/promote/price.sh"')
+    expect(reusableSrc).toContain('PRICE=".gate-tools/plugins/omp-build/skills/promote/price.sh"')
     expect(reusableSrc).not.toMatch(/PRICE="plugins\//)
   })
 

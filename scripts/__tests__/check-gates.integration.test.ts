@@ -395,37 +395,37 @@ describe('check-skill-version.sh', () => {
 
   it('exits 1 naming the OMP catalogue when plugin.json is SHA-based and the catalogue version is unchanged', () => {
     const { work, bare } = setupOriginWithPlugin({
-      pluginName: 'dev-core',
+      pluginName: 'sha-plugin',
       catalogue: { documentVersion: '9.9.9', entryVersion: '0.3.0' },
     })
     workDir = work
     bareDir = bare
-    commitSkillChange(work, 'dev-core', '# skill v2 (sha plugin.json, stale catalogue)\n')
+    commitSkillChange(work, 'sha-plugin', '# skill v2 (sha plugin.json, stale catalogue)\n')
 
     const { code, stdout, stderr } = runScriptCapture(CHECK_SKILL_VERSION, work)
 
     expect(code).toBe(1)
-    expect(stdout).toContain('dev-core')
+    expect(stdout).toContain('sha-plugin')
     expect(stdout).toContain('still 0.3.0')
     expect(stdout).toContain('.omp-plugin/marketplace.json')
     expect(stdout).not.toContain('9.9.9')
-    expect(stderr).toMatch(/SKIP: dev-core is SHA-based/)
+    expect(stderr).toMatch(/SKIP: sha-plugin is SHA-based/)
   })
 
   it('exits 0 and keeps the SHA-based SKIP when plugin.json has no version and the catalogue entry is bumped', () => {
     const { work, bare } = setupOriginWithPlugin({
-      pluginName: 'dev-core',
+      pluginName: 'sha-plugin',
       catalogue: { documentVersion: '9.9.9', entryVersion: '0.3.0' },
     })
     workDir = work
     bareDir = bare
-    bumpCatalogueEntry(work, 'dev-core', '0.4.0')
-    commitSkillChange(work, 'dev-core', '# skill v2 (sha plugin.json, catalogue bumped)\n')
+    bumpCatalogueEntry(work, 'sha-plugin', '0.4.0')
+    commitSkillChange(work, 'sha-plugin', '# skill v2 (sha plugin.json, catalogue bumped)\n')
 
     const { code, stderr } = runScriptCapture(CHECK_SKILL_VERSION, work)
 
     expect(code).toBe(0)
-    expect(stderr).toMatch(/SKIP: dev-core is SHA-based/)
+    expect(stderr).toMatch(/SKIP: sha-plugin is SHA-based/)
   })
 
   it('exits 1 naming plugin.json when the Claude version is unchanged even if the OMP catalogue entry is bumped', () => {

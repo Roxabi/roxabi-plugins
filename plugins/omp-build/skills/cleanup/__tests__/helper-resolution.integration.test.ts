@@ -52,10 +52,8 @@ const TAIL_SCRIPTS = ['promote', 'cleanup'].flatMap((skill) =>
 
 describe('tail skills resolve their helpers inside omp-build', () => {
   it('sources lib.sh from plugins/omp-build/skills/shared, proved by the trace', () => {
-    // Read from the execution, not the source text: `bash -x` prints the `.`
     // command after expansion, so the assertion sees the path the process really
-    // opened. Repointing the line at dev-core turns this red even though the
-    // relative spelling `../shared/lib.sh` would be unchanged.
+    // opened rather than merely matching its relative spelling.
     const dir = fixtureRepo(['staging', 'main'])
     try {
       const r = spawnSync('bash', ['-x', ANALYZE, '--json', '--no-fetch'], {

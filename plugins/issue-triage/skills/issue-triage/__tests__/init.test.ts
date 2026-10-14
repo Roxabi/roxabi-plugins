@@ -3,17 +3,30 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  applyApprovedPlan,
+  buildPlan,
+  canonicalPlan,
   classifyVocabulary,
   contractAction,
   contractFile,
   contractReader,
+  type InitDeps,
   initIssues,
   parseContractLabels,
+  planDigest,
   readContractFile,
   relabelTargetsOutside,
   repoToplevel,
   secondPassIsNoop,
 } from '../lib/init'
+
+/** Preview is default; mutate only with digest + operator reply. */
+async function approvedInit(args: string[], deps: InitDeps) {
+  const repoFlag = args.includes('--repo') ? args[args.indexOf('--repo') + 1] : deps.cwdRepo
+  const { plan, contractText } = await buildPlan(repoFlag, deps.cwdRepo, deps)
+  const digest = planDigest(plan, contractText)
+  return initIssues([...args, '--approve', digest, '--operator-approval', 'operator yes'], deps)
+}
 
 const CANONICAL = [
   'size:S',
@@ -28,6 +41,19 @@ const CANONICAL = [
 ]
 
 describe('init', () => {
+  it('reports the label discovery failure before the issue discovery failure', async () => {
+    const deps = {
+      listLabelNames: async () => {
+        throw new Error('labels down')
+      },
+      listIssueLabelSets: async () => {
+        throw new Error('issues down')
+      },
+      readContract: () => null,
+    }
+    await expect(buildPlan('Acme/app', 'Acme/app', deps)).rejects.toThrow('labels down')
+  })
+
   it('dry-run lists the plan and calls no writer', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {})
     const writes = { ensure: 0, update: 0, contract: 0 }
@@ -60,6 +86,76 @@ describe('init', () => {
     vi.restoreAllMocks()
   })
 
+  it('refuses digest-only, wrong-digest, and digest-as-operator-approval before writers', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const writes = { ensure: 0, update: 0, contract: 0 }
+    const deps: InitDeps = {
+      cwdRepo: 'Acme/app',
+      listLabelNames: async () => ['bug'],
+      listIssueLabelSets: async () => [],
+      ensureLabel: async () => {
+        writes.ensure += 1
+        return 'created'
+      },
+      updateLabels: async () => {
+        writes.update += 1
+      },
+      readContract: () => null,
+      writeContract: () => {
+        writes.contract += 1
+      },
+    }
+    const { plan, contractText } = await buildPlan('Acme/app', 'Acme/app', deps)
+    const digest = planDigest(plan, contractText)
+    await expect(initIssues(['--repo', 'Acme/app', '--approve', digest], deps)).rejects.toThrow(
+      'explicit operator approval is required',
+    )
+    await expect(
+      initIssues(['--repo', 'Acme/app', '--approve', '0'.repeat(64), '--operator-approval', 'ship it'], deps),
+    ).rejects.toThrow('approval digest does not match the preview')
+    await expect(
+      initIssues(['--repo', 'Acme/app', '--approve', digest, '--operator-approval', digest], deps),
+    ).rejects.toThrow('explicit operator approval is required')
+    await expect(
+      initIssues(['--repo', 'Acme/app', '--approve', digest, '--operator-approval', `${digest}\n`], deps),
+    ).rejects.toThrow('explicit operator approval is required')
+    await expect(
+      initIssues(['--repo', 'Acme/app', '--approve', digest, '--operator-approval', ` ${digest} `], deps),
+    ).rejects.toThrow('explicit operator approval is required')
+    await expect(
+      initIssues(['--repo', 'Acme/app', '--approve', digest, '--operator-approval', `${digest}\u200B`], deps),
+    ).rejects.toThrow('explicit operator approval is required')
+    await expect(
+      initIssues(['--repo', 'Acme/app', '--approve', digest, '--operator-approval', `\u200C${digest}`], deps),
+    ).rejects.toThrow('explicit operator approval is required')
+    expect(writes).toEqual({ ensure: 0, update: 0, contract: 0 })
+    vi.restoreAllMocks()
+  })
+
+  it('preview without approval writes nothing', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const writes = { ensure: 0, update: 0, contract: 0 }
+    const plan = await initIssues(['--repo', 'Acme/app'], {
+      cwdRepo: 'Acme/app',
+      listLabelNames: async () => ['bug'],
+      listIssueLabelSets: async () => [{ number: 3, labels: ['priority: low'], body: '' }],
+      ensureLabel: async () => {
+        writes.ensure += 1
+        return 'created'
+      },
+      updateLabels: async () => {
+        writes.update += 1
+      },
+      readContract: () => null,
+      writeContract: () => {
+        writes.contract += 1
+      },
+    })
+    expect(writes).toEqual({ ensure: 0, update: 0, contract: 0 })
+    expect(plan.contract).toBe('write')
+    vi.restoreAllMocks()
+  })
+
   it('a real run writes through the adapter, and the second run writes nothing', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {})
     const labels = ['bug']
@@ -87,7 +183,7 @@ describe('init', () => {
         contract = text
       },
     }
-    const first = await initIssues(['--repo', 'Acme/app'], deps)
+    const first = await approvedInit(['--repo', 'Acme/app'], deps)
     expect(writes.ensure).toBe(CANONICAL.length)
     expect(writes.update).toBe(1)
     expect(contract).toContain('Acme/app')
@@ -97,12 +193,66 @@ describe('init', () => {
 
     writes.ensure = 0
     writes.update = 0
-    const second = await initIssues(['--repo', 'Acme/app'], deps)
+    const second = await approvedInit(['--repo', 'Acme/app'], deps)
     expect(writes).toEqual({ ensure: 0, update: 0 })
     expect(second.relabels).toEqual([])
     expect(second.createLabels).toEqual([])
     expect(second.contract).toBe('unchanged')
     vi.restoreAllMocks()
+  })
+})
+
+describe('approved tracker plan', () => {
+  it('canonicalizes mutations and refuses before every writer', async () => {
+    const writes = { ensure: 0, relabel: 0, contract: 0 }
+    const plan = {
+      repo: 'Acme/app',
+      createLabels: ['P1-high', 'size:S'],
+      labelColors: { 'size:S': 'one', 'P1-high': 'two' },
+      relabels: [{ number: 8, add: ['size:S'], remove: ['size: XS'] }],
+      proseBlockedBy: [],
+      contract: 'write' as const,
+      vocabulary: 'canonical' as const,
+      refused: [],
+    }
+    expect(canonicalPlan(plan, 'contract')).toContain('"contractTextSha256"')
+    await applyApprovedPlan(plan, 'contract', {
+      cwdRepo: 'Acme/app',
+      listLabelNames: async () => [],
+      listIssueLabelSets: async () => [],
+      readContract: () => null,
+      ensureLabel: async () => {
+        writes.ensure++
+        return 'created'
+      },
+      updateLabels: async () => {
+        writes.relabel++
+      },
+      writeContract: () => {
+        writes.contract++
+      },
+    })
+    expect(writes).toEqual({ ensure: 2, relabel: 1, contract: 1 })
+
+    await expect(
+      applyApprovedPlan({ ...plan, refused: ['vocabulary unknown'] }, 'contract', {
+        cwdRepo: 'Acme/app',
+        listLabelNames: async () => [],
+        listIssueLabelSets: async () => [],
+        readContract: () => null,
+        ensureLabel: async () => {
+          writes.ensure++
+          return 'created'
+        },
+        updateLabels: async () => {
+          writes.relabel++
+        },
+        writeContract: () => {
+          writes.contract++
+        },
+      }),
+    ).rejects.toThrow('vocabulary unknown')
+    expect(writes).toEqual({ ensure: 2, relabel: 1, contract: 1 })
   })
 })
 
@@ -196,7 +346,7 @@ describe('init keeps an authored contract', () => {
   it('creates only missing contract labels in their colours and does not recolour', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {})
     const ensured: { name: string; color?: string }[] = []
-    const plan = await initIssues(['--repo', 'Acme/app'], {
+    const plan = await approvedInit(['--repo', 'Acme/app'], {
       cwdRepo: 'Acme/app',
       listLabelNames: async () => ['size:S', 'bug'],
       listIssueLabelSets: async () => [],
@@ -272,19 +422,22 @@ describe('init vocabulary refusals', () => {
     expect(read).toBe(0)
     expect(plan.vocabulary).toBe('none')
     expect(plan.createLabels).toEqual([])
-    await expect(
-      initIssues(['--repo', 'Acme/other'], {
-        cwdRepo: 'Acme/app',
-        listLabelNames: async () => [],
-        listIssueLabelSets: async () => [],
-        ensureLabel: async () => 'created',
-        updateLabels: async () => {},
-        readContract: () => KIT_CONTRACT,
-        writeContract: () => {
-          throw new Error('other repo must not write')
-        },
-      }),
-    ).rejects.toThrow(/refusing without an explicit vocabulary/)
+    const otherDeps = {
+      cwdRepo: 'Acme/app',
+      listLabelNames: async () => [],
+      listIssueLabelSets: async () => [],
+      ensureLabel: async () => 'created' as const,
+      updateLabels: async () => {},
+      readContract: () => KIT_CONTRACT,
+      writeContract: () => {
+        throw new Error('other repo must not write')
+      },
+    }
+    const preview = await initIssues(['--repo', 'Acme/other'], otherDeps)
+    expect(preview.refused.join('\n')).toMatch(/refusing without an explicit vocabulary/)
+    await expect(approvedInit(['--repo', 'Acme/other'], otherDeps)).rejects.toThrow(
+      /refusing without an explicit vocabulary/,
+    )
   })
 
   it('refuses a contract that parses to no vocabulary instead of canonical labels', async () => {
@@ -307,39 +460,43 @@ describe('init vocabulary refusals', () => {
     expect(plan.createLabels).toEqual([])
     expect(plan.createLabels).not.toContain('epic')
     expect(logs.join('\n')).toContain('vocabulary: none parsed from docs/agents/issue-tracker.md')
-    await expect(
-      initIssues(['--repo', 'Acme/app'], {
-        cwdRepo: 'Acme/app',
-        listLabelNames: async () => [],
-        listIssueLabelSets: async () => [],
-        ensureLabel: async () => 'created',
-        updateLabels: async () => {},
-        readContract: () => 'prose only\n',
-        writeContract: () => {
-          throw new Error('unparsed contract must not be written')
-        },
-      }),
-    ).rejects.toThrow(/vocabulary: none parsed/)
+    const emptyDeps = {
+      cwdRepo: 'Acme/app',
+      listLabelNames: async () => [],
+      listIssueLabelSets: async () => [],
+      ensureLabel: async () => 'created' as const,
+      updateLabels: async () => {},
+      readContract: () => 'prose only\n',
+      writeContract: () => {
+        throw new Error('unparsed contract must not be written')
+      },
+    }
+    const preview = await initIssues(['--repo', 'Acme/app'], emptyDeps)
+    expect(preview.refused.join('\n')).toMatch(/vocabulary: none parsed/)
+    await expect(approvedInit(['--repo', 'Acme/app'], emptyDeps)).rejects.toThrow(/vocabulary: none parsed/)
   })
 
   it('refuses a relabel target that is neither defined nor in the contract vocabulary', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {})
     const onlySize = `| Label | Colour |\n|---|---|\n| \`size:S\` | \`bfd4f2\` |\n`
-    await expect(
-      initIssues(['--repo', 'Acme/app'], {
-        cwdRepo: 'Acme/app',
-        listLabelNames: async () => ['size:S'],
-        listIssueLabelSets: async () => [{ number: 3, labels: ['priority: high'], body: '' }],
-        ensureLabel: async () => 'created',
-        updateLabels: async () => {
-          throw new Error('must not relabel before the target exists')
-        },
-        readContract: () => onlySize,
-        writeContract: () => {
-          throw new Error('must not write')
-        },
-      }),
-    ).rejects.toThrow(/P1-high: not in contract vocabulary, not on repo/)
+    const deps = {
+      cwdRepo: 'Acme/app',
+      listLabelNames: async () => ['size:S'],
+      listIssueLabelSets: async () => [{ number: 3, labels: ['priority: high'], body: '' }],
+      ensureLabel: async () => 'created' as const,
+      updateLabels: async () => {
+        throw new Error('must not relabel before the target exists')
+      },
+      readContract: () => onlySize,
+      writeContract: () => {
+        throw new Error('must not write')
+      },
+    }
+    const preview = await initIssues(['--repo', 'Acme/app'], deps)
+    expect(preview.refused.join('\n')).toMatch(/P1-high: not in contract vocabulary, not on repo/)
+    await expect(approvedInit(['--repo', 'Acme/app'], deps)).rejects.toThrow(
+      /P1-high: not in contract vocabulary, not on repo/,
+    )
   })
 
   it('reports a case mismatch instead of creating a second label', async () => {
@@ -388,8 +545,8 @@ describe('init vocabulary refusals', () => {
         writes += 1
       },
     }
-    const first = await initIssues(['--repo', 'Acme/app'], deps)
-    const second = await initIssues(['--repo', 'Acme/app'], deps)
+    const first = await approvedInit(['--repo', 'Acme/app'], deps)
+    const second = await approvedInit(['--repo', 'Acme/app'], deps)
     expect(first.contract).toBe('keep-existing')
     expect(second.contract).toBe('keep-existing')
     expect(second.createLabels).toEqual([])
@@ -417,19 +574,20 @@ describe('init vocabulary refusals', () => {
       })
       expect(plan.vocabulary).toBe('none')
       expect(plan.createLabels).toEqual([])
-      await expect(
-        initIssues(['--repo', 'Acme/app'], {
-          cwdRepo: 'Acme/app',
-          listLabelNames: async () => [],
-          listIssueLabelSets: async () => [],
-          ensureLabel: async () => 'created',
-          updateLabels: async () => {},
-          readContract: () => contract,
-          writeContract: () => {
-            throw new Error('empty vocabulary must not be written')
-          },
-        }),
-      ).rejects.toThrow(/vocabulary: none parsed/)
+      const emptyDeps = {
+        cwdRepo: 'Acme/app',
+        listLabelNames: async () => [],
+        listIssueLabelSets: async () => [],
+        ensureLabel: async () => 'created' as const,
+        updateLabels: async () => {},
+        readContract: () => contract,
+        writeContract: () => {
+          throw new Error('empty vocabulary must not be written')
+        },
+      }
+      const preview = await initIssues(['--repo', 'Acme/app'], emptyDeps)
+      expect(preview.refused.join('\n')).toMatch(/vocabulary: none parsed/)
+      await expect(approvedInit(['--repo', 'Acme/app'], emptyDeps)).rejects.toThrow(/vocabulary: none parsed/)
     }
   })
 
