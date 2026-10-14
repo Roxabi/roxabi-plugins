@@ -154,9 +154,14 @@ ADR-020 no longer bind:
    qualification and no other ADR-019 clause. The same reading applies to
    ADR-020's preamble and Negative.
    *Amended 2026-10-11 by #768:* the detection is read at landing too. For a
-   fix PR whose base or head declares an adapter, `landPr` reads the
-   conserved replay of the `assertledger check` the author ran on the
-   reviewed head and never runs it; there is no open-time gate.
+   fix PR whose established base or reviewed candidate commits a root
+   `assertledger.config.json` with an adapter, `landPr` reads the conserved replay
+   of the `assertledger check` the author ran on the reviewed head and never runs
+   it; there is no open-time gate. The bundled Kit Vitest module alone is
+   incidental tooling, not this explicit git-regression configuration: it is
+   `not-applicable` while CI/validate and review remain. An explicitly configured
+   unsupported producer still refuses, and no Vitest `verify` working-tree
+   provenance is admitted as a git-regression detection.
 
    Both readings govern only the arms `landPr` writes. A `reviewed` label or
    auto-merge set by another actor is an override: GitHub's auto-merge and

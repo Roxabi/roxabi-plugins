@@ -174,6 +174,8 @@ function workflowRead(
   ok: boolean
   input?: string | null
   body?: { body: string; lastEditedAt: string | null } | null
+  semctx?: unknown | null
+  assertledger?: unknown | null
   reason?: string
   error?: string
 } {
@@ -2607,6 +2609,187 @@ describe('landPr admission where Semctx and an assertledger adapter both apply',
     })
     expect(admitted.producers).toEqual([])
   })
+})
+
+describe('Kit-only adapter presence does not make a shell/CP fix owe AssertLedger detection', () => {
+  const PR = 809
+  const CONFIGURED_PR = 810
+  const KIT_ADAPTER = 'scripts/kit/assertledger/vitest-adapter.mjs'
+  const CP_GATE = 'scripts/kit/check-cp.sh'
+  const shellGate = (result: 'old' | 'fixed') =>
+    `#!/bin/sh\nprintf '${result} CP gate\\n'\n${result === 'old' ? 'exit 1' : 'exit 0'}\n`
+  let box: Box
+  let kit: string
+  let stale: string
+  let configured: string
+  const sha = (branch: string) => box.sha[branch] as string
+
+  beforeAll(() => {
+    box = sandbox({
+      base: {
+        '.dev/stack.yml': STACK,
+        [KIT_ADAPTER]: "export const adapter = 'vitest'\n",
+        [CP_GATE]: shellGate('old'),
+      },
+      branches: [
+        {
+          name: 'fix/809-kit-shell',
+          from: 'main',
+          commits: [{ message: 'fix: harden CP shell gate (#809)', files: { [CP_GATE]: shellGate('fixed') } }],
+        },
+        {
+          name: 'fix/809-kit-shell-stale-review',
+          from: 'fix/809-kit-shell',
+          commits: [
+            { message: 'test: cover CP shell gate (#809)', files: { [CP_GATE]: `${shellGate('fixed')}# covered\n` } },
+          ],
+        },
+        {
+          name: 'fix/809-kit-configured',
+          from: 'main',
+          commits: [
+            {
+              message: 'fix: configure CP regression campaign (#809)',
+              files: {
+                [CP_GATE]: shellGate('fixed'),
+                'assertledger.config.json': LEDGER_BASE['assertledger.config.json'] as string,
+              },
+            },
+          ],
+        },
+      ],
+      issues: [{ number: PR, title: 'fix: harden CP shell gate', issueType: 'fix' }],
+      prs: [
+        {
+          number: PR,
+          branch: 'fix/809-kit-shell',
+          title: 'fix: harden CP shell gate',
+          body: 'Closes #809\n',
+          closes: [PR],
+        },
+        {
+          number: CONFIGURED_PR,
+          branch: 'fix/809-kit-configured',
+          title: 'fix: configure CP regression campaign',
+          body: 'Closes #809\n',
+          closes: [PR],
+        },
+      ],
+    })
+    instrument(box)
+    kit = worktree(box, 'kit-shell', sha('fix/809-kit-shell'))
+    stale = worktree(box, 'kit-shell-stale', sha('fix/809-kit-shell-stale-review'))
+    configured = worktree(box, 'kit-configured', sha('fix/809-kit-configured'))
+  })
+  afterAll(() => rmSync(box.root, { recursive: true, force: true }))
+
+  it.each(['native', 'merge-on-green'] as const)(
+    '%s keeps its approval and configured CI gate while admitting the Kit-only shell/CP fix',
+    (mode) => {
+      const head = sha('fix/809-kit-shell')
+      prepare(box, PR, { comments: [approve(head)], body: 'Closes #809\n' })
+
+      const run = land(box, kit, PR, mode)
+
+      expect(run.result).toMatchObject({
+        status: 'watching',
+        mode,
+        proof: { semctx: 'absent', assertledger: 'not-applicable' },
+      })
+      expect(run.gate).toEqual(
+        mode === 'native'
+          ? { labels: ['reviewed'], autoMerge: expect.objectContaining({ matchHeadCommit: head }) }
+          : { labels: ['reviewed'], autoMerge: null },
+      )
+      expect(readSim(box).prs[String(PR)]?.state).toBe('OPEN')
+      expect(run.producers).toEqual([])
+    },
+  )
+
+  it('acquires no fake manifest or AssertLedger publication for the Kit-only shell/CP fix', () => {
+    const head = sha('fix/809-kit-shell')
+    prepare(box, PR, { comments: [approve(head)], body: 'Closes #809\n' })
+
+    const acquired = spawnSync(REAL_BUN, [ACQUIRE, '--pr', String(PR)], {
+      cwd: kit,
+      env: box.env,
+      encoding: 'utf8',
+    })
+
+    expect(acquired.status).toBe(0)
+    expect(JSON.parse(acquired.stdout)).toMatchObject({
+      semctx: 'not-applicable',
+      assertledger: 'not-applicable',
+    })
+    expect(
+      readSim(box).prs[String(PR)]?.comments.some((comment) => comment.body.startsWith(proofMark('assertledger'))),
+    ).toBe(false)
+    expect(producerCalls(box)).toEqual([])
+  })
+
+  it('refuses a retained stale review binding, then admits a fresh no-producer Kit-only review', () => {
+    const staleHead = sha('fix/809-kit-shell-stale-review')
+    const staleMarker =
+      '<!-- omp-build:review-input v=1 sha256=0000000000000000000000000000000000000000000000000000000000000000 -->'
+    writeSim(box, (state) => {
+      const pull = state.prs[String(PR)]
+      if (!pull) throw new Error('missing Kit PR')
+      pull.headRefName = 'fix/809-kit-shell-stale-review'
+      pull.headRefOid = staleHead
+      pull.baseRecord = { at: `main@${staleHead}`, oid: box.sha.main as string }
+    })
+    prepare(box, PR, { comments: [approve(staleHead)], body: 'Closes #809\n', armed: staleHead, binding: false })
+    writeSim(box, (state) => {
+      const comment = state.prs[String(PR)]?.comments.at(-1)
+      if (!comment) throw new Error('missing stale Kit review')
+      const lines = comment.body.split('\n')
+      lines.splice(2, 0, staleMarker)
+      comment.body = lines.join('\n')
+    })
+
+    const refused = land(box, stale, PR)
+
+    expect(refused.result).toMatchObject({
+      status: 'proof-blocked',
+      producer: 'candidate',
+      reason: 'unbound',
+      disarmed: true,
+    })
+    expect(refused.gate).toEqual(UNARMED)
+    expect(readSim(box).prs[String(PR)]?.comments.at(-1)?.body).toContain(staleMarker)
+    expect(refused.producers).toEqual([])
+
+    prepare(box, PR, { comments: [approve(staleHead)], body: 'Closes #809\n' })
+    const captured = workflowRead(box, stale, PR, staleHead, 'captureReviewInput')
+    expect(captured).toMatchObject({ ok: true, input: null, semctx: null, assertledger: null })
+
+    const admitted = land(box, stale, PR)
+    expect(admitted.result).toMatchObject({
+      status: 'watching',
+      proof: { semctx: 'absent', assertledger: 'not-applicable' },
+    })
+    expect(admitted.gate.labels).toEqual(['reviewed'])
+    expect(admitted.producers).toEqual([])
+  })
+
+  it.each(['native', 'merge-on-green'] as const)(
+    '%s refuses the missing detection when the Kit candidate explicitly declares a root configuration',
+    (mode) => {
+      const head = sha('fix/809-kit-configured')
+      prepare(box, CONFIGURED_PR, { comments: [approve(head)], body: 'Closes #809\n', armed: head })
+
+      const run = land(box, configured, CONFIGURED_PR, mode)
+
+      expect(run.result).toMatchObject({
+        status: 'proof-blocked',
+        producer: 'assertledger',
+        reason: 'missing',
+        disarmed: true,
+      })
+      expect(run.gate).toEqual(UNARMED)
+      expect(run.producers).toEqual([])
+    },
+  )
 })
 
 describe('Semctx applicability is decided from the base, the candidate and the checkouts', () => {
