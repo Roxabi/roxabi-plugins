@@ -952,7 +952,7 @@ export async function initFeature(args: string[], deps: FeatureInitDeps = {}): P
   const preview = await previewFeatureInit(dir, deps)
   printProposal(preview)
   if (parsed.dryRun || parsed.approve === undefined) return preview
-  if (!parsed.approve || !parsed.operatorApproval?.trim() || parsed.operatorApproval === parsed.approve) {
+  if (!parsed.approve || !parsed.operatorApproval?.trim() || parsed.operatorApproval.trim() === parsed.approve) {
     throw new Error('init=refused explicit operator approval is required')
   }
   if (parsed.approve !== preview.digest) throw new Error('init=refused approval digest does not match the preview')

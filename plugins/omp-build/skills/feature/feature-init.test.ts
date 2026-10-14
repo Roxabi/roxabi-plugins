@@ -473,6 +473,12 @@ describe('feature init authorization', () => {
     await expect(
       initFeature(['--dir', scratch, '--approve', preview.digest, '--operator-approval', preview.digest], deps),
     ).rejects.toThrow('explicit operator approval is required')
+    await expect(
+      initFeature(['--dir', scratch, '--approve', preview.digest, '--operator-approval', `${preview.digest}\n`], deps),
+    ).rejects.toThrow('explicit operator approval is required')
+    await expect(
+      initFeature(['--dir', scratch, '--approve', preview.digest, '--operator-approval', ` ${preview.digest} `], deps),
+    ).rejects.toThrow('explicit operator approval is required')
     expect(existsSync(path.join(scratch, '.dev', 'stack.yml'))).toBe(false)
     expect(writes.tracker).toBe(0)
     vi.restoreAllMocks()

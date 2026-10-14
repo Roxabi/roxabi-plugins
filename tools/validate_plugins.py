@@ -458,19 +458,31 @@ def check_marketplace_readme_catalog(
     return errors
 
 
+def _strip_dot_slash(path_text: str) -> str:
+    text = path_text.strip()
+    while text.startswith('./'):
+        text = text[2:]
+    return text
+
+
 def catalog_source_in_archive(source: str, repo_root: Path) -> bool:
-    """True when a local `./…` catalog source lands under archived/.
+    """True when a local catalog path lands under archived/.
 
     Spec A / #805: refuse the inert archive as an installable source. Lexical
     collapse catches `./plugins/../archived/…`; resolve catches a symlink whose
-    final target is under archived/.
+    final target is under archived/. Accepts `./…`, `archived/…`, and other
+    repo-relative spellings (not only the `./` prefix).
     """
-    if not isinstance(source, str) or not source.startswith('./'):
+    if not isinstance(source, str) or not source.strip():
         return False
-    lexical = Path(os.path.normpath(source))
+    text = source.strip()
+    if '://' in text:
+        return False  # remote URL — not a local archive path
+    relative_text = _strip_dot_slash(text)
+    lexical = Path(os.path.normpath(relative_text))
     if lexical.parts and lexical.parts[0] == 'archived':
         return True
-    candidate = repo_root / source
+    candidate = repo_root / relative_text
     if not candidate.exists():
         return False
     try:
@@ -478,6 +490,30 @@ def catalog_source_in_archive(source: str, repo_root: Path) -> bool:
     except ValueError:
         return False
     return bool(relative.parts) and relative.parts[0] == 'archived'
+
+
+def catalog_row_local_paths(row: dict, metadata: dict | None = None) -> list[str]:
+    """Local path spellings a catalog row can use to reach archive content."""
+    paths: list[str] = []
+    source = row.get('source')
+    plugin_root = metadata.get('pluginRoot') if isinstance(metadata, dict) else None
+    if isinstance(source, str):
+        paths.append(source)
+        # Bare plugin names resolve under metadata.pluginRoot on Claude catalogs.
+        if (
+            isinstance(plugin_root, str)
+            and plugin_root.strip()
+            and '/' not in source
+            and not source.startswith('.')
+            and '://' not in source
+        ):
+            paths.append(str(Path(plugin_root) / source))
+            paths.append(plugin_root)
+    elif isinstance(source, dict):
+        nested = source.get('path')
+        if isinstance(nested, str) and nested.strip():
+            paths.append(nested)
+    return paths
 
 
 def check_catalog_archived_sources(catalog_path=None, repo_root=None, label='catalog') -> list[str]:
@@ -493,19 +529,21 @@ def check_catalog_archived_sources(catalog_path=None, repo_root=None, label='cat
     plugins = data.get('plugins') if isinstance(data, dict) else None
     if not isinstance(plugins, list):
         return [f'failed to parse {label} marketplace.json: plugins is not a list']
+    metadata = data.get('metadata') if isinstance(data, dict) else None
     errors = []
     for row in plugins:
         if not isinstance(row, dict):
             continue
         name = row.get('name') or '<unnamed>'
-        source = row.get('source')
-        if not isinstance(source, str) or not source.startswith('./'):
-            continue
-        if catalog_source_in_archive(source, repo_root):
-            errors.append(
-                f'{name}: {label} catalog source {source} points at archived/; '
-                f'archives are not installable'
-            )
+        for path_text in catalog_row_local_paths(row, metadata if isinstance(metadata, dict) else None):
+            if catalog_source_in_archive(path_text, repo_root):
+                display = row.get('source')
+                display_text = path_text if not isinstance(display, dict) else path_text
+                errors.append(
+                    f'{name}: {label} catalog source {display_text} points at archived/; '
+                    f'archives are not installable'
+                )
+                break
     return errors
 
 

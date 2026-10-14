@@ -494,7 +494,7 @@ export async function initIssues(args: string[], deps?: InitDeps): Promise<InitP
   console.log(`digest: ${digest}`)
   console.log('digest is not authorization')
   if (dryRun || approve === undefined) return plan
-  if (!approve || !operatorApproval?.trim() || operatorApproval === approve) {
+  if (!approve || !operatorApproval?.trim() || operatorApproval.trim() === approve) {
     throw new Error('init=refused explicit operator approval is required')
   }
   if (approve !== digest) throw new Error('init=refused approval digest does not match the preview')
