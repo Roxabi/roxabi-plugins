@@ -86,6 +86,40 @@ describe('init', () => {
     vi.restoreAllMocks()
   })
 
+  it('refuses digest-only, wrong-digest, and digest-as-operator-approval before writers', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const writes = { ensure: 0, update: 0, contract: 0 }
+    const deps: InitDeps = {
+      cwdRepo: 'Acme/app',
+      listLabelNames: async () => ['bug'],
+      listIssueLabelSets: async () => [],
+      ensureLabel: async () => {
+        writes.ensure += 1
+        return 'created'
+      },
+      updateLabels: async () => {
+        writes.update += 1
+      },
+      readContract: () => null,
+      writeContract: () => {
+        writes.contract += 1
+      },
+    }
+    const { plan, contractText } = await buildPlan('Acme/app', 'Acme/app', deps)
+    const digest = planDigest(plan, contractText)
+    await expect(initIssues(['--repo', 'Acme/app', '--approve', digest], deps)).rejects.toThrow(
+      'explicit operator approval is required',
+    )
+    await expect(
+      initIssues(['--repo', 'Acme/app', '--approve', '0'.repeat(64), '--operator-approval', 'ship it'], deps),
+    ).rejects.toThrow('approval digest does not match the preview')
+    await expect(
+      initIssues(['--repo', 'Acme/app', '--approve', digest, '--operator-approval', digest], deps),
+    ).rejects.toThrow('explicit operator approval is required')
+    expect(writes).toEqual({ ensure: 0, update: 0, contract: 0 })
+    vi.restoreAllMocks()
+  })
+
   it('preview without approval writes nothing', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {})
     const writes = { ensure: 0, update: 0, contract: 0 }

@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
@@ -64,6 +64,24 @@ describe('feature init preview', () => {
 
     expect(result.status).toBe(0)
     expect(result.stdout).toContain('digest: ')
+    expect(readFileSync(path.join(repo, '.dev', 'stack.yml'), 'utf8')).toBe(before)
+  })
+
+  it('refuses apply when the principal is reached through a symlink spelling', () => {
+    root = mkdtempSync(path.join(tmpdir(), 'omp-init-principal-symlink-'))
+    const repo = principal()
+    const alias = path.join(root, 'alias')
+    symlinkSync(repo, alias)
+    const before = readFileSync(path.join(repo, '.dev', 'stack.yml'), 'utf8')
+
+    const preview = run(alias)
+    expect(preview.status).toBe(0)
+    const digest = preview.stdout.match(/^digest: ([0-9a-f]{64})$/m)?.[1]
+    if (!digest) throw new Error(`missing digest\n${preview.stdout}`)
+    const apply = run(alias, '--approve', digest, '--operator-approval', 'ship it')
+
+    expect(apply.status).toBe(2)
+    expect(apply.stderr).toContain('init=refused principal')
     expect(readFileSync(path.join(repo, '.dev', 'stack.yml'), 'utf8')).toBe(before)
   })
 

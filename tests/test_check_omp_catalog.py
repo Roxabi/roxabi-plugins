@@ -113,3 +113,60 @@ def test_archived_catalog_source_is_refused(tmp_path):
     assert errors == [
         'dev-core: OMP catalog source ./archived/plugins/dev-core points at archived/; archives are not installable'
     ]
+
+
+def test_archived_catalog_source_traversal_and_symlink_are_refused(tmp_path):
+    mod = _load_tool()
+    archived = tmp_path / 'archived' / 'plugins' / 'dev-core'
+    archived.mkdir(parents=True)
+    (archived / 'package.json').write_text(json.dumps({'name': 'dev-core', 'version': '1.0.0'}), encoding='utf-8')
+    plugins = tmp_path / 'plugins'
+    plugins.mkdir()
+    (plugins / 'dev-core').symlink_to(archived)
+
+    def catalog_with(source: str):
+        catalog = tmp_path / '.omp-plugin' / 'marketplace.json'
+        catalog.parent.mkdir(parents=True, exist_ok=True)
+        catalog.write_text(
+            json.dumps(
+                {
+                    'name': 'mp',
+                    'owner': {'name': 'o'},
+                    'plugins': [{'name': 'dev-core', 'version': '1.0.0', 'source': source}],
+                }
+            ),
+            encoding='utf-8',
+        )
+        return catalog
+
+    traversal = mod.check_omp_catalog(catalog_with('./plugins/../archived/plugins/dev-core'), tmp_path)
+    assert traversal == [
+        'dev-core: OMP catalog source ./plugins/../archived/plugins/dev-core points at archived/; '
+        'archives are not installable'
+    ]
+    symlink = mod.check_omp_catalog(catalog_with('./plugins/dev-core'), tmp_path)
+    assert symlink == [
+        'dev-core: OMP catalog source ./plugins/dev-core points at archived/; archives are not installable'
+    ]
+
+
+def test_claude_marketplace_archived_source_is_refused(tmp_path):
+    mod = _load_tool()
+    catalog = tmp_path / '.claude-plugin' / 'marketplace.json'
+    catalog.parent.mkdir(parents=True)
+    archived = tmp_path / 'archived' / 'plugins' / 'dev-core'
+    archived.mkdir(parents=True)
+    catalog.write_text(
+        json.dumps(
+            {
+                'name': 'mp',
+                'owner': {'name': 'o'},
+                'plugins': [{'name': 'dev-core', 'source': './archived/plugins/dev-core'}],
+            }
+        ),
+        encoding='utf-8',
+    )
+    errors = mod.check_claude_catalog_archived_sources(catalog, tmp_path)
+    assert errors == [
+        'dev-core: Claude catalog source ./archived/plugins/dev-core points at archived/; archives are not installable'
+    ]

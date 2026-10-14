@@ -23,6 +23,7 @@ Usage:
 """
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -457,6 +458,57 @@ def check_marketplace_readme_catalog(
     return errors
 
 
+def catalog_source_in_archive(source: str, repo_root: Path) -> bool:
+    """True when a local `./…` catalog source lands under archived/.
+
+    Spec A / #805: refuse the inert archive as an installable source. Lexical
+    collapse catches `./plugins/../archived/…`; resolve catches a symlink whose
+    final target is under archived/.
+    """
+    if not isinstance(source, str) or not source.startswith('./'):
+        return False
+    lexical = Path(os.path.normpath(source))
+    if lexical.parts and lexical.parts[0] == 'archived':
+        return True
+    candidate = repo_root / source
+    if not candidate.exists():
+        return False
+    try:
+        relative = candidate.resolve().relative_to(repo_root.resolve())
+    except ValueError:
+        return False
+    return bool(relative.parts) and relative.parts[0] == 'archived'
+
+
+def check_catalog_archived_sources(catalog_path=None, repo_root=None, label='catalog') -> list[str]:
+    """Refuse marketplace rows whose local source resolves under archived/."""
+    catalog_path = Path(catalog_path) if catalog_path is not None else OMP_MARKETPLACE_JSON
+    repo_root = Path(repo_root) if repo_root is not None else REPO_ROOT
+    if not catalog_path.is_file():
+        return [f'{label} marketplace.json not found at {catalog_path}']
+    try:
+        data = json.loads(catalog_path.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError) as e:
+        return [f'failed to parse {label} marketplace.json: {e}']
+    plugins = data.get('plugins') if isinstance(data, dict) else None
+    if not isinstance(plugins, list):
+        return [f'failed to parse {label} marketplace.json: plugins is not a list']
+    errors = []
+    for row in plugins:
+        if not isinstance(row, dict):
+            continue
+        name = row.get('name') or '<unnamed>'
+        source = row.get('source')
+        if not isinstance(source, str) or not source.startswith('./'):
+            continue
+        if catalog_source_in_archive(source, repo_root):
+            errors.append(
+                f'{name}: {label} catalog source {source} points at archived/; '
+                f'archives are not installable'
+            )
+    return errors
+
+
 def check_omp_catalog(catalog_path=None, repo_root=None) -> list[str]:
     """The OMP catalog must parse, point at real plugin dirs, and carry the package version.
 
@@ -488,9 +540,7 @@ def check_omp_catalog(catalog_path=None, repo_root=None) -> list[str]:
         source = row.get('source')
         if not isinstance(source, str) or not source.startswith('./'):
             continue  # a remote source has no local package to compare
-        # Spec A / #805: archives stay inert — a catalog row must not reinstall them.
-        source_parts = Path(source).parts
-        if source_parts and source_parts[0] == 'archived':
+        if catalog_source_in_archive(source, repo_root):
             errors.append(
                 f'{name}: OMP catalog source {source} points at archived/; '
                 f'archives are not installable'
@@ -516,6 +566,15 @@ def check_omp_catalog(catalog_path=None, repo_root=None) -> list[str]:
                 f'{source}/package.json version {package_version!r} — OMP keys its cache on the catalog version'
             )
     return errors
+
+
+def check_claude_catalog_archived_sources(catalog_path=None, repo_root=None) -> list[str]:
+    """Claude marketplace rows must not reinstall archived/ sources (Spec A / #805)."""
+    return check_catalog_archived_sources(
+        catalog_path if catalog_path is not None else MARKETPLACE_JSON,
+        repo_root,
+        label='Claude',
+    )
 
 
 
@@ -576,6 +635,7 @@ def main(argv: list[str] | None = None) -> int:
         ('Subsumption pairs', check_subsumption_pairs),
         ('Marketplace README catalog', check_marketplace_readme_catalog),
         ('OMP catalog versions', check_omp_catalog),
+        ('Claude catalog archived sources', check_claude_catalog_archived_sources),
     ]
 
     for name, check_fn in checks:
