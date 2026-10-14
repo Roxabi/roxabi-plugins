@@ -35,7 +35,6 @@ const CHANGES_DIR = '.semctx/semantic/changes/'
 const CONFIG = '.semctx/config.json'
 const STACK = '.dev/stack.yml'
 export const ASSERTLEDGER_CONFIG = 'assertledger.config.json'
-export const KIT_ADAPTER = 'scripts/kit/assertledger/vitest-adapter.mjs'
 
 function refuse(producer: Producer | 'candidate', reason: RefusalReason, error: string): Refusal {
   return { ok: false, producer, reason, error }
@@ -134,7 +133,7 @@ export type CandidateFacts = {
   changeFiles: string[]
   /** `.dev/stack.yml` as the base and the candidate commit it. */
   stacks: Declared[]
-  /** The assertledger adapter declarations the base and the candidate commit. */
+  /** The assertledger configuration declarations the base and the candidate commit. */
   adapters: Declared[]
 }
 
@@ -197,18 +196,7 @@ export async function blob(git: Git, toplevel: string, entry: TreeEntry): Promis
 
 /** The entries `rev` commits under the paths applicability reads, or the Git error. */
 async function declarations(git: Git, toplevel: string, rev: string): Promise<TreeEntry[] | Error> {
-  const args = [
-    'ls-tree',
-    '-r',
-    '-z',
-    '--full-tree',
-    `${rev}^{commit}`,
-    '--',
-    '.semctx',
-    STACK,
-    ASSERTLEDGER_CONFIG,
-    KIT_ADAPTER,
-  ]
+  const args = ['ls-tree', '-r', '-z', '--full-tree', `${rev}^{commit}`, '--', '.semctx', STACK, ASSERTLEDGER_CONFIG]
   const tree = await git(toplevel, args)
   if (tree.code !== 0) return new Error(gitError(args, tree))
   try {
@@ -223,8 +211,8 @@ async function declarations(git: Git, toplevel: string, rev: string): Promise<Tr
  * the repository root — never to the caller's cwd — and to a local tip that is
  * the candidate. Applicability is the union of the established base commit, the candidate
  * and the configured state on disk, so a PR cannot exempt itself by deleting a
- * declaration: Semctx applies when any of them holds `.semctx`, an adapter or
- * `test_e2e` applies when the base or the candidate declares it. Semctx runs
+ * declaration: Semctx applies when any of them holds `.semctx`, an assertledger
+ * config or `test_e2e` applies when the base or the candidate declares it. Semctx runs
  * under the candidate's committed config, which must equal the base's when the
  * base commits one (a PR never relaxes the policy it is judged by); with none
  * committed, under the operator's uncommitted config on disk (the bound
@@ -309,7 +297,7 @@ export async function candidateFacts(
       .filter((path) => path.startsWith(CHANGES_DIR) && path.endsWith('.sem'))
       .sort(),
     stacks: declared((tree) => find(tree, STACK)),
-    adapters: declared((tree) => find(tree, ASSERTLEDGER_CONFIG) ?? find(tree, KIT_ADAPTER)),
+    adapters: declared((tree) => find(tree, ASSERTLEDGER_CONFIG)),
   }
   const working = semctxEntries.filter(
     (entry) => entry.path.startsWith('.semctx/working/') && entry.path !== '.semctx/working/.gitkeep',
@@ -1361,14 +1349,13 @@ function signalsOf(node: unknown): TicketSignals | null {
 
 /**
  * Whether the assertledger requirement applies: the base or the candidate
- * declares an adapter (`assertledger.config.json` with an `adapter`, or the
- * kit's vitest adapter) and the selected PR is a fix (`fixKind`: its head
- * branch, or the title, labels or org issue type of a closing issue or of the
- * ticket the head branch names), all read from their sources. GitHub links
- * closing keywords only for a PR into the default branch, so the named ticket
- * is read even when nothing closes it. An unreadable declaration refuses, an
- * unreadable closing list or named ticket throws, and a PR whose type nothing
- * establishes refuses.
+ * declares an `assertledger.config.json` with an `adapter`, and the selected PR
+ * is a fix (`fixKind`: its head branch, or the title, labels or org issue type
+ * of a closing issue or of the ticket the head branch names), all read from
+ * their sources. GitHub links closing keywords only for a PR into the default
+ * branch, so the named ticket is read even when nothing closes it. An unreadable
+ * declaration refuses, an unreadable closing list or named ticket throws, and a
+ * PR whose type nothing establishes refuses.
  */
 export async function assertledgerApplies(
   cwd: string,
@@ -1379,7 +1366,6 @@ export async function assertledgerApplies(
 ): Promise<boolean | Refusal> {
   if (!facts.adapters.length) return false
   for (const { at, entry } of facts.adapters) {
-    if (entry.path !== ASSERTLEDGER_CONFIG) continue
     let config: unknown
     try {
       config = JSON.parse(await blob(deps.git, facts.toplevel, entry))

@@ -242,16 +242,19 @@ before its diff; the review-start test exercises the fence, not model compliance
   first. Genuine no-proof repositories acquire no new landing prerequisite.
   A fix PR — a `fix/…` head branch, or a closing ticket or the ticket the head
   branch names (`<type>/<N>-…`) typed Fix or Bug, labelled `bug` or titled
-  `fix…:` — needs a detection when the base or the head declares an
-  assertledger adapter; a PR whose type nothing establishes refuses. GitHub
-  links closing keywords only for a PR into the default branch, so the named
-  ticket is what classifies a PR into another base.
+  `fix…:` — needs a detection only when the established base or candidate commits
+  a root `assertledger.config.json` with an `adapter`; a PR whose type nothing
+  establishes refuses. The bundled Kit Vitest module alone is incidental tooling:
+  assertledger is `not-applicable`, not per-ticket exemption, and shell/CP fixes
+  remain under CI/validate and review. An explicitly configured unsupported
+  producer remains fail-closed. GitHub links closing keywords only for a PR into
+  the default branch, so the named ticket is what classifies a PR into another base.
   No producer, test or model runs at landing. A refusal is
   `proof-blocked` with `producer`, `reason` and `error`, unarmed; `watching`
   reports the admitted `proof`. `proof-acquire` reuses a record that still
   binds, so an unchanged head is never re-proved. Assertledger records bind only
-  `assertledger check` manifests (git provenance); the kit adapter's `verify`
-  manifests carry a working-tree provenance and refuse as unbound.
+  `assertledger check` manifests (git provenance); no Kit Vitest `verify`
+  working-tree provenance is admitted as a git-regression detection.
   Assertledger acquisition freezes the exporter bytes in an owned read-only
   private manifest before awaiting the tool, replays only that file, conserves
   those same UTF-8 bytes and native result, and removes only its snapshot in

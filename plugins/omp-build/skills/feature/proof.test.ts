@@ -117,6 +117,12 @@ const configured = (text = '{"include":["src/**/*.ts"]}', mode = '100644'): Pick
   blobs: { [CONFIG_OID]: text },
 })
 
+const ASSERTLEDGER_CONFIG = '{"adapter":{}}'
+const assertledgerConfig = (oid = 'a'.repeat(40)): Pick<Repo, 'tree' | 'blobs'> => ({
+  tree: [{ path: 'assertledger.config.json', oid }],
+  blobs: { [oid]: ASSERTLEDGER_CONFIG },
+})
+
 describe('candidateFacts', () => {
   it('reads genuine absence: no committed .semctx, none on disk at the root', async () => {
     const toplevel = temp()
@@ -1075,6 +1081,73 @@ describe('admitLanding', () => {
     ).toEqual({ ok: true, proof: { semctx: 'absent', assertledger: 'not-applicable' } })
   })
 
+  it.each([
+    ['candidate', { tree: [{ path: 'scripts/kit/assertledger/vitest-adapter.mjs' }] }],
+    ['base', { baseTree: [{ path: 'scripts/kit/assertledger/vitest-adapter.mjs' }] }],
+    [
+      'candidate after deleting the base declaration',
+      {
+        tree: [],
+        baseTree: [{ path: 'scripts/kit/assertledger/vitest-adapter.mjs' }],
+      },
+    ],
+  ])('a Kit-only %s admits without proof or GitHub', async (_label, repo) => {
+    const toplevel = temp()
+    expect(
+      await admitLanding(
+        toplevel,
+        { pr: 5, candidate: C, base: 'main', baseTip: BASE_TIP, reviewedAt: null, reviewInput: null },
+        { gh: silent, git: repoGit({ toplevel, ...repo }), comments: silent },
+      ),
+    ).toEqual({ ok: true, proof: { semctx: 'absent', assertledger: 'not-applicable' } })
+  })
+
+  it.each(['base', 'candidate'] as const)(
+    'a %s config alongside Kit still refuses a missing detection',
+    async (side) => {
+      const toplevel = temp()
+      const oid = 'a'.repeat(40)
+      const config = { path: 'assertledger.config.json', oid }
+      const kit = { path: 'scripts/kit/assertledger/vitest-adapter.mjs' }
+      const git = repoGit({
+        toplevel,
+        tree: side === 'candidate' ? [kit, config] : [kit],
+        baseTree: side === 'base' ? [kit, config] : [kit],
+        blobs: { [oid]: ASSERTLEDGER_CONFIG },
+      })
+      const gh = async (_cwd: string, args: string[]) =>
+        args.includes('graphql')
+          ? JSON.stringify({
+              data: {
+                repository: {
+                  pullRequest: {
+                    headRefName: 'fix/5-ledger',
+                    closingIssuesReferences: {
+                      totalCount: 1,
+                      nodes: [
+                        {
+                          number: 5,
+                          title: 'fix: ledger',
+                          labels: { totalCount: 0, nodes: [] },
+                          issueType: { name: 'Fix' },
+                        },
+                      ],
+                    },
+                  },
+                },
+              },
+            })
+          : JSON.stringify({ nameWithOwner: REPOSITORY })
+      expect(
+        await admitLanding(
+          toplevel,
+          { pr: 5, candidate: C, base: 'main', baseTip: BASE_TIP, reviewedAt: null, reviewInput: null },
+          { gh, git, comments: async () => ({ me: ME, comments: [] }) },
+        ),
+      ).toMatchObject({ ok: false, producer: 'assertledger', reason: 'missing' })
+    },
+  )
+
   it('genuine absence refuses an approval whose line 3 bound producer evidence, without asking GitHub', async () => {
     const toplevel = temp()
     const reviewInput = `<!-- omp-build:review-input v=1 sha256=${'a'.repeat(64)} -->`
@@ -1101,12 +1174,18 @@ describe('admitLanding', () => {
   })
 
   it.each([
-    ['declares no adapter', '{"framework":"node:test"}', { reason: 'ambiguous' }],
-    ['is not JSON', '{', { reason: 'unreadable' }],
-  ])('an assertledger config that %s refuses before any ticket read', async (_label, text, expected) => {
+    ['candidate config declares no adapter', '{"framework":"node:test"}', 'candidate', { reason: 'ambiguous' }],
+    ['base config is not JSON', '{', 'base', { reason: 'unreadable' }],
+  ])('an assertledger config that %s refuses before any ticket read', async (_label, text, side, expected) => {
     const toplevel = temp()
     const oid = 'a'.repeat(40)
-    const git = repoGit({ toplevel, tree: [{ path: 'assertledger.config.json', oid }], blobs: { [oid]: text } })
+    const config = { path: 'assertledger.config.json', oid }
+    const git = repoGit({
+      toplevel,
+      tree: side === 'candidate' ? [config] : [],
+      baseTree: side === 'base' ? [config] : [],
+      blobs: { [oid]: text },
+    })
     const gh = async (_cwd: string, args: string[]) => {
       if (args.includes('graphql')) throw new Error('the ticket was read')
       return JSON.stringify({ nameWithOwner: REPOSITORY })
@@ -1129,7 +1208,7 @@ describe('admitLanding', () => {
     ['a complete one decides', 25],
   ])('%s', async (_label, totalCount) => {
     const toplevel = temp()
-    const git = repoGit({ toplevel, tree: [{ path: 'scripts/kit/assertledger/vitest-adapter.mjs' }] })
+    const git = repoGit({ toplevel, ...assertledgerConfig() })
     const nodes = Array.from({ length: 25 }, (_, i) => ({
       number: i + 1,
       title: 'feat: more',

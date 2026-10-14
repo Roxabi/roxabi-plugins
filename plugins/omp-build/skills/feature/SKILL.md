@@ -3,7 +3,7 @@ name: feature
 disable-model-invocation: true
 argument-hint: '[#N | <subject>]'
 description: OMP-only feature cycle — frame a GitHub issue, create the worktree from origin/<base>, hand off /move and /goal, then implement, review, fix and land.
-version: 0.1.9
+version: 0.1.10
 ---
 
 # Feature
@@ -447,20 +447,24 @@ SC→Test contract, including justified NO TEST rows. An `existing` PR is not ne
 an earlier run may have left it armed, so §6.4 runs the review's step 0 before
 anything reads or reviews it.
 
-**Proof records, after each push.** When Semctx applies — `origin/<base>` or
-the head commits `.semctx`, or the operator keeps an uncommitted (ignored)
-`.semctx/config.json` in this worktree or the principal checkout — or the
-PR is a fix — a `fix/…` head branch, or a closing ticket or the ticket the
-head branch names (`<type>/<N>-…`; GitHub links closing keywords only into
-the default branch) typed Fix or Bug, labelled `bug` or titled `fix…:` (any
-case; nothing establishing a type refuses) — and the base or the head
-declares an assertledger adapter (`assertledger.config.json` with an `adapter`, or
-`scripts/kit/assertledger/vitest-adapter.mjs`), run from this worktree at the
-pushed head:
+**Proof records, after each push.** Run `proof-acquire` whenever Semctx applies —
+`origin/<base>` or the head commits `.semctx`, or the operator keeps an uncommitted
+(ignored) `.semctx/config.json` in this worktree or the principal checkout. A fix —
+a `fix/…` head branch, or a closing ticket or the ticket the head branch names
+(`<type>/<N>-…`; GitHub links closing keywords only into the default branch) typed
+Fix or Bug, labelled `bug` or titled `fix…:` (any case; nothing establishing a
+type refuses) — additionally needs assertledger acquisition only when the
+established base or candidate commits a root `assertledger.config.json` with an
+`adapter`:
 
 ```bash
 bun "$SKILL_DIR/proof-acquire.ts" --pr <pr> [--assertledger-manifest <path>]
 ```
+The bundled `scripts/kit/assertledger/vitest-adapter.mjs` alone is incidental
+tooling: assertledger is `not-applicable`, not a per-ticket exemption, and its
+shell/CP fixes remain under CI/validate and review. An explicitly configured
+unsupported producer refuses; a Kit Vitest `verify` manifest has working-tree
+provenance and is never admitted as a git-regression detection.
 
 It runs the producers for that head outside admission — Semctx in a private
 clean checkout of the candidate; assertledger as a replay of the manifest of an
@@ -671,12 +675,19 @@ merge-on-green never returns `no-required-checks`; native returns it only after 
 `landPr` admits the reviewed head through `admitLanding` (`proof.ts`). It reads
 and never produces: no producer, test or model call. The local tip must be that
 head. Semctx applies when `origin/<base>`, the head or the uncommitted
-configuration on disk at the root and the principal configures it; an adapter or
-`commands.test_e2e` applies when the base or the head declares it. Applicable §6.3 records must bind
-repository, PR, head, base, merge base, the changed contracts — at least one
-added by the head; a modified older contract never stands in for it — and the
-Semctx configuration (assertledger's
-reference world: the head's commit and tree), and are read with their native
+configuration on disk at the root and the principal configures it. An assertledger
+record applies to a fix only when the established base or candidate commits a root
+`assertledger.config.json` with an `adapter`; the bundled Kit Vitest module alone
+is incidental tooling and `not-applicable`, while shell/CP fixes remain subject to
+CI/validate and review. An explicitly configured unsupported producer refuses; a
+Vitest `verify` manifest has working-tree provenance and never supplies
+git-regression detection. A fresh Kit-only review has no assertledger input, but a
+previously selected assertledger review-input binding refuses and requires fresh
+review. `commands.test_e2e` applies when the base or the head declares it.
+Applicable §6.3 records must bind repository, PR, head, base, merge base, the
+changed contracts — at least one added by the head; a modified older contract
+never stands in for it — and the Semctx configuration (assertledger's reference
+world: the head's commit and tree), and are read with their native
 verdicts: VERIFIED, or PARTIAL with every gap review-judged — a gap is each
 warning finding, pending evidence and open unknown the result names, mirrored
 or not; draft, blocked, stale, superseded, a PARTIAL closed as verified, a
