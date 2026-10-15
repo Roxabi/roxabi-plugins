@@ -180,3 +180,74 @@ Tracker vocabulary (what `issue-triage init` creates when missing; it never reco
 | `P3-low` | 0e8a16 |
 | `epic` | ededed |
 | `reviewed` | ededed |
+| `wayfinder:map` | 7057ff |
+| `wayfinder:research` | 0e8a16 |
+| `wayfinder:prototype` | f9d0c4 |
+| `wayfinder:grilling` | fbca04 |
+| `wayfinder:task` | 1d76db |
+
+## Wayfinding operations
+
+A Wayfinder map is one issue carrying `wayfinder:map`. Its child decision tickets
+carry exactly one type label: `wayfinder:research`, `wayfinder:prototype`,
+`wayfinder:grilling`, or `wayfinder:task`. The map indexes closed decisions only;
+preserve the existing implementation hierarchy and never add a synthetic readiness
+label.
+
+Define these labels only through `issue-triage init`: obtain its contract-driven
+preview and digest, then obtain separate operator approval before applying that
+digest. Create the map and every ticket through `issue-triage`, then make a
+second pass through `issue-triage` to wire native parent and `blockedBy` links.
+
+Claim a ticket before working by assigning yourself. Until `issue-triage` has an
+assignment command, the narrow exception is `gh issue edit <number>
+--add-assignee @me`. It does not permit direct creation, label, or native
+dependency writes, and an assignee claim grants neither implementation nor
+landing authority.
+
+### Frontier
+
+Use authenticated `gh api graphql` reads. First page through the selected map's
+open children (omit `-F cursor=...` on the first request; repeat with the returned
+`endCursor` while `hasNextPage` is true):
+
+```bash
+gh api graphql -F owner=Roxabi -F repo=roxabi-plugins -F number="$MAP" -f query='
+query($owner: String!, $repo: String!, $number: Int!, $cursor: String) {
+  repository(owner: $owner, name: $repo) {
+    issue(number: $number) {
+      subIssues(first: 100, after: $cursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes { number title url state assignees(first: 1) { totalCount } }
+      }
+    }
+  }
+}'
+```
+
+For each open, unassigned child, page its native blockers with the same cursor
+protocol and exclude it when any returned blocker is open:
+
+```bash
+gh api graphql -F owner=Roxabi -F repo=roxabi-plugins -F number="$CHILD" -f query='
+query($owner: String!, $repo: String!, $number: Int!, $cursor: String) {
+  repository(owner: $owner, name: $repo) {
+    issue(number: $number) {
+      blockedBy(first: 100, after: $cursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes { number title url state }
+      }
+    }
+  }
+}'
+```
+
+`first: 100` is one page, not a complete result. Display each eligible child and
+each linked blocker as its linked `#number title`.
+
+### Resolution
+
+Resolve a decision ticket by commenting the answer, closing it, and adding a
+linked-title gist to the map index. One session has at most one HITL decision;
+research may record factual findings without consuming one. Charting neither
+executes implementation nor closes pre-existing tickets.

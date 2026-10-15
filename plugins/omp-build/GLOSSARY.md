@@ -12,6 +12,14 @@ _Avoid_: factory, /R-dev, /build, dev-core (on OMP)
 The unit of OMP delivery, run by `/feature`.
 _Avoid_: build, /build, /dev, /R-dev, omp-wt
 
+**Assisted delivery**:
+Operator-driven delivery that does not require an Epic goal.
+_Avoid_: autonomous delivery, a required Epic goal
+
+**Roadmap blocker**:
+An established obstacle to agreed assisted use, or an established safety defect in that scope; distinct from a blocking review finding and a native dependency.
+_Avoid_: a review finding, a native dependency, an unestablished concern
+
 **Epic goal**:
 The `/goal` in the operator's session that delivers one epic. The autonomy unit of `/feature`.
 _Avoid_: a per-ticket stop, an autonomy level stored on the issue, one goal per ticket

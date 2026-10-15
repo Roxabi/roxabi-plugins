@@ -1,0 +1,345 @@
+{
+  "schemaVersion": 1,
+  "repository": "Roxabi/roxabi-plugins",
+  "sourceCommit": "36357ac5e1c2d1e3f54486a3cbf0eea810beed89",
+  "recordedAt": "2026-10-15T19:40:36.678853+00:00",
+  "definition": "Immutable set of 56 open pre-map issues from the authenticated initial snapshot; Wayfinder decision tickets are not product work. This file contains no status recommendation.",
+  "issues": [
+    {
+      "number": 575,
+      "title": "epic(omp-build): assisted feature delivery on OMP and GitHub",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/575",
+      "updatedAt": "2026-10-08T21:25:09Z"
+    },
+    {
+      "number": 614,
+      "title": "fix(issue-triage): detectGitHubRepo prefers origin over gh repo view",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/614",
+      "updatedAt": "2026-10-08T21:18:08Z"
+    },
+    {
+      "number": 626,
+      "title": "fix(issue-triage): check org issue types before the first write — create --type half-triages when the org lacks the type",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/626",
+      "updatedAt": "2026-10-08T21:18:12Z"
+    },
+    {
+      "number": 632,
+      "title": "fix(omp-build): promote --finalize can report \"finalized\" after a failed tag push",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/632",
+      "updatedAt": "2026-10-08T21:18:13Z"
+    },
+    {
+      "number": 634,
+      "title": "test(omp-build): external-skill-argv sweep checks spellings, not fail-closed control flow",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/634",
+      "updatedAt": "2026-10-08T21:18:15Z"
+    },
+    {
+      "number": 635,
+      "title": "fix(omp-build): feature-init workspace detection — pnpm, globs with ?, FIFO package.json",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/635",
+      "updatedAt": "2026-10-08T21:18:16Z"
+    },
+    {
+      "number": 641,
+      "title": "test(omp-build): prove installed genuine-epic goal safety",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/641",
+      "updatedAt": "2026-10-08T20:59:14Z"
+    },
+    {
+      "number": 643,
+      "title": "fix(omp-build): correct explicit epic-driver safety cases",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/643",
+      "updatedAt": "2026-10-08T20:59:15Z"
+    },
+    {
+      "number": 648,
+      "title": "ci: GitHub's dependency graph lists no manifest for this repo — no platform alerts for npm or GitHub Actions",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/648",
+      "updatedAt": "2026-09-30T19:59:40Z"
+    },
+    {
+      "number": 649,
+      "title": "ci: upstream-watch has never filed a drift issue — its label does not exist and the failure is masked",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/649",
+      "updatedAt": "2026-09-30T19:58:05Z"
+    },
+    {
+      "number": 663,
+      "title": "test(omp-build): disarm exhausted unmarked stopped PRs",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/663",
+      "updatedAt": "2026-10-08T20:59:17Z"
+    },
+    {
+      "number": 671,
+      "title": "feat(omp-build): an empty base-update range is not an automatic approval",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/671",
+      "updatedAt": "2026-10-08T20:59:18Z"
+    },
+    {
+      "number": 672,
+      "title": "fix(omp-build): reviewHeadOf trims review-head line 2 that the fleet filter anchors raw",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/672",
+      "updatedAt": "2026-10-08T21:18:17Z"
+    },
+    {
+      "number": 683,
+      "title": "test: harden the git-hook-env tripwire — anchored fixture count, derived GIT_* list, quoted repair path",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/683",
+      "updatedAt": "2026-10-01T23:04:02Z"
+    },
+    {
+      "number": 691,
+      "title": "fix(dev-core): one contract for both license gates — policy, report, exit codes, log-safe output",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/691",
+      "updatedAt": "2026-10-05T11:30:41Z"
+    },
+    {
+      "number": 694,
+      "title": "Deferred non-blocking review findings",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/694",
+      "updatedAt": "2026-10-05T11:30:37Z"
+    },
+    {
+      "number": 696,
+      "title": "fix(omp-build): landPr arms a PR already behind a strict base, and ci-watch then times out with no way out",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/696",
+      "updatedAt": "2026-10-08T21:18:20Z"
+    },
+    {
+      "number": 707,
+      "title": "Deferred non-blocking review findings (PR #706, review 1)",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/707",
+      "updatedAt": "2026-10-05T11:30:36Z"
+    },
+    {
+      "number": 712,
+      "title": "test(omp-build): PR #711 follow-ups without reviving the review ledger",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/712",
+      "updatedAt": "2026-10-08T20:59:20Z"
+    },
+    {
+      "number": 720,
+      "title": "epic(omp-build): minimum assisted client delivery",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/720",
+      "updatedAt": "2026-10-08T20:59:21Z"
+    },
+    {
+      "number": 721,
+      "title": "epic(omp-build): optional installed epic safety proof",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/721",
+      "updatedAt": "2026-10-08T20:59:23Z"
+    },
+    {
+      "number": 723,
+      "title": "fix(omp-build): ordered union of child first-parent diffs",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/723",
+      "updatedAt": "2026-10-08T20:59:24Z"
+    },
+    {
+      "number": 724,
+      "title": "fix(omp-build): ten land-admission follow-ups from PR #722",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/724",
+      "updatedAt": "2026-10-08T20:59:26Z"
+    },
+    {
+      "number": 726,
+      "title": "fix(omp-build): restore only fix-run lint and test residue",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/726",
+      "updatedAt": "2026-10-08T20:59:49Z"
+    },
+    {
+      "number": 732,
+      "title": "epic(omp-build): parked lossless review efficiency",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/732",
+      "updatedAt": "2026-10-08T20:59:51Z"
+    },
+    {
+      "number": 735,
+      "title": "perf(omp-build): allocate reviewers once per review risk",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/735",
+      "updatedAt": "2026-10-08T20:59:54Z"
+    },
+    {
+      "number": 736,
+      "title": "fix(omp-build): block only on evidenced impact; keep residual blockers",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/736",
+      "updatedAt": "2026-10-08T20:59:55Z"
+    },
+    {
+      "number": 738,
+      "title": "perf(omp-build): reuse the reviewed snapshot and drop the standards pass",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/738",
+      "updatedAt": "2026-10-08T20:59:58Z"
+    },
+    {
+      "number": 740,
+      "title": "fix(omp-build): operator stop outcomes after CI-repair deletion",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/740",
+      "updatedAt": "2026-10-08T20:59:59Z"
+    },
+    {
+      "number": 741,
+      "title": "fix(omp-build): native protection reads and bad-landing disarm",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/741",
+      "updatedAt": "2026-10-08T21:00:01Z"
+    },
+    {
+      "number": 758,
+      "title": "test(omp-build): producer-faithful proof fixtures",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/758",
+      "updatedAt": "2026-10-08T21:00:03Z"
+    },
+    {
+      "number": 759,
+      "title": "fix(omp-build): land producer-binding follow-ups from PR #756",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/759",
+      "updatedAt": "2026-10-08T21:00:08Z"
+    },
+    {
+      "number": 761,
+      "title": "docs(omp-build): shared-state halt vocabulary without a second startup",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/761",
+      "updatedAt": "2026-10-08T21:00:10Z"
+    },
+    {
+      "number": 764,
+      "title": "test(omp-build): review-stop evidence without a CI-repair counter",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/764",
+      "updatedAt": "2026-10-08T21:00:13Z"
+    },
+    {
+      "number": 765,
+      "title": "chore(omp-build): ci-failed stop distinct from review-bound",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/765",
+      "updatedAt": "2026-10-08T21:00:14Z"
+    },
+    {
+      "number": 766,
+      "title": "fix(omp-build): preserve stop history with red-only corrections",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/766",
+      "updatedAt": "2026-10-08T21:00:16Z"
+    },
+    {
+      "number": 767,
+      "title": "fix(omp-build): make fix halts and report conservation safe",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/767",
+      "updatedAt": "2026-10-12T22:16:36Z"
+    },
+    {
+      "number": 769,
+      "title": "feat(omp-build): post-fix review uses the exact baseline, impact and residual blockers",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/769",
+      "updatedAt": "2026-10-08T21:00:21Z"
+    },
+    {
+      "number": 770,
+      "title": "test(omp-build): prove installed assisted delivery on two sandboxes",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/770",
+      "updatedAt": "2026-10-08T21:00:22Z"
+    },
+    {
+      "number": 775,
+      "title": "Deferred non-blocking review findings",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/775",
+      "updatedAt": "2026-10-11T12:53:09Z"
+    },
+    {
+      "number": 777,
+      "title": "Deferred non-blocking review findings",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/777",
+      "updatedAt": "2026-10-11T17:14:36Z"
+    },
+    {
+      "number": 780,
+      "title": "fix(omp-build): quote the base name in landPr's watch command",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/780",
+      "updatedAt": "2026-10-12T06:03:14Z"
+    },
+    {
+      "number": 782,
+      "title": "Deferred non-blocking review findings",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/782",
+      "updatedAt": "2026-10-12T07:35:14Z"
+    },
+    {
+      "number": 783,
+      "title": "Deferred non-blocking PR #781 review 2 findings",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/783",
+      "updatedAt": "2026-10-12T11:14:40Z"
+    },
+    {
+      "number": 784,
+      "title": "docs(omp-build): pre-review local corrections before costly validation",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/784",
+      "updatedAt": "2026-10-12T22:16:31Z"
+    },
+    {
+      "number": 786,
+      "title": "Deferred non-blocking PR #781 review 3 findings",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/786",
+      "updatedAt": "2026-10-12T13:30:15Z"
+    },
+    {
+      "number": 787,
+      "title": "fix(omp-build): a queued auto-merge.yml run may re-arm a PR after landPr cleared it on a proof refusal",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/787",
+      "updatedAt": "2026-10-12T13:30:18Z"
+    },
+    {
+      "number": 788,
+      "title": "dependency audit: action required",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/788",
+      "updatedAt": "2026-10-12T17:53:00Z"
+    },
+    {
+      "number": 790,
+      "title": "feat(omp-build): falsify applied causes once, at the end of the review loop",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/790",
+      "updatedAt": "2026-10-13T13:05:05Z"
+    },
+    {
+      "number": 791,
+      "title": "fix(omp-build): conserve every fix report and keep delivery debt top-level",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/791",
+      "updatedAt": "2026-10-12T22:15:42Z"
+    },
+    {
+      "number": 792,
+      "title": "epic(omp-build): safe fix halt and end-of-loop falsification",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/792",
+      "updatedAt": "2026-10-12T22:15:55Z"
+    },
+    {
+      "number": 793,
+      "title": "feat(omp-build): no supported way to retire a change contract — a deleted contract is refused, retained ones break semantic check",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/793",
+      "updatedAt": "2026-10-13T13:05:05Z"
+    },
+    {
+      "number": 798,
+      "title": "fix(omp-build): bind landing to the falsified head",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/798",
+      "updatedAt": "2026-10-13T01:11:35Z"
+    },
+    {
+      "number": 799,
+      "title": "fix(omp-build): require a green falsification baseline",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/799",
+      "updatedAt": "2026-10-13T01:11:35Z"
+    },
+    {
+      "number": 800,
+      "title": "fix(omp-build): isolate falsification repository state",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/800",
+      "updatedAt": "2026-10-13T01:11:35Z"
+    },
+    {
+      "number": 813,
+      "title": "fix(omp-build): les contrats historiques superseded bloquent l’admission après intégration de la base",
+      "url": "https://github.com/Roxabi/roxabi-plugins/issues/813",
+      "updatedAt": "2026-10-15T11:14:05Z"
+    }
+  ]
+}
