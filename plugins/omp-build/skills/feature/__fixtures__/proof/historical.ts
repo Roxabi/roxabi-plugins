@@ -28,6 +28,11 @@ export const HISTORICAL_CASES = {
     branch: 'fix/813-invalid-base-provenance',
     base: 'history-invalid-provenance-base',
   },
+  borrowedProvenance: {
+    pr: 827,
+    branch: 'fix/813-borrowed-provenance',
+    base: 'history-borrowed-provenance-base',
+  },
 } as const
 
 export type HistoricalCase = keyof typeof HISTORICAL_CASES
@@ -148,6 +153,14 @@ const blockedUnknown = [
   '  tag: critical',
   '',
 ].join('\n')
+const borrowedProvenanceBase = [
+  historical({ status: 'verified', provenance: null }),
+  'goal goal.fx.decoy',
+  '  statement: Supplementary goal',
+  '  provenance: author',
+  '',
+].join('\n')
+const borrowedProvenanceCandidate = borrowedProvenanceBase.replace('  status: verified', '  status: superseded')
 const duplicateLinkBase = historical({ status: 'verified', links: ['src/a.ts', 'src/a.ts', 'src/a.test.ts'] })
 const duplicateLinkCandidate = historical({
   status: 'superseded',
@@ -310,6 +323,16 @@ export function historicalSpec(): Spec {
       name: HISTORICAL_CASES.linkCrossedComment.branch,
       from: 'history-comment-links-base',
       commits: [candidate(crossCommentCandidate)],
+    },
+    {
+      name: HISTORICAL_CASES.borrowedProvenance.base,
+      from: 'main',
+      commits: [{ message: 'feat: retain mixed historical source', files: { [HISTORICAL]: borrowedProvenanceBase } }],
+    },
+    {
+      name: HISTORICAL_CASES.borrowedProvenance.branch,
+      from: HISTORICAL_CASES.borrowedProvenance.base,
+      commits: [candidate(borrowedProvenanceCandidate)],
     },
   ]
   const prs: PrSpec[] = Object.values(HISTORICAL_CASES).map(({ pr, branch, base }) => ({

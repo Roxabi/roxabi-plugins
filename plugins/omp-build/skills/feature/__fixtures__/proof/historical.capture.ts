@@ -25,7 +25,7 @@ import { ACQUIRE, type Box, git, readSim, sandbox, worktree } from './sandbox'
 const REAL_BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
 const OUT = path.join(import.meta.dirname, 'historical.records.json')
 type Captured = { code: number | null; stdout: string; stderr: string; record?: string[] }
-const CAPTURED_CASES = ['valid', 'partial', 'blocked', 'ownSuperseded'] as const
+const CAPTURED_CASES = ['valid', 'partial', 'blocked', 'ownSuperseded', 'borrowedProvenance'] as const
 type CapturedCase = (typeof CAPTURED_CASES)[number]
 const CAPTURED_REFS = [
   'main',
@@ -35,6 +35,8 @@ const CAPTURED_REFS = [
   'fix/813-partial',
   'fix/813-blocked',
   'fix/813-own-superseded',
+  HISTORICAL_CASES.borrowedProvenance.base,
+  HISTORICAL_CASES.borrowedProvenance.branch,
 ] as const
 type HistoricalCapture = {
   sha: Record<string, string>
@@ -98,6 +100,7 @@ try {
       partial: capture(box, 'partial'),
       blocked: capture(box, 'blocked'),
       ownSuperseded: capture(box, 'ownSuperseded'),
+      borrowedProvenance: capture(box, 'borrowedProvenance'),
     },
     tools: {
       semctx: spawnSync(executable, ['--version'], { env: box.env, encoding: 'utf8' }).stdout.trim(),

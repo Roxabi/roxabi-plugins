@@ -706,8 +706,9 @@ forced-unarmed exit; every arm `landPr` writes targets the admitted head, and `w
 A retained historical companion is an `M` already present at the merge base,
 with one explicit `active`/`partial`/`verified` status changed to `superseded`,
 and one explicit, unchanged `author`/`agent`/`derived` provenance matching native
-inspect. Acquisition and admission derive this classification from Git, never
-from record-supplied flags. Both blobs must round-trip to their Git object IDs.
+inspect. Its file must contain only its own `change <id>` block; provenance on
+another block does not qualify it. Acquisition and admission derive this classification
+from Git, never from record-supplied flags. Both blobs must round-trip to their Git object IDs.
 Every other byte must survive, except permutation within the same contiguous
 run of literal two-space `  link: file:<nonempty>` lines; multiplicity,
 separators, line endings and final newline remain significant. Other formatting

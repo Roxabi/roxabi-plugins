@@ -46,7 +46,7 @@ type Records = { semctx: Capture; ignored: Capture; assertledger: Capture; both:
 type HistoricalCapture = { code: number | null; stdout: string; stderr: string; record?: string[] }
 type HistoricalRecords = {
   sha: Record<string, string>
-  records: Record<'valid' | 'partial' | 'blocked' | 'ownSuperseded', HistoricalCapture>
+  records: Record<'valid' | 'partial' | 'blocked' | 'ownSuperseded' | 'borrowedProvenance', HistoricalCapture>
 }
 const RECORDS: Records = JSON.parse(
   readFileSync(path.join(import.meta.dirname, '__fixtures__/proof/records.json'), 'utf8'),
@@ -1997,13 +1997,13 @@ describe('retained historical Semctx admission', () => {
   const wt: Record<string, string> = {}
   const sha = (branch: string) => box.sha[branch] as string
 
-  function captured(name: 'valid' | 'partial' | 'blocked' | 'ownSuperseded'): string[] {
+  function captured(name: keyof HistoricalRecords['records']): string[] {
     const record = HISTORICAL_RECORDS.records[name].record
     if (!record?.length) throw new Error(`historical ${name} capture posted no Semctx record`)
     return record
   }
 
-  function prime(name: 'valid' | 'partial' | 'blocked' | 'ownSuperseded', body = 'Closes #813\n'): void {
+  function prime(name: keyof HistoricalRecords['records'], body = 'Closes #813\n'): void {
     const { pr, branch } = HISTORICAL_CASES[name]
     prepare(box, pr, { comments: [approve(sha(branch)), ...captured(name)], body })
   }
@@ -2147,6 +2147,39 @@ describe('retained historical Semctx admission', () => {
     expect(run.result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'verdict' })
     expect(run.gate).toEqual(UNARMED)
     expect(run.producers).toEqual([])
+  })
+
+  it('rejects provenance borrowed from another block in acquisition and admission', async () => {
+    const { pr } = HISTORICAL_CASES.borrowedProvenance
+    const expected = await inputs('borrowedProvenance')
+    if ('ok' in expected) throw new Error(expected.error)
+    prime('borrowedProvenance')
+    const acquired = spawnSync(REAL_BUN, [ACQUIRE, '--pr', String(pr)], {
+      cwd: wt.borrowedProvenance,
+      env: box.env,
+      encoding: 'utf8',
+    })
+    expect(acquired.status, acquired.stderr).toBe(0)
+    const acquisitionProducers = producerCalls(box)
+    const run = land(box, wt.borrowedProvenance as string, pr)
+    expect({
+      contracts: expected.contracts,
+      historicalContracts: [...expected.historicalContracts],
+      acquisition: JSON.parse(acquired.stdout),
+      admission: run.result,
+      gate: run.gate,
+      producers: [...acquisitionProducers, ...run.producers],
+    }).toMatchObject({
+      contracts: ['.semctx/semantic/changes/change.fx.current.sem', '.semctx/semantic/changes/change.fx.history.sem'],
+      historicalContracts: [],
+      acquisition: {
+        semctx: 'reused',
+        semctxAssessment: { ok: false, producer: 'semctx', reason: 'verdict' },
+      },
+      admission: { status: 'proof-blocked', producer: 'semctx', reason: 'verdict' },
+      gate: UNARMED,
+      producers: [],
+    })
   })
 
   it.each([

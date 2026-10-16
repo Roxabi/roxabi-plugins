@@ -234,9 +234,10 @@ before its diff; the review-start test exercises the fence, not model compliance
   a PR body last edited before the approving record (an edit after it returns
   the PR to review); a PARTIAL with a stale link or a blocking impact refuses.
   A modified historical companion may retain `superseded` only when Git proves
-  its sole lifecycle field changed from `active`, `partial` or `verified`, with
-  one explicit preserved provenance matching native inspect. Every other byte
-  stays identical except permutation within the same contiguous run of literal
+  its file contains only its own `change <id>` block, whose sole lifecycle field
+  changed from `active`, `partial` or `verified`, with one explicit preserved
+  provenance matching native inspect. A neighbouring block's provenance cannot
+  qualify it. Every other byte stays identical except permutation within the same contiguous run of literal
   `  link: file:<nonempty>` lines, preserving duplicates, separators and line
   endings; both source strings must round-trip to their Git blob IDs.
   Broader formatting, changed obligations or insufficient provenance do not

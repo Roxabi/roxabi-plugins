@@ -1162,14 +1162,22 @@ function sortFileLinkRuns(lines: string[]): void {
 }
 
 /** A bounded source transition, not a replacement Semctx parser or transmission claim. */
-function retainedProvenance(before: string, after: string): ContractProvenance | undefined {
+function retainedProvenance(before: string, after: string, id: string): ContractProvenance | undefined {
   const original = before.split('\n')
   const candidate = after.split('\n')
   if (original.length !== candidate.length) return undefined
+  let headerSeen = false
   let status: { line: number; replacement: string } | undefined
   let provenance: ContractProvenance | undefined
   for (const [index, line] of original.entries()) {
-    if (line[0] !== ' ' && line[0] !== '\t') continue
+    const content = line.trim()
+    if (content === '' || content.startsWith('#')) continue
+    if (line[0] !== ' ' && line[0] !== '\t') {
+      if (headerSeen || /^change\s+(\S+)\s*$/.exec(line)?.[1] !== id) return undefined
+      headerSeen = true
+      continue
+    }
+    if (!headerSeen) return undefined
     const colon = line.indexOf(':')
     if (colon < 0) continue
     // Native field names and values use trim(), including non-ASCII whitespace.
@@ -1242,7 +1250,7 @@ export async function semctxInputs(
       if (source.code !== 0)
         return refuse('semctx', 'unbound', `${contract.path}: cannot read historical Git blob — ${source.stderr}`)
     }
-    const provenance = retainedProvenance(sources[0].stdout, sources[1].stdout)
+    const provenance = retainedProvenance(sources[0].stdout, sources[1].stdout, changeIdOf(contract.path))
     if (provenance === undefined) continue
     for (const [oid, source] of [
       [beforeOid, sources[0]],
