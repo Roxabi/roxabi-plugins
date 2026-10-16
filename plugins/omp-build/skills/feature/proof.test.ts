@@ -12,6 +12,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { SEMCTX_CONFIG } from './__fixtures__/proof/sandbox'
 import {
   admitLanding,
+  type CandidateFacts,
   type ChangeResult,
   candidateFacts,
   changedContracts,
@@ -24,6 +25,7 @@ import {
   refreshSelectedBase,
   renderRecord,
   type SemctxExpected,
+  semctxInputs,
 } from './proof'
 
 type Capture = { sha: Record<string, string>; records: Record<string, { record?: string[] }> }
@@ -341,6 +343,62 @@ describe('mergeBaseOf', () => {
   })
 })
 
+describe('historical contract source binding', () => {
+  const historical = '.semctx/semantic/changes/change.fx.old.sem'
+  const facts: CandidateFacts = {
+    toplevel: '/srv/app',
+    candidate: C,
+    base: 'main',
+    baseTip: BASE_TIP,
+    semctx: 'configured',
+    config: {
+      source: 'committed',
+      path: '.semctx/config.json',
+      text: SEMCTX_CONFIG,
+      sha256: createHash('sha256').update(SEMCTX_CONFIG).digest('hex'),
+    },
+    changeFiles: [CONTRACT, historical],
+    stacks: [],
+    adapters: [],
+  }
+  const oid = (bytes: Buffer) => createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex')
+  const bytes = (comment: number, lifecycle: string) =>
+    Buffer.concat([
+      Buffer.from('# '),
+      Buffer.from([comment]),
+      Buffer.from(
+        `\nchange change.fx.old\n  statement: Retain the original obligations\n  status: ${lifecycle}\n  provenance: author\n  preserves: invariant.fx.add-sum\n  requires_evidence: proof.fx.old-test\n  link: file:src/a.ts\n`,
+      ),
+    ])
+  const inputs = (before: Buffer, after: Buffer) => {
+    const beforeOid = oid(before)
+    const afterOid = oid(after)
+    const git: Git = async (_cwd, args) => {
+      if (args[0] === 'merge-base') return { code: 0, stdout: `${OTHER}\n`, stderr: '' }
+      if (args[0] === 'diff') return { code: 0, stdout: `A\0${CONTRACT}\0M\0${historical}\0`, stderr: '' }
+      if (args[0] === 'rev-parse') return { code: 0, stdout: `${beforeOid}\n${afterOid}\n`, stderr: '' }
+      if (args[0] === 'cat-file' && args[2] === beforeOid)
+        return { code: 0, stdout: before.toString('utf8'), stderr: '' }
+      if (args[0] === 'cat-file' && args[2] === afterOid) return { code: 0, stdout: after.toString('utf8'), stderr: '' }
+      return { code: 128, stdout: '', stderr: 'unavailable Git object' }
+    }
+    return semctxInputs(facts, git)
+  }
+
+  it('qualifies a source-preserving lifecycle transition with exact UTF-8 Git blobs', async () => {
+    const result = await inputs(bytes(0x61, 'active'), bytes(0x61, 'superseded'))
+    if ('ok' in result) throw new Error(result.error)
+    expect(result.historicalContracts.get(historical)).toBe('author')
+  })
+
+  it('refuses different invalid UTF-8 bytes even when decoding makes their comments identical', async () => {
+    const before = bytes(0xff, 'active')
+    const after = bytes(0xfe, 'superseded')
+    expect(before.toString('utf8').replace('status: active', 'status: superseded')).toBe(after.toString('utf8'))
+    expect(await inputs(before, after)).toMatchObject({ ok: false, producer: 'semctx', reason: 'unbound' })
+  })
+})
+
 // ---------------------------------------------------------------------------
 // readSemctxRecord on the conserved records
 // ---------------------------------------------------------------------------
@@ -356,6 +414,7 @@ const expectedFor = (pr: number, candidate: string): SemctxExpected => ({
   mergeBase: MAIN,
   contracts: [CONTRACT],
   changeFiles: [CONTRACT],
+  historicalContracts: new Map(),
   config: { source: 'committed', sha256: createHash('sha256').update(SEMCTX_CONFIG).digest('hex') },
 })
 

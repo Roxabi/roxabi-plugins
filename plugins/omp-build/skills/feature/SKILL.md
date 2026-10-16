@@ -473,8 +473,12 @@ output as one PR comment per producer and head — a record above GitHub's
 65,536-character comment ceiling as an ordered run of `part=<i>/<n>` comments,
 which admission reads only whole (a part missing or out of order is a missing
 record; acquire again). A record that still binds is
-reused: same head and inputs, nothing runs again. Exit 1 names what is missing;
-it decides nothing. VERIFIED is Semctx's composition over the evidence statuses
+reused: same head and inputs, nothing runs again. Both fresh and reused acquisition
+expose `semctxAssessment` in CLI JSON: the current shared Semctx reader's results
+or refusal, not overall landing authorization. Reuse does not rewrite archival
+human summaries or native proof bytes/timestamps; an older summary may describe
+the earlier reader's refusal. Exit 1 names what is missing; it decides nothing.
+VERIFIED is Semctx's composition over the evidence statuses
 the contract declares, never a test run: mark evidence `tested` only for a test
 that exercises the change — the review judges it. Landing's runtime-proof claim
 depends on CI GitHub actually enforces on this base/head. The pre-existing native
@@ -690,13 +694,29 @@ never stands in for it — and the Semctx configuration (assertledger's referenc
 world: the head's commit and tree), and are read with their native
 verdicts: VERIFIED, or PARTIAL with every gap review-judged — a gap is each
 warning finding, pending evidence and open unknown the result names, mirrored
-or not; draft, blocked, stale, superseded, a PARTIAL closed as verified, a
+or not; draft, blocked, stale, superseded without retained-history qualification,
+a PARTIAL closed as verified, a
 PARTIAL with a stale link or a blocking impact, a VERIFIED that requires no
 evidence, and a non-terminal change that is not the one block of its own
 `changes/<id>.sem` refuse. A refusal returns `proof-blocked` with `producer`
 (`candidate` | `semctx` | `assertledger`), `reason` and `error` through the
 forced-unarmed exit; every arm `landPr` writes targets the admitted head, and `watching` reports
 `proof`.
+
+A retained historical companion is an `M` already present at the merge base,
+with one explicit `active`/`partial`/`verified` status changed to `superseded`,
+and one explicit, unchanged `author`/`agent`/`derived` provenance matching native
+inspect. Its file must contain only its own `change <id>` block; provenance on
+another block does not qualify it. Acquisition and admission derive this classification
+from Git, never from record-supplied flags. Both blobs must round-trip to their Git object IDs.
+Every other byte must survive, except permutation within the same contiguous
+run of literal two-space `  link: file:<nonempty>` lines; multiplicity,
+separators, line endings and final newline remain significant. Other formatting
+or content changes do not qualify. This is conservation, not an invented native
+transmission relation or authorship attestation. The companion stays in the
+native verification input and results: BLOCKED/STALE still refuse and PARTIAL
+keeps every gap and its review requirements. An added own contract never receives
+this exception.
 
 Run `watch` as an async bash job (`timeout: 0`). Map the exit with
 `applyCiWatchExit(cwd, pr, code, { mode: land.mode })`:

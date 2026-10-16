@@ -142,6 +142,7 @@ async function modifiedNative(box: Box): Promise<Captured> {
     contracts,
     config,
     changeFiles: facts.changeFiles,
+    historicalContracts: new Map(),
   })
   if ('ok' in results || results.some((result) => result.verdict !== 'VERIFIED'))
     throw new Error(`the older contract is not natively VERIFIED: ${JSON.stringify(results)}`)

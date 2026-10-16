@@ -14,7 +14,7 @@ import { isAbsolute, join } from 'node:path'
 import { fixKind, type TicketSignals, ticketOfBranch } from './epic'
 
 export type GitResult = { code: number; stdout: string; stderr: string }
-/** Non-throwing, lossless git: stdout exactly as printed. */
+/** Non-throwing Git with untrimmed UTF-8 stdout; qualifying blobs also bind their exact bytes. */
 export type Git = (cwd: string, args: string[]) => Promise<GitResult>
 export type Gh = (cwd: string, args: string[]) => Promise<string>
 export type PrComment = { id?: number; author: { login: string }; body: string; createdAt?: string; updatedAt?: string }
@@ -602,6 +602,8 @@ export async function mergeBaseOf(
 // Semctx: reading a record against the re-derived inputs
 // ---------------------------------------------------------------------------
 
+type ContractProvenance = 'author' | 'agent' | 'derived'
+
 /** The inputs a Semctx record must bind to, re-derived from Git and the PR. */
 export type SemctxExpected = {
   repository: string
@@ -611,6 +613,8 @@ export type SemctxExpected = {
   mergeBase: string
   contracts: string[]
   changeFiles: string[]
+  /** Source-qualified retained companions, never supplied by the producer record. */
+  historicalContracts: ReadonlyMap<string, ContractProvenance>
   config: { source: SemctxConfig['source']; sha256: string }
 }
 
@@ -828,8 +832,16 @@ function changeResult(
   if (typeof lifecycle !== 'string' || !(lifecycle in LANDABLE) || lifecycle !== inspect.lifecycle) {
     return refuse('semctx', 'unreadable', `${name}: unknown lifecycle ${JSON.stringify(lifecycle)}`)
   }
-  if (!LANDABLE[lifecycle]) {
-    return refuse('semctx', 'verdict', `${name} is ${lifecycle}; only an active, partial or verified change lands`)
+  const historicalProvenance = expected.historicalContracts.get(path)
+  if (lifecycle === 'superseded' && historicalProvenance !== undefined && inspect.provenance !== historicalProvenance) {
+    return refuse('semctx', 'unbound', `${name}: native provenance does not match its retained Git source`)
+  }
+  if (!LANDABLE[lifecycle] && !(lifecycle === 'superseded' && historicalProvenance !== undefined)) {
+    return refuse(
+      'semctx',
+      'verdict',
+      `${name} is ${lifecycle}; only an active, partial or verified change, or a source-qualified retained companion, lands`,
+    )
   }
   const verdict = verify.verdict
   const findings = Array.isArray(verify.findings) ? verify.findings : null
@@ -1131,15 +1143,71 @@ export async function repositoryOf(gh: Gh, cwd: string, url?: string): Promise<s
   return name
 }
 
+/** Native close sorts flat file links; no other source formatting is equivalent here. */
+function sortFileLinkRuns(lines: string[]): void {
+  const fileLink = /^ {2}link: file:\S[^\r\n]*\r?$/
+  for (let start = 0; start < lines.length; ) {
+    if (!fileLink.test(lines[start] ?? '')) {
+      start++
+      continue
+    }
+    let end = start + 1
+    while (end < lines.length && fileLink.test(lines[end] ?? '')) end++
+    if (end - start > 1) {
+      const sorted = lines.slice(start, end).sort()
+      for (let index = start; index < end; index++) lines[index] = sorted[index - start] as string
+    }
+    start = end
+  }
+}
+
+/** A bounded source transition, not a replacement Semctx parser or transmission claim. */
+function retainedProvenance(before: string, after: string, id: string): ContractProvenance | undefined {
+  const original = before.split('\n')
+  const candidate = after.split('\n')
+  if (original.length !== candidate.length) return undefined
+  let headerSeen = false
+  let status: { line: number; replacement: string } | undefined
+  let provenance: ContractProvenance | undefined
+  for (const [index, line] of original.entries()) {
+    const content = line.trim()
+    if (content === '' || content.startsWith('#')) continue
+    if (line[0] !== ' ' && line[0] !== '\t') {
+      if (headerSeen || /^change\s+(\S+)\s*$/.exec(line)?.[1] !== id) return undefined
+      headerSeen = true
+      continue
+    }
+    if (!headerSeen) return undefined
+    const colon = line.indexOf(':')
+    if (colon < 0) continue
+    // Native field names and values use trim(), including non-ASCII whitespace.
+    const key = line.slice(0, colon).trim()
+    const raw = line.slice(colon + 1)
+    const value = raw.trim()
+    if (key === 'status') {
+      if (status || (value !== 'active' && value !== 'partial' && value !== 'verified')) return undefined
+      status = { line: index, replacement: line.slice(0, colon + 1) + raw.replace(value, 'superseded') }
+    } else if (key === 'provenance') {
+      if (provenance !== undefined || (value !== 'author' && value !== 'agent' && value !== 'derived')) return undefined
+      provenance = value
+    }
+  }
+  if (!status || provenance === undefined) return undefined
+  original[status.line] = status.replacement
+  sortFileLinkRuns(original)
+  sortFileLinkRuns(candidate)
+  return original.every((line, index) => line === candidate[index]) ? provenance : undefined
+}
+
 /**
  * The Semctx inputs admission and acquisition derive the same way from Git and
- * the facts. The candidate must add a change contract of its own; contracts it
- * modifies are verified beside it but never stand in for it.
+ * the facts. The candidate must add a change contract of its own. Modified
+ * companions remain verified beside it; only conserved source transitions qualify as history.
  */
 export async function semctxInputs(
   facts: CandidateFacts,
   git: Git,
-): Promise<Pick<SemctxExpected, 'base' | 'mergeBase' | 'contracts' | 'config'> | Refusal> {
+): Promise<Pick<SemctxExpected, 'base' | 'mergeBase' | 'contracts' | 'historicalContracts' | 'config'> | Refusal> {
   if (!facts.config) return refuse('semctx', 'unreadable', `candidate ${facts.candidate} has no Semctx configuration`)
   const mergeBase = await mergeBaseOf(git, facts.toplevel, facts.baseTip, facts.candidate)
   if (mergeBase instanceof Error)
@@ -1154,9 +1222,52 @@ export async function semctxInputs(
       `candidate ${facts.candidate} adds no ${CHANGES_DIR}<id>.sem since ${mergeBase}${modified.length ? ` (it only modifies ${modified.join(', ')}, which cannot stand in for this ticket's own)` : ''}: open the change contract for this ticket (feature §6.0)`,
     )
   }
+  const historicalContracts = new Map<string, ContractProvenance>()
+  for (const contract of changed) {
+    if (contract.status !== 'M') continue
+    const args = ['rev-parse', `${mergeBase}:${contract.path}`, `${facts.candidate}:${contract.path}`]
+    const resolved = await git(facts.toplevel, args)
+    const oids = oneLine(resolved.stdout).split('\n')
+    const [beforeOid, afterOid] = oids
+    if (
+      resolved.code !== 0 ||
+      oids.length !== 2 ||
+      !beforeOid ||
+      !afterOid ||
+      !SHA.test(beforeOid) ||
+      !SHA.test(afterOid)
+    )
+      return refuse(
+        'semctx',
+        'unbound',
+        `${contract.path}: cannot resolve historical Git blobs — ${gitError(args, resolved)}`,
+      )
+    const sources = await Promise.all([
+      git(facts.toplevel, ['cat-file', 'blob', beforeOid]),
+      git(facts.toplevel, ['cat-file', 'blob', afterOid]),
+    ])
+    for (const source of sources) {
+      if (source.code !== 0)
+        return refuse('semctx', 'unbound', `${contract.path}: cannot read historical Git blob — ${source.stderr}`)
+    }
+    const provenance = retainedProvenance(sources[0].stdout, sources[1].stdout, changeIdOf(contract.path))
+    if (provenance === undefined) continue
+    for (const [oid, source] of [
+      [beforeOid, sources[0]],
+      [afterOid, sources[1]],
+    ] as const) {
+      const roundTrip = createHash('sha1')
+        .update(`blob ${Buffer.byteLength(source.stdout, 'utf8')}\0`)
+        .update(source.stdout, 'utf8')
+        .digest('hex')
+      if (roundTrip !== oid)
+        return refuse('semctx', 'unbound', `${contract.path}: Git blob ${oid} cannot be read losslessly as UTF-8`)
+    }
+    historicalContracts.set(contract.path, provenance)
+  }
   const contracts = changed.map((contract) => contract.path)
   const config = { source: facts.config.source, sha256: facts.config.sha256 }
-  return { base: facts.base, mergeBase, contracts, config }
+  return { base: facts.base, mergeBase, contracts, historicalContracts, config }
 }
 
 /** GitHub's native UTC instants, including a real calendar date; no inferred timestamp. */
