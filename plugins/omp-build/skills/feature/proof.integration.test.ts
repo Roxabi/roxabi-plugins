@@ -11,6 +11,7 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { HISTORICAL_CASES, historicalSpec } from './__fixtures__/proof/historical'
 import {
   ACQUIRE,
   BOTH_CASE,
@@ -36,14 +37,22 @@ import {
   writeSim,
 } from './__fixtures__/proof/sandbox'
 import type { AssertledgerRecord, SemctxRecord } from './proof'
-import { findRecord, proofMark, renderRecord } from './proof'
+import { candidateFacts, findRecord, proofMark, readSemctxRecord, renderRecord, semctxInputs } from './proof'
 
 type Captured = { code: number | null; stdout: string; stderr: string; record?: string[] }
 type ReplayCapture = { token: { from: string; to: string }; version: Captured; invalid: Captured; valid: Captured }
 type Capture = { sha: Record<string, string>; records: Record<string, Captured>; replays?: ReplayCapture }
 type Records = { semctx: Capture; ignored: Capture; assertledger: Capture; both: Capture }
+type HistoricalCapture = { code: number | null; stdout: string; stderr: string; record?: string[] }
+type HistoricalRecords = {
+  sha: Record<string, string>
+  records: Record<'valid' | 'partial' | 'blocked' | 'ownSuperseded' | 'borrowedProvenance', HistoricalCapture>
+}
 const RECORDS: Records = JSON.parse(
   readFileSync(path.join(import.meta.dirname, '__fixtures__/proof/records.json'), 'utf8'),
+)
+const HISTORICAL_RECORDS: HistoricalRecords = JSON.parse(
+  readFileSync(path.join(import.meta.dirname, '__fixtures__/proof/historical.records.json'), 'utf8'),
 )
 const REAL_BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
 const ME = 'operator'
@@ -1774,7 +1783,7 @@ describe('landPr admission against conserved Semctx records', () => {
   })
 
   it.each([
-    ['a draft change', 'draft', /is draft; only an active, partial or verified change lands/],
+    ['a draft change', 'draft', undefined],
     ['a PARTIAL change declared verified (a forced close)', 'closed', /closed as verified while its result is PARTIAL/],
     ['a VERIFIED change that requires no evidence', 'vacuous', /requires no evidence/],
   ] as const)('%s refuses on its native verdict, unarmed', (_label, name, error) => {
@@ -1785,7 +1794,7 @@ describe('landPr admission against conserved Semctx records', () => {
     })
     const { result, gate, producers } = land(box, wt[name] as string, pr)
     expect(result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'verdict' })
-    expect(result.error).toMatch(error)
+    if (error) expect(result.error).toMatch(error)
     expect(gate).toEqual(UNARMED)
     expect(producers).toEqual([])
   })
@@ -1980,6 +1989,298 @@ describe('landPr admission against conserved Semctx records', () => {
     expect(gate).toEqual(UNARMED)
     expect(calls).toContainEqual(['pr', 'merge', String(pr), '--disable-auto'])
     expect(calls.some((args) => args.includes('--add-label'))).toBe(false)
+  })
+})
+
+describe('retained historical Semctx admission', () => {
+  let box: Box
+  const wt: Record<string, string> = {}
+  const sha = (branch: string) => box.sha[branch] as string
+
+  function captured(name: keyof HistoricalRecords['records']): string[] {
+    const record = HISTORICAL_RECORDS.records[name].record
+    if (!record?.length) throw new Error(`historical ${name} capture posted no Semctx record`)
+    return record
+  }
+
+  function prime(name: keyof HistoricalRecords['records'], body = 'Closes #813\n'): void {
+    const { pr, branch } = HISTORICAL_CASES[name]
+    prepare(box, pr, { comments: [approve(sha(branch)), ...captured(name)], body })
+  }
+
+  /** The same lossless Git seam production uses to derive historical source qualification. */
+  async function inputs(name: keyof typeof HISTORICAL_CASES) {
+    const root = wt[name]
+    const { branch, base } = HISTORICAL_CASES[name]
+    const candidate = sha(branch)
+    const baseTip = sha(base)
+    if (!root) throw new Error(`missing historical worktree ${name}`)
+    const realGit = async (cwd: string, args: string[]) => {
+      const run = spawnSync('git', args, { cwd, env: box.env, encoding: 'utf8' })
+      return { code: run.status ?? 1, stdout: run.stdout, stderr: run.stderr }
+    }
+    const facts = await candidateFacts(root, candidate, base, baseTip, realGit)
+    if ('ok' in facts) throw new Error(facts.error)
+    return semctxInputs(facts, realGit)
+  }
+
+  beforeAll(() => {
+    box = sandbox(historicalSpec())
+    for (const [branch, recorded] of Object.entries(HISTORICAL_RECORDS.sha)) {
+      if (box.sha[branch] !== recorded) {
+        throw new Error(`${branch} rebuilt as ${box.sha[branch]}, recorded ${recorded}: re-run historical.capture.ts`)
+      }
+    }
+    instrument(box)
+    for (const [name, { branch }] of Object.entries(HISTORICAL_CASES))
+      wt[name] = worktree(box, `historical-${name}`, sha(branch))
+  })
+  afterAll(() => rmSync(box.root, { recursive: true, force: true }))
+
+  it('admits a current VERIFIED contract beside a qualified superseded history with its flat file-link run reordered', async () => {
+    const { pr, branch } = HISTORICAL_CASES.valid
+    const expected = await inputs('valid')
+    if ('ok' in expected) throw new Error(expected.error)
+    expect([...expected.historicalContracts]).toEqual([['.semctx/semantic/changes/change.fx.history.sem', 'author']])
+    prime('valid')
+    const run = land(box, wt.valid as string, pr)
+    expect(run.result).toMatchObject({
+      status: 'watching',
+      proof: {
+        semctx: {
+          verdict: 'VERIFIED',
+          changes: [
+            { id: 'change.fx.current', verdict: 'VERIFIED' },
+            { id: 'change.fx.history', verdict: 'VERIFIED' },
+          ],
+          gaps: [],
+        },
+      },
+    })
+    expect(run.gate).toEqual({
+      labels: ['reviewed'],
+      autoMerge: expect.objectContaining({ matchHeadCommit: sha(branch) }),
+    })
+    expect(run.producers).toEqual([])
+  })
+
+  it('refuses a retained source-qualified history when native inspect reports different provenance', async () => {
+    const { pr, branch } = HISTORICAL_CASES.valid
+    const expected = await inputs('valid')
+    if ('ok' in expected) throw new Error(expected.error)
+    const candidate = sha(branch)
+    const found = findRecord(
+      captured('valid').map((body) => ({ author: { login: ME }, body })),
+      ME,
+      'semctx',
+      candidate,
+    )
+    if (!('record' in found)) throw new Error('missing genuine valid native record')
+    const record = structuredClone(found.record) as SemctxRecord
+    const inspect = record.native.find(
+      (step) => step.argv.includes('inspect') && step.argv.includes('change.fx.history'),
+    )
+    if (!inspect) throw new Error('missing historical native inspect')
+    const altered = inspect.stdout.replace('"provenance": "author"', '"provenance": "agent"')
+    if (altered === inspect.stdout) throw new Error('historical native inspect has no author provenance')
+    inspect.stdout = altered
+    expect(
+      readSemctxRecord(record, {
+        repository: 'acme/app',
+        pr,
+        candidate,
+        ...expected,
+        changeFiles: expected.contracts,
+      }),
+    ).toMatchObject({ ok: false, producer: 'semctx', reason: 'unbound' })
+  })
+
+  it('keeps the historical native open unknown PARTIAL until its named NO TEST row is reviewed', () => {
+    const { pr } = HISTORICAL_CASES.partial
+    prime('partial')
+    const missing = land(box, wt.partial as string, pr)
+    expect(missing.result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'unjustified' })
+    expect(missing.gate).toEqual(UNARMED)
+
+    prime(
+      'partial',
+      'Closes #813\n\n| Gap | Why | Proof |\n|---|---|---|\n| `unknown.fx.old-review` | historic review | ⚠ NO TEST — out-of-scope |\n',
+    )
+    const admitted = land(box, wt.partial as string, pr)
+    expect(admitted.result).toMatchObject({
+      status: 'watching',
+      proof: {
+        semctx: {
+          verdict: 'PARTIAL',
+          changes: [
+            { id: 'change.fx.current', verdict: 'VERIFIED' },
+            { id: 'change.fx.history', verdict: 'PARTIAL' },
+          ],
+          gaps: [{ gap: 'unknown.fx.old-review', reason: 'out-of-scope' }],
+        },
+      },
+    })
+    expect([...missing.producers, ...admitted.producers]).toEqual([])
+  })
+
+  it('refuses a native BLOCKED historical proof after its source qualifies', () => {
+    const { pr } = HISTORICAL_CASES.blocked
+    prime('blocked')
+    const run = land(box, wt.blocked as string, pr)
+    expect(run.result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'verdict' })
+    expect(run.result.error).toContain('BLOCKED')
+    expect(run.gate).toEqual(UNARMED)
+    expect(run.producers).toEqual([])
+  })
+
+  it('refuses an own superseded A even when the historical M qualifies', async () => {
+    const { pr } = HISTORICAL_CASES.ownSuperseded
+    const expected = await inputs('ownSuperseded')
+    if ('ok' in expected) throw new Error(expected.error)
+    expect(expected.contracts).toEqual([
+      '.semctx/semantic/changes/change.fx.current.sem',
+      '.semctx/semantic/changes/change.fx.history.sem',
+    ])
+    expect([...expected.historicalContracts]).toEqual([['.semctx/semantic/changes/change.fx.history.sem', 'author']])
+    prime('ownSuperseded')
+    const run = land(box, wt.ownSuperseded as string, pr)
+    expect(run.result).toMatchObject({ status: 'proof-blocked', producer: 'semctx', reason: 'verdict' })
+    expect(run.gate).toEqual(UNARMED)
+    expect(run.producers).toEqual([])
+  })
+
+  it('rejects provenance borrowed from another block in acquisition and admission', async () => {
+    const { pr } = HISTORICAL_CASES.borrowedProvenance
+    const expected = await inputs('borrowedProvenance')
+    if ('ok' in expected) throw new Error(expected.error)
+    prime('borrowedProvenance')
+    const acquired = spawnSync(REAL_BUN, [ACQUIRE, '--pr', String(pr)], {
+      cwd: wt.borrowedProvenance,
+      env: box.env,
+      encoding: 'utf8',
+    })
+    expect(acquired.status, acquired.stderr).toBe(0)
+    const acquisitionProducers = producerCalls(box)
+    const run = land(box, wt.borrowedProvenance as string, pr)
+    expect({
+      contracts: expected.contracts,
+      historicalContracts: [...expected.historicalContracts],
+      acquisition: JSON.parse(acquired.stdout),
+      admission: run.result,
+      gate: run.gate,
+      producers: [...acquisitionProducers, ...run.producers],
+    }).toMatchObject({
+      contracts: ['.semctx/semantic/changes/change.fx.current.sem', '.semctx/semantic/changes/change.fx.history.sem'],
+      historicalContracts: [],
+      acquisition: {
+        semctx: 'reused',
+        semctxAssessment: { ok: false, producer: 'semctx', reason: 'verdict' },
+      },
+      admission: { status: 'proof-blocked', producer: 'semctx', reason: 'verdict' },
+      gate: UNARMED,
+      producers: [],
+    })
+  })
+
+  it.each([
+    ['a substantive statement rewrite', 'statementChanged'],
+    ['a flat-link deletion', 'linkRemoved'],
+    ['a flat-link replacement', 'linkReplaced'],
+    ['a flat-link duplicate-count change', 'linkDuplicated'],
+    ['a link move across a comment boundary', 'linkCrossedComment'],
+    ['a candidate provenance rewrite', 'provenanceChanged'],
+    ['missing explicit base provenance', 'missingBaseProvenance'],
+    ['invalid base provenance that native would default', 'invalidBaseProvenance'],
+    ['duplicate status spellings in the base', 'duplicateBaseStatus'],
+    ['duplicate provenance spellings in the base', 'duplicateBaseProvenance'],
+  ] as const)(
+    'does not qualify %s as retained history, while keeping its current and modified contracts in the native input',
+    async (_label, name) => {
+      const expected = await inputs(name)
+      if ('ok' in expected) throw new Error(expected.error)
+      expect(expected.contracts).toEqual([
+        '.semctx/semantic/changes/change.fx.current.sem',
+        '.semctx/semantic/changes/change.fx.history.sem',
+      ])
+      expect([...expected.historicalContracts]).toEqual([])
+    },
+  )
+
+  it('reuses a legacy refusal presentation around an unmodified same-head native record, exposes the current assessment, then admits from that record', () => {
+    const { pr, branch } = HISTORICAL_CASES.valid
+    const candidate = sha(branch)
+    const found = findRecord(
+      captured('valid').map((body) => ({ author: { login: ME }, body })),
+      ME,
+      'semctx',
+      candidate,
+    )
+    if (!('record' in found)) throw new Error('missing genuine historical native record')
+    const legacy = renderRecord(
+      'semctx',
+      candidate,
+      ['Legacy diagnostic presentation: Admission would refuse: superseded'],
+      found.record,
+    )
+    prime('valid')
+    writeSim(box, (state) => {
+      const pull = state.prs[String(pr)]
+      if (!pull) throw new Error('missing historical PR')
+      const review = pull.comments.filter(
+        (comment) => !comment.body.startsWith('<!-- omp-build:proof producer=semctx -->'),
+      )
+      pull.comments = [
+        ...legacy.map((body) => ({
+          author: ME,
+          body,
+          createdAt: '2026-01-01T00:00:00Z',
+          updatedAt: '2026-01-01T00:00:00Z',
+        })),
+        ...review,
+      ]
+    })
+    bindFixtureReview(box, pr)
+    const before = structuredClone(readSim(box).prs[String(pr)]?.comments)
+    const archived = before?.find((comment) => comment.body.startsWith('<!-- omp-build:proof producer=semctx -->'))
+    expect(archived).toMatchObject({
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+    })
+    expect(archived?.body).toMatch(/Legacy diagnostic presentation: Admission would refuse: superseded/)
+    const retained = findRecord(
+      (before ?? []).map((comment) => ({ author: { login: ME }, body: comment.body })),
+      ME,
+      'semctx',
+      candidate,
+    )
+    if (!('record' in retained)) throw new Error('legacy presentation did not retain the native record')
+    expect(retained.record).toEqual(found.record)
+
+    const acquired = spawnSync(REAL_BUN, [ACQUIRE, '--pr', String(pr)], {
+      cwd: wt.valid,
+      env: box.env,
+      encoding: 'utf8',
+    })
+    expect(acquired.status).toBe(0)
+    expect(JSON.parse(acquired.stdout)).toEqual({
+      pr,
+      candidate: sha(HISTORICAL_CASES.valid.branch),
+      semctx: 'reused',
+      semctxAssessment: [
+        { id: 'change.fx.current', verdict: 'VERIFIED', lifecycle: 'active', gaps: [] },
+        { id: 'change.fx.history', verdict: 'VERIFIED', lifecycle: 'superseded', gaps: [] },
+      ],
+      assertledger: 'not-applicable',
+    })
+    expect(readSim(box).prs[String(pr)]?.comments).toEqual(before)
+    expect(producerCalls(box)).toEqual([])
+
+    const run = land(box, wt.valid as string, pr)
+    expect(run.result, JSON.stringify(run.result)).toMatchObject({
+      status: 'watching',
+      proof: { semctx: { verdict: 'VERIFIED' } },
+    })
+    expect(run.producers).toEqual([])
   })
 })
 

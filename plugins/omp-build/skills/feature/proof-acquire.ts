@@ -65,6 +65,7 @@ import { gitResult, readComments } from './workflow.js'
 class ProtocolError extends Error {}
 
 type Outcome = 'not-applicable' | 'reused' | 'posted'
+type SemctxAcquisition = { outcome: 'reused' | 'posted'; assessment: ChangeResult[] | Refusal }
 type Context = {
   cwd: string
   pr: number
@@ -160,7 +161,7 @@ function semctxSummary(results: ChangeResult[] | Refusal): string[] {
   if ('ok' in results) return [`- Admission would refuse: ${refusalText(results)}`]
   return results.map(
     (result) =>
-      `- \`${result.id}\` — **${result.verdict}**${result.gaps.length ? ` (gaps: ${result.gaps.map((gap) => `\`${gap}\``).join(', ')})` : ''}`,
+      `- \`${result.id}\` — **${result.verdict}**${result.lifecycle === 'superseded' ? ' (retained historical companion)' : ''}${result.gaps.length ? ` (gaps: ${result.gaps.map((gap) => `\`${gap}\``).join(', ')})` : ''}`,
   )
 }
 
@@ -169,7 +170,7 @@ function isUnbound(outcome: unknown): outcome is Refusal {
   return isMap(outcome) && outcome.ok === false && (outcome.reason === 'unbound' || outcome.reason === 'unreadable')
 }
 
-async function acquireSemctx(ctx: Context): Promise<Outcome> {
+async function acquireSemctx(ctx: Context): Promise<SemctxAcquisition> {
   const inputs = await semctxInputs(ctx.facts, gitResult)
   if ('ok' in inputs) throw new ProtocolError(refusalText(inputs))
   const expected: SemctxExpected = {
@@ -180,12 +181,10 @@ async function acquireSemctx(ctx: Context): Promise<Outcome> {
     changeFiles: ctx.facts.changeFiles,
   }
   const found = findRecord(ctx.comments, ctx.me, 'semctx', ctx.candidate)
-  if (
-    'record' in found &&
-    !recordIntegrity(found.parts, 'semctx') &&
-    !isUnbound(readSemctxRecord(found.record, expected))
-  )
-    return 'reused'
+  if ('record' in found && !recordIntegrity(found.parts, 'semctx')) {
+    const assessment = readSemctxRecord(found.record, expected)
+    if (!isUnbound(assessment)) return { outcome: 'reused', assessment }
+  }
   const semctx = await tool('semctx', null)
   const work = mkdtempSync(join(tmpdir(), 'omp-proof-'))
   try {
@@ -245,7 +244,7 @@ async function acquireSemctx(ctx: Context): Promise<Outcome> {
     const read = readSemctxRecord(record, expected)
     if (isUnbound(read)) throw new ProtocolError(`the run does not bind to the candidate — ${refusalText(read)}`)
     await post(ctx, renderRecord('semctx', ctx.candidate, semctxSummary(read), record))
-    return 'posted'
+    return { outcome: 'posted', assessment: read }
   } finally {
     rmSync(work, { recursive: true, force: true })
   }
@@ -348,7 +347,11 @@ export async function main(argv: string[], cwd: string): Promise<number> {
       semctx: 'not-applicable',
       assertledger: 'not-applicable',
     }
-    if (facts.semctx === 'configured') report.semctx = await acquireSemctx(ctx)
+    if (facts.semctx === 'configured') {
+      const acquired = await acquireSemctx(ctx)
+      report.semctx = acquired.outcome
+      report.semctxAssessment = acquired.assessment
+    }
     if (ledger) report.assertledger = await acquireAssertledger(ctx, args.manifest)
     else if (args.manifest !== undefined)
       console.error(`assertledger does not apply to PR #${args.pr}: the manifest was not posted`)
