@@ -28,7 +28,12 @@ claude plugin install issue-triage
 # Oh My Pi: omp-build is catalogued for OMP only.
 omp plugin marketplace add Roxabi/roxabi-plugins
 omp plugin install omp-build@roxabi-marketplace
+# After a marketplace update lands:
+omp plugin marketplace update roxabi-marketplace
+omp plugin upgrade omp-build@roxabi-marketplace
 ```
+
+Restart OMP after updating; do not use `/reload-plugins`.
 
 Then describe the task or invoke the installed command:
 
@@ -57,7 +62,7 @@ Retained plugins are project-agnostic: they read the project contract at runtime
 | Plugin | Host | Description |
 |--------|------|-------------|
 | [issue-triage](plugins/issue-triage/README.md) | Claude Code, OMP | Triage and create GitHub issues with labels and native relations. |
-| [omp-build](plugins/omp-build/README.md) | OMP | Feature cycle: frame → issue → worktree → implement → review/fix → land. AssertLedger detection requires explicit root configuration, not bundled Kit tooling. |
+| [omp-build](plugins/omp-build/README.md) | OMP | Feature cycle: frame → issue → worktree → implement → review/fix → land. Epic resumption recognizes confirmed deliveries without resetting stops. AssertLedger detection requires explicit root configuration, not bundled Kit tooling. |
 
 Retired plugins are retained only under [`archived/`](archived/); they are inert historical source and are not installable from either marketplace catalog.
 

@@ -1246,16 +1246,28 @@ describe('epic-driver — reconcile a stopped armed PR', () => {
     expect(git(epic, 'branch', '--list', 'fix/3-second-child')).toBe('')
   })
 
-  it('returns a drop and creates no branch when the epic query already says the stopped PR merged', () => {
-    const { epic } = sandbox()
+  it('starts the next child after confirming delivery of a previously stopped child', () => {
+    const { epic, root, origin } = sandbox()
+    git(epic, 'switch', '-q', '-c', 'feat/2-first-child', 'refs/remotes/origin/main')
+    writeFileSync(path.join(epic, 'one.txt'), 'one\n')
+    git(epic, 'add', 'one.txt')
+    git(epic, 'commit', '-qm', 'feat(x): first child (#2)')
+    git(epic, 'push', '-q', 'origin', 'feat/2-first-child')
+    const tip = git(epic, 'rev-parse', 'HEAD')
+    const base = git(epic, 'rev-parse', 'refs/remotes/origin/main')
+    git(root, 'clone', '-q', origin, 'merger')
+    const merger = path.join(root, 'merger')
+    git(merger, 'merge', '-q', '--no-ff', 'origin/feat/2-first-child', '-m', 'Merge pull request #10')
+    git(merger, 'push', '-q', 'origin', 'main')
+    const mergeSha = git(merger, 'rev-parse', 'HEAD')
     serveEpic([
       childNode(2, 'feat(x): first child', {
         comments: [{ body: '<!-- omp-build:goal-stop run=run00000 reason=review-bound -->\nstopped', author: ME }],
         prs: [
-          prNode(10, 'feat/2-first-child', 'a'.repeat(40), {
+          prNode(10, 'feat/2-first-child', tip, {
             state: 'MERGED',
             mergedAt: '2026-10-01T00:00:00Z',
-            mergeCommit: { oid: 'e'.repeat(40), parents: { nodes: [{ oid: 'f'.repeat(40) }] } },
+            mergeCommit: { oid: mergeSha, parents: { nodes: [{ oid: base }] } },
           }),
         ],
       }),
@@ -1264,11 +1276,165 @@ describe('epic-driver — reconcile a stopped armed PR', () => {
     servePr(10, { state: 'MERGED', labels: [], autoMerge: false })
     const run = drive(['next'])
     expect(run.code).toBe(0)
+    expect(run.json().step).toMatchObject({ action: 'start', ticket: 3, branch: 'fix/3-second-child' })
+    expect(run.json().step.report.merged).toEqual([2])
+    expect(run.json().step.report.stopped).toEqual([])
+    expect(run.json().cleaned).toEqual(['feat/2-first-child'])
+    expect(run.json().recorded).toEqual([])
+    expect(run.json().reconciled).toEqual([])
+    expect(run.json().disarmed).toBeNull()
+    expect(writes()).toEqual([])
+    expect(git(epic, 'branch', '--list', 'feat/2-first-child')).toBe('')
+    expect(git(epic, 'branch', '--show-current')).toBe('fix/3-second-child')
+    expect(git(epic, 'rev-parse', 'HEAD')).toBe(mergeSha)
+  })
+
+  it.each([
+    ['confirmed delivery first', [10, 14]],
+    ['unconfirmable merge first', [14, 10]],
+  ])('drops for #14, not confirmed #10, when the stopped child has an unconfirmable merge %s', (_name, order) => {
+    const { epic, root, origin } = sandbox()
+    git(epic, 'switch', '-q', '-c', 'feat/2-first-child', 'refs/remotes/origin/main')
+    writeFileSync(path.join(epic, 'one.txt'), 'one\n')
+    git(epic, 'add', 'one.txt')
+    git(epic, 'commit', '-qm', 'feat(x): first child (#2)')
+    git(epic, 'push', '-q', 'origin', 'feat/2-first-child')
+    const tip = git(epic, 'rev-parse', 'HEAD')
+    const base = git(epic, 'rev-parse', 'refs/remotes/origin/main')
+    git(root, 'clone', '-q', origin, 'merger')
+    const merger = path.join(root, 'merger')
+    git(merger, 'merge', '-q', '--no-ff', 'origin/feat/2-first-child', '-m', 'Merge pull request #10')
+    git(merger, 'push', '-q', 'origin', 'main')
+    const mergeSha = git(merger, 'rev-parse', 'HEAD')
+    const delivery = prNode(10, 'feat/2-first-child', tip, {
+      state: 'MERGED',
+      mergedAt: '2026-10-01T00:00:00Z',
+      mergeCommit: { oid: mergeSha, parents: { nodes: [{ oid: base }] } },
+    })
+    const ambiguous = prNode(14, 'feat/2-other-child', 'b'.repeat(40), {
+      state: 'MERGED',
+      mergedAt: '2026-10-02T00:00:00Z',
+      mergeCommit: null,
+    })
+    serveEpic([
+      childNode(2, 'feat(x): first child', {
+        comments: [{ body: '<!-- omp-build:goal-stop run=run00000 reason=review-bound -->\nstopped', author: ME }],
+        prs: order.map((number) => (number === 10 ? delivery : ambiguous)),
+      }),
+      childNode(3, 'fix(y): second child'),
+    ])
+    const run = drive(['next'])
+    expect(run.code).toBe(0)
     expect(run.json().step.action).toBe('drop')
     expect(run.json().step.stop).toBe('driver-error')
-    expect(run.json().step.reason).toContain('#10')
+    expect(run.json().step.reason).toContain('#14')
+    expect(run.json().step.reason).not.toContain('#10')
+    expect(run.json().step.report.merged).toEqual([2])
+    expect(run.json().reconciled).toEqual([])
     expect(writes()).toEqual([])
+    expect(git(epic, 'branch', '--show-current')).toBe('')
     expect(git(epic, 'branch', '--list', 'fix/3-second-child')).toBe('')
+  })
+
+  it('drops without starting #3 when stopped #14 merges before its disarm beside confirmed #10', () => {
+    const { epic, root, origin } = sandbox()
+    git(epic, 'switch', '-q', '-c', 'feat/2-first-child', 'refs/remotes/origin/main')
+    writeFileSync(path.join(epic, 'one.txt'), 'one\n')
+    git(epic, 'add', 'one.txt')
+    git(epic, 'commit', '-qm', 'feat(x): first child (#2)')
+    git(epic, 'push', '-q', 'origin', 'feat/2-first-child')
+    const tip = git(epic, 'rev-parse', 'HEAD')
+    const base = git(epic, 'rev-parse', 'refs/remotes/origin/main')
+    git(root, 'clone', '-q', origin, 'merger')
+    const merger = path.join(root, 'merger')
+    git(merger, 'merge', '-q', '--no-ff', 'origin/feat/2-first-child', '-m', 'Merge pull request #10')
+    git(merger, 'push', '-q', 'origin', 'main')
+    const mergeSha = git(merger, 'rev-parse', 'HEAD')
+    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
+    serveEpic([
+      childNode(2, 'feat(x): first child', {
+        comments: [{ body: '<!-- omp-build:goal-stop run=run00000 reason=review-bound -->\nstopped', author: ME }],
+        prs: [
+          prNode(10, 'feat/2-first-child', tip, {
+            state: 'MERGED',
+            mergedAt: '2026-10-01T00:00:00Z',
+            mergeCommit: { oid: mergeSha, parents: { nodes: [{ oid: base }] } },
+          }),
+          prNode(14, 'feat/2-other-child', 'b'.repeat(40), armed),
+        ],
+      }),
+      childNode(3, 'fix(y): second child'),
+    ])
+    servePr(14, { state: 'MERGED', labels: [], autoMerge: false })
+    const run = drive(['next'])
+    expect(run.code).toBe(0)
+    expect(run.json().step.action).toBe('drop')
+    expect(run.json().step.stop).toBe('driver-error')
+    expect(run.json().step.reason).toContain('#14')
+    expect(run.json().step.report.merged).toEqual([2])
+    expect(run.json().reconciled).toEqual([{ ticket: 2, pr: 14, disarmed: 'merged' }])
+    expect(writes()).toEqual([])
+    expect(git(epic, 'branch', '--show-current')).toBe('')
+    expect(git(epic, 'branch', '--list', 'fix/3-second-child')).toBe('')
+  })
+
+  it('disarms a stable exhausted #14 before starting #3 beside confirmed #10 without replacing #2', () => {
+    const { epic, root, origin, state } = sandbox()
+    git(epic, 'switch', '-q', '-c', 'feat/2-first-child', 'refs/remotes/origin/main')
+    writeFileSync(path.join(epic, 'one.txt'), 'one\n')
+    git(epic, 'add', 'one.txt')
+    git(epic, 'commit', '-qm', 'feat(x): first child (#2)')
+    git(epic, 'push', '-q', 'origin', 'feat/2-first-child')
+    const tip = git(epic, 'rev-parse', 'HEAD')
+    const base = git(epic, 'rev-parse', 'refs/remotes/origin/main')
+    git(root, 'clone', '-q', origin, 'merger')
+    const merger = path.join(root, 'merger')
+    git(merger, 'merge', '-q', '--no-ff', 'origin/feat/2-first-child', '-m', 'Merge pull request #10')
+    git(merger, 'push', '-q', 'origin', 'main')
+    const mergeSha = git(merger, 'rev-parse', 'HEAD')
+    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
+    serveEpic([
+      childNode(2, 'feat(x): first child', {
+        comments: [{ body: '<!-- omp-build:goal-stop run=run00000 reason=review-bound -->\nstopped', author: ME }],
+        prs: [
+          prNode(10, 'feat/2-first-child', tip, {
+            state: 'MERGED',
+            mergedAt: '2026-10-01T00:00:00Z',
+            mergeCommit: { oid: mergeSha, parents: { nodes: [{ oid: base }] } },
+          }),
+          prNode(14, 'feat/2-other-child', 'b'.repeat(40), armed),
+        ],
+      }),
+      childNode(3, 'fix(y): second child'),
+    ])
+    const review = '<!-- omp-build:code-review -->\n## Code Review\n\n**Verdict: Request changes** — summary'
+    writeFileSync(
+      path.join(state, 'reviews.json'),
+      JSON.stringify({
+        data: {
+          repository: {
+            p14: {
+              comments: {
+                nodes: [
+                  { body: review, author: { login: ME } },
+                  { body: review, author: { login: ME } },
+                  { body: review, author: { login: ME } },
+                ],
+              },
+            },
+          },
+        },
+      }),
+    )
+    servePr(14, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    const run = drive(['next'])
+    expect(run.code).toBe(0)
+    expect(run.json().step).toMatchObject({ action: 'start', ticket: 3, branch: 'fix/3-second-child' })
+    expect(run.json().step.report.merged).toEqual([2])
+    expect(run.json().reconciled).toEqual([{ ticket: 2, pr: 14, disarmed: 'disarmed' }])
+    expect(writes()).toEqual(['merge 14 --disable-auto', 'edit 14 --remove-label reviewed'])
+    expect(git(epic, 'branch', '--show-current')).toBe('fix/3-second-child')
+    expect(git(epic, 'branch', '--list', '*/2-*')).toBe('')
   })
 
   it('returns a drop and creates no branch when the epic query says MERGED and mergeCommit is null', () => {

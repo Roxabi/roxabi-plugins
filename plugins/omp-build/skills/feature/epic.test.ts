@@ -1290,6 +1290,60 @@ describe('armedStoppedPrs', () => {
 })
 
 describe('mergedStoppedPrs', () => {
+  it('exempts a historical stopped delivery without mutating the input facts', () => {
+    const input = facts([
+      child(2, {
+        stops: [{ run: EARLIER, reason: 'review-bound' }],
+        prs: [landed(2, T1, sha('1'), sha('2'), { number: 10 })],
+      }),
+    ])
+    const before = structuredClone(input)
+    expect(mergedStoppedPrs(input)).toEqual([])
+    expect(input).toEqual(before)
+  })
+
+  it.each([
+    ['delivery first', [10, 14]],
+    ['ambiguous merge first', [14, 10]],
+  ])('keeps an unconfirmable same-child merge when the confirmed delivery is %s', (_name, order) => {
+    const delivery = landed(2, T1, sha('1'), sha('2'), { number: 10 })
+    const ambiguous = pr(2, { number: 14, state: 'MERGED', mergeSha: null })
+    const prs = order.map((number) => (number === 10 ? delivery : ambiguous))
+    const input = facts([child(2, { stops: [{ run: EARLIER, reason: 'review-bound' }], prs })])
+    expect(mergedStoppedPrs(input)).toEqual([{ ticket: 2, pr: 14 }])
+  })
+
+  it('exempts only the canonical first delivery when a stopped child has two confirmed merges', () => {
+    const input = facts([
+      child(2, {
+        stops: [{ run: EARLIER, reason: 'review-bound' }],
+        prs: [landed(2, T1, sha('1'), sha('2'), { number: 10 }), landed(2, T2, sha('2'), sha('3'), { number: 14 })],
+      }),
+    ])
+    expect(mergedStoppedPrs(input)).toEqual([{ ticket: 2, pr: 14 }])
+  })
+
+  it('keeps an exhausted armed PR for stopped-child disarm when another PR is confirmed delivered', () => {
+    const input = facts([
+      child(2, {
+        stops: [{ run: EARLIER, reason: 'review-bound' }],
+        prs: [landed(2, T1, sha('1'), sha('2'), { number: 10 }), pr(2, { number: 14, armed: true, exhausted: true })],
+      }),
+    ])
+    expect(mergedStoppedPrs(input)).toEqual([])
+    expect(armedStoppedPrs(input)).toEqual([{ ticket: 2, pr: 14 }])
+  })
+
+  it('does not classify a stopped child’s closed unmerged PR as a merged reconciliation problem', () => {
+    const input = facts([
+      child(2, {
+        stops: [{ run: EARLIER, reason: 'review-bound' }],
+        prs: [pr(2, { number: 10, state: 'CLOSED' })],
+      }),
+    ])
+    expect(mergedStoppedPrs(input)).toEqual([])
+  })
+
   it('lists a stopped child PR that is MERGED onto this base even when mergeSha is null', () => {
     const listed = mergedStoppedPrs(
       facts([
