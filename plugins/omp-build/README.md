@@ -217,6 +217,10 @@ before its diff; the review-start test exercises the fence, not model compliance
   final reuse/absence report.
   Proof summaries are presentation only: the reader takes each part's fixed
   trailing native JSON frame, never a fence echoed in a producer-derived summary.
+  Fresh and reused acquisition both return `semctxAssessment` in CLI JSON: the
+  current shared Semctx reader's results or refusal, not landing authorization.
+  Reuse preserves native proof bytes and publication metadata; an archival human
+  summary may still describe the older reader's refusal.
 - Then `landPr` admits that head (`admitLanding`, `proof.ts`), reading only: the
   local tip must be it; Semctx applies when `origin/<base>`, the head or the
   uncommitted `.semctx/config.json` on disk at the root and the principal
@@ -229,6 +233,17 @@ before its diff; the review-start test exercises the fence, not model compliance
   and open unknown it names) justified by a closed-enum NO TEST row in
   a PR body last edited before the approving record (an edit after it returns
   the PR to review); a PARTIAL with a stale link or a blocking impact refuses.
+  A modified historical companion may retain `superseded` only when Git proves
+  its sole lifecycle field changed from `active`, `partial` or `verified`, with
+  one explicit preserved provenance matching native inspect. Every other byte
+  stays identical except permutation within the same contiguous run of literal
+  `  link: file:<nonempty>` lines, preserving duplicates, separators and line
+  endings; both source strings must round-trip to their Git blob IDs.
+  Broader formatting, changed obligations or insufficient provenance do not
+  qualify. The companion is still natively verified and keeps its verdict,
+  unknowns and gaps; this proves conservation, not a native transmission
+  relation. The added own contract is still mandatory and cannot use this
+  historical exception.
   Every applicable native proof part's creation/revision facts must be readable,
   unmodified and published before approval, regardless of producer or verdict.
   A recorded edit requires acquisition again; a late publication requires
