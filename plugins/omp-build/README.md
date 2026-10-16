@@ -9,9 +9,12 @@ Not a Claude/Grok factory — does not invoke host `/dev` or dev-core Skill() ch
 OMP marketplace — catalogued in `.omp-plugin/marketplace.json` only (OMP-only plugin, absent from the Claude Code catalog).
 
 ```bash
+# First install
 omp plugin marketplace add Roxabi/roxabi-plugins   # once per machine
-omp plugin marketplace update roxabi-marketplace   # after a catalog change lands
 omp plugin install omp-build@roxabi-marketplace
+# After a marketplace update lands
+omp plugin marketplace update roxabi-marketplace
+omp plugin upgrade omp-build@roxabi-marketplace
 ```
 
 If `~/.local/bin/omp-wt` exists, `rm -f ~/.local/bin/omp-wt` — the script is retired; enter a worktree with `/move <path>`.
@@ -23,7 +26,7 @@ extensions:
   - ~/.omp/plugins/node_modules/omp-build
 ```
 
-Then **restart** the OMP session — agents and extension modules are not picked up by `/reload-plugins`.
+After a marketplace update or install, **restart** OMP — do **not** use `/reload-plugins`; agents and extension modules are not picked up otherwise.
 
 Keep this package **legacy**: no `plugin.json` at the package root. With one, `agent-plugins` unions the cache directory and the `node_modules` symlink as two distinct path strings and loads every skill twice.
 
@@ -105,11 +108,14 @@ skipped and independent children continue. A **shared-state stop** (base CI red,
 `base-ci-pending` at finalization, a dirty tree, `hook-stale`, landing or tracker
 failure, hook failure, final review still blocking after its one fix ticket)
 disarms every child PR, reports on the epic and drops the
-goal. A new `/goal` line resumes: merged children are skipped, open PRs resumed,
-stops of earlier runs retried except a spent review bound. Without an active goal
-naming the epic, `/feature` is unchanged.
-
-Every `next` re-disarms a stopped child's armed PR before it moves on (`reconciled`); a failed disarm, or a PR that already merged, is a drop and creates no branch. `report --outcome drop` disarms without reading base CI or the landing, and exits non-zero naming any PR still armed. If that command fails, print the error, then drop the goal.
+goal. A new `/goal` line resumes: a child with canonical delivery confirmed by `mergedPr` — a `MERGED` PR to the
+configured base, from a head claiming that ticket, with a known merge SHA — progresses to eligible local-branch
+cleanup; open PRs resume; earlier stops retry except a spent review bound. Before its first `nextStep`, `next`
+re-disarms every open armed PR of a stopped child and lists it as `reconciled`; a failed disarm or a merge during
+that disarm drops the goal and creates no branch. Only the exact confirmed delivery PR is excluded from merged
+candidates: every other matching `MERGED` candidate, including another confirmed one, still drops; a matching
+`MERGED` PR without confirmable delivery also drops. History stays preserved, and an `OPEN` PR with an exhausted
+review bound is not reset. Without an active goal naming the epic, `/feature` is unchanged.
 
 The epic loop's driver calls (`objective`, `next`, the final-review verdict, the post-merge hook and the `complete` report) start Bun in the skill directory with `--no-env-file` and the epic worktree in `--repo`. Fix's follow-up filing starts issue-triage in its own directory with the target in `GITHUB_REPO`. A `bunfig.toml` preload or `.env` committed in the checkout under review therefore runs before none of them and cannot print a forged step, verdict or receipt. The ticket `stop` and the `drop` report, the halt launcher, still start in the epic worktree; #767 owns their startup.
 

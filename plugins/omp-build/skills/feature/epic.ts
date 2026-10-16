@@ -508,18 +508,22 @@ export function armedStoppedPrs(facts: Facts): { ticket: number; pr: number }[] 
 }
 
 /**
- * Stopped children's PRs the epic query already shows MERGED onto this base,
- * from a branch claiming the ticket. `mergeSha` is not required: a rebase leaves
- * `mergeCommit` null, and the PR has still landed. `mergedPr` stays the landing
- * predicate (a child is done only with a merge commit).
+ * Stopped children's PRs already shown MERGED onto this base from a ticket branch,
+ * except the confirmed delivery returned by `mergedPr`. Other candidates still
+ * refuse, including a MERGED PR whose merge commit cannot be identified.
  */
 export function mergedStoppedPrs(facts: Facts): { ticket: number; pr: number }[] {
   const found: { ticket: number; pr: number }[] = []
   for (const child of [...facts.children].sort((a, b) => a.number - b.number)) {
     if (!stopOf(child, facts.run)) continue
+    const delivery = mergedPr(child, facts.base)
     const merged = child.prs
       .filter(
-        (item) => item.state === 'MERGED' && item.base === facts.base && ticketOfBranch(item.head) === child.number,
+        (item) =>
+          item !== delivery &&
+          item.state === 'MERGED' &&
+          item.base === facts.base &&
+          ticketOfBranch(item.head) === child.number,
       )
       .sort((a, b) => a.number - b.number)
     for (const pr of merged) found.push({ ticket: child.number, pr: pr.number })

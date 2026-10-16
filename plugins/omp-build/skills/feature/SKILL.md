@@ -227,11 +227,14 @@ the child. A shared-state stop is the `drop` row above. `report --outcome drop`
 reads only the children and PRs: it disarms every open armed child PR without
 reading base CI or the landing, and one failed disarm does not stop the others.
 If a PR is still armed it exits non-zero and names it; the report is still posted,
-with base CI marked unread when the full read fails or the landing cannot be read. `next` re-disarms every open
-armed PR of a stopped child before the first `nextStep` and lists them under
-`reconciled`. If that disarm fails, or the PR already merged, `next` returns a `drop` (`driver-error`) and
-creates no branch. `--dry-run` reports the PR and writes nothing. No stopped
-ticket stays armed.
+with base CI marked unread when the full read fails or the landing cannot be read. Before its first `nextStep`, `next`
+re-disarms every open armed PR of a stopped child and lists them under `reconciled`. A failed disarm or a merge
+during that disarm returns a `drop` (`driver-error`) and creates no branch. Separately, a stopped child whose
+canonical delivery is confirmed by `mergedPr` — a `MERGED` PR to the configured base, from a head claiming that
+ticket, with a known `mergeSha` — progresses and cleans up its eligible local branch. Candidate matching excludes
+only that exact delivery PR: every other matching `MERGED` candidate, including another confirmed one, still drops;
+a matching `MERGED` PR without confirmable delivery also drops. History is preserved, and an `OPEN` PR with an
+exhausted review bound is not reset. `--dry-run` reports the PR and writes nothing. No stopped ticket stays armed.
 
 | Class | Triggers | Effect |
 |---|---|---|
