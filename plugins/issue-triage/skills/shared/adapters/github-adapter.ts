@@ -178,6 +178,15 @@ export async function listOrgIssueTypes(login: string): Promise<OrgIssueType[]> 
   return data.data.organization.issueTypes.nodes
 }
 
+/**
+ * The org issue types an issue can be set to. GitHub refuses to set a disabled
+ * type, so availability is `isEnabled`, not name presence (#626). One rule for
+ * `create`/`set` (via `resolveIssueTypeId`) and the `init --dry-run` report.
+ */
+export async function listEnabledOrgIssueTypes(login: string): Promise<OrgIssueType[]> {
+  return (await listOrgIssueTypes(login)).filter((type) => type.isEnabled)
+}
+
 export async function updateIssueType(
   issueTypeId: string,
   patch: { name?: string; description?: string; color?: string; isEnabled?: boolean },
@@ -235,14 +244,23 @@ export async function updateIssueIssueType(issueNodeId: string, issueTypeId: str
   await ghGraphQL(UPDATE_ISSUE_ISSUE_TYPE_MUTATION, { issueId: issueNodeId, issueTypeId })
 }
 
-/** Resolve an issue type name to its node ID for a given org (case-insensitive). */
+/**
+ * Resolve an issue type name to its node ID for a given org (case-insensitive).
+ * Only an enabled type resolves: a disabled one is refused here, before any write.
+ */
 export async function resolveIssueTypeId(org: string, typeName: string): Promise<string> {
   const types = await listOrgIssueTypes(org)
   const match = types.find((t) => t.name.toLowerCase() === typeName.toLowerCase())
-  if (!match) {
-    const valid = types.map((t) => t.name).join(', ')
-    throw new GitHubApiError(`Unknown issue type: ${typeName}. Valid: ${valid}`)
+  const valid = types
+    .filter((t) => t.isEnabled)
+    .map((t) => t.name)
+    .join(', ')
+  if (match && !match.isEnabled) {
+    throw new GitHubApiError(
+      `Issue type ${match.name} is disabled in org ${org}: enable it in the organization settings. Valid: ${valid}`,
+    )
   }
+  if (!match) throw new GitHubApiError(`Unknown issue type: ${typeName}. Valid: ${valid}`)
   return match.id
 }
 

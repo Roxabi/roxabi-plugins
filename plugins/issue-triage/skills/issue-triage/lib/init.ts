@@ -32,9 +32,9 @@ import { fileURLToPath } from 'node:url'
 import { detectGitHubRepo } from '../../shared/adapters/config-helpers'
 import {
   ensureLabel,
+  listEnabledOrgIssueTypes,
   listIssueLabelSets,
   listLabelNames,
-  listOrgIssueTypes,
   updateLabels,
 } from '../../shared/adapters/github-adapter'
 import { EXTENDED_ISSUE_TYPES, ISSUE_TYPE_NAMES } from '../../shared/domain/issue-types'
@@ -483,7 +483,7 @@ export function defaultInitDeps(cwdRepo: string, cwd = process.cwd()): InitDeps 
     ensureLabel,
     updateLabels,
     cwdRepo,
-    listOrgIssueTypeNames: async (org) => (await listOrgIssueTypes(org)).map((type) => type.name),
+    listOrgIssueTypeNames: async (org) => (await listEnabledOrgIssueTypes(org)).map((type) => type.name),
     readContract: contractReader(cwd),
     writeContract: (text) => {
       const destination = containedContract(root)
