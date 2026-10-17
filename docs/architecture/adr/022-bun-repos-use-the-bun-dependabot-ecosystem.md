@@ -178,17 +178,27 @@ PRs. CI's committed-lock gate and `bun install --frozen-lockfile` are not
 vulnerability checks. A lockfile regression, such as reverting `source-map-js`
 from 1.2.2 to the still-allowed 1.2.1, can pass CI if the other checks pass.
 
-The Monday 08:17 UTC audit provides nominal detection within one weekly
-interval (up to seven days once the vulnerable tree is on `main` and the
-advisory is available to the registry audit), subject to the ignore and coverage
-policies above. This is not a guaranteed upper bound: delayed, failed, dropped
-or disabled runs can extend the window; the silent failure modes above remain.
+For a lock whose entries are self-consistent, the Monday 08:17 UTC audit
+provides nominal detection within one weekly interval (up to seven days once
+the vulnerable tree is on `main` and the advisory is available to the registry
+audit), subject to the ignore and coverage policies above. This is not a
+guaranteed upper bound: delayed, failed, dropped or disabled runs can extend the
+window; the silent failure modes above remain, and one lock form joins them.
+
+That form is never detected. `bun audit` judges the version named by a lock
+entry's key, while `bun install` fetches the tarball URL and integrity the entry
+records, and `--frozen-lockfile` does not reconcile the two. An entry keyed
+`source-map-js@1.2.2` that records the 1.2.1 tarball and integrity installs
+1.2.1 in CI and reads as clean on every audit run (reproduced on bun 1.4.0 with
+an empty cache). Review of the `bun.lock` diff is the only control for that form
+today; every registry entry in this lock records an empty tarball URL, so an
+explicit one is the visible sign.
 
 Existing `workflow_dispatch` allows auditing a candidate ref. A completed audit
 whose recorded head SHA matches the exact candidate head provides evidence for
-that tree and the registry response at run time; a green run on `main` is not
-evidence for a different candidate tree. This remains available evidence, not a
-new merge requirement.
+that tree's self-consistent lock entries and the registry response at run time;
+a green run on `main` is not evidence for a different candidate tree. This
+remains available evidence, not a new merge requirement.
 
 Alternatives to the existing policy, not adopted here:
 
