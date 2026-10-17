@@ -169,6 +169,7 @@ function fakePr({
         else if (field === 'autoMergeRequest') view.autoMergeRequest = pr.autoMerge
         else if (field === 'state') view.state = pr.state
         else if (field === 'headRefOid') view.headRefOid = pr.headRefOid
+        else if (field === 'mergeStateStatus') view.mergeStateStatus = 'CLEAN'
         else throw new Error(`unexpected field: ${field}`)
       }
       return JSON.stringify(view)
@@ -1011,7 +1012,7 @@ describe('nextReviewStep — the bound is two reads of the review records', () =
     const ASKS = {
       identity: IDENTITY,
       pages: commentPageArgs(PR),
-      gate: ['pr', 'view', String(PR), '--json', 'headRefOid,state,labels,autoMergeRequest'],
+      gate: ['pr', 'view', String(PR), '--json', 'headRefOid,state,labels,autoMergeRequest,mergeStateStatus'],
     }
     it.each([
       ['identity', 'the identity query fails', new Error('gh: not logged in')],

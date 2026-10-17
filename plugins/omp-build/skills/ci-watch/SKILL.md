@@ -2,7 +2,7 @@
 name: ci-watch
 disable-model-invocation: true
 description: Watch every check on a PR head, then the merge, with a deadline the script owns.
-version: 0.1.1
+version: 0.1.2
 ---
 
 # ci-watch
@@ -52,10 +52,11 @@ watch, and `GREEN` alone is not proof that any named test ran.
 | 4 | Green but unmerged, or the PR closed during the check phase. Under merge-on-green, the `reviewed` label disappearing is this code. |
 | 5 | Deadline. Undetermined — re-run to resume. A leading-zero timeout (`09`, `010`) is decimal seconds, not octal. |
 | 6 | Evaluate-only (merge-on-green only). Once checks are green, every merge-phase poll that keeps watching looks at the newest non-skipped `merge-on-green` check run on the PR head started at or after `--since` (any age, without `--since`), until that run has completed. Completed with a `kit-ci not configured` or `Manual merge required` annotation: with `--since`, prints `evaluate-only: kit-ci App not configured — manual merge required (docs/kit/ci-app-setup.md)`; without `--since`, prints `evaluate-only: the latest merge-on-green run was evaluate-only — configure kit-ci (docs/kit/ci-app-setup.md), then re-label reviewed`. Completed without the annotation: configured, the probe stops. Maps to `evaluate-only`; `applyCiWatchExit` retains the gate only while currently authorized (feature §6.7). |
+| 7 | Behind. The PR is OPEN and its `mergeStateStatus` is `BEHIND`: it cannot merge until the branch is updated, so it is never watched and never a deadline. Printed as `behind: PR <n> is behind its base and cannot merge — run: gh pr update-branch <n>` on stderr. It wins over exit 5 (also while checks are still pending), over the eligibility rules (an unarmed native PR, a revoked `reviewed` label) and over every check verdict; `MERGED` (0) and `CLOSED` (4) still come first. Maps to `behind`; `applyCiWatchExit` clears a known arm, never retains it. |
 | 70 | Not a check verdict: usage, unknown flag, a value flag without its value, bad mode or timeout, an invalid `landing` in `.dev/stack.yml` (invalid YAML, a mode other than native/merge-on-green, `required_checks` not a list of names), this script not run from its real path (sibling `../feature/workflow.js` missing), missing `gh`/`jq`/`bun`, or a `gh`/`jq` failure. Maps to `watch-failed`; `applyCiWatchExit` retains the gate only while currently authorized. Other non-table exits (124/137/143, …) also map to `watch-failed` under that policy. |
 
 ## Classifier
 
-`ci-watch.sh --classify-merge-state STATE MSS MODE ELIGIBLE ELAPSED TIMEOUT` prints the exit code, or `WATCH` for a transient `BEHIND` / `BLOCKED` / `UNSTABLE`. No network.
+`ci-watch.sh --classify-merge-state STATE MSS MODE ELIGIBLE ELAPSED TIMEOUT` prints the exit code, or `WATCH` for a transient `BLOCKED` / `UNSTABLE` (a deadline past the timeout is 5). `BEHIND` is not transient: it is 7. No network.
 
 Check runs are deduplicated per `(workflowName, name)` before classification: the newest entry wins, and an in-progress re-run outranks a completed stale one. That matches `gh pr checks` eliminating superseded runs so a leftover CANCELLED cannot disarm a PR whose latest run is green.
