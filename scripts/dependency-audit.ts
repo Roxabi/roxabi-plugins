@@ -213,6 +213,27 @@ function code(text: string): string {
   return `${fence} ${flat} ${fence}`
 }
 
+function fixCommand(c: Classified, ignored: readonly Ignore[]): string {
+  const findingGhsas = new Set<string>()
+  for (const finding of c.findings) {
+    if (finding.ghsa) findingGhsas.add(finding.ghsa)
+  }
+
+  const preservedGhsas = new Set<string>()
+  const ignoreFlags: string[] = []
+  for (const ignore of ignored) {
+    if (
+      !findingGhsas.has(ignore.ghsa) &&
+      c.suppressed.some((advisory) => matches(advisory, ignore) && advisory.severity === ignore.severity) &&
+      !preservedGhsas.has(ignore.ghsa)
+    ) {
+      preservedGhsas.add(ignore.ghsa)
+      ignoreFlags.push(`--ignore=${ignore.ghsa}`)
+    }
+  }
+  return ['bun audit fix', ...ignoreFlags].join(' ')
+}
+
 export function renderReport(c: Classified, ignored: readonly Ignore[], meta: RunMeta): string {
   const lines = [`<!-- dependency-audit: ${marker(c)} -->`, '## Dependency audit: action required', '']
 
@@ -234,9 +255,10 @@ export function renderReport(c: Classified, ignored: readonly Ignore[], meta: Ru
       const advisory = a.ghsa ? `[${a.ghsa}](https://github.com/advisories/${a.ghsa})` : code(a.url)
       lines.push(`| ${code(a.package)} | ${a.severity} | ${advisory} | ${title} | ${code(a.vulnerableVersions)} |`)
     }
+    const fix = fixCommand(c, ignored)
     lines.push(
       '',
-      'Fix: in a worktree, `bun audit fix` (within declared ranges) or `bun audit fix --latest` (crosses majors), then a PR.',
+      `Fix: in a worktree, \`${fix}\` (within declared ranges) or \`${fix} --latest\` (crosses majors), then a PR.`,
       'Accept instead: add the advisory to `IGNORED` in `scripts/dependency-audit.ts`, with its reason and removal condition.',
       '',
     )
