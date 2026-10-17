@@ -86,6 +86,104 @@ describe('init', () => {
     vi.restoreAllMocks()
   })
 
+  describe('org issue types (#626)', () => {
+    const writes = { ensure: 0, update: 0, contract: 0 }
+    const orgCalls: string[] = []
+
+    function depsWithOrg(listOrgIssueTypeNames: InitDeps['listOrgIssueTypeNames']): InitDeps {
+      return {
+        cwdRepo: 'Acme/app',
+        listLabelNames: async () => ['bug'],
+        listIssueLabelSets: async () => [],
+        listOrgIssueTypeNames,
+        ensureLabel: async () => {
+          writes.ensure += 1
+          return 'created'
+        },
+        updateLabels: async () => {
+          writes.update += 1
+        },
+        readContract: () => null,
+        writeContract: () => {
+          writes.contract += 1
+        },
+      }
+    }
+
+    function captureLog(): string[] {
+      const lines: string[] = []
+      vi.spyOn(console, 'log').mockImplementation((line) => {
+        lines.push(String(line))
+      })
+      return lines
+    }
+
+    afterEach(() => {
+      writes.ensure = 0
+      writes.update = 0
+      writes.contract = 0
+      orgCalls.length = 0
+      vi.restoreAllMocks()
+    })
+
+    it('dry-run names the canonical types the org lacks and calls no writer', async () => {
+      const lines = captureLog()
+      await initIssues(
+        ['--dry-run', '--repo', 'Acme/app'],
+        depsWithOrg(async (org) => {
+          orgCalls.push(org)
+          return ['Task', 'Bug', 'Feature', 'FEAT']
+        }),
+      )
+      expect(orgCalls).toEqual(['Acme'])
+      expect(lines).toContain('missing org issue types (9): fix, docs, test, chore, ci, perf, refactor, epic, research')
+      expect(writes).toEqual({ ensure: 0, update: 0, contract: 0 })
+    })
+
+    it('dry-run reports no missing types when the org carries them all, case-insensitively', async () => {
+      const lines = captureLog()
+      await initIssues(
+        ['--dry-run', '--repo', 'Acme/app'],
+        depsWithOrg(async () => ['feat', 'FIX', 'docs', 'test', 'chore', 'ci', 'perf', 'refactor', 'epic', 'research']),
+      )
+      expect(lines).toContain('missing org issue types: (none)')
+    })
+
+    it('a missing org type does not refuse label adoption', async () => {
+      captureLog()
+      const plan = await initIssues(
+        ['--dry-run', '--repo', 'Acme/app'],
+        depsWithOrg(async () => ['Task']),
+      )
+      expect(plan.refused).toEqual([])
+    })
+
+    it('an unreachable org is reported, not fatal', async () => {
+      const lines = captureLog()
+      const plan = await initIssues(
+        ['--dry-run', '--repo', 'Acme/app'],
+        depsWithOrg(async () => {
+          throw new Error('org down')
+        }),
+      )
+      expect(lines).toContain('org issue types: unavailable (org down)')
+      expect(plan.refused).toEqual([])
+      expect(writes).toEqual({ ensure: 0, update: 0, contract: 0 })
+    })
+
+    it('the default preview does not query the org', async () => {
+      captureLog()
+      await initIssues(
+        ['--repo', 'Acme/app'],
+        depsWithOrg(async (org) => {
+          orgCalls.push(org)
+          return []
+        }),
+      )
+      expect(orgCalls).toEqual([])
+    })
+  })
+
   it('refuses digest-only, wrong-digest, and digest-as-operator-approval before writers', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {})
     const writes = { ensure: 0, update: 0, contract: 0 }

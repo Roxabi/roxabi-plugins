@@ -2,7 +2,7 @@
 name: issue-triage
 argument-hint: '[list | set <num> | create --title "..." [--parent N] [--size S] [--priority P] [--type T] [--lane L]]'
 description: Triage/create GitHub issues — set size/priority/lane/type labels, manage dependencies & parent/child. Run before `/feature` picks a ticket up. Triggers: "triage" | "create issue" | "set size" | "set priority" | "blocked by" | "set parent" | "child of" | "sub-issue" | "file an issue" | "log a bug" | "open an issue" | "file a bug" | "add issue" | "new issue" | "set lane" | "set type".
-version: 0.6.4
+version: 0.6.5
 allowed-tools: Bash, Read, ToolSearch
 ---
 
@@ -27,7 +27,7 @@ only through issue-triage.
 2. ∀ issue: determine Size, κ (see [Complexity Scoring](#complexity-scoring)) and Priority (see [Priority Guidelines](#priority-guidelines))
 3. Set values: `T set <number> --size <S> --priority <P>`
 4. Create issues: `T create --title "Title" [--body "Body"] [--label "bug,frontend"] [--size M] [--priority High] [--type feat] [--lane b] [--parent 163]`
-5. Adopt a repository: `T init [--dry-run] [--repo owner/repo] [--root path]`. Preview by default (printing the plan is not approval). Writes require `--approve '<digest>' --operator-approval '<operator reply>'` from a prior preview. `--root` selects the checkout whose `docs/agents/issue-tracker.md` is read or written when trusted triage starts elsewhere; it does not change the GitHub repository. A symlink on that path is followed only when its resolved target remains inside the selected checkout; an escaping link or non-directory ancestor is refused before any write. Without it, init uses the current checkout. The contract is written only when absent and only at the selected checkout’s git toplevel. An existing contract is authoritative: init prints `contract: keep-existing` and never rewrites it. Labels come from its `Label | Colour` table (a leading pipe is optional), or from canonical names in the template list; `bug` and other non-canonical snapshot entries are not a vocabulary. `epic` and `reviewed` are created only when that vocabulary lists them. An existing label is never recoloured, and a case mismatch is reported instead of created.
+5. Adopt a repository: `T init [--dry-run] [--repo owner/repo] [--root path]`. Preview by default (printing the plan is not approval). Writes require `--approve '<digest>' --operator-approval '<operator reply>'` from a prior preview. `--root` selects the checkout whose `docs/agents/issue-tracker.md` is read or written when trusted triage starts elsewhere; it does not change the GitHub repository. A symlink on that path is followed only when its resolved target remains inside the selected checkout; an escaping link or non-directory ancestor is refused before any write. Without it, init uses the current checkout. The contract is written only when absent and only at the selected checkout’s git toplevel. An existing contract is authoritative: init prints `contract: keep-existing` and never rewrites it. Labels come from its `Label | Colour` table (a leading pipe is optional), or from canonical names in the template list; `bug` and other non-canonical snapshot entries are not a vocabulary. `epic` and `reviewed` are created only when that vocabulary lists them. An existing label is never recoloured, and a case mismatch is reported instead of created. `--dry-run` also prints one org issue type line: `missing org issue types (N): …` names the canonical types the org lacks — an org type that is disabled counts as lacking, because only **enabled** org types can be set on an issue; `missing org issue types: (none)` when every canonical type is enabled; `org issue types: unavailable (…)` when the org lookup fails. It is a report only: it writes nothing, never refuses label adoption, and init never creates org issue types.
 6. → ask userif unsure about Size ∨ Priority.
 
 ## Size Guidelines
@@ -111,7 +111,7 @@ On success, a body replace prints `Body #N` or `Body owner/repo#N`.
 | `--priority <P>` | Set priority on creation — same spellings as `set --priority`. An unrecognised value exits 1 **before** the issue is created |
 | `--lane <L>` | Set lane on creation (label-only, additive). Valid: `a1`, `a2`, `a3`, `b`, `c1`, `c2`, `c3`, `d`–`o`, `standalone` — case-folded; anything else exits 1 |
 | `--status <S>` | Set status label. Valid: `Backlog`, `Analysis`, `Specs`, `In Progress`, `Review`, `Done`. Legacy — `set` rejects `--status` outright in the issues-only model |
-| `--type <T>` | Set org issueType on creation (additive). Valid: `fix`, `feat`, `docs`, `test`, `chore`, `ci`, `perf`, `epic`, `research`, `refactor` |
+| `--type <T>` | Set org issueType on creation (additive). Valid: `fix`, `feat`, `docs`, `test`, `chore`, `ci`, `perf`, `epic`, `research`, `refactor`. A name outside this list exits 1 with no network call. A type the **org** has no **enabled** match for (missing or disabled in the org, or an unreachable org) also exits 1, **before** the issue is created — no issue, label, relation or body is written |
 | `--parent <REF>` | Set parent issue on creation. REF = `#N` or `owner/repo#N` |
 | `--add-child <REF>[,<REF>...]` | Add existing issues as children |
 | `--blocked-by <REF>[,<REF>...]` | Set blocked-by on creation |

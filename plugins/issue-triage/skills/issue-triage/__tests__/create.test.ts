@@ -330,6 +330,97 @@ describe('issue-triage/create > type', () => {
   })
 })
 
+describe('issue-triage/create > org issue type is checked before the first write (#626)', () => {
+  const ORG_WITHOUT_FIX = ['Task', 'Bug', 'Feature']
+  const calls: string[] = []
+
+  /** Stub the org's type list: resolve like the adapter does, record the call order. */
+  function stubOrgTypes(names: string[]) {
+    mockResolveIssueTypeId.mockImplementation(async (_org: string, type: string) => {
+      calls.push('org-types')
+      const match = names.find((name) => name.toLowerCase() === type.toLowerCase())
+      if (!match) throw new Error(`Unknown issue type: ${type}. Valid: ${names.join(', ')}`)
+      return `type-${match}`
+    })
+  }
+
+  function recordWrites() {
+    mockCreateGitHubIssue.mockImplementation(async () => {
+      calls.push('create')
+      return { url: 'https://github.com/test/repo/issues/99', number: 99 }
+    })
+    mockUpdateIssueIssueType.mockImplementation(async () => {
+      calls.push('set-type')
+    })
+    mockSyncPriorityLabel.mockImplementation(async () => {
+      calls.push('label')
+      return true
+    })
+    mockAddBlockedBy.mockImplementation(async () => {
+      calls.push('relation')
+    })
+  }
+
+  beforeEach(() => {
+    setupMocks()
+    calls.length = 0
+    recordWrites()
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  it('exits non-zero before createGitHubIssue when the org lacks the type', async () => {
+    stubOrgTypes(ORG_WITHOUT_FIX)
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`process.exit:${code}`)
+    }) as never)
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await expect(
+      createIssue(['--title', 'Test', '--body', 'B', '--type', 'fix', '--priority', 'High', '--blocked-by', '#7']),
+    ).rejects.toThrow('process.exit:1')
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('Unknown issue type: fix'))
+    expect(calls).toEqual(['org-types'])
+    expect(mockCreateGitHubIssue).not.toHaveBeenCalled()
+    expect(mockUpdateIssueIssueType).not.toHaveBeenCalled()
+    expect(mockSyncPriorityLabel).not.toHaveBeenCalled()
+    expect(mockAddBlockedBy).not.toHaveBeenCalled()
+    expect(mockAddSubIssue).not.toHaveBeenCalled()
+  })
+
+  it('exits non-zero before createGitHubIssue when the org is unreachable', async () => {
+    mockResolveIssueTypeId.mockRejectedValue(new Error('org lookup down'))
+    vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`process.exit:${code}`)
+    }) as never)
+    await expect(createIssue(['--title', 'Test', '--type', 'fix'])).rejects.toThrow('process.exit:1')
+    expect(mockCreateGitHubIssue).not.toHaveBeenCalled()
+    expect(calls).toEqual([])
+  })
+
+  it('creates, then sets the type, then labels and relations when the org has the type', async () => {
+    stubOrgTypes(['Task', 'Bug', 'Feature', 'fix'])
+    await createIssue(['--title', 'Test', '--type', 'fix', '--priority', 'High', '--blocked-by', '#7'])
+    expect(calls).toEqual(['org-types', 'create', 'set-type', 'label', 'relation'])
+    expect(mockUpdateIssueIssueType).toHaveBeenCalledWith('node-99', 'type-fix')
+  })
+
+  it('rejects an unknown type on the static list without calling the org', async () => {
+    stubOrgTypes(['Task', 'Bug', 'Feature', 'fix'])
+    vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`process.exit:${code}`)
+    }) as never)
+    await expect(createIssue(['--title', 'Test', '--type', 'no-such'])).rejects.toThrow('process.exit:1')
+    expect(mockResolveIssueTypeId).not.toHaveBeenCalled()
+    expect(mockCreateGitHubIssue).not.toHaveBeenCalled()
+  })
+
+  it('does not call the org when --type is not provided', async () => {
+    await createIssue(['--title', 'Test'])
+    expect(mockResolveIssueTypeId).not.toHaveBeenCalled()
+    expect(calls).toEqual(['create'])
+  })
+})
+
 describe('issue-triage/create > lane', () => {
   beforeEach(setupMocks)
   afterEach(() => vi.restoreAllMocks())
