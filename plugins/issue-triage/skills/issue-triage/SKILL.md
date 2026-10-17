@@ -2,7 +2,7 @@
 name: issue-triage
 argument-hint: '[list | set <num> | create --title "..." [--parent N] [--size S] [--priority P] [--type T] [--lane L]]'
 description: Triage/create GitHub issues — set size/priority/lane/type labels, manage dependencies & parent/child. Run before `/feature` picks a ticket up. Triggers: "triage" | "create issue" | "set size" | "set priority" | "blocked by" | "set parent" | "child of" | "sub-issue" | "file an issue" | "log a bug" | "open an issue" | "file a bug" | "add issue" | "new issue" | "set lane" | "set type".
-version: 0.6.5
+version: 0.6.6
 allowed-tools: Bash, Read, ToolSearch
 ---
 
@@ -132,7 +132,7 @@ Cross-repo **relations** (`--blocked-by`, `--blocks`, `--parent`, `--add-child`)
 
 **Caveat — keep refs fully-qualified:** `GITHUB_REPO` retargets the entire invocation. A bare `#N` in any ref resolves against the overridden repo, not the cwd repo → always use `OWNER/REPO#N` for any cross-repo ref when the env var is set.
 
-**Resolution order** (`detectGitHubRepo`): (1) `github_repo` in dev-core config ∨ `GITHUB_REPO` env var (validated as `owner/repo`) → (2) fallback `git remote get-url origin` of the cwd. The Deferred Follow-Ups recipe below starts triage in its own directory, so it resolves the target itself: the operator's `GITHUB_REPO` when set, else the checkout's `gh repo view`. It never reads the checkout's `.dev/dev-core.yml` pin.
+**Resolution order** (`detectGitHubRepo`): (1) `GITHUB_REPO` env var (validated as `owner/repo`) → (2) `github_repo` in `.dev/dev-core.yml` (same validation) → (3) `git remote get-url origin` of the cwd (one trailing `/` and `.git` stripped; the remote must point at github.com (HTTPS, `ssh://`, or `git@github.com:`, host compared case-insensitively) and name exactly `owner/repo`, the only host the GitHub clients write to) → (4) `gh repo view`, only when origin is absent. An origin that exists but is not a github.com `owner/repo` remote (another host such as GitLab, a local path, extra path segments) is refused with its credentials redacted and a pointer to `GITHUB_REPO`; it never falls through to `gh`. `gh` ranks remotes itself and answers the kit parent on a product clone (`upstream` = parent, `origin` = product), so origin wins: when origin exists the CLI still asks `gh`, only to detect a disagreement, and when `gh` names another repo it prints the chosen repo and why on stderr; a single-remote clone stays quiet. `init --repo <origin slug>` is the local repo; any other `--repo` still refuses. The Deferred Follow-Ups recipe below starts triage in its own directory, so it resolves the target itself: the operator's `GITHUB_REPO` when set, else the checkout's origin, else (origin absent) `gh repo view`, with the same refusal for a non-slug origin. It never reads the checkout's `.dev/dev-core.yml` pin.
 
 ## Deferred Follow-Ups — Sibling Rule
 
@@ -160,17 +160,30 @@ Cross-repo **relations** (`--blocked-by`, `--blocks`, `--parent`, `--add-child`)
 
 **Recipe — defer A → create follow-up B:**
 
-Triage starts in its own directory, never the checkout: Bun reads `bunfig.toml` and `.env` from the directory it starts in, and a tracked preload there runs before triage and can print `Created #N` and exit 0 with nothing filed (`--no-env-file` alone does not stop it). The target repository is the operator's `GITHUB_REPO` when set, else the checkout's `gh repo view`, and is passed as `GITHUB_REPO`; started from its own directory without it, triage would resolve the plugin's repository. The recipe never reads the checkout's `.dev/dev-core.yml` `github_repo` pin. An unresolved script or repository refuses.
+Triage starts in its own directory, never the checkout: Bun reads `bunfig.toml` and `.env` from the directory it starts in, and a tracked preload there runs before triage and can print `Created #N` and exit 0 with nothing filed (`--no-env-file` alone does not stop it). The target repository is the operator's `GITHUB_REPO` when set, else the checkout's `origin` remote, else (origin absent) its `gh repo view`, and is passed as `GITHUB_REPO`; started from its own directory without it, triage would resolve the plugin's repository. An origin that exists but is not a github.com `owner/repo` remote (another host, a local path or extra path segments; after one trailing `/` and `.git` are stripped) is refused with its credentials redacted, never replaced by `gh`'s answer, and the resolved repository is checked against `owner/repo` before it reaches the GraphQL query or `triage`. The recipe never reads the checkout's `.dev/dev-core.yml` `github_repo` pin. An unresolved script or repository refuses.
 
 ```bash
 # Title and body go through files — both often quote review text you did not write.
 DIR=$(mktemp -d -t "issue-triage-defer-XXXXXX")
 # write "$DIR/title.txt" ({deferred title}) and "$DIR/body.md" (**Origin:** #A
 # (deferred from ...), then {details}) with an editor or a write tool, then:
-TRIAGE=$(realpath "${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts") && TRIAGE_REPO="${GITHUB_REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
+TRIAGE=$(realpath "${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts") && TRIAGE_REPO="${GITHUB_REPO:-}" && SHOWN= && SLUG_RE='^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9][A-Za-z0-9._-]*$' && GITHUB_RE='^(([a-z][a-z0-9+.-]*://([^/@]*@)?(ssh\.)?github\.com(:[0-9]+)?/)|(([^/@:]+@)?(ssh\.)?github\.com:))'
+if [ -z "$TRIAGE_REPO" ]; then
+  if ORIGIN_URL=$(git remote get-url origin 2>/dev/null); then
+    # Origin exists, so it decides: a URL that is not a github.com owner/repo remote is refused below, never handed to gh.
+    SHOWN=$ORIGIN_URL
+    [[ $ORIGIN_URL =~ ^([A-Za-z][A-Za-z0-9+.-]*://).*@(.*)$ ]] && SHOWN="${BASH_REMATCH[1]}<redacted>@${BASH_REMATCH[2]}"
+    ORIGIN_URL=${ORIGIN_URL%/} && ORIGIN_URL=${ORIGIN_URL%.git}
+    LOWER=$(printf '%s' "$ORIGIN_URL" | tr '[:upper:]' '[:lower:]')
+    [[ $LOWER =~ $GITHUB_RE ]] && TRIAGE_REPO=${ORIGIN_URL:${#BASH_REMATCH[0]}}
+  else
+    TRIAGE_REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner) || TRIAGE_REPO=
+  fi
+fi
+[[ $TRIAGE_REPO =~ $SLUG_RE ]] || { echo "issue-triage: no usable github.com owner/repo${SHOWN:+ in git remote origin ($SHOWN)}; set GITHUB_REPO=owner/repo" >&2; TRIAGE_REPO=; }
 triage() { (: "${TRIAGE:?issue-triage unresolved}" "${TRIAGE_REPO:?repository unresolved}" && cd "$(dirname "$TRIAGE")" && GITHUB_REPO="$TRIAGE_REPO" bun --no-env-file "$TRIAGE" "$@"); }
 # A's parent, empty when A is top-level. B takes it, and is blocked by A.
-A_PARENT_READY= && : "${A:?origin issue number required}" && A_PARENT=$(gh api graphql -f query="query{repository(owner:\"${TRIAGE_REPO%/*}\",name:\"${TRIAGE_REPO#*/}\"){issue(number:$A){parent{number repository{nameWithOwner}}}}}" \
+A_PARENT_READY= && : "${A:?origin issue number required}" && : "${TRIAGE_REPO:?repository unresolved}" && A_PARENT=$(gh api graphql -f query="query{repository(owner:\"${TRIAGE_REPO%/*}\",name:\"${TRIAGE_REPO#*/}\"){issue(number:$A){parent{number repository{nameWithOwner}}}}}" \
   --jq '.data.repository.issue.parent | select(. != null) | "\(.repository.nameWithOwner)#\(.number)"') && A_PARENT_READY=1 && triage create \
   --title-file "$DIR/title.txt" \
   --body-file "$DIR/body.md" \
@@ -192,21 +205,38 @@ A_PARENT_READY= && : "${A:?origin issue number required}" && A_PARENT=$(gh api g
 
 ## Complexity Scoring
 
-Assess κ ∈ [1,10] to inform tier (S / F-lite / F-full). Record by replacing an existing marker, or appending one, through `set --body-file`. A failed or empty read must not write. The read and the write use the same non-empty repo slug (env, then `.dev/dev-core.yml` `github_repo`, then the cwd). An empty slug must abort before `gh issue view`: that command ignores an empty repo flag and exits 0 against the cwd.
+Assess κ ∈ [1,10] to inform tier (S / F-lite / F-full). Record by replacing an existing marker, or appending one, through `set --body-file`. A failed or empty read must not write. The read and the write use the same `owner/repo` slug (env, then `.dev/dev-core.yml` `github_repo`, then the cwd's `origin` remote, then `gh repo view` only when origin is absent). An origin that exists but is not a github.com `owner/repo` remote (another host, a local path or extra path segments; after one trailing `/` and `.git` are stripped) is refused with its credentials redacted, never replaced by `gh`'s answer. An empty or non-slug repo must abort before `gh issue view`: that command ignores an empty repo flag and exits 0 against the cwd.
 
 ```bash
 set -euo pipefail
 N=<number>
 SCORE=<score>
+SLUG_RE='^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9][A-Za-z0-9._-]*$'
+GITHUB_RE='^(([a-z][a-z0-9+.-]*://([^/@]*@)?(ssh\.)?github\.com(:[0-9]+)?/)|(([^/@:]+@)?(ssh\.)?github\.com:))'
+SHOWN=
 REPO="${GITHUB_REPO:-}"
 if [ -z "$REPO" ] && [ -f .dev/dev-core.yml ]; then
   REPO=$(sed -n "s/^github_repo:[[:space:]]*['\"]\{0,1\}\([^'\"]*\)['\"]\{0,1\}[[:space:]]*$/\1/p" .dev/dev-core.yml | head -n 1)
 fi
 if [ -z "$REPO" ]; then
-  REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+  if ORIGIN=$(git remote get-url origin 2>/dev/null); then
+    # Origin exists, so it decides: a URL that is not a github.com owner/repo remote is refused below, never handed to gh.
+    SHOWN=$ORIGIN
+    if [[ $ORIGIN =~ ^([A-Za-z][A-Za-z0-9+.-]*://).*@(.*)$ ]]; then
+      SHOWN="${BASH_REMATCH[1]}<redacted>@${BASH_REMATCH[2]}"
+    fi
+    ORIGIN=${ORIGIN%/}
+    ORIGIN=${ORIGIN%.git}
+    LOWER=$(printf '%s' "$ORIGIN" | tr '[:upper:]' '[:lower:]')
+    if [[ $LOWER =~ $GITHUB_RE ]]; then
+      REPO=${ORIGIN:${#BASH_REMATCH[0]}}
+    fi
+  else
+    REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+  fi
 fi
-if [ -z "$REPO" ]; then
-  echo "Error: empty repo; refusing to read one repo and write another" >&2
+if ! [[ $REPO =~ $SLUG_RE ]]; then
+  echo "Error: no usable github.com owner/repo${SHOWN:+ in git remote origin ($SHOWN)}; set GITHUB_REPO=owner/repo. Refusing to read one repo and write another" >&2
   exit 1
 fi
 BODY=$(gh issue view "$N" --repo "$REPO" --json body --jq .body) || exit 1

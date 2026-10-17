@@ -395,6 +395,40 @@ describe('contractAction', () => {
   it('keeps an authored contract that differs from the template', () => {
     expect(contractAction('Acme/app', 'Acme/app', KIT_CONTRACT, 'rendered')).toBe('keep-existing')
   })
+
+  it('treats a case-only spelling of the local repo as the local repo', () => {
+    expect(contractAction('acme/product', 'Acme/product', null, 'rendered')).toBe('write')
+    expect(contractAction('Acme/Product', 'acme/product', 'rendered', 'rendered')).toBe('unchanged')
+  })
+
+  it('still skips a genuinely different repo', () => {
+    expect(contractAction('acme/product', 'Other/unrelated', null, 'rendered')).toBe('skip-other-repo')
+  })
+})
+
+describe('buildPlan repository identity', () => {
+  const deps = {
+    listLabelNames: async () => CANONICAL,
+    listIssueLabelSets: async () => [],
+    readContract: () => null,
+  }
+
+  it('plans a case-only spelling of the local repo as the local repo, keeping the selected spelling', async () => {
+    const { plan } = await buildPlan('Acme/product', 'acme/product', deps)
+
+    expect(plan.repo).toBe('Acme/product')
+    expect(plan.contract).toBe('write')
+    expect(plan.refused.filter((line) => line.includes('is not the local repo'))).toEqual([])
+  })
+
+  it('refuses a genuinely different repo', async () => {
+    const { plan } = await buildPlan('Other/unrelated', 'acme/product', deps)
+
+    expect(plan.contract).toBe('skip-other-repo')
+    expect(plan.refused).toContain(
+      'init: --repo Other/unrelated is not the local repo acme/product; refusing without an explicit vocabulary',
+    )
+  })
 })
 
 describe('parseContractLabels', () => {
