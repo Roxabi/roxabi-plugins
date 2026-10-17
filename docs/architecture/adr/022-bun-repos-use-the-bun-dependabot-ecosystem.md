@@ -183,16 +183,23 @@ provides nominal detection within one weekly interval (up to seven days once
 the vulnerable tree is on `main` and the advisory is available to the registry
 audit), subject to the ignore and coverage policies above. This is not a
 guaranteed upper bound: delayed, failed, dropped or disabled runs can extend the
-window; the silent failure modes above remain, and one lock form joins them.
+window; the silent failure modes above remain, and one class of change joins them.
 
-That form is never detected. `bun audit` judges the version named by a lock
-entry's key, while `bun install` fetches the tarball URL and integrity the entry
-records, and `--frozen-lockfile` does not reconcile the two. An entry keyed
+That class is never detected: a change to inputs that both `bun install` and
+`bun audit` read, through which what CI installs differs from what the audit
+judges. `bun audit` judges the version named by a lock entry's key, while
+`bun install` fetches the tarball URL and integrity the entry records, and
+`--frozen-lockfile` does not reconcile the two. An entry keyed
 `source-map-js@1.2.2` that records the 1.2.1 tarball and integrity installs
 1.2.1 in CI and reads as clean on every audit run (reproduced on bun 1.4.0 with
-an empty cache). Review of the `bun.lock` diff is the only control for that form
-today; every registry entry in this lock records an empty tarball URL, so an
-explicit one is the visible sign.
+an empty cache). A registry set in a repo-root `bunfig.toml` or `.npmrc` gives
+the same result with an empty tarball URL: that registry serves the install's
+tarball and answers the audit, so the `bun.lock` diff shows one changed
+integrity string (reproduced on bun 1.4.0 and 1.4.3). Review of `bun.lock`,
+`bunfig.toml` and `.npmrc` is the only control for that class today. Every
+registry entry in this lock records an empty tarball URL and neither config
+file exists, so an explicit tarball URL, an integrity that changes while the
+version does not, or a new registry setting is the visible sign.
 
 Existing `workflow_dispatch` allows auditing a candidate ref. A completed audit
 whose recorded head SHA matches the exact candidate head provides evidence for
