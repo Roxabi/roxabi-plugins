@@ -152,8 +152,9 @@ The audit's policy, settled on #645 and to be carried by #646:
   advisory has left the tree, or whose severity changed, is reported, not kept.
 - **Scheduled, never a PR check.** A new advisory against an unchanged lockfile
   must not turn unrelated PRs red.
-- **Only a lock that matches the manifest is audited.** `bun audit` reads
-  `bun.lock` alone, so a dependency missing from it would never be audited. The
+- **Only a lock that matches the manifest is audited.** `bun audit` takes the
+  dependency set from `bun.lock` alone and the answer from the configured
+  registry, so a dependency missing from the lock would never be audited. The
   run first checks, without installing or running scripts, that `bun.lock`
   matches `package.json` (`bun install --frozen-lockfile --lockfile-only
   --ignore-scripts`); a mismatch is routed as an audit that cannot be trusted.
@@ -170,6 +171,79 @@ The audit's policy, settled on #645 and to be carried by #646:
   The exit codes are in `scripts/dependency-audit.ts`.
 - The issues are public, like the repo. That is acceptable while every dependency
   is dev-only; revisit together with the runtime-dependency trigger below.
+
+**PR-time trade-off (#829).** Retain #645's scheduled-only policy for this
+dev-only, `private: true` npm package in a public GitHub repository: newly
+published advisories against an unchanged lockfile must not block unrelated
+PRs. CI's committed-lock gate and `bun install --frozen-lockfile` are not
+vulnerability checks, so a lockfile regression such as reverting
+`source-map-js` from 1.2.2 to the still-allowed 1.2.1 can pass CI.
+
+The audit vouches for one tree shape: `bun.lock` registry entries (empty
+tarball URL, the integrity of the `name@version` the entry names) resolved
+through the default registry, with no repository-level bun configuration. For
+that shape the Monday 08:17 UTC run gives nominal detection within one weekly
+interval (up to seven days once the vulnerable tree is on `main` and the
+advisory is available to the registry audit), subject to the ignore and
+coverage policies above. It is not a guaranteed upper bound: delayed, failed,
+dropped or disabled runs extend it, and the silent failure modes above remain.
+
+A change to anything bun reads outside `package.json` and those registry
+entries is outside the audit's evidence and its window: `bun audit` judges the
+version a lock entry names through the registry it is configured with, while
+`bun install` fetches what the other inputs say, and nothing reconciles the
+two, so CI can install a vulnerable release that every audit run reads as
+clean. The review records found these, as examples of the boundary and not its
+extent: a tarball URL or integrity swapped in a lock entry (one named
+`source-map-js@1.2.2` that records the 1.2.1 tarball installs 1.2.1 and audits
+clean); a registry set in a repo-root `bunfig.toml`, `.npmrc`, or `.env.local`,
+`.env.development`, `.env.production` (`BUN_CONFIG_REGISTRY` /
+`NPM_CONFIG_REGISTRY`; `.gitignore` ignores `.env` only); a non-registry
+specifier such as `github:`; `patchedDependencies` and patch files; a registry
+that only CI's install reads (workflow `env:`, `--registry`, setup-bun
+`registries`). All were reproduced on bun 1.4.0 and 1.4.3 (the CI-only form
+with an install-only `NPM_CONFIG_REGISTRY`), and bun's install cache keeps a
+swapped tarball under the clean version after the lock is corrected.
+
+Today's control for those changes is review of the diff. No merge gate enforces
+it: the ruleset requires 0 approving reviews and only the `ci` check. #842 is
+the planned CI check for the same allowlist. This tree is inside it: all 196
+`bun.lock` entries are registry entries with an empty tarball URL, none is a
+non-registry specifier, there is no `patchedDependencies`, and no `bunfig.toml`,
+`.npmrc` or loaded `.env*` file exists at the root.
+
+A `workflow_dispatch` run of `dependency-audit.yml` on a candidate branch is
+evidence for that candidate only when the candidate is inside the allowlist and
+leaves `.github/workflows/dependency-audit.yml` and
+`scripts/dependency-audit.ts` (with `IGNORED`) as on `main`, since the run
+applies the candidate's own copies, and the run shows:
+
+- A head SHA equal to the candidate head.
+- A delivered result, in the workflow's sense (it reached GitHub): conclusion
+  `success` (clean), or `failure` with the `security` issue `dependency audit:
+  action required (<branch>)` open and no `dependency audit: audit failed
+  (<branch>)` issue naming the run's URL. An exit-10 run ends `exit 1` and the
+  exit code is only in `$GITHUB_OUTPUT`, so the conclusion alone does not tell
+  it from an untrusted run. A cancelled run is not evidence.
+
+A green run on `main` is not evidence for another tree. This is available
+evidence, not a new merge requirement.
+
+Alternatives to the existing policy, not adopted here:
+
+| PR-time audit | Trade-off |
+|---|---|
+| Only when `bun.lock` changes | Limits effects on unrelated PRs, but does not detect vulnerabilities in unchanged trees; a lock-changing PR can still fail on a pre-existing advisory. |
+| Full tree on every PR | Covers unchanged trees, but newly published advisories, registry failures and incomplete coverage become part of every PR verdict. |
+| Base/head advisory delta | Can fail only newly introduced findings, but needs comparable registry data, a defined finding identity and explicit coverage/error handling; adds audit calls and maintenance. |
+
+None of them reaches a change outside the allowlist, since each judges what the
+audit reads. Any PR audit would need to preserve the existing every-severity,
+`IGNORED`, stale-ignore and incomplete-coverage policies. Revisit PR gating if
+a weekly finding traces to a `bun.lock` change merged since the last clean run,
+or the nominal weekly delay becomes insufficient; revisit the allowlist if #842
+lands or bun reads a new input; the runtime-dependency and npm-publication
+triggers below remain unchanged.
 
 **Revisit this ADR if the repo gains a runtime dependency, or its package.json
 loses `private: true` (is published to npm).** "Private" here means the npm
