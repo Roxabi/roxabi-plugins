@@ -95,9 +95,15 @@ What that actually costs this repo, measured:
   residual alerts were dismissed by hand on 2026-09-30, see the outcome below.)
 - The repo has **zero runtime dependencies** and eight dev dependencies, and is
   `private: true`. Nothing here ships to a user.
-- The weekly version updater groups minor and patch across all patterns, so a
-  fix for a transitive dev advisory arrives once its direct parent releases,
-  which is the only route such an advisory was ever going to take.
+- The weekly version updater groups minor and patch updates across all patterns,
+  but it does not guarantee a refresh of an in-range transitive. #812's initial
+  commit `d807ede7`, before its rebase onto #824, bumped `vitest` from 5.0.2 to
+  5.0.3 and retained `postcss` 8.5.23 and `source-map-js` 1.2.1 in `bun.lock`;
+  the patched `source-map-js` 1.2.2 was already in `postcss`'s `^1.2.1` range.
+  The rebased version that merged (vitest 5.0.4) carried 1.2.2, from #824's
+  lock. This does not establish that the bun updater never updates
+  transitives, only that an in-range patched transitive can remain locked and
+  needs the audit path below.
 
 Two claims from the first version are **withdrawn**:
 
@@ -122,6 +128,22 @@ ADR was written (1 low after #644), all transitive dev tooling
 (`vitest → vite → esbuild/nanoid/postcss`, `commitlint → ajv → fast-uri`,
 `commitlint → cosmiconfig → js-yaml`). It is the detection path that does not
 depend on GitHub parsing a lockfile it does not support.
+
+**Transitive advisory remediation.**
+
+When the scheduled audit reports a finding, first inspect `IGNORED` in
+`scripts/dependency-audit.ts`. Keep only advisories still accepted at their
+current severity; a re-rated or stale entry is action required, not an
+`--ignore` candidate. Because bun ignores by GHSA, a GHSA shared with any
+finding is not an `--ignore` candidate either. The audit report's `Fix:`
+command includes `--ignore=<GHSA>` only for every live accepted GHSA outside
+the findings, so copy that command in a worktree rather than a bare
+`bun audit fix`. Inspect the manifest and lock delta; when the manifest is
+unchanged, open a lock-only PR if appropriate.
+Dispatch `dependency-audit.yml` on that branch and retain its report/run as the
+remediation evidence. #788 was the scheduled finding, and #824 used this route
+to update the locked `source-map-js` while preserving the accepted esbuild
+advisory.
 
 **Open follow-up (resolved 2026-09-30, #645):** the alert set was to be re-read
 once GitHub had re-scanned `main`. If the 11 stale alerts disappeared without
