@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { checkout, type GitHubFake, recipeEnv, run, startGitHub, writeGh } from './fixtures/github-api'
+import { checkout, type GitHubFake, ghCalls, recipeEnv, run, startGitHub, writeGh } from './fixtures/github-api'
 
 /**
  * #614: a product clone (`upstream` = kit parent, `origin` = product) resolves
@@ -13,6 +13,7 @@ import { checkout, type GitHubFake, recipeEnv, run, startGitHub, writeGh } from 
  */
 const PRODUCT = 'Acme/product'
 const PARENT = 'Kit/parent'
+const CREDENTIAL = 'not-a-real-credential-0001'
 const TRIAGE = path.resolve(import.meta.dirname, '..', 'triage.ts')
 const HELPERS = path.resolve(import.meta.dirname, '..', '..', 'shared', 'adapters', 'config-helpers.ts')
 
@@ -36,6 +37,7 @@ function writeGhViewing(bin: string): void {
     [
       '#!/bin/sh',
       'if [ "$1" = repo ] && [ "$2" = view ]; then',
+      '  printf "%s\\t\\t%s\\n" "$(pwd -P)" "$*" >> "$GH_LOG"',
       '  if [ -z "$GH_REPO_SLUG" ]; then echo "gh: no default repository" >&2; exit 1; fi',
       '  printf "%s\\n" "$GH_REPO_SLUG"',
       '  exit 0',
@@ -60,14 +62,16 @@ type World = { repo: string; env: Record<string, string>; ghLog: string; fake: G
 /**
  * `origin` = PRODUCT. `upstream` = PARENT unless `single`. `ghSays` is what the
  * stub `gh repo view` returns (empty: it fails). `origin: false` drops the remote.
+ * `originUrl` replaces origin's URL verbatim.
  */
 async function world(
-  opts: { single?: boolean; ghSays?: string; origin?: boolean; env?: Record<string, string> } = {},
+  opts: { single?: boolean; ghSays?: string; origin?: boolean; originUrl?: string; env?: Record<string, string> } = {},
 ): Promise<World> {
   root = mkdtempSync(path.join(tmpdir(), 'issue-triage-origin-'))
   fake = await startGitHub(root, [`${PRODUCT}#5`])
   const repo = checkout(path.join(root, 'product'), PRODUCT)
   if (opts.origin === false) git(repo, 'remote', 'remove', 'origin')
+  else if (opts.originUrl) git(repo, 'remote', 'set-url', 'origin', opts.originUrl)
   if (!opts.single) git(repo, 'remote', 'add', 'upstream', `https://github.com/${PARENT}.git`)
   const bin = path.join(root, 'bin')
   writeGhViewing(bin)
@@ -199,5 +203,62 @@ describe('issue-triage prefers origin over gh repo view (#614)', () => {
     const paths = w.fake.calls.map((call) => call.path)
     expect(paths).toContain('/repos/Acme/product/issues/5')
     expect(paths.filter((p) => p.includes('Kit/parent'))).toEqual([])
+  })
+
+  it('normalises a trailing slash on origin instead of treating it as absent', async () => {
+    const w = await world({ originUrl: `https://github.com/${PRODUCT}/` })
+    const ran = await probe(w)
+
+    expect(ran.code).toBe(0)
+    expect(ran.stdout).toBe(PRODUCT)
+  })
+
+  it('normalises .git plus a trailing slash on origin', async () => {
+    const w = await world({ originUrl: `https://github.com/${PRODUCT}.git/` })
+    const ran = await probe(w)
+
+    expect(ran.code).toBe(0)
+    expect(ran.stdout).toBe(PRODUCT)
+  })
+
+  it('resolves a credentialed origin without leaking the credential to stderr or gh', async () => {
+    const w = await world({ originUrl: `https://x-access-token:${CREDENTIAL}@github.com/${PRODUCT}/` })
+    const ran = await probe(w)
+
+    expect(ran.code).toBe(0)
+    expect(ran.stdout).toBe(PRODUCT)
+    expect(ran.stderr).not.toContain(CREDENTIAL)
+    expect(JSON.stringify(ghCalls(w.ghLog))).not.toContain(CREDENTIAL)
+  })
+
+  it.each([
+    ['an origin with no owner/repo path', `https://x-access-token:${CREDENTIAL}@github.com/`],
+    ['a bare word', 'weird'],
+    [
+      'an origin whose repo segment is not a valid name',
+      `https://x-access-token:${CREDENTIAL}@github.com/Acme/.github/`,
+    ],
+  ])('refuses %s without asking gh, and redacts the credential', async (_label, originUrl) => {
+    const w = await world({ originUrl })
+    const ran = await probe(w)
+
+    expect(ran.code).not.toBe(0)
+    expect(ran.stdout).toBe('')
+    expect(ran.stderr).toContain('origin')
+    expect(ran.stderr).toContain('GITHUB_REPO')
+    expect(ran.stderr).not.toContain(CREDENTIAL)
+    expect(ran.stderr).not.toContain(PARENT)
+    expect(ghCalls(w.ghLog)).toEqual([])
+  })
+
+  it('refuses an unusable origin on the CLI before any API call, without printing the credential', async () => {
+    const w = await world({ originUrl: `https://x-access-token:${CREDENTIAL}@github.com/` })
+    const ran = await triage(w, 'set 5 --type fix')
+
+    expect(ran.code).not.toBe(0)
+    expect(ran.stderr).not.toContain(CREDENTIAL)
+    expect(w.fake.calls).toEqual([])
+    expect(w.fake.issues.get(`${PRODUCT}#5`)?.type).toBeUndefined()
+    expect(ghCalls(w.ghLog)).toEqual([])
   })
 })

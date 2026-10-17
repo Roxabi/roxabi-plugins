@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -67,6 +68,16 @@ async function world({ parent = '70' }: { parent?: string } = {}) {
     BUN_STARTUP_LOG: startup,
   })
   return { fake, triageDir: path.dirname(script), repo, sentinel, dir, ghLog, startup, env }
+}
+
+const CREDENTIAL = 'not-a-real-credential-0001'
+
+function setOrigin(repo: string, url: string): void {
+  execFileSync('git', ['remote', 'set-url', 'origin', url], {
+    cwd: repo,
+    env: { PATH: '/usr/bin:/bin', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' },
+    stdio: 'pipe',
+  })
 }
 
 describe('issue-triage deferral recipe', () => {
@@ -288,6 +299,41 @@ describe('issue-triage deferral recipe', () => {
     expect(ran.stderr).toContain('repository unresolved')
     expect(startupLog(w.startup)).toEqual([])
     expect(w.fake.calls).toEqual([])
+    expect(existsSync(w.dir)).toBe(true)
+  })
+
+  it('normalises a trailing slash and a credential on origin, and never asks gh repo view', async () => {
+    const w = await world()
+    setOrigin(w.repo, `https://x-access-token:${CREDENTIAL}@github.com/Acme/app/`)
+    const ran = await run(RECIPE, w.repo, w.env)
+
+    expect(ran.code).toBe(0)
+    expect(ran.stderr).toBe('')
+    expect(w.fake.created).toMatchObject([{ repo: 'Acme/app', parent: 70, blockedBy: [80] }])
+    const calls = ghCalls(w.ghLog)
+    expect(calls.map((call) => call.args.split(' ').slice(0, 2).join(' '))).not.toContain('repo view')
+    expect(calls[0]?.args).toContain('repository(owner:"Acme",name:"app"){issue(number:80)')
+    expect(JSON.stringify(calls)).not.toContain(CREDENTIAL)
+  })
+
+  it.each([
+    ['an origin with no owner/repo path', `https://x-access-token:${CREDENTIAL}@github.com/`],
+    ['a bare word', 'weird'],
+    [
+      'an origin whose repo segment is not a valid name',
+      `https://x-access-token:${CREDENTIAL}@github.com/Acme/.github/`,
+    ],
+  ])('refuses %s before any gh call or Bun start, and redacts the credential', async (_label, originUrl) => {
+    const w = await world()
+    setOrigin(w.repo, originUrl)
+    const ran = await run(RECIPE, w.repo, w.env)
+
+    expect(ran.code).not.toBe(0)
+    expect(ran.stderr).toContain('GITHUB_REPO')
+    expect(ran.stderr).not.toContain(CREDENTIAL)
+    expect(ghCalls(w.ghLog)).toEqual([])
+    expect(w.fake.calls).toEqual([])
+    expect(startupLog(w.startup)).toEqual([])
     expect(existsSync(w.dir)).toBe(true)
   })
 })

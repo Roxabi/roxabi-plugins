@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 const skill = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../SKILL.md'), 'utf8')
+const CREDENTIAL = 'not-a-real-credential-0001'
 
 function recipeSource(score = '4', n = '42'): string {
   const start = skill.indexOf('## Complexity Scoring')
@@ -46,8 +47,8 @@ exit 0
 function runRecipe(
   env: Record<string, string>,
   score = '4',
-  checkout?: { origin?: string; upstream?: string; pin?: string },
-): { status: number | null; called: boolean; body: string; ghLog: string; setLog: string } {
+  checkout?: { origin?: string; originUrl?: string; upstream?: string; pin?: string },
+): { status: number | null; called: boolean; body: string; ghLog: string; setLog: string; stderr: string } {
   const dir = mkdtempSync(join(tmpdir(), 'complexity-recipe-'))
   if (checkout) {
     const git = (...args: string[]) =>
@@ -58,6 +59,7 @@ function runRecipe(
       })
     git('init', '-q')
     if (checkout.origin) git('remote', 'add', 'origin', `https://github.com/${checkout.origin}.git`)
+    if (checkout.originUrl) git('remote', 'add', 'origin', checkout.originUrl)
     if (checkout.upstream) git('remote', 'add', 'upstream', `https://github.com/${checkout.upstream}.git`)
     if (checkout.pin) {
       mkdirSync(join(dir, '.dev'))
@@ -99,6 +101,7 @@ function runRecipe(
     body: existsSync(bodyOut) ? readFileSync(bodyOut, 'utf8') : '',
     ghLog: existsSync(ghLog) ? readFileSync(ghLog, 'utf8') : '',
     setLog: existsSync(tLog) ? readFileSync(tLog, 'utf8') : '',
+    stderr: proc.stderr,
   }
 }
 
@@ -180,5 +183,44 @@ describe('complexity scoring recipe', () => {
     expect(result.status).toBe(0)
     expect(result.ghLog).toContain('issue view 42 --repo Pin/yaml')
     expect(result.ghLog).not.toContain('repo view')
+  })
+
+  it('normalises a trailing slash on origin instead of falling through to gh', () => {
+    const result = runRecipe({ GH_VIEW_BODY: 'spec', GITHUB_REPO: '', GH_REPO_SLUG: 'Kit/parent' }, '4', {
+      originUrl: 'https://github.com/Acme/product/',
+      upstream: 'Kit/parent',
+    })
+    expect(result.status).toBe(0)
+    expect(result.ghLog).toContain('issue view 42 --repo Acme/product')
+    expect(result.ghLog).not.toContain('repo view')
+    expect(result.setLog).toContain('set Acme/product#42')
+  })
+
+  it('resolves a credentialed origin without leaking the credential to gh, T or stderr', () => {
+    const result = runRecipe({ GH_VIEW_BODY: 'spec', GITHUB_REPO: '', GH_REPO_SLUG: 'Kit/parent' }, '4', {
+      originUrl: `https://x-access-token:${CREDENTIAL}@github.com/Acme/product/`,
+    })
+    expect(result.status).toBe(0)
+    expect(result.ghLog).toContain('issue view 42 --repo Acme/product')
+    for (const seen of [result.ghLog, result.setLog, result.stderr]) expect(seen).not.toContain(CREDENTIAL)
+  })
+
+  it.each([
+    ['an origin with no owner/repo path', `https://x-access-token:${CREDENTIAL}@github.com/`],
+    ['a bare word', 'weird'],
+    [
+      'an origin whose repo segment is not a valid name',
+      `https://x-access-token:${CREDENTIAL}@github.com/Acme/.github/`,
+    ],
+  ])('refuses %s before any gh call, and redacts the credential', (_label, originUrl) => {
+    const result = runRecipe({ GH_VIEW_BODY: 'spec', GITHUB_REPO: '', GH_REPO_SLUG: 'Kit/parent' }, '4', {
+      originUrl,
+      upstream: 'Kit/parent',
+    })
+    expect(result.status).not.toBe(0)
+    expect(result.called).toBe(false)
+    expect(result.ghLog).toBe('')
+    expect(result.stderr).toContain('GITHUB_REPO')
+    expect(result.stderr).not.toContain(CREDENTIAL)
   })
 })

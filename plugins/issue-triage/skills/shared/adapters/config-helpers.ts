@@ -77,26 +77,39 @@ function assertValidRepoSlug(value: string): string {
   return value
 }
 
-/** The `owner/repo` slug of the cwd's `origin` remote, or undefined when origin is absent or not a GitHub slug. */
-function originRepo(): string | undefined {
+/** The raw URL of the cwd's `origin` remote, or undefined when origin is absent (no repo, no such remote, no git). */
+function originUrl(): string | undefined {
   try {
     const proc = Bun.spawnSync(['git', 'remote', 'get-url', 'origin'], { stdout: 'pipe', stderr: 'pipe' })
-    const url = new TextDecoder().decode(proc.stdout).trim()
-    // SSH: git@github.com:owner/repo.git  |  HTTPS: https://github.com/owner/repo.git
-    const candidate = url.match(/[:/]([^/:]+\/[^/]+?)(?:\.git)?$/)?.[1]
-    // A malformed remote must not return a bad slug that callers would
-    // split('/') into garbage GraphQL args: treat it as no origin.
-    if (candidate && REPO_SLUG_RE.test(candidate)) return candidate
-  } catch {}
+    if (proc.exitCode === 0) return new TextDecoder().decode(proc.stdout).trim()
+  } catch {
+    /* git not available */
+  }
   return undefined
+}
+
+/**
+ * The `owner/repo` slug of an origin URL: one trailing `/` and then `.git` are
+ * stripped, and the last two path segments (SSH `git@github.com:owner/repo.git`
+ * or HTTPS `https://github.com/owner/repo.git/`) must be a valid slug. Anything
+ * else yields undefined: callers `split('/')` the result into GraphQL args.
+ */
+function slugFromOrigin(url: string): string | undefined {
+  const candidate = url
+    .replace(/\/$/, '')
+    .replace(/\.git$/, '')
+    .match(/[:/]([^/:]+\/[^/]+)$/)?.[1]
+  return candidate && REPO_SLUG_RE.test(candidate) ? candidate : undefined
 }
 
 /**
  * Resolve the tracker repo: (1) `GITHUB_REPO` env, (2) `.dev/dev-core.yml`
  * `github_repo`, (3) the cwd's `origin` remote, (4) `gh repo view` only when
- * origin is absent. `gh` ranks remotes itself and answers the kit parent on a
- * product clone (`upstream` = parent, `origin` = product), so origin wins and a
- * disagreement is announced on stderr. A single-remote clone stays quiet.
+ * origin is absent. An origin that is present but not an `owner/repo` slug is
+ * refused (credentials redacted), never replaced by `gh`'s answer. `gh` ranks
+ * remotes itself and answers the kit parent on a product clone (`upstream` =
+ * parent, `origin` = product), so origin wins; when origin exists `gh` is asked
+ * only to announce a disagreement on stderr. A single-remote clone stays quiet.
  */
 export function detectGitHubRepo(): string {
   const fromYamlOrEnv = loadDevCoreConfig('github_repo', 'GITHUB_REPO')
@@ -106,8 +119,17 @@ export function detectGitHubRepo(): string {
     // through as a silent `undefined` repo → malformed GraphQL. Fail loud here.
     return assertValidRepoSlug(fromYamlOrEnv)
   }
-  const origin = originRepo()
-  if (origin) {
+  const url = originUrl()
+  if (url !== undefined) {
+    const origin = slugFromOrigin(url)
+    if (!origin) {
+      // Credentials in a `scheme://user:secret@host/...` URL never reach the message.
+      const shown = url.replace(/^([A-Za-z][A-Za-z0-9+.-]*:\/\/).*@/s, '$1<redacted>@')
+      throw new ConfigError(
+        `Cannot detect GitHub repo: git remote "origin" (${shown}) is not an owner/repo slug. ` +
+          'Set GITHUB_REPO or github_repo in .dev/dev-core.yml.',
+      )
+    }
     // gh is consulted only to report a disagreement; it never changes the answer.
     const viewed = ghRepoView()
     if (viewed && viewed.toLowerCase() !== origin.toLowerCase()) {
