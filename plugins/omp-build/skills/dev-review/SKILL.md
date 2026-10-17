@@ -581,10 +581,13 @@ throw one error naming any remainder. `disarmed: true` comes only from an attemp
 clear with confirmed read-back, never an already-clear or non-OPEN no-op.
 Every `nextReviewStep` action passes the policy; non-`land` actions and
 `{ reviewing: true }` force clearing. A refused `posted` / `ciFailed` keeps an
-armed gate only with refreshed approval/head evidence. `landPr` refusals, a `behind`
-PR (OPEN and behind its base: never armed, clear both arms, `gh pr update-branch <pr>`),
+armed gate only with refreshed approval/head evidence. `landPr` refusals,
 watch exits 1–3 and 7 and pre-push barriers force clearing; those watch/push paths
-need no review-service reads. Observer watch statuses retain only currently authorized
+need no review-service reads. On OPEN `BEHIND`, no further arming is allowed and
+known OPEN arms are cleared, including this call's earlier pin. A failed clear
+throws naming the remainder; a merge during clearing is `merged`. Report
+`gh pr update-branch <pr>`; the landing contract is `skill://feature` §6.7.
+Observer watch statuses retain only currently authorized
 arms. Native `no-required-checks` also clears at an approved head: API discovery
 failure cancels a scheduled merge on purpose, with no automatic restoration.
 Native legacy stuck results adapt the same clearing error without retrying it. A

@@ -86,7 +86,7 @@ export declare function landPr(
     sleep?: (ms: number) => Promise<void>
   },
 ): Promise<{
-  /** `behind`: the PR is OPEN and BEHIND its base — never armed, a known arm cleared, and `error` names `gh pr update-branch <pr>`. A PR merged during that clear is `merged`. */
+  /** `behind`: OPEN and BEHIND — no further arming; known OPEN arms (including this call's earlier pin) cleared. `error` names `gh pr update-branch <pr>`. A failed clear throws naming the remainder; a merge during it is `merged`. See SKILL.md §6.7. */
   status: string
   mode?: string
   watch?: string

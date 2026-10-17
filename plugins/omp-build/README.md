@@ -340,10 +340,12 @@ separate rules.
 Landing resolves mode from `readLanding` on the PR base ref (`origin/<base>`): stack `landing.mode`, else
 `merge-on-green.yml`, else native. It returns the absolute `/ci-watch` command,
 including GitHub's fresh labeled-event time under merge-on-green. Native also
-enables auto-merge. A PR that is OPEN and `BEHIND` its base is never armed and
-never watched: `landPr` returns `behind` (clearing any arm already on it) and the
-watch exits 7, both naming `gh pr update-branch <pr>`; omp-build never updates the
-branch itself. `applyCiWatchExit` preserves watch statuses while enforcing
+enables auto-merge. An OPEN `BEHIND` observation stops further arming and watching:
+`landPr` returns `behind` after clearing known OPEN arms, including a pin written
+earlier in that call. A failed clear throws naming the remainder; a merge during
+the clear returns `merged`. The watch exits 7, and its mapper uses the same behind
+contract (`skills/feature/SKILL.md` §6.7). Both name `gh pr update-branch <pr>`;
+omp-build never updates the branch itself. `applyCiWatchExit` preserves watch statuses while enforcing
 gate authorization; `disarmReviewedBeforePush` confirms clearing before invoking
 the push once, and reuses that receipt if the callback fails. Neither review nor
 fix labels a PR. No duplicate spec files or `validated` gate.

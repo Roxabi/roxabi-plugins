@@ -619,8 +619,9 @@ removal independently, then validate the read-back. A stuck or unreadable disarm
 throws naming the remainder; native legacy result adapters report that same error
 without retrying cleanup. `disarmed: true` means this call attempted clearing and
 confirmed no OPEN armed gate; an already clear or non-OPEN gate carries no flag.
-A PR closed during clearing has no OPEN gate left; one merged during clearing
-throws (only the watch mapper translates that race to `merged`).
+A PR closed during clearing has no OPEN gate left. A merge during clearing is
+`merged` for the watch mapper and a `landPr` behind stop (§6.7); other clearing
+paths report the clearing error (or its native legacy result), never a successful disarm.
 
 ### 6.7 Land
 
@@ -640,10 +641,16 @@ current `headRefOid`. A record with no head line returns `not-approved` with
 reason `no-review-head` — a PR reviewed before this line existed needs one
 re-review. A different or unreadable head returns `not-approved` with reason
 `head-moved`. Every `not-approved` disarms a gate already armed on an OPEN PR
-(`disarmed: true`) and writes nothing else. Invalid configuration then returns
-`bad-landing` before arming. Immediately before each merge-capable arming write,
-it re-reads the latest review records and then `headRefOid`, including after
-disable/remove preparation. Red or spent records refuse arming; missing,
+(`disarmed: true`) and writes nothing else. An OPEN `BEHIND` snapshot then returns
+`behind`, before configuration is read. At that observation, no further arming
+write is allowed; any known OPEN arm, including a pin written earlier in this
+call, is cleared. A failed clear throws naming the remainder; a merge during the
+clear returns `merged`. The operator runs `gh pr update-branch <pr>` before
+re-entering landing; omp-build does not update the branch or start a watch.
+Invalid configuration then returns `bad-landing` before arming. Immediately before
+each merge-capable arming write, it re-reads the latest review records, checks
+the merge state, then reads `headRefOid` last, including after disable/remove
+preparation. Red or spent records refuse arming; missing,
 moved or unreadable authorization never permits that write. Known OPEN arms
 are cleared through the exit policy, or its error names the remainder.
 Native pins use the refreshed reviewed head; a refreshed approval of another
@@ -764,7 +771,7 @@ Neither a fix round nor another review action may write that label in this cycle
 | `ci-failed` | Gate already disarmed; `step = await nextReviewStep(cwd, pr, { ciFailed: true })`, then §6.6 |
 | `ci-cancelled` | Gate disarmed; stop, report the cancelled checks; operator re-runs CI then re-enters §6.7 |
 | `ci-blocked` | Gate disarmed; stop, report the checks named on stderr; operator resolves the named checks or re-runs CI, then re-enters §6.7 |
-| `behind` | Nothing was armed, and an arm already on the PR was cleared (`disarmed: true`; a failed clear throws naming what stays armed). Stop; report `land.error`: the operator runs `gh pr update-branch <pr>`, then re-enters §6.7 — current-head review and admission run again. Do not start the watch; do not call `gh pr update-branch` from the cycle |
+| `behind` | No further arming; known OPEN arms cleared, including a pin written earlier in this call (`disarmed: true` only for a confirmed clear). The contract above also governs failed clears and merges during clearing. Stop; report `land.error`: the operator runs `gh pr update-branch <pr>`, then re-enters §6.7 — current-head review and admission run again. Do not start the watch; do not call `gh pr update-branch` from the cycle |
 | `watch-failed` | Stop; report code or error. The gate is retained only with current authorization; invalid arms are cleared or the error names their remainder. Do not claim merged |
 | `evaluate-only` | Stop; report "evaluate-only — manual merge required" and `docs/kit/ci-app-setup.md`. The gate is retained only with current authorization; the operator merges by hand. Do not claim merged; do not wait |
 | `bad-landing` | Stop; report `land.error` (landing configuration problem). Any armed gate is cleared, or the error names its remainder. Fix the landing configuration, then re-enter §6.7 |

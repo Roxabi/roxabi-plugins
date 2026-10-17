@@ -673,10 +673,10 @@ const SINCE_RETRY_MS = 200
  * carries `proof`: what was admitted, so a PARTIAL lands visibly as PARTIAL.
  * `disarmed: true` is reported only when a read-back confirmed the disarm; a no-op
  * claims nothing. A disarm that cannot finish throws an error naming what stays
- * armed — except after native auto-merge was pinned, or an already-enabled disable
- * failed, where it returns `auto-merge-failed`. In those two handlings that status
- * carries `armed: false` only when a read-back confirmed the gate clear; otherwise
- * `armed: true` and an `error` naming what stays armed. A refused pin on a readable
+ * armed. Legacy native-pinning exit adapters instead return `auto-merge-failed`
+ * (never for a `behind` stop): `armed: false` only when a read-back confirmed
+ * the gate clear, otherwise `armed: true` and an `error` naming what stays armed.
+ * A refused pin on a readable
  * stable head keeps its `auto-merge-failed` / `armed: false`: that says the pin was
  * refused, not that the gate is clear. A refused pin whose head cannot be read
  * forces the known gate clear, then throws the original read error — or, when
@@ -759,9 +759,9 @@ export async function landPr(
     }
     return exit(refused('head-moved'), { policy: 'unarmed', gate: seen, adapter })
   }
-  // A behind PR is never armed (#696): no write, and a known OPEN arm is cleared
-  // by the epilogue — the one disarm owner. `adapter` stays unset so a failed
-  // clear throws and names what stays armed.
+  // Observing behind stops further arming (#696). The epilogue — the one disarm
+  // owner — clears known OPEN arms, including this call's earlier pin. `adapter`
+  // stays unset so a failed clear throws and names what stays armed.
   const behindExit = (seen) => exit({ status: 'behind', error: behindMessage(pr) }, { policy: 'unarmed', gate: seen })
   // A fresh read before every arming write — the opening snapshot is stale by
   // then. Only a behind answer reads the gate again, to clear what it shows; a
@@ -1263,7 +1263,7 @@ export async function applyCiWatchExit(cwd, pr, code, { gh: ghFn = gh } = {}) {
   try {
     receipt = await enforceArmedGate(cwd, pr, { records, gate, policy, gh: ghFn })
   } catch (disarmError) {
-    // Only watch maps a merge that wins the clearing race to a business result.
+    // Preserve a merge that wins the clearing race as the merged result.
     // No reread or second cleanup can turn an unconfirmed disarm into a receipt.
     if (/merged while being disarmed/.test(errorText(disarmError))) return { status: 'merged' }
     throw failure ? stuckError(disarmError, failure) : disarmError
@@ -1409,7 +1409,7 @@ function isBehind(gate) {
  * @param {string | number} pr
  */
 function behindMessage(pr) {
-  return `PR ${pr} is behind its base and was not armed; run: gh pr update-branch ${pr} — then land again`
+  return `PR ${pr} is behind its base; landing stopped, with no further arming and known OPEN arms cleared; run: gh pr update-branch ${pr} — then land again`
 }
 
 /**
