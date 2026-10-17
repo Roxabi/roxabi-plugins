@@ -12,7 +12,7 @@ const EVENT_AT = '2026-09-29T10:00:05Z'
 const BEFORE_AT = '2026-09-29T09:00:00Z'
 
 const DRIVER = `
-const [mod, fn, cwd, pr, eventsMode, historyMode, prList, headMode, armMode, baseMode] = process.argv.slice(1)
+const [mod, fn, cwd, pr, eventsMode, historyMode, prList, headMode, armMode, baseMode, baseName] = process.argv.slice(1)
 const { landPr, readLanding } = await import(mod)
 if (fn === 'readLanding') {
   try {
@@ -58,7 +58,7 @@ const gh = async (_cwd, args) => {
       if (field === 'labels') view.labels = [...arms.labels].map((name) => ({ name }))
       if (field === 'autoMergeRequest') view.autoMergeRequest = arms.auto ? { mergeMethod: 'MERGE' } : null
       if (field === 'state') view.state = 'OPEN'
-      if (field === 'baseRefName') view.baseRefName = 'main'
+      if (field === 'baseRefName') view.baseRefName = baseName || 'main'
       if (field === 'headRefOid') {
         headReads++
         view.headRefOid = headMode === 'moved' && headReads > 1 ? 'fedcba9876543210fedcba9876543210fedcba98' : HEAD
@@ -141,12 +141,16 @@ function checkout(baseFiles = {}, { headFiles, base = 'main' } = {}) {
 function land(
   cwd,
   eventsMode = 'ok',
-  { pr = '7', history = 'approved', prList = '[]', head = '', arm = '', base = '' } = {},
+  { pr = '7', history = 'approved', prList = '[]', head = '', arm = '', base = '', baseName = '' } = {},
 ) {
   return JSON.parse(
-    execFileSync('bun', ['-e', DRIVER, WORKFLOW, 'landPr', cwd, pr, eventsMode, history, prList, head, arm, base], {
-      encoding: 'utf8',
-    }),
+    execFileSync(
+      'bun',
+      ['-e', DRIVER, WORKFLOW, 'landPr', cwd, pr, eventsMode, history, prList, head, arm, base, baseName],
+      {
+        encoding: 'utf8',
+      },
+    ),
   )
 }
 
@@ -205,7 +209,7 @@ describe('landPr through the checkout', () => {
     const script = watchScript(result.watch)
     expect(script.startsWith('/')).toBe(true)
     expect(existsSync(script)).toBe(true)
-    expect(result.watch).toBe(`bash '${script}' '7' --merge-mode merge-on-green --base main --since ${EVENT_AT}`)
+    expect(result.watch).toBe(`bash '${script}' '7' --merge-mode merge-on-green --base 'main' --since ${EVENT_AT}`)
     // The absolute path is the real ci-watch.sh: a pure hook works from a cwd outside the plugin.
     const outside = mkdtempSync(join(tmpdir(), 'land-watch-cwd-'))
     expect(
@@ -221,6 +225,40 @@ describe('landPr through the checkout', () => {
     expect(calls).not.toContainEqual(RULES)
     expect(final).toEqual({ labels: ['reviewed'], autoMerge: false })
   })
+
+  it('a base name with shell metacharacters reaches the watcher as one literal argument and runs nothing (#780)', () => {
+    const scratch = mkdtempSync(join(tmpdir(), 'land-watch-base-'))
+    const sentinels = [join(scratch, 'semicolon'), join(scratch, 'substitution')]
+    // Ref names allow `;`, `$`, `(`, `)` and `{}` but no space: `${IFS}` is the injected separator.
+    const hostile = `main;touch\${IFS}${sentinels[0]};$(touch\${IFS}${sentinels[1]})`
+    const dir = checkout(STACK, { base: hostile })
+    try {
+      const { result } = land(dir, 'ok', { baseName: hostile })
+      expect(result).toMatchObject({ status: 'watching', mode: 'merge-on-green' })
+      // Swap the real ci-watch.sh for a stub that records its argv, one NUL-terminated entry each.
+      const argvFile = join(scratch, 'argv')
+      const stub = join(scratch, 'ci-watch-stub.sh')
+      writeFileSync(stub, `#!/bin/bash\nprintf '%s\\0' "$@" > '${argvFile}'\n`)
+      chmodSync(stub, 0o755)
+      const command = result.watch.replace(`bash '${watchScript(result.watch)}'`, `bash '${stub}'`)
+      expect(command).not.toBe(result.watch)
+      execFileSync('bash', ['-c', command], { cwd: scratch })
+      expect(readFileSync(argvFile, 'utf8').split('\0').slice(0, -1)).toEqual([
+        '7',
+        '--merge-mode',
+        'merge-on-green',
+        '--base',
+        hostile,
+        '--since',
+        EVENT_AT,
+      ])
+      expect(sentinels.map((path) => existsSync(path))).toEqual([false, false])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+      rmSync(scratch, { recursive: true, force: true })
+    }
+  })
+
   it('a head whose stack declares native is still landed and watched under the base merge-on-green (#623 item 1)', () => {
     const { result, calls, final } = land(
       checkout(
