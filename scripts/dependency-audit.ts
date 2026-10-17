@@ -50,6 +50,8 @@ export interface Advisory {
   package: string
   /** GHSA id parsed from the advisory URL; null when the URL carries none. */
   ghsa: string | null
+  /** bun's numeric per-package advisory id; null when bun sent none or one that is not a safe integer. */
+  id: number | null
   url: string
   title: string
   severity: Severity
@@ -117,7 +119,7 @@ export function parseAudit(stdout: string): Advisory[] {
       if (typeof entry !== 'object' || entry === null) {
         throw new AuditOutputError(`bun audit entry ${JSON.stringify(pkg)} holds a non-object advisory`)
       }
-      const { url, title, severity, vulnerable_versions } = entry as Record<string, unknown>
+      const { id, url, title, severity, vulnerable_versions } = entry as Record<string, unknown>
       if (typeof url !== 'string' || typeof title !== 'string' || !isSeverity(severity)) {
         throw new AuditOutputError(
           `bun audit advisory for ${JSON.stringify(pkg)} lacks a url, a title or a known severity`,
@@ -126,6 +128,7 @@ export function parseAudit(stdout: string): Advisory[] {
       advisories.push({
         package: pkg,
         ghsa: GHSA_IN_URL.exec(url)?.[1] ?? null,
+        id: typeof id === 'number' && Number.isSafeInteger(id) ? id : null,
         url,
         title,
         severity,
@@ -159,19 +162,56 @@ export function classify(
   return { findings, suppressed, stale, unaudited: [...unaudited] }
 }
 
+/** The advisory as one marker segment: its GHSA, else a hash of its url (registry text never enters verbatim). */
+function advisoryToken(a: Advisory): string {
+  return a.ghsa ?? `url-${createHash('sha256').update(a.url).digest('hex').slice(0, 12)}`
+}
+
+/**
+ * What the report's `Fix:` command carries, or null when the report prints no `Fix:` line
+ * (no finding). Acceptance is `classify`'s: the suppressed set. Every flag is a bun advisory
+ * id, which `bun audit fix --ignore=<id>` matches against one package's advisory and nothing
+ * else (checked on bun 1.4.0: `--ignore=10` leaves id 101 alone, and an id does not match a
+ * url that merely contains its digits). A GHSA flag would also match every package sharing
+ * the advisory and any url that holds it, which the script cannot reproduce: never emitted.
+ * An accepted advisory with no usable id gets no flag and is listed, so the operator checks.
+ */
+interface Remediation {
+  /** Sorted, deduplicated: one `--ignore=<id>` each. */
+  ids: number[]
+  /** Accepted advisories bun cannot spare by id, one per package and advisory. */
+  idless: Advisory[]
+}
+
+function remediation(c: Classified): Remediation | null {
+  if (c.findings.length === 0) return null
+  const ids = new Set<number>()
+  const idless = new Map<string, Advisory>()
+  for (const a of c.suppressed) {
+    if (a.id !== null) ids.add(a.id)
+    else idless.set(`${a.package}\0${a.ghsa ?? a.url}`, a)
+  }
+  return { ids: [...ids].sort((x, y) => x - y), idless: [...idless.values()] }
+}
+
 /**
  * Order-independent identity of a report: the workflow comments only when it changes.
+ * It covers what the `Fix:` line depends on — a flag per accepted id, a key per accepted
+ * advisory listed as id-less — but only on a report that prints that line: the open issue's
+ * latest comment carries the command an operator copies, so a changed command must post a
+ * new comment, while an accepted key changing under a report with no finding must not.
  * Built from a restricted alphabet — registry text never reaches it verbatim, because the
- * workflow parses it back out of an HTML comment.
+ * workflow parses it back out of an HTML comment. Token kinds stay apart by prefix and by
+ * the last segment: a finding ends in a severity, a stale or id-less key in a GHSA or a url hash.
  */
 export function marker(c: Classified): string {
+  const fix = remediation(c)
   const ids = [
-    ...c.findings.map(
-      (a) =>
-        `${a.package}:${a.ghsa ?? `url-${createHash('sha256').update(a.url).digest('hex').slice(0, 12)}`}:${a.severity}`,
-    ),
+    ...c.findings.map((a) => `${a.package}:${advisoryToken(a)}:${a.severity}`),
     ...c.stale.map((i) => `stale:${i.package}:${i.ghsa}`),
     ...c.unaudited.map((u) => `unaudited:${createHash('sha256').update(u).digest('hex').slice(0, 12)}`),
+    ...(fix?.ids ?? []).map((id) => `ignore:${id}`),
+    ...(fix?.idless ?? []).map((a) => `idless:${a.package}:${advisoryToken(a)}`),
   ]
   return [...new Set(ids.map((id) => id.replace(/[^A-Za-z0-9@/._:-]/g, '_')))].sort().join(',')
 }
@@ -234,9 +274,19 @@ export function renderReport(c: Classified, ignored: readonly Ignore[], meta: Ru
       const advisory = a.ghsa ? `[${a.ghsa}](https://github.com/advisories/${a.ghsa})` : code(a.url)
       lines.push(`| ${code(a.package)} | ${a.severity} | ${advisory} | ${title} | ${code(a.vulnerableVersions)} |`)
     }
+    const fix = remediation(c)
+    const command = ['bun audit fix', ...(fix?.ids ?? []).map((id) => `--ignore=${id}`)].join(' ')
     lines.push(
       '',
-      'Fix: in a worktree, `bun audit fix` (within declared ranges) or `bun audit fix --latest` (crosses majors), then a PR.',
+      `Fix: in a worktree, \`${command}\` (within declared ranges) or \`${command} --latest\` (crosses majors), then a PR.`,
+    )
+    for (const a of fix?.idless ?? []) {
+      // The GHSA is parsed against a strict pattern, so it prints bare; a url is registry text.
+      lines.push(
+        `Not spared by that command: ${code(a.package)} (${a.ghsa ?? code(a.url)}) is accepted, but bun sent no usable advisory id for it, so bun cannot spare it by id. Check what the command changes before running it.`,
+      )
+    }
+    lines.push(
       'Accept instead: add the advisory to `IGNORED` in `scripts/dependency-audit.ts`, with its reason and removal condition.',
       '',
     )

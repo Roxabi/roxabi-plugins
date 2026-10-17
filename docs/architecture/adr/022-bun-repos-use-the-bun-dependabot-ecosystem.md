@@ -134,16 +134,27 @@ depend on GitHub parsing a lockfile it does not support.
 When the scheduled audit reports a finding, first inspect `IGNORED` in
 `scripts/dependency-audit.ts`. Keep only advisories still accepted at their
 current severity; a re-rated or stale entry is action required, not an
-`--ignore` candidate. Because bun ignores by GHSA, a GHSA shared with any
-finding is not an `--ignore` candidate either. The audit report's `Fix:`
-command includes `--ignore=<GHSA>` only for every live accepted GHSA outside
-the findings, so copy that command in a worktree rather than a bare
+`--ignore` candidate. The audit report's `Fix:` line prints
+`bun audit fix --ignore=<bun id>…`, one `--ignore` per live accepted advisory,
+by the numeric per-package advisory id bun reports; the same command with
+`--latest` is the one that crosses majors. It never prints a GHSA flag: bun
+matches `--ignore=<GHSA>` against every package that shares the GHSA and any
+advisory URL that holds it, which the script cannot reproduce, whereas an id
+names exactly one package's advisory (checked on bun 1.4.0: `--ignore=10` does
+not spare id 101, and an id does not spare an advisory whose URL merely
+contains its digits). An accepted advisory for which bun sent no usable id gets
+no flag; the report lists it beside the `Fix:` line, and the operator adds the
+flag by hand or checks the command's effect with `bun audit fix --dry-run`
+before running it. Copy the command in a worktree rather than running a bare
 `bun audit fix`. Inspect the manifest and lock delta; when the manifest is
 unchanged, open a lock-only PR if appropriate.
 Dispatch `dependency-audit.yml` on that branch and retain its report/run as the
-remediation evidence. #788 was the scheduled finding, and #824 used this route
-to update the locked `source-map-js` while preserving the accepted esbuild
-advisory.
+remediation evidence. #788 was the scheduled finding; #824 updated the locked
+`source-map-js` with `bun audit fix` while preserving the accepted esbuild
+advisory. It did not copy the report's command: the report #788 carried printed a
+bare `bun audit fix`, which would also have retired that accepted advisory, and
+#824's author composed `--ignore=GHSA-g7r4-m6w7-qqqr` by hand. The report's
+id-based command is the correction of that gap.
 
 **Open follow-up (resolved 2026-09-30, #645):** the alert set was to be re-read
 once GitHub had re-scanned `main`. If the 11 stale alerts disappeared without
