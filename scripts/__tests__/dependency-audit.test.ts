@@ -61,6 +61,18 @@ const SKIP_WARNING =
 
 const advisories = (report: Record<string, unknown[]>): Advisory[] => parseAudit(JSON.stringify(report))
 
+// Literal JSON is essential: JSON.stringify would discard the duplicate before the parser sees it.
+const DUPLICATE_ID_AUDIT = `{
+  "esbuild": [{
+    "id": 1120680, "url": "https://github.com/advisories/GHSA-g7r4-m6w7-qqqr",
+    "title": "accepted", "severity": "low"
+  }],
+  "vite": [{
+    "id": 1120680, "id": null, "url": "https://github.com/advisories/GHSA-2883-xcg3-v3hh",
+    "title": "finding", "severity": "high"
+  }]
+}`
+
 describe('parseAudit', () => {
   it.each([
     ['an error body bun echoes with exit 0', '{"error":"rate limited"}'],
@@ -76,6 +88,27 @@ describe('parseAudit', () => {
     ['a severity it does not know', JSON.stringify({ esbuild: [{ ...ESBUILD, severity: 'info' }] })],
   ])('refuses %s', (_, stdout) => {
     expect(() => parseAudit(stdout)).toThrow(AuditOutputError)
+  })
+
+  it.each([
+    ['a valid id followed by null', DUPLICATE_ID_AUDIT],
+    [
+      'an escaped-equivalent key',
+      String.raw`{"vite":[{"id":1120680,"\u0069d":null,"url":"https://x","title":"finding","severity":"high"}]}`,
+    ],
+    ['a duplicate package', `{"vite":${JSON.stringify([ESBUILD_OTHER])},"vite":${JSON.stringify([ESBUILD])}}`],
+    ['a duplicate nested key', `{"vite":[{${JSON.stringify(ESBUILD_OTHER).slice(1, -1)},"metadata":{"x":1,"x":2}}]}`],
+  ])('rejects ambiguous duplicate object keys: %s', (_, raw) => {
+    expect(() => parseAudit(raw)).toThrow(AuditOutputError)
+  })
+
+  it('keeps repeated keys in separate objects and duplicate-looking text inside string values', () => {
+    const title = String.raw`an "id":1,"id":null example with braces {} and an escaped quote \"`
+    const parsed = advisories({ vite: [{ ...ESBUILD_OTHER, title }], esbuild: [ESBUILD] })
+    expect(parsed.map((a) => [a.package, a.title])).toEqual([
+      ['vite', title],
+      ['esbuild', ESBUILD.title],
+    ])
   })
 
   it.each([
@@ -562,6 +595,14 @@ describe('main', () => {
     expect(first).toBe(`<!-- dependency-audit: ${marker(found)} -->`)
     expect(first).not.toContain('g7r4')
     expect(stdout()).toBe('')
+  })
+
+  it('routes a duplicate-key audit response as untrusted without a report', () => {
+    bunAudit(DUPLICATE_ID_AUDIT, 1)
+    expect(main(['--report', report], {}, [IGNORE])).toBe(2)
+    expect(existsSync(report)).toBe(false)
+    expect(stdout()).not.toContain('Fix:')
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('dependency-audit:'))
   })
 
   it('writes the same report to stdout when no --report is given', () => {

@@ -143,7 +143,9 @@ advisory of every package, in `bun audit` and `bun audit fix` alike
 (`keep_vulnerability` and `parse_vulnerability` in
 `src/runtime/cli/audit_command.rs`, read at tags `bun-v1.4.0` and
 `bun-v1.4.3`; a string id is kept verbatim, a number becomes its `u64`
-text). The script computes the command against that rule: it prints a flag
+text). Duplicate object keys in the audit JSON are an untrusted result (exit
+2, no report): bun and `JSON.parse` can retain different values for them. For
+unambiguous objects the script computes the command against that rule: it prints a flag
 only for a positive safe-integer id that spares no advisory it does not accept,
 and never a GHSA flag, which would spare every package sharing the GHSA and any
 URL holding it. An accepted advisory that gets no flag (no such id, or its id

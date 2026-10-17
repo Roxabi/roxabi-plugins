@@ -113,6 +113,45 @@ function bunIdText(id: unknown): string {
 }
 
 /**
+ * JSON.parse keeps the last duplicate key; bun's typed property walk can retain an earlier
+ * value instead. Accept only unambiguous objects rather than emulate that disagreement.
+ * The input has already passed JSON.parse, so this scan only tracks object keys, skipping
+ * complete string values and keeping separate key sets for nested objects and arrays.
+ */
+function assertUniqueObjectKeys(source: string): void {
+  const stack: ({ keys: Set<string>; expectingKey: boolean } | null)[] = []
+  for (let offset = 0; offset < source.length; offset++) {
+    const character = source[offset]
+    if (character === '"') {
+      let end = offset + 1
+      for (; end < source.length; end++) {
+        if (source[end] === '\\') end++
+        else if (source[end] === '"') break
+      }
+      const object = stack.at(-1)
+      if (object?.expectingKey) {
+        const key: string = JSON.parse(source.slice(offset, end + 1))
+        if (object.keys.has(key)) {
+          throw new AuditOutputError(`bun audit JSON repeats object key ${JSON.stringify(key)}`)
+        }
+        object.keys.add(key)
+        object.expectingKey = false
+      }
+      offset = end
+    } else if (character === '{') {
+      stack.push({ keys: new Set(), expectingKey: true })
+    } else if (character === '[') {
+      stack.push(null)
+    } else if (character === '}' || character === ']') {
+      stack.pop()
+    } else if (character === ',') {
+      const object = stack.at(-1)
+      if (object) object.expectingKey = true
+    }
+  }
+}
+
+/**
  * Strict read of `bun audit --json`. Any shape other than
  * `{ <package>: [{ url, title, severity, … }, …] }` throws: an HTTP 200 error
  * body from the registry is echoed as JSON with exit 0, and must not read as clean.
@@ -124,6 +163,7 @@ export function parseAudit(stdout: string): Advisory[] {
   } catch {
     throw new AuditOutputError(`bun audit printed no JSON: ${JSON.stringify(stdout.slice(0, 200))}`)
   }
+  assertUniqueObjectKeys(stdout)
   if (typeof data !== 'object' || data === null || Array.isArray(data)) {
     throw new AuditOutputError('bun audit JSON is not an object')
   }
