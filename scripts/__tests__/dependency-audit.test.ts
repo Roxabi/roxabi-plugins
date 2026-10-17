@@ -299,6 +299,29 @@ describe('marker', () => {
     expect(marked({ ...ESBUILD, id: null })).not.toBe(marked({ ...ESBUILD, id: 7 }))
   })
 
+  it.each(['url', 'id'] as const)(
+    'changes when a collision changes the printed command with unchanged finding identity: %s',
+    (collision) => {
+      const url = 'https://example.test/safe/GHSA-2883-xcg3-v3hh'
+      const finding = { ...JS_YAML, id: 300, url }
+      const colliding =
+        collision === 'url'
+          ? { ...finding, url: 'https://example.test/200/GHSA-2883-xcg3-v3hh' }
+          : { ...finding, id: 200 }
+      const accepted = { ...ESBUILD, id: 200 }
+      const before = classify(advisories({ esbuild: [accepted], 'js-yaml': [finding] }), [IGNORE])
+      const after = classify(advisories({ esbuild: [accepted], 'js-yaml': [colliding] }), [IGNORE])
+      const meta = { ref: 'main', sha: '0123456789', runUrl: null, bunVersion: 'test' }
+
+      expect(renderReport(before, [IGNORE], meta)).toContain('`bun audit fix --ignore=200`')
+      const changedReport = renderReport(after, [IGNORE], meta)
+      expect(changedReport).toContain('`bun audit fix`')
+      expect(changedReport).not.toContain('--ignore=200')
+      expect(keys(marker(before))).toEqual(['ignore:200', 'js-yaml:GHSA-2883-xcg3-v3hh:high'])
+      expect(keys(marker(after))).toEqual(['idless:esbuild:GHSA-g7r4-m6w7-qqqr', 'js-yaml:GHSA-2883-xcg3-v3hh:high'])
+    },
+  )
+
   it('is unchanged when the printed command is, whatever else the accepted advisory sends', () => {
     const reworded = { ...ESBUILD, title: 'reworded', vulnerable_versions: '<0.28.1' }
     expect(marker(classify(advisories({ esbuild: [reworded], 'js-yaml': [JS_YAML] }), [IGNORE]))).toBe(
