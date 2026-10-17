@@ -163,7 +163,25 @@ export function classify(
 }
 
 /**
+ * bun's `--ignore` keys that spare every accepted advisory, and nothing a finding needs
+ * fixed. Acceptance is `classify`'s: the suppressed set, each with the GHSA its ignore
+ * matched. bun's `--ignore` takes a GHSA, which spares it in every package, or a numeric
+ * advisory id, which spares one package: a GHSA that a finding shares is spared by id.
+ */
+function ignoreKeys(c: Classified): string[] {
+  const findingGhsas = new Set(c.findings.map((a) => a.ghsa))
+  const keys = c.suppressed.flatMap((a) => {
+    if (a.ghsa !== null && !findingGhsas.has(a.ghsa)) return [a.ghsa]
+    // bun 1.4.0 sends an id with every advisory; without one, no flag spares this package alone.
+    return a.id === null ? [] : [String(a.id)]
+  })
+  return [...new Set(keys)]
+}
+
+/**
  * Order-independent identity of a report: the workflow comments only when it changes.
+ * It covers the fix command's `--ignore` keys: the open issue's latest comment carries
+ * the command an operator copies, so a changed command must post a new comment.
  * Built from a restricted alphabet — registry text never reaches it verbatim, because the
  * workflow parses it back out of an HTML comment.
  */
@@ -175,6 +193,7 @@ export function marker(c: Classified): string {
     ),
     ...c.stale.map((i) => `stale:${i.package}:${i.ghsa}`),
     ...c.unaudited.map((u) => `unaudited:${createHash('sha256').update(u).digest('hex').slice(0, 12)}`),
+    ...ignoreKeys(c).map((key) => `ignore:${key}`),
   ]
   return [...new Set(ids.map((id) => id.replace(/[^A-Za-z0-9@/._:-]/g, '_')))].sort().join(',')
 }
@@ -216,20 +235,9 @@ function code(text: string): string {
   return `${fence} ${flat} ${fence}`
 }
 
-/**
- * `bun audit fix` sparing every accepted advisory, and nothing a finding needs fixed.
- * Acceptance is `classify`'s: the suppressed set, each with the GHSA its ignore matched.
- * bun's `--ignore` takes a GHSA, which spares it in every package, or a numeric advisory
- * id, which spares one package: a GHSA that a finding shares is spared by id.
- */
+/** `bun audit fix` sparing every accepted advisory, and nothing a finding needs fixed. */
 function fixCommand(c: Classified): string {
-  const findingGhsas = new Set(c.findings.map((a) => a.ghsa))
-  const keys = c.suppressed.flatMap((a) => {
-    if (a.ghsa !== null && !findingGhsas.has(a.ghsa)) return [a.ghsa]
-    // bun 1.4.0 sends an id with every advisory; without one, no flag spares this package alone.
-    return a.id === null ? [] : [String(a.id)]
-  })
-  return ['bun audit fix', ...[...new Set(keys)].map((key) => `--ignore=${key}`)].join(' ')
+  return ['bun audit fix', ...ignoreKeys(c).map((key) => `--ignore=${key}`)].join(' ')
 }
 
 export function renderReport(c: Classified, ignored: readonly Ignore[], meta: RunMeta): string {

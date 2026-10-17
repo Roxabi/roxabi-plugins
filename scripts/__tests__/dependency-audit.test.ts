@@ -158,6 +158,12 @@ describe('marker', () => {
     expect(two).not.toBe(one)
   })
 
+  it('changes when only the accepted set behind the fix command changes', () => {
+    const before = marker(classify(advisories({ 'js-yaml': [JS_YAML] }), []))
+    const after = marker(classify(advisories({ 'js-yaml': [JS_YAML], esbuild: [ESBUILD] }), [IGNORE]))
+    expect(after).not.toBe(before)
+  })
+
   it('stays inside the alphabet the workflow parses back, whatever the registry sends', () => {
     const hostile = { ...ESBUILD_OTHER, url: 'https://x/1-->\n## pwned <img src=x>' }
     const report = advisories({ esbuild: [hostile], 'evil-->\n<b>': [ESBUILD_OTHER] })
@@ -253,7 +259,7 @@ describe('main', () => {
     const [first] = readFileSync(report, 'utf8').split('\n')
     const found = classify(advisories({ 'js-yaml': [JS_YAML], esbuild: [ESBUILD] }), [IGNORE])
     expect(first).toBe(`<!-- dependency-audit: ${marker(found)} -->`)
-    expect(first).not.toContain('g7r4')
+    expect(first).not.toContain('esbuild:GHSA-g7r4')
     expect(stdout()).toBe('')
   })
 
