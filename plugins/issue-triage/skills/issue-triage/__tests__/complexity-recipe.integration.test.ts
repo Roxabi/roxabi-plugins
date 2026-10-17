@@ -185,6 +185,19 @@ describe('complexity scoring recipe', () => {
     expect(result.ghLog).not.toContain('repo view')
   })
 
+  it('lets an exported GITHUB_REPO win over an origin remote and a gh repo view naming a third repo', () => {
+    const result = runRecipe({ GH_VIEW_BODY: 'spec', GITHUB_REPO: 'Env/pinned', GH_REPO_SLUG: 'Kit/parent' }, '4', {
+      origin: 'Acme/product',
+      upstream: 'Kit/parent',
+    })
+    expect(result.status).toBe(0)
+    expect(result.ghLog).toContain('issue view 42 --repo Env/pinned')
+    expect(result.ghLog).not.toContain('repo view')
+    expect(result.ghLog).not.toContain('Acme/product')
+    expect(result.setLog).toContain('set Env/pinned#42')
+    expect(result.setLog).not.toContain('Acme/product')
+  })
+
   it('normalises a trailing slash on origin instead of falling through to gh', () => {
     const result = runRecipe({ GH_VIEW_BODY: 'spec', GITHUB_REPO: '', GH_REPO_SLUG: 'Kit/parent' }, '4', {
       originUrl: 'https://github.com/Acme/product/',
