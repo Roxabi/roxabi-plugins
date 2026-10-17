@@ -171,6 +171,38 @@ The audit's policy, settled on #645 and to be carried by #646:
 - The issues are public, like the repo. That is acceptable while every dependency
   is dev-only; revisit together with the runtime-dependency trigger below.
 
+**PR-time trade-off (#829).** Retain #645's scheduled-only policy for this
+dev-only, `private: true` npm package in a public GitHub repository: newly
+published advisories against an unchanged lockfile must not block unrelated
+PRs. CI's committed-lock gate and `bun install --frozen-lockfile` are not
+vulnerability checks. A lockfile regression, such as reverting `source-map-js`
+from 1.2.2 to the still-allowed 1.2.1, can pass CI if the other checks pass.
+
+The Monday 08:17 UTC audit provides nominal detection within one weekly
+interval (up to seven days once the vulnerable tree is on `main` and the
+advisory is available to the registry audit), subject to the ignore and coverage
+policies above. This is not a guaranteed upper bound: delayed, failed, dropped
+or disabled runs can extend the window; the silent failure modes above remain.
+
+Existing `workflow_dispatch` allows auditing a candidate ref. A completed audit
+whose recorded head SHA matches the exact candidate head provides evidence for
+that tree and the registry response at run time; a green run on `main` is not
+evidence for a different candidate tree. This remains available evidence, not a
+new merge requirement.
+
+Alternatives to the existing policy, not adopted here:
+
+| PR-time audit | Trade-off |
+|---|---|
+| Only when `bun.lock` changes | Limits effects on unrelated PRs, but does not detect vulnerabilities in unchanged trees; a lock-changing PR can still fail on a pre-existing advisory. |
+| Full tree on every PR | Covers unchanged trees, but newly published advisories, registry failures and incomplete coverage become part of every PR verdict. |
+| Base/head advisory delta | Can fail only newly introduced findings, but needs comparable registry data, a defined finding identity and explicit coverage/error handling; adds audit calls and maintenance. |
+
+Any PR audit would need to preserve the existing every-severity, `IGNORED`,
+stale-ignore and incomplete-coverage policies. Revisit PR gating if lock
+regressions recur or the nominal weekly delay becomes insufficient; the
+runtime-dependency and npm-publication triggers below remain unchanged.
+
 **Revisit this ADR if the repo gains a runtime dependency, or its package.json
 loses `private: true` (is published to npm).** "Private" here means the npm
 package, not the GitHub repo, which is public. Those are the conditions under
