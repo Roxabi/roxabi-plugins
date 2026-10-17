@@ -201,11 +201,17 @@ registry entry in this lock records an empty tarball URL and neither config
 file exists, so an explicit tarball URL, an integrity that changes while the
 version does not, or a new registry setting is the visible sign.
 
-Existing `workflow_dispatch` allows auditing a candidate ref. A completed audit
-whose recorded head SHA matches the exact candidate head provides evidence for
-that tree's self-consistent lock entries and the registry response at run time;
-a green run on `main` is not evidence for a different candidate tree. This
-remains available evidence, not a new merge requirement.
+Existing `workflow_dispatch` allows auditing a candidate ref. The dispatched run
+applies the candidate's own workflow, `scripts/dependency-audit.ts` (with its
+`IGNORED` list) and registry configuration, so it provides evidence for that
+tree's self-consistent lock entries and the registry response at run time only
+when all three hold: its recorded head SHA matches the exact candidate head; the
+candidate leaves `.github/workflows/dependency-audit.yml`,
+`scripts/dependency-audit.ts`, `bunfig.toml` and `.npmrc` as they are on `main`;
+and the script delivered a result, exit 0 (clean) or 10 (action required). A run
+that could not be trusted, failed or was cancelled also ends `completed` and is
+not evidence. A green run on `main` is not evidence for a different candidate
+tree. This remains available evidence, not a new merge requirement.
 
 Alternatives to the existing policy, not adopted here:
 
