@@ -663,6 +663,17 @@ describe('issue-triage/set > body replace', () => {
     expectNoMutations()
   })
 
+  it('writes nothing when the org lacks the type (#626)', async () => {
+    const exitSpy = throwingExit()
+    const orgTypes = ['Task', 'Bug', 'Feature']
+    mockResolveIssueTypeId.mockRejectedValue(new Error(`Unknown issue type: fix. Valid: ${orgTypes.join(', ')}`))
+    await setIssue(['42', '--type', 'fix', '--size', 'S', '--blocked-by', '7', '--parent', '9']).catch(() => {})
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expect(mockResolveIssueTypeId).toHaveBeenCalledWith('Test', 'fix')
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Unknown issue type: fix'))
+    expectNoMutations()
+  })
+
   it('writes nothing when a ref lookup rejects after the subject resolves', async () => {
     const exitSpy = throwingExit()
     mockGetNodeId.mockImplementation(async (num: number) => {

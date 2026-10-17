@@ -11,6 +11,8 @@
  * adapter. Preview (default) and `--dry-run` write nothing. Writes require
  * `--approve <digest>` plus a separate `--operator-approval` reply. A repository
  * label definition is never deleted or recoloured. Issue bodies are never edited.
+ * `--dry-run` also names the canonical issue types the org lacks (report only:
+ * it never refuses label adoption, and init never creates org issue types).
  */
 
 import { execFileSync } from 'node:child_process'
@@ -28,7 +30,14 @@ import {
 import { dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { detectGitHubRepo } from '../../shared/adapters/config-helpers'
-import { ensureLabel, listIssueLabelSets, listLabelNames, updateLabels } from '../../shared/adapters/github-adapter'
+import {
+  ensureLabel,
+  listIssueLabelSets,
+  listLabelNames,
+  listOrgIssueTypes,
+  updateLabels,
+} from '../../shared/adapters/github-adapter'
+import { EXTENDED_ISSUE_TYPES, ISSUE_TYPE_NAMES } from '../../shared/domain/issue-types'
 import {
   applyRelabels,
   CANONICAL_LABELS,
@@ -61,6 +70,8 @@ export interface InitDeps {
   ensureLabel: (name: string, repo: string, color?: string) => Promise<'created' | 'present'>
   updateLabels: (issueNumber: number, add: string[], remove: string[], repo: string) => Promise<void>
   readContract: () => string | null
+  /** Org issue type names; consulted by `--dry-run` only. Absent → no type report. */
+  listOrgIssueTypeNames?: (org: string) => Promise<string[]>
   writeContract: (text: string) => void
   cwdRepo: string
 }
@@ -472,6 +483,7 @@ export function defaultInitDeps(cwdRepo: string, cwd = process.cwd()): InitDeps 
     ensureLabel,
     updateLabels,
     cwdRepo,
+    listOrgIssueTypeNames: async (org) => (await listOrgIssueTypes(org)).map((type) => type.name),
     readContract: contractReader(cwd),
     writeContract: (text) => {
       const destination = containedContract(root)
@@ -479,6 +491,20 @@ export function defaultInitDeps(cwdRepo: string, cwd = process.cwd()): InitDeps 
       const physical = containedContract(root)
       writeFileSync(physical, text)
     },
+  }
+}
+
+/** One report line: canonical issue types the org lacks. A lookup failure is reported, never fatal. */
+async function issueTypeReport(repo: string, deps: Pick<InitDeps, 'listOrgIssueTypeNames'>): Promise<string | null> {
+  if (!deps.listOrgIssueTypeNames) return null
+  const org = repo.split('/')[0]
+  try {
+    const have = new Set((await deps.listOrgIssueTypeNames(org)).map(fold))
+    const missing = [...ISSUE_TYPE_NAMES, ...EXTENDED_ISSUE_TYPES].filter((name) => !have.has(fold(name)))
+    if (missing.length === 0) return 'missing org issue types: (none)'
+    return `missing org issue types (${missing.length}): ${missing.join(', ')}`
+  } catch (error) {
+    return `org issue types: unavailable (${(error as Error).message})`
   }
 }
 
@@ -491,6 +517,10 @@ export async function initIssues(args: string[], deps?: InitDeps): Promise<InitP
   const digest = planDigest(plan, contractText)
   // Preview is the default. Printing the plan is not approval (Spec B / #805).
   console.log(formatPlan(plan, dryRun || approve === undefined))
+  if (dryRun) {
+    const typeLine = await issueTypeReport(repo, bound)
+    if (typeLine) console.log(typeLine)
+  }
   console.log(`digest: ${digest}`)
   console.log('digest is not authorization')
   if (dryRun || approve === undefined) return plan
