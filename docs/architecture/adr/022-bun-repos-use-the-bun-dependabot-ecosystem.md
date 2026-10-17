@@ -171,6 +171,61 @@ The audit's policy, settled on #645 and to be carried by #646:
 - The issues are public, like the repo. That is acceptable while every dependency
   is dev-only; revisit together with the runtime-dependency trigger below.
 
+**PR-time trade-off (#829).** Retain #645's scheduled-only policy for this
+dev-only, `private: true` npm package in a public GitHub repository: newly
+published advisories against an unchanged lockfile must not block unrelated
+PRs. CI's committed-lock gate and `bun install --frozen-lockfile` are not
+vulnerability checks. A lockfile regression, such as reverting `source-map-js`
+from 1.2.2 to the still-allowed 1.2.1, can pass CI if the other checks pass.
+
+For a lock whose entries are self-consistent, the Monday 08:17 UTC audit
+provides nominal detection within one weekly interval (up to seven days once
+the vulnerable tree is on `main` and the advisory is available to the registry
+audit), subject to the ignore and coverage policies above. This is not a
+guaranteed upper bound: delayed, failed, dropped or disabled runs can extend the
+window; the silent failure modes above remain, and one class of change joins them.
+
+That class is never detected: a change to inputs that both `bun install` and
+`bun audit` read, through which what CI installs differs from what the audit
+judges. `bun audit` judges the version named by a lock entry's key, while
+`bun install` fetches the tarball URL and integrity the entry records, and
+`--frozen-lockfile` does not reconcile the two. An entry keyed
+`source-map-js@1.2.2` that records the 1.2.1 tarball and integrity installs
+1.2.1 in CI and reads as clean on every audit run (reproduced on bun 1.4.0 with
+an empty cache). A registry set in a repo-root `bunfig.toml` or `.npmrc` gives
+the same result with an empty tarball URL: that registry serves the install's
+tarball and answers the audit, so the `bun.lock` diff shows one changed
+integrity string (reproduced on bun 1.4.0 and 1.4.3). Review of `bun.lock`,
+`bunfig.toml` and `.npmrc` is the only control for that class today. Every
+registry entry in this lock records an empty tarball URL and neither config
+file exists, so an explicit tarball URL, an integrity that changes while the
+version does not, or a new registry setting is the visible sign.
+
+Existing `workflow_dispatch` allows auditing a candidate ref. The dispatched run
+applies the candidate's own workflow, `scripts/dependency-audit.ts` (with its
+`IGNORED` list) and registry configuration, so it provides evidence for that
+tree's self-consistent lock entries and the registry response at run time only
+when all three hold: its recorded head SHA matches the exact candidate head; the
+candidate leaves `.github/workflows/dependency-audit.yml`,
+`scripts/dependency-audit.ts`, `bunfig.toml` and `.npmrc` as they are on `main`;
+and the script delivered a result, exit 0 (clean) or 10 (action required). A run
+that could not be trusted, failed or was cancelled also ends `completed` and is
+not evidence. A green run on `main` is not evidence for a different candidate
+tree. This remains available evidence, not a new merge requirement.
+
+Alternatives to the existing policy, not adopted here:
+
+| PR-time audit | Trade-off |
+|---|---|
+| Only when `bun.lock` changes | Limits effects on unrelated PRs, but does not detect vulnerabilities in unchanged trees; a lock-changing PR can still fail on a pre-existing advisory. |
+| Full tree on every PR | Covers unchanged trees, but newly published advisories, registry failures and incomplete coverage become part of every PR verdict. |
+| Base/head advisory delta | Can fail only newly introduced findings, but needs comparable registry data, a defined finding identity and explicit coverage/error handling; adds audit calls and maintenance. |
+
+Any PR audit would need to preserve the existing every-severity, `IGNORED`,
+stale-ignore and incomplete-coverage policies. Revisit PR gating if lock
+regressions recur or the nominal weekly delay becomes insufficient; the
+runtime-dependency and npm-publication triggers below remain unchanged.
+
 **Revisit this ADR if the repo gains a runtime dependency, or its package.json
 loses `private: true` (is published to npm).** "Private" here means the npm
 package, not the GitHub repo, which is public. Those are the conditions under
