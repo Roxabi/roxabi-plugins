@@ -103,9 +103,18 @@ function resolveType(input: string): string {
   return canonical
 }
 
-async function applyType(issueNumber: number, nodeId: string, canonical: string): Promise<void> {
+/** Resolve the org's id for a canonical type; an unknown or unreachable org type refuses the command. */
+async function resolveOrgTypeId(canonical: string): Promise<string> {
   const org = GITHUB_REPO.split('/')[0]
-  const typeId = await resolveIssueTypeId(org, canonical)
+  try {
+    return await resolveIssueTypeId(org, canonical)
+  } catch (error) {
+    console.error(`Error: ${(error as Error).message}`)
+    process.exit(1)
+  }
+}
+
+async function applyType(issueNumber: number, nodeId: string, canonical: string, typeId: string): Promise<void> {
   await updateIssueIssueType(nodeId, typeId)
   console.log(`Type=${canonical} #${issueNumber}`)
 }
@@ -154,7 +163,9 @@ export async function createIssue(args: string[]): Promise<void> {
   }
 
   // Canonicalise every flag ahead of createGitHubIssue: a rejected value must
-  // not leave a created, half-triaged issue behind (#525).
+  // not leave a created, half-triaged issue behind (#525). The static list
+  // rejects a typo without network; the org lookup (#626) refuses a type the
+  // org does not carry before the first write.
   const type = opts.type ? resolveType(opts.type) : undefined
   const flags: LabelFlags = resolveLabelFlags({
     priority: opts.priority,
@@ -162,6 +173,7 @@ export async function createIssue(args: string[]): Promise<void> {
     lane: opts.lane,
     status: opts.status,
   })
+  const typeId = type ? await resolveOrgTypeId(type) : undefined
 
   const labels = opts.labels
     ?.split(',')
@@ -173,7 +185,7 @@ export async function createIssue(args: string[]): Promise<void> {
 
   const nodeId = await getNodeId(issueNumber)
 
-  if (type) await applyType(issueNumber, nodeId, type)
+  if (type && typeId) await applyType(issueNumber, nodeId, type, typeId)
 
   // Labels only (issues-only mode). A label the repo does not carry must not
   // cancel the relationship writes queued behind it — collect, then fail last.
