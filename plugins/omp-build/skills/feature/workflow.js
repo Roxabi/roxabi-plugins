@@ -1057,7 +1057,7 @@ export async function landPr(
         const afterPin = await afterWrite('native')
         if (afterPin) return afterPin
         // The label is an arming write too: the pin above is cleared with it.
-        const behindBeforeLabel = await behindBeforeArm()
+        const behindBeforeLabel = await checkBeforeArm()
         if (behindBeforeLabel) return behindBeforeLabel
         const added = await labelWrite(['pr', 'edit', String(pr), '--add-label', 'reviewed'], true)
         if (added) return added

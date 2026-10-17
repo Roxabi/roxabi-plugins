@@ -106,10 +106,11 @@ const ARMED = {
 }
 
 /**
- * @typedef {{ on: string, nth?: number, times?: number, error?: string | Error, answer?: string, applies?: boolean }} Fail
+ * @typedef {{ on: string, nth?: number, after?: string, times?: number, error?: string | Error, answer?: string, applies?: boolean }} Fail
  *   Make the nth call of a kind throw `error` (default 'injected'; an Error is thrown as is, so a test can assert its
  *   identity), or answer `answer`. `applies`: the write
  *   lands, then the call still throws.
+ *   `after`: fail this kind after the named call has occurred, rather than selecting an ordinal read.
  * @typedef {{ when: 'before' | 'after', on: string, nth?: number, head?: string, state?: string, reviews?: ReturnType<typeof approve>[] }} Move
  *   Move the head, change the state or append review records around the nth call of a kind.
  * @typedef {{ fail?: Fail[], moves?: Move[], failAt?: number, moveAfterCall?: number, moveBeforeCall?: number, events?: 'normal' | 'none' }} Script
@@ -144,7 +145,10 @@ function armedPr({
   /** @type {Record<string, number>} */
   const seen = {}
   const matches = (rule, kind) =>
-    rule.on === kind && seen[kind] >= (rule.nth ?? 1) && seen[kind] < (rule.nth ?? 1) + (rule.times ?? 1)
+    rule.on === kind &&
+    (rule.after
+      ? seen[rule.after] > 0
+      : seen[kind] >= (rule.nth ?? 1) && seen[kind] < (rule.nth ?? 1) + (rule.times ?? 1))
   const applyMoves = (when, kind) => {
     for (const move of script.moves ?? []) {
       if (move.when !== when || move.on !== kind || seen[kind] !== (move.nth ?? 1)) continue
@@ -1737,7 +1741,7 @@ const ROWS = [
       opts: NATIVE,
       records: [approve()],
       start: 'none',
-      script: { fail: [{ on: 'head', nth: 3 }] },
+      script: { fail: [{ on: 'head', after: 'add' }] },
       result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
       labels: CLEAN,
       auto: false,
@@ -1750,7 +1754,7 @@ const ROWS = [
       opts: NATIVE,
       records: [approve()],
       start: 'none',
-      script: { fail: [{ on: 'head', nth: 3 }, { on: 'remove' }] },
+      script: { fail: [{ on: 'head', after: 'add' }, { on: 'remove' }] },
       rejects: /stays armed — the reviewed label[\s\S]*— after: injected/,
       causeMatches: /^injected$/,
       labels: REVIEWED,

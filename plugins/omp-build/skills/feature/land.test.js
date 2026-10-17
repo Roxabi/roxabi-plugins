@@ -675,6 +675,58 @@ describe('landPr — a PR behind its base is never armed (#696)', () => {
     expect(fake.calls.some(armsLabel)).toBe(false)
     expect(fake.pr.autoMerge).toBe(null)
   })
+
+  it.each([
+    ['merge-on-green remove-label', ON_GREEN, ['reviewed'], null, true],
+    ['merge-on-green add-label', ON_GREEN, ['reviewed'], 'remove', false],
+    ['native pin', NATIVE, [], null, false],
+    ['native re-pin', NATIVE, [], 'disable', false],
+    ['native label', NATIVE, [], 'pin', true],
+  ])(
+    '%s refuses a head moved during the merge-state read before any new arm',
+    async (stage, options, labels, after, disarmed) => {
+      const fake = gatePr({
+        comments: [green()],
+        headRefOid: REVIEWED_HEAD,
+        labels,
+        ...(stage === 'native re-pin' && { autoMerge: { mergeMethod: 'MERGE' } }),
+      })
+      let preparationSeen = false
+      let pinRefused = false
+      const unsafeArms = []
+      const gh = async (cwd, args) => {
+        if (same(args, ['pr', 'view', '7', '--json', 'state,mergeStateStatus']) && (!after || preparationSeen)) {
+          fake.pr.headRefOid = MOVED_HEAD
+        }
+        if ((armsLabel(args) || armsAuto(args)) && fake.pr.headRefOid === MOVED_HEAD) unsafeArms.push(args)
+        if (stage === 'native re-pin' && armsAuto(args) && !pinRefused) {
+          pinRefused = true
+          fake.calls.push(args)
+          throw new Error('Auto merge is already enabled')
+        }
+        const response = await fake.gh(cwd, args)
+        if (
+          (after === 'remove' && args.includes('--remove-label')) ||
+          (after === 'disable' && args.includes('--disable-auto')) ||
+          (after === 'pin' && armsAuto(args))
+        ) {
+          preparationSeen = true
+        }
+        return response
+      }
+      const result = await run(fake, options, gh)
+      expect(fake.pr.headRefOid).toBe(MOVED_HEAD)
+      expect(unsafeArms).toEqual([])
+      expect(result).toEqual({
+        status: 'not-approved',
+        reviews: 1,
+        reason: 'head-moved',
+        ...(disarmed && { disarmed: true }),
+      })
+      expect(fake.pr.labels.has('reviewed')).toBe(false)
+      expect(fake.pr.autoMerge).toBe(null)
+    },
+  )
 })
 
 describe('landPr — only an approving latest record arms', () => {
