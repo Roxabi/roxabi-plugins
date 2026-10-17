@@ -95,8 +95,8 @@ describe('issue-triage deferral recipe', () => {
     expect(startupLog(w.startup)).toEqual([`${w.triageDir}\t`])
     expect(existsSync(w.sentinel)).toBe(false)
     expect(existsSync(w.dir)).toBe(false)
-    const [resolve, parent, ...rest] = ghCalls(w.ghLog)
-    expect(resolve).toMatchObject({ cwd: w.repo, args: 'repo view --json nameWithOwner --jq .nameWithOwner' })
+    // The checkout's origin names the target: `gh repo view` is never asked (#614).
+    const [parent, ...rest] = ghCalls(w.ghLog)
     expect(parent.cwd).toBe(w.repo)
     expect(parent.args).toContain('repository(owner:"Acme",name:"app"){issue(number:80)')
     expect(rest).toEqual([])

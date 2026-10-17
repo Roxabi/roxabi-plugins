@@ -16,11 +16,10 @@ import { ConfigError } from '../domain/errors'
 const DEV_CORE_YML = '.dev/dev-core.yml'
 
 /**
- * Load a config value with a 3-tier chain:
+ * Load a config value with a 2-tier chain:
  *   1st: process.env[envKey] (explicit override — checked first)
  *   2nd: `.dev/dev-core.yml` (committed contract pin, YAML key lookup)
- *   3rd: gh CLI auto-detect (github_repo only)
- * detectGitHubRepo() adds a last-resort `git remote get-url origin` probe.
+ * detectGitHubRepo() resolves the repo from the cwd's git remotes when neither pins it.
  */
 function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
   const envValue = process.env[envKey ?? key.toUpperCase()]
@@ -35,20 +34,25 @@ function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
     /* file not found — fall through */
   }
 
-  if (key === 'github_repo') {
-    try {
-      const proc = Bun.spawnSync(['gh', 'repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'], {
-        stdout: 'pipe',
-        stderr: 'pipe',
-      })
-      if (proc.exitCode === 0) return new TextDecoder().decode(proc.stdout).trim()
-    } catch {
-      /* gh not available */
-    }
-  }
-
   return undefined
 }
+
+/** `nameWithOwner` that `gh repo view` reports for the cwd, or undefined when gh is absent or fails. */
+function ghRepoView(): string | undefined {
+  try {
+    const proc = Bun.spawnSync(['gh', 'repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    if (proc.exitCode === 0) return new TextDecoder().decode(proc.stdout).trim() || undefined
+  } catch {
+    /* gh not available */
+  }
+  return undefined
+}
+
+/** Notices already written, so the import-time constant and a later call do not repeat one. */
+const announced = new Set<string>()
 
 /**
  * A GitHub repo slug: exactly `owner/repo`.
@@ -73,6 +77,27 @@ function assertValidRepoSlug(value: string): string {
   return value
 }
 
+/** The `owner/repo` slug of the cwd's `origin` remote, or undefined when origin is absent or not a GitHub slug. */
+function originRepo(): string | undefined {
+  try {
+    const proc = Bun.spawnSync(['git', 'remote', 'get-url', 'origin'], { stdout: 'pipe', stderr: 'pipe' })
+    const url = new TextDecoder().decode(proc.stdout).trim()
+    // SSH: git@github.com:owner/repo.git  |  HTTPS: https://github.com/owner/repo.git
+    const candidate = url.match(/[:/]([^/:]+\/[^/]+?)(?:\.git)?$/)?.[1]
+    // A malformed remote must not return a bad slug that callers would
+    // split('/') into garbage GraphQL args: treat it as no origin.
+    if (candidate && REPO_SLUG_RE.test(candidate)) return candidate
+  } catch {}
+  return undefined
+}
+
+/**
+ * Resolve the tracker repo: (1) `GITHUB_REPO` env, (2) `.dev/dev-core.yml`
+ * `github_repo`, (3) the cwd's `origin` remote, (4) `gh repo view` only when
+ * origin is absent. `gh` ranks remotes itself and answers the kit parent on a
+ * product clone (`upstream` = parent, `origin` = product), so origin wins and a
+ * disagreement is announced on stderr. A single-remote clone stays quiet.
+ */
 export function detectGitHubRepo(): string {
   const fromYamlOrEnv = loadDevCoreConfig('github_repo', 'GITHUB_REPO')
   if (fromYamlOrEnv) {
@@ -81,15 +106,23 @@ export function detectGitHubRepo(): string {
     // through as a silent `undefined` repo → malformed GraphQL. Fail loud here.
     return assertValidRepoSlug(fromYamlOrEnv)
   }
-  try {
-    const proc = Bun.spawnSync(['git', 'remote', 'get-url', 'origin'], { stdout: 'pipe', stderr: 'pipe' })
-    const url = new TextDecoder().decode(proc.stdout).trim()
-    // SSH: git@github.com:owner/repo.git  |  HTTPS: https://github.com/owner/repo.git
-    const match = url.match(/[:/]([^/:]+\/[^/]+?)(?:\.git)?$/)
-    // Validate the extracted candidate — a malformed remote must not silently
-    // return a bad slug that callers would split('/') into garbage GraphQL args.
-    if (match?.[1]) return assertValidRepoSlug(match[1])
-  } catch {}
+  const origin = originRepo()
+  if (origin) {
+    // gh is consulted only to report a disagreement; it never changes the answer.
+    const viewed = ghRepoView()
+    if (viewed && viewed.toLowerCase() !== origin.toLowerCase()) {
+      const notice =
+        `issue-triage: using ${origin} (git remote "origin"), not ${viewed} (gh repo view): ` +
+        "origin is preferred over gh's remote ranking. Pin another repo with GITHUB_REPO or github_repo in .dev/dev-core.yml."
+      if (!announced.has(notice)) {
+        announced.add(notice)
+        console.error(notice)
+      }
+    }
+    return origin
+  }
+  const viewed = ghRepoView()
+  if (viewed) return assertValidRepoSlug(viewed)
   throw new ConfigError(
     'Cannot detect GitHub repo. Set GITHUB_REPO env var or ensure git remote "origin" is configured.',
   )

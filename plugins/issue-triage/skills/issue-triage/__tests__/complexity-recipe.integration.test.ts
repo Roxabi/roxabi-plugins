@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -46,8 +46,24 @@ exit 0
 function runRecipe(
   env: Record<string, string>,
   score = '4',
+  checkout?: { origin?: string; upstream?: string; pin?: string },
 ): { status: number | null; called: boolean; body: string; ghLog: string; setLog: string } {
   const dir = mkdtempSync(join(tmpdir(), 'complexity-recipe-'))
+  if (checkout) {
+    const git = (...args: string[]) =>
+      execFileSync('git', args, {
+        cwd: dir,
+        env: { PATH: '/usr/bin:/bin', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' },
+        stdio: 'pipe',
+      })
+    git('init', '-q')
+    if (checkout.origin) git('remote', 'add', 'origin', `https://github.com/${checkout.origin}.git`)
+    if (checkout.upstream) git('remote', 'add', 'upstream', `https://github.com/${checkout.upstream}.git`)
+    if (checkout.pin) {
+      mkdirSync(join(dir, '.dev'))
+      writeFileSync(join(dir, '.dev', 'dev-core.yml'), `github_repo: ${checkout.pin}\n`)
+    }
+  }
   const bin = join(dir, 'bin')
   mkdirSync(bin)
   writeFileSync(join(bin, 'gh'), GH)
@@ -134,5 +150,35 @@ describe('complexity scoring recipe', () => {
     const result = runRecipe({ GH_VIEW_BODY: 'spec <!-- complexity: nope -->' })
     expect(result.status).not.toBe(0)
     expect(result.called).toBe(false)
+  })
+
+  it('targets origin, not the repo gh repo view names, and never asks gh', () => {
+    const result = runRecipe({ GH_VIEW_BODY: 'spec', GITHUB_REPO: '', GH_REPO_SLUG: 'Kit/parent' }, '4', {
+      origin: 'Acme/product',
+      upstream: 'Kit/parent',
+    })
+    expect(result.status).toBe(0)
+    expect(result.ghLog).toContain('issue view 42 --repo Acme/product')
+    expect(result.ghLog).not.toContain('repo view')
+    expect(result.setLog).toContain('set Acme/product#42')
+  })
+
+  it('falls back to gh repo view only when origin is absent', () => {
+    const result = runRecipe({ GH_VIEW_BODY: 'spec', GITHUB_REPO: '', GH_REPO_SLUG: 'Kit/parent' }, '4', {
+      upstream: 'Elsewhere/other',
+    })
+    expect(result.status).toBe(0)
+    expect(result.ghLog).toContain('repo view')
+    expect(result.ghLog).toContain('issue view 42 --repo Kit/parent')
+  })
+
+  it('lets a dev-core.yml pin naming another repo win over origin', () => {
+    const result = runRecipe({ GH_VIEW_BODY: 'spec', GITHUB_REPO: '', GH_REPO_SLUG: 'Kit/parent' }, '4', {
+      origin: 'Acme/product',
+      pin: 'Pin/yaml',
+    })
+    expect(result.status).toBe(0)
+    expect(result.ghLog).toContain('issue view 42 --repo Pin/yaml')
+    expect(result.ghLog).not.toContain('repo view')
   })
 })

@@ -132,7 +132,7 @@ Cross-repo **relations** (`--blocked-by`, `--blocks`, `--parent`, `--add-child`)
 
 **Caveat — keep refs fully-qualified:** `GITHUB_REPO` retargets the entire invocation. A bare `#N` in any ref resolves against the overridden repo, not the cwd repo → always use `OWNER/REPO#N` for any cross-repo ref when the env var is set.
 
-**Resolution order** (`detectGitHubRepo`): (1) `github_repo` in dev-core config ∨ `GITHUB_REPO` env var (validated as `owner/repo`) → (2) fallback `git remote get-url origin` of the cwd. The Deferred Follow-Ups recipe below starts triage in its own directory, so it resolves the target itself: the operator's `GITHUB_REPO` when set, else the checkout's `gh repo view`. It never reads the checkout's `.dev/dev-core.yml` pin.
+**Resolution order** (`detectGitHubRepo`): (1) `GITHUB_REPO` env var (validated as `owner/repo`) → (2) `github_repo` in `.dev/dev-core.yml` (same validation) → (3) `git remote get-url origin` of the cwd → (4) `gh repo view`, only when origin is absent. `gh` ranks remotes itself and answers the kit parent on a product clone (`upstream` = parent, `origin` = product), so origin wins: when `gh` names another repo the CLI prints the chosen repo and why on stderr, and a single-remote clone stays quiet. `init --repo <origin slug>` is the local repo; any other `--repo` still refuses. The Deferred Follow-Ups recipe below starts triage in its own directory, so it resolves the target itself: the operator's `GITHUB_REPO` when set, else the checkout's origin, else (origin absent) `gh repo view`. It never reads the checkout's `.dev/dev-core.yml` pin.
 
 ## Deferred Follow-Ups — Sibling Rule
 
@@ -160,14 +160,14 @@ Cross-repo **relations** (`--blocked-by`, `--blocks`, `--parent`, `--add-child`)
 
 **Recipe — defer A → create follow-up B:**
 
-Triage starts in its own directory, never the checkout: Bun reads `bunfig.toml` and `.env` from the directory it starts in, and a tracked preload there runs before triage and can print `Created #N` and exit 0 with nothing filed (`--no-env-file` alone does not stop it). The target repository is the operator's `GITHUB_REPO` when set, else the checkout's `gh repo view`, and is passed as `GITHUB_REPO`; started from its own directory without it, triage would resolve the plugin's repository. The recipe never reads the checkout's `.dev/dev-core.yml` `github_repo` pin. An unresolved script or repository refuses.
+Triage starts in its own directory, never the checkout: Bun reads `bunfig.toml` and `.env` from the directory it starts in, and a tracked preload there runs before triage and can print `Created #N` and exit 0 with nothing filed (`--no-env-file` alone does not stop it). The target repository is the operator's `GITHUB_REPO` when set, else the checkout's `origin` remote, else (origin absent) its `gh repo view`, and is passed as `GITHUB_REPO`; started from its own directory without it, triage would resolve the plugin's repository. The recipe never reads the checkout's `.dev/dev-core.yml` `github_repo` pin. An unresolved script or repository refuses.
 
 ```bash
 # Title and body go through files — both often quote review text you did not write.
 DIR=$(mktemp -d -t "issue-triage-defer-XXXXXX")
 # write "$DIR/title.txt" ({deferred title}) and "$DIR/body.md" (**Origin:** #A
 # (deferred from ...), then {details}) with an editor or a write tool, then:
-TRIAGE=$(realpath "${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts") && TRIAGE_REPO="${GITHUB_REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
+TRIAGE=$(realpath "${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts") && { ORIGIN_REPO=$(git remote get-url origin 2>/dev/null | sed -E 's#^.*[:/]([^/:]+/[^/]+)$#\1#; s#\.git$##') || :; } && TRIAGE_REPO="${GITHUB_REPO:-${ORIGIN_REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}}"
 triage() { (: "${TRIAGE:?issue-triage unresolved}" "${TRIAGE_REPO:?repository unresolved}" && cd "$(dirname "$TRIAGE")" && GITHUB_REPO="$TRIAGE_REPO" bun --no-env-file "$TRIAGE" "$@"); }
 # A's parent, empty when A is top-level. B takes it, and is blocked by A.
 A_PARENT_READY= && : "${A:?origin issue number required}" && A_PARENT=$(gh api graphql -f query="query{repository(owner:\"${TRIAGE_REPO%/*}\",name:\"${TRIAGE_REPO#*/}\"){issue(number:$A){parent{number repository{nameWithOwner}}}}}" \
@@ -192,7 +192,7 @@ A_PARENT_READY= && : "${A:?origin issue number required}" && A_PARENT=$(gh api g
 
 ## Complexity Scoring
 
-Assess κ ∈ [1,10] to inform tier (S / F-lite / F-full). Record by replacing an existing marker, or appending one, through `set --body-file`. A failed or empty read must not write. The read and the write use the same non-empty repo slug (env, then `.dev/dev-core.yml` `github_repo`, then the cwd). An empty slug must abort before `gh issue view`: that command ignores an empty repo flag and exits 0 against the cwd.
+Assess κ ∈ [1,10] to inform tier (S / F-lite / F-full). Record by replacing an existing marker, or appending one, through `set --body-file`. A failed or empty read must not write. The read and the write use the same non-empty repo slug (env, then `.dev/dev-core.yml` `github_repo`, then the cwd's `origin` remote, then `gh repo view` only when origin is absent). An empty slug must abort before `gh issue view`: that command ignores an empty repo flag and exits 0 against the cwd.
 
 ```bash
 set -euo pipefail
@@ -201,6 +201,9 @@ SCORE=<score>
 REPO="${GITHUB_REPO:-}"
 if [ -z "$REPO" ] && [ -f .dev/dev-core.yml ]; then
   REPO=$(sed -n "s/^github_repo:[[:space:]]*['\"]\{0,1\}\([^'\"]*\)['\"]\{0,1\}[[:space:]]*$/\1/p" .dev/dev-core.yml | head -n 1)
+fi
+if [ -z "$REPO" ]; then
+  REPO=$(git remote get-url origin 2>/dev/null | sed -E 's#^.*[:/]([^/:]+/[^/]+)$#\1#; s#\.git$##') || REPO=
 fi
 if [ -z "$REPO" ]; then
   REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
