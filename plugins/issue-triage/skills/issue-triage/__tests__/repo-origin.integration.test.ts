@@ -178,6 +178,25 @@ describe('issue-triage prefers origin over gh repo view (#614)', () => {
     expect(ran.stdout).not.toContain('is not the local repo')
   })
 
+  it('accepts init --repo <canonical spelling> when origin spells the product in lower case', async () => {
+    const w = await world({ originUrl: 'https://github.com/acme/product.git' })
+    const ran = await triage(w, `init --dry-run --repo ${PRODUCT}`)
+
+    expect(ran.code).toBe(0)
+    expect(ran.stdout).toContain(`repo: ${PRODUCT}`)
+    expect(ran.stdout).toContain('contract: write')
+    expect(ran.stdout).not.toContain('is not the local repo')
+    expect(ran.stdout).not.toContain('skip-other-repo')
+  })
+
+  it('still refuses an unrelated repository when origin is lower case', async () => {
+    const w = await world({ originUrl: 'https://github.com/acme/product.git' })
+    const ran = await triage(w, 'init --dry-run --repo Other/unrelated')
+
+    expect(ran.stdout).toContain('refused: init: --repo Other/unrelated is not the local repo acme/product')
+    expect(ran.stdout).toContain('contract: skip-other-repo')
+  })
+
   it('still refuses init --repo for an unrelated repository', async () => {
     const w = await world()
     const ran = await triage(w, 'init --dry-run --repo Other/unrelated')

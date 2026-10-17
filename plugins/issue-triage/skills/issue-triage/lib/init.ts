@@ -29,7 +29,7 @@ import {
 } from 'node:fs'
 import { dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { detectGitHubRepo } from '../../shared/adapters/config-helpers'
+import { detectGitHubRepo, sameRepo } from '../../shared/adapters/config-helpers'
 import {
   ensureLabel,
   listEnabledOrgIssueTypes,
@@ -207,7 +207,7 @@ export function contractAction(
   current: string | null,
   next: string,
 ): InitPlan['contract'] {
-  if (repo !== cwdRepo) return 'skip-other-repo'
+  if (!sameRepo(repo, cwdRepo)) return 'skip-other-repo'
   if (current === null) return 'write'
   if (current === next) return 'unchanged'
   return 'keep-existing'
@@ -341,7 +341,7 @@ export async function buildPlan(
   cwdRepo: string,
   deps: Pick<InitDeps, 'listLabelNames' | 'listIssueLabelSets' | 'readContract'>,
 ): Promise<{ plan: InitPlan; issues: IssueLabels[]; contractText: string }> {
-  const otherRepo = repo !== cwdRepo
+  const otherRepo = !sameRepo(repo, cwdRepo)
   // Sequential: a parallel rejection would put whichever call failed first into
   // the error, so two previews of the same repo could disagree and refuse approval.
   const defined = await deps.listLabelNames(repo)

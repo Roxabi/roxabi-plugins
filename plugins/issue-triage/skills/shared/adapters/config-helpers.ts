@@ -63,6 +63,11 @@ const announced = new Set<string>()
  */
 export const REPO_SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/
 
+/** GitHub owner/repo names are case-insensitive: the one identity comparison every caller shares. */
+export function sameRepo(left: string, right: string): boolean {
+  return left.toLowerCase() === right.toLowerCase()
+}
+
 /**
  * Validate a candidate GitHub repo slug and throw a clear error if it doesn't match.
  * Used by both the yaml/env path and the git-remote fallback in detectGitHubRepo().
@@ -132,7 +137,7 @@ export function detectGitHubRepo(): string {
     }
     // gh is consulted only to report a disagreement; it never changes the answer.
     const viewed = ghRepoView()
-    if (viewed && viewed.toLowerCase() !== origin.toLowerCase()) {
+    if (viewed && !sameRepo(viewed, origin)) {
       const notice =
         `issue-triage: using ${origin} (git remote "origin"), not ${viewed} (gh repo view): ` +
         "origin is preferred over gh's remote ranking. Pin another repo with GITHUB_REPO or github_repo in .dev/dev-core.yml."
