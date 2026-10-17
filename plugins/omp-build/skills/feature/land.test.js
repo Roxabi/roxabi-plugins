@@ -56,7 +56,7 @@ const ME = 'omp-bot'
 /** The one query the automation login comes from. */
 const IDENTITY = ['api', 'user', '--jq', '.login']
 /** The fields of the one gate read `landPr` makes before deciding. */
-const GATE_FIELDS = 'headRefOid,state,labels,autoMergeRequest'
+const GATE_FIELDS = 'headRefOid,state,labels,autoMergeRequest,mergeStateStatus'
 /** @param {number} pr */
 const GATE_READ = (pr) => ['pr', 'view', String(pr), '--json', GATE_FIELDS]
 /** @param {unknown[]} args @param {unknown[]} expected */
@@ -91,6 +91,8 @@ function mockLand({
   disableThrows = null,
   timeout = 60_000,
   states = ['OPEN'],
+  /** One mergeStateStatus per gate read, last entry repeated. */
+  mergeStates = ['CLEAN'],
   autoMerges = [null],
   labels = [],
   /** One response per events call, last entry repeated. */
@@ -107,6 +109,7 @@ function mockLand({
   const gateLabels = new Set(labels)
   let gateAuto = autoMerges[0] ?? null
   let gateState = states[0] ?? 'OPEN'
+  let gateReads = 0
   const gh = async (_cwd, args) => {
     calls.push(args)
     const jsonAt = args.indexOf('--json')
@@ -132,6 +135,7 @@ function mockLand({
         state: gateState,
         labels: [...gateLabels].map((name) => ({ name })),
         autoMergeRequest: gateAuto,
+        mergeStateStatus: mergeStates[Math.min(gateReads++, mergeStates.length - 1)],
       })
     }
     if (
@@ -142,7 +146,13 @@ function mockLand({
       return JSON.stringify({ headRefOid: REVIEWED_HEAD, baseRefName: 'main' })
     }
     if (args[0] === 'pr' && args[1] === 'view' && fields.includes('state')) {
-      return JSON.stringify({ state: gateState, autoMergeRequest: gateAuto })
+      return JSON.stringify({
+        state: gateState,
+        autoMergeRequest: gateAuto,
+        ...(fields.includes('mergeStateStatus') && {
+          mergeStateStatus: mergeStates[Math.min(gateReads++, mergeStates.length - 1)],
+        }),
+      })
     }
     if (args[0] === 'pr' && args[1] === 'view' && fields.includes('labels')) {
       return JSON.stringify({ labels: [...gateLabels].map((name) => ({ name })) })
@@ -346,8 +356,17 @@ describe('landPr', () => {
  * A PR whose gate follows the calls made on it: labels, native auto-merge, labeled events,
  * comments by author. Only exact argv is answered; anything else throws.
  */
-function gatePr({ comments, labels = [], autoMerge = null, state = 'OPEN', headRefOid = null }) {
+function gatePr({
+  comments,
+  labels = [],
+  autoMerge = null,
+  state = 'OPEN',
+  headRefOid = null,
+  /** One mergeStateStatus per gate read, last entry repeated. */
+  mergeStates = ['CLEAN'],
+}) {
   const pr = { comments: [...comments], labels: new Set(labels), autoMerge, state, labeledAt: [], headRefOid }
+  let mergeReads = 0
   const calls = []
   const gh = async (_cwd, args) => {
     calls.push(args)
@@ -375,6 +394,8 @@ function gatePr({ comments, labels = [], autoMerge = null, state = 'OPEN', headR
         else if (field === 'state') view.state = pr.state
         else if (field === 'headRefOid') view.headRefOid = pr.headRefOid
         else if (field === 'baseRefName') view.baseRefName = 'main'
+        else if (field === 'mergeStateStatus')
+          view.mergeStateStatus = mergeStates[Math.min(mergeReads++, mergeStates.length - 1)]
         else throw new Error(`unexpected field: ${field}`)
       }
       return JSON.stringify(view)
@@ -490,6 +511,169 @@ describe('landPr — a refusal disarms a gate armed for an earlier approval', ()
     const result = await land('/tmp/wt', 7, { gh: fake.gh, ...NATIVE })
     expect(result).toEqual({ status: 'not-approved', reviews: 2 })
     expect(noWrite(fake.calls)).toBe(false)
+  })
+})
+
+describe('landPr — a PR behind its base is never armed (#696)', () => {
+  const UPDATE = 'gh pr update-branch 7'
+  const ON_GREEN = { landing: { mode: 'merge-on-green', required_checks: [] } }
+  const MODES = [
+    ['native', NATIVE],
+    ['merge-on-green', ON_GREEN],
+  ]
+  const armsAuto = (args) => args[1] === 'merge' && args.includes('--auto')
+  const arms = (calls) => calls.some((args) => armsLabel(args) || armsAuto(args))
+  const run = (fake, options, gh = fake.gh) => land('/tmp/wt', 7, { gh, sleep: async () => {}, ...options })
+
+  it('a behind PR is `behind` before a native landing without required checks can shadow it', async () => {
+    const fake = gatePr({ comments: [green()], headRefOid: REVIEWED_HEAD, mergeStates: ['BEHIND'], ...ARMED })
+    const options = { landing: { mode: 'native', required_checks: [] }, requiredContexts: [] }
+    const result = await run(fake, options)
+    expect(result).toEqual({
+      status: 'behind',
+      error: expect.stringContaining('gh pr update-branch 7'),
+      disarmed: true,
+    })
+    // Without the behind status this same PR is `no-required-checks`: the control.
+    const control = await run(gatePr({ comments: [green()], headRefOid: REVIEWED_HEAD, ...ARMED }), options)
+    expect(control.status).toBe('no-required-checks')
+  })
+
+  describe.each(MODES)('under %s', (_mode, options) => {
+    it('an unarmed behind PR: no gh write at all, and the operator command', async () => {
+      const fake = gatePr({ comments: [green()], headRefOid: REVIEWED_HEAD, mergeStates: ['BEHIND'] })
+      const result = await run(fake, options)
+      expect(result.status).toBe('behind')
+      expect(result.error).toContain(UPDATE)
+      expect(result).not.toHaveProperty('disarmed')
+      expect(noWrite(fake.calls)).toBe(false)
+    })
+
+    it('an armed OPEN behind PR: nothing is armed, both arms are cleared', async () => {
+      const fake = gatePr({ comments: [green()], headRefOid: REVIEWED_HEAD, mergeStates: ['BEHIND'], ...ARMED })
+      const result = await run(fake, options)
+      expect(result).toEqual({ status: 'behind', error: expect.stringContaining(UPDATE), disarmed: true })
+      expect([...fake.pr.labels]).toEqual(['size:F-lite'])
+      expect(fake.pr.autoMerge).toBe(null)
+      expect(arms(fake.calls)).toBe(false)
+    })
+
+    it.each([
+      ['auto-merge', { labels: ['size:F-lite'] }, /--disable-auto/],
+      ['the reviewed label', { labels: ['reviewed'], autoMerge: null }, /--remove-label/],
+    ])('a clear that fails names %s and is not a clean behind', async (arm, armed, failing) => {
+      const fake = gatePr({
+        comments: [green()],
+        headRefOid: REVIEWED_HEAD,
+        mergeStates: ['BEHIND'],
+        autoMerge: { mergeMethod: 'MERGE' },
+        ...armed,
+      })
+      const gh = async (cwd, args) => {
+        if (failing.test(args.join(' '))) throw new Error('HTTP 500')
+        return fake.gh(cwd, args)
+      }
+      const outcome = await run(fake, options, gh).then(
+        (value) => ({ value }),
+        (error) => ({ error }),
+      )
+      expect(outcome.value).toBeUndefined()
+      expect(outcome.error.message).toContain('stays armed')
+      expect(outcome.error.message).toContain(arm === 'auto-merge' ? 'auto-merge' : 'the reviewed label')
+      expect(arms(fake.calls)).toBe(false)
+    })
+
+    it('a merge that wins the clear is merged, never a clean behind or a disarm claim', async () => {
+      const fake = gatePr({ comments: [green()], headRefOid: REVIEWED_HEAD, mergeStates: ['BEHIND'], ...ARMED })
+      const gh = async (cwd, args) => {
+        const result = await fake.gh(cwd, args)
+        if (args.includes('--disable-auto')) fake.pr.state = 'MERGED'
+        return result
+      }
+      expect(await run(fake, options, gh)).toEqual({ status: 'merged' })
+    })
+
+    it.each(['MERGED', 'CLOSED'])('a %s snapshot is never behind', async (state) => {
+      const fake = gatePr({ comments: [green()], headRefOid: REVIEWED_HEAD, state, mergeStates: ['BEHIND'], ...ARMED })
+      const result = await run(fake, options)
+      expect(result.status).not.toBe('behind')
+      expect(result).not.toHaveProperty('disarmed')
+      expect(fake.calls.some((args) => args.includes('--disable-auto'))).toBe(false)
+    })
+
+    it('a spent review bound still stops, and a behind PR resets nothing', async () => {
+      const fake = gatePr({
+        comments: [red(), red(), red(), green()],
+        headRefOid: REVIEWED_HEAD,
+        mergeStates: ['BEHIND'],
+        ...ARMED,
+      })
+      const result = await run(fake, options)
+      expect(result).toEqual({ status: 'not-approved', reviews: 4, reason: 'review-bound', disarmed: true })
+      expect(arms(fake.calls)).toBe(false)
+    })
+
+    it('a moved head and a missing approval are reported before behind', async () => {
+      const moved = gatePr({ comments: [green()], headRefOid: MOVED_HEAD, mergeStates: ['BEHIND'] })
+      expect(await run(moved, options)).toEqual({ status: 'not-approved', reviews: 1, reason: 'head-moved' })
+      const unapproved = gatePr({ comments: [red()], headRefOid: REVIEWED_HEAD, mergeStates: ['BEHIND'] })
+      expect(await run(unapproved, options)).toEqual({ status: 'not-approved', reviews: 1 })
+    })
+
+    it('a PR that falls behind after the opening snapshot is not armed: the fresh read before the write decides', async () => {
+      const fake = gatePr({ comments: [green()], headRefOid: REVIEWED_HEAD, mergeStates: ['CLEAN', 'BEHIND'] })
+      const result = await run(fake, options)
+      expect(result).toEqual({ status: 'behind', error: expect.stringContaining(UPDATE) })
+      expect(noWrite(fake.calls)).toBe(false)
+    })
+
+    it('unknown or absent merge state is not behind', async () => {
+      const fake = gatePr({ comments: [green()], headRefOid: REVIEWED_HEAD, mergeStates: ['UNKNOWN'] })
+      expect((await run(fake, options)).status).toBe('watching')
+    })
+  })
+
+  it('merge-on-green: a PR that falls behind after the label was removed is not re-labelled, and nothing stays armed', async () => {
+    // Reads: opening, before the label work, after the removal — behind on the last.
+    const fake = gatePr({
+      comments: [green()],
+      headRefOid: REVIEWED_HEAD,
+      labels: ['reviewed'],
+      mergeStates: ['CLEAN', 'CLEAN', 'BEHIND'],
+    })
+    const result = await run(fake, ON_GREEN)
+    expect(result.status).toBe('behind')
+    expect(fake.calls.some((args) => args.includes('--remove-label'))).toBe(true)
+    expect(fake.calls.some(armsLabel)).toBe(false)
+    expect(fake.pr.labels.has('reviewed')).toBe(false)
+  })
+
+  it('native: a PR that falls behind before the label follows the pin gets both arms cleared', async () => {
+    // Reads: opening, before the pin, before the label — behind on the last.
+    const fake = gatePr({ comments: [green()], headRefOid: REVIEWED_HEAD, mergeStates: ['CLEAN', 'CLEAN', 'BEHIND'] })
+    const result = await run(fake, NATIVE)
+    expect(result).toEqual({ status: 'behind', error: expect.stringContaining(UPDATE), disarmed: true })
+    expect(fake.calls.some(armsAuto)).toBe(true)
+    expect(fake.calls.some(armsLabel)).toBe(false)
+    expect(fake.pr.autoMerge).toBe(null)
+  })
+
+  it('native: a PR that falls behind before the re-pin is not pinned again', async () => {
+    // Reads: opening, before the pin, before the re-pin — behind on the last.
+    const fake = gatePr({ comments: [green()], headRefOid: REVIEWED_HEAD, mergeStates: ['CLEAN', 'CLEAN', 'BEHIND'] })
+    let enables = 0
+    const gh = async (cwd, args) => {
+      if (armsAuto(args)) {
+        enables++
+        throw new Error('Auto merge is already enabled')
+      }
+      return fake.gh(cwd, args)
+    }
+    const result = await run(fake, NATIVE, gh)
+    expect(result.status).toBe('behind')
+    expect(enables).toBe(1)
+    expect(fake.calls.some(armsLabel)).toBe(false)
+    expect(fake.pr.autoMerge).toBe(null)
   })
 })
 
@@ -638,6 +822,69 @@ describe('applyCiWatchExit — public status and gate state', () => {
     })
     expect(await applyCiWatchExit('/tmp/wt', 7, 1, { gh })).toEqual({ status: 'merged' })
     expect(gate.state).toBe('MERGED')
+  })
+
+  describe('exit 7 is behind (#696)', () => {
+    const BEHIND = { status: 'behind', error: expect.stringContaining('gh pr update-branch 7') }
+    const unavailable = (fake) => async (cwd, args) => {
+      if (same(args, IDENTITY) || same(args, commentPageArgs(7))) throw new Error('review service unavailable')
+      return fake.gh(cwd, args)
+    }
+
+    it.each([
+      ['an armed gate', ARMED],
+      ['a gate with only the label', { labels: ['reviewed'] }],
+      ['a gate with only auto-merge', { autoMerge: { mergeMethod: 'MERGE' } }],
+    ])('%s is cleared whatever the review records say, base advanced or not', async (_label, armed) => {
+      // The gate read after the exit may no longer be BEHIND: the base advanced.
+      for (const mergeStates of [['BEHIND'], ['CLEAN']]) {
+        const fake = gatePr({ comments: [green()], headRefOid: REVIEWED_HEAD, mergeStates, ...armed })
+        const result = await applyCiWatchExit('/tmp/wt', 7, 7, { gh: unavailable(fake) })
+        expect(result).toEqual({ ...BEHIND, disarmed: true })
+        expect([...fake.pr.labels]).not.toContain('reviewed')
+        expect(fake.pr.autoMerge).toBe(null)
+      }
+    })
+
+    it('an unarmed gate: no write, no disarm claim', async () => {
+      const fake = gatePr({ comments: [green()], headRefOid: REVIEWED_HEAD, mergeStates: ['BEHIND'] })
+      const result = await applyCiWatchExit('/tmp/wt', 7, 7, { gh: fake.gh })
+      expect(result).toEqual(BEHIND)
+      expect(noWrite(fake.calls)).toBe(false)
+    })
+
+    it.each([
+      ['auto-merge', /--disable-auto/],
+      ['the reviewed label', /--remove-label/],
+    ])('a clear that fails names %s and is not a clean behind', async (arm, failing) => {
+      const fake = gatePr({ comments: [green()], headRefOid: REVIEWED_HEAD, ...ARMED })
+      const gh = async (cwd, args) => {
+        if (failing.test(args.join(' '))) throw new Error('HTTP 500')
+        return fake.gh(cwd, args)
+      }
+      await expect(applyCiWatchExit('/tmp/wt', 7, 7, { gh })).rejects.toThrow(
+        new RegExp(`stays armed — .*${arm === 'auto-merge' ? 'auto-merge' : 'the reviewed label'}`),
+      )
+    })
+
+    it('a merge that wins the clear is merged', async () => {
+      const { gh, gate } = mockLand({
+        disableThrows: 'already merged',
+        labels: ['reviewed'],
+        autoMerges: [{ enabledAt: 't' }],
+      })
+      expect(await applyCiWatchExit('/tmp/wt', 7, 7, { gh })).toEqual({ status: 'merged' })
+      expect(gate.state).toBe('MERGED')
+    })
+
+    it.each([
+      ['MERGED', { status: 'merged' }],
+      ['CLOSED', { status: 'stopped' }],
+    ])('a %s gate keeps the existing classification and is left alone', async (state, expected) => {
+      const fake = gatePr({ comments: [green()], headRefOid: REVIEWED_HEAD, state, ...ARMED })
+      expect(await applyCiWatchExit('/tmp/wt', 7, 7, { gh: fake.gh })).toEqual(expected)
+      expect(noWrite(fake.calls)).toBe(false)
+    })
   })
 })
 

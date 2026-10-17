@@ -3,7 +3,7 @@ name: feature
 disable-model-invocation: true
 argument-hint: '[#N | <subject>]'
 description: OMP-only feature cycle — frame a GitHub issue, create the worktree from origin/<base>, hand off /move and /goal, then implement, review, fix and land.
-version: 0.1.10
+version: 0.1.11
 ---
 
 # Feature
@@ -212,6 +212,7 @@ driver review --epic "$EPIC" --goal-status "$GOAL_STATUS" --goal-objective-file 
 | `land.status` `merged` | Nothing: `next` re-reads the PR (MERGED into the base, head claiming the child, tip equal), detaches and deletes the local branch |
 | `ci-failed` | `step = await nextReviewStep(cwd, pr, { ciFailed: true })`, then §6.6 |
 | `timeout`, `ci-cancelled`, `ci-blocked`, `stopped`, `closed`, `proof-blocked` | Ticket stop `--reason <status>`, with `land.error` as detail when present. A timeout is never re-attached under a goal |
+| `behind` | Ticket stop `--reason behind`, `land.error` as detail: it names `gh pr update-branch <pr>`. This run skips the ticket and its dependents; independent children continue. The stop is retried: the operator updates the branch, and a fresh run re-enters current-head review and admission before it lands. A spent review bound stays stopped. `landPr` / `applyCiWatchExit` cleared any arm already |
 | `nextReviewStep` `stop`, any reason | Ticket stop `--reason review-bound`; the step already disarmed the PR |
 | `nextReviewStep` or `landPr` throws | Ticket stop `--reason stopped`, the error as detail |
 | `proof-acquire` exits 1 (§6.3) | Ticket stop `--reason proof-blocked`, its stderr as detail |
@@ -238,7 +239,7 @@ exhausted review bound is not reset. `--dry-run` reports the PR and writes nothi
 
 | Class | Triggers | Effect |
 |---|---|---|
-| Ticket stop | review loop stop; `proof-blocked` or a failed `proof-acquire`; foreign commit, branch mismatch; child without scope; `timeout`; `ci-cancelled`; `ci-blocked`; `stopped`; `closed` | report, `goal-stop` marker; dependents skipped by their open blocker edge; independent children continue |
+| Ticket stop | review loop stop; `proof-blocked` or a failed `proof-acquire`; foreign commit, branch mismatch; child without scope; `timeout`; `ci-cancelled`; `ci-blocked`; `stopped`; `closed`; `behind` | report, `goal-stop` marker; dependents skipped by their open blocker edge; independent children continue |
 | Shared-state stop | base CI red; `base-ci-pending` at finalization; dirty tree between tickets, before the hook, or before a none-merged complete; `hook-stale`; `watch-failed`; `bad-landing`; `no-required-checks`; `evaluate-only`; `auto-merge-failed`; tracker CLI unresolvable; post-merge hook failure; final review still blocking after its fix round | disarm, report, `goal({op:"drop"})` |
 | No progress | no actionable child while children remain open | report, `goal({op:"drop"})` |
 
@@ -733,13 +734,14 @@ Run `watch` as an async bash job (`timeout: 0`). Map the exit with
 | 4 | stop and report; do not claim merged (includes CLOSED during the check phase) |
 | 5 | `timeout`; re-attach the same watch later |
 | 6 | `evaluate-only`: merge-on-green is green but its run for this landing reports `kit-ci not configured`; retain an OPEN gate only while currently authorized |
+| 7 | `behind`: the PR is OPEN and behind its base. Same forced-unarmed policy as 1–3 (a known arm is cleared, both; unarmed writes nothing; a merge that wins the clear is `merged`). Report `gh pr update-branch <pr>` from `error`; do not re-attach the watch |
 | 70 | usage, missing tool, invalid landing, or `gh`/`jq` failure → `watch-failed`; retain an OPEN gate only while currently authorized |
 | other | unmapped code (including killed jobs 124/137/143) → `watch-failed`; retain an OPEN gate only while currently authorized |
 
 Every mapped exit passes the shared policy. Observer exits (0/4/5/6/70/other)
 preserve their status but clear moved, red or spent OPEN gates. If those review/head
 reads fail after acquiring the gate, clear the known arms before surfacing the read
-error. Forced exits 1–3 need no review-service reads. A no-op never claims `disarmed`.
+error. Forced exits 1–3 and 7 need no review-service reads. A no-op never claims `disarmed`.
 Observer exits never re-admit: a base retarget, body edit, ignored configuration
 or classification change keeps the arm until §6.7 re-enters `landPr`.
 
@@ -762,6 +764,7 @@ Neither a fix round nor another review action may write that label in this cycle
 | `ci-failed` | Gate already disarmed; `step = await nextReviewStep(cwd, pr, { ciFailed: true })`, then §6.6 |
 | `ci-cancelled` | Gate disarmed; stop, report the cancelled checks; operator re-runs CI then re-enters §6.7 |
 | `ci-blocked` | Gate disarmed; stop, report the checks named on stderr; operator resolves the named checks or re-runs CI, then re-enters §6.7 |
+| `behind` | Nothing was armed, and an arm already on the PR was cleared (`disarmed: true`; a failed clear throws naming what stays armed). Stop; report `land.error`: the operator runs `gh pr update-branch <pr>`, then re-enters §6.7 — current-head review and admission run again. Do not start the watch; do not call `gh pr update-branch` from the cycle |
 | `watch-failed` | Stop; report code or error. The gate is retained only with current authorization; invalid arms are cleared or the error names their remainder. Do not claim merged |
 | `evaluate-only` | Stop; report "evaluate-only — manual merge required" and `docs/kit/ci-app-setup.md`. The gate is retained only with current authorization; the operator merges by hand. Do not claim merged; do not wait |
 | `bad-landing` | Stop; report `land.error` (landing configuration problem). Any armed gate is cleared, or the error names its remainder. Fix the landing configuration, then re-enter §6.7 |

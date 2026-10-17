@@ -332,6 +332,25 @@ describe('nextStep', () => {
         },
       },
       {
+        name: 'a current-run behind stop is skipped with its dependent; the independent child continues',
+        facts: facts([
+          child(1, { stops: [{ run: RUN, reason: 'behind' }] }),
+          child(2, { blockedBy: [on(1)] }),
+          child(3),
+        ]),
+        step: { action: 'start', ticket: 3 },
+        report: {
+          stopped: [{ ticket: 1, reason: 'behind', sticky: false }],
+          skipped: [{ ticket: 2, blockers: [1] }],
+        },
+      },
+      {
+        name: 'an earlier-run behind stop is retried by a fresh run',
+        facts: facts([child(1, { stops: [{ run: EARLIER, reason: 'behind' }] }), child(2, { blockedBy: [on(1)] })]),
+        step: { action: 'start', ticket: 1 },
+        report: { stopped: [], skipped: [{ ticket: 2, blockers: [1] }] },
+      },
+      {
         name: 'an earlier-run non-sticky stop is retried',
         facts: facts([child(1, { stops: [{ run: EARLIER, reason: 'timeout' }] }), child(2, { blockedBy: [on(1)] })]),
         step: { action: 'start', ticket: 1 },
@@ -971,6 +990,7 @@ describe('stop classes', () => {
     ['ci-blocked', 'ci-blocked', 'ticket'],
     ['stopped', 'stopped', 'ticket'],
     ['closed', 'closed', 'ticket'],
+    ['PR behind its base', 'behind', 'ticket'],
     ['base CI red', 'base-ci-red', 'shared'],
     ['dirty tree between tickets', 'dirty-tree', 'shared'],
     ['watch-failed', 'watch-failed', 'shared'],
@@ -999,6 +1019,7 @@ describe('stop classes', () => {
     ['stopped', { stop: 'stopped', class: 'ticket' }],
     ['closed', { stop: 'closed', class: 'ticket' }],
     ['proof-blocked', { stop: 'proof-blocked', class: 'ticket' }],
+    ['behind', { stop: 'behind', class: 'ticket' }],
     ['watch-failed', { stop: 'watch-failed', class: 'shared' }],
     ['bad-landing', { stop: 'bad-landing', class: 'shared' }],
     ['no-required-checks', { stop: 'no-required-checks', class: 'shared' }],

@@ -759,6 +759,32 @@ export async function landPr(
     }
     return exit(refused('head-moved'), { policy: 'unarmed', gate: seen, adapter })
   }
+  // A behind PR is never armed (#696): no write, and a known OPEN arm is cleared
+  // by the epilogue — the one disarm owner. `adapter` stays unset so a failed
+  // clear throws and names what stays armed.
+  const behindExit = (seen) => exit({ status: 'behind', error: behindMessage(pr) }, { policy: 'unarmed', gate: seen })
+  // A fresh read before every arming write — the opening snapshot is stale by
+  // then. Only a behind answer reads the gate again, to clear what it shows; a
+  // moved head is reported as moved, never as behind, and a PR that is no longer
+  // OPEN and behind keeps its existing flow.
+  const behindBeforeArm = async () => {
+    if (!isBehind(await readPrFields(cwd, pr, ghFn, 'state,mergeStateStatus'))) return null
+    let fresh
+    try {
+      fresh = await readGate(cwd, pr, ghFn)
+    } catch {
+      // An unreadable gate still clears what the call knows it armed.
+    }
+    if (fresh === undefined) return behindExit(knownGate())
+    if (!isBehind(fresh)) return null
+    if (!isCommitSha(fresh.headRefOid) || fresh.headRefOid !== records.head) {
+      return exit(refused('head-moved'), { policy: 'unarmed', gate: fresh })
+    }
+    return behindExit(fresh)
+  }
+  // Behind first (it reads the gate), the head last: the head the write binds to
+  // stays the last observation.
+  const checkBeforeArm = async () => (await behindBeforeArm()) ?? checkCoordinates()
   const baseBlocked = (reason, error) =>
     exit({ status: 'proof-blocked', producer: 'candidate', reason, error }, { policy: 'unarmed' })
   // A clean PR merges as soon as it is armed (`gh pr merge --auto` merges it at
@@ -916,6 +942,8 @@ export async function landPr(
       if (!isCommitSha(gate.headRefOid) || gate.headRefOid !== records.head) {
         return exit(refused('head-moved'), { policy: 'unarmed' })
       }
+      // The opening snapshot, after the review-bound, approval and head guards.
+      if (isBehind(gate)) return behindExit(gate)
       try {
         const selected = await resolveLandingBase(cwd, pr, ghFn, gitFn)
         const blocked = await bindBase(selected)
@@ -951,7 +979,7 @@ export async function landPr(
         if (!Array.isArray(labels)) throw new Error(`landPr: gh pr view ${pr} carried no labels`)
         const beforeLabel = await refreshReviewAuthorization()
         if (beforeLabel) return beforeLabel
-        const beforeLabelHead = await checkCoordinates()
+        const beforeLabelHead = await checkBeforeArm()
         if (beforeLabelHead) return beforeLabelHead
         if (labels.some((label) => label?.name === 'reviewed')) {
           // Preparation for a fresh labeled event, not a terminal disarm.
@@ -959,7 +987,7 @@ export async function landPr(
           if (removed) return removed
           const afterRemove = await refreshReviewAuthorization()
           if (afterRemove) return afterRemove
-          const afterRemoveHead = await checkCoordinates()
+          const afterRemoveHead = await checkBeforeArm()
           if (afterRemoveHead) return afterRemoveHead
         }
         const added = await labelWrite(['pr', 'edit', String(pr), '--add-label', 'reviewed'], true)
@@ -979,7 +1007,7 @@ export async function landPr(
       } else {
         const beforePin = await refreshReviewAuthorization()
         if (beforePin) return beforePin
-        const beforePinHead = await checkCoordinates()
+        const beforePinHead = await checkBeforeArm()
         if (beforePinHead) return beforePinHead
         const pin = ['pr', 'merge', String(pr), '--auto', '--merge', '--match-head-commit', records.head]
         armedByUs.auto = true
@@ -1017,7 +1045,7 @@ export async function landPr(
           }
           const beforeRepin = await refreshReviewAuthorization()
           if (beforeRepin) return beforeRepin
-          const beforeRepinHead = await checkCoordinates()
+          const beforeRepinHead = await checkBeforeArm()
           if (beforeRepinHead) return beforeRepinHead
           pin[pin.length - 1] = records.head
           try {
@@ -1028,6 +1056,9 @@ export async function landPr(
         }
         const afterPin = await afterWrite('native')
         if (afterPin) return afterPin
+        // The label is an arming write too: the pin above is cleared with it.
+        const behindBeforeLabel = await behindBeforeArm()
+        if (behindBeforeLabel) return behindBeforeLabel
         const added = await labelWrite(['pr', 'edit', String(pr), '--add-label', 'reviewed'], true)
         if (added) return added
         const afterAdd = await refuseIfMoved()
@@ -1078,6 +1109,11 @@ export async function landPr(
       gh: ghFn,
     })
   } catch (disarmError) {
+    // A merge that wins the clearing race of a behind exit is the merged result,
+    // never a clean `behind` and never a false clear.
+    if (terminal.result?.status === 'behind' && /merged while being disarmed/.test(errorText(disarmError))) {
+      return { status: 'merged' }
+    }
     const error = stuckError(disarmError, terminal.failure ?? terminal.readError)
     if (terminal.adapter) return { status: 'auto-merge-failed', armed: true, error: error.message }
     throw error
@@ -1176,15 +1212,15 @@ async function waitLabeledSince(cwd, pr, ghFn, before, sleep) {
 }
 
 /**
- * Preserve `/ci-watch` statuses while enforcing every exit. Codes 1–3 force
- * unarmed without consulting review services. Other codes retain an OPEN arm
- * only after fresh records approve its verified current head.
+ * Preserve `/ci-watch` statuses while enforcing every exit. Codes 1–3 and 7
+ * (`behind`) force unarmed without consulting review services. Other codes retain
+ * an OPEN arm only after fresh records approve its verified current head.
  */
 export async function applyCiWatchExit(cwd, pr, code, { gh: ghFn = gh } = {}) {
   let gate
   let records
   let failure
-  let policy = code === 1 || code === 2 || code === 3 ? 'unarmed' : 'allow-approved'
+  let policy = code === 1 || code === 2 || code === 3 || code === 7 ? 'unarmed' : 'allow-approved'
   let result =
     code === 0 || code === 4
       ? { status: 'stopped' }
@@ -1198,10 +1234,12 @@ export async function applyCiWatchExit(cwd, pr, code, { gh: ghFn = gh } = {}) {
               ? { status: 'timeout' }
               : code === 6
                 ? { status: 'evaluate-only' }
-                : { status: 'watch-failed', code }
+                : code === 7
+                  ? { status: 'behind', error: behindMessage(pr) }
+                  : { status: 'watch-failed', code }
   try {
     gate = await readGate(cwd, pr, ghFn)
-    if (code >= 0 && code <= 3) {
+    if (code === 7 || (code >= 0 && code <= 3)) {
       if (gate.state === 'MERGED') result = { status: 'merged' }
       else if (gate.state === 'CLOSED') result = { status: 'stopped' }
     }
@@ -1324,7 +1362,13 @@ async function readHeadRefOid(cwd, pr, ghFn) {
  * @param {(cwd: string, args: string[]) => Promise<string>} ghFn
  */
 async function readGate(cwd, pr, ghFn) {
-  const raw = await ghFn(cwd, ['pr', 'view', String(pr), '--json', 'headRefOid,state,labels,autoMergeRequest'])
+  const raw = await ghFn(cwd, [
+    'pr',
+    'view',
+    String(pr),
+    '--json',
+    'headRefOid,state,labels,autoMergeRequest,mergeStateStatus',
+  ])
   let data
   try {
     data = JSON.parse(raw)
@@ -1348,6 +1392,25 @@ async function readGate(cwd, pr, ghFn) {
 
 /** The states `gh pr view` reports; anything else is an answer the gate cannot be read from. */
 const GATE_STATES = new Set(['OPEN', 'CLOSED', 'MERGED'])
+
+/**
+ * An OPEN PR whose branch is behind its base. A missing or unknown merge state is
+ * not behind, and a merged or closed PR never is: those keep their own results.
+ *
+ * @param {{ state?: string, mergeStateStatus?: unknown } | null | undefined} gate
+ */
+function isBehind(gate) {
+  return gate?.state === 'OPEN' && gate.mergeStateStatus === 'BEHIND'
+}
+
+/**
+ * What `behind` tells the operator. omp-build never updates the branch itself.
+ *
+ * @param {string | number} pr
+ */
+function behindMessage(pr) {
+  return `PR ${pr} is behind its base and was not armed; run: gh pr update-branch ${pr} — then land again`
+}
 
 /**
  * The one error for a disarm that failed after a read that failed: the disarm

@@ -86,6 +86,7 @@ export declare function landPr(
     sleep?: (ms: number) => Promise<void>
   },
 ): Promise<{
+  /** `behind`: the PR is OPEN and BEHIND its base — never armed, a known arm cleared, and `error` names `gh pr update-branch <pr>`. A PR merged during that clear is `merged`. */
   status: string
   mode?: string
   watch?: string
@@ -99,7 +100,7 @@ export declare function landPr(
   armed?: boolean
   /** `watching` only: what the landing admission admitted for the armed candidate — Semctx `absent` or its native VERIFIED/PARTIAL result with each PARTIAL gap's NO TEST reason, and assertledger `not-applicable` or `detection`. */
   proof?: ProofSummary
-  /** The reason for `bad-landing` or `watch-failed`; for `proof-blocked`, what must be produced outside admission; for `auto-merge-failed`, what stays armed or why the gate was disarmed. Only two fragments are contract: the remaining arms follow `stays armed — <arms>`, and unconfirmed state is named by `could not be read back`. The prefix and causal prose around them are not a stable API. */
+  /** The reason for `bad-landing` or `watch-failed`; for `behind`, the command `gh pr update-branch <pr>`; for `proof-blocked`, what must be produced outside admission; for `auto-merge-failed`, what stays armed or why the gate was disarmed. Only two fragments are contract: the remaining arms follow `stays armed — <arms>`, and unconfirmed state is named by `could not be read back`. The prefix and causal prose around them are not a stable API. */
   error?: string
 }>
 
@@ -108,4 +109,10 @@ export declare function applyCiWatchExit(
   pr: number | string,
   code: number,
   opts?: { mode?: string },
-): Promise<{ status: string; disarmed?: true }>
+): Promise<{
+  /** Exit 7 is `behind`; with exit 0–3 and 7 a merged PR is `merged` and a closed one `stopped`. */
+  status: string
+  disarmed?: true
+  /** `behind` only: the operator command, `gh pr update-branch <pr>`. */
+  error?: string
+}>
