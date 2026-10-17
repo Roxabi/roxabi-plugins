@@ -50,6 +50,8 @@ export interface Advisory {
   package: string
   /** GHSA id parsed from the advisory URL; null when the URL carries none. */
   ghsa: string | null
+  /** bun's numeric advisory id. One per package an advisory reaches: `--ignore=<id>` spares that package only. */
+  id: number | null
   url: string
   title: string
   severity: Severity
@@ -117,7 +119,7 @@ export function parseAudit(stdout: string): Advisory[] {
       if (typeof entry !== 'object' || entry === null) {
         throw new AuditOutputError(`bun audit entry ${JSON.stringify(pkg)} holds a non-object advisory`)
       }
-      const { url, title, severity, vulnerable_versions } = entry as Record<string, unknown>
+      const { id, url, title, severity, vulnerable_versions } = entry as Record<string, unknown>
       if (typeof url !== 'string' || typeof title !== 'string' || !isSeverity(severity)) {
         throw new AuditOutputError(
           `bun audit advisory for ${JSON.stringify(pkg)} lacks a url, a title or a known severity`,
@@ -126,6 +128,7 @@ export function parseAudit(stdout: string): Advisory[] {
       advisories.push({
         package: pkg,
         ghsa: GHSA_IN_URL.exec(url)?.[1] ?? null,
+        id: typeof id === 'number' && Number.isSafeInteger(id) ? id : null,
         url,
         title,
         severity,
@@ -213,25 +216,20 @@ function code(text: string): string {
   return `${fence} ${flat} ${fence}`
 }
 
-function fixCommand(c: Classified, ignored: readonly Ignore[]): string {
-  const findingGhsas = new Set<string>()
-  for (const finding of c.findings) {
-    if (finding.ghsa) findingGhsas.add(finding.ghsa)
-  }
-
-  const preservedGhsas = new Set<string>()
-  const ignoreFlags: string[] = []
-  for (const ignore of ignored) {
-    if (
-      !findingGhsas.has(ignore.ghsa) &&
-      c.suppressed.some((advisory) => matches(advisory, ignore) && advisory.severity === ignore.severity) &&
-      !preservedGhsas.has(ignore.ghsa)
-    ) {
-      preservedGhsas.add(ignore.ghsa)
-      ignoreFlags.push(`--ignore=${ignore.ghsa}`)
-    }
-  }
-  return ['bun audit fix', ...ignoreFlags].join(' ')
+/**
+ * `bun audit fix` sparing every accepted advisory, and nothing a finding needs fixed.
+ * Acceptance is `classify`'s: the suppressed set, each with the GHSA its ignore matched.
+ * bun's `--ignore` takes a GHSA, which spares it in every package, or a numeric advisory
+ * id, which spares one package: a GHSA that a finding shares is spared by id.
+ */
+function fixCommand(c: Classified): string {
+  const findingGhsas = new Set(c.findings.map((a) => a.ghsa))
+  const keys = c.suppressed.flatMap((a) => {
+    if (a.ghsa !== null && !findingGhsas.has(a.ghsa)) return [a.ghsa]
+    // bun 1.4.0 sends an id with every advisory; without one, no flag spares this package alone.
+    return a.id === null ? [] : [String(a.id)]
+  })
+  return ['bun audit fix', ...[...new Set(keys)].map((key) => `--ignore=${key}`)].join(' ')
 }
 
 export function renderReport(c: Classified, ignored: readonly Ignore[], meta: RunMeta): string {
@@ -255,7 +253,7 @@ export function renderReport(c: Classified, ignored: readonly Ignore[], meta: Ru
       const advisory = a.ghsa ? `[${a.ghsa}](https://github.com/advisories/${a.ghsa})` : code(a.url)
       lines.push(`| ${code(a.package)} | ${a.severity} | ${advisory} | ${title} | ${code(a.vulnerableVersions)} |`)
     }
-    const fix = fixCommand(c, ignored)
+    const fix = fixCommand(c)
     lines.push(
       '',
       `Fix: in a worktree, \`${fix}\` (within declared ranges) or \`${fix} --latest\` (crosses majors), then a PR.`,

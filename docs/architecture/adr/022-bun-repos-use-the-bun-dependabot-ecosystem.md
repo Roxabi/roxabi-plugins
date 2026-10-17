@@ -133,12 +133,12 @@ depend on GitHub parsing a lockfile it does not support.
 When the scheduled audit reports a finding, first inspect `IGNORED` in
 `scripts/dependency-audit.ts`. Keep only advisories still accepted at their
 current severity; a re-rated or stale entry is action required, not an
-`--ignore` candidate. Because bun ignores by GHSA, a GHSA shared with any
-finding is not an `--ignore` candidate either. The audit report's `Fix:`
-command includes `--ignore=<GHSA>` only for every live accepted GHSA outside
-the findings, so copy that command in a worktree rather than a bare
-`bun audit fix`. Inspect the manifest and lock delta; when the manifest is
-unchanged, open a lock-only PR if appropriate.
+`--ignore` candidate. bun's `--ignore` takes a GHSA, which spares the advisory
+in every package, or bun's numeric advisory id, which spares one package. The
+audit report's `Fix:` command spares every accepted advisory, by its GHSA or,
+when a finding shares that GHSA, by its id; copy that command in a worktree
+rather than a bare `bun audit fix`. Inspect the manifest and lock delta; when
+the manifest is unchanged, open a lock-only PR if appropriate.
 Dispatch `dependency-audit.yml` on that branch and retain its report/run as the
 remediation evidence. #788 was the scheduled finding, and #824 used this route
 to update the locked `source-map-js` while preserving the accepted esbuild
