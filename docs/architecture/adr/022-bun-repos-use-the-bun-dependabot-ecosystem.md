@@ -224,22 +224,24 @@ the planned CI check for the same allowlist. This tree is inside it: all 196
 non-registry specifier, there is no `patchedDependencies`, and no `bunfig.toml`,
 `.npmrc` or loaded `.env*` file exists at the root.
 
-A `workflow_dispatch` run of `dependency-audit.yml` on a candidate branch is
-evidence for that candidate only when the candidate is inside the allowlist and
-leaves `.github/workflows/dependency-audit.yml` and
-`scripts/dependency-audit.ts` (with `IGNORED`) as on `main`, since the run
-applies the candidate's own copies, and the run shows:
+Before using a `workflow_dispatch` run of `dependency-audit.yml` as evidence
+for a candidate's locked registry metadata, check that the candidate's dependency
+delta is inside the allowlist, that its audit workflow and
+`scripts/dependency-audit.ts` (with `IGNORED`) are unchanged from `main`, and
+that the run's head SHA equals the candidate head. The workflow applies the
+candidate's own copies.
 
-- A head SHA equal to the candidate head.
-- A delivered result, in the workflow's sense (it reached GitHub): conclusion
-  `success` (clean), or `failure` with the `security` issue `dependency audit:
-  action required (<branch>)` open and no `dependency audit: audit failed
-  (<branch>)` issue naming the run's URL. An exit-10 run ends `exit 1` and the
-  exit code is only in `$GITHUB_OUTPUT`, so the conclusion alone does not tell
-  it from an untrusted run. A cancelled run is not evidence.
+Clean evidence requires both a `success` conclusion and that exact run's audit
+step showing its own clean result. Any other conclusion, including cancellation
+or `failure` from an action-required exit 10, is not clean evidence. To cite an
+action-required result instead, use that run's report or audit-step log; a claim
+that its report reached GitHub also needs that run's successful create/comment
+or unchanged-report path, not merely an open `security` issue.
 
-A green run on `main` is not evidence for another tree. This is available
-evidence, not a new merge requirement.
+Do not infer a run's delivery from branch issue state or a URL mention: earlier
+runs leave issues open, and recovery comments name delivered runs too. A failed
+final GitHub write cannot establish delivery. A green run on `main` is not
+evidence for another tree. This is available evidence, not a merge requirement.
 
 Alternatives to the existing policy, not adopted here:
 
