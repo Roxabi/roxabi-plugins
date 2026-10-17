@@ -96,13 +96,14 @@ What that actually costs this repo, measured:
 - The repo has **zero runtime dependencies** and eight dev dependencies, and is
   `private: true`. Nothing here ships to a user.
 - The weekly version updater groups minor and patch updates across all patterns,
-  but it does not guarantee a refresh of an in-range transitive. In the initial
-  version of #812, before its rebase onto #824, the `vitest` bump from 5.0.2 to
-  5.0.4 retained `postcss` 8.5.23 and `source-map-js` 1.2.1 in `bun.lock`; the
-  patched `source-map-js` 1.2.2 was already in `postcss`'s `^1.2.1` range. The
-  version merged after that rebase carried 1.2.2. This does not establish that
-  the bun updater never updates transitives, only that an in-range patched
-  transitive can remain locked and needs the audit path below.
+  but it does not guarantee a refresh of an in-range transitive. #812's initial
+  commit `d807ede7`, before its rebase onto #824, bumped `vitest` from 5.0.2 to
+  5.0.3 and retained `postcss` 8.5.23 and `source-map-js` 1.2.1 in `bun.lock`;
+  the patched `source-map-js` 1.2.2 was already in `postcss`'s `^1.2.1` range.
+  The rebased version that merged (vitest 5.0.4) carried 1.2.2, from #824's
+  lock. This does not establish that the bun updater never updates
+  transitives, only that an in-range patched transitive can remain locked and
+  needs the audit path below.
 
 Two claims from the first version are **withdrawn**:
 
