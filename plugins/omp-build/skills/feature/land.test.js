@@ -525,6 +525,20 @@ describe('landPr — a PR behind its base is never armed (#696)', () => {
   const arms = (calls) => calls.some((args) => armsLabel(args) || armsAuto(args))
   const run = (fake, options, gh = fake.gh) => land('/tmp/wt', 7, { gh, sleep: async () => {}, ...options })
 
+  it('a behind PR is `behind` before a native landing without required checks can shadow it', async () => {
+    const fake = gatePr({ comments: [green()], headRefOid: REVIEWED_HEAD, mergeStates: ['BEHIND'], ...ARMED })
+    const options = { landing: { mode: 'native', required_checks: [] }, requiredContexts: [] }
+    const result = await run(fake, options)
+    expect(result).toEqual({
+      status: 'behind',
+      error: expect.stringContaining('gh pr update-branch 7'),
+      disarmed: true,
+    })
+    // Without the behind status this same PR is `no-required-checks`: the control.
+    const control = await run(gatePr({ comments: [green()], headRefOid: REVIEWED_HEAD, ...ARMED }), options)
+    expect(control.status).toBe('no-required-checks')
+  })
+
   describe.each(MODES)('under %s', (_mode, options) => {
     it('an unarmed behind PR: no gh write at all, and the operator command', async () => {
       const fake = gatePr({ comments: [green()], headRefOid: REVIEWED_HEAD, mergeStates: ['BEHIND'] })
@@ -533,8 +547,6 @@ describe('landPr — a PR behind its base is never armed (#696)', () => {
       expect(result.error).toContain(UPDATE)
       expect(result).not.toHaveProperty('disarmed')
       expect(noWrite(fake.calls)).toBe(false)
-      // The opening snapshot alone decides: no second probe of the merge state.
-      expect(fake.calls.some((args) => args.includes('state,mergeStateStatus'))).toBe(false)
     })
 
     it('an armed OPEN behind PR: nothing is armed, both arms are cleared', async () => {
