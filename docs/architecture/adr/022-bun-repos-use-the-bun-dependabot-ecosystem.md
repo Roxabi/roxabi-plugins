@@ -179,31 +179,43 @@ PRs. CI's committed-lock gate and `bun install --frozen-lockfile` are not
 vulnerability checks, so a lockfile regression such as reverting
 `source-map-js` from 1.2.2 to the still-allowed 1.2.1 can pass CI.
 
-The audit vouches for one tree shape: `bun.lock` registry entries (empty
-tarball URL, the integrity of the `name@version` the entry names) resolved
-through the default registry, with no repository-level bun configuration. For
-that shape the Monday 08:17 UTC run gives nominal detection within one weekly
-interval (up to seven days once the vulnerable tree is on `main` and the
-advisory is available to the registry audit), subject to the ignore and
-coverage policies above. It is not a guaranteed upper bound: delayed, failed,
-dropped or disabled runs extend it, and the silent failure modes above remain.
+The audit checks registry advisory metadata for the package versions named in
+`bun.lock`; it does not attest the contents of `node_modules` after installation
+or the code CI executes. Its evidence is scoped to registry dependency-resolution
+data, not to whole files. The positive allowlist of dependency edits is:
 
-A change to anything bun reads outside `package.json` and those registry
-entries is outside the audit's evidence and its window: `bun audit` judges the
-version a lock entry names through the registry it is configured with, while
-`bun install` fetches what the other inputs say, and nothing reconciles the
-two, so CI can install a vulnerable release that every audit run reads as
-clean. The review records found these, as examples of the boundary and not its
-extent: a tarball URL or integrity swapped in a lock entry (one named
-`source-map-js@1.2.2` that records the 1.2.1 tarball installs 1.2.1 and audits
-clean); a registry set in a repo-root `bunfig.toml`, `.npmrc`, or `.env.local`,
-`.env.development`, `.env.production` (`BUN_CONFIG_REGISTRY` /
-`NPM_CONFIG_REGISTRY`; `.gitignore` ignores `.env` only); a non-registry
-specifier such as `github:`; `patchedDependencies` and patch files; a registry
-that only CI's install reads (workflow `env:`, `--registry`, setup-bun
-`registries`). All were reproduced on bun 1.4.0 and 1.4.3 (the CI-only form
-with an install-only `NPM_CONFIG_REGISTRY`), and bun's install cache keeps a
-swapped tarball under the clean version after the lock is corrected.
+- npm-registry semver declarations in the root `package.json` dependency maps
+  (`dependencies`, `devDependencies`, `optionalDependencies`);
+- their corresponding declaration copies in `bun.lock`'s root `workspaces`
+  block, as checked by the frozen lock check;
+- registry tuples in `bun.lock`'s `packages` block, with an empty tarball URL
+  and the registry release's integrity for the named `name@version`.
+
+The other manifest fields, other lock sections and install configuration stay
+unchanged from the reviewed base; resolution uses the default registry without
+repository-level bun configuration. For that data, Monday's 08:17 UTC run gives
+nominal detection within one weekly interval (up to seven days once the named
+vulnerable version is on `main` and its advisory is available to the registry),
+subject to the ignore and coverage policies above. This is a metadata-detection
+window, not an installed-code guarantee or a guaranteed upper bound: delayed,
+failed, dropped or disabled runs extend it, and the silent modes above remain.
+
+Everything outside those data fields needs separate review and is outside that
+evidence and window. In particular, `package.json` lifecycle scripts,
+`packageManager`, `engines.bun` and `patchedDependencies` are not dependency
+declarations. A root `postinstall` can replace installed packages while the
+frozen lock check and audit still read the unchanged lock as clean; selecting
+bun 1.1.30 can make installation ignore the text lock entirely. Neither result
+is contradicted by a clean metadata audit.
+
+The earlier review records found other examples of that boundary, not its
+extent: a lock entry named `source-map-js@1.2.2` with the 1.2.1 tarball URL
+or integrity; registry settings in `bunfig.toml`, `.npmrc` or loaded `.env*`;
+non-registry specifiers such as `github:`; patches; and a registry set only in
+CI's install (`env:`, `--registry`, setup-bun `registries`). The install/audit
+divergence was reproduced on bun 1.4.0 and 1.4.3 (the CI-only form with
+`NPM_CONFIG_REGISTRY` only in the install environment). A corrected lock also
+does not repair a swapped tarball already in bun's install cache.
 
 Today's control for those changes is review of the diff. No merge gate enforces
 it: the ruleset requires 0 approving reviews and only the `ci` check. #842 is
@@ -237,8 +249,8 @@ Alternatives to the existing policy, not adopted here:
 | Full tree on every PR | Covers unchanged trees, but newly published advisories, registry failures and incomplete coverage become part of every PR verdict. |
 | Base/head advisory delta | Can fail only newly introduced findings, but needs comparable registry data, a defined finding identity and explicit coverage/error handling; adds audit calls and maintenance. |
 
-None of them reaches a change outside the allowlist, since each judges what the
-audit reads. Any PR audit would need to preserve the existing every-severity,
+All three inspect registry metadata, not installed code. A PR audit would
+need to preserve the existing every-severity,
 `IGNORED`, stale-ignore and incomplete-coverage policies. Revisit PR gating if
 a weekly finding traces to a `bun.lock` change merged since the last clean run,
 or the nominal weekly delay becomes insufficient; revisit the allowlist if #842
