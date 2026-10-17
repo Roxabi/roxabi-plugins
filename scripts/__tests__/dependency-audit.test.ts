@@ -480,6 +480,18 @@ describe('the fix command', () => {
         name: 'whose url holds the id',
         finding: { ...ESBUILD_OTHER, id: 300, url: 'https://example.test/advisories/200' },
       },
+      {
+        name: 'whose url holds the id before a query suffix',
+        finding: { ...ESBUILD_OTHER, id: 300, url: 'https://example.test/advisories/200?ref=x' },
+      },
+      {
+        name: 'whose url holds the id inside a longer path segment',
+        finding: { ...ESBUILD_OTHER, id: 300, url: 'https://example.test/a12003z/advisory' },
+      },
+      {
+        name: 'whose url holds the id inside a fragment',
+        finding: { ...ESBUILD_OTHER, id: 300, url: 'https://example.test/advisory#ref200tail' },
+      },
       { name: 'that carries the same id', finding: { ...ESBUILD_OTHER, id: 200 } },
       { name: 'whose string id is the id text', finding: { ...ESBUILD_OTHER, id: '200' } },
     ])('carries no flag for it, beside a finding $name, and names the advisory and the finding', ({ finding }) => {
