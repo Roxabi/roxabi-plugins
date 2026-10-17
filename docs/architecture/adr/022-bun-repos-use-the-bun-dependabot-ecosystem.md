@@ -95,9 +95,15 @@ What that actually costs this repo, measured:
   residual alerts were dismissed by hand on 2026-09-30, see the outcome below.)
 - The repo has **zero runtime dependencies** and eight dev dependencies, and is
   `private: true`. Nothing here ships to a user.
-- The weekly version updater groups minor and patch across all patterns, so a
-  fix for a transitive dev advisory arrives once its direct parent releases,
-  which is the only route such an advisory was ever going to take.
+- The weekly version updater groups minor and patch updates across all patterns,
+  but it does not guarantee a refresh of an in-range transitive. #812's initial
+  commit `d807ede7`, before its rebase onto #824, bumped `vitest` from 5.0.2 to
+  5.0.3 and retained `postcss` 8.5.23 and `source-map-js` 1.2.1 in `bun.lock`;
+  the patched `source-map-js` 1.2.2 was already in `postcss`'s `^1.2.1` range.
+  The rebased version that merged (vitest 5.0.4) carried 1.2.2, from #824's
+  lock. This does not establish that the bun updater never updates
+  transitives, only that an in-range patched transitive can remain locked and
+  needs the audit path below.
 
 Two claims from the first version are **withdrawn**:
 
@@ -122,6 +128,33 @@ ADR was written (1 low after #644), all transitive dev tooling
 (`vitest → vite → esbuild/nanoid/postcss`, `commitlint → ajv → fast-uri`,
 `commitlint → cosmiconfig → js-yaml`). It is the detection path that does not
 depend on GitHub parsing a lockfile it does not support.
+
+**Transitive advisory remediation.**
+
+When the scheduled audit reports a finding, first inspect `IGNORED` in
+`scripts/dependency-audit.ts`. Keep only advisories still accepted at their
+current severity; a re-rated or stale entry is action required, not an
+`--ignore` candidate. The audit report's `Fix:` line prints
+`bun audit fix --ignore=<bun id>…`, one `--ignore` per live accepted advisory,
+by the numeric per-package advisory id bun reports; the same command with
+`--latest` is the one that crosses majors. It never prints a GHSA flag: bun
+matches `--ignore=<GHSA>` against every package that shares the GHSA and any
+advisory URL that holds it, which the script cannot reproduce, whereas an id
+names exactly one package's advisory (checked on bun 1.4.0: `--ignore=10` does
+not spare id 101, and an id does not spare an advisory whose URL merely
+contains its digits). An accepted advisory for which bun sent no usable id gets
+no flag; the report lists it beside the `Fix:` line, and the operator adds the
+flag by hand or checks the command's effect with `bun audit fix --dry-run`
+before running it. Copy the command in a worktree rather than running a bare
+`bun audit fix`. Inspect the manifest and lock delta; when the manifest is
+unchanged, open a lock-only PR if appropriate.
+Dispatch `dependency-audit.yml` on that branch and retain its report/run as the
+remediation evidence. #788 was the scheduled finding; #824 updated the locked
+`source-map-js` with `bun audit fix` while preserving the accepted esbuild
+advisory. It did not copy the report's command: the report #788 carried printed a
+bare `bun audit fix`, which would also have retired that accepted advisory, and
+#824's author composed `--ignore=GHSA-g7r4-m6w7-qqqr` by hand. The report's
+id-based command is the correction of that gap.
 
 **Open follow-up (resolved 2026-09-30, #645):** the alert set was to be re-read
 once GitHub had re-scanned `main`. If the 11 stale alerts disappeared without

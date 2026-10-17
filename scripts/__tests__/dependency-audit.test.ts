@@ -33,8 +33,16 @@ const ESBUILD = {
   severity: 'low',
   vulnerable_versions: '>=0.27.3 <0.28.1',
 }
-const ESBUILD_OTHER = { ...ESBUILD, url: 'https://github.com/advisories/GHSA-aaaa-bbbb-cccc', severity: 'high' }
-const JS_YAML = { ...ESBUILD, url: 'https://github.com/advisories/GHSA-2883-xcg3-v3hh', severity: 'high' }
+// Each advisory is its own bun id, as bun reports one per package advisory: the same GHSA in
+// another package (VITE_ESBUILD) is another advisory, with another id.
+const ESBUILD_OTHER = {
+  ...ESBUILD,
+  id: 1120681,
+  url: 'https://github.com/advisories/GHSA-aaaa-bbbb-cccc',
+  severity: 'high',
+}
+const JS_YAML = { ...ESBUILD, id: 1120682, url: 'https://github.com/advisories/GHSA-2883-xcg3-v3hh', severity: 'high' }
+const VITE_ESBUILD = { ...ESBUILD, id: 1120683 }
 const IGNORE: Ignore = {
   ghsa: 'GHSA-g7r4-m6w7-qqqr',
   package: 'esbuild',
@@ -67,6 +75,18 @@ describe('parseAudit', () => {
     ['a severity it does not know', JSON.stringify({ esbuild: [{ ...ESBUILD, severity: 'info' }] })],
   ])('refuses %s', (_, stdout) => {
     expect(() => parseAudit(stdout)).toThrow(AuditOutputError)
+  })
+
+  it.each([
+    ['a safe integer', 1120680, 1120680],
+    ['a missing id', undefined, null],
+    ['a null id', null, null],
+    ['a string id', '1120680', null],
+    ['a fractional id', 1.5, null],
+    ['an id past the safe integers', 2 ** 53, null],
+  ])('reads the advisory id from %s', (_, id, expected) => {
+    const [a] = advisories({ esbuild: [{ ...ESBUILD, id }] })
+    expect(a.id).toBe(expected)
   })
 
   it.each([
@@ -154,8 +174,72 @@ describe('marker', () => {
 
   it('changes when the same advisory reaches one more package', () => {
     const one = marker(classify(advisories({ esbuild: [ESBUILD_OTHER] }), []))
-    const two = marker(classify(advisories({ esbuild: [ESBUILD_OTHER], vite: [ESBUILD_OTHER] }), []))
+    const two = marker(
+      classify(advisories({ esbuild: [ESBUILD_OTHER], vite: [{ ...ESBUILD_OTHER, id: 1120684 }] }), []),
+    )
     expect(two).not.toBe(one)
+  })
+
+  const keys = (m: string) => (m === '' ? [] : m.split(',')).sort()
+  const AUDIT = { 'js-yaml': [JS_YAML], esbuild: [ESBUILD] }
+  const STALE_VITE: Ignore = { ...IGNORE, package: 'vite' }
+
+  it('carries one ignore key per accepted id, beside the finding keys, when the report prints a fix command', () => {
+    expect(keys(marker(classify(advisories(AUDIT), [IGNORE])))).toEqual([
+      'ignore:1120680',
+      'js-yaml:GHSA-2883-xcg3-v3hh:high',
+    ])
+  })
+
+  it('carries an id-less key for an accepted advisory bun sent no usable id for, and no ignore key for it', () => {
+    const audit = { 'js-yaml': [JS_YAML], esbuild: [{ ...ESBUILD, id: null }] }
+    expect(keys(marker(classify(advisories(audit), [IGNORE])))).toEqual([
+      'idless:esbuild:GHSA-g7r4-m6w7-qqqr',
+      'js-yaml:GHSA-2883-xcg3-v3hh:high',
+    ])
+  })
+
+  it('carries no ignore or id-less key on a report with no finding', () => {
+    // The accepted advisory is suppressed and a stale entry is reported: no fix command is printed.
+    expect(keys(marker(classify(advisories({ esbuild: [ESBUILD] }), [IGNORE, STALE_VITE])))).toEqual([
+      'stale:vite:GHSA-g7r4-m6w7-qqqr',
+    ])
+    expect(keys(marker(classify(advisories({ esbuild: [{ ...ESBUILD, id: null }] }), [IGNORE, STALE_VITE])))).toEqual([
+      'stale:vite:GHSA-g7r4-m6w7-qqqr',
+    ])
+    expect(keys(marker(classify(advisories({ esbuild: [ESBUILD] }), [IGNORE], ['@foo/bar'])))).toEqual([
+      expect.stringMatching(/^unaudited:/),
+    ])
+  })
+
+  it('is unchanged when only accepted keys change on a report with no finding', () => {
+    const before = marker(classify(advisories({ esbuild: [ESBUILD] }), [IGNORE, STALE_VITE]))
+    const idChanged = marker(classify(advisories({ esbuild: [{ ...ESBUILD, id: 7 }] }), [IGNORE, STALE_VITE]))
+    const idLost = marker(classify(advisories({ esbuild: [{ ...ESBUILD, id: null }] }), [IGNORE, STALE_VITE]))
+    expect(idChanged).toBe(before)
+    expect(idLost).toBe(before)
+  })
+
+  it('changes when only the id behind a printed flag changes, or when that id goes missing', () => {
+    const marked = (esbuild: unknown) =>
+      marker(classify(advisories({ 'js-yaml': [JS_YAML], esbuild: [esbuild] }), [IGNORE]))
+    const before = marked(ESBUILD)
+    expect(marked({ ...ESBUILD, id: 7 })).not.toBe(before)
+    expect(marked({ ...ESBUILD, id: null })).not.toBe(before)
+    expect(marked({ ...ESBUILD, id: null })).not.toBe(marked({ ...ESBUILD, id: 7 }))
+  })
+
+  it('is unchanged when the printed command is, whatever else the accepted advisory sends', () => {
+    const reworded = { ...ESBUILD, title: 'reworded', vulnerable_versions: '<0.28.1' }
+    expect(marker(classify(advisories({ esbuild: [reworded], 'js-yaml': [JS_YAML] }), [IGNORE]))).toBe(
+      marker(classify(advisories(AUDIT), [IGNORE])),
+    )
+  })
+
+  it('changes when only the accepted set behind the fix command changes', () => {
+    const before = marker(classify(advisories({ 'js-yaml': [JS_YAML] }), []))
+    const after = marker(classify(advisories({ 'js-yaml': [JS_YAML], esbuild: [ESBUILD] }), [IGNORE]))
+    expect(after).not.toBe(before)
   })
 
   it('stays inside the alphabet the workflow parses back, whatever the registry sends', () => {
@@ -200,6 +284,124 @@ describe('renderReport', () => {
     ])
     expect(report).toContain('\n- ` @foo/baz `\n')
     expect(report).toContain('\nRef `` feat/`x` [y](https://evil.example) `` · ` 01234567 ` · bun test\n')
+  })
+})
+
+// bun's `--ignore=<id>` matches one package's advisory by id, exactly (checked on bun 1.4.0
+// against a local registry: `--ignore=10` leaves id 101 alone, an id does not match a url that
+// contains its digits). `--ignore=<GHSA>` matches every package sharing the GHSA and any url
+// holding it, so the command carries ids only. The copied command must spare every accepted
+// advisory and nothing a finding needs fixed: a missing flag retires an accepted advisory, an
+// extra one hides a finding.
+describe('the fix command', () => {
+  const META = { ref: 'main', sha: '0123456789', runUrl: null, bunVersion: 'test' }
+  const OTHER_IGNORE: Ignore = { ...IGNORE, ghsa: 'GHSA-aaaa-bbbb-cccc', package: 'vite', severity: 'high' }
+  const VITE_IGNORE: Ignore = { ...IGNORE, package: 'vite' }
+  const render = (audit: Record<string, unknown[]>, ignored: Ignore[]) =>
+    renderReport(classify(advisories(audit), ignored), ignored, META)
+  const commands = (report: string) => {
+    const fix = report.split('\n').find((l) => l.startsWith('Fix:')) ?? ''
+    return [...fix.matchAll(/`(bun audit fix[^`]*)`/g)].map((m) => m[1])
+  }
+  const notSpared = (report: string) => report.split('\n').filter((l) => l.startsWith('Not spared'))
+
+  it.each<{ name: string; audit: Record<string, unknown[]>; ignored: Ignore[]; flags: string }>([
+    {
+      name: 'an accepted advisory, by its id',
+      audit: { esbuild: [ESBUILD], 'js-yaml': [JS_YAML] },
+      ignored: [IGNORE],
+      flags: ' --ignore=1120680',
+    },
+    {
+      name: 'every accepted advisory, ids ascending whatever order bun lists packages in',
+      audit: { vite: [ESBUILD_OTHER], esbuild: [ESBUILD], 'js-yaml': [JS_YAML] },
+      ignored: [OTHER_IGNORE, IGNORE],
+      flags: ' --ignore=1120680 --ignore=1120681',
+    },
+    {
+      name: 'only the accepted package when a finding shares its GHSA',
+      audit: { esbuild: [ESBUILD], vite: [VITE_ESBUILD] },
+      ignored: [IGNORE],
+      flags: ' --ignore=1120680',
+    },
+    {
+      name: 'one id per package when one GHSA is accepted in two',
+      audit: { vite: [VITE_ESBUILD], esbuild: [ESBUILD], 'js-yaml': [JS_YAML] },
+      ignored: [IGNORE, VITE_IGNORE],
+      flags: ' --ignore=1120680 --ignore=1120683',
+    },
+    {
+      name: 'a repeated id once',
+      audit: { esbuild: [ESBUILD], vite: [ESBUILD], 'js-yaml': [JS_YAML] },
+      ignored: [IGNORE, VITE_IGNORE],
+      flags: ' --ignore=1120680',
+    },
+    {
+      name: 'no re-rated advisory',
+      audit: { esbuild: [{ ...ESBUILD, severity: 'high' }], 'js-yaml': [JS_YAML] },
+      ignored: [IGNORE],
+      flags: '',
+    },
+    { name: 'no stale ignore', audit: { 'js-yaml': [JS_YAML] }, ignored: [IGNORE], flags: '' },
+  ])('is the within-range and the --latest command, each sparing $name', ({ audit, ignored, flags }) => {
+    const report = render(audit, ignored)
+    expect(commands(report)).toEqual([`bun audit fix${flags}`, `bun audit fix${flags} --latest`])
+    expect(notSpared(report)).toEqual([])
+  })
+
+  it('spares the accepted advisory, and not the finding, whose url carries the accepted GHSA before a suffix', () => {
+    const finding = { ...VITE_ESBUILD, url: 'https://github.com/advisories/GHSA-g7r4-m6w7-qqqr?ref=x' }
+    const report = render({ esbuild: [ESBUILD], vite: [finding] }, [IGNORE])
+    expect(report).toContain('| ` vite ` | low |')
+    expect(commands(report)).toEqual(['bun audit fix --ignore=1120680', 'bun audit fix --ignore=1120680 --latest'])
+    for (const command of commands(report)) {
+      expect(command).not.toContain('GHSA')
+      expect(command).not.toContain(String(finding.id))
+    }
+  })
+
+  it.each([
+    ['no id', null],
+    ['an id past the safe integers', 2 ** 53],
+    ['a string id', '1120680'],
+  ])('puts no flag on an accepted advisory with %s, and names it on a line beside the fix command', (_, id) => {
+    const report = render({ esbuild: [{ ...ESBUILD, id }], 'js-yaml': [JS_YAML] }, [IGNORE])
+    expect(commands(report)).toEqual(['bun audit fix', 'bun audit fix --latest'])
+    const [line, ...rest] = notSpared(report)
+    expect(rest).toEqual([])
+    expect(line).toContain('` esbuild `')
+    expect(line).toContain('GHSA-g7r4-m6w7-qqqr')
+    expect(line).toMatch(/cannot spare it by id/)
+    const lines = report.split('\n')
+    expect(lines.indexOf(line)).toBe(lines.findIndex((l) => l.startsWith('Fix:')) + 1)
+  })
+
+  it('keeps the flag of an accepted advisory that has an id, beside the line of one that has none', () => {
+    const ignored = [IGNORE, OTHER_IGNORE]
+    const report = render({ esbuild: [{ ...ESBUILD, id: null }], vite: [ESBUILD_OTHER], 'js-yaml': [JS_YAML] }, ignored)
+    expect(commands(report)).toEqual(['bun audit fix --ignore=1120681', 'bun audit fix --ignore=1120681 --latest'])
+    expect(notSpared(report)).toHaveLength(1)
+    expect(notSpared(report)[0]).toContain('` esbuild `')
+  })
+
+  it('lists an id-less advisory once per package, and once more for the same GHSA in another package', () => {
+    const idless = { ...ESBUILD, id: null }
+    const report = render({ esbuild: [idless, idless], vite: [idless], 'js-yaml': [JS_YAML] }, [IGNORE, VITE_IGNORE])
+    expect(notSpared(report).map((l) => l.match(/` (\w+) `/)?.[1])).toEqual(['esbuild', 'vite'])
+  })
+
+  it('names an id-less accepted advisory by its url, as inert code, when it has no parsed GHSA', () => {
+    const c = classify(advisories({ esbuild: [ESBUILD], 'js-yaml': [JS_YAML] }), [IGNORE])
+    c.suppressed = [{ ...c.suppressed[0], ghsa: null, id: null, url: 'https://evil.example/[x](https://evil.example)' }]
+    const [line] = notSpared(renderReport(c, [IGNORE], META))
+    expect(line).toContain('` esbuild ` (` https://evil.example/[x](https://evil.example) `)')
+  })
+
+  it('prints neither a fix command nor an id-less line when the report has no finding', () => {
+    const report = render({ esbuild: [{ ...ESBUILD, id: null }] }, [IGNORE, VITE_IGNORE])
+    expect(report).toContain('### Stale ignores')
+    expect(commands(report)).toEqual([])
+    expect(notSpared(report)).toEqual([])
   })
 })
 
