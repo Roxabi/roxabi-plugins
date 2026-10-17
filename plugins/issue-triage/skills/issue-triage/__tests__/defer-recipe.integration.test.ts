@@ -336,4 +336,49 @@ describe('issue-triage deferral recipe', () => {
     expect(startupLog(w.startup)).toEqual([])
     expect(existsSync(w.dir)).toBe(true)
   })
+
+  it.each([
+    ['github scp', 'git@github.com:Acme/app.git'],
+    ['github ssh url with a port', 'ssh://git@github.com:22/Acme/app.git'],
+    ['an upper-case github host', 'https://GitHub.com/Acme/app'],
+  ])('still files into a %s origin', async (_label, originUrl) => {
+    const w = await world()
+    setOrigin(w.repo, originUrl)
+    const ran = await run(RECIPE, w.repo, w.env)
+
+    expect(ran.code).toBe(0)
+    expect(w.fake.created).toMatchObject([{ repo: 'Acme/app' }])
+    expect(ghCalls(w.ghLog).map((call) => call.args.split(' ').slice(0, 2).join(' '))).not.toContain('repo view')
+  })
+
+  it.each([
+    ['a gitlab scp origin', 'git@gitlab.com:Other/tracker.git'],
+    ['a credentialed gitlab https origin', `https://x-access-token:${CREDENTIAL}@gitlab.com/Other/tracker.git`],
+    ['a local path origin', '/srv/git/Other/tracker.git'],
+    ['a file url origin', 'file:///srv/git/Other/tracker.git'],
+    ['a host that only starts with github.com', 'https://github.com.example.net/Other/tracker.git'],
+    ['a userinfo that spells github.com in front of another host', 'https://github.com@gitlab.com/Other/tracker.git'],
+    ['a github origin with extra path segments', 'https://github.com/Other/tracker/tree/main'],
+  ])('refuses %s before any gh call or Bun start, and redacts the credential', async (_label, originUrl) => {
+    const w = await world()
+    setOrigin(w.repo, originUrl)
+    const ran = await run(RECIPE, w.repo, w.env)
+
+    expect(ran.code).not.toBe(0)
+    expect(ran.stderr).toContain('GITHUB_REPO')
+    expect(ran.stderr).not.toContain(CREDENTIAL)
+    expect(ghCalls(w.ghLog)).toEqual([])
+    expect(w.fake.calls).toEqual([])
+    expect(startupLog(w.startup)).toEqual([])
+    expect(existsSync(w.dir)).toBe(true)
+  })
+
+  it('lets an exported GITHUB_REPO file into its repo despite a gitlab origin', async () => {
+    const w = await world()
+    setOrigin(w.repo, 'git@gitlab.com:Gitlab/elsewhere.git')
+    const ran = await run(RECIPE, w.repo, { ...w.env, GITHUB_REPO: 'Other/tracker' })
+
+    expect(ran.code).toBe(0)
+    expect(w.fake.created).toMatchObject([{ repo: 'Other/tracker' }])
+  })
 })

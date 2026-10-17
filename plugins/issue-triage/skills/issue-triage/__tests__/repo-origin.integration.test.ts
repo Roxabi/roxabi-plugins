@@ -280,4 +280,71 @@ describe('issue-triage prefers origin over gh repo view (#614)', () => {
     expect(w.fake.issues.get(`${PRODUCT}#5`)?.type).toBeUndefined()
     expect(ghCalls(w.ghLog)).toEqual([])
   })
+
+  it.each([
+    ['github scp', `git@github.com:${PRODUCT}.git`],
+    ['github ssh url with a port', `ssh://git@github.com:22/${PRODUCT}.git`],
+    ['github ssh over https port', `ssh://git@ssh.github.com:443/${PRODUCT}.git`],
+    ['an upper-case github host', `https://GitHub.com/${PRODUCT}`],
+  ])('still prefers a %s origin over gh', async (_label, originUrl) => {
+    const w = await world({ originUrl })
+    const ran = await probe(w)
+
+    expect(ran.code).toBe(0)
+    expect(ran.stdout).toBe(PRODUCT)
+  })
+
+  const FOREIGN_HOSTS: [string, string][] = [
+    ['a gitlab scp origin', 'git@gitlab.com:Other/tracker.git'],
+    ['a credentialed gitlab https origin', `https://x-access-token:${CREDENTIAL}@gitlab.com/Other/tracker.git`],
+    ['a local path origin', '/srv/git/Other/tracker.git'],
+    ['a file url origin', 'file:///srv/git/Other/tracker.git'],
+    ['a host that only starts with github.com', 'https://github.com.example.net/Other/tracker.git'],
+    ['a userinfo that spells github.com in front of another host', 'https://github.com@gitlab.com/Other/tracker.git'],
+    ['a github.com path on another host', 'https://gitlab.com/github.com/Other/tracker.git'],
+    ['a github origin with extra path segments', 'https://github.com/Other/tracker/tree/main'],
+  ]
+
+  it.each(FOREIGN_HOSTS)('refuses %s without asking gh, and redacts the credential', async (_label, originUrl) => {
+    const w = await world({ originUrl, ghSays: PRODUCT })
+    const ran = await probe(w)
+
+    expect(ran.code).not.toBe(0)
+    expect(ran.stdout).toBe('')
+    expect(ran.stderr).toContain('origin')
+    expect(ran.stderr).toContain('GITHUB_REPO')
+    expect(ran.stderr).not.toContain(CREDENTIAL)
+    expect(ghCalls(w.ghLog)).toEqual([])
+  })
+
+  it('refuses a gitlab origin on the CLI before any GitHub API call', async () => {
+    const w = await world({ originUrl: 'git@gitlab.com:Other/tracker.git', ghSays: PRODUCT })
+    const ran = await triage(w, 'set 5 --type fix')
+
+    expect(ran.code).not.toBe(0)
+    expect(w.fake.calls).toEqual([])
+    expect(w.fake.issues.get(`${PRODUCT}#5`)?.type).toBeUndefined()
+    expect(w.fake.calls.map((call) => call.path).filter((p) => p.includes('Other/tracker'))).toEqual([])
+    expect(ghCalls(w.ghLog)).toEqual([])
+  })
+
+  it('lets a GITHUB_REPO pin win over a gitlab origin, silently', async () => {
+    const w = await world({ originUrl: 'git@gitlab.com:Other/tracker.git', env: { GITHUB_REPO: 'Pin/env' } })
+    const ran = await probe(w)
+
+    expect(ran.code).toBe(0)
+    expect(ran.stdout).toBe('Pin/env')
+    expect(ran.stderr).toBe('')
+  })
+
+  it('lets a dev-core.yml pin win over a gitlab origin, silently', async () => {
+    const w = await world({ originUrl: 'git@gitlab.com:Other/tracker.git' })
+    mkdirSync(path.join(w.repo, '.dev'))
+    writeFileSync(path.join(w.repo, '.dev', 'dev-core.yml'), 'github_repo: Pin/yaml\n')
+    const ran = await probe(w)
+
+    expect(ran.code).toBe(0)
+    expect(ran.stdout).toBe('Pin/yaml')
+    expect(ran.stderr).toBe('')
+  })
 })

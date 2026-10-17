@@ -94,24 +94,33 @@ function originUrl(): string | undefined {
 }
 
 /**
- * The `owner/repo` slug of an origin URL: one trailing `/` and then `.git` are
- * stripped, and the last two path segments (SSH `git@github.com:owner/repo.git`
- * or HTTPS `https://github.com/owner/repo.git/`) must be a valid slug. Anything
- * else yields undefined: callers `split('/')` the result into GraphQL args.
+ * The github.com end of a remote URL: a scheme URL (`https://`, `ssh://`, ...,
+ * optional userinfo and port) or an scp-like `[user@]github.com:`. `ssh.github.com`
+ * is GitHub's SSH-over-443 host. The GitHub clients talk to api.github.com only.
+ */
+const GITHUB_REMOTE_PREFIX =
+  /^(?:[a-z][a-z0-9+.-]*:\/\/(?:[^/@]*@)?(?:ssh\.)?github\.com(?::\d+)?\/|(?:[^/@:]+@)?(?:ssh\.)?github\.com:)/i
+
+/**
+ * The `owner/repo` slug of a github.com origin URL: one trailing `/` and then
+ * `.git` are stripped, the remote must point at github.com (SSH or HTTPS), and
+ * what follows must be exactly a valid slug. Another host or path shape yields
+ * undefined: a GitLab or local-path `owner/repo` is not a tracker on api.github.com,
+ * and callers `split('/')` the result into GraphQL args.
  */
 function slugFromOrigin(url: string): string | undefined {
-  const candidate = url
-    .replace(/\/$/, '')
-    .replace(/\.git$/, '')
-    .match(/[:/]([^/:]+\/[^/]+)$/)?.[1]
-  return candidate && REPO_SLUG_RE.test(candidate) ? candidate : undefined
+  const path = url.replace(/\/$/, '').replace(/\.git$/, '')
+  const prefix = GITHUB_REMOTE_PREFIX.exec(path)
+  const slug = prefix ? path.slice(prefix[0].length) : ''
+  return REPO_SLUG_RE.test(slug) ? slug : undefined
 }
 
 /**
  * Resolve the tracker repo: (1) `GITHUB_REPO` env, (2) `.dev/dev-core.yml`
  * `github_repo`, (3) the cwd's `origin` remote, (4) `gh repo view` only when
- * origin is absent. An origin that is present but not an `owner/repo` slug is
- * refused (credentials redacted), never replaced by `gh`'s answer. `gh` ranks
+ * origin is absent. An origin that is present but not a github.com `owner/repo`
+ * remote (another host, a local path, no slug) is refused (credentials redacted),
+ * never replaced by `gh`'s answer. `gh` ranks
  * remotes itself and answers the kit parent on a product clone (`upstream` =
  * parent, `origin` = product), so origin wins; when origin exists `gh` is asked
  * only to announce a disagreement on stderr. A single-remote clone stays quiet.
@@ -131,7 +140,7 @@ export function detectGitHubRepo(): string {
       // Credentials in a `scheme://user:secret@host/...` URL never reach the message.
       const shown = url.replace(/^([A-Za-z][A-Za-z0-9+.-]*:\/\/).*@/s, '$1<redacted>@')
       throw new ConfigError(
-        `Cannot detect GitHub repo: git remote "origin" (${shown}) is not an owner/repo slug. ` +
+        `Cannot detect GitHub repo: git remote "origin" (${shown}) is not a github.com owner/repo remote. ` +
           'Set GITHUB_REPO or github_repo in .dev/dev-core.yml.',
       )
     }

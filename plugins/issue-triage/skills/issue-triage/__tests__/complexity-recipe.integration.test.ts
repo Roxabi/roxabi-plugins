@@ -236,4 +236,48 @@ describe('complexity scoring recipe', () => {
     expect(result.stderr).toContain('GITHUB_REPO')
     expect(result.stderr).not.toContain(CREDENTIAL)
   })
+
+  it.each([
+    ['github scp', 'git@github.com:Acme/product.git'],
+    ['github ssh url with a port', 'ssh://git@github.com:22/Acme/product.git'],
+    ['an upper-case github host', 'https://GitHub.com/Acme/product'],
+  ])('still resolves a %s origin without asking gh', (_label, originUrl) => {
+    const result = runRecipe({ GH_VIEW_BODY: 'spec', GITHUB_REPO: '', GH_REPO_SLUG: 'Kit/parent' }, '4', {
+      originUrl,
+      upstream: 'Kit/parent',
+    })
+    expect(result.status).toBe(0)
+    expect(result.ghLog).toContain('issue view 42 --repo Acme/product')
+    expect(result.ghLog).not.toContain('repo view')
+    expect(result.setLog).toContain('set Acme/product#42')
+  })
+
+  it.each([
+    ['a gitlab scp origin', 'git@gitlab.com:Other/tracker.git'],
+    ['a credentialed gitlab https origin', `https://x-access-token:${CREDENTIAL}@gitlab.com/Other/tracker.git`],
+    ['a local path origin', '/srv/git/Other/tracker.git'],
+    ['a file url origin', 'file:///srv/git/Other/tracker.git'],
+    ['a host that only starts with github.com', 'https://github.com.example.net/Other/tracker.git'],
+    ['a userinfo that spells github.com in front of another host', 'https://github.com@gitlab.com/Other/tracker.git'],
+    ['a github origin with extra path segments', 'https://github.com/Other/tracker/tree/main'],
+  ])('refuses %s before any gh call, and redacts the credential', (_label, originUrl) => {
+    const result = runRecipe({ GH_VIEW_BODY: 'spec', GITHUB_REPO: '', GH_REPO_SLUG: 'Acme/product' }, '4', {
+      originUrl,
+      upstream: 'Kit/parent',
+    })
+    expect(result.status).not.toBe(0)
+    expect(result.called).toBe(false)
+    expect(result.ghLog).toBe('')
+    expect(result.stderr).toContain('GITHUB_REPO')
+    expect(result.stderr).not.toContain(CREDENTIAL)
+  })
+
+  it('lets an exported GITHUB_REPO win over a gitlab origin', () => {
+    const result = runRecipe({ GH_VIEW_BODY: 'spec', GITHUB_REPO: 'Env/pinned' }, '4', {
+      originUrl: 'git@gitlab.com:Other/tracker.git',
+    })
+    expect(result.status).toBe(0)
+    expect(result.ghLog).toContain('issue view 42 --repo Env/pinned')
+    expect(result.setLog).toContain('set Env/pinned#42')
+  })
 })
