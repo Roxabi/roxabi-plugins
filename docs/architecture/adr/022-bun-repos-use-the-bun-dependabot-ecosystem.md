@@ -135,19 +135,23 @@ When the scheduled audit reports a finding, first inspect `IGNORED` in
 `scripts/dependency-audit.ts`. Keep only advisories still accepted at their
 current severity; a re-rated or stale entry is action required, not an
 `--ignore` candidate. The audit report's `Fix:` line prints
-`bun audit fix --ignore=<bun id>…`, one `--ignore` per live accepted advisory,
-by the numeric per-package advisory id bun reports; the same command with
-`--latest` is the one that crosses majors. It never prints a GHSA flag: bun
-matches `--ignore=<GHSA>` against every package that shares the GHSA and any
-advisory URL that holds it, which the script cannot reproduce, whereas an id
-names exactly one package's advisory (checked on bun 1.4.0: `--ignore=10` does
-not spare id 101, and an id does not spare an advisory whose URL merely
-contains its digits). An accepted advisory for which bun sent no usable id gets
-no flag; the report lists it beside the `Fix:` line, and the operator adds the
-flag by hand or checks the command's effect with `bun audit fix --dry-run`
-before running it. Copy the command in a worktree rather than running a bare
-`bun audit fix`. Inspect the manifest and lock delta; when the manifest is
-unchanged, open a lock-only PR if appropriate.
+`bun audit fix --ignore=<bun id>…`, one `--ignore` per accepted advisory that
+can be spared by its numeric advisory id; the same command with `--latest` is
+the one that crosses majors. bun's rule is that `--ignore=<v>` spares an
+advisory when its id text equals `v` **or its URL contains `v`**, for every
+advisory of every package, in `bun audit` and `bun audit fix` alike
+(`keep_vulnerability` and `parse_vulnerability` in
+`src/runtime/cli/audit_command.rs`, read at tags `bun-v1.4.0` and
+`bun-v1.4.3`; a string id is kept verbatim, a number becomes its `u64`
+text). The script computes the command against that rule: it prints a flag
+only for a positive safe-integer id that spares no advisory it does not accept,
+and never a GHSA flag, which would spare every package sharing the GHSA and any
+URL holding it. An accepted advisory that gets no flag (no such id, or its id
+would also spare a finding) is listed beside the `Fix:` line with the reason;
+for it, check the command's effect with `bun audit fix --dry-run` and restore
+that package's entry in `bun.lock` by hand if it moves. Copy the command in a
+worktree rather than running a bare `bun audit fix`. Inspect the manifest and
+lock delta; when the manifest is unchanged, open a lock-only PR if appropriate.
 Dispatch `dependency-audit.yml` on that branch and retain its report/run as the
 remediation evidence. #788 was the scheduled finding; #824 updated the locked
 `source-map-js` with `bun audit fix` while preserving the accepted esbuild
