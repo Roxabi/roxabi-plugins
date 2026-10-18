@@ -190,7 +190,15 @@ The audit's policy, settled on #645 and to be carried by #646:
   records each entry's reason, severity and removal condition. An entry whose
   advisory has left the tree, or whose severity changed, is reported, not kept.
 - **Scheduled, never a PR check.** A new advisory against an unchanged lockfile
-  must not turn unrelated PRs red.
+  must not turn unrelated PRs red. The cost (#829): CI's frozen install is not a
+  vulnerability check, so a PR that puts a vulnerable version back in `bun.lock`
+  (a lock conflict settled with an older branch's file, say) passes CI until the
+  next weekly run reports it. That window is accepted while every dependency is
+  dev-only; revisit if a weekly finding traces to a lock change merged since the
+  last clean run. The audit judges registry advisories for the versions
+  `bun.lock` names, not installed code: a change to install inputs (tarball URL
+  or integrity, registry configuration, patches, lifecycle scripts) is outside
+  its evidence, and diff review is the only control (accepted risk, #842).
 - **Only a lock that matches the manifest is audited.** `bun audit` reads
   `bun.lock` alone, so a dependency missing from it would never be audited. The
   run first checks, without installing or running scripts, that `bun.lock`
