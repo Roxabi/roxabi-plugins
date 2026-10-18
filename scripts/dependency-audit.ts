@@ -50,11 +50,18 @@ export interface Advisory {
   package: string
   /** GHSA id parsed from the advisory URL; null when the URL carries none. */
   ghsa: string | null
+  /** bun's advisory id when it is a positive safe integer, the only id a flag is built from; else null. */
+  id: number | null
+  /** The id text bun's `--ignore` compares (see `bunIdText`): what bun derives from the `id` field, '' when it derives none. */
+  bunId: string
   url: string
   title: string
   severity: Severity
   vulnerableVersions: string
 }
+
+/** An advisory `classify` suppressed: it matched an `Ignore`, so it has a GHSA. */
+export type Accepted = Advisory & { ghsa: string }
 
 export interface Ignore {
   ghsa: string
@@ -91,6 +98,60 @@ function isSeverity(value: unknown): value is Severity {
 }
 
 /**
+ * The id text bun derives from an advisory's `id` field, as `parse_vulnerability` does in
+ * bun's `src/runtime/cli/audit_command.rs` (tags bun-v1.4.0 and bun-v1.4.3): a string is kept
+ * verbatim, a number becomes `format!("{}", num as u64)`, anything else or missing is empty.
+ * Rust's `f64 as u64` saturates: NaN and negatives give 0, a fraction truncates, 2^64 and
+ * above give u64::MAX.
+ */
+function bunIdText(id: unknown): string {
+  if (typeof id === 'string') return id
+  if (typeof id !== 'number') return ''
+  if (!(id > 0)) return '0'
+  if (id >= 2 ** 64) return '18446744073709551615'
+  return BigInt(Math.trunc(id)).toString()
+}
+
+/**
+ * JSON.parse keeps the last duplicate key; bun's typed property walk can retain an earlier
+ * value instead. Accept only unambiguous objects rather than emulate that disagreement.
+ * The input has already passed JSON.parse, so this scan only tracks object keys, skipping
+ * complete string values and keeping separate key sets for nested objects and arrays.
+ */
+function assertUniqueObjectKeys(source: string): void {
+  const stack: ({ keys: Set<string>; expectingKey: boolean } | null)[] = []
+  for (let offset = 0; offset < source.length; offset++) {
+    const character = source[offset]
+    if (character === '"') {
+      let end = offset + 1
+      for (; end < source.length; end++) {
+        if (source[end] === '\\') end++
+        else if (source[end] === '"') break
+      }
+      const object = stack.at(-1)
+      if (object?.expectingKey) {
+        const key: string = JSON.parse(source.slice(offset, end + 1))
+        if (object.keys.has(key)) {
+          throw new AuditOutputError(`bun audit JSON repeats object key ${JSON.stringify(key)}`)
+        }
+        object.keys.add(key)
+        object.expectingKey = false
+      }
+      offset = end
+    } else if (character === '{') {
+      stack.push({ keys: new Set(), expectingKey: true })
+    } else if (character === '[') {
+      stack.push(null)
+    } else if (character === '}' || character === ']') {
+      stack.pop()
+    } else if (character === ',') {
+      const object = stack.at(-1)
+      if (object) object.expectingKey = true
+    }
+  }
+}
+
+/**
  * Strict read of `bun audit --json`. Any shape other than
  * `{ <package>: [{ url, title, severity, … }, …] }` throws: an HTTP 200 error
  * body from the registry is echoed as JSON with exit 0, and must not read as clean.
@@ -102,6 +163,7 @@ export function parseAudit(stdout: string): Advisory[] {
   } catch {
     throw new AuditOutputError(`bun audit printed no JSON: ${JSON.stringify(stdout.slice(0, 200))}`)
   }
+  assertUniqueObjectKeys(stdout)
   if (typeof data !== 'object' || data === null || Array.isArray(data)) {
     throw new AuditOutputError('bun audit JSON is not an object')
   }
@@ -117,7 +179,7 @@ export function parseAudit(stdout: string): Advisory[] {
       if (typeof entry !== 'object' || entry === null) {
         throw new AuditOutputError(`bun audit entry ${JSON.stringify(pkg)} holds a non-object advisory`)
       }
-      const { url, title, severity, vulnerable_versions } = entry as Record<string, unknown>
+      const { id, url, title, severity, vulnerable_versions } = entry as Record<string, unknown>
       if (typeof url !== 'string' || typeof title !== 'string' || !isSeverity(severity)) {
         throw new AuditOutputError(
           `bun audit advisory for ${JSON.stringify(pkg)} lacks a url, a title or a known severity`,
@@ -126,6 +188,8 @@ export function parseAudit(stdout: string): Advisory[] {
       advisories.push({
         package: pkg,
         ghsa: GHSA_IN_URL.exec(url)?.[1] ?? null,
+        id: typeof id === 'number' && Number.isSafeInteger(id) && id > 0 ? id : null,
+        bunId: bunIdText(id),
         url,
         title,
         severity,
@@ -138,7 +202,7 @@ export function parseAudit(stdout: string): Advisory[] {
 
 export interface Classified {
   findings: Advisory[]
-  suppressed: Advisory[]
+  suppressed: Accepted[]
   stale: Ignore[]
   /** What bun says it skipped: packages whose registry did not answer the audit request. */
   unaudited: string[]
@@ -150,28 +214,96 @@ export function classify(
   unaudited: readonly string[] = [],
 ): Classified {
   const findings: Advisory[] = []
-  const suppressed: Advisory[] = []
+  const suppressed: Accepted[] = []
   for (const advisory of advisories) {
-    const accepted = ignored.some((i) => matches(advisory, i) && i.severity === advisory.severity)
-    ;(accepted ? suppressed : findings).push(advisory)
+    // `matches` needs a GHSA on both sides, so an accepted advisory always has one.
+    if (advisory.ghsa !== null && ignored.some((i) => matches(advisory, i) && i.severity === advisory.severity)) {
+      suppressed.push({ ...advisory, ghsa: advisory.ghsa })
+    } else {
+      findings.push(advisory)
+    }
   }
   const stale = ignored.filter((i) => !advisories.some((a) => matches(a, i)))
   return { findings, suppressed, stale, unaudited: [...unaudited] }
 }
 
+/** The advisory as one marker segment: its GHSA, else a hash of its url (registry text never enters verbatim). */
+function advisoryToken(a: Advisory): string {
+  return a.ghsa ?? `url-${createHash('sha256').update(a.url).digest('hex').slice(0, 12)}`
+}
+
+/**
+ * What the report's `Fix:` command carries, or null when the report prints no `Fix:` line
+ * (no finding). Acceptance is `classify`'s: the suppressed set; everything else in the audit
+ * output is in `findings`, whatever its severity or classification.
+ *
+ * bun's `--ignore=<v>` spares an advisory when its id text equals `v` or its url contains
+ * `v`, for every advisory of every package, in `bun audit` and `bun audit fix` alike
+ * (`keep_vulnerability` and `parse_vulnerability` in `src/runtime/cli/audit_command.rs`,
+ * tags bun-v1.4.0 and bun-v1.4.3; the id text is `bunId`). The command is computed against
+ * that rule: `--ignore=<n>` is printed for an accepted advisory only when `n` is a positive
+ * safe integer and no finding is spared by `String(n)`. An accepted advisory that gets no
+ * flag (no such id, or its id would also spare a finding) is listed with the reason, and the
+ * operator checks `bun audit fix --dry-run` and restores its `bun.lock` entry by hand. A GHSA
+ * flag is never emitted: it would spare every package sharing the GHSA and any url holding it.
+ */
+interface NotSpared {
+  advisory: Accepted
+  /** Packages of the findings its id would also spare; empty when it has no usable id. */
+  collidesWith: string[]
+}
+
+interface Remediation {
+  /** Sorted numerically, deduplicated: one `--ignore=<id>` each. */
+  ids: number[]
+  /** Accepted advisories with no flag, one per package, GHSA and id text; sorted by package then GHSA. */
+  notSpared: NotSpared[]
+}
+
+function remediation(c: Classified): Remediation | null {
+  if (c.findings.length === 0) return null
+  const ids = new Set<number>()
+  const notSpared = new Map<string, NotSpared>()
+  for (const advisory of c.suppressed) {
+    const { id } = advisory
+    const value = String(id)
+    const colliding = id === null ? [] : c.findings.filter((f) => f.bunId === value || f.url.includes(value))
+    if (id !== null && colliding.length === 0) {
+      ids.add(id)
+    } else {
+      const key = `${advisory.package}\0${advisory.ghsa}\0${advisory.bunId}`
+      notSpared.set(key, { advisory, collidesWith: [...new Set(colliding.map((f) => f.package))].sort() })
+    }
+  }
+  return {
+    ids: [...ids].sort((x, y) => x - y),
+    notSpared: [...notSpared.values()].sort(
+      (a, b) => a.advisory.package.localeCompare(b.advisory.package) || a.advisory.ghsa.localeCompare(b.advisory.ghsa),
+    ),
+  }
+}
+
 /**
  * Order-independent identity of a report: the workflow comments only when it changes.
+ * It covers what the `Fix:` line depends on — a flag per accepted id, a key per accepted
+ * advisory listed as not spared — but only on a report that prints that line: the open issue's
+ * latest comment carries the command an operator copies, so a changed command must post a
+ * new comment, while an accepted key changing under a report with no finding must not.
  * Built from a restricted alphabet — registry text never reaches it verbatim, because the
- * workflow parses it back out of an HTML comment.
+ * workflow parses it back out of an HTML comment. Token kinds stay apart by prefix and by
+ * the last segment: a finding ends in a severity, a stale or not-spared key in a GHSA.
  */
 export function marker(c: Classified): string {
+  const fix = remediation(c)
   const ids = [
-    ...c.findings.map(
-      (a) =>
-        `${a.package}:${a.ghsa ?? `url-${createHash('sha256').update(a.url).digest('hex').slice(0, 12)}`}:${a.severity}`,
-    ),
+    ...c.findings.map((a) => `${a.package}:${advisoryToken(a)}:${a.severity}`),
     ...c.stale.map((i) => `stale:${i.package}:${i.ghsa}`),
     ...c.unaudited.map((u) => `unaudited:${createHash('sha256').update(u).digest('hex').slice(0, 12)}`),
+    ...(fix?.ids ?? []).map((id) => `ignore:${id}`),
+    // The `idless:` kind keeps its name though an id that would spare a finding also lands here:
+    // renaming it would change the identity of an open report and post one needless comment.
+    // Still apart from the other kinds by its prefix and its GHSA last segment.
+    ...(fix?.notSpared ?? []).map((n) => `idless:${n.advisory.package}:${n.advisory.ghsa}`),
   ]
   return [...new Set(ids.map((id) => id.replace(/[^A-Za-z0-9@/._:-]/g, '_')))].sort().join(',')
 }
@@ -234,9 +366,23 @@ export function renderReport(c: Classified, ignored: readonly Ignore[], meta: Ru
       const advisory = a.ghsa ? `[${a.ghsa}](https://github.com/advisories/${a.ghsa})` : code(a.url)
       lines.push(`| ${code(a.package)} | ${a.severity} | ${advisory} | ${title} | ${code(a.vulnerableVersions)} |`)
     }
+    const fix = remediation(c)
+    const command = ['bun audit fix', ...(fix?.ids ?? []).map((id) => `--ignore=${id}`)].join(' ')
     lines.push(
       '',
-      'Fix: in a worktree, `bun audit fix` (within declared ranges) or `bun audit fix --latest` (crosses majors), then a PR.',
+      `Fix: in a worktree, \`${command}\` (within declared ranges) or \`${command} --latest\` (crosses majors), then a PR.`,
+    )
+    for (const { advisory, collidesWith } of fix?.notSpared ?? []) {
+      // The GHSA is parsed against a strict pattern, so it prints bare; package names are registry text.
+      const why =
+        collidesWith.length === 0
+          ? 'bun sent no usable advisory id for it (a positive whole number)'
+          : `its id ${advisory.id} would also spare ${collidesWith.map(code).join(', ')}, since bun matches an --ignore value against every advisory's id and url`
+      lines.push(
+        `Not spared by that command: ${code(advisory.package)} (${advisory.ghsa}) is accepted, but ${why}, so the command carries no flag for it. Check \`bun audit fix --dry-run\` before running it, and restore that package's entry in \`bun.lock\` by hand if it moves.`,
+      )
+    }
+    lines.push(
       'Accept instead: add the advisory to `IGNORED` in `scripts/dependency-audit.ts`, with its reason and removal condition.',
       '',
     )
