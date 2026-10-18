@@ -243,6 +243,7 @@ export const TICKET_STOPS = [
   'ci-blocked',
   'stopped',
   'closed',
+  'behind',
 ] as const
 
 /** Disarm every in-flight PR, report, `goal({op:"drop"})`. */
@@ -278,7 +279,8 @@ export function stopClass(reason: string): 'ticket' | 'shared' | 'no-progress' |
 
 /**
  * What a `landPr` / `applyCiWatchExit` status means under a goal. `timeout` is a
- * ticket stop, never a re-attach. An unknown status fails closed as shared.
+ * ticket stop, never a re-attach; `behind` is a retried ticket stop (the operator
+ * updates the branch, a fresh run lands it). An unknown status fails closed as shared.
  */
 export function landOutcome(
   status: string,
@@ -296,6 +298,7 @@ export function landOutcome(
     case 'stopped':
     case 'closed':
     case 'proof-blocked':
+    case 'behind':
       return { stop: status, class: 'ticket' }
     case 'watch-failed':
     case 'bad-landing':
