@@ -39,7 +39,7 @@ const OLD = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 const MOVED = 'fedcba9876543210fedcba9876543210fedcba98'
 const EVENT_AT = '2026-09-29T10:00:05Z'
 const IDENTITY = ['api', 'user', '--jq', '.login']
-const GATE_FIELDS = 'headRefOid,state,labels,autoMergeRequest'
+const GATE_FIELDS = 'headRefOid,state,labels,autoMergeRequest,mergeStateStatus'
 /** A plain checkout: no `.semctx` and no adapter, so the proof admission admits its tip without a gh call. */
 const CHECKOUT = mkdtempSync(join(tmpdir(), 'armed-gate-'))
 /** The checkout of HEAD. */
@@ -82,6 +82,7 @@ function kindOf(args) {
         labels: 'labels',
         baseRefName: 'base',
         'state,autoMergeRequest': 'state',
+        'state,mergeStateStatus': 'behind',
       }[args[4]] ?? 'unexpected'
     )
   }
@@ -105,10 +106,11 @@ const ARMED = {
 }
 
 /**
- * @typedef {{ on: string, nth?: number, times?: number, error?: string | Error, answer?: string, applies?: boolean }} Fail
+ * @typedef {{ on: string, nth?: number, after?: string, times?: number, error?: string | Error, answer?: string, applies?: boolean }} Fail
  *   Make the nth call of a kind throw `error` (default 'injected'; an Error is thrown as is, so a test can assert its
  *   identity), or answer `answer`. `applies`: the write
  *   lands, then the call still throws.
+ *   `after`: fail this kind after the named call has occurred, rather than selecting an ordinal read.
  * @typedef {{ when: 'before' | 'after', on: string, nth?: number, head?: string, state?: string, reviews?: ReturnType<typeof approve>[] }} Move
  *   Move the head, change the state or append review records around the nth call of a kind.
  * @typedef {{ fail?: Fail[], moves?: Move[], failAt?: number, moveAfterCall?: number, moveBeforeCall?: number, events?: 'normal' | 'none' }} Script
@@ -120,13 +122,22 @@ const ARMED = {
 /**
  * @param {{ records?: ReturnType<typeof approve>[], start?: keyof typeof ARMED, state?: string, head?: string, script?: Script, found?: Found }} spec
  */
-function armedPr({ records = [], start = 'both', state = 'OPEN', head = HEAD, script = {}, found = {} } = {}) {
+function armedPr({
+  records = [],
+  start = 'both',
+  state = 'OPEN',
+  head = HEAD,
+  mergeState = 'CLEAN',
+  script = {},
+  found = {},
+} = {}) {
   const armed = ARMED[start]
   const pr = {
     labels: new Set([...armed.labels, OTHER_LABEL]),
     autoMerge: armed.auto ? { mergeMethod: 'MERGE' } : null,
     state,
     head,
+    mergeState,
     labeledAt: /** @type {string[]} */ ([]),
   }
   /** @type {{ kind: string, args: string[] }[]} */
@@ -134,7 +145,10 @@ function armedPr({ records = [], start = 'both', state = 'OPEN', head = HEAD, sc
   /** @type {Record<string, number>} */
   const seen = {}
   const matches = (rule, kind) =>
-    rule.on === kind && seen[kind] >= (rule.nth ?? 1) && seen[kind] < (rule.nth ?? 1) + (rule.times ?? 1)
+    rule.on === kind &&
+    (rule.after
+      ? seen[rule.after] > 0
+      : seen[kind] >= (rule.nth ?? 1) && seen[kind] < (rule.nth ?? 1) + (rule.times ?? 1))
   const applyMoves = (when, kind) => {
     for (const move of script.moves ?? []) {
       if (move.when !== when || move.on !== kind || seen[kind] !== (move.nth ?? 1)) continue
@@ -161,11 +175,14 @@ function armedPr({ records = [], start = 'both', state = 'OPEN', head = HEAD, sc
           state: pr.state,
           labels: [...pr.labels].map((name) => ({ name })),
           autoMergeRequest: pr.autoMerge,
+          mergeStateStatus: pr.mergeState,
         })
       case 'head':
         return JSON.stringify({ headRefOid: pr.head, baseRefName: 'main' })
       case 'state':
         return JSON.stringify({ state: pr.state, autoMergeRequest: pr.autoMerge })
+      case 'behind':
+        return JSON.stringify({ state: pr.state, mergeStateStatus: pr.mergeState })
       case 'labels':
         return JSON.stringify({ labels: [...pr.labels].map((name) => ({ name })) })
       case 'disable':
@@ -388,6 +405,7 @@ const WATCH_FORCED = [
   [1, 'ci-failed'],
   [2, 'ci-cancelled'],
   [3, 'ci-blocked'],
+  [7, 'behind'],
 ]
 const REVIEW_GATES = [
   ['valid approval', [approve()], HEAD, true],
@@ -715,6 +733,28 @@ const ROWS = [
         labels: CLEAN,
         auto: false,
         writesOnly: ['disable', 'remove'],
+      },
+    ]),
+  ),
+  // ---- landPr: a PR behind its base (#696) -------------------------------------
+  ...['both', 'label', 'auto', 'none'].flatMap((start) =>
+    ['native', 'merge-on-green'].map((mode) => [
+      `B1 behind, ${mode}, from ${start}: nothing armed, every arm cleared`,
+      {
+        fn: 'land',
+        opts: mode === 'native' ? NATIVE : MOG,
+        records: [approve()],
+        start,
+        mergeState: 'BEHIND',
+        strict: true,
+        result: {
+          status: 'behind',
+          error: expect.stringContaining(`gh pr update-branch ${PR}`),
+          ...(start !== 'none' && { disarmed: true }),
+        },
+        labels: CLEAN,
+        auto: false,
+        ...(start === 'none' ? { none: true } : { writesOnly: ['disable', 'remove'] }),
       },
     ]),
   ),
@@ -1701,7 +1741,7 @@ const ROWS = [
       opts: NATIVE,
       records: [approve()],
       start: 'none',
-      script: { fail: [{ on: 'head', nth: 3 }] },
+      script: { fail: [{ on: 'head', after: 'add' }] },
       result: { status: 'not-approved', reviews: 1, reason: 'head-moved', disarmed: true },
       labels: CLEAN,
       auto: false,
@@ -1714,7 +1754,7 @@ const ROWS = [
       opts: NATIVE,
       records: [approve()],
       start: 'none',
-      script: { fail: [{ on: 'head', nth: 3 }, { on: 'remove' }] },
+      script: { fail: [{ on: 'head', after: 'add' }, { on: 'remove' }] },
       rejects: /stays armed — the reviewed label[\s\S]*— after: injected/,
       causeMatches: /^injected$/,
       labels: REVIEWED,
@@ -2245,7 +2285,11 @@ const ROWS = [
           strict: true,
           result:
             state === 'OPEN'
-              ? { status, ...(start !== 'none' && { disarmed: true }) }
+              ? {
+                  status,
+                  ...(status === 'behind' && { error: expect.stringContaining(`gh pr update-branch ${PR}`) }),
+                  ...(start !== 'none' && { disarmed: true }),
+                }
               : { status: state === 'MERGED' ? 'merged' : 'stopped' },
           labels: state === 'OPEN' ? CLEAN : [...ARMED[start].labels, OTHER_LABEL],
           auto: state !== 'OPEN' && ARMED[start].auto,
@@ -2328,6 +2372,7 @@ function prepare(row) {
     start: row.start,
     state: row.state,
     head: row.head,
+    mergeState: row.mergeState,
     script: row.script,
     found: row.found,
   })
@@ -2493,6 +2538,27 @@ const SWEEPS = [
   ['landPr merge-on-green from a labelled PR', { fn: 'land', opts: MOG, records: [approve()], start: 'label' }],
   ['landPr merge-on-green from an armed PR', { fn: 'land', opts: MOG, records: [approve()], start: 'both' }],
   ['landPr merge-on-green from an unarmed PR', { fn: 'land', opts: MOG, records: [approve()], start: 'none' }],
+  ...['both', 'label', 'auto', 'none'].flatMap((start) =>
+    [
+      ['native', NATIVE],
+      ['merge-on-green', MOG],
+    ].map(([mode, opts]) => [
+      `landPr ${mode} behind, from ${start}`,
+      {
+        fn: 'land',
+        opts,
+        records: [approve()],
+        start,
+        mergeState: 'BEHIND',
+        strict: true,
+        outcome: {
+          status: 'behind',
+          error: expect.stringContaining(`gh pr update-branch ${PR}`),
+          ...(start !== 'none' && { disarmed: true }),
+        },
+      },
+    ]),
+  ),
   ['landPr refusing a red armed PR', { fn: 'land', opts: NATIVE, records: [approve(), red()], start: 'both' }],
   ['nextReviewStep fix on an armed PR', { fn: 'step', records: [red()], start: 'both' }],
   [
@@ -2563,7 +2629,7 @@ describe('the armed-gate invariant — the clean-baseline sweep (base failures/p
   it.each(SWEEPS)(
     '%s: one throw before effect at, a head move after, or both at, a call of the clean baseline leaves the invariant',
     async (_name, run) => {
-      const spec = { records: run.records, start: run.start, found: run.found }
+      const spec = { records: run.records, start: run.start, mergeState: run.mergeState, found: run.found }
       const baseline = armedPr(spec)
       const clean = await exec({ fn: run.fn, opts: run.opts }, baseline)
       expect(clean.error, clean.error?.message).toBeUndefined()

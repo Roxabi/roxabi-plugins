@@ -103,9 +103,42 @@ describe('classify-merge-state', () => {
   })
 
   it('keeps watching transient merge states', () => {
-    for (const mss of ['BEHIND', 'BLOCKED', 'UNSTABLE']) {
+    for (const mss of ['BLOCKED', 'UNSTABLE']) {
       expect(classifyMerge('OPEN', mss, 'merge-on-green', 'true', '10', '1800')).toBe('WATCH')
     }
+  })
+
+  it('keeps BLOCKED and UNSTABLE a deadline past the timeout, never a behind exit', () => {
+    for (const mss of ['BLOCKED', 'UNSTABLE']) {
+      expect(classifyMerge('OPEN', mss, 'merge-on-green', 'true', '1800', '1800')).toBe('5')
+    }
+  })
+
+  it('maps an OPEN BEHIND PR to exit 7 under and over the timeout, never WATCH and never 5', () => {
+    for (const [elapsed, timeout] of [
+      ['10', '1800'],
+      ['1799', '1800'],
+      ['1800', '1800'],
+      ['9999', '1800'],
+    ]) {
+      for (const mode of ['merge-on-green', 'native']) {
+        expect(classifyMerge('OPEN', 'BEHIND', mode, 'true', elapsed, timeout)).toBe('7')
+      }
+    }
+  })
+
+  it('maps an unarmed or label-revoked BEHIND PR to exit 7, not nothing-to-watch or unmerged', () => {
+    expect(classifyMerge('OPEN', 'BEHIND', 'native', 'false', '10', '1800')).toBe('7')
+    expect(classifyMerge('OPEN', 'BEHIND', 'merge-on-green', 'false', '10', '1800')).toBe('7')
+  })
+
+  it('leaves a merged or closed PR its own exit even when it reports BEHIND', () => {
+    expect(classifyMerge('MERGED', 'BEHIND', 'merge-on-green', 'true', '9999', '1800')).toBe('0')
+    expect(classifyMerge('CLOSED', 'BEHIND', 'merge-on-green', 'true', '9999', '1800')).toBe('4')
+  })
+
+  it('keeps DIRTY at exit 4', () => {
+    expect(classifyMerge('OPEN', 'DIRTY', 'merge-on-green', 'true', '10', '1800')).toBe('4')
   })
 
   it('treats native with no auto-merge as nothing to watch', () => {
@@ -328,6 +361,95 @@ EOF
 `,
     )
     expect(runWatch(dir).code).toBe(1)
+  })
+
+  describe('a PR behind its base is never watched and never a deadline (#696)', () => {
+    const snapshot = (mss: string, checks: string, extra = '"autoMergeRequest":null,"labels":[{"name":"reviewed"}]') =>
+      `{"state":"OPEN","mergeStateStatus":"${mss}",${extra},"headRefOid":"abc","statusCheckRollup":[${checks}]}`
+    const PENDING = '{"name":"ci","status":"IN_PROGRESS","conclusion":""}'
+    const GREEN = '{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}'
+    const FAILED = '{"name":"ci","status":"COMPLETED","conclusion":"FAILURE"}'
+    const stub = (dir: string, json: string) =>
+      fakeGh(
+        dir,
+        `#!/usr/bin/env bash
+if [[ "$1" == "run" ]]; then exit 0; fi
+n=0
+if [[ -f "$CI_WATCH_COUNT" ]]; then n=$(cat "$CI_WATCH_COUNT"); fi
+echo "$((n + 1))" > "$CI_WATCH_COUNT"
+cat <<'EOF'
+${json}
+EOF
+`,
+      )
+    const cases = [
+      ['pending checks, deadline not reached', PENDING, '30s'],
+      ['pending checks, deadline already expired', PENDING, '0s'],
+      ['green checks, deadline already expired', GREEN, '0s'],
+      ['a failed check', FAILED, '30s'],
+    ]
+
+    it.each(cases)('%s: exits 7 naming the command, before any deadline', (_label, checks, timeout) => {
+      const dir = mkdtempSync(join(tmpdir(), 'ci-watch-behind-'))
+      stub(dir, snapshot('BEHIND', checks))
+      const count = join(dir, 'count')
+      const result = runWatch(dir, { CI_WATCH_COUNT: count }, undefined, timeout)
+      expect(result.code).toBe(7)
+      expect(result.stderr).toContain('gh pr update-branch 7')
+      expect(result.stderr).not.toContain('undetermined')
+      expect(readFileSync(count, 'utf8').trim()).toBe('1')
+    })
+
+    it('a PR that turns BEHIND in the merge phase exits 7', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'ci-watch-behind-merge-'))
+      fakeGh(
+        dir,
+        `#!/usr/bin/env bash
+if [[ "$1" == "api" ]]; then echo '{"check_runs":[]}'; exit 0; fi
+n=0
+if [[ -f "$CI_WATCH_COUNT" ]]; then n=$(cat "$CI_WATCH_COUNT"); fi
+n=$((n + 1))
+echo "$n" > "$CI_WATCH_COUNT"
+if [[ "$n" -le 2 ]]; then
+  cat <<'EOF'
+${snapshot('BLOCKED', GREEN, '"autoMergeRequest":{"enabledAt":"t"},"labels":[]')}
+EOF
+else
+  cat <<'EOF'
+${snapshot('BEHIND', GREEN, '"autoMergeRequest":{"enabledAt":"t"},"labels":[]')}
+EOF
+fi
+`,
+      )
+      const result = runWatch(dir, { CI_WATCH_COUNT: join(dir, 'count') }, undefined, '30s', 'native')
+      expect(result.code).toBe(7)
+      expect(result.stderr).toContain('gh pr update-branch 7')
+    })
+
+    it('an unarmed native BEHIND PR exits 7, not nothing-to-watch', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'ci-watch-behind-unarmed-'))
+      stub(dir, snapshot('BEHIND', GREEN, '"autoMergeRequest":null,"labels":[]'))
+      expect(runWatch(dir, { CI_WATCH_COUNT: join(dir, 'count') }, undefined, '30s', 'native').code).toBe(7)
+    })
+
+    it('BLOCKED checks that are still pending past the deadline stay the deadline exit', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'ci-watch-blocked-deadline-'))
+      stub(dir, snapshot('BLOCKED', PENDING))
+      const result = runWatch(dir, { CI_WATCH_COUNT: join(dir, 'count') }, undefined, '0s')
+      expect(result.code).toBe(5)
+      expect(result.stderr).toContain('undetermined')
+    })
+
+    it('a MERGED or CLOSED snapshot reporting BEHIND keeps its own exit', () => {
+      for (const [state, code] of [
+        ['MERGED', 0],
+        ['CLOSED', 4],
+      ] as const) {
+        const dir = mkdtempSync(join(tmpdir(), 'ci-watch-behind-terminal-'))
+        stub(dir, snapshot('BEHIND', GREEN).replace('"OPEN"', `"${state}"`))
+        expect(runWatch(dir, { CI_WATCH_COUNT: join(dir, 'count') }).code).toBe(code)
+      }
+    })
   })
 
   /** `mode: null` passes no `--merge-mode`, so the script resolves it from `cwd`. */

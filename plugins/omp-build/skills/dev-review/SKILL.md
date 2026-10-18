@@ -5,7 +5,7 @@ description: >-
   OMP-only multi-domain code review — five-role evidence-selected panel, Conventional Comments, common root causes, findings + verdict.
   Triggers: "dev-review" | "code review" | "review changes" | "review PR #42" | "check my code" | "review my changes" | "review this PR" | "do a code review" | "review the diff".
   Not the host native /review, not Matt code-review.
-version: 0.2.2
+version: 0.2.3
 ---
 
 # Code Review
@@ -581,9 +581,13 @@ throw one error naming any remainder. `disarmed: true` comes only from an attemp
 clear with confirmed read-back, never an already-clear or non-OPEN no-op.
 Every `nextReviewStep` action passes the policy; non-`land` actions and
 `{ reviewing: true }` force clearing. A refused `posted` / `ciFailed` keeps an
-armed gate only with refreshed approval/head evidence. `landPr` refusals, watch
-failures 1–3 and pre-push barriers force clearing; those watch/push paths need no
-review-service reads. Observer watch statuses retain only currently authorized
+armed gate only with refreshed approval/head evidence. `landPr` refusals,
+watch exits 1–3 and 7 and pre-push barriers force clearing; those watch/push paths
+need no review-service reads. On OPEN `BEHIND`, no further arming is allowed and
+known OPEN arms are cleared, including this call's earlier pin. A failed clear
+throws naming the remainder; a merge during clearing is `merged`. Report
+`gh pr update-branch <pr>`; the landing contract is `skill://feature` §6.7.
+Observer watch statuses retain only currently authorized
 arms. Native `no-required-checks` also clears at an approved head: API discovery
 failure cancels a scheduled merge on purpose, with no automatic restoration.
 Native legacy stuck results adapt the same clearing error without retrying it. A

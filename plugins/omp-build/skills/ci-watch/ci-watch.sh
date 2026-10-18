@@ -10,6 +10,7 @@
 #   4  green but unmerged (label revoked, closed, dirty)
 #   5  deadline — undetermined, re-run to resume
 #   6  evaluate-only — merge-on-green: the newest merge-on-green run (since --since, or the latest without it) says kit-ci is not configured
+#   7  behind — the PR is OPEN and BEHIND its base, so it cannot merge: stop, never watch it, and win over the deadline; update the branch (`gh pr update-branch <pr>`), then land again
 #   70 not a check verdict (usage, missing tool, gh/jq failure) — do not disarm
 EXIT_FAIL=1
 EXIT_CANCELLED=2
@@ -17,9 +18,15 @@ EXIT_OTHER=3
 EXIT_UNMERGED=4
 EXIT_DEADLINE=5
 EXIT_EVALUATE_ONLY=6
+EXIT_BEHIND=7
 EXIT_INTERNAL=70
 set -Eeuo pipefail
 trap 'exit "$EXIT_INTERNAL"' ERR
+
+# Pure. An OPEN PR whose branch is behind its base. A merged or closed PR never is.
+is_behind() {
+  [[ "$1" == "OPEN" && "$2" == "BEHIND" ]]
+}
 
 # Pure. (state, mergeStateStatus, mode, eligible, elapsed, timeout) → exit code or WATCH.
 # eligible=true means the PR is in the merge path: reviewed label (merge-on-green)
@@ -32,6 +39,12 @@ classify_merge_state() {
   fi
   if [[ "$state" == "CLOSED" ]]; then
     echo "$EXIT_UNMERGED"
+    return 0
+  fi
+  # Before the deadline and the eligibility rules: a behind PR is never watched
+  # and never becomes the `timeout` exit.
+  if is_behind "$state" "$mss"; then
+    echo "$EXIT_BEHIND"
     return 0
   fi
   if (( elapsed >= timeout )); then
@@ -48,7 +61,7 @@ classify_merge_state() {
   fi
   case "$mss" in
     DIRTY) echo "$EXIT_UNMERGED" ;;
-    BEHIND | BLOCKED | UNSTABLE | "") echo WATCH ;;
+    BLOCKED | UNSTABLE | "") echo WATCH ;;
     *) echo WATCH ;;
   esac
 }
@@ -383,18 +396,29 @@ kit_ci_of() {
   fi
 }
 
+behind_notice() {
+  echo "behind: PR $PR is behind its base and cannot merge — run: gh pr update-branch $PR" >&2
+}
+
 START=$SECONDS
 CONFIRMED_GREEN=0
 
 while true; do
   elapsed=$((SECONDS - START))
+  # Read before the deadline: a PR behind its base is never watched and never
+  # reported as a deadline, even while its checks are still pending.
+  snapshot=$(pr_json)
+  require_snapshot "$snapshot"
+  state=$(echo "$snapshot" | jq -r .state)
+  mss=$(echo "$snapshot" | jq -r .mergeStateStatus)
+  if is_behind "$state" "$mss"; then
+    behind_notice
+    exit "$EXIT_BEHIND"
+  fi
   if (( elapsed >= TIMEOUT )); then
     echo "undetermined, re-run to resume" >&2
     exit "$EXIT_DEADLINE"
   fi
-  snapshot=$(pr_json)
-  require_snapshot "$snapshot"
-  state=$(echo "$snapshot" | jq -r .state)
   if [[ "$state" == "MERGED" ]]; then
     echo "merged"
     exit 0
@@ -471,6 +495,9 @@ while true; do
   fi
   if [[ "$code" == "$EXIT_DEADLINE" ]]; then
     echo "undetermined, re-run to resume" >&2
+  fi
+  if [[ "$code" == "$EXIT_BEHIND" ]]; then
+    behind_notice
   fi
   exit "$code"
 done
