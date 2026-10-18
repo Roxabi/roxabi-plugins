@@ -73,16 +73,7 @@ export interface Ignore {
 }
 
 /** Accepted advisories. Each entry names why and when it goes; a stale entry is reported. */
-export const IGNORED: readonly Ignore[] = [
-  {
-    ghsa: 'GHSA-g7r4-m6w7-qqqr',
-    package: 'esbuild',
-    severity: 'low',
-    reason:
-      "Windows-only file read from the esbuild dev server, reached via vitest → vite 7. The fix is esbuild 0.28.1, outside vite 7's range.",
-    removeWhen: 'vite 8 lands (esbuild >= 0.28.1)',
-  },
-]
+export const IGNORED: readonly Ignore[] = []
 
 export class AuditOutputError extends Error {}
 

@@ -621,7 +621,8 @@ describe('main', () => {
   })
 
   // Route tests pass their own ignore list: the shipped IGNORED must never be the reason
-  // a route test passes. Only the next test is tied to it, on purpose.
+  // a route test passes. IGNORED is empty today; a test of the default list comes back
+  // with its first entry.
   it('exits 10 on a finding and writes a report whose first line is the marker, to the file only', () => {
     bunAudit(JSON.stringify({ 'js-yaml': [JS_YAML], esbuild: [ESBUILD] }), 1)
     expect(main(['--report', report], {}, [IGNORE])).toBe(10)
@@ -647,19 +648,13 @@ describe('main', () => {
     expect(stdout()).toBe(readFileSync(report, 'utf8'))
   })
 
-  it('exits 0 when the only advisory is one the shipped IGNORED accepts, writes no report, and counts it on stdout', () => {
-    bunAudit(JSON.stringify({ esbuild: [ESBUILD] }), 1)
-    expect(main(['--report', report], {})).toBe(0)
-    expect(existsSync(report)).toBe(false)
-    expect(stdout()).toMatch(/\b1 ignored\b/)
-  })
-
   it('routes on the ignore list it is given, not the shipped one', () => {
     // Under the shipped IGNORED, which does not accept js-yaml, the first call would exit 10;
     // so would the second, while IGNORED holds any entry.
     const acceptYaml: Ignore = { ...IGNORE, ghsa: 'GHSA-2883-xcg3-v3hh', package: 'js-yaml', severity: 'high' }
     bunAudit(JSON.stringify({ 'js-yaml': [JS_YAML] }), 1)
     expect(main(['--report', report], {}, [acceptYaml])).toBe(0)
+    expect(stdout()).toMatch(/\b1 ignored\b/)
     bunAudit('{}', 0)
     expect(main(['--report', report], {}, [])).toBe(0)
     expect(existsSync(report)).toBe(false)
