@@ -83,9 +83,15 @@ bun run test:phase4-model
   runtime path/version, model and limits. `atCommit` is checked against the actual
   candidate Git commit/blob bytes, not caller-provided hashes. Altered text or
   identities are marked false; an invalid candidate commit fails visibly.
-  Expected labels, membership, provenance/evidence associations
-  and verdict assertions remain outside the model input; the unchanged rendered
-  body reaches the existing pure `workflow.reviewRecords` consumer.
+  Expected labels, membership, provenance/evidence associations and verdict
+  assertions remain outside the model input. A shared test-owned baseline oracle
+  checks parsed provenance and raw callsites, plus each finding's distinct causal
+  witness in its own `Root cause` and `Symptoms/evidence` fields. Ordinary integration
+  regressions reject missing or cross-associated details that retain the old
+  identity/keyword projection; the real native baseline uses that same oracle.
+  It is a fixture-specific contract, not a general natural-language truth evaluator.
+  The unchanged rendered body reaches the existing pure `workflow.reviewRecords`
+  consumer.
 - **Bounds and failures:** the shared integration budget stays 30 seconds/test,
   with a native call bounded to 25 seconds, a version probe bounded to 2 seconds,
   and bounded cleanup of owned process groups and temporary inputs. There are no

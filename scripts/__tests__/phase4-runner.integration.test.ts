@@ -1,9 +1,11 @@
+import { AssertionError } from 'node:assert'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { type Phase4Fixture, readPhase4Programme, runPhase4Model } from '../phase4-model'
+import { qualifyPhase4Baseline } from './phase4-baseline'
 
 const dirs: string[] = []
 
@@ -206,5 +208,99 @@ describe('runPhase4Model native transport', () => {
     const termination = JSON.parse(readFileSync(log, 'utf8')) as { child: number; terminated?: boolean }
     expect(termination.child).toBeTypeOf('number')
     expect(termination.terminated).toBe(true)
+  })
+})
+
+describe('Phase 4 baseline finding oracle', () => {
+  const records = [
+    {
+      summary: 'issue: The changed guard publishes pending panels through submit.ts:3',
+      citation: 'src/panel/advance.ts:2',
+      agent: 'fixture-adversarial',
+      details: {
+        Provenance:
+          '[{agent: fixture-adversarial, phase: panel, chunk: 1, callsites: [{file: src/panel/advance.ts, line: 2}, {file: src/panel/submit.ts, line: 3}]}]',
+        'Root cause': 'The OR condition admits every non-blocked status without requiring approval.',
+        'Symptoms/evidence':
+          'A panel with approvedAt=null and status=pending makes advance.ts:2 return true; submit.ts:3 publishes it.',
+        'Raw callsites': '[{file: src/panel/advance.ts, line: 2}, {file: src/panel/submit.ts, line: 3}]',
+      },
+    },
+    {
+      summary: 'suggestion: The presentation vocabulary is local',
+      citation: 'src/panel/status.ts:2',
+      agent: 'fixture-architect',
+      details: {
+        Provenance:
+          '[{agent: fixture-architect, phase: panel, chunk: 1, callsites: [{file: src/panel/status.ts, line: 2}]}]',
+        'Root cause': 'The status mapping keeps a local literal instead of a shared vocabulary.',
+        'Symptoms/evidence': 'status.ts:2 maps approved to ready; no safety caller is supplied.',
+        'Raw callsites': '[{file: src/panel/status.ts, line: 2}]',
+      },
+    },
+  ]
+  type Detail = 'Root cause' | 'Symptoms/evidence' | 'Raw callsites'
+  const details: Detail[] = ['Root cause', 'Symptoms/evidence', 'Raw callsites']
+
+  function renderedBaseline(change?: { field: Detail; value: string | null }): string {
+    return [
+      '<!-- omp-build:code-review -->',
+      '## Findings',
+      ...records.flatMap((record, index) => [
+        index === 0 ? '### Blockers' : '### Warnings',
+        record.summary,
+        `  ${record.citation}`,
+        `  -- ${record.agent}`,
+        ...Object.entries(record.details).flatMap(([field, original]) => {
+          const value = index === 0 && field === change?.field ? change.value : original
+          return value === null ? [] : [`  ${field}: ${value}`]
+        }),
+      ]),
+      '## Summary',
+      '**Verdict: Request changes**',
+    ].join('\n')
+  }
+
+  it('preserves independent finding identity and parsed provenance', () => {
+    const findings = qualifyPhase4Baseline(renderedBaseline())
+    expect(findings.map(({ citation, agent, provenance }) => ({ citation, agent, provenance }))).toEqual([
+      {
+        citation: 'src/panel/advance.ts:2',
+        agent: 'fixture-adversarial',
+        provenance: [
+          {
+            agent: 'fixture-adversarial',
+            phase: 'panel',
+            chunk: 1,
+            callsites: [
+              { file: 'src/panel/advance.ts', line: 2 },
+              { file: 'src/panel/submit.ts', line: 3 },
+            ],
+          },
+        ],
+      },
+      {
+        citation: 'src/panel/status.ts:2',
+        agent: 'fixture-architect',
+        provenance: [
+          {
+            agent: 'fixture-architect',
+            phase: 'panel',
+            chunk: 1,
+            callsites: [{ file: 'src/panel/status.ts', line: 2 }],
+          },
+        ],
+      },
+    ])
+  })
+
+  it.each(details)('rejects missing %s despite retained identity and incidental keywords', (field) => {
+    expect(() => qualifyPhase4Baseline(renderedBaseline({ field, value: null }))).toThrow(AssertionError)
+  })
+
+  it.each(details)('rejects another finding’s %s despite retained identity and incidental keywords', (field) => {
+    expect(() => qualifyPhase4Baseline(renderedBaseline({ field, value: records[1].details[field] }))).toThrow(
+      AssertionError,
+    )
   })
 })

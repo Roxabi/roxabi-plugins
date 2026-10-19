@@ -1,10 +1,7 @@
-import { spawnSync } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { expect, it } from 'vitest'
 import { reviewRecords } from '../../plugins/omp-build/skills/feature/workflow.js'
 import { type Phase4Fixture, readPhase4Programme, runPhase4Model } from '../phase4-model'
+import { qualifyPhase4Baseline } from './phase4-baseline'
 
 const fixture: Phase4Fixture = {
   id: 'two-independent-panel-findings',
@@ -69,86 +66,6 @@ const fixture: Phase4Fixture = {
   ].join('\n'),
 }
 
-type RenderedFinding = {
-  group: string
-  label: string
-  body: string
-}
-
-function renderedFindings(body: string): RenderedFinding[] {
-  const heading = /^## Findings[\t ]*$/m.exec(body)
-  if (!heading || heading.index === undefined) throw new Error(`rendered review has no Findings section:\n${body}`)
-  const start = heading.index + heading[0].length
-  const nextHeading = /^## (?!Findings\b)/gm
-  nextHeading.lastIndex = start
-  const end = nextHeading.exec(body)?.index ?? body.length
-  const conventional = /^[\t ]*[-*]?[\t ]*(issue|suggestion|todo|nitpick|thought|question|praise)(?:\([a-z-]+\))?:/m
-  if (conventional.test(body.slice(0, heading.index)) || conventional.test(body.slice(end))) {
-    throw new Error(`rendered review contains a Conventional Comment outside Findings:\n${body}`)
-  }
-  const section = body.slice(start, end)
-  const headers = [...section.matchAll(/^### ([^\n]+)$/gm)]
-  const findings: RenderedFinding[] = []
-  let cursor = 0
-  for (const [index, header] of headers.entries()) {
-    const headingIndex = header.index ?? 0
-    if (conventional.test(section.slice(cursor, headingIndex))) {
-      throw new Error(`rendered review contains an ungrouped Conventional Comment:\n${body}`)
-    }
-    const group = header[1]
-    const groupStart = headingIndex + header[0].length
-    const groupEnd = headers[index + 1]?.index ?? section.length
-    const groupBody = section.slice(groupStart, groupEnd)
-    const records = [
-      ...groupBody.matchAll(
-        /^[\t ]*[-*]?[\t ]*((?:issue|suggestion|todo|nitpick|thought|question|praise)(?:\([a-z-]+\))?):/gm,
-      ),
-    ]
-    if (!['Blockers', 'Warnings', 'Suggestions', 'Praise'].includes(group) && records.length > 0) {
-      throw new Error(`rendered review contains a Conventional Comment in unknown group ${group}:\n${body}`)
-    }
-    for (const [recordIndex, record] of records.entries()) {
-      const recordStart = record.index ?? 0
-      const tail = groupBody.slice(recordStart, records[recordIndex + 1]?.index)
-      const lines = tail.split('\n')
-      const detail = [lines[0]]
-      for (const line of lines.slice(1)) {
-        if (line.trim() === '' || /^ {2}/.test(line)) detail.push(line)
-        else break
-      }
-      findings.push({ group, label: `${record[1]}:`, body: detail.join('\n').trim() })
-    }
-    cursor = groupEnd
-  }
-  if (conventional.test(section.slice(cursor))) {
-    throw new Error(`rendered review contains an ungrouped Conventional Comment:\n${body}`)
-  }
-  return findings
-}
-
-function parseProvenance(finding: RenderedFinding, body: string): unknown {
-  const raw = /^ {2}Provenance: (\[.+\])$/m.exec(finding.body)?.[1]
-  if (!raw) throw new Error(`finding ${finding.label} omitted flow-YAML provenance:\n${body}`)
-  const cwd = mkdtempSync(join(tmpdir(), 'phase4-provenance-'))
-  try {
-    const parsed = spawnSync(
-      'bun',
-      [
-        '--no-env-file',
-        '-e',
-        'const input = await Bun.stdin.text()\nprocess.stdout.write(JSON.stringify(Bun.YAML.parse(input)))',
-      ],
-      { cwd, input: raw, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 1_000 },
-    )
-    if (parsed.status !== 0 || parsed.error) {
-      throw new Error(`could not parse finding provenance (${parsed.status}):\n${body}`)
-    }
-    return JSON.parse(parsed.stdout)
-  } finally {
-    rmSync(cwd, { recursive: true, force: true })
-  }
-}
-
 it('renders both independent panel findings and sends the declared record to the candidate consumer', async ({
   annotate,
 }) => {
@@ -156,56 +73,7 @@ it('renders both independent panel findings and sends the declared record to the
   const result = await runPhase4Model(programme, fixture)
   await annotate(JSON.stringify(result.provenance), 'phase4-model-provenance')
 
-  expect(result.body, result.body).toMatch(/^<!-- omp-build:code-review -->/)
-  const findings = renderedFindings(result.body)
-  const actual = findings.map((finding) => ({
-    group: finding.group,
-    label: finding.label,
-    citation: /^ {2}([^\n]+:\d+)$/m.exec(finding.body)?.[1],
-    agent: /^ {2}-- ([^\n]+)$/m.exec(finding.body)?.[1],
-    provenance: parseProvenance(finding, result.body),
-    evidence: {
-      changedPath: finding.body.includes('changed guard') && finding.body.includes('submit.ts:3'),
-      pending: finding.body.includes('pending'),
-      presentation: finding.body.includes('presentation'),
-      warningDoesNotBorrowBlocker: finding.label !== 'suggestion:' || !finding.body.includes('fixture-adversarial'),
-    },
-  }))
-  expect(actual, `Rendered Phase 4 review:\\n${result.body}`).toEqual([
-    {
-      group: 'Blockers',
-      label: 'issue:',
-      citation: 'src/panel/advance.ts:2',
-      agent: 'fixture-adversarial',
-      provenance: [
-        {
-          agent: 'fixture-adversarial',
-          phase: 'panel',
-          chunk: 1,
-          callsites: [
-            { file: 'src/panel/advance.ts', line: 2 },
-            { file: 'src/panel/submit.ts', line: 3 },
-          ],
-        },
-      ],
-      evidence: { changedPath: true, pending: true, presentation: false, warningDoesNotBorrowBlocker: true },
-    },
-    {
-      group: 'Warnings',
-      label: 'suggestion:',
-      citation: 'src/panel/status.ts:2',
-      agent: 'fixture-architect',
-      provenance: [
-        {
-          agent: 'fixture-architect',
-          phase: 'panel',
-          chunk: 1,
-          callsites: [{ file: 'src/panel/status.ts', line: 2 }],
-        },
-      ],
-      evidence: { changedPath: false, pending: false, presentation: true, warningDoesNotBorrowBlocker: true },
-    },
-  ])
+  qualifyPhase4Baseline(result.body)
 
   const record = reviewRecords([{ body: result.body, author: { login: 'omp-build[bot]' } }], { me: 'omp-build[bot]' })
   expect(record, `Rendered Phase 4 review:\\n${result.body}`).toMatchObject({ reviews: 1, verdict: 'Request changes' })
