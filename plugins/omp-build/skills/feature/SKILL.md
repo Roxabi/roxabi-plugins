@@ -602,8 +602,11 @@ login, counted, and the latest one. A fix is allowed while the PR has at most
 two records. A record past the second that does not approve spends the bound for
 good: a later green does not lift it, and `landPr` refuses it. A `ci-failed`
 stop is not in the records: under the Epic goal the ticket stop keeps it;
-outside it, re-entry is the operator's call. The dossier lives in `dev-review`
-Phase 8.
+outside it, re-entry is the operator's call. The dossier's Phase 8 recovery
+contract requires the operator's explicit revised scope, diagnostic/correction
+plan and continuation checkpoint; agents execute the recovery and independent
+review on a superseding PR. The stopped PR remains disarmed, and fresh review,
+proof, CI and normal landing admission still apply.
 
 **The armed gate (#713).** An OPEN PR is armed — `reviewed` label or auto-merge
 enabled — only when the latest review record approves the current head, the bound
