@@ -133,8 +133,12 @@ function parseProvenance(finding: RenderedFinding, body: string): unknown {
   try {
     const parsed = spawnSync(
       'bun',
-      ['-e', 'const input = await Bun.stdin.text()\nprocess.stdout.write(JSON.stringify(Bun.YAML.parse(input)))'],
-      { cwd, input: raw, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] },
+      [
+        '--no-env-file',
+        '-e',
+        'const input = await Bun.stdin.text()\nprocess.stdout.write(JSON.stringify(Bun.YAML.parse(input)))',
+      ],
+      { cwd, input: raw, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 1_000 },
     )
     if (parsed.status !== 0 || parsed.error) {
       throw new Error(`could not parse finding provenance (${parsed.status}):\n${body}`)
