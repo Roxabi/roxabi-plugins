@@ -301,12 +301,29 @@ function unwrapJson(source: string, context: string): unknown {
   }
 }
 
+function closedCodeSpanEnd(body: string, start: number, length: number): number {
+  const boundary = /\n(?:[ \t]*\r?\n| {0,3}(?:#{1,6}(?:[ \t]|\r?$)|`{3,}|~{3,}))/gm
+  boundary.lastIndex = start + length
+  const end = boundary.exec(body)?.index ?? body.length
+  const backticks = /`+/g
+  backticks.lastIndex = start + length
+  for (let closing = backticks.exec(body); closing && closing.index < end; closing = backticks.exec(body)) {
+    if (closing[0].length === length) return closing.index + length
+  }
+  return 0
+}
+
 function structuralText(body: string): string {
   const lines = body.split('\n')
   let fenceMarker = ''
   let fenceLength = 0
   let pendingFactualValue = false
+  let inComment = false
+  let codeSpanUntil = 0
+  let offset = 0
   for (const [index, line] of lines.entries()) {
+    const start = offset
+    offset += line.length + 1
     const fence = /^([ \t]*)(`{3,}|~{3,})(.*)$/.exec(line)
     if (fenceMarker) {
       lines[index] = ' '.repeat(line.length)
@@ -321,24 +338,65 @@ function structuralText(body: string): string {
       }
       continue
     }
-    if (/^[ \t]+(?:Root cause|Symptoms\/evidence):[ \t]*```(?:json)?[ \t]*$/.test(line)) {
-      fenceMarker = '`'
-      fenceLength = 3
-      pendingFactualValue = false
-      continue
-    }
-    if (fence) {
-      const documentFence = indentationWidth(fence[1]) <= 3 && (fence[2][0] === '~' || !fence[3].includes('`'))
-      const factualFence = pendingFactualValue && fence[2] === '```' && /^(?:json)?[ \t]*$/.test(fence[3])
-      if (documentFence || factualFence) {
-        lines[index] = ' '.repeat(line.length)
-        fenceMarker = fence[2][0]
-        fenceLength = fence[2].length
+    if (!inComment && codeSpanUntil <= start) {
+      if (/^[ \t]+(?:Root cause|Symptoms\/evidence):[ \t]*```(?:json)?[ \t]*$/.test(line)) {
+        fenceMarker = '`'
+        fenceLength = 3
         pendingFactualValue = false
         continue
       }
+      if (fence) {
+        const documentFence = indentationWidth(fence[1]) <= 3 && (fence[2][0] === '~' || !fence[3].includes('`'))
+        const factualFence = pendingFactualValue && fence[2] === '```' && /^(?:json)?[ \t]*$/.test(fence[3])
+        if (documentFence || factualFence) {
+          lines[index] = ' '.repeat(line.length)
+          fenceMarker = fence[2][0]
+          fenceLength = fence[2].length
+          pendingFactualValue = false
+          continue
+        }
+      }
     }
-    if (line.trim()) pendingFactualValue = /^[ \t]+(?:Root cause|Symptoms\/evidence):[ \t]*$/.test(line)
+
+    let visible = ''
+    let cursor = 0
+    const tokens = /\\.|`+|<!--/g
+    while (cursor < line.length) {
+      if (inComment) {
+        const close = line.indexOf('-->', cursor)
+        const end = close === -1 ? line.length : close + 3
+        visible += ' '.repeat(end - cursor)
+        cursor = end
+        inComment = close === -1
+        continue
+      }
+      if (start + cursor < codeSpanUntil) {
+        const end = Math.min(line.length, codeSpanUntil - start)
+        visible += ' '.repeat(end - cursor)
+        cursor = end
+        continue
+      }
+      tokens.lastIndex = cursor
+      const token = tokens.exec(line)
+      if (!token) {
+        visible += line.slice(cursor)
+        break
+      }
+      visible += line.slice(cursor, token.index)
+      cursor = token.index
+      if (token[0] === '<!--') {
+        inComment = true
+        continue
+      }
+      if (token[0][0] === '`') {
+        codeSpanUntil = closedCodeSpanEnd(body, start + cursor, token[0].length)
+        if (codeSpanUntil) continue
+      }
+      visible += token[0]
+      cursor += token[0].length
+    }
+    lines[index] = visible
+    if (visible.trim()) pendingFactualValue = /^[ \t]+(?:Root cause|Symptoms\/evidence):[ \t]*$/.test(visible)
   }
   return lines.join('\n')
 }

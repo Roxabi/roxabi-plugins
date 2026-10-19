@@ -93,6 +93,70 @@ describe('qualifyPhase4Baseline', () => {
     }
   })
 
+  it.each([
+    [
+      'the complete Findings section',
+      rendered().replace('## Findings', '<!--\n## Findings').replace('## Summary', '-->\n## Summary'),
+    ],
+    ['a group heading', rendered().replace('### Blockers', '<!--\n### Blockers\n-->')],
+    ['an individual record', rendered([`${blocker().replace('\nissue:', '\n<!--\nissue:')}\n-->`, warning()])],
+    ['an unclosed comment', rendered().replace('## Findings', '<!--\n## Findings')],
+    [
+      'a comment after an escaped backtick',
+      rendered().replace('## Findings', 'Literal: \\` <!--\n## Findings').replace('## Summary', '-->\n## Summary'),
+    ],
+    [
+      'a comment after paired backslashes',
+      rendered().replace('## Findings', 'Literal: \\\\<!--\n## Findings').replace('## Summary', '-->\n## Summary'),
+    ],
+  ])('rejects structural membership hidden by HTML comments: %s', (_, body) => {
+    rejectSemantically(body)
+  })
+
+  it.each([
+    ['Provenance', BLOCKER_PROVENANCE],
+    ['Root cause', BLOCKER_CAUSE],
+    ['Symptoms/evidence', BLOCKER_WITNESS],
+    ['Raw callsites', BLOCKER_CALLSITES],
+    ['citation', 'src/panel/advance.ts:2'],
+    ['emitter', '-- fixture-adversarial'],
+  ])('rejects a %s identity inside a mixed-line HTML comment', (field, value) => {
+    const line = field === 'citation' || field === 'emitter' ? `  ${value}` : `  ${field}: ${value}`
+    rejectSemantically(rendered().replace(line, `  Note: <!--\n${line}\n  Context: -->`))
+  })
+
+  it.each([
+    ['inline code', 'The literal is `<!--`.\n'],
+    ['longer inline delimiters', 'The literal is `` ` <!-- ``.\n'],
+    ['multiline inline code', 'The literal is `first\n<!--\nlast`.\n'],
+    ['escaped text', 'The literal is \\<!--.\n'],
+    ['backtick-fenced code', '```markdown\n<!--\n```\n'],
+    ['tilde-fenced code', '~~~markdown\n<!--\n~~~\n'],
+    ['a fence inside a comment', '<!--\n```markdown\n-->\n'],
+  ])('preserves literal comment examples and code/comment precedence: %s', (_, prefix) => {
+    const body = rendered().replace('## Findings', `${prefix}## Findings`)
+    qualifyPhase4Baseline(body)
+    expect(reviewRecords([{ body, author: { login: 'fixture' } }], { me: 'fixture' })).toMatchObject({
+      reviews: 1,
+      verdict: 'Request changes',
+    })
+  })
+
+  it('ignores commented examples outside the actual finding set', () => {
+    const body = `${rendered()}\n<!--\n## Findings\n### Blockers\nissue: hidden example\n-->`
+    qualifyPhase4Baseline(body)
+    expect(reviewRecords([{ body, author: { login: 'fixture' } }], { me: 'fixture' })).toMatchObject({
+      reviews: 1,
+      verdict: 'Request changes',
+    })
+  })
+
+  it('keeps literal field examples inside inline code out of structural membership', () => {
+    const line = `  Root cause: ${BLOCKER_CAUSE}`
+    const body = rendered().replace(line, `  Note: \`<!--\n${line}\n  Context: -->\``)
+    rejectSemantically(body)
+  })
+
   it.each(['```', '~~~', '````', '~~~~'])('rejects %s-fenced examples as actual findings or facts', (fence) => {
     rejectSemantically(
       rendered().replace('## Findings', `${fence}markdown\n## Findings`).replace('## Summary', `${fence}\n## Summary`),

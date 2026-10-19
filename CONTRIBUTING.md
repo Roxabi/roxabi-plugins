@@ -94,9 +94,12 @@ in full. The factual carriers are certified; unrestricted prose outside them is
 not.
 Complete values may start below their field label; harmless line wrapping does
 not change their facts or associations.
-Only review structure outside code-fenced examples supplies finding membership
-and field identities. Supported JSON field wrappers keep their original value
-bytes, and quoted examples do not become extra findings.
+Only review structure outside code examples and HTML comments supplies finding
+membership and field identities. The offset-preserving projection respects
+code/comment precedence and escaped comment openers, including multiline and
+mixed-line comments; literal examples cannot hide or invent findings. Supported
+JSON field wrappers keep their original value bytes, and the first-line review
+marker is still checked against the original body.
 
 The original rendered body then reaches the unchanged `reviewRecords` consumer,
 which reads its declared `Request changes`. This proves neither verdict
