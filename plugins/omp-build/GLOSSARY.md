@@ -71,8 +71,8 @@ At most two automated fixes per PR, one per Review record, derived on every read
 A fix — after a red review, or after a CI failure on the approved head — is allowed while the PR has at most two records; the fix's push moves the head, so the next step needs a review of it.
 A record past the second that does not approve spends the bound for good: a later green does not lift it, and `landPr` refuses to arm. A CI failure after the third review stops too; the records do not show it, so only a ticket stop keeps that stop across runs.
 Every posted review counts, with or without a fix before it. Nothing writes accounting.
-The bound guards against agent mistakes, not against an agent that bypasses it. After a stop, resumption is an explicitly selected superseding PR under a revised plan, or the operator finishing by hand.
-_Avoid_: a ledger, counting fix receipts, a stop marker, one more automatic retry, merging with blockers
+After a stop, resumption is operator-supervised agent processing: the operator explicitly approves revised scope, a diagnostic/correction plan and the continuation checkpoint; agents perform the correction, targeted proof and independent review. A spent PR stays stopped and disarmed, so revised work goes to a superseding PR with a fresh bound while its records remain evidence; fresh review, proof, CI and `landPr` admission still apply.
+_Avoid_: a ledger, counting fix receipts, a stop-marker reset, one more automatic retry, raw label or manual-merge bypass
 
 **Snapshot**:
 A frozen copy of selected `dev-core` files inside `omp-build`. No resync. Claude's `dev-core` evolves alone.

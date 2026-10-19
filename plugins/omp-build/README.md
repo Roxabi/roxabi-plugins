@@ -156,6 +156,12 @@ by the automation login (`gh api user`) whose first line is
 `<!-- omp-build:code-review -->`: how many there are, and the latest one. Nothing
 writes accounting; every decision is derived again from a fresh read.
 
+When a bound is spent, its PR remains stopped and disarmed. The operator approves
+the revised scope, diagnostic/correction plan and continuation checkpoint; Phase 8
+then directs agents to perform the recovery, targeted proof and independent review
+on a superseding PR. Its fresh admission still follows the normal review, proof, CI
+and `landPr` path; the original dossier and records remain evidence.
+
 **The armed gate (#713).** An OPEN PR is armed — `reviewed` label or auto-merge
 enabled — only when the latest review record approves the current head, the bound
 is not spent, and no review of that head is running. The four workflow exits share

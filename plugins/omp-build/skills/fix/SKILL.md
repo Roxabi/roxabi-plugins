@@ -440,7 +440,8 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 - **Failure (quality gate, ¬findings, unrecoverable):** return the error and stop — the caller decides next steps outside the automatic bound.
 - **Loop cap:** at most 2 automatic fixes, derived by the caller's `nextReviewStep`
   from the review records. On `stop`, follow `skill://dev-review` Phase 8 —
-  escalation dossier. Automation on that PR is finished; resumption is a NEW
-  superseding PR or the operator finishing by hand.
+  escalation dossier. Automation on that PR remains stopped and disarmed;
+  operator-supervised agents continue only after explicit approval of revised
+  scope, a diagnostic/correction plan and a checkpoint, on a NEW superseding PR.
 
 $ARGUMENTS

@@ -15,7 +15,7 @@ version: 0.2.3
 I := F collected ∧ R named ∧ verdict posted (PR ∃) ∧ Phase 8 decision made ∧ (PR ∃ → the posted line 2 is the pre-post `REVIEWED_HEAD` snapshot, and the post-time `headRefOid` equals that snapshot; a different head is not posted)
 V := `gh pr view {N} --comments | grep "## Code Review"` ∧ verdict ∈ {Approve, Request changes} ∧ the posted line 2 is `<!-- omp-build:review-head sha=<40 lowercase hex> -->` of that snapshot. A post-time `headRefOid` that differs → do not post.
 
-Review branch/PR via fresh agents → Conventional Comments → root causes → findings + verdict.
+Review branch/PR via fresh agents independent of implementation → Conventional Comments → root causes → findings + verdict.
 
 **⚠ Flow: single continuous pipeline (Phases 1→4 + 8). ¬stop between phases. Decision response → immediately execute next phase. Stop only on: |Δ|=0, explicit Cancel, roster `review_halt`, or Phase 8 completion.**
 
@@ -626,13 +626,18 @@ Publish as a PR comment when a PR exists; otherwise display locally:
 3. Fix-induced defects observed after a fix round.
 4. Higher-level hypothesis — labelled **hypothesis, not certainty** — plus the
    falsifying observations that would discriminate it.
-5. Exactly 2–3 human options (revised diagnostic plan via a NEW superseding PR,
-   revised design/scope via a NEW superseding PR, or the operator finishing this
-   PR by hand). Generic "retry" is not an option.
-6. Explicit ask: automation on this PR is finished. A superseding PR (a revised
-   ticket via issue-triage linking this PR, a new branch, a fresh `/feature`)
-   starts its own bound; the stopped PR stays open as evidence until the operator
-   closes it. The bound counts the automation account's records only.
+5. Exactly 2 operator choices: approve a revised diagnostic/correction plan and
+   scope for agent processing on a NEW superseding PR, or leave the PR stopped.
+   Generic "retry" is not an option.
+6. Explicit ask: normal automation on this PR is finished and remains disarmed.
+   The operator explicitly approves the revised scope, diagnostic/correction plan,
+   and continuation checkpoint; a general "continue" is insufficient. Under that
+   supervision, agents perform the diagnosis, code/doc corrections and targeted proof, then
+   an agent independent of implementation — never the implementing agent — reviews the new head. A superseding PR
+   (a revised ticket via issue-triage linking this PR, a new branch, a fresh
+   `/feature`) starts its own bound; current-head review, proof, CI and normal
+   `landPr` admission still apply. The stopped PR stays open as evidence until the
+   operator closes it. The bound counts the automation account's records only.
 
 > Review findings are fixed by `skill://fix`; CI-only failures use `/feature` §6.5.
 
@@ -662,7 +667,7 @@ Publish as a PR comment when a PR exists; otherwise display locally:
 
 ## Safety Rules
 
-1. Fresh agents only — ¬implementation context
+1. Fresh agents independent of implementation only — ¬implementation context
 2. ¬approve PRs on GitHub; ¬enable auto-merge outside a green `land` step through `landPr`
 3. Merge = merge commit only, ¬squash; merge executes via the gate (label + auto-merge), never manually mid-CI
 4. ¬fix code — findings only. Fixing = `skill://fix` after a `fix` step
@@ -674,7 +679,7 @@ Publish as a PR comment when a PR exists; otherwise display locally:
 
 - **Phase:** Verify
 - **Predecessor:** implement
-- **Successor:** conditional — green `land` → gated landing | red `fix` → `skill://fix` | `stop` → escalation dossier + human guidance
+- **Successor:** conditional — green `land` → gated landing | red `fix` → `skill://fix` | `stop` → escalation dossier + operator-supervised agent recovery
 - **Class:** verdict (branching based on findings)
 - **Loop cap:** at most 2 automatic fixes, derived by `nextReviewStep` from the review records. A record past the second that does not approve → stop + dossier; never Merge-as-is with blockers.
 

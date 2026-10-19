@@ -469,7 +469,7 @@ function recordStop(repo: string, run: string, ticket: number, reason: string, d
       `**Goal run \`${run}\` — ticket stop \`${reason}\`.** ${detail}`,
       '',
       STICKY_STOPS.includes(reason)
-        ? 'The review bound is spent: this child stays stopped in every later run until a human resolves it.'
+        ? 'The review bound is spent: this child stays stopped in every later run. Recovery requires an operator-approved revised scope, diagnostic/correction plan and continuation checkpoint; agents carry it to a new superseding PR for fresh admission.'
         : 'Its dependents are skipped in this run; independent children continue. A new `/goal` line retries it.',
     ].join('\n'),
   )

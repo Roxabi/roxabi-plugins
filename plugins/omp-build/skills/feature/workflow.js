@@ -1628,7 +1628,11 @@ export async function readReviewRecords(cwd, pr, { gh: ghFn = gh } = {}) {
 }
 
 const STOP_GUIDANCE =
-  'Publish the escalation dossier (dev-review Phase 8). Automation on this PR is finished: a NEW superseding PR from a revised ticket, or the operator finishing this PR by hand.'
+  'Publish the escalation dossier (dev-review Phase 8). Automation on this PR remains stopped and disarmed: ' +
+  'operator-supervised agent processing begins only after the operator explicitly approves revised scope, ' +
+  'a diagnostic/correction plan and a continuation checkpoint. Agents carry the work to a NEW superseding PR ' +
+  'for fresh independent review, proof, CI and normal landing admission; no extra review on this PR or ' +
+  'manual merge bypass.'
 
 /** @param {'review-bound' | 'ci-failed'} reason @param {number} reviews */
 function stopStep(reason, reviews) {
