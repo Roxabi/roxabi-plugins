@@ -8,6 +8,7 @@ type Finding = {
   group: string
   label: string
   content: string
+  structure: string
 }
 
 type ExpectedFinding = {
@@ -300,22 +301,65 @@ function unwrapJson(source: string, context: string): unknown {
   }
 }
 
+function structuralText(body: string): string {
+  const lines = body.split('\n')
+  let fenceMarker = ''
+  let fenceLength = 0
+  let pendingFactualValue = false
+  for (const [index, line] of lines.entries()) {
+    const fence = /^([ \t]*)(`{3,}|~{3,})(.*)$/.exec(line)
+    if (fenceMarker) {
+      lines[index] = ' '.repeat(line.length)
+      if (
+        fence &&
+        indentationWidth(fence[1]) <= 3 &&
+        fence[2][0] === fenceMarker &&
+        fence[2].length >= fenceLength &&
+        fence[3].trim() === ''
+      ) {
+        fenceMarker = ''
+      }
+      continue
+    }
+    if (/^[ \t]+(?:Root cause|Symptoms\/evidence):[ \t]*```(?:json)?[ \t]*$/.test(line)) {
+      fenceMarker = '`'
+      fenceLength = 3
+      pendingFactualValue = false
+      continue
+    }
+    if (fence) {
+      const documentFence = indentationWidth(fence[1]) <= 3 && (fence[2][0] === '~' || !fence[3].includes('`'))
+      const factualFence = pendingFactualValue && fence[2] === '```' && /^(?:json)?[ \t]*$/.test(fence[3])
+      if (documentFence || factualFence) {
+        lines[index] = ' '.repeat(line.length)
+        fenceMarker = fence[2][0]
+        fenceLength = fence[2].length
+        pendingFactualValue = false
+        continue
+      }
+    }
+    if (line.trim()) pendingFactualValue = /^[ \t]+(?:Root cause|Symptoms\/evidence):[ \t]*$/.test(line)
+  }
+  return lines.join('\n')
+}
+
 function findingSections(body: string): Finding[] {
-  const headings = [...body.matchAll(/^## Findings[ \t]*$/gm)]
+  const structure = structuralText(body)
+  const headings = [...structure.matchAll(/^## Findings[ \t]*$/gm)]
   if (headings.length !== 1 || headings[0].index === undefined) reject('rendered review has no unique Findings section')
   const heading = headings[0]
   const start = heading.index + heading[0].length
   const nextHeading = /^## (?!Findings\b)/gm
   nextHeading.lastIndex = start
-  const end = nextHeading.exec(body)?.index ?? body.length
+  const end = nextHeading.exec(structure)?.index ?? body.length
   const conventional = /^[\t ]*[-*]?[\t ]*(?:issue|suggestion|todo|nitpick|thought|question|praise)(?:\([a-z-]+\))?:/m
-  if (conventional.test(body.slice(0, heading.index)) || conventional.test(body.slice(end))) {
+  if (conventional.test(structure.slice(0, heading.index)) || conventional.test(structure.slice(end))) {
     reject('rendered review contains a Conventional Comment outside Findings')
   }
 
-  const section = body.slice(start, end)
+  const section = structure.slice(start, end)
   const groupHeaders = [...section.matchAll(/^### ([^\n]+?)[ \t]*$/gm)]
-  const groups = new Map<string, string>()
+  const groups = new Map<string, { content: string; structure: string }>()
   let cursor = 0
   for (const [index, groupHeader] of groupHeaders.entries()) {
     const groupStart = groupHeader.index ?? 0
@@ -325,7 +369,10 @@ function findingSections(body: string): Finding[] {
     if (groups.has(group)) reject(`rendered review repeats group ${group}`)
     const contentStart = groupStart + groupHeader[0].length
     const contentEnd = groupHeaders[index + 1]?.index ?? section.length
-    groups.set(group, section.slice(contentStart, contentEnd))
+    groups.set(group, {
+      content: body.slice(start + contentStart, start + contentEnd),
+      structure: section.slice(contentStart, contentEnd),
+    })
     cursor = contentEnd
   }
   if (conventional.test(section.slice(cursor))) reject('rendered review contains an ungrouped Conventional Comment')
@@ -337,16 +384,21 @@ function findingSections(body: string): Finding[] {
   }
 
   const findings: Finding[] = []
-  for (const [group, content] of groups) {
+  for (const [group, { content, structure }] of groups) {
     const records = [
-      ...content.matchAll(
+      ...structure.matchAll(
         /^[\t ]*[-*]?[\t ]*((?:issue|suggestion|todo|nitpick|thought|question|praise)(?:\([a-z-]+\))?):[^\n]*(?:\n|$)/gm,
       ),
     ]
     for (const [index, record] of records.entries()) {
       const start = record.index ?? 0
       const end = records[index + 1]?.index ?? content.length
-      findings.push({ group, label: `${record[1]}:`, content: content.slice(start, end) })
+      findings.push({
+        group,
+        label: `${record[1]}:`,
+        content: content.slice(start, end),
+        structure: structure.slice(start, end),
+      })
     }
   }
   if (findings.length !== EXPECTED_FINDINGS.length) reject('rendered review has wrong number of findings')
@@ -359,20 +411,20 @@ function indentationWidth(indentation: string): number {
   return width
 }
 
-function namedFields(content: string): Map<string, string[]> {
+function namedFields(content: string, structure: string): Map<string, string[]> {
   const matches = [
-    ...content.matchAll(/^([ \t]+)(Provenance|Root cause|Symptoms\/evidence|Raw callsites):[ \t]*(.*)$/gm),
+    ...structure.matchAll(/^([ \t]+)(Provenance|Root cause|Symptoms\/evidence|Raw callsites):[ \t]*(.*)$/gm),
   ]
   const fields = new Map<string, string[]>()
   for (const [index, match] of matches.entries()) {
     const name = match[2]
     const start = (match.index ?? 0) + match[0].length - match[3].length
-    const rest = content.slice(start)
     const indentation = indentationWidth(match[1])
     const peers = /\n([ \t]+)(?:-- |[A-Za-z][A-Za-z /-]*:)/g
-    let boundary = peers.exec(rest)
-    while (boundary && indentationWidth(boundary[1]) > indentation) boundary = peers.exec(rest)
-    const value = rest.slice(0, boundary?.index).trim()
+    peers.lastIndex = start
+    let boundary = peers.exec(structure)
+    while (boundary && indentationWidth(boundary[1]) > indentation) boundary = peers.exec(structure)
+    const value = content.slice(start, boundary?.index).trim()
     const values = fields.get(name) ?? []
     values.push(value)
     fields.set(name, values)
@@ -393,14 +445,14 @@ function qualifyFinding(finding: Finding): void {
   )
   if (!expected) reject(`unexpected finding ${finding.group}/${finding.label}`)
 
-  const citations = [...finding.content.matchAll(/^[ \t]+([A-Za-z0-9_./-]+:\d+)[ \t]*$/gm)].map((match) => match[1])
+  const citations = [...finding.structure.matchAll(/^[ \t]+([A-Za-z0-9_./-]+:\d+)[ \t]*$/gm)].map((match) => match[1])
   if (citations.length !== 1 || citations[0] !== expected.citation)
     reject(`${expected.citation} must have exactly one matching citation`)
-  const emitters = [...finding.content.matchAll(/^[ \t]+-- ([^\n]+?)[ \t]*$/gm)].map((match) => match[1])
+  const emitters = [...finding.structure.matchAll(/^[ \t]+-- ([^\n]+?)[ \t]*$/gm)].map((match) => match[1])
   if (emitters.length !== 1 || emitters[0] !== expected.emitter)
     reject(`${expected.citation} must have exactly one matching emitter`)
 
-  const fields = namedFields(finding.content)
+  const fields = namedFields(finding.content, finding.structure)
   const cause = unwrapJson(oneField(fields, 'Root cause', expected.citation), `${expected.citation} Root cause`)
   const witness = unwrapJson(
     oneField(fields, 'Symptoms/evidence', expected.citation),

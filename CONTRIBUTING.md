@@ -94,6 +94,9 @@ in full. The factual carriers are certified; unrestricted prose outside them is
 not.
 Complete values may start below their field label; harmless line wrapping does
 not change their facts or associations.
+Only review structure outside code-fenced examples supplies finding membership
+and field identities. Supported JSON field wrappers keep their original value
+bytes, and quoted examples do not become extra findings.
 
 The original rendered body then reaches the unchanged `reviewRecords` consumer,
 which reads its declared `Request changes`. This proves neither verdict

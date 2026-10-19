@@ -53,6 +53,7 @@ function rendered(findings = [blocker(), warning()]): string {
     ...findings,
     '## Summary',
     'The unrestricted explanation is not qualified.',
+    '**Verdict: Request changes**',
   ].join('\n')
 }
 
@@ -67,25 +68,56 @@ function rejectSemantically(body: string): void {
 
 describe('qualifyPhase4Baseline', () => {
   it('accepts the complete two-finding control and harmless presentation variants', () => {
-    expect(() => qualifyPhase4Baseline(rendered())).not.toThrow()
-    expect(() =>
-      qualifyPhase4Baseline(
-        rendered([
-          warning({
-            provenance:
-              '[{phase: \'panel\', callsites: [{line: 2, file: "src/panel/status.ts"}], chunk: 1, agent: fixture-architect}]',
-            callsites: '[{line: 2, file: src/panel/status.ts}]',
-            cause: `\`\`\`json\n${JSON.stringify(JSON.parse(WARNING_CAUSE), null, 2)}\n\`\`\``,
-          }),
-          blocker({
-            provenance:
-              '[{callsites: [{line: 3, file: src/panel/submit.ts}, {line: 2, file: src/panel/advance.ts}], chunk: 1, phase: panel, agent: fixture-adversarial}]',
-            callsites: '[{line: 3, file: src/panel/submit.ts}, {line: 2, file: src/panel/advance.ts}]',
-            witness: `\`\`\`\n${JSON.stringify(JSON.parse(BLOCKER_WITNESS), null, 2)}\n\`\`\``,
-          }),
-        ]),
-      ),
-    ).not.toThrow()
+    for (const body of [
+      rendered(),
+      rendered([
+        warning({
+          provenance:
+            '[{phase: \'panel\', callsites: [{line: 2, file: "src/panel/status.ts"}], chunk: 1, agent: fixture-architect}]',
+          callsites: '[{line: 2, file: src/panel/status.ts}]',
+          cause: `\`\`\`json\n${JSON.stringify(JSON.parse(WARNING_CAUSE), null, 2)}\n\`\`\``,
+        }),
+        blocker({
+          provenance:
+            '[{callsites: [{line: 3, file: src/panel/submit.ts}, {line: 2, file: src/panel/advance.ts}], chunk: 1, phase: panel, agent: fixture-adversarial}]',
+          callsites: '[{line: 3, file: src/panel/submit.ts}, {line: 2, file: src/panel/advance.ts}]',
+          witness: `\`\`\`\n${JSON.stringify(JSON.parse(BLOCKER_WITNESS), null, 2)}\n\`\`\``,
+        }),
+      ]),
+    ]) {
+      qualifyPhase4Baseline(body)
+      expect(reviewRecords([{ body, author: { login: 'fixture' } }], { me: 'fixture' })).toMatchObject({
+        reviews: 1,
+        verdict: 'Request changes',
+      })
+    }
+  })
+
+  it.each(['```', '~~~', '````', '~~~~'])('rejects %s-fenced examples as actual findings or facts', (fence) => {
+    rejectSemantically(
+      rendered().replace('## Findings', `${fence}markdown\n## Findings`).replace('## Summary', `${fence}\n## Summary`),
+    )
+    rejectSemantically(
+      rendered([
+        `${blocker().replace('### Blockers\n', `### Blockers\n${fence}markdown\n`)}\n${fence}`,
+        `${warning().replace('### Warnings\n', `### Warnings\n${fence}markdown\n`)}\n${fence}`,
+      ]),
+    )
+    rejectSemantically(
+      rendered([
+        `${blocker().replace(`  Root cause: ${BLOCKER_CAUSE}`, `${fence}markdown\n  Root cause: ${BLOCKER_CAUSE}`)}\n${fence}`,
+        warning(),
+      ]),
+    )
+  })
+
+  it.each(['```', '~~~', '````', '~~~~'])('keeps %s-fenced examples outside the actual finding set', (fence) => {
+    const body = `${rendered()}\n${fence}markdown\n## Findings\n### Blockers\nissue: quoted example\n${fence}`
+    qualifyPhase4Baseline(body)
+    expect(reviewRecords([{ body, author: { login: 'fixture' } }], { me: 'fixture' })).toMatchObject({
+      reviews: 1,
+      verdict: 'Request changes',
+    })
   })
 
   it.each([
@@ -111,10 +143,7 @@ describe('qualifyPhase4Baseline', () => {
     ['Raw callsites', BLOCKER_CALLSITES],
   ])('accepts complete %s values below their header for the unchanged consumer', (field, value) => {
     for (const padding of ['', ' ']) {
-      const body = `${rendered()}\n**Verdict: Request changes**`.replace(
-        `  ${field}: ${value}`,
-        `  ${field}:${padding}\n    ${value}`,
-      )
+      const body = rendered().replace(`  ${field}: ${value}`, `  ${field}:${padding}\n    ${value}`)
       qualifyPhase4Baseline(body)
       const record = reviewRecords([{ body, author: { login: 'fixture' } }], { me: 'fixture' })
       expect(record).toMatchObject({ reviews: 1, verdict: 'Request changes' })
