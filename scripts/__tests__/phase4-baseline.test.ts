@@ -1,5 +1,6 @@
 import { AssertionError } from 'node:assert'
 import { describe, expect, it } from 'vitest'
+import { reviewRecords } from '../../plugins/omp-build/skills/feature/workflow.js'
 import { qualifyPhase4Baseline } from './phase4-baseline'
 
 const BLOCKER_CAUSE = '["guard","src/panel/advance.ts:2","or",["ne","approvedAt",null],["ne","status","blocked"]]'
@@ -100,6 +101,23 @@ describe('qualifyPhase4Baseline', () => {
           `  ${field}: ${value}\n${indentation}Contradiction: ${WARNING_CAUSE}`,
         ),
       )
+    }
+  })
+
+  it.each([
+    ['Root cause', BLOCKER_CAUSE],
+    ['Symptoms/evidence', BLOCKER_WITNESS],
+    ['Provenance', BLOCKER_PROVENANCE],
+    ['Raw callsites', BLOCKER_CALLSITES],
+  ])('accepts complete %s values below their header for the unchanged consumer', (field, value) => {
+    for (const padding of ['', ' ']) {
+      const body = `${rendered()}\n**Verdict: Request changes**`.replace(
+        `  ${field}: ${value}`,
+        `  ${field}:${padding}\n    ${value}`,
+      )
+      qualifyPhase4Baseline(body)
+      const record = reviewRecords([{ body, author: { login: 'fixture' } }], { me: 'fixture' })
+      expect(record).toMatchObject({ reviews: 1, verdict: 'Request changes' })
     }
   })
 

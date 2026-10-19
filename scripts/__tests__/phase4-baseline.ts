@@ -366,7 +366,7 @@ function namedFields(content: string): Map<string, string[]> {
   const fields = new Map<string, string[]>()
   for (const [index, match] of matches.entries()) {
     const name = match[2]
-    const start = (match.index ?? 0) + match[0].indexOf(match[3])
+    const start = (match.index ?? 0) + match[0].length - match[3].length
     const rest = content.slice(start)
     const indentation = indentationWidth(match[1])
     const peers = /\n([ \t]+)(?:-- |[A-Za-z][A-Za-z /-]*:)/g

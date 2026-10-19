@@ -92,6 +92,8 @@ carrier data are rejected. A mandatory value ends at a peer-level field header;
 deeper space/tab-indented continuations remain part of that value and must parse
 in full. The factual carriers are certified; unrestricted prose outside them is
 not.
+Complete values may start below their field label; harmless line wrapping does
+not change their facts or associations.
 
 The original rendered body then reaches the unchanged `reviewRecords` consumer,
 which reads its declared `Request changes`. This proves neither verdict
