@@ -9,7 +9,7 @@ git tag -a roxabi-plugins/vX.Y.Z → release.yml publishes the GitHub Release
 
 1. Create a branch from `main`: `feat/plugins/new-skill`, `fix/plugins/edge-case`
 2. Open a PR targeting `main`
-3. Pass CI (`bun lint`, `bun typecheck`, `bun test`)
+3. Pass CI (`bun run lint`, `bun run typecheck`, `bun run test`)
 4. Merge
 
 Merging cuts **no** release. A release exists because someone decided a state was
@@ -56,6 +56,47 @@ bun run test              # Vitest — must pass
 ```
 
 Style: single quotes, no semicolons. Markdown: ATX headings, tables for structured data.
+
+## Local Phase 4 model baseline
+
+After `bun install`, run the explicit, paid/model-authenticated profile:
+
+```bash
+bun run test:phase4-model
+```
+
+- **Prerequisites:** Bun with `Bun.YAML`, the normal Node/Vitest environment,
+  and an installed native `omp` CLI authenticated for `openai-codex/gpt-6.1-sol`.
+  The executor fixes that model and `low` thinking; it does not provision credentials.
+  Process-group cleanup is exercised on Linux/POSIX.
+- **Selection:** only `*.model.integration.test.*` runs in `phase4-model`.
+  These new cases are excluded from ordinary `bun run test` and `bun run test:watch`;
+  all pre-existing cases stay selected. The separate
+  `scripts/__tests__/phase4-runner.integration.test.ts` uses real stub processes
+  to check transport failures and cleanup, not to qualify model behaviour.
+- **Source and records:** `scripts/phase4-model.ts` loads committed `HEAD` blobs for
+  the actual dev-review `SKILL.md`, `root-causes.md`, `review-smells.md` and
+  `review-classes.yml`. Uncommitted programme edits are not silently tested.
+  The verbose result's `phase4-model-provenance` annotation records their paths,
+  commit/blob identities, loaded/sent SHA-256 values, fixture/input/config hashes,
+  runtime path/version, model and limits. Caller-modified source text is marked
+  `atCommit: false`. Expected labels, membership, provenance/evidence associations
+  and verdict assertions remain outside the model input; the unchanged rendered
+  body reaches the existing pure `workflow.reviewRecords` consumer.
+- **Bounds and failures:** the shared integration budget stays 30 seconds/test,
+  with a native call bounded to 25 seconds, a version probe bounded to 2 seconds,
+  and bounded cleanup of owned process groups and temporary inputs. There are no
+  harness retries, votes or model fallbacks. The invocation requests no tools,
+  LSP, extensions, skills, rules or session persistence, from an owned temporary
+  working directory; observed tool/retry/fallback events are rejected. It still
+  uses the operator's native runtime/authentication: this is not a hermetic sandbox.
+  Missing runtime/auth, provider/deadline/stream errors and failed assertions fail
+  visibly rather than becoming skipped-green results.
+- **Limits:** this nondeterministic local baseline preserves two independent
+  non-recall panel findings and observes `Request changes`; it does not prove live
+  repository discovery, landing safety or the six later #736 scenarios/source
+  controls. Current CI runs the ordinary suite, **not** the model profile. No CI
+  model credentials or model-assertion enforcement are added here.
 
 ## Project structure
 

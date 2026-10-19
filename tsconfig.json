@@ -7,11 +7,13 @@
     "types": ["bun-types"],
     "strict": true,
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "esModuleInterop": true
   },
   "include": [
     "vitest.config.ts",
+    "vitest.phase4-model.config.ts",
     "vitest.setup.ts",
     "vitest.global-setup.ts",
     "plugins/issue-triage/**/*.ts",

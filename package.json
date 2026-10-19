@@ -8,6 +8,7 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:phase4-model": "vitest run --config vitest.phase4-model.config.ts --project phase4-model --reporter=verbose",
     "lint": "bunx biome check .",
     "typecheck": "tsc --noEmit",
     "verify:pins": "bun run tools/verify-action-pins.ts"
