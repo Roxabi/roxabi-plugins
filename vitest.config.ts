@@ -20,6 +20,7 @@ const exclude = [
 // land in the tight budget by accident — including when it forks only through an
 // imported helper, which its own source does not reveal.
 const INTEGRATION = '**/*.integration.test.?(c|m)[jt]s?(x)'
+export const MODEL = '**/*.model.integration.test.?(c|m)[jt]s?(x)'
 
 export default defineConfig({
   test: {
@@ -34,9 +35,8 @@ export default defineConfig({
     },
     projects: [
       {
-        // `extends: true` is explicit: inline projects only inherit by default
-        // from vitest 5, and this repo is on 4.x. Without it a project resolves
-        // with no setupFiles and no env, which would drop the Bun shim.
+        // `extends: true` preserves root setup and fixture environment for this
+        // inline project.
         extends: true,
         test: {
           name: 'unit',
@@ -51,6 +51,8 @@ export default defineConfig({
         test: {
           name: 'integration',
           include: [INTEGRATION],
+          // Model-backed integration cases run only through the explicit local profile.
+          exclude: [MODEL],
           // 26x the slowest fork measured locally, 1155ms. Wide enough to absorb
           // a loaded runner, tight enough that a genuinely hung child still
           // fails the job instead of hanging it.

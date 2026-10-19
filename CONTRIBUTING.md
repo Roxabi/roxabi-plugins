@@ -9,7 +9,7 @@ git tag -a roxabi-plugins/vX.Y.Z → release.yml publishes the GitHub Release
 
 1. Create a branch from `main`: `feat/plugins/new-skill`, `fix/plugins/edge-case`
 2. Open a PR targeting `main`
-3. Pass CI (`bun lint`, `bun typecheck`, `bun test`)
+3. Pass CI (`bun run lint`, `bun run typecheck`, `bun run test`)
 4. Merge
 
 Merging cuts **no** release. A release exists because someone decided a state was
@@ -56,6 +56,58 @@ bun run test              # Vitest — must pass
 ```
 
 Style: single quotes, no semicolons. Markdown: ATX headings, tables for structured data.
+
+## Local Phase 4 model qualification
+
+```bash
+bun run test:phase4-model
+```
+
+This explicit, local-only profile requires an authenticated native `omp` on
+`PATH` and POSIX process-group cleanup. It calls the installed CLI through
+`node:child_process`, not an SDK or a copied implementation of the review
+programme. The command sets `ROXABI_PHASE4_MODEL=1`; without that exact effective
+per-call value, the runner refuses before executable discovery or `--version`.
+Ordinary `bun run test` and `bun run test:watch` keep their existing tests and
+include the pure oracle and stub transport regressions, but exclude the
+`*.model.integration.test.ts` profile.
+
+| Surface | Contract |
+|---|---|
+| Programme | Four complete `dev-review` sources are read from the candidate `HEAD` blobs: `SKILL.md`, `root-causes.md`, `review-smells.md`, and `review-classes.yml`. |
+| Provenance | The test annotation records commit/blob identities, loaded/sent SHA-256 values, fixture/input/delivered-input/config hashes, executable path/realpath/version, and stream-observed provider/model. `atCommit` checks the actual Git blobs, not caller-supplied identities alone. |
+| Settings | `openai-codex` / `gpt-6.1-sol`; `requestedThinking: low` is a request, not a claim that effective thinking was observed. |
+| Bounds | A 30-second integration-test budget, a maximum 25-second invocation deadline and a maximum 2-second version probe; no retry, voting, timeout increase, or skipped-as-green fallback. Owned temporary files and process groups are cleaned up under the supported normal-path bounds. |
+| Stream | One complete delivered user turn and terminal assistant response are required; observed tool/retry/fallback/model-change/failure events and incompatible terminal flags fail the run. |
+
+The baseline contains two independent captured panel findings: a publication
+guard defect and a local status-formatting observation with no supplied safety
+caller. Expected final labels, groups and verdict stay in the host assertions,
+outside model input. Both native and ordinary tests call the same pure
+`qualifyPhase4Baseline(body): void` seam. It checks complete finding membership,
+identities, citations, emitters, provenance/raw-callsite associations, and whole
+typed JSON cause/witness tuples. Duplicate fields or decoded metadata keys,
+cross-finding substitutions, polarity changes, missing facts and trailing
+carrier data are rejected. The factual carriers are certified; unrestricted
+prose outside them is not.
+
+The original rendered body then reaches the unchanged `reviewRecords` consumer,
+which reads its declared `Request changes`. This proves neither verdict
+recomputation nor landing eligibility. The six additional cases and
+actual-source mutation controls belong to #736, not this prerequisite baseline.
+The accepted native MCP/ambient-configuration limits tracked in #858 and #859
+remain limits, not isolation guarantees supplied by this profile.
+These are not sandbox/resource caps or universal interruption/reaping
+guarantees. Slow hosts, authentication and model latency can fail the fixed
+budgets. Optional native-envelope flags are checked when present; their absence
+does not certify them.
+
+Use the Vitest commands above, not bare `bun test`. For an alternate-runner
+reachability check, isolate credentials and substitute a logging fake `omp`.
+If the operator shell intercepts that command, report bare-Bun reachability as
+unobserved; never bypass the interceptor. The ordinary no-opt-in transport
+regression separately asserts that the fake receives zero calls, including
+`--version`.
 
 ## Project structure
 
