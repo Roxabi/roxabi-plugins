@@ -88,8 +88,10 @@ outside model input. Both native and ordinary tests call the same pure
 identities, citations, emitters, provenance/raw-callsite associations, and whole
 typed JSON cause/witness tuples. Duplicate fields or decoded metadata keys,
 cross-finding substitutions, polarity changes, missing facts and trailing
-carrier data are rejected. The factual carriers are certified; unrestricted
-prose outside them is not.
+carrier data are rejected. A mandatory value ends at a peer-level field header;
+deeper space/tab-indented continuations remain part of that value and must parse
+in full. The factual carriers are certified; unrestricted prose outside them is
+not.
 
 The original rendered body then reaches the unchanged `reviewRecords` consumer,
 which reads its declared `Request changes`. This proves neither verdict

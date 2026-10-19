@@ -353,14 +353,25 @@ function findingSections(body: string): Finding[] {
   return findings
 }
 
+function indentationWidth(indentation: string): number {
+  let width = 0
+  for (const character of indentation) width += character === '\t' ? 4 - (width % 4) : 1
+  return width
+}
+
 function namedFields(content: string): Map<string, string[]> {
-  const matches = [...content.matchAll(/^[ \t]+(Provenance|Root cause|Symptoms\/evidence|Raw callsites):[ \t]*(.*)$/gm)]
+  const matches = [
+    ...content.matchAll(/^([ \t]+)(Provenance|Root cause|Symptoms\/evidence|Raw callsites):[ \t]*(.*)$/gm),
+  ]
   const fields = new Map<string, string[]>()
   for (const [index, match] of matches.entries()) {
-    const name = match[1]
-    const start = (match.index ?? 0) + match[0].indexOf(match[2])
+    const name = match[2]
+    const start = (match.index ?? 0) + match[0].indexOf(match[3])
     const rest = content.slice(start)
-    const boundary = /\n[ \t]+(?:-- |[A-Za-z][A-Za-z /-]*:[ \t])/.exec(rest)
+    const indentation = indentationWidth(match[1])
+    const peers = /\n([ \t]+)(?:-- |[A-Za-z][A-Za-z /-]*:)/g
+    let boundary = peers.exec(rest)
+    while (boundary && indentationWidth(boundary[1]) > indentation) boundary = peers.exec(rest)
     const value = rest.slice(0, boundary?.index).trim()
     const values = fields.get(name) ?? []
     values.push(value)

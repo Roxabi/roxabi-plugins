@@ -88,6 +88,22 @@ describe('qualifyPhase4Baseline', () => {
   })
 
   it.each([
+    ['Root cause', BLOCKER_CAUSE],
+    ['Symptoms/evidence', BLOCKER_WITNESS],
+    ['Provenance', BLOCKER_PROVENANCE],
+    ['Raw callsites', BLOCKER_CALLSITES],
+  ])('rejects field-looking continuations inside the complete %s value', (field, value) => {
+    for (const indentation of ['    ', '\t']) {
+      rejectSemantically(
+        rendered().replace(
+          `  ${field}: ${value}`,
+          `  ${field}: ${value}\n${indentation}Contradiction: ${WARNING_CAUSE}`,
+        ),
+      )
+    }
+  })
+
+  it.each([
     ['Root cause', (body: string) => body.replace(`  Root cause: ${BLOCKER_CAUSE}\n`, '')],
     ['Symptoms/evidence', (body: string) => body.replace(`  Symptoms/evidence: ${BLOCKER_WITNESS}\n`, '')],
     ['Provenance', (body: string) => body.replace(`  Provenance: ${BLOCKER_PROVENANCE}\n`, '')],
