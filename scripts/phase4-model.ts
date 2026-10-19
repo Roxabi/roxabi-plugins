@@ -53,7 +53,7 @@ export interface Phase4SourceProvenance {
   commitSHA: string
   sourceSHA: string
   sentSHA: string
-  /** False when a caller changed the loaded source before this invocation. */
+  /** True only when sent text and supplied identities match the actual candidate Git blob. */
   atCommit: boolean
 }
 
@@ -423,15 +423,20 @@ export async function runPhase4Model(
   const executableRealpath = realpathSync(executable)
   const config = isolatedConfig()
   const input = promptFor(programme, fixture)
+  const commitSHA = (
+    git(programme.root, ['rev-parse', '--verify', '--end-of-options', `${programme.commitSHA}^{commit}`]) as string
+  ).trim()
   const sourceProvenance = programme.sources.map((source) => {
+    const commitBlob = (git(programme.root, ['rev-parse', `${commitSHA}:${source.path}`]) as string).trim()
+    const sourceSHA = sha256(git(programme.root, ['show', `${commitSHA}:${source.path}`], 'buffer') as Buffer)
     const sentSHA = sha256(source.text)
     return {
       path: source.path,
-      commitBlob: source.gitBlob,
-      commitSHA: programme.commitSHA,
-      sourceSHA: source.sourceSHA,
+      commitBlob,
+      commitSHA,
+      sourceSHA,
       sentSHA,
-      atCommit: source.sourceSHA === sentSHA,
+      atCommit: source.gitBlob === commitBlob && source.sourceSHA === sourceSHA && sentSHA === sourceSHA,
     }
   })
   const directory = mkdtempSync(join(tmpdir(), 'phase4-model-'))

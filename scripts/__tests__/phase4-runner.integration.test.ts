@@ -3,35 +3,14 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { type Phase4Fixture, type Phase4Programme, runPhase4Model } from '../phase4-model'
+import { type Phase4Fixture, readPhase4Programme, runPhase4Model } from '../phase4-model'
 
-const ROOT = resolve(import.meta.dirname, '../..')
 const dirs: string[] = []
 
 const fixture: Phase4Fixture = { id: 'transport-fixture', snapshot: 'synthetic reports' }
 
 function digest(value: string): string {
   return createHash('sha256').update(value).digest('hex')
-}
-
-function programme(): Phase4Programme {
-  const source = (path: Phase4Programme['sources'][number]['path'], text: string) => ({
-    path,
-    bytes: new TextEncoder().encode(text),
-    text,
-    gitBlob: '0'.repeat(40),
-    sourceSHA: digest(text),
-  })
-  return {
-    root: ROOT,
-    commitSHA: '1'.repeat(40),
-    sources: [
-      source('plugins/omp-build/skills/dev-review/SKILL.md', 'skill'),
-      source('plugins/omp-build/skills/dev-review/root-causes.md', 'causes'),
-      source('plugins/omp-build/skills/dev-review/review-smells.md', 'smells'),
-      source('plugins/omp-build/skills/dev-review/review-classes.yml', 'classes'),
-    ],
-  }
 }
 
 function stubEnvironment(mode: string, log?: string): NodeJS.ProcessEnv {
@@ -106,6 +85,33 @@ afterEach(() => {
 })
 
 describe('runPhase4Model native transport', () => {
+  it('does not attest caller-rehashed source text as the committed programme', async () => {
+    const programme = readPhase4Programme()
+    const original = await runPhase4Model(programme, fixture, { env: stubEnvironment('success'), deadlineMs: 1_000 })
+    expect(original.provenance.programme.every((source) => source.atCommit)).toBe(true)
+
+    const source = programme.sources[0]
+    const committedSHA = source.sourceSHA
+    source.text += '\nAltered source for the provenance regression.\n'
+    source.sourceSHA = digest(source.text)
+    const altered = await runPhase4Model(programme, fixture, { env: stubEnvironment('success'), deadlineMs: 1_000 })
+    expect(altered.provenance.programme[0].atCommit).toBe(false)
+    expect(altered.provenance.programme[0].sourceSHA).toBe(committedSHA)
+    expect(altered.provenance.programme[0].sentSHA).not.toBe(committedSHA)
+  })
+
+  it('never attests fabricated blob or candidate identities', async () => {
+    const programme = readPhase4Programme()
+    programme.sources[0].gitBlob = '0'.repeat(40)
+    const forged = await runPhase4Model(programme, fixture, { env: stubEnvironment('success'), deadlineMs: 1_000 })
+    expect(forged.provenance.programme[0].atCommit).toBe(false)
+
+    programme.commitSHA = '0'.repeat(40)
+    await expect(
+      runPhase4Model(programme, fixture, { env: stubEnvironment('success'), deadlineMs: 1_000 }),
+    ).rejects.toThrow('programme git probe failed')
+  })
+
   it('refuses non-POSIX hosts before starting native work', async () => {
     const log = join(mkdtempSync(join(tmpdir(), 'phase4-model-platform-')), 'started.json')
     dirs.push(resolve(log, '..'))
@@ -114,7 +120,7 @@ describe('runPhase4Model native transport', () => {
     if (!platform) throw new Error('Node platform descriptor is unavailable')
     Object.defineProperty(process, 'platform', { ...platform, value: 'win32' })
     try {
-      await expect(runPhase4Model(programme(), fixture, { env, deadlineMs: 1_000 })).rejects.toThrow(
+      await expect(runPhase4Model(readPhase4Programme(), fixture, { env, deadlineMs: 1_000 })).rejects.toThrow(
         'requires POSIX process-group cleanup',
       )
       expect(existsSync(log)).toBe(false)
@@ -126,7 +132,7 @@ describe('runPhase4Model native transport', () => {
   it('records the fixed model and removes owned input/config files after a complete native stream', async () => {
     const log = join(mkdtempSync(join(tmpdir(), 'phase4-model-log-')), 'args.json')
     dirs.push(resolve(log, '..'))
-    const result = await runPhase4Model(programme(), fixture, {
+    const result = await runPhase4Model(readPhase4Programme(), fixture, {
       env: stubEnvironment('success', log),
       deadlineMs: 1_000,
     })
@@ -148,7 +154,7 @@ describe('runPhase4Model native transport', () => {
   it('returns a complete stream after leader exit reaps a descendant retaining inherited stdout', async () => {
     const log = join(mkdtempSync(join(tmpdir(), 'phase4-model-exit-')), 'child.json')
     dirs.push(resolve(log, '..'))
-    const result = await runPhase4Model(programme(), fixture, {
+    const result = await runPhase4Model(readPhase4Programme(), fixture, {
       env: stubEnvironment('leaky-success', log),
       deadlineMs: 1_000,
     })
@@ -160,28 +166,34 @@ describe('runPhase4Model native transport', () => {
 
   it('fails visibly for a native error, partial stream, or changed model identity', async () => {
     await expect(
-      runPhase4Model(programme(), fixture, { env: stubEnvironment('error'), deadlineMs: 1_000 }),
+      runPhase4Model(readPhase4Programme(), fixture, { env: stubEnvironment('error'), deadlineMs: 1_000 }),
     ).rejects.toThrow('invocation failed')
     await expect(
-      runPhase4Model(programme(), fixture, { env: stubEnvironment('partial'), deadlineMs: 1_000 }),
+      runPhase4Model(readPhase4Programme(), fixture, { env: stubEnvironment('partial'), deadlineMs: 1_000 }),
     ).rejects.toThrow('complete user turn')
     await expect(
-      runPhase4Model(programme(), fixture, { env: stubEnvironment('wrong-model'), deadlineMs: 1_000 }),
+      runPhase4Model(readPhase4Programme(), fixture, { env: stubEnvironment('wrong-model'), deadlineMs: 1_000 }),
     ).rejects.toThrow('unexpected provider, model, or stop reason')
   })
 
   it('accepts compatible terminal omissions and rejects continuing, pending, or nonterminal agent ends', async () => {
     await expect(
-      runPhase4Model(programme(), fixture, { env: stubEnvironment('terminal-compatible'), deadlineMs: 1_000 }),
+      runPhase4Model(readPhase4Programme(), fixture, {
+        env: stubEnvironment('terminal-compatible'),
+        deadlineMs: 1_000,
+      }),
     ).resolves.toMatchObject({ body: expect.stringContaining('Request changes') })
     await expect(
-      runPhase4Model(programme(), fixture, { env: stubEnvironment('terminal-continue'), deadlineMs: 1_000 }),
+      runPhase4Model(readPhase4Programme(), fixture, { env: stubEnvironment('terminal-continue'), deadlineMs: 1_000 }),
     ).rejects.toThrow(/flags=isTerminal=absent,yielded=false.*stdoutSha256=/)
     await expect(
-      runPhase4Model(programme(), fixture, { env: stubEnvironment('terminal-pending'), deadlineMs: 1_000 }),
+      runPhase4Model(readPhase4Programme(), fixture, { env: stubEnvironment('terminal-pending'), deadlineMs: 1_000 }),
     ).rejects.toThrow('awaitingAsyncWork=true')
     await expect(
-      runPhase4Model(programme(), fixture, { env: stubEnvironment('terminal-nonterminal'), deadlineMs: 1_000 }),
+      runPhase4Model(readPhase4Programme(), fixture, {
+        env: stubEnvironment('terminal-nonterminal'),
+        deadlineMs: 1_000,
+      }),
     ).rejects.toThrow('isTerminal=false')
   })
 
@@ -189,7 +201,7 @@ describe('runPhase4Model native transport', () => {
     const log = join(mkdtempSync(join(tmpdir(), 'phase4-model-timeout-')), 'child.json')
     dirs.push(resolve(log, '..'))
     await expect(
-      runPhase4Model(programme(), fixture, { env: stubEnvironment('hang', log), deadlineMs: 500 }),
+      runPhase4Model(readPhase4Programme(), fixture, { env: stubEnvironment('hang', log), deadlineMs: 500 }),
     ).rejects.toThrow('invocation failed')
     const termination = JSON.parse(readFileSync(log, 'utf8')) as { child: number; terminated?: boolean }
     expect(termination.child).toBeTypeOf('number')

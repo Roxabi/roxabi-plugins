@@ -80,8 +80,10 @@ bun run test:phase4-model
   `review-classes.yml`. Uncommitted programme edits are not silently tested.
   The verbose result's `phase4-model-provenance` annotation records their paths,
   commit/blob identities, loaded/sent SHA-256 values, fixture/input/config hashes,
-  runtime path/version, model and limits. Caller-modified source text is marked
-  `atCommit: false`. Expected labels, membership, provenance/evidence associations
+  runtime path/version, model and limits. `atCommit` is checked against the actual
+  candidate Git commit/blob bytes, not caller-provided hashes. Altered text or
+  identities are marked false; an invalid candidate commit fails visibly.
+  Expected labels, membership, provenance/evidence associations
   and verdict assertions remain outside the model input; the unchanged rendered
   body reaches the existing pure `workflow.reviewRecords` consumer.
 - **Bounds and failures:** the shared integration budget stays 30 seconds/test,
