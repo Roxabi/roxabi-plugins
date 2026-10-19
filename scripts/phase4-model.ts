@@ -349,7 +349,7 @@ async function runOwned(
   const child = spawn(command, args, {
     cwd: options.cwd,
     env: options.env,
-    detached: process.platform !== 'win32',
+    detached: true,
     stdio: ['pipe', 'pipe', 'pipe'],
   })
   const stdout: Buffer[] = []
@@ -360,7 +360,7 @@ async function runOwned(
   const terminate = (signal: NodeJS.Signals) => {
     if (child.pid === undefined) return
     try {
-      process.kill(process.platform === 'win32' ? child.pid : -child.pid, signal)
+      process.kill(-child.pid, signal)
     } catch (error) {
       if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ESRCH') return
       cleanupError = error instanceof Error ? error : new Error('Phase 4 process-group cleanup failed')
@@ -414,6 +414,9 @@ export async function runPhase4Model(
   fixture: Phase4Fixture,
   options: Phase4RunOptions = {},
 ): Promise<Phase4Run> {
+  if (process.platform === 'win32') {
+    throw new Error('Phase 4 native OMP requires POSIX process-group cleanup')
+  }
   const deadlineMs = deadline(options)
   const environment = { ...process.env, ...options.env }
   const executable = executableFrom(environment.PATH)

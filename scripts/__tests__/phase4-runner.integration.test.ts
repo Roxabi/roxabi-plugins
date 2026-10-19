@@ -106,6 +106,23 @@ afterEach(() => {
 })
 
 describe('runPhase4Model native transport', () => {
+  it('refuses non-POSIX hosts before starting native work', async () => {
+    const log = join(mkdtempSync(join(tmpdir(), 'phase4-model-platform-')), 'started.json')
+    dirs.push(resolve(log, '..'))
+    const env = stubEnvironment('success', log)
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')
+    if (!platform) throw new Error('Node platform descriptor is unavailable')
+    Object.defineProperty(process, 'platform', { ...platform, value: 'win32' })
+    try {
+      await expect(runPhase4Model(programme(), fixture, { env, deadlineMs: 1_000 })).rejects.toThrow(
+        'requires POSIX process-group cleanup',
+      )
+      expect(existsSync(log)).toBe(false)
+    } finally {
+      Object.defineProperty(process, 'platform', platform)
+    }
+  })
+
   it('records the fixed model and removes owned input/config files after a complete native stream', async () => {
     const log = join(mkdtempSync(join(tmpdir(), 'phase4-model-log-')), 'args.json')
     dirs.push(resolve(log, '..'))

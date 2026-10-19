@@ -68,7 +68,8 @@ bun run test:phase4-model
 - **Prerequisites:** Bun with `Bun.YAML`, the normal Node/Vitest environment,
   and an installed native `omp` CLI authenticated for `openai-codex/gpt-6.1-sol`.
   The executor fixes that model and `low` thinking; it does not provision credentials.
-  Process-group cleanup is exercised on Linux/POSIX.
+  Only POSIX process-group hosts are supported; native Windows is refused before
+  starting OMP or allocating its temporary inputs. Cleanup is exercised on Linux.
 - **Selection:** only `*.model.integration.test.*` runs in `phase4-model`.
   These new cases are excluded from ordinary `bun run test` and `bun run test:watch`;
   all pre-existing cases stay selected. The separate
