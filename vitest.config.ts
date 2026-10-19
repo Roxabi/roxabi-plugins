@@ -20,6 +20,7 @@ const exclude = [
 // land in the tight budget by accident — including when it forks only through an
 // imported helper, which its own source does not reveal.
 const INTEGRATION = '**/*.integration.test.?(c|m)[jt]s?(x)'
+export const MODEL = '**/*.model.integration.test.?(c|m)[jt]s?(x)'
 
 export default defineConfig({
   test: {
@@ -51,6 +52,8 @@ export default defineConfig({
         test: {
           name: 'integration',
           include: [INTEGRATION],
+          // Model-backed integration cases run only through the explicit local profile.
+          exclude: [MODEL],
           // 26x the slowest fork measured locally, 1155ms. Wide enough to absorb
           // a loaded runner, tight enough that a genuinely hung child still
           // fails the job instead of hanging it.

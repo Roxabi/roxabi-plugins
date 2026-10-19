@@ -155,10 +155,10 @@ Run the plugin validator and test suite:
 
 ```bash
 claude plugin validate .
-bun lint && bun typecheck && bun test
+bun run lint && bun run typecheck && bun run test
 ```
 
-CI (`bun lint`, `bun typecheck`, `bun test`) runs automatically on push to `main` via `.github/workflows/ci.yml`. PRs must be green before merging.
+CI (`bun run lint`, `bun run typecheck`, `bun run test`) runs automatically on push to `main` via `.github/workflows/ci.yml`. PRs must be green before merging.
 
 Then commit with the standard format:
 
