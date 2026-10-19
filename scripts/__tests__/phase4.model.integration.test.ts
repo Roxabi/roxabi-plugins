@@ -45,7 +45,7 @@ const fixture: Phase4Fixture = {
     '',
     'The supplied caller demonstrates that a pending panel has approvedAt=null and status=pending, so the changed OR condition returns true and submit publishes it. The status formatter has no caller or safety path in this fixture.',
     '',
-    'Captured Phase 3 panel reports, in actual emission order. Each report is independently valid and has its own mechanism:',
+    'Captured Phase 3 panel reports, in actual emission order:',
     '',
     'issue: Pending panels can publish through the changed advance guard',
     '  src/panel/advance.ts:2',
