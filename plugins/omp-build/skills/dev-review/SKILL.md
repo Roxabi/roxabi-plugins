@@ -439,25 +439,68 @@ Label → group, matched exactly (do not prefix-match `suggestion:` onto `sugges
 | Suggestions | `thought:`, `question:` |
 | Praise | `praise:` |
 
+## Evidence-v1 candidate path
+
+Read `skill://dev-review/evidence-policy.md` before a candidate evaluation. Baseline is
+the default, authoritative path: its F, Phase 4 body, markers, verdict, review
+accounting and Phase 8 routing remain unchanged. Candidate work is shadow unless an
+independently established, operator-controlled acceptance reference authorizes
+`evidence-v1` for later selected work. A self-declared mode, model output, replay
+pass, or missing/malformed reference is shadow, not authorization.
+
+For supplied-input shadow or an authorized active candidate, build `evidenceById` from
+the already collected finding evidence; held-out expectations and policy-tuning inputs
+never enter it. Invoke the evaluator once, with no discretionary retry:
+
+```javascript
+const { join } = await import('node:path')
+const { pathToFileURL } = await import('node:url')
+const { evaluateFindings } = await import(pathToFileURL(join(SKILL_DIR, 'evaluation.ts')).href)
+const candidateDimensions = await evaluateFindings(evidenceById, { judgeBatch })
+```
+
+It returns per-ID observed typed dimensions (`evidenceSupport: supported|refuted|unknown`,
+`supportedApplicability: applicable|not-applicable|unknown`,
+`concreteConsequence: concrete|not-concrete|unknown`, and
+`uncertainty: known|uncertain|unknown`) or a degraded status. Retain every ID,
+degradation and returned provider/model identity. These are evidence, not a
+confidence/Jev score, disposition, merge permission or patch permission.
+Missing support is `unknown`, not refutation; only evidence directly contradicting the
+premise positively refutes it, and then the finding is requalified rather than dropped.
+
+Shadow keeps candidate review, differential scope, selected plans and receipt in a
+separate local record. It never posts, patches, files, labels, routes or changes the
+baseline verdict. After independently verified acceptance for selected later work,
+evidence-v1 instead renders the normal authoritative Phase 4 body with the existing
+markers/head/input/bound contract, then posts it through the ordinary writer; `/fix`
+reads that same marked body. Place `Policy: evidence-v1` and the verified real
+acceptance reference after the positional markers. A self-declared mode, model output
+or replay pass never activates it. Candidate suspension restores baseline/full-review
+authority without resetting the existing bound.
+
 ## Phase 4 — Merge, Render & Post
 
 One phase owns the final finding set, the single rendered review, and the optional PR comment. Findings are never re-rendered in a second presentation step.
+0. **Candidate policy (when invoked).** Preserve the independently supplied/reconstructed baseline, delta, affected paths and residual obligations as four separate inputs. Inspect every residual. Unknown baseline/history/closure/affected-path reconstruction → full review plus explicit residual inspection. Differential authority additionally needs its own accepted replay/full-comparison plus shadow gate; general candidate acceptance alone is insufficient. In shadow, run the full policy as a hypothetical local decision. When active, Phase 4 requalifies every finding before final labels/verdict: required means an evidenced applicable accepted spec/safety/data/mandatory obligation, not an inherited baseline label. Direct refutation or unsupported applicability may produce a documented non-required disposition while retaining the finding/evidence/residual; missing evidence remains unknown and blocks only an unresolved applicable required obligation. Current supported uses count; hypothetical future uses do not. Material Jev disagreement is investigated, never voted; no aggregate/confidence/availability waiver applies. Optional work needs every `evidence-policy.md` admission condition and may only join a selected required plan. An optional-only set creates neither `Request changes` nor a fix route. `none` clears no blocker. Record shadow decisions locally; unchanged deferrals reopen only for new evidence or obligation.
+   A selected required plan may bind exact non-blocking symptoms of its one demonstrated
+   shared-producer mechanism without splitting them. `optional-neighbor-of` is reserved
+   for a distinct additional correction, never an unrelated improvement.
 
 1. **Collect F** from Phase 2 spec compliance, per-chunk agents, and isolated recall workers. Every unmet criterion's `issue(blocking):` enters F so a missing spec criterion cannot coexist with `Approve (clean)`. A missing or weak test that step 3b rewrites to `suggestion:` is a Warning: it does not by itself force `Request changes`, and it does not yield `Approve (clean)`.
    Validate each original report independently with the finding-format rules before merging. Capture its provenance from the actual emission/task context before any fields can be combined; unusable records stay independently identifiable in F.
 2. **Same-defect-only merge:** merge reports only when their evidence demonstrates the same failing operation/condition and diagnostic mechanism. Shared file, class, line, citation or similar wording is metadata, not identity. Independently falsifiable failures stay separate; uncertain identity stays separate. Different symptoms merge only when the evidence demonstrates that one defect produces them.
    - Union every unique symptom, evidence sentence, raw callsite, provenance tuple and report extension (including Lens and Attack/disproof). Keep report-to-callsite provenance associations, not Cartesian unions of agents and locations. Retain every original symptom/description in the detail when the final description changes.
-   - Maximum stated confidence orders merged duplicates; it does not choose which details survive. Preserve a blocking label if any duplicate is blocking until the existing final step 3b rewrite. Retain active `Source: recall` when any duplicate has it for step 3; original Sources remain in provenance independently.
+   - Maximum stated confidence orders merged duplicates; it does not choose which details survive. Preserve a blocking label if any duplicate is blocking until baseline step 3b or active Phase 4 qualification writes the final label. Retain active `Source: recall` when any duplicate has it for classification; original Sources remain in provenance independently.
    - Unusable reports remain separate, unhealed by another report's fields or confidence. Class subsumption strips tags only. No extra LLM pass, confidence filter, file/class/location key or second joiner.
-3. **Classify:** normal findings follow their category label. Before step 3b, a finding with `Source: recall` is normalized to `issue(blocking):`. That normalization is not re-applied after step 3b. A surviving `Source: recall` line does not restore a blocking label.
-3b. **Missing or weak test — last label write.** After collection, dedup, and the recall normalization, before the verdict and before root causes, rewrite a finding whose subject is a missing or weak test. That includes an agent `issue:`, a recall finding (the recall worker's required `issue(blocking):` is not final), and a Phase 2 unmet-criterion finding whose only gap is that test. It does not include a missing SC→Test matrix, and it does not include an unmet criterion whose gap is the behaviour itself. Keep the finding. It stays blocking, labelled `issue:`, only when both hold: (a) the behaviour it leaves unproven is an acceptance criterion of the issue with no other evidence in the PR, or a safety invariant (a path that merges, releases or deploys, deletes, publishes, grants permission, or stops or disarms an automated action); (b) the PR carries no accepted proof of that behaviour, as § Proof in `skill://dev-review/root-causes.md` defines it. A finding whose evidence shows that a test in Δ is not accepted under that definition satisfies (b); a finding that restates an accepted proof without new evidence of a defect fails it. Otherwise relabel it `suggestion:`. Judge the unproven behaviour, not the proof form the finding asks for: a demanded source-text, wiring-copy or mock-echo assertion is never a requirement (§ Proof in `skill://dev-review/root-causes.md`); the finding keeps or loses its block on (a) and (b) alone. A real missed or fix-induced defect with evidence is a behaviour finding and is not rewritten here. Clear `Source: recall` when it is present. That relabel is the last label write. A surviving `Source: recall` line does not re-enter `blocks(f)`. After this step `blocks(f)` is the label set only, so a downgraded finding does not block whether or not that line survived.
-4. **Keep by default:** after same-defect-only merge, every finding remains in F. Confidence controls ordering only. An unusable record makes its cause ineligible for auto-apply in `skill://fix`; confidence never does. No confidence threshold, agent judgement, or second LLM pass may remove a finding. Blocking findings are never filtered.
+3. **Classify:** baseline findings follow their category label. Before step 3b, a baseline finding with `Source: recall` is normalized to `issue(blocking):`; that baseline normalization is not re-applied after step 3b. In accepted active evidence-v1, neither this recall normalization nor step 3b precommits a final label. After collection/dedup and before sorting, plans and verdict, Phase 4 qualifies every finding—including test gaps—under `evidence-policy.md`; this is the active final label/disposition write. It records direct refutation or unsupported applicability, retains the finding/evidence/residual, treats missing support as unknown, and keeps every unresolved applicable required obligation blocking. A surviving `Source: recall` line never by itself restores a blocking label.
+3b. **Baseline missing or weak test — last baseline label write.** After baseline collection, dedup, and recall normalization, before its verdict and root causes, rewrite a finding whose subject is a missing or weak test. That includes an agent `issue:`, a recall finding (the recall worker's required `issue(blocking):` is not final), and a Phase 2 unmet-criterion finding whose only gap is that test. It does not include a missing SC→Test matrix, and it does not include an unmet criterion whose gap is the behaviour itself. Keep the finding. It stays blocking, labelled `issue:`, only when both hold: (a) the behaviour it leaves unproven is an acceptance criterion of the issue with no other evidence in the PR, or a safety invariant (a path that merges, releases or deploys, deletes, publishes, grants permission, or stops or disarms an automated action); (b) the PR carries no accepted proof of that behaviour, as § Proof in `skill://dev-review/root-causes.md` defines it. A finding whose evidence shows that a test in Δ is not accepted under that definition satisfies (b); a finding that restates an accepted proof without new evidence of a defect fails it. Otherwise relabel it `suggestion:`. Judge the unproven behaviour, not the proof form the finding asks for: a demanded source-text, wiring-copy or mock-echo assertion is never a requirement (§ Proof in `skill://dev-review/root-causes.md`); the finding keeps or loses its block on (a) and (b) alone. A real missed or fix-induced defect with evidence is a behaviour finding and is not rewritten here. Clear `Source: recall` when it is present. That relabel is the last **baseline** label write. A surviving `Source: recall` line does not re-enter `blocks(f)`. After this baseline step `blocks(f)` is the label set only, so a downgraded finding does not block whether or not that line survived.
+4. **Keep by default:** after same-defect-only merge, every finding remains in F. Confidence controls ordering only. An unusable record makes its cause ineligible for auto-apply in `skill://fix`; confidence never does. No confidence threshold, agent judgement, aggregate score, or second LLM pass may remove a finding. In active evidence-v1, Phase 4 may requalify its final label/disposition only with the evidence and reason the shared policy requires; unresolved applicable required obligations remain blocking.
 5. **Sort and group:** existence confidence descending (absent last) within Blockers → Warnings → Suggestions → Praise, using the label → group table above. `suggestion:` is a Warning, not a Suggestion.
    Finalize each rendered description before naming causes. Distinct findings sharing an anchor get distinct mechanism-specific descriptions; retain their original symptoms/evidence in the finding. Cause references use those exact final descriptions.
-6. **Name root causes.** Read `skill://dev-review/root-causes.md`. R := causes over actionable findings, after reading cited lines where a join is not already obvious. Each cause states all seven lines of its plan; a finding the review cannot plan stays uncited, never dropped. praise, thought, question never enter R. This step writes no code.
+6. **Name root causes.** Read `skill://dev-review/root-causes.md`. R := causes over actionable findings, after reading cited lines where a join is not already obvious. Each baseline cause states all seven lines of its plan; a finding the review cannot plan stays uncited, never dropped. For an accepted active evidence-v1 candidate, select only plans whose exact memberships, seven lines, authorization and bounded admission satisfy `evidence-policy.md`; its optional neighbor must satisfy all six conditions there. Unsafe/absent selection retains the required obligation. praise, thought, question never enter R. This step writes no code.
 7. **Disclose roster allocation** in the review output whenever non-empty: `capped[]` (the per-chunk union) and `warnings[]`.
 
-`blocks(f) := label ∈ {issue:, issue(blocking):, todo:, suggestion(blocking):}`. Evaluated after step 3b. After step 3b, `blocks(f)` is the label set only. A downgraded finding does not block whether or not a `Source: recall` line survived.
+`blocks(f) := label ∈ {issue:, issue(blocking):, todo:, suggestion(blocking):}`. It is evaluated after the baseline step 3b or, for accepted active evidence-v1, after Phase 4 qualification/disposition. The final label set alone controls `blocks(f)`; a documented non-required disposition does not block, while an unresolved applicable required obligation does regardless of confidence, aggregate or evaluator availability.
 
 ### Verdict
 
@@ -479,9 +522,10 @@ Build one body. First line: exactly `<!-- omp-build:code-review -->`, the author
 1. `## Code Review`, then `## Spec` — render Σ from Phase 2, one row per criterion in σ order: `✓` met / `✗` missing, quoting `criterion_text`. σ ∄ → `no spec available — spec axis not evaluated`.
 2. `## Standards` — the orchestrator reads `skill://dev-review/review-smells.md` once, walks Δ against the baseline, and emits at most one `possible <Smell>` row per smell. Render the receipt in `## Standards (judgement pass — {n} smells walked, {k} fired)`. These rows never enter F, carry `Class:`, or affect verdict.
 3. `## Root causes` — render R from step 6, in the shape `skill://dev-review/root-causes.md` defines: seven lines per cause. R = ∅ → the section body is exactly `none`. `none` is a complete record only when no actionable finding remains; with an actionable finding under `## Findings` the record is unplanned (root-causes.md § `none`), and the Summary (item 6) says so.
-4. `## Findings` — this heading closes `## Root causes`. Grouped findings from step 5 under `### Blockers`, `### Warnings`, `### Suggestions`, `### Praise`. **Render every finding exactly once here**, with all unioned detail and immutable provenance. Build cause citations from the final rendered `file:line` + exact description pairs. Every reference resolves to exactly one finding, and each actionable finding belongs to at most one cause; otherwise retain it for the existing uncited/per-finding file/single-deferral disposition. Spec, Standards, and Root causes are roll-ups, never copies of a finding.
+4. `## Findings` — this heading closes `## Root causes`. Grouped findings from step 5 under `### Blockers`, `### Warnings`, `### Suggestions`, `### Praise`. **Render every finding exactly once here**, with all unioned detail and immutable provenance. Build cause citations from the final rendered `file:line` + exact description pairs. Every reference resolves to exactly one finding, and each actionable finding belongs to at most one cause; otherwise baseline retains it for the existing uncited/per-finding file/single-deferral disposition, while active evidence-v1 applies the debt rule to its authoritative normal record. Spec, Standards, and Root causes are roll-ups, never copies of a finding.
 5. Roster allocation disclosures from step 7.
 6. Summary + verdict. When `## Root causes` is `none` and actionable findings remain, the Summary says `no cause planned for N actionable finding(s)`; it never reads as clean.
+Shadow companion: material is separate local evidence only. Active evidence-v1 has no companion body: its qualified findings/plans/dispositions and `Policy`/`Acceptance` disclosure are in this one authoritative normal review record, with unchanged marker/head/input/bound layout.
 
 **`/fix` partition (load-bearing):** `skill://fix` reads only the newest comment whose first line is the marker and whose author is the account running it. From that one comment it takes R from `## Root causes` (up to `## Findings`) and F from the Conventional Comments under `## Findings`. Spec, Standards, and Root causes rows MUST be non-CC-shaped: no line in those blocks may match `^\s*[-*]?\s*(issue|suggestion|todo|nitpick|thought|question|praise)(\([a-z-]+\))?:`. Paraphrase a quoted σ or Δ line that matches this shape, or cite only its location. Never restate a grouped finding in any of those blocks.
 
@@ -652,8 +696,8 @@ Publish as a PR comment when a PR exists; otherwise display locally:
 | Critical security | Escalate in findings, flag in verdict |
 | Agents disagree | Present both with respective C |
 | ¬∃ PR | Render Phase 4 body; Phase 8 local only, no bound |
-| Missing mandatory field, invalid class, or unparsable Raw callsites | unusable record; keep finding; `skill://fix` files its cause instead of applying it; it never contaminates a different cause |
-| `none` with actionable findings | unplanned record; the Summary says `no cause planned for N actionable finding(s)`; `skill://fix` files each blocker as uncited, still blocking |
+| Missing mandatory field, invalid class, or unparsable Raw callsites | unusable record; keep finding; baseline `skill://fix` files its cause instead of applying it. Evidence-v1 authorizes no patch; required blockers remain and a follow-up needs `important AND urgent AND too-large` |
+| `none` with actionable findings | unplanned record; the Summary says `no cause planned for N actionable finding(s)`; baseline `skill://fix` files each blocker as uncited, still blocking. Evidence-v1 selects none, retains each required blocker, and is comment-only unless debt admission holds |
 | ∄ `size:` label | τ := F-lite, disclosed out loud (never silently) |
 | R-architect skipped | no axial or structural evidence |
 | R-tester skipped | ¬delta_test_hit and ¬untested-change |

@@ -62,7 +62,7 @@ Retained plugins are project-agnostic: they read the project contract at runtime
 | Plugin | Host | Description |
 |--------|------|-------------|
 | [issue-triage](plugins/issue-triage/README.md) | Claude Code, OMP | Triage and create GitHub issues with labels and native relations. |
-| [omp-build](plugins/omp-build/README.md) | OMP | Feature cycle: frame → issue → worktree → implement → review/fix → land. Epic resumption recognizes confirmed deliveries without resetting stops. Spent review bounds remain disarmed; operator-supervised agent recovery uses a superseding PR. Qualified retained history is admitted. AssertLedger detection requires explicit root configuration, not bundled Kit tooling. |
+| [omp-build](plugins/omp-build/README.md) | OMP | Feature cycle: frame → issue → worktree → implement → review/fix → land. Epic resumption recognizes confirmed deliveries without resetting stops. Spent review bounds remain disarmed; operator-supervised agent recovery uses a superseding PR. Qualified retained history is admitted. AssertLedger detection requires explicit root configuration, not bundled Kit tooling. Evidence-based review/fix policy starts in isolated shadow; activation remains explicit. |
 
 Retired plugins are retained only under [`archived/`](archived/); they are inert historical source and are not installable from either marketplace catalog.
 

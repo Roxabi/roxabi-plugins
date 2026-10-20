@@ -151,6 +151,44 @@ resume from their review records.
 
 Review → fix record contract: [root causes and member references](skills/dev-review/root-causes.md).
 
+### Evidence-based review and fix policy
+
+The [evidence policy](skills/dev-review/evidence-policy.md) starts in **shadow**.
+The baseline review/fix pair remains authoritative; candidate reviews, plans and
+receipts stay separate and local. They do not change labels, fixes, tickets,
+routing or review counts. Passing replay does not activate the candidate.
+
+After explicit operator acceptance for selected subsequent work:
+
+- Phase 4 qualifies supported applicability, evidence, consequence and unresolved
+  premises. The OMP-host Jev adapter supplies separate dimensions and per-result
+  backend identity, never a severity aggregate, incident probability or authority.
+  Unavailable/unusable Jev is disclosed degraded mode, not a fabricated score or
+  an automatic blocker.
+- Blocking status and correction permission are distinct. Selected required
+  corrections and admissible optional neighbors have explicit authorization and
+  coherent causal plans. An absent plan does not clear a blocker. A failed optional
+  addition is safely withdrawn and the required path revalidated, or the work stops
+  if separation is unestablished.
+- New debt issues require **importance AND prompt necessity AND excessive scope
+  for the current ticket**. Every other deferral stays only in PR comments; no
+  automatic bundle. Filing never discharges a required obligation.
+- Differential re-review needs its own acceptance: baseline, delta, affected paths
+  and residual obligations. Missing history or impact evidence means full review
+  plus explicit residual inspection. Unchanged deferrals need new grounds to reopen.
+- A missed required blocker, unauthorized correction, inadmissible debt issue or
+  lost residual suspends candidate use pending renewed supervised acceptance.
+  Existing head/input/CI safeguards and stopped review bounds remain intact.
+
+Validation uses the real evaluator and supplied-input instruction exercises with
+separate calibration/held-out evidence and independent adjudication of raw outputs.
+These exercises are not native full-workflow execution, executed rollback/GitHub
+writes, or CI-enforced semantic certification. See the delivery PR for exercised
+evidence and source gaps; implementation alone establishes no effectiveness claim.
+
+### Existing review and landing safeguards
+
+
 The review bound is two reads of the PR's review records (#710) — the comments
 by the automation login (`gh api user`) whose first line is
 `<!-- omp-build:code-review -->`: how many there are, and the latest one. Nothing
@@ -412,12 +450,12 @@ Resolution when a spawn passes no `model`: explicit call model, then `task.agent
 |---|---|
 | `feature` | `/feature` (registered command) |
 | `dev-review` | model-invocable · the five-role review panel |
-| `fix` | model-invocable · applies blocking causes, inline; non-blocking causes deferred |
+| `fix` | model-invocable · paired baseline/shadow or explicitly accepted evidence-policy correction plans, inline |
 | `promote` | `/promote` (registered command) · the optional tail |
 | `cleanup` | `/cleanup` (registered command) · the optional tail |
 | `ci-watch` | `/ci-watch` (registered command) · watches checks, then the merge |
 
-`dev-review` and `fix` are the #492 snapshot of dev-core's `dev-review`/`fix` pair, cut to this plugin's roster: five dispatchable roles, `R-tester` armed by changed-test evidence alone, and blocking causes applied in-session; non-blocking causes deferred to one sibling issue. The follow-up keeps its origin parent's complete `OWNER/REPO#N` coordinate, never a number reconstructed under the origin repository; an absent parent keeps it top-level. They read their own bundled files through `skill://dev-review/<file>`. `lib.sh` is the exception: it sits one level up, in a non-skill directory, and `skill://` rejects `..`, so `dev-review` Phase 1 traverses from `$SKILL_DIR` instead. **Nothing in this plugin exports `SKILL_DIR`** — only the registered commands print a skill directory (`omp/index.ts`) — so that fence asserts the variable (`${SKILL_DIR:?…}`) and stops when it is unset, rather than sourcing `/../shared/lib.sh` and detecting a base branch against nothing. `cleanup/analyze-branches.sh` has no such problem: it is a script, so it resolves `../shared/lib.sh` from its own `BASH_SOURCE`.
+`dev-review` and `fix` originated from the #492 dev-core snapshot, cut to this plugin's roster: five dispatchable roles and `R-tester` armed by changed-test evidence alone. During shadow the baseline still applies blocking causes and defers non-blocking causes to one sibling issue; the explicitly accepted evidence policy instead uses selected correction authorizations and the strict debt conjunction above. An admissible follow-up keeps its origin parent's complete `OWNER/REPO#N` coordinate, never a number reconstructed under the origin repository; an absent parent keeps it top-level. They read their own bundled files through `skill://dev-review/<file>`. `lib.sh` is the exception: it sits one level up, in a non-skill directory, and `skill://` rejects `..`, so `dev-review` Phase 1 traverses from `$SKILL_DIR` instead. **Nothing in this plugin exports `SKILL_DIR`** — only the registered commands print a skill directory (`omp/index.ts`) — so that fence asserts the variable (`${SKILL_DIR:?…}`) and stops when it is unset, rather than sourcing `/../shared/lib.sh` and detecting a base branch against nothing. `cleanup/analyze-branches.sh` has no such problem: it is a script, so it resolves `../shared/lib.sh` from its own `BASH_SOURCE`.
 
 `promote` and `cleanup` are the #495 snapshot of dev-core's tail. They are
 **offered after land, never automatic, and never inside the review→fix loop**.

@@ -1,8 +1,28 @@
 # Root causes
 
-The unit of a fix. A finding is a symptom. A root cause is the shared mechanism behind one or more actionable findings, stated with its one plan. `dev-review` names them after dedup, before it posts. `fix` applies the plan of each well-formed cause that contains a blocking finding. A block missing any of its seven lines (§ Record) is malformed and is not applied, even when it contains a blocking finding. A well-formed cause with no blocking member is deferred, not applied. The plan is the decision: findings carry no solutions, so there is nothing else to pick from.
+The unit of a fix. A finding is a symptom. A root cause is the shared mechanism behind one or more actionable findings, stated with its one plan. `dev-review` names them after dedup, before it posts. `fix` applies the plan of each well-formed cause that contains a blocking finding. A block missing any of its seven lines (§ Record) is malformed and is not applied, even when it contains a blocking finding. A well-formed cause with no blocking member is deferred only under the baseline; evidence-v1 uses the qualified selection and debt rule below. The plan is the decision: findings carry no solutions, so there is nothing else to pick from.
 
 Three readers: `dev-review` Phase 4 writes the section, `fix` Phase 2 reads it, and `skill://fix/falsification.md` tries to break each applied plan under § Proof. `dev-review` and `fix` reach this file as `skill://dev-review/root-causes.md`.
+
+## Evidence-v1 candidate
+
+Read `skill://dev-review/evidence-policy.md` when evaluating the candidate. The default baseline writer and reader remain paired and authoritative in shadow; shadow output is separate local evidence, never an addition to the baseline body. After independently verified acceptance for selected later work, active evidence-v1 Phase 4 writes these qualified selected plans into the normal authoritative review body that `/fix` reads, preserving its markers/head/input/bounds. Phase 4 remains the sole final authority.
+
+For an active candidate, each selected block keeps the seven lines below and adds, after `findings:`:
+
+```markdown
+- authorization: required | optional-neighbor-of RC-N
+- admission: <bounded evidence required by evidence-policy.md>
+```
+
+Exact `findings:` memberships are required. A missing or malformed authorization/admission, unsafe plan, or invalid membership authorizes no patch. A required member is an evidenced applicable mandatory obligation, not merely an inherited baseline label; an optional-only set does not manufacture a plan, red verdict, or fix route. Every optional neighbor records the six evidence-policy conditions (current defect/mechanism, selected required boundary, unchanged promise/no dependency/caller compatibility, targeted proof, and separability). Neighboring discoveries are independently requalified: a common file, class, callsite, wording, or prior neighbor does not inherit admission. `none` never clears a required blocker.
+
+A `required` block may cite both blocking and non-blocking findings when one
+demonstrated mechanism and minimal shared-producer correction resolves every exact
+member. Do not split that cause by label and do not add `optional-neighbor-of` merely
+because one member is non-blocking. `optional-neighbor-of RC-N` instead identifies an
+additional independent correction beside the required plan; it needs its own exact
+memberships, all six conditions, and never authorizes unrelated work.
 
 ## Who enters
 
@@ -22,7 +42,7 @@ Join when any holds:
 
 Do not join on a shared file, a shared agent, a shared class slug, or similar symptom wording. Two `sql-injection` findings in unrelated queries are two causes.
 
-A finding with no usable root-cause sentence is its own cause until the cited lines show it shares a mechanism with another. Still unnamed after that read: its own cause. An unusable finding (`dev-review` § Finding format) is never healed by a join: when it is cited, its cause is ineligible to apply and `fix` files it; when it is not, it stays uncited.
+A finding with no usable root-cause sentence is its own cause until the cited lines show it shares a mechanism with another. Still unnamed after that read: its own cause. An unusable finding (`dev-review` § Finding format) is never healed by a join: when cited, its cause is ineligible to apply; baseline `fix` files it, while evidence-v1 retains the blocker and permits an issue only under `important AND urgent AND too-large`. When not cited, it stays uncited.
 
 ## Record
 
@@ -45,13 +65,13 @@ The section ends at the next `##` heading. In a review, that heading is `## Find
 ## Findings
 ```
 
-A block is well-formed only when all seven lines are present and non-empty; a block that is not is malformed. A well-formed block is applied only when its `proof:` line also satisfies § Proof; otherwise `fix` files it as a cause, with its seven lines. The plan is stated before any edit: in the posted record, or — only when the record has no cause section — in the plan `fix` prints before its first edit. `fix` never adds a line to a posted block.
+A block is well-formed only when all seven lines are present and non-empty; a block that is not is malformed. A well-formed block is applied only when its `proof:` line also satisfies § Proof; otherwise baseline `fix` files it as a cause, with its seven lines. Evidence-v1 selects no patch and permits an issue only under its debt conjunction. The plan is stated before any edit: in the posted record, or — only when the record has no cause section — in the plan `fix` prints before its first edit. `fix` never adds a line to a posted block.
 
-Finalize finding descriptions before building these references. Distinct findings at the same anchor have distinct mechanism-specific descriptions, with their original symptoms/evidence retained. Each `path:line` + exact description pair must resolve to exactly one finding under `## Findings`; each actionable finding belongs to at most one cause. A shared anchor never includes other findings implicitly. Zero/multiple matches or conflicting memberships do not authorize applying affected causes: keep findings for the existing uncited/per-finding filing/single-deferral paths, without reclustering the posted record.
+Finalize finding descriptions before building these references. Distinct findings at the same anchor have distinct mechanism-specific descriptions, with their original symptoms/evidence retained. Each `path:line` + exact description pair must resolve to exactly one finding under `## Findings`; each actionable finding belongs to at most one cause. A shared anchor never includes other findings implicitly. Zero/multiple matches or conflicting memberships do not authorize applying affected causes: baseline keeps findings for its uncited/per-finding filing/single-deferral paths, while evidence-v1 retains them/comment-only unless `important AND urgent AND too-large` admits an issue; neither reclusters the posted record.
 
 `fix:` is the one plan: the change the mechanism requires, covering every `paths:` entry and every member callsite. It is not chosen from the members — findings carry no solutions. A fix line that only widens a denylist, adds a grep, or copies an inventory list is not a fix, whatever the members' classes. Name the oracle or single source of truth that must change.
 
-An actionable finding the review cannot plan — no single safe change, or no proof § Proof admits — stays out of this section, uncited. It is never dropped: `fix` files it when it satisfies `blocks(f)`, and it keeps blocking; otherwise it joins the single non-blocking deferral.
+An actionable finding the review cannot plan — no single safe change, or no proof § Proof admits — stays out of this section, uncited. It is never dropped: baseline `fix` files it when it satisfies `blocks(f)`, and it keeps blocking; otherwise baseline places it in the single non-blocking deferral. Evidence-v1 retains required blockers and is comment-only unless `important AND urgent AND too-large` admits a follow-up.
 
 Number `RC-1` upward. Do not reuse a number.
 
@@ -67,7 +87,7 @@ none
 ## Findings
 ```
 
-`none` is a complete record only when no actionable finding remains under `## Findings`. With an actionable finding there, the record is malformed: it carries no plan for that finding. That is a property of the record, not an accusation that the writer erred — a review that could plan nothing still renders `none`, and its Summary says `no cause planned for N actionable finding(s)`. `fix` treats each such finding as uncited: each blocker is filed and keeps blocking, each non-blocker joins the deferral, and the receipt names the unplanned record. It is never a clean review, and filing is not a resolution: a later review still sees the blocker.
+`none` is a complete record only when no actionable finding remains under `## Findings`. With an actionable finding there, the record is malformed: it carries no plan for that finding. That is a property of the record, not an accusation that the writer erred — a review that could plan nothing still renders `none`, and its Summary says `no cause planned for N actionable finding(s)`. Baseline `fix` treats each such finding as uncited: each blocker is filed and keeps blocking, each non-blocker joins the deferral, and the receipt names the unplanned record. Evidence-v1 selects no plan: required blockers remain blocking and any issue needs `important AND urgent AND too-large`; otherwise the receipt/comment retains it. It is never a clean review, and filing is not a resolution: a later review still sees the blocker.
 
 ## Proof
 

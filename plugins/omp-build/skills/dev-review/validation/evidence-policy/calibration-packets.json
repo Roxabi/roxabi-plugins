@@ -1,0 +1,96 @@
+{
+  "schema": "evidence-policy-public-packet/v3",
+  "split": "calibration",
+  "inputContract": "Producer input only. Expected observations are stored separately and must not be supplied to a candidate instruction.",
+  "historicalSourceRule": "Each historical claim is tied to the listed reviewed revision and public source link; no packet asserts that the current worktree equals a historical revision.",
+  "cases": [
+    {
+      "id": "C01",
+      "name": "borrowed historical provenance",
+      "kind": "historical",
+      "sources": {"pullRequest": 819, "reviewedRevision": "9f393b10454041cb505d333162430b8f65f174df", "reviewComment": "https://github.com/Roxabi/roxabi-plugins/pull/819#issuecomment-6217104084"},
+      "verbatimEvidence": [
+        {"kind": "producer-contract-fixture", "path": "plugins/omp-build/skills/feature/__fixtures__/proof/historical.ts", "url": "https://github.com/Roxabi/roxabi-plugins/blob/9f393b10454041cb505d333162430b8f65f174df/plugins/omp-build/skills/feature/__fixtures__/proof/historical.ts#L49-L83", "verbatimLines": ["'change change.fx.history',", "`  statement: ${statement}`,", "`  status: ${status}`,", "...(provenance ? [`  provenance: ${provenance}`] : []),", "'  serves: goal.fx.add',", "'  preserves: invariant.fx.add-sum',"]},
+        {"kind": "producer-code", "path": "plugins/omp-build/skills/feature/proof.ts", "url": "https://github.com/Roxabi/roxabi-plugins/blob/9f393b10454041cb505d333162430b8f65f174df/plugins/omp-build/skills/feature/proof.ts#L1160-L1200", "verbatimLines": ["const key = line.slice(0, colon).trim()", "const raw = line.slice(colon + 1)", "const value = raw.trim()", "if (key === 'status') {", "  if (status || (value !== 'active' && value !== 'partial' && value !== 'verified')) return undefined", "  status = { line: index, replacement: line.slice(0, colon + 1) + raw.replace(value, 'superseded') }", "} else if (key === 'provenance') {", "  if (provenance !== undefined || (value !== 'author' && value !== 'agent' && value !== 'derived')) return undefined", "  provenance = value", "}"]},
+        {"kind": "caller-code", "path": "plugins/omp-build/skills/feature/proof.ts", "url": "https://github.com/Roxabi/roxabi-plugins/blob/9f393b10454041cb505d333162430b8f65f174df/plugins/omp-build/skills/feature/proof.ts#L800-L850", "verbatimLines": ["if (lifecycle === 'superseded' && historicalProvenance !== undefined && inspect.provenance !== historicalProvenance) {", "  return refuse('semctx', 'unbound', `${name}: native provenance does not match its retained Git source`)", "}", "if (!LANDABLE[lifecycle] && !(lifecycle === 'superseded' && historicalProvenance !== undefined)) {"]},
+        {"kind": "review-result", "url": "https://github.com/Roxabi/roxabi-plugins/pull/819#issuecomment-6217104084", "text": "An existing historical file can contain a change with status verified but no provenance, followed by an unchanged goal goal.fx.decoy block containing statement Supplementary goal and provenance author, without a status field. Changing only the historical change’s status to superseded makes retainedProvenance accept the goal’s provenance."}
+      ],
+      "sourceGaps": ["The exact mixed change-plus-goal counterexample blob is retained in the public review evidence, not in the checked-in historical fixture."],
+      "findings": [{"id": "C01-F1", "text": "A selected historical contract may borrow explicit provenance from a different block in the same file.", "sourceReviewerProposal": "issue(blocking)"}],
+      "validationEvents": [{"type": "mixed-block-provenance", "input": "selected change without provenance, unchanged decoy goal provenance, then status-only transition"}]
+    },
+    {
+      "id": "C02",
+      "name": "head movement before authorization",
+      "kind": "historical",
+      "sources": {"pullRequest": 840, "reviewedRevision": "fab6ba0d36cbc82a2c257617f8389d667df550c8", "reviewComment": "https://github.com/Roxabi/roxabi-plugins/pull/840#issuecomment-6239127093"},
+      "verbatimEvidence": [
+        {"kind": "producer-code", "path": "plugins/omp-build/skills/feature/workflow.js", "url": "https://github.com/Roxabi/roxabi-plugins/blob/fab6ba0d36cbc82a2c257617f8389d667df550c8/plugins/omp-build/skills/feature/workflow.js#L770-L799", "verbatimLines": ["if (!isBehind(await readPrFields(cwd, pr, ghFn, 'state,mergeStateStatus'))) return null", "if (!isCommitSha(fresh.headRefOid) || fresh.headRefOid !== records.head) {", "  return exit(refused('head-moved'), { policy: 'unarmed', gate: fresh })", "}", "const checkBeforeArm = async () => (await behindBeforeArm()) ?? checkCoordinates()"]},
+        {"kind": "caller-code", "path": "plugins/omp-build/skills/feature/workflow.js", "url": "https://github.com/Roxabi/roxabi-plugins/blob/fab6ba0d36cbc82a2c257617f8389d667df550c8/plugins/omp-build/skills/feature/workflow.js#L1057-L1064", "text": "const behindBeforeLabel = await behindBeforeArm()\nif (behindBeforeLabel) return behindBeforeLabel\nconst added = await labelWrite(['pr', 'edit', String(pr), '--add-label', 'reviewed'], true)"},
+        {"kind": "review-result", "url": "https://github.com/Roxabi/roxabi-plugins/pull/840#issuecomment-6239127093", "text": "Moving the head during that new read made head write `pr edit 7 --add-label reviewed` at the moved head and only then disarm (`not-approved`/`head-moved`, `disarmed: true`)."}
+      ],
+      "sourceGaps": [],
+      "findings": [{"id": "C02-F1", "text": "An arming write can run after its candidate head moved.", "sourceReviewerProposal": "suggestion(blocking)"}],
+      "validationEvents": [{"type": "head-moves-during-behind-read", "input": "move headRefOid during state,mergeStateStatus read"}]
+    },
+    {
+      "id": "C03",
+      "name": "apostrophe absent from coverage fixture",
+      "kind": "historical",
+      "sources": {"pullRequest": 822, "reviewedRevision": "0d3e74f74773e4127e066f32c3a4c34c2f4d35f3", "reviewComment": "https://github.com/Roxabi/roxabi-plugins/pull/822#issuecomment-6234032389"},
+      "verbatimEvidence": [
+        {"kind": "producer-test", "path": "plugins/omp-build/skills/feature/land.integration.test.js", "url": "https://github.com/Roxabi/roxabi-plugins/blob/0d3e74f74773e4127e066f32c3a4c34c2f4d35f3/plugins/omp-build/skills/feature/land.integration.test.js#L229-L260", "verbatimLines": ["const hostile = `main;touch\\${IFS}${sentinels[0]};$(touch\\${IFS}${sentinels[1]})`", "const { result } = land(dir, 'ok', { baseName: hostile })", "expect(result).toMatchObject({ status: 'watching', mode: 'merge-on-green' })", "expect(sentinels.map((path) => existsSync(path))).toEqual([false, false])"]},
+        {"kind": "review-contract", "url": "https://github.com/Roxabi/roxabi-plugins/pull/822#issuecomment-6234032389", "text": "A regression runs the produced watch string (or its argv split) with a base name containing ; / $(…) and observes a single literal argument and no side effect; it fails with the quoting removed."},
+        {"kind": "review-result", "url": "https://github.com/Roxabi/roxabi-plugins/pull/822#issuecomment-6234032389", "text": "The hostile base is built only from ;, $, (, ), {}, all of which stay literal inside any single-quote wrapper."}
+      ],
+      "sourceGaps": [],
+      "findings": [{"id": "C03-F1", "text": "The regression omits an apostrophe-bearing input while current supported behavior is correct.", "sourceReviewerProposal": "suggestion"}],
+      "validationEvents": [{"type": "weaker-quote-mutant", "input": "plain single-quote wrapper with an apostrophe-bearing base"}]
+    },
+    {
+      "id": "C04",
+      "name": "qualification and adjacent-change boundaries",
+      "kind": "fictional-boundary",
+      "fictional": true,
+      "label": "Small fictional supplied program; no historical record contains these independent facts in one review.",
+      "sourceGaps": ["C04-F2 names the accepted supported /export route, but its documented implementation file src/export.ts and all caller evidence are intentionally unavailable."],
+      "reviewInput": {
+        "contract": ["route('blocked') must not call consume.", "The supported /export route must redact account keys before response.", "Only role 'admin' may reset a workspace.", "A repeated supported charge request must not debit twice.", "The supported resetAndReport route invokes reset and one local reporting callback only; its one-event diagnostic is nonmandatory and creates no audit-retention or security obligation."],
+        "program": {
+          "src/router.ts": ["1 export const route = (input: string) => input === 'blocked' ? 'rejected' : consume(input)", "2 export const consume = (input: string) => `consumed:${input}`"],
+          "src/admin.ts": ["1 export const reset = (role: string) => {", "2   if (role === 'member') return 'reset'", "3   return 'reset'", "4 }"],
+          "src/charge.ts": ["1 const debits: string[] = []", "2 export const charge = (requestId: string) => { debits.push(requestId); return debits.length }"],
+          "src/diagnostic.ts": ["1 export const diagnostic = (event: string, write: (value: string) => void) => {", "2   write(event)", "3   write(event)", "4 }"],
+          "src/nearby.ts": ["1 export const privileged = (role: string) => role === 'admin'"],
+          "src/workflow.ts": ["1 import { reset } from './admin'", "2 import { diagnostic } from './diagnostic'", "3 export const resetAndReport = (role: string, writes: string[]) => {", "4   const result = reset(role)", "5   diagnostic(`reset:${result}`, (value) => writes.push(value))", "6   return result", "7 }"]
+        },
+        "callers": [{"anchor": "src/router.ts:1", "input": "blocked", "observed": "rejected"}, {"anchor": "src/admin.ts:2", "input": "member", "observed": "reset"}, {"anchor": "src/charge.ts:2", "input": "same-request twice", "observed": "[1,2]"}, {"anchor": "src/workflow.ts:3-7", "input": "resetAndReport('admin', writes)", "observed": {"result": "reset", "writes": ["reset:reset", "reset:reset"]}, "consumerScope": "the local writes callback supplied to resetAndReport"}],
+        "availableChecks": [{"anchor": "src/router.ts:1", "check": "route('blocked') === 'rejected'"}, {"anchor": "src/admin.ts:2", "check": "reset('member') !== 'reset'"}, {"anchor": "src/charge.ts:2", "check": "charge('r1'); charge('r1') returns [1,2]"}, {"anchor": "src/workflow.ts:3-7", "check": "resetAndReport('admin', writes) returns reset and emits exactly ['reset:reset'] after removal of src/diagnostic.ts:3"}],
+        "provenance": "fixture-reviewer"
+      },
+      "findings": [{"id": "C04-F1", "text": "The alleged blocked input reaches the consumer.", "anchors": ["src/router.ts:1"], "evidence": ["route('blocked') returns rejected."]}, {"id": "C04-F2", "text": "Supported export may omit account-key redaction.", "anchors": ["contract:The supported /export route must redact account keys before response."], "missingEvidence": ["src/export.ts is unavailable.", "No export caller, request, or observed response is supplied."]}, {"id": "C04-F3", "text": "A repeated supported charge debits twice.", "anchors": ["src/charge.ts:2"], "evidence": ["The same requestId is pushed twice."], "planningLimit": ["No supplied ledger-retention or reconciliation decision identifies a safe patch."]}, {"id": "C04-F4", "text": "A member resets a workspace.", "anchors": ["src/admin.ts:2"], "evidence": ["reset('member') returns reset."], "candidatePatch": {"path": "src/admin.ts:2", "replacement": "if (role !== 'admin') return 'forbidden'"}}, {"id": "C04-F5", "text": "The supported resetAndReport route emits one local diagnostic twice.", "anchors": ["src/workflow.ts:5", "src/diagnostic.ts:2-3"], "evidence": ["resetAndReport('admin', writes) returns reset and emits two reset:reset entries through its sole local reporting callback.", "The accepted contract limits this diagnostic to local reporting and makes it nonmandatory."], "candidatePatch": {"path": "src/diagnostic.ts:3", "operation": "delete duplicate write(event)"}, "separability": {"remainingPath": "src/workflow.ts:3-7", "check": "resetAndReport('admin', writes) returns reset with exactly one reset:reset entry after the deletion."}}, {"id": "C04-F6", "text": "A nearby privilege predicate has the same class.", "anchors": ["src/nearby.ts:1"], "missingEvidence": ["No caller, input, observed failure, or compatibility check is supplied."]}],
+      "findingProvenance": {"C04-F1": {"agent": "fixture-reviewer", "phase": "panel", "callsites": [{"file": "src/router.ts", "line": 1}]}, "C04-F2": {"agent": "fixture-reviewer", "phase": "panel", "callsites": [{"file": "src/export.ts", "line": 1}]}, "C04-F3": {"agent": "fixture-reviewer", "phase": "panel", "callsites": [{"file": "src/charge.ts", "line": 2}]}, "C04-F4": {"agent": "fixture-reviewer", "phase": "panel", "callsites": [{"file": "src/admin.ts", "line": 2}]}, "C04-F5": {"agent": "fixture-reviewer", "phase": "panel", "callsites": [{"file": "src/workflow.ts", "line": 5}, {"file": "src/diagnostic.ts", "line": 3}]}, "C04-F6": {"agent": "fixture-reviewer", "phase": "panel", "callsites": [{"file": "src/nearby.ts", "line": 1}]}}
+    },
+    {
+      "id": "C05",
+      "name": "debt conjunction and change-failure boundaries",
+      "kind": "fictional-boundary",
+      "fictional": true,
+      "label": "Small fictional supplied program for debt and later rollback transitions.",
+      "sourceGaps": [],
+      "reviewInput": {
+        "contract": ["A report request returns its current records once.", "An audit record is retained for an accepted reset.", "No current contract promises report sorting or report migration."],
+        "program": {
+          "src/report.ts": ["1 export const report = (rows: string[]) => rows", "2 export const migration = () => 'requires external archive'"],
+          "src/reset.ts": ["1 export const reset = (id: string, writes: string[]) => { writes.push(`reset:${id}`); return 'ok' }"],
+          "src/audit.ts": ["1 export const audit = (id: string, writes: string[]) => writes.push(`reset:${id}`)"]
+        },
+        "callers": [{"anchor": "src/report.ts:1", "input": "[\"b\",\"a\"]", "observed": "[\"b\",\"a\"]"}, {"anchor": "src/reset.ts:1", "input": "reset('r1', writes)", "observed": "[\"reset:r1\"]"}],
+        "provenance": "fixture-reviewer"
+      },
+      "findings": [{"id": "C05-F1", "text": "Sort report rows for operator comfort.", "anchors": ["src/report.ts:1"], "evidence": ["A near-term demo date and external-scope estimate are supplied; no concrete serious impact is supplied."]}, {"id": "C05-F2", "text": "Archive migration cannot complete in the ticket.", "anchors": ["src/report.ts:2"], "evidence": ["Concrete retention impact and external-scope estimate are supplied; no near-term trigger is supplied."]}, {"id": "C05-F3", "text": "Report ordering matters before month end.", "anchors": ["src/report.ts:1"], "evidence": ["Concrete impact and month-end trigger are supplied; a two-line current-ticket patch is supplied."]}, {"id": "C05-F4", "text": "Move historical report records to external archive.", "anchors": ["src/report.ts:2"], "evidence": ["Concrete retention impact, an explicit statutory date, and external archive migration scope are supplied."]}, {"id": "C05-F5", "text": "Add a second audit write next to reset.", "anchors": ["src/audit.ts:1"], "evidence": ["The change is adjacent to reset and has a focused audit-count check."]}, {"id": "C05-F6", "text": "Inline audit inside reset.", "anchors": ["src/reset.ts:1"], "evidence": ["The change shares reset's only write and has a focused audit-count check."]}],
+      "findingProvenance": {"C05-F1": {"agent": "fixture-reviewer", "phase": "panel", "callsites": [{"file": "src/report.ts", "line": 1}]}, "C05-F2": {"agent": "fixture-reviewer", "phase": "panel", "callsites": [{"file": "src/report.ts", "line": 2}]}, "C05-F3": {"agent": "fixture-reviewer", "phase": "panel", "callsites": [{"file": "src/report.ts", "line": 1}]}, "C05-F4": {"agent": "fixture-reviewer", "phase": "panel", "callsites": [{"file": "src/report.ts", "line": 2}]}, "C05-F5": {"agent": "fixture-reviewer", "phase": "panel", "callsites": [{"file": "src/audit.ts", "line": 1}]}, "C05-F6": {"agent": "fixture-reviewer", "phase": "panel", "callsites": [{"file": "src/reset.ts", "line": 1}]}},
+      "validationEvents": [{"id": "C05-E1", "phase": "after-selection", "priorSelectedState": [{"record": "C05-R1", "authorization": "required", "contract": "A reset retains its existing reset record.", "patch": {"path": "src/reset.ts:1", "replacement": "writes.push(`reset:${id}`); return 'ok'"}}, {"finding": "C05-F5", "authorization": "optional-neighbor", "patch": {"path": "src/audit.ts:1", "replacement": "writes.push(`reset:${id}`); writes.push(`audit:${id}`)"}}], "falsification": {"check": "audit('r1', writes) must contain one entry", "observed": "[\"reset:r1\",\"audit:r1\"]"}, "separationEvidence": {"removePatch": "restore src/audit.ts:1 to writes.push(`reset:${id}`)", "postWithdrawalState": {"call": "const writes: string[] = []; const result = reset('r1', writes)", "observed": {"result": "ok", "writes": ["reset:r1"]}, "assertion": "the required reset record remains retained exactly once"}}}, {"id": "C05-E2", "phase": "after-selection", "priorSelectedState": [{"record": "C05-R1", "authorization": "required", "contract": "A reset retains its existing reset record.", "intendedPatch": {"path": "src/reset.ts:1", "replacement": "writes.push(`reset:${id}`); return 'ok'"}}, {"finding": "C05-F6", "authorization": "optional-neighbor", "intendedPatch": {"path": "src/reset.ts:1", "replacement": "writes.push(`reset:${id}`); writes.push(`audit:${id}`); return 'ok'"}}], "falsification": {"check": "reset('r1', writes) must create one retained audit record", "observed": "the proposed joint replacement duplicates the reset record"}, "separationEvidence": {"status": "unknown", "missing": ["No actual joint delta is supplied.", "No required-only snapshot is supplied."], "suppliedObservedRemoval": {"operation": "delete both write statements from the proposed joint replacement", "observed": {"result": "ok", "writes": []}, "effect": "the required reset record is lost"}, "limit": "This rules out only the supplied removal; it does not claim every possible withdrawal is unsafe."}}]
+    }
+  ]
+}
