@@ -1061,6 +1061,46 @@ ${ORDINARY_INLINE_PLAN_BULLET}
     })
   })
 
+  describe('RC-4 explicit factual identity shapes', () => {
+    it.each([
+      '  **Root cause**: ["foreign"]',
+      '  **Root cause**: ["guard","foreign","and"]',
+      '  **src/panel/foreign.ts:99**',
+    ])('rejects the exact before-emitter witness at its original source line: %s', (identity) => {
+      rejectsAt(
+        CONSERVED_NATIVE_BODY.replace('  -- fixture-adversarial\n', `${identity}\n  -- fixture-adversarial\n`),
+        identity,
+      )
+    })
+
+    it.each([
+      '  _Root cause_: ["foreign"]',
+      '  __Provenance__: []',
+      '  ~~Confidence~~: 96%',
+      '  *Ancillary*: an unqualified value',
+      '  **Ancillary:** an unqualified value',
+      '  __src/panel/foreign.ts:99__',
+      '  ~~src/panel/foreign.ts:99~~',
+    ])('rejects generic active marker-run identities without a Root-cause keyword list: %s', (identity) => {
+      rejectsAt(
+        CONSERVED_NATIVE_BODY.replace('  -- fixture-adversarial\n', `${identity}\n  -- fixture-adversarial\n`),
+        identity,
+      )
+    })
+
+    it.each([
+      '  **Important** ordinary emphasized description',
+      '  _Additional context_ without a field separator',
+      '  ~~Ancillary wording~~ without a field separator',
+      '  `**Root cause**: ["foreign"]`',
+      '  `**src/panel/foreign.ts:99**`',
+      '  <!-- **Root cause**: ["foreign"] -->',
+      '  Ancillary:\n    {"label":"**Root cause**: foreign","citation":"**src/panel/foreign.ts:99**"}',
+    ])('keeps supported ancillary prose and already-owned examples inert: %s', (prose) => {
+      accepts(CONSERVED_NATIVE_BODY.replace('  -- fixture-adversarial\n', `${prose}\n  -- fixture-adversarial\n`))
+    })
+  })
+
   it.each([
     [
       'a missing blocker record',

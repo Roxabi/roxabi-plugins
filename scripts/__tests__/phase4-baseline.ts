@@ -28,6 +28,7 @@ type Line = {
   text: string
   spans: Span[]
   block: Block
+  identity: PeerIdentity | undefined
 }
 
 function ownsActive(line: Line, start: number, end: number): boolean {
@@ -95,8 +96,14 @@ type Field = {
   end: number
 }
 
+type PeerIdentity =
+  | { kind: 'field'; name: string; prefixEnd: number }
+  | { kind: 'citation'; prefixEnd: number }
+  | { kind: 'emitter'; prefixEnd: number }
+  | { kind: 'unsupported'; prefixEnd: number }
+
 type PeerNode =
-  | { kind: 'field'; name: string; valueOffset: number }
+  | Extract<PeerIdentity, { kind: 'field' }>
   | { kind: 'citation'; value: string; line: Line }
   | { kind: 'emitter'; value: string; line: Line }
 
@@ -162,6 +169,15 @@ const EXPECTED_FINDINGS: readonly ExpectedFinding[] = [
 const CONVENTIONAL_LABEL = '(?:issue|suggestion|todo|nitpick|thought|question|praise)(?:\\([a-z-]+\\))?'
 const conventionalLine = new RegExp(`^([ \\t]*)(?:[-*][ \\t]*)?(${CONVENTIONAL_LABEL}):`)
 const recordLine = new RegExp(`^ *(?:[-*] )?((?:${CONVENTIONAL_LABEL})):[^\\n]*$`)
+const FIELD_NAME = '[A-Za-z][A-Za-z /-]*'
+const CITATION_IDENTITY = '[A-Za-z0-9_./-]+:\\d+'
+const fieldPrefix = new RegExp(`^ +(${FIELD_NAME}):[ \\t]*`)
+const citationPrefix = new RegExp(`^ +${CITATION_IDENTITY}`)
+const citationIdentity = new RegExp(`^ +(${CITATION_IDENTITY})[ \\t]*$`)
+const emitterPrefix = /^ +-- /
+const decoratedPeerPrefix = new RegExp(
+  `^ {2}(?! )[*_~]+(?:${FIELD_NAME}(?:[*_~]+[ \\t]*:|:[*_~]+)|${CITATION_IDENTITY}[*_~]+)`,
+)
 
 function reject(message: string): never {
   throw new AssertionError({ message })
@@ -435,10 +451,6 @@ function closingCodeSpan(
   return undefined
 }
 
-function headerStartsData(line: string): boolean {
-  return /^ +[A-Za-z][A-Za-z /-]*:[ \t]*$/.test(line)
-}
-
 function headerStartsJsonFence(line: string): boolean {
   return /^ +(?! )(?:Root cause|Symptoms\/evidence):[ \t]*```(?:json)?[ \t]*$/.test(line)
 }
@@ -447,7 +459,15 @@ function buildDocument(body: string): Line[] {
   const lines: Line[] = []
   let offset = 0
   for (const [index, text] of body.split('\n').entries()) {
-    lines.push({ index, start: offset, end: offset + text.length, text, spans: [], block: blockAt(text) })
+    lines.push({
+      index,
+      start: offset,
+      end: offset + text.length,
+      text,
+      spans: [],
+      block: blockAt(text),
+      identity: peerIdentity(text),
+    })
     offset += text.length + 1
   }
 
@@ -533,9 +553,10 @@ function buildDocument(body: string): Line[] {
       }
       cursor = close.line === index ? close.end : line.text.length
     }
-    if (activeMatch(line, /^ +[A-Za-z][A-Za-z /-]*:/)) {
+    const identity = line.identity
+    if (identity?.kind === 'field' && ownsActive(line, 0, identity.prefixEnd)) {
       if (headerStartsJsonFence(line.text)) dataFence = true
-      else if (headerStartsData(line.text)) pendingData = true
+      else if (identity.prefixEnd === line.text.length) pendingData = true
     }
   }
   if (commentOpen) located(lines[lines.length - 1], 'HTML comment is not closed')
@@ -547,7 +568,13 @@ function buildDocument(body: string): Line[] {
       located(line, 'finding identities cannot be decorated')
     if (activeMatch(line, new RegExp(`^ {1,3}(?! )(?:[-*] )?${CONVENTIONAL_LABEL}:`)))
       located(line, 'finding identities must be plain or column-zero bullets')
-    if (activeMatch(line, /^(?: {1}(?! )| {3}(?! ))(?:-- |[A-Za-z0-9_./-]+:\d+[ \t]*$|[A-Za-z][A-Za-z /-]*:)/))
+    const identity = line.identity
+    if (
+      identity &&
+      identity.kind !== 'unsupported' &&
+      ownsActive(line, 0, identity.prefixEnd) &&
+      (line.text[1] !== ' ' || line.text[2] === ' ')
+    )
       located(line, 'record fields require two-space indentation')
     for (const span of line.spans) {
       if (span.kind !== 'active') continue
@@ -573,19 +600,32 @@ function activeHeading(line: Line): { level: number; title: string } | undefined
   return line.block.kind === 'heading' && ownsActive(line, 0, line.block.prefixEnd) ? line.block : undefined
 }
 
+function peerIdentity(text: string): PeerIdentity | undefined {
+  const decorated = decoratedPeerPrefix.exec(text)
+  if (decorated) return { kind: 'unsupported', prefixEnd: decorated[0].length }
+  const citation = citationPrefix.exec(text)
+  if (citation) return { kind: 'citation', prefixEnd: citation[0].length }
+  const emitter = emitterPrefix.exec(text)
+  if (emitter) return { kind: 'emitter', prefixEnd: emitter[0].length }
+  const field = fieldPrefix.exec(text)
+  return field ? { kind: 'field', name: field[1], prefixEnd: field[0].length } : undefined
+}
+
 function peer(line: Line): PeerNode | undefined {
-  if (activeMatch(line, /^ +[A-Za-z0-9_./-]+:\d+/)) {
-    const citation = /^ +([A-Za-z0-9_./-]+:\d+)[ \t]*$/.exec(line.text)
+  const identity = line.identity
+  if (!identity || !ownsActive(line, 0, identity.prefixEnd)) return undefined
+  if (identity.kind === 'unsupported') located(line, 'factual identities require a supported plain shape')
+  if (identity.kind === 'citation') {
+    const citation = citationIdentity.exec(line.text)
     if (!citation) located(line, 'citation requires one complete plain identity')
     return { kind: 'citation', value: citation[1], line }
   }
-  if (activeMatch(line, /^ +-- /)) {
+  if (identity.kind === 'emitter') {
     const emitter = /^ +-- ([^\n]*?)[ \t]*$/.exec(line.text)
     if (!emitter) located(line, 'emitter requires one complete plain identity')
     return { kind: 'emitter', value: emitter[1], line }
   }
-  const field = activeMatch(line, /^ +([A-Za-z][A-Za-z /-]*):[ \t]*/)
-  return field ? { kind: 'field', name: field[1], valueOffset: field[0].length } : undefined
+  return identity
 }
 
 function conventionalAt(line: Line): RegExpExecArray | undefined {
@@ -682,7 +722,7 @@ function findRecordNodes(body: string, lines: readonly Line[]): RecordNode[] {
         else {
           const boundary = peers[position + 1]?.line.start ?? lines[endLine]?.start ?? body.length
           const values = fields.get(entry.node.name) ?? []
-          values.push({ name: entry.node.name, valueStart: entry.line.start + entry.node.valueOffset, end: boundary })
+          values.push({ name: entry.node.name, valueStart: entry.line.start + entry.node.prefixEnd, end: boundary })
           fields.set(entry.node.name, values)
         }
       }

@@ -122,6 +122,11 @@ Markdown or prose semantics:
   These restrictions are contextual: literal examples and owned factual data are
   not subjected to a global denylist; their complete typed finding values remain
   qualified by the existing decoders.
+  At the declared field indentation, star/underscore/tilde marker runs around a
+  generic field-name or citation token are explicitly unsupported identities,
+  never normalized peers or ignored duplicates. Plain identities and ordinary
+  emphasized descriptions retain their existing roles; inline/comment/data-owned
+  lookalikes do not supply factual peers.
 
 The qualified **original body** goes unchanged to `workflow.reviewRecords`; the
 test observes its declared `Request changes`. That consumer does not prove the
