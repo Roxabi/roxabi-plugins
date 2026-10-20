@@ -1159,6 +1159,24 @@ ${ORDINARY_INLINE_PLAN_BULLET}
     })
   })
 
+  describe('review 2 RC-4 decorated emitter identities', () => {
+    it.each(['*', '_', '~~', '**', '__'])('rejects an extra %s emitter before the valid identity', (decoration) => {
+      const identity = `  ${decoration}-- foreign-agent${decoration}`
+      for (const emitter of ['fixture-adversarial', 'fixture-architect']) {
+        rejectsAt(CONSERVED_C1_NATIVE_BODY.replace(`  -- ${emitter}\n`, `${identity}\n  -- ${emitter}\n`), identity)
+      }
+    })
+
+    it.each([
+      '  `**-- foreign-agent**`',
+      '  <!-- **-- foreign-agent** -->',
+      '  **Important** ordinary emphasized description',
+      '  Ancillary:\n    {"emitter":"**-- foreign-agent**"}',
+    ])('keeps literal emitter examples and non-identities inert: %s', (prose) => {
+      accepts(CONSERVED_C1_NATIVE_BODY.replace('  -- fixture-adversarial\n', `${prose}\n  -- fixture-adversarial\n`))
+    })
+  })
+
   it.each([
     [
       'a missing blocker record',

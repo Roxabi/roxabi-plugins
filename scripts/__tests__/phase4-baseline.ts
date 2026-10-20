@@ -180,9 +180,10 @@ const CITATION_IDENTITY = '[A-Za-z0-9_./-]+:\\d+'
 const fieldPrefix = new RegExp(`^ +(${FIELD_NAME}):[ \\t]*`)
 const citationPrefix = new RegExp(`^ +${CITATION_IDENTITY}`)
 const citationIdentity = new RegExp(`^ +(${CITATION_IDENTITY})[ \\t]*$`)
-const emitterPrefix = /^ +-- /
+const EMITTER_IDENTITY = '-- '
+const emitterPrefix = new RegExp(`^ +${EMITTER_IDENTITY}`)
 const decoratedPeerPrefix = new RegExp(
-  `^ {2}(?! )${IDENTITY_DECORATION}(?:${FIELD_NAME}(?:${IDENTITY_DECORATION}[ \\t]*:|:${IDENTITY_DECORATION})|${CITATION_IDENTITY}${IDENTITY_DECORATION})`,
+  `^ {2}(?! )${IDENTITY_DECORATION}(?:${FIELD_NAME}(?:${IDENTITY_DECORATION}[ \\t]*:|:${IDENTITY_DECORATION})|${CITATION_IDENTITY}${IDENTITY_DECORATION}|${EMITTER_IDENTITY})`,
 )
 
 function reject(message: string): never {

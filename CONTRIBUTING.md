@@ -128,8 +128,8 @@ Markdown or prose semantics:
   not subjected to a global denylist; their complete typed finding values remain
   qualified by the existing decoders.
   At the declared field indentation, star/underscore/tilde marker runs around a
-  generic field-name or citation token are explicitly unsupported identities,
-  never normalized peers or ignored duplicates. Plain identities and ordinary
+  generic field-name, citation or emitter token are explicitly unsupported
+  identities, never normalized peers or ignored duplicates. Plain identities and ordinary
   emphasized descriptions retain their existing roles; inline/comment/data-owned
   lookalikes do not supply factual peers.
 
