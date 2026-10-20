@@ -18,6 +18,33 @@ A "fix" that only widens a denylist, adds a grep, or copies an inventory list is
 tautological — `fail`, whatever the members' classes. The oracle or single SSoT (matcher,
 parser, one `package.json` script) must change.
 
+## Evidence-v1 candidate
+
+Read `skill://dev-review/evidence-policy.md` with this gate. Baseline retry behavior
+below remains authoritative by default. An active evidence-v1 candidate reaches this
+gate only from a required plan selected in its independently accepted, normal
+authoritative Phase 4 review record; shadow never runs a patch or changes the baseline
+result.
+
+A required plan may already contain exact non-blocking members resolved by its one
+demonstrated shared-producer mechanism; that is not an optional neighbor. An
+`optional-neighbor-of RC-N` is only a distinct additional correction under the shared
+policy, never an excuse to split the required mechanism or add unrelated work.
+
+An optional neighbor belongs to that required correction only while its recorded
+`optional-neighbor-of RC-N` authorization and bounded admission remain true. Its
+application, proof, or guard-removal failure means: withdraw its changes, restore them,
+then revalidate every required path. Continue the required correction only when it is
+still separable; otherwise stop with the required obligation retained. Do not spend this
+gate's retry, create a discretionary repair chain, or substitute a new plan for an
+optional failure.
+
+Every candidate finding discovered here stays evidence in the candidate receipt: local
+in shadow, the normal active receipt after accepted activation. It creates no issue,
+bundle, or new correction route unless independent evidence proves `important AND urgent
+AND too-large`; otherwise it is PR-comment-only. This gate does not decide that
+conjunction or use any transport other than `issue-triage` when it is already admitted.
+
 ## Input
 
 ```
@@ -77,13 +104,21 @@ parking_lot.append({
 
 ¬reopen the current fix loop for parking lot entries. ¬increment the 2-iter cap.
 Parking lot entries are surfaced in Phase 6 under a dedicated `### Parking Lot` section.
+For evidence-v1, preserve them in the separate local receipt and apply the three debt
+predicates before any issue; a failed predicate leaves a PR comment only.
 
 ## Retry
 
-`fail` → re-apply that cause once, inline, in the same session, as a new commit (max 1
-falsification-retry per cause — there is no fixer agent to hand it to). The retry re-implements
-the same `fix:` and `proof:`; it never adopts another plan or another proof.
-This retry budget is independent of the CI retry budget in Phase 3 (max 3 CI retries).
-Second `fail` → `git revert --no-edit` the cause's commits; cause marked `[failed]` and filed;
-surfaced in Phase 6.
-`skipped` → no retry. The commit stands and is reported as skipped, with its reason.
+**Baseline required cause:** `fail` → re-apply that cause once, inline, in the same
+session, as a new commit (max 1 falsification-retry per cause — there is no fixer agent
+to hand it to). The retry re-implements the same `fix:` and `proof:`; it never adopts
+another plan or another proof. This retry budget is independent of the CI retry budget
+in Phase 3 (max 3 CI retries). Second `fail` → `git revert --no-edit` the cause's
+commits; cause marked `[failed]` and filed; surfaced in Phase 6.
+
+**Evidence-v1 required cause:** preserves that retry only for the selected required
+plan. An optional neighbor never receives it: withdraw/revalidate or stop under the
+candidate rule above. Any issue after a failed required correction requires
+`important AND urgent AND too-large`; otherwise retain the blocking obligation in the
+receipt/comment. `skipped` → no retry. The commit stands and is reported as skipped,
+with its reason.

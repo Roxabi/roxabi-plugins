@@ -1,0 +1,72 @@
+{
+  "schema": "evidence-policy-public-packet/v3",
+  "split": "heldout",
+  "inputContract": "Producer input only. This family is excluded from calibration and policy tuning. Expected observations are stored separately and must not be supplied to a candidate instruction.",
+  "historicalSourceRule": "Each historical claim is tied to the listed reviewed revision and public source link; no packet asserts that the current worktree equals a historical revision.",
+  "cases": [
+    {
+      "id": "H01",
+      "name": "supported SSH alias rejected after host restriction",
+      "kind": "historical",
+      "sources": {"pullRequest": 826, "reviewedRevision": "4a5ba76065cdd562ab6f2512028996e0915d8ea5", "reviewComment": "https://github.com/Roxabi/roxabi-plugins/pull/826#issuecomment-6237863927"},
+      "verbatimEvidence": [
+        {"kind": "producer-code", "path": "plugins/issue-triage/skills/shared/adapters/config-helpers.ts", "url": "https://github.com/Roxabi/roxabi-plugins/blob/4a5ba76065cdd562ab6f2512028996e0915d8ea5/plugins/issue-triage/skills/shared/adapters/config-helpers.ts#L101-L122", "verbatimLines": ["const GITHUB_REMOTE_PREFIX =", "  /^(?:[a-z][a-z0-9+.-]*:\\/\\/(?:[^\\/@]*@)?(?:ssh\\.)?github\\.com(?::\\d+)?\\/|(?:[^\\/@:]+@)?(?:ssh\\.)?github\\.com:)/i", "const prefix = GITHUB_REMOTE_PREFIX.exec(path)", "const slug = prefix ? path.slice(prefix[0].length) : ''", "return REPO_SLUG_RE.test(slug) ? slug : undefined"]},
+        {"kind": "caller-code", "path": "plugins/issue-triage/skills/shared/adapters/config-helpers.ts", "url": "https://github.com/Roxabi/roxabi-plugins/blob/4a5ba76065cdd562ab6f2512028996e0915d8ea5/plugins/issue-triage/skills/shared/adapters/config-helpers.ts#L135-L150", "verbatimLines": ["const origin = slugFromOrigin(url)", "if (!origin) {", "  const shown = url.replace(/^([A-Za-z][A-Za-z0-9+.-]*:\\/\\/).*@/s, '$1<redacted>@')", "  throw new ConfigError(", "    `Cannot detect GitHub repo: git remote \\\"origin\\\" (${shown}) is not a github.com owner/repo remote. ` +", "      'Set GITHUB_REPO or github_repo in .dev/dev-core.yml.'", "  )", "}"]},
+        {"kind": "review-contract-and-result", "url": "https://github.com/Roxabi/roxabi-plugins/pull/826#issuecomment-6237863927", "text": "origin = `git@github-work:Acme/product.git`, no `GITHUB_REPO` or `github_repo` pin, and `gh repo view` answering `Acme/product`: `main` resolves `Acme/product`; the head throws `ConfigError … is not a github.com owner/repo remote`... The panel ran `origin/main`'s resolver on the same fixture: it returned `Acme/product`, with `gh` answering and with `gh` failing."}
+      ],
+      "sourceGaps": [],
+      "findings": [{"id": "H01-F1", "text": "An SSH host alias that resolves to github.com is refused as a non-GitHub origin.", "sourceReviewerProposal": "issue(blocking)"}],
+      "validationEvents": [{"type": "effective-host-matrix", "inputs": ["github-work maps to github.com", "github-work maps to gitlab.com"]}]
+    },
+    {
+      "id": "H02",
+      "name": "HTML-comment rendered-membership regression",
+      "kind": "historical",
+      "sources": {"pullRequest": 861, "reviewedRevision": "6c5a7ba67a351a7c48735c1f9bf6cf06be70cf8e", "reviewComment": "https://github.com/Roxabi/roxabi-plugins/pull/861#issuecomment-6276719207"},
+      "verbatimEvidence": [
+        {"kind": "producer-code", "path": "scripts/__tests__/phase4-baseline.ts", "url": "https://github.com/Roxabi/roxabi-plugins/blob/6c5a7ba67a351a7c48735c1f9bf6cf06be70cf8e/scripts/__tests__/phase4-baseline.ts#L304-L343", "verbatimLines": ["function structuralText(body: string): string {", "  const lines = body.split('\\n')", "  const documentFence = indentationWidth(fence[1]) <= 3 && (fence[2][0] === '~' || !fence[3].includes('`'))", "  const factualFence = pendingFactualValue && fence[2] === '```' && /^(?:json)?[ \\t]*$/.test(fence[3])", "  if (documentFence || factualFence) {", "    lines[index] = ' '.repeat(line.length)", "    fenceMarker = fence[2][0]", "    fenceLength = fence[2].length", "  }", "  return lines.join('\\n')", "}"]},
+        {"kind": "caller-code", "path": "scripts/__tests__/phase4-baseline.ts", "url": "https://github.com/Roxabi/roxabi-plugins/blob/6c5a7ba67a351a7c48735c1f9bf6cf06be70cf8e/scripts/__tests__/phase4-baseline.ts#L346-L360", "text": "function findingSections(body: string): Finding[] {\n  const structure = structuralText(body)\n  const headings = [...structure.matchAll(/^## Findings[ \\t]*$/gm)]\n  if (headings.length !== 1 || headings[0].index === undefined) reject('rendered review has no unique Findings section')"},
+        {"kind": "review-result", "url": "https://github.com/Roxabi/roxabi-plugins/pull/861#issuecomment-6276719207", "text": "take a valid two-finding body, insert `<!--` on its own line immediately before `## Findings`, and insert `-->` immediately before `## Summary`... both record matches, citations, emitters and complete typed fields still qualify. The unchanged consumer still reads the external `Request changes` declaration."},
+        {"kind": "review-observation", "url": "https://github.com/Roxabi/roxabi-plugins/pull/861#issuecomment-6276719207", "text": "Observed validControlAccepted=true, commentedAccepted=true; unchanged candidate reviewRecords returned reviews=1 / Request changes. No real model invocation."}
+      ],
+      "sourceGaps": [],
+      "findings": [{"id": "H02-F1", "text": "HTML-commented findings satisfy the complete rendered baseline.", "sourceReviewerProposal": "issue(blocking)"}],
+      "validationEvents": [{"type": "comment-findings-section", "finding": "H02-F1"}]
+    },
+    {
+      "id": "H03",
+      "name": "differential history and requalification boundaries",
+      "kind": "fictional-boundary",
+      "fictional": true,
+      "label": "Small fictional supplied program; historical records do not combine all differential states in one causal chain.",
+      "sourceGaps": ["H03-F5 intentionally lacks a baseline review record and a producer record; those exact sources are unavailable."],
+      "reviewInput": {
+        "contract": ["Rendered labels must not end in a space.", "An unchanged label-casing observation is not a release requirement.", "A retained token-revocation obligation is still open."],
+        "baseline": {"program": {"src/render.ts": ["1 export const render = (label: string) => label"], "src/display.ts": ["1 export const display = (label: string) => render(label)"]}, "residuals": [{"id": "R-1", "anchor": "src/token.ts:1", "text": "revocation list is not consulted"}]},
+        "candidate": {"program": {"src/render.ts": ["1 export const render = (label: string) => label.trimEnd()"], "src/display.ts": ["1 export const display = (label: string) => render(label)"], "src/labels.ts": ["1 export const label = (value: string) => value.toUpperCase()"], "src/cli.ts": ["1 export const print = (value: string) => label(value)"], "src/token.ts": ["1 export const tokenAllowed = (_token: string) => true"]}, "changedPaths": ["src/render.ts"], "affectedCallers": ["src/display.ts:1"], "residuals": [{"id": "R-1", "anchor": "src/token.ts:1", "text": "revocation list is not consulted"}]},
+        "checks": [{"anchor": "src/render.ts:1", "input": "render('Summary  ')", "observed": "Summary"}, {"anchor": "src/labels.ts:1", "input": "label('draft')", "observed": "DRAFT"}, {"anchor": "src/cli.ts:1", "input": "print('draft')", "observed": "DRAFT"}],
+        "provenance": "fixture-reviewer"
+      },
+      "findings": [{"id": "H03-F1", "text": "The render change removes a trailing space.", "anchors": ["src/render.ts:1", "src/display.ts:1"], "evidence": ["Known baseline returns label unchanged; candidate calls trimEnd(); contract forbids trailing space."]}, {"id": "H03-F2", "text": "Label casing observation repeats unchanged.", "anchors": ["src/labels.ts:1"], "evidence": ["Baseline and candidate both uppercase labels; contract does not require casing."]}, {"id": "H03-F3", "text": "CLI now routes a supported value through label casing.", "anchors": ["src/cli.ts:1", "src/labels.ts:1"], "evidence": ["New caller print('draft') returns DRAFT."]}, {"id": "H03-F4", "text": "Token predicate shares an authorization class.", "anchors": ["src/token.ts:1"], "evidence": ["tokenAllowed always returns true."], "availableCheck": "tokenAllowed('revoked') must be false when R-1 is resolved."}, {"id": "H03-F5", "text": "A separate review arrives with only its current diff.", "missingEvidence": ["No baseline body.", "No producer record.", "Residual R-1 is named by the supplied contract only."]}],
+      "findingProvenance": {"H03-F1": "fixture-reviewer", "H03-F2": "fixture-reviewer", "H03-F3": "fixture-reviewer", "H03-F4": "fixture-reviewer", "H03-F5": "fixture-reviewer"}
+    },
+    {
+      "id": "H04",
+      "name": "evaluator degradation and suspension triggers",
+      "kind": "fictional-boundary",
+      "fictional": true,
+      "label": "Small fictional supplied program for evaluator availability and later candidate-output audit.",
+      "sourceGaps": [],
+      "reviewInput": {
+        "contract": ["Only role 'admin' may reset a workspace.", "The retained token-revocation obligation R-2 remains open."],
+        "program": {"src/access.ts": ["1 export const reset = (role: string) => role === 'member' ? 'reset' : 'forbidden'"], "src/ui.ts": ["1 export const submit = () => reset('member')"], "src/token.ts": ["1 export const tokenAllowed = (_token: string) => true"]},
+        "callers": [{"anchor": "src/ui.ts:1", "input": "submit()", "observed": "reset"}],
+        "availableChecks": [{"anchor": "src/access.ts:1", "check": "reset('member') === 'forbidden'"}],
+        "provenance": "fixture-reviewer"
+      },
+      "findings": [{"id": "H04-F1", "text": "A supported member request resets a workspace.", "anchors": ["src/access.ts:1", "src/ui.ts:1"], "evidence": ["submit() returns reset under a contract limited to admin."]}],
+      "findingProvenance": {"H04-F1": "fixture-reviewer"},
+      "validationEvents": [{"id": "H04-E1", "phase": "evaluator-result", "drainItems": [{"key": "H04-F1", "error": "malformed judgment"}, {"key": "H04-F1-retry-not-permitted", "model": null, "value": {"supported": "unknown"}}]}, {"id": "H04-E2", "phase": "candidate-output-audit", "rawCandidateBody": "## Findings\n### Blockers\nnone\n**Verdict: Approve**", "suppliedFinding": "H04-F1"}, {"id": "H04-E3", "phase": "candidate-output-audit", "selectedPlan": {"finding": "H04-F1", "patch": "send reset email and add delivery guarantee", "authorization": "required"}, "missingAdmissionFacts": ["no evidence bounds the new email promise"]}, {"id": "H04-E4", "phase": "candidate-output-audit", "baselineResidual": {"id": "R-2", "anchor": "src/token.ts:1"}, "rawCandidateBody": "## Differential\nNo residual obligations."}, {"id": "H04-E5", "phase": "candidate-output-audit", "debtRecord": {"finding": "H04-F1", "important": "member reset violates contract", "tooLarge": "email workflow exceeds this ticket"}, "missingFact": "no reason to act soon"}]
+    }
+  ]
+}

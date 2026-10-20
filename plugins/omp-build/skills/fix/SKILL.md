@@ -11,10 +11,10 @@ version: 0.3.3
 
 ## Success
 
-I := ∀ blocking r → applied ∨ filed (issue ∃) ∧ (deferred set = ∅ ∨ one deferral issue ∃) ∧ ∀ uncited blocking f → filed ∧ ∀ uncited non-blocking f → in that deferral ∨ already deferred ∧ ∀ cited non-blocking finding of a malformed block → in that deferral ∨ already deferred ∧ PR comment posted
+I := baseline: ∀ blocking r → applied ∨ filed (issue ∃) ∧ (deferred set = ∅ ∨ one deferral issue ∃) ∧ ∀ uncited blocking f → filed ∧ ∀ uncited non-blocking f → in that deferral ∨ already deferred ∧ ∀ cited non-blocking finding of a malformed block → in that deferral ∨ already deferred ∧ PR comment posted; evidence-v1: every required obligation is applied only from an authorized safe selected plan or remains blocking, and every attempted debt issue satisfies `important ∧ urgent ∧ too-large`
 V := `gh pr view {N} --comments | grep "## Review Fixes Applied"`
 
-One pass: find the review record, name the causes, apply each eligible well-formed blocking cause as its own commit, defer every non-blocking cause into one issue, push once when a cause was committed. A malformed block is never a commit.
+One pass: find the review record, name the causes, apply each eligible well-formed blocking cause as its own commit, defer every non-blocking cause into one issue **only under the baseline**. An evidence-v1 candidate uses the selected-plan, optional-withdrawal and debt rules below. A malformed block is never a commit.
 
 **⚠ Continuous pipeline. The cause plan is the decision — apply it in this turn. Stop only on: unrecoverable failure or Phase 6 completion.**
 
@@ -60,7 +60,7 @@ Let:
   actionable := {issue, suggestion, todo, nitpick}
   blocks(f) := label ∈ {issue:, issue(blocking):, todo:, suggestion(blocking):} — the label set only, the predicate `dev-review` Phase 4 uses after step 3b. A surviving `Source: recall` line does not satisfy it. A posted `suggestion:` does not satisfy it, including a downgraded missing test.
   blocking(r) := ∃ f ∈ r.findings: blocks(f) — one member is enough; not every member
-  R := root causes | r ∈ R := {id, title, mechanism, fix, failure, restored, paths, proof, findings[]} — the one plan, `skill://dev-review/root-causes.md` § Record
+  R := root causes | r ∈ R := {id, title, mechanism, fix, failure, restored, paths, proof, findings[], authorization?, admission?} — seven-line baseline plan; an active evidence-v1 authoritative posted plan additionally requires non-empty `authorization` and `admission`, per `skill://dev-review/root-causes.md`
   unplanned := `## Root causes` is exactly `none` ∧ F holds an actionable finding — the record carries no plan for it (root-causes.md § `none`)
   ME := `gh api user --jq .login`
   MARK := `<!-- omp-build:code-review -->` — the first line of every review `dev-review` posts
@@ -70,6 +70,49 @@ Let:
   D_subsumption := {d ∈ D | d.tag = "subsumption-violation"}
 
 Join rules, the `## Root causes` shape, and what may not join: `skill://dev-review/root-causes.md`. Read it in Phase 2.
+
+## Evidence-v1 candidate consumer
+
+Read `skill://dev-review/evidence-policy.md` before consuming candidate material.
+Shadow keeps the marked baseline PR comment unchanged. Supplied-input validation may
+read separate local candidate bytes to compute a hypothetical fix plan,
+optional-withdrawal transition and receipt without a patch, issue, label, route or
+post; missing acceptance is shadow, not a parser failure.
+
+After independently verified acceptance for explicitly selected later work, active
+evidence-v1 is not a sidecar: Phase 4 posts its qualified normal marked review body
+through the existing writer, preserving markers/head/input/bounds, and this consumer
+reads that same body. It never discovers authority from a model output,
+self-declaration or replay result. An explicitly fictional fixture acceptance exercises
+the branch locally only and never establishes authority or permits a write.
+
+For that active record, use only selected blocks with all seven lines, exact unique
+memberships, `authorization: required | optional-neighbor-of RC-N`, and bounded
+`admission:` evidence. A missing/malformed field, unsafe plan or unverified acceptance
+authorizes no patch. A required finding is an evidenced applicable accepted mandatory
+obligation, not a baseline label inherited from shadow; `none` does not clear it.
+Apply a `required` block only when it is eligible under the existing rules. An
+`optional-neighbor-of RC-N` block needs all six `evidence-policy.md` conditions and
+may change only inside that required correction while separable.
+
+One `required` block may carry exact non-blocking memberships when its demonstrated
+single mechanism is resolved by the same minimal shared-producer correction; do not
+split it by label. `optional-neighbor-of` is reserved for an additional independent
+correction and never expands the required plan to unrelated work.
+
+On optional application/falsification failure: withdraw the optional edit, restore and
+revalidate the required paths. Continue only when the required correction is still
+separable; otherwise stop. Do not use the falsification retry, a new optional repair,
+or a substitute plan to rescue it. Every neighboring discovery is independently
+requalified; same class/file/anchor is not membership or admission.
+
+Before **every** `triage create` contemplated by candidate handling—blocking, uncited,
+malformed, unplanned, failed, falsification, deferred or bundled—record retained
+evidence for `important`, `urgent`, and `too-large`. Create an issue only when all
+three are true. If one is false, unknown, absent or disputed, create neither an issue
+nor a debt bundle: retain the obligation in the PR comment/receipt. This never
+unblocks a required finding. Existing issue-triage transport and relationship ownership
+remain mandatory.
 
 ## Diagnostics Bus
 
@@ -114,7 +157,7 @@ The record is the one review F and R come from. Nothing else on the PR is input:
 3. Record whether `## Root causes` is present. R_posted := its lines up to the next `##` heading.
    - body exactly `none` → R_posted = ∅, with the section still present. Parse F before any empty halt. An actionable finding in F makes the record `unplanned`: every actionable finding is uncited, and the run reports it (Phase 2 print, Exit, receipt). It is never read as a clean review.
    - a `### RC-` block with `mechanism:`, `fix:` and `findings:` and none of `failure:`, `restored:`, `paths:`, `proof:` was written under the three-line cause contract that predates the seven-line plan → halt before any filing: `review record on PR #${PR} predates the seven-line cause plan — re-run dev-review`. Nothing is applied, filed or deferred.
-   - `### RC-` blocks → R_posted. A block missing any of its seven lines — `mechanism:`, `fix:`, `failure:`, `restored:`, `paths:`, `proof:`, `findings:` — or carrying an empty one is malformed: it is not applied. Unambiguously cited findings that satisfy `blocks(f)` are filed per finding; the rest join the single deferral.
+   - `### RC-` blocks → R_posted. A block missing any of its seven lines — `mechanism:`, `fix:`, `failure:`, `restored:`, `paths:`, `proof:`, `findings:` — or carrying an empty one is malformed: it is not applied. Baseline files/defer its unambiguously cited members by label. An active evidence-v1 authoritative record also requires exactly one non-empty `authorization: required | optional-neighbor-of RC-N` and `admission:` line with unique exact memberships; a missing/malformed candidate field authorizes no patch and retains required obligations. The active record is the normal marked PR body, not a sidecar.
    - any other line in the section (text outside the blocks, a Conventional Comment) → halt: `review record on PR #${PR} has a malformed ## Root causes section — re-run dev-review`.
    - no section → R_posted = ∅ (a finding list from the conversation); only this case permits clustering.
 4. F := the Conventional Comments under `## Findings` in that record, never the Spec, Standards or Root causes roll-ups. Only an operator's conversational finding list without review sections is read directly. ∀ f: parse → label, exact rendered description, file:line, agent, provenance, root cause, symptoms/evidence and extensions, class[], raw_callsites[], C(f) when stated. Findings carry no solutions; a solution line in an old record is detail, never a plan. Retain all detail; do not re-deduplicate.
@@ -134,13 +177,13 @@ Read `skill://dev-review/root-causes.md`.
 
 Resolve each `findings:` reference by `path:line` + exact final rendered description to exactly one actionable F. Each F may belong to at most one cause. Zero-match, multi-match or conflicting membership makes each affected cause non-applicable; do not guess by class/file/line, import another same-anchor finding, or recluster. Retain unambiguously associated members through malformed-block per-finding file/single-deferral handling; unresolved or conflicting findings use uncited handling exactly once. An independent malformed or unusable finding sharing an anchor does not contaminate a correctly bound cause.
 
-Partition. Each cause, and each uncited actionable finding, goes in exactly one bucket. Do not apply a non-blocking cause, and do not file it on its own.
+Partition. Each cause, and each uncited actionable finding, goes in exactly one bucket. Baseline behavior does not apply a non-blocking cause and puts it in its single deferral issue. For an active evidence-v1 candidate, partition only from the separately authorized selection: `required` may enter apply; a safe, bounded optional neighbor may accompany it; all other optional findings are retained in the receipt/comment. No candidate bucket creates an issue unless the three-condition debt admission in the candidate consumer holds.
 
-- apply — the block is well-formed (all seven lines present and non-empty), its references and memberships passed the resolution rules above, and `blocking(r)` and every eligibility condition below holds. Missing lines or unresolved/conflicting members never enter apply. One commit.
-- file — `blocking(r)` and a condition fails, or the apply or falsification later fails; malformed/non-applicable-reference blocks use per-finding filing for unambiguously associated blockers, and uncited blockers are filed per finding. Today's per-cause or per-finding filing. Not the deferral issue.
-- defer — a well-formed, correctly bound cause with no blocking member, including when an eligibility condition fails, plus each uncited non-blocker and each unambiguously associated non-blocker of a malformed/non-applicable-reference block. One issue for the whole set. Not applied.
+- apply — the block is well-formed (all seven lines present and non-empty), its references and memberships passed the resolution rules above, and `blocking(r)` and every eligibility condition below holds. An active candidate additionally needs verified required authorization and admission. Missing lines or unresolved/conflicting members never enter apply. One commit.
+- file — `blocking(r)` and a condition fails, or the apply or falsification later fails; malformed/non-applicable-reference blocks use per-finding filing for unambiguously associated blockers, and uncited blockers are filed per finding. This is baseline terminology. An active evidence-v1 candidate retains the blocker and uses `triage create` only if its debt conjunction is established; otherwise comment only. Not the deferral issue.
+- defer — a well-formed, correctly bound cause with no blocking member, including when an eligibility condition fails, plus each uncited non-blocker and each unambiguously associated non-blocker of a malformed/non-applicable-reference block. This is the baseline single issue. Active evidence-v1 retains it in the normal receipt/comment unless the debt conjunction admits issue creation.
 
-An actionable finding with no valid unique cause membership is uncited, including unresolved or conflicting references. It is filed when it satisfies `blocks(f)`; otherwise it joins the deferral. Retain each finding exactly once across these dispositions. Do not invent a cause. Do not ask.
+An actionable finding with no valid unique cause membership is uncited, including unresolved or conflicting references. Baseline files it when it satisfies `blocks(f)`; otherwise it joins the deferral. An active candidate retains required blockers and uses an issue only after the debt conjunction; otherwise comment only. Retain each finding exactly once across these dispositions. Do not invent a cause. Do not ask.
 
 **Eligibility of an apply.** These four conditions gate the apply bucket only. A non-blocking cause is deferred even when one of them fails. Confidence — low or absent — is never a condition:
 
@@ -167,20 +210,27 @@ Not causes: K (praise, thought, question)
 
 ## Phase 3 — Apply Causes (inline, one commit each)
 
-No cause in the apply bucket → commit nothing. The defer and file steps below still run, then Phase 5, which pushes only when a cause commit exists.
+No cause in the apply bucket → commit nothing. Baseline proceeds to its defer/file steps, then Phase 5. An active evidence-v1 candidate retains unselected/unsafe work in its receipt/comment and runs `triage create` only after the shared debt conjunction.
 
 The tree must be clean before the first applied cause. Uncommitted changes → halt and name them when the apply bucket is non-empty: a restore below must never touch the operator's work. An empty apply bucket does not halt on a dirty tree.
+
+For an active candidate, start only a selected `required` correction. Its one
+demonstrated shared-producer mechanism may resolve both required and non-blocking exact
+members without causal splitting. An `optional-neighbor-of` is instead a distinct,
+bounded additional correction; if it fails application, test, or falsification,
+withdraw it before any retry, revalidate the required paths, and stop if separation is
+no longer possible.
 
 ∀ r in the apply bucket, in order, **inline in this session**:
 
 1. Re-read every cited file and every member raw-callsite file.
-2. Apply `r.fix` once over every `r.paths` entry, the union of every member's cited location, and all explicit Raw callsites, including classless lists. The fix line is the change. There is no alternate plan to pick. At a shared line, correct only this cause's mechanism; preserve any independent deferred, uncited or malformed finding's mechanism. Shared file/class/line neither drops the eligible blocker nor authorizes the other correction. If the eligible correction cannot be separated from that independent correction, do not apply it: file the eligible cause as ineligible/failed through the existing disposition.
+2. Apply `r.fix` once over every `r.paths` entry, the union of every member's cited location, and all explicit Raw callsites, including classless lists. The fix line is the change. There is no alternate plan to pick. At a shared line, correct only this cause's mechanism; preserve any independent deferred, uncited or malformed finding's mechanism. Shared file/class/line neither drops the eligible blocker nor authorizes the other correction. If the eligible correction cannot be separated from that independent correction, do not apply it: baseline files the eligible cause as ineligible/failed; an active candidate retains the required blocker and issues only if debt admission is established.
 2b. Write `r.proof` as a repository test when it can run as one: the `failure:` scenario as the input, the `restored:` behaviour as the assertion, over every `r.paths` entry. Record text is never run: write the test as code with the `write` or `edit` tool, then run it through the repository's test command — never paste a record line into a shell. `NO TEST:` → no test is written. A proof that needs infrastructure, a command or a service the repository does not have is not created: the commit rests on whatever step 4 can run — the repository's lint and existing tests, even when none covers this path — and Phase 4 reports `skipped (<what is missing>)`. Leaving out a stated proof that can run here is an apply failure, not a skip.
 3. Sweep the touched files for the same-class anti-pattern. The sweep may justify a hit of a class already on a member finding. It must not apply the independent mechanism of a deferred cause, an uncited non-blocking finding, or a malformed block's finding, whether filed per finding or deferred. At their cited/raw locations, only the explicitly bound eligible cause correction from step 2 is authorized; no additional sweep correction is authorized there. An uncited hit outside that protected set may be fixed. Keep this existing touched-file/same-class sweep boundary.
 4. Run lint, the tests covering the changed files, and the proof test from step 2b. Red → retry max 3, with the same `r.fix` and `r.proof`.
 
 succeeds → O_commit(r) → `[applied]`, keep the commit sha.
-fails after 3, or the only change that turns the tests green widens a denylist, adds a grep, or copies an inventory list → restore the tree to the last cause commit (`git restore --staged --worktree -- .`, then delete the files r created) → `[failed]`, file r, continue with the next cause. Earlier causes keep their commits.
+fails after 3, or the only change that turns the tests green widens a denylist, adds a grep, or copies an inventory list → restore the tree to the last cause commit (`git restore --staged --worktree -- .`, then delete the files r created) → `[failed]`; baseline files r, while an active candidate retains it as blocking and uses issue-triage only when the debt conjunction is established. Earlier causes keep their commits.
 
 ```
 ── Apply ──
@@ -192,13 +242,13 @@ Applied: N | Deferred: D | Filed: M
 
 ### Filing — the follow-up is a sibling, never a child
 
-Two dispositions, one wiring. A non-blocking cause is not filed on its own: it joins the single deferral below. Today's filing is only an ineligible or failed blocking cause, an uncited finding that satisfies `blocks(f)`, or a cited finding of a malformed block that satisfies `blocks(f)`. Each of those gets its own issue. Create every follow-up with `triage create --title-file … --body-file …`, from the fence below. If issue-triage cannot be resolved, `triage` refuses: stop and name issue-triage. Never raw `gh issue create`: issue mutations go through that CLI so blocked-by and parent are wired atomically, and a `Blocked by: #12` line in a body is invisible to `gh issue view` and to the frontier query.
+Two dispositions, one wiring. **Baseline:** a non-blocking cause is not filed on its own: it joins the single deferral below. Today's baseline filing is only an ineligible or failed blocking cause, an uncited finding that satisfies `blocks(f)`, or a cited finding of a malformed block that satisfies `blocks(f)`; each gets its own issue. **Evidence-v1:** before any such follow-up, including an unplanned/malformed/failed/falsification case, prove `important ∧ urgent ∧ too-large`; otherwise retain it in the PR receipt/comment only, with no bundle. Required blockers stay blocking. An admitted issue uses the same `triage create --title-file … --body-file …` and existing issue-triage ownership. If issue-triage cannot be resolved, `triage` refuses: stop and name issue-triage. Never raw `gh issue create`.
 
 **Comment text never reaches a command line.** Titles and bodies come from PR comments, which anyone can write. Write them with the `write` tool into a mktemp dir and pass the files; a double-quoted `$(…)` or backtick in an argument runs in the operator's shell.
 
 **Triage starts outside the checkout.** Bun reads `bunfig.toml` and `.env` from the directory it starts in. Started in the PR's checkout, a tracked `bunfig.toml` preload runs before triage, and it can print `Created #N` and exit 0 with nothing filed; `--no-env-file` alone does not stop it. So `triage` starts Bun in issue-triage's own directory, with `--no-env-file`, the target repository in `GITHUB_REPO` and absolute file paths. The target is the operator's `GITHUB_REPO` when set, else the checkout's `gh repo view`; without it, triage started there would resolve the plugin's own repository. It never reads the checkout's `.dev/dev-core.yml` `github_repo` pin. An unresolved script or repository refuses; nothing falls back to the checkout.
 
-**Deferral — one issue per run.** Every cause that is not `blocking(r)`, every uncited finding that does not satisfy `blocks(f)`, and every cited finding of a malformed block that does not satisfy `blocks(f)`, and that is not already deferred or filed, goes into exactly one follow-up. They are not applied. One `create`, not one per cause. The title file is the bundle title `Deferred non-blocking review findings`. The body file opens with `**Origin:** PR #<N>`, then `## Acceptance criteria` with one checkbox per deferred item, then the details: every deferred mechanism, its fix line, and its findings, plus each uncited non-blocking finding, plus each cited non-blocking finding of a malformed block. Same `--blocked-by` / `--parent` / `--size` / `--type` wiring as the bullets under the fence. Empty set after the already-deferred filter → no issue. Do not use the per-cause sentence `could not be applied` for this issue. Do not copy a non-blocking member of an applied cause into it.
+**Deferral — one issue per run (baseline only).** Every cause that is not `blocking(r)`, every uncited finding that does not satisfy `blocks(f)`, and every cited finding of a malformed block that does not satisfy `blocks(f)`, and that is not already deferred or filed, goes into exactly one baseline follow-up. They are not applied. One `create`, not one per cause. The title file is the bundle title `Deferred non-blocking review findings`. The body file opens with `**Origin:** PR #<N>`, then `## Acceptance criteria` with one checkbox per deferred item, then the details: every deferred mechanism, its fix line, and its findings, plus each uncited non-blocking finding, plus each cited non-blocking finding of a malformed block. Same `--blocked-by` / `--parent` / `--size` / `--type` wiring as the bullets under the fence. Empty set after the already-deferred filter → no issue. Do not use the per-cause sentence `could not be applied` for this issue. Do not copy a non-blocking member of an applied cause into it. Evidence-v1 never forms this bundle unless all three debt predicates are evidenced; otherwise it retains findings and predicate evidence in the PR receipt/comment only.
 
 ```bash
 FILE_DIR=$(mktemp -d -t "omp-build-fix-file-XXXXXX")
@@ -294,6 +344,7 @@ Deferral body, one issue for the whole set. Not the per-cause template above:
 ## Phase 4 — Falsification Gate (per cause)
 
 ∀ applied cause: run the gate per `skill://fix/falsification.md`. It emits pass, fail or skipped per cause. A class on a member is not a condition: every applied cause has a proof line to break.
+For an evidence-v1 optional neighbor, a failure is withdrawal, required-path revalidation and then continuation only if separable; it is never a retry budget. Record withdrawal and residual required obligations locally in shadow or in the normal active receipt after accepted activation.
 
 ```
 pass     →  removing the production guard made the proof fail on its `failure:` scenario; the commit stands
@@ -304,7 +355,7 @@ skipped  →  NO TEST, a proof needing absent infrastructure, or an inconclusive
             failure); the commit stands, reported as skipped with its reason — never as pass
 ```
 
-Second `fail` → `git revert --no-edit` that cause's commits → `[failed]`, file it. The reverted edit is never pushed as a fix.
+Second `fail` → `git revert --no-edit` that cause's commits → `[failed]`; baseline files it. An active evidence-v1 candidate retains it as a blocker and creates a follow-up only when `important ∧ urgent ∧ too-large` is evidenced. The reverted edit is never pushed as a fix.
 
 This gate is a **local procedure** — remove the production guard the fix introduced (for a missing-test cause, the existing guard its test observes), re-run the proof, restore. Never the proof's own test, assertion, fixture or setup. It is not the executable falsify oracle cut by ADR-020 §8: it has no script, no artifact, and no roster input. Nothing here reads a verdict file.
 
@@ -335,6 +386,14 @@ Phase 5 and Phase 6 are one step: post the receipt right after the push.
 ∄ PR → skip. This comment is the rest of the push step, not a later session.
 If the push succeeded and `gh pr comment` fails, report it and do not push
 again. The receipt is for humans; no gate reads it.
+
+The rendered PR receipt below is the baseline template. Shadow evidence-v1 keeps its
+receipt local. After accepted activation, evidence-v1 uses the normal PR receipt,
+separate from—but linked to—the authoritative review record; it records retained
+evidence/dimensions, authorizations/admissions, optional withdrawals, required-path
+revalidation or residuals, and each `important`/`urgent`/`too-large` decision. A failed
+debt predicate is rendered as `comment only — no issue/bundle`, not as a deferred issue.
+It never treats unavailable evaluation or skipped/inconclusive falsification as a pass.
 
 Write the body into a mktemp dir — never a fixed `/tmp` path:
 ```bash
@@ -386,29 +445,33 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 
 ## Edge Cases
 
+Baseline rows follow. For an active evidence-v1 candidate, `file`, `defer`, and every
+follow-up named below mean: retain/comment only unless the debt conjunction is
+independently evidenced; a required blocker remains blocking in either case.
+
 | Scenario | Behavior |
 |----------|----------|
 | `review-classes.yml` absent/unreadable/unparseable | HALT (Phase 0) — ¬validate classes from memory |
 | No marked record by ME on the PR | Halt — run dev-review first |
-| `## Root causes` is exactly `none` | Parse F. No actionable finding → halt `No actionable findings`. Otherwise the record is `unplanned`: actionable findings stay uncited and file/defer without clustering; the plan print, receipt and Exit name it, and the run is never reported clean |
+| `## Root causes` is exactly `none` | Baseline: parse F, then file/defer uncited actionable findings without clustering. Evidence-v1: no selected plan; retain required blockers and comment only unless each proposed issue meets the debt conjunction. The plan print, receipt and Exit name the unplanned record; it is never clean |
 | `## Root causes` has a line outside `### RC-` blocks | Halt — malformed record |
 | A `### RC-` block carries only `mechanism:`, `fix:` and `findings:` (a record from before the seven-line plan) | Halt before any filing — re-run dev-review. Nothing is applied, filed or deferred |
-| A block misses one of its seven lines, or one is empty | Not applied. Cited findings that satisfy `blocks(f)` are filed per finding. Cited findings that do not are deferred in the one issue |
-| Zero/multi-match member reference or conflicting memberships | Affected causes are not applied; retain findings in per-finding/uncited file/single-deferral paths exactly once. No anchor-only binding or reclustering |
-| Record has `### RC-` blocks | Use those blocks; do not recluster. Apply only the apply bucket. A malformed block is not in that bucket. Defer every well-formed block with no blocking member |
+| A block misses one of its seven lines, or one is empty | Not applied. Baseline files/defer its members by label; evidence-v1 retains required blockers and applies the debt conjunction before any issue |
+| Zero/multi-match member reference or conflicting memberships | Affected causes are not applied; retain findings exactly once. Baseline uses per-finding/uncited file/single-deferral paths; evidence-v1 comment-only unless debt admission holds. No anchor-only binding or reclustering |
+| Record has `### RC-` blocks | Use those blocks; do not recluster. Apply only the apply bucket. A malformed block is not in that bucket. Baseline defers a well-formed non-blocker; evidence-v1 retains it unless debt admission permits an issue |
 | Conversation finding list, no section | Cluster with `skill://dev-review/root-causes.md` |
-| Actionable finding cited by no cause | `blocks(f)` → file it. Otherwise defer it. Do not ask |
-| A member is unusable | A blocking cause is filed, not applied. A non-blocking cause is deferred, not filed on its own |
+| Actionable finding cited by no cause | Baseline: `blocks(f)` → file; otherwise defer. Evidence-v1: required stays blocking; issue only after debt admission. Do not ask |
+| A member is unusable | A blocking cause is not applied. Baseline files it and defers a non-blocker; evidence-v1 retains/comment-only unless debt admission holds |
 | A member has low or absent confidence | No effect on the bucket: confidence orders, it is never a condition |
-| `proof:` is a source-text, wiring-copy or mock-echo assertion, or misses a `paths:` entry | A blocking cause is filed, not applied. A non-blocking cause is deferred |
+| `proof:` is a source-text, wiring-copy or mock-echo assertion, or misses a `paths:` entry | A blocking cause is not applied. Baseline files/defer; evidence-v1 keeps required obligations and gates an issue on debt admission |
 | `proof:` needs infrastructure the repository lacks | Apply; no proof test is created; Phase 4 reports `skipped (<what is missing>)`, never pass |
 | Proof run errors or fails on another assertion during falsification | `skipped (inconclusive)`, never pass; the commit stands |
-| Fix line widens a denylist / adds a grep / copies an inventory | A blocking cause is filed, not applied. A non-blocking cause is deferred |
-| Cited path, `paths:` entry or proof test file outside the repository | A blocking cause is filed, not applied. A non-blocking cause is deferred |
-| Eligible and independent deferred mechanisms share a line | Apply only the eligible mechanism and all its member raw callsites; no additional sweep correction at protected locations. If inseparable, file the eligible cause |
-| Cause already under Filed, or a still-non-blocking cause already under Deferred | `already filed → #N` or `already deferred → #N`. A prior deferral does not suppress filing a blocking cause that is ineligible or failed |
-| All causes non-blocking | Commit nothing. File exactly one follow-up listing them. Receipt reports deferred → #N. No push |
-| Mixed causes | Apply the well-formed blocking eligible ones. A malformed block is not applied. One deferral issue holds every non-blocking cause, every uncited non-blocking finding, and every cited non-blocking finding of a malformed block |
+| Fix line widens a denylist / adds a grep / copies an inventory | Do not apply. Baseline files/defer; evidence-v1 retains/comment-only unless debt admission holds |
+| Cited path, `paths:` entry or proof test file outside the repository | Do not apply. Baseline files/defer; evidence-v1 retains/comment-only unless debt admission holds |
+| Eligible and independent deferred mechanisms share a line | Apply only the eligible mechanism and all its member raw callsites; no additional sweep correction at protected locations. If inseparable, baseline files; evidence-v1 stops with the required obligation retained |
+| Cause already under Filed, or a still-non-blocking cause already under Deferred | Baseline reports the existing issue. Evidence-v1 does not create/reuse debt authority without current three-predicate evidence |
+| All causes non-blocking | Baseline commits nothing and files one follow-up. Evidence-v1 creates no bundle unless all three debt predicates hold; otherwise receipt/comment only. No push |
+| Mixed causes | Apply baseline-eligible blockers. Evidence-v1 applies only authorized required plans, admits optional neighbors only while separable, and gates every issue on the debt conjunction |
 | Dirty tree before an apply | Halt, name the changes. An empty apply bucket does not halt |
 | Apply fails after 3 | Restore to the last cause commit, `[failed]`, file, continue |
 | Falsification fails twice | Revert that cause's commits, `[failed]`, file |
@@ -436,7 +499,7 @@ _(omit section when |D| = 0; group by tag when |distinct tags| > 1 using **[tag]
 
 ## Exit
 
-- **Success:** blocking causes applied or filed, non-blocking causes deferred in one issue or already deferred, receipt posted. A run that applied nothing is success without a commit or a push. Print Applied (each with its falsification result) / Falsification P·S·F / Deferred / Filed / Failed, the `Unplanned record` line when it applies, + `Next: re-review with skill://dev-review`. A filed blocker still blocks: a run that filed one is never reported as a clean review, whatever it applied. Stop. This run owns its lint, tests, commits, push and receipt: a caller (`/feature` §6.5) does not repeat them; it records proof for a moved head, then reviews it.
+- **Success:** baseline: blocking causes applied or filed, non-blocking causes deferred in one issue or already deferred, receipt posted. Evidence-v1: required causes are applied only from authorized safe plans or remain blocking; optional failures are withdrawn/revalidated; every issue is debt-admitted or the evidence stays comment-only in the normal active receipt (local only in shadow). A run that applied nothing is success without a commit or a push. Print Applied (each with its falsification result) / Falsification P·S·F / Deferred / Filed / Failed, the `Unplanned record` line when it applies, + `Next: re-review with skill://dev-review`. A filed blocker still blocks: a run that filed one is never reported as a clean review, whatever it applied. Stop. This run owns its lint, tests, commits, push and receipt: a caller (`/feature` §6.5) does not repeat them; it records proof for a moved head, then reviews it.
 - **Failure (quality gate, ¬findings, unrecoverable):** return the error and stop — the caller decides next steps outside the automatic bound.
 - **Loop cap:** at most 2 automatic fixes, derived by the caller's `nextReviewStep`
   from the review records. On `stop`, follow `skill://dev-review` Phase 8 —
