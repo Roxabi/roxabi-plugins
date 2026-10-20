@@ -10,7 +10,12 @@ type Line = {
   start: number
   end: number
   text: string
+  activeEnd: number
   kind: LeafKind
+}
+
+function activePrefix(line: Line): string {
+  return line.text.slice(0, line.activeEnd)
 }
 
 type Heading = {
@@ -385,7 +390,7 @@ function buildDocument(body: string): Line[] {
   const lines: Line[] = []
   let offset = 0
   for (const [index, text] of sourceLines.entries()) {
-    lines.push({ index, start: offset, end: offset + text.length, text, kind: 'active' })
+    lines.push({ index, start: offset, end: offset + text.length, text, activeEnd: text.length, kind: 'active' })
     offset += text.length + 1
   }
 
@@ -397,23 +402,27 @@ function buildDocument(body: string): Line[] {
     const line = lines[index]
     if (commentOpen) {
       line.kind = 'comment'
+      line.activeEnd = 0
       if (line.text.includes('-->')) commentOpen = false
       continue
     }
     if (fence) {
       line.kind = 'literal'
+      line.activeEnd = 0
       const close = new RegExp(`^ {0,3}${fence.marker}{${fence.length},}[ \\t]*$`)
       if (close.test(line.text)) fence = undefined
       continue
     }
     if (dataFence) {
       line.kind = 'data'
+      line.activeEnd = 0
       if (/^```[ \t]*$/.test(line.text)) dataFence = false
       continue
     }
     if (pendingData) {
       if (!line.text.trim() || /^ {4}/.test(line.text)) {
         line.kind = 'data'
+        line.activeEnd = 0
         continue
       }
       pendingData = false
@@ -424,25 +433,26 @@ function buildDocument(body: string): Line[] {
       const marker = documentFence[1][0] as '`' | '~'
       if (marker === '~' || !documentFence[2].includes('`')) {
         line.kind = 'literal'
+        line.activeEnd = 0
         fence = { marker, length: documentFence[1].length }
         continue
       }
     }
     if (/^ {4}/.test(line.text)) {
       line.kind = 'literal'
+      line.activeEnd = 0
       continue
     }
 
     let cursor = 0
-    let inline = false
     while (cursor < line.text.length) {
       const comment = line.text.indexOf('<!--', cursor)
       const tick = line.text.indexOf('`', cursor)
       const next = [comment, tick].filter((value) => value >= 0).sort((a, b) => a - b)[0]
       if (next === undefined) break
       if (next === comment && !escaped(line.text, comment)) {
-        line.kind = 'comment'
-        inline = false
+        line.activeEnd = Math.min(line.activeEnd, comment)
+        if (!comment) line.kind = 'comment'
         const close = line.text.indexOf('-->', comment + 4)
         if (close === -1) commentOpen = true
         break
@@ -451,37 +461,48 @@ function buildDocument(body: string): Line[] {
         let length = 1
         while (line.text[tick + length] === '`') length++
         const close = closingCodeSpan(lines, index, tick, length)
-        if (close) {
-          for (let covered = index; covered <= close.line; covered++) lines[covered].kind = 'inline'
-          index = close.line
-          inline = true
-          break
+        if (!close) {
+          cursor = tick + length
+          continue
         }
-        cursor = tick + length
-        continue
+        line.activeEnd = Math.min(line.activeEnd, tick)
+        if (close.line === index) {
+          cursor = close.end
+          continue
+        }
+        for (let covered = index + 1; covered <= close.line; covered++) {
+          lines[covered].kind = 'inline'
+          lines[covered].activeEnd = 0
+        }
+        const closingLine = lines[close.line]
+        const trailingComment = closingLine.text.indexOf('<!--', close.end)
+        if (trailingComment >= 0 && !escaped(closingLine.text, trailingComment)) {
+          if (closingLine.text.indexOf('-->', trailingComment + 4) === -1) commentOpen = true
+        }
+        index = close.line
+        break
       }
       cursor = next + 1
     }
-    if (inline) continue
-    if (line.kind !== 'active') continue
-    if (new RegExp(`^(?:[-*] )?(?:\\*\\*|__|\`)(?:${CONVENTIONAL_LABEL})(?:\\*\\*|__|\`):`).test(line.text)) {
+    if (line.kind !== 'active' || line.activeEnd === 0) continue
+    const active = activePrefix(line)
+    if (new RegExp(`^(?:[-*] )?(?:\\*\\*|__|\`)(?:${CONVENTIONAL_LABEL})(?:\\*\\*|__|\`):`).test(active)) {
       located(line, 'finding identities cannot be decorated')
     }
-    if (new RegExp(`^ {1,3}(?! )(?:[-*] )?${CONVENTIONAL_LABEL}:`).test(line.text))
+    if (new RegExp(`^ {1,3}(?! )(?:[-*] )?${CONVENTIONAL_LABEL}:`).test(active))
       located(line, 'finding identities must be plain or column-zero bullets')
-    if (/^(?: {1}(?! )| {3}(?! ))(?:-- |[A-Za-z0-9_./-]+:\d+[ \t]*$|[A-Za-z][A-Za-z /-]*:)/.test(line.text)) {
+    if (/^(?: {1}(?! )| {3}(?! ))(?:-- |[A-Za-z0-9_./-]+:\d+[ \t]*$|[A-Za-z][A-Za-z /-]*:)/.test(active)) {
       located(line, 'record fields require two-space indentation')
     }
-    if (/^[-*] /.test(line.text) && !recordLine.test(line.text)) located(line, 'only finding headers may be list items')
-    if (line.text.includes('\t')) located(line, 'structural tabs are not supported')
-    if (/^ {0,3}>/.test(line.text)) located(line, 'blockquotes are not supported')
-    if (/^\d+[.)] /.test(line.text)) located(line, 'ordered lists are not supported')
-    if (/^ +[-*] /.test(line.text)) located(line, 'nested lists are not supported')
-    if (/^(?:=+|-+)[ \t]*$/.test(line.text)) located(line, 'alternate heading forms are not supported')
-    if (/^\s*\|/.test(line.text) || /\|\s*$/.test(line.text)) located(line, 'tables are not supported')
-    if (/<\/?[A-Za-z][^>]*>/.test(line.text)) located(line, 'raw HTML elements are not supported')
-    if (headerStartsJsonFence(line.text)) dataFence = true
-    else if (headerStartsData(line.text)) pendingData = true
+    if (active.includes('\t')) located(line, 'structural tabs are not supported')
+    if (/^ {0,3}>/.test(active)) located(line, 'blockquotes are not supported')
+    if (/^\d+[.)] /.test(active)) located(line, 'ordered lists are not supported')
+    if (/^ +[-*] /.test(active)) located(line, 'nested lists are not supported')
+    if (/^(?:=+|-+)[ \t]*$/.test(active)) located(line, 'alternate heading forms are not supported')
+    if (/^\s*\|/.test(active) || /\|\s*$/.test(active)) located(line, 'tables are not supported')
+    if (/<\/?[A-Za-z][^>]*>/.test(active)) located(line, 'raw HTML elements are not supported')
+    if (headerStartsJsonFence(active)) dataFence = true
+    else if (headerStartsData(active)) pendingData = true
   }
   if (commentOpen) located(lines[lines.length - 1], 'HTML comment is not closed')
   if (fence) located(lines[lines.length - 1], 'literal fence is not closed')
@@ -490,26 +511,28 @@ function buildDocument(body: string): Line[] {
 }
 
 function activeHeading(line: Line): { level: number; title: string } | undefined {
-  if (line.kind !== 'active') return undefined
-  const heading = /^(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$/.exec(line.text)
-  if (!heading) return undefined
-  return { level: heading[1].length, title: heading[2] }
+  if (line.kind !== 'active' || line.activeEnd === 0) return undefined
+  const opener = /^(#{1,6})[ \t]+/.exec(activePrefix(line))
+  const complete = /^(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$/.exec(line.text)
+  if (!opener || !complete) return undefined
+  return { level: opener[1].length, title: complete[2] }
 }
 
 function peer(line: Line): PeerNode | undefined {
-  if (line.kind !== 'active') return undefined
-  const citation = /^ +([A-Za-z0-9_./-]+:\d+)[ \t]*$/.exec(line.text)
+  if (line.kind !== 'active' || line.activeEnd === 0) return undefined
+  const active = activePrefix(line)
+  const citation = /^ +([A-Za-z0-9_./-]+:\d+)[ \t]*$/.exec(active)
   if (citation) return { kind: 'citation', value: citation[1] }
-  const emitter = /^ +-- ([^\n]*?)[ \t]*$/.exec(line.text)
+  const emitter = /^ +-- ([^\n]*?)[ \t]*$/.exec(active)
   if (emitter) return { kind: 'emitter', value: emitter[1] }
-  const field = /^ +([A-Za-z][A-Za-z /-]*):[ \t]*(.*)$/.exec(line.text)
-  if (field) return { kind: 'field', name: field[1], valueOffset: line.text.length - field[2].length }
+  const field = /^ +([A-Za-z][A-Za-z /-]*):[ \t]*(.*)$/.exec(active)
+  if (field) return { kind: 'field', name: field[1], valueOffset: active.length - field[2].length }
   return undefined
 }
 
 function conventionalAt(line: Line): RegExpExecArray | undefined {
-  if (line.kind !== 'active') return undefined
-  return conventionalLine.exec(line.text) ?? undefined
+  if (line.kind !== 'active' || line.activeEnd === 0) return undefined
+  return conventionalLine.exec(activePrefix(line)) ?? undefined
 }
 
 function findRecordNodes(body: string, lines: readonly Line[]): RecordNode[] {
@@ -517,6 +540,16 @@ function findRecordNodes(body: string, lines: readonly Line[]): RecordNode[] {
   for (const line of lines) {
     const heading = activeHeading(line)
     if (heading) headings.push({ line: line.index, ...heading })
+  }
+
+  let ordinaryPlanBulletsAllowed = false
+  for (const line of lines) {
+    const heading = headings.find((candidate) => candidate.line === line.index)
+    if (heading && heading.level <= 2)
+      ordinaryPlanBulletsAllowed = heading.level === 2 && heading.title === 'Root causes'
+    const active = activePrefix(line)
+    if (/^[-*] /.test(active) && !recordLine.test(active) && !ordinaryPlanBulletsAllowed)
+      located(line, 'only finding headers may be list items')
   }
   const findings = headings.filter((heading) => heading.level === 2 && heading.title === 'Findings')
   if (findings.length !== 1) reject('rendered review has no unique Findings section')
@@ -543,7 +576,7 @@ function findRecordNodes(body: string, lines: readonly Line[]): RecordNode[] {
     const conventional = conventionalAt(line)
     if (!conventional) continue
     const group = groupAt.get(line.index)
-    const record = recordLine.exec(line.text)
+    const record = recordLine.exec(activePrefix(line))
     if (!group) reject('rendered review contains a Conventional Comment outside Findings')
     if (!record) located(line, 'finding identities must be plain or column-zero bullets')
   }
@@ -553,7 +586,9 @@ function findRecordNodes(body: string, lines: readonly Line[]): RecordNode[] {
     const groupEnd = groups.find((candidate) => candidate.line > group.line)?.line ?? sectionEnd
     const starts: { line: number; label: string }[] = []
     for (let index = group.line + 1; index < groupEnd; index++) {
-      const match = recordLine.exec(lines[index].kind === 'active' ? lines[index].text : '')
+      const match = recordLine.exec(
+        lines[index].kind === 'active' && lines[index].activeEnd > 0 ? activePrefix(lines[index]) : '',
+      )
       if (match) starts.push({ line: index, label: `${match[1]}:` })
     }
     for (const [position, start] of starts.entries()) {

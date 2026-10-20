@@ -86,16 +86,20 @@ Markdown or prose semantics:
 
 - One first-line review marker; ATX Findings section; one Blockers and one
   Warnings group, either order. Finding headers are plain or column-zero `-`/`*`
-  items, with two-space fields.
+  items, with two-space fields. Ordinary plan bullets are allowed only beneath an
+  active level-two `Root causes` heading, until the next active level-one/two
+  heading. Level-three cause headings remain inside that interval. Plan prose is
+  not semantically qualified, and CC-shaped records there still reject.
 - Complete typed JSON factual tuples, inline, pretty, below their active header
   or in exact empty/`json` triple-backtick wrappers. Four-space data is eligible
   only under an active field; otherwise indented examples are literal.
   Duplicate-aware Flow metadata preserves decoded keys, numeric types, exact
   citation/emitter associations and callsite multiplicity.
-- Source-positioned active, literal, comment, data and inline-code interpretations
-  supply the records and their complete raw values. Only eligible peer fields or
-  record/group/section boundaries terminate a value; a decoder cannot select a
-  valid island and discard its suffix.
+- Source-positioned active prefixes and literal, comment, data and inline-code
+  contexts supply records and their complete raw values. Inline/comment suffixes
+  cannot erase an active structural prefix or manufacture an exact heading title.
+  Only eligible peer fields or record/group/section boundaries terminate a value;
+  a decoder cannot select a valid island and discard its suffix.
 - Closed fences/comments and escaped comment openers are literal contexts.
   Blank lines, headings, new list items and supported block openers delimit
   paragraphs before inline delimiters are paired; unmatched backticks are literal.
@@ -118,11 +122,20 @@ not a substitute. Provenance includes Git revision/blob identities, loaded/sent
 source hashes, input/delivered-input/fixture/configuration hashes, runtime,
 provider/model and the requested-versus-observed settings.
 
-For #865, restore the real source between the independent literal-eligibility and
-paragraph-confinement falsifications, finish the restored ordinary corpus, then
-run the unchanged explicit native profile **once** at the candidate revision.
-Preserve a failure, timeout, unsupported presentation or malformed result; do
-not coach the prompt, retry, vote or select a later success.
+For #865, the initial observation at `ce51acc6` failed before the consumer on a
+normative Root-causes plan bullet. Its [body and provenance remain conserved](https://github.com/Roxabi/roxabi-plugins/issues/865#issuecomment-6277902662).
+The corrected oracle's model-free regression and direct API smoke consume that
+unchanged body; neither is a new corrected-candidate native observation.
+
+The operator-authorized C1 checkpoint first proves conserved-body compatibility
+by reinstating the old global ban, and separately proves contextual confinement,
+literal eligibility and paragraph confinement by removing each real source guard.
+Restore between and after, finish the restored ordinary corpus and checks, then
+commit normally before **one distinct native observation** of the unchanged
+explicit profile at that corrected candidate. The original failed observation
+is not erased or relabelled. Preserve failure, timeout, unsupported presentation
+or malformed output and stop again; do not coach, automatically retry, vote or
+select a later success. This checkpoint does not authorize a merge.
 
 This is bounded evidence, not a hermetic sandbox, generic Markdown support,
 ambient-MCP isolation, resource/interruption or slow-host hardening. The #858,

@@ -16,6 +16,60 @@ const WARNING_PROVENANCE =
   '[{agent: fixture-architect, phase: panel, chunk: 1, callsites: [{file: src/panel/status.ts, line: 2}]}]'
 const WARNING_CALLSITES = '[{file: src/panel/status.ts, line: 2}]'
 
+const CONSERVED_NATIVE_BODY = `<!-- omp-build:code-review -->
+## Code Review
+
+## Spec
+no spec available — spec axis not evaluated
+
+## Standards (judgement pass — 12 smells walked, 0 fired)
+smells: RAS
+
+## Root causes
+
+### RC-1 — the publication guard treats a non-blocked status as approval
+- mechanism: the OR condition accepts either an approval timestamp or any status other than blocked, so pending panels without approval pass the publication gate.
+- fix: require both an approval timestamp and a non-blocked status in \`mayAdvance\`, retaining \`submit\` as the consumer of that decision.
+- failure: a panel with \`approvedAt=null\` and \`status=pending\` passes \`mayAdvance\` and \`submit\` returns \`published\`.
+- restored: pending panels without approval remain held; blocked panels remain held even with an approval timestamp; approved, non-blocked panels can publish.
+- paths: \`src/panel/advance.ts:2\` (guard producer) ; \`src/panel/submit.ts:3\` (publication consumer).
+- proof: execute the actual \`mayAdvance\` and \`submit\` functions with an unapproved pending panel, an approved blocked panel, and an approved non-blocked panel; assert the respective guard decisions are false, false, and true and submission results are held, held, and published. The pending-panel case fails under the supplied OR condition and passes after the correction. This is a proposed proof, not an executed result.
+- findings: \`src/panel/advance.ts:2\` — Pending panels can publish through the changed advance guard
+
+## Findings
+
+### Blockers
+
+issue: Pending panels can publish through the changed advance guard
+  src/panel/advance.ts:2
+  -- fixture-adversarial
+  Provenance: [{agent: fixture-adversarial, phase: panel, chunk: 1, callsites: [{file: src/panel/advance.ts, line: 2}, {file: src/panel/submit.ts, line: 3}]}]
+  Root cause: ["guard","src/panel/advance.ts:2","or",["ne","approvedAt",null],["ne","status","blocked"]]
+  Symptoms/evidence: ["witness",["input","approvedAt",null],["input","status","pending"],["result","src/panel/advance.ts:2",true],["result","src/panel/submit.ts:3","published"]]
+  Raw callsites: [{file: src/panel/advance.ts, line: 2}, {file: src/panel/submit.ts, line: 3}]
+  Confidence: 96%
+
+### Warnings
+
+suggestion: The changed status formatter keeps the legacy ready spelling inline
+  src/panel/status.ts:2
+  -- fixture-architect
+  Provenance: [{agent: fixture-architect, phase: panel, chunk: 1, callsites: [{file: src/panel/status.ts, line: 2}]}]
+  Root cause: ["mapping","src/panel/status.ts:2","approved","ready","local-literal"]
+  Symptoms/evidence: ["witness",["mapping","src/panel/status.ts:2","approved","ready"],["supplied-safety-path",false]]
+  Raw callsites: [{file: src/panel/status.ts, line: 2}]
+  Confidence: 72%
+
+## Summary
+
+2 findings retained: 1 blocker and 1 warning. No reports were merged; the guard failure and local status mapping are distinct mechanisms. Neither finding concerns a missing or weak test, so neither receives a test-gap label rewrite.
+
+One root cause is planned. The status-formatter warning remains uncited: the supplied context establishes neither a consumer contract nor a safe replacement for the local mapping, so no correction and admissible proof can be planned for it.
+
+**Verdict: Request changes** — 1 blocking finding.`
+
+const ORDINARY_INLINE_PLAN_BULLET = '- mechanism: retain `mayAdvance` as ordinary plan prose'
+
 type FindingOverride = Partial<
   Record<'cause' | 'witness' | 'provenance' | 'callsites' | 'emitter' | 'citation' | 'header', string>
 >
@@ -600,5 +654,201 @@ describe('qualifyPhase4Baseline', () => {
     ['a decorated active identity', rendered().replace('issue:', '**issue**:')],
   ])('rejects unsupported active presentation with an AssertionError location: %s', (_, body) => {
     rejectsUnsupportedPresentation(body)
+  })
+
+  it('qualifies the full conserved native body through the ordinary qualifier and unchanged consumer', () => {
+    accepts(CONSERVED_NATIVE_BODY)
+  })
+
+  it('accepts ordinary inline plan bullets only inside active Root causes through level-three headings', () => {
+    accepts(
+      rendered().replace(
+        '## Findings',
+        `## Root causes
+### RC-1
+${ORDINARY_INLINE_PLAN_BULLET}
+### RC-2
+${ORDINARY_INLINE_PLAN_BULLET}
+## Findings`,
+      ),
+    )
+  })
+
+  it('does not grant Root-causes plan-bullet permission from a closed comment title suffix', () => {
+    rejectsUnsupportedPresentation(
+      rendered().replace(
+        '## Findings',
+        `## Root causes <!-- closed comment suffix -->
+${ORDINARY_INLINE_PLAN_BULLET}
+## Findings`,
+      ),
+    )
+  })
+
+  it('does not grant Root-causes plan-bullet permission from an inline title suffix', () => {
+    rejectsUnsupportedPresentation(
+      rendered().replace(
+        '## Findings',
+        `## Root causes \`extra\`
+${ORDINARY_INLINE_PLAN_BULLET}
+## Findings`,
+      ),
+    )
+  })
+
+  it('rejects the sole-defect ordinary bullet outside Root causes with a located contextual error', () => {
+    rejectsUnsupportedPresentation(
+      rendered().replace(
+        'The unrestricted explanation is not qualified.',
+        `${ORDINARY_INLINE_PLAN_BULLET}
+The unrestricted explanation is not qualified.`,
+      ),
+    )
+  })
+
+  it.each([
+    ['a level-two Summary heading with an inline suffix', '## Summary `Root causes closes here`'],
+    ['a level-one Appendix heading with an inline suffix', '# Appendix `Root causes closes here`'],
+    ['a level-two Summary heading with a closed comment suffix', '## Summary <!-- Root causes closes here -->'],
+    ['a level-two heading whose title is wholly inline', '## `Other`'],
+  ])('expires Root-causes plan-bullet permission at %s', (_, terminator) => {
+    rejectsUnsupportedPresentation(
+      rendered().replace(
+        '## Findings',
+        `## Root causes
+${ORDINARY_INLINE_PLAN_BULLET}
+${terminator}
+${ORDINARY_INLINE_PLAN_BULLET}
+## Findings`,
+      ),
+    )
+  })
+
+  it.each([
+    ['a decorated Findings role', '## Findings', '## **Findings**'],
+    ['a mixed Findings role', '## Findings', '## Findings `details`'],
+    ['a decorated Blockers group role', '### Blockers', '### **Blockers**'],
+    ['a mixed Blockers group role', '### Blockers', '### Blockers `details`'],
+  ])('does not normalize %s into an exact structural identity', (_, original, decorated) => {
+    rejects(rendered().replace(original, decorated))
+  })
+
+  it.each([
+    [
+      'a fenced Root causes heading',
+      `\`\`\`markdown
+## Root causes
+\`\`\`
+${ORDINARY_INLINE_PLAN_BULLET}`,
+    ],
+    [
+      'a commented Root causes heading',
+      `<!--
+## Root causes
+-->
+${ORDINARY_INLINE_PLAN_BULLET}`,
+    ],
+  ])('does not let %s grant plan-bullet permission', (_, prefix) => {
+    rejectsUnsupportedPresentation(
+      rendered().replace(
+        '## Findings',
+        `${prefix}
+## Findings`,
+      ),
+    )
+  })
+
+  it.each([
+    [
+      'a fenced heading',
+      `\`\`\`markdown
+## Summary
+\`\`\``,
+    ],
+    [
+      'a commented heading',
+      `<!--
+## Summary
+-->`,
+    ],
+  ])('does not let %s expire active Root-causes plan-bullet permission', (_, inertHeading) => {
+    accepts(
+      rendered().replace(
+        '## Findings',
+        `## Root causes
+${ORDINARY_INLINE_PLAN_BULLET}
+${inertHeading}
+${ORDINARY_INLINE_PLAN_BULLET}
+## Findings`,
+      ),
+    )
+  })
+
+  it.each([
+    'issue:',
+    'issue(scope):',
+    'suggestion:',
+    'suggestion(scope):',
+    'todo:',
+    'todo(scope):',
+    'nitpick:',
+    'nitpick(style):',
+    'thought:',
+    'thought(scope):',
+    'question:',
+    'question(scope):',
+    'praise:',
+    'praise(scope):',
+  ])('rejects supported Conventional Comment identities inside Root causes: %s', (label) => {
+    for (const suffix of ['', ' `closed inline suffix`', ' <!-- closed comment suffix -->']) {
+      rejects(
+        rendered().replace(
+          '## Findings',
+          `## Root causes
+### RC-1
+- ${label} outside Findings${suffix}
+## Findings`,
+        ),
+      )
+    }
+  })
+
+  it('continues active structural processing from a closing inline span into a comment opener', () => {
+    rejects(
+      rendered()
+        .replace('## Findings', 'Literal: `closed inline span` <!--\n## Findings')
+        .replace('## Summary', '-->\n## Summary'),
+    )
+  })
+
+  it('retains active peer prefixes while decoding their complete invalid inline or comment suffix value', () => {
+    for (const suffix of [' `non-JSON annotation`', ' <!-- non-JSON annotation -->']) {
+      rejects(rendered().replace(`  Root cause: ${BLOCKER_CAUSE}`, `  Root cause: ${BLOCKER_CAUSE}${suffix}`))
+    }
+  })
+
+  it.each([
+    [
+      'a missing blocker record',
+      rendered(['### Blockers', warning()]).replace(
+        '## Findings',
+        `## Root causes
+- mechanism: the missing blocker record is described only as ordinary plan prose
+## Findings`,
+      ),
+    ],
+    [
+      'a missing blocker Root cause field',
+      rendered()
+        .replace(`  Root cause: ${BLOCKER_CAUSE}\n`, '')
+        .replace(
+          '## Findings',
+          `## Root causes
+- mechanism: Root cause: ${BLOCKER_CAUSE} appears only in ordinary plan prose
+## Findings`,
+        ),
+    ],
+  ])('rejects %s despite non-CC Root-causes prose and otherwise valid finding groups', (_, body) => {
+    rejects(body)
   })
 })
