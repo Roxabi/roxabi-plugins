@@ -116,9 +116,10 @@ Markdown or prose semantics:
   line, including zero-to-three-space indentation.
   Ordered, plus and one-to-three-space indented active lists are unsupported, not
   swallowable inline continuations; four-space literal/data ownership wins.
-  Unmatched backticks are literal.
-  Historical multiline inline code whose continuation opens an HTML comment is
-  explicitly unsupported, not silently reclassified as a finding.
+  Unmatched backticks are literal, including before an ordinary closed comment.
+  Only a confirmed closed multiline inline span is rejected for crossing a
+  comment-opening continuation; looking for a nonexistent closer cannot reject
+  an otherwise supported comment.
 - Active tabs, raw HTML, complex containers and decorated structural identities
   fail visibly with source locations. Raw HTML rejects at an unescaped active
   tag-like opener (`<`, optional `/`, tag-name start), even across lines or without

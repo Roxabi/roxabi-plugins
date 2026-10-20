@@ -438,10 +438,11 @@ function closingCodeSpan(
   length: number,
 ): { line: number; end: number } | undefined {
   const delimiter = '`'.repeat(length)
+  let commentOpening: Line | undefined
   for (let index = startLine; index < lines.length; index++) {
     const line = lines[index]
     if (index > startLine) {
-      if (/^\s*<!--/.test(line.text)) located(line, 'inline code cannot continue across a comment-opening line')
+      if (!commentOpening && /^\s*<!--/.test(line.text)) commentOpening = line
       if (isParagraphBoundary(line)) return undefined
     }
     let cursor = index === startLine ? offset + length : 0
@@ -450,7 +451,10 @@ function closingCodeSpan(
       if (found === -1) break
       const before = line.text[found - 1]
       const after = line.text[found + length]
-      if (!escaped(line.text, found) && before !== '`' && after !== '`') return { line: index, end: found + length }
+      if (!escaped(line.text, found) && before !== '`' && after !== '`') {
+        if (commentOpening) located(commentOpening, 'inline code cannot continue across a comment-opening line')
+        return { line: index, end: found + length }
+      }
       cursor = found + length
     }
   }

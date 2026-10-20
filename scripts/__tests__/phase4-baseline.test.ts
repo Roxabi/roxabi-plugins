@@ -1140,6 +1140,25 @@ ${ORDINARY_INLINE_PLAN_BULLET}
     })
   })
 
+  describe('review 2 RC-3 unmatched delimiters before comments', () => {
+    it.each(['`', '``', '````'])('keeps the unmatched %s opener literal before a closed comment', (delimiter) => {
+      accepts(
+        CONSERVED_C1_NATIVE_BODY.replace(
+          '## Findings',
+          `Note: ${delimiter}\n<!-- ordinary closed comment -->\n## Findings`,
+        ),
+      )
+    })
+
+    it('rejects a confirmed closed span across the same comment-opening line', () => {
+      const comment = '<!-- ordinary closed comment -->'
+      rejectsAt(
+        CONSERVED_C1_NATIVE_BODY.replace('## Findings', `Note: \`\n${comment}\nContext: \`\n## Findings`),
+        comment,
+      )
+    })
+  })
+
   it.each([
     [
       'a missing blocker record',
