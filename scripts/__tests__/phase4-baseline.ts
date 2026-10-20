@@ -560,9 +560,9 @@ function buildDocument(body: string): Line[] {
       located(line, 'ordered, plus and indented active lists are not supported')
     if (activeMatch(line, /^(?:=+|-+)[ \t]*$/)) located(line, 'alternate heading forms are not supported')
     if (activeMatch(line, /^\s*\|/) || activeMatch(line, /\|\s*$/)) located(line, 'tables are not supported')
-    const html = /<\/?[A-Za-z][^>]*>/g
+    const html = /<\/?[A-Za-z]/g
     for (const match of line.text.matchAll(html)) {
-      if (ownsActive(line, match.index, match.index + match[0].length))
+      if (ownsActive(line, match.index, match.index + match[0].length) && !escaped(line.text, match.index))
         located(line, 'raw HTML elements are not supported')
     }
   }

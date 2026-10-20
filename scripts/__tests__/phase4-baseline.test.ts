@@ -1014,6 +1014,53 @@ ${ORDINARY_INLINE_PLAN_BULLET}
     })
   })
 
+  describe('RC-3 active HTML openers', () => {
+    it('rejects the exact multiline raw-HTML wrapper before contained Findings become eligible', () => {
+      const body = CONSERVED_NATIVE_BODY.replace('## Findings', '<pre\nclass=example>\n## Findings').replace(
+        '## Summary',
+        '    </pre>\n## Summary',
+      )
+      rejectsAt(body, '<pre')
+    })
+
+    it('rejects the unclosed multiline raw-HTML opener at its original line', () => {
+      rejectsAt(CONSERVED_NATIVE_BODY.replace('## Findings', '<pre\nclass=example>\n## Findings'), '<pre')
+    })
+
+    it.each(['<pre', '<pre class=', '</pre', '<custom-widget', '`literal` <pre', '\\\\<pre'])(
+      'rejects the unescaped active tag-like prefix without waiting for >: %s',
+      (opener) => {
+        rejectsAt(CONSERVED_NATIVE_BODY.replace('## Findings', `${opener}\n## Findings`), opener)
+      },
+    )
+
+    it.each(['a < b, a <= b and 2 < 3', '\\<pre', '\\</pre>'])(
+      'keeps comparisons and escaped tag-like text as prose: %s',
+      (prose) => {
+        accepts(CONSERVED_NATIVE_BODY.replace('## Findings', `${prose}\n## Findings`))
+      },
+    )
+
+    it.each([
+      '`<pre`',
+      '`<pre\nclass=example>`',
+      '<!-- <pre\nclass=example> -->',
+      '```\n<pre\nclass=example>\n```',
+      '    <pre\n    class=example>',
+    ])('keeps the raw-HTML opener inert under its literal owner: %s', (literal) => {
+      accepts(CONSERVED_NATIVE_BODY.replace('## Findings', `${literal}\n## Findings`))
+    })
+
+    it('keeps HTML-looking ancillary data inert while qualifying every complete typed finding value', () => {
+      accepts(
+        CONSERVED_NATIVE_BODY.replace(
+          '  -- fixture-adversarial\n',
+          '  Ancillary:\n    {"html":"<pre","tail":"</pre"}\n  -- fixture-adversarial\n',
+        ),
+      )
+    })
+  })
+
   it.each([
     [
       'a missing blocker record',

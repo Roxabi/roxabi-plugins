@@ -116,8 +116,12 @@ Markdown or prose semantics:
   Historical multiline inline code whose continuation opens an HTML comment is
   explicitly unsupported, not silently reclassified as a finding.
 - Active tabs, raw HTML, complex containers and decorated structural identities
-  fail visibly with source locations. These restrictions are contextual: literal
-  examples and owned factual data are not subjected to a global denylist.
+  fail visibly with source locations. Raw HTML rejects at an unescaped active
+  tag-like opener (`<`, optional `/`, tag-name start), even across lines or without
+  a closing `>`; ordinary spaced comparisons and escaped openers are not tags.
+  These restrictions are contextual: literal examples and owned factual data are
+  not subjected to a global denylist; their complete typed finding values remain
+  qualified by the existing decoders.
 
 The qualified **original body** goes unchanged to `workflow.reviewRecords`; the
 test observes its declared `Request changes`. That consumer does not prove the
