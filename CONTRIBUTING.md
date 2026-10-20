@@ -93,6 +93,8 @@ Markdown or prose semantics:
   heading, including an empty or non-role title. Level-three cause headings remain
   inside that interval. Plan prose is not semantically qualified, and CC-shaped
   records there still reject.
+  Active finding-label decoration is rejected for star/underscore/tilde marker
+  runs, including single emphasis and strike; literal examples remain inert.
 - Complete typed JSON factual tuples, inline, pretty, below their active header
   or in exact empty/`json` triple-backtick wrappers. Four-space data is eligible
   only under an active field; otherwise indented examples are literal.

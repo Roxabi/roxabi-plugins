@@ -172,13 +172,17 @@ const CONVENTIONAL_LABEL = '(?:issue|suggestion|todo|nitpick|thought|question|pr
 const conventionalLine = new RegExp(`^([ \\t]*)(?:[-*][ \\t]*)?(${CONVENTIONAL_LABEL}):`)
 const recordLine = new RegExp(`^ *(?:[-*] )?((?:${CONVENTIONAL_LABEL})):[^\\n]*$`)
 const FIELD_NAME = '[A-Za-z][A-Za-z /-]*'
+const IDENTITY_DECORATION = '[*_~]+'
+const decoratedFindingPrefix = new RegExp(
+  `^ {0,3}(?:[-*] )?(?:${IDENTITY_DECORATION}${CONVENTIONAL_LABEL}${IDENTITY_DECORATION}|\`${CONVENTIONAL_LABEL}\`):`,
+)
 const CITATION_IDENTITY = '[A-Za-z0-9_./-]+:\\d+'
 const fieldPrefix = new RegExp(`^ +(${FIELD_NAME}):[ \\t]*`)
 const citationPrefix = new RegExp(`^ +${CITATION_IDENTITY}`)
 const citationIdentity = new RegExp(`^ +(${CITATION_IDENTITY})[ \\t]*$`)
 const emitterPrefix = /^ +-- /
 const decoratedPeerPrefix = new RegExp(
-  `^ {2}(?! )[*_~]+(?:${FIELD_NAME}(?:[*_~]+[ \\t]*:|:[*_~]+)|${CITATION_IDENTITY}[*_~]+)`,
+  `^ {2}(?! )${IDENTITY_DECORATION}(?:${FIELD_NAME}(?:${IDENTITY_DECORATION}[ \\t]*:|:${IDENTITY_DECORATION})|${CITATION_IDENTITY}${IDENTITY_DECORATION})`,
 )
 
 function reject(message: string): never {
@@ -566,8 +570,7 @@ function buildDocument(body: string): Line[] {
   if (dataFence) located(lines[lines.length - 1], 'JSON fence is not closed')
 
   for (const line of lines) {
-    if (activeMatch(line, new RegExp(`^(?:[-*] )?(?:\\*\\*|__|\`)(?:${CONVENTIONAL_LABEL})(?:\\*\\*|__|\`):`)))
-      located(line, 'finding identities cannot be decorated')
+    if (activeMatch(line, decoratedFindingPrefix)) located(line, 'finding identities cannot be decorated')
     if (activeMatch(line, new RegExp(`^ {1,3}(?! )(?:[-*] )?${CONVENTIONAL_LABEL}:`)))
       located(line, 'finding identities must be plain or column-zero bullets')
     const identity = line.identity

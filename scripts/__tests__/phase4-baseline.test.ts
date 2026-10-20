@@ -1120,6 +1120,26 @@ ${ORDINARY_INLINE_PLAN_BULLET}
     )
   })
 
+  describe('review 2 RC-2 decorated finding identities', () => {
+    it.each(['*', '_', '~~'])('rejects the active %s identity token rather than ignoring it', (decoration) => {
+      for (const label of ['issue', 'suggestion(scope)', 'todo']) {
+        for (const prefix of ['', '- ', '  ']) {
+          const identity = `${prefix}${decoration}${label}${decoration}: Additional finding outside Findings`
+          rejectsAt(`${CONSERVED_C1_NATIVE_BODY}\n${identity}`, identity)
+        }
+      }
+    })
+
+    it.each([
+      'An *important* ordinary description.',
+      'Literal: `_issue_: Additional finding outside Findings`',
+      '<!-- ~~issue~~: Additional finding outside Findings -->',
+      '```\n*issue*: Additional finding outside Findings\n```',
+    ])('keeps ordinary emphasis and literal identity examples eligible: %s', (prose) => {
+      accepts(CONSERVED_C1_NATIVE_BODY.replace('## Findings', `${prose}\n## Findings`))
+    })
+  })
+
   it.each([
     [
       'a missing blocker record',
