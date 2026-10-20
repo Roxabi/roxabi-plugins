@@ -20,6 +20,6 @@
     "lefthook": "^2.2.2",
     "typescript": "^7.0.2",
     "typescript-language-server": "^6.0.2",
-    "vitest": "^5.0.4"
+    "vitest": "^5.0.5"
   }
 }
