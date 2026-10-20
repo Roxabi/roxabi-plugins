@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 const skill = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../SKILL.md'), 'utf8')
+const CREDENTIAL = 'not-a-real-credential-0001'
 
 function recipeSource(score = '4', n = '42'): string {
   const start = skill.indexOf('## Complexity Scoring')
@@ -46,8 +47,25 @@ exit 0
 function runRecipe(
   env: Record<string, string>,
   score = '4',
-): { status: number | null; called: boolean; body: string; ghLog: string; setLog: string } {
+  checkout?: { origin?: string; originUrl?: string; upstream?: string; pin?: string },
+): { status: number | null; called: boolean; body: string; ghLog: string; setLog: string; stderr: string } {
   const dir = mkdtempSync(join(tmpdir(), 'complexity-recipe-'))
+  if (checkout) {
+    const git = (...args: string[]) =>
+      execFileSync('git', args, {
+        cwd: dir,
+        env: { PATH: '/usr/bin:/bin', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' },
+        stdio: 'pipe',
+      })
+    git('init', '-q')
+    if (checkout.origin) git('remote', 'add', 'origin', `https://github.com/${checkout.origin}.git`)
+    if (checkout.originUrl) git('remote', 'add', 'origin', checkout.originUrl)
+    if (checkout.upstream) git('remote', 'add', 'upstream', `https://github.com/${checkout.upstream}.git`)
+    if (checkout.pin) {
+      mkdirSync(join(dir, '.dev'))
+      writeFileSync(join(dir, '.dev', 'dev-core.yml'), `github_repo: ${checkout.pin}\n`)
+    }
+  }
   const bin = join(dir, 'bin')
   mkdirSync(bin)
   writeFileSync(join(bin, 'gh'), GH)
@@ -83,6 +101,7 @@ function runRecipe(
     body: existsSync(bodyOut) ? readFileSync(bodyOut, 'utf8') : '',
     ghLog: existsSync(ghLog) ? readFileSync(ghLog, 'utf8') : '',
     setLog: existsSync(tLog) ? readFileSync(tLog, 'utf8') : '',
+    stderr: proc.stderr,
   }
 }
 
@@ -134,5 +153,131 @@ describe('complexity scoring recipe', () => {
     const result = runRecipe({ GH_VIEW_BODY: 'spec <!-- complexity: nope -->' })
     expect(result.status).not.toBe(0)
     expect(result.called).toBe(false)
+  })
+
+  it('targets origin, not the repo gh repo view names, and never asks gh', () => {
+    const result = runRecipe({ GH_VIEW_BODY: 'spec', GITHUB_REPO: '', GH_REPO_SLUG: 'Kit/parent' }, '4', {
+      origin: 'Acme/product',
+      upstream: 'Kit/parent',
+    })
+    expect(result.status).toBe(0)
+    expect(result.ghLog).toContain('issue view 42 --repo Acme/product')
+    expect(result.ghLog).not.toContain('repo view')
+    expect(result.setLog).toContain('set Acme/product#42')
+  })
+
+  it('falls back to gh repo view only when origin is absent', () => {
+    const result = runRecipe({ GH_VIEW_BODY: 'spec', GITHUB_REPO: '', GH_REPO_SLUG: 'Kit/parent' }, '4', {
+      upstream: 'Elsewhere/other',
+    })
+    expect(result.status).toBe(0)
+    expect(result.ghLog).toContain('repo view')
+    expect(result.ghLog).toContain('issue view 42 --repo Kit/parent')
+  })
+
+  it('lets a dev-core.yml pin naming another repo win over origin', () => {
+    const result = runRecipe({ GH_VIEW_BODY: 'spec', GITHUB_REPO: '', GH_REPO_SLUG: 'Kit/parent' }, '4', {
+      origin: 'Acme/product',
+      pin: 'Pin/yaml',
+    })
+    expect(result.status).toBe(0)
+    expect(result.ghLog).toContain('issue view 42 --repo Pin/yaml')
+    expect(result.ghLog).not.toContain('repo view')
+  })
+
+  it('lets an exported GITHUB_REPO win over an origin remote and a gh repo view naming a third repo', () => {
+    const result = runRecipe({ GH_VIEW_BODY: 'spec', GITHUB_REPO: 'Env/pinned', GH_REPO_SLUG: 'Kit/parent' }, '4', {
+      origin: 'Acme/product',
+      upstream: 'Kit/parent',
+    })
+    expect(result.status).toBe(0)
+    expect(result.ghLog).toContain('issue view 42 --repo Env/pinned')
+    expect(result.ghLog).not.toContain('repo view')
+    expect(result.ghLog).not.toContain('Acme/product')
+    expect(result.setLog).toContain('set Env/pinned#42')
+    expect(result.setLog).not.toContain('Acme/product')
+  })
+
+  it('normalises a trailing slash on origin instead of falling through to gh', () => {
+    const result = runRecipe({ GH_VIEW_BODY: 'spec', GITHUB_REPO: '', GH_REPO_SLUG: 'Kit/parent' }, '4', {
+      originUrl: 'https://github.com/Acme/product/',
+      upstream: 'Kit/parent',
+    })
+    expect(result.status).toBe(0)
+    expect(result.ghLog).toContain('issue view 42 --repo Acme/product')
+    expect(result.ghLog).not.toContain('repo view')
+    expect(result.setLog).toContain('set Acme/product#42')
+  })
+
+  it('resolves a credentialed origin without leaking the credential to gh, T or stderr', () => {
+    const result = runRecipe({ GH_VIEW_BODY: 'spec', GITHUB_REPO: '', GH_REPO_SLUG: 'Kit/parent' }, '4', {
+      originUrl: `https://x-access-token:${CREDENTIAL}@github.com/Acme/product/`,
+    })
+    expect(result.status).toBe(0)
+    expect(result.ghLog).toContain('issue view 42 --repo Acme/product')
+    for (const seen of [result.ghLog, result.setLog, result.stderr]) expect(seen).not.toContain(CREDENTIAL)
+  })
+
+  it.each([
+    ['an origin with no owner/repo path', `https://x-access-token:${CREDENTIAL}@github.com/`],
+    ['a bare word', 'weird'],
+    [
+      'an origin whose repo segment is not a valid name',
+      `https://x-access-token:${CREDENTIAL}@github.com/Acme/.github/`,
+    ],
+  ])('refuses %s before any gh call, and redacts the credential', (_label, originUrl) => {
+    const result = runRecipe({ GH_VIEW_BODY: 'spec', GITHUB_REPO: '', GH_REPO_SLUG: 'Kit/parent' }, '4', {
+      originUrl,
+      upstream: 'Kit/parent',
+    })
+    expect(result.status).not.toBe(0)
+    expect(result.called).toBe(false)
+    expect(result.ghLog).toBe('')
+    expect(result.stderr).toContain('GITHUB_REPO')
+    expect(result.stderr).not.toContain(CREDENTIAL)
+  })
+
+  it.each([
+    ['github scp', 'git@github.com:Acme/product.git'],
+    ['github ssh url with a port', 'ssh://git@github.com:22/Acme/product.git'],
+    ['an upper-case github host', 'https://GitHub.com/Acme/product'],
+  ])('still resolves a %s origin without asking gh', (_label, originUrl) => {
+    const result = runRecipe({ GH_VIEW_BODY: 'spec', GITHUB_REPO: '', GH_REPO_SLUG: 'Kit/parent' }, '4', {
+      originUrl,
+      upstream: 'Kit/parent',
+    })
+    expect(result.status).toBe(0)
+    expect(result.ghLog).toContain('issue view 42 --repo Acme/product')
+    expect(result.ghLog).not.toContain('repo view')
+    expect(result.setLog).toContain('set Acme/product#42')
+  })
+
+  it.each([
+    ['a gitlab scp origin', 'git@gitlab.com:Other/tracker.git'],
+    ['a credentialed gitlab https origin', `https://x-access-token:${CREDENTIAL}@gitlab.com/Other/tracker.git`],
+    ['a local path origin', '/srv/git/Other/tracker.git'],
+    ['a file url origin', 'file:///srv/git/Other/tracker.git'],
+    ['a host that only starts with github.com', 'https://github.com.example.net/Other/tracker.git'],
+    ['a userinfo that spells github.com in front of another host', 'https://github.com@gitlab.com/Other/tracker.git'],
+    ['a github origin with extra path segments', 'https://github.com/Other/tracker/tree/main'],
+  ])('refuses %s before any gh call, and redacts the credential', (_label, originUrl) => {
+    const result = runRecipe({ GH_VIEW_BODY: 'spec', GITHUB_REPO: '', GH_REPO_SLUG: 'Acme/product' }, '4', {
+      originUrl,
+      upstream: 'Kit/parent',
+    })
+    expect(result.status).not.toBe(0)
+    expect(result.called).toBe(false)
+    expect(result.ghLog).toBe('')
+    expect(result.stderr).toContain('GITHUB_REPO')
+    expect(result.stderr).not.toContain(CREDENTIAL)
+  })
+
+  it('lets an exported GITHUB_REPO win over a gitlab origin', () => {
+    const result = runRecipe({ GH_VIEW_BODY: 'spec', GITHUB_REPO: 'Env/pinned' }, '4', {
+      originUrl: 'git@gitlab.com:Other/tracker.git',
+    })
+    expect(result.status).toBe(0)
+    expect(result.ghLog).toContain('issue view 42 --repo Env/pinned')
+    expect(result.setLog).toContain('set Env/pinned#42')
   })
 })

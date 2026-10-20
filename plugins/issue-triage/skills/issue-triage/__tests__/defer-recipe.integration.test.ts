@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -69,6 +70,16 @@ async function world({ parent = '70' }: { parent?: string } = {}) {
   return { fake, triageDir: path.dirname(script), repo, sentinel, dir, ghLog, startup, env }
 }
 
+const CREDENTIAL = 'not-a-real-credential-0001'
+
+function setOrigin(repo: string, url: string): void {
+  execFileSync('git', ['remote', 'set-url', 'origin', url], {
+    cwd: repo,
+    env: { PATH: '/usr/bin:/bin', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' },
+    stdio: 'pipe',
+  })
+}
+
 describe('issue-triage deferral recipe', () => {
   it('files B as A’s sibling, blocked by A, with Bun started in the triage directory', async () => {
     const w = await world()
@@ -95,8 +106,8 @@ describe('issue-triage deferral recipe', () => {
     expect(startupLog(w.startup)).toEqual([`${w.triageDir}\t`])
     expect(existsSync(w.sentinel)).toBe(false)
     expect(existsSync(w.dir)).toBe(false)
-    const [resolve, parent, ...rest] = ghCalls(w.ghLog)
-    expect(resolve).toMatchObject({ cwd: w.repo, args: 'repo view --json nameWithOwner --jq .nameWithOwner' })
+    // The checkout's origin names the target: `gh repo view` is never asked (#614).
+    const [parent, ...rest] = ghCalls(w.ghLog)
     expect(parent.cwd).toBe(w.repo)
     expect(parent.args).toContain('repository(owner:"Acme",name:"app"){issue(number:80)')
     expect(rest).toEqual([])
@@ -289,5 +300,85 @@ describe('issue-triage deferral recipe', () => {
     expect(startupLog(w.startup)).toEqual([])
     expect(w.fake.calls).toEqual([])
     expect(existsSync(w.dir)).toBe(true)
+  })
+
+  it('normalises a trailing slash and a credential on origin, and never asks gh repo view', async () => {
+    const w = await world()
+    setOrigin(w.repo, `https://x-access-token:${CREDENTIAL}@github.com/Acme/app/`)
+    const ran = await run(RECIPE, w.repo, w.env)
+
+    expect(ran.code).toBe(0)
+    expect(ran.stderr).toBe('')
+    expect(w.fake.created).toMatchObject([{ repo: 'Acme/app', parent: 70, blockedBy: [80] }])
+    const calls = ghCalls(w.ghLog)
+    expect(calls.map((call) => call.args.split(' ').slice(0, 2).join(' '))).not.toContain('repo view')
+    expect(calls[0]?.args).toContain('repository(owner:"Acme",name:"app"){issue(number:80)')
+    expect(JSON.stringify(calls)).not.toContain(CREDENTIAL)
+  })
+
+  it.each([
+    ['an origin with no owner/repo path', `https://x-access-token:${CREDENTIAL}@github.com/`],
+    ['a bare word', 'weird'],
+    [
+      'an origin whose repo segment is not a valid name',
+      `https://x-access-token:${CREDENTIAL}@github.com/Acme/.github/`,
+    ],
+  ])('refuses %s before any gh call or Bun start, and redacts the credential', async (_label, originUrl) => {
+    const w = await world()
+    setOrigin(w.repo, originUrl)
+    const ran = await run(RECIPE, w.repo, w.env)
+
+    expect(ran.code).not.toBe(0)
+    expect(ran.stderr).toContain('GITHUB_REPO')
+    expect(ran.stderr).not.toContain(CREDENTIAL)
+    expect(ghCalls(w.ghLog)).toEqual([])
+    expect(w.fake.calls).toEqual([])
+    expect(startupLog(w.startup)).toEqual([])
+    expect(existsSync(w.dir)).toBe(true)
+  })
+
+  it.each([
+    ['github scp', 'git@github.com:Acme/app.git'],
+    ['github ssh url with a port', 'ssh://git@github.com:22/Acme/app.git'],
+    ['an upper-case github host', 'https://GitHub.com/Acme/app'],
+  ])('still files into a %s origin', async (_label, originUrl) => {
+    const w = await world()
+    setOrigin(w.repo, originUrl)
+    const ran = await run(RECIPE, w.repo, w.env)
+
+    expect(ran.code).toBe(0)
+    expect(w.fake.created).toMatchObject([{ repo: 'Acme/app' }])
+    expect(ghCalls(w.ghLog).map((call) => call.args.split(' ').slice(0, 2).join(' '))).not.toContain('repo view')
+  })
+
+  it.each([
+    ['a gitlab scp origin', 'git@gitlab.com:Other/tracker.git'],
+    ['a credentialed gitlab https origin', `https://x-access-token:${CREDENTIAL}@gitlab.com/Other/tracker.git`],
+    ['a local path origin', '/srv/git/Other/tracker.git'],
+    ['a file url origin', 'file:///srv/git/Other/tracker.git'],
+    ['a host that only starts with github.com', 'https://github.com.example.net/Other/tracker.git'],
+    ['a userinfo that spells github.com in front of another host', 'https://github.com@gitlab.com/Other/tracker.git'],
+    ['a github origin with extra path segments', 'https://github.com/Other/tracker/tree/main'],
+  ])('refuses %s before any gh call or Bun start, and redacts the credential', async (_label, originUrl) => {
+    const w = await world()
+    setOrigin(w.repo, originUrl)
+    const ran = await run(RECIPE, w.repo, w.env)
+
+    expect(ran.code).not.toBe(0)
+    expect(ran.stderr).toContain('GITHUB_REPO')
+    expect(ran.stderr).not.toContain(CREDENTIAL)
+    expect(ghCalls(w.ghLog)).toEqual([])
+    expect(w.fake.calls).toEqual([])
+    expect(startupLog(w.startup)).toEqual([])
+    expect(existsSync(w.dir)).toBe(true)
+  })
+
+  it('lets an exported GITHUB_REPO file into its repo despite a gitlab origin', async () => {
+    const w = await world()
+    setOrigin(w.repo, 'git@gitlab.com:Gitlab/elsewhere.git')
+    const ran = await run(RECIPE, w.repo, { ...w.env, GITHUB_REPO: 'Other/tracker' })
+
+    expect(ran.code).toBe(0)
+    expect(w.fake.created).toMatchObject([{ repo: 'Other/tracker' }])
   })
 })
