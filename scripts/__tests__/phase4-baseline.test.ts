@@ -1101,6 +1101,25 @@ ${ORDINARY_INLINE_PLAN_BULLET}
     })
   })
 
+  describe('review 2 RC-1 alternate block boundaries', () => {
+    it.each(['---', '===', ' ---', ' ===', '  ---', '  ===', '   ---', '   ==='])(
+      'does not pair inline code across the alternate heading %s',
+      (boundary) => {
+        rejectsAt(
+          `${CONSERVED_NATIVE_BODY}\n\nNote: \`\n${boundary}\nissue: Additional finding outside Findings\nContext: \``,
+          boundary,
+        )
+      },
+    )
+
+    it.each(['```\n---\n```', '<!--\n===\n-->', '    ---'])(
+      'preserves an alternate-heading lookalike under its literal owner: %s',
+      (literal) => {
+        accepts(CONSERVED_C1_NATIVE_BODY.replace('## Findings', `${literal}\n## Findings`))
+      },
+    )
+  })
+
   it.each([
     [
       'a missing blocker record',

@@ -18,7 +18,7 @@ type Block =
       closing: boolean
       prefixEnd: number
     }
-  | { kind: 'quote' | 'indent'; prefixEnd: number }
+  | { kind: 'quote' | 'indent' | 'alternate-heading'; prefixEnd: number }
   | { kind: 'blank' | 'prose' }
 
 type Line = {
@@ -50,6 +50,8 @@ function own(line: Line, start: number, end: number, kind: LeafKind): void {
 function blockAt(text: string): Block {
   if (!text.trim()) return { kind: 'blank' }
   if (/^ {4}/.test(text)) return { kind: 'indent', prefixEnd: 4 }
+  const alternateHeading = /^ {0,3}(?:=+|-+)[ \t]*$/.exec(text)
+  if (alternateHeading) return { kind: 'alternate-heading', prefixEnd: alternateHeading[0].length }
   const heading = /^ {0,3}(#{1,6})(?:[ \t]+|$)/.exec(text)
   if (heading) {
     const title = text
@@ -585,7 +587,8 @@ function buildDocument(body: string): Line[] {
       located(line, 'blockquotes are not supported')
     if (line.block.kind === 'list' && !line.block.supported && ownsActive(line, 0, line.block.prefixEnd))
       located(line, 'ordered, plus and indented active lists are not supported')
-    if (activeMatch(line, /^(?:=+|-+)[ \t]*$/)) located(line, 'alternate heading forms are not supported')
+    if (line.block.kind === 'alternate-heading' && ownsActive(line, 0, line.block.prefixEnd))
+      located(line, 'alternate heading forms are not supported')
     if (activeMatch(line, /^\s*\|/) || activeMatch(line, /\|\s*$/)) located(line, 'tables are not supported')
     const html = /<\/?[A-Za-z]/g
     for (const match of line.text.matchAll(html)) {

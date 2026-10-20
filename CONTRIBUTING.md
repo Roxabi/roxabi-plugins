@@ -108,8 +108,10 @@ Markdown or prose semantics:
   a decoder cannot select a valid island and discard its suffix.
 - Closed fences/comments and escaped comment openers are literal contexts.
   One private block classifier supplies paragraph boundaries, section/group roles
-  and ordinary-bullet permission. Blank lines, ATX headings, list openers, fences,
-  quotes and four-space indents delimit paragraphs before inline delimiters pair.
+  and ordinary-bullet permission. Blank lines, ATX and alternate-heading forms,
+  list openers, fences, quotes and four-space indents delimit paragraphs before
+  inline delimiters pair. Active alternate headings reject at their original
+  line, including zero-to-three-space indentation.
   Ordered, plus and one-to-three-space indented active lists are unsupported, not
   swallowable inline continuations; four-space literal/data ownership wins.
   Unmatched backticks are literal.
