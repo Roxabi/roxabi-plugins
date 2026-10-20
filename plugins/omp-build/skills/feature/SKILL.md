@@ -190,10 +190,21 @@ each already disarmed and recorded exactly like the `stop` subcommand does.
 |---|---|
 | `start` / `resume` | The driver fetched, checked the tree and base CI, switched to `step.branch` (new from `refs/remotes/origin/<base>`, or the existing one), validated it with `resolveTicketBranch` and `refuseForeignCommits`, and disarmed an armed PR. Run §6 for `step.ticket` in this worktree: §6.0 without the operator handoff, then §6.1–§6.7. The PR is `step.pr?.number ?? null`, never discovered by branch name (a branch name also matches fork PRs): `resume` with `step.pr` continues that PR from its `nextReviewStep` (§6.0), and no `step.pr` means a new PR through `openPr`. |
 | `final-review`, `stage: review` | R-architect and R-adversarial, read-only, on `git diff <step.range>`. Write the findings with the `write` tool, then record the verdict with the block below this table. |
-| `final-review`, `stage: fix-ticket` | **Baseline:** one fix ticket, filed with the `skill://fix` § Filing block run in the epic worktree: `triage create --parent "#E" --type fix --size … --priority … --title-file … --body-file …`, body's first line `<!-- omp-build:epic-fix -->`, an `## Acceptance criteria` heading holding the blocking findings. The next `next` starts it. Non-blocking findings are follow-up siblings, each scoped the same way: an `## Acceptance criteria` heading and a `size:` label (`skill://fix` § Filing). **Evidence-v1:** first retain the candidate evidence and prove `important AND urgent AND too-large` for every prospective ticket, including a non-blocking sibling; otherwise post/comment locally only, create no bundle or epic child, and preserve a required blocker. An admitted issue still uses `skill://fix` / issue-triage transport and the same scoped-child shape. |
+| `final-review`, `stage: fix-ticket` | **Baseline:** one fix ticket, filed with the `skill://fix` § Filing block run in the epic worktree: `triage create --parent "#E" --type fix --size … --priority … --title-file … --body-file …`, body's first line `<!-- omp-build:epic-fix -->`, an `## Acceptance criteria` heading holding the blocking findings. The next `next` starts it. Non-blocking findings are follow-up siblings, each scoped the same way: an `## Acceptance criteria` heading and a `size:` label (`skill://fix` § Filing). **Active evidence-v1:** retain the candidate evidence and prove `important AND urgent AND too-large` for every prospective ticket. An admitted issue uses the same `skill://fix` / issue-triage transport and scoped-child shape. A rejected non-blocking sibling remains comment-only, with no bundle, and does not stop the admitted required child. A rejected required child follows **Required final-fix refusal** below instead of another `next`. |
 | `post-merge` | Only after a clean final review, a clean tree, and base CI green or absent. This run's hook `ok` or `skipped` at another commit is `drop hook-stale`, not another run. Then `driver hook --epic E <gate>`: the runner loads nothing from the epic worktree. |
 | `complete` | `driver report --epic E <gate> --outcome complete` refuses unless `next` is `complete`. Print it, `goal({op:"complete"})`, offer `/cleanup`. |
 | `drop` | `bun "$D" report --epic E <gate> --outcome drop --reason <step.stop>`, print it, `goal({op:"drop"})`. If that command fails, print the error, then `goal({op:"drop"})`. A failing drop still drops the goal. |
+
+**Required final-fix refusal (active evidence-v1 only).** When the required
+final-review child fails the shared debt admission, retain the blocking findings
+and predicate evidence in the comment/receipt; create no child or bundle.
+Through the trusted `driver` launcher above, run
+`driver report --epic E <gate> --outcome drop --reason debt-admission-refused`.
+Print its report, or its error if reporting fails, then `goal({op:"drop"})` in
+either case. This terminates the run with the blocker retained: no further
+`next`, completion or post-merge hook, and no fix round recorded as spent.
+This exit applies only after independently verified active-policy acceptance;
+shadow retains the candidate refusal separately and follows baseline routing.
 
 **Recording the final review.** Through `driver`, so a preload in the epic worktree
 cannot print the verdict JSON:
@@ -240,7 +251,7 @@ exhausted review bound is not reset. `--dry-run` reports the PR and writes nothi
 | Class | Triggers | Effect |
 |---|---|---|
 | Ticket stop | review loop stop; `proof-blocked` or a failed `proof-acquire`; foreign commit, branch mismatch; child without scope; `timeout`; `ci-cancelled`; `ci-blocked`; `stopped`; `closed`; `behind` | report, `goal-stop` marker; dependents skipped by their open blocker edge; independent children continue |
-| Shared-state stop | base CI red; `base-ci-pending` at finalization; dirty tree between tickets, before the hook, or before a none-merged complete; `hook-stale`; `watch-failed`; `bad-landing`; `no-required-checks`; `evaluate-only`; `auto-merge-failed`; tracker CLI unresolvable; post-merge hook failure; final review still blocking after its fix round | disarm, report, `goal({op:"drop"})` |
+| Shared-state stop | base CI red; `base-ci-pending` at finalization; dirty tree between tickets, before the hook, or before a none-merged complete; `hook-stale`; `watch-failed`; `bad-landing`; `no-required-checks`; `evaluate-only`; `auto-merge-failed`; tracker CLI unresolvable; post-merge hook failure; final review still blocking after its fix round; active evidence-v1 required final-fix refusal (`debt-admission-refused`, procedure above) | disarm, report, `goal({op:"drop"})` |
 | No progress | no actionable child while children remain open | report, `goal({op:"drop"})` |
 
 A stop marker holds for its run: a new `/goal` line (new `run=`) retries the
@@ -253,7 +264,9 @@ Origin line and a `size:` label (`skill://fix` § Filing), so `objective` and `n
 treat them like any other child; neither special-cases them. Under evidence-v1, this
 consumer receives a child only after the shared `important AND urgent AND too-large`
 admission; otherwise candidate evidence remains a PR comment/local receipt and no
-epic child exists. An admission failure never clears a required blocker.
+epic child exists. An admission failure never clears a required blocker. For the
+required final-review child, take **Required final-fix refusal** above rather than
+re-entering `next` without that child; other refusals retain their own routing.
 
 An admitted child's criteria come from the operator's own review record. Each is blocked
 by its origin: it waits until the origin merges or closes, and a stopped origin keeps it
@@ -269,9 +282,11 @@ time; a running goal does not do that itself.
 **Final epic review and hook.** Once every child is closed or merged into the
 base, the review above runs on the cumulative range from `epicDiffRange`. A red
 base, a pending base, or a dirty tree does not hold that review or its fix ticket.
-A blocking verdict gets one fix ticket, delivered in the same goal; still blocking
-after it merged is a shared-state stop, even on a red base. The ticket counts that
-round across runs. After a clean review the goal finalizes only on a clean tree
+A blocking verdict follows the final-review action's selected policy: baseline or
+admitted evidence-v1 creates its one fix ticket, delivered in the same goal;
+**Required final-fix refusal** stops instead. Still blocking after that ticket
+merged is a shared-state stop, even on a red base. The ticket counts that round
+across runs. After a clean review the goal finalizes only on a clean tree
 and base CI green or absent. Otherwise it drops `dirty-tree`, `base-ci-red`, or
 `base-ci-pending`. `base-ci-pending` is the pending bucket (in progress, cancelled,
 `action_required`): the reason names the checks, and a new `/goal` line reaches the
