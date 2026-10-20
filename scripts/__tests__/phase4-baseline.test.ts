@@ -1177,6 +1177,40 @@ ${ORDINARY_INLINE_PLAN_BULLET}
     })
   })
 
+  describe('review 2 RC-5 raw markup ownership', () => {
+    it.each([
+      ['PI', '<?phase4', '?>'],
+      ['CDATA', '<![CDATA[', ']]>'],
+    ])('rejects the %s wrapper before its contained Findings become eligible', (_, opener, closer) => {
+      for (const indent of ['', ' ', '  ', '   ']) {
+        const sourceLine = `${indent}${opener}`
+        const body = CONSERVED_C1_NATIVE_BODY.replace('## Findings', `${sourceLine}\n## Findings`).replace(
+          '## Summary',
+          `${closer}\n\n## Summary`,
+        )
+        rejectsAt(body, sourceLine)
+      }
+    })
+
+    it.each(['<?phase4', '<![CDATA['])('does not pair inline code across a raw markup block: %s', (opener) => {
+      rejectsAt(
+        `${CONSERVED_C1_NATIVE_BODY}\n\nNote: \`\n${opener}\nissue: Additional finding outside Findings\nContext: \``,
+        opener,
+      )
+    })
+
+    it.each([
+      '`<?phase4 ?>`',
+      '`<![CDATA[ example ]]>`',
+      '<!-- <?phase4 ?> <![CDATA[ example ]]> -->',
+      '```\n<?phase4\n<![CDATA[\n```',
+      '\\<?phase4 and \\<![CDATA[',
+      '    <?phase4\n    <![CDATA[',
+    ])('keeps raw markup under its original literal or escape owner: %s', (literal) => {
+      accepts(CONSERVED_C1_NATIVE_BODY.replace('## Findings', `${literal}\n## Findings`))
+    })
+  })
+
   it.each([
     [
       'a missing blocker record',

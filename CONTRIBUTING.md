@@ -121,9 +121,12 @@ Markdown or prose semantics:
   comment-opening continuation; looking for a nonexistent closer cannot reject
   an otherwise supported comment.
 - Active tabs, raw HTML, complex containers and decorated structural identities
-  fail visibly with source locations. Raw HTML rejects at an unescaped active
-  tag-like opener (`<`, optional `/`, tag-name start), even across lines or without
-  a closing `>`; ordinary spaced comparisons and escaped openers are not tags.
+  fail visibly with source locations. One markup lexer distinguishes comments,
+  tag-like openers, processing instructions and declarations (including CDATA)
+  under the original owner/escape boundaries. Non-comment raw markup rejects at
+  its active opener, even without a closing `>`; a block-opening markup token is
+  also a paragraph boundary before inline pairing. Ordinary spaced comparisons
+  and escaped openers are not active markup.
   These restrictions are contextual: literal examples and owned factual data are
   not subjected to a global denylist; their complete typed finding values remain
   qualified by the existing decoders.

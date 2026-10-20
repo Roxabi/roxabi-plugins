@@ -18,7 +18,7 @@ type Block =
       closing: boolean
       prefixEnd: number
     }
-  | { kind: 'quote' | 'indent' | 'alternate-heading'; prefixEnd: number }
+  | { kind: 'quote' | 'indent' | 'alternate-heading' | 'raw-markup'; prefixEnd: number }
   | { kind: 'blank' | 'prose' }
 
 type Line = {
@@ -45,6 +45,20 @@ function own(line: Line, start: number, end: number, kind: LeafKind): void {
   const previous = line.spans.at(-1)
   if (previous?.kind === kind && previous.end === start) previous.end = end
   else line.spans.push({ start, end, kind })
+}
+
+type Markup = { kind: 'comment' | 'tag' | 'processing' | 'declaration'; end: number }
+
+function markupAt(text: string, start: number): Markup | undefined {
+  if (text[start] !== '<' || escaped(text, start)) return undefined
+  if (text.startsWith('<!--', start)) return { kind: 'comment', end: start + 4 }
+  const next = text[start + 1]
+  if (next === '?') return { kind: 'processing', end: start + 2 }
+  if (next === '!') return { kind: 'declaration', end: start + 2 }
+  const nameStart = start + (next === '/' ? 2 : 1)
+  const first = text.charCodeAt(nameStart)
+  if ((first >= 65 && first <= 90) || (first >= 97 && first <= 122)) return { kind: 'tag', end: nameStart + 1 }
+  return undefined
 }
 
 function blockAt(text: string): Block {
@@ -83,6 +97,9 @@ function blockAt(text: string): Block {
       prefixEnd: list[0].length,
     }
   }
+  const markupStart = /^ {0,3}</.exec(text)
+  const markup = markupStart ? markupAt(text, markupStart[0].length - 1) : undefined
+  if (markup && markup.kind !== 'comment') return { kind: 'raw-markup', prefixEnd: markup.end }
   return { kind: 'prose' }
 }
 
@@ -532,21 +549,24 @@ function buildDocument(body: string): Line[] {
         commentOpen = false
         continue
       }
-      const comment = line.text.indexOf('<!--', cursor)
+      const lessThan = line.text.indexOf('<', cursor)
       const tick = line.text.indexOf('`', cursor)
-      const next = comment >= 0 && (tick < 0 || comment < tick) ? comment : tick
+      const next = lessThan >= 0 && (tick < 0 || lessThan < tick) ? lessThan : tick
       if (next < 0) {
         own(line, cursor, line.text.length, 'active')
         break
       }
       own(line, cursor, next, 'active')
-      if (next === comment) {
-        if (escaped(line.text, next)) {
-          own(line, next, next + 4, 'active')
-          cursor = next + 4
-        } else {
+      if (next === lessThan) {
+        const markup = markupAt(line.text, next)
+        if (markup?.kind === 'comment') {
           commentOpen = true
           cursor = next
+        } else if (markup) {
+          located(line, 'raw markup is not supported')
+        } else {
+          own(line, next, next + 1, 'active')
+          cursor = next + 1
         }
         continue
       }
@@ -598,11 +618,6 @@ function buildDocument(body: string): Line[] {
     if (line.block.kind === 'alternate-heading' && ownsActive(line, 0, line.block.prefixEnd))
       located(line, 'alternate heading forms are not supported')
     if (activeMatch(line, /^\s*\|/) || activeMatch(line, /\|\s*$/)) located(line, 'tables are not supported')
-    const html = /<\/?[A-Za-z]/g
-    for (const match of line.text.matchAll(html)) {
-      if (ownsActive(line, match.index, match.index + match[0].length) && !escaped(line.text, match.index))
-        located(line, 'raw HTML elements are not supported')
-    }
   }
   return lines
 }
