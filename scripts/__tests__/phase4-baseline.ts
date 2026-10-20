@@ -6,7 +6,20 @@ type FlowMap = Map<string, FlowValue>
 type LeafKind = 'active' | 'literal' | 'comment' | 'inline' | 'data'
 
 type Span = { start: number; end: number; kind: LeafKind }
-type Block = { kind: 'heading'; level: number; title: string; prefixEnd: number } | { kind: 'prose' }
+type Block =
+  | { kind: 'heading'; level: number; title: string; prefixEnd: number }
+  | { kind: 'list'; supported: boolean; prefixEnd: number }
+  | {
+      kind: 'fence'
+      marker: '`' | '~'
+      length: number
+      column: number
+      supported: boolean
+      closing: boolean
+      prefixEnd: number
+    }
+  | { kind: 'quote' | 'indent'; prefixEnd: number }
+  | { kind: 'blank' | 'prose' }
 
 type Line = {
   index: number
@@ -34,11 +47,40 @@ function own(line: Line, start: number, end: number, kind: LeafKind): void {
 }
 
 function blockAt(text: string): Block {
-  const opener = /^(#{1,6})[ \t]+/.exec(text)
-  const complete = /^(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$/.exec(text)
-  return opener && complete
-    ? { kind: 'heading', level: opener[1].length, title: complete[2], prefixEnd: opener[0].length }
-    : { kind: 'prose' }
+  if (!text.trim()) return { kind: 'blank' }
+  if (/^ {4}/.test(text)) return { kind: 'indent', prefixEnd: 4 }
+  const heading = /^ {0,3}(#{1,6})(?:[ \t]+|$)/.exec(text)
+  if (heading) {
+    const title = text
+      .slice(heading[0].length)
+      .replace(/(?:^|[ \t]+)#+[ \t]*$/, '')
+      .trimEnd()
+    return { kind: 'heading', level: heading[1].length, title, prefixEnd: heading[0].length }
+  }
+  const fence = /^( {0,3})(`{3,}|~{3,})(.*)$/.exec(text)
+  if (fence) {
+    const marker = fence[2][0] as '`' | '~'
+    return {
+      kind: 'fence',
+      marker,
+      length: fence[2].length,
+      column: fence[1].length,
+      supported: marker === '~' || !fence[3].includes('`'),
+      closing: /^[ \t]*$/.test(fence[3]),
+      prefixEnd: fence[1].length + fence[2].length,
+    }
+  }
+  const quote = /^ {0,3}>/.exec(text)
+  if (quote) return { kind: 'quote', prefixEnd: quote[0].length }
+  const list = /^( {0,3})([-+*]|\d+[.)])(?:[ \t]+|$)/.exec(text)
+  if (list) {
+    return {
+      kind: 'list',
+      supported: list[1].length === 0 && (list[2] === '-' || list[2] === '*') && text[list[2].length] === ' ',
+      prefixEnd: list[0].length,
+    }
+  }
+  return { kind: 'prose' }
 }
 
 type Heading = {
@@ -363,15 +405,8 @@ function escaped(text: string, offset: number): boolean {
   return slashes % 2 === 1
 }
 
-function isParagraphBoundary(line: string): boolean {
-  return (
-    !line.trim() ||
-    /^ {0,3}#{1,6}(?:[ \t]|$)/.test(line) ||
-    /^[-*] /.test(line) ||
-    /^ {0,3}(?:`{3,}|~{3,})/.test(line) ||
-    /^ {0,3}>/.test(line) ||
-    /^ {4}/.test(line)
-  )
+function isParagraphBoundary(line: Line): boolean {
+  return line.block.kind !== 'prose'
 }
 
 function closingCodeSpan(
@@ -385,7 +420,7 @@ function closingCodeSpan(
     const line = lines[index]
     if (index > startLine) {
       if (/^\s*<!--/.test(line.text)) located(line, 'inline code cannot continue across a comment-opening line')
-      if (isParagraphBoundary(line.text)) return undefined
+      if (isParagraphBoundary(line)) return undefined
     }
     let cursor = index === startLine ? offset + length : 0
     while (cursor < line.text.length) {
@@ -422,36 +457,35 @@ function buildDocument(body: string): Line[] {
   let pendingData = false
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index]
+    const block = line.block
     let cursor = line.spans.at(-1)?.end ?? 0
     if (cursor === line.text.length && cursor > 0) continue
     if (cursor === 0 && !commentOpen) {
       if (fence) {
         own(line, 0, line.text.length, 'literal')
-        if (new RegExp(`^ {0,3}${fence.marker}{${fence.length},}[ \\t]*$`).test(line.text)) fence = undefined
+        if (block.kind === 'fence' && block.marker === fence.marker && block.length >= fence.length && block.closing)
+          fence = undefined
         continue
       }
       if (dataFence) {
         own(line, 0, line.text.length, 'data')
-        if (/^```[ \t]*$/.test(line.text)) dataFence = false
+        if (block.kind === 'fence' && block.marker === '`' && block.length === 3 && block.column === 0 && block.closing)
+          dataFence = false
         continue
       }
       if (pendingData) {
-        if (!line.text.trim() || /^ {4}/.test(line.text)) {
+        if (block.kind === 'blank' || block.kind === 'indent') {
           own(line, 0, line.text.length, 'data')
           continue
         }
         pendingData = false
       }
-      const documentFence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line.text)
-      if (documentFence) {
-        const marker = documentFence[1][0] as '`' | '~'
-        if (marker === '~' || !documentFence[2].includes('`')) {
-          own(line, 0, line.text.length, 'literal')
-          fence = { marker, length: documentFence[1].length }
-          continue
-        }
+      if (block.kind === 'fence' && block.supported) {
+        own(line, 0, line.text.length, 'literal')
+        fence = { marker: block.marker, length: block.length }
+        continue
       }
-      if (/^ {4}/.test(line.text)) {
+      if (block.kind === 'indent') {
         own(line, 0, line.text.length, 'literal')
         continue
       }
@@ -520,9 +554,10 @@ function buildDocument(body: string): Line[] {
       const tab = line.text.indexOf('\t', span.start)
       if (tab >= 0 && tab < span.end) located(line, 'structural tabs are not supported')
     }
-    if (activeMatch(line, /^ {0,3}>/)) located(line, 'blockquotes are not supported')
-    if (activeMatch(line, /^\d+[.)] /)) located(line, 'ordered lists are not supported')
-    if (activeMatch(line, /^ +[-*] /)) located(line, 'nested lists are not supported')
+    if (line.block.kind === 'quote' && ownsActive(line, 0, line.block.prefixEnd))
+      located(line, 'blockquotes are not supported')
+    if (line.block.kind === 'list' && !line.block.supported && ownsActive(line, 0, line.block.prefixEnd))
+      located(line, 'ordered, plus and indented active lists are not supported')
     if (activeMatch(line, /^(?:=+|-+)[ \t]*$/)) located(line, 'alternate heading forms are not supported')
     if (activeMatch(line, /^\s*\|/) || activeMatch(line, /\|\s*$/)) located(line, 'tables are not supported')
     const html = /<\/?[A-Za-z][^>]*>/g
@@ -570,10 +605,15 @@ function findRecordNodes(body: string, lines: readonly Line[]): RecordNode[] {
 
   let ordinaryPlanBulletsAllowed = false
   for (const line of lines) {
-    const heading = headings.find((candidate) => candidate.line === line.index)
+    const heading = activeHeading(line)
     if (heading && heading.level <= 2)
       ordinaryPlanBulletsAllowed = heading.level === 2 && heading.title === 'Root causes'
-    if (activeMatch(line, /^[-*] /) && !recordAt(line) && !ordinaryPlanBulletsAllowed)
+    if (
+      line.block.kind === 'list' &&
+      ownsActive(line, 0, line.block.prefixEnd) &&
+      !recordAt(line) &&
+      !ordinaryPlanBulletsAllowed
+    )
       located(line, 'only finding headers may be list items')
   }
   const findings = headings.filter((heading) => heading.level === 2 && heading.title === 'Findings')

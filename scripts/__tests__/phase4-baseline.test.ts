@@ -946,6 +946,74 @@ ${ORDINARY_INLINE_PLAN_BULLET}
     )
   })
 
+  describe('RC-2 shared block boundaries', () => {
+    it.each(['1.', '1)', '  -', '  *', '+', '  +', '   2)'])(
+      'does not pair inline delimiters across the unsupported %s opener',
+      (marker) => {
+        const boundary = `${marker} issue: Additional finding outside Findings`
+        rejectsAt(`${CONSERVED_NATIVE_BODY}\nNote: \`\n${boundary}\n  Context: \``, boundary)
+      },
+    )
+
+    it('rejects a standalone active plus-list record rather than treating it as prose', () => {
+      const boundary = '+ issue: Additional finding outside Findings'
+      rejectsAt(`${CONSERVED_NATIVE_BODY}\n${boundary}`, boundary)
+    })
+
+    it.each([1, 2, 3])('terminates Findings at a level-two heading indented by %s spaces', (indent) => {
+      const boundary = `${' '.repeat(indent)}## Appendix`
+      rejectsAt(CONSERVED_NATIVE_BODY.replace('### Warnings', `${boundary}\n### Warnings`), boundary)
+    })
+
+    it.each([1, 2, 3])('counts an additional Findings heading indented by %s spaces', (indent) => {
+      const boundary = `${' '.repeat(indent)}## Findings`
+      rejectsAt(`${CONSERVED_NATIVE_BODY}\n${boundary}`, boundary)
+    })
+
+    it.each([' ## Other', '  ## Other', '   ## Other', '#', '##'])(
+      'expires ordinary plan-bullet permission at the complete active heading %s',
+      (boundary) => {
+        const outside = '- mechanism: outside the terminated plan interval'
+        rejectsAt(
+          rendered().replace(
+            '## Findings',
+            `## Root causes\n${ORDINARY_INLINE_PLAN_BULLET}\n${boundary}\n${outside}\n## Findings`,
+          ),
+          outside,
+        )
+      },
+    )
+
+    it('does not manufacture a Findings identity from an attached closing hash', () => {
+      rejectsAt(CONSERVED_NATIVE_BODY.replace('## Findings', '## Findings#'), '## Findings#')
+    })
+
+    it('does not manufacture Root-causes permission from an attached closing hash', () => {
+      const body = rendered().replace('## Findings', `## Root causes#\n${ORDINARY_INLINE_PLAN_BULLET}\n## Findings`)
+      rejectsAt(body, ORDINARY_INLINE_PLAN_BULLET)
+    })
+
+    it.each([0, 1, 2, 3])(
+      'accepts exact role headings with separated closing hashes and %s leading spaces',
+      (indent) => {
+        accepts(
+          CONSERVED_NATIVE_BODY.replace(
+            /^(#{2,3} (?:Root causes|Findings|Blockers|Warnings))$/gm,
+            `${' '.repeat(indent)}$1 ###   `,
+          ),
+        )
+      },
+    )
+
+    it.each([
+      '```\n  ## Summary\n+ issue: literal finding\n```',
+      '<!--\n  ## Summary\n+ issue: literal finding\n-->',
+      '      ## Summary\n    + issue: literal finding',
+    ])('keeps block-shaped content inert under its original literal owner: %s', (literal) => {
+      accepts(CONSERVED_NATIVE_BODY.replace('## Findings', `${literal}\n## Findings`))
+    })
+  })
+
   it.each([
     [
       'a missing blocker record',

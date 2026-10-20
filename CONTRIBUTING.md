@@ -85,11 +85,14 @@ Requested thinking is not proof of the effective thinking setting.
 Markdown or prose semantics:
 
 - One first-line review marker; ATX Findings section; one Blockers and one
-  Warnings group, either order. Finding headers are plain or column-zero `-`/`*`
-  items, with two-space fields. Ordinary plan bullets are allowed only beneath an
-  active level-two `Root causes` heading, until the next active level-one/two
-  heading. Level-three cause headings remain inside that interval. Plan prose is
-  not semantically qualified, and CC-shaped records there still reject.
+  Warnings group, either order. ATX openers permit zero to three leading spaces.
+  Their complete titles lose closing hashes only when separated by whitespace;
+  `Findings#` is not the `Findings` role. Finding headers are plain or column-zero
+  `-`/`*` items, with two-space fields. Ordinary plan bullets are allowed only
+  beneath an active level-two `Root causes` heading, until any active level-one/two
+  heading, including an empty or non-role title. Level-three cause headings remain
+  inside that interval. Plan prose is not semantically qualified, and CC-shaped
+  records there still reject.
 - Complete typed JSON factual tuples, inline, pretty, below their active header
   or in exact empty/`json` triple-backtick wrappers. Four-space data is eligible
   only under an active field; otherwise indented examples are literal.
@@ -104,8 +107,12 @@ Markdown or prose semantics:
   Only eligible peer fields or record/group/section boundaries terminate a value;
   a decoder cannot select a valid island and discard its suffix.
 - Closed fences/comments and escaped comment openers are literal contexts.
-  Blank lines, headings, new list items and supported block openers delimit
-  paragraphs before inline delimiters are paired; unmatched backticks are literal.
+  One private block classifier supplies paragraph boundaries, section/group roles
+  and ordinary-bullet permission. Blank lines, ATX headings, list openers, fences,
+  quotes and four-space indents delimit paragraphs before inline delimiters pair.
+  Ordered, plus and one-to-three-space indented active lists are unsupported, not
+  swallowable inline continuations; four-space literal/data ownership wins.
+  Unmatched backticks are literal.
   Historical multiline inline code whose continuation opens an HTML comment is
   explicitly unsupported, not silently reclassified as a finding.
 - Active tabs, raw HTML, complex containers and decorated structural identities
