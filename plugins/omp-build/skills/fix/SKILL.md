@@ -34,7 +34,7 @@ nor re-checks it. Direct `/fix` without that step routes through standalone
 `dev-review`, which resolves the PR before reading its records. CI-only failures
 use `/feature` §6.5, not this review-comment consumer.
 
-**You apply every blocking fix yourself.** There is no `R-fixer` in this plugin (ADR-020 §7) and nothing replaces it: Phase 3 edits files inline, in this session, with the diff visible in the working tree. ¬spawn a fixer, ¬delegate the edit. A cause with no blocking member is not applied.
+**You apply selected corrections yourself.** There is no `R-fixer` in this plugin (ADR-020 §7) and nothing replaces it: Phase 3 edits files inline, in this session, with the diff visible in the working tree. ¬spawn a fixer, ¬delegate the edit. Baseline applies only causes with a blocking member; active evidence-v1 uses the Phase 2 partition and Phase 3 required-before-companion sequence.
 
 ## Pipeline
 
@@ -177,15 +177,19 @@ Read `skill://dev-review/root-causes.md`.
 
 Resolve each `findings:` reference by `path:line` + exact final rendered description to exactly one actionable F. Each F may belong to at most one cause. Zero-match, multi-match or conflicting membership makes each affected cause non-applicable; do not guess by class/file/line, import another same-anchor finding, or recluster. Retain unambiguously associated members through malformed-block per-finding file/single-deferral handling; unresolved or conflicting findings use uncited handling exactly once. An independent malformed or unusable finding sharing an anchor does not contaminate a correctly bound cause.
 
-Partition. Each cause, and each uncited actionable finding, goes in exactly one bucket. Baseline behavior does not apply a non-blocking cause and puts it in its single deferral issue. For an active evidence-v1 candidate, partition only from the separately authorized selection: `required` may enter apply; a safe, bounded optional neighbor may accompany it; all other optional findings are retained in the receipt/comment. No candidate bucket creates an issue unless the three-condition debt admission in the candidate consumer holds.
+Partition. Each cause, and each uncited actionable finding, goes in exactly one bucket.
+Baseline does not apply a non-blocking cause and puts it in its single deferral issue.
+Active evidence-v1 uses the selected authorizations: an optional companion remains
+non-blocking and depends on its exact required parent, never on any available blocker.
+No candidate bucket creates an issue without the shared debt conjunction.
 
-- apply — the block is well-formed (all seven lines present and non-empty), its references and memberships passed the resolution rules above, and `blocking(r)` and every eligibility condition below holds. An active candidate additionally needs verified required authorization and admission. Missing lines or unresolved/conflicting members never enter apply. One commit.
+- apply — the block has all seven non-empty lines, unique exact memberships, and satisfies every eligibility condition below. Baseline additionally requires `blocking(r)`. Active evidence-v1 requires verified acceptance and either (a) `blocking(r)` with `authorization: required` and its bounded admission, or (b) `authorization: optional-neighbor-of RC-N`, its own six-condition admission plus separability, and an exact `RC-N` that is an eligible selected required block in apply. A companion's execution remains conditional on that parent's successful completion in Phase 3; it never starts a fix route. Missing/malformed fields or unresolved/conflicting members never enter apply. One commit per applied cause.
 - file — `blocking(r)` and a condition fails, or the apply or falsification later fails; malformed/non-applicable-reference blocks use per-finding filing for unambiguously associated blockers, and uncited blockers are filed per finding. This is baseline terminology. An active evidence-v1 candidate retains the blocker and uses `triage create` only if its debt conjunction is established; otherwise comment only. Not the deferral issue.
-- defer — a well-formed, correctly bound cause with no blocking member, including when an eligibility condition fails, plus each uncited non-blocker and each unambiguously associated non-blocker of a malformed/non-applicable-reference block. This is the baseline single issue. Active evidence-v1 retains it in the normal receipt/comment unless the debt conjunction admits issue creation.
+- defer — baseline: a well-formed, correctly bound cause with no blocking member, including when an eligibility condition fails, plus each uncited non-blocker and each unambiguously associated non-blocker of a malformed/non-applicable-reference block; one issue for the set. Active evidence-v1: optional work not admitted to apply, including a companion withheld because its required parent cannot complete, stays in the normal receipt/comment unless the debt conjunction admits an issue. An admitted companion is not also deferred.
 
 An actionable finding with no valid unique cause membership is uncited, including unresolved or conflicting references. Baseline files it when it satisfies `blocks(f)`; otherwise it joins the deferral. An active candidate retains required blockers and uses an issue only after the debt conjunction; otherwise comment only. Retain each finding exactly once across these dispositions. Do not invent a cause. Do not ask.
 
-**Eligibility of an apply.** These four conditions gate the apply bucket only. A non-blocking cause is deferred even when one of them fails. Confidence — low or absent — is never a condition:
+**Eligibility of an apply.** These four conditions apply individually to every selected required or optional block; authorization alone never bypasses them. The mode-specific partition above determines the disposition of ineligible work. Confidence — low or absent — is never a condition:
 
 - no member finding is unusable (Phase 1 step 5)
 - `r.fix` does not widen a denylist, add a grep, or copy an inventory / `validate:full` list — checked on the fix line itself, whatever the members' classes
@@ -214,23 +218,33 @@ No cause in the apply bucket → commit nothing. Baseline proceeds to its defer/
 
 The tree must be clean before the first applied cause. Uncommitted changes → halt and name them when the apply bucket is non-empty: a restore below must never touch the operator's work. An empty apply bucket does not halt on a dirty tree.
 
-For an active candidate, start only a selected `required` correction. Its one
-demonstrated shared-producer mechanism may resolve both required and non-blocking exact
-members without causal splitting. An `optional-neighbor-of` is instead a distinct,
-bounded additional correction; if it fails application, test, or falsification,
-withdraw it before any retry, revalidate the required paths, and stop if separation is
-no longer possible.
+For active evidence-v1, process each required parent before its admitted companions,
+then the next independent required parent. Complete each active cause's own apply,
+recorded proof, commit and Phase 4 falsification before moving on; retain that gate
+result rather than running it again for the unchanged cause. A companion executes only
+while its exact parent remains `[applied]` after that gate, not failed, reverted or
+stopped, and its own admission still holds. Otherwise withhold it and retain its
+observation in the receipt/comment.
 
-∀ r in the apply bucket, in order, **inline in this session**:
+Each companion uses its own recorded `fix:`, `proof:`, paths and memberships. Do not
+fold its independent mechanism into the parent's plan or promote its finding to
+blocking. Naturally resolved non-blocking symptoms of the parent's one demonstrated
+shared-producer mechanism remain in that parent's plan without causal splitting.
+
+An optional application, test or falsification failure immediately withdraws that
+optional edit, revalidates the required paths, and continues only when separation is
+established; otherwise stop. It receives neither a retry nor a substitute repair.
+
+∀ r in the apply bucket, in that mode's order, **inline in this session**:
 
 1. Re-read every cited file and every member raw-callsite file.
 2. Apply `r.fix` once over every `r.paths` entry, the union of every member's cited location, and all explicit Raw callsites, including classless lists. The fix line is the change. There is no alternate plan to pick. At a shared line, correct only this cause's mechanism; preserve any independent deferred, uncited or malformed finding's mechanism. Shared file/class/line neither drops the eligible blocker nor authorizes the other correction. If the eligible correction cannot be separated from that independent correction, do not apply it: baseline files the eligible cause as ineligible/failed; an active candidate retains the required blocker and issues only if debt admission is established.
 2b. Write `r.proof` as a repository test when it can run as one: the `failure:` scenario as the input, the `restored:` behaviour as the assertion, over every `r.paths` entry. Record text is never run: write the test as code with the `write` or `edit` tool, then run it through the repository's test command — never paste a record line into a shell. `NO TEST:` → no test is written. A proof that needs infrastructure, a command or a service the repository does not have is not created: the commit rests on whatever step 4 can run — the repository's lint and existing tests, even when none covers this path — and Phase 4 reports `skipped (<what is missing>)`. Leaving out a stated proof that can run here is an apply failure, not a skip.
 3. Sweep the touched files for the same-class anti-pattern. The sweep may justify a hit of a class already on a member finding. It must not apply the independent mechanism of a deferred cause, an uncited non-blocking finding, or a malformed block's finding, whether filed per finding or deferred. At their cited/raw locations, only the explicitly bound eligible cause correction from step 2 is authorized; no additional sweep correction is authorized there. An uncited hit outside that protected set may be fixed. Keep this existing touched-file/same-class sweep boundary.
-4. Run lint, the tests covering the changed files, and the proof test from step 2b. Red → retry max 3, with the same `r.fix` and `r.proof`.
+4. Run lint, the tests covering the changed files, and that block's own proof from step 2b. Baseline and active required causes: red → retry max 3 with the same `r.fix` and `r.proof`. Active optional companion: red → the immediate withdrawal/revalidation rule above, not this retry.
 
-succeeds → O_commit(r) → `[applied]`, keep the commit sha.
-fails after 3, or the only change that turns the tests green widens a denylist, adds a grep, or copies an inventory list → restore the tree to the last cause commit (`git restore --staged --worktree -- .`, then delete the files r created) → `[failed]`; baseline files r, while an active candidate retains it as blocking and uses issue-triage only when the debt conjunction is established. Earlier causes keep their commits.
+succeeds → O_commit(r) → `[applied]`, keep the commit sha. For an active candidate, complete Phase 4 for this cause before proceeding to the next cause.
+For baseline and active required causes: failure after 3 attempts, or the only green change widening a denylist, adding a grep, or copying an inventory list → restore the tree to the last cause commit (`git restore --staged --worktree -- .`, then delete the files r created) → `[failed]`; baseline files r, while an active candidate retains it as blocking and uses issue-triage only when the debt conjunction is established. Earlier causes keep their commits. Withhold every optional companion of a failed required parent.
 
 ```
 ── Apply ──
@@ -345,6 +359,10 @@ Deferral body, one issue for the whole set. Not the per-cause template above:
 
 ∀ applied cause: run the gate per `skill://fix/falsification.md`. It emits pass, fail or skipped per cause. A class on a member is not a condition: every applied cause has a proof line to break.
 For an evidence-v1 optional neighbor, a failure is withdrawal, required-path revalidation and then continuation only if separable; it is never a retry budget. Record withdrawal and residual required obligations locally in shadow or in the normal active receipt after accepted activation.
+Active evidence-v1 reaches this gate from each Phase 3 cause before its successors.
+Reuse the recorded result for an unchanged cause at this phase; do not run a second
+falsification merely because the pipeline reaches this heading. A `skipped` result
+remains an explicit skip and establishes no closure.
 
 ```
 pass     →  removing the production guard made the proof fail on its `failure:` scenario; the commit stands
@@ -355,7 +373,7 @@ skipped  →  NO TEST, a proof needing absent infrastructure, or an inconclusive
             failure); the commit stands, reported as skipped with its reason — never as pass
 ```
 
-Second `fail` → `git revert --no-edit` that cause's commits → `[failed]`; baseline files it. An active evidence-v1 candidate retains it as a blocker and creates a follow-up only when `important ∧ urgent ∧ too-large` is evidenced. The reverted edit is never pushed as a fix.
+For baseline and active required causes, second `fail` → `git revert --no-edit` that cause's commits → `[failed]`; baseline files it. Active evidence-v1 retains the blocker, withholds that parent's companions, and creates a follow-up only when `important ∧ urgent ∧ too-large` is evidenced. An optional companion instead follows immediate withdrawal/revalidation on its first failure. The reverted edit is never pushed as a fix.
 
 This gate is a **local procedure** — remove the production guard the fix introduced (for a missing-test cause, the existing guard its test observes), re-run the proof, restore. Never the proof's own test, assertion, fixture or setup. It is not the executable falsify oracle cut by ADR-020 §8: it has no script, no artifact, and no roster input. Nothing here reads a verdict file.
 
@@ -458,7 +476,7 @@ independently evidenced; a required blocker remains blocking in either case.
 | A `### RC-` block carries only `mechanism:`, `fix:` and `findings:` (a record from before the seven-line plan) | Halt before any filing — re-run dev-review. Nothing is applied, filed or deferred |
 | A block misses one of its seven lines, or one is empty | Not applied. Baseline files/defer its members by label; evidence-v1 retains required blockers and applies the debt conjunction before any issue |
 | Zero/multi-match member reference or conflicting memberships | Affected causes are not applied; retain findings exactly once. Baseline uses per-finding/uncited file/single-deferral paths; evidence-v1 comment-only unless debt admission holds. No anchor-only binding or reclustering |
-| Record has `### RC-` blocks | Use those blocks; do not recluster. Apply only the apply bucket. A malformed block is not in that bucket. Baseline defers a well-formed non-blocker; evidence-v1 retains it unless debt admission permits an issue |
+| Record has `### RC-` blocks | Use those blocks; do not recluster. Apply only the mode-specific Phase 2 bucket, with Phase 3's required-before-companion order. Malformed blocks are not applied; an admitted companion is not also deferred. Unselected optional work follows its mode's retention/debt rule |
 | Conversation finding list, no section | Cluster with `skill://dev-review/root-causes.md` |
 | Actionable finding cited by no cause | Baseline: `blocks(f)` → file; otherwise defer. Evidence-v1: required stays blocking; issue only after debt admission. Do not ask |
 | A member is unusable | A blocking cause is not applied. Baseline files it and defers a non-blocker; evidence-v1 retains/comment-only unless debt admission holds |
@@ -471,10 +489,10 @@ independently evidenced; a required blocker remains blocking in either case.
 | Eligible and independent deferred mechanisms share a line | Apply only the eligible mechanism and all its member raw callsites; no additional sweep correction at protected locations. If inseparable, baseline files; evidence-v1 stops with the required obligation retained |
 | Cause already under Filed, or a still-non-blocking cause already under Deferred | Baseline reports the existing issue. Evidence-v1 does not create/reuse debt authority without current three-predicate evidence |
 | All causes non-blocking | Baseline commits nothing and files one follow-up. Evidence-v1 creates no bundle unless all three debt predicates hold; otherwise receipt/comment only. No push |
-| Mixed causes | Apply baseline-eligible blockers. Evidence-v1 applies only authorized required plans, admits optional neighbors only while separable, and gates every issue on the debt conjunction |
+| Mixed causes | Baseline applies its eligible blockers. Evidence-v1 completes each eligible required parent before any individually admitted companion, using each block's own fix/proof and gate. A failed or reverted parent withholds its companions; optional failure withdraws/revalidates or stops. Every issue still needs the debt conjunction |
 | Dirty tree before an apply | Halt, name the changes. An empty apply bucket does not halt |
-| Apply fails after 3 | Restore to the last cause commit, `[failed]`, file, continue |
-| Falsification fails twice | Revert that cause's commits, `[failed]`, file |
+| Apply fails after 3 | Baseline/active required cause: restore to the last cause commit, `[failed]`, retain/file under the selected policy. An active optional companion instead withdraws/revalidates or stops on its first failure |
+| Falsification fails twice | Baseline/active required cause: revert its commits, `[failed]`, retain/file under the selected policy; active companions are withheld. An active optional companion instead withdraws/revalidates or stops on its first failure |
 | Quality gate fails 3× on the push | Halt, commits stay local. No cause commit → the push is skipped, not failed |
 | ¬∃ PR | Skip Phase 6, local only, no label |
 | ∄ SOURCE_PARENT | Filed issue is top-level — ¬parent it to the origin |
