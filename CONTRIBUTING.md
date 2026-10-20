@@ -95,9 +95,12 @@ Markdown or prose semantics:
   only under an active field; otherwise indented examples are literal.
   Duplicate-aware Flow metadata preserves decoded keys, numeric types, exact
   citation/emitter associations and callsite multiplicity.
-- Source-positioned active prefixes and literal, comment, data and inline-code
-  contexts supply records and their complete raw values. Inline/comment suffixes
-  cannot erase an active structural prefix or manufacture an exact heading title.
+- Ordered, non-overlapping ownership ranges retain original offsets and physical
+  columns across active, literal, comment, data and inline-code contexts. Scanning
+  resumes after every inline/comment close, including continuation-line suffixes
+  and repeated comment openers. Eligibility belongs to the original opener;
+  headings, citation/emitter identities and field values keep their complete raw
+  source. No concatenated active islands or rebased suffixes supply syntax.
   Only eligible peer fields or record/group/section boundaries terminate a value;
   a decoder cannot select a valid island and discard its suffix.
 - Closed fences/comments and escaped comment openers are literal contexts.

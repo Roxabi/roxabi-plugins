@@ -68,6 +68,56 @@ One root cause is planned. The status-formatter warning remains uncited: the sup
 
 **Verdict: Request changes** — 1 blocking finding.`
 
+const CONSERVED_C1_NATIVE_BODY = `<!-- omp-build:code-review -->
+## Code Review
+
+## Spec
+no spec available — spec axis not evaluated
+
+## Standards (judgement pass — 12 smells walked, 0 fired)
+smells: RAS
+
+## Root causes
+
+### RC-1 — the advance guard treats a non-blocked status as sufficient publication authority
+- mechanism: the OR condition permits a panel with no approval timestamp to advance solely because its status is not blocked.
+- fix: require both a non-null approval timestamp and a non-blocked status in \`mayAdvance\`, retaining \`submit\` as the consumer of that decision.
+- failure: a panel with \`approvedAt=null\` and \`status=pending\` passes \`mayAdvance\` and is published by \`submit\`.
+- restored: an unapproved pending panel is held; neither a missing approval timestamp nor a blocked status permits publication.
+- paths: \`src/panel/advance.ts:2\` (decision producer) ; \`src/panel/submit.ts:3\` (publication consumer).
+- proof: exercise \`mayAdvance\` and \`submit\` with an unapproved pending panel, an approved blocked panel, and an approved non-blocked panel; observe rejection/held for the first two and acceptance/published for the last. The pending-panel assertion fails under the supplied OR guard and passes under the corrected conjunction. This is a proposed executable proof, not a reported test run.
+- findings: \`src/panel/advance.ts:2\` — Pending panels can publish through the changed advance guard
+
+## Findings
+
+### Blockers
+
+issue: Pending panels can publish through the changed advance guard
+  src/panel/advance.ts:2
+  -- fixture-adversarial
+  Provenance: [{agent: fixture-adversarial, phase: panel, chunk: 1, callsites: [{file: src/panel/advance.ts, line: 2}, {file: src/panel/submit.ts, line: 3}]}]
+  Root cause: ["guard","src/panel/advance.ts:2","or",["ne","approvedAt",null],["ne","status","blocked"]]
+  Symptoms/evidence: ["witness",["input","approvedAt",null],["input","status","pending"],["result","src/panel/advance.ts:2",true],["result","src/panel/submit.ts:3","published"]]
+  Raw callsites: [{file: src/panel/advance.ts, line: 2}, {file: src/panel/submit.ts, line: 3}]
+  Confidence: 96%
+
+### Warnings
+
+suggestion: The changed status formatter keeps the legacy ready spelling inline
+  src/panel/status.ts:2
+  -- fixture-architect
+  Provenance: [{agent: fixture-architect, phase: panel, chunk: 1, callsites: [{file: src/panel/status.ts, line: 2}]}]
+  Root cause: ["mapping","src/panel/status.ts:2","approved","ready","local-literal"]
+  Symptoms/evidence: ["witness",["mapping","src/panel/status.ts:2","approved","ready"],["supplied-safety-path",false]]
+  Raw callsites: [{file: src/panel/status.ts, line: 2}]
+  Confidence: 72%
+
+## Summary
+
+2 findings retained: 1 blocker and 1 warning. RC-1 plans the publication-guard correction. The formatter warning remains uncited: the supplied context establishes neither a replacement mapping nor a shared mapping authority, so no safe correction plan is supported. No missing-test label rewrite applies.
+
+**Verdict: Request changes** — 1 blocking finding.`
+
 const ORDINARY_INLINE_PLAN_BULLET = '- mechanism: retain `mayAdvance` as ordinary plan prose'
 
 type FindingOverride = Partial<
@@ -143,6 +193,20 @@ function rejectsUnsupportedPresentation(body: string): void {
   }
   expect(thrown).toBeInstanceOf(AssertionError)
   expect((thrown as Error).message).toMatch(/(?:line\s+\d+|:\d+(?::\d+)?)/i)
+  expectDeclaredRequestChanges(body)
+}
+
+function rejectsAt(body: string, sourceLine: string): void {
+  let thrown: unknown
+  try {
+    qualifyPhase4Baseline(body)
+  } catch (error) {
+    thrown = error
+  }
+  expect(thrown).toBeInstanceOf(AssertionError)
+  const line = body.split('\n').indexOf(sourceLine) + 1
+  expect(line).toBeGreaterThan(0)
+  expect((thrown as Error).message).toContain(`unsupported presentation at line ${line}:`)
   expectDeclaredRequestChanges(body)
 }
 
@@ -825,6 +889,61 @@ ${ORDINARY_INLINE_PLAN_BULLET}
     for (const suffix of [' `non-JSON annotation`', ' <!-- non-JSON annotation -->']) {
       rejects(rendered().replace(`  Root cause: ${BLOCKER_CAUSE}`, `  Root cause: ${BLOCKER_CAUSE}${suffix}`))
     }
+  })
+
+  it('qualifies the separate complete C1 native body through the unchanged consumer', () => {
+    accepts(CONSERVED_C1_NATIVE_BODY)
+  })
+
+  describe('RC-1 original-source ownership', () => {
+    it.each([
+      ['same-line reopening', '<!-- first comment --> <!--\n## Findings'],
+      ['continuation-line reopening', '<!-- first comment\n--> <!--\n## Findings'],
+    ])('does not reactivate Findings inside a second comment: %s', (_, opening) => {
+      const body = CONSERVED_NATIVE_BODY.replace('## Findings', opening).replace('## Summary', '-->\n## Summary')
+      rejectsAt(body, '## Findings')
+    })
+
+    it.each([
+      'Example: `literal` <div>',
+      '`example` <div>',
+      'Note: `start\nend` <div>',
+      '`note` <pre>',
+      'A `note` <!-- note --> <pre>',
+      '<!-- first comment --> <div>',
+      '<!-- first comment\n--> <div>',
+    ])('checks every active suffix at its original column: %s', (suffix) => {
+      const body = CONSERVED_C1_NATIVE_BODY.replace('## Findings', `${suffix}\n## Findings`)
+      rejectsAt(body, suffix.split('\n').at(-1) as string)
+    })
+
+    it.each([' `note` foreign-agent', ' <!-- note --> foreign-agent'])(
+      'does not truncate an emitter identity at %s',
+      (suffix) => {
+        const identity = `  -- fixture-adversarial${suffix}`
+        rejectsAt(CONSERVED_C1_NATIVE_BODY.replace('  -- fixture-adversarial', identity), identity)
+      },
+    )
+
+    it.each([' `note` foreign.ts:1', ' <!-- note --> foreign.ts:1', ' `src/panel/foreign.ts:99`'])(
+      'does not truncate a citation identity at %s',
+      (suffix) => {
+        const identity = `  src/panel/advance.ts:2${suffix}`
+        rejectsAt(CONSERVED_C1_NATIVE_BODY.replace('  src/panel/advance.ts:2\n', `${identity}\n`), identity)
+      },
+    )
+
+    it.each(['`literal`', '<!-- note -->', 'Note: `start\nend`'])(
+      'does not rebase the physical suffix of %s into a structural opener',
+      (literal) => {
+        accepts(
+          CONSERVED_C1_NATIVE_BODY.replace('## Findings', `${literal} ## Other\n## Findings`).replace(
+            '## Summary',
+            `${literal} issue: ordinary non-record text\n## Summary`,
+          ),
+        )
+      },
+    )
   })
 
   it.each([

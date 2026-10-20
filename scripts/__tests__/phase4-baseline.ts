@@ -5,17 +5,40 @@ type FlowValue = string | number | boolean | null | FlowValue[] | FlowMap
 type FlowMap = Map<string, FlowValue>
 type LeafKind = 'active' | 'literal' | 'comment' | 'inline' | 'data'
 
+type Span = { start: number; end: number; kind: LeafKind }
+type Block = { kind: 'heading'; level: number; title: string; prefixEnd: number } | { kind: 'prose' }
+
 type Line = {
   index: number
   start: number
   end: number
   text: string
-  activeEnd: number
-  kind: LeafKind
+  spans: Span[]
+  block: Block
 }
 
-function activePrefix(line: Line): string {
-  return line.text.slice(0, line.activeEnd)
+function ownsActive(line: Line, start: number, end: number): boolean {
+  return end > start && line.spans.some((span) => span.kind === 'active' && span.start <= start && span.end >= end)
+}
+
+function activeMatch(line: Line, pattern: RegExp): RegExpExecArray | undefined {
+  const match = pattern.exec(line.text)
+  return match && ownsActive(line, match.index, match.index + match[0].length) ? match : undefined
+}
+
+function own(line: Line, start: number, end: number, kind: LeafKind): void {
+  if (start === end) return
+  const previous = line.spans.at(-1)
+  if (previous?.kind === kind && previous.end === start) previous.end = end
+  else line.spans.push({ start, end, kind })
+}
+
+function blockAt(text: string): Block {
+  const opener = /^(#{1,6})[ \t]+/.exec(text)
+  const complete = /^(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$/.exec(text)
+  return opener && complete
+    ? { kind: 'heading', level: opener[1].length, title: complete[2], prefixEnd: opener[0].length }
+    : { kind: 'prose' }
 }
 
 type Heading = {
@@ -32,8 +55,8 @@ type Field = {
 
 type PeerNode =
   | { kind: 'field'; name: string; valueOffset: number }
-  | { kind: 'citation'; value: string }
-  | { kind: 'emitter'; value: string }
+  | { kind: 'citation'; value: string; line: Line }
+  | { kind: 'emitter'; value: string; line: Line }
 
 type RecordNode = {
   group: string
@@ -41,8 +64,8 @@ type RecordNode = {
   startLine: number
   endLine: number
   fields: Map<string, Field[]>
-  citations: string[]
-  emitters: string[]
+  citations: Extract<PeerNode, { kind: 'citation' }>[]
+  emitters: Extract<PeerNode, { kind: 'emitter' }>[]
 }
 
 type ExpectedFinding = {
@@ -386,11 +409,10 @@ function headerStartsJsonFence(line: string): boolean {
 }
 
 function buildDocument(body: string): Line[] {
-  const sourceLines = body.split('\n')
   const lines: Line[] = []
   let offset = 0
-  for (const [index, text] of sourceLines.entries()) {
-    lines.push({ index, start: offset, end: offset + text.length, text, activeEnd: text.length, kind: 'active' })
+  for (const [index, text] of body.split('\n').entries()) {
+    lines.push({ index, start: offset, end: offset + text.length, text, spans: [], block: blockAt(text) })
     offset += text.length + 1
   }
 
@@ -400,139 +422,143 @@ function buildDocument(body: string): Line[] {
   let pendingData = false
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index]
-    if (commentOpen) {
-      line.kind = 'comment'
-      line.activeEnd = 0
-      if (line.text.includes('-->')) commentOpen = false
-      continue
-    }
-    if (fence) {
-      line.kind = 'literal'
-      line.activeEnd = 0
-      const close = new RegExp(`^ {0,3}${fence.marker}{${fence.length},}[ \\t]*$`)
-      if (close.test(line.text)) fence = undefined
-      continue
-    }
-    if (dataFence) {
-      line.kind = 'data'
-      line.activeEnd = 0
-      if (/^```[ \t]*$/.test(line.text)) dataFence = false
-      continue
-    }
-    if (pendingData) {
-      if (!line.text.trim() || /^ {4}/.test(line.text)) {
-        line.kind = 'data'
-        line.activeEnd = 0
+    let cursor = line.spans.at(-1)?.end ?? 0
+    if (cursor === line.text.length && cursor > 0) continue
+    if (cursor === 0 && !commentOpen) {
+      if (fence) {
+        own(line, 0, line.text.length, 'literal')
+        if (new RegExp(`^ {0,3}${fence.marker}{${fence.length},}[ \\t]*$`).test(line.text)) fence = undefined
         continue
       }
-      pendingData = false
-    }
-
-    const documentFence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line.text)
-    if (documentFence) {
-      const marker = documentFence[1][0] as '`' | '~'
-      if (marker === '~' || !documentFence[2].includes('`')) {
-        line.kind = 'literal'
-        line.activeEnd = 0
-        fence = { marker, length: documentFence[1].length }
+      if (dataFence) {
+        own(line, 0, line.text.length, 'data')
+        if (/^```[ \t]*$/.test(line.text)) dataFence = false
+        continue
+      }
+      if (pendingData) {
+        if (!line.text.trim() || /^ {4}/.test(line.text)) {
+          own(line, 0, line.text.length, 'data')
+          continue
+        }
+        pendingData = false
+      }
+      const documentFence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line.text)
+      if (documentFence) {
+        const marker = documentFence[1][0] as '`' | '~'
+        if (marker === '~' || !documentFence[2].includes('`')) {
+          own(line, 0, line.text.length, 'literal')
+          fence = { marker, length: documentFence[1].length }
+          continue
+        }
+      }
+      if (/^ {4}/.test(line.text)) {
+        own(line, 0, line.text.length, 'literal')
         continue
       }
     }
-    if (/^ {4}/.test(line.text)) {
-      line.kind = 'literal'
-      line.activeEnd = 0
-      continue
-    }
 
-    let cursor = 0
     while (cursor < line.text.length) {
+      if (commentOpen) {
+        const close = line.text.indexOf('-->', cursor)
+        const end = close === -1 ? line.text.length : close + 3
+        own(line, cursor, end, 'comment')
+        cursor = end
+        if (close === -1) break
+        commentOpen = false
+        continue
+      }
       const comment = line.text.indexOf('<!--', cursor)
       const tick = line.text.indexOf('`', cursor)
-      const next = [comment, tick].filter((value) => value >= 0).sort((a, b) => a - b)[0]
-      if (next === undefined) break
-      if (next === comment && !escaped(line.text, comment)) {
-        line.activeEnd = Math.min(line.activeEnd, comment)
-        if (!comment) line.kind = 'comment'
-        const close = line.text.indexOf('-->', comment + 4)
-        if (close === -1) commentOpen = true
+      const next = comment >= 0 && (tick < 0 || comment < tick) ? comment : tick
+      if (next < 0) {
+        own(line, cursor, line.text.length, 'active')
         break
       }
-      if (next === tick && !escaped(line.text, tick)) {
-        let length = 1
-        while (line.text[tick + length] === '`') length++
-        const close = closingCodeSpan(lines, index, tick, length)
-        if (!close) {
-          cursor = tick + length
-          continue
+      own(line, cursor, next, 'active')
+      if (next === comment) {
+        if (escaped(line.text, next)) {
+          own(line, next, next + 4, 'active')
+          cursor = next + 4
+        } else {
+          commentOpen = true
+          cursor = next
         }
-        line.activeEnd = Math.min(line.activeEnd, tick)
-        if (close.line === index) {
-          cursor = close.end
-          continue
-        }
-        for (let covered = index + 1; covered <= close.line; covered++) {
-          lines[covered].kind = 'inline'
-          lines[covered].activeEnd = 0
-        }
-        const closingLine = lines[close.line]
-        const trailingComment = closingLine.text.indexOf('<!--', close.end)
-        if (trailingComment >= 0 && !escaped(closingLine.text, trailingComment)) {
-          if (closingLine.text.indexOf('-->', trailingComment + 4) === -1) commentOpen = true
-        }
-        index = close.line
-        break
+        continue
       }
-      cursor = next + 1
+      let length = 1
+      while (line.text[next + length] === '`') length++
+      const close = escaped(line.text, next) ? undefined : closingCodeSpan(lines, index, next, length)
+      if (!close) {
+        own(line, next, next + length, 'active')
+        cursor = next + length
+        continue
+      }
+      own(line, next, close.line === index ? close.end : line.text.length, 'inline')
+      for (let covered = index + 1; covered <= close.line; covered++) {
+        own(lines[covered], 0, covered === close.line ? close.end : lines[covered].text.length, 'inline')
+      }
+      cursor = close.line === index ? close.end : line.text.length
     }
-    if (line.kind !== 'active' || line.activeEnd === 0) continue
-    const active = activePrefix(line)
-    if (new RegExp(`^(?:[-*] )?(?:\\*\\*|__|\`)(?:${CONVENTIONAL_LABEL})(?:\\*\\*|__|\`):`).test(active)) {
-      located(line, 'finding identities cannot be decorated')
+    if (activeMatch(line, /^ +[A-Za-z][A-Za-z /-]*:/)) {
+      if (headerStartsJsonFence(line.text)) dataFence = true
+      else if (headerStartsData(line.text)) pendingData = true
     }
-    if (new RegExp(`^ {1,3}(?! )(?:[-*] )?${CONVENTIONAL_LABEL}:`).test(active))
-      located(line, 'finding identities must be plain or column-zero bullets')
-    if (/^(?: {1}(?! )| {3}(?! ))(?:-- |[A-Za-z0-9_./-]+:\d+[ \t]*$|[A-Za-z][A-Za-z /-]*:)/.test(active)) {
-      located(line, 'record fields require two-space indentation')
-    }
-    if (active.includes('\t')) located(line, 'structural tabs are not supported')
-    if (/^ {0,3}>/.test(active)) located(line, 'blockquotes are not supported')
-    if (/^\d+[.)] /.test(active)) located(line, 'ordered lists are not supported')
-    if (/^ +[-*] /.test(active)) located(line, 'nested lists are not supported')
-    if (/^(?:=+|-+)[ \t]*$/.test(active)) located(line, 'alternate heading forms are not supported')
-    if (/^\s*\|/.test(active) || /\|\s*$/.test(active)) located(line, 'tables are not supported')
-    if (/<\/?[A-Za-z][^>]*>/.test(active)) located(line, 'raw HTML elements are not supported')
-    if (headerStartsJsonFence(active)) dataFence = true
-    else if (headerStartsData(active)) pendingData = true
   }
   if (commentOpen) located(lines[lines.length - 1], 'HTML comment is not closed')
   if (fence) located(lines[lines.length - 1], 'literal fence is not closed')
   if (dataFence) located(lines[lines.length - 1], 'JSON fence is not closed')
+
+  for (const line of lines) {
+    if (activeMatch(line, new RegExp(`^(?:[-*] )?(?:\\*\\*|__|\`)(?:${CONVENTIONAL_LABEL})(?:\\*\\*|__|\`):`)))
+      located(line, 'finding identities cannot be decorated')
+    if (activeMatch(line, new RegExp(`^ {1,3}(?! )(?:[-*] )?${CONVENTIONAL_LABEL}:`)))
+      located(line, 'finding identities must be plain or column-zero bullets')
+    if (activeMatch(line, /^(?: {1}(?! )| {3}(?! ))(?:-- |[A-Za-z0-9_./-]+:\d+[ \t]*$|[A-Za-z][A-Za-z /-]*:)/))
+      located(line, 'record fields require two-space indentation')
+    for (const span of line.spans) {
+      if (span.kind !== 'active') continue
+      const tab = line.text.indexOf('\t', span.start)
+      if (tab >= 0 && tab < span.end) located(line, 'structural tabs are not supported')
+    }
+    if (activeMatch(line, /^ {0,3}>/)) located(line, 'blockquotes are not supported')
+    if (activeMatch(line, /^\d+[.)] /)) located(line, 'ordered lists are not supported')
+    if (activeMatch(line, /^ +[-*] /)) located(line, 'nested lists are not supported')
+    if (activeMatch(line, /^(?:=+|-+)[ \t]*$/)) located(line, 'alternate heading forms are not supported')
+    if (activeMatch(line, /^\s*\|/) || activeMatch(line, /\|\s*$/)) located(line, 'tables are not supported')
+    const html = /<\/?[A-Za-z][^>]*>/g
+    for (const match of line.text.matchAll(html)) {
+      if (ownsActive(line, match.index, match.index + match[0].length))
+        located(line, 'raw HTML elements are not supported')
+    }
+  }
   return lines
 }
 
 function activeHeading(line: Line): { level: number; title: string } | undefined {
-  if (line.kind !== 'active' || line.activeEnd === 0) return undefined
-  const opener = /^(#{1,6})[ \t]+/.exec(activePrefix(line))
-  const complete = /^(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$/.exec(line.text)
-  if (!opener || !complete) return undefined
-  return { level: opener[1].length, title: complete[2] }
+  return line.block.kind === 'heading' && ownsActive(line, 0, line.block.prefixEnd) ? line.block : undefined
 }
 
 function peer(line: Line): PeerNode | undefined {
-  if (line.kind !== 'active' || line.activeEnd === 0) return undefined
-  const active = activePrefix(line)
-  const citation = /^ +([A-Za-z0-9_./-]+:\d+)[ \t]*$/.exec(active)
-  if (citation) return { kind: 'citation', value: citation[1] }
-  const emitter = /^ +-- ([^\n]*?)[ \t]*$/.exec(active)
-  if (emitter) return { kind: 'emitter', value: emitter[1] }
-  const field = /^ +([A-Za-z][A-Za-z /-]*):[ \t]*(.*)$/.exec(active)
-  if (field) return { kind: 'field', name: field[1], valueOffset: active.length - field[2].length }
-  return undefined
+  if (activeMatch(line, /^ +[A-Za-z0-9_./-]+:\d+/)) {
+    const citation = /^ +([A-Za-z0-9_./-]+:\d+)[ \t]*$/.exec(line.text)
+    if (!citation) located(line, 'citation requires one complete plain identity')
+    return { kind: 'citation', value: citation[1], line }
+  }
+  if (activeMatch(line, /^ +-- /)) {
+    const emitter = /^ +-- ([^\n]*?)[ \t]*$/.exec(line.text)
+    if (!emitter) located(line, 'emitter requires one complete plain identity')
+    return { kind: 'emitter', value: emitter[1], line }
+  }
+  const field = activeMatch(line, /^ +([A-Za-z][A-Za-z /-]*):[ \t]*/)
+  return field ? { kind: 'field', name: field[1], valueOffset: field[0].length } : undefined
 }
 
 function conventionalAt(line: Line): RegExpExecArray | undefined {
-  if (line.kind !== 'active' || line.activeEnd === 0) return undefined
-  return conventionalLine.exec(activePrefix(line)) ?? undefined
+  return activeMatch(line, conventionalLine)
+}
+
+function recordAt(line: Line): RegExpExecArray | undefined {
+  return conventionalAt(line) ? (recordLine.exec(line.text) ?? undefined) : undefined
 }
 
 function findRecordNodes(body: string, lines: readonly Line[]): RecordNode[] {
@@ -547,12 +573,22 @@ function findRecordNodes(body: string, lines: readonly Line[]): RecordNode[] {
     const heading = headings.find((candidate) => candidate.line === line.index)
     if (heading && heading.level <= 2)
       ordinaryPlanBulletsAllowed = heading.level === 2 && heading.title === 'Root causes'
-    const active = activePrefix(line)
-    if (/^[-*] /.test(active) && !recordLine.test(active) && !ordinaryPlanBulletsAllowed)
+    if (activeMatch(line, /^[-*] /) && !recordAt(line) && !ordinaryPlanBulletsAllowed)
       located(line, 'only finding headers may be list items')
   }
   const findings = headings.filter((heading) => heading.level === 2 && heading.title === 'Findings')
-  if (findings.length !== 1) reject('rendered review has no unique Findings section')
+  if (findings.length !== 1) {
+    const groupLine = lines.findIndex(
+      (line) => line.block.kind === 'heading' && ['Blockers', 'Warnings'].includes(line.block.title),
+    )
+    const parent = lines.findLast(
+      (line) => (groupLine < 0 || line.index < groupLine) && line.block.kind === 'heading' && line.block.level <= 2,
+    )
+    located(
+      findings.length > 1 ? lines[findings[1].line] : (parent ?? lines[0]),
+      'rendered review has no unique Findings section',
+    )
+  }
   const findingsHeading = findings[0]
   const sectionEnd =
     headings.find((heading) => heading.line > findingsHeading.line && heading.level <= 2)?.line ?? lines.length
@@ -564,7 +600,7 @@ function findRecordNodes(body: string, lines: readonly Line[]): RecordNode[] {
     new Set(groups.map((group) => group.title)).size !== groups.length ||
     groups.some((group) => !EXPECTED_FINDINGS.some((expected) => expected.group === group.title))
   ) {
-    reject('rendered review has wrong finding groups')
+    located(lines[sectionEnd] ?? lines[findingsHeading.line], 'rendered review has wrong finding groups')
   }
 
   const groupAt = new Map<number, string>()
@@ -576,8 +612,8 @@ function findRecordNodes(body: string, lines: readonly Line[]): RecordNode[] {
     const conventional = conventionalAt(line)
     if (!conventional) continue
     const group = groupAt.get(line.index)
-    const record = recordLine.exec(activePrefix(line))
-    if (!group) reject('rendered review contains a Conventional Comment outside Findings')
+    const record = recordAt(line)
+    if (!group) located(line, 'rendered review contains a Conventional Comment outside Findings')
     if (!record) located(line, 'finding identities must be plain or column-zero bullets')
   }
 
@@ -586,9 +622,7 @@ function findRecordNodes(body: string, lines: readonly Line[]): RecordNode[] {
     const groupEnd = groups.find((candidate) => candidate.line > group.line)?.line ?? sectionEnd
     const starts: { line: number; label: string }[] = []
     for (let index = group.line + 1; index < groupEnd; index++) {
-      const match = recordLine.exec(
-        lines[index].kind === 'active' && lines[index].activeEnd > 0 ? activePrefix(lines[index]) : '',
-      )
+      const match = recordAt(lines[index])
       if (match) starts.push({ line: index, label: `${match[1]}:` })
     }
     for (const [position, start] of starts.entries()) {
@@ -599,12 +633,12 @@ function findRecordNodes(body: string, lines: readonly Line[]): RecordNode[] {
         if (node) peers.push({ line: lines[index], node })
       }
       const fields = new Map<string, Field[]>()
-      const citations: string[] = []
-      const emitters: string[] = []
+      const citations: Extract<PeerNode, { kind: 'citation' }>[] = []
+      const emitters: Extract<PeerNode, { kind: 'emitter' }>[] = []
       for (const [position, entry] of peers.entries()) {
         if (!entry.node) continue
-        if (entry.node.kind === 'citation') citations.push(entry.node.value)
-        else if (entry.node.kind === 'emitter') emitters.push(entry.node.value)
+        if (entry.node.kind === 'citation') citations.push(entry.node)
+        else if (entry.node.kind === 'emitter') emitters.push(entry.node)
         else {
           const boundary = peers[position + 1]?.line.start ?? lines[endLine]?.start ?? body.length
           const values = fields.get(entry.node.name) ?? []
@@ -638,10 +672,12 @@ function qualifyRecord(record: RecordNode, body: string): void {
     (candidate) => candidate.group === record.group && candidate.label === record.label,
   )
   if (!expected) reject(`unexpected finding ${record.group}/${record.label}`)
-  if (record.citations.length !== 1 || record.citations[0] !== expected.citation)
-    reject(`${expected.citation} must have exactly one matching citation`)
-  if (record.emitters.length !== 1 || record.emitters[0] !== expected.emitter)
-    reject(`${expected.citation} must have exactly one matching emitter`)
+  if (record.citations.length !== 1) reject(`${expected.citation} must have exactly one matching citation`)
+  if (record.citations[0].value !== expected.citation)
+    located(record.citations[0].line, 'citation does not match the complete expected identity')
+  if (record.emitters.length !== 1) reject(`${expected.citation} must have exactly one matching emitter`)
+  if (record.emitters[0].value !== expected.emitter)
+    located(record.emitters[0].line, 'emitter does not match the complete expected identity')
 
   const cause = unwrapJson(oneField(record, body, 'Root cause', expected.citation), `${expected.citation} Root cause`)
   const witness = unwrapJson(
