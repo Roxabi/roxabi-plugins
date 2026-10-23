@@ -407,7 +407,7 @@ export default function ompBuildExtension(pi: OmpBuildExtensionApi, options: Omp
   // No `rewriteHarnessPaths` here: nothing this plugin dumps carries a
   // `${CLAUDE_*}` path token to expand — agent bodies *and* skill bodies, the
   // surface these commands added, are held to that by
-  // `agents/__tests__/roster.test.ts` ("cites no plugin-root token").
+  // `testing/agent-roster.test.ts` ("cites no plugin-root token").
   reviewControllerFor(pi)
   const interruptOwnedFeatureWork = async (reason: string): Promise<void> => {
     abortOwnedFeatureWatch(pi as object)

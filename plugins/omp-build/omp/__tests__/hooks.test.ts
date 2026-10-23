@@ -118,7 +118,7 @@ describe('OMP omp-build hooks', () => {
   // SKILL.md body, so the justification is no longer "this plugin dumps none":
   // it is that nothing it dumps carries a `${CLAUDE_*}` path token to expand,
   // asserted over agent bodies and skill bodies alike by
-  // `agents/__tests__/roster.test.ts` ("cites no plugin-root token").
+  // `testing/agent-roster.test.ts` ("cites no plugin-root token").
 
   describe('extractWriteContent', () => {
     it('reads OMP edit hashline from input', () => {

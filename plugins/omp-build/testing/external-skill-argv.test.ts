@@ -22,7 +22,7 @@ import { describe, expect, it } from 'vitest'
  * Corpus: every `.md` under plugins/.
  */
 
-const REPO = path.resolve(import.meta.dirname, '../../../..')
+const REPO = path.resolve(import.meta.dirname, '../../..')
 const PLUGINS = path.join(REPO, 'plugins')
 
 /** Languages that are never shell, even when the fence body looks shellish. */

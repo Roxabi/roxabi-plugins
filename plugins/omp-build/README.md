@@ -2,7 +2,7 @@
 
 OMP-only delivery plugin. The installed `/feature` command drives a bounded graph: frame, issue, worktree, implement, native review and correction, land. A session `/goal` does not authorize that graph.
 
-Not a Claude/Grok factory — does not invoke host `/dev` or dev-core Skill() children. Package `0.11.1` in this tree is not an installed or activated release.
+Not a Claude/Grok factory — does not invoke host `/dev` or dev-core Skill() children. Package `0.11.2` in this tree is not an installed or activated release.
 
 ## Install
 
@@ -55,8 +55,8 @@ The installed extension registers `/feature` and runs the product coordinator. `
 | Change | Pick up |
 |---|---|
 | `skills/`, `commands/`, MCP config | `/reload-plugins` |
-| `hooks/`, `omp.extensions`, **new/changed `agents/*.md`** | **restart** OMP session |
-| issue-triage helper source | `bun run build` from the repo root copies the slice into `dist/issue-triage/`. That generated tree is to be committed with the release. Install does not run the build. |
+| `hooks/`, `omp.extensions`, **new/changed generated `agents/*.md`** | **restart** OMP session |
+| `agent-sources/`, native profile/schema sources, issue-triage helper source | `bun run build` from the repo root regenerates the distribution. Commit matching sources and generated files before distribution verification. Install does not run the build. |
 Symlinking into `~/.omp/agent/agents/` is not supported — use `link` (or the catalog install armed by `extensions:`) + restart.
 
 ## Process
@@ -575,4 +575,32 @@ rules are inlined in `promote/SKILL.md` § Merge method.
 
 ## Maintenance
 
-Lint-only fixture changes must preserve the emitted shell text and cleanup/release safety behavior, not replace executable checks with source-text assertions. Publish OMP changes with matching, newer versions in `package.json` and `.omp-plugin/marketplace.json` so the version-keyed install cache is refreshed. `bun run build` also copies the issue-triage helper slice byte for byte into `dist/issue-triage/`. Missing source fails that build. Commit the generated slice with the release, the same way as `dist/contracts.js`. Catalogue installation copies the plugin subtree; it does not install npm dependencies. Runtime consumers therefore use the shipped common bundle, which includes Zod; the root development dependency is needed to build it, not to run an installed plugin. No separate npm or issue-triage plugin installation is required.
+Lint-only fixture changes must preserve the emitted shell text and cleanup/release safety behavior, not replace executable checks with source-text assertions. Publish OMP changes with matching, newer versions in `package.json` and `.omp-plugin/marketplace.json` so the version-keyed install cache is refreshed.
+
+### Owned distribution (candidate 0.11.2)
+
+`agent-sources/*.md` holds the seven authored generic agents. The producer copies them byte for byte and derives native profiles from `roxabi/native-*-profiles.ts` and the existing strict schemas. Tests live outside the generated surface, under `testing/`.
+
+The single producer, `tools/build-omp-build-contracts.ts`, owns all of `agents/**` and `dist/**`, including the existing issue-triage runtime slice. Do not edit these outputs. Its inventory comes from successful writes and Bun build outputs, not a second list of expected artifacts. Duplicate output claims and incomplete build metadata fail. A normal build never purges the candidate or its dependencies; stale outputs remain visible to verification.
+
+1. Use the exact producer Bun version in the repository's `.bun-version` and physical dependencies installed from the frozen lock:
+
+   ```bash
+   bun install --frozen-lockfile --backend=copyfile
+   bun run build
+   ```
+
+2. Commit the matching sources, configuration and complete generated `agents/**` and `dist/**` surface.
+3. Verify that committed candidate:
+
+   ```bash
+   bun run verify:omp-build-distribution
+   ```
+
+The verifier snapshots the physical candidate before reconstruction and never repairs it. It binds producer/verifier sources, `.bun-version` and `bun.lock` to HEAD independently of Git index flags, checks the static import closure and physical dependencies, rebuilds A from the actual checkout, and clones B at that same commit with its own frozen physical installation. Separate producer processes load their own checkout's modules. Only their fresh temporary output destinations vary.
+
+Verification compares complete inventories and raw bytes: candidate = A = B, with candidate and untouched B distribution also bound to HEAD. Comments are not stripped. Modified, missing, untracked/ignored, orphaned or path-dependent outputs are refusals, not approvals. Negative probes exercise the actual verifier CLI and producer only in owned temporary copies; cleanup covers success and failure. CI runs the same verifier before consumer checks; its existing draft-PR skip is unchanged and is not a CI validation.
+
+This is a distribution proof, not evidence of model judgment, hosted landing, installation or activation. It changes neither review records nor execution authority, bindings, bounds or approvals.
+
+Catalogue installation copies the plugin subtree; it does not install npm dependencies. Runtime consumers therefore use the shipped common bundle, which includes Zod; the root development dependency is needed to build it, not to run an installed plugin. No separate npm or issue-triage plugin installation is required.

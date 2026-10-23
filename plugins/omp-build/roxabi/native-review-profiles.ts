@@ -23,7 +23,7 @@ export const nativeReviewProfiles: readonly NativeReviewProfile[] = [
     model: '@review, @slow',
     maxTurns: 30,
     output: 'findings',
-    sourceAgent: 'agents/R-adversarial.md',
+    sourceAgent: 'agent-sources/R-adversarial.md',
   },
   {
     name: 'R-review-security-auditor',
@@ -32,7 +32,7 @@ export const nativeReviewProfiles: readonly NativeReviewProfile[] = [
     model: '@review, @slow',
     maxTurns: 30,
     output: 'findings',
-    sourceAgent: 'agents/R-security-auditor.md',
+    sourceAgent: 'agent-sources/R-security-auditor.md',
   },
   {
     name: 'R-review-architect',
@@ -41,7 +41,7 @@ export const nativeReviewProfiles: readonly NativeReviewProfile[] = [
     model: '@review, @slow',
     maxTurns: 50,
     output: 'findings',
-    sourceAgent: 'agents/R-architect.md',
+    sourceAgent: 'agent-sources/R-architect.md',
   },
   {
     name: 'R-review-devops',
@@ -50,7 +50,7 @@ export const nativeReviewProfiles: readonly NativeReviewProfile[] = [
     model: '@task',
     maxTurns: 50,
     output: 'findings',
-    sourceAgent: 'agents/R-devops.md',
+    sourceAgent: 'agent-sources/R-devops.md',
   },
   {
     name: 'R-review-tester',
@@ -59,7 +59,7 @@ export const nativeReviewProfiles: readonly NativeReviewProfile[] = [
     model: '@task',
     maxTurns: 50,
     output: 'findings',
-    sourceAgent: 'agents/R-tester.md',
+    sourceAgent: 'agent-sources/R-tester.md',
   },
   {
     name: 'R-review-spec',
@@ -68,7 +68,7 @@ export const nativeReviewProfiles: readonly NativeReviewProfile[] = [
     model: '@review',
     maxTurns: 30,
     output: 'spec',
-    sourceAgent: 'agents/R-adversarial.md',
+    sourceAgent: 'agent-sources/R-adversarial.md',
     instructions:
       'Phase 2 only: identify verifiable review obligations and concrete specification-conformity gaps or blockers against the supplied baseline and candidate policy. Preserve policy IDs verbatim. The report may supply the schema-required provisional original-finding label, but never a final label, impact, merge, cause, fix, or new policy. Return only the static structured spec.',
   },
@@ -79,7 +79,7 @@ export const nativeReviewProfiles: readonly NativeReviewProfile[] = [
     model: '@review',
     maxTurns: 30,
     output: 'decision',
-    sourceAgent: 'agents/R-adversarial.md',
+    sourceAgent: 'agent-sources/R-adversarial.md',
     instructions:
       'Synthesize only confirmed contribution and recall records under supplied policy IDs. Never rewrite or discard retained originals. Judge defect identity, impact, final labels, cause memberships, and correction plans from their evidence; return the static structured decision without adding policy.',
   },
@@ -90,7 +90,7 @@ export const nativeReviewProfiles: readonly NativeReviewProfile[] = [
     model: '@task',
     maxTurns: 30,
     output: 'findings',
-    sourceAgent: 'agents/R-adversarial.md',
+    sourceAgent: 'agent-sources/R-adversarial.md',
   },
   {
     name: 'R-review-fix-synthesis',
@@ -99,7 +99,7 @@ export const nativeReviewProfiles: readonly NativeReviewProfile[] = [
     model: '@review',
     maxTurns: 30,
     output: 'decision',
-    sourceAgent: 'agents/R-advisor.md',
+    sourceAgent: 'agent-sources/R-advisor.md',
     instructions:
       'Synthesize only confirmed correction-intake records and return the static structured correction decision.',
   },
@@ -110,7 +110,7 @@ export const nativeReviewProfiles: readonly NativeReviewProfile[] = [
     model: '@task',
     maxTurns: 50,
     output: 'action-result',
-    sourceAgent: 'agents/R-devops.md',
+    sourceAgent: 'agent-sources/R-devops.md',
     instructions:
       'Apply only the supplied confirmed correction cause. Record every command, its exit status, stdout, stderr, and produced commit SHA. Before an owned commit, run lint/existing checks and the runnable cause proof. If any runnable proof is red, surgically restore every owned change and return failed without a commit. A runnable cause proof may never be omitted as unavailable. Only NO_TEST or genuine infrastructure absence may return applied after the remaining existing checks, with proofToolCallId null and a concrete proof-unavailable reason; later falsification is SKIP, never pass. Report explicit repo-local proof implementation paths in proofPaths; an empty list is valid for existing/no-test work and does not infer a semantic test. An applied result may declare an empty guard inventory for no-identifiable-guard/no-test/infrastructure/proof-only revalidation; otherwise enumerate every required production guard exactly once with its ID, path set, and intended scenario. proofToolCallId must identify one dedicated Bash repository-native check, never an edit, git commit, push, or combined command. Select that actual proof tool-call ID as evidence or return null with a concrete proof-unavailable reason. Never fabricate an ID, omit an identified guard, or claim a proof that did not run.',
   },
@@ -121,7 +121,7 @@ export const nativeReviewProfiles: readonly NativeReviewProfile[] = [
     model: '@task',
     maxTurns: 50,
     output: 'action-result',
-    sourceAgent: 'agents/R-tester.md',
+    sourceAgent: 'agent-sources/R-tester.md',
     instructions:
       'Each dispatched falsify batch handles exactly one confirmed inventory guard. Execute its declared scenarios one at a time: make only the surgical declared-path perturbation, run the actual guard, capture every command and observed exit/output, restore normal state surgically, and rerun the normal guard. Return its sole factual guard-ID result with removal/scenario/proof outcome and per-fact proof tool-call ID or a concrete proof-unavailable reason. Assess guard semantics only from actual outputs; never fabricate an ID, omit a guard, invent a pass, or classify a cause.',
   },

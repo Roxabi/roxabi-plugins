@@ -78,7 +78,7 @@ export const nativeFeatureProfiles: readonly NativeFeatureProfile[] = [
     model: '@review, @slow',
     maxTurns: 30,
     output: 'plan-review',
-    sourceAgent: 'agents/R-architect.md',
+    sourceAgent: 'agent-sources/R-architect.md',
     instructions: planReviewInstructions,
   },
   {
@@ -88,7 +88,7 @@ export const nativeFeatureProfiles: readonly NativeFeatureProfile[] = [
     model: '@review, @slow',
     maxTurns: 30,
     output: 'plan-review',
-    sourceAgent: 'agents/R-adversarial.md',
+    sourceAgent: 'agent-sources/R-adversarial.md',
     instructions: planReviewInstructions,
   },
   {

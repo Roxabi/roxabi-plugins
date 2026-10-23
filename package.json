@@ -11,12 +11,13 @@
     "lint": "bunx biome check .",
     "typecheck": "tsc --noEmit",
     "build": "bun run tools/build-omp-build-contracts.ts",
+    "verify:omp-build-distribution": "bun run tools/verify-omp-build-distribution.ts",
     "verify:pins": "bun run tools/verify-action-pins.ts"
   },
   "devDependencies": {
     "@oh-my-pi/pi-coding-agent": "18.12.6",
     "@oh-my-pi/pi-ai": "18.12.6",
-    "@biomejs/biome": "^2.6.2",
+    "@biomejs/biome": "2.6.2",
     "@commitlint/cli": "^21.2.3",
     "@commitlint/config-conventional": "^21.2.2",
     "bun-types": "^1.4.3",

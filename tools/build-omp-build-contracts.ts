@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, join, relative, resolve } from 'node:path'
 import { producerJsonSchema } from '../plugins/omp-build/engine/core.ts'
 import { nativeFeatureProfiles } from '../plugins/omp-build/roxabi/native-feature-profiles.ts'
 import { nativeReviewProfiles } from '../plugins/omp-build/roxabi/native-review-profiles.ts'
@@ -18,10 +18,14 @@ type GeneratedProfile = {
   body?: string
 }
 
-const pluginDirectory = 'plugins/omp-build'
-const outputDirectory = `${pluginDirectory}/dist`
-const agentDirectory = `${pluginDirectory}/agents`
-const issueTriageSource = 'plugins/issue-triage'
+// Inputs record actual runtime reads and the contracts bundle closure; the verifier validates producer static imports.
+type OutputRecorder = { claim(path: string): void; wrote(path: string): void; paths(): string[] }
+type BuildReport = { outputs: string[]; inputs: string[] }
+
+const repositoryRoot = resolve(import.meta.dirname, '..')
+const requiredBun = readFileSync(join(repositoryRoot, '.bun-version'), 'utf8').trim()
+const pluginRoot = join(repositoryRoot, 'plugins/omp-build')
+const issueTriageSource = join(repositoryRoot, 'plugins/issue-triage')
 const issueTriageSlice = [
   'skills/issue-triage/triage.ts',
   'skills/issue-triage/lib/create.ts',
@@ -42,37 +46,76 @@ const issueTriageSlice = [
   'skills/shared/queries.ts',
 ] as const
 
-function copyIssueTriageSlice(): void {
-  const missing = issueTriageSlice.filter((relative) => !existsSync(join(issueTriageSource, relative)))
-  if (missing.length > 0) {
-    throw new Error(`issue-triage runtime slice missing source: ${missing.join(', ')}`)
-  }
-  const destRoot = join(outputDirectory, 'issue-triage')
-  rmSync(destRoot, { recursive: true, force: true })
-  for (const relative of issueTriageSlice) {
-    const dest = join(destRoot, relative)
-    mkdirSync(dirname(dest), { recursive: true })
-    copyFileSync(join(issueTriageSource, relative), dest)
-  }
+function outputRootFromArgs(args: string[]): string {
+  if (args.length === 0) return pluginRoot
+  if (args.length === 2 && args[0] === '--output-root') return resolve(args[1])
+  throw new Error('usage: bun tools/build-omp-build-contracts.ts [--output-root <fresh-owned-directory>]')
 }
 
-function bodyOf(path: string): string {
+function bodyOf(path: string, inputs: Set<string>): string {
+  inputs.add(relative(repositoryRoot, path))
   const source = readFileSync(path, 'utf8')
   const end = source.indexOf('\n---\n', 4)
   if (!source.startsWith('---\n') || end === -1) throw new Error(`agent profile ${path} has no frontmatter`)
   return source.slice(end + 5).trim()
 }
 
-function profileBody(profile: GeneratedProfile): string {
-  const body = profile.sourceAgent !== undefined ? bodyOf(`${pluginDirectory}/${profile.sourceAgent}`) : profile.body
+function profileBody(profile: GeneratedProfile, inputs: Set<string>): string {
+  const body = profile.sourceAgent === undefined ? profile.body : bodyOf(join(pluginRoot, profile.sourceAgent), inputs)
   if (body === undefined) throw new Error(`native profile ${profile.name} has no body source`)
   return profile.instructions === undefined ? body : `${body}\n\n${profile.instructions}`
 }
 
-function writeProfile(profile: GeneratedProfile): void {
-  const output = JSON.stringify(producerJsonSchema(profile.output))
+function outputRecorder(root: string): OutputRecorder {
+  const claimed = new Set<string>()
+  const written = new Set<string>()
+  const nameOf = (path: string): string => {
+    const name = relative(root, resolve(path)).split('\\').join('/')
+    if (name === '' || name.startsWith('../')) throw new Error(`omp-build output escapes destination: ${path}`)
+    return name
+  }
+  return {
+    claim(path) {
+      const name = nameOf(path)
+      if (claimed.has(name)) throw new Error(`omp-build output collision: ${name}`)
+      claimed.add(name)
+    },
+    wrote(path) {
+      const name = nameOf(path)
+      if (!claimed.has(name) || !existsSync(path))
+        throw new Error(`omp-build output was not successfully written: ${name}`)
+      written.add(name)
+    },
+    paths: () => [...written].sort(),
+  }
+}
+
+function copyAgentSources(agentDirectory: string, recorder: OutputRecorder, inputs: Set<string>): void {
+  const sourceDirectory = join(pluginRoot, 'agent-sources')
+  const files = readdirSync(sourceDirectory)
+    .filter((file) => file.endsWith('.md'))
+    .sort()
+  if (files.length === 0) throw new Error('omp-build agent source directory is empty')
+  for (const file of files) {
+    const source = join(sourceDirectory, file)
+    const destination = join(agentDirectory, file)
+    recorder.claim(destination)
+    copyFileSync(source, destination)
+    recorder.wrote(destination)
+    inputs.add(relative(repositoryRoot, source))
+  }
+}
+
+function writeProfile(
+  agentDirectory: string,
+  profile: GeneratedProfile,
+  recorder: OutputRecorder,
+  inputs: Set<string>,
+): void {
+  const destination = join(agentDirectory, `${profile.name}.md`)
+  recorder.claim(destination)
   writeFileSync(
-    `${agentDirectory}/${profile.name}.md`,
+    destination,
     [
       '---',
       `name: ${profile.name}`,
@@ -82,31 +125,79 @@ function writeProfile(profile: GeneratedProfile): void {
       `maxTurns: ${profile.maxTurns}`,
       'blocking: true',
       'structured: true',
-      `output: ${output}`,
+      `output: ${JSON.stringify(producerJsonSchema(profile.output))}`,
       '---',
       '',
-      profileBody(profile),
+      profileBody(profile, inputs),
       '',
     ].join('\n'),
   )
+  recorder.wrote(destination)
 }
 
-mkdirSync(agentDirectory, { recursive: true })
-for (const profile of nativeReviewProfiles) writeProfile(profile)
-for (const profile of nativeFeatureProfiles) writeProfile(profile)
-mkdirSync(outputDirectory, { recursive: true })
-copyIssueTriageSlice()
-
-const result = await Bun.build({
-  entrypoints: ['plugins/omp-build/contracts.ts'],
-  outdir: outputDirectory,
-  target: 'node',
-  format: 'esm',
-})
-
-if (!result.success) {
-  for (const log of result.logs) console.error(log)
-  process.exitCode = 1
-} else {
-  writeFileSync(`${outputDirectory}/contracts.d.ts`, "export * from '../contracts.ts'\n")
+function copyIssueTriageSlice(distDirectory: string, recorder: OutputRecorder, inputs: Set<string>): void {
+  const missing = issueTriageSlice.filter((path) => !existsSync(join(issueTriageSource, path)))
+  if (missing.length > 0) throw new Error(`issue-triage runtime slice missing source: ${missing.join(', ')}`)
+  for (const path of issueTriageSlice) {
+    const source = join(issueTriageSource, path)
+    const destination = join(distDirectory, 'issue-triage', path)
+    recorder.claim(destination)
+    mkdirSync(dirname(destination), { recursive: true })
+    copyFileSync(source, destination)
+    recorder.wrote(destination)
+    inputs.add(relative(repositoryRoot, source))
+  }
 }
+
+function requirePinnedBun(): void {
+  if (Bun.version !== requiredBun)
+    throw new Error(`omp-build production requires Bun ${requiredBun}; found ${Bun.version}`)
+}
+
+function inputsOf(metafile: { inputs: Record<string, unknown> } | undefined, entrypoint: string): string[] {
+  if (metafile === undefined) throw new Error(`metafile missing for ${entrypoint}`)
+  const inputs = Object.keys(metafile.inputs).map((path) => relative(repositoryRoot, resolve(path)))
+  if (inputs.length === 0 || !inputs.includes(relative(repositoryRoot, entrypoint)))
+    throw new Error(`metafile input closure is incomplete for ${entrypoint}`)
+  return inputs
+}
+
+async function buildOmpBuildContracts(outputRoot: string): Promise<BuildReport> {
+  requirePinnedBun()
+  const root = resolve(outputRoot)
+  if (root !== pluginRoot && existsSync(root)) throw new Error(`temporary output root already exists: ${root}`)
+  const agentDirectory = join(root, 'agents')
+  const distDirectory = join(root, 'dist')
+  const inputs = new Set<string>()
+  mkdirSync(agentDirectory, { recursive: true })
+  mkdirSync(distDirectory, { recursive: true })
+  const recorder = outputRecorder(root)
+  copyAgentSources(agentDirectory, recorder, inputs)
+  for (const profile of nativeReviewProfiles) writeProfile(agentDirectory, profile, recorder, inputs)
+  for (const profile of nativeFeatureProfiles) writeProfile(agentDirectory, profile, recorder, inputs)
+  copyIssueTriageSlice(distDirectory, recorder, inputs)
+  const entrypoint = join(pluginRoot, 'contracts.ts')
+  const result = await Bun.build({
+    entrypoints: [entrypoint],
+    outdir: distDirectory,
+    target: 'node',
+    format: 'esm',
+    metafile: true,
+  })
+  if (!result.success) {
+    for (const log of result.logs) console.error(log)
+    throw new Error('omp-build contracts bundle failed')
+  }
+  for (const output of result.outputs) {
+    recorder.claim(output.path)
+    recorder.wrote(output.path)
+  }
+  const declaration = join(distDirectory, 'contracts.d.ts')
+  recorder.claim(declaration)
+  writeFileSync(declaration, "export * from '../contracts.ts'\n")
+  recorder.wrote(declaration)
+  for (const path of inputsOf(result.metafile, entrypoint)) inputs.add(path)
+  return { outputs: recorder.paths(), inputs: [...inputs].sort() }
+}
+
+console.log(JSON.stringify(await buildOmpBuildContracts(outputRootFromArgs(process.argv.slice(2)))))

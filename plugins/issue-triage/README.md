@@ -91,6 +91,8 @@ P1 fires on either of two triggers: the milestone in progress, or a shipped chec
 
 Keep literal harness placeholders intact when changing the OMP path-rewrite implementation; lint maintenance must not change expansion behavior. Publish OMP changes with matching, newer versions in `package.json` and `.omp-plugin/marketplace.json`; Claude's hash-keyed delivery is unchanged.
 
+OMP candidate `0.2.14` synchronizes that cache contract after removing cross-plugin omp-build assertions from the issue-triage test subtree. This is test-ownership cleanup, not an issue-triage CLI or runtime interface change. The existing path-based version gate and Claude SHA-based delivery policy are unchanged; no installation or activation is implied.
+
 ## Verification
 
 Use CI's native package entrypoint for contract confinement and Linux process-lifetime checks:
