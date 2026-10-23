@@ -13,45 +13,55 @@
  * - Semctx: a private `--shared` clone of the repository is checked out at the
  *   candidate, then `index`, `status`, `semantic check`, `change inspect` and
  *   `change verify --base <merge-base> --head <candidate>` for each change
- *   contract the PR changes, then `status` again. The clone must stay clean.
- *   Semctx runs under the configuration `candidateFacts` decides: the committed
- *   one, else the operator's uncommitted `.semctx/config.json`, copied into the
- *   clone (where the candidate's `.gitignore` must ignore it). The record binds
- *   that configuration's source and sha256.
+ *   contract the PR changes, then `status` again. The candidate's committed
+ *   Semctx configuration is the only portable configuration; required Semctx
+ *   state without it refuses before acquisition. The record retains its
+ *   committed configuration identity and the clone's ignored-path observation.
  * - assertledger: the operator's manifest is replayed (`assertledger replay`).
  *
- * The result is posted as one PR comment per producer, or a run of parts above GitHub's ceiling (`renderRecord`), with the
- * invocation facts and the native output as printed. A run that breaks the
- * protocol — an unexpected exit, an unclean clone, a result that does not bind
- * to the candidate — posts nothing and exits 1. Native verdicts are posted as
- * they are. BLOCKED/STALE, WEAK_ORACLE and a miss refuse admission; a meaningful
- * PARTIAL can admit with policy/form/chronology checks and review-judged gaps,
- * never as VERIFIED or independent observation/reason-truth certification.
+ * The result is published as a confirmed common proof record. The shared codec
+ * owns ordered multipart publication above GitHub's ceiling and read-back
+ * reconciliation. A run that breaks the protocol — an unexpected exit, an
+ * unclean clone, a result that does not bind to the candidate, or an uncertain
+ * publication — posts no successful result and exits 1. Native verdicts remain
+ * native data. BLOCKED/STALE, WEAK_ORACLE and a miss refuse admission; a
+ * meaningful PARTIAL can admit with policy/form/chronology checks and
+ * review-judged gaps, never as VERIFIED or independent observation/reason-truth certification.
  *
  * stdout: one JSON line `{ pr, candidate, semctx, assertledger }`, each
  * `not-applicable` | `reused` | `posted`. Exit 0 when every applicable producer
  * has a record for the candidate; 1 on a protocol failure or a missing input;
  * 2 on usage.
  */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import {
+  type DecodedHistory,
+  decodeHistory,
+  githubScope,
+  publishGitHubRecord,
+  readGitHubHistory,
+} from '../../dist/contracts.js'
+import { withRoxabiGitHubPolicy } from '../../roxabi/github-policy'
 import {
   type AssertledgerRecord,
   assertledgerApplies,
   type CandidateFacts,
   type ChangeResult,
   candidateFacts,
-  findRecord,
+  compareApplicableProofPins,
+  findProofRecord,
   type Gh,
   isMap,
-  type PrComment,
+  newProofRecord,
+  type Producer,
+  pinsFromApplicableMandate,
   type Refusal,
   readAssertledgerRecord,
   readSemctxRecord,
   recordIntegrity,
   refreshSelectedBase,
-  renderRecord,
   repositoryOf,
   type SemctxExpected,
   type SemctxRecord,
@@ -60,7 +70,7 @@ import {
   semctxSteps,
   stepExitAllowed,
 } from './proof'
-import { gitResult, readComments } from './workflow.js'
+import { gitResult } from './workflow.js'
 
 class ProtocolError extends Error {}
 
@@ -73,8 +83,7 @@ type Context = {
   base: string
   baseTip: string
   repository: string
-  me: string
-  comments: PrComment[]
+  history: DecodedHistory
   facts: CandidateFacts
 }
 
@@ -135,16 +144,20 @@ async function assertCurrent(ctx: Context): Promise<void> {
   if (fetched.tip !== ctx.baseTip) throw new ProtocolError(`${changed} (${ctx.base}@${ctx.baseTip} → ${fetched.tip})`)
 }
 
-/** One comment per part, in order: a part that fails leaves the run incomplete, which reads as missing. */
-async function post(ctx: Context, parts: string[]): Promise<void> {
-  for (const body of parts) {
-    await assertCurrent(ctx)
-    const args = ['pr', 'comment', String(ctx.pr), '--body-file', '-']
-    const result = await run(['gh', ...args], { cwd: ctx.cwd, input: body })
-    if (result.code !== 0)
-      throw new Error(`gh ${args.join(' ')} failed (${result.code}): ${result.stderr || result.stdout}`)
-    await assertCurrent(ctx)
-  }
+/** The shared publisher owns multipart framing, acknowledgement and read-back. */
+async function post(ctx: Context, producer: Producer, data: unknown): Promise<void> {
+  await assertCurrent(ctx)
+  const published = await publishGitHubRecord(
+    newProofRecord(ctx.repository, ctx.pr, producer, ctx.candidate, data),
+    ctx.history,
+    withRoxabiGitHubPolicy({ cwd: ctx.cwd, gh }),
+    null,
+  )
+  if (published.status !== 'confirmed')
+    throw new ProtocolError(
+      `the ${producer} proof publication was ${published.status}: ${published.diagnostics.map((diagnostic) => diagnostic.message).join('; ')}`,
+    )
+  await assertCurrent(ctx)
 }
 
 async function tool(name: string, local: string | null): Promise<{ path: string; version: string }> {
@@ -155,14 +168,6 @@ async function tool(name: string, local: string | null): Promise<{ path: string;
   if (version.code !== 0)
     throw new ProtocolError(`${path} --version failed (${version.code}): ${version.stderr.trim()}`)
   return { path, version: version.stdout.trim() }
-}
-
-function semctxSummary(results: ChangeResult[] | Refusal): string[] {
-  if ('ok' in results) return [`- Admission would refuse: ${refusalText(results)}`]
-  return results.map(
-    (result) =>
-      `- \`${result.id}\` — **${result.verdict}**${result.lifecycle === 'superseded' ? ' (retained historical companion)' : ''}${result.gaps.length ? ` (gaps: ${result.gaps.map((gap) => `\`${gap}\``).join(', ')})` : ''}`,
-  )
 }
 
 /** A refusal saying the record does not bind or cannot be read — never a producer verdict. */
@@ -180,7 +185,7 @@ async function acquireSemctx(ctx: Context): Promise<SemctxAcquisition> {
     ...inputs,
     changeFiles: ctx.facts.changeFiles,
   }
-  const found = findRecord(ctx.comments, ctx.me, 'semctx', ctx.candidate)
+  const found = findProofRecord(ctx.history, 'semctx', ctx.candidate)
   if ('record' in found && !recordIntegrity(found.parts, 'semctx')) {
     const assessment = readSemctxRecord(found.record, expected)
     if (!isUnbound(assessment)) return { outcome: 'reused', assessment }
@@ -196,11 +201,6 @@ async function acquireSemctx(ctx: Context): Promise<SemctxAcquisition> {
       const result = await gitResult(cwd, [...args])
       if (result.code !== 0)
         throw new ProtocolError(`git ${args.join(' ')} failed (${result.code}): ${result.stderr.trim()}`)
-    }
-    const config = ctx.facts.config
-    if (config?.source === 'ignored') {
-      mkdirSync(join(root, '.semctx'), { recursive: true })
-      writeFileSync(join(root, '.semctx', 'config.json'), config.text)
     }
     const statusArgs = ['status', '--porcelain', '-z', '--untracked-files=all']
     const before = await gitResult(root, statusArgs)
@@ -243,7 +243,7 @@ async function acquireSemctx(ctx: Context): Promise<SemctxAcquisition> {
     }
     const read = readSemctxRecord(record, expected)
     if (isUnbound(read)) throw new ProtocolError(`the run does not bind to the candidate — ${refusalText(read)}`)
-    await post(ctx, renderRecord('semctx', ctx.candidate, semctxSummary(read), record))
+    await post(ctx, 'semctx', record)
     return { outcome: 'posted', assessment: read }
   } finally {
     rmSync(work, { recursive: true, force: true })
@@ -255,7 +255,7 @@ async function acquireAssertledger(ctx: Context, manifestPath: string | undefine
   const treeRun = await gitResult(ctx.facts.toplevel, treeArgs)
   if (treeRun.code !== 0) throw new ProtocolError(`git ${treeArgs.join(' ')} failed: ${treeRun.stderr.trim()}`)
   const expected = { repository: ctx.repository, pr: ctx.pr, candidate: ctx.candidate, tree: treeRun.stdout.trim() }
-  const found = findRecord(ctx.comments, ctx.me, 'assertledger', ctx.candidate)
+  const found = findProofRecord(ctx.history, 'assertledger', ctx.candidate)
   if (manifestPath === undefined) {
     if (
       'record' in found &&
@@ -291,11 +291,46 @@ async function acquireAssertledger(ctx: Context, manifestPath: string | undefine
     }
     const read = readAssertledgerRecord(record, expected)
     if (isUnbound(read)) throw new ProtocolError(`the manifest does not bind to the candidate — ${refusalText(read)}`)
-    const summary = read === 'detection' ? ['- **detection**'] : [`- Admission would refuse: ${refusalText(read)}`]
-    await post(ctx, renderRecord('assertledger', ctx.candidate, summary, record))
+    await post(ctx, 'assertledger', record)
     return 'posted'
   } finally {
     rmSync(work, { recursive: true, force: true })
+  }
+}
+
+type BindingMandate = {
+  scope: { repository: string; target: string }
+  recordId: string
+  kind: 'mandate'
+  branch: string
+  base: string
+}
+
+function bindingOf(record: { kind: string; payload: unknown }): BindingMandate | 'malformed' | null {
+  if (record.kind !== 'workflow-binding') return null
+  const payload = record.payload
+  if (!isMap(payload)) return 'malformed'
+  const mandate = payload.mandate
+  if (
+    !isMap(mandate) ||
+    mandate.kind !== 'mandate' ||
+    typeof mandate.recordId !== 'string' ||
+    !isMap(mandate.scope) ||
+    typeof mandate.scope.repository !== 'string' ||
+    typeof mandate.scope.target !== 'string' ||
+    typeof payload.branch !== 'string' ||
+    payload.branch.length === 0 ||
+    typeof payload.base !== 'string' ||
+    payload.base.length === 0
+  ) {
+    return 'malformed'
+  }
+  return {
+    scope: { repository: mandate.scope.repository, target: mandate.scope.target },
+    recordId: mandate.recordId,
+    kind: 'mandate',
+    branch: payload.branch,
+    base: payload.base,
   }
 }
 
@@ -322,12 +357,13 @@ export async function main(argv: string[], cwd: string): Promise<number> {
   }
   try {
     const view: unknown = JSON.parse(
-      await gh(cwd, ['pr', 'view', String(args.pr), '--json', 'headRefOid,baseRefName,state']),
+      await gh(cwd, ['pr', 'view', String(args.pr), '--json', 'headRefOid,headRefName,baseRefName,state']),
     )
     const candidate = isMap(view) ? view.headRefOid : undefined
+    const branch = isMap(view) ? view.headRefName : undefined
     const base = isMap(view) ? view.baseRefName : undefined
     const state = isMap(view) ? view.state : undefined
-    if (typeof candidate !== 'string' || typeof base !== 'string' || state !== 'OPEN') {
+    if (typeof candidate !== 'string' || typeof branch !== 'string' || typeof base !== 'string' || state !== 'OPEN') {
       throw new ProtocolError(`PR #${args.pr} is not an open PR with a head and a base`)
     }
     const selected = await refreshSelectedBase(cwd, base, gitResult, gh)
@@ -336,10 +372,63 @@ export async function main(argv: string[], cwd: string): Promise<number> {
     const facts = await candidateFacts(cwd, candidate, base, baseTip, gitResult)
     if ('ok' in facts) throw new ProtocolError(refusalText(facts))
     const repository = await repositoryOf(gh, cwd)
+    const policy = withRoxabiGitHubPolicy({ cwd, gh })
+    const prScope = githubScope(repository, args.pr)
+    const history = decodeHistory(await readGitHubHistory(prScope, policy))
+    if (!history.source.complete)
+      throw new ProtocolError(`the complete common record history for PR #${args.pr} could not be read`)
+    const bindings: BindingMandate[] = []
+    for (const operation of history.operations) {
+      const claimsBinding = operation.claimedKinds.includes('workflow-binding')
+      const record = operation.record
+      if (claimsBinding && (operation.status !== 'complete' || record === null || operation.authority === 'foreign')) {
+        throw new ProtocolError('workflow binding is incomplete')
+      }
+      if (record?.kind !== 'workflow-binding') continue
+      if (operation.status !== 'complete' || operation.authority === 'foreign') {
+        throw new ProtocolError('workflow binding is incomplete')
+      }
+      if (record.repository !== prScope.repository || record.target !== prScope.target) {
+        throw new ProtocolError('workflow binding scope is not this pull request')
+      }
+      const parsed = bindingOf(record)
+      if (parsed === null || parsed === 'malformed')
+        throw new ProtocolError('workflow binding payload is not a mandate ref')
+      bindings.push(parsed)
+    }
+    if (bindings.length > 1) throw new ProtocolError('workflow binding conflicts')
+    // Standalone proof only. A missing binding does not authorize a Feature run.
+    // A present invalid, partial, foreign, or conflicting binding already refused.
+    const binding = bindings[0]
+    if (binding) {
+      if (binding.branch !== branch || binding.base !== base) {
+        throw new ProtocolError('workflow binding branch or base does not match the pull request')
+      }
+      const mandateHistory = decodeHistory(await readGitHubHistory(binding.scope, policy))
+      if (!mandateHistory.source.complete) throw new ProtocolError('bound mandate history is incomplete')
+      const mandateRecord = mandateHistory.operations.find(
+        (operation) =>
+          operation.status === 'complete' &&
+          operation.authority !== 'foreign' &&
+          operation.record?.recordId === binding.recordId,
+      )?.record
+      if (mandateRecord?.kind !== 'mandate') {
+        throw new ProtocolError('bound mandate record is not confirmed')
+      }
+      const parentRef = mandateRecord.payload.parent
+      const external = parentRef === null ? [] : [decodeHistory(await readGitHubHistory(parentRef.scope, policy))]
+      if (external.some((item) => !item.source.complete))
+        throw new ProtocolError('parent mandate history is incomplete')
+      const pins = pinsFromApplicableMandate(mandateHistory, external)
+      if (pins !== null) {
+        if (!Array.isArray(pins)) throw new ProtocolError(pins.error)
+        const drifted = await compareApplicableProofPins(gitResult, facts, pins)
+        if (!drifted.ok) throw new ProtocolError(drifted.error)
+      }
+    }
     const ledger = await assertledgerApplies(cwd, facts, { pr: args.pr }, { gh, git: gitResult }, repository)
     if (typeof ledger === 'object') throw new ProtocolError(refusalText(ledger))
-    const { me, comments } = await readComments(cwd, args.pr, { gh })
-    const ctx: Context = { cwd, pr: args.pr, candidate, base, baseTip, repository, me, comments, facts }
+    const ctx: Context = { cwd, pr: args.pr, candidate, base, baseTip, repository, history, facts }
     await assertCurrent(ctx)
     const report: Record<string, unknown> = {
       pr: args.pr,

@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -10,6 +10,11 @@ const FEATURE_DIR = path.resolve(import.meta.dirname)
 const CLI = path.join(FEATURE_DIR, 'feature-init.ts')
 const WORKFLOW = path.join(FEATURE_DIR, 'workflow.js')
 const ISSUE_TRIAGE_SRC = path.resolve(FEATURE_DIR, '../../../issue-triage')
+const PLUGIN_ROOT = path.resolve(FEATURE_DIR, '../..')
+const EMIT = path.join(PLUGIN_ROOT, 'dist', 'issue-triage')
+const RUNTIME = path.join(PLUGIN_ROOT, 'triage-runtime.ts')
+const MIGRATE_SRC = path.join(ISSUE_TRIAGE_SRC, 'skills/issue-triage/lib/migrate-labels.ts')
+const FORGED = 'Created #999: forged'
 const REAL_BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
 const ARGV = readFileSync(path.join(FIXTURES, 'acme', 'gh', 'label-list.argv'), 'utf8')
   .trim()
@@ -37,61 +42,109 @@ function acmeRepo(dest: string, env: NodeJS.ProcessEnv): string {
   return dest
 }
 
-/** omp-build and issue-triage installed as siblings under node_modules, both symlinked into a cache dir. */
-function installedCli(base: string, issueTriage: 'present' | 'absent' | 'broken'): string {
-  const cache = path.join(base, 'cache')
-  const ompBuild = path.join(cache, 'omp-build-0.0.0')
-  const nodeModules = path.join(base, 'node_modules')
-  mkdirSync(path.join(ompBuild, 'skills', 'feature'), { recursive: true })
-  mkdirSync(nodeModules, { recursive: true })
-  writeFileSync(path.join(ompBuild, 'package.json'), JSON.stringify({ name: 'omp-build', type: 'module' }))
-  cpSync(CLI, path.join(ompBuild, 'skills', 'feature', 'feature-init.ts'))
-  symlinkSync(ompBuild, path.join(nodeModules, 'omp-build'))
-  if (issueTriage !== 'absent') {
-    const installed = path.join(cache, 'issue-triage-0.0.0')
-    const lib = path.join(installed, 'skills', 'issue-triage', 'lib')
-    mkdirSync(lib, { recursive: true })
-    writeFileSync(path.join(installed, 'package.json'), JSON.stringify({ name: 'issue-triage', type: 'module' }))
-    if (issueTriage === 'broken') {
-      writeFileSync(path.join(lib, 'migrate-labels.ts'), "throw new Error('widget grammar exploded')\n")
-    } else {
-      cpSync(
-        path.join(ISSUE_TRIAGE_SRC, 'skills/issue-triage/lib/migrate-labels.ts'),
-        path.join(lib, 'migrate-labels.ts'),
+function plantGrammar(file: string, kind: 'throw' | 'real'): void {
+  mkdirSync(path.dirname(file), { recursive: true })
+  if (kind === 'throw') writeFileSync(file, "throw new Error('decoy grammar')\n")
+  else cpSync(MIGRATE_SRC, file)
+}
+
+/** Old sibling, node_modules, and checkout guesses. They must not satisfy lookup. */
+function plantGuesses(base: string, target: string, kind: 'throw' | 'real'): void {
+  const rel = path.join('skills', 'issue-triage', 'lib', 'migrate-labels.ts')
+  plantGrammar(path.join(base, 'issue-triage', rel), kind)
+  plantGrammar(path.join(base, 'node_modules', 'issue-triage', rel), kind)
+  mkdirSync(path.join(base, 'node_modules', 'omp-build'), { recursive: true })
+  plantGrammar(path.join(target, '.omp', 'plugins', 'node_modules', 'issue-triage', rel), kind)
+}
+
+function installedPlugin(base: string, emit: 'present' | 'absent' | 'broken'): string {
+  const plugin = path.join(base, 'omp-build')
+  const feature = path.join(plugin, 'skills', 'feature')
+  mkdirSync(feature, { recursive: true })
+  cpSync(CLI, path.join(feature, 'feature-init.ts'))
+  cpSync(RUNTIME, path.join(plugin, 'triage-runtime.ts'))
+  if (emit !== 'absent') {
+    if (!existsSync(EMIT)) throw new Error('installed issue-triage emit is missing; bun run build must copy the slice')
+    cpSync(EMIT, path.join(plugin, 'dist', 'issue-triage'), { recursive: true })
+    if (emit === 'broken') {
+      writeFileSync(
+        path.join(plugin, 'dist', 'issue-triage', 'skills', 'issue-triage', 'lib', 'migrate-labels.ts'),
+        "throw new Error('widget grammar exploded')\n",
       )
     }
-    symlinkSync(installed, path.join(nodeModules, 'issue-triage'))
   }
-  return path.join(nodeModules, 'omp-build', 'skills', 'feature', 'feature-init.ts')
+  return path.join(feature, 'feature-init.ts')
+}
+
+function hostileCheckout(base: string, env: NodeJS.ProcessEnv, sentinel: string): string {
+  const dest = acmeRepo(path.join(base, 'target'), env)
+  writeFileSync(path.join(dest, 'bunfig.toml'), 'preload = ["./startup.ts"]\n')
+  writeFileSync(
+    path.join(dest, 'startup.ts'),
+    [
+      "import { appendFileSync } from 'node:fs'",
+      `appendFileSync(${JSON.stringify(sentinel)}, process.cwd() + '\\n')`,
+      `console.log(${JSON.stringify(FORGED)})`,
+      'process.exit(0)',
+      '',
+    ].join('\n'),
+  )
+  writeFileSync(path.join(dest, '.env'), 'ENV_SENTINEL=checkout-dotenv\n')
+  git(dest, env, 'add', '-A')
+  git(dest, env, 'commit', '-q', '-m', 'hostile checkout')
+  return dest
+}
+
+function runInstalled(emit: 'present' | 'absent' | 'broken', decoy: 'throw' | 'real') {
+  root = mkdtempSync(path.join(tmpdir(), 'omp-init-installed-'))
+  const gh = hermeticGh(root, { argv: ARGV, body: LABELS })
+  const sentinel = path.join(root, 'checkout-startup.log')
+  const target = hostileCheckout(root, gh.env, sentinel)
+  plantGuesses(root, target, decoy)
+  const cli = installedPlugin(root, emit)
+  const result = spawnSync(REAL_BUN, ['--no-env-file', cli, '--dir', target, '--dry-run'], {
+    cwd: path.dirname(cli),
+    env: gh.env,
+    encoding: 'utf8',
+  })
+  return { status: result.status, stdout: result.stdout, stderr: result.stderr, sentinel, calls: gh.calls() }
 }
 
 describe('feature init installed layout', () => {
-  it('prints label migration when issue-triage is a sibling under node_modules', () => {
-    root = mkdtempSync(path.join(tmpdir(), 'omp-init-installed-'))
-    const gh = hermeticGh(root, { argv: ARGV, body: LABELS })
-    const target = acmeRepo(path.join(root, 'target'), gh.env)
-    const result = spawnSync(REAL_BUN, [installedCli(root, 'present'), '--dir', target, '--dry-run'], {
-      env: gh.env,
-      encoding: 'utf8',
-    })
+  it('prints label migration from the installed emit with no sibling and a hostile checkout', () => {
+    const result = runInstalled('present', 'throw')
     expect(result.status).toBe(0)
     expect(result.stdout).toContain('label migration')
-    expect(gh.calls()).toEqual([ARGV])
+    expect(result.stdout).toContain('repository: acme/app')
+    expect(result.stdout).not.toContain(FORGED)
+    expect(result.stdout).not.toContain('decoy grammar')
+    expect(result.stdout).not.toContain('not a git repository')
+    expect(result.stdout).not.toContain('init planner not found')
+    expect(result.stdout).not.toContain('Cannot find module')
+    expect(existsSync(result.sentinel)).toBe(false)
+    expect(result.calls[0]).toEqual(ARGV)
   })
 
-  it('prints init=blocked issue-triage missing with exit 3 when the sibling is absent', () => {
-    root = mkdtempSync(path.join(tmpdir(), 'omp-init-blocked-'))
-    const gh = hermeticGh(root, { argv: ARGV, body: LABELS })
-    const target = acmeRepo(path.join(root, 'target'), gh.env)
-    const result = spawnSync(REAL_BUN, [installedCli(root, 'absent'), '--dir', target, '--dry-run'], {
-      env: gh.env,
-      encoding: 'utf8',
-    })
+  it('prints init=blocked issue-triage missing with exit 3 when the emit is absent', () => {
+    const result = runInstalled('absent', 'real')
     expect(result.status).toBe(3)
     expect(result.stderr).toContain(
       'init=blocked issue-triage missing (not found next to omp-build or in node_modules)',
     )
     expect(result.stdout).toBe('')
+    expect(existsSync(result.sentinel)).toBe(false)
+  })
+})
+
+describe('feature init with a broken issue-triage', () => {
+  it('exits 3 and names the load error, not a missing package', () => {
+    const result = runInstalled('broken', 'real')
+    expect(result.status).toBe(3)
+    expect(result.stderr).toContain('init=blocked issue-triage missing (')
+    expect(result.stderr).toContain('widget grammar exploded')
+    expect(result.stderr).not.toContain('not found')
+    expect(result.stdout).toBe('')
+    expect(existsSync(result.sentinel)).toBe(false)
   })
 })
 
@@ -107,23 +160,6 @@ describe('feature init names the github.com host', () => {
     expect(calls[0]).toEqual(ARGV)
     expect(calls.every((call) => call.join(' ').includes('github.com/acme/app'))).toBe(true)
     expect(JSON.stringify(calls)).not.toContain('ghe.example')
-  })
-})
-
-describe('feature init with a broken issue-triage', () => {
-  it('exits 3 and names the load error, not a missing package', () => {
-    root = mkdtempSync(path.join(tmpdir(), 'omp-init-broken-'))
-    const gh = hermeticGh(root, { argv: ARGV, body: LABELS })
-    const target = acmeRepo(path.join(root, 'target'), gh.env)
-    const result = spawnSync(REAL_BUN, [installedCli(root, 'broken'), '--dir', target, '--dry-run'], {
-      env: gh.env,
-      encoding: 'utf8',
-    })
-    expect(result.status).toBe(3)
-    expect(result.stderr).toContain('init=blocked issue-triage missing (')
-    expect(result.stderr).toContain('widget grammar exploded')
-    expect(result.stderr).not.toContain('not found')
-    expect(result.stdout).toBe('')
   })
 })
 

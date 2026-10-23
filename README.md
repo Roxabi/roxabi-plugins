@@ -62,7 +62,7 @@ Retained plugins are project-agnostic: they read the project contract at runtime
 | Plugin | Host | Description |
 |--------|------|-------------|
 | [issue-triage](plugins/issue-triage/README.md) | Claude Code, OMP | Triage and create GitHub issues with labels and native relations. |
-| [omp-build](plugins/omp-build/README.md) | OMP | Feature cycle: frame → issue → worktree → implement → review/fix → land. Epic resumption recognizes confirmed deliveries without resetting stops. Spent review bounds remain disarmed; operator-supervised agent recovery uses a superseding PR. Qualified retained history is admitted. AssertLedger detection requires explicit root configuration, not bundled Kit tooling. Evidence-based review/fix policy starts in isolated shadow; activation remains explicit. |
+| [omp-build](plugins/omp-build/README.md) | OMP | Assisted delivery through a bounded workflow: plan → implement → native review/fix → land. Three parts: engine, Roxabi configuration/actions, GitHub adapter. Confirmed checkpoints are reconstructed from GitHub records and Git, without a mandatory local business store. CLI and trusted CI share landing admission; standalone review/fix never grant it. Local workflow integration is qualified; semantic-model quality and hosted activation remain separate. See the plugin's controls, recovery limits, and qualification scope. Package `0.11.0` in this tree is not an installed or activated release. |
 
 Retired plugins are retained only under [`archived/`](archived/); they are inert historical source and are not installable from either marketplace catalog.
 
@@ -90,7 +90,7 @@ claude plugin marketplace add <source>
 
 ## Data storage
 
-The retained catalog does not ship a data-producing plugin. User data belongs outside this repository; see [roxabi-vault](https://github.com/Roxabi/roxabi-vault) for vault storage.
+Retained plugins write issue and workflow data to GitHub; they do not create a local vault. `omp-build` reconstructs confirmed workflow checkpoints from GitHub records and Git. Local environment caches are rebuildable, not workflow authority. For separate vault storage, see [roxabi-vault](https://github.com/Roxabi/roxabi-vault).
 
 ## Marketplace architecture
 

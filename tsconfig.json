@@ -3,6 +3,9 @@
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "allowJs": true,
+    "checkJs": false,
     "lib": ["ESNext"],
     "types": ["bun-types"],
     "strict": true,
@@ -20,6 +23,7 @@
   ],
   "exclude": [
     "node_modules",
-    "plugins/issue-triage/skills/issue-triage/triage.ts"
+    "plugins/issue-triage/skills/issue-triage/triage.ts",
+    "plugins/omp-build/dist/issue-triage/skills/issue-triage/triage.ts"
   ]
 }

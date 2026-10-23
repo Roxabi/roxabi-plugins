@@ -26,15 +26,14 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { AssertledgerRecord, Git, SemctxRecord } from '../../proof'
+import { decodeHistory, githubScope, type History } from '../../../../dist/contracts.js'
+import type { Git, SemctxRecord } from '../../proof'
 import {
   candidateFacts,
   changedContracts,
-  findRecord,
   mergeBaseOf,
   readSemctxRecord,
   refreshSelectedBase,
-  renderRecord,
   semctxSteps,
 } from '../../proof'
 import {
@@ -43,8 +42,6 @@ import {
   type Box,
   bothSpec,
   git,
-  IGNORED_CASE,
-  ignoredSpec,
   LEDGER_CASES,
   ledgerSpec,
   readSim,
@@ -55,8 +52,8 @@ import {
 } from './sandbox'
 
 const OUT = path.join(import.meta.dirname, 'records.json')
-/** `record`: the proof comments the run posted, in order — one, or every part of a multipart record. */
-type Captured = { code: number | null; stdout: string; stderr: string; record?: string[] }
+/** Raw native proof data is retained independently from common-codec comment framing. */
+type Captured = { code: number | null; stdout: string; stderr: string; data?: unknown | unknown[] }
 
 function acquire(box: Box, cwd: string, pr: number, extra: string[] = []): Captured {
   const before = readSim(box).prs[String(pr)]?.comments.length ?? 0
@@ -65,10 +62,32 @@ function acquire(box: Box, cwd: string, pr: number, extra: string[] = []): Captu
     env: box.env,
     encoding: 'utf8',
   })
-  const posted = (readSim(box).prs[String(pr)]?.comments.slice(before) ?? [])
-    .filter((comment) => comment.body.startsWith('<!-- omp-build:proof producer='))
-    .map((comment) => comment.body)
-  return { code: run.status, stdout: run.stdout, stderr: run.stderr, ...(posted.length > 0 && { record: posted }) }
+  const comments = readSim(box).prs[String(pr)]?.comments.slice(before) ?? []
+  const history: History = {
+    scope: githubScope('acme/app', pr),
+    expectedAuthor: 'operator',
+    stopAuthor: null,
+    complete: true,
+    comments: comments.map((comment, index) => ({
+      locator: `acme/app#${pr}:fixture:${index}`,
+      nativeId: comment.id === undefined ? null : String(comment.id),
+      author: comment.author,
+      body: comment.body,
+      createdAt: comment.createdAt ?? null,
+      updatedAt: comment.updatedAt ?? null,
+    })),
+    diagnostics: [],
+  }
+  const data = decodeHistory(history)
+    .operations.filter((operation) => operation.status === 'complete' && operation.record?.kind === 'proof')
+    .map((operation) => (operation.record?.kind === 'proof' ? operation.record.payload.data : null))
+    .filter((record): record is NonNullable<typeof record> => record !== null)
+  return {
+    code: run.status,
+    stdout: run.stdout,
+    stderr: run.stderr,
+    ...(data.length > 0 && { data: data.length === 1 ? data[0] : data }),
+  }
 }
 
 /**
@@ -150,7 +169,7 @@ async function modifiedNative(box: Box): Promise<Captured> {
     code: native.at(-1)?.exit ?? null,
     stdout: JSON.stringify(results),
     stderr: '',
-    record: renderRecord('semctx', candidate, ['Native VERIFIED, but no contract added for this ticket'], record),
+    data: record,
   }
 }
 
@@ -197,16 +216,31 @@ function detect(box: Box, name: string, { pr, branch, test }: { pr: number; bran
 }
 
 /** Native counterparts: duration changes the artifact digest, not the decision digest. */
+function assertledgerManifest(capture: Captured): string {
+  const values = Array.isArray(capture.data) ? capture.data : [capture.data]
+  for (const value of values) {
+    if (
+      value === null ||
+      typeof value !== 'object' ||
+      Array.isArray(value) ||
+      !('producer' in value) ||
+      value.producer !== 'assertledger' ||
+      !('native' in value) ||
+      value.native === null ||
+      typeof value.native !== 'object' ||
+      Array.isArray(value.native) ||
+      !('manifest' in value.native) ||
+      typeof value.native.manifest !== 'string'
+    )
+      continue
+    return value.native.manifest
+  }
+  throw new Error('the native detection record is unavailable')
+}
+
+/** Native counterparts: duration changes the artifact digest, not the decision digest. */
 function replayCounterparts(box: Box, detection: Captured) {
-  const { branch } = LEDGER_CASES.detection
-  const found = findRecord(
-    (detection.record ?? []).map((body) => ({ author: { login: 'operator' }, body })),
-    'operator',
-    'assertledger',
-    box.sha[branch] as string,
-  )
-  if (!('record' in found)) throw new Error('the native detection record is unavailable')
-  const valid = (found.record as AssertledgerRecord).native.manifest
+  const valid = assertledgerManifest(detection)
   const match = valid.match(/"durationMs"\s*:\s*(\d+),/)
   if (!match?.[1]) throw new Error('the native manifest has no duration observation')
   const from = match[0]
@@ -263,11 +297,6 @@ try {
   semctxRecords.modifiedNative = await modifiedNative(semctx)
   records.semctx = { sha: semctx.sha, records: semctxRecords }
 
-  const ignored = sandbox(ignoredSpec({ path: [bin] }))
-  roots.push(ignored.root)
-  const ignoredWt = worktree(ignored, 'ignored', ignored.sha[IGNORED_CASE.branch] as string)
-  records.ignored = { sha: ignored.sha, records: { verified: acquire(ignored, ignoredWt, IGNORED_CASE.pr) } }
-
   const ledger = sandbox(ledgerSpec({ path: [bin] }))
   roots.push(ledger.root)
   const ledgerRecords: Record<string, Detected> = {}
@@ -292,13 +321,7 @@ try {
     git: git(semctx, semctx.root, ['--version']),
   }
   writeFileSync(OUT, `${JSON.stringify(records, null, 2)}\n`)
-  console.log(
-    JSON.stringify(
-      records,
-      (key, value) => (key === 'record' ? (value as string[]).map((part) => `${part.length} chars`) : value),
-      2,
-    ),
-  )
+  console.log(JSON.stringify(records, (key, value) => (key === 'data' ? '<retained native proof data>' : value), 2))
 } finally {
   for (const root of roots) rmSync(root, { recursive: true, force: true })
 }

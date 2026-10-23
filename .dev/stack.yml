@@ -55,7 +55,7 @@ review:
 
 commands:
   dev: ""
-  build: ""
+  build: bun run build
   test: bun run test
   lint: bun run lint
   typecheck: bun run typecheck

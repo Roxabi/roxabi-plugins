@@ -2,8 +2,10 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { ExtensionAPI } from '@oh-my-pi/pi-coding-agent'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import ompBuildExtension from '../index'
+import { createExtensionApiStub } from './extension-api-stub'
 
 // Integration, not unit: the principal probe shells out to git, and a unit test
 // that forks is failed by vitest.setup.ts (#502). The unit suite pins the
@@ -40,13 +42,13 @@ describe('omp-build interceptor > principal freeze', () => {
     writeFileSync(join(principalCwd, '.dev', 'stack.yml'), 'package_manager: bun\n')
 
     let captured: ToolCallHandler | undefined
-    ompBuildExtension({
-      on: (event: string, fn: unknown) => {
-        if (event === 'tool_call') captured = fn as ToolCallHandler
-      },
-      registerCommand: () => {},
-      sendUserMessage: () => {},
-    })
+    ompBuildExtension(
+      createExtensionApiStub({
+        on: ((event: string, fn: unknown) => {
+          if (event === 'tool_call') captured = fn as ToolCallHandler
+        }) as ExtensionAPI['on'],
+      }),
+    )
     if (!captured) throw new Error('extension registered no tool_call handler')
     handler = captured
   })

@@ -12,8 +12,17 @@ import {
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { recipeAfterWrite } from '../../../issue-triage/skills/issue-triage/__tests__/fixtures/github-api'
-import { readMarker } from './epic'
+import { type CanonicalRecord, decodeHistory, encodeRecord } from '../../contracts.ts'
+import { PROOF_PIN_PATHS } from '../../roxabi/workflow-config.ts'
+import { encodedAdmissionReviewGraph, epicReviewGraph, TEST_PROJECTION_CONFIG } from '../../testing/records.ts'
+import {
+  childSnapshot,
+  epicMandate,
+  featureMandate,
+  framedBodies,
+  historyFrom,
+  mandateRef,
+} from '../../testing/workflow-records.ts'
 
 /**
  * One continuous /goal through the real driver CLI and the real workflow.js
@@ -91,6 +100,69 @@ function writeSim(mutate: (state: SimState) => void): void {
   writeFileSync(box.stateFile, JSON.stringify(state, null, 2))
 }
 
+function events(issue: number): Record<string, unknown>[] {
+  const comments = readSim().issues[String(issue)]?.comments ?? []
+  return decodeHistory({
+    scope: { repository: 'acme/app', target: `acme/app#${issue}` },
+    expectedAuthor: 'operator',
+    stopAuthor: null,
+    complete: true,
+    comments: comments.map((comment, index) => ({
+      locator: `acme/app#${issue}:comment:${index + 1}`,
+      nativeId: String(index + 1),
+      body: comment.body,
+      author: comment.author,
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+    })),
+    diagnostics: [],
+  }).operations.flatMap((operation) =>
+    operation.record?.kind === 'epic-event' ? [operation.record.payload as Record<string, unknown>] : [],
+  )
+}
+
+function seedEpicDecision(range: string): string {
+  const head = range.slice(range.indexOf('..') + 2)
+  const graph = epicReviewGraph({ prefix: `goal-${RUN_B}`, head, empty: true })
+  const root = {
+    ...graph.root,
+    repository: 'acme/app',
+    target: `acme/app#${EPIC}`,
+    payload: { ...graph.root.payload, subject: { kind: 'epic-range' as const, range } },
+  }
+  const records = graph.records.map((record) =>
+    record.recordId === root.recordId ? root : { ...record, repository: 'acme/app', target: `acme/app#${EPIC}` },
+  ) as CanonicalRecord[]
+  writeSim((state) => {
+    const issue = state.issues[String(EPIC)]
+    if (!issue) throw new Error('missing epic issue')
+    for (const record of records) {
+      const encoded = encodeRecord(
+        record,
+        {
+          scope: { repository: 'acme/app', target: `acme/app#${EPIC}` },
+          expectedAuthor: 'operator',
+          stopAuthor: null,
+          complete: true,
+          comments: issue.comments.map((comment, index) => ({
+            locator: `acme/app#${EPIC}:comment:${index + 1}`,
+            nativeId: String(index + 1),
+            body: comment.body,
+            author: comment.author,
+            createdAt: '2026-01-01T00:00:00Z',
+            updatedAt: '2026-01-01T00:00:00Z',
+          })),
+          diagnostics: [],
+        },
+        TEST_PROJECTION_CONFIG,
+      )
+      if (!encoded.ok) throw new Error(encoded.diagnostics.map((entry) => entry.code).join(', '))
+      issue.comments.push(...encoded.value.map((body) => ({ author: 'operator', body })))
+    }
+  })
+  return graph.decision.recordId
+}
+
 function gh(args: string[], input?: string): { status: number | null; stdout: string; stderr: string } {
   if (!box) throw new Error('no sandbox')
   const out = spawnSync(path.join(box.root, 'bin', 'gh'), args, {
@@ -113,23 +185,92 @@ function callWorkflow<T>(fn: string, cwd: string, payload: object): T {
   return JSON.parse(out.stdout) as T
 }
 
-function objective(run: string): string {
-  return `Deliver epic #${EPIC} (/feature #${EPIC} run=${run} base=main).`
+const CHILD_BODY = '## Acceptance criteria\n\n- [ ] lands\n'
+const EPIC_BODY = '## Acceptance criteria\n\n- [ ] delivered\n'
+
+/** Actual committed proof pins at origin/main tip — never catalogue/dummy defaults. */
+function liveBaseProofPins(): { sourceCommit: string; path: string; blob: string | null }[] {
+  if (!box) throw new Error('no sandbox')
+  const origin = box.origin
+  const sourceCommit = git(origin, ['rev-parse', 'refs/heads/main'])
+  if (!/^[0-9a-f]{40}$/.test(sourceCommit)) throw new Error(`origin/main tip unreadable: ${sourceCommit}`)
+  return PROOF_PIN_PATHS.map((pinPath) => {
+    try {
+      const blob = git(origin, ['rev-parse', '--verify', '--quiet', `${sourceCommit}:${pinPath}`])
+      return { sourceCommit, path: pinPath, blob: /^[0-9a-f]{40}$/.test(blob) ? blob : null }
+    } catch {
+      return { sourceCommit, path: pinPath, blob: null }
+    }
+  })
 }
 
-function drive(args: string[], run: string, cwd = box?.epic): { code: number | null; stdout: string; stderr: string } {
-  if (!box || !cwd) throw new Error('no sandbox')
-  const file = path.join(box.root, `objective-${run}.txt`)
-  writeFileSync(file, objective(run))
-  const out = spawnSync(
-    REAL_BUN,
-    [DRIVER, ...args, '--epic', String(EPIC), '--goal-status', 'active', '--goal-objective-file', file],
+function epicRecord(): ReturnType<typeof epicMandate> {
+  return epicMandate(
+    { repository: 'acme/app', target: `acme/app#${EPIC}` },
+    [A, B, C].map((number) => childSnapshot({ repository: 'acme/app', target: `acme/app#${number}` }, CHILD_BODY)),
+    { run: RUN_A, body: EPIC_BODY },
+  )
+}
+
+/** Epic mandate only. Child feature mandates bind at selection time (see ensureChildMandate). */
+function ensureMandate(): void {
+  if (!box) throw new Error('no sandbox')
+  const state = readSim()
+  const epicIssue = state.issues[String(EPIC)]
+  if (epicIssue?.comments.some((comment) => comment.body.includes('kind=mandate'))) return
+  const epic = epicRecord()
+  const epicBodies = framedBodies([epic], 'operator')
+  writeSim((sim) => {
+    const issue = sim.issues[String(EPIC)]
+    if (!issue) throw new Error('missing epic issue')
+    issue.comments.push(...epicBodies.map((body) => ({ author: 'operator', body })))
+  })
+}
+
+/**
+ * Seed one child feature mandate against the committed base pins at selection time.
+ * Never rewrite an already-accepted child mandate; never preseed all children before base advances.
+ */
+function ensureChildMandate(number: number, branch: string, id: string): void {
+  if (!box) throw new Error('no sandbox')
+  ensureMandate()
+  const state = readSim()
+  const childIssue = state.issues[String(number)]
+  if (childIssue?.comments.some((comment) => comment.body.includes('kind=mandate'))) return
+  const epic = epicRecord()
+  const epicHistory = historyFrom([epic], 'operator')
+  const mandate = featureMandate(
+    { repository: 'acme/app', target: `acme/app#${number}` },
     {
-      cwd,
-      env: box.env,
-      encoding: 'utf8',
+      recordId: `mandate-feature-${id}`,
+      operationId: `op-mandate-feature-${id}`,
+      runId: RUN_A,
+      body: CHILD_BODY,
+      branch,
+      base: 'main',
+      lineageHead: null,
+      proofPins: liveBaseProofPins(),
+      parent: mandateRef(epic),
     },
   )
+  const bodies = framedBodies([mandate], 'operator', [epicHistory])
+  writeSim((sim) => {
+    const child = sim.issues[String(number)]
+    if (!child) throw new Error(`missing child issue #${number}`)
+    // Guard again inside the write: never rewrite an accepted mandate.
+    if (child.comments.some((comment) => comment.body.includes('kind=mandate'))) return
+    child.comments.push(...bodies.map((body) => ({ author: 'operator', body })))
+  })
+}
+
+function drive(args: string[], _run: string, cwd = box?.epic): { code: number | null; stdout: string; stderr: string } {
+  if (!box || !cwd) throw new Error('no sandbox')
+  ensureMandate()
+  const out = spawnSync(REAL_BUN, [DRIVER, ...args, '--epic', String(EPIC)], {
+    cwd,
+    env: box.env,
+    encoding: 'utf8',
+  })
   return { code: out.status, stdout: out.stdout, stderr: out.stderr }
 }
 
@@ -263,20 +404,28 @@ function markGreen(sha: string): void {
   })
 }
 
-function reviewRecord(sha: string): string {
-  return [
-    '<!-- omp-build:code-review -->',
-    `<!-- omp-build:review-head sha=${sha} -->`,
-    '## Code Review',
-    '',
-    '**Verdict: Approve (clean)**',
-    '',
-  ].join('\n')
-}
-
-function approve(pr: number, sha: string): void {
-  const review = gh(['pr', 'comment', String(pr), '--body', reviewRecord(sha)])
-  if (review.status !== 0) throw new Error(`approve #${pr}: ${review.stderr}`)
+/**
+ * Seed a durable approval bound to the product captureReviewInput digest for the
+ * selected Spec/config/no-producer pair — never null or an arbitrary dummy hash.
+ */
+function approve(pr: number, sha: string, cwd: string): void {
+  const captured = callWorkflow<{ ok: boolean; input?: string | null; error?: string }>('captureReviewInput', cwd, {
+    pr,
+    head: sha,
+  })
+  if (!captured.ok || typeof captured.input !== 'string' || !/^[0-9a-f]{64}$/.test(captured.input)) {
+    throw new Error(`approve #${pr}: captureReviewInput failed ${JSON.stringify(captured)}`)
+  }
+  const bodies = encodedAdmissionReviewGraph({
+    scope: { repository: 'acme/app', target: `acme/app#${pr}` },
+    head: sha,
+    input: captured.input,
+    prefix: `scenario-${pr}-${sha.slice(0, 8)}`,
+  }).comments.map((comment) => comment.body)
+  for (const body of bodies) {
+    const review = gh(['pr', 'comment', String(pr), '--body', body])
+    if (review.status !== 0) throw new Error(`approve #${pr}: ${review.stderr}`)
+  }
 }
 
 function prOf(head: string): Pull {
@@ -303,6 +452,7 @@ describe('stateful gh — one continuous goal', () => {
     expect(git(epic, ['branch', '--show-current'])).toBe(BRANCH_A)
 
     const shaA = commitAndPush(BRANCH_A, 'feat(a): land child (#2)', 'a.txt')
+    ensureChildMandate(A, BRANCH_A, 'a')
     const openedA = callWorkflow<{ number: number; status: string }>('openPr', epic, {
       issue: A,
       branch: BRANCH_A,
@@ -310,7 +460,7 @@ describe('stateful gh — one continuous goal', () => {
       title: 'feat(a): child a',
     })
     expect(openedA.status).toBe('created')
-    approve(openedA.number, shaA)
+    approve(openedA.number, shaA, epic)
 
     const wrong = 'a'.repeat(40)
     const pin = gh(['pr', 'merge', String(openedA.number), '--auto', '--merge', '--match-head-commit', wrong])
@@ -340,7 +490,7 @@ describe('stateful gh — one continuous goal', () => {
     const landed = callWorkflow<{ status: string; mode?: string; watch?: string }>('landPr', epic, {
       pr: openedA.number,
     })
-    expect(landed).toMatchObject({ status: 'watching', mode: 'native' })
+    expect(landed, JSON.stringify(landed)).toMatchObject({ status: 'watching', mode: 'native' })
     expect(landed.watch).toContain('ci-watch.sh')
     expect(prOf(BRANCH_A).state).toBe('OPEN')
     expect(prOf(BRANCH_A).labels).toContain('reviewed')
@@ -432,6 +582,7 @@ describe('stateful gh — one continuous goal', () => {
 
     git(epic, ['switch', '-q', '-c', BRANCH_C])
     const shaC = commitAndPush(BRANCH_C, 'feat(c): abandoned (#4)', 'c.txt')
+    ensureChildMandate(C, BRANCH_C, 'c')
     const openedC = callWorkflow<{ number: number; status: string }>('openPr', epic, {
       issue: C,
       branch: BRANCH_C,
@@ -516,29 +667,23 @@ describe('stateful gh — one continuous goal', () => {
 
     const shaB = commitAndPush(BRANCH_B, 'feat(b): land child (#3)', 'b.txt')
     markGreen(shaB)
+    ensureChildMandate(B, BRANCH_B, 'b')
     const openedB = callWorkflow<{ number: number; status: string }>('openPr', epic, {
       issue: B,
       branch: BRANCH_B,
       base: 'main',
       title: 'feat(b): child b',
     })
-    approve(openedB.number, shaB)
-    const landedB = callWorkflow<{ status: string; error?: string; mode?: string; watch?: string }>('landPr', epic, {
+    approve(openedB.number, shaB, epic)
+    const landedB = callWorkflow<{ status: string; error?: string }>('landPr', epic, {
       pr: openedB.number,
     })
-    expect(landedB.status, landedB.error).toBe('watching')
-    if (!landedB.watch) throw new Error('landPr returned no watch')
-    const watched = spawnSync('bash', ['-lc', landedB.watch], { cwd: epic, env: box?.env, encoding: 'utf8' })
-    expect(watched.status).toBe(0)
-    const applied = callWorkflow<{ status: string }>('applyCiWatchExit', epic, {
-      pr: openedB.number,
-      code: watched.status ?? 1,
-      mode: landedB.mode,
-    })
-    expect(applied.status).toBe('merged')
+    // B is already green when auto-merge arms, so native landing may complete
+    // synchronously instead of creating the watcher covered by A above.
+    expect(landedB.status, landedB.error).toBe('merged')
     expect(prOf(BRANCH_B).state).toBe('MERGED')
+    expect(prOf(BRANCH_B).autoMerge).toBeNull()
     expect(prOf(BRANCH_B).mergeCommit?.parents[1]).toBe(shaB)
-
     writeSim((state) => {
       const issue = state.issues[String(C)]
       if (issue) issue.state = 'CLOSED'
@@ -550,31 +695,14 @@ describe('stateful gh — one continuous goal', () => {
     const range = afterStop.step.range ?? ''
     expect(range).toMatch(/^[0-9a-f]{40}\.\.[0-9a-f]{40}$/)
 
-    // The documented launch: Bun started in the skill directory, the target in --repo.
-    const findings = path.join(box?.root ?? '', 'findings.md')
-    writeFileSync(findings, 'No blocking finding.\n')
-    const skill = readFileSync(path.join(import.meta.dirname, 'SKILL.md'), 'utf8')
-    const recordReview = [
-      ...recipeAfterWrite(skill, '**Launching the driver.**'),
-      ...recipeAfterWrite(skill, '**Recording the final review.**'),
-    ].join('\n')
-    const reviewed = spawnSync('bash', ['-c', recordReview], {
-      cwd: epic,
-      env: {
-        ...box?.env,
-        SKILL_DIR: import.meta.dirname,
-        EPIC: String(EPIC),
-        GOAL_STATUS: 'active',
-        OBJECTIVE: path.join(box?.root ?? '', `objective-${RUN_B}.txt`),
-        VERDICT: 'clean',
-        RANGE: range,
-        EPIC_WT: epic,
-        FINDINGS: findings,
-      },
-      encoding: 'utf8',
-    })
+    // The documented launch consumes a confirmed Epic-scope decision.
+    const decisionId = seedEpicDecision(range)
+    const reviewed = drive(['review', '--decision-record', decisionId, '--range', range], RUN_B)
     expect(reviewed.stderr).toBe('')
-    expect(reviewed.status).toBe(0)
+    expect(reviewed.code).toBe(0)
+    expect(events(EPIC)).toContainEqual(
+      expect.objectContaining({ event: 'epic-review', run: RUN_A, decisionId, range }),
+    )
     writeFileSync(path.join(epic, 'dirty.txt'), 'no\n')
     const dirty = jsonOf(drive(['next'], RUN_B))
     expect(dirty.step).toMatchObject({ action: 'drop', stop: 'dirty-tree' })
@@ -594,17 +722,24 @@ describe('stateful gh — one continuous goal', () => {
     expect(done.step.action).toBe('complete')
     const reported = drive(['report', '--outcome', 'complete'], RUN_B)
     expect(reported.code).toBe(0)
-    const report = readSim().issues[String(EPIC)]?.comments.find(
-      (comment) => readMarker(comment.body, 'goal-report')?.run === RUN_B,
+    expect(events(EPIC)).toContainEqual(
+      expect.objectContaining({
+        event: 'goal-report',
+        run: RUN_A,
+        outcome: 'complete',
+      }),
     )
-    expect(report).toBeTruthy()
-    expect(readMarker(report?.body ?? '', 'goal-report')).toEqual({ run: RUN_B })
-    expect(report?.body).toContain(`#${A}`)
-    expect(report?.body).toContain(`#${B}`)
-    expect(report?.body).toContain(`#${C}`)
-    expect(report?.body).toContain(hookSha)
-    const stop = readSim().issues[String(C)]?.comments.find((comment) => readMarker(comment.body, 'goal-stop'))
-    expect(readMarker(stop?.body ?? '', 'goal-stop')).toEqual({ run: RUN_A, reason: 'review-bound' })
+    expect(events(EPIC)).toContainEqual(
+      expect.objectContaining({
+        event: 'post-merge',
+        run: RUN_A,
+        result: 'ok',
+        sha: hookSha,
+      }),
+    )
+    expect(events(C)).toContainEqual(
+      expect.objectContaining({ event: 'goal-stop', run: RUN_A, reason: 'review-bound' }),
+    )
     expect(readSim().prs[String(openedA.number)]?.state).toBe('MERGED')
     expect(readSim().prs[String(openedB.number)]?.state).toBe('MERGED')
   })

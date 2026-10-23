@@ -1,28 +1,40 @@
 # Root causes
 
-The unit of a fix. A finding is a symptom. A root cause is the shared mechanism behind one or more actionable findings, stated with its one plan. `dev-review` names them after dedup, before it posts. `fix` applies the plan of each well-formed cause that contains a blocking finding. A block missing any of its seven lines (§ Record) is malformed and is not applied, even when it contains a blocking finding. A well-formed cause with no blocking member is deferred only under the baseline; evidence-v1 uses the qualified selection and debt rule below. The plan is the decision: findings carry no solutions, so there is nothing else to pick from.
+The unit of a correction. A finding is a symptom. A root cause is the shared
+mechanism behind one or more actionable findings, stated in one model-owned decision.
+The record-native `fix` consumer applies only an admitted cause; it does not infer
+identity, merge findings, select labels, repair memberships, or invent a plan.
 
-Three readers: `dev-review` Phase 4 writes the section, `fix` Phase 2 reads it, and `skill://fix/falsification.md` tries to break each applied plan under § Proof. `dev-review` and `fix` reach this file as `skill://dev-review/root-causes.md`.
+The decision binds each final finding to its retained originals. Causes reference
+exact **final finding IDs**, not original contribution IDs, source-finding IDs, or
+copied descriptions. `dev-review` names them after synthesis; `fix` consumes the
+decision by record reference, and `skill://fix/falsification.md` tries to break
+each applied plan under § Proof.
 
 ## Evidence-v1 candidate
 
-Read `skill://dev-review/evidence-policy.md` when evaluating the candidate. The default baseline writer and reader remain paired and authoritative in shadow; shadow output is separate local evidence, never an addition to the baseline body. After independently verified acceptance for selected later work, active evidence-v1 Phase 4 writes these qualified selected plans into the normal authoritative review body that `/fix` reads, preserving its markers/head/input/bounds. Phase 4 remains the sole final authority.
+Read `skill://dev-review/evidence-policy.md` when evaluating the candidate. Baseline
+remains authoritative in shadow. An active candidate follows only independently
+accepted selected work; Phase 4 remains the sole source of qualification, final
+labels, verdict and selected decision records.
 
-For an active candidate, each selected block keeps the seven lines below and adds, after `findings:`:
+For an active candidate, every selected cause carries `authorization: required` or
+`authorization: optional-neighbor-of <causeId>` plus bounded admission evidence.
+Exact `findingIds` are required. A missing/invalid authorization, admission, safe
+boundary or membership authorizes no patch. A required member is an evidenced,
+applicable mandatory obligation, not an inherited baseline label. An optional-only
+set creates neither a plan nor a fix route. An optional neighbor records the six
+evidence-policy conditions (current defect/mechanism, selected required boundary,
+unchanged promise, no dependency, caller compatibility, targeted proof) and
+separability. Shared class, file, callsite, wording or prior neighbor does not
+inherit admission.
 
-```markdown
-- authorization: required | optional-neighbor-of RC-N
-- admission: <bounded evidence required by evidence-policy.md>
-```
-
-Exact `findings:` memberships are required. A missing or malformed authorization/admission, unsafe plan, or invalid membership authorizes no patch. A required member is an evidenced applicable mandatory obligation, not merely an inherited baseline label; an optional-only set does not manufacture a plan, red verdict, or fix route. Every optional neighbor records the six evidence-policy conditions (current defect/mechanism, selected required boundary, unchanged promise/no dependency/caller compatibility, targeted proof, and separability). Neighboring discoveries are independently requalified: a common file, class, callsite, wording, or prior neighbor does not inherit admission. `none` never clears a required blocker.
-
-A `required` block may cite both blocking and non-blocking findings when one
+A `required` cause may bind both blocking and non-blocking findings when one
 demonstrated mechanism and minimal shared-producer correction resolves every exact
-member. Do not split that cause by label and do not add `optional-neighbor-of` merely
-because one member is non-blocking. `optional-neighbor-of RC-N` instead identifies an
-additional independent correction beside the required plan; it needs its own exact
-memberships, all six conditions, and never authorizes unrelated work.
+member. Do not split it by label or call an ordinary shared mechanism an optional
+neighbor. `optional-neighbor-of` is a distinct additional correction beside an
+admitted required cause; it needs its own exact memberships, all six conditions and
+separability, and never authorizes unrelated work.
 
 ## Who enters
 
@@ -42,52 +54,43 @@ Join when any holds:
 
 Do not join on a shared file, a shared agent, a shared class slug, or similar symptom wording. Two `sql-injection` findings in unrelated queries are two causes.
 
-A finding with no usable root-cause sentence is its own cause until the cited lines show it shares a mechanism with another. Still unnamed after that read: its own cause. An unusable finding (`dev-review` § Finding format) is never healed by a join: when cited, its cause is ineligible to apply; baseline `fix` files it, while evidence-v1 retains the blocker and permits an issue only under `important AND urgent AND too-large`. When not cited, it stays uncited.
+An unusable finding (`dev-review` § Finding format) is never healed by a join: when cited, its cause is ineligible to apply and remains blocking when it is required. In baseline, each ineligible or failed blocking cause has its own debt issue while nonblocking obligations are bundled per run. In evidence-v1, an obligation requires independent `important AND urgent AND too-large` evidence before filing; otherwise its receipt/comment retains it. When not cited, it stays uncited.
 
 ## Record
 
-One block per cause. Order: a cause that contains a blocker first, then by the highest existence confidence among its members; a member with no confidence counts as the lowest. Every line is non-CC-shaped, per `dev-review/SKILL.md` Phase 4 § `/fix` partition.
+One immutable `Cause` per mechanism, ordered with required/blocking causes first.
+The model decision supplies:
 
-The section ends at the next `##` heading. In a review, that heading is `## Findings`.
-
-```markdown
-## Root causes
-
-### RC-1 — <one-line cause>
-- mechanism: <why, not the symptom>
-- fix: <the one change that closes the mechanism on every path below>
-- failure: <the falsifiable scenario: the input or state, and the wrong observable outcome it produces today>
-- restored: <the behaviour that holds once the mechanism is gone>
-- paths: <every producer and consumer path that must show it, covering every member callsite: `path:line` or a named entry point ; …>
-- proof: <the executable observation, per § Proof>   (or: NO TEST: <reason> — <the evidence that stands instead>)
-- findings: `path:line` — <exact final rendered description> ; `path:line` — <exact final rendered description>
-
-## Findings
+```text
+id, title, mechanism, fix, failure, restored, paths[], proof, findingIds[],
+authorization?, admission?
 ```
 
-A block is well-formed only when all seven lines are present and non-empty; a block that is not is malformed. A well-formed block is applied only when its `proof:` line also satisfies § Proof; otherwise baseline `fix` files it as a cause, with its seven lines. Evidence-v1 selects no patch and permits an issue only under its debt conjunction. The plan is stated before any edit: in the posted record, or — only when the record has no cause section — in the plan `fix` prints before its first edit. `fix` never adds a line to a posted block.
+The seven plan fields are `mechanism`, `fix`, `failure`, `restored`, `paths`,
+`proof`, and `findingIds`. They are non-empty; paths are repository-local producer
+and consumer entries. Cause `findingIds` resolve to final findings; those findings'
+`sourceFindingIds` resolve to the retained originals. Unknown or duplicate
+references refuse admission rather than causing reclustering. An unusable member
+remains represented but cannot authorize application of its cause.
 
-Finalize finding descriptions before building these references. Distinct findings at the same anchor have distinct mechanism-specific descriptions, with their original symptoms/evidence retained. Each `path:line` + exact description pair must resolve to exactly one finding under `## Findings`; each actionable finding belongs to at most one cause. A shared anchor never includes other findings implicitly. Zero/multiple matches or conflicting memberships do not authorize applying affected causes: baseline keeps findings for its uncited/per-finding filing/single-deferral paths, while evidence-v1 retains them/comment-only unless `important AND urgent AND too-large` admits an issue; neither reclusters the posted record.
+`fix` is the one plan: it changes the oracle or single source of truth across every
+path and member callsite. Widening a denylist, adding a grep, or copying an inventory
+is not a fix. An unplannable actionable finding remains retained; baseline preserves
+the blocking disposition and evidence-v1 preserves required obligations unless the
+separate debt rule admits a later issue.
 
-`fix:` is the one plan: the change the mechanism requires, covering every `paths:` entry and every member callsite. It is not chosen from the members — findings carry no solutions. A fix line that only widens a denylist, adds a grep, or copies an inventory list is not a fix, whatever the members' classes. Name the oracle or single source of truth that must change.
+## No planned correction
 
-An actionable finding the review cannot plan — no single safe change, or no proof § Proof admits — stays out of this section, uncited. It is never dropped: baseline `fix` files it when it satisfies `blocks(f)`, and it keeps blocking; otherwise baseline places it in the single non-blocking deferral. Evidence-v1 retains required blockers and is comment-only unless `important AND urgent AND too-large` admits a follow-up.
+The canonical representation is `causes: []`, not a Markdown section to parse.
+It means no correction plan was selected, not that the findings disappeared or
+that the review is clean. Every final finding and original association remains;
+final labels still determine the verdict.
 
-Number `RC-1` upward. Do not reuse a number.
-
-## `none`
-
-No named cause → the section body is exactly `none`:
-
-```markdown
-## Root causes
-
-none
-
-## Findings
-```
-
-`none` is a complete record only when no actionable finding remains under `## Findings`. With an actionable finding there, the record is malformed: it carries no plan for that finding. That is a property of the record, not an accusation that the writer erred — a review that could plan nothing still renders `none`, and its Summary says `no cause planned for N actionable finding(s)`. Baseline `fix` treats each such finding as uncited: each blocker is filed and keeps blocking, each non-blocker joins the deferral, and the receipt names the unplanned record. Evidence-v1 selects no plan: required blockers remain blocking and any issue needs `important AND urgent AND too-large`; otherwise the receipt/comment retains it. It is never a clean review, and filing is not a resolution: a later review still sees the blocker.
+An uncited actionable finding is not reclustered by `fix`. Baseline files each
+uncited blocker and places nonblocking obligations in the single deferral bundle.
+Evidence-v1 retains the obligation and permits an issue only with independently
+supported `important AND urgent AND too-large` admission. Filing never clears a
+blocker or grants application or landing.
 
 ## Proof
 
@@ -97,6 +100,13 @@ One rule, shared by the review that states `proof:`, the `fix` that runs it, and
 - It fails while the mechanism holds — on the `failure:` scenario — and passes once `restored:` holds.
 - Not proof: an assertion on source or prose text, a check that one place copies another (a wiring copy), or a mock that echoes what the test fed it. A cause whose `proof:` is one of these is not eligible to apply.
 - A cause whose mechanism is a missing or weak test is planned like any other: `failure:` is the unsafe behaviour the existing guard prevents, left unobserved when that guard breaks; `fix:` adds the test; `proof:` is that test. The falsification gate breaks the existing guard instead of one the commit introduced.
-- `proof: NO TEST: <reason>` is legal only with a reason the review's NO TEST policy allows (`dev-review` Phase 2 steps 5–5a), plus the evidence that stands instead. It is an explicit skip: never recorded as a passing test, never reported as proven.
+- `proof: NO TEST: <reason>` is legal only with a reason the review's NO TEST policy allows (`skill://dev-review/evidence-policy.md` § Baseline Phase 2 proof adjudication), plus the evidence that stands instead. It is an explicit skip: never recorded as a passing test, never reported as proven.
 - A proof that needs infrastructure, a command or a service the repository does not have cannot run here. `fix` does not create it, and the falsification gate reports `skipped` with that reason.
-- An accepted proof is a test in the diff that meets this rule for the behaviour, or, outside a safety invariant, a NO TEST row legal under that policy. Evidence that a test in the diff survives the removal of the guard it covers, or asserts nothing the behaviour decides, is evidence of a defect: that test is not accepted. A NO TEST row is a skip and never clears a gap on a safety invariant (`dev-review` § Finding categories, **Missing or weak test**). A skip reported in a fix receipt is not an accepted proof. A later review does not demand an accepted proof again without new evidence of a defect (`dev-review` Phase 4 step 3b).
+- An accepted proof is a test in the diff that meets this rule for the behaviour, or, outside a safety invariant, a NO TEST row legal under that policy. Evidence that a test in the diff survives the removal of the guard it covers, or asserts nothing the behaviour decides, is evidence of a defect: that test is not accepted. A NO TEST row is a skip and never clears a gap on a safety invariant (`skill://dev-review/evidence-policy.md` § Baseline Phase 2 proof adjudication). A skip reported in a fix receipt is not an accepted proof. A later review does not demand an accepted proof again without new evidence of a defect (`skill://dev-review/evidence-policy.md` § Baseline Phase 4 classification).
+
+The native applier reports proof implementation files separately as explicit
+`proofPaths`. A missing-test correction may change those files without changing
+the production paths whose existing guard the proof observes. These paths are
+model-owned associations, checked against repository scope and actual Git effects;
+the host does not discover them by parsing the declarative `proof` text or a shell
+command.

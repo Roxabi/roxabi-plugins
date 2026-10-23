@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   armedStoppedPrs,
+  BASE_NAME,
   type BranchFacts,
   baseFromStack,
   branchFor,
@@ -8,10 +9,7 @@ import {
   type ChildFacts,
   classifyBaseCi,
   type Facts,
-  formatMarker,
-  type Goal,
-  generateObjective,
-  goalRun,
+  frameEpic,
   type HookRecord,
   hasScope,
   hookStatus,
@@ -19,13 +17,10 @@ import {
   mergedLocalBranches,
   mergedStoppedPrs,
   nextStep,
-  objectiveText,
   type PrFacts,
-  parseEpicReview,
-  parseGoalStop,
-  parsePostMerge,
+  parseEpicEvent,
   type Report,
-  readMarker,
+  RUN_ID,
   refuseForeignCommits,
   resolveTicketBranch,
   stopClass,
@@ -82,6 +77,28 @@ function pr(ticket: number, over: Partial<PrFacts> = {}): PrFacts {
     ...over,
   }
 }
+
+describe('canonical Epic events', () => {
+  it('admits a framed Epic fix and refuses the retired body marker', () => {
+    expect(parseEpicEvent({ event: 'epic-fix', run: RUN })).toEqual({ event: 'epic-fix', run: RUN })
+    expect(parseEpicEvent('<!-- omp-build:epic-fix run=run00001 -->')).toBeNull()
+  })
+
+  it('requires final review records to bind their exact range and authorities', () => {
+    expect(
+      parseEpicEvent({
+        event: 'epic-review',
+        run: RUN,
+        range: `${sha('a')}..${sha('b')}`,
+        decisionId: 'decision-1',
+        inventoryIds: ['root-1', 'synthesis-1'],
+      }),
+    ).toMatchObject({ event: 'epic-review', decisionId: 'decision-1' })
+    expect(
+      parseEpicEvent({ event: 'epic-review', run: RUN, range: 'main..head', decisionId: '', inventoryIds: [] }),
+    ).toBeNull()
+  })
+})
 
 /** A PR merged at `at`: `from` is the base commit it landed on, `to` its merge commit. */
 const landed = (ticket: number, at: string, from: string, to: string, over: Partial<PrFacts> = {}) =>
@@ -774,32 +791,36 @@ describe('mergedLocalBranches', () => {
   })
 })
 
-describe('generateObjective', () => {
-  const generate = (children: ChildFacts[], base = BASE) => generateObjective({ epic: 575, run: RUN, base, children })
+describe('frameEpic', () => {
+  const frame = (children: ChildFacts[], base = BASE) => frameEpic({ base, children })
 
   it('drops closed and merged children from the order and treats them as satisfied blockers', () => {
-    const result = generate([
-      child(1, { state: 'CLOSED' }),
-      child(2, { prs: [landed(2, T1, sha('1'), sha('2'))] }),
-      child(3, { blockedBy: [on(1, 'CLOSED'), on(2)] }),
-      child(4, { blockedBy: [on(3)] }),
-    ])
-    expect(result).toMatchObject({ order: [3, 4], blocked: [] })
+    expect(
+      frame([
+        child(1, { state: 'CLOSED' }),
+        child(2, { prs: [landed(2, T1, sha('1'), sha('2'))] }),
+        child(3, { blockedBy: [on(1, 'CLOSED'), on(2)] }),
+        child(4, { blockedBy: [on(3)] }),
+      ]),
+    ).toEqual({ order: [3, 4], blocked: [] })
   })
 
   it('orders by blocked_by, not by number', () => {
-    const result = generate([child(1, { blockedBy: [on(3)] }), child(3), child(2, { blockedBy: [on(1)] })])
-    expect(result).toMatchObject({ order: [3, 1, 2], blocked: [] })
+    expect(frame([child(1, { blockedBy: [on(3)] }), child(3), child(2, { blockedBy: [on(1)] })])).toEqual({
+      order: [3, 1, 2],
+      blocked: [],
+    })
   })
 
   it('reports an open out-of-epic blocker and its dependents as blocked, not as a cycle', () => {
-    const result = generate([
-      child(1, { blockedBy: [on(900, 'OPEN', OTHER_REPO)] }),
-      child(2, { blockedBy: [on(1)] }),
-      child(3, { blockedBy: [on(42)] }),
-      child(4, { blockedBy: [on(43, 'CLOSED')] }),
-    ])
-    expect(result).toMatchObject({
+    expect(
+      frame([
+        child(1, { blockedBy: [on(900, 'OPEN', OTHER_REPO)] }),
+        child(2, { blockedBy: [on(1)] }),
+        child(3, { blockedBy: [on(42)] }),
+        child(4, { blockedBy: [on(43, 'CLOSED')] }),
+      ]),
+    ).toEqual({
       order: [4],
       blocked: [
         { ticket: 1, blockers: [900] },
@@ -810,78 +831,45 @@ describe('generateObjective', () => {
   })
 
   it('reserves cycle for a real cycle among open children', () => {
-    const result = generate([child(1, { blockedBy: [on(2)] }), child(2, { blockedBy: [on(1)] }), child(3)])
-    expect(result).toEqual({ error: 'cycle: 1, 2' })
+    expect(frame([child(1, { blockedBy: [on(2)] }), child(2, { blockedBy: [on(1)] }), child(3)])).toEqual({
+      error: 'cycle: 1, 2',
+    })
   })
 
   it('refuses when an open child lacks scope, naming only those', () => {
     expect(
-      generate([child(1), child(2, { labels: [] }), child(3, { body: '## Acceptance\n## Needs framing\n' })]),
+      frame([child(1), child(2, { labels: [] }), child(3, { body: '## Acceptance\n## Needs framing\n' })]),
     ).toEqual({ error: 'missing scope: 2, 3', missing: [2, 3] })
   })
 
   it('ignores a closed child without scope', () => {
-    expect(generate([child(1, { state: 'CLOSED', labels: [], body: '' }), child(2)])).toMatchObject({ order: [2] })
+    expect(frame([child(1, { state: 'CLOSED', labels: [], body: '' }), child(2)])).toEqual({
+      order: [2],
+      blocked: [],
+    })
   })
 
   it('ignores a merged child still open under staging-train, and names only the unframed one', () => {
     const merged = child(4, { labels: [], body: '', prs: [landed(4, T1, sha('1'), sha('2'))] })
-    expect(generate([merged, child(5, { labels: [] })])).toEqual({ error: 'missing scope: 5', missing: [5] })
-  })
-
-  it('refuses a run id the gate would not accept', () => {
-    expect(generateObjective({ epic: 575, run: 'RUN00001', base: BASE, children: [child(1)] })).toHaveProperty('error')
-  })
-
-  it.each(['main', 'staging'])('names the epic, run and base %s, and passes its own gate', (base) => {
-    const result = generate([child(1)], base)
-    if (!('objective' in result)) throw new Error(`expected an objective, got ${result.error}`)
-    expect(result.objective).toContain('/feature #575')
-    expect(result.objective).toContain(`run=${RUN}`)
-    expect(result.objective).toContain(`base=${base}`)
-    expect(goalRun({ status: 'active', objective: result.objective }, 575)).toEqual({ run: RUN, base })
-    expect(goalRun({ status: 'active', objective: result.objective }, 576)).toBeNull()
+    expect(frame([merged, child(5, { labels: [] })])).toEqual({ error: 'missing scope: 5', missing: [5] })
   })
 })
 
-describe('goalRun', () => {
-  const objective = objectiveText(575, RUN, BASE)
-  const active = (text: string | null): Goal => ({ status: 'active', objective: text })
-
-  it.each<[string, Goal, { run: string; base: string } | null]>([
-    ['no goal', null, null],
-    ['no goal (undefined)', undefined, null],
-    ['paused', { status: 'paused', objective }, null],
-    ['budget-limited', { status: 'budget-limited', objective }, null],
-    ['dropped', { status: 'dropped', objective }, null],
-    ['complete', { status: 'complete', objective }, null],
-    ['active, no objective', active(null), null],
-    ['active, another epic', active(objectiveText(576, RUN, BASE)), null],
-    ['active, an epic number with this one as prefix', active(objectiveText(5750, RUN, BASE)), null],
-    ['active, two epics', active(`${objective} Then /feature #576.`), null],
-    ['active, no run=', active('/feature #575 base=main'), null],
-    ['active, two run=', active(`/feature #575 run=${RUN} run=run00002 base=main`), null],
-    ['active, run with uppercase', active('/feature #575 run=RUN00001 base=main'), null],
-    ['active, run too short', active('/feature #575 run=run0001 base=main'), null],
-    ['active, run with punctuation', active('/feature #575 run=run0000! base=main'), null],
-    ['active, no base=', active(`/feature #575 run=${RUN}`), null],
-    ['active, base with ..', active(`/feature #575 run=${RUN} base=main..x`), null],
-    ['active, two base=', active(`/feature #575 run=${RUN} base=main base=staging`), null],
-    ['active, base with ~ (a revision, not a branch)', active(`/feature #575 run=${RUN} base=main~1`), null],
-    ['active, base with ^', active(`/feature #575 run=${RUN} base=main^`), null],
-    ['active, base with @{', active(`/feature #575 run=${RUN} base=main@{1}`), null],
-    ['active, base with :', active(`/feature #575 run=${RUN} base=main:x`), null],
-    ['active, generated objective', active(objective), { run: RUN, base: BASE }],
-    [
-      'active, hand-written objective',
-      active(`/feature #575 (run=${RUN} base=staging)`),
-      { run: RUN, base: 'staging' },
-    ],
-  ])('%s', (_name, goal, expected) => {
-    expect(goalRun(goal, 575)).toEqual(expected)
+describe('mandate identity', () => {
+  it('accepts an 8-character run id and a branch base, not a revision', () => {
+    expect(RUN_ID.test(RUN)).toBe(true)
+    expect(RUN_ID.test('RUN00001')).toBe(false)
+    expect(RUN_ID.test('run0001')).toBe(false)
+    expect(RUN_ID.test('run0000!')).toBe(false)
+    expect(BASE_NAME.test('main')).toBe(true)
+    expect(BASE_NAME.test('staging')).toBe(true)
+    expect(BASE_NAME.test('main..x')).toBe(false)
+    expect(BASE_NAME.test('main~1')).toBe(false)
+    expect(BASE_NAME.test('main^')).toBe(false)
+    expect(BASE_NAME.test('main@{1}')).toBe(false)
+    expect(BASE_NAME.test('main:x')).toBe(false)
   })
 })
-
 describe('hasScope', () => {
   it.each<[string, string[], string, boolean]>([
     ['size label and acceptance heading', ['size:S'], '## Acceptance\n- [ ] x', true],
@@ -1031,89 +1019,6 @@ describe('stop classes', () => {
     expect(outcome).toEqual(expected)
     // The stop it names is recorded and classified by the same table.
     if ('stop' in outcome) expect(stopClass(outcome.stop)).toBe(outcome.class)
-  })
-})
-
-describe('markers', () => {
-  it('round-trips each marker with readable text below it', () => {
-    const range = `${sha('1')}..${sha('2')}`
-    expect(parseGoalStop(`${formatMarker('goal-stop', { run: RUN, reason: 'timeout' })}\n\nStopped: timeout.`)).toEqual(
-      { run: RUN, reason: 'timeout' },
-    )
-    expect(parseEpicReview(`${formatMarker('epic-review', { run: RUN, verdict: 'clean', range })}\nClean.`)).toEqual({
-      run: RUN,
-      verdict: 'clean',
-      range,
-    })
-    expect(parsePostMerge(`${formatMarker('post-merge', { run: RUN, result: 'ok', sha: sha('f') })}\nok`)).toEqual({
-      run: RUN,
-      result: 'ok',
-      sha: sha('f'),
-    })
-    expect(readMarker(`${formatMarker('epic-fix')}\n\n## Acceptance`, 'epic-fix')).toEqual({})
-  })
-
-  it.each([
-    ['a space', 'two words'],
-    ['a comment close', 'x-->'],
-    ['a newline', 'a\nb'],
-    ['nothing', ''],
-  ])('refuses to format a field value with %s', (_name, value) => {
-    expect(() => formatMarker('goal-stop', { run: RUN, reason: value })).toThrow()
-  })
-
-  it('reads only the first line, so a quoted marker is not a marker', () => {
-    const stop = formatMarker('goal-stop', { run: RUN, reason: 'timeout' })
-    expect(parseGoalStop(`Stopped #5.\n${stop}`)).toBeNull()
-    const report = `${formatMarker('goal-report', { run: RUN })}\n\nStopped:\n${stop}`
-    expect(parseGoalStop(report)).toBeNull()
-    expect(readMarker(report, 'goal-report')).toEqual({ run: RUN })
-    expect(parseGoalStop(`> ${stop}`)).toBeNull()
-    expect(parseGoalStop(`  ${stop}  \nbody`)).toEqual({ run: RUN, reason: 'timeout' })
-  })
-
-  it.each([
-    ['goal-stop, run with uppercase', () => parseGoalStop('<!-- omp-build:goal-stop run=RUN00001 reason=timeout -->')],
-    ['goal-stop, run too short', () => parseGoalStop('<!-- omp-build:goal-stop run=run0001 reason=timeout -->')],
-    ['goal-stop, no reason', () => parseGoalStop(`<!-- omp-build:goal-stop run=${RUN} -->`)],
-    ['goal-stop, another kind', () => parseGoalStop(`<!-- omp-build:post-merge run=${RUN} reason=timeout -->`)],
-    [
-      'epic-review, bad verdict',
-      () => parseEpicReview(`<!-- omp-build:epic-review run=${RUN} verdict=green range=${sha('1')}..${sha('2')} -->`),
-    ],
-    [
-      'epic-review, short sha',
-      () => parseEpicReview(`<!-- omp-build:epic-review run=${RUN} verdict=clean range=abc1234..${sha('2')} -->`),
-    ],
-    [
-      'epic-review, uppercase sha',
-      () =>
-        parseEpicReview(`<!-- omp-build:epic-review run=${RUN} verdict=clean range=${'A'.repeat(40)}..${sha('2')} -->`),
-    ],
-    ['epic-review, no range', () => parseEpicReview(`<!-- omp-build:epic-review run=${RUN} verdict=clean -->`)],
-    [
-      'epic-review, a range with three ends',
-      () =>
-        parseEpicReview(
-          `<!-- omp-build:epic-review run=${RUN} verdict=clean range=${sha('1')}..${sha('2')}..${sha('3')} -->`,
-        ),
-    ],
-    [
-      'epic-review, bad run',
-      () => parseEpicReview(`<!-- omp-build:epic-review run=r1 verdict=clean range=${sha('1')}..${sha('2')} -->`),
-    ],
-    ['post-merge, short sha', () => parsePostMerge(`<!-- omp-build:post-merge run=${RUN} result=ok sha=abc1234 -->`)],
-    ['post-merge, no sha', () => parsePostMerge(`<!-- omp-build:post-merge run=${RUN} result=ok -->`)],
-    [
-      'post-merge, unknown result',
-      () => parsePostMerge(`<!-- omp-build:post-merge run=${RUN} result=done sha=${sha('f')} -->`),
-    ],
-    [
-      'post-merge, bad run',
-      () => parsePostMerge(`<!-- omp-build:post-merge run=run_0001 result=ok sha=${sha('f')} -->`),
-    ],
-  ])('rejects %s', (_name, parse) => {
-    expect(parse()).toBeNull()
   })
 })
 

@@ -1,10 +1,11 @@
 #!/usr/bin/env bun
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
-import type { InitDeps, InitPlan } from '../../../issue-triage/skills/issue-triage/lib/init'
+import { pathToFileURL } from 'node:url'
+import type { InitDeps, InitPlan } from '../../dist/issue-triage/skills/issue-triage/lib/init.ts'
+import { initFile, migrateLabelsFile } from '../../triage-runtime.ts'
 
 export type MigrateLabel = (name: string) => { add: string | null; remove: boolean }
 
@@ -15,50 +16,10 @@ export class IssueTriageMissing extends Error {
   }
 }
 
-const MIGRATE_LABELS = join('skills', 'issue-triage', 'lib', 'migrate-labels.ts')
-
-/**
- * Where issue-triage's migration grammar may live: this repository's sibling
- * plugin first, then the installed layout. For the latter, the walk up this
- * file's real path stops at the first ancestor holding `node_modules/omp-build`
- * (`~/.omp/plugins`) and looks only at its `node_modules/issue-triage`, so an
- * unrelated `node_modules` higher up (say `/tmp`) is never reached. An
- * ancestor that is world-writable (sticky or not) or not owned by the current
- * user is never trusted as that stop, nor is its `node_modules`. Only
- * absolute file paths are imported, never a bare specifier, so Bun has nothing
- * to auto-install from a registry.
- */
-/** Owned by the current user and not world-writable. The sticky bit does not make a directory trusted. */
-export function trustedDir(dir: string, uid: number | undefined = process.getuid?.()): boolean {
-  try {
-    const stat = statSync(dir)
-    return (stat.mode & 0o002) === 0 && (uid === undefined || stat.uid === uid)
-  } catch {
-    return false
-  }
-}
-
-export function migrateLabelCandidates(from: string): string[] {
-  const here = dirname(realpathSync(from))
-  const out = [join(here, '..', '..', '..', 'issue-triage', MIGRATE_LABELS)]
-  for (let dir = here; ; dir = dirname(dir)) {
-    if (
-      trustedDir(dir) &&
-      trustedDir(join(dir, 'node_modules')) &&
-      existsSync(join(dir, 'node_modules', 'omp-build'))
-    ) {
-      out.push(join(dir, 'node_modules', 'issue-triage', MIGRATE_LABELS))
-      break
-    }
-    if (dirname(dir) === dir) break
-  }
-  return out
-}
-
-/** Imports the first candidate that exists. An import error there is final: no later candidate is tried. */
-export async function loadMigrateLabel(from: string = fileURLToPath(import.meta.url)): Promise<MigrateLabel> {
-  const file = migrateLabelCandidates(from).find((candidate) => existsSync(candidate))
-  if (!file) throw new IssueTriageMissing('not found next to omp-build or in node_modules')
+/** Imports the installed emit. An import error is final: no later candidate is tried. */
+export async function loadMigrateLabel(): Promise<MigrateLabel> {
+  const file = migrateLabelsFile
+  if (!existsSync(file)) throw new IssueTriageMissing('not found next to omp-build or in node_modules')
   let mod: { migrateLabel?: unknown }
   try {
     mod = await import(pathToFileURL(file).href)
@@ -77,8 +38,6 @@ export async function resolveMigrateLabel(
   return fn
 }
 
-const TRIAGE_INIT = join('skills', 'issue-triage', 'lib', 'init.ts')
-
 export type TriageInit = {
   buildPlan: (
     repo: string,
@@ -90,14 +49,10 @@ export type TriageInit = {
   defaultInitDeps: (cwdRepo: string, cwd?: string) => InitDeps
 }
 
-function triageInitCandidates(from: string): string[] {
-  return migrateLabelCandidates(from).map((file) => `${file.slice(0, -MIGRATE_LABELS.length)}${TRIAGE_INIT}`)
-}
-
-/** Loads the tracker planner beside the runtime-selected trusted issue-triage package. */
-export async function loadTriageInit(from: string = fileURLToPath(import.meta.url)): Promise<TriageInit> {
-  const file = triageInitCandidates(from).find((candidate) => existsSync(candidate))
-  if (!file) throw new IssueTriageMissing('init planner not found next to omp-build or in node_modules')
+/** Loads the installed tracker planner. An import error is final. */
+export async function loadTriageInit(): Promise<TriageInit> {
+  const file = initFile
+  if (!existsSync(file)) throw new IssueTriageMissing('init planner not found next to omp-build or in node_modules')
   let mod: Partial<TriageInit>
   try {
     mod = await import(pathToFileURL(file).href)

@@ -1,14 +1,4 @@
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
@@ -21,9 +11,7 @@ import {
   hasSemctxGitHooks,
   IssueTriageMissing,
   initFeature,
-  loadMigrateLabel,
   type MigrateLabel,
-  migrateLabelCandidates,
   ownerRepoFromRemote,
   type ParseYaml,
   plan,
@@ -32,7 +20,6 @@ import {
   resolveMigrateLabel,
   semctxHooks,
   type TriageInit,
-  trustedDir,
 } from './feature-init'
 
 let staged = ''
@@ -890,68 +877,6 @@ describe('an existing landing', () => {
 })
 
 describe('issue-triage lookup', () => {
-  it('tries this repository sibling only, when no ancestor holds node_modules/omp-build', () => {
-    expect(migrateLabelCandidates(path.join(import.meta.dirname, 'feature-init.ts'))).toEqual([
-      path.resolve(import.meta.dirname, '../../../issue-triage/skills/issue-triage/lib/migrate-labels.ts'),
-    ])
-  })
-
-  it('stops the installed-layout walk at the first ancestor holding node_modules/omp-build', () => {
-    scratch = realpathSync(mkdtempSync(path.join(tmpdir(), 'omp-init-walk-')))
-    const plugins = path.join(scratch, 'plugins')
-    const file = path.join(plugins, 'cache', 'omp-build', 'skills', 'feature', 'feature-init.ts')
-    mkdirSync(path.dirname(file), { recursive: true })
-    writeFileSync(file, '')
-    mkdirSync(path.join(plugins, 'node_modules', 'omp-build'), { recursive: true })
-    mkdirSync(path.join(scratch, 'node_modules', 'omp-build'), { recursive: true })
-    const lib = path.join('issue-triage', 'skills', 'issue-triage', 'lib', 'migrate-labels.ts')
-    expect(migrateLabelCandidates(file)).toEqual([
-      path.join(plugins, 'cache', 'issue-triage', 'skills', 'issue-triage', 'lib', 'migrate-labels.ts'),
-      path.join(plugins, 'node_modules', lib),
-    ])
-  })
-
-  it('does not trust a directory owned by another user', () => {
-    scratch = realpathSync(mkdtempSync(path.join(tmpdir(), 'omp-init-owner-')))
-    const me = statSync(scratch).uid
-    expect(trustedDir(scratch, me)).toBe(true)
-    expect(trustedDir(scratch, me + 1)).toBe(false)
-  })
-
-  it.each([
-    ['a world-writable ancestor', 'plugins', 0o777],
-    ['a sticky world-writable ancestor', 'plugins', 0o1777],
-    ['a world-writable node_modules', 'plugins/node_modules', 0o777],
-  ])('never trusts %s as the installed-layout stop', (_row, rel, mode) => {
-    scratch = realpathSync(mkdtempSync(path.join(tmpdir(), 'omp-init-trust-')))
-    const plugins = path.join(scratch, 'plugins')
-    const file = path.join(plugins, 'cache', 'omp-build', 'skills', 'feature', 'feature-init.ts')
-    mkdirSync(path.dirname(file), { recursive: true })
-    writeFileSync(file, '')
-    mkdirSync(path.join(plugins, 'node_modules', 'omp-build'), { recursive: true })
-    chmodSync(path.join(scratch, rel), mode)
-    expect(trustedDir(path.join(scratch, rel))).toBe(false)
-    expect(migrateLabelCandidates(file)).toEqual([
-      path.join(plugins, 'cache', 'issue-triage', 'skills', 'issue-triage', 'lib', 'migrate-labels.ts'),
-    ])
-  })
-
-  it('does not fall through to a later candidate after an import error', async () => {
-    scratch = realpathSync(mkdtempSync(path.join(tmpdir(), 'omp-init-fallthrough-')))
-    const file = path.join(scratch, 'plugins', 'omp-build', 'skills', 'feature', 'feature-init.ts')
-    mkdirSync(path.dirname(file), { recursive: true })
-    writeFileSync(file, '')
-    const lib = path.join('skills', 'issue-triage', 'lib', 'migrate-labels.ts')
-    const sibling = path.join(scratch, 'plugins', 'issue-triage', lib)
-    mkdirSync(path.dirname(sibling), { recursive: true })
-    writeFileSync(sibling, "throw new Error('widget grammar exploded')\n")
-    mkdirSync(path.join(scratch, 'node_modules', 'omp-build'), { recursive: true })
-    const installed = path.join(scratch, 'node_modules', 'issue-triage', lib)
-    mkdirSync(path.dirname(installed), { recursive: true })
-    writeFileSync(installed, 'export const migrateLabel = () => ({ add: null, remove: false })\n')
-    await expect(loadMigrateLabel(file)).rejects.toThrow('widget grammar exploded')
-  })
-
   it('names why the grammar is unusable', async () => {
     await expect(resolveMigrateLabel(async () => null as unknown as MigrateLabel)).rejects.toThrow(
       'issue-triage missing (migrateLabel is not a function)',

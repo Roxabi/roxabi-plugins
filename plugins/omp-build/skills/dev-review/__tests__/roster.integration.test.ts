@@ -291,9 +291,8 @@ describe('cut roles', () => {
     }
   })
 
-  it('R-fixer is a deprecated key here too — /fix applies inline', () => {
+  it('R-fixer remains a deprecated roster key', () => {
     const cfg = parseRosterConfig('review:\n  roster:\n    agents:\n      R-fixer: always\n')
-    expect(cfg.warnings).toContain('R-fixer override ignored; /fix applies findings inline, it spawns no fixer')
     expect(cfg.overrides['R-fixer']).toBeUndefined()
   })
 

@@ -1,10 +1,13 @@
 # Falsification Gate
 
-Gate definition for Phase 4 of `skill://fix`. Runs once per applied cause. It tries to break the
-cause's own `proof:` under the one proof rule in `skill://dev-review/root-causes.md` § Proof.
+Gate definition for the correction-purpose `fix` workflow. It runs once per applied
+cause and emits a durable `falsification-result` linked to its
+`correction-result`. It evaluates the cause's own `proof:` under the one proof rule
+in `skill://dev-review/root-causes.md` § Proof.
 
-This is a local procedure, not the executable falsify oracle cut by ADR-020 §8: no script runs,
-no artifact is written, and nothing here feeds the review roster.
+The production executor performs the temporary guard removal and records native/test
+output facts. This document does not define a second parser, writer, roster input or
+falsify runner.
 
 ## Purpose
 
@@ -70,10 +73,14 @@ step. The proof must fail because the unsafe behaviour returned, not because tex
 
 ## Output
 
+The durable record retains `correctionResultId`, `result`, one-line `notes`, and raw
+execution facts. A result is never derived from model prose:
+
 ```
 result:   "pass" | "fail" | "skipped"
 cause:    string           — the cause id
 notes:    string           — the skip or inconclusive reason; optional otherwise, ≤1 line
+raw:      guard removals, proof executions and observed failure scenario
 ```
 
 ## Aggregation

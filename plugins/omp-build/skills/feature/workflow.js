@@ -4,9 +4,26 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { realpathSync } from 'node:fs'
+import { readFileSync, realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { admitLanding, captureReviewInput as captureProofReviewInput, refreshSelectedBase } from './proof'
+import {
+  buildRecord,
+  decodeHistory,
+  deriveReviewState,
+  githubScope,
+  publishGitHubRecord,
+  readGitHubHistory,
+  summarizeReviews,
+} from '../../dist/contracts.js'
+import { withRoxabiGitHubPolicy } from '../../roxabi/github-policy'
+import { resolveReviewSemanticContext } from '../../roxabi/review-context'
+import {
+  admitLanding,
+  captureReviewInput as captureProofReviewInput,
+  proofSemanticContext,
+  refreshSelectedBase,
+  reviewSemanticCanon,
+} from './proof'
 
 /** @param {string} value */
 function shellQuote(value) {
@@ -381,7 +398,11 @@ export async function openPr(cwd, { issue, branch, base, title, body } = {}, { g
   const prTitle = requireField(title, 'title')
 
   const already = await findOpenPr(cwd, head, baseRef, ghFn)
-  if (already !== null) return { number: already, status: 'existing' }
+  if (already !== null) {
+    const binding = await confirmSelectedBinding(cwd, already, ghFn, { issue: n, branch: head, base: baseRef })
+    if (!binding.ok) throw new Error(`openPr: workflow binding refused: ${binding.reason}`)
+    return { number: already, status: 'existing' }
+  }
 
   let created
   try {
@@ -406,7 +427,11 @@ export async function openPr(cwd, { issue, branch, base, title, body } = {}, { g
     // payload, never the argv, which carries this caller's own title and body.
     if (isDuplicateHeadFailure(error)) {
       const raced = await findOpenPr(cwd, head, baseRef, ghFn)
-      if (raced !== null) return { number: raced, status: 'existing' }
+      if (raced !== null) {
+        const binding = await confirmSelectedBinding(cwd, raced, ghFn, { issue: n, branch: head, base: baseRef })
+        if (!binding.ok) throw new Error(`openPr: workflow binding refused: ${binding.reason}`)
+        return { number: raced, status: 'existing' }
+      }
     }
     throw error
   }
@@ -421,6 +446,8 @@ export async function openPr(cwd, { issue, branch, base, title, body } = {}, { g
   if (!Number.isInteger(number) || number <= 0) {
     throw new Error(`openPr: \`gh api … pulls\` carried no PR number — ${preview(created)}`)
   }
+  const binding = await confirmSelectedBinding(cwd, number, ghFn, { issue: n, branch: head, base: baseRef })
+  if (!binding.ok) throw new Error(`openPr: workflow binding refused: ${binding.reason}`)
   return { number, status: 'created' }
 }
 
@@ -594,7 +621,51 @@ async function resolveLandingBase(cwd, pr, ghFn, gitFn) {
  * @param {string} head The head captured at review start; never replace it during review.
  * @param {{ gh?: (cwd: string, args: string[]) => Promise<string>, git?: import('./proof').Git }} [deps]
  */
-export async function captureReviewInput(cwd, pr, head, { gh: ghFn = gh, git: gitFn = gitResult } = {}) {
+/**
+ * Confirmed review context for the proof canon. Invalid, drifted, partial, or
+ * unreadable bindings refuse here, before any proof hash. An absent binding is
+ * review context only — never landing authority.
+ * @param {string} cwd
+ * @param {number | string} pr
+ * @param {(cwd: string, args: string[]) => Promise<string>} ghFn
+ * @param {string} base
+ * @returns {Promise<import('./proof').ProofSemanticContext | import('./proof').Refusal>}
+ */
+export async function confirmedReviewSemanticContext(cwd, pr, ghFn, base) {
+  const scope = await repositoryScope(cwd, pr, ghFn)
+  const selected = await readPrFields(cwd, pr, ghFn, 'headRefName,body')
+  if (typeof selected.headRefName !== 'string' || selected.headRefName === '') {
+    return { ok: false, producer: 'candidate', reason: 'unreadable', error: 'PR head branch is unreadable' }
+  }
+  const body = typeof selected.body === 'string' ? selected.body : ''
+  const resolved = await resolveReviewSemanticContext({
+    cwd,
+    repository: scope.repository,
+    pr: Number(pr),
+    body,
+    branch: selected.headRefName,
+    base,
+    gh: ghFn,
+  })
+  if (!resolved?.ok) {
+    const diagnostic = Array.isArray(resolved?.diagnostics) ? resolved.diagnostics[0] : undefined
+    const code = typeof diagnostic?.code === 'string' ? diagnostic.code : ''
+    return {
+      ok: false,
+      producer: 'candidate',
+      reason: code.endsWith('unreadable') ? 'unreadable' : 'unbound',
+      error: typeof diagnostic?.message === 'string' ? diagnostic.message : 'review semantic context refused',
+    }
+  }
+  return proofSemanticContext(resolved.value)
+}
+
+export async function captureReviewInput(
+  cwd,
+  pr,
+  head,
+  { gh: ghFn = gh, git: gitFn = gitResult, semantic: supplied } = {},
+) {
   const selected = await readPrFields(cwd, pr, ghFn, 'headRefOid,baseRefName')
   if (!isCommitSha(head) || selected.headRefOid !== head)
     return {
@@ -605,10 +676,12 @@ export async function captureReviewInput(cwd, pr, head, { gh: ghFn = gh, git: gi
     }
   const base = await fetchBase(cwd, selected.baseRefName, gitFn, ghFn)
   if (base.refusal) return base.refusal
+  const semantic = supplied ?? (await confirmedReviewSemanticContext(cwd, pr, ghFn, base.name))
+  if (semantic.ok === false) return semantic
   const snapshot = await captureProofReviewInput(
     cwd,
     { pr: Number(pr), candidate: head, base: base.name, baseTip: base.tip },
-    { gh: ghFn, git: gitFn, comments: () => readComments(cwd, pr, { gh: ghFn }) },
+    { gh: ghFn, git: gitFn, semantic },
   )
   if (!snapshot.ok) return snapshot
   return {
@@ -617,6 +690,8 @@ export async function captureReviewInput(cwd, pr, head, { gh: ghFn = gh, git: gi
     body: snapshot.body,
     semctx: snapshot.semctx,
     assertledger: snapshot.assertledger,
+    semantic,
+    semanticCanon: reviewSemanticCanon(semantic),
   }
 }
 
@@ -628,7 +703,8 @@ export async function captureReviewInput(cwd, pr, head, { gh: ghFn = gh, git: gi
  * @param {{ gh?: (cwd: string, args: string[]) => Promise<string>, git?: import('./proof').Git }} [deps]
  */
 export async function validateReviewInput(cwd, pr, head, input, deps = {}) {
-  const current = await captureReviewInput(cwd, pr, head, deps)
+  const { semantic: _stale, ...fresh } = deps
+  const current = await captureReviewInput(cwd, pr, head, fresh)
   if (!current.ok) return current
   if (current.input !== input)
     return {
@@ -648,12 +724,13 @@ const SINCE_RETRY_MS = 200
 
 /**
  * Arm `reviewed` and hand the wait to `/ci-watch`. No in-process poll.
- * First resolve the PR, read its review records, then its gate. A spent bound,
- * or a latest record that does not approve, returns `not-approved`.
- * An approval arms only when its line-2 head is the PR's `headRefOid` (both 40 lowercase hex).
- * `no-review-head` is a record with no valid head line; `head-moved` is a different or
- * unreadable oid. Every `not-approved` disarms a gate already armed on an OPEN PR
- * (`disarmed: true`) and writes nothing else. Native with no required checks —
+ * First resolve the PR, read complete canonical review records, then its gate.
+ * A durable bound or a latest decision that does not approve returns
+ * `not-approved`. An approval arms only when its record's bound candidate is the
+ * PR's current `headRefOid` (both 40 lowercase hex). An unreadable candidate is
+ * `review-unbound`; a different oid is `head-moved`.
+ * Every `not-approved` exit disarms an already armed OPEN PR (`disarmed: true`)
+ * and writes nothing else. Native with no required checks —
  * explicit `[]`, or discovery that returned none (a failed lookup also returns
  * none, which is not proof that protection is absent) — returns
  * `no-required-checks` and disarms the known armed gate the same way, even on an
@@ -663,13 +740,17 @@ const SINCE_RETRY_MS = 200
  * decided from the candidate's committed tree and the checkouts' `.semctx`, and
  * applicable Semctx/assertledger records conserved on the PR are bound to the
  * re-derived inputs. A refusal returns `proof-blocked` with `producer`, `reason`
- * and `error` through the same forced-unarmed exit; a transport failure throws
- * through it. Every arm this call writes targets the admitted candidate: before
- * the first arming write, and before a re-pin after disabling the old arm, a
- * refresh whose fresh approval names another head admits that head the same
- * way and arms it only on admit (else `proof-blocked`, unarmed); after an
- * arming write the refresh retains the admitted head and refuses a later one
- * (`head-moved`). `watching`
+ * and `error` through the same forced-unarmed exit. A landing mandate is required
+ * before that admission and before every arming write. Missing, fix-only, paused,
+ * abandoned, stale, unsupported, unconfirmed, unknown, ambiguous, or incomplete
+ * authority returns `mandate-refused` and disarms; it does not replace a sticky
+ * review or CI stop. Valid authority does not bypass proof admission, head
+ * freshness, or a required stop. A transport failure throws through it. Every
+ * arm this call writes targets the admitted candidate: before the first arming
+ * write, and before a re-pin after disabling the old arm, a refresh whose fresh
+ * approval names another head admits that head the same way and arms it only on
+ * admit (else `proof-blocked`, unarmed); after an arming write the refresh retains
+ * the admitted head and refuses a later one (`head-moved`). `watching`
  * carries `proof`: what was admitted, so a PARTIAL lands visibly as PARTIAL.
  * `disarmed: true` is reported only when a read-back confirmed the disarm; a no-op
  * claims nothing. A disarm that cannot finish throws an error naming what stays
@@ -732,6 +813,8 @@ export async function landPr(
   let proof
   let landingBase
   let landingContext
+  /** Set only when the epilogue refresh catch runs — including throw undefined. */
+  let epilogueRefreshFailed = false
   const armedByUs = { auto: false, label: false }
   const knownGate = () =>
     gate && {
@@ -790,12 +873,31 @@ export async function landPr(
   // A clean PR merges as soon as it is armed (`gh pr merge --auto` merges it at
   // once; native auto-merge within seconds), moving its own base. Merged onto
   // the selected tip — the merge commit's first parent — the base was not lost.
-  const mergedOnto = async (tip) => {
+  // Merge-commit strategy only (`gh pr merge --merge` / equivalent --no-ff):
+  // first parent is the selected base tip, second is the PR head. Squash/rebase
+  // have no usable ^2 and fail closed for authorization proofs.
+  const mergeParents = async () => {
     const data = await readPrFields(cwd, pr, ghFn, 'state,mergeCommit')
     const oid = data.mergeCommit?.oid
-    if (data.state !== 'MERGED' || !isCommitSha(oid)) return false
-    const parent = await gitFn(cwd, ['rev-parse', '--verify', `${oid}^1`])
-    return parent.code === 0 && parent.stdout.trim() === tip
+    if (data.state !== 'MERGED' || !isCommitSha(oid)) return null
+    const first = await gitFn(cwd, ['rev-parse', '--verify', `${oid}^1`])
+    if (first.code !== 0 || !isCommitSha(first.stdout.trim())) return null
+    const second = await gitFn(cwd, ['rev-parse', '--verify', `${oid}^2`])
+    return {
+      tip: first.stdout.trim(),
+      head: second.code === 0 && isCommitSha(second.stdout.trim()) ? second.stdout.trim() : null,
+    }
+  }
+  /** Selected base tip survived in the merge commit (^1). Not proof of the admitted head. */
+  const mergedOnto = async (tip) => {
+    const parents = await mergeParents()
+    return parents !== null && parents.tip === tip
+  }
+  /** Authorized land: selected base (^1) and admitted candidate (^2). */
+  const mergedAuthorized = async (tip, candidate) => {
+    if (!isCommitSha(tip) || !isCommitSha(candidate)) return false
+    const parents = await mergeParents()
+    return parents !== null && parents.tip === tip && parents.head === candidate
   }
   const bindBase = async (current) => {
     if (current.refusal) {
@@ -856,6 +958,23 @@ export async function landPr(
     }
     const changed = await bindBase(current)
     if (changed) return changed
+    const mandate = await currentLandingMandate(
+      cwd,
+      pr,
+      ghFn,
+      {
+        head: records.head,
+        base: landingBase,
+        baseTip: landingContext.tip,
+      },
+      gitFn,
+    )
+    if (!mandate.admitted) {
+      return exit(
+        { status: 'mandate-refused', reason: mandate.reason, error: evidenceText(mandate.evidence) },
+        { policy: 'unarmed' },
+      )
+    }
     const admission = await admitLanding(
       cwd,
       {
@@ -865,8 +984,9 @@ export async function landPr(
         baseTip: landingContext.tip,
         reviewedAt: records.at,
         reviewInput: records.input,
+        proofPins: mandate.proofPins,
       },
-      { gh: ghFn, git: gitFn, comments: () => readComments(cwd, pr, { gh: ghFn }) },
+      { gh: ghFn, git: gitFn },
     )
     if (!admission.ok) {
       const { producer, reason, error } = admission
@@ -878,6 +998,8 @@ export async function landPr(
   }
   const afterWrite = async (adapter) => {
     try {
+      // Always re-run authorization after an arming write. A merge onto the frozen
+      // selected tip is not permission to skip mandate/semantic/proof checks.
       if (adapter === 'native') {
         // The pin is already written for the admitted head: retain it, never re-admit a later one.
         const refusal = await refreshReviewAuthorization(true)
@@ -891,10 +1013,10 @@ export async function landPr(
   const refreshReviewAuthorization = async (retaining = false) => {
     // Every pre-arm checkpoint reads records first, then the caller reads the
     // head last. Preparation awaits must not retain same-head authorization.
-    records = await readReviewRecords(cwd, pr, { gh: ghFn })
-    if (records.spent) return exit(refused('review-bound'), { policy: 'unarmed' })
+    records = await requiredReviewRecords(cwd, pr, { gh: ghFn })
+    if (reviewBoundStopped(records)) return exit(refused('review-bound'), { policy: 'unarmed' })
     if (!approves(records.verdict)) return exit(refused(), { policy: 'unarmed' })
-    if (!isCommitSha(records.head)) return exit(refused('no-review-head'), { policy: 'unarmed' })
+    if (!isCommitSha(records.head)) return exit(refused('review-unbound'), { policy: 'unarmed' })
     // Retention cannot transfer an arm already written for H to a later H2.
     if (retaining && admitted !== undefined && records.head !== admitted) {
       return exit(refused('head-moved'), { policy: 'unarmed' })
@@ -932,13 +1054,13 @@ export async function landPr(
     terminal = await (async () => {
       pr = await resolveReviewPr(cwd, pr, { gh: ghFn })
       if (pr === null) return exit({ status: 'no-pr' }, { refresh: false })
-      // Keep the historical acquisition boundary: no known gate exists until
-      // records and the opening gate have both been acquired.
-      records = await readReviewRecords(cwd, pr, { gh: ghFn })
+      // Acquire the native gate first: a strict-history refusal still must clear
+      // any physical arm that this read confirms.
       gate = await readGate(cwd, pr, ghFn)
-      if (records.spent) return exit(refused('review-bound'), { policy: 'unarmed' })
+      records = await requiredReviewRecords(cwd, pr, { gh: ghFn })
+      if (reviewBoundStopped(records)) return exit(refused('review-bound'), { policy: 'unarmed' })
       if (!approves(records.verdict)) return exit(refused(), { policy: 'unarmed' })
-      if (!isCommitSha(records.head)) return exit(refused('no-review-head'), { policy: 'unarmed' })
+      if (!isCommitSha(records.head)) return exit(refused('review-unbound'), { policy: 'unarmed' })
       if (!isCommitSha(gate.headRefOid) || gate.headRefOid !== records.head) {
         return exit(refused('head-moved'), { policy: 'unarmed' })
       }
@@ -1056,6 +1178,10 @@ export async function landPr(
         }
         const afterPin = await afterWrite('native')
         if (afterPin) return afterPin
+        // Auto-merge may settle while authorization is refreshed; a merged PR
+        // has no remaining label write to perform.
+        const state = await ghFn(cwd, ['pr', 'view', String(pr), '--json', 'state', '--jq', '.state'])
+        if (state.trim() === 'MERGED') return exit({ status: 'merged' })
         // The label is an arming write too: the pin above is cleared with it.
         const behindBeforeLabel = await checkBeforeArm()
         if (behindBeforeLabel) return behindBeforeLabel
@@ -1076,10 +1202,16 @@ export async function landPr(
     terminal = exit(undefined, { policy: 'unarmed', failure })
   }
   let seen = terminal.gate ?? knownGate()
+  // Never synthesize native head/state. Observational MERGED comes only from the
+  // gate/read path. Authorized merge (^1 frozen tip, ^2 admitted) is proven by
+  // mergedAuthorized for disarm preservation — not by inventing gate fields.
+  // Do not use failure===undefined alone: throw undefined / Promise.reject() leave
+  // failure unset indistinguishable from no catch.
   if (seen?.state === 'OPEN' && terminal.policy !== 'unarmed' && terminal.refresh) {
     try {
       // Intervening awaits can change both the latest record and the head. Read
       // records first and the head last; an old snapshot is only a clearing target.
+      // Admit still uses frozen landingContext.tip — never a moved live tip.
       const refusal = await refreshReviewAuthorization(true)
       const current = await readCoordinates()
       seen = { ...seen, headRefOid: current.head }
@@ -1097,8 +1229,23 @@ export async function landPr(
       if (terminal.result?.status === 'watching') terminal.result.proof = proof
     } catch (failure) {
       terminal.policy = 'unarmed'
-      terminal.failure ??= failure
+      epilogueRefreshFailed = true
+      // Preserve a concrete diagnostic; normalize throw undefined / reject().
+      if (terminal.failure === undefined) {
+        terminal.failure = failure !== undefined ? failure : new Error('epilogue refresh failed without an error value')
+      }
     }
+  } else if (
+    epilogueRefreshFailed === false &&
+    terminal.readError === undefined &&
+    terminal.result?.status === 'watching' &&
+    admitted !== undefined &&
+    landingContext !== undefined &&
+    (await mergedAuthorized(landingContext.tip, admitted))
+  ) {
+    // Observational gate already non-OPEN (typically MERGED). Keep real headRefOid;
+    // only attach admitted proof to the watching terminal.
+    if (proof !== undefined) terminal.result = { ...terminal.result, proof }
   }
   let receipt
   try {
@@ -1109,10 +1256,23 @@ export async function landPr(
       gh: ghFn,
     })
   } catch (disarmError) {
-    // A merge that wins the clearing race of a behind exit is the merged result,
-    // never a clean `behind` and never a false clear.
-    if (terminal.result?.status === 'behind' && /merged while being disarmed/.test(errorText(disarmError))) {
-      return { status: 'merged' }
+    // Behind clearing race: observational merge only (existing policy).
+    // Watching is preserved only for an explicit settled outcome: prior watching,
+    // epilogue refresh did not fail (discriminant — not failure===undefined),
+    // no unreadable readError, admitted candidate, and merge ^1/^2 proof.
+    // Never invent watching; never claim merged without admission.
+    if (/merged while being disarmed/.test(errorText(disarmError))) {
+      if (terminal.result?.status === 'behind') return { status: 'merged' }
+      if (
+        epilogueRefreshFailed === false &&
+        terminal.readError === undefined &&
+        terminal.result?.status === 'watching' &&
+        admitted !== undefined &&
+        landingContext !== undefined &&
+        (await mergedAuthorized(landingContext.tip, admitted))
+      ) {
+        return { ...terminal.result, ...(proof !== undefined && { proof }) }
+      }
     }
     const error = stuckError(disarmError, terminal.failure ?? terminal.readError)
     if (terminal.adapter) return { status: 'auto-merge-failed', armed: true, error: error.message }
@@ -1212,11 +1372,12 @@ async function waitLabeledSince(cwd, pr, ghFn, before, sleep) {
 }
 
 /**
- * Preserve `/ci-watch` statuses while enforcing every exit. Codes 1–3 and 7
- * (`behind`) force unarmed without consulting review services. Other codes retain
- * an OPEN arm only after fresh records approve its verified current head.
+ * Preserve `/ci-watch` statuses while enforcing every exit. A red exit first
+ * persists a freshly derived required stop when applicable; codes 1–3 and 7
+ * then force unarmed. Other codes retain an OPEN arm only after fresh records
+ * and proof admission authorize its verified current head.
  */
-export async function applyCiWatchExit(cwd, pr, code, { gh: ghFn = gh } = {}) {
+export async function applyCiWatchExit(cwd, pr, code, { gh: ghFn = gh, git: gitFn } = {}) {
   let gate
   let records
   let failure
@@ -1243,21 +1404,92 @@ export async function applyCiWatchExit(cwd, pr, code, { gh: ghFn = gh } = {}) {
       if (gate.state === 'MERGED') result = { status: 'merged' }
       else if (gate.state === 'CLOSED') result = { status: 'stopped' }
     }
-    if (
+    const continuation = result.status === 'timeout' || result.status === 'evaluate-only'
+    const retaining =
       policy !== 'unarmed' &&
       gate.state === 'OPEN' &&
       (gate.autoMergeRequest || gate.labels.some((label) => label?.name === 'reviewed'))
-    ) {
-      records = await readReviewRecords(cwd, pr, { gh: ghFn })
-      // The gate's opening head is not authorization after the review awaits.
-      // A non-approving record needs no further read before forced clearing.
-      if (!records.spent && approves(records.verdict) && isCommitSha(records.head)) {
-        gate = { ...gate, headRefOid: await readHeadRefOid(cwd, pr, ghFn) }
+    if (continuation || retaining) {
+      records ??= await requiredReviewRecords(cwd, pr, { gh: ghFn })
+      const head = await readHeadRefOid(cwd, pr, ghFn)
+      gate = { ...gate, headRefOid: head }
+      const base = await resolveLandingBase(cwd, pr, ghFn, gitFn)
+      if (base.refusal || !isCommitSha(head)) {
+        policy = 'unarmed'
+        if (continuation) {
+          result = {
+            status: 'mandate-refused',
+            reason: 'incomplete',
+            error: 'current landing coordinates are incomplete',
+          }
+        }
+      } else {
+        const mandate = await currentLandingMandate(
+          cwd,
+          pr,
+          ghFn,
+          {
+            head,
+            base: base.name,
+            baseTip: base.tip,
+          },
+          gitFn ?? gitResult,
+        )
+        if (!mandate.admitted) {
+          policy = 'unarmed'
+          if (continuation && result.status !== 'ci-failed') {
+            result = {
+              status: 'mandate-refused',
+              reason: mandate.reason,
+              error: evidenceText(mandate.evidence),
+            }
+          }
+        } else if (
+          retaining &&
+          !reviewBoundStopped(records) &&
+          approves(records.verdict) &&
+          isCommitSha(records.head)
+        ) {
+          const proofFresh = await hasFreshReviewInput(cwd, pr, records, {
+            gh: ghFn,
+            git: gitFn,
+            proofPins: mandate.proofPins,
+          })
+          const lastHead = await readHeadRefOid(cwd, pr, ghFn)
+          gate = { ...gate, headRefOid: lastHead }
+          if (!proofFresh || lastHead !== records.head || lastHead !== head) {
+            policy = 'unarmed'
+          } else {
+            const lastMandate = await currentLandingMandate(
+              cwd,
+              pr,
+              ghFn,
+              {
+                head: lastHead,
+                base: base.name,
+                baseTip: base.tip,
+              },
+              gitFn ?? gitResult,
+            )
+            const after = await readHeadRefOid(cwd, pr, ghFn)
+            gate = { ...gate, headRefOid: after }
+            if (!lastMandate.admitted || after !== lastHead) policy = 'unarmed'
+          }
+        }
       }
     }
   } catch (error) {
     failure = error
     policy = 'unarmed'
+  }
+
+  if (!failure && code === 1 && result.status === 'ci-failed' && gate?.state === 'OPEN') {
+    try {
+      await persistObservedCiStop(cwd, pr, { gh: ghFn, git: gitFn })
+    } catch (error) {
+      // Stop uncertainty never keeps an arm or permits the ordinary CI path.
+      failure = error
+    }
   }
   let receipt
   try {
@@ -1270,6 +1502,154 @@ export async function applyCiWatchExit(cwd, pr, code, { gh: ghFn = gh } = {}) {
   }
   if (failure) throw failure
   return { ...result, ...(receipt.disarmed && { disarmed: true }) }
+}
+
+/**
+ * Named non-Epic meaning of one `landPr` or `applyCiWatchExit` status.
+ * Epic callers keep `landOutcome`. This does not admit a landing, re-derive the
+ * review bound, or read proof policy from a graph. An unknown status fails closed.
+ *
+ * @param {{
+ *   status?: unknown,
+ *   reason?: unknown,
+ *   producer?: unknown,
+ *   error?: unknown,
+ *   code?: unknown,
+ *   armed?: unknown,
+ *   watch?: unknown,
+ * }} land
+ */
+export function featureLandOutcome(land) {
+  const status = typeof land?.status === 'string' ? land.status : ''
+  switch (status) {
+    case 'watching':
+      return typeof land.watch === 'string' && land.watch !== ''
+        ? { action: /** @type {'start-watch'} */ ('start-watch'), claimMerged: false, reportProof: true }
+        : blocked(status, 'watch-missing')
+    case 'timeout':
+      return { action: /** @type {'reattach-watch'} */ ('reattach-watch'), claimMerged: false }
+    case 'ci-failed':
+      return {
+        action: /** @type {'next-review-step'} */ ('next-review-step'),
+        ciFailed: true,
+        claimMerged: false,
+      }
+    case 'not-approved':
+      if (land.reason === 'review-bound') {
+        return stop('review-bound', 'none', { reviewAgain: false })
+      }
+      if (land.reason === 'head-moved') {
+        return {
+          action: /** @type {'next-review-step'} */ ('next-review-step'),
+          ciFailed: false,
+          claimMerged: false,
+          reason: 'head-moved',
+        }
+      }
+      if (land.reason === 'review-unbound') {
+        return stop('review-unbound', 'review-when-head-readable', { reviewAgain: false })
+      }
+      return {
+        action: /** @type {'review-if-unspent'} */ ('review-if-unspent'),
+        claimMerged: false,
+        reason: typeof land.reason === 'string' ? land.reason : 'not-approved',
+      }
+    case 'merged':
+      return { action: /** @type {'report-merged'} */ ('report-merged'), claimMerged: true, offerTail: true }
+    case 'proof-blocked': {
+      const reenter = proofBlockedReentry(land)
+      return stop('proof-blocked', reenter, {
+        bound: 'sticky',
+        producer: land.producer ?? null,
+        proofReason: land.reason ?? null,
+        ...(reenter === 'same-head-review' ? { producerAtAdmission: false } : {}),
+      })
+    }
+    case 'ci-cancelled':
+      return stop('ci-cancelled', 'rerun-ci-then-land')
+    case 'ci-blocked':
+      return stop('ci-blocked', 'resolve-checks-then-land')
+    case 'behind':
+      return stop('behind', 'update-branch-then-land', { startWatch: false, updateBranchFromCycle: false })
+    case 'watch-failed':
+      return stop('watch-failed', 'none', { retainArm: 'current-authorization-only' })
+    case 'evaluate-only':
+      return stop('evaluate-only', 'manual-merge', {
+        wait: false,
+        report: 'evaluate-only — manual merge required',
+        doc: 'docs/kit/ci-app-setup.md',
+        retainArm: 'current-authorization-only',
+      })
+    case 'bad-landing':
+      return stop('bad-landing', 'fix-landing-config-then-land')
+    case 'no-required-checks':
+      return stop('no-required-checks', 'resolve-check-enforcement-then-land')
+    case 'stopped':
+      return stop('stopped', 'none')
+    case 'closed':
+      return stop('closed', 'none')
+    case 'auto-merge-failed':
+      return stop('auto-merge-failed', land.armed === true ? 'clear-remainder-by-hand' : 'none', {
+        armed: land.armed === true,
+      })
+    case 'no-pr':
+      return stop('no-pr', 'none')
+    case 'mandate-refused':
+      return stop('mandate-refused', 'none', {
+        reviewAgain: false,
+        mandateReason: typeof land.reason === 'string' ? land.reason : 'unknown-binding',
+      })
+    default:
+      return blocked(status, 'unknown-land-status')
+  }
+}
+
+/** @param {string} reason @param {string} reenter @param {Record<string, unknown>} [extra] */
+function stop(reason, reenter, extra) {
+  return {
+    action: /** @type {'stop'} */ ('stop'),
+    claimMerged: false,
+    reason,
+    reenter,
+    ...extra,
+  }
+}
+
+/** @param {string} status @param {'unknown-land-status' | 'watch-missing'} reason */
+function blocked(status, reason) {
+  return { action: /** @type {'blocked'} */ ('blocked'), claimMerged: false, reason, status }
+}
+
+/**
+ * Proof-blocked re-entry from the named cause. Unmatched text does not acquire
+ * or review; the bound stays sticky either way. A moved PR head is `not-approved`.
+ *
+ * @param {{ error?: unknown }} land
+ */
+function proofBlockedReentry(land) {
+  const error = typeof land.error === 'string' ? land.error : ''
+  if (error.includes('Produce it outside admission')) return 'acquire'
+  if (error.includes('was revised after publication')) return 'acquire-then-review'
+  if (
+    error.includes('not before approving review') ||
+    error.includes('without a producer') ||
+    error.includes('body that justifies') ||
+    error.includes('has no review-input binding') ||
+    error.includes('review-input binding is malformed') ||
+    error.includes('is not the exact input that was reviewed') ||
+    error.includes('applicability changed after review') ||
+    error.includes('re-review the head')
+  ) {
+    return 'same-head-review'
+  }
+  if (
+    error.includes('obtain readable GitHub metadata') ||
+    error.includes('no readable native comment identity') ||
+    error.includes('unreadable native creation/revision facts')
+  ) {
+    return 'obtain-native-metadata'
+  }
+  return 'after-named-cause'
 }
 
 /**
@@ -1288,53 +1668,21 @@ export async function disarmReviewedBeforePush(cwd, pr, { gh: ghFn = gh, push } 
   const receipt = await enforceArmedGate(cwd, pr, { gate, policy: 'unarmed', gh: ghFn })
   if (failure) throw failure
   if (push) await push()
-  return receipt.disarmed ? { disarmed: true } : {}
+  if (receipt.disarmed) return { disarmed: true }
+  if (gate.state === 'MERGED') return { merged: true }
+  if (gate.state === 'CLOSED') return { closed: true }
+  return { unarmed: true }
 }
 
-/** ADR-020 §3 / #488 / #710: at most two automated fixes per PR, one per review. */
+/** ADR-020 §3 / #488 / #710: at most two automated corrections per PR. */
 export const MAX_FIX_ROUNDS = 2
-
-/**
- * The bound is two reads of the PR's review records (#710): how many there are,
- * and the latest one. A review record is a comment by the automation login whose
- * first line is `<!-- omp-build:code-review -->`. Every other comment — fix
- * receipts, prose, older accounting markers — is ignored. Nothing writes
- * accounting: every decision is derived again from a fresh read. Every posted
- * review counts, with or without a fix before it.
- */
-const CODE_REVIEW_FIRST_LINE = /^<!--\s*omp-build:code-review\s*-->\s*$/
-const VERDICT_LINE = /^\*\*Verdict:\s*(Request changes|Approve with comments|Approve \(clean\)|Approve)\*\*(?:\s.*)?$/
-const VERDICTS = ['Request changes', 'Approve with comments', 'Approve (clean)', 'Approve']
-/** Line 2 only. A sha anywhere else in the body is not the reviewed commit. */
-const REVIEW_HEAD_LINE = /^<!-- omp-build:review-head sha=([0-9a-f]{40}) -->$/
-
-/** @param {string | null} body */
-function reviewHeadOf(body) {
-  if (typeof body !== 'string') return null
-  const line = body.split('\n')[1] ?? ''
-  const match = line.trimEnd().match(REVIEW_HEAD_LINE)
-  return match ? match[1] : null
-}
-
-/** Line 3 only; retain a malformed marker so admission can diagnose it, not silently upgrade it. */
-function reviewInputOf(body) {
-  const line = typeof body === 'string' ? body.split('\n')[2]?.trimEnd() : undefined
-  return line?.startsWith('<!-- omp-build:review-input') ? line : null
-}
 
 /** @param {unknown} value */
 function isCommitSha(value) {
   return typeof value === 'string' && /^[0-9a-f]{40}$/.test(value)
 }
 
-/**
- * The selected PR fields, or whatever the view returned. A non-JSON answer
- * throws: an unreadable view authorizes nothing.
- *
- * @param {string} cwd
- * @param {string | number} pr
- * @param {(cwd: string, args: string[]) => Promise<string>} ghFn
- */
+/** Read selected native PR fields; a non-JSON response authorizes nothing. */
 async function readPrFields(cwd, pr, ghFn, fields) {
   const raw = await ghFn(cwd, ['pr', 'view', String(pr), '--json', fields])
   let data
@@ -1353,14 +1701,9 @@ async function readHeadRefOid(cwd, pr, ghFn) {
   return (await readPrFields(cwd, pr, ghFn, 'headRefOid')).headRefOid
 }
 
-/**
- * The gate: head, state, and what arms it. A non-JSON answer throws: it
- * authorizes nothing.
- *
- * @param {string} cwd
- * @param {number | string} pr
- * @param {(cwd: string, args: string[]) => Promise<string>} ghFn
- */
+const GATE_STATES = new Set(['OPEN', 'CLOSED', 'MERGED'])
+
+/** Read the native head/state/arm fields on which the physical gate relies. */
 async function readGate(cwd, pr, ghFn) {
   const raw = await ghFn(cwd, [
     'pr',
@@ -1390,69 +1733,27 @@ async function readGate(cwd, pr, ghFn) {
   return data
 }
 
-/** The states `gh pr view` reports; anything else is an answer the gate cannot be read from. */
-const GATE_STATES = new Set(['OPEN', 'CLOSED', 'MERGED'])
-
-/**
- * An OPEN PR whose branch is behind its base. A missing or unknown merge state is
- * not behind, and a merged or closed PR never is: those keep their own results.
- *
- * @param {{ state?: string, mergeStateStatus?: unknown } | null | undefined} gate
- */
 function isBehind(gate) {
   return gate?.state === 'OPEN' && gate.mergeStateStatus === 'BEHIND'
 }
 
-/**
- * What `behind` tells the operator. omp-build never updates the branch itself.
- *
- * @param {string | number} pr
- */
 function behindMessage(pr) {
   return `PR ${pr} is behind its base; landing stopped, with no further arming and known OPEN arms cleared; run: gh pr update-branch ${pr} — then land again`
 }
 
-/**
- * The one error for a disarm that failed after a read that failed: the disarm
- * error names what stays armed, the read error is the cause.
- *
- * @param {unknown} disarmError
- * @param {unknown} readError
- */
+const errorText = (error) => (error instanceof Error ? error.message : String(error))
+
 const stuckError = (disarmError, readError) =>
   readError === undefined
     ? new Error(errorText(disarmError), { cause: disarmError })
     : new Error(`${errorText(disarmError)} — after: ${errorText(readError)}`, { cause: readError })
 
-/** @param {unknown} error */
-const errorText = (error) => (error instanceof Error ? error.message : String(error))
-
-/**
- * Disarm an OPEN PR whose gate is armed. Each write is attempted whatever the
- * other did: auto-merge is disabled first (it is the one that merges without a
- * further event), then `reviewed` is removed. When any write was attempted the
- * gate is read back, and the disarm is confirmed only by a complete OPEN
- * observation with nothing armed: an own `autoMergeRequest` field that is null,
- * and label names. A read-back that is OPEN with something still armed, that
- * cannot be read, is incomplete or of an unknown state, or finds the PR MERGED
- * throws one error naming what stays armed, with the write errors. A write error
- * over a clean OPEN read-back is not an error: the gate is disarmed. A CLOSED
- * read-back is terminal — no OPEN gate remains; it does not say the stored
- * fields were erased. Returns whether either arm was on and the disarm was
- * confirmed; a PR that is not OPEN, or whose gate is not armed, is left alone
- * (`false`: no writes, no read-back, nothing claimed).
- *
- * @param {string} cwd
- * @param {number | string} pr
- * @param {{ state?: string, labels: { name?: string }[], autoMergeRequest?: unknown }} gate
- * @param {(cwd: string, args: string[]) => Promise<string>} ghFn
- */
+/** Clear both native arms, then prove their removal with one native read-back. */
 async function disarmGate(cwd, pr, gate, ghFn) {
   if (gate.state !== 'OPEN') return false
   const labelled = gate.labels.some((label) => label?.name === 'reviewed')
   const autoOn = Boolean(gate.autoMergeRequest)
   if (!labelled && !autoOn) return false
-  /** @type {string[]} */
   const failures = []
   if (autoOn) {
     try {
@@ -1469,7 +1770,6 @@ async function disarmGate(cwd, pr, gate, ghFn) {
     }
   }
   const detail = failures.length ? ` (${failures.join('; ')})` : ''
-  /** @param {string} why */
   const unconfirmed = (why) =>
     new Error(`disarmGate: PR ${pr} could not be read back; auto-merge and reviewed may stay armed${detail} — ${why}`)
   let back
@@ -1487,144 +1787,448 @@ async function disarmGate(cwd, pr, gate, ghFn) {
   return true
 }
 
-/**
- * @param {string} body
- * @returns {string}
- */
-function commentFirstLine(body) {
-  const line = String(body ?? '').split('\n')[0] ?? ''
-  return line.trimEnd()
-}
-
-/** A review can quote another verdict; conflicting or malformed declarations are unknown. */
-function reviewVerdict(body) {
-  let verdict = null
-  for (const [line] of body.matchAll(/^\*\*Verdict:[^\n]*/gm)) {
-    const match = line.trimEnd().match(VERDICT_LINE)
-    if (!match || (verdict !== null && verdict !== match[1])) return null
-    verdict = match[1]
-  }
-  return verdict
-}
-
 /** @param {string | null} verdict */
 function approves(verdict) {
   return verdict?.startsWith('Approve') === true
 }
 
-/** @param {unknown} me */
-function reviewIdentity(me) {
-  const who = typeof me === 'string' ? me.trim() : ''
-  if (!/^[A-Za-z0-9][A-Za-z0-9-]{0,38}(?:_[A-Za-z0-9]+)?(?:\[bot\])?$/.test(who)) {
-    throw new TypeError('reviewRecords: expected a bare automation login')
+/** The authoritative taxonomy stays in dev-review; Feature only loads that source. */
+let cachedTaxonomy
+function reviewTaxonomy() {
+  if (cachedTaxonomy !== undefined) return cachedTaxonomy
+  const source = readFileSync(fileURLToPath(new URL('../dev-review/review-classes.yml', import.meta.url)), 'utf8')
+  const taxonomy = [...source.matchAll(/^\s*-\s+class:\s*([a-z][a-z0-9-]*)\s*$/gm)].map((match) => match[1])
+  if (taxonomy.length === 0) throw new Error('reviewRecords: canonical review taxonomy is unreadable')
+  cachedTaxonomy = taxonomy
+  return taxonomy
+}
+
+/** @param {unknown} refusal */
+function reviewRefusal(refusal) {
+  const diagnostics = Array.isArray(refusal?.diagnostics) ? refusal.diagnostics : []
+  const error = new Error(
+    `review records refused: ${diagnostics.map((entry) => entry?.message ?? entry?.code ?? String(entry)).join('; ') || 'unknown record failure'}`,
+  )
+  Object.assign(error, { reviewRecords: refusal })
+  return error
+}
+
+/** @param {(cwd: string, args: string[]) => Promise<string>} ghFn @param {string} cwd */
+async function repositoryScope(cwd, pr, ghFn) {
+  const raw = await ghFn(cwd, ['repo', 'view', '--json', 'nameWithOwner'])
+  let data
+  try {
+    data = JSON.parse(raw)
+  } catch {
+    throw new Error(`readReviewRecords: repository for PR ${pr} returned no JSON — ${preview(raw)}`)
   }
-  return who
+  if (typeof data?.nameWithOwner !== 'string' || !/^[^/]+\/[^/]+$/.test(data.nameWithOwner)) {
+    throw new Error(`readReviewRecords: repository for PR ${pr} is unreadable`)
+  }
+  const number = Number(pr)
+  if (!Number.isSafeInteger(number) || number <= 0)
+    throw new TypeError(`readReviewRecords: invalid PR ${JSON.stringify(pr)}`)
+  return githubScope(data.nameWithOwner, number)
 }
 
 /**
- * The review records by `me` among `comments`, in the order given (GitHub
- * creation order). `verdict`, `head`, `input` and `at` are the latest record's;
- * verdict is null when declarations conflict, head when line 2 is invalid,
- * input when line 3 has no review-input marker, at when there is no `createdAt`. `spent`:
- * a record past the `MAX_FIX_ROUNDS`-th does not approve. The bound is then
- * spent for good — a later green does not lift it.
- *
- * @param {{ body: string, author: { login: string } | null, createdAt?: string }[]} comments
- * @param {{ me: string }} options
- * @returns {{ reviews: number, verdict: string | null, head: string | null, input: string | null, at: string | null, spent: boolean }}
+ * Summarize decoded canonical records. Refusals deliberately remain Result
+ * failures: a partial, unknown, conflicting or legacy review can never become
+ * an empty/green history.
  */
-export function reviewRecords(comments, { me } = {}) {
-  if (!Array.isArray(comments)) throw new TypeError('reviewRecords: comments must be an array')
-  const who = reviewIdentity(me)
-  let reviews = 0
-  /** @type {{ body: string, createdAt?: string } | null} */
-  let latest = null
-  let spent = false
-  for (const entry of comments) {
-    if (typeof entry !== 'object' || entry === null)
-      throw new TypeError('reviewRecords: each comment must be an object')
-    if (entry.author?.login !== who) continue
-    if (typeof entry.body !== 'string') throw new TypeError('reviewRecords: comment body must be a string')
-    if (!CODE_REVIEW_FIRST_LINE.test(commentFirstLine(entry.body))) continue
-    reviews++
-    latest = entry
-    if (reviews > MAX_FIX_ROUNDS && !approves(reviewVerdict(entry.body))) spent = true
+export function reviewRecords(history, { taxonomy = reviewTaxonomy(), acceptedEvidencePolicyRef = null } = {}) {
+  return summarizeReviews(history, taxonomy, acceptedEvidencePolicyRef)
+}
+
+/** One strict common history serves both read authorization and stop publication. */
+async function readReviewHistory(cwd, pr, ghFn) {
+  const scope = await repositoryScope(cwd, pr, ghFn)
+  return decodeHistory(await readGitHubHistory(scope, withRoxabiGitHubPolicy({ cwd, gh: ghFn })))
+}
+
+/** Strict common-adapter reader for all review authorization. */
+export async function readReviewRecords(cwd, pr, { gh: ghFn = gh, taxonomy, acceptedEvidencePolicyRef = null } = {}) {
+  const history = await readReviewHistory(cwd, pr, ghFn)
+  return reviewRecords(history, { ...(taxonomy === undefined ? {} : { taxonomy }), acceptedEvidencePolicyRef })
+}
+
+/** The workflow needs a summary to authorize a gate; a Result failure authorizes nothing. */
+async function requiredReviewRecords(cwd, pr, options) {
+  const result = await readReviewRecords(cwd, pr, options)
+  if (!result.ok) throw reviewRefusal(result)
+  return result.value
+}
+
+const MANDATE_REASONS = new Set([
+  'missing',
+  'fix-only',
+  'paused',
+  'abandoned',
+  'stale',
+  'unsupported',
+  'unconfirmed',
+  'foreign',
+  'ambiguous',
+  'revoked',
+  'material-spec',
+  'config-drift',
+  'proof-pin-drift',
+  'unbound',
+  'conflict',
+  'incomplete',
+  'unknown-binding',
+  'incompatible',
+  'unsafe',
+  'materially-changed',
+])
+
+/** @param {unknown} reason */
+function mandateReason(reason) {
+  return typeof reason === 'string' && MANDATE_REASONS.has(reason) ? reason : 'unknown-binding'
+}
+
+/** @param {unknown} evidence */
+function evidenceText(evidence) {
+  if (typeof evidence === 'string' && evidence !== '') return evidence
+  if (evidence === undefined || evidence === null) return 'landing mandate refused'
+  try {
+    return JSON.stringify(evidence)
+  } catch {
+    return 'landing mandate refused'
+  }
+}
+
+/**
+ * Confirm the PR workflow-binding after selection, before review or landing.
+ * A missing publisher throws. Closes text, body, and branch name are not authority.
+ *
+ * @param {string} cwd
+ * @param {string | number} pr
+ * @param {(cwd: string, args: string[]) => Promise<string>} ghFn
+ * @param {{ issue?: number, branch?: string, base?: string }} [claim]
+ */
+async function confirmSelectedBinding(cwd, pr, ghFn, claim = {}) {
+  const roxabi = await import('../../roxabi/workflow.ts')
+  if (typeof roxabi.confirmWorkflowBinding !== 'function') {
+    throw new Error('confirmWorkflowBinding is not exported')
+  }
+  const confirmed = await roxabi.confirmWorkflowBinding({
+    cwd,
+    pr: Number(pr),
+    issue: claim.issue,
+    branch: claim.branch,
+    base: claim.base,
+    gh: ghFn,
+  })
+  if (confirmed?.ok !== true || typeof confirmed.recordId !== 'string' || confirmed.recordId === '') {
+    const reason = typeof confirmed?.reason === 'string' ? confirmed.reason : 'unconfirmed'
+    return { ok: false, reason }
+  }
+  return { ok: true, recordId: confirmed.recordId }
+}
+function bindingRefusalReason(reason) {
+  if (reason === 'absent') return 'missing'
+  if (reason === 'conflicting') return 'conflict'
+  if (reason === 'partial' || reason === 'unconfirmed' || reason === 'incomplete') return 'incomplete'
+  return mandateReason(reason)
+}
+
+async function bundledLandingMandate() {
+  const contracts = await import('../../dist/contracts.js')
+  if (
+    typeof contracts.requireLandingMandate !== 'function' ||
+    typeof contracts.readLandingFacts !== 'function' ||
+    typeof contracts.specDigest !== 'function' ||
+    typeof contracts.shippedProductVersion !== 'function'
+  ) {
+    throw new Error('requireLandingMandate is not in the trusted contracts bundle')
+  }
+  return contracts
+}
+
+/**
+ * The current mandate pin is the full effective configuration at the selected
+ * trusted base, never the installed graph digest by itself.
+ */
+async function trustedLandingWorkflowConfig(gitCwd, gitFn, baseTip, productVersion) {
+  const config = await import('../../roxabi/workflow-config.ts')
+  if (
+    typeof config.readEffectiveFixConfig !== 'function' ||
+    !Array.isArray(config.SUPPORTED_CONFIG_VERSIONS) ||
+    config.SUPPORTED_CONFIG_VERSIONS.length === 0
+  ) {
+    throw new Error('trusted workflow config reader is incomplete')
+  }
+  const current = await config.readEffectiveFixConfig({ cwd: gitCwd, commit: baseTip, git: gitFn })
+  if (current?.ok !== true) {
+    throw new Error(`trusted workflow config is ${typeof current?.reason === 'string' ? current.reason : 'unreadable'}`)
+  }
+  if (
+    typeof current.version !== 'string' ||
+    current.version === '' ||
+    typeof current.digest !== 'string' ||
+    current.digest === '' ||
+    typeof current.effective?.productVersion !== 'string' ||
+    current.effective.productVersion !== productVersion
+  ) {
+    throw new Error('trusted workflow config is incomplete')
   }
   return {
-    reviews,
-    verdict: latest === null ? null : reviewVerdict(latest.body),
-    head: reviewHeadOf(latest?.body ?? null),
-    input: reviewInputOf(latest?.body ?? null),
-    at: typeof latest?.createdAt === 'string' ? latest.createdAt : null,
-    spent,
+    configVersion: current.version,
+    configDigest: current.digest,
+    supportedConfigVersions: config.SUPPORTED_CONFIG_VERSIONS,
   }
-}
-
-/** Issue-comment pages, every page. `gh pr view --json comments` is a silent first 100. */
-export function commentPageArgs(pr) {
-  return ['api', '--paginate', '--slurp', `repos/{owner}/{repo}/issues/${pr}/comments`]
-}
-
-/** @param {string} raw @param {number | string} pr */
-function commentsFromPages(raw, pr) {
-  let pages
-  try {
-    pages = JSON.parse(raw)
-  } catch {
-    throw new Error(`readComments: comment pages for ${pr} returned no JSON — ${preview(raw)}`)
-  }
-  if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) {
-    throw new Error(`readComments: comment pages for ${pr} are incomplete`)
-  }
-  const entries = pages.flat()
-  entries.sort(
-    (a, b) =>
-      String(a?.created_at ?? '').localeCompare(String(b?.created_at ?? '')) || Number(a?.id ?? 0) - Number(b?.id ?? 0),
-  )
-  // Native identities/revisions stay optional/unreadable; admission invents none.
-  return entries.map((entry) => {
-    if (typeof entry?.body !== 'string') {
-      throw new Error(`readComments: a comment page entry for ${pr} has no body`)
-    }
-    const login = entry?.user?.login
-    const createdAt = entry.created_at
-    const updatedAt = entry.updated_at
-    return {
-      author: { login: typeof login === 'string' ? login : '' },
-      body: entry.body,
-      ...(typeof entry.id === 'number' && { id: entry.id }),
-      ...(typeof createdAt === 'string' && { createdAt }),
-      ...(typeof updatedAt === 'string' && { updatedAt }),
-    }
-  })
 }
 
 /**
- * The automation login (`gh api user`), then every comment page of `pr` in
- * creation order. An unreadable identity or page throws — it authorizes nothing.
- * Review records and conserved proof records are both read from this.
+ * @param {{ specDigest: (body: string) => string }} contracts
+ * @param {{ repository: string, target: string }[]} scopes
+ * @param {{ scope: { repository: string, target: string }, body: string }[]} bodies
+ */
+function liveSpec(contracts, scopes, bodies) {
+  if (!Array.isArray(scopes) || !Array.isArray(bodies) || bodies.length !== scopes.length) {
+    throw new Error('landing facts issue bodies are incomplete')
+  }
+  if (scopes.length === 0) return { specDigest: null, specBody: null }
+  if (scopes.length !== 1) throw new Error('landing facts issue bodies are ambiguous')
+  const scope = scopes[0]
+  const match = bodies.find(
+    (entry) => entry?.scope?.repository === scope.repository && entry?.scope?.target === scope.target,
+  )
+  if (!match || typeof match.body !== 'string') throw new Error('linked issue body is unreadable')
+  return { specDigest: contracts.specDigest(match.body), specBody: match.body }
+}
+
+/**
+ * Pins are read at the observed base tip, not the PR head. The mandate compares
+ * path and blob or absence only: a new sourceCommit or a different order does
+ * not refuse. A changed blob is proof-pin-drift. proof.ts still checks recoverability.
+ *
+ * @param {string} gitCwd
+ * @param {(cwd: string, args: string[]) => Promise<{ code: number, stdout: string, stderr: string }>} gitFn
+ * @param {string} baseTip
+ */
+async function liveProofPins(gitCwd, gitFn, baseTip) {
+  const top = await gitFn(gitCwd, ['rev-parse', '--show-toplevel'])
+  if (top.code !== 0 || typeof top.stdout !== 'string' || top.stdout.trim() === '') {
+    throw new Error('git rev-parse --show-toplevel failed')
+  }
+  const config = await import('../../roxabi/workflow-config.ts')
+  if (typeof config.readProofConfigPins !== 'function') throw new Error('shipped proof pin reader is missing')
+  const pins = await config.readProofConfigPins(gitFn, top.stdout.trim(), baseTip)
+  if (!Array.isArray(pins)) throw new Error('current proof pins are unreadable')
+  return pins
+}
+
+/**
+ * Complete composed records plus the caller's last native head, base, and tip.
+ * A missing bundle export, refused read, or non-admitted decision never arms.
+ * `localInhibit` stays null: landing has no separate inhibit file.
  *
  * @param {string} cwd
- * @param {number | string} pr
- * @param {{ gh?: (cwd: string, args: string[]) => Promise<string> }} [deps]
- * @returns {Promise<{ me: string, comments: import('./proof').PrComment[] }>}
+ * @param {string | number} pr
+ * @param {(cwd: string, args: string[]) => Promise<string>} ghFn
+ * @param {{ head: string, base: string, baseTip: string }} native
+ * @param {(cwd: string, args: string[]) => Promise<{ code: number, stdout: string, stderr: string }>} [gitFn]
+ * @param {string} [gitCwd]
+ */
+export async function currentLandingMandate(cwd, pr, ghFn, native, gitFn = gitResult, gitCwd = cwd) {
+  if (
+    !isCommitSha(native?.head) ||
+    typeof native?.base !== 'string' ||
+    native.base === '' ||
+    !isCommitSha(native?.baseTip)
+  ) {
+    throw new Error('current native landing coordinates are incomplete')
+  }
+  const contracts = await bundledLandingMandate()
+  const pullRequest = await repositoryScope(cwd, pr, ghFn)
+  const facts = await contracts.readLandingFacts(pullRequest, withRoxabiGitHubPolicy({ cwd, gh: ghFn }))
+  if (facts?.ok !== true) {
+    if (!facts || facts.reason === 'unreadable') {
+      throw new Error(`landing facts ${facts?.reason ?? 'unreadable'}`)
+    }
+    // Absent or invalid binding never grants landing authority (T3). Review/fix
+    // may still resolve absent-binding context elsewhere; it cannot arm or land here.
+    return {
+      admitted: false,
+      reason: bindingRefusalReason(facts.reason),
+      evidence: facts.diagnostics ?? facts.evidence,
+    }
+  }
+  if (
+    !facts.native?.pullRequest ||
+    facts.native.pullRequest.repository !== pullRequest.repository ||
+    facts.native.pullRequest.target !== pullRequest.target ||
+    !Array.isArray(facts.native.linkedIssueScopes) ||
+    !Array.isArray(facts.parentScopes) ||
+    !Array.isArray(facts.linkedIssueBodies)
+  ) {
+    throw new Error('landing facts scopes are incomplete')
+  }
+  if (typeof facts.native.branch !== 'string' || facts.native.branch === '' || facts.native.base !== native.base) {
+    throw new Error('landing facts branch is incomplete')
+  }
+  const productVersion = contracts.shippedProductVersion()
+  if (typeof productVersion !== 'string' || productVersion === '') {
+    throw new Error('shipped product version is missing')
+  }
+  const [config, proofPins] = await Promise.all([
+    trustedLandingWorkflowConfig(gitCwd, gitFn, native.baseTip, productVersion),
+    liveProofPins(gitCwd, gitFn, native.baseTip),
+  ])
+  const spec = liveSpec(contracts, facts.native.linkedIssueScopes, facts.linkedIssueBodies)
+  const decision = contracts.requireLandingMandate({
+    histories: facts.histories,
+    native: {
+      branch: facts.native.branch,
+      base: native.base,
+      pullRequest: facts.native.pullRequest,
+      linkedIssueScopes: facts.native.linkedIssueScopes,
+    },
+    parentScopes: facts.parentScopes,
+    current: {
+      productVersion,
+      configVersion: config.configVersion,
+      configDigest: config.configDigest,
+      supportedConfigVersions: config.supportedConfigVersions,
+      proofPins,
+      specDigest: spec.specDigest,
+      specBody: spec.specBody,
+    },
+    localInhibit: null,
+  })
+  if (decision?.ok !== true || typeof decision.recordId !== 'string' || !Array.isArray(decision.proofPins)) {
+    return {
+      admitted: false,
+      reason: mandateReason(decision?.reason),
+      evidence: decision?.evidence,
+    }
+  }
+  if (
+    decision.proofPins.some(
+      (pin) =>
+        !pin ||
+        typeof pin.path !== 'string' ||
+        pin.path === '' ||
+        typeof pin.sourceCommit !== 'string' ||
+        !isCommitSha(pin.sourceCommit) ||
+        (pin.blob !== null && (typeof pin.blob !== 'string' || !isCommitSha(pin.blob))),
+    )
+  ) {
+    return {
+      admitted: false,
+      reason: 'unknown-binding',
+      evidence: { error: 'landing mandate proof pins are malformed' },
+    }
+  }
+  return { admitted: true, recordId: decision.recordId, proofPins: decision.proofPins }
+}
+
+/**
+ * Re-admit a review's exact proof binding at its current candidate. Refusals
+ * remain refusals: callers clear an arm or refuse publication, never rebind.
+ */
+async function admitCurrentReviewBinding(cwd, pr, records, ghFn, gitFn, proofPins) {
+  if (!isCommitSha(records.head) || (proofPins !== undefined && !Array.isArray(proofPins))) return { ok: false }
+  const base = await resolveLandingBase(cwd, pr, ghFn, gitFn ?? gitResult)
+  if (base.refusal) return base.refusal
+  return admitLanding(
+    cwd,
+    {
+      pr: Number(pr),
+      candidate: records.head,
+      base: base.name,
+      baseTip: base.tip,
+      reviewedAt: records.at,
+      reviewInput: records.input,
+      ...(Array.isArray(proofPins) ? { proofPins } : {}),
+    },
+    { gh: ghFn, git: gitFn ?? gitResult },
+  )
+}
+
+/**
+ * Persist only a freshly derived third-green-plus-observed-red stop through the
+ * common writer. The normal automation identity remains the adapter default.
+ */
+async function persistObservedCiStop(cwd, pr, { gh: ghFn = gh, git: gitFn } = {}) {
+  const history = await readReviewHistory(cwd, pr, ghFn)
+  const summary = reviewRecords(history)
+  if (!summary.ok) throw reviewRefusal(summary)
+  const gate = await readGate(cwd, pr, ghFn)
+  if (!isCommitSha(gate.headRefOid) || summary.value.head !== gate.headRefOid || !approves(summary.value.verdict)) {
+    throw new Error('required CI stop is no longer bound to a current approving review')
+  }
+  let proofAdmission = {
+    ok: false,
+    producer: 'candidate',
+    reason: 'unreadable',
+    error: 'proof admission could not be re-read while persisting the observed CI stop',
+  }
+  try {
+    const base = await resolveLandingBase(cwd, pr, ghFn, gitFn)
+    if (!base.refusal && isCommitSha(gate.headRefOid)) {
+      const proofPins = await liveProofPins(cwd, gitFn ?? gitResult, base.tip)
+      proofAdmission = await admitCurrentReviewBinding(cwd, pr, summary.value, ghFn, gitFn, proofPins)
+    }
+  } catch {
+    // Preserve the actual unknown rather than inventing a positive admission.
+  }
+  const state = deriveReviewState(
+    history,
+    {
+      ...history.source.scope,
+      candidateGitSHA: gate.headRefOid,
+      input: summary.value.input,
+      proofAdmission,
+      ci: 'red',
+      acceptedEvidencePolicyRef: null,
+    },
+    reviewTaxonomy(),
+  )
+  if (!state.ok) throw reviewRefusal(state)
+  if (state.requiredStop === null || state.requiredStop.reason !== 'ci-failed') return false
+  const confirmed = history.operations.find(
+    (operation) =>
+      operation.status === 'complete' &&
+      operation.record?.kind === 'stop' &&
+      operation.record.payload.reason === state.requiredStop.reason &&
+      operation.record.payload.reviewId === state.requiredStop.reviewId,
+  )
+  if (confirmed !== undefined) return true
+  const built = buildRecord({
+    ...history.source.scope,
+    version: 1,
+    recordId: `review-stop-${state.requiredStop.reviewId}`,
+    runId: 'normal-workflow',
+    operationId: `review-stop-${state.requiredStop.reviewId}`,
+    kind: 'stop',
+    payload: state.requiredStop,
+  })
+  if (!built.ok) throw reviewRefusal(built)
+  const published = await publishGitHubRecord(built.value, history, withRoxabiGitHubPolicy({ cwd, gh: ghFn }), null)
+  if (published.status !== 'confirmed') throw reviewRefusal(published)
+  return true
+}
+
+/**
+ * Compatibility view for proof consumers. Pagination, identity and comment
+ * metadata come exclusively from the shared GitHub adapter.
  */
 export async function readComments(cwd, pr, { gh: ghFn = gh } = {}) {
-  const me = reviewIdentity(await ghFn(cwd, ['api', 'user', '--jq', '.login']))
-  const raw = await ghFn(cwd, commentPageArgs(pr))
-  return { me, comments: commentsFromPages(raw, pr) }
-}
-
-/**
- * Fresh records for `pr` from `readComments`.
- *
- * @param {string} cwd
- * @param {number | string} pr
- * @param {{ gh?: (cwd: string, args: string[]) => Promise<string> }} [deps]
- */
-export async function readReviewRecords(cwd, pr, { gh: ghFn = gh } = {}) {
-  const { me, comments } = await readComments(cwd, pr, { gh: ghFn })
-  return reviewRecords(comments, { me })
+  const scope = await repositoryScope(cwd, pr, ghFn)
+  const history = await readGitHubHistory(scope, withRoxabiGitHubPolicy({ cwd, gh: ghFn }))
+  return {
+    me: history.expectedAuthor,
+    comments: history.comments.map((comment) => ({
+      author: { login: comment.author ?? '' },
+      body: comment.body,
+      ...(comment.nativeId !== null && /^\d+$/.test(comment.nativeId) && { id: Number(comment.nativeId) }),
+      ...(comment.createdAt !== null && { createdAt: comment.createdAt }),
+      ...(comment.updatedAt !== null && { updatedAt: comment.updatedAt }),
+    })),
+  }
 }
 
 const STOP_GUIDANCE =
@@ -1654,35 +2258,34 @@ function fixStep(reviews, reason) {
 }
 
 /**
- * `posted` must be a `{ verdict, head }` the panel could have posted. Checked
- * before any read, like `pr`: a malformed argument touches nothing.
+ * May this gate stay armed? Only when the latest canonical record approves the
+ * current head, no durable red bound exists, and no review is running.
  *
- * @param {unknown} posted
- */
-function assertPostedShape(posted) {
-  if (posted === undefined) return
-  const shape = /** @type {{ verdict?: unknown, head?: unknown } | null} */ (posted)
-  if (!VERDICTS.includes(/** @type {string} */ (shape?.verdict)) || !isCommitSha(shape?.head)) {
-    throw new TypeError('nextReviewStep: posted must be { verdict: <panel verdict>, head: <40-hex sha> }')
-  }
-}
-
-/**
- * May this gate stay armed? Only when the latest record approves the current
- * head within the bound and no review of that head is running.
- *
- * @param {{ verdict: string | null, head: string | null, spent: boolean }} records
+ * @param {{ verdict: string | null, head: string | null, reviews: number, spent: boolean }} records
  * @param {{ headRefOid?: unknown }} gate
  * @param {boolean} reviewing
  */
+function reviewBoundStopped(records) {
+  return records.spent
+}
+
 function mayStayArmed(records, gate, reviewing) {
   return (
     !reviewing &&
-    !records.spent &&
+    !reviewBoundStopped(records) &&
     approves(records.verdict) &&
     isCommitSha(gate.headRefOid) &&
     records.head === gate.headRefOid
   )
+}
+
+/**
+ * Re-admit the exact retained proof binding before retaining an arm. This also
+ * detects a null-to-applicable producer transition at the same commit.
+ */
+async function hasFreshReviewInput(cwd, pr, records, { gh: ghFn = gh, git: gitFn, proofPins } = {}) {
+  if (proofPins !== undefined && !Array.isArray(proofPins)) return false
+  return (await admitCurrentReviewBinding(cwd, pr, records, ghFn, gitFn, proofPins)).ok
 }
 
 /**
@@ -1716,28 +2319,15 @@ async function enforceArmedGate(
 }
 
 /**
- * The move the records allow at the PR's current `head`.
- *
- * - `posted` (the review just posted) must be the latest record, else throw.
- * - `spent` → `stop`, whatever the head.
- * - `ciFailed` needs an approving latest record of the current head, else throw;
- *   then `fix` while `reviews <= MAX_FIX_ROUNDS`, else `stop`.
- * - No record, or a latest record of another commit or with no verdict →
- *   `review`: post a review of the current head first. One review allows one fix:
- *   the fix's push moves the head.
- * - An approval → `land`; `Request changes` → `fix` (a red past the bound is spent).
+ * The move canonical records allow at the PR's current head. Caller-supplied
+ * verdicts never select the transition: the confirmed final decision does.
  *
  * @param {{ reviews: number, verdict: string | null, head: string | null, spent: boolean }} records
- * @param {{ head: unknown, ciFailed?: boolean, posted?: { verdict: string, head: string } }} at
+ * @param {{ head: unknown, ciFailed?: boolean }} at
  */
-function reviewStep(records, { head, ciFailed = false, posted }) {
+export function reviewStep(records, { head, ciFailed = false }) {
   const { reviews } = records
-  if (posted !== undefined && (records.verdict !== posted.verdict || records.head !== posted.head)) {
-    throw new Error(
-      `nextReviewStep: the latest review record is not the one just posted — posted ${posted.verdict} at ${posted.head}, read ${records.verdict} at ${records.head}`,
-    )
-  }
-  if (records.spent) return stopStep('review-bound', reviews)
+  if (reviewBoundStopped(records)) return stopStep('review-bound', reviews)
   const current = isCommitSha(head) && records.head === head
   if (ciFailed) {
     if (!current || !approves(records.verdict)) {
@@ -1753,30 +2343,22 @@ function reviewStep(records, { head, ciFailed = false, posted }) {
 }
 
 /**
- * The loop's one decision point (#710): fresh records, the PR's current gate,
- * then the step — `land` | `fix` | `stop` | `review`. `posted` is the review
- * dev-review just posted (its verdict and REVIEWED_HEAD). `ciFailed` asks for
- * the correction of a red check on the approved head. Every step but `land`
- * disarms an OPEN armed PR first (`disarmed: true`); `reviewing` — a review is
- * about to start — disarms on `land` too, and an approving post re-arms through
- * `landPr`. A gate stays armed only while the latest record approves the current
- * head within the bound and no review of it is running. Nothing else is written.
- * Malformed inputs and failed opening acquisitions leave no known gate to act
- * on. A refused `posted` / `ciFailed` over an approving current gate refreshes
- * records and head before keeping it; an unauthorized gate is cleared. Refresh
- * failures force clearing from the known gate and propagate the original error.
- * A clearing failure names what stays armed and is appended to the refusal.
+ * Freshly derives the one transition from complete common history, then clears
+ * any OPEN arm unless that same fresh review still authorizes it. A head that
+ * differs after the proof read is `head-moved`. A stale proof at that same head
+ * is `proof-changed`. Head movement wins when both are true. Landing
+ * admission is not a prerequisite: landPr and the CI allow exits own it.
  *
  * @param {string} cwd
  * @param {number | string} pr
  * @param {{
- *   posted?: { verdict: string, head: string },
  *   ciFailed?: boolean,
  *   reviewing?: boolean,
  *   gh?: (cwd: string, args: string[]) => Promise<string>,
+ *   git?: import('./proof').Git,
  * }} [opts]
  */
-export async function nextReviewStep(cwd, pr, { posted, ciFailed = false, reviewing = false, gh: ghFn = gh } = {}) {
+export async function nextReviewStep(cwd, pr, { ciFailed = false, reviewing = false, gh: ghFn = gh, git: gitFn } = {}) {
   let number = pr
   let records
   let gate
@@ -1787,26 +2369,73 @@ export async function nextReviewStep(cwd, pr, { posted, ciFailed = false, review
     if (pr === null || pr === undefined || pr === '') {
       throw new TypeError(`nextReviewStep: pr is required, got ${JSON.stringify(pr)}`)
     }
-    assertPostedShape(posted)
     number = await resolveReviewPr(cwd, pr, { gh: ghFn })
-    records = await readReviewRecords(cwd, number, { gh: ghFn })
     gate = await readGate(cwd, number, ghFn)
-    step = reviewStep(records, { head: gate.headRefOid, ciFailed, posted })
+    records = await requiredReviewRecords(cwd, number, { gh: ghFn })
+    step = reviewStep(records, { head: gate.headRefOid, ciFailed })
     if (step.action !== 'land') policy = 'unarmed'
   } catch (error) {
-    failure = error
+    const refusal = error?.reviewRecords
+    if (refusal?.spent === true) {
+      try {
+        gate = await readGate(cwd, number, ghFn)
+        step = stopStep('review-bound', refusal.knownReviews)
+        policy = 'unarmed'
+      } catch (gateError) {
+        failure = gateError
+      }
+    } else {
+      failure = error
+      policy = 'unarmed'
+    }
   }
-  if (gate?.state === 'OPEN' && policy !== 'unarmed' && !reviewing && mayStayArmed(records, gate, reviewing)) {
+  if (
+    records &&
+    gate?.state === 'OPEN' &&
+    policy !== 'unarmed' &&
+    !reviewing &&
+    mayStayArmed(records, gate, reviewing)
+  ) {
     try {
-      records = await readReviewRecords(cwd, number, { gh: ghFn })
-      gate = { ...gate, headRefOid: await readHeadRefOid(cwd, number, ghFn) }
-      if (!failure) {
-        step = reviewStep(records, { head: gate.headRefOid, ciFailed, posted })
-        if (step.action !== 'land') policy = 'unarmed'
+      records = await requiredReviewRecords(cwd, number, { gh: ghFn })
+      const head = await readHeadRefOid(cwd, number, ghFn)
+      const base = await resolveLandingBase(cwd, number, ghFn, gitFn)
+      if (base.refusal || !isCommitSha(head)) {
+        policy = 'unarmed'
+      } else {
+        const proofPins = await liveProofPins(cwd, gitFn ?? gitResult, base.tip)
+        const proofFresh = await hasFreshReviewInput(cwd, number, records, {
+          gh: ghFn,
+          git: gitFn,
+          proofPins,
+        })
+        gate = { ...gate, headRefOid: await readHeadRefOid(cwd, number, ghFn) }
+        const headMoved = gate.headRefOid !== records.head || gate.headRefOid !== head
+        if (!proofFresh || headMoved) {
+          policy = 'unarmed'
+          if (!failure && step?.action === 'land') {
+            step = headMoved
+              ? { action: /** @type {'review'} */ ('review'), reason: 'head-moved', reviews: records.reviews }
+              : { action: /** @type {'review'} */ ('review'), reason: 'proof-changed', reviews: records.reviews }
+          }
+        } else if (!failure) {
+          step = reviewStep(records, { head: gate.headRefOid, ciFailed })
+          if (step.action !== 'land') policy = 'unarmed'
+        }
       }
     } catch (error) {
       failure ??= error
       policy = 'unarmed'
+    }
+  }
+
+  if (!failure && step?.action === 'stop' && step.reason === 'ci-failed') {
+    policy = 'unarmed'
+    try {
+      await persistObservedCiStop(cwd, number, { gh: ghFn, git: gitFn })
+    } catch (error) {
+      // The observed red is never erased: clear the gate, then refuse continuation.
+      failure = error
     }
   }
   let receipt

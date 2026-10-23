@@ -125,7 +125,7 @@ export function isPrincipal(cwd, principalPath) {
  * | `cwd` is the Principal | `refuse` — reason `principal`; never implement here |
  * | in ω, no ticket | `frame` — mode 1: grill → spec → tickets → frontier |
  * | in ω, ticket, branch claims that ticket | `build` — mode 2 (#494) |
- * | in ω, ticket with sub-issues, HEAD detached or on a branch claiming one of them | `epic` — the Epic goal (#620) |
+ * | in ω, ticket with sub-issues, HEAD detached or on a branch claiming one of them | `epic` — confirmed epic mandate (#620); not a session goal |
  * | in ω, ticket, branch claims another one or none | `refuse` — never implement #N on #M's branch |
  *
  * The last row is the one worth stating out loud: implementing #N inside the
@@ -135,7 +135,7 @@ export function isPrincipal(cwd, principalPath) {
  * because neither *proves* it is the right place. `refuse` reports both numbers
  * and lets the caller phrase the corrective move. The `epic` row is the one
  * exception: an epic worktree is detached between children and on a child's
- * branch during one, and the Epic goal, not this route, decides what runs there.
+ * branch during one, and the installed `/feature` command, not this route, decides what runs there.
  *
  * @param {{ cwd: string, principalPath: string, branch?: string | null, ticket?: string | number | null, children?: number[] | null }} input
  * @returns {Entry}

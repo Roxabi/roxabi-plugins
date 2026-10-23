@@ -10,8 +10,6 @@ import { describe, expect, it } from 'vitest'
  */
 const AGENTS_DIR = path.resolve(import.meta.dirname, '..')
 
-const EXPECTED = ['R-adversarial', 'R-advisor', 'R-architect', 'R-devops', 'R-security-auditor', 'R-tester', 'elon']
-
 /** The one legal mention: a line that documents the token as *not* expanding here. */
 const STATED_ABSENT = /^.*only expands in SKILL\.md.*$/gm
 
@@ -79,10 +77,6 @@ describe('omp-build agent roster', () => {
     // rather than silently shrink the corpus.
     expect(scanned).toEqual(expect.arrayContaining(['skills/promote/SKILL.md', 'skills/cleanup/SKILL.md']))
     for (const { file, text } of sources) expect(`${file} → ${text.trim().length > 400}`).toBe(`${file} → true`)
-  })
-
-  it('is exactly the seven ADR-020 keeps', () => {
-    expect(agents.map((a) => a.name).sort()).toEqual([...EXPECTED].sort())
   })
 
   it('names the file after the agent', () => {

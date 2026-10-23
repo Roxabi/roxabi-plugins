@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.5.14/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.6.2/schema.json",
   "linter": {
     "enabled": true,
     "rules": {
@@ -20,6 +20,15 @@
     }
   },
   "files": {
-    "includes": ["**/*.ts", "**/*.js", "!**/node_modules", "!**/.venv", "!**/.cache", "!.claude/worktrees", "!archived"]
+    "includes": [
+      "**/*.ts",
+      "**/*.js",
+      "!**/node_modules",
+      "!**/.venv",
+      "!**/.cache",
+      "!.claude/worktrees",
+      "!archived",
+      "!plugins/omp-build/dist"
+    ]
   }
 }

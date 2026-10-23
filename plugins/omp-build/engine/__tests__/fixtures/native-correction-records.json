@@ -1,0 +1,1010 @@
+[
+  {
+    "repository": "acme/widgets",
+    "target": "acme/widgets#42",
+    "version": 1,
+    "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-1",
+    "runId": "fix-28245174-555c-44d1-b988-0fd290103a82",
+    "operationId": "fix-operation-d9281f79-ef3f-4366-a5a7-cb473f635c46-fix-28245174-555c-44d1-b988-0fd290103a82-contribution-1",
+    "inputs": [],
+    "kind": "contribution",
+    "payload": {
+      "content": "operator-request",
+      "inventoryId": null,
+      "host": {
+        "origin": "operator",
+        "phase": "fix",
+        "role": "operator",
+        "slotId": null,
+        "chunk": null,
+        "childId": null
+      },
+      "rawAttempts": [
+        {
+          "attemptIndex": 0,
+          "data": null,
+          "raw": {
+            "operatorRequest": {
+              "request": "repair persistence and authorization then prove each cause"
+            },
+            "publishBinding": {
+              "pushUrl": "https://github.com/acme/widgets.git",
+              "publicationRepository": "acme/widgets",
+              "localBranch": "fix-smoke",
+              "destinationRef": "refs/heads/fix-smoke",
+              "localHead": "a55bb087c03b70bfd277ce0ac30108e58b1d782f",
+              "expectedRemoteSHA": "a55bb087c03b70bfd277ce0ac30108e58b1d782f",
+              "defaultBranch": "main",
+              "observed": {
+                "target": "acme/widgets#42",
+                "baseRepository": "acme/widgets",
+                "baseDefaultBranch": "main",
+                "localRef": "refs/heads/fix-smoke",
+                "localHead": "a55bb087c03b70bfd277ce0ac30108e58b1d782f",
+                "pushUrl": "https://github.com/acme/widgets.git",
+                "remoteRepository": "acme/widgets",
+                "remoteDefaultBranch": "main",
+                "remoteLine": "a55bb087c03b70bfd277ce0ac30108e58b1d782f\trefs/heads/fix-smoke",
+                "pr": null
+              }
+            }
+          },
+          "partialText": null
+        }
+      ],
+      "native": null,
+      "structured": null,
+      "findings": null
+    }
+  },
+  {
+    "repository": "acme/widgets",
+    "target": "acme/widgets#42",
+    "version": 1,
+    "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-fix-request-2",
+    "runId": "fix-28245174-555c-44d1-b988-0fd290103a82",
+    "operationId": "fix-operation-d9281f79-ef3f-4366-a5a7-cb473f635c46-fix-28245174-555c-44d1-b988-0fd290103a82-fix-request-2",
+    "inputs": [
+      "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-1"
+    ],
+    "kind": "fix-request",
+    "payload": {
+      "requestContributionId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-1",
+      "existingReviewId": null,
+      "scope": "repair persistence and authorization then prove each cause",
+      "landing": false
+    }
+  },
+  {
+    "repository": "acme/widgets",
+    "target": "acme/widgets#42",
+    "version": 1,
+    "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-review-attempt-3",
+    "runId": "fix-28245174-555c-44d1-b988-0fd290103a82",
+    "operationId": "fix-operation-d9281f79-ef3f-4366-a5a7-cb473f635c46-fix-28245174-555c-44d1-b988-0fd290103a82-review-attempt-3",
+    "inputs": [
+      "fix-28245174-555c-44d1-b988-0fd290103a82-fix-request-2"
+    ],
+    "kind": "review-attempt",
+    "payload": {
+      "rootAttemptId": "fix-28245174-555c-44d1-b988-0fd290103a82-review-attempt-3",
+      "candidateGitSHA": "a55bb087c03b70bfd277ce0ac30108e58b1d782f",
+      "input": null,
+      "slots": [
+        {
+          "slotId": "fix-intake",
+          "phase": "intake",
+          "role": "R-review-fix-intake",
+          "chunk": null,
+          "required": true,
+          "output": "findings",
+          "classId": null,
+          "sourceFindingIds": []
+        }
+      ],
+      "stage": "initial",
+      "purpose": "correction",
+      "requestId": "fix-28245174-555c-44d1-b988-0fd290103a82-fix-request-2",
+      "policy": {
+        "version": "baseline"
+      }
+    }
+  },
+  {
+    "repository": "acme/widgets",
+    "target": "acme/widgets#42",
+    "version": 1,
+    "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4",
+    "runId": "fix-28245174-555c-44d1-b988-0fd290103a82",
+    "operationId": "fix-operation-d9281f79-ef3f-4366-a5a7-cb473f635c46-fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4",
+    "inputs": [
+      "fix-28245174-555c-44d1-b988-0fd290103a82-review-attempt-3"
+    ],
+    "kind": "contribution",
+    "payload": {
+      "content": "findings",
+      "inventoryId": "fix-28245174-555c-44d1-b988-0fd290103a82-review-attempt-3",
+      "host": {
+        "origin": "native",
+        "phase": "intake",
+        "role": "R-review-fix-intake",
+        "slotId": "fix-intake",
+        "chunk": null,
+        "childId": "fix-intake"
+      },
+      "rawAttempts": [
+        {
+          "attemptIndex": 0,
+          "data": {
+            "findings": [
+              {
+                "label": "issue(blocking)",
+                "description": "Current region is not persisted.",
+                "location": {
+                  "file": "src/persistence.ts",
+                  "line": 1
+                },
+                "rootCause": "persistRegion always returns stale",
+                "symptomsEvidence": "persistRegion(\"current\") is stale"
+              },
+              {
+                "label": "issue(blocking)",
+                "description": "Operator is not authorized.",
+                "location": {
+                  "file": "src/authorization.ts",
+                  "line": 1
+                },
+                "rootCause": "authorize always denies",
+                "symptomsEvidence": "authorize(\"operator\") is false"
+              }
+            ]
+          },
+          "raw": {
+            "toolCallId": "fix-smoke-yield-0002",
+            "contentIndex": 0,
+            "argumentDeltas": [
+              "{\"data\":{\"findings\":[{\"label\":\"issue(blocking)\",\"description\":\"Current region is not persisted.\",\"location\":{\"file\":\"src/persistence.ts\",\"line\":1},\"rootCause\":\"persistRegion always returns stale\",\"symptomsEvidence\":\"persistRegion(\\\"curr",
+              "ent\\\") is stale\"},{\"label\":\"issue(blocking)\",\"description\":\"Operator is not authorized.\",\"location\":{\"file\":\"src/authorization.ts\",\"line\":1},\"rootCause\":\"authorize always denies\",\"symptomsEvidence\":\"authorize(\\\"operator\\\") is false\"}]}}"
+            ],
+            "argumentText": "{\"data\":{\"findings\":[{\"label\":\"issue(blocking)\",\"description\":\"Current region is not persisted.\",\"location\":{\"file\":\"src/persistence.ts\",\"line\":1},\"rootCause\":\"persistRegion always returns stale\",\"symptomsEvidence\":\"persistRegion(\\\"current\\\") is stale\"},{\"label\":\"issue(blocking)\",\"description\":\"Operator is not authorized.\",\"location\":{\"file\":\"src/authorization.ts\",\"line\":1},\"rootCause\":\"authorize always denies\",\"symptomsEvidence\":\"authorize(\\\"operator\\\") is false\"}]}}",
+            "rawBlock": null,
+            "toolCallArguments": {
+              "data": {
+                "findings": [
+                  {
+                    "label": "issue(blocking)",
+                    "description": "Current region is not persisted.",
+                    "location": {
+                      "file": "src/persistence.ts",
+                      "line": 1
+                    },
+                    "rootCause": "persistRegion always returns stale",
+                    "symptomsEvidence": "persistRegion(\"current\") is stale"
+                  },
+                  {
+                    "label": "issue(blocking)",
+                    "description": "Operator is not authorized.",
+                    "location": {
+                      "file": "src/authorization.ts",
+                      "line": 1
+                    },
+                    "rootCause": "authorize always denies",
+                    "symptomsEvidence": "authorize(\"operator\") is false"
+                  }
+                ]
+              }
+            },
+            "executionArguments": {
+              "data": {
+                "findings": [
+                  {
+                    "label": "issue(blocking)",
+                    "description": "Current region is not persisted.",
+                    "location": {
+                      "file": "src/persistence.ts",
+                      "line": 1
+                    },
+                    "rootCause": "persistRegion always returns stale",
+                    "symptomsEvidence": "persistRegion(\"current\") is stale"
+                  },
+                  {
+                    "label": "issue(blocking)",
+                    "description": "Operator is not authorized.",
+                    "location": {
+                      "file": "src/authorization.ts",
+                      "line": 1
+                    },
+                    "rootCause": "authorize always denies",
+                    "symptomsEvidence": "authorize(\"operator\") is false"
+                  }
+                ]
+              }
+            }
+          },
+          "partialText": null
+        }
+      ],
+      "native": {
+        "completion": "completed",
+        "strict": "valid",
+        "raw": {
+          "terminal": {
+            "index": 0,
+            "id": "fix-intake",
+            "agent": "R-review-fix-intake",
+            "agentSource": "user",
+            "task": "Complete assignment thoroughly:\n\nInspect only correction scope repair persistence and authorization then prove each cause for #42. Preserve each original finding unchanged and return structured findings; do not classify final labels, merge causes, edit, commit, push, arm, or land.",
+            "assignment": "Inspect only correction scope repair persistence and authorization then prove each cause for #42. Preserve each original finding unchanged and return structured findings; do not classify final labels, merge causes, edit, commit, push, arm, or land.",
+            "description": "native fix fixture complete",
+            "exitCode": 0,
+            "output": "{\n  \"findings\": [\n    {\n      \"label\": \"issue(blocking)\",\n      \"description\": \"Current region is not persisted.\",\n      \"location\": {\n        \"file\": \"src/persistence.ts\",\n        \"line\": 1\n      },\n      \"rootCause\": \"persistRegion always returns stale\",\n      \"symptomsEvidence\": \"persistRegion(\\\"current\\\") is stale\"\n    },\n    {\n      \"label\": \"issue(blocking)\",\n      \"description\": \"Operator is not authorized.\",\n      \"location\": {\n        \"file\": \"src/authorization.ts\",\n        \"line\": 1\n      },\n      \"rootCause\": \"authorize always denies\",\n      \"symptomsEvidence\": \"authorize(\\\"operator\\\") is false\"\n    }\n  ]\n}",
+            "stderr": "",
+            "truncated": false,
+            "structuredOutput": {
+              "source": "agent",
+              "mode": "permissive",
+              "status": "valid",
+              "data": {
+                "findings": [
+                  {
+                    "label": "issue(blocking)",
+                    "description": "Current region is not persisted.",
+                    "location": {
+                      "file": "src/persistence.ts",
+                      "line": 1
+                    },
+                    "rootCause": "persistRegion always returns stale",
+                    "symptomsEvidence": "persistRegion(\"current\") is stale"
+                  },
+                  {
+                    "label": "issue(blocking)",
+                    "description": "Operator is not authorized.",
+                    "location": {
+                      "file": "src/authorization.ts",
+                      "line": 1
+                    },
+                    "rootCause": "authorize always denies",
+                    "symptomsEvidence": "authorize(\"operator\") is false"
+                  }
+                ]
+              }
+            },
+            "durationMs": 144,
+            "tokens": 0,
+            "requests": 1,
+            "contextWindow": 200000,
+            "modelOverride": [
+              "smoke/fixture"
+            ],
+            "modelRole": "task",
+            "resolvedModel": "smoke/fixture",
+            "resolvedModelIdentity": "smoke/fixture",
+            "aborted": false,
+            "usage": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "reasoningTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "outputPath": "/tmp/omp-task-15af1bb370a0611b/fix-intake.md",
+            "extractedToolData": {
+              "yield": [
+                {
+                  "data": {
+                    "findings": [
+                      {
+                        "label": "issue(blocking)",
+                        "description": "Current region is not persisted.",
+                        "location": {
+                          "file": "src/persistence.ts",
+                          "line": 1
+                        },
+                        "rootCause": "persistRegion always returns stale",
+                        "symptomsEvidence": "persistRegion(\"current\") is stale"
+                      },
+                      {
+                        "label": "issue(blocking)",
+                        "description": "Operator is not authorized.",
+                        "location": {
+                          "file": "src/authorization.ts",
+                          "line": 1
+                        },
+                        "rootCause": "authorize always denies",
+                        "symptomsEvidence": "authorize(\"operator\") is false"
+                      }
+                    ]
+                  },
+                  "status": "success"
+                }
+              ]
+            },
+            "outputMeta": {
+              "lineCount": 24,
+              "charCount": 625
+            }
+          },
+          "proofEvidence": null
+        }
+      },
+      "structured": {
+        "findings": [
+          {
+            "label": "issue(blocking)",
+            "description": "Current region is not persisted.",
+            "location": {
+              "file": "src/persistence.ts",
+              "line": 1
+            },
+            "rootCause": "persistRegion always returns stale",
+            "symptomsEvidence": "persistRegion(\"current\") is stale"
+          },
+          {
+            "label": "issue(blocking)",
+            "description": "Operator is not authorized.",
+            "location": {
+              "file": "src/authorization.ts",
+              "line": 1
+            },
+            "rootCause": "authorize always denies",
+            "symptomsEvidence": "authorize(\"operator\") is false"
+          }
+        ]
+      },
+      "findings": [
+        {
+          "id": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f0",
+          "attemptIndex": 0,
+          "data": {
+            "label": "issue(blocking)",
+            "description": "Current region is not persisted.",
+            "location": {
+              "file": "src/persistence.ts",
+              "line": 1
+            },
+            "rootCause": "persistRegion always returns stale",
+            "symptomsEvidence": "persistRegion(\"current\") is stale"
+          }
+        },
+        {
+          "id": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f1",
+          "attemptIndex": 0,
+          "data": {
+            "label": "issue(blocking)",
+            "description": "Operator is not authorized.",
+            "location": {
+              "file": "src/authorization.ts",
+              "line": 1
+            },
+            "rootCause": "authorize always denies",
+            "symptomsEvidence": "authorize(\"operator\") is false"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "repository": "acme/widgets",
+    "target": "acme/widgets#42",
+    "version": 1,
+    "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-review-attempt-5",
+    "runId": "fix-28245174-555c-44d1-b988-0fd290103a82",
+    "operationId": "fix-operation-d9281f79-ef3f-4366-a5a7-cb473f635c46-fix-28245174-555c-44d1-b988-0fd290103a82-review-attempt-5",
+    "inputs": [
+      "fix-28245174-555c-44d1-b988-0fd290103a82-review-attempt-3",
+      "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+    ],
+    "kind": "review-attempt",
+    "payload": {
+      "rootAttemptId": "fix-28245174-555c-44d1-b988-0fd290103a82-review-attempt-3",
+      "candidateGitSHA": "a55bb087c03b70bfd277ce0ac30108e58b1d782f",
+      "input": null,
+      "slots": [
+        {
+          "slotId": "fix-synthesis",
+          "phase": "synthesis",
+          "role": "R-review-fix-synthesis",
+          "chunk": null,
+          "required": true,
+          "output": "decision",
+          "classId": null,
+          "sourceFindingIds": []
+        }
+      ],
+      "stage": "synthesis",
+      "purpose": "correction",
+      "policy": {
+        "version": "baseline"
+      }
+    }
+  },
+  {
+    "repository": "acme/widgets",
+    "target": "acme/widgets#42",
+    "version": 1,
+    "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-6",
+    "runId": "fix-28245174-555c-44d1-b988-0fd290103a82",
+    "operationId": "fix-operation-d9281f79-ef3f-4366-a5a7-cb473f635c46-fix-28245174-555c-44d1-b988-0fd290103a82-contribution-6",
+    "inputs": [
+      "fix-28245174-555c-44d1-b988-0fd290103a82-review-attempt-5",
+      "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+    ],
+    "kind": "contribution",
+    "payload": {
+      "content": "decision",
+      "inventoryId": "fix-28245174-555c-44d1-b988-0fd290103a82-review-attempt-5",
+      "host": {
+        "origin": "native",
+        "phase": "synthesis",
+        "role": "R-review-fix-synthesis",
+        "slotId": "fix-synthesis",
+        "chunk": null,
+        "childId": "fix-synthesis"
+      },
+      "rawAttempts": [
+        {
+          "attemptIndex": 0,
+          "data": {
+            "purpose": "correction",
+            "policy": {
+              "version": "baseline"
+            },
+            "sourceContributionIds": [
+              "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+            ],
+            "findings": [
+              {
+                "id": "final-region",
+                "label": "issue(blocking)",
+                "impactReason": "Current region behavior is broken.",
+                "state": "usable",
+                "sourceFindingIds": [
+                  "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f0"
+                ],
+                "description": "Current region is not persisted."
+              },
+              {
+                "id": "final-audit",
+                "label": "issue(blocking)",
+                "impactReason": "Operator authorization is broken.",
+                "state": "usable",
+                "sourceFindingIds": [
+                  "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f1"
+                ],
+                "description": "Operator is not authorized."
+              }
+            ],
+            "causes": [
+              {
+                "id": "cause-region",
+                "title": "stale persistence",
+                "mechanism": "persistRegion returns stale",
+                "fix": "preserve current input",
+                "failure": "current region is lost",
+                "restored": "current region persists",
+                "paths": [
+                  "src/persistence.ts"
+                ],
+                "proof": "bun run proof:region",
+                "findingIds": [
+                  "final-region"
+                ],
+                "authorization": "required"
+              },
+              {
+                "id": "cause-audit",
+                "title": "denied operator",
+                "mechanism": "authorize always denies",
+                "fix": "authorize only operator",
+                "failure": "operator cannot proceed",
+                "restored": "operator is accepted and visitor rejected",
+                "paths": [
+                  "src/authorization.ts"
+                ],
+                "proof": "bun run proof:audit",
+                "findingIds": [
+                  "final-audit"
+                ],
+                "authorization": "required"
+              }
+            ]
+          },
+          "raw": {
+            "toolCallId": "fix-smoke-yield-0004",
+            "contentIndex": 0,
+            "argumentDeltas": [
+              "{\"data\":{\"purpose\":\"correction\",\"policy\":{\"version\":\"baseline\"},\"sourceContributionIds\":[\"fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4\"],\"findings\":[{\"id\":\"final-region\",\"label\":\"issue(blocking)\",\"impactReason\":\"Current region behavior is broken.\",\"state\":\"usable\",\"sourceFindingIds\":[\"fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f0\"],\"description\":\"Current region is not persisted.\"},{\"id\":\"final-audit\",\"label\":\"issue(blocking)\",\"impactReason\":\"Operator authorization is broken.\",\"state\":\"usable\",\"sourceFindingIds\":[\"fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f1\"],\"description\":\"Operator is not authorized.\"}],\"",
+              "causes\":[{\"id\":\"cause-region\",\"title\":\"stale persistence\",\"mechanism\":\"persistRegion returns stale\",\"fix\":\"preserve current input\",\"failure\":\"current region is lost\",\"restored\":\"current region persists\",\"paths\":[\"src/persistence.ts\"],\"proof\":\"bun run proof:region\",\"findingIds\":[\"final-region\"],\"authorization\":\"required\"},{\"id\":\"cause-audit\",\"title\":\"denied operator\",\"mechanism\":\"authorize always denies\",\"fix\":\"authorize only operator\",\"failure\":\"operator cannot proceed\",\"restored\":\"operator is accepted and visitor rejected\",\"paths\":[\"src/authorization.ts\"],\"proof\":\"bun run proof:audit\",\"findingIds\":[\"final-audit\"],\"authorization\":\"required\"}]}}"
+            ],
+            "argumentText": "{\"data\":{\"purpose\":\"correction\",\"policy\":{\"version\":\"baseline\"},\"sourceContributionIds\":[\"fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4\"],\"findings\":[{\"id\":\"final-region\",\"label\":\"issue(blocking)\",\"impactReason\":\"Current region behavior is broken.\",\"state\":\"usable\",\"sourceFindingIds\":[\"fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f0\"],\"description\":\"Current region is not persisted.\"},{\"id\":\"final-audit\",\"label\":\"issue(blocking)\",\"impactReason\":\"Operator authorization is broken.\",\"state\":\"usable\",\"sourceFindingIds\":[\"fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f1\"],\"description\":\"Operator is not authorized.\"}],\"causes\":[{\"id\":\"cause-region\",\"title\":\"stale persistence\",\"mechanism\":\"persistRegion returns stale\",\"fix\":\"preserve current input\",\"failure\":\"current region is lost\",\"restored\":\"current region persists\",\"paths\":[\"src/persistence.ts\"],\"proof\":\"bun run proof:region\",\"findingIds\":[\"final-region\"],\"authorization\":\"required\"},{\"id\":\"cause-audit\",\"title\":\"denied operator\",\"mechanism\":\"authorize always denies\",\"fix\":\"authorize only operator\",\"failure\":\"operator cannot proceed\",\"restored\":\"operator is accepted and visitor rejected\",\"paths\":[\"src/authorization.ts\"],\"proof\":\"bun run proof:audit\",\"findingIds\":[\"final-audit\"],\"authorization\":\"required\"}]}}",
+            "rawBlock": null,
+            "toolCallArguments": {
+              "data": {
+                "purpose": "correction",
+                "policy": {
+                  "version": "baseline"
+                },
+                "sourceContributionIds": [
+                  "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                ],
+                "findings": [
+                  {
+                    "id": "final-region",
+                    "label": "issue(blocking)",
+                    "impactReason": "Current region behavior is broken.",
+                    "state": "usable",
+                    "sourceFindingIds": [
+                      "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f0"
+                    ],
+                    "description": "Current region is not persisted."
+                  },
+                  {
+                    "id": "final-audit",
+                    "label": "issue(blocking)",
+                    "impactReason": "Operator authorization is broken.",
+                    "state": "usable",
+                    "sourceFindingIds": [
+                      "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f1"
+                    ],
+                    "description": "Operator is not authorized."
+                  }
+                ],
+                "causes": [
+                  {
+                    "id": "cause-region",
+                    "title": "stale persistence",
+                    "mechanism": "persistRegion returns stale",
+                    "fix": "preserve current input",
+                    "failure": "current region is lost",
+                    "restored": "current region persists",
+                    "paths": [
+                      "src/persistence.ts"
+                    ],
+                    "proof": "bun run proof:region",
+                    "findingIds": [
+                      "final-region"
+                    ],
+                    "authorization": "required"
+                  },
+                  {
+                    "id": "cause-audit",
+                    "title": "denied operator",
+                    "mechanism": "authorize always denies",
+                    "fix": "authorize only operator",
+                    "failure": "operator cannot proceed",
+                    "restored": "operator is accepted and visitor rejected",
+                    "paths": [
+                      "src/authorization.ts"
+                    ],
+                    "proof": "bun run proof:audit",
+                    "findingIds": [
+                      "final-audit"
+                    ],
+                    "authorization": "required"
+                  }
+                ]
+              }
+            },
+            "executionArguments": {
+              "data": {
+                "purpose": "correction",
+                "policy": {
+                  "version": "baseline"
+                },
+                "sourceContributionIds": [
+                  "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                ],
+                "findings": [
+                  {
+                    "id": "final-region",
+                    "label": "issue(blocking)",
+                    "impactReason": "Current region behavior is broken.",
+                    "state": "usable",
+                    "sourceFindingIds": [
+                      "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f0"
+                    ],
+                    "description": "Current region is not persisted."
+                  },
+                  {
+                    "id": "final-audit",
+                    "label": "issue(blocking)",
+                    "impactReason": "Operator authorization is broken.",
+                    "state": "usable",
+                    "sourceFindingIds": [
+                      "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f1"
+                    ],
+                    "description": "Operator is not authorized."
+                  }
+                ],
+                "causes": [
+                  {
+                    "id": "cause-region",
+                    "title": "stale persistence",
+                    "mechanism": "persistRegion returns stale",
+                    "fix": "preserve current input",
+                    "failure": "current region is lost",
+                    "restored": "current region persists",
+                    "paths": [
+                      "src/persistence.ts"
+                    ],
+                    "proof": "bun run proof:region",
+                    "findingIds": [
+                      "final-region"
+                    ],
+                    "authorization": "required"
+                  },
+                  {
+                    "id": "cause-audit",
+                    "title": "denied operator",
+                    "mechanism": "authorize always denies",
+                    "fix": "authorize only operator",
+                    "failure": "operator cannot proceed",
+                    "restored": "operator is accepted and visitor rejected",
+                    "paths": [
+                      "src/authorization.ts"
+                    ],
+                    "proof": "bun run proof:audit",
+                    "findingIds": [
+                      "final-audit"
+                    ],
+                    "authorization": "required"
+                  }
+                ]
+              }
+            }
+          },
+          "partialText": null
+        }
+      ],
+      "native": {
+        "completion": "completed",
+        "strict": "valid",
+        "raw": {
+          "terminal": {
+            "index": 0,
+            "id": "fix-synthesis",
+            "agent": "R-review-fix-synthesis",
+            "agentSource": "user",
+            "task": "Complete assignment thoroughly:\n\nSynthesize one correction-purpose decision from the supplied complete contribution payloads. Preserve source IDs, original raw associations, exact policy and seven-field causes; do not edit, commit, push, arm, or land.",
+            "assignment": "Synthesize one correction-purpose decision from the supplied complete contribution payloads. Preserve source IDs, original raw associations, exact policy and seven-field causes; do not edit, commit, push, arm, or land.",
+            "description": "native fix fixture complete",
+            "exitCode": 0,
+            "output": "{\n  \"purpose\": \"correction\",\n  \"policy\": {\n    \"version\": \"baseline\"\n  },\n  \"sourceContributionIds\": [\n    \"fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4\"\n  ],\n  \"findings\": [\n    {\n      \"id\": \"final-region\",\n      \"label\": \"issue(blocking)\",\n      \"impactReason\": \"Current region behavior is broken.\",\n      \"state\": \"usable\",\n      \"sourceFindingIds\": [\n        \"fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f0\"\n      ],\n      \"description\": \"Current region is not persisted.\"\n    },\n    {\n      \"id\": \"final-audit\",\n      \"label\": \"issue(blocking)\",\n      \"impactReason\": \"Operator authorization is broken.\",\n      \"state\": \"usable\",\n      \"sourceFindingIds\": [\n        \"fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f1\"\n      ],\n      \"description\": \"Operator is not authorized.\"\n    }\n  ],\n  \"causes\": [\n    {\n      \"id\": \"cause-region\",\n      \"title\": \"stale persistence\",\n      \"mechanism\": \"persistRegion returns stale\",\n      \"fix\": \"preserve current input\",\n      \"failure\": \"current region is lost\",\n      \"restored\": \"current region persists\",\n      \"paths\": [\n        \"src/persistence.ts\"\n      ],\n      \"proof\": \"bun run proof:region\",\n      \"findingIds\": [\n        \"final-region\"\n      ],\n      \"authorization\": \"required\"\n    },\n    {\n      \"id\": \"cause-audit\",\n      \"title\": \"denied operator\",\n      \"mechanism\": \"authorize always denies\",\n      \"fix\": \"authorize only operator\",\n      \"failure\": \"operator cannot proceed\",\n      \"restored\": \"operator is accepted and visitor rejected\",\n      \"paths\": [\n        \"src/authorization.ts\"\n      ],\n      \"proof\": \"bun run proof:audit\",\n      \"findingIds\": [\n        \"final-audit\"\n      ],\n      \"authorization\": \"required\"\n    }\n  ]\n}",
+            "stderr": "",
+            "truncated": false,
+            "structuredOutput": {
+              "source": "agent",
+              "mode": "permissive",
+              "status": "valid",
+              "data": {
+                "purpose": "correction",
+                "policy": {
+                  "version": "baseline"
+                },
+                "sourceContributionIds": [
+                  "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                ],
+                "findings": [
+                  {
+                    "id": "final-region",
+                    "label": "issue(blocking)",
+                    "impactReason": "Current region behavior is broken.",
+                    "state": "usable",
+                    "sourceFindingIds": [
+                      "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f0"
+                    ],
+                    "description": "Current region is not persisted."
+                  },
+                  {
+                    "id": "final-audit",
+                    "label": "issue(blocking)",
+                    "impactReason": "Operator authorization is broken.",
+                    "state": "usable",
+                    "sourceFindingIds": [
+                      "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f1"
+                    ],
+                    "description": "Operator is not authorized."
+                  }
+                ],
+                "causes": [
+                  {
+                    "id": "cause-region",
+                    "title": "stale persistence",
+                    "mechanism": "persistRegion returns stale",
+                    "fix": "preserve current input",
+                    "failure": "current region is lost",
+                    "restored": "current region persists",
+                    "paths": [
+                      "src/persistence.ts"
+                    ],
+                    "proof": "bun run proof:region",
+                    "findingIds": [
+                      "final-region"
+                    ],
+                    "authorization": "required"
+                  },
+                  {
+                    "id": "cause-audit",
+                    "title": "denied operator",
+                    "mechanism": "authorize always denies",
+                    "fix": "authorize only operator",
+                    "failure": "operator cannot proceed",
+                    "restored": "operator is accepted and visitor rejected",
+                    "paths": [
+                      "src/authorization.ts"
+                    ],
+                    "proof": "bun run proof:audit",
+                    "findingIds": [
+                      "final-audit"
+                    ],
+                    "authorization": "required"
+                  }
+                ]
+              }
+            },
+            "durationMs": 71,
+            "tokens": 0,
+            "requests": 1,
+            "contextWindow": 200000,
+            "modelOverride": [
+              "smoke/fixture"
+            ],
+            "modelRole": "review",
+            "resolvedModel": "smoke/fixture",
+            "resolvedModelIdentity": "smoke/fixture",
+            "aborted": false,
+            "usage": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "reasoningTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "outputPath": "/tmp/omp-task-15af1bb3e460611f/fix-synthesis.md",
+            "extractedToolData": {
+              "yield": [
+                {
+                  "data": {
+                    "purpose": "correction",
+                    "policy": {
+                      "version": "baseline"
+                    },
+                    "sourceContributionIds": [
+                      "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                    ],
+                    "findings": [
+                      {
+                        "id": "final-region",
+                        "label": "issue(blocking)",
+                        "impactReason": "Current region behavior is broken.",
+                        "state": "usable",
+                        "sourceFindingIds": [
+                          "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f0"
+                        ],
+                        "description": "Current region is not persisted."
+                      },
+                      {
+                        "id": "final-audit",
+                        "label": "issue(blocking)",
+                        "impactReason": "Operator authorization is broken.",
+                        "state": "usable",
+                        "sourceFindingIds": [
+                          "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f1"
+                        ],
+                        "description": "Operator is not authorized."
+                      }
+                    ],
+                    "causes": [
+                      {
+                        "id": "cause-region",
+                        "title": "stale persistence",
+                        "mechanism": "persistRegion returns stale",
+                        "fix": "preserve current input",
+                        "failure": "current region is lost",
+                        "restored": "current region persists",
+                        "paths": [
+                          "src/persistence.ts"
+                        ],
+                        "proof": "bun run proof:region",
+                        "findingIds": [
+                          "final-region"
+                        ],
+                        "authorization": "required"
+                      },
+                      {
+                        "id": "cause-audit",
+                        "title": "denied operator",
+                        "mechanism": "authorize always denies",
+                        "fix": "authorize only operator",
+                        "failure": "operator cannot proceed",
+                        "restored": "operator is accepted and visitor rejected",
+                        "paths": [
+                          "src/authorization.ts"
+                        ],
+                        "proof": "bun run proof:audit",
+                        "findingIds": [
+                          "final-audit"
+                        ],
+                        "authorization": "required"
+                      }
+                    ]
+                  },
+                  "status": "success"
+                }
+              ]
+            },
+            "outputMeta": {
+              "lineCount": 65,
+              "charCount": 1730
+            }
+          },
+          "proofEvidence": null
+        }
+      },
+      "structured": {
+        "purpose": "correction",
+        "policy": {
+          "version": "baseline"
+        },
+        "sourceContributionIds": [
+          "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+        ],
+        "findings": [
+          {
+            "id": "final-region",
+            "label": "issue(blocking)",
+            "impactReason": "Current region behavior is broken.",
+            "state": "usable",
+            "sourceFindingIds": [
+              "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f0"
+            ],
+            "description": "Current region is not persisted."
+          },
+          {
+            "id": "final-audit",
+            "label": "issue(blocking)",
+            "impactReason": "Operator authorization is broken.",
+            "state": "usable",
+            "sourceFindingIds": [
+              "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f1"
+            ],
+            "description": "Operator is not authorized."
+          }
+        ],
+        "causes": [
+          {
+            "id": "cause-region",
+            "title": "stale persistence",
+            "mechanism": "persistRegion returns stale",
+            "fix": "preserve current input",
+            "failure": "current region is lost",
+            "restored": "current region persists",
+            "paths": [
+              "src/persistence.ts"
+            ],
+            "proof": "bun run proof:region",
+            "findingIds": [
+              "final-region"
+            ],
+            "authorization": "required"
+          },
+          {
+            "id": "cause-audit",
+            "title": "denied operator",
+            "mechanism": "authorize always denies",
+            "fix": "authorize only operator",
+            "failure": "operator cannot proceed",
+            "restored": "operator is accepted and visitor rejected",
+            "paths": [
+              "src/authorization.ts"
+            ],
+            "proof": "bun run proof:audit",
+            "findingIds": [
+              "final-audit"
+            ],
+            "authorization": "required"
+          }
+        ]
+      },
+      "findings": null
+    }
+  },
+  {
+    "repository": "acme/widgets",
+    "target": "acme/widgets#42",
+    "version": 1,
+    "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-decision-7",
+    "runId": "fix-28245174-555c-44d1-b988-0fd290103a82",
+    "operationId": "fix-operation-d9281f79-ef3f-4366-a5a7-cb473f635c46-fix-28245174-555c-44d1-b988-0fd290103a82-decision-7",
+    "inputs": [
+      "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-6",
+      "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4",
+      "fix-28245174-555c-44d1-b988-0fd290103a82-review-attempt-5"
+    ],
+    "kind": "decision",
+    "payload": {
+      "originalContributionId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-6",
+      "judgment": {
+        "purpose": "correction",
+        "policy": {
+          "version": "baseline"
+        },
+        "sourceContributionIds": [
+          "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+        ],
+        "findings": [
+          {
+            "id": "final-region",
+            "label": "issue(blocking)",
+            "impactReason": "Current region behavior is broken.",
+            "state": "usable",
+            "sourceFindingIds": [
+              "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f0"
+            ],
+            "description": "Current region is not persisted."
+          },
+          {
+            "id": "final-audit",
+            "label": "issue(blocking)",
+            "impactReason": "Operator authorization is broken.",
+            "state": "usable",
+            "sourceFindingIds": [
+              "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f1"
+            ],
+            "description": "Operator is not authorized."
+          }
+        ],
+        "causes": [
+          {
+            "id": "cause-region",
+            "title": "stale persistence",
+            "mechanism": "persistRegion returns stale",
+            "fix": "preserve current input",
+            "failure": "current region is lost",
+            "restored": "current region persists",
+            "paths": [
+              "src/persistence.ts"
+            ],
+            "proof": "bun run proof:region",
+            "findingIds": [
+              "final-region"
+            ],
+            "authorization": "required"
+          },
+          {
+            "id": "cause-audit",
+            "title": "denied operator",
+            "mechanism": "authorize always denies",
+            "fix": "authorize only operator",
+            "failure": "operator cannot proceed",
+            "restored": "operator is accepted and visitor rejected",
+            "paths": [
+              "src/authorization.ts"
+            ],
+            "proof": "bun run proof:audit",
+            "findingIds": [
+              "final-audit"
+            ],
+            "authorization": "required"
+          }
+        ]
+      }
+    }
+  }
+]

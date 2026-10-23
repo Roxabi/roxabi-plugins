@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { createExtensionApiStub } from '../../../omp/__tests__/extension-api-stub'
 import ompBuildExtension from '../../../omp/index'
 import {
   classifyDensity,
@@ -420,13 +421,13 @@ function slashCommands(text: string): string[] {
 
 /** Every slash command this plugin registers — the set a printed `/x` must be in. */
 const SHIPPED = new Set<string>()
-ompBuildExtension({
-  on: () => {},
-  registerCommand: (name) => {
-    SHIPPED.add(`/${name}`)
-  },
-  sendUserMessage: () => {},
-})
+ompBuildExtension(
+  createExtensionApiStub({
+    registerCommand: (name) => {
+      SHIPPED.add(`/${name}`)
+    },
+  }),
+)
 
 describe('formatResult', () => {
   const baseResult: HotfixDensityResult = {

@@ -1,7 +1,8 @@
 /**
- * The epic goal's transition contract (#620, ADR-024 §1). Pure: every fact the
- * decision needs arrives as a parameter, gathered from GitHub and git by
- * `epic-driver.ts`, so a goal session resumes from GitHub state, not from memory.
+ * The epic route's transition contract. Pure: every fact the decision needs
+ * arrives as a parameter, gathered from GitHub and git by `epic-driver.ts`.
+ * Authority is the confirmed mandate, not a local goal objective.
+ * `specDigest` is the engine export, not a second hash.
  */
 import { epicDiffRange } from './epic-close'
 
@@ -131,102 +132,111 @@ export function branchFor(child: { number: number; title: string; labels: string
   return `${type}/${child.number}${slug ? `-${slug}` : ''}`
 }
 
-// ── Goal gate ─────────────────────────────────────────────────────────────────
+// ── Mandate identity ──────────────────────────────────────────────────────────
 
 export const RUN_ID = /^[a-z0-9]{8}$/
-const BASE_NAME = /^[A-Za-z0-9._/-]+$/
+/** A branch name, not a revision (`..`, `~`, `^`, `@{`, `:` are excluded). */
+export const BASE_NAME = /^(?!.*(?:\.\.|~|\^|@\{|:))[A-Za-z0-9._/-]+$/
 
-export type Goal = { status?: string | null; objective?: string | null } | null | undefined
-
-/**
- * The run and base a goal authorizes for `epic`, or `null`. Only an **active**
- * goal counts (paused, budget-limited, dropped, complete do not), and its
- * objective must name exactly this epic as `/feature #E`, one `run=<id>` and
- * one `base=<branch>`.
- */
-export function goalRun(goal: Goal, epic: number): { run: string; base: string } | null {
-  if (goal?.status !== 'active') return null
-  const text = goal.objective ?? ''
-  const epics = [...text.matchAll(/\/feature #(\d+)\b/g)].map((match) => Number(match[1]))
-  if (epics.length === 0 || epics.some((named) => named !== epic)) return null
-  const runs = [...text.matchAll(/(?:^|[\s(])run=([^\s)]+)/g)].map((match) => match[1] ?? '')
-  const bases = [...text.matchAll(/(?:^|[\s(])base=([^\s)]+)/g)].map((match) => match[1] ?? '')
-  const [run] = runs
-  const [base] = bases
-  if (runs.length !== 1 || bases.length !== 1 || !run || !base) return null
-  if (!RUN_ID.test(run) || !BASE_NAME.test(base) || base.includes('..')) return null
-  return { run, base }
-}
-
-export function objectiveText(epic: number, run: string, base: string): string {
-  return [
-    `Deliver epic #${epic} (/feature #${epic} run=${run} base=${base}).`,
-    'Read skill://feature, section Epic goal, and call its driver (epic-driver.ts next) before every ticket;',
-    'follow the one action it returns and never rely on memory of earlier tickets.',
-    'Ticket stop: report it, the driver records it, dependents are skipped, independent children continue.',
-    'Shared-state stop (base CI red, base CI not yet green at finalization, a dirty tree, a hook ok or skipped',
-    'at another commit, landing or tracker failure, post-merge hook failure, final review still blocking after its',
-    'fix round, no progress): report, then goal drop. A new run retries those stops except a spent review bound.',
-    'Complete with nothing merged when the tree is clean and base CI is green or absent: no review, no hook.',
-    `Complete otherwise when every child is closed or merged into ${base}, the final review is clean, the tree is clean,`,
-    'base CI is green or absent, and the post-merge hook is ok or skipped at the current base commit.',
-  ].join(' ')
-}
-
-// ── Markers: machine lines on GitHub ─────────────────────────────────────────
-
-export type MarkerKind = 'goal-stop' | 'epic-review' | 'epic-fix' | 'post-merge' | 'goal-report'
-
-const FIELD_VALUE = /^[A-Za-z0-9._-]+$/
-
-export function formatMarker(kind: MarkerKind, fields: Record<string, string> = {}): string {
-  const pairs = Object.entries(fields).map(([key, value]) => {
-    if (!/^[a-z]+$/.test(key) || !FIELD_VALUE.test(value)) throw new Error(`marker ${kind}: bad field ${key}=${value}`)
-    return ` ${key}=${value}`
-  })
-  return `<!-- omp-build:${kind}${pairs.join('')} -->`
-}
-
-/**
- * The fields of a `kind` marker on the **first line** of `body`, or `null`. A
- * marker quoted further down a comment — a review, a report — is not a marker.
- */
-export function readMarker(body: string, kind: MarkerKind): Record<string, string> | null {
-  const first = body.split('\n', 1)[0]?.trim() ?? ''
-  const match = /^<!--\s*omp-build:([a-z-]+)((?:\s+[a-z]+=[A-Za-z0-9._-]+)*)\s*-->$/.exec(first)
-  if (!match || match[1] !== kind) return null
-  const fields: Record<string, string> = {}
-  for (const pair of (match[2] ?? '').trim().split(/\s+/).filter(Boolean)) {
-    const at = pair.indexOf('=')
-    fields[pair.slice(0, at)] = pair.slice(at + 1)
-  }
-  return fields
-}
+// ── Canonical Epic events ────────────────────────────────────────────────────
 
 const SHA = /^[0-9a-f]{40}$/
 
-export function parseGoalStop(body: string): { run: string; reason: string } | null {
-  const fields = readMarker(body, 'goal-stop')
-  if (!fields?.run || !fields.reason || !RUN_ID.test(fields.run)) return null
-  return { run: fields.run, reason: fields.reason }
+export type EpicFixEvent = { event: 'epic-fix'; run: string }
+export type GoalStopEvent = { event: 'goal-stop'; run: string; reason: string; detail?: string }
+export type EpicReviewEvent = {
+  event: 'epic-review'
+  run: string
+  range: string
+  decisionId: string
+  inventoryIds: string[]
+}
+export type PostMergeEvent = {
+  event: 'post-merge'
+  run: string
+  result: 'started' | 'ok' | 'skipped' | 'failed'
+  sha: string
+  exitCode: number | null
+}
+export type GoalReportEvent = {
+  event: 'goal-report'
+  run: string
+  outcome: 'complete' | 'drop'
+  reason: string
+  summary: unknown
+  disarmed: unknown
+  stillArmed: unknown
+}
+export type EpicEvent = EpicFixEvent | GoalStopEvent | EpicReviewEvent | PostMergeEvent | GoalReportEvent
+
+function strings(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) && value.length > 0 && value.every((entry) => typeof entry === 'string' && entry.length > 0)
+  )
 }
 
-export function parseEpicReview(body: string): EpicReview | null {
-  const fields = readMarker(body, 'epic-review')
-  if (!fields?.run || !RUN_ID.test(fields.run)) return null
-  if (fields.verdict !== 'clean' && fields.verdict !== 'blocking') return null
-  const parts = (fields.range ?? '').split('..')
-  const [from, to] = parts
-  if (parts.length !== 2 || !from || !to || !SHA.test(from) || !SHA.test(to)) return null
-  return { run: fields.run, verdict: fields.verdict, range: `${from}..${to}` }
-}
-
-export function parsePostMerge(body: string): HookRecord | null {
-  const fields = readMarker(body, 'post-merge')
-  if (!fields?.run || !RUN_ID.test(fields.run) || !SHA.test(fields.sha ?? '')) return null
-  const result = fields.result
-  if (result !== 'started' && result !== 'ok' && result !== 'skipped' && result !== 'failed') return null
-  return { run: fields.run, result, sha: fields.sha as string }
+/** Validate the domain payload carried by one common `epic-event` record. */
+export function parseEpicEvent(value: unknown): EpicEvent | null {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
+  const event = value as Record<string, unknown>
+  if (typeof event.run !== 'string' || !RUN_ID.test(event.run)) return null
+  if (event.event === 'epic-fix') return { event: 'epic-fix', run: event.run }
+  if (event.event === 'goal-stop' && typeof event.reason === 'string' && event.reason.length > 0) {
+    return typeof event.detail === 'string' || event.detail === undefined
+      ? {
+          event: 'goal-stop',
+          run: event.run,
+          reason: event.reason,
+          ...(typeof event.detail === 'string' ? { detail: event.detail } : {}),
+        }
+      : null
+  }
+  if (
+    event.event === 'epic-review' &&
+    typeof event.range === 'string' &&
+    typeof event.decisionId === 'string' &&
+    event.decisionId.length > 0 &&
+    strings(event.inventoryIds)
+  ) {
+    const [from, to, ...rest] = event.range.split('..')
+    return from && to && rest.length === 0 && SHA.test(from) && SHA.test(to)
+      ? {
+          event: 'epic-review',
+          run: event.run,
+          range: event.range,
+          decisionId: event.decisionId,
+          inventoryIds: event.inventoryIds,
+        }
+      : null
+  }
+  if (
+    event.event === 'post-merge' &&
+    typeof event.sha === 'string' &&
+    SHA.test(event.sha) &&
+    (event.result === 'started' || event.result === 'ok' || event.result === 'skipped' || event.result === 'failed') &&
+    (event.exitCode === null || (typeof event.exitCode === 'number' && Number.isSafeInteger(event.exitCode)))
+  ) {
+    return { event: 'post-merge', run: event.run, result: event.result, sha: event.sha, exitCode: event.exitCode }
+  }
+  if (
+    event.event === 'goal-report' &&
+    (event.outcome === 'complete' || event.outcome === 'drop') &&
+    typeof event.reason === 'string' &&
+    'summary' in event &&
+    'disarmed' in event &&
+    'stillArmed' in event
+  ) {
+    return {
+      event: 'goal-report',
+      run: event.run,
+      outcome: event.outcome,
+      reason: event.reason,
+      summary: event.summary,
+      disarmed: event.disarmed,
+      stillArmed: event.stillArmed,
+    }
+  }
+  return null
 }
 
 // ── Stops ─────────────────────────────────────────────────────────────────────
@@ -246,7 +256,7 @@ export const TICKET_STOPS = [
   'behind',
 ] as const
 
-/** Disarm every in-flight PR, report, `goal({op:"drop"})`. */
+/** Disarm every in-flight PR and report the drop. */
 export const SHARED_STOPS = [
   'base-ci-red',
   'base-ci-pending',
@@ -278,7 +288,7 @@ export function stopClass(reason: string): 'ticket' | 'shared' | 'no-progress' |
 }
 
 /**
- * What a `landPr` / `applyCiWatchExit` status means under a goal. `timeout` is a
+ * What a `landPr` / `applyCiWatchExit` status means under an Epic run. `timeout` is a
  * ticket stop, never a re-attach; `behind` is a retried ticket stop (the operator
  * updates the branch, a fresh run lands it). An unknown status fails closed as shared.
  */
@@ -348,7 +358,7 @@ export type ChildFacts = {
   state: 'OPEN' | 'CLOSED'
   labels: string[]
   body: string
-  /** The body's first line is the epic-fix marker, written by this account. */
+  /** A complete canonical `epic-fix` event authored on this child issue. */
   epicFix: boolean
   /** `repo` is set only when the blocker lives in another repository. */
   blockedBy: { number: number; state: 'OPEN' | 'CLOSED'; repo?: string }[]
@@ -396,6 +406,22 @@ export type Step = { reason: string; report: Report } & (
   | { action: 'complete' }
   | { action: 'drop'; stop: SharedStop | 'no-progress' }
 )
+
+export type EpicStepName =
+  | 'start'
+  | 'resume'
+  | 'stop'
+  | 'final-review'
+  | 'fix-ticket'
+  | 'post-merge'
+  | 'complete'
+  | 'drop'
+
+/** Flatten `final-review` stage `fix-ticket`. Not a second selector. */
+export function epicStepName(step: Step): EpicStepName {
+  if (step.action === 'final-review') return step.stage === 'fix-ticket' ? 'fix-ticket' : 'final-review'
+  return step.action
+}
 
 // ── Base: which branch, and is it green ───────────────────────────────────────
 
@@ -600,24 +626,19 @@ export function mergedLocalBranches(facts: Facts): { ticket: number; branch: str
   return out
 }
 
-// ── The objective ─────────────────────────────────────────────────────────────
+// ── Framing, not authority ────────────────────────────────────────────────────
 
 /**
- * The `/goal` objective for an epic. Closed or merged children leave the order
- * and satisfy their dependents. An open blocker outside the epic reports the
- * child (and its in-epic dependents) as blocked; `cycle` is reserved for a real
- * cycle among the rest. Any open child without scope → no objective.
+ * Framing for an epic mandate. Closed or merged children leave the order and
+ * satisfy their dependents. An open blocker outside the epic reports the child
+ * (and its in-epic dependents) as blocked. Any open child without scope refuses.
+ * This does not authorize a run or a base.
  */
-export function generateObjective(input: {
-  epic: number
-  run: string
+export function frameEpic(input: {
   base: string
   children: ChildFacts[]
-}):
-  | { objective: string; order: number[]; blocked: { ticket: number; blockers: number[] }[] }
-  | { error: string; missing?: number[] } {
-  const { epic, run, base, children } = input
-  if (!RUN_ID.test(run)) return { error: `bad run id ${run}` }
+}): { order: number[]; blocked: { ticket: number; blockers: number[] }[] } | { error: string; missing?: number[] } {
+  const { base, children } = input
   const open = children.filter((child) => !isDone(child, base))
   const missing = open.filter((child) => !hasScope(child)).map((child) => child.number)
   if (missing.length) return { error: `missing scope: ${missing.join(', ')}`, missing }
@@ -644,7 +665,6 @@ export function generateObjective(input: {
   const { order, rest } = topological(open.filter((child) => !blocked.has(child.number)))
   if (rest.length) return { error: `cycle: ${rest.join(', ')}` }
   return {
-    objective: objectiveText(epic, run, base),
     order,
     blocked: [...blocked].map(([ticket, blockers]) => ({ ticket, blockers })).sort((a, b) => a.ticket - b.ticket),
   }
@@ -653,7 +673,7 @@ export function generateObjective(input: {
 // ── The driver's decision ─────────────────────────────────────────────────────
 
 /**
- * The one next action of a goal run, from GitHub and git state alone.
+ * The one next action of an Epic run, from GitHub and git state alone.
  *
  * `start` / `resume` pick one actionable child: HEAD's own child first, then an
  * open PR, then an existing branch, then `blocked_by` order. `stop` is a ticket
@@ -815,7 +835,7 @@ export function nextStep(facts: Facts): Step {
     const blocked = finalizationBlock(facts, report)
     if (blocked) return blocked
     // No hook runs here. A record that already failed, or that belongs to another
-    // commit, still must not report the goal complete.
+    // commit, still must not report the Epic run complete.
     const hook = hookStatus(facts)
     if (hook.state === 'failed') return { action: 'drop', stop: 'hook-failed', reason: hook.detail, report }
     if (hook.state === 'stale') return { action: 'drop', stop: 'hook-stale', reason: hook.detail, report }
@@ -903,7 +923,7 @@ function finalizationBlock(facts: Facts, report: Report): Step | null {
     return {
       action: 'drop',
       stop: 'dirty-tree',
-      reason: `the epic worktree is dirty on ${facts.tree.branch ?? 'a detached HEAD'} and the goal cannot complete`,
+      reason: `the epic worktree is dirty on ${facts.tree.branch ?? 'a detached HEAD'} and the Epic run cannot complete`,
       report,
     }
   }

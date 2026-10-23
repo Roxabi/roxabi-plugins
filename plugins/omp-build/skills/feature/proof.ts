@@ -1,16 +1,31 @@
 /**
  * Landing admission from producer evidence (#768).
  *
- * `admitLanding` only reads: Git objects of the freshly established selected base
- * and candidate, the worktree and principal `.semctx` paths, the PR's comments and body. It never runs
+ * `admitLanding` only reads Git objects of the freshly established selected base
+ * and candidate plus the PR's common-codec history and body. It never runs
  * Semctx, assertledger, a test or an LLM. The evidence was acquired earlier by
  * `proof-acquire.ts` in a private checkout of the candidate and conserved as a
- * PR comment by the automation login, or a run of parts (`renderRecord`);
- * admission re-reads it, re-derives every binding input itself, and applies the policy.
+ * confirmed common record. Admission re-reads it, re-derives every binding input
+ * itself, and applies the policy.
  */
-import { createHash } from 'node:crypto'
-import { lstatSync, readFileSync } from 'node:fs'
+import { createHash, randomUUID } from 'node:crypto'
+import { lstatSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
+import {
+  buildRecord,
+  type CanonicalRecord,
+  classifyHistory,
+  type DecodedHistory,
+  decodeHistory,
+  githubScope,
+  type Json,
+  readGitHubHistory,
+  selectApplicableMandate,
+} from '../../dist/contracts.js'
+import type { Diagnostic } from '../../engine/schemas.ts'
+import type { ProofSelector } from '../../engine/workflow.ts'
+import { withRoxabiGitHubPolicy } from '../../roxabi/github-policy'
+import { resolveReviewSemanticContext } from '../../roxabi/review-context'
 import { fixKind, type TicketSignals, ticketOfBranch } from './epic'
 
 export type GitResult = { code: number; stdout: string; stderr: string }
@@ -18,13 +33,11 @@ export type GitResult = { code: number; stdout: string; stderr: string }
 export type Git = (cwd: string, args: string[]) => Promise<GitResult>
 export type Gh = (cwd: string, args: string[]) => Promise<string>
 export type PrComment = { id?: number; author: { login: string }; body: string; createdAt?: string; updatedAt?: string }
-export type Comments = () => Promise<{ me: string; comments: PrComment[] }>
 
 export type Producer = 'semctx' | 'assertledger'
 export type RefusalReason = 'unreadable' | 'ambiguous' | 'missing' | 'unbound' | 'verdict' | 'unjustified'
 /** `candidate`: the selected candidate or its checkout could not be bound, before any producer applies. */
 export type Refusal = { ok: false; producer: Producer | 'candidate'; reason: RefusalReason; error: string }
-
 /** The closed NO TEST enum. Nothing widens it. */
 export const NO_TEST_REASONS = ['infra-not-wired', 'prompt-logic-only', 'ui-manual-only', 'out-of-scope'] as const
 export type NoTestReason = (typeof NO_TEST_REASONS)[number]
@@ -32,9 +45,45 @@ export type NoTestReason = (typeof NO_TEST_REASONS)[number]
 const SHA = /^[0-9a-f]{40}$/
 const NATIVE_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/
 const CHANGES_DIR = '.semctx/semantic/changes/'
-const CONFIG = '.semctx/config.json'
-const STACK = '.dev/stack.yml'
+export const CONFIG = '.semctx/config.json'
+export const STACK = '.dev/stack.yml'
 export const ASSERTLEDGER_CONFIG = 'assertledger.config.json'
+/** Paths a mandate pin must name. Omission is not absence. */
+export const PROOF_CONFIG_PATHS = [CONFIG, STACK, ASSERTLEDGER_CONFIG] as const
+const PIN_PRODUCER: Record<string, Producer | 'candidate'> = {
+  [CONFIG]: 'semctx',
+  [ASSERTLEDGER_CONFIG]: 'assertledger',
+}
+
+/**
+ * Git identity of one proof-configuration path at one source commit.
+ * `blob: null` is explicit absence. Ignored working-tree files are never a pin.
+ * Field names match the engine `ProofConfigPin`; this alias is replaced by that export.
+ */
+export type ProofConfigPin = {
+  path: string
+  sourceCommit: string
+  blob: string | null
+}
+/**
+ * Pins of the one applicable mandate. `null` means no mandate exists: the
+ * existing producer no-op stays. A refused, empty, or drifted pin is not that no-op.
+ */
+export function pinsFromApplicableMandate(
+  history: DecodedHistory,
+  external: DecodedHistory[] = [],
+): ProofConfigPin[] | Refusal | null {
+  const selected = selectApplicableMandate(history, external) as
+    | { status: 'applicable'; mandate: { payload: { proofPins?: unknown } } }
+    | { status: 'refused'; reason?: string }
+  if (selected.status !== 'applicable') {
+    if (selected.reason === 'missing') return null
+    return refuse('candidate', 'missing', `mandate ${selected.reason ?? 'unresolved'}`)
+  }
+  const pins = selected.mandate.payload.proofPins
+  if (!Array.isArray(pins) || pins.length === 0) return refuse('candidate', 'missing', 'mandate has no proof pins')
+  return pins as ProofConfigPin[]
+}
 
 function refuse(producer: Producer | 'candidate', reason: RefusalReason, error: string): Refusal {
   return { ok: false, producer, reason, error }
@@ -42,6 +91,33 @@ function refuse(producer: Producer | 'candidate', reason: RefusalReason, error: 
 
 export function isMap(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+/**
+ * An ignored `.semctx` directory is not a portable declaration.  We still
+ * detect it so a checkout or principal cannot silently downgrade an owed proof
+ * to absence; its contents are deliberately never read as configuration.
+ */
+async function ignoredSemctxState(git: Git, toplevel: string): Promise<string | Error | null> {
+  const listed = await git(toplevel, ['worktree', 'list', '--porcelain', '-z'])
+  if (listed.code !== 0) return new Error(gitError(['worktree', 'list', '--porcelain', '-z'], listed))
+  const roots = new Set([toplevel])
+  const principal = listed.stdout
+    .split('\0')
+    .find((field) => field.startsWith('worktree '))
+    ?.slice('worktree '.length)
+  if (principal) roots.add(principal)
+  for (const root of roots) {
+    const state = join(root, '.semctx')
+    try {
+      lstatSync(state)
+      return state
+    } catch (error) {
+      if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) continue
+      return new Error(`${JSON.stringify(state)} cannot be read: ${errorMessage(error)}`)
+    }
+  }
+  return null
 }
 
 /** One trailing newline is the terminator; everything else — spaces, embedded newlines — is the path. */
@@ -103,8 +179,7 @@ export async function refreshSelectedBase(
 }
 
 // ---------------------------------------------------------------------------
-// Candidate facts: the bound root, the principal, the base's and the candidate's
-// committed trees, and the configured Semctx state on disk
+// Candidate facts: the bound root and the base's and candidate's committed trees
 // ---------------------------------------------------------------------------
 
 type TreeEntry = { mode: string; type: string; oid: string; path: string }
@@ -112,12 +187,11 @@ type TreeEntry = { mode: string; type: string; oid: string; path: string }
 export type Declared = { at: string; entry: TreeEntry }
 
 /**
- * The Semctx configuration the producer runs under: the one committed at the
- * candidate (equal to the base's when the base commits one), else the
- * operator's uncommitted `.semctx/config.json` on disk (`ignored`), which
- * acquisition copies into its private checkout. `sha256` is of `text`.
+ * The Semctx configuration the producer runs under, committed at the candidate
+ * (and equal to the base configuration when the base declares one). `sha256`
+ * is of the committed text.
  */
-export type SemctxConfig = { source: 'committed' | 'ignored'; path: string; text: string; sha256: string }
+export type SemctxConfig = { source: 'committed'; path: string; text: string; sha256: string }
 
 export type CandidateFacts = {
   /** `git rev-parse --show-toplevel` of the caller's cwd, lossless. */
@@ -149,40 +223,6 @@ function parseTree(stdout: string): TreeEntry[] {
   return entries
 }
 
-/** The main worktree of the repository (`worktree list` lists it first); null when it is bare. */
-function principalOf(stdout: string): string | null {
-  const first = stdout.split('\0\0')[0] ?? ''
-  const attributes = first.split('\0')
-  if (attributes.includes('bare')) return null
-  const line = attributes.find((attribute) => attribute.startsWith('worktree '))
-  if (!line) throw new Error('git worktree list named no worktree')
-  return line.slice('worktree '.length)
-}
-
-/** `present` / `absent` for `<dir>/.semctx`, or the read error. */
-function onDisk(dir: string): 'present' | 'absent' | Error {
-  try {
-    lstatSync(join(dir, '.semctx'))
-    return 'present'
-  } catch (error) {
-    const code = error instanceof Error && 'code' in error ? error.code : undefined
-    if (code === 'ENOENT') return 'absent'
-    return error instanceof Error ? error : new Error(String(error))
-  }
-}
-
-/** The text of the regular file `path`, null when it does not exist, or the read error. */
-function diskText(path: string): string | null | Error {
-  try {
-    if (!lstatSync(path).isFile()) return new Error('not a regular file')
-    return readFileSync(path, 'utf8')
-  } catch (error) {
-    const code = error instanceof Error && 'code' in error ? error.code : undefined
-    if (code === 'ENOENT') return null
-    return error instanceof Error ? error : new Error(String(error))
-  }
-}
-
 const REGULAR: Record<string, true> = { '100644': true, '100755': true }
 
 export async function blob(git: Git, toplevel: string, entry: TreeEntry): Promise<string> {
@@ -207,20 +247,15 @@ async function declarations(git: Git, toplevel: string, rev: string): Promise<Tr
 }
 
 /**
- * What the base and the candidate commit and what the checkouts hold, bound to
- * the repository root — never to the caller's cwd — and to a local tip that is
- * the candidate. Applicability is the union of the established base commit, the candidate
- * and the configured state on disk, so a PR cannot exempt itself by deleting a
- * declaration: Semctx applies when any of them holds `.semctx`, an assertledger
- * config or `test_e2e` applies when the base or the candidate declares it. Semctx runs
+ * What the base and the candidate commit, bound to the repository root and to a
+ * local tip that is the candidate. Applicability is the union of the established
+ * base commit and candidate, so a PR cannot exempt itself by deleting a
+ * declaration: Semctx applies when either holds `.semctx`. Semctx runs only
  * under the candidate's committed config, which must equal the base's when the
- * base commits one (a PR never relaxes the policy it is judged by); with none
- * committed, under the operator's uncommitted config on disk (the bound
- * worktree and the principal must agree). `absent` is only none of these.
- * Anything else refuses: Git or read errors (a failed HEAD probe is not an
- * unborn branch), a missing or corrupt base or candidate, a malformed config,
- * committed working state, configurations that disagree, or Semctx state with
- * no configuration.
+ * base commits one (a PR never relaxes the policy it is judged by). `absent` is
+ * only when neither tree has Semctx state. Anything else refuses: Git errors, a
+ * missing or corrupt base or candidate, a malformed config, committed working
+ * state, changed configurations, or Semctx state without a committed config.
  */
 export async function candidateFacts(
   cwd: string,
@@ -251,15 +286,6 @@ export async function candidateFacts(
       'unbound',
       `the local tip ${oneLine(tip.stdout)} is not candidate ${candidate}: land from the checkout of the reviewed head`,
     )
-  }
-  const listArgs = ['worktree', 'list', '--porcelain', '-z']
-  const list = await git(toplevel, listArgs)
-  if (list.code !== 0) return refuse('candidate', 'unreadable', gitError(listArgs, list))
-  let principal: string | null
-  try {
-    principal = principalOf(list.stdout)
-  } catch (error) {
-    return refuse('candidate', 'unreadable', errorMessage(error))
   }
   const entries = await declarations(git, toplevel, candidate)
   if (entries instanceof Error) {
@@ -309,6 +335,17 @@ export async function candidateFacts(
       `candidate ${candidate} commits Semctx working state (${working.map((entry) => entry.path).join(', ')}); it overrides committed contracts — remove it from the branch`,
     )
   }
+  if (!semctxEntries.length && !baseEntries.some(isSemctx)) {
+    const ignored = await ignoredSemctxState(git, toplevel)
+    if (ignored instanceof Error) return refuse('semctx', 'unreadable', ignored.message)
+    if (ignored) {
+      return refuse(
+        'semctx',
+        'ambiguous',
+        `ignored local Semctx state at ${JSON.stringify(ignored)} cannot establish portable proof — commit the configuration or remove the state`,
+      )
+    }
+  }
   const baseConfig = find(baseEntries, CONFIG)
   const committed = find(entries, CONFIG)
   if (baseConfig && committed?.oid !== baseConfig.oid) {
@@ -318,51 +355,23 @@ export async function candidateFacts(
       `candidate ${candidate} ${committed ? 'changes' : 'deletes'} the ${CONFIG} ${baseRef} commits: a PR is judged under the base's Semctx policy, never its own — a configuration change lands outside landPr`,
     )
   }
-  const dirs = [toplevel, ...(principal !== null && principal !== toplevel ? [principal] : [])]
-  const present: string[] = []
-  const local: { path: string; text: string }[] = []
-  for (const dir of dirs) {
-    const state = onDisk(dir)
-    if (state instanceof Error) {
-      return refuse('semctx', 'unreadable', `${JSON.stringify(join(dir, '.semctx'))} cannot be read: ${state.message}`)
-    }
-    if (state === 'absent') continue
-    present.push(join(dir, '.semctx'))
-    // A committed base config is the policy; copies on disk are checkouts of it, never another source.
-    if (baseConfig) continue
-    const path = join(dir, CONFIG)
-    const text = diskText(path)
-    if (text instanceof Error)
-      return refuse('semctx', 'unreadable', `${JSON.stringify(path)} cannot be read: ${text.message}`)
-    if (text !== null) local.push({ path, text })
-  }
-  let config: Omit<SemctxConfig, 'sha256'> | null = null
   if (committed) {
+    let text: string
     try {
-      config = { source: 'committed', path: CONFIG, text: await blob(git, toplevel, committed) }
+      text = await blob(git, toplevel, committed)
+      if (!isMap(JSON.parse(text))) throw new Error('not a JSON object')
     } catch (error) {
-      return refuse('semctx', 'unreadable', `${CONFIG} at ${candidate}: ${errorMessage(error)}`)
+      return refuse(
+        'semctx',
+        'unreadable',
+        `${CONFIG} at ${candidate} is malformed or unreadable: ${errorMessage(error)}`,
+      )
     }
-  } else if (local[0]) {
-    config = { source: 'ignored', path: local[0].path, text: local[0].text }
-  }
-  const disagreeing = local.filter((copy) => copy.text !== config?.text)
-  if (disagreeing.length) {
-    return refuse(
-      'semctx',
-      'ambiguous',
-      `${disagreeing.map((copy) => JSON.stringify(copy.path)).join(', ')} disagree${disagreeing.length === 1 ? 's' : ''} with the Semctx configuration ${config?.source === 'committed' ? `candidate ${candidate} commits` : `at ${JSON.stringify(config?.path)}`}: one configuration decides — make them equal`,
-    )
-  }
-  if (config) {
-    try {
-      if (!isMap(JSON.parse(config.text))) throw new Error('not a JSON object')
-    } catch (error) {
-      const where = config.source === 'committed' ? `${CONFIG} at ${candidate}` : JSON.stringify(config.path)
-      return refuse('semctx', 'unreadable', `${where} is malformed: ${errorMessage(error)}`)
+    return {
+      ...facts,
+      semctx: 'configured',
+      config: { source: 'committed', path: CONFIG, text, sha256: createHash('sha256').update(text).digest('hex') },
     }
-    const digest = createHash('sha256').update(config.text).digest('hex')
-    return { ...facts, semctx: 'configured', config: { ...config, sha256: digest } }
   }
   const committedState = semctxEntries[0] ?? baseEntries.find(isSemctx)
   if (committedState) {
@@ -370,139 +379,254 @@ export async function candidateFacts(
     return refuse(
       'semctx',
       'ambiguous',
-      `${where} commits .semctx (${committedState.path}) without a regular ${CONFIG}, and no configuration is on disk; Semctx state that is not configured is not absence`,
-    )
-  }
-  if (present[0]) {
-    return refuse(
-      'semctx',
-      'ambiguous',
-      `${JSON.stringify(present[0])} exists but neither ${baseRef} nor candidate ${candidate} commits a ${CONFIG}, and none is on disk: configured state outside the candidate is not absence — configure it or remove that state`,
+      `${where} commits .semctx (${committedState.path}) without a regular ${CONFIG}: ignored local configuration cannot establish portable proof — commit the configuration or remove the Semctx state`,
     )
   }
   return { ...facts, semctx: 'absent', config: null }
 }
 
-// ---------------------------------------------------------------------------
-// Conserved records: one PR comment per producer and candidate, or one run of parts
-// ---------------------------------------------------------------------------
-
-/** GitHub rejects an issue comment body above this many characters. */
-export const COMMENT_LIMIT = 65536
-export const proofMark = (producer: Producer) => `<!-- omp-build:proof producer=${producer} -->`
-const PROOF_HEAD = /^<!-- omp-build:proof-head sha=([0-9a-f]{40})(?: part=([1-9]\d*)\/([1-9]\d*))? -->$/
-const FENCE_OPEN = '```json'
-const FENCE_CLOSE = '```'
-const NATIVE_OPEN = '<details><summary>Native results and invocation</summary>'
-const NATIVE_CLOSE = '</details>'
-
-/**
- * The comment bodies for one producer result. Line 1 names the producer, line 2
- * the candidate; the record is one `json` block, on one line. A backtick
- * inside a JSON string is written `\u0060`, so native output never closes the
- * fence. A record that fits one comment (measured in UTF-8 bytes, the strictest
- * count) is one body; a larger one is a run of bodies headed `part=<i>/<n>`,
- * each holding the next slice of that line, its JSON first escaped to ASCII so
- * no slice splits a character.
- */
-export function renderRecord(producer: Producer, candidate: string, summary: string[], record: unknown): string[] {
-  const json = JSON.stringify(record).replace(/`/g, '\\u0060')
-  const render = (part: string, lines: string[], block: string) =>
-    [
-      proofMark(producer),
-      `<!-- omp-build:proof-head sha=${candidate}${part ? ` ${part}` : ''} -->`,
-      `## Proof — ${producer}${part ? ` (${part})` : ''}`,
-      '',
-      ...lines,
-      '',
-      NATIVE_OPEN,
-      '',
-      FENCE_OPEN,
-      block,
-      FENCE_CLOSE,
-      '',
-      NATIVE_CLOSE,
-    ].join('\n')
-  const whole = render('', summary, json)
-  if (Buffer.byteLength(whole) <= COMMENT_LIMIT) return [whole]
-  const ascii = json.replace(/[\u0080-\uffff]/g, (unit) => `\\u${unit.charCodeAt(0).toString(16).padStart(4, '0')}`)
-  // The widest frame: part 1 carries the summary, and a seven-digit count bounds every n.
-  const room = COMMENT_LIMIT - Buffer.byteLength(render('part=9999999/9999999', summary, ''))
-  if (room < 1) throw new Error(`the ${producer} record summary alone exceeds GitHub's ${COMMENT_LIMIT}`)
-  const total = Math.ceil(ascii.length / room)
-  return Array.from({ length: total }, (_, i) =>
-    render(`part=${i + 1}/${total}`, i === 0 ? summary : [], ascii.slice(i * room, (i + 1) * room)),
-  )
-}
-
-type Found = { record: unknown; parts: PrComment[] } | { missing: string } | { unreadable: string }
-type SelectedRecord = Extract<Found, { record: unknown }>
-/** Native comments of one posting: a single record or a complete ordered run of parts. */
-type Run = { parts: PrComment[]; total: number; broken: boolean }
-
-/**
- * The latest record of `producer` for `candidate` by the automation login, in
- * comment order. Records of other authors, producers or candidates are not
- * read. A run of parts is read whole: its parts 1..n in order, other comments
- * between them ignored; when the latest run lacks a part, or a part comes out
- * of order, the record is missing. A matching record whose blocks do not parse
- * is unreadable.
- */
-export function findRecord(comments: PrComment[], me: string, producer: Producer, candidate: string): Found {
-  const mark = proofMark(producer)
-  let latest: Run | null = null
-  const others: string[] = []
-  for (const comment of comments) {
-    if (comment.author?.login !== me) continue
-    const lines = comment.body.split('\n')
-    if ((lines[0] ?? '').trimEnd() !== mark) continue
-    const head = (lines[1] ?? '').trimEnd().match(PROOF_HEAD)
-    if (!head || head[1] !== candidate) {
-      others.push(head?.[1] ?? '(no head line)')
-      continue
-    }
-    const part = Number(head[2] ?? 1)
-    const total = Number(head[3] ?? 1)
-    if (part === 1) latest = { parts: [comment], total, broken: false }
-    else if (latest && !latest.broken && latest.total === total && latest.parts.length === part - 1)
-      latest.parts.push(comment)
-    else latest = { parts: [], total, broken: true }
+async function entryAt(git: Git, toplevel: string, commit: string, path: string): Promise<TreeEntry | null | Error> {
+  if (!SHA.test(commit)) return new Error(`commit ${JSON.stringify(commit)} is not a sha`)
+  if (path === '' || path.startsWith('-') || path.includes('\0') || path.includes('..')) {
+    return new Error(`path ${JSON.stringify(path)} is not a proof-config pin path`)
   }
-  if (latest === null) {
-    const seen = others.length ? `; records by ${me} name ${[...new Set(others)].join(', ')}` : ''
-    return { missing: `no ${producer} record by ${me} for candidate ${candidate}${seen}` }
-  }
-  if (latest.broken || latest.parts.length !== latest.total) {
-    return {
-      missing: `the latest ${producer} record by ${me} for candidate ${candidate} is incomplete: its ${latest.total} parts are not all present in order`,
-    }
-  }
-  let json = ''
-  for (const { body } of latest.parts) {
-    const lines = body.split('\n')
-    // Only the writer's seven-line trailing frame is authoritative. Summary
-    // text can contain arbitrary fences or even a complete earlier frame.
-    const last = lines.length - 1
-    const fragment = lines[last - 3]
-    if (
-      lines[last - 6] !== NATIVE_OPEN ||
-      lines[last - 5] !== '' ||
-      lines[last - 4] !== FENCE_OPEN ||
-      typeof fragment !== 'string' ||
-      lines[last - 2] !== FENCE_CLOSE ||
-      lines[last - 1] !== '' ||
-      lines[last] !== NATIVE_CLOSE
-    )
-      return { unreadable: `the ${producer} record for ${candidate} carries no trailing native json frame` }
-    json += fragment
-  }
+  const args = ['ls-tree', '-z', `${commit}^{commit}`, '--', path]
+  const tree = await git(toplevel, args)
+  if (tree.code !== 0) return new Error(gitError(args, tree))
+  let entries: TreeEntry[]
   try {
-    return { record: JSON.parse(json), parts: latest.parts }
+    entries = parseTree(tree.stdout).filter((entry) => entry.path === path)
   } catch (error) {
-    return { unreadable: `the ${producer} record for ${candidate} is not JSON: ${errorMessage(error)}` }
+    return error instanceof Error ? error : new Error(String(error))
+  }
+  if (entries.length > 1) return new Error(`${path} at ${commit} is ambiguous`)
+  return entries[0] ?? null
+}
+
+function pinIdentity(entry: TreeEntry | null, commit: string, path: string): { blob: string | null } | Error {
+  if (!entry) return { blob: null }
+  if (entry.type !== 'blob' || !REGULAR[entry.mode] || !SHA.test(entry.oid)) {
+    return new Error(`${path} at ${commit} is not a regular file (mode ${entry.mode}, type ${entry.type})`)
+  }
+  return { blob: entry.oid }
+}
+
+/**
+ * Read proof-config identity from Git objects only. A missing path is
+ * `blob: null`. A tree, submodule, or unreadable object refuses; it is not absence.
+ */
+export async function readProofConfigPins(
+  git: Git,
+  toplevel: string,
+  commit: string,
+  paths: readonly string[] = PROOF_CONFIG_PATHS,
+): Promise<ProofConfigPin[] | Refusal> {
+  if (!paths.length) return refuse('candidate', 'missing', 'proof configuration pins name no path')
+  const pins: ProofConfigPin[] = []
+  for (const path of paths) {
+    const entry = await entryAt(git, toplevel, commit, path)
+    if (entry instanceof Error) return refuse(PIN_PRODUCER[path] ?? 'candidate', 'unreadable', entry.message)
+    const identity = pinIdentity(entry, commit, path)
+    if (identity instanceof Error) return refuse(PIN_PRODUCER[path] ?? 'candidate', 'ambiguous', identity.message)
+    pins.push({ path, sourceCommit: commit, blob: identity.blob })
+  }
+  return pins
+}
+
+/** Re-read each pin's source commit. A blob mismatch is drift, not a new pin. */
+export async function rereadProofConfigPins(
+  git: Git,
+  toplevel: string,
+  pins: readonly ProofConfigPin[],
+): Promise<{ ok: true } | Refusal> {
+  if (!pins.length) return refuse('candidate', 'missing', 'approved proof configuration pins are absent')
+  const seen = new Set<string>()
+  for (const pin of pins) {
+    if (seen.has(pin.path)) {
+      return refuse('candidate', 'ambiguous', `approved proof pins name ${pin.path} more than once`)
+    }
+    seen.add(pin.path)
+    if (!SHA.test(pin.sourceCommit) || (pin.blob !== null && !SHA.test(pin.blob))) {
+      return refuse('candidate', 'unreadable', `proof pin ${pin.path} is not a commit/blob identity`)
+    }
+    const current = await readProofConfigPins(git, toplevel, pin.sourceCommit, [pin.path])
+    if ('ok' in current) return current
+    const found = current[0]
+    if (!found || found.blob !== pin.blob) {
+      return refuse(
+        PIN_PRODUCER[pin.path] ?? 'candidate',
+        'unbound',
+        `${pin.path} at ${pin.sourceCommit} is ${found?.blob ?? 'absent'}, not the approved ${pin.blob ?? 'absence'}`,
+      )
+    }
+  }
+  return { ok: true }
+}
+
+/**
+ * Compare the base and candidate blobs `candidateFacts` already bound to the
+ * approved pins. Does not read ignored files and does not replace those checks.
+ * An omitted required path is not absence. A pin that says absent does not
+ * cancel a committed config, and a pin that says present does not become
+ * optional because the checkout is unconfigured.
+ *
+ * `.dev/stack.yml` is special: landing/policy binds the selected base tip, while
+ * Semctx e2e justification ORs base and candidate stacks (`admitSemctx`). A
+ * candidate that changes only the stack must not fail closed here as unbound —
+ * that masked producer refusals/watching behind `candidate`/`unbound`.
+ */
+export async function compareApplicableProofPins(
+  git: Git,
+  facts: CandidateFacts,
+  pins: readonly ProofConfigPin[],
+): Promise<{ ok: true } | Refusal> {
+  const reread = await rereadProofConfigPins(git, facts.toplevel, pins)
+  if (!reread.ok) return reread
+  for (const path of PROOF_CONFIG_PATHS) {
+    if (!pins.some((pin) => pin.path === path)) {
+      return refuse('candidate', 'missing', `approved proof pins omit ${path}`)
+    }
+  }
+  for (const pin of pins) {
+    const producer = PIN_PRODUCER[pin.path] ?? 'candidate'
+    const at = async (commit: string): Promise<string | null | Refusal> => {
+      const entry = await entryAt(git, facts.toplevel, commit, pin.path)
+      if (entry instanceof Error) return refuse(producer, 'unreadable', entry.message)
+      const identity = pinIdentity(entry, commit, pin.path)
+      if (identity instanceof Error) return refuse(producer, 'ambiguous', identity.message)
+      return identity.blob
+    }
+    const baseBlob = await at(facts.baseTip)
+    if (baseBlob !== null && typeof baseBlob === 'object') return baseBlob
+    const candidateBlob = await at(facts.candidate)
+    if (candidateBlob !== null && typeof candidateBlob === 'object') return candidateBlob
+    // STACK may diverge across base/candidate; CONFIG and assertledger must not.
+    if (pin.path !== STACK && baseBlob !== null && candidateBlob !== null && baseBlob !== candidateBlob) {
+      return refuse(
+        producer,
+        'unbound',
+        `${pin.path} at ${facts.candidate} (${candidateBlob}) differs from ${facts.baseTip} (${baseBlob})`,
+      )
+    }
+    // Landing/policy stack applicability is the selected base tip; candidate stack
+    // is read later for e2e OR. Other paths still prefer the candidate blob.
+    const applicable = pin.path === STACK ? baseBlob : (candidateBlob ?? baseBlob)
+    if (applicable !== pin.blob) {
+      return refuse(
+        producer,
+        'unbound',
+        `${pin.path} applicable ${applicable ?? 'absence'} is not the approved ${pin.blob ?? 'absence'} at ${pin.sourceCommit}`,
+      )
+    }
+    if (pin.path === CONFIG && facts.semctx === 'configured' && pin.blob === null) {
+      return refuse('semctx', 'unbound', `${CONFIG} is configured, but the approved pin records absence`)
+    }
+    if (pin.path === CONFIG && facts.semctx === 'absent' && pin.blob !== null) {
+      return refuse('semctx', 'unbound', `${CONFIG} is absent, but the approved pin records ${pin.blob}`)
+    }
+    if (pin.path === ASSERTLEDGER_CONFIG) {
+      const declared = facts.adapters.map((item) => item.entry.oid)
+      if (declared.some((oid) => oid !== pin.blob) || (declared.length === 0) !== (pin.blob === null)) {
+        return refuse(
+          'assertledger',
+          'unbound',
+          `${ASSERTLEDGER_CONFIG} declarations [${declared.join(', ')}] do not match approved ${pin.blob ?? 'absence'}`,
+        )
+      }
+    }
+  }
+  return { ok: true }
+}
+
+// ---------------------------------------------------------------------------
+// Conserved records: common codec transport, native proof semantics
+// ---------------------------------------------------------------------------
+
+type Found = { record: unknown; recordId: string; parts: PrComment[] } | { missing: string } | { unreadable: string }
+type SelectedRecord = Extract<Found, { record: unknown }>
+
+const proofOperationPrefix = (producer: Producer, candidate: string) => `proof:${producer}:${candidate}:`
+
+export function findProofRecord(history: DecodedHistory, producer: Producer, candidate: string): Found {
+  const foreignOperationIds = new Set(
+    classifyHistory(history)
+      .classes.filter((entry) => entry.authority === 'foreign' && entry.operationId !== null)
+      .map((entry) => entry.operationId),
+  )
+  const sourcePosition = new Map(history.source.comments.map((comment, index) => [comment.locator, index]))
+  const lastPosition = (parts: (typeof history.operations)[number]['parts']) =>
+    Math.max(...parts.map((part) => sourcePosition.get(part.locator) ?? -1))
+  const operations = history.operations
+    .filter(
+      (operation) =>
+        operation.operationId?.startsWith(proofOperationPrefix(producer, candidate)) &&
+        operation.operationId !== null &&
+        !foreignOperationIds.has(operation.operationId),
+    )
+    .sort((left, right) => lastPosition(left.parts) - lastPosition(right.parts))
+  if (!operations.length) {
+    const legacy = history.source.comments.some(
+      (comment) =>
+        comment.author === history.source.expectedAuthor &&
+        comment.body.includes(`<!-- omp-build:proof producer=${producer} -->`) &&
+        comment.body.includes(`<!-- omp-build:proof-head sha=${candidate}`),
+    )
+    return legacy
+      ? {
+          unreadable: `a legacy ${producer} proof record exists for ${candidate}; historical proof framing cannot admit landing`,
+        }
+      : { missing: `no ${producer} common proof record for candidate ${candidate}` }
+  }
+  const latest = operations.at(-1)
+  if (!latest) return { unreadable: `the latest ${producer} proof operation for ${candidate} is missing` }
+  if (latest.status !== 'complete' || latest.record === null)
+    return { unreadable: `the latest ${producer} proof operation for ${candidate} is ${latest.status}` }
+  if (
+    latest.record.kind !== 'proof' ||
+    latest.record.payload.candidateGitSHA !== candidate ||
+    !isMap(latest.record.payload.data) ||
+    latest.record.payload.data.producer !== producer
+  )
+    return { unreadable: `the latest ${producer} proof operation for ${candidate} has invalid proof data` }
+  if (latest.record.recordId.length === 0) {
+    return { unreadable: `the latest ${producer} proof operation for ${candidate} has no record id` }
+  }
+  return {
+    record: latest.record.payload.data,
+    recordId: latest.record.recordId,
+    parts: latest.parts.map((part) => ({
+      id: part.nativeId === null ? undefined : Number(part.nativeId),
+      author: { login: part.author ?? '' },
+      body: part.body,
+      ...(part.createdAt === null ? {} : { createdAt: part.createdAt }),
+      ...(part.updatedAt === null ? {} : { updatedAt: part.updatedAt }),
+    })),
   }
 }
 
+export function newProofRecord(
+  repository: string,
+  pr: number,
+  producer: Producer,
+  candidate: string,
+  data: unknown,
+): CanonicalRecord {
+  const operationId = `${proofOperationPrefix(producer, candidate)}${randomUUID()}`
+  const built = buildRecord({
+    version: 1,
+    recordId: operationId,
+    runId: `proof:${candidate}:${randomUUID()}`,
+    operationId,
+    repository,
+    target: githubScope(repository, pr).target,
+    kind: 'proof',
+    payload: { candidateGitSHA: candidate, data: data as Json },
+  })
+  if (!built.ok) {
+    throw new Error(`proof record refused: ${built.diagnostics.map((item) => item.code).join(',')}`)
+  }
+  return built.value
+}
 // ---------------------------------------------------------------------------
 // Semctx: the protocol both acquisition and admission derive
 // ---------------------------------------------------------------------------
@@ -1077,7 +1201,7 @@ export type SemctxOutcome =
     }
 export type ProofSummary = { semctx: SemctxOutcome; assertledger: 'not-applicable' | 'detection' }
 export type Admission = { ok: true; proof: ProofSummary } | Refusal
-/** Approval publication time and the retained exact line-3 read binding are separate constraints. */
+/** Approval publication time and the retained exact review-input digest are separate constraints. */
 export type Target = {
   pr: number
   candidate: string
@@ -1085,9 +1209,15 @@ export type Target = {
   baseTip: string
   reviewedAt: string | null
   reviewInput: string | null
+  /** Approved mandate pins. Production landing passes this; omission is not approval. */
+  proofPins?: readonly ProofConfigPin[]
 }
-export type Deps = { gh: Gh; git: Git; comments: Comments }
-type Read = { me: string; comments: PrComment[]; repository: string }
+export type Deps = {
+  gh: Gh
+  git: Git /** Test injection. Production omits this and calls the shared resolver. */
+  semantic?: ProofSemanticContext
+}
+type Read = { repository: string }
 type PrBody = { body: string; lastEditedAt: string | null }
 type ReviewSnapshot = {
   ok: true
@@ -1099,27 +1229,265 @@ type ReviewSnapshot = {
   assertledger: SelectedRecord | null
 }
 
-/** Exact observed bytes and native publication identities, not an authenticity certificate. */
+/** Confirmed semantic context. Proof hashes this; it does not resolve bindings. */
+export type ProofSemanticContext =
+  | {
+      mode: 'bound'
+      bindingId: string
+      scope: { repository: string; target: string }
+      acceptedSpec: { reference: string; body: string; digest: string }
+      /** Mandate, editorial, and accept-material provenance. Not pause/resume/control. */
+      chain: readonly unknown[]
+      /** Mandate ref plus applied assessment/acceptance refs. Identity only, not action rights. */
+      sourceRefs: readonly unknown[]
+      requirements: readonly string[]
+      config: { productVersion: string; version: string; digest: string; serialized: string }
+    }
+  | {
+      mode: 'standalone'
+      /** Explicit discovered Spec. Null is a complete no-tracker review, not a fallback. */
+      discoveredSpec: { reference: string; body: string; digest: string } | null
+    }
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function sha256(text: string): string {
+  return createHash('sha256').update(text, 'utf8').digest('hex')
+}
+
+function scopeOf(value: unknown): { repository: string; target: string } | null {
+  if (!isRecord(value) || typeof value.repository !== 'string' || typeof value.target !== 'string') return null
+  if (value.repository.length === 0 || value.target.length === 0) return null
+  return { repository: value.repository, target: value.target }
+}
+
+function specBytes(value: unknown, label: string): { reference: string; body: string; digest: string } | Refusal {
+  if (
+    !isRecord(value) ||
+    typeof value.body !== 'string' ||
+    typeof value.reference !== 'string' ||
+    value.reference.length === 0
+  ) {
+    return refuse('candidate', 'unreadable', `${label} has no reference and body`)
+  }
+  if (typeof value.digest !== 'string' || value.digest.length === 0)
+    return refuse('candidate', 'unreadable', `${label} digest is missing`)
+  if (value.digest !== sha256(value.body))
+    return refuse('candidate', 'unreadable', `${label} digest does not match its body`)
+  return { reference: value.reference, body: value.body, digest: value.digest }
+}
+
+function chainCanon(chain: unknown): unknown[] | Refusal {
+  if (!Array.isArray(chain) || chain.length === 0)
+    return refuse('candidate', 'unreadable', 'accepted Spec chain is missing')
+  const out: unknown[] = []
+  for (const item of chain) {
+    if (
+      !isRecord(item) ||
+      typeof item.kind !== 'string' ||
+      typeof item.recordId !== 'string' ||
+      item.recordId.length === 0
+    ) {
+      return refuse('candidate', 'unreadable', 'accepted Spec chain ref is unreadable')
+    }
+    const scope = scopeOf(item.scope)
+    if (!scope) return refuse('candidate', 'unreadable', 'accepted Spec chain ref has no scope')
+    if (item.kind === 'mandate') {
+      if (typeof item.specDigest !== 'string')
+        return refuse('candidate', 'unreadable', 'mandate chain ref has no spec digest')
+      out.push(['mandate', item.recordId, scope.repository, scope.target, item.specDigest])
+    } else if (item.kind === 'editorial') {
+      if (typeof item.acceptedDigest !== 'string' || typeof item.currentDigest !== 'string') {
+        return refuse('candidate', 'unreadable', 'editorial chain ref has no digests')
+      }
+      out.push(['editorial', item.recordId, scope.repository, scope.target, item.acceptedDigest, item.currentDigest])
+    } else if (item.kind === 'accept-material') {
+      if (typeof item.specDigest !== 'string' || !isRecord(item.assessment)) {
+        return refuse('candidate', 'unreadable', 'accept-material chain ref has no assessment')
+      }
+      const assessment = scopeOf(item.assessment.scope)
+      if (!assessment || typeof item.assessment.recordId !== 'string' || typeof item.assessment.kind !== 'string') {
+        return refuse('candidate', 'unreadable', 'accept-material assessment ref is unreadable')
+      }
+      out.push([
+        'accept-material',
+        item.recordId,
+        scope.repository,
+        scope.target,
+        item.specDigest,
+        assessment.repository,
+        assessment.target,
+        item.assessment.recordId,
+        item.assessment.kind,
+      ])
+    } else {
+      return refuse('candidate', 'unreadable', `accepted Spec chain ref kind ${item.kind} is not a spec acceptance`)
+    }
+  }
+  return out
+}
+
+/** External record identity only. These refs are not permissions or action rights. */
+function sourceRefsCanon(refs: unknown): unknown[] | Refusal {
+  if (!Array.isArray(refs) || refs.length === 0)
+    return refuse('candidate', 'unreadable', 'accepted Spec source refs are missing')
+  const out: unknown[] = []
+  for (const item of refs) {
+    if (
+      !isRecord(item) ||
+      typeof item.recordId !== 'string' ||
+      item.recordId.length === 0 ||
+      typeof item.kind !== 'string' ||
+      item.kind.length === 0
+    ) {
+      return refuse('candidate', 'unreadable', 'accepted Spec source ref is unreadable')
+    }
+    if (Object.keys(item).some((key) => key !== 'scope' && key !== 'recordId' && key !== 'kind')) {
+      return refuse('candidate', 'unreadable', 'accepted Spec source ref is not an external record identity')
+    }
+    const scope = scopeOf(item.scope)
+    if (!scope) return refuse('candidate', 'unreadable', 'accepted Spec source ref has no scope')
+    out.push([scope.repository, scope.target, item.recordId, item.kind])
+  }
+  return out
+}
+
+function configOf(
+  value: Record<string, unknown>,
+): { productVersion: string; version: string; digest: string; serialized: string } | Refusal {
+  const raw = isRecord(value.effectiveConfig)
+    ? value.effectiveConfig
+    : isRecord(value.configIdentity)
+      ? value.configIdentity
+      : null
+  if (
+    !raw ||
+    typeof raw.productVersion !== 'string' ||
+    typeof raw.version !== 'string' ||
+    typeof raw.digest !== 'string' ||
+    typeof raw.serialized !== 'string'
+  ) {
+    return refuse('candidate', 'unreadable', 'bound review config identity is missing')
+  }
+  return {
+    productVersion: raw.productVersion,
+    version: raw.version,
+    digest: raw.digest,
+    serialized: raw.serialized,
+  }
+}
+
+/** Project the shared resolver value. A partial binding is a refusal, never standalone. */
+export function proofSemanticContext(value: unknown): ProofSemanticContext | Refusal {
+  if (!isRecord(value) || (value.mode !== 'bound' && value.mode !== 'standalone')) {
+    return refuse('candidate', 'unreadable', 'review semantic context mode is missing')
+  }
+  if (value.mode === 'standalone') {
+    if (
+      value.binding !== null ||
+      value.acceptedSpec !== null ||
+      (value.effectiveConfig !== null && value.effectiveConfig !== undefined) ||
+      (value.configIdentity !== null && value.configIdentity !== undefined)
+    ) {
+      return refuse('candidate', 'unreadable', 'a partial workflow binding is not a standalone review')
+    }
+    if (value.currentSpec === null) return { mode: 'standalone', discoveredSpec: null }
+    const discovered = specBytes(value.currentSpec, 'discovered Spec')
+    if ('ok' in discovered) return discovered
+    return { mode: 'standalone', discoveredSpec: discovered }
+  }
+  if (!isRecord(value.binding) || typeof value.binding.recordId !== 'string' || value.binding.recordId.length === 0) {
+    return refuse('candidate', 'unreadable', 'bound review has no binding record')
+  }
+  const scope = scopeOf(value.binding.scope)
+  if (!scope) return refuse('candidate', 'unreadable', 'bound review has no scope')
+  const accepted = specBytes(value.acceptedSpec, 'accepted Spec')
+  if ('ok' in accepted) return accepted
+  const chain = chainCanon(isRecord(value.acceptedSpec) ? value.acceptedSpec.chain : undefined)
+  if ('ok' in chain) return chain
+  const sourceRefs = sourceRefsCanon(isRecord(value.acceptedSpec) ? value.acceptedSpec.sourceRefs : undefined)
+  if ('ok' in sourceRefs) return sourceRefs
+  if (
+    !Array.isArray(value.additionalRequirements) ||
+    value.additionalRequirements.some((item) => typeof item !== 'string')
+  ) {
+    return refuse('candidate', 'unreadable', 'bound review requirements are not strings')
+  }
+  const config = configOf(value)
+  if ('ok' in config) return config
+  return {
+    mode: 'bound',
+    bindingId: value.binding.recordId,
+    scope,
+    acceptedSpec: accepted,
+    chain,
+    sourceRefs,
+    requirements: value.additionalRequirements,
+    config,
+  }
+}
+
+/**
+ * The only semantic slot supplied to the model and to `hashReviewInput`.
+ * Pause, resume, control, review count, labels, and lastEditedAt are absent.
+ * Bound reviews hash the accepted Spec, not the live issue body. `sourceRefs`
+ * are external-record identity, not action rights and not a second copy of `chain`.
+ */
+export function reviewSemanticCanon(semantic: ProofSemanticContext): string {
+  if (semantic.mode === 'standalone') {
+    return JSON.stringify(
+      semantic.discoveredSpec === null
+        ? ['standalone', null]
+        : [
+            'standalone',
+            semantic.discoveredSpec.reference,
+            semantic.discoveredSpec.body,
+            semantic.discoveredSpec.digest,
+          ],
+    )
+  }
+  return JSON.stringify([
+    'bound',
+    semantic.bindingId,
+    semantic.scope.repository,
+    semantic.scope.target,
+    semantic.acceptedSpec.reference,
+    semantic.acceptedSpec.body,
+    semantic.acceptedSpec.digest,
+    semantic.chain,
+    semantic.sourceRefs,
+    [...semantic.requirements],
+    semantic.config.productVersion,
+    semantic.config.version,
+    semantic.config.digest,
+    semantic.config.serialized,
+  ])
+}
+
+/** Exact observed bytes, native publication identities, and the shared semantic canon. */
 export function hashReviewInput(
   repository: string,
   target: Pick<Target, 'pr' | 'candidate'>,
   body: PrBody,
   semctx: PrComment[] | null,
   assertledger: PrComment[] | null,
+  semantic: ProofSemanticContext,
 ): string {
   const parts = (run: PrComment[] | null) =>
     run?.map((part) => [part.id, part.body, part.createdAt, part.updatedAt]) ?? null
   const bytes = JSON.stringify([
-    'omp-build:review-input/1',
+    'omp-build:review-input/2',
     repository,
     target.pr,
     target.candidate,
     [body.body, body.lastEditedAt],
     parts(semctx),
     parts(assertledger),
+    reviewSemanticCanon(semantic),
   ])
-  const digest = createHash('sha256').update(bytes, 'utf8').digest('hex')
-  return `<!-- omp-build:review-input v=1 sha256=${digest} -->`
+  return createHash('sha256').update(bytes, 'utf8').digest('hex')
 }
 
 /** The producer command an admission refusal names; run in the normal workflow, never by admission. */
@@ -1219,7 +1587,7 @@ export async function semctxInputs(
     return refuse(
       'semctx',
       'missing',
-      `candidate ${facts.candidate} adds no ${CHANGES_DIR}<id>.sem since ${mergeBase}${modified.length ? ` (it only modifies ${modified.join(', ')}, which cannot stand in for this ticket's own)` : ''}: open the change contract for this ticket (feature §6.0)`,
+      `candidate ${facts.candidate} adds no ${CHANGES_DIR}<id>.sem since ${mergeBase}${modified.length ? ` (it only modifies ${modified.join(', ')}, which cannot stand in for this ticket's own)` : ''}: open the change contract for this ticket (skills/feature/proof.ts semctxInputs)`,
     )
   }
   const historicalContracts = new Map<string, ContractProvenance>()
@@ -1294,7 +1662,7 @@ export function recordIntegrity(parts: PrComment[], producer: Producer): Refusal
       return refuse(
         producer,
         'unbound',
-        `proof part ${index + 1}/${parts.length} was revised after publication; acquire a new producer record, then review the head (feature §6.4)`,
+        `proof part ${index + 1}/${parts.length} was revised after publication; acquire a new producer record, then review the head (skills/feature/proof.ts recordIntegrity)`,
       )
     }
   }
@@ -1310,7 +1678,7 @@ function reviewedRecord(parts: PrComment[], target: Target, producer: Producer):
     return refuse(
       producer,
       'unjustified',
-      `the review of candidate ${target.candidate} has no readable native creation time: re-review the head (feature §6.4)`,
+      `the review of candidate ${target.candidate} has no readable native creation time: re-review the head (skills/feature/proof.ts reviewedRecord)`,
     )
   for (const [index, part] of parts.entries()) {
     const created = nativeInstant(part.createdAt)
@@ -1318,7 +1686,7 @@ function reviewedRecord(parts: PrComment[], target: Target, producer: Producer):
       return refuse(
         producer,
         'unjustified',
-        `proof part ${index + 1}/${parts.length} was published at ${part.createdAt}, not before approving review ${target.reviewedAt}: re-review the same head (feature §6.4), reuse the unmodified record without a producer`,
+        `proof part ${index + 1}/${parts.length} was published at ${part.createdAt}, not before approving review ${target.reviewedAt}: re-review the same head (skills/feature/proof.ts reviewedRecord), reuse the unmodified record without a producer`,
       )
     }
   }
@@ -1369,7 +1737,7 @@ function reviewedBody(target: Target, pull: PrBody): { body: string } | Refusal 
     return refuse(
       'semctx',
       'unjustified',
-      `the PR #${target.pr} body that justifies the PARTIAL gaps was edited at ${edited}, not before the review record that approved ${target.candidate} (${target.reviewedAt ?? 'no time'}): that review never judged it — re-review the head (feature §6.4)`,
+      `the PR #${target.pr} body that justifies the PARTIAL gaps was edited at ${edited}, not before the review record that approved ${target.candidate} (${target.reviewedAt ?? 'no time'}): that review never judged it — re-review the head (skills/feature/proof.ts reviewedBody)`,
     )
   }
   return { body }
@@ -1649,6 +2017,219 @@ export function readAssertledgerRecord(
   )
 }
 
+export type ProofReadiness =
+  | { status: 'ready'; selector: ProofSelector }
+  | { status: 'unusable'; reason: string; evidence: Diagnostic[] }
+
+function proofSelector(input: {
+  candidateGitSHA: string | null
+  applicability: ProofSelector['applicability']
+  admission: ProofSelector['admission']
+  input: string | null
+  evidence: Diagnostic[]
+}): ProofSelector {
+  return {
+    admission: input.admission,
+    candidateGitSHA: input.candidateGitSHA,
+    input: input.input,
+    applicability: input.applicability,
+    evidence: input.evidence,
+  }
+}
+
+function proofEvidence(code: string, message: string): Diagnostic {
+  return { code, message }
+}
+
+type BoundProof =
+  | { status: 'bound'; recordId: string; input: string }
+  | { status: 'unbound'; evidence: Diagnostic[] }
+  | { status: 'unusable'; reason: string; evidence: Diagnostic[] }
+
+function unboundProof(producer: Producer, reason: RefusalReason, error: string): BoundProof {
+  return { status: 'unbound', evidence: [proofEvidence('proof-unbound', refuse(producer, reason, error).error)] }
+}
+
+/** The same native-comment check capture uses. Empty or unreadable identity does not bind. */
+function nativeProofIdentity(found: SelectedRecord, producer: Producer): BoundProof | null {
+  if (found.parts.some((part) => !Number.isSafeInteger(part.id) || Number(part.id) < 1)) {
+    return unboundProof(
+      producer,
+      'unreadable',
+      'the selected producer publication has no readable native comment identity',
+    )
+  }
+  return null
+}
+
+async function boundSemctx(
+  repository: string,
+  pr: number,
+  candidate: string,
+  facts: CandidateFacts,
+  history: DecodedHistory,
+  git: Git,
+): Promise<BoundProof> {
+  const found = findProofRecord(history, 'semctx', candidate)
+  if ('missing' in found) return unboundProof('semctx', 'missing', found.missing)
+  if ('unreadable' in found) return unboundProof('semctx', 'unreadable', found.unreadable)
+  const identity = nativeProofIdentity(found, 'semctx')
+  if (identity) return identity
+  if (facts.config === null) {
+    return {
+      status: 'unusable',
+      reason: 'semctx is configured without a committed config digest',
+      evidence: [
+        proofEvidence('proof-unusable', `candidate ${candidate} has Semctx state and no committed config digest`),
+      ],
+    }
+  }
+  const inputs = await semctxInputs(facts, git)
+  if ('ok' in inputs) return unboundProof('semctx', inputs.reason, inputs.error)
+  const results = readSemctxRecord(found.record, {
+    repository,
+    pr,
+    candidate,
+    ...inputs,
+    changeFiles: facts.changeFiles,
+  })
+  if ('ok' in results) return unboundProof('semctx', results.reason, results.error)
+  return { status: 'bound', recordId: found.recordId, input: `semctx-config:${facts.config.sha256}` }
+}
+
+async function boundAssertledger(
+  repository: string,
+  pr: number,
+  candidate: string,
+  facts: CandidateFacts,
+  history: DecodedHistory,
+  git: Git,
+): Promise<BoundProof> {
+  const found = findProofRecord(history, 'assertledger', candidate)
+  if ('missing' in found) return unboundProof('assertledger', 'missing', found.missing)
+  if ('unreadable' in found) return unboundProof('assertledger', 'unreadable', found.unreadable)
+  const identity = nativeProofIdentity(found, 'assertledger')
+  if (identity) return identity
+  const args = ['rev-parse', `${candidate}^{tree}`]
+  const tree = await git(facts.toplevel, args)
+  const treeSha = oneLine(tree.stdout)
+  if (tree.code !== 0 || !SHA.test(treeSha)) return unboundProof('assertledger', 'unreadable', gitError(args, tree))
+  const outcome = readAssertledgerRecord(found.record, { repository, pr, candidate, tree: treeSha })
+  if (outcome !== 'detection') return unboundProof('assertledger', outcome.reason, outcome.error)
+  return { status: 'bound', recordId: found.recordId, input: `assertledger-tree:${treeSha}` }
+}
+
+/**
+ * Pre-review proof readiness. Applicability is candidateFacts plus assertledgerApplies,
+ * never "a pull request is open". Admission is the existing record readers and native
+ * comment identity. It does not call admitLanding and does not require an approving review.
+ * A missing pull request is not-started, not an applicable no-op. Unreadable facts, an
+ * undecidable assertledger type, a missing established base tip, or incomplete history
+ * when a producer applies are unusable, not not-applicable.
+ * `baseTip` is the tip from refreshSelectedBase, never baseRefOid.
+ */
+export async function readProofReadiness(input: {
+  cwd: string
+  repository: string
+  pr: number | null
+  candidate: string | null
+  base: string | null
+  baseTip: string | null
+  history: DecodedHistory | null
+  git: Git
+  gh: Gh
+}): Promise<ProofReadiness> {
+  if (input.pr === null || input.candidate === null || input.base === null) {
+    return {
+      status: 'ready',
+      selector: proofSelector({
+        candidateGitSHA: input.candidate,
+        applicability: 'required',
+        admission: null,
+        input: null,
+        evidence: [],
+      }),
+    }
+  }
+  if (input.baseTip === null) {
+    const message = 'the selected base tip is missing; establish it with refreshSelectedBase, never baseRefOid'
+    return { status: 'unusable', reason: message, evidence: [proofEvidence('proof-unusable', message)] }
+  }
+  const facts = await candidateFacts(input.cwd, input.candidate, input.base, input.baseTip, input.git)
+  if ('ok' in facts) {
+    return { status: 'unusable', reason: facts.error, evidence: [proofEvidence('proof-unusable', facts.error)] }
+  }
+  const ledger = await assertledgerApplies(
+    input.cwd,
+    facts,
+    { pr: input.pr },
+    { gh: input.gh, git: input.git },
+    input.repository,
+  )
+  if (typeof ledger === 'object') {
+    return { status: 'unusable', reason: ledger.error, evidence: [proofEvidence('proof-unusable', ledger.error)] }
+  }
+  if (facts.semctx !== 'configured' && !ledger) {
+    return {
+      status: 'ready',
+      selector: proofSelector({
+        candidateGitSHA: input.candidate,
+        applicability: 'not-applicable',
+        admission: null,
+        input: null,
+        evidence: [],
+      }),
+    }
+  }
+  if (input.history === null || !input.history.source.complete) {
+    const message = `the complete common proof history for PR #${input.pr} could not be read`
+    return { status: 'unusable', reason: message, evidence: [proofEvidence('proof-unusable', message)] }
+  }
+  const producers: BoundProof[] = []
+  if (facts.semctx === 'configured') {
+    producers.push(await boundSemctx(input.repository, input.pr, input.candidate, facts, input.history, input.git))
+  }
+  if (ledger) {
+    producers.push(
+      await boundAssertledger(input.repository, input.pr, input.candidate, facts, input.history, input.git),
+    )
+  }
+  const unusable = producers.find((producer) => producer.status === 'unusable')
+  if (unusable && unusable.status === 'unusable') {
+    return { status: 'unusable', reason: unusable.reason, evidence: unusable.evidence }
+  }
+  const unbound = producers.filter((producer) => producer.status === 'unbound')
+  if (unbound.length > 0 || producers.length === 0) {
+    return {
+      status: 'ready',
+      selector: proofSelector({
+        candidateGitSHA: input.candidate,
+        applicability: 'required',
+        admission: null,
+        input: null,
+        evidence: unbound.flatMap((producer) => (producer.status === 'unbound' ? producer.evidence : [])),
+      }),
+    }
+  }
+  const bound = producers.filter((producer) => producer.status === 'bound')
+  const identity = bound.map((producer) => (producer.status === 'bound' ? producer.input : '')).join('\n')
+  const recordIds = bound.map((producer) => (producer.status === 'bound' ? producer.recordId : ''))
+  if (identity.length === 0 || recordIds.some((recordId) => recordId.length === 0)) {
+    const message = `PR #${input.pr} proof records did not bind a candidate, input, and record id`
+    return { status: 'unusable', reason: message, evidence: [proofEvidence('proof-unusable', message)] }
+  }
+  return {
+    status: 'ready',
+    selector: proofSelector({
+      candidateGitSHA: input.candidate,
+      applicability: 'required',
+      admission: { ok: true, candidateGitSHA: input.candidate, input: identity, recordIds },
+      input: identity,
+      evidence: [],
+    }),
+  }
+}
+
 async function admitAssertledger(
   facts: CandidateFacts,
   target: Target,
@@ -1668,6 +2249,55 @@ async function admitAssertledger(
   return outcome === 'detection' ? reviewedRecord(found.parts, target, 'assertledger') : outcome
 }
 
+async function pullRequestBranch(cwd: string, pr: number, gh: Gh, repository: string): Promise<string | Refusal> {
+  const raw = await gh(cwd, ['pr', 'view', String(pr), '--repo', repository, '--json', 'headRefName'])
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return refuse('candidate', 'unreadable', `PR #${pr} branch could not be read`)
+  }
+  if (!isRecord(parsed) || typeof parsed.headRefName !== 'string' || parsed.headRefName.length === 0) {
+    return refuse('candidate', 'unreadable', `PR #${pr} has no head branch`)
+  }
+  return parsed.headRefName
+}
+
+async function loadSemantic(
+  cwd: string,
+  target: Pick<Target, 'pr' | 'base'>,
+  deps: Deps,
+  repository: string,
+  body: string,
+): Promise<ProofSemanticContext | Refusal> {
+  if (deps.semantic) return deps.semantic
+  const branch = await pullRequestBranch(cwd, target.pr, deps.gh, repository)
+  if (typeof branch !== 'string') return branch
+  if (target.base === undefined || target.base.length === 0) {
+    return refuse('candidate', 'unreadable', `PR #${target.pr} has no base branch`)
+  }
+  const resolved = await resolveReviewSemanticContext({
+    cwd,
+    repository,
+    pr: target.pr,
+    body,
+    branch,
+    base: target.base,
+    gh: deps.gh,
+  })
+  if (!resolved.ok) {
+    const diagnostic = resolved.diagnostics[0]
+    const code = typeof diagnostic?.code === 'string' ? diagnostic.code : ''
+    const message = typeof diagnostic?.message === 'string' ? diagnostic.message : ''
+    return refuse(
+      'candidate',
+      code.endsWith('unreadable') ? 'unreadable' : 'unbound',
+      message.length > 0 ? message : 'review semantic context refused',
+    )
+  }
+  return proofSemanticContext(resolved.value)
+}
+
 // ---------------------------------------------------------------------------
 // Admission
 // ---------------------------------------------------------------------------
@@ -1677,6 +2307,8 @@ async function admitAssertledger(
  * a refusal names what must be produced outside admission. Transport failures
  * (`gh`) throw: an unreadable source authorizes nothing. Semctx absence makes
  * only Semctx non-applicable; the assertledger requirement is decided apart.
+ * Neither skip is a semantic binding: every review hashes the shared canon,
+ * and proof parts may be empty.
  */
 export async function captureReviewInput(
   cwd: string,
@@ -1685,45 +2317,58 @@ export async function captureReviewInput(
 ): Promise<ReviewSnapshot | Refusal> {
   const facts = await candidateFacts(cwd, target.candidate, target.base, target.baseTip, deps.git)
   if ('ok' in facts) return facts
-  const absent = (): ReviewSnapshot => ({
-    ok: true,
-    input: null,
-    body: null,
-    facts,
-    read: null,
-    semctx: null,
-    assertledger: null,
-  })
-  if (facts.semctx === 'absent' && !facts.adapters.length) return absent()
   const repository = await repositoryOf(deps.gh, cwd)
   const ledger = await assertledgerApplies(cwd, facts, target, deps, repository)
   if (typeof ledger === 'object') return ledger
-  if (facts.semctx === 'absent' && !ledger) return absent()
-  const { me, comments } = await deps.comments()
-  const read = { me, comments, repository }
-  const select = (producer: Producer): SelectedRecord | Refusal => {
-    const found = findRecord(comments, me, producer, target.candidate)
-    if ('missing' in found) {
-      const extra = producer === 'assertledger' ? ' --assertledger-manifest <manifest.json>' : ''
+  const read = { repository }
+  let semctx: SelectedRecord | null = null
+  let assertledger: SelectedRecord | null = null
+  if (facts.semctx === 'configured' || ledger) {
+    const history = decodeHistory(
+      await readGitHubHistory(githubScope(repository, target.pr), withRoxabiGitHubPolicy({ cwd, gh: deps.gh })),
+    )
+    if (!history.source.complete)
       return refuse(
-        producer,
-        'missing',
-        `${found.missing}. Produce it outside admission: ${acquireCommand(target.pr, extra)}`,
+        'candidate',
+        'unreadable',
+        `the complete common proof history for PR #${target.pr} could not be read`,
       )
+    const select = (producer: Producer): SelectedRecord | Refusal => {
+      const found = findProofRecord(history, producer, target.candidate)
+      if ('missing' in found) {
+        const extra = producer === 'assertledger' ? ' --assertledger-manifest <manifest.json>' : ''
+        return refuse(
+          producer,
+          'missing',
+          `${found.missing}. Produce it outside admission: ${acquireCommand(target.pr, extra)}`,
+        )
+      }
+      if ('unreadable' in found) return refuse(producer, 'unreadable', found.unreadable)
+      if (found.parts.some((part) => !Number.isSafeInteger(part.id) || Number(part.id) < 1))
+        return refuse(
+          producer,
+          'unreadable',
+          'the selected producer publication has no readable native comment identity',
+        )
+      return found
     }
-    if ('unreadable' in found) return refuse(producer, 'unreadable', found.unreadable)
-    if (found.parts.some((part) => !Number.isSafeInteger(part.id) || Number(part.id) < 1))
-      return refuse(producer, 'unreadable', 'the selected producer publication has no readable native comment identity')
-    return found
+    if (facts.semctx === 'configured') {
+      const selected = select('semctx')
+      if ('ok' in selected) return selected
+      semctx = selected
+    }
+    if (ledger) {
+      const selected = select('assertledger')
+      if ('ok' in selected) return selected
+      assertledger = selected
+    }
   }
-  const semctx = facts.semctx === 'configured' ? select('semctx') : null
-  if (semctx && 'ok' in semctx) return semctx
-  const assertledger = ledger ? select('assertledger') : null
-  if (assertledger && 'ok' in assertledger) return assertledger
   const body = await readPrBody(cwd, target.pr, deps.gh, repository)
+  const semantic = await loadSemantic(cwd, target, deps, repository, body.body)
+  if ('ok' in semantic) return semantic
   return {
     ok: true,
-    input: hashReviewInput(repository, target, body, semctx?.parts ?? null, assertledger?.parts ?? null),
+    input: hashReviewInput(repository, target, body, semctx?.parts ?? null, assertledger?.parts ?? null, semantic),
     body,
     facts,
     read,
@@ -1737,17 +2382,14 @@ export async function admitLanding(cwd: string, target: Target, deps: Deps): Pro
   const snapshot = await captureReviewInput(cwd, target, deps)
   if (!snapshot.ok) return snapshot
   const { facts, read, body } = snapshot
-  const next = `re-read the exact body and selected producer parts and re-review the same head (feature §6.4)`
-  if (!read || !body) {
-    // No producer applies now. An approval that bound producer evidence was judged
-    // under inputs that no longer hold (ticket/branch reclassified, adapter or
-    // ignored Semctx config gone): the reviewed binding is not silently dropped.
-    if (target.reviewInput === null) return { ok: true, proof: { semctx: 'absent', assertledger: 'not-applicable' } }
-    return refuse(
-      'candidate',
-      'unbound',
-      `the approval's line-3 review-input binding names producer evidence, but no producer applies to this landing: applicability changed after review — ${next}`,
-    )
+  if (target.proofPins) {
+    const pinned = await compareApplicableProofPins(deps.git, facts, target.proofPins)
+    if (!pinned.ok) return pinned
+  }
+
+  const next = `re-read the exact body and selected producer parts and re-review the same head (skills/feature/proof.ts admitLanding)`
+  if (!read || !body || snapshot.input === null) {
+    return refuse('candidate', 'unreadable', `the current Spec could not be bound into the review input — ${next}`)
   }
   let semctx: SemctxOutcome = 'absent'
   if (snapshot.semctx) {
@@ -1760,18 +2402,22 @@ export async function admitLanding(cwd: string, target: Target, deps: Deps): Pro
     if (refused) return refused
   }
   if (target.reviewInput === null)
-    return refuse('candidate', 'missing', `the approval has no line-3 review-input binding — ${next}`)
-  if (!/^<!-- omp-build:review-input v=1 sha256=[0-9a-f]{64} -->$/.test(target.reviewInput))
+    return refuse(
+      'candidate',
+      'unbound',
+      `the approval has no review-input binding and cannot approve the current Spec — ${next}`,
+    )
+  if (!/^[0-9a-f]{64}$/.test(target.reviewInput))
     return refuse(
       'candidate',
       'unreadable',
-      `the approval's line-3 review-input binding is malformed or unsupported — ${next}`,
+      `the approval's review-input binding is malformed or unsupported — ${next}`,
     )
   if (target.reviewInput !== snapshot.input)
     return refuse(
       'candidate',
       'unbound',
-      `the current PR body or selected producer publication is not the exact input that was reviewed — ${next}`,
+      `the current Spec, config, PR body, or selected producer publication is not the exact input that was reviewed — ${next}`,
     )
   return { ok: true, proof: { semctx, assertledger: snapshot.assertledger ? 'detection' : 'not-applicable' } }
 }

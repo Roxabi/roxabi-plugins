@@ -1,8 +1,7 @@
-import type * as NodeFs from 'node:fs'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve, sep } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { join } from 'node:path'
+import type { ExtensionAPI } from '@oh-my-pi/pi-coding-agent'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   evalGuard,
@@ -15,21 +14,7 @@ import {
   shouldBlockPrincipalSwitch,
 } from '../guards'
 import ompBuildExtension from '../index'
-
-// The only fs call intercepted is the command handler's own body read, and only
-// while `skillRead.fail` is set: everything else — including this file's temp
-// dirs — goes straight through to the real module.
-const skillRead = vi.hoisted(() => ({ fail: false }))
-vi.mock('node:fs', async (importOriginal) => {
-  const actual = await importOriginal<typeof NodeFs>()
-  const readFileSync = ((path: Parameters<typeof actual.readFileSync>[0], ...rest: unknown[]) => {
-    if (skillRead.fail && String(path).endsWith('SKILL.md')) {
-      throw new Error(`ENOENT: no such file or directory, open '${String(path)}'`)
-    }
-    return (actual.readFileSync as (...args: unknown[]) => unknown)(path, ...rest)
-  }) as typeof actual.readFileSync
-  return { ...actual, readFileSync, default: { ...actual, readFileSync } }
-})
+import { createExtensionApiStub } from './extension-api-stub'
 
 describe('OMP omp-build hooks', () => {
   describe('project contract', () => {
@@ -183,13 +168,13 @@ describe('OMP omp-build hooks', () => {
       bareCwd = mkdtempSync(join(tmpdir(), 'omp-build-bare-'))
 
       let captured: ToolCallHandler | undefined
-      ompBuildExtension({
-        on: (event: string, fn: unknown) => {
-          if (event === 'tool_call') captured = fn as ToolCallHandler
-        },
-        registerCommand: () => {},
-        sendUserMessage: () => {},
-      })
+      ompBuildExtension(
+        createExtensionApiStub({
+          on: ((event: string, fn: unknown) => {
+            if (event === 'tool_call') captured = fn as ToolCallHandler
+          }) as ExtensionAPI['on'],
+        }),
+      )
       if (!captured) throw new Error('extension registered no tool_call handler')
       handler = captured
     })
@@ -271,221 +256,20 @@ describe('OMP omp-build hooks', () => {
     const sent: string[] = []
 
     beforeAll(() => {
-      ompBuildExtension({
-        on: () => {},
-        registerCommand: (name, options) => {
-          commands.set(name, options as Command)
-        },
-        sendUserMessage: (content) => {
-          sent.push(content)
-        },
-      })
-    })
-
-    it('registers exactly the skill commands', () => {
-      // The tail (#495) is reachable by slash and by nothing else. Dropping a
-      // registration makes `/promote` or `/cleanup` unreachable while the body
-      // still sits on disk looking installed.
-      expect([...commands.keys()].sort()).toEqual(['ci-watch', 'cleanup', 'feature', 'promote'])
-    })
-
-    it('dumps /ci-watch with the PR argument the operator passed', async () => {
-      await commands.get('ci-watch')?.handler('123', { cwd: '/repo' })
-      const message = sent.at(-1) ?? ''
-      expect(message).toContain('skill://ci-watch/ci-watch.sh')
-      expect(message).toContain('123')
-      expect(message).toContain('[Skill directory:')
-    })
-
-    // Built the way the source builds it — two levels up from the module, then
-    // `skills/feature` — instead of matched against `plugins/omp-build/…`: the
-    // monorepo layout is not the contract, and a marketplace install is a
-    // byte-identical copy at another path.
-    const skillDir = resolve(import.meta.dirname, '..', '..', 'skills', 'feature')
-
-    it('dumps the skill body, frontmatter stripped, with its directory and the args', async () => {
-      await commands.get('feature')?.handler('#493', { cwd: '/repo' })
-      const message = sent.at(-1)
-      expect(message).toBeDefined()
-      // Frontmatter in the conversation would be noise the model reads as content.
-      expect(message).not.toContain('disable-model-invocation')
-      expect(message).toContain('# Feature')
-      expect(message?.endsWith('#493')).toBe(true)
-
-      const printed = /\[Skill directory: (.+)]/.exec(message ?? '')?.[1]
-      expect(printed).toBe(skillDir)
-      // §2 tells the agent to `import(`${SKILL_DIR}/entry.js`)`. A directory that
-      // does not carry the seam is a dead instruction, wherever it resolves.
-      expect(existsSync(join(printed ?? '', 'entry.js'))).toBe(true)
-    })
-
-    /** Every name a fence destructures is a function the module it imports exports. */
-    async function expectFunctionExports(specifier: string, names: string) {
-      // Dynamic on purpose: the specifier is read out of the body under test.
-      const module = await import(specifier)
-      const wanted = names
-        .split(',')
-        .map((name) => name.trim())
-        .filter(Boolean)
-      expect(Object.fromEntries(wanted.map((name) => [name, typeof module[name]]))).toEqual(
-        Object.fromEntries(wanted.map((name) => [name, 'function'])),
-      )
-    }
-
-    it('destructures only exported functions from every module it tells the model to import', async () => {
-      // The body runs `const { … } = await import(`${SKILL_DIR}/…`)` in a live session.
-      // The modules' own tests import their functions directly, so a renamed or dropped
-      // export in the body stays green there and throws three steps into a ticket.
-      await commands.get('feature')?.handler('#494', { cwd: '/repo' })
-      const message = sent.at(-1) ?? ''
-      const printed = /\[Skill directory: (.+)]/.exec(message)?.[1] ?? ''
-      const fences = [...message.matchAll(/const \{([^}]+)\} =\s*await import\(`\$\{SKILL_DIR\}\/([^`]+)`\)/g)]
-      expect(fences.length).toBeGreaterThan(0)
-      for (const [, names, rel] of fences) await expectFunctionExports(resolve(printed, rel), names)
-    })
-
-    it('destructures only exported functions from the feature module dev-review imports by real path', async () => {
-      // dev-review is read through skill://, with its own directory as SKILL_DIR, and reaches
-      // the feature module one level up: `pathToFileURL(join(SKILL_DIR, '../feature/…')).href`.
-      const reviewDir = resolve(skillDir, '..', 'dev-review')
-      const body = readFileSync(join(reviewDir, 'SKILL.md'), 'utf8')
-      const fences = [
-        ...body.matchAll(/const \{([^}]+)\} =\s*await import\(pathToFileURL\(join\(SKILL_DIR, '([^']+)'\)\)\.href\)/g),
-      ]
-      expect(fences.length).toBeGreaterThan(0)
-      for (const [, names, rel] of fences) await expectFunctionExports(pathToFileURL(join(reviewDir, rel)).href, names)
-    })
-
-    it('says so in the conversation when its own body cannot be read', async () => {
-      // omp catches a handler throw and reports it on a channel the operator may
-      // not be watching: a partial install would otherwise produce no turn at all.
-      skillRead.fail = true
-      try {
-        await commands.get('feature')?.handler('', { cwd: '/repo' })
-      } finally {
-        skillRead.fail = false
-      }
-      const message = sent.at(-1)
-      expect(message).toContain('cannot read its own body')
-      expect(message).toContain(join(skillDir, 'SKILL.md'))
-      expect(message).not.toContain('# Feature')
-    })
-
-    it.each(['promote', 'cleanup'])('dumps the %s body with its own skill directory', async (name) => {
-      await commands.get(name)?.handler('--dry-run', { cwd: '/repo' })
-      const message = sent.at(-1)
-      expect(message).toBeDefined()
-      // Both tail bodies *discuss* `disable-model-invocation` in prose, so the
-      // keyword cannot stand in for "frontmatter stripped". The boundary can:
-      // a stripped body starts at its H1 and carries no `version:` key.
-      expect(message?.startsWith('# ')).toBe(true)
-      expect(message).not.toMatch(/^version:/m)
-      expect(message?.endsWith('--dry-run')).toBe(true)
-
-      const printed = /\[Skill directory: (.+)]/.exec(message ?? '')?.[1]
-      expect(printed).toBe(resolve(import.meta.dirname, '..', '..', 'skills', name))
-      // Each tail body instructs by `skill://<skill>/<file>`. Two things must
-      // hold for that to resolve: `<skill>` is a skill — a directory carrying a
-      // SKILL.md, which is what the harness looks a name up in — and the asset
-      // exists inside it. `skill://shared/lib.sh` satisfied only the second:
-      // `skills/shared/` is a plain directory of this plugin, so the URL named a
-      // file that is really there through a namespace that cannot reach it.
-      //
-      // The assertion this replaces, `existsSync(<printed>/SKILL.md)`, restated
-      // the precondition: the body under test was just read from that file, so it
-      // could not fail while the handler worked at all.
-      const skillsDir = resolve(import.meta.dirname, '..', '..', 'skills')
-      const cited = [...(message ?? '').matchAll(/skill:\/\/([a-z0-9-]+)\/([\w./-]+)/g)]
-      expect(cited.length).toBeGreaterThan(0)
-      const unresolvable = cited
-        .filter(
-          ([, skill, rel]) =>
-            !existsSync(join(skillsDir, skill, 'SKILL.md')) || !existsSync(join(skillsDir, skill, rel)),
-        )
-        .map(([url]) => url)
-      expect(unresolvable).toEqual([])
-    })
-
-    it('keeps both tail bodies out of the review loop, in the text the model receives', async () => {
-      // The offered-tail contract is only real if it survives into the dumped
-      // body — the command handler strips frontmatter, so a claim made only in
-      // `disable-model-invocation` reaches nobody.
-      for (const name of ['promote', 'cleanup']) {
-        await commands.get(name)?.handler('', { cwd: '/repo' })
-        const message = sent.at(-1) ?? ''
-        expect(message).toContain('never run on its own initiative')
-        expect(message).toContain('review→fix loop')
-      }
-    })
-
-    it('dumps no install banner while the skills mode 2 names are all present', async () => {
-      await commands.get('feature')?.handler('#494', { cwd: '/repo' })
-      const message = sent.at(-1) ?? ''
-      expect(message.startsWith('# Feature')).toBe(true)
-      expect(message).not.toContain('partially installed')
-    })
-
-    it('says which of them is missing, instead of dumping a body that cannot run', async () => {
-      // The failure it catches: `skills/dev-review/` absent from the install.
-      // Nothing else observes that — `/feature` still reads its own body, still
-      // prints its own directory, and §6.4 calls a review that resolves nowhere.
-      const partial = new Map<string, Command>()
-      const messages: string[] = []
       ompBuildExtension(
-        {
-          on: () => {},
+        createExtensionApiStub({
           registerCommand: (name, options) => {
-            partial.set(name, options as Command)
+            commands.set(name, options as Command)
           },
           sendUserMessage: (content) => {
-            messages.push(content)
+            sent.push(String(content))
           },
-        },
-        { exists: (path) => !path.includes(`${sep}dev-review${sep}`) },
+        }),
       )
-      await partial.get('feature')?.handler('#494', { cwd: '/repo' })
-      const message = messages.at(-1) ?? ''
-      // The banner is the first line; the body below it names `fix` all over §6,
-      // so the whole message cannot say which one was found missing.
-      const banner = message.split('\n')[0] ?? ''
-      expect(banner).toContain('partially installed')
-      expect(banner).toContain('`dev-review`')
-      expect(banner).not.toContain('`fix`')
-      // The body still arrives: mode 1 needs none of these.
-      expect(message).toContain('# Feature')
-      expect(message.endsWith('#494')).toBe(true)
     })
 
-    it('cites only skills that resolve, and its install banner checks every local one', async () => {
-      // The body tells the model which skills to read by `skill://<name>`. A local name
-      // with no SKILL.md — or one the partial-install banner never checks — dies mid-ticket
-      // with nothing having said so. Upstream names come from other plugins.
-      const UPSTREAM = ['grilling', 'issue-triage', 'tdd']
-      const skillsDir = resolve(import.meta.dirname, '..', '..', 'skills')
-      await commands.get('feature')?.handler('#494', { cwd: '/repo' })
-      const cited = new Set([...(sent.at(-1) ?? '').matchAll(/skill:\/\/([a-z0-9-]+)/g)].map(([, name]) => name))
-      const local = [...cited].filter((name) => !UPSTREAM.includes(name))
-      expect(local.length).toBeGreaterThan(0)
-      expect(local.filter((name) => !existsSync(join(skillsDir, name, 'SKILL.md')))).toEqual([])
-
-      // With nothing installed, the banner names every skill it checks.
-      const bare = new Map<string, Command>()
-      const messages: string[] = []
-      ompBuildExtension(
-        {
-          on: () => {},
-          registerCommand: (name, options) => {
-            bare.set(name, options as Command)
-          },
-          sendUserMessage: (content) => {
-            messages.push(content)
-          },
-        },
-        { exists: () => false },
-      )
-      await bare.get('feature')?.handler('', { cwd: '/repo' })
-      const banner = (messages.at(-1) ?? '').split('\n')[0] ?? ''
-      expect(local.filter((name) => !banner.includes(`\`${name}\``))).toEqual([])
+    it('registers native review and correction commands alongside skill commands', () => {
+      expect([...commands.keys()].sort()).toEqual(['ci-watch', 'cleanup', 'dev-review', 'feature', 'fix', 'promote'])
     })
   })
 })

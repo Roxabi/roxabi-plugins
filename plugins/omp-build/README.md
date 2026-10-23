@@ -1,8 +1,8 @@
 # omp-build
 
-OMP-only cycle: frame → GitHub issue → agent-created worktree → `/move` + `/goal` → implement → bounded review/fix → land.
+OMP-only delivery plugin. The installed `/feature` command drives a bounded graph: frame, issue, worktree, implement, native review and correction, land. A session `/goal` does not authorize that graph.
 
-Not a Claude/Grok factory — does not invoke host `/dev` or dev-core Skill() children.
+Not a Claude/Grok factory — does not invoke host `/dev` or dev-core Skill() children. Package `0.11.0` in this tree is not an installed or activated release.
 
 ## Install
 
@@ -48,7 +48,7 @@ omp plugin doctor    # expect plugin:omp-build (link lane; a marketplace install
 omp plugin list      # npm Plugins → omp-build@<version in plugins/omp-build/package.json>
 ```
 
-`/feature` loads `skills/feature/` from the installed plugin. Do **not** copy `SKILL.md` into `~/.omp/agent/skills/` — that shadows the plugin.
+The installed extension registers `/feature` and runs the product coordinator. `skills/feature/SKILL.md` is its reference, not an independently executed lifecycle. Do **not** copy it into `~/.omp/agent/skills/` — that shadows the plugin.
 
 ### After you change the plugin
 
@@ -56,94 +56,105 @@ omp plugin list      # npm Plugins → omp-build@<version in plugins/omp-build/p
 |---|---|
 | `skills/`, `commands/`, MCP config | `/reload-plugins` |
 | `hooks/`, `omp.extensions`, **new/changed `agents/*.md`** | **restart** OMP session |
-
+| issue-triage helper source | `bun run build` from the repo root copies the slice into `dist/issue-triage/`. That generated tree is to be committed with the release. Install does not run the build. |
 Symlinking into `~/.omp/agent/agents/` is not supported — use `link` (or the catalog install armed by `extensions:`) + restart.
 
-## Launch
+## Process
 
-```text
-/feature <subject>    # frame the need and publish through issue-triage
-/feature #42          # read an existing issue and propose its branch
-```
+`omp/index.ts` registers `/feature` and calls `runInstalledFeatureCommand` in `roxabi/feature-entry.ts`. That registered command does not dump `skills/feature/SKILL.md`. Explicit `skill://feature` or `/skill:feature` access supplies reference material for human decisions, not a second lifecycle or execution authority. The local T3 qualification below covers workflow integration, not semantic-model quality or hosted activation; both remain separately authorized.
 
-At the end of framing an epic, the agent creates `<worktree base>/<repo>/<epic-slug>`
-**detached** at fresh `refs/remotes/origin/<base>` (no epic branch) and prints
-`/move <path>`. Once every child is framed, `/feature #E` in that worktree prints the
-generated `/goal` line (`skills/feature/epic-driver.ts objective`), carrying the
-epic, a `run=` id and the base. It does not switch the Principal. A single ticket
-outside a goal uses the same `/move`; assisted mode, no `/goal`.
+### Controls
 
-After entering the matching worktree, run `/feature #42` again. Incomplete scope
-returns to framing; an actionable, unblocked issue proceeds to implementation.
-Framing can start in conversation on the Principal; local file edits cannot.
-After a framing pass, start implementation with fresh context in the ticket's
-worktree. Declining branch creation permits further discussion, not implementation.
+`parseFeatureCommand` is the word list. A known transition does not ask again. There is no per-PR merge approval.
 
-The issue body is the spec. Current dependencies: `grilling` for open design
-questions, `issue-triage` for issue writes, and bundled `dev-review` / `fix` for
-verification. `tdd` is used at agreed test-first seams. The old `grill-with-docs`,
-`to-spec`, `to-tickets` and `implement` skills are no longer prerequisites.
-
-PR open, the review loop, and landing live in `skills/feature/workflow.js`.
-
-### Epic flow under `/goal`
-
-With a goal active whose objective names `/feature #E`, the session runs the epic
-unattended in the epic worktree. Before every ticket it asks the driver
-(`skills/feature/epic-driver.ts next`) for the one next action, from GitHub and git
-state alone:
-
-```text
-next → start/resume child (branch from origin/<base>) → implement → dev-review → fix → land
-     → merge confirmed: detach, delete the local branch → next …
-     → every child closed or merged → final epic review (R-architect + R-adversarial)
-     → clean tree and base CI green or none → release.post_merge at that base commit
-     → report → goal complete
-```
-
-Children run in `blocked_by` order. A **ticket stop** (review bound spent, watch
-timeout, cancelled or blocked checks, a PR `behind` its base, `proof-blocked`, no scope, foreign commit…) is
-recorded on the child as a `goal-stop` marker, its PR disarmed; its dependents are
-skipped and independent children continue. A **shared-state stop** (base CI red,
-`base-ci-pending` at finalization, a dirty tree, `hook-stale`, landing or tracker
-failure, hook failure, final review still blocking after its one fix ticket)
-disarms every child PR, reports on the epic and drops the
-goal. A new `/goal` line resumes: a child with canonical delivery confirmed by `mergedPr` — a `MERGED` PR to the
-configured base, from a head claiming that ticket, with a known merge SHA — progresses to eligible local-branch
-cleanup; open PRs resume; earlier stops retry except a spent review bound. Before its first `nextStep`, `next`
-re-disarms every open armed PR of a stopped child and lists it as `reconciled`; a failed disarm or a merge during
-that disarm drops the goal and creates no branch. Only the exact confirmed delivery PR is excluded from merged
-candidates: every other matching `MERGED` candidate, including another confirmed one, still drops; a matching
-`MERGED` PR without confirmable delivery also drops. History stays preserved, and an `OPEN` PR with an exhausted
-review bound is not reset. Without an active goal naming the epic, `/feature` is unchanged.
-
-The epic loop's driver calls (`objective`, `next`, the final-review verdict, the post-merge hook and the `complete` report) start Bun in the skill directory with `--no-env-file` and the epic worktree in `--repo`. Fix's follow-up filing starts issue-triage in its own directory with the target in `GITHUB_REPO`. A `bunfig.toml` preload or `.env` committed in the checkout under review therefore runs before none of them and cannot print a forged step, verdict or receipt. The ticket `stop` and the `drop` report, the halt launcher, still start in the epic worktree; #767 owns their startup.
-
-Frame issue writes and the printed tracker-init command use that same trusted issue-triage launch. The initial feature-init producer also resolves its operator-trusted entry, captures the invoking target before Bun starts, and runs from its own directory with `--no-env-file --dir "$TARGET_ROOT"`; checkout preload and dotenv startup cannot forge the printed command. Tracker init captures the target root and repository before changing directory and passes `init --root "$TARGET_ROOT"`; reads and writes of `docs/agents/issue-tracker.md` remain in the target checkout, and `--dry-run` writes neither contracts nor labels. Use issue-triage `0.2.6` or newer with omp-build `0.9.23`; do not fall back to a raw checkout launch.
-
-The separation assumes the resolved CLI and startup directory are operator-trusted. A normal cache install is separate from the candidate checkout; the local-authoring `link` lane can instead resolve candidate-controlled executable source and does not prove that boundary.
-
-## Slash commands
-
-| Command | Lane |
+| Command | Boundary |
 |---|---|
-| `/feature` | `omp/index.ts` → `registerCommand('feature')`, in-process. Dumps `skills/feature/SKILL.md` |
-| `/promote` | idem, `registerCommand('promote')`. Dumps `skills/promote/SKILL.md` |
-| `/cleanup` | idem, `registerCommand('cleanup')`. Dumps `skills/cleanup/SKILL.md` |
-| `/ci-watch` | idem, `registerCommand('ci-watch')`. Dumps `skills/ci-watch/SKILL.md` |
+| `/feature <reference>` | Publishes the first valid mandate, or reuses an applicable one. |
+| `/feature resume <reference>` | Resumes an ordinary confirmed pause. A review-bound or safety stop is not a pause. |
+| `/feature pause <reference>` | Inhibits local continuation and publishes the control. Confirmed only after observed disarm. |
+| `/feature abandon <reference>` | Revokes the selected mandate, including when that mandate has its own confirmed pause. No automatic renewal. |
+| `/feature new <reference>` | Successor over an intact abandoned or revoked mandate. `publishSuccessorMandate` names the antecedent and publishes `select-successor`. `preserveSuccessorBinding` rebinds the same open PR when its binding names the antecedent or is absent. A missing antecedent or a foreign binding does not mint. Not renewal of `/feature <reference>`. `new init` is this control, not init. |
+| `/feature material-decision <reference> accept\|reject` | The only material-Spec decision. Editorial continues without a question. Unknown stops. |
+| `/feature init` | Preview of the invoking checkout. Not a subject, not framing, not a mandate, not a native task. |
 
-Slash-only, on the one lane there is: `registerCommand` is the user lane,
-`registerTool` is the LLM one, and the model cannot reach a command — that is the
-whole property, and it is sufficient. A skill body's `disable-model-invocation`
-is **not** a second gate: omp normalises it to `hide`, which omits the skill from
-the prompt listing while `skill://<name>` and `/skill:<name>` still reach it
-(omp 18.2.9). Requires a **restart** (extension module), not `/reload-plugins`.
+From the Principal, or when the session cwd is not the intended worktree, select, resume, and new return `session-cwd` and `/move <path>`. They publish no mandate, branch binding, or native work. After `/move`, the same `/feature <reference>` is continuation, not a second approval. Pause and abandon of existing remote authority may still run without native work. There is no `/wt`. `/dev-review` and `/fix` do not grant landing.
 
-`/feature` prints `/move` immediately after framing and, for an epic, the `/goal` line once its children are framed.
-It does not hand the operator a `/wt` line. Existing worktrees are entered by
-`/move <path>`, not recreated.
+Detected mid-turn user interruption, session switch, and shutdown await the durable pause for a pausable owner. Confirmation is the read-back `pause-confirmed` control, not the local interrupt. A finished or confirmed-abandoned owner is released and is not paused again. An unconfirmed pause is not a resumable pause.
 
-In the matching worktree: implement → `dev-review` → `fix` → land.
+Ordinary SDK `session_stop` means turn settlement, not workflow pause: a host-owned CI watch continues. When only that watch is running, idle Esc/RPC abort does not guarantee pause or disarm; use `/feature pause` or `/feature abandon`. This is the explicit-stop contract, not an idle-abort hook. Mid-turn interruption uses the SDK's session-stamped `UserInterrupt` flag on an aborted assistant message. That SDK primitive is bundled at build time into the existing contracts bundle; there is no runtime SDK dependency, copied error-label fallback, or second supervisor. Status delivery requests `triggerTurn: false`; it does not grant continuation authority.
+
+Spec assessment receives the exact accepted and current bodies as JSON strings, preserving whitespace and final newlines. Its original classification stays in the action result. An explicit material acceptance applies only to that confirmed assessment and exact pair; changed or ambiguous references stop. Rejection publishes no acceptance and grants no continuation or landing authority. It is not an abandonment or a reset of the review bound.
+
+### Init
+
+`/feature init` and `/feature init --dry-run` are the same preview. The host captures `git rev-parse --show-toplevel`. A failed capture stops and does not frame. Otherwise it runs `bun --no-env-file <plugin>/skills/feature/feature-init.ts --dir <that root>` with Bun's cwd set to the script directory, and forwards only the operator's tokens. It does not add `--approve` or `--operator-approval`.
+
+The preview prints proposed stack additions, conflicts, the tracker plan, and a digest, then `digest is not authorization`. A printed digest is not an init reference. Explicit apply is the operator's own `/feature init --approve <digest> --operator-approval '<reply>'`. The CLI refuses a digest used as the approval text. `skills/feature/SKILL.md` states the rest of that boundary.
+
+### Storage and recovery
+
+Three parts, one plugin, no second runtime, no database, and no mandatory local business workflow store. Local environment caches are separate and reconstructible.
+
+| Part | Owns | Does not own |
+|---|---|---|
+| Engine (`engine/workflow.ts`) | Bounded traversal from confirmed histories, `requireLandingMandate` | Semantic judgement, GitHub calls, merge |
+| Roxabi (`roxabi/workflow-config.ts`, `roxabi/workflow.ts`) | Shipped graph, named actions, and the mandate snapshot of `review.additional_requirements` | A second config file, a project graph, a bound override, an admission override |
+| GitHub adapter (`adapters/github.ts`, `adapters/github-workflow.ts`) | Complete comment history, confirmed publication, scope reads | Finding classification, landing permission |
+
+GitHub comments hold the records: `mandate`, `operator-control`, `action-receipt`, `workflow-binding`, plus the existing review, correction, proof, and epic-event records. Git holds the code and the normative proof configuration. Proof pins are path, source commit, and blob; a null blob is explicit absence, recovered from Git. The review-input hash prefixes `omp-build:review-input/2` and includes the semantic canon even when producer part lists are null. A stored null input is not approval.
+
+The stack pin binds the selected base's blob. Existing UI proof rules still inspect both base and candidate stacks; a candidate stack change is not required to be byte-identical to the base. Semctx and AssertLedger retain their own configuration-divergence and applicability checks.
+
+The only project override of the shipped workflow definition is `review.additional_requirements` in the committed `.dev/stack.yml` at `refs/remotes/origin/<base>:.dev/stack.yml`. Existing `landing`, `release`, and `commands` configuration remains in force. `parseWorkflowOverride` accepts a list of non-empty strings. Absent `review`, or a null list, means none. `review.graph` and `review.workflow` are refused. There is no `.omp-build/workflow.json`. The mandate records that list as `effective.additionalRequirements`. An uncommitted working-tree edit is not that snapshot. The list does not replace the shipped graph, a review bound, or landing admission.
+
+A confirmed checkpoint is a published record read back, plus the Git facts that bind it. An OMP goal, transcript, or local session file is not authority. Local environment files are not authority either: dependency installs, indexes, and the per-git-dir bootstrap marker `omp-build-bootstrapped` plus lock `omp-build-bootstrap.lock`. They can be rebuilt. A cold machine does not copy the marker, those caches, or a transcript. Cannot resume: unpublished commits, a result never published, an action whose effect is uncertain, a pause request without observed disarm, a local-only worktree change. Moving machines needs the same operator identity, this plugin, GitHub auth, and the project tools, then `/feature <reference>` in the intended worktree. The environment is rebuilt there, not copied. Comment edit or deletion remains an accepted risk. There is no new anti-tamper store.
+
+The landing binding on every base is the confirmed `workflow-binding` on that PR. A closing keyword, issue body, or branch name is not landing authority.
+
+Issue state is a scope fact, not execution authority. A closed Spec remains readable when reconstructing its bound mandate. Closing an issue neither pauses or revokes that mandate nor approves landing; a closed PR still cannot authorize another review or correction.
+
+### Epic
+
+An epic runs from the confirmed mandate on the epic issue, not from a session goal. `skills/feature/epic-driver.ts` reads that mandate. The installed command calls `next`, `stop`, `review`, `mark-fix`, `hook`, `report`, and `control-disarm`. There is no `objective` command and no goal file.
+
+A ticket stop is an `epic-event` whose `event` is the historical wire name `goal-stop`. Independent children continue. A shared-state stop is an `epic-event` whose `event` is `goal-report`. The hook runs once at the current base commit; another commit is `hook-stale`. The report heading is `## Epic run`. Merged is not complete before the hook and report are observed. Delivery matching, re-disarm, and which stops retry live in `epic-driver.ts` and `epic.ts`. A run id does not reset a spent review bound.
+
+Debt filing and epic fix-tickets spawn `bun --no-env-file` on the emitted `triage.ts`. The cwd is that file's directory, and `GITHUB_REPO` is set. Feature init imports only the emitted `migrate-labels.ts` and `init.ts`, and still binds the checkout with `defaultInitDeps(repository, checkout)`. The resolver is `triage-runtime.ts`. Paths come from that file. There is no sibling, home, or project fallback. A missing emit stays `issue-triage-unavailable` or `IssueTriageMissing`. `skill://issue-triage` remains the separate optional advisory skill, not the action runtime; it is not copied into this plugin. The generated `dist/issue-triage/` slice ships with omp-build so those actions need no separate plugin installation.
+
+## Commands and tools
+
+| Entry | Lane |
+|---|---|
+| `/feature` | `omp/index.ts` → `registerCommand('feature')` → `runInstalledFeatureCommand`. Not a skill dump. User lane. |
+| `/promote` | `registerCommand('promote')`. Dumps `skills/promote/SKILL.md`. User lane. |
+| `/cleanup` | `registerCommand('cleanup')`. Dumps `skills/cleanup/SKILL.md`. User lane. |
+| `/ci-watch` | `registerCommand('ci-watch')`. Dumps `skills/ci-watch/SKILL.md`. User lane. |
+| `/dev-review` | `registerCommand('dev-review')`. Dispatches the host-authorized native review. Not a skill dump. |
+| `/fix` | `registerCommand('fix')`. Dispatches the host-authorized native correction. Not a skill dump. |
+| `omp_build_start_review` | `registerTool`. Same review dispatch, model lane. Not execution authority. |
+| `omp_build_start_fix` | `registerTool`. Same correction dispatch, model lane. Not execution authority. |
+
+`registerCommand` is the user lane the model cannot call. That does not make the product slash-only: review and correction are also tools. A tool call still resolves one existing target, re-reads the bound, head, and proofs, and authorizes before inventory and dispatch. Unknown, stale, ambiguous, or already-closed PR targets stop review/correction dispatch. A skill body's `disable-model-invocation` is **not** a second gate: omp normalises it to `hide`, which omits the skill from the prompt listing while `skill://<name>` and `/skill:<name>` still reach it (omp 18.2.9). Requires a **restart** (extension module), not `/reload-plugins`.
+
+## Records
+
+The engine (`engine/`) owns versioned records, reference checks, conservation, counting, derived groups and verdicts, and deterministic projection. It does not judge semantics, call GitHub, or authorize a merge. Roxabi (`roxabi/`) owns the product actions: preparation, native continuation, and publication of inventories before dispatch. It keeps no local durable business store. The GitHub adapter (`adapters/github.ts`) paginates comments, checks native author and revision facts, publishes, and reads back. It does not classify a finding or authorize landing.
+
+`encodeRecord` frames each canonical record with its projection. The header is `<!-- omp-build-record v=1 kind=… id=… operationId=… part=i/n data=<base64url> -->`. The payload is authoritative. The Markdown is presentation; no business reader takes a verdict, head, or input from it. A final `review` carries `candidateGitSHA` and `input` (64 lowercase hex SHA-256, or null). Projection lists the record, decision, candidate, input, findings, standards, and source provenance (contribution host plus originals). Legacy `<!-- omp-build:… -->` markers — including `code-review`, `review-head`, `review-input`, and `proof` — are `legacy-format`. They are refused, not parsed, resurrected, or reset.
+
+Projection takes an explicit host `RecordProjectionConfig`, or null. The host supplies `{ taxonomy, acceptedPolicy }`; the candidate does not derive the taxonomy or accept its own evidence policy. Only a final `review` renders a verdict, and that projection refuses null or unknown configuration. Explicit null permits only neutral evidence, decision, and stop publication. Publishers bind that host configuration once. Decoded operations need `authority` and distinct `claimedKinds`; those claims are evidence, not permission, and missing metadata refuses. Projection follows the record's required dependencies from the original history. A foreign, missing, incomplete, or ambiguous reference refuses; it is not repaired, and an opaque record outside that closure does not acquire review authority.
+
+Authoritative records store the full native SDK raw snapshot. The downstream model-input view omits only direct `native.raw.terminal.task` and `assignment` echoes; the stored record keeps both. Human contribution text may omit `native.raw` only by citing the canonical record or operation in the frame, not by dumping it. No semantic filter, compression, or truncation is applied.
+
+An action result refers to its confirmed start and exact scoped mandate; it does not mint a replacement start at publication. Completion belongs to that action's exact inputs: an old Spec assessment, plan or implementation does not complete a different current action. Unresolved starts and rejected effects remain blocking even when a native PR exists or its current checks are green. The original native result remains visible when host admission rejects its effects; a schema-valid `implemented` claim is not proof that its commits were admitted or reached the remote branch.
+
+Before implementation or correction effects and their pushes, the host checks the current remote mandate and controls again and honors the local interruption fence. A terminal result can still be preserved after a pause without authorizing another effect. GitHub reads and Git writes are not atomic: this is not a cross-provider lock, and it cannot guarantee exclusion of a control published after the final authority read.
+
+Native `/dev-review` runs spec → panel → recall → synthesis and publishes the confirmed records. Native `/fix` consumes those records by id through `R-review-fix-intake`, `R-review-fix-synthesis`, `R-review-fix-apply`, and `R-review-fix-falsify`. It does not edit inline in the orchestrator turn and does not revive the absent `R-fixer`. Correction records set `landing: false`.
+
+Existing worktrees are entered with `/move <path>`, not recreated, and not with `/wt`. The command prints that move only when the session cwd is not the intended worktree.
+
+In the matching worktree the installed command continues implement → review → correction → land. There is no per-PR merge approval.
 `resolveReviewPr` binds an explicit number or the current branch before any
 review read; lookup failure is never treated as a local review. A closed PR on
 the branch refuses implicit reuse, so its bound cannot be reset. Existing PRs
@@ -153,12 +164,14 @@ Review → fix record contract: [root causes and member references](skills/dev-r
 
 ### Evidence-based review and fix policy
 
-The [evidence policy](skills/dev-review/evidence-policy.md) starts in **shadow**.
-The baseline review/fix pair remains authoritative; candidate reviews, plans and
-receipts stay separate and local. They do not change labels, fixes, tickets,
-routing or review counts. Passing replay does not activate the candidate.
+The [evidence policy](skills/dev-review/evidence-policy.md) is not the live default.
+Prepared review uses `baseline`. Correction uses `baseline` unless the caller supplies
+`evidence-v1` with an acceptance reference, and debt filing accepts that reference
+only when it matches the independently supplied one. A record's policy field, a test
+fixture, or a passing replay does not switch the live path. The prepared review
+assembler does not read policy out of existing records.
 
-After explicit operator acceptance for selected subsequent work:
+When an independent acceptance is supplied for selected later work, that policy's rules are:
 
 - Phase 4 qualifies supported applicability, evidence, consequence and unresolved
   premises. The OMP-host Jev adapter supplies separate dimensions and per-result
@@ -180,19 +193,52 @@ After explicit operator acceptance for selected subsequent work:
   lost residual suspends candidate use pending renewed supervised acceptance.
   Existing head/input/CI safeguards and stopped review bounds remain intact.
 
-Validation uses the real evaluator and supplied-input instruction exercises with
-separate calibration/held-out evidence and independent adjudication of raw outputs.
-These exercises are not native full-workflow execution, executed rollback/GitHub
-writes, or CI-enforced semantic certification. See the delivery PR for exercised
-evidence and source gaps; implementation alone establishes no effectiveness claim.
+### Earlier review/fix qualification (T2)
+
+The earlier T2 cohort covered actual OMP 18.12.5, a local scripted provider, a fake
+GitHub, and a local bare Git. A native positive path exercised spec → panel →
+recall → synthesis → canonical review, and trusted gate 0 accepted it.
+Invalid-only and sequential new-head paths met their gate-1 refusal checks. A
+full native fix accepted two commits, with independent proofs, falsification,
+restore, a clean tree, a non-default push, and final records. Typecheck,
+Biome, build, and the repo suite passed on that same cohort. This is not a
+paid semantic-model campaign, not proof of review efficacy, not full cold
+resume, not hosted GitHub, and not T3, T5, or merge activation. That cohort does not qualify the workflow records or the installed `/feature` graph in this tree.
+
+### Local workflow integration qualification (T3)
+
+A private local cohort qualified candidate `0.11.0` with actual OMP 18.12.6
+and Bun 1.4.4. All 29 modes passed on one frozen product-code and fixture
+snapshot, with unchanged runtime binaries. This is not an installed release.
+
+- **Product paths:** actual installed `/feature`, native tasks, the CLI landing
+  path and the independent trusted review gate. The default/non-default-base
+  binding case is an explicitly seeded CLI/gate witness, not an OMP session.
+- **Recovery and controls:** fresh checkouts and distinct homes without session
+  transfer; two actual pause/resume cycles; abandon and explicit successor;
+  wrong-child-branch refusal; unconfirmed pause refused by Feature, explicit
+  review preparation, trusted CI and `landPr`.
+- **Nested coverage:** seven terminal-delivery reentry cases; both Epic
+  completion and child-to-parent ownership interruption; both remote-pause
+  interleavings during CI attribution and correction synthesis. Original
+  results remain evidence even when current authority refuses further effects.
+- **Ordinary checks:** build, typecheck, Biome (183 files), isolated imports
+  without dependency installation, and the full suite (87 files, 2,054 tests).
+  The full suite ran without concurrent native qualification jobs.
+- **Limits:** scripted local model provider, fake GitHub transport and local
+  bare Git only. Required-proof exercises actual acquisition against an
+  external Semctx stand-in, not semantic verification. Semctx verification
+  of this worktree was unavailable (`CONFIG_NOT_FOUND`). No paid-model
+  efficacy, hosted GitHub adoption, global installation or merge activation
+  is established; T4 and T5 require their separate authorizations.
 
 ### Existing review and landing safeguards
 
-
-The review bound is two reads of the PR's review records (#710) — the comments
-by the automation login (`gh api user`) whose first line is
-`<!-- omp-build:code-review -->`: how many there are, and the latest one. Nothing
-writes accounting; every decision is derived again from a fresh read.
+The review bound is two automated corrections per PR (#710), derived again on every
+read from complete canonical `review` records whose native author is the automation
+login (`gh api user`). The count and the latest review come from that history. A
+refusal is not an empty history. Nothing writes accounting. A legacy marker is not a
+review and does not reset the bound.
 
 When a bound is spent, its PR remains stopped and disarmed. The operator approves
 the revised scope, diagnostic/correction plan and continuation checkpoint; Phase 8
@@ -224,24 +270,26 @@ before its diff; the review-start test exercises the fence, not model compliance
 
 **What the tests prove.** `armed-gate.test.js` has a clean-baseline sweep that covers one throw-before-effect at each call of the clean baseline (the base read excluded), selected observable head moves after calls that succeeded, and a throw plus a move paired after the gate is acquired. It excludes, and leaves to table rows alone, applies-then-throws and faults inside a disarm that an injected fault first triggers; it makes no claim about future calls. The #731 seeded compound suite is separate from that sweep. The base-read failure is covered by its own real-Bun scenario in `land.integration.test.js`: a discovered, armed, strict landing whose base read fails, with a real local origin. It does not detect both base files vanishing, which defaults to native. The oracle has four negative self-tests (`approve(OLD)` over an armed head, a forged `stays armed — auto-merge` report, a spent-bound armed PR, a text-only "the gate was disarmed" claim). The unreadable-pin row carries `known: '#731'`, an inert provenance marker for a fixed regression: it grants no exemption and nothing reads it. None of this is a proof that every fault ordering is covered.
 
-- `nextReviewStep(cwd, pr, { posted?, ciFailed?, reviewing? })` returns `land`, `fix`, `stop`
-  or `review`. A fix is allowed while the PR has at most two records, one per
-  review: the fix's push moves the head, and a latest record of another commit
-  asks for a review first. A record past the second that does not approve spends
+- `nextReviewStep(cwd, pr, { ciFailed?, reviewing? })` returns `land`, `fix`, `stop`
+  or `review`. The transition comes from the fresh canonical summary, not a
+  caller-supplied verdict. A fix is allowed while the PR has at most two final
+  reviews: the fix's push moves the head, and a latest review of another commit
+  asks for a review first. A review past the second that does not approve spends
   the bound for good — a later green does not lift it. A CI failure on the head
-  the third review approved stops too. `posted` (the review just posted) must be
-  the latest record, else it throws.
-- `landPr(cwd, pr)` arms only when the latest record approves and its line-2
-  `<!-- omp-build:review-head sha=… -->` equals the current `headRefOid`. Records
+  the third review approved stops too, and that observation is published as a
+  canonical `stop` before continuation.
+- `landPr(cwd, pr)` arms only when the latest canonical review approves and its
+  `candidateGitSHA` equals the current `headRefOid` (both 40 lowercase hex). Records
   then head are refreshed before each arming write, including after disable/remove
-  preparation. A spent bound is `not-approved` with reason `review-bound`; a missing
-  line-2 sha is `no-review-head`, and a moved head is `head-moved`. Unreadable
-  authorization never permits arming; acquired gates use the shared exit policy.
-  Native auto-merge pins that refreshed reviewed head with `--match-head-commit`,
-  checked when it is enabled: a later push or base switch by an account with
-  write access leaves it enabled. Merge-on-green is label-driven: a later push
-  by another actor is not refused by GitHub. A review
-  posted before the head line existed needs one re-review before it can land.
+  preparation. A spent bound is `not-approved` with reason `review-bound`; an
+  unreadable candidate is `review-unbound`, and a moved head is `head-moved`.
+  Unreadable authorization never permits arming; acquired gates use the shared exit
+  policy. Native auto-merge pins that refreshed reviewed head with
+  `--match-head-commit`, checked when it is enabled: a later push or base switch by
+  an account with write access leaves it enabled. Merge-on-green remains
+  label-driven: a later push by another actor is not refused by GitHub. A legacy
+  review marker does not arm, so a PR that has only the old head line needs one
+  canonical re-review before it can land.
   The selected PR base's name and tip are captured too. Each pre-arm checkpoint
   and the retained-arm epilogue re-read the base name alongside the head and
   re-fetch the base. A retarget or moved tip is `proof-blocked` / `candidate` /
@@ -265,8 +313,10 @@ before its diff; the review-start test exercises the fence, not model compliance
   `candidate/unreadable`. Acquisition revalidates head, base name, a re-fetched
   base tip and OPEN state before producers, every publication part and its
   final reuse/absence report.
-  Proof summaries are presentation only: the reader takes each part's fixed
-  trailing native JSON frame, never a fence echoed in a producer-derived summary.
+  Proof summaries are presentation only. Admission reads the canonical `proof`
+  record: `candidateGitSHA` plus untouched native JSON in `data`. The proof owner
+  remains the semantic validator. A legacy `<!-- omp-build:proof … -->` frame
+  cannot admit landing.
   Fresh and reused acquisition both return `semctxAssessment` in CLI JSON: the
   current shared Semctx reader's results or refusal, not landing authorization.
   Reuse preserves native proof bytes and publication metadata; an archival human
@@ -275,8 +325,8 @@ before its diff; the review-start test exercises the fence, not model compliance
   local tip must be it; Semctx applies when `origin/<base>`, the head or the
   uncommitted `.semctx/config.json` on disk at the root and the principal
   configures it, and a PR that changes or deletes the base's committed
-  configuration refuses; applicable proof records — PR comments
-  `proof-acquire.ts` posted after the push, one per producer and head — must bind
+  configuration refuses; applicable proof records — canonical `proof` comments
+  `proof-acquire.ts` publishes after the push, one per producer and head — must bind
   the repository, PR, head, base, merge base, changed contracts (at least one
   added by the head) and the Semctx configuration's sha256, and carry
   VERIFIED, or PARTIAL with each gap (every warning finding, pending evidence
@@ -300,12 +350,15 @@ before its diff; the review-start test exercises the fence, not model compliance
   A recorded edit requires acquisition again; a late publication requires
   same-head review without a producer at admission.
   A proof-aware review captures the exact body and complete selected producer
-  runs before judgement and binds them in its line-3 `review-input v=1` SHA256
-  marker; it compares again before posting. Admission compares the same body's
-  bytes + native edit metadata and each selected part's ID/body/native times,
-  including VERIFIED and detection. Missing/malformed binding or any difference
-  requires same-head review; a recorded proof revision still needs acquisition
-  first. Genuine no-proof repositories acquire no new landing prerequisite.
+  runs before judgement and stores their digest as the review's plain `input`
+  SHA-256 (`hashReviewInput`: repository, PR, candidate, body bytes and
+  `lastEditedAt`, and each selected part's id, body, and native times). It
+  compares again before posting. Admission compares that field with a fresh
+  capture of the same bytes and native metadata, including VERIFIED and
+  detection. Missing, malformed, or changed binding requires same-head review;
+  a recorded proof revision still needs acquisition first. Genuine no-proof
+  repositories acquire no new landing prerequisite. The digest is equality of
+  observed inputs, not authentication.
   A fix PR — a `fix/…` head branch, or a closing ticket or the ticket the head
   branch names (`<type>/<N>-…`) typed Fix or Bug, labelled `bug` or titled
   `fix…:` — needs a detection only when the established base or candidate commits
@@ -352,18 +405,22 @@ before its diff; the review-start test exercises the fence, not model compliance
   the observed inputs (not who actually read them), and approval is judgement:
   none certifies an unproved gap. An invented check or false reason accepted
   by that trusted reviewer is not independently detected by admission.
-  Admission governs only the arms `landPr` writes: a `reviewed` label or
-  auto-merge set by another actor is an override that GitHub's auto-merge and
-  the merge-on-green workflow honour without proof, and the armed-gate retention
-  keeps it once the review approves. In native mode the `reviewed` label
-  `landPr` writes also triggers `.github/workflows/auto-merge.yml`, which reads
-  neither proof nor current labels; whether a run queued before a refusal's
-  confirmed clear can re-arm is unexercised ([#787](https://github.com/Roxabi/roxabi-plugins/issues/787)).
-  A record is a PR comment by the automation
-  account (a run of `part=<i>/<n>` comments when it exceeds GitHub's comment
-  ceiling, read only whole); any account with write access can edit or delete
-  it, so it attests that comment's current body, not what the producer printed
-  nor who ran it. Both producers' parts are checked for native publication and
+  `landPr` and the pinned trusted reader used by
+  `.github/workflows/auto-merge.yml` both require shared admission before
+  writing their arms. The workflow refuses and disarms when its current
+  gate read refuses; it does not treat a `reviewed` label as sufficient proof.
+  This source change is not hosted activation: the immutable tooling pin
+  and installation capabilities remain a separately authorized T5 check.
+  Another actor can still enable auto-merge or merge outside these entry
+  points. GitHub reads and arming are not transactional; this does not
+  establish continuous enforcement or close the queued-run race
+  ([#787](https://github.com/Roxabi/roxabi-plugins/issues/787)).
+  A canonical record is published as one or more PR comments by the automation
+  account (`part=i/n` when it exceeds GitHub's comment ceiling, read only whole).
+  The header carries the record; the Markdown is the projection. Any account with
+  write access can edit or delete the comment, so it attests that comment's current
+  body, not what the producer printed nor who ran it. Legacy markers are refused,
+  not repaired. Both producers' parts are checked for native publication and
   revision facts; a recorded edit refuses, including a PARTIAL edited into
   VERIFIED or a WEAK_ORACLE/miss edited into detection.
   The digest is not a signature or lasting pin. GitHub reads, the review post
@@ -378,8 +435,12 @@ before it. Older accounting comments and the `## Review Fixes Applied` receipt
 decide nothing.
 
 The canonical choices and escalation dossier live in `skills/dev-review/SKILL.md`
-Phase 8. Skills route through `nextReviewStep` and `landPr`; they do not own
-separate rules.
+Phase 8. `continueFeature` → `reconstructWorkflow` selects the next Feature lifecycle
+action. `nextReviewStep` retains specialized PR review/bound policy; `landPr` and
+`applyCiWatchExit` retain guarded landing/watch execution, with shared
+`requireLandingMandate` admission at actual landing. Explicit standalone review
+and autonomous correction keep their separately admitted paths; neither grants
+landing authority. The feature skill is reference material, not another router.
 
 Landing resolves mode from `readLanding` on the PR base ref (`origin/<base>`): stack `landing.mode`, else
 `merge-on-green.yml`, else native. It returns the absolute `/ci-watch` command,
@@ -388,11 +449,17 @@ enables auto-merge. An OPEN `BEHIND` observation stops further arming and watchi
 `landPr` returns `behind` after clearing known OPEN arms, including a pin written
 earlier in that call. A failed clear throws naming the remainder; a merge during
 the clear returns `merged`. The watch exits 7, and its mapper uses the same behind
-contract (`skills/feature/SKILL.md` §6.7). Both name `gh pr update-branch <pr>`;
+contract (`applyCiWatchExit` in `skills/feature/workflow.js`). Both name `gh pr update-branch <pr>`;
 omp-build never updates the branch itself. `applyCiWatchExit` preserves watch statuses while enforcing
 gate authorization; `disarmReviewedBeforePush` confirms clearing before invoking
 the push once, and reuses that receipt if the callback fails. Neither review nor
 fix labels a PR. No duplicate spec files or `validated` gate.
+
+The trusted auto-merge checkout (`.github/workflows/auto-merge.yml`) reads canonical records only from tooling pinned by repository variable `OMP_BUILD_TOOLING_SHA` (40 lowercase hex) and attributes them to `OMP_BUILD_AUTOMATION_LOGIN`. A missing or non-hex pin refuses. There is no fallback to the candidate checkout, the workflow SHA, a moving branch, candidate code, or a dependency install; the pin's committed `dist/contracts.js` is the reader. Dependabot keeps its existing semver-major exception and does not require that human review record. The pin is the T5 activation variable. Its absence is a refusal, not an activation.
+
+T5 capability check, separately authorized, not done in this tree. The gate reads with the App token (`GH_TOKEN: ${{ steps.app.outputs.token }}` in `.github/workflows/auto-merge.yml`), not the job `GITHUB_TOKEN`. Job `issues: write` does not apply to that token ([workflow permissions](https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#permissions) cover the job token only). The reader must be able to read issue bodies, comments, and each explicit parent scope: `GET /repos/{owner}/{repo}/issues/{issue_number}` and `GET /repos/{owner}/{repo}/issues/{issue_number}/comments`, through `review-gate.ts` → `currentLandingMandate`. Applicable App permission for the body route is Issues: read; Pull requests does not cover it ([App permissions](https://docs.github.com/en/rest/authentication/permissions-required-for-github-apps)). Comments are also listed under Pull requests. Live installation permissions are unverified. Do not claim they are missing, and do not change the token or the installation from this tree. This is not a new tamper control.
+
+That capability check must also exercise the trusted gate's selected-base Git fetch, including private-repository access when applicable. Its process-local credential helper does not persist credentials. Local transport smoke coverage does not prove the hosted App can fetch that base or read all referenced scopes.
 
 ## Guards
 
@@ -416,7 +483,7 @@ Guards are **off** unless the project declares the host-neutral contract (`.dev/
 
 ## Worktree bootstrap
 
-Worktree bootstrap is explicit: `/feature init` calls `skills/feature/worktree-bootstrap.sh` after it creates a linked worktree. `session_start` and `agent_start` never start background bootstrap work, create markers, copy files, or write bootstrap logs.
+`skills/feature/worktree-bootstrap.sh` is the script contract. `runWorktreeBootstrap` in `roxabi/workflow-checkout.ts` runs it in the foreground after worktree identity is valid and before dispatch: on `/feature new` before the successor publish, on the first mandate, and on select, resume, or new in an already valid worktree. It refuses the principal. The marker `omp-build-bootstrapped` and lock `omp-build-bootstrap.lock` are environment cache, not business records. `/feature init`, `prepareFeatureCheckout`, `session_start`, and `agent_start` do not run it. Do not shell it out as a second process.
 
 - The script holds a lock in the git dir, so repeated explicit calls wait for a running invocation and then no-op.
 - ccc's `settings.yml` lands before `worktree.setup`, so ccc never indexes an ancestor directory while an install runs.
@@ -441,6 +508,7 @@ OMP task agents in `agents/`. **Two** are OMP-native (`R-advisor`, `elon` — `m
 Spawn: `task` `{ agent: "R-adversarial" | "R-advisor" | "R-architect" | "R-devops" | "R-tester" | "R-security-auditor" | "elon", ... }`. Read from `agents/` of whichever package root is in the extension lane — the `link` symlink, or the marketplace install's `node_modules` symlink once it is listed in `extensions:`. `R-advisor` is a spawnable task agent, **not** the session WATCHDOG (`advisor.enabled`).
 
 `R-frontend-dev`, `R-backend-dev`, `R-fixer`, `R-doc-writer` and `R-product-lead` are deliberately absent (ADR-020 decision 7): their concerns fall to the `R-adversarial` floor through the sibling-drop rule.
+Correction does not revive `R-fixer`. `/fix` and `omp_build_start_fix` dispatch the native profiles `R-review-fix-intake`, `R-review-fix-synthesis`, `R-review-fix-apply`, and `R-review-fix-falsify`.
 
 Resolution when a spawn passes no `model`: explicit call model, then `task.agentModelOverrides`, then this frontmatter, then the active parent. An operator override for an agent masks the manifest role until it is removed. A role alias in an override expands through `modelRoles`, `@default` included, and OMP uses the override only when that expansion yields at least one model; otherwise it skips the override and reads the frontmatter. `R-devops: "@default"` therefore pins the configured `modelRoles.default`, not the parent's live model, and has no effect while `default` is unset. In omp 18.8.0 the parent's active model is taken by a per-call `model` entry `@default`, a single-entry frontmatter `@default`, and a single-entry frontmatter `@task` while `modelRoles.task` is unset: `R-devops` and `R-tester` run the parent's model until the operator maps `task`. The two-entry `@review, @slow` never takes that path; only the credential fallback above reaches the parent. The dev-review spawn template passes no `model`, so it does not defeat these declarations.
 
@@ -448,14 +516,14 @@ Resolution when a spawn passes no `model`: explicit call model, then `task.agent
 
 | Skill | Lane |
 |---|---|
-| `feature` | `/feature` (registered command) |
-| `dev-review` | model-invocable · the five-role review panel |
-| `fix` | model-invocable · paired baseline/shadow or explicitly accepted evidence-policy correction plans, inline |
+| `feature` | Installed `/feature` command. `SKILL.md` is the reference, not a dumped lifecycle. |
+| `dev-review` | `/dev-review` and `omp_build_start_review` · native spec → panel → recall → synthesis |
+| `fix` | `/fix` and `omp_build_start_fix` · native correction profiles; not an inline walk |
 | `promote` | `/promote` (registered command) · the optional tail |
 | `cleanup` | `/cleanup` (registered command) · the optional tail |
 | `ci-watch` | `/ci-watch` (registered command) · watches checks, then the merge |
 
-`dev-review` and `fix` originated from the #492 dev-core snapshot, cut to this plugin's roster: five dispatchable roles and `R-tester` armed by changed-test evidence alone. During shadow the baseline still applies blocking causes and defers non-blocking causes to one sibling issue; the explicitly accepted evidence policy instead uses selected correction authorizations and the strict debt conjunction above. An admissible follow-up keeps its origin parent's complete `OWNER/REPO#N` coordinate, never a number reconstructed under the origin repository; an absent parent keeps it top-level. They read their own bundled files through `skill://dev-review/<file>`. `lib.sh` is the exception: it sits one level up, in a non-skill directory, and `skill://` rejects `..`, so `dev-review` Phase 1 traverses from `$SKILL_DIR` instead. **Nothing in this plugin exports `SKILL_DIR`** — only the registered commands print a skill directory (`omp/index.ts`) — so that fence asserts the variable (`${SKILL_DIR:?…}`) and stops when it is unset, rather than sourcing `/../shared/lib.sh` and detecting a base branch against nothing. `cleanup/analyze-branches.sh` has no such problem: it is a script, so it resolves `../shared/lib.sh` from its own `BASH_SOURCE`.
+`dev-review` and `fix` dispatch native pipelines, not an inline Markdown walk. Baseline still applies blocking causes and defers non-blocking causes to one sibling issue; `evidence-v1` uses selected correction authorizations only when an independent acceptance reference is supplied. An admissible follow-up keeps its origin parent's complete `OWNER/REPO#N` coordinate, never a number reconstructed under the origin repository; an absent parent keeps it top-level. They read their own bundled files through `skill://dev-review/<file>`. `lib.sh` is the exception: it sits one level up, in a non-skill directory, and `skill://` rejects `..`, so `dev-review` Phase 1 traverses from `$SKILL_DIR` instead. **Nothing in this plugin exports `SKILL_DIR`** — only the registered commands print a skill directory (`omp/index.ts`) — so that fence asserts the variable (`${SKILL_DIR:?…}`) and stops when it is unset, rather than sourcing `/../shared/lib.sh` and detecting a base branch against nothing. `cleanup/analyze-branches.sh` has no such problem: it is a script, so it resolves `../shared/lib.sh` from its own `BASH_SOURCE`.
 
 `promote` and `cleanup` are the #495 snapshot of dev-core's tail. They are
 **offered after land, never automatic, and never inside the review→fix loop**.
@@ -473,4 +541,4 @@ rules are inlined in `promote/SKILL.md` § Merge method.
 
 ## Maintenance
 
-Lint-only fixture changes must preserve the emitted shell text and cleanup/release safety behavior, not replace executable checks with source-text assertions. Publish OMP changes with matching, newer versions in `package.json` and `.omp-plugin/marketplace.json` so the version-keyed install cache is refreshed.
+Lint-only fixture changes must preserve the emitted shell text and cleanup/release safety behavior, not replace executable checks with source-text assertions. Publish OMP changes with matching, newer versions in `package.json` and `.omp-plugin/marketplace.json` so the version-keyed install cache is refreshed. `bun run build` also copies the issue-triage helper slice byte for byte into `dist/issue-triage/`. Missing source fails that build. Commit the generated slice with the release, the same way as `dist/contracts.js`. Catalogue installation copies the plugin subtree; it does not install npm dependencies. Runtime consumers therefore use the shipped common bundle, which includes Zod; the root development dependency is needed to build it, not to run an installed plugin. No separate npm or issue-triage plugin installation is required.

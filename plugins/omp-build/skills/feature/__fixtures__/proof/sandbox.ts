@@ -53,14 +53,24 @@ type SimPull = {
   mergeCommit?: { oid: string; parents: string[] } | null
   mergedAt?: string | null
 }
+export type SimIssue = {
+  number: number
+  title: string
+  body: string
+  state: 'OPEN' | 'CLOSED'
+  author: string
+  labels: string[]
+  comments: SimComment[]
+  subIssues: number[]
+  blockedBy: number[]
+  issueType?: string | null
+  updatedAt?: string | null
+}
 export type SimState = {
   viewer: string
   repositoryUrls?: Record<string, string>
   prs: Record<string, SimPull>
-  issues: Record<
-    string,
-    { title: string; state?: string; labels: string[]; issueType?: string | null; comments: SimComment[] }
-  >
+  issues: Record<string, SimIssue>
   checks: Record<
     string,
     { name: string; status: string; conclusion: string; workflowName: string; startedAt: string }[]
@@ -152,7 +162,7 @@ export function sandbox(spec: Spec): Box {
     mkdirSync(path.dirname(path.join(principal, file)), { recursive: true })
     writeFileSync(path.join(principal, file), content)
   }
-  const issues: Record<string, unknown> = {}
+  const issues: Record<string, SimIssue> = {}
   for (const issue of spec.issues) {
     issues[issue.number] = {
       number: issue.number,

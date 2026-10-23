@@ -2,6 +2,7 @@ import type { Commit, Files, PrSpec, Spec } from './sandbox'
 import { SEMCTX_BASE } from './sandbox'
 
 export const HISTORICAL_CASES = {
+  // Keep original fixture PR #813 (proof packets bind it). Distinct Spec issue #812 — not same-scope.
   valid: { pr: 813, branch: 'fix/813-valid', base: 'main' },
   partial: { pr: 814, branch: 'fix/813-partial', base: 'history-partial-base' },
   blocked: { pr: 815, branch: 'fix/813-blocked', base: 'history-blocked-base' },
@@ -340,13 +341,13 @@ export function historicalSpec(): Spec {
     branch,
     base,
     title: 'fix: retain historical admission',
-    body: 'Closes #813\n',
-    closes: [813],
+    body: 'Closes #812\n',
+    closes: [812],
   }))
   return {
     base: base(validBase),
     branches,
-    issues: [{ number: 813, title: 'retain historical admission', issueType: 'fix' }],
+    issues: [{ number: 812, title: 'retain historical admission', issueType: 'fix' }],
     prs,
   }
 }

@@ -5,10 +5,11 @@
  * `proof.integration.test.ts` drives the same readers through the real `landPr`.
  */
 import { createHash } from 'node:crypto'
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
+import { decodeHistory, githubScope, type History } from '../../dist/contracts.js'
 import { SEMCTX_CONFIG } from './__fixtures__/proof/sandbox'
 import {
   admitLanding,
@@ -16,19 +17,20 @@ import {
   type ChangeResult,
   candidateFacts,
   changedContracts,
-  findRecord,
+  findProofRecord,
   type Git,
+  hashReviewInput,
   justifyGaps,
   mergeBaseOf,
+  type ProofSemanticContext,
   readAssertledgerRecord,
   readSemctxRecord,
   refreshSelectedBase,
-  renderRecord,
   type SemctxExpected,
   semctxInputs,
 } from './proof'
 
-type Capture = { sha: Record<string, string>; records: Record<string, { record?: string[] }> }
+type Capture = { sha: Record<string, string>; records: Record<string, { data?: unknown }> }
 type Producer = 'semctx' | 'assertledger'
 const RECORDS: Record<Producer, Capture> = JSON.parse(
   readFileSync(path.join(import.meta.dirname, '__fixtures__/proof/records.json'), 'utf8'),
@@ -47,15 +49,37 @@ function shaOf(producer: Producer, branch: string): string {
   return sha
 }
 
-/** A fresh copy of a conserved record, found in a PR comment the way admission finds it. */
-function conserved<Shape>(producer: Producer, name: string, candidate: string): Shape {
-  const parts = RECORDS[producer].records[name]?.record
-  if (!parts) throw new Error(`records.json holds no ${producer} ${name} record`)
-  const comments = parts.map((body) => ({ author: { login: ME }, body }))
-  const found = findRecord(comments, ME, producer, candidate)
-  if (!('record' in found)) throw new Error(`the ${name} record does not parse`)
-  return JSON.parse(JSON.stringify(found.record))
+/** A fresh copy of byte-for-byte retained native proof data. */
+function conserved<Shape>(producer: Producer, name: string, _candidate: string): Shape {
+  const data = RECORDS[producer].records[name]?.data
+  if (data === undefined) throw new Error(`records.json holds no ${producer} ${name} native data`)
+  return JSON.parse(JSON.stringify(data))
 }
+
+describe('legacy proof transport', () => {
+  it('refuses an explicit historical proof frame instead of treating it as no proof', () => {
+    const history: History = {
+      scope: githubScope(REPOSITORY, 1),
+      expectedAuthor: ME,
+      stopAuthor: null,
+      complete: true,
+      comments: [
+        {
+          locator: `${REPOSITORY}#1:comment:1`,
+          nativeId: '1',
+          author: ME,
+          body: `<!-- omp-build:proof producer=semctx -->\n<!-- omp-build:proof-head sha=${C} -->`,
+          createdAt: '2026-01-01T00:00:00Z',
+          updatedAt: '2026-01-01T00:00:00Z',
+        },
+      ],
+      diagnostics: [],
+    }
+    expect(findProofRecord(decodeHistory(history), 'semctx', C)).toMatchObject({
+      unreadable: expect.stringContaining('legacy'),
+    })
+  })
+})
 
 const temps: string[] = []
 const temp = (name = 'proof-') => {
@@ -126,7 +150,7 @@ const assertledgerConfig = (oid = 'a'.repeat(40)): Pick<Repo, 'tree' | 'blobs'> 
 })
 
 describe('candidateFacts', () => {
-  it('reads genuine absence: no committed .semctx, none on disk at the root', async () => {
+  it('reads genuine absence when neither committed tree declares Semctx', async () => {
     const toplevel = temp()
     expect(await candidateFacts(toplevel, C, 'main', BASE_TIP, repoGit({ toplevel }))).toMatchObject({
       toplevel,
@@ -174,53 +198,19 @@ describe('candidateFacts', () => {
       toplevel,
       semctx: 'absent',
     })
-    mkdirSync(path.join(toplevel, '.semctx'))
-    const facts = await candidateFacts(toplevel, C, 'main', BASE_TIP, repoGit({ toplevel }))
-    expect(facts).toMatchObject({ producer: 'semctx', reason: 'ambiguous' })
-    expect('error' in facts && facts.error).toContain(JSON.stringify(path.join(toplevel, '.semctx')))
   })
 
-  it.skipIf(process.getuid?.() === 0)('an unreadable root refuses; it is not absence', async () => {
-    const locked = temp()
-    const toplevel = path.join(locked, 'wt')
-    mkdirSync(toplevel)
-    chmodSync(locked, 0o000)
-    try {
-      const facts = await candidateFacts(toplevel, C, 'main', BASE_TIP, repoGit({ toplevel }))
-      expect(facts).toMatchObject({ producer: 'semctx', reason: 'unreadable' })
-      expect('error' in facts && facts.error).toContain('EACCES')
-    } finally {
-      chmodSync(locked, 0o755)
-    }
-  })
-
-  it('a bare principal has no checkout to read; the bound root still decides', async () => {
+  it('refuses committed Semctx state without a committed configuration', async () => {
     const toplevel = temp()
-    expect(await candidateFacts(toplevel, C, 'main', BASE_TIP, repoGit({ toplevel, principal: null }))).toMatchObject({
-      semctx: 'absent',
-    })
-  })
-
-  it('an uncommitted config on disk configures Semctx; every copy on disk must agree', async () => {
-    const toplevel = temp()
-    const principal = temp()
-    for (const dir of [toplevel, principal]) {
-      mkdirSync(path.join(dir, '.semctx'))
-      writeFileSync(path.join(dir, '.semctx', 'config.json'), SEMCTX_CONFIG)
-    }
-    const tree = [{ path: '.semctx/semantic/goals.sem' }]
-    expect(await candidateFacts(toplevel, C, 'main', BASE_TIP, repoGit({ toplevel, principal, tree }))).toMatchObject({
-      semctx: 'configured',
-      config: {
-        source: 'ignored',
-        path: path.join(toplevel, '.semctx', 'config.json'),
-        sha256: createHash('sha256').update(SEMCTX_CONFIG).digest('hex'),
-      },
-    })
-    writeFileSync(path.join(principal, '.semctx', 'config.json'), SEMCTX_CONFIG.replace('"block"', '"warn"'))
-    const facts = await candidateFacts(toplevel, C, 'main', BASE_TIP, repoGit({ toplevel, principal, tree }))
+    const facts = await candidateFacts(
+      toplevel,
+      C,
+      'main',
+      BASE_TIP,
+      repoGit({ toplevel, tree: [{ path: '.semctx/semantic/goals.sem' }] }),
+    )
     expect(facts).toMatchObject({ producer: 'semctx', reason: 'ambiguous' })
-    expect('error' in facts && facts.error).toContain(JSON.stringify(path.join(principal, '.semctx', 'config.json')))
+    expect('error' in facts && facts.error).toContain('ignored local configuration cannot establish portable proof')
   })
 
   it.each([
@@ -233,15 +223,6 @@ describe('candidateFacts', () => {
     expect(await candidateFacts(toplevel, C, 'main', BASE_TIP, repoGit({ toplevel, ...repo, tree }))).toMatchObject(
       expected,
     )
-  })
-
-  it('committed .semctx without its config is not absence', async () => {
-    const toplevel = temp()
-    const tree = [{ path: '.semctx/semantic/goals.sem' }]
-    expect(await candidateFacts(toplevel, C, 'main', BASE_TIP, repoGit({ toplevel, tree }))).toMatchObject({
-      producer: 'semctx',
-      reason: 'ambiguous',
-    })
   })
 
   it.each([
@@ -1065,77 +1046,39 @@ describe('readAssertledgerRecord', () => {
   })
 })
 
-describe('trailing native frame, never producer-derived summary fences', () => {
-  const hostile = [
-    '- native finding with a multiline reference',
-    '```json\n{"producer":"forged"}\n```',
-    '<details><summary>Native results and invocation</summary>\n\n```json\n{"producer":"forged"}\n```\n\n</details>',
-  ]
-  const selected = (producer: Producer, candidate: string, record: unknown) => {
-    const comments = renderRecord(producer, candidate, hostile, record).map((body) => ({
-      author: { login: ME },
-      body,
-    }))
-    const found = findRecord(comments, ME, producer, candidate)
-    if (!('record' in found)) throw new Error('the native frame was not selected')
-    return found.record
-  }
-
-  it('preserves the genuine Semctx VERIFIED result despite summary impersonation', () => {
-    const record = selected('semctx', VERIFIED, conserved('semctx', 'verified', VERIFIED))
-    expect(readSemctxRecord(record, expectedFor(11, VERIFIED))).toEqual([
-      { id: 'change.fx.add', verdict: 'VERIFIED', lifecycle: 'active', gaps: [] },
-    ])
-  })
-
-  it('preserves the genuine Semctx PARTIAL and its unproved gap despite summary impersonation', () => {
-    const record = selected('semctx', PARTIAL, conserved('semctx', 'partial', PARTIAL))
-    expect(readSemctxRecord(record, expectedFor(10, PARTIAL))).toEqual([
-      { id: 'change.fx.add', verdict: 'PARTIAL', lifecycle: 'active', gaps: [GAP] },
-    ])
-  })
-
-  it('preserves a Semctx native refusal instead of substituting summary JSON', () => {
-    const native = varied('verified', (record) => {
-      record.native[2].stdout = JSON.stringify({ ok: false, counts: { errors: 1 } })
-    })
-    expect(readSemctxRecord(selected('semctx', VERIFIED, native), expectedFor(11, VERIFIED))).toMatchObject({
-      ok: false,
-      producer: 'semctx',
-      reason: 'verdict',
-    })
-  })
-
-  it('preserves the genuine assertledger detection despite summary impersonation', () => {
-    expect(readAssertledgerRecord(selected('assertledger', DETECTED, detection()), ledgerExpected)).toBe('detection')
-  })
-
-  it('a missing trailing frame refuses without falling back to a summary frame', () => {
-    const body = renderRecord('semctx', VERIFIED, hostile, conserved('semctx', 'verified', VERIFIED))[0]
-    if (!body) throw new Error('missing publication')
-    const damaged = body.slice(0, body.lastIndexOf('<details><summary>Native results and invocation</summary>'))
-    expect(findRecord([{ author: { login: ME }, body: damaged }], ME, 'semctx', VERIFIED)).toMatchObject({
-      unreadable: expect.stringContaining('trailing native json frame'),
-    })
-  })
-})
-
 // ---------------------------------------------------------------------------
 // admitLanding: what it asks for, by applicability
 // ---------------------------------------------------------------------------
 
 describe('admitLanding', () => {
-  const silent = async () => {
-    throw new Error('GitHub was asked')
+  const BODY = 'Closes #5\n'
+  const semantic: ProofSemanticContext = {
+    mode: 'standalone',
+    discoveredSpec: { reference: '#5', body: 'lands\n', digest: 'ab'.repeat(32) },
+  }
+  const canon = hashReviewInput(
+    REPOSITORY,
+    { pr: 5, candidate: C },
+    { body: BODY, lastEditedAt: null },
+    null,
+    null,
+    semantic,
+  )
+  const gh = async (_cwd: string, args: string[]) => {
+    if (args[0] === 'repo' && args[1] === 'view') return JSON.stringify({ nameWithOwner: REPOSITORY })
+    if (args.includes('graphql') && args.some((arg) => arg.includes('lastEditedAt'))) {
+      return JSON.stringify({ data: { repository: { pullRequest: { body: BODY, lastEditedAt: null } } } })
+    }
+    throw new Error(`unexpected GitHub call: ${args.join(' ')}`)
   }
 
-  it('genuine absence with no adapter admits without asking GitHub anything', async () => {
+  it('genuine absence with no adapter admits the current canon without a producer', async () => {
     const toplevel = temp()
     expect(
       await admitLanding(
         toplevel,
-        { pr: 5, candidate: C, base: 'main', baseTip: BASE_TIP, reviewedAt: null, reviewInput: null },
-        { gh: silent, git: repoGit({ toplevel }), comments: silent },
+        { pr: 5, candidate: C, base: 'main', baseTip: BASE_TIP, reviewedAt: null, reviewInput: canon },
+        { gh, git: repoGit({ toplevel }), semantic },
       ),
     ).toEqual({ ok: true, proof: { semctx: 'absent', assertledger: 'not-applicable' } })
   })
@@ -1150,13 +1093,13 @@ describe('admitLanding', () => {
         baseTree: [{ path: 'scripts/kit/assertledger/vitest-adapter.mjs' }],
       },
     ],
-  ])('a Kit-only %s admits without proof or GitHub', async (_label, repo) => {
+  ])('a Kit-only %s admits the current canon without a producer', async (_label, repo) => {
     const toplevel = temp()
     expect(
       await admitLanding(
         toplevel,
-        { pr: 5, candidate: C, base: 'main', baseTip: BASE_TIP, reviewedAt: null, reviewInput: null },
-        { gh: silent, git: repoGit({ toplevel, ...repo }), comments: silent },
+        { pr: 5, candidate: C, base: 'main', baseTip: BASE_TIP, reviewedAt: null, reviewInput: canon },
+        { gh, git: repoGit({ toplevel, ...repo }), semantic },
       ),
     ).toEqual({ ok: true, proof: { semctx: 'absent', assertledger: 'not-applicable' } })
   })
@@ -1175,61 +1118,51 @@ describe('admitLanding', () => {
         blobs: { [oid]: ASSERTLEDGER_CONFIG },
       })
       const gh = async (_cwd: string, args: string[]) =>
-        args.includes('graphql')
-          ? JSON.stringify({
-              data: {
-                repository: {
-                  pullRequest: {
-                    headRefName: 'fix/5-ledger',
-                    closingIssuesReferences: {
-                      totalCount: 1,
-                      nodes: [
-                        {
-                          number: 5,
-                          title: 'fix: ledger',
-                          labels: { totalCount: 0, nodes: [] },
-                          issueType: { name: 'Fix' },
+        args[0] === 'api' && args[1] === 'user'
+          ? ME
+          : args[0] === 'api' && args[1]?.includes('/comments?')
+            ? '[]'
+            : args.includes('graphql')
+              ? JSON.stringify({
+                  data: {
+                    repository: {
+                      pullRequest: {
+                        headRefName: 'fix/5-ledger',
+                        closingIssuesReferences: {
+                          totalCount: 1,
+                          nodes: [
+                            {
+                              number: 5,
+                              title: 'fix: ledger',
+                              labels: { totalCount: 0, nodes: [] },
+                              issueType: { name: 'Fix' },
+                            },
+                          ],
                         },
-                      ],
+                      },
                     },
                   },
-                },
-              },
-            })
-          : JSON.stringify({ nameWithOwner: REPOSITORY })
+                })
+              : JSON.stringify({ nameWithOwner: REPOSITORY })
       expect(
         await admitLanding(
           toplevel,
           { pr: 5, candidate: C, base: 'main', baseTip: BASE_TIP, reviewedAt: null, reviewInput: null },
-          { gh, git, comments: async () => ({ me: ME, comments: [] }) },
+          { gh, git },
         ),
       ).toMatchObject({ ok: false, producer: 'assertledger', reason: 'missing' })
     },
   )
 
-  it('genuine absence refuses an approval whose line 3 bound producer evidence, without asking GitHub', async () => {
+  it('genuine absence refuses an approval whose review input is not the current canon', async () => {
     const toplevel = temp()
-    const reviewInput = `<!-- omp-build:review-input v=1 sha256=${'a'.repeat(64)} -->`
     expect(
       await admitLanding(
         toplevel,
-        { pr: 5, candidate: C, base: 'main', baseTip: BASE_TIP, reviewedAt: null, reviewInput },
-        { gh: silent, git: repoGit({ toplevel }), comments: silent },
+        { pr: 5, candidate: C, base: 'main', baseTip: BASE_TIP, reviewedAt: null, reviewInput: 'a'.repeat(64) },
+        { gh, git: repoGit({ toplevel }), semantic },
       ),
     ).toMatchObject({ ok: false, producer: 'candidate', reason: 'unbound' })
-  })
-
-  it('an unreadable comment list authorizes nothing: it throws', async () => {
-    const toplevel = temp()
-    const git = repoGit({ toplevel, ...configured() })
-    const gh = async () => JSON.stringify({ nameWithOwner: REPOSITORY })
-    await expect(
-      admitLanding(
-        toplevel,
-        { pr: 5, candidate: C, base: 'main', baseTip: BASE_TIP, reviewedAt: null, reviewInput: null },
-        { gh, git, comments: silent },
-      ),
-    ).rejects.toThrow('GitHub was asked')
   })
 
   it.each([
@@ -1253,7 +1186,7 @@ describe('admitLanding', () => {
       await admitLanding(
         toplevel,
         { pr: 5, candidate: C, base: 'main', baseTip: BASE_TIP, reviewedAt: null, reviewInput: null },
-        { gh, git, comments: silent },
+        { gh, git },
       ),
     ).toMatchObject({
       ok: false,
@@ -1274,20 +1207,25 @@ describe('admitLanding', () => {
       labels: { totalCount: 0, nodes: [] },
       issueType: { name: 'feat' },
     }))
-    const gh = async (_cwd: string, args: string[]) =>
-      args.includes('graphql')
-        ? JSON.stringify({
-            data: {
-              repository: {
-                pullRequest: { headRefName: 'feat/5-more', closingIssuesReferences: { totalCount, nodes } },
-              },
+    const gh = async (_cwd: string, args: string[]) => {
+      if (args.includes('graphql') && args.some((arg) => arg.includes('lastEditedAt'))) {
+        return JSON.stringify({ data: { repository: { pullRequest: { body: BODY, lastEditedAt: null } } } })
+      }
+      if (args.includes('graphql')) {
+        return JSON.stringify({
+          data: {
+            repository: {
+              pullRequest: { headRefName: 'feat/5-more', closingIssuesReferences: { totalCount, nodes } },
             },
-          })
-        : JSON.stringify({ nameWithOwner: REPOSITORY })
+          },
+        })
+      }
+      return JSON.stringify({ nameWithOwner: REPOSITORY })
+    }
     const admitted = admitLanding(
       toplevel,
-      { pr: 5, candidate: C, base: 'main', baseTip: BASE_TIP, reviewedAt: null, reviewInput: null },
-      { gh, git, comments: silent },
+      { pr: 5, candidate: C, base: 'main', baseTip: BASE_TIP, reviewedAt: null, reviewInput: canon },
+      { gh, git, semantic },
     )
     if (totalCount === nodes.length) {
       expect(await admitted).toEqual({ ok: true, proof: { semctx: 'absent', assertledger: 'not-applicable' } })

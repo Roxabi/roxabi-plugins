@@ -1,21 +1,21 @@
 ---
 title: Review Smells
-description: Fowler ch.3 judgement-call baseline for the dev-review Standards axis. One reader — the orchestrator. Never Lane A.
+description: Fowler ch.3 judgement-call baseline supplied to native review synthesis as the standards input.
 ---
 
 # Review smells
 
-Fowler, *Refactoring* ch.3. **Judgement calls**, never merge blockers.
+Fowler, *Refactoring* ch.3. **Judgement calls**, never merge blockers and never findings.
 
-**Single consumer:** the `dev-review` orchestrator, once, after F is merged. Output lands in `## Standards` only. ¬paste this file into Lane A, ¬any `agents[]` prompt, ¬the recall worker.
+**Standards input.** Preparation reads this file into the synthesis prompt. The synthesizer returns the decision's display-only `standards` field: `{state:"ras"}` when none are observed, otherwise `{state:"observed", rows:[{smell, assessment}]}`. Projection renders that field under `## Standards` (`smells: RAS`, or one `possible <Smell>` row). It is not a finding source. `/fix` does not parse this file or the projected section for causes.
 
 ## Binding rules
 
 - **Repo overrides.** A documented repo standard (`CONTRIBUTING.md`, `CODING_STANDARDS.md`, `docs/**/adr/**`, `.dev/stack.yml`) always wins. Where it endorses what a smell would flag, suppress the smell.
-- **Always a judgement call.** Prefix every row `possible <Smell>`. Never a hard violation.
+- **Always a judgement call.** Prefix every returned assessment `possible <Smell>`. Never a hard violation and never a Conventional Comment label.
 - **Skip tooling.** If a linter, formatter, or jscpd-class clone detector already covers the shape, skip.
-- **Never enter F.** No `Class:`, no `Confidence:`, and **no Conventional Comment label** — the forbidden set is a shape, ¬a list, and lives in one place: `dev-review/SKILL.md` Phase 4 § `/fix` partition. Do ¬re-enumerate it here; a second copy drifts and the copy read at generation time wins. `skill://fix` parses the Conventional Comments of the review record; a live label in a smell row becomes a finding.
-- **Cap.** ≤1 row per smell. None fire → `smells: RAS`. Do not invent.
+- **Not a finding.** No label, class, or confidence. A smell row must not be copied into findings.
+- **Cap.** ≤1 row per smell. None observed → `{state:"ras"}`. Do not invent.
 
 ## Baseline
 

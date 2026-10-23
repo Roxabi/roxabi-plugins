@@ -613,7 +613,9 @@ export function parseRosterConfig(text: string | null): RosterConfig {
             } else if (agent === 'R-frontend-dev' || agent === 'R-backend-dev') {
               warnings.push(`${agent} override ignored; the domain roles are cut — R-adversarial owns their concerns`)
             } else if (agent === 'R-fixer') {
-              warnings.push('R-fixer override ignored; /fix applies findings inline, it spawns no fixer')
+              warnings.push(
+                'R-fixer override ignored; /fix uses dedicated native correction profiles, not the review roster',
+              )
             }
             continue
           }

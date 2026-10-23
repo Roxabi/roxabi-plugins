@@ -25,6 +25,14 @@ type Check = {
   conclusion: string
   workflowName: string
   startedAt: string
+  /**
+   * Native GraphQL node id. Omitted/`undefined` mints a stable truthful id (GitHub always has one).
+   * Explicit `null` keeps the node id-less for ci-native-identity-unknown fixtures.
+   */
+  id?: string | null
+  kind?: 'check-run' | 'status-context'
+  context?: string
+  state?: string
 }
 type Issue = {
   number: number
@@ -38,6 +46,8 @@ type Issue = {
   blockedBy: number[]
   /** The org issue type's name (`fix`, `feat`, …); absent or null when the issue is untyped. */
   issueType?: string | null
+  /** Native `gh issue view` revision. Null when the fixture never edited the body. */
+  updatedAt?: string | null
 }
 type Pull = {
   number: number
@@ -83,6 +93,8 @@ type State = {
   checks: Record<string, Check[]>
   events: Record<string, Event[]>
   calls: string[][]
+  /** Fixture-only. Absent pageInfo is unusable to the native CI reader; the default page is complete. */
+  ciPageInfo?: 'absent'
 }
 
 const CLOSES = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s*#(\d+)\b/gi
@@ -219,6 +231,86 @@ function collapsed(checks: Check[]): Check[] {
   })
 }
 
+function nativeRollupNode(check: Check): Record<string, unknown> {
+  if (check.kind === 'status-context') {
+    const context = check.context ?? check.name
+    const node: Record<string, unknown> = {
+      __typename: 'StatusContext',
+      context,
+      state: (check.state ?? check.conclusion).toLowerCase(),
+    }
+    // null = deliberate identity gap; undefined mints the stable native id GitHub would return.
+    if (check.id === null) return node
+    node.id = check.id === undefined ? `SC_${context}` : check.id
+    return node
+  }
+  const node: Record<string, unknown> = {
+    __typename: 'CheckRun',
+    name: check.name,
+    status: check.status.toLowerCase(),
+    conclusion: check.conclusion.toLowerCase(),
+    startedAt: check.startedAt,
+    checkSuite: { workflowRun: { workflow: { name: check.workflowName } } },
+  }
+  if (check.id === null) return node
+  node.id = check.id === undefined ? `CR_${check.workflowName}_${check.name}` : check.id
+  return node
+}
+
+/** Opaque cursor echoed by the reader. Not an offset the reader parses. */
+function rollupCursor(start: number): string {
+  return `sim-ci:${start}`
+}
+
+function rollupPage(
+  query: string,
+  after: string | undefined,
+  checks: Check[],
+  omitPageInfo: boolean,
+): {
+  nodes: Record<string, unknown>[]
+  pageInfo?: { hasNextPage: boolean; endCursor: string | null }
+} {
+  const runs = collapsed(checks.filter((check) => check.kind !== 'status-context'))
+  const winner = new Map(runs.map((check) => [`${check.workflowName}\0${check.name}`, check]))
+  const seen = new Set<string>()
+  const entries: Check[] = []
+  for (const check of checks) {
+    if (check.kind === 'status-context') {
+      entries.push(check)
+      continue
+    }
+    const key = `${check.workflowName}\0${check.name}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    const chosen = winner.get(key)
+    if (chosen) entries.push(chosen)
+  }
+  const requested = /contexts\(first:\s*(\d+)/.exec(query)
+  const first = requested === null ? entries.length : Number(requested[1])
+  const start = after === undefined || after.length === 0 ? 0 : /^sim-ci:(\d+)$/.exec(after)
+  const index = start === 0 ? 0 : start === null ? null : Number(start[1])
+  if (
+    index === null ||
+    !Number.isInteger(index) ||
+    index < 0 ||
+    index > entries.length ||
+    !Number.isInteger(first) ||
+    first < 1
+  ) {
+    // Malformed cursor/page size: still a pageInfo-bearing response when not the absent fixture.
+    // Missing pageInfo is only the explicit ciPageInfo:'absent' incomplete case — never “short page done”.
+    return omitPageInfo ? { nodes: [] } : { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } }
+  }
+  const slice = entries.slice(index, index + first)
+  const next = index + slice.length
+  const hasNextPage = next < entries.length
+  return {
+    nodes: slice.map(nativeRollupNode),
+    pageInfo: omitPageInfo ? undefined : { hasNextPage, endCursor: hasNextPage ? rollupCursor(next) : null },
+  }
+}
+
 function green(state: State, sha: string): boolean {
   if (!state.requiredChecks.length) return false
   const checks = state.checks[sha] ?? []
@@ -334,6 +426,20 @@ function commentNodes(comments: Comment[]): { body: string; author: { login: str
   return comments.map((comment) => ({ body: comment.body, author: { login: comment.author } }))
 }
 
+/**
+ * Shared GH number namespace: issue and PR routes for `N` expose one comment stream.
+ * A pull occupies the issue id, so the PR thread is canonical when present (same-scope
+ * mandate+binding live there; framing alone must not leave the issue route empty).
+ */
+function commentsForNumber(state: State, number: string): Comment[] {
+  return state.prs[number]?.comments ?? state.issues[number]?.comments ?? []
+}
+
+/** Writable thread for that number — prefer the PR when it occupies the id. */
+function commentThreadForNumber(state: State, number: string): { comments: Comment[] } | undefined {
+  return state.prs[number] ?? state.issues[number]
+}
+
 function issueNode(state: State, issue: Issue): Record<string, unknown> {
   const linked = Object.values(state.prs).filter(
     (pr) => !pr.isCrossRepository && pr.closes.includes(issue.number) && pr.headRefName.length > 0,
@@ -358,7 +464,7 @@ function issueNode(state: State, issue: Issue): Record<string, unknown> {
         }
       }),
     },
-    comments: { nodes: commentNodes(issue.comments) },
+    comments: { nodes: commentNodes(commentsForNumber(state, String(issue.number))) },
     closedByPullRequestsReferences: { nodes: merged.map((pr) => prNode(state, pr)) },
     timelineItems: {
       nodes: open.map((pr) => ({ source: prNode(state, pr) })),
@@ -424,7 +530,7 @@ function fields(flag: Map<string, string[]>, pr: Pull, state: State): Record<str
     mergeStateStatus: pr.state === 'MERGED' ? 'UNKNOWN' : 'CLEAN',
     autoMergeRequest: pr.autoMerge ? { enabledAt: pr.autoMerge.enabledAt } : null,
     labels: pr.labels.map((name) => ({ name })),
-    comments: commentNodes(pr.comments),
+    comments: commentNodes(commentsForNumber(state, String(pr.number))),
     statusCheckRollup: (state.checks[pr.headRefOid] ?? []).map((check) => ({
       name: check.name,
       status: check.status,
@@ -487,7 +593,7 @@ function graphql(state: State, query: string, vars: Record<string, string>): unk
         repository: {
           issue: epic
             ? {
-                comments: { nodes: commentNodes(epic.comments) },
+                comments: { nodes: commentNodes(commentsForNumber(state, String(vars.epic))) },
                 subIssues: {
                   pageInfo: { hasNextPage: false },
                   nodes: epic.subIssues.map((number) => issueNode(state, state.issues[String(number)] as Issue)),
@@ -500,18 +606,20 @@ function graphql(state: State, query: string, vars: Record<string, string>): unk
   }
   if (query.includes('statusCheckRollup')) {
     const sha = vars.sha ?? ''
-    const nodes = collapsed(state.checks[sha] ?? []).map((check) => ({
-      __typename: 'CheckRun',
-      name: check.name,
-      status: check.status.toLowerCase(),
-      conclusion: check.conclusion.toLowerCase(),
-      startedAt: check.startedAt,
-      checkSuite: { workflowRun: { workflow: { name: check.workflowName } } },
-    }))
+    const page = rollupPage(query, vars.after, state.checks[sha] ?? [], state.ciPageInfo === 'absent')
     return {
       data: {
         repository: {
-          object: sha ? { statusCheckRollup: { contexts: { nodes } } } : null,
+          object: sha
+            ? {
+                statusCheckRollup: {
+                  contexts:
+                    page.pageInfo === undefined
+                      ? { nodes: page.nodes }
+                      : { pageInfo: page.pageInfo, nodes: page.nodes },
+                },
+              }
+            : null,
         },
       },
     }
@@ -552,7 +660,7 @@ function graphql(state: State, query: string, vars: Record<string, string>): unk
     for (const match of pulls) {
       const alias = match[1] ?? ''
       const pr = state.prs[match[2] ?? '']
-      repository[alias] = pr ? { comments: { nodes: commentNodes(pr.comments) } } : null
+      repository[alias] = pr ? { comments: { nodes: commentNodes(commentsForNumber(state, match[2] ?? '')) } } : null
     }
     return { data: { repository } }
   }
@@ -624,10 +732,73 @@ function handle(state: State, argv: string[]): void {
     return
   }
 
+  // Native issue facts (`readNativeIssueFacts`) use REST GET /repos/.../issues/{n}.
+  // GitHub shares the number namespace: a pull is readable here as an issue payload.
+  const issueGet = sub?.match(/^repos\/[^/]+\/[^/]+\/issues\/(\d+)$/)
+  if (cmd === 'api' && issueGet && one(flag, '--method') === undefined) {
+    const number = issueGet[1] ?? ''
+    const pr = state.prs[number]
+    const issue = state.issues[number]
+    if (pr) {
+      const stateName = pr.state === 'OPEN' ? 'open' : 'closed'
+      emit(
+        { number: pr.number, state: stateName, body: pr.body, user: { login: state.viewer }, title: pr.title },
+        expression,
+      )
+      return
+    }
+    if (issue) {
+      emit(
+        {
+          number: issue.number,
+          state: issue.state.toLowerCase(),
+          body: issue.body,
+          user: { login: issue.author },
+          title: issue.title,
+        },
+        expression,
+      )
+      return
+    }
+    fail(`gh: issue #${number} not found`)
+  }
+
+  const commentPath = sub?.match(/^repos\/[^/]+\/[^/]+\/issues\/(\d+)\/comments(?:\?([^#]*))?$/)
+  if (cmd === 'api' && commentPath && one(flag, '--method') === 'POST') {
+    const thread = commentThreadForNumber(state, commentPath[1] ?? '')
+    const body = varsOf(flag).body
+    if (!thread || body === undefined) fail(`gh: ${body === undefined ? 'missing comment body' : 'issue not found'}`)
+    const id = (state.nextCommentId ?? 0) + 1
+    state.nextCommentId = id
+    const createdAt = stamp(state)
+    thread.comments.push({ id, author: state.viewer, body, createdAt, updatedAt: createdAt })
+    emit({ id, user: { login: state.viewer }, body, created_at: createdAt, updated_at: createdAt }, expression)
+    return
+  }
+
+  if (cmd === 'api' && commentPath && !bool.has('--paginate')) {
+    const number = commentPath[1] ?? ''
+    const query = new URLSearchParams(commentPath[2] ?? '')
+    const perPage = Number(query.get('per_page') ?? '30')
+    const page = Number(query.get('page') ?? '1')
+    if (!Number.isSafeInteger(perPage) || perPage < 1 || !Number.isSafeInteger(page) || page < 1)
+      fail(`gh: invalid comment pagination`)
+    const comments = commentsForNumber(state, number)
+    const rows = comments.slice((page - 1) * perPage, page * perPage).map((comment) => ({
+      id: comment.id,
+      user: { login: comment.author },
+      body: comment.body,
+      created_at: comment.createdAt,
+      updated_at: comment.updatedAt,
+    }))
+    emit(rows, expression)
+    return
+  }
+
   if (cmd === 'api' && bool.has('--paginate') && bool.has('--slurp') && sub?.endsWith('/comments')) {
     const number = sub.match(/issues\/(\d+)\/comments$/)?.[1]
     if (!number) fail(`gh: unhandled ${argv.join(' ')}`)
-    const comments = state.prs[number]?.comments ?? state.issues[number]?.comments ?? []
+    const comments = commentsForNumber(state, number)
     const page = comments.map((comment) => ({
       id: comment.id,
       user: { login: comment.author },
@@ -661,14 +832,39 @@ function handle(state: State, argv: string[]): void {
     return
   }
 
+  if (cmd === 'issue' && sub === 'view') {
+    const repo = one(flag, '--repo')
+    if (repo !== undefined && repo !== fullName(state)) fail(`gh: issue view repo ${repo} is not ${fullName(state)}`)
+    const issue = state.issues[positionals[2] ?? '']
+    if (!issue) fail(`gh: issue #${positionals[2] ?? ''} not found`)
+    const wanted = (one(flag, '--json') ?? '').split(',').filter(Boolean)
+    const all = {
+      number: issue.number,
+      title: issue.title,
+      body: issue.body,
+      state: issue.state,
+      updatedAt: issue.updatedAt ?? null,
+      labels: issue.labels.map((name) => ({ name })),
+      author: { login: issue.author },
+    }
+    type IssueViewField = keyof typeof all
+    const fields: IssueViewField[] = wanted.length
+      ? wanted.filter((key): key is IssueViewField => Object.hasOwn(all, key))
+      : (Object.keys(all) as IssueViewField[])
+    const projected: Record<string, unknown> = {}
+    for (const key of fields) projected[key] = all[key] ?? null
+    emit(projected, expression)
+    return
+  }
+
   if (cmd === 'issue' && sub === 'comment') {
     const number = positionals[2] ?? ''
-    const issue = state.issues[number]
-    if (!issue) fail(`gh: issue #${number} not found`)
+    const thread = commentThreadForNumber(state, number)
+    if (!thread) fail(`gh: issue #${number} not found`)
     const body = commentBody(flag)
-    issue.comments.push({ author: state.viewer, body, createdAt: stamp(state) })
+    thread.comments.push({ author: state.viewer, body, createdAt: stamp(state) })
     process.stdout.write(
-      `https://example.test/${fullName(state)}/issues/${number}#issuecomment-${issue.comments.length}\n`,
+      `https://example.test/${fullName(state)}/issues/${number}#issuecomment-${thread.comments.length}\n`,
     )
     return
   }

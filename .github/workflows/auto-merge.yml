@@ -15,8 +15,6 @@ name: Auto Merge
 on:
   pull_request:
     types: [labeled, synchronize, closed]
-  check_suite:
-    types: [completed]
   push:
     branches: [main]
 
@@ -131,6 +129,57 @@ jobs:
           echo "::error::semver-major dependency bump — auto-merge refused"
           exit 1
 
+      # The reviewed PR's checkout is data for the admission reader only. Never
+      # run a script, package manager, config, or preload from this path.
+      - name: Checkout reviewed candidate data
+        id: candidate
+        if: github.event.action == 'labeled' && github.event.pull_request.user.login != 'dependabot[bot]'
+        continue-on-error: true
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: .omp-build-gate-candidate
+          fetch-depth: 0
+          persist-credentials: false
+
+      # This path is never allowed to inherit a PR-controlled file. The gate
+      # below requires both this checkout's successful outcome and its verified
+      # repository/ref before it invokes the reader.
+      - name: Clear trusted review tooling path
+        id: clear-gate-tools
+        if: github.event.action == 'labeled' && github.event.pull_request.user.login != 'dependabot[bot]'
+        continue-on-error: true
+        run: rm -rf .omp-build-gate-tools
+
+      # OMP_BUILD_TOOLING_SHA is a repository variable populated only during
+      # the explicit T5 activation/bootstrap. There is deliberately no fallback
+      # to this workflow's PR checkout, its workflow SHA, or a moving branch.
+      - name: Checkout pinned review tooling
+        id: gate-tools
+        if: >-
+          github.event.action == 'labeled' &&
+          github.event.pull_request.user.login != 'dependabot[bot]' &&
+          vars.OMP_BUILD_TOOLING_SHA != ''
+        continue-on-error: true
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          repository: Roxabi/roxabi-plugins
+          ref: ${{ vars.OMP_BUILD_TOOLING_SHA }}
+          path: .omp-build-gate-tools
+          fetch-depth: 1
+          persist-credentials: false
+
+      # No dependency install runs next to the app token: the pinned tooling
+      # checkout carries its committed dist/contracts.js bundle.
+      - name: Set up pinned Bun for review gate
+        id: review-gate-bun
+        if: github.event.action == 'labeled' && github.event.pull_request.user.login != 'dependabot[bot]'
+        continue-on-error: true
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2
+        with:
+          bun-version: 1.4.3
+          token: ''
+
       - name: Enable auto-merge (merge commit)
         if: github.event.action == 'labeled'
         env:
@@ -138,8 +187,14 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           REVIEWER: ${{ vars.OMP_BUILD_AUTOMATION_LOGIN }}
-          ACTION: ${{ github.event.action }}
           AUTHOR: ${{ github.event.pull_request.user.login }}
+          TOOLING_SHA: ${{ vars.OMP_BUILD_TOOLING_SHA }}
+          CANDIDATE_OUTCOME: ${{ steps.candidate.outcome }}
+          CLEAR_TOOLS_OUTCOME: ${{ steps.clear-gate-tools.outcome }}
+          TOOLS_OUTCOME: ${{ steps.gate-tools.outcome }}
+          BUN_OUTCOME: ${{ steps.review-gate-bun.outcome }}
+          STOP_GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
           disarm() {
@@ -164,57 +219,67 @@ jobs:
                 exit 1
             fi
           }
-          # synchronize is a new head. Do not re-enable from a comment.
-          if [ "$ACTION" != "labeled" ]; then
+          refuse() {
             disarm
-            echo "::error::head moved after review — auto-merge disarmed"
+            echo "::error::$1"
             exit 1
-          fi
+          }
+          # The only intended exception: Dependabot retains the existing
+          # semver-major guard above but does not require a human review record.
           if [ "$AUTHOR" = "dependabot[bot]" ]; then
             SHA="$HEAD_SHA"
           else
-          if ! pages=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments"); then
-            disarm
-            echo "::error::refusing to enable auto-merge without the reviewed commit"
-            exit 1
-          fi
-          if ! comments=$(printf '%s' "$pages" | jq -c '
-            if (type != "array") or any(type != "array") then
-              error("incomplete comment pages")
-            else
-              {comments: ([.[][]] | sort_by(.created_at // "") | map({author: {login: (.user.login // "")}, body: (.body // "")}))}
-            end
-          '); then
-            disarm
-            echo "::error::refusing to enable auto-merge without the reviewed commit"
-            exit 1
-          fi
-          if ! SHA=$(printf '%s' "$comments" | jq -r --arg reviewer "$REVIEWER" --arg head "$HEAD_SHA" '
-            (
-              [.comments[]
-                | select(.author.login == $reviewer)
-                | .body
-                | select(split("\n")[0] == "<!-- omp-build:code-review -->")
-              ] | last // empty
-              | . as $body
-              | ($body | split("\n")[1]) as $line2
-              | select($line2 | strings | test("^<!-- omp-build:review-head sha=[0-9a-f]{40} -->$"))
-              | ($line2 | capture("^<!-- omp-build:review-head sha=(?<sha>[0-9a-f]{40}) -->$").sha) as $sha
-              | select($sha == $head)
-              | ($body | [split("\n")[] | select(test("^\\*\\*Verdict: "))]) as $verdicts
-              | select($verdicts | length == 1)
-              | select($verdicts[0] | test("^\\*\\*Verdict: Approve( \\(clean\\)| with comments)?\\*\\*([[:space:]].*)?$"))
-              | $sha
-            ) // ""'); then
-            disarm
-            echo "::error::refusing to enable auto-merge without the reviewed commit"
-            exit 1
-          fi
+            if ! [[ "$TOOLING_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+              refuse 'refusing auto-merge: OMP_BUILD_TOOLING_SHA must be a 40-lowercase-hex repository variable'
+            fi
+            if [ "$CLEAR_TOOLS_OUTCOME" != "success" ] || [ "$TOOLS_OUTCOME" != "success" ]; then
+              refuse 'refusing auto-merge: immutable trusted review tooling was not available'
+            fi
+            if [ "$CANDIDATE_OUTCOME" != "success" ] || [ "$BUN_OUTCOME" != "success" ]; then
+              refuse 'refusing auto-merge: candidate data checkout or pinned Bun was not available'
+            fi
+            TOOLS="$GITHUB_WORKSPACE/.omp-build-gate-tools"
+            CANDIDATE="$GITHUB_WORKSPACE/.omp-build-gate-candidate"
+            if [ ! -f "$TOOLS/plugins/omp-build/scripts/review-gate.ts" ] || [ ! -f "$TOOLS/plugins/omp-build/dist/contracts.js" ]; then
+              refuse 'refusing auto-merge: trusted review tooling is incomplete'
+            fi
+            if ! actual_tooling_sha=$(git -C "$TOOLS" rev-parse HEAD 2>/dev/null) || [ "$actual_tooling_sha" != "$TOOLING_SHA" ]; then
+              refuse 'refusing auto-merge: trusted review tooling did not resolve to OMP_BUILD_TOOLING_SHA'
+            fi
+            if ! tooling_origin=$(git -C "$TOOLS" remote get-url origin 2>/dev/null) || [ "$tooling_origin" != 'https://github.com/Roxabi/roxabi-plugins' ]; then
+              refuse 'refusing auto-merge: trusted review tooling did not come from Roxabi/roxabi-plugins'
+            fi
+            if ! candidate_sha=$(git -C "$CANDIDATE" rev-parse HEAD 2>/dev/null) || [ "$candidate_sha" != "$HEAD_SHA" ]; then
+              refuse 'refusing auto-merge: candidate data checkout did not resolve to the PR head'
+            fi
+            if ! gate_result=$(bun "$TOOLS/plugins/omp-build/scripts/review-gate.ts" \
+              --repository "$GITHUB_REPOSITORY" \
+              --pr "$PR_NUMBER" \
+              --head "$HEAD_SHA" \
+              --automation-login "$REVIEWER" \
+              --candidate-cwd "$CANDIDATE" \
+              --tooling-sha "$TOOLING_SHA"); then
+              printf '%s\n' "$gate_result" >&2
+              if [[ "$gate_result" == *'"reason":"ci-failed"'* ]]; then
+                observation="$RUNNER_TEMP/omp-build-required-stop.json"
+                printf '%s\n' "$gate_result" > "$observation"
+                if ! bun "$TOOLS/plugins/omp-build/scripts/review-stop.ts" \
+                  --repository "$GITHUB_REPOSITORY" \
+                  --pr "$PR_NUMBER" \
+                  --head "$HEAD_SHA" \
+                  --automation-login "$REVIEWER" \
+                  --run-id "$RUN_ID" \
+                  --observation "$observation"; then
+                  echo "::error::could not persist the observed ci-failed stop"
+                fi
+              fi
+              refuse 'refusing auto-merge: shared review admission refused the current PR'
+            fi
+            printf '%s\n' "$gate_result"
+            SHA="$HEAD_SHA"
           fi
           if [ "$SHA" != "$HEAD_SHA" ] || [ "${#SHA}" -ne 40 ]; then
-            disarm
-            echo "::error::refusing to enable auto-merge without the reviewed commit"
-            exit 1
+            refuse 'refusing auto-merge without the reviewed commit'
           fi
           set +e
           out=$(gh pr merge "$PR_NUMBER" --auto --merge --repo "$GITHUB_REPOSITORY" --match-head-commit "$SHA" 2>&1)
@@ -223,15 +288,11 @@ jobs:
           if [ "$code" -ne 0 ]; then
             printf '%s\n' "$out" >&2
             if ! printf '%s' "$out" | grep -qi 'already enabled'; then
-              disarm
-              echo "::error::refusing to enable auto-merge without the reviewed commit"
-              exit 1
+              refuse 'refusing to enable auto-merge without the reviewed commit'
             fi
             gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --disable-auto
             if ! gh pr merge "$PR_NUMBER" --auto --merge --repo "$GITHUB_REPOSITORY" --match-head-commit "$SHA"; then
-              disarm
-              echo "::error::refusing to enable auto-merge without the reviewed commit"
-              exit 1
+              refuse 'refusing to enable auto-merge without the reviewed commit'
             fi
           fi
 
