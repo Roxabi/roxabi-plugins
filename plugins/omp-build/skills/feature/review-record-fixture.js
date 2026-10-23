@@ -1,10 +1,8 @@
-import { shippedProductVersion } from '../../contracts.ts'
 import { decodeHistory, buildRecord as frameRecord } from '../../dist/contracts.js'
-import { buildRecord } from '../../engine/core.ts'
-import { specDigest } from '../../engine/schemas.ts'
-import { configPinDigest, PROOF_PIN_PATHS, WORKFLOW_CONFIG_VERSION } from '../../roxabi/workflow-config.ts'
-import { reviewGraph } from '../../testing/records.ts'
-import { historyFrom, serializedGraph, workflowBinding } from '../../testing/workflow-records.ts'
+import { specDigest } from '../../engine/record-digests.ts'
+import { PROOF_PIN_PATHS } from '../../roxabi/workflow-config.ts'
+import { reviewGraph } from '../../testing/record-graphs.ts'
+import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { hashReviewInput, proofSemanticContext } from './proof.ts'
 
 export const REPOSITORY = 'acme/app'
@@ -15,6 +13,7 @@ export const PR = 7
 export const SCOPE = { repository: REPOSITORY, target: `${REPOSITORY}#${PR}` }
 export const AUTHOR = 'omp-bot'
 export const HEADS = ['1'.repeat(40), '2'.repeat(40), '3'.repeat(40), '4'.repeat(40)]
+const { featureMandate, historyFrom, workflowBinding } = roxabiWorkflowFixtures()
 
 function reviewSet(index, { head, verdict, input = null }) {
   const graph = reviewGraph({
@@ -54,43 +53,15 @@ export function noProducerInput(head, pr = PR) {
 }
 
 function mandateRecord(head) {
-  const productVersion = shippedProductVersion()
-  const effective = serializedGraph(productVersion)
-  const built = buildRecord({
-    version: 1,
+  return featureMandate(ISSUE_SCOPE, {
     recordId: 'mandate-feature-1',
     runId: 'run00001',
     operationId: 'op-mandate-feature-1',
-    repository: REPOSITORY,
-    target: ISSUE_SCOPE.target,
-    kind: 'mandate',
-    payload: {
-      role: 'feature',
-      run: null,
-      children: null,
-      branch: 'feat/save',
-      base: 'main',
-      lineageHead: head,
-      config: {
-        productVersion,
-        version: WORKFLOW_CONFIG_VERSION,
-        digest: configPinDigest(effective),
-        effective,
-      },
-      proofPins: PROOF_PIN_PATHS.map((path) => ({ sourceCommit: HEADS[0], path, blob: null })),
-      parent: null,
-      antecedent: null,
-      spec: {
-        reference: ISSUE_SCOPE.target,
-        body: SPEC,
-        bodySha256: specDigest(SPEC),
-        lastEditedAt: '2026-10-21T12:00:00Z',
-      },
-      permissions: { landing: true, correct: true },
-    },
+    branch: 'feat/save',
+    base: 'main',
+    lineageHead: head,
+    proofPins: PROOF_PIN_PATHS.map((path) => ({ sourceCommit: HEADS[0], path, blob: null })),
   })
-  if (!built.ok) throw new Error(built.diagnostics.map((item) => item.message).join('; '))
-  return built.value
 }
 
 function linkedInput(head, mandate, binding) {

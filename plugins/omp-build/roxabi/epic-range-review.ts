@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { type GitHubOptions, githubScope, type Policy, specDigest } from '../dist/contracts.js'
-import type { ScopedRecordRef } from '../engine/schemas.ts'
+import type { ScopedRecordRef } from '../engine/record-references.ts'
 import {
   type AllocateReviewInput,
   normalizeTier,

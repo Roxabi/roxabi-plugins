@@ -1,16 +1,11 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import type { RecordProjectionConfig } from '../engine/core.ts'
-import type {
-  CanonicalRecord,
-  DecodedHistory,
-  Diagnostic,
-  ExternalRecordRef,
-  History,
-  Json,
-  Scope,
-} from '../engine/schemas.ts'
-import { selectWorkflowBinding } from '../engine/workflow.ts'
+import type { DecodedHistory, History } from '../engine/history-schema.ts'
+import type { ExternalRecordRef } from '../engine/record-references.ts'
+import type { CanonicalRecord } from '../engine/record-schema.ts'
+import type { Diagnostic, Json, Scope } from '../engine/record-values.ts'
+import type { RecordProjectionConfig } from '../engine/result.ts'
+import { selectWorkflowBinding } from '../engine/workflow-pr-binding.ts'
 import {
   decodeHistory,
   type Gh,

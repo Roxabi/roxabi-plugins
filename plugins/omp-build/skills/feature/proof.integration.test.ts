@@ -12,11 +12,10 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { decodeHistory, type History } from '../../dist/contracts.js'
-import { specDigest } from '../../engine/schemas.ts'
+import { specDigest } from '../../engine/record-digests.ts'
 import { trackerReference } from '../../roxabi/review-context.ts'
 import { PROOF_PIN_PATHS } from '../../roxabi/workflow-config.ts'
-import { encodedAdmissionReviewGraph } from '../../testing/records'
-import { linkedLandingAuthority } from '../../testing/workflow-records.ts'
+import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { HISTORICAL_CASES, historicalSpec } from './__fixtures__/proof/historical'
 import {
   ACQUIRE,
@@ -43,6 +42,9 @@ import {
 import { proofComments, proofData } from './__fixtures__/proof/wire'
 import type { AssertledgerRecord, SemctxRecord } from './proof'
 import { candidateFacts, hashReviewInput, proofSemanticContext, readSemctxRecord, semctxInputs } from './proof'
+
+const { encodedAdmissionReviewGraph } = roxabiRecordFixtures()
+const { linkedLandingAuthority } = roxabiWorkflowFixtures()
 
 type Captured = { code: number | null; stdout: string; stderr: string; data?: unknown | unknown[] }
 type ReplayCapture = { token: { from: string; to: string }; version: Captured; invalid: Captured; valid: Captured }

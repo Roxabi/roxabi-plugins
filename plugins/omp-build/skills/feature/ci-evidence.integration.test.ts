@@ -7,7 +7,8 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { failedCheckEvidenceDigest, type Scope } from '../../engine/schemas.ts'
+import { failedCheckEvidenceDigest } from '../../engine/record-digests.ts'
+import type { Scope } from '../../engine/record-values.ts'
 import { readNativeCiFailureEvidence } from '../../roxabi/workflow.ts'
 
 const SIM = join(import.meta.dirname, 'gh-simulator.ts')

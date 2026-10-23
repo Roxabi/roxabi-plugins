@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { validateDecisionBindings } from '../dist/contracts.js'
-import { contribution, history, reviewGraph } from '../testing/records.ts'
+import { contribution } from '../testing/record-decisions.ts'
+import { reviewGraph } from '../testing/record-graphs.ts'
+import { history } from '../testing/record-history.ts'
 import { executeCorrection } from './correction-policy'
 import {
   type FixRecord,

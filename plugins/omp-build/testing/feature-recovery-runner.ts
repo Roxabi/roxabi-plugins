@@ -1,4 +1,5 @@
-import ompBuildExtension, { type OmpBuildExtensionApi } from '../omp/index.ts'
+import { createExtensionApiStub } from '../omp/__tests__/extension-api-stub.ts'
+import ompBuildExtension, { createOmpFixPort } from '../omp/index.ts'
 import type { NativeBatch, NativeBatchResult, NativeChildResult } from '../omp/review-runtime.ts'
 import { loadFeatureWorkflow } from '../roxabi/feature-entry.ts'
 
@@ -108,6 +109,8 @@ async function invoke(operationName: string): Promise<unknown> {
     }
     case 'omp-pause':
       return invokeOmpBridge()
+    case 'omp-lifetime':
+      return invokeOmpLifetime()
     default:
       throw new Error(`unknown operation ${operationName}`)
   }
@@ -117,36 +120,26 @@ async function invokeOmpBridge(): Promise<{ messages: string[] }> {
   const commands = new Map<string, Handler>()
   const events = new Map<string, Handler[]>()
   const messages: string[] = []
-  const api = {
-    on(name: string, handler: Handler) {
+  const api = createExtensionApiStub({
+    on(name, handler) {
       const registered = events.get(name) ?? []
-      registered.push(handler)
+      registered.push(handler as Handler)
       events.set(name, registered)
     },
-    registerCommand(name: string, command: { handler: Handler }) {
-      commands.set(name, command.handler)
+    registerCommand(name, command) {
+      commands.set(name, command.handler as Handler)
     },
-    registerTool() {},
-    sendUserMessage(message: string) {
+    sendUserMessage(message) {
+      if (typeof message !== 'string') throw new Error('native-announcement-not-text')
       messages.push(message)
     },
-    sendMessage(message: unknown) {
-      if (typeof message === 'string') {
-        messages.push(message)
-        return
-      }
-      if (message !== null && typeof message === 'object' && 'content' in message) {
-        messages.push(String(message.content))
-        return
-      }
-      messages.push(String(message))
+    sendMessage(message) {
+      messages.push(typeof message === 'string' ? message : String(message?.content ?? message))
     },
     async exec(): Promise<never> {
       throw new Error('unexpected-omp-exec')
     },
-    events: { on: () => () => undefined },
-    // OMP's callback overloads cannot retain a heterogeneous event map.
-  } as unknown as OmpBuildExtensionApi
+  })
   const context = {
     cwd: cwd ?? '',
     agent: { kind: 'main' as const, id: 'Main', name: 'main', depth: 0 },
@@ -162,6 +155,62 @@ async function invokeOmpBridge(): Promise<{ messages: string[] }> {
     await handler({ message: { role: 'assistant', stopReason: 'aborted', errorId: 67_108_864 } }, context)
   }
   return { messages }
+}
+
+async function invokeOmpLifetime(): Promise<{
+  activeBeforePause: boolean
+  cloneRetained: boolean
+  activeAfterPause: boolean
+  messages: string[]
+}> {
+  const commands = new Map<string, Handler>()
+  const events = new Map<string, Handler[]>()
+  const messages: string[] = []
+  const api = createExtensionApiStub({
+    on(name, handler) {
+      const registered = events.get(name) ?? []
+      registered.push(handler as Handler)
+      events.set(name, registered)
+    },
+    registerCommand(name, command) {
+      commands.set(name, command.handler as Handler)
+    },
+    sendUserMessage(message) {
+      if (typeof message !== 'string') throw new Error('native-announcement-not-text')
+      messages.push(message)
+    },
+    sendMessage(message) {
+      messages.push(typeof message === 'string' ? message : String(message?.content ?? message))
+    },
+    async exec(): Promise<never> {
+      throw new Error('unexpected-omp-exec')
+    },
+  })
+  const context = {
+    cwd: cwd ?? '',
+    agent: { kind: 'main' as const, id: 'Main', name: 'main', depth: 0 },
+    model: { contextWindow: 128_000 },
+    isIdle: () => true,
+  }
+  ompBuildExtension(api, { principalCwd: () => false })
+  const feature = commands.get('feature')
+  if (feature === undefined) throw new Error('feature-command-unregistered')
+  await feature('#42', context)
+  const port = createOmpFixPort(api)
+  const original = port.active()
+  if (original === null) throw new Error('feature-batch-not-active')
+  const activeBeforePause = port.active() === original
+  await port.stopOwned(structuredClone(original), 'clone-must-not-stop')
+  const cloneRetained = port.active() === original
+  for (const handler of events.get('message_end') ?? []) {
+    await handler({ message: { role: 'assistant', stopReason: 'aborted', errorId: 67_108_864 } }, context)
+  }
+  return {
+    activeBeforePause,
+    cloneRetained,
+    activeAfterPause: port.active() === null,
+    messages,
+  }
 }
 
 process.stdout.write(`${JSON.stringify(await invoke(operation ?? ''))}\n`)

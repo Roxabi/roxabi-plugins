@@ -105,7 +105,7 @@ describe('omp-build agent roster', () => {
       .map(({ file }) => file)
     expect(cited).toEqual([])
     // #577: no plugin-root token and no Skill() call — those shapes follow into a
-    // stale copy. Bare skill:// argv is the external-skill-argv sweep (#619).
+    // stale copy.
     const invoked = sources
       .filter(({ text }) => /\$\{CLAUDE_PLUGIN_ROOT\}/.test(text) || text.includes('Skill(skill:'))
       .map(({ file }) => file)

@@ -3,20 +3,11 @@ import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeF
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { shippedProductVersion } from '../contracts.ts'
 import { decodeHistory, githubScope, readGitHubHistory } from '../dist/contracts.js'
-import { buildRecord } from '../engine/core.ts'
-import { specDigest } from '../engine/schemas.ts'
-import {
-  configPinDigest,
-  effectiveWorkflowConfig,
-  readProofConfigPins,
-  WORKFLOW_CONFIG_VERSION,
-} from '../roxabi/workflow-config.ts'
+import { readProofConfigPins } from '../roxabi/workflow-config.ts'
 import { hashReviewInput } from '../skills/feature/proof.ts'
 import { confirmedReviewSemanticContext } from '../skills/feature/workflow.js'
-import { encodedAdmissionReviewGraph } from '../testing/records.ts'
-import { framedBodies, historyFrom, workflowBinding } from '../testing/workflow-records.ts'
+import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
 
 const PLUGIN = path.resolve(import.meta.dirname, '..')
 const REAL_BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
@@ -25,6 +16,8 @@ const AUTOMATION = 'automation'
 const STOP_BOT = 'github-actions[bot]'
 const GITHUB_ENV = ['GITHUB', 'TOKEN'].join('_')
 const STOP_ENV = ['STOP', 'GH', 'TOKEN'].join('_')
+const { encodedAdmissionReviewGraph } = roxabiRecordFixtures()
+const { framedBodies, historyFrom, workflowBinding } = roxabiWorkflowFixtures()
 
 type StoredComment = {
   id: number
@@ -497,43 +490,20 @@ function stored(body: string, id: number): StoredComment {
 
 async function seedMandate(box: Box, spec = SPEC): Promise<void> {
   const pins = await readProofConfigPins(gitResult, box.candidate, box.base)
-  const productVersion = shippedProductVersion()
-  const effective = effectiveWorkflowConfig(productVersion, [])
-  const built = buildRecord({
-    version: 1,
-    recordId: 'mandate-feature-1',
-    runId: 'run00001',
-    operationId: 'op-mandate-feature-1',
-    repository: 'acme/app',
-    target: 'acme/app#42',
-    kind: 'mandate',
-    payload: {
-      role: 'feature',
-      run: null,
-      children: null,
+  const built = roxabiWorkflowFixtures().featureMandate(
+    { repository: 'acme/app', target: 'acme/app#42' },
+    {
+      recordId: 'mandate-feature-1',
+      runId: 'run00001',
+      operationId: 'op-mandate-feature-1',
       branch: 'feat/7-fixture',
       base: 'main',
       lineageHead: box.head,
-      config: {
-        productVersion,
-        version: WORKFLOW_CONFIG_VERSION,
-        digest: configPinDigest(effective),
-        effective,
-      },
       proofPins: pins,
-      parent: null,
-      antecedent: null,
-      spec: { reference: 'acme/app#42', body: spec, bodySha256: specDigest(spec), lastEditedAt: PR_EDITED },
-      permissions: { landing: true, correct: true },
+      body: spec,
     },
-  })
-  if (!built.ok) throw new Error(built.diagnostics.map((item) => item.message).join('; '))
-  const binding = workflowBinding(
-    { repository: 'acme/app', target: 'acme/app#7' },
-    built.value,
-    'feat/7-fixture',
-    'main',
   )
+  const binding = workflowBinding({ repository: 'acme/app', target: 'acme/app#7' }, built, 'feat/7-fixture', 'main')
   const state = readState(box)
   state.prBody = PR_TEXT
   state.prEditedAt = PR_EDITED
@@ -542,11 +512,11 @@ async function seedMandate(box: Box, spec = SPEC): Promise<void> {
     updatedAt: PR_EDITED,
     state: 'OPEN',
     labels: [],
-    comments: historyFrom([built.value], AUTOMATION).source.comments.map((comment, index) =>
+    comments: historyFrom([built], AUTOMATION).source.comments.map((comment, index) =>
       stored(comment.body, 4200 + index),
     ),
   }
-  const mandateHistory = historyFrom([built.value], AUTOMATION)
+  const mandateHistory = historyFrom([built], AUTOMATION)
   const bindingBodies = framedBodies([binding], AUTOMATION, [mandateHistory])
   state.comments = [
     ...state.comments.filter((comment) => recordKind(comment.body) !== 'workflow-binding'),

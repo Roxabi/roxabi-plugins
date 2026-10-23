@@ -3,7 +3,9 @@ import { realpathSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import type { Diagnostic, HostEffectAdmission, ScopedRecordRef } from '../engine/schemas'
+import type { ScopedRecordRef } from '../engine/record-references.ts'
+import type { Diagnostic } from '../engine/record-values.ts'
+import type { HostEffectAdmission } from '../engine/workflow-receipt-schema.ts'
 import type {
   Json,
   NativeBatch,

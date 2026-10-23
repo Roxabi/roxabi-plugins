@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { parseRecord } from '../../engine/core.ts'
-import type { CanonicalRecord, DecodedHistory, History, ObservedComment, Scope } from '../../engine/schemas.ts'
-import { buildFixOnlyMandate } from '../../engine/workflow.ts'
+import type { DecodedHistory, History } from '../../engine/history-schema.ts'
+import { parseRecord } from '../../engine/record-construction.ts'
+import type { CanonicalRecord } from '../../engine/record-schema.ts'
+import type { Scope } from '../../engine/record-values.ts'
+import type { ObservedComment } from '../../engine/review-schema.ts'
+import { buildFixOnlyMandate } from '../../engine/workflow-correction-mandate.ts'
 import { decodeHistory, encodeRecord, type Gh, githubScope } from '../github.ts'
 import {
   publishConfirmedWorkflowRecord,

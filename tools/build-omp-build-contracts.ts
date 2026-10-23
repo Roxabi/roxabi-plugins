@@ -2,7 +2,7 @@
 
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
-import { producerJsonSchema } from '../plugins/omp-build/engine/core.ts'
+import { producerJsonSchema } from '../plugins/omp-build/engine/producer-schema.ts'
 import { nativeFeatureProfiles } from '../plugins/omp-build/roxabi/native-feature-profiles.ts'
 import { nativeReviewProfiles } from '../plugins/omp-build/roxabi/native-review-profiles.ts'
 

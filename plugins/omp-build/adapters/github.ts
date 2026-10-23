@@ -1,24 +1,13 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import {
-  parseRecord,
-  projectRecord,
-  type RecordProjectionConfig,
-  type Result,
-  stopBotMayAuthor,
-  WORKFLOW_RECORD_KINDS,
-} from '../engine/core.ts'
-import type {
-  CanonicalRecord,
-  DecodedHistory,
-  Diagnostic,
-  History,
-  Json,
-  ObservedComment,
-  OperationAuthority,
-  OperationRead,
-  Scope,
-} from '../engine/schemas.ts'
+import type { DecodedHistory, History, OperationAuthority, OperationRead } from '../engine/history-schema.ts'
+import { parseRecord } from '../engine/record-construction.ts'
+import { projectRecord } from '../engine/record-projection.ts'
+import { stopBotMayAuthor, WORKFLOW_RECORD_KINDS } from '../engine/record-references.ts'
+import type { CanonicalRecord } from '../engine/record-schema.ts'
+import type { Diagnostic, Json, Scope } from '../engine/record-values.ts'
+import type { RecordProjectionConfig, Result } from '../engine/result.ts'
+import type { ObservedComment } from '../engine/review-schema.ts'
 
 export type Gh = (cwd: string, args: string[]) => Promise<string>
 

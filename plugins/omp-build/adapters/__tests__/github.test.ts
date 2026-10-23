@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { History } from '../../engine/schemas.ts'
+import type { History } from '../../engine/history-schema.ts'
 import { decodeHistory, githubScope, readGitHubHistory } from '../github.ts'
 
 const handcraftedBody =

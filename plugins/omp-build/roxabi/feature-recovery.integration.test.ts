@@ -4,23 +4,36 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { decodeHistory } from '../adapters/github.ts'
-import { type Box, git, readSim, sandbox, writeSim } from '../skills/feature/__fixtures__/proof/sandbox.ts'
 import {
-  clearPlanContribution,
-  featureMandate,
-  framedBodies,
-  implementStart,
-  planDraftRecords,
-  planReviewRecord,
-  planReviewStart,
-  publishedPlanDigest,
-} from '../testing/workflow-records.ts'
+  type Box,
+  git,
+  plainSpec,
+  readSim,
+  sandbox,
+  WORKFLOW,
+  worktree,
+  writeSim,
+} from '../skills/feature/__fixtures__/proof/sandbox.ts'
+import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
+import { PROOF_PIN_PATHS } from './workflow-config.ts'
 
 const RUNNER = path.resolve(import.meta.dirname, '../testing/feature-recovery-runner.ts')
 const BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
 const SCOPE = { repository: 'acme/app', target: 'acme/app#42' }
 const BRANCH = 'feat/42-save'
 const BODY = '## Acceptance criteria\n\n- [ ] preserves the region\n'
+const { encodedAdmissionReviewGraph } = roxabiRecordFixtures()
+const {
+  clearPlanContribution,
+  featureMandate,
+  framedBodies,
+  implementStart,
+  linkedLandingAuthority,
+  planDraftRecords,
+  planReviewRecord,
+  planReviewStart,
+  publishedPlanDigest,
+} = roxabiWorkflowFixtures()
 
 let roots: string[] = []
 afterEach(() => {
@@ -73,6 +86,42 @@ function coldCheckout(box: Box, name: string, branch = BRANCH): string {
   git(box, box.root, ['clone', '-q', box.origin, principal])
   git(box, principal, ['worktree', 'add', '-q', '-b', branch, checkout, `origin/${branch}`])
   return checkout
+}
+
+function livePinsAt(box: Box, baseTip: string): { sourceCommit: string; path: string; blob: string | null }[] {
+  const toplevel = git(box, box.principal, ['rev-parse', '--show-toplevel'])
+  return PROOF_PIN_PATHS.map((pinPath) => {
+    try {
+      const blob = execFileSync('git', ['rev-parse', '--verify', '--quiet', `${baseTip}:${pinPath}`], {
+        cwd: toplevel,
+        env: box.env,
+        encoding: 'utf8',
+      }).trim()
+      return { sourceCommit: baseTip, path: pinPath, blob: /^[0-9a-f]{40}$/.test(blob) ? blob : null }
+    } catch {
+      return { sourceCommit: baseTip, path: pinPath, blob: null }
+    }
+  })
+}
+
+function workflowRead(box: Box, cwd: string, pr: number, head: string) {
+  const run = spawnSync(BUN, [WORKFLOW, 'captureReviewInput', cwd, JSON.stringify({ pr, head })], {
+    cwd,
+    env: box.env,
+    encoding: 'utf8',
+  })
+  if (run.status !== 0) throw new Error(`captureReviewInput failed: ${run.stderr}`)
+  return JSON.parse(run.stdout) as { ok: boolean; input?: string | null; reason?: string }
+}
+
+function land(box: Box, cwd: string, pr: number): { status: string } {
+  const run = spawnSync(
+    BUN,
+    [WORKFLOW, 'landPr', cwd, JSON.stringify({ pr, landing: { mode: 'native', required_checks: ['ci'] } })],
+    { cwd, env: box.env, encoding: 'utf8' },
+  )
+  if (run.status !== 0) throw new Error(`landPr failed: ${run.stderr}`)
+  return JSON.parse(run.stdout) as { status: string }
 }
 
 function featureFixture(
@@ -270,6 +319,35 @@ describe('feature recovery through the installed OMP bridge', () => {
     ).toBe(false)
     expect(effectCalls(box, callsBefore)).toEqual([])
   })
+
+  it('keeps the original live native batch through clone refusal and public session pause', () => {
+    const { box, checkout } = featureFixture('plan')
+    const observed = invoke<{
+      activeBeforePause: boolean
+      cloneRetained: boolean
+      activeAfterPause: boolean
+      messages: string[]
+    }>(box, checkout, path.join(box.root, 'home-live-identity'), 'omp-lifetime', {})
+
+    expect(observed.activeBeforePause).toBe(true)
+    expect(observed.cloneRetained).toBe(true)
+    expect(observed.activeAfterPause).toBe(true)
+    expect(observed.messages.join('\n')).toContain('pause-confirmed:')
+    const paused = history(box)
+    expect(
+      paused.operations.some(
+        (operation) =>
+          operation.record?.kind === 'operator-control' && operation.record.payload.control === 'pause-confirmed',
+      ),
+    ).toBe(true)
+    const starts = paused.operations.filter(
+      (operation) =>
+        operation.record?.kind === 'action-receipt' &&
+        operation.record.payload.phase === 'start' &&
+        operation.record.payload.action === 'implement',
+    )
+    expect(starts).toHaveLength(1)
+  })
 })
 
 describe('feature recovery terminal and publication witnesses', () => {
@@ -308,6 +386,80 @@ describe('feature recovery terminal and publication witnesses', () => {
       },
     )
     expect(second).toEqual({ kind: 'terminal', reason: 'stopped' })
+    expect(effectCalls(box, callsBefore)).toEqual([])
+  })
+
+  it('cold-observes a real MERGED native landing without new effects', () => {
+    const box = sandbox(plainSpec())
+    roots.push(box.root)
+    const pr = 30
+    const issueNumber = 5
+    const branch = 'fix/5-plain'
+    const head = box.sha[branch]
+    const baseTip = box.sha.main
+    if (head === undefined || baseTip === undefined) throw new Error('plain landing fixture missing commit')
+    const checkout = worktree(box, 'merged-landing', head)
+    const issue = readSim(box).issues[String(issueNumber)]
+    if (issue === undefined) throw new Error('plain landing fixture missing issue')
+    const authority = linkedLandingAuthority({
+      repository: 'acme/app',
+      issueNumber,
+      prNumber: pr,
+      branch,
+      base: 'main',
+      issueBody: issue.body,
+      proofPins: livePinsAt(box, baseTip),
+      lineageHead: head,
+      author: 'operator',
+    })
+    writeSim(box, (state) => {
+      const pull = state.prs[String(pr)]
+      const linkedIssue = state.issues[String(issueNumber)]
+      if (pull === undefined || linkedIssue === undefined) throw new Error('plain landing authority endpoints missing')
+      pull.comments = authority.bindingBodies.map((body) => ({ author: 'operator', body }))
+      linkedIssue.comments = authority.issueBodies.map((body) => ({ author: 'operator', body }))
+    })
+    const captured = workflowRead(box, checkout, pr, head)
+    if (captured.ok !== true || typeof captured.input !== 'string') {
+      throw new Error(`captureReviewInput refused: ${JSON.stringify(captured)}`)
+    }
+    writeSim(box, (state) => {
+      const pull = state.prs[String(pr)]
+      if (pull === undefined) throw new Error('plain landing PR missing')
+      pull.comments.push(
+        ...encodedAdmissionReviewGraph({
+          scope: { repository: 'acme/app', target: 'acme/app#30' },
+          head,
+          input: captured.input,
+          verdict: 'Approve (clean)',
+          prefix: 'feature-recovery-merged',
+        }).comments.map(({ body }) => ({ author: 'operator', body })),
+      )
+      state.checks[head] = [
+        {
+          name: 'ci',
+          status: 'completed',
+          conclusion: 'success',
+          workflowName: 'ci',
+          startedAt: '2026-01-01T00:00:00Z',
+        },
+      ]
+    })
+    expect(land(box, checkout, pr)).toEqual({ status: 'merged' })
+    const merged = readSim(box).prs[String(pr)]
+    expect(merged?.state).toBe('MERGED')
+    expect(merged?.mergeCommit?.parents).toEqual([baseTip, head])
+    expect(git(box, box.root, ['--git-dir', box.origin, 'rev-parse', 'refs/heads/main'])).toBe(merged?.mergeCommit?.oid)
+
+    const cold = coldCheckout(box, 'merged-cold', branch)
+    const callsBefore = readSim(box).calls.length
+    expect(
+      invoke<{ kind: string; reason: string }>(box, cold, path.join(box.root, 'home-merged-cold'), 'watch', {
+        pr,
+        code: 0,
+        reference: '#5',
+      }),
+    ).toMatchObject({ kind: 'terminal', reason: 'done' })
     expect(effectCalls(box, callsBefore)).toEqual([])
   })
 

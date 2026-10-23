@@ -2,7 +2,7 @@
 
 OMP-only delivery plugin. The installed `/feature` command drives a bounded graph: frame, issue, worktree, implement, native review and correction, land. A session `/goal` does not authorize that graph.
 
-Not a Claude/Grok factory — does not invoke host `/dev` or dev-core Skill() children. Package `0.11.2` in this tree is not an installed or activated release.
+Not a Claude/Grok factory — does not invoke host `/dev` or dev-core Skill() children. Package `0.11.3` in this tree is not an installed or activated release.
 
 ## Install
 
@@ -97,9 +97,9 @@ Three parts, one plugin, no second runtime, no database, and no mandatory local 
 
 | Part | Owns | Does not own |
 |---|---|---|
-| Engine (`engine/workflow.ts`) | Bounded traversal from confirmed histories, `requireLandingMandate` | Semantic judgement, GitHub calls, merge |
-| Roxabi (`roxabi/workflow-config.ts`, `roxabi/workflow.ts`) | Shipped graph, named actions, and the mandate snapshot of `review.additional_requirements` | A second config file, a project graph, a bound override, an admission override |
-| GitHub adapter (`adapters/github.ts`, `adapters/github-workflow.ts`) | Complete comment history, confirmed publication, scope reads | Finding classification, landing permission |
+| Engine (`engine/`) | Canonical records, reference/conservation checks, bounded traversal from confirmed histories and landing-mandate admission | Semantic judgement, GitHub calls, merge |
+| Roxabi (`roxabi/`) | Shipped graph, named actions, and the mandate snapshot of `review.additional_requirements` | A second config file, a project graph, a bound override, an admission override |
+| GitHub adapter (`adapters/`) | Complete comment history, confirmed publication, scope reads | Finding classification, landing permission |
 
 GitHub comments hold the records: `mandate`, `operator-control`, `action-receipt`, `workflow-binding`, plus the existing review, correction, proof, and epic-event records. Git holds the code and the normative proof configuration. Proof pins are path, source commit, and blob; a null blob is explicit absence, recovered from Git. The review-input hash prefixes `omp-build:review-input/2` and includes the semantic canon even when producer part lists are null. A stored null input is not approval.
 
@@ -577,7 +577,25 @@ rules are inlined in `promote/SKILL.md` § Merge method.
 
 Lint-only fixture changes must preserve the emitted shell text and cleanup/release safety behavior, not replace executable checks with source-text assertions. Publish OMP changes with matching, newer versions in `package.json` and `.omp-plugin/marketplace.json` so the version-keyed install cache is refreshed.
 
-### Owned distribution (candidate 0.11.2)
+### Canonical source ownership
+
+| Responsibility | Direct source owner |
+|---|---|
+| Record values, shapes and construction | `engine/record-values.ts`, `record-schema.ts`, `record-construction.ts` |
+| History integrity, conservation and review decisions | `engine/history-*.ts`, `review-*.ts` |
+| Deterministic human projection | `engine/record-projection.ts` |
+| Workflow authority, spec continuity and reconstruction | `engine/workflow-control.ts`, `workflow-*-admission.ts`, `workflow-accepted-spec*.ts`, `workflow-plan-macro.ts`, `workflow-action-completion.ts` |
+| Installed public contracts | `contracts.ts` is the actual flat distribution entry; consumers load generated `dist/contracts.js` |
+
+Source callers import the canonical owner directly. Removed engine aggregate paths have no compatibility re-exports. The engine and GitHub adapters compile together inside the contracts bundle; they never import a previous generated bundle. Installed Roxabi/OMP/skill consumers use that bundle for engine runtime values and type-only source imports for canonical types, so catalogue installation does not require the repository's development dependencies.
+
+### Test ownership
+
+Generic record mechanics live in `testing/record-*.ts`; generic workflow records and actions live in `testing/workflow-fixtures.ts` and `testing/workflow-actions.ts`. Product scenarios select the shipped Roxabi graph explicitly through `testing/roxabi-presets.ts`; it is not a hidden default in the generic workflow builders.
+
+Engine behavior families live in `engine/__tests__/` and `testing/workflow-decision-cases/`. Their shared support arranges inputs and external boundaries, without re-exporting the product under test. Expected consumer-visible outcomes stay in the scenarios, outside model inputs. Process-spawning scenarios retain the `*.integration.test.ts` suffix and owned resource cleanup.
+
+### Owned distribution (candidate 0.11.3)
 
 `agent-sources/*.md` holds the seven authored generic agents. The producer copies them byte for byte and derives native profiles from `roxabi/native-*-profiles.ts` and the existing strict schemas. Tests live outside the generated surface, under `testing/`.
 

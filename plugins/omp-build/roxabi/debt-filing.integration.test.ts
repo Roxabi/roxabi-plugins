@@ -4,7 +4,9 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { type CanonicalRecord, encodeRecord } from '../dist/contracts.js'
-import { contribution, reviewGraph, TEST_PROJECTION_CONFIG } from '../testing/records'
+import { contribution } from '../testing/record-decisions.ts'
+import { reviewGraph } from '../testing/record-graphs.ts'
+import { roxabiRecordFixtures } from '../testing/roxabi-presets.ts'
 import { createTrustedDebtFiling, type ProcessRunner } from './debt-filing'
 
 const RECEIPT = 'receipt-1'
@@ -16,6 +18,8 @@ const TARGET = {
   state: 'open' as const,
   candidateGitSHA: 'a'.repeat(40),
 }
+const { projection: TEST_PROJECTION_CONFIG } = roxabiRecordFixtures()
+
 let tmp: string | undefined
 
 afterEach(() => {

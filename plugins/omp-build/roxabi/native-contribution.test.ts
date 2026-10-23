@@ -1,16 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { decodeHistory, encodeRecord, projectRecord } from '../dist/contracts.js'
-import {
-  contribution,
-  history,
-  NATIVE_AUTHOR,
-  nativeOutcome,
-  observedComment,
-  operation,
-  TEST_PROJECTION_CONFIG,
-  TEST_SCOPE,
-} from '../testing/records.ts'
+import { NATIVE_AUTHOR, nativeOutcome, TEST_SCOPE } from '../testing/record-builders.ts'
+import { contribution } from '../testing/record-decisions.ts'
+import { history, observedComment, operation } from '../testing/record-history.ts'
+import { roxabiRecordFixtures } from '../testing/roxabi-presets.ts'
 import { modelContributionPayload } from './native-contribution'
+
+const { projection: TEST_PROJECTION_CONFIG } = roxabiRecordFixtures()
 
 describe('native contribution model payload', () => {
   it('omits only direct SDK task envelopes from model input while canonical records retain full native raw facts', () => {

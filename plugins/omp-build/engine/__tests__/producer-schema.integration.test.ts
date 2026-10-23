@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, test } from 'vitest'
 
-import { decision } from '../../testing/records.ts'
+import { decision } from '../../testing/record-decisions.ts'
 
 const ompBuildRoot = fileURLToPath(new URL('../..', import.meta.url))
 

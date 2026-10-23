@@ -4,8 +4,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { type CanonicalRecord, decodeHistory, encodeRecord, type History, type Json } from '../../contracts.ts'
-import { epicReviewGraph, reviewGraph, submission, TEST_PROJECTION_CONFIG } from '../../testing/records.ts'
-import { childSnapshot, epicMandate, framedBodies } from '../../testing/workflow-records.ts'
+import { submission } from '../../testing/record-builders.ts'
+import { epicReviewGraph, reviewGraph } from '../../testing/record-graphs.ts'
+import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 
 /**
  * The driver's I/O shell, end to end: a real git repository (a bare origin, the
@@ -18,6 +19,8 @@ const DRIVER = path.resolve(import.meta.dirname, 'epic-driver.ts')
 const REAL_BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
 const RUN = 'run00001'
 const ME = 'operator'
+const { projection: TEST_PROJECTION_CONFIG } = roxabiRecordFixtures()
+const { childSnapshot, epicMandate, framedBodies } = roxabiWorkflowFixtures()
 
 const GH_STUB = `#!/usr/bin/env bash
 set -u
@@ -336,7 +339,7 @@ function serveEpic(
                   child.specBody ?? child.body ?? framedBody,
                 ),
               ),
-              { run: RUN },
+              { runId: RUN },
             ),
           ],
           ME,

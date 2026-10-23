@@ -14,15 +14,8 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { type CanonicalRecord, decodeHistory, encodeRecord } from '../../contracts.ts'
 import { PROOF_PIN_PATHS } from '../../roxabi/workflow-config.ts'
-import { encodedAdmissionReviewGraph, epicReviewGraph, TEST_PROJECTION_CONFIG } from '../../testing/records.ts'
-import {
-  childSnapshot,
-  epicMandate,
-  featureMandate,
-  framedBodies,
-  historyFrom,
-  mandateRef,
-} from '../../testing/workflow-records.ts'
+import { epicReviewGraph } from '../../testing/record-graphs.ts'
+import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 
 /**
  * One continuous /goal through the real driver CLI and the real workflow.js
@@ -42,6 +35,8 @@ const C = 4
 const BRANCH_A = 'feat/2-child-a'
 const BRANCH_B = 'feat/3-child-b'
 const BRANCH_C = 'feat/4-child-c'
+const { encodedAdmissionReviewGraph, projection: TEST_PROJECTION_CONFIG } = roxabiRecordFixtures()
+const { childSnapshot, epicMandate, featureMandate, framedBodies, historyFrom, mandateRef } = roxabiWorkflowFixtures()
 
 type DriverNext = {
   step: { action: string; ticket?: number; branch?: string; range?: string; stop?: string; stage?: string }
@@ -208,7 +203,7 @@ function epicRecord(): ReturnType<typeof epicMandate> {
   return epicMandate(
     { repository: 'acme/app', target: `acme/app#${EPIC}` },
     [A, B, C].map((number) => childSnapshot({ repository: 'acme/app', target: `acme/app#${number}` }, CHILD_BODY)),
-    { run: RUN_A, body: EPIC_BODY },
+    { runId: RUN_A, body: EPIC_BODY },
   )
 }
 

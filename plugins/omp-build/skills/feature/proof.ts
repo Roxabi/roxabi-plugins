@@ -22,8 +22,8 @@ import {
   readGitHubHistory,
   selectApplicableMandate,
 } from '../../dist/contracts.js'
-import type { Diagnostic } from '../../engine/schemas.ts'
-import type { ProofSelector } from '../../engine/workflow.ts'
+import type { Diagnostic } from '../../engine/record-values.ts'
+import type { ProofSelector } from '../../engine/workflow-reconstruction-types.ts'
 import { withRoxabiGitHubPolicy } from '../../roxabi/github-policy'
 import { resolveReviewSemanticContext } from '../../roxabi/review-context'
 import { fixKind, type TicketSignals, ticketOfBranch } from './epic'

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
-import { implementationOutputSchema } from '../../engine/schemas'
+import { implementationOutputSchema } from '../../engine/workflow-output-schema.ts'
 import { admitImplementationEvidence } from '../../roxabi/feature-entry'
 import type { Json, NativeProofBashCall } from '../review-runtime'
 
