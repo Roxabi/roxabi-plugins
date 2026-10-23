@@ -1,0 +1,11 @@
+{
+  "todo_copies_equal": true,
+  "historical_prefix_preserved_chars": 20799,
+  "todo_sha256": "38c321f46d9cf8a1317e6d3f10146630b7501099f696246bac7e8e9d15825ef3",
+  "issue_exact_append_verified": true,
+  "issue_url": "https://github.com/Roxabi/roxabi-plugins/issues/768",
+  "issue_updated_at": "2026-10-09T20:35:39Z",
+  "implementation_started": false,
+  "selected_pr": null,
+  "disarm_applicability": "none:no-selected-pr"
+}
