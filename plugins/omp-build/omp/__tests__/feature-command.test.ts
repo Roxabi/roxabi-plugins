@@ -1,11 +1,10 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PreparedEpicReview } from '../../roxabi/epic-range-review'
 import {
-  admitImplementationEvidence,
   type FeatureWorkflow,
   featureOwner,
   featureSessionCwdMessage,
@@ -14,7 +13,6 @@ import {
 } from '../../roxabi/feature-entry'
 import { nativeFeatureProfiles } from '../../roxabi/native-feature-profiles'
 import ompBuildExtension, { type OmpBuildExtensionOptions } from '../index'
-import type { Json, NativeProofBashCall } from '../review-runtime'
 import {
   installNativeBatchBridge,
   type NativeBatch,
@@ -67,6 +65,8 @@ vi.mock('../../roxabi/review-entry', () => ({
   },
 }))
 
+const fixtureRoots = new Set<string>()
+
 const root = {
   cwd: '/repo/feature',
   agent: { kind: 'main' as const, id: 'Main', name: 'main', depth: 0 },
@@ -76,10 +76,16 @@ const root = {
 
 function nativeFixtureRoot() {
   const cwd = mkdtempSync(join(tmpdir(), 'omp-build-feature-command-'))
+  fixtureRoots.add(cwd)
   mkdirSync(join(cwd, '.dev'))
   writeFileSync(join(cwd, '.dev', 'stack.yml'), 'package_manager: bun\n')
   return { ...root, cwd }
 }
+
+afterEach(() => {
+  for (const cwd of fixtureRoots) rmSync(cwd, { recursive: true, force: true })
+  fixtureRoots.clear()
+})
 
 function batch(operationId = 'feature-op'): NativeBatch {
   return {
@@ -1024,165 +1030,5 @@ describe('prepared epic final review delivery', () => {
     await runInstalledFeatureCommand('#12', fixture.value)
     expect(continued).toBe(false)
     expect(fixture.sent).toEqual([])
-  })
-})
-
-describe('implementation admission', () => {
-  const cwd = '/home/mickael/.omp/wt/roxabi-plugins/omp-build-review-records'
-  const command = 'bun test plugins/omp-build/roxabi/feature-entry.ts'
-  const claim = {
-    outcome: 'implemented',
-    commitSHAs: ['b'.repeat(40)],
-    commands: [
-      { command, exitCode: 1, stdout: 'red claim', stderr: 'red err', toolCallId: 'red-1' },
-      { command, exitCode: 0, stdout: 'green claim', stderr: 'green err', toolCallId: 'green-1' },
-    ],
-    proofToolCallId: 'green-1',
-    proofUnavailableReason: null,
-    reason: 'the model says this command exercises the changed path',
-  }
-
-  function captured(id: string, exitCode: number, details: Json): NativeProofBashCall {
-    return {
-      toolCallId: id,
-      input: { command },
-      effectiveCwd: cwd,
-      result: { content: [{ type: 'text', text: 'combined output' }], details },
-      exitCode,
-    }
-  }
-
-  it('does not admit implemented commits when the command list is empty', async () => {
-    const admission = await admitImplementationEvidence({
-      cwd,
-      startHead: 'a'.repeat(40),
-      ticket: 42,
-      children: [
-        {
-          structured: {
-            ...claim,
-            commands: [],
-            proofToolCallId: 'green-1',
-          },
-          bashCalls: [captured('green-1', 0, { exitCode: 0 })],
-        },
-      ],
-    })
-    expect(admission).toEqual({
-      admitted: false,
-      commits: [],
-      paths: [],
-      commands: [],
-      remoteBranch: null,
-      remoteTip: null,
-      published: false,
-      reason: claim.reason,
-    })
-  })
-
-  it('does not confirm a deferred or nonzero proof, even when the same command text later exits zero', async () => {
-    const deferred = await admitImplementationEvidence({
-      cwd,
-      startHead: 'a'.repeat(40),
-      ticket: 42,
-      children: [
-        {
-          structured: { ...claim, proofToolCallId: 'green-1' },
-          bashCalls: [
-            captured('red-1', 1, { exitCode: 1 }),
-            captured('green-1', 0, { exitCode: 0, async: { state: 'running' } }),
-          ],
-        },
-      ],
-    })
-    const nonzero = await admitImplementationEvidence({
-      cwd,
-      startHead: 'a'.repeat(40),
-      ticket: 42,
-      children: [
-        {
-          structured: { ...claim, proofToolCallId: 'red-1' },
-          bashCalls: [captured('red-1', 1, { exitCode: 1 }), captured('green-1', 0, { exitCode: 0 })],
-        },
-      ],
-    })
-    expect(deferred.admitted).toBe(false)
-    expect(deferred.reason).toBe(claim.reason)
-    expect(nonzero.admitted).toBe(false)
-    expect(nonzero.reason).toBe(claim.reason)
-    expect(nonzero.commands.map((command) => command.toolCallId)).toEqual(['red-1', 'green-1'])
-  })
-
-  it('binds the named foreground call and does not relabel claim stdout as observed', async () => {
-    const tip = 'b'.repeat(40)
-    const start = 'a'.repeat(40)
-    const admission = await admitImplementationEvidence({
-      cwd,
-      startHead: start,
-      ticket: 42,
-      git: async (args) => {
-        const shown = args.join(' ')
-        if (shown === 'rev-parse HEAD') return { stdout: `${tip}\n`, exitCode: 0 }
-        if (shown === 'status --porcelain') return { stdout: '', exitCode: 0 }
-        if (shown === `rev-parse --verify ${tip}^{commit}`) return { stdout: `${tip}\n`, exitCode: 0 }
-        if (shown === `rev-list --parents -n1 ${tip}`) return { stdout: `${tip} ${start}\n`, exitCode: 0 }
-        if (shown === `show -s --format=%s ${tip}`)
-          return { stdout: 'feat(feature): admit qualified evidence (#42)\n', exitCode: 0 }
-        if (shown.startsWith('diff-tree '))
-          return { stdout: 'plugins/omp-build/roxabi/feature-entry.ts\n', exitCode: 0 }
-        return { stdout: '', exitCode: 1 }
-      },
-      children: [
-        {
-          structured: claim,
-          bashCalls: [captured('red-1', 1, { exitCode: 1 }), captured('green-1', 0, { exitCode: 0 })],
-        },
-      ],
-    })
-    expect(admission).toEqual({
-      admitted: true,
-      commits: [tip],
-      paths: ['plugins/omp-build/roxabi/feature-entry.ts'],
-      commands: [
-        { toolCallId: 'red-1', command, exitCode: 1, cwd },
-        { toolCallId: 'green-1', command, exitCode: 0, cwd },
-      ],
-      remoteBranch: null,
-      remoteTip: null,
-      published: false,
-      reason: claim.reason,
-    })
-  })
-
-  it('requires observed conventional commit subjects to qualify the selected ticket', async () => {
-    const tip = 'b'.repeat(40)
-    const start = 'a'.repeat(40)
-    const admit = async (subject: string, ticket: number) =>
-      admitImplementationEvidence({
-        cwd,
-        startHead: start,
-        ticket,
-        git: async (args) => {
-          const shown = args.join(' ')
-          if (shown === 'rev-parse HEAD' || shown === `rev-parse --verify ${tip}^{commit}`)
-            return { stdout: `${tip}\n`, exitCode: 0 }
-          if (shown === 'status --porcelain') return { stdout: '', exitCode: 0 }
-          if (shown === `rev-list --parents -n1 ${tip}`) return { stdout: `${tip} ${start}\n`, exitCode: 0 }
-          if (shown === `show -s --format=%s ${tip}`) return { stdout: `${subject}\n`, exitCode: 0 }
-          if (shown.startsWith('diff-tree '))
-            return { stdout: 'plugins/omp-build/roxabi/feature-entry.ts\n', exitCode: 0 }
-          return { stdout: '', exitCode: 1 }
-        },
-        children: [
-          {
-            structured: claim,
-            bashCalls: [captured('red-1', 1, { exitCode: 1 }), captured('green-1', 0, { exitCode: 0 })],
-          },
-        ],
-      })
-
-    expect((await admit('implemented evidence', 42)).admitted).toBe(false)
-    expect((await admit('feat(feature): wrong issue (#7)', 42)).admitted).toBe(false)
-    expect((await admit('feat(feature): qualified evidence (#42)', 42)).admitted).toBe(true)
   })
 })

@@ -6,7 +6,7 @@
  * integration test rebuilds them and lands against the conserved records.
  */
 import { execFileSync } from 'node:child_process'
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -111,118 +111,123 @@ function write(dir: string, files: Files, box: Box): void {
 }
 
 export function sandbox(spec: Spec): Box {
-  const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'omp-proof-')))
-  const origin = path.join(root, 'origin.git')
-  const principal = path.join(root, spec.principalName ?? 'principal')
-  const bin = path.join(root, 'bin')
-  const stateFile = path.join(root, 'gh-state.json')
-  mkdirSync(bin)
-  symlinkSync(SIM, path.join(bin, 'gh'))
-  chmodSync(SIM, 0o755)
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    PATH: [...(spec.path ?? []), bin, process.env.PATH].join(':'),
-    HOME: root,
-    GH_SIM_STATE: stateFile,
-    GIT_CONFIG_GLOBAL: '/dev/null',
-    GIT_CONFIG_NOSYSTEM: '1',
-    GIT_AUTHOR_DATE: DATE,
-    GIT_COMMITTER_DATE: DATE,
-  }
-  for (const key of Object.keys(env)) {
-    if (
-      key.startsWith('GIT_') &&
-      !['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'GIT_AUTHOR_DATE', 'GIT_COMMITTER_DATE'].includes(key)
-    ) {
-      delete env[key]
+  const allocated = mkdtempSync(path.join(tmpdir(), 'omp-proof-'))
+  try {
+    const root = realpathSync(allocated)
+    const origin = path.join(root, 'origin.git')
+    const principal = path.join(root, spec.principalName ?? 'principal')
+    const bin = path.join(root, 'bin')
+    const stateFile = path.join(root, 'gh-state.json')
+    mkdirSync(bin)
+    symlinkSync(SIM, path.join(bin, 'gh'))
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      PATH: [...(spec.path ?? []), bin, process.env.PATH].join(':'),
+      HOME: root,
+      GH_SIM_STATE: stateFile,
+      GIT_CONFIG_GLOBAL: '/dev/null',
+      GIT_CONFIG_NOSYSTEM: '1',
+      GIT_AUTHOR_DATE: DATE,
+      GIT_COMMITTER_DATE: DATE,
     }
-  }
-  const box: Box = { root, origin, principal, stateFile, env, sha: {} }
-  git(box, root, ['init', '-q', '--bare', origin])
-  git(box, root, ['init', '-q', '-b', 'main', principal])
-  write(principal, spec.base, box)
-  git(box, principal, ['add', '-A'])
-  git(box, principal, ['commit', '-qm', 'chore: base'])
-  git(box, principal, ['remote', 'add', 'origin', origin])
-  git(box, principal, ['push', '-q', '-u', 'origin', 'main'])
-  box.sha.main = git(box, principal, ['rev-parse', 'HEAD'])
-  for (const branch of spec.branches) {
-    git(box, principal, ['checkout', '-q', '-b', branch.name, box.sha[branch.from] ?? branch.from])
-    for (const commit of branch.commits) {
-      write(principal, commit.files, box)
-      git(box, principal, ['add', '-A'])
-      git(box, principal, ['commit', '-qm', commit.message])
+    for (const key of Object.keys(env)) {
+      if (
+        key.startsWith('GIT_') &&
+        !['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'GIT_AUTHOR_DATE', 'GIT_COMMITTER_DATE'].includes(key)
+      ) {
+        delete env[key]
+      }
     }
-    box.sha[branch.name] = git(box, principal, ['rev-parse', 'HEAD'])
-    git(box, principal, ['push', '-q', 'origin', branch.name])
-  }
-  git(box, principal, ['checkout', '-q', 'main'])
-  git(box, principal, ['fetch', '-q', 'origin'])
-  for (const [file, content] of Object.entries(spec.principalFiles ?? {})) {
-    mkdirSync(path.dirname(path.join(principal, file)), { recursive: true })
-    writeFileSync(path.join(principal, file), content)
-  }
-  const issues: Record<string, SimIssue> = {}
-  for (const issue of spec.issues) {
-    issues[issue.number] = {
-      number: issue.number,
-      title: issue.title,
-      body: '## Acceptance criteria\n\n- [ ] lands\n',
-      state: 'OPEN',
-      author: 'operator',
-      labels: ['size:F-lite'],
-      comments: [],
-      subIssues: [],
-      blockedBy: [],
-      issueType: issue.issueType ?? null,
+    const box: Box = { root, origin, principal, stateFile, env, sha: {} }
+    git(box, root, ['init', '-q', '--bare', origin])
+    git(box, root, ['init', '-q', '-b', 'main', principal])
+    write(principal, spec.base, box)
+    git(box, principal, ['add', '-A'])
+    git(box, principal, ['commit', '-qm', 'chore: base'])
+    git(box, principal, ['remote', 'add', 'origin', origin])
+    git(box, principal, ['push', '-q', '-u', 'origin', 'main'])
+    box.sha.main = git(box, principal, ['rev-parse', 'HEAD'])
+    for (const branch of spec.branches) {
+      git(box, principal, ['checkout', '-q', '-b', branch.name, box.sha[branch.from] ?? branch.from])
+      for (const commit of branch.commits) {
+        write(principal, commit.files, box)
+        git(box, principal, ['add', '-A'])
+        git(box, principal, ['commit', '-qm', commit.message])
+      }
+      box.sha[branch.name] = git(box, principal, ['rev-parse', 'HEAD'])
+      git(box, principal, ['push', '-q', 'origin', branch.name])
     }
-  }
-  const prs: Record<string, unknown> = {}
-  for (const pr of spec.prs) {
-    const base = pr.base ?? 'main'
-    const head = box.sha[pr.branch]
-    prs[pr.number] = {
-      number: pr.number,
-      title: pr.title,
-      body: pr.body,
-      state: 'OPEN',
-      headRefName: pr.branch,
-      baseRefName: base,
-      headRefOid: head,
-      isCrossRepository: false,
-      labels: [],
-      autoMerge: null,
-      mergeCommit: null,
-      mergedAt: null,
-      comments: [],
-      closes: pr.closes,
-      // GitHub records the base tip when the PR opens; pushes to the base leave it.
-      baseRecord: { at: `${base}@${head}`, oid: box.sha[base] ?? null },
+    git(box, principal, ['checkout', '-q', 'main'])
+    git(box, principal, ['fetch', '-q', 'origin'])
+    for (const [file, content] of Object.entries(spec.principalFiles ?? {})) {
+      mkdirSync(path.dirname(path.join(principal, file)), { recursive: true })
+      writeFileSync(path.join(principal, file), content)
     }
+    const issues: Record<string, SimIssue> = {}
+    for (const issue of spec.issues) {
+      issues[issue.number] = {
+        number: issue.number,
+        title: issue.title,
+        body: '## Acceptance criteria\n\n- [ ] lands\n',
+        state: 'OPEN',
+        author: 'operator',
+        labels: ['size:F-lite'],
+        comments: [],
+        subIssues: [],
+        blockedBy: [],
+        issueType: issue.issueType ?? null,
+      }
+    }
+    const prs: Record<string, unknown> = {}
+    for (const pr of spec.prs) {
+      const base = pr.base ?? 'main'
+      const head = box.sha[pr.branch]
+      prs[pr.number] = {
+        number: pr.number,
+        title: pr.title,
+        body: pr.body,
+        state: 'OPEN',
+        headRefName: pr.branch,
+        baseRefName: base,
+        headRefOid: head,
+        isCrossRepository: false,
+        labels: [],
+        autoMerge: null,
+        mergeCommit: null,
+        mergedAt: null,
+        comments: [],
+        closes: pr.closes,
+        // GitHub records the base tip when the PR opens; pushes to the base leave it.
+        baseRecord: { at: `${base}@${head}`, oid: box.sha[base] ?? null },
+      }
+    }
+    writeFileSync(
+      stateFile,
+      JSON.stringify(
+        {
+          viewer: 'operator',
+          owner: 'acme',
+          name: 'app',
+          defaultBranch: 'main',
+          origin,
+          requiredChecks: ['ci'],
+          nextPr: 100,
+          clock: 0,
+          issues,
+          prs,
+          checks: {},
+          events: {},
+          calls: [],
+        },
+        null,
+        2,
+      ),
+    )
+    return box
+  } catch (error) {
+    rmSync(allocated, { recursive: true, force: true })
+    throw error
   }
-  writeFileSync(
-    stateFile,
-    JSON.stringify(
-      {
-        viewer: 'operator',
-        owner: 'acme',
-        name: 'app',
-        defaultBranch: 'main',
-        origin,
-        requiredChecks: ['ci'],
-        nextPr: 100,
-        clock: 0,
-        issues,
-        prs,
-        checks: {},
-        events: {},
-        calls: [],
-      },
-      null,
-      2,
-    ),
-  )
-  return box
 }
 
 export function readSim(box: Box): SimState {

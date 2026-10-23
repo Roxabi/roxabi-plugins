@@ -20,8 +20,19 @@ import {
 } from './correction-execution'
 import type { CorrectionCause } from './fix-domain'
 
-let workspace: string | undefined
-let remoteWorkspace: string | undefined
+const fixtureRoots = new Set<string>()
+const fixtureEnv = {
+  ...process.env,
+  GIT_CONFIG_NOSYSTEM: '1',
+  GIT_CONFIG_GLOBAL: '/dev/null',
+  BASH_ENV: '/dev/null',
+}
+
+function allocateFixtureRoot(prefix: string): string {
+  const cwd = mkdtempSync(join(tmpdir(), prefix))
+  fixtureRoots.add(cwd)
+  return cwd
+}
 
 const cause: CorrectionCause = {
   id: 'RC-guard',
@@ -36,12 +47,16 @@ const cause: CorrectionCause = {
 }
 
 function git(cwd: string, args: string[]): string {
-  return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
+  return execFileSync('git', ['-c', 'core.hooksPath=/dev/null', ...args], {
+    cwd,
+    encoding: 'utf8',
+    env: fixtureEnv,
+  }).trim()
 }
 
 function bash(cwd: string, command: string): { exitCode: number; result: Json } {
   try {
-    const stdout = execFileSync('bash', ['-lc', command], { cwd, encoding: 'utf8' })
+    const stdout = execFileSync('bash', ['-c', command], { cwd, encoding: 'utf8', env: fixtureEnv })
     return { exitCode: 0, result: { stdout } }
   } catch (error) {
     const detail = error as { status?: number; stdout?: string; stderr?: string }
@@ -200,8 +215,7 @@ function workspaceForTest(): {
     observed: Json
   }
 } {
-  const cwd = mkdtempSync(join(tmpdir(), 'omp-correction-execution-'))
-  workspace = cwd
+  const cwd = allocateFixtureRoot('omp-correction-execution-')
   git(cwd, ['init'])
   git(cwd, ['config', 'user.email', 'test@example.com'])
   git(cwd, ['config', 'user.name', 'Test User'])
@@ -212,8 +226,7 @@ function workspaceForTest(): {
   const defaultBranch = git(cwd, ['branch', '--show-current'])
   git(cwd, ['checkout', '-b', 'fix-smoke'])
   const head = git(cwd, ['rev-parse', 'HEAD'])
-  const pushUrl = mkdtempSync(join(tmpdir(), 'omp-correction-remote-'))
-  remoteWorkspace = pushUrl
+  const pushUrl = allocateFixtureRoot('omp-correction-remote-')
   git(pushUrl, ['init', '--bare'])
   git(cwd, ['remote', 'add', 'origin', pushUrl])
   git(cwd, ['push', '--set-upstream', 'origin', 'HEAD:refs/heads/fix-smoke'])
@@ -234,10 +247,8 @@ function workspaceForTest(): {
 }
 
 afterEach(() => {
-  if (workspace) rmSync(workspace, { recursive: true, force: true })
-  if (remoteWorkspace) rmSync(remoteWorkspace, { recursive: true, force: true })
-  workspace = undefined
-  remoteWorkspace = undefined
+  for (const cwd of fixtureRoots) rmSync(cwd, { recursive: true, force: true })
+  fixtureRoots.clear()
 })
 
 describe('native correction execution', () => {
@@ -451,8 +462,7 @@ describe('native correction execution', () => {
 
   it('refuses a publication binding whose effective origin push URL differs', async () => {
     const { cwd, head, publishBinding } = workspaceForTest()
-    const wrongRemote = mkdtempSync(join(tmpdir(), 'omp-correction-wrong-remote-'))
-    remoteWorkspace = wrongRemote
+    const wrongRemote = allocateFixtureRoot('omp-correction-wrong-remote-')
     git(wrongRemote, ['init', '--bare'])
     git(cwd, ['remote', 'set-url', '--push', 'origin', wrongRemote])
     let announced = false

@@ -2,7 +2,7 @@
 
 OMP-only delivery plugin. The installed `/feature` command drives a bounded graph: frame, issue, worktree, implement, native review and correction, land. A session `/goal` does not authorize that graph.
 
-Not a Claude/Grok factory — does not invoke host `/dev` or dev-core Skill() children. Package `0.11.0` in this tree is not an installed or activated release.
+Not a Claude/Grok factory — does not invoke host `/dev` or dev-core Skill() children. Package `0.11.1` in this tree is not an installed or activated release.
 
 ## Install
 
@@ -150,6 +150,8 @@ An action result refers to its confirmed start and exact scoped mandate; it does
 
 Before implementation or correction effects and their pushes, the host checks the current remote mandate and controls again and honors the local interruption fence. A terminal result can still be preserved after a pause without authorizing another effect. GitHub reads and Git writes are not atomic: this is not a cross-provider lock, and it cannot guarantee exclusion of a control published after the final authority read.
 
+Implementation commands are strict claims containing only `toolCallId`, `command`, and `exitCode`. The host retains the observed stdout, stderr, and working directory in its capture; those fields are not duplicated into the claim. Native correction commands have their own schema and still carry stdout and stderr. The selected correction proof field is `proofToolCallId`, not `selectedProofToolCallId`. Candidate `0.11.1` corrects the producer instructions and generated profiles to match these existing schemas; it does not change record formats, weaken admission, or establish model obedience.
+
 Native `/dev-review` runs spec → panel → recall → synthesis and publishes the confirmed records. Native `/fix` consumes those records by id through `R-review-fix-intake`, `R-review-fix-synthesis`, `R-review-fix-apply`, and `R-review-fix-falsify`. It does not edit inline in the orchestrator turn and does not revive the absent `R-fixer`. Correction records set `landing: false`.
 
 Existing worktrees are entered with `/move <path>`, not recreated, and not with `/wt`. The command prints that move only when the session cwd is not the intended worktree.
@@ -231,6 +233,35 @@ snapshot, with unchanged runtime binaries. This is not an installed release.
   of this worktree was unavailable (`CONFIG_NOT_FOUND`). No paid-model
   efficacy, hosted GitHub adoption, global installation or merge activation
   is established; T4 and T5 require their separate authorizations.
+
+### C1 portable preparations and coordinator witnesses (candidate 0.11.1)
+
+The C1 cohort passed 43 tests in four focused files with an inherited global Git
+configuration that requires an unavailable signing program. The admission and
+correction fixtures isolate Git configuration, inherited hooks and shell startup;
+every allocated repository or remote is owned before setup can fail. A real
+failing Git setup also left no allocated sandbox behind.
+
+The affected historical landing-proof integration suite separately passed all
+201 tests using its retained producer-record fixtures. This is a local replay
+qualification, not a new Semctx/assertledger acquisition or hosted landing.
+
+The witnesses exercise the actual `continueFeature`, `publishFeatureNativeResult`,
+`consumeWatchExit`, and `requestFeatureSessionPause` bodies before their later
+decomposition. They use real disposable Git, the existing strict GitHub simulator,
+fresh Bun processes, distinct homes and cold checkouts. The public extension's
+registered `/feature` handler uses its real source-module loader and an external
+API stand-in; this is not a running OMP session. Assertions inspect durable
+controls, original action bindings and refused effects, not message wording.
+The CLOSED-watch case proves a stopped result, not a successful MERGED landing.
+
+The real producer build completed. A separate runtime smoke used the locked OMP
+18.12.6 agent parser and both source and distributed strict schemas. Typecheck
+and Biome on the eight changed TypeScript files passed. These are not a full
+suite result, a C2 deterministic-generation/parity proof, a C4 lifecycle
+qualification, model-obedience evidence, hosted GitHub validation, installation
+or merge activation. Semctx verification returned `CONFIG_NOT_FOUND`; no semantic
+certification is claimed.
 
 ### Existing review and landing safeguards
 
