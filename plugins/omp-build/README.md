@@ -245,6 +245,9 @@ failing Git setup also left no allocated sandbox behind.
 The affected historical landing-proof integration suite separately passed all
 201 tests using its retained producer-record fixtures. This is a local replay
 qualification, not a new Semctx/assertledger acquisition or hosted landing.
+A subsequent preservation commit ports the principal's merge-race regression to
+the actual native landing process and strict GitHub simulator. Its focused check
+passed: a completed merge adds no `reviewed` label and makes no second arm attempt.
 
 The witnesses exercise the actual `continueFeature`, `publishFeatureNativeResult`,
 `consumeWatchExit`, and `requestFeatureSessionPause` bodies before their later

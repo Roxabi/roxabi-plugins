@@ -972,6 +972,35 @@ describe('landPr retains the selected base name and tip', () => {
       }
     })
 
+    it('returns merged without arming the label when native auto-merge completes during its post-write observation', () => {
+      reset(false)
+      armGreen()
+      try {
+        const run = land(box, wt, pr, 'native')
+
+        expect(run.result).toEqual({ status: 'merged' })
+        expect(readSim(box).prs[String(pr)]?.state).toBe('MERGED')
+        expect(run.gate).toEqual(UNARMED)
+        expect(
+          run.calls.filter(
+            (args) =>
+              args[0] === 'pr' && args[1] === 'edit' && args.includes('--add-label') && args.includes('reviewed'),
+          ),
+        ).toHaveLength(0)
+        expect(
+          run.calls.filter(
+            (args) =>
+              args[0] === 'pr' &&
+              args[1] === 'merge' &&
+              args.includes('--auto') &&
+              args.includes('--match-head-commit'),
+          ),
+        ).toHaveLength(1)
+      } finally {
+        reopen()
+      }
+    })
+
     it('native refuses it once it merged onto a base that moved after selection', () => {
       reset(false)
       armGreen()
