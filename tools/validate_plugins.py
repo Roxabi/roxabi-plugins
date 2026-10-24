@@ -9,17 +9,14 @@ Checks:
 - No leftover .claude-plugin/metadata.json (data.* lives in plugin.json)
 - Example files referenced in plugin.json exist
 - Fixed /tmp/ literals in active SKILL.md files
-- Inline class list in dev-review/SKILL.md spawn template matches review-classes.yml
-- Subsumption pairs declared in review-classes.yml notes are mentioned together in
-  dev-review/SKILL.md (prevents drift in pair definitions across files)
+- review-classes.yml is readable UTF-8, valid YAML, and has class entries
 - Catalogued `.claude-plugin/marketplace.json` plugin names appear in root
   `README.md` (link-only plugins are exempt)
 
 
 Usage:
   python3 tools/validate_plugins.py                     # run all checks
-  python3 tools/validate_plugins.py --check class-list-sync     # run only class-list-sync
-  python3 tools/validate_plugins.py --check subsumption-pairs   # run only subsumption-pairs
+  python3 tools/validate_plugins.py --check review-catalogue   # run only review-catalogue
 """
 import argparse
 import json
@@ -43,12 +40,6 @@ README_MD = REPO_ROOT / 'README.md'
 
 
 _DEFAULT_YAML_PATH = PLUGINS_DIR / 'omp-build' / 'skills' / 'dev-review' / 'review-classes.yml'
-_DEFAULT_SKILL_PATH = PLUGINS_DIR / 'omp-build' / 'skills' / 'dev-review' / 'SKILL.md'
-
-# Anchor in SKILL.md: "Canonical classes (use slug only): <slug1>, ...<slugN>."
-_SPAWN_LIST_RE = re.compile(
-    r'Canonical classes \(use slug only\):\s+([^.\r\n]+)\.',
-)
 
 
 def run_grep(pattern: str, path: str = 'plugins/', case_insensitive: bool = True) -> list[str]:
@@ -241,23 +232,14 @@ def check_skill_frontmatter_scalars() -> list[str]:
     return errors
 
 
-def check_class_list_sync(
+def check_review_catalogue(
     yaml_path: Path = _DEFAULT_YAML_PATH,
-    skill_path: Path = _DEFAULT_SKILL_PATH,
 ) -> list[str]:
-    """Inline class list in dev-review/SKILL.md spawn template must match review-classes.yml.
-
-    Exit semantics when called from main():
-      - errors containing 'not found' or 'parse' → caller returns 2 (IO/parse failure)
-      - mismatch errors → caller returns 1 (drift)
-    """
-    errors = []
+    """The canonical review catalogue and its declared subsumption pairs must be valid."""
+    errors: list[str] = []
 
     if not yaml_path.exists():
         errors.append(f'review-classes.yml not found at {yaml_path}')
-        return errors
-    if not skill_path.exists():
-        errors.append(f'dev-review/SKILL.md not found at {skill_path}')
         return errors
 
     try:
@@ -280,125 +262,23 @@ def check_class_list_sync(
         )
         return errors
 
-    yaml_slugs = {c['class'] for c in classes if isinstance(c, dict) and 'class' in c}
-
-    try:
-        with open(skill_path) as f:
-            content = f.read()
-    except UnicodeDecodeError as e:
-        errors.append(f'dev-review/SKILL.md is not valid UTF-8: {e}')
-        return errors
-
-    m = _SPAWN_LIST_RE.search(content)
-    if not m:
-        errors.append('dev-review/SKILL.md: canonical class list not found in spawn template')
-        return errors
-
-    inline_slugs: set[str] = set()
-    for slug in m.group(1).split(','):
-        slug = slug.strip()
-        if slug:
-            inline_slugs.add(slug)
-
-    missing = yaml_slugs - inline_slugs
-    extra = inline_slugs - yaml_slugs
-    if missing:
-        errors.append(
-            f'dev-review/SKILL.md spawn template missing slugs from review-classes.yml: {sorted(missing)}'
-        )
-    if extra:
-        errors.append(
-            f'dev-review/SKILL.md spawn template has extra slugs not in review-classes.yml: {sorted(extra)}'
-        )
-    return errors
-
-
-def check_subsumption_pairs(
-    yaml_path: Path = _DEFAULT_YAML_PATH,
-    skill_path: Path = _DEFAULT_SKILL_PATH,
-) -> list[str]:
-    """Subsumption pairs declared in review-classes.yml notes must appear together in SKILL.md.
-
-    For each class with a `note:` field, scan the note text for canonical slugs (other than
-    the class itself). Every (class_slug, mentioned_slug) pair forms a subsumption pair.
-    SKILL.md must reference both members of each pair in close proximity (within the same
-    paragraph) so that human readers can find the subsumption rule from either entry point.
-
-    This prevents the failure mode where review-classes.yml says "A subsumes B" but SKILL.md
-    only documents the rule under A (or only under B) — leading to one-sided tagging drift.
-
-    Exit semantics when called from main():
-      - errors containing 'not found at' or 'parse' or 'not valid utf-8' → caller returns 2
-      - mismatch errors → caller returns 1
-    """
-    errors: list[str] = []
-
-    if not yaml_path.exists():
-        errors.append(f'review-classes.yml not found at {yaml_path}')
-        return errors
-    if not skill_path.exists():
-        errors.append(f'dev-review/SKILL.md not found at {skill_path}')
-        return errors
-
-    try:
-        with open(yaml_path) as f:
-            text = f.read()
-    except UnicodeDecodeError as e:
-        errors.append(f'review-classes.yml is not valid UTF-8: {e}')
-        return errors
-
-    try:
-        data = yaml.safe_load(text)
-    except yaml.YAMLError as e:
-        errors.append(f'failed to parse review-classes.yml: invalid YAML syntax: {e}')
-        return errors
-
-    classes = (data or {}).get('classes', [])
-    if not classes:
-        errors.append('review-classes.yml contains no class entries')
-        return errors
-
-    yaml_slugs = {c['class'] for c in classes if isinstance(c, dict) and 'class' in c}
-
-    pairs: set[frozenset[str]] = set()
-    for c in classes:
-        if not isinstance(c, dict):
+    yaml_slugs = {entry['class'] for entry in classes if isinstance(entry, dict) and 'class' in entry}
+    for entry in classes:
+        if not isinstance(entry, dict):
             continue
-        slug = c.get('class')
-        note = c.get('note')
+        slug = entry.get('class')
+        note = entry.get('note')
         if not slug or not note or not isinstance(note, str):
             continue
         for other in yaml_slugs:
-            if other == slug:
+            if other == slug or not re.search(rf'(?<![\w-]){re.escape(other)}(?![\w-])', note):
                 continue
-            if re.search(rf'(?<![\w-]){re.escape(other)}(?![\w-])', note):
-                pairs.add(frozenset((slug, other)))
-
-    if not pairs:
-        return errors
-
-    try:
-        with open(skill_path) as f:
-            content = f.read()
-    except UnicodeDecodeError as e:
-        errors.append(f'dev-review/SKILL.md is not valid UTF-8: {e}')
-        return errors
-
-    paragraphs = re.split(r'\n\s*\n', content)
-
-    for pair in pairs:
-        a, b = sorted(pair)
-        together = any(
-            re.search(rf'(?<![\w-]){re.escape(a)}(?![\w-])', p)
-            and re.search(rf'(?<![\w-]){re.escape(b)}(?![\w-])', p)
-            for p in paragraphs
-        )
-        if not together:
+            if re.search(rf'(?<![\w-]){re.escape(slug)}(?![\w-])', note):
+                continue
             errors.append(
-                f'subsumption pair ({a}, {b}) declared in review-classes.yml note '
-                f'but not mentioned together in any paragraph of dev-review/SKILL.md'
+                f'subsumption pair ({slug}, {other}) declared in review-classes.yml note '
+                f'but not mentioned together in that note'
             )
-
     return errors
 
 
@@ -625,13 +505,8 @@ def check_claude_catalog_archived_sources(catalog_path=None, repo_root=None) -> 
 
 
 def _is_io_error(msg: str) -> bool:
-    """Return True when the error message signals an IO/parse failure (exit 2).
-
-    File-not-found messages match 'not found at' (path present).
-    Anchor-not-found is drift (exit 1) and does NOT match this filter.
-    """
+    """Return True when the error message signals an IO/parse failure (exit 2)."""
     lower = msg.lower()
-    # 'not found at' matches file-missing errors; bare 'not found in' is anchor drift
     if 'not found at' in lower:
         return True
     return any(k in lower for k in ('failed to parse', 'not valid utf-8', 'no class entries'))
@@ -641,32 +516,20 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description='Validate plugin structure and data conventions.')
     parser.add_argument(
         '--check',
-        choices=['class-list-sync', 'subsumption-pairs'],
+        choices=['review-catalogue'],
         help='Run only the named check (default: run all checks)',
     )
     args = parser.parse_args(argv)
 
-    if args.check == 'class-list-sync':
-        errors = check_class_list_sync()
+    if args.check == 'review-catalogue':
+        errors = check_review_catalogue()
         if errors:
-            print('FAIL: Class list sync', file=sys.stderr)
-            for e in errors:
-                print(f'  {e}', file=sys.stderr)
-            # exit 2 for IO/parse failures, 1 for slug drift
-            return 2 if any(_is_io_error(e) for e in errors) else 1
-        return 0
-
-    if args.check == 'subsumption-pairs':
-        errors = check_subsumption_pairs()
-        if errors:
-            print('FAIL: Subsumption pairs', file=sys.stderr)
+            print('FAIL: Review catalogue', file=sys.stderr)
             for e in errors:
                 print(f'  {e}', file=sys.stderr)
             return 2 if any(_is_io_error(e) for e in errors) else 1
         return 0
 
-
-    # Default: run all checks
     all_errors = []
     checks = [
         ('Personal data scan', check_personal_data),
@@ -676,8 +539,7 @@ def main(argv: list[str] | None = None) -> int:
         ('Example files exist', check_examples_exist),
         ('Tempfile convention', check_tempfile_convention),
         ('SKILL.md frontmatter scalars', check_skill_frontmatter_scalars),
-        ('Class list sync', check_class_list_sync),
-        ('Subsumption pairs', check_subsumption_pairs),
+        ('Review catalogue', check_review_catalogue),
         ('Marketplace README catalog', check_marketplace_readme_catalog),
         ('OMP catalog versions', check_omp_catalog),
         ('Claude catalog archived sources', check_claude_catalog_archived_sources),

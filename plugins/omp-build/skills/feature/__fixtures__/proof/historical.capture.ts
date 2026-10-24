@@ -19,12 +19,15 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { HISTORICAL_CASES, type HistoricalCase, historicalSpec } from './historical'
-import { ACQUIRE, type Box, git, readSim, sandbox, worktree } from './sandbox'
+import { decodeHistory, githubScope, type History } from '../../../../dist/contracts.js'
+import { HISTORICAL_CASES, type HistoricalCase } from './historical-cases'
+import { historicalSpec } from './historical-spec'
+import { ACQUIRE, git, readSim, sandbox, worktree } from './sandbox-repository'
+import type { Box } from './sandbox-types'
 
 const REAL_BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
 const OUT = path.join(import.meta.dirname, 'historical.records.json')
-type Captured = { code: number | null; stdout: string; stderr: string; record?: string[] }
+type Captured = { code: number | null; stdout: string; stderr: string; data?: unknown }
 const CAPTURED_CASES = ['valid', 'partial', 'blocked', 'ownSuperseded', 'borrowedProvenance'] as const
 type CapturedCase = (typeof CAPTURED_CASES)[number]
 const CAPTURED_REFS = [
@@ -50,7 +53,7 @@ function which(name: string): string {
   return realpathSync(found)
 }
 
-/** Captures the public acquisition result and exactly the proof comments it posts. */
+/** Captures raw native proof data from the confirmed common proof operation. */
 function capture(box: Box, name: HistoricalCase): Captured {
   const { pr, branch } = HISTORICAL_CASES[name]
   const candidate = box.sha[branch]
@@ -62,14 +65,30 @@ function capture(box: Box, name: HistoricalCase): Captured {
     env: box.env,
     encoding: 'utf8',
   })
-  const record = (readSim(box).prs[String(pr)]?.comments.slice(before) ?? [])
-    .filter((comment) => comment.body.startsWith('<!-- omp-build:proof producer=semctx -->'))
-    .map((comment) => comment.body)
+  const comments = readSim(box).prs[String(pr)]?.comments.slice(before) ?? []
+  const history: History = {
+    scope: githubScope('acme/app', pr),
+    expectedAuthor: 'operator',
+    stopAuthor: null,
+    complete: true,
+    comments: comments.map((comment, index) => ({
+      locator: `acme/app#${pr}:fixture:${index}`,
+      nativeId: comment.id === undefined ? null : String(comment.id),
+      author: comment.author,
+      body: comment.body,
+      createdAt: comment.createdAt ?? null,
+      updatedAt: comment.updatedAt ?? null,
+    })),
+    diagnostics: [],
+  }
+  const data = decodeHistory(history).operations.find(
+    (operation) => operation.status === 'complete' && operation.record?.kind === 'proof',
+  )?.record
   return {
     code: run.status,
     stdout: run.stdout,
     stderr: run.stderr,
-    ...(record.length > 0 && { record }),
+    ...(data?.kind === 'proof' && { data: data.payload.data }),
   }
 }
 
@@ -109,7 +128,7 @@ try {
     },
   }
   for (const [name, captured] of Object.entries(records.records)) {
-    if (captured.code !== 0 || !captured.record?.length) {
+    if (captured.code !== 0 || captured.data === undefined) {
       throw new Error(`${name} did not publish a successful Semctx record: ${captured.stderr || captured.stdout}`)
     }
   }

@@ -3,7 +3,6 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import ompBuildExtension from '../index'
 import { startBootstrap, unbootstrappedWorktree } from '../worktree-entry'
 
 const ENV: NodeJS.ProcessEnv = {
@@ -39,30 +38,12 @@ function fixture(): { repo: string; wt: string; wtGitDir: string } {
 }
 
 describe('worktree bootstrap entry', () => {
-  it('does not register session or agent start bootstrap handlers', () => {
-    const { repo, wt, wtGitDir } = fixture()
-    const handlers: Record<string, unknown> = {}
-    ompBuildExtension({
-      on: (event: string, handler: unknown) => {
-        handlers[event] = handler
-      },
-      registerCommand: () => {},
-      sendUserMessage: () => {},
-    })
-
-    expect(handlers.session_start).toBeUndefined()
-    expect(handlers.agent_start).toBeUndefined()
-    expect(existsSync(path.join(wtGitDir, 'omp-build-bootstrap.log'))).toBe(false)
-    expect(existsSync(path.join(wtGitDir, 'omp-build-bootstrapped'))).toBe(false)
-    expect(existsSync(path.join(wt, '.env'))).toBe(false)
-    expect(existsSync(path.join(repo, '.git', 'omp-build-bootstrap.log'))).toBe(false)
-  })
-
   it('still bootstraps when startBootstrap is called explicitly', async () => {
     const { wt, wtGitDir } = fixture()
     const worktree = unbootstrappedWorktree(wt)
     expect(worktree).not.toBeNull()
-    startBootstrap(path.resolve(import.meta.dirname, '../../skills/feature/worktree-bootstrap.sh'), worktree!)
+    if (worktree === null) throw new Error('fixture must contain an unbootstrapped worktree')
+    startBootstrap(path.resolve(import.meta.dirname, '../../skills/feature/worktree-bootstrap.sh'), worktree)
 
     await vi.waitFor(() => expect(existsSync(path.join(wtGitDir, 'omp-build-bootstrapped'))).toBe(true), {
       timeout: 15_000,

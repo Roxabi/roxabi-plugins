@@ -14,11 +14,11 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { HookResult } from './epic-close'
+import type { HookResult } from './post-merge-hook'
 
 // `.dev/stack.yml` is parsed with Bun.YAML, which the vitest worker does not
 // have: every case runs the real runner under bun, as the driver does.
-const MODULE = join(import.meta.dirname, 'epic-close.ts')
+const MODULE = join(import.meta.dirname, 'post-merge-hook.ts')
 
 const DRIVER = `
 const [mod, repo, base, timeoutMs] = process.argv.slice(1)

@@ -1,0 +1,269 @@
+import { execFileSync } from 'node:child_process'
+import { readFileSync, writeFileSync } from 'node:fs'
+import ompBuildExtension from '../omp/index.ts'
+import { createOmpFixPort } from '../omp/omp-controller.ts'
+import { loadFeatureWorkflow } from '../roxabi/feature-loader.ts'
+import { createExtensionApiStub } from './extension-api-stub.ts'
+import { invokeOmpIncompleteNative } from './feature-recovery-incomplete-native.ts'
+import { invokeOmpLiveInterleave } from './feature-recovery-live-interleave.ts'
+import { observedIncompleteNativeResult } from './feature-recovery-observed-native.ts'
+import { invokeOmpReviewApplyFalsify, invokeOmpReviewLifecycle } from './feature-review-lifecycle.ts'
+import { invokeReviewRace } from './feature-review-races.ts'
+
+type Payload = {
+  reference: string
+  control: 'continue' | 'resume' | 'pause'
+  pr: number
+  code: number
+}
+
+type Handler = (...args: unknown[]) => unknown
+
+function payloadFrom(raw: unknown): Payload {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('payload-invalid')
+  const control = 'control' in raw ? raw.control : undefined
+  const reference = 'reference' in raw ? raw.reference : undefined
+  const pr = 'pr' in raw ? raw.pr : undefined
+  const code = 'code' in raw ? raw.code : undefined
+  const resolvedControl = control === 'continue' || control === 'resume' || control === 'pause' ? control : 'continue'
+  return {
+    reference: typeof reference === 'string' ? reference : '',
+    control: resolvedControl,
+    pr: typeof pr === 'number' && Number.isSafeInteger(pr) ? pr : 0,
+    code: typeof code === 'number' && Number.isSafeInteger(code) ? code : 1,
+  }
+}
+
+function createConcurrentPausePull(cwd: string): number {
+  const head = execFileSync('git', ['branch', '--show-current'], { cwd, encoding: 'utf8' }).trim()
+  if (head.length === 0) throw new Error('pause branch unavailable')
+  const raw = execFileSync(
+    'gh',
+    [
+      'api',
+      'repos/acme/app/pulls',
+      '--method',
+      'POST',
+      '-f',
+      `head=${head}`,
+      '-f',
+      'base=main',
+      '-f',
+      'title=concurrent pause disarm fixture',
+    ],
+    { cwd, encoding: 'utf8' },
+  )
+  const created: unknown = JSON.parse(raw)
+  if (
+    created === null ||
+    typeof created !== 'object' ||
+    !('number' in created) ||
+    typeof created.number !== 'number' ||
+    !Number.isSafeInteger(created.number)
+  ) {
+    throw new Error('pause pull creation unreadable')
+  }
+  return created.number
+}
+
+function makePauseDisarmUnreadable(pr: number): void {
+  const stateFile = process.env.GH_SIM_STATE
+  if (stateFile === undefined) throw new Error('pause simulator state unavailable')
+  const state = JSON.parse(readFileSync(stateFile, 'utf8')) as { prs?: Record<string, { labels?: unknown }> }
+  const pull = state.prs?.[String(pr)]
+  if (pull === undefined) throw new Error('pause disarm pull request unavailable')
+  pull.labels = [1]
+  writeFileSync(stateFile, JSON.stringify(state, null, 2))
+}
+
+const [operation, cwd, payloadText] = process.argv.slice(2)
+const payload = payloadFrom(JSON.parse(payloadText ?? '{}') as unknown)
+const workflow = await loadFeatureWorkflow()
+
+async function continueFeature() {
+  return workflow.continueFeature({
+    cwd: cwd ?? '',
+    reference: payload.reference,
+    control: payload.control,
+    principal: false,
+  })
+}
+
+async function invokeWorkflowOperation(operationName: string): Promise<unknown | null> {
+  switch (operationName) {
+    case 'continue':
+      return continueFeature()
+    case 'watch':
+      return workflow.consumeWatchExit({
+        cwd: cwd ?? '',
+        pr: payload.pr,
+        code: payload.code,
+        reference: payload.reference,
+      })
+    case 'continuation-publish': {
+      const continuation = await continueFeature()
+      if (continuation.kind !== 'action') throw new Error(`continuation-not-action:${continuation.kind}`)
+      const result = await observedIncompleteNativeResult(continuation.followUp)
+      const published = await workflow.publishFeatureNativeResult({
+        cwd: cwd ?? '',
+        result,
+        start: continuation.start,
+      })
+      return {
+        agent: continuation.followUp.tasks.tasks[0]?.agent,
+        start: continuation.start,
+        operationId: continuation.followUp.operationId,
+        published,
+      }
+    }
+    case 'pause': {
+      let interrupts = 0
+      const result = await workflow.requestFeatureSessionPause({
+        cwd: cwd ?? '',
+        reason: 'session-stop',
+        ...(payload.reference.length === 0 ? {} : { reference: payload.reference }),
+        interrupt: async () => {
+          interrupts += 1
+        },
+      })
+      return { result, interrupts }
+    }
+    default:
+      return null
+  }
+}
+
+async function invokeSdkDriver(operationName: string): Promise<unknown> {
+  switch (operationName) {
+    case 'omp-pause':
+      return invokeOmpBridge()
+    case 'omp-unconfirmed-pause':
+      return invokeOmpBridge(true)
+    case 'omp-lifetime':
+      return invokeOmpLifetime()
+    case 'omp-incomplete-native':
+      return invokeOmpIncompleteNative(cwd ?? '')
+    case 'omp-live-interleave':
+      return invokeOmpLiveInterleave(cwd ?? '')
+    case 'omp-review-lifecycle':
+      return invokeOmpReviewLifecycle(
+        cwd ?? '',
+        payload.control === 'pause' ? 'fresh-pause' : payload.control === 'resume' ? 'publication-pause' : 'fix',
+      )
+    case 'omp-review-apply-falsify':
+      return invokeOmpReviewApplyFalsify(cwd ?? '')
+    case 'omp-review-race-latest':
+    case 'omp-review-race-pause':
+      return invokeReviewRace(cwd ?? '', operationName === 'omp-review-race-latest' ? 'latest' : 'pause')
+    default:
+      throw new Error(`unknown operation ${operationName}`)
+  }
+}
+
+async function invoke(operationName: string): Promise<unknown> {
+  const workflowResult = await invokeWorkflowOperation(operationName)
+  return workflowResult ?? invokeSdkDriver(operationName)
+}
+
+async function invokeOmpBridge(
+  injectUnconfirmedPause = false,
+): Promise<{ messages: string[]; pausePr: number | null }> {
+  const commands = new Map<string, Handler>()
+  const events = new Map<string, Handler[]>()
+  const messages: string[] = []
+  const api = createExtensionApiStub({
+    on(name, handler) {
+      const registered = events.get(name) ?? []
+      registered.push(handler as Handler)
+      events.set(name, registered)
+    },
+    registerCommand(name, command) {
+      commands.set(name, command.handler as Handler)
+    },
+    sendUserMessage(message) {
+      if (typeof message !== 'string') throw new Error('native-announcement-not-text')
+      messages.push(message)
+    },
+    sendMessage(message) {
+      messages.push(typeof message === 'string' ? message : String(message?.content ?? message))
+    },
+    async exec(): Promise<never> {
+      throw new Error('unexpected-omp-exec')
+    },
+  })
+  const context = {
+    cwd: cwd ?? '',
+    agent: { kind: 'main' as const, id: 'Main', name: 'main', depth: 0 },
+    model: { contextWindow: 128_000 },
+    isIdle: () => true,
+  }
+
+  ompBuildExtension(api, { principalCwd: () => false })
+  const feature = commands.get('feature')
+  if (feature === undefined) throw new Error('feature-command-unregistered')
+  await feature('#42', context)
+  const pausePr = injectUnconfirmedPause ? createConcurrentPausePull(cwd ?? '') : null
+  if (pausePr !== null) makePauseDisarmUnreadable(pausePr)
+  for (const handler of events.get('message_end') ?? []) {
+    await handler({ message: { role: 'assistant', stopReason: 'aborted', errorId: 67_108_864 } }, context)
+  }
+  return { messages, pausePr }
+}
+
+async function invokeOmpLifetime(): Promise<{
+  activeBeforePause: boolean
+  cloneRetained: boolean
+  activeAfterPause: boolean
+  messages: string[]
+}> {
+  const commands = new Map<string, Handler>()
+  const events = new Map<string, Handler[]>()
+  const messages: string[] = []
+  const api = createExtensionApiStub({
+    on(name, handler) {
+      const registered = events.get(name) ?? []
+      registered.push(handler as Handler)
+      events.set(name, registered)
+    },
+    registerCommand(name, command) {
+      commands.set(name, command.handler as Handler)
+    },
+    sendUserMessage(message) {
+      if (typeof message !== 'string') throw new Error('native-announcement-not-text')
+      messages.push(message)
+    },
+    sendMessage(message) {
+      messages.push(typeof message === 'string' ? message : String(message?.content ?? message))
+    },
+    async exec(): Promise<never> {
+      throw new Error('unexpected-omp-exec')
+    },
+  })
+  const context = {
+    cwd: cwd ?? '',
+    agent: { kind: 'main' as const, id: 'Main', name: 'main', depth: 0 },
+    model: { contextWindow: 128_000 },
+    isIdle: () => true,
+  }
+  ompBuildExtension(api, { principalCwd: () => false })
+  const feature = commands.get('feature')
+  if (feature === undefined) throw new Error('feature-command-unregistered')
+  await feature('#42', context)
+  const port = createOmpFixPort(api)
+  const original = port.active()
+  if (original === null) throw new Error('feature-batch-not-active')
+  const activeBeforePause = port.active() === original
+  await port.stopOwned(structuredClone(original), 'clone-must-not-stop')
+  const cloneRetained = port.active() === original
+  for (const handler of events.get('message_end') ?? []) {
+    await handler({ message: { role: 'assistant', stopReason: 'aborted', errorId: 67_108_864 } }, context)
+  }
+  return {
+    activeBeforePause,
+    cloneRetained,
+    activeAfterPause: port.active() === null,
+    messages,
+  }
+}
+
+process.stdout.write(`${JSON.stringify(await invoke(operation ?? ''))}\n`)

@@ -12,21 +12,61 @@ _Avoid_: factory, /R-dev, /build, dev-core (on OMP)
 The unit of OMP delivery, run by `/feature`.
 _Avoid_: build, /build, /dev, /R-dev, omp-wt
 
-**Epic goal**:
-The `/goal` in the operator's session that delivers one epic. The autonomy unit of `/feature`.
-_Avoid_: a per-ticket stop, an autonomy level stored on the issue, one goal per ticket
+**Mandate**:
+The operator's accepted authority to deliver or correct a defined scope under a specified configuration. A correction-only mandate does not authorize landing.
+_Avoid_: a session goal, a review verdict, a permission inferred from missing data
 
-**Goal run**:
-One `/goal` line for an Epic goal, named by the `run=<id>` in its objective. Only an active goal whose objective names the epic authorizes the loop. Stops are recorded per run; a new `/goal` line is a new run.
-_Avoid_: a session, a paused goal, the run as a counter of attempts
+**Pause**:
+Temporary suspension of an otherwise valid Mandate, confirmed only after the applicable landing arms are cleared. Resumption does not clear a review-bound or safety stop.
+_Avoid_: abandonment, a spent bound, stopping the local process
+
+**Session pause**:
+The durable pause a native session stop, switch, or shutdown awaits for a pausable owner. A finished or confirmed-abandoned owner is released and is not paused again.
+_Avoid_: a local interrupt, an unconfirmed pause request, a spent review bound
+
+**Abandonment**:
+Explicit revocation of a Mandate. A successor, if one exists, retains its antecedents and does not erase their stops.
+_Avoid_: pause, automatic renewal, resetting a bound
+
+**Successor**:
+A mandate that names an abandoned or revoked antecedent on the same issue. An open pull request stays the same request, rebound to the successor.
+_Avoid_: automatic renewal, a second issue, a second pull request, `/feature <reference>`
+
+**Operator control**:
+A confirmed record that pauses, resumes, abandons, names a successor, or records an explicit material-Spec decision. A local process stop is not this record.
+_Avoid_: a session goal, an unconfirmed inhibit
+
+**Action receipt**:
+The confirmed start or result of a semantic, planning, or implementation action that otherwise has no durable product record.
+_Avoid_: a review record, a transcript, a local cache
+
+**Workflow binding**:
+The confirmed link on a pull request to one mandate, branch, and base. It adds no permission.
+_Avoid_: a closing keyword, a branch name, a body parse
+
+**Additional requirements**:
+The string list at `review.additional_requirements` in committed `.dev/stack.yml`, recorded on the mandate. It is not a graph, a bound, or an admission rule.
+_Avoid_: `.omp-build/workflow.json`, a working-tree copy, `review.graph`, `review.workflow`
+
+**Confirmed checkpoint**:
+A published result whose complete remote record has been read back and can support resumption. Unpublished work and a still-running agent are not checkpoints.
+_Avoid_: a local snapshot, an attempted write, an unconfirmed acknowledgement
+
+**Epic mandate**:
+The confirmed `mandate` on the epic issue: run, base, and approved child scope for that delivery. It is not a session goal.
+_Avoid_: Epic goal, /goal, an autonomy level stored on the issue, one goal per ticket
+
+**Run**:
+The run id stored on an Epic mandate. It names one delivery pass. It does not authorize the pass, reset a review bound, or join authority by itself.
+_Avoid_: Goal run, a /goal line, `run=` in an objective, a counter of attempts
 
 **Ticket stop**:
-A child the Goal run stops on - review bound spent, proof blocked, foreign commit or branch mismatch, no scope, a watch that timed out, cancelled or blocked checks, a PR behind its base, an unmerged or closed PR. It is recorded as a `goal-stop` marker on the child; its PR is disarmed, its dependents are skipped, and independent children continue. A later `next` re-disarms an open armed PR of a stopped child before continuing; a failed re-disarm or a merge during that disarm drops the goal and creates no branch. A child whose canonical delivery is confirmed by `mergedPr` — a `MERGED` PR to the configured base, from a head claiming that ticket, with a known merge SHA — instead progresses to eligible local-branch cleanup. Only that exact PR is excluded from merged candidates; every other matching `MERGED` candidate still drops. History stays preserved, an `OPEN` exhausted review bound is not reset, and that bound stays stopped across runs; any other ticket stop is retried by the next run.
-_Avoid_: a goal drop, a skipped dependent, a stop held in session memory
+A child the epic driver stops while independent children continue. The child record is an `epic-event` whose `event` is the historical wire name `goal-stop`.
+_Avoid_: a shared-state stop, a /goal drop, a stop held in session memory
 
 **Shared-state stop**:
-A failure that makes every remaining child unsafe — base CI red, base CI pending at finalization (`base-ci-pending`), a dirty tree between tickets or before the goal completes, a hook `ok` or `skipped` at another commit (`hook-stale`), a landing or tracker failure, a failed post-merge hook, a final review still blocking after its fix round. Every armed child PR is disarmed, the goal is reported and dropped. Finalization (the hook, and `complete`) also requires a clean tree and base CI green or absent; a red or pending base does not hold the final review.
-_Avoid_: a ticket stop, skipping the ticket, waiting on pending base CI
+A failure that makes every remaining child unsafe to continue. The drop record is an `epic-event` whose `event` is the historical wire name `goal-report`.
+_Avoid_: a ticket stop, a /goal, waiting on pending base CI before a ticket
 
 **Spec**:
 The GitHub issue body: agreed scope, acceptance criteria, invariants and exclusions. The SSoT for what to build.
@@ -36,9 +76,21 @@ _Avoid_: artifacts/specs, validated, /R-spec
 The Semctx change declaration derived from the issue body. It is proof, not a second Spec, and its lifecycle is Semctx's own.
 _Avoid_: artifacts/specs, a second spec home, the contract as what to build, closing it to open or land a PR
 
+**Canonical record**:
+A versioned common record whose payload is the authority for that operation. The Markdown beside it is a deterministic projection, not a second contract.
+_Avoid_: a positional HTML marker, a Markdown section a consumer parses, a local session store
+
+**Epic event**:
+A canonical record on an epic or child issue. Its payload `event` is one of the historical wire names `goal-stop`, `epic-review`, `epic-fix`, `post-merge`, or `goal-report`. Those names are protocol, not a session goal.
+_Avoid_: a /goal, a body marker, a `goal-stop` comment prefix, session memory
+
 **Proof record**:
-A producer's native output for one candidate head, posted on its PR by the automation account before landing and reused while it still binds that head's inputs. It attests the selected comment's current body, not what the producer printed nor who ran it: any account with write access can edit or delete the comment. Every applicable native part must have readable creation/revision facts, predate approval and have no recorded edit, regardless of producer or current verdict.
-_Avoid_: a ledger, a cache, a caller's boolean, a re-run at landing, a signed attestation
+A canonical `proof` record for one candidate head: `candidateGitSHA` plus the producer's untouched native JSON. Posted on its PR by the automation account before landing and reused while it still binds that head. Legacy proof framing cannot admit landing. It attests the selected comment's current body, not what the producer printed nor who ran it: any account with write access can edit or delete the comment. Every applicable native part must have readable creation/revision facts, predate approval and have no recorded edit, regardless of producer or current verdict.
+_Avoid_: `<!-- omp-build:proof -->`, a trailing JSON frame as the contract, a ledger, a cache, a caller's boolean, a re-run at landing, a signed attestation
+
+**Proof pin**:
+The Git identity of one normative proof-configuration path: path, source commit, and blob. A null blob is explicit absence, not an omitted pin.
+_Avoid_: a local ignored file, a review-input hash, an omitted path
 
 **Landing admission**:
 The read-only check that lets a reviewed head land through the arms `landPr` writes. Semctx applies when the base, the head or the operator's uncommitted configuration configures it; it then needs the record of the change contract the head adds, VERIFIED or PARTIAL with every gap justified by a NO TEST row in a PR body the approving review judged. A fix PR needs a detection only when the established base or candidate commits a root `assertledger.config.json` with an adapter; bundled Kit Vitest tooling alone is not applicable. Each record binds one head; a new head needs its own. VERIFIED composes declared evidence statuses, never a test run: landing's runtime-proof claim depends on CI GitHub actually enforces on the selected base and head. Supplied or stack-declared check names do not establish that enforcement, and unprotected native merge need not wait for them. A `reviewed` label or auto-merge set by another actor is an override that admission does not govern. It produces nothing.
@@ -63,16 +115,16 @@ Arming the gate is not evidence that the PR merged.
 _Avoid_: manual merge while checks run, treating a label as a completed landing
 
 **Post-merge hook**:
-The repository's declared command that runs once the epic has landed, not after each ticket. This run's `ok` or `skipped` counts only at the current base commit; at another commit the goal drops `hook-stale` and does not run the hook again.
+The repository's declared command that runs once the epic has landed, not after each ticket. This run's `ok` or `skipped` counts only at the current base commit; at another commit the driver stops `hook-stale` and does not run the hook again.
 _Avoid_: a per-ticket deploy, a release cut, re-running this run's hook on a moved base
 
 **Review bound**:
-At most two automated fixes per PR, one per Review record, derived on every read from the automation login's Review records: how many there are, and the latest one.
+At most two automated fixes per PR, one per canonical final review, derived on every read from the automation login's complete `review` records: how many there are, and the latest one. A legacy marker is not a review.
 A fix — after a red review, or after a CI failure on the approved head — is allowed while the PR has at most two records; the fix's push moves the head, so the next step needs a review of it.
-A record past the second that does not approve spends the bound for good: a later green does not lift it, and `landPr` refuses to arm. A CI failure after the third review stops too; the records do not show it, so only a ticket stop keeps that stop across runs.
+A review past the second that does not approve spends the bound for good: a later green does not lift it, and `landPr` refuses to arm. A CI failure on the head the third review approved is a canonical `stop` and stays spent.
 Every posted review counts, with or without a fix before it. Nothing writes accounting.
 After a stop, resumption is operator-supervised agent processing: the operator explicitly approves revised scope, a diagnostic/correction plan and the continuation checkpoint; agents perform the correction, targeted proof and independent review. A spent PR stays stopped and disarmed, so revised work goes to a superseding PR with a fresh bound while its records remain evidence; fresh review, proof, CI and `landPr` admission still apply.
-_Avoid_: a ledger, counting fix receipts, a stop-marker reset, one more automatic retry, raw label or manual-merge bypass
+_Avoid_: a ledger, counting fix receipts, resetting a canonical stop, one more automatic retry, raw label or manual-merge bypass
 
 **Snapshot**:
 A frozen copy of selected `dev-core` files inside `omp-build`. No resync. Claude's `dev-core` evolves alone.
@@ -103,16 +155,16 @@ The Claude/Grok factory plugin. Source stays in the marketplace; it is not loade
 _Avoid_: "the plugin" when the host is OMP
 
 **Dark-to-model**:
-A skill that ships in the armed package (`extensions:`) so slash and `skill://` work, with `disable-model-invocation` so the model does not autoload it. omp normalises that key to `hide`: it omits the skill from the prompt listing and gates nothing — `skill://<name>` and `/skill:<name>` still reach the body. What makes a skill user-only is `registerCommand`, the lane the model cannot call.
-_Avoid_: unloaded, hidden, Isolation-dark (that last one is not invocable), "two gates"
+A skill that ships in the armed package (`extensions:`) so slash and `skill://` work, with `disable-model-invocation` so the model does not autoload it. omp normalises that key to `hide`: it omits the skill from the prompt listing and gates nothing — `skill://<name>` and `/skill:<name>` still reach the body. A user-only command is `registerCommand`, the lane the model cannot call. Review is also a model tool; correction starts through `/fix` or the Feature review-bound handoff. Neither grants execution authority.
+_Avoid_: unloaded, hidden, Isolation-dark (that last one is not invocable), "two gates", slash-only for every product path
 
 **Principal**:
 The first `git worktree list --porcelain` worktree. Read-only exploration and tracker framing can start here; feature file edits belong in a matching Worktree.
 _Avoid_: main, staging, master (those are bases, not this worktree)
 
 **Worktree**:
-A durable linked git checkout (ω) that isolates delivery from the Principal. Created by the agent from a fresh `origin/<base>`, meaning `refs/remotes/origin/<base>`; one per epic under an Epic goal. The operator enters it by moving the session, not by `/wt`.
-_Avoid_: branch; Isolation (ephemeral `task.isolated` sandbox); `/wt`
+A durable linked git checkout (ω) that isolates delivery from the Principal. Created from a fresh `origin/<base>`, meaning `refs/remotes/origin/<base>`. The operator enters it with `/move <path>`, not `/wt`.
+_Avoid_: branch; Isolation (ephemeral `task.isolated` sandbox); `/wt`; a session goal
 
 **Epic worktree**:
 The one Worktree an epic is delivered from, created **detached** at `refs/remotes/origin/<base>`, with no epic branch. Each child gets its own branch inside it, from the base, and its own PR; after a confirmed merge HEAD is detached there again and the child's local branch deleted.
@@ -135,24 +187,24 @@ In-process OMP `tool_call` interceptor (principal freeze, bare `bun test`, secre
 _Avoid_: hook (Claude `hooks.json`), lefthook (commit/push persist law)
 
 **dev-review**:
-The skill holding Roxabi's multi-domain review on OMP: roster, Conventional Comments, findings + verdict. Named `dev-review`, not `R-dev-review`, so it cannot shadow dev-core's while both are installed.
-_Avoid_: R-dev-review as the skill name, code-review (Matt), /review (host builtin)
+The native review product on OMP: spec, panel, recall, synthesis, and confirmed canonical records. Named `dev-review`, not `R-dev-review`.
+_Avoid_: a Markdown review protocol, R-dev-review as the skill name, code-review (Matt), /review (host builtin)
 
 **fix**:
-The skill that applies the one plan of each blocking root cause from a review, inline, with no per-finding choice, then tries to break it against the cause's own proof. Non-blocking causes are deferred into one sibling issue, not applied; a blocker it cannot apply is filed and still blocks.
-_Avoid_: R-fix as the skill name, R-fixer, spawning a fixer agent, a per-finding walkthrough, applying a non-blocking cause, picking a fix from a finding's solutions
+The native correction that applies each admitted cause's one plan through dedicated correction profiles, then falsifies that plan. It does not walk findings inline and does not revive `R-fixer`. Baseline defers non-blocking causes; a blocker it cannot apply is filed and still blocks. A correction never lands.
+_Avoid_: an inline orchestrator edit, R-fix as the skill name, the absent general `R-fixer`, a per-finding walkthrough, applying a non-blocking baseline cause, picking a fix from a finding's solutions
 
 **Root cause**:
 The shared mechanism behind one or more review findings, stated with its one plan: mechanism, fix, failure scenario, restored behaviour, affected paths, proof, findings. Named after the review, before any edit. The unit `fix` applies when a member blocks; otherwise the unit it defers.
 _Avoid_: the finding itself, a class slug alone, a file, a menu of solutions
 
 **Review record**:
-The one PR comment `fix` reads: first line `<!-- omp-build:code-review -->`, authored by the account running `fix`, newest wins. Root causes and findings both come from it. It is also the unit the Review bound counts. Line 2, when a PR was reviewed, is `<!-- omp-build:review-head sha=<40 lowercase hex> -->` — the commit that approval names. `fix` does not read it. `landPr` arms only when it matches the PR's current `headRefOid`; a record without it does not arm, so a PR reviewed before the line existed needs one re-review. Native auto-merge is then pinned with `--match-head-commit`. Merge-on-green remains label-driven: a push by another actor after `reviewed` is applied is not refused by GitHub. A record whose cause blocks predate the seven-line plan (only `mechanism:`, `fix:` and `findings:`) is not a plan `fix` can apply: `fix` halts before any filing, so a PR reviewed before the plan existed also needs one re-review.
-_Avoid_: scraping every PR comment, matching `## Code Review` as a substring, reading a sha from prose or from any line but line 2
+The canonical `review` a consumer reads by record identity. It names the decision, the candidate SHA, and the input digest; projection lists source provenance and is not authority. The review bound counts complete final reviews by the automation login's native authorship. `landPr` arms only when that candidate equals the current `headRefOid`. A legacy marker does not arm. Native auto-merge then pins that head with `--match-head-commit`. Merge-on-green remains label-driven: a push by another actor after `reviewed` is applied is not refused by GitHub.
+_Avoid_: `<!-- omp-build:code-review -->`, a line-2 head marker, scraping `## Code Review`, reading a SHA from projection prose
 
 **Review input binding**:
-The line-3 `<!-- omp-build:review-input v=1 sha256=<64 lowercase hex> -->` retained by a proof-aware review before judgement. Its domain-separated SHA256 covers repository/PR/head, exact body plus `lastEditedAt`, and every complete selected applicable producer part's native ID/body/creation/revision facts, independent of verdict. The reviewer consumes that capture and compares again before posting; admission independently captures and compares the same inputs. Missing, malformed or changed binding refuses applicable proof; genuine no-proof repositories retain their existing admission path. It is equality of observed inputs, not authentication, reading certification or an atomic/lasting pin.
-_Avoid_: an acquisition attestation, a frozen manifest, a cached snapshot, a digest rebound after panel work, PARTIAL-only binding
+The plain SHA-256 on a canonical review, or null. Prefix `omp-build:review-input/2` covers observed PR inputs and the semantic canon, including when producer part lists are null. A null input is not approval. It is equality of observed inputs, not authentication; genuine no-proof repositories keep their existing admission path.
+_Avoid_: a line-3 HTML marker, an acquisition attestation, a frozen manifest, a cached snapshot, a digest rebound after panel work, PARTIAL-only binding
 
 **Panel**:
 The five dispatchable review roles: the `R-adversarial` floor plus at most two specialists the roster proved relevant.

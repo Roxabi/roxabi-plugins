@@ -178,7 +178,7 @@ fail-under-absent → pass-under-restore of mapped unit/fast-integration tests.
    than a stepping stone — `roster.ts` keys `gates['R-security-auditor']` off
    `path_hit` alone, `claims` is parsed and exposed but is not a spawn disjunct,
    and two tests pin it — cited by full path, because a bare filename here
-   resolves to the wrong control (`plugins/omp-build/agents/__tests__/roster.test.ts`
+   resolves to the wrong control (`plugins/omp-build/testing/agent-roster.test.ts`
    exists, tests the agent manifest, and mentions `R-security-auditor`, so a
    reader verifying a bare citation gets a plausible hit and stops):
    `plugins/dev-core/skills/dev-review/__tests__/skill-roster-parity.test.ts`

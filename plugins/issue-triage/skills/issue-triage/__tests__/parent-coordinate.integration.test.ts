@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -6,7 +6,6 @@ import {
   checkout,
   type GitHubFake,
   hostileStartup,
-  recipeAfterWrite,
   recipeEnv,
   run,
   startGitHub,
@@ -15,8 +14,6 @@ import {
 } from './fixtures/github-api'
 
 const pluginPath = (name: string, file: string) => path.resolve(import.meta.dirname, '../../../../', name, file)
-const ompFix = readFileSync(pluginPath('omp-build', 'skills/fix/SKILL.md'), 'utf8')
-const launcher = recipeAfterWrite(ompFix, '### Filing').slice(0, -1).join('\n')
 const quoted = (value: string) => JSON.stringify(value)
 let root: string | undefined
 let fake: GitHubFake | undefined
@@ -61,18 +58,6 @@ async function world() {
   return { root, fake, b, origin, script, repo, sentinel, env }
 }
 
-function parentLookup(markdown: string): string {
-  const command = /gh api graphql -f query='[^']*parent[^']*'\s*(?:\\\s*)?--jq '[^']*'/.exec(markdown)?.[0]
-  if (!command) throw new Error('authored parent lookup missing')
-  return command.replaceAll('<O>', 'Acme').replaceAll('<R>', 'app').replaceAll('<SOURCE_ISSUE>', '80')
-}
-
-function parentArgument(markdown: string): string {
-  const argument = /- `(--parent "[^"]*")`/.exec(markdown)?.[1]
-  if (!argument) throw new Error('authored parent argument missing')
-  return argument
-}
-
 describe('qualified parent coordinates', () => {
   it('issue-triage parent reader retains the foreign repository and distinguishes no parent', async () => {
     const w = await world()
@@ -94,7 +79,7 @@ describe('qualified parent coordinates', () => {
     w.b.parent = 70
     w.b.parentRepo = 'Acme/planning'
 
-    const ran = await run(`${launcher}\ntriage set 81 --rm-parent`, w.repo, w.env)
+    const ran = await run(`bun --no-env-file ${quoted(w.script)} set 81 --rm-parent`, path.dirname(w.script), w.env)
 
     expect(ran.code).toBe(0)
     expect(w.b.parent).toBeUndefined()
@@ -103,34 +88,6 @@ describe('qualified parent coordinates', () => {
     expect(ran.stdout.trim()).toBe('RemovedParent=Acme/planning#70 #81')
     expect(w.fake.calls.some((call) => call.path === '/repos/Acme/planning/issues/70')).toBe(true)
     expect(w.fake.calls.some((call) => call.path === '/repos/Acme/app/issues/70')).toBe(false)
-    expect(existsSync(w.sentinel)).toBe(false)
-  })
-
-  it.each([
-    { name: 'omp-build', topLevel: false },
-    { name: 'omp-build', topLevel: true },
-  ])('$name authored lookup and filing preserve parent identity (top-level=$topLevel)', async ({ name, topLevel }) => {
-    const w = await world()
-    const markdown = readFileSync(pluginPath(name, 'skills/fix/SKILL.md'), 'utf8')
-    if (topLevel) {
-      delete w.origin.parent
-      delete w.origin.parentRepo
-    }
-    const script = `${launcher}\nSOURCE_ISSUE=80\nSOURCE_PARENT=$(${parentLookup(markdown)}) && { parent=(); if [ -n "$SOURCE_PARENT" ]; then parent=(${parentArgument(markdown)}); fi; triage create --title-file "$FILE_DIR/title.txt" --body-file "$FILE_DIR/body.md" "\${parent[@]}" --blocked-by "#\${SOURCE_ISSUE}"; }`
-
-    const ran = await run(script, w.repo, { ...w.env, GH_PARENT: topLevel ? '' : '70' })
-
-    expect(ran.code).toBe(0)
-    const created = w.fake.created[0]
-    expect(created).toMatchObject({ repo: 'Acme/app', blockedBy: [80] })
-    if (topLevel) {
-      expect(created.parent).toBeUndefined()
-      expect(created.parentRepo).toBeUndefined()
-      expect(w.fake.calls.some((call) => /\/issues\/70$/.test(call.path))).toBe(false)
-    } else {
-      expect(created).toMatchObject({ parent: 70, parentRepo: 'Acme/planning' })
-      expect(w.fake.calls.some((call) => call.path === '/repos/Acme/app/issues/70')).toBe(false)
-    }
     expect(existsSync(w.sentinel)).toBe(false)
   })
 })

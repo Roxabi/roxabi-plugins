@@ -3,6 +3,9 @@
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "allowJs": true,
+    "checkJs": false,
     "lib": ["ESNext"],
     "types": ["bun-types"],
     "strict": true,
@@ -16,10 +19,13 @@
     "vitest.global-setup.ts",
     "plugins/issue-triage/**/*.ts",
     "plugins/omp-build/**/*.ts",
+    "tools/**/*omp-build*.ts",
+    "tools/**/*omp-build*/**/*.ts",
     "scripts/**/*.ts"
   ],
   "exclude": [
     "node_modules",
-    "plugins/issue-triage/skills/issue-triage/triage.ts"
+    "plugins/issue-triage/skills/issue-triage/triage.ts",
+    "plugins/omp-build/dist/issue-triage/skills/issue-triage/triage.ts"
   ]
 }

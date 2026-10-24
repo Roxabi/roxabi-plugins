@@ -1,0 +1,328 @@
+/**
+ * Pure config helper functions extracted from the legacy config.ts shim.
+ * These are used by EnvConfigAdapter and re-exported from config.ts for backward compat.
+ */
+
+import { readFileSync } from 'node:fs'
+import { ConfigError } from '../domain/errors'
+
+/**
+ * Project contract file, relative to the repo root.
+ *
+ * This plugin owns its constant so it remains self-contained and individually
+ * installable. There is no fallback to the pre-cutover `.claude/` location:
+ * the old path is never read.
+ */
+const DEV_CORE_YML = '.dev/dev-core.yml'
+
+/**
+ * Load a config value with a 3-tier chain:
+ *   1st: process.env[envKey] (explicit override — checked first)
+ *   2nd: `.dev/dev-core.yml` (committed contract pin, YAML key lookup)
+ *   3rd: gh CLI auto-detect (github_repo only)
+ * detectGitHubRepo() adds a last-resort `git remote get-url origin` probe.
+ */
+function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
+  const envValue = process.env[envKey ?? key.toUpperCase()]
+  if (envValue) return envValue
+
+  try {
+    const yaml = readFileSync(DEV_CORE_YML, 'utf-8')
+    const match = yaml.match(new RegExp(`^${key}:\\s*['"]?(.+?)['"]?\\s*$`, 'm'))
+    const value = match?.[1]
+    if (value && value !== "''") return value
+  } catch {
+    /* file not found — fall through */
+  }
+
+  if (key === 'github_repo') {
+    try {
+      const proc = Bun.spawnSync(['gh', 'repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'], {
+        stdout: 'pipe',
+        stderr: 'pipe',
+      })
+      if (proc.exitCode === 0) return new TextDecoder().decode(proc.stdout).trim()
+    } catch {
+      /* gh not available */
+    }
+  }
+
+  return undefined
+}
+
+/**
+ * A GitHub repo slug: exactly `owner/repo`.
+ * Owner: alphanumeric + hyphen, must start with an alphanumeric character
+ * (GitHub username rule — dots/underscores not allowed in owner segment).
+ * Name: allows dots/underscores after a leading alphanumeric character.
+ * Callers do `detectGitHubRepo().split('/')` and expect exactly two non-empty segments.
+ */
+export const REPO_SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/
+
+/**
+ * Validate a candidate GitHub repo slug and throw a clear error if it doesn't match.
+ * Used by both the yaml/env path and the git-remote fallback in detectGitHubRepo().
+ */
+function assertValidRepoSlug(value: string): string {
+  if (!REPO_SLUG_RE.test(value)) {
+    throw new ConfigError(
+      `Invalid GitHub repo "${value}". Expected "owner/repo" format ` +
+        '(set github_repo in dev-core config or the GITHUB_REPO env var).',
+    )
+  }
+  return value
+}
+
+export function detectGitHubRepo(): string {
+  const fromYamlOrEnv = loadDevCoreConfig('github_repo', 'GITHUB_REPO')
+  if (fromYamlOrEnv) {
+    // Guard the yaml/env path: callers do `detectGitHubRepo().split('/')` and
+    // expect `owner/repo`. A bare value (e.g. `GITHUB_REPO=myrepo`) would slip
+    // through as a silent `undefined` repo → malformed GraphQL. Fail loud here.
+    return assertValidRepoSlug(fromYamlOrEnv)
+  }
+  try {
+    const proc = Bun.spawnSync(['git', 'remote', 'get-url', 'origin'], { stdout: 'pipe', stderr: 'pipe' })
+    const url = new TextDecoder().decode(proc.stdout).trim()
+    // SSH: git@github.com:owner/repo.git  |  HTTPS: https://github.com/owner/repo.git
+    const match = url.match(/[:/]([^/:]+\/[^/]+?)(?:\.git)?$/)
+    // Validate the extracted candidate — a malformed remote must not silently
+    // return a bad slug that callers would split('/') into garbage GraphQL args.
+    if (match?.[1]) return assertValidRepoSlug(match[1])
+  } catch {}
+  throw new ConfigError(
+    'Cannot detect GitHub repo. Set GITHUB_REPO env var or ensure git remote "origin" is configured.',
+  )
+}
+
+// CLI aliases — map loose user input to canonical option keys
+export const STATUS_ALIASES: Record<string, string> = {
+  BACKLOG: 'Backlog',
+  ANALYSIS: 'Analysis',
+  SPECS: 'Specs',
+  'IN PROGRESS': 'In Progress',
+  IN_PROGRESS: 'In Progress',
+  INPROGRESS: 'In Progress',
+  REVIEW: 'Review',
+  DONE: 'Done',
+}
+
+export const PRIORITY_ALIASES: Record<string, string> = {
+  URGENT: 'P0 - Urgent',
+  HIGH: 'P1 - High',
+  MEDIUM: 'P2 - Medium',
+  LOW: 'P3 - Low',
+  P0: 'P0 - Urgent',
+  P1: 'P1 - High',
+  P2: 'P2 - Medium',
+  P3: 'P3 - Low',
+}
+
+// Canonical field option arrays — single source of truth for field creation and validation
+export const DEFAULT_STATUS_OPTIONS = ['Backlog', 'Analysis', 'Specs', 'In Progress', 'Review', 'Done']
+// Tier-based sizes: S (simple), F-lite (subagents), F-full (agent team)
+export const DEFAULT_SIZE_OPTIONS = ['S', 'F-lite', 'F-full']
+export const PRIORITY_VALUES = ['P0 - Urgent', 'P1 - High', 'P2 - Medium', 'P3 - Low'] as const
+export const DEFAULT_PRIORITY_OPTIONS: string[] = [...PRIORITY_VALUES]
+export const DEFAULT_LANE_OPTIONS = [
+  'a1',
+  'a2',
+  'a3',
+  'b',
+  'c1',
+  'c2',
+  'c3',
+  'd',
+  'e',
+  'f',
+  'g',
+  'h',
+  'i',
+  'j',
+  'k',
+  'l',
+  'm',
+  'n',
+  'o',
+  'standalone',
+]
+
+const CANONICAL_STATUSES = new Set(DEFAULT_STATUS_OPTIONS)
+const CANONICAL_SIZES = new Set(DEFAULT_SIZE_OPTIONS)
+const CANONICAL_PRIORITIES = new Set(DEFAULT_PRIORITY_OPTIONS)
+export const CANONICAL_LANES = new Set(DEFAULT_LANE_OPTIONS)
+
+export const PRIORITY_SHORT: Record<string, string> = {
+  'P0 - Urgent': 'P0',
+  'P1 - High': 'P1',
+  'P2 - Medium': 'P2',
+  'P3 - Low': 'P3',
+}
+
+/** Map canonical project priority → GitHub label name. */
+export const PRIORITY_LABEL_MAP: Record<string, string> = {
+  'P0 - Urgent': 'P0-critical',
+  'P1 - High': 'P1-high',
+  'P2 - Medium': 'P2-medium',
+  'P3 - Low': 'P3-low',
+}
+
+/** Set of all priority label names (for stale label removal). */
+export const PRIORITY_LABELS_SET = new Set(Object.values(PRIORITY_LABEL_MAP))
+
+/**
+ * Fold case and separators so `P3 - Low`, `P3-low` and `p3_low` share one key.
+ * Shared by the alias-table builder and the lookup below on purpose: if the two
+ * ever normalise differently, every lookup misses silently.
+ */
+function normalizePrioritySpelling(input: string): string {
+  return input
+    .trim()
+    .toUpperCase()
+    .replace(/[-_\s]+/g, '-')
+}
+
+/** Every separator-insensitive spelling of a canonical value or its label → canonical. */
+const PRIORITY_SPELLING_ALIASES: Record<string, string> = Object.fromEntries(
+  Object.entries(PRIORITY_LABEL_MAP).flatMap(([canonical, label]) => [
+    [normalizePrioritySpelling(canonical), canonical],
+    [normalizePrioritySpelling(label), canonical],
+  ]),
+)
+
+/**
+ * Accepted `--priority` spelling families, for CLI error messages. Each family
+ * is derived from the table that decides it, so an alias cannot be advertised
+ * without being accepted. The reverse does not hold: separator and case
+ * variants of the listed spellings resolve too and are not enumerated here.
+ */
+export const PRIORITY_INPUT_HINT = `${DEFAULT_PRIORITY_OPTIONS.join(', ')} (aliases: ${Object.keys(PRIORITY_ALIASES).join('/')}, ${Object.values(PRIORITY_LABEL_MAP).join('/')})`
+
+/** Resolve loose user input to a canonical status key, or undefined. */
+export function resolveStatus(input: string): string | undefined {
+  const value = input.trim()
+  if (CANONICAL_STATUSES.has(value)) return value
+  return STATUS_ALIASES[value.toUpperCase()]
+}
+
+/**
+ * Resolve loose user input to a canonical priority key, or undefined.
+ *
+ * Accepts, in order: the canonical value (`P3 - Low`), the short/word aliases
+ * (`P3`, `LOW`), then any separator/case variant of either the canonical value
+ * or the GitHub *label* spelling (`P3-low`, `p3_low`, `P3 Low`). The label is
+ * what `gh issue view` and `gh label list` display, so it is the string a
+ * caller is most likely to type — it used to be the one string rejected (#525).
+ */
+export function resolvePriority(input: string): string | undefined {
+  // Trimmed once here rather than inside one branch: whether padding is
+  // tolerated must not depend on which spelling the caller happened to type.
+  const value = input.trim()
+  if (CANONICAL_PRIORITIES.has(value)) return value
+  return PRIORITY_ALIASES[value.toUpperCase()] ?? PRIORITY_SPELLING_ALIASES[normalizePrioritySpelling(value)]
+}
+
+/** Resolve loose user input to a canonical size key, or undefined. */
+export function resolveSize(input: string): string | undefined {
+  const value = input.trim()
+  const upper = value.toUpperCase().replace(/[-\s]/g, '-')
+  // Tier-based schema (S / F-lite / F-full).
+  if (CANONICAL_SIZES.has(value)) return value
+  if (CANONICAL_SIZES.has(upper)) return upper
+  // Legacy → new schema aliasing.
+  if (upper === 'XS') return 'S'
+  if (upper === 'M') return 'F-lite'
+  if (upper === 'L' || upper === 'XL') return 'F-full'
+  // F-lite variations
+  if (upper === 'FLITE' || upper === 'F_LITE' || upper === 'F-LITE') return 'F-lite'
+  // F-full variations
+  if (upper === 'FFULL' || upper === 'F_FULL' || upper === 'F-FULL') return 'F-full'
+  return
+}
+
+/**
+ * Resolve loose user input to a canonical lane key, or undefined.
+ *
+ * Lane keys are lower-case by definition, so `A1` and ` a1 ` fold to `a1`
+ * rather than being rejected: the flag is fatal on an unrecognised value, so
+ * intolerance here turns a typo into a half-applied command.
+ */
+export function resolveLane(input: string): string | undefined {
+  if (CANONICAL_LANES.has(input)) return input
+  const folded = input.trim().toLowerCase()
+  return CANONICAL_LANES.has(folded) ? folded : undefined
+}
+
+// --- Exports consolidated from legacy config.ts shim ---
+
+export const GITHUB_REPO = detectGitHubRepo()
+
+/** Map canonical size → GitHub label name. */
+export const SIZE_LABEL_MAP: Record<string, string> = {
+  S: 'size:S',
+  'F-lite': 'size:F-lite',
+  'F-full': 'size:F-full',
+}
+
+/** Set of all size label names (for stale label removal). */
+export const SIZE_LABELS_SET = new Set(Object.values(SIZE_LABEL_MAP))
+
+/** Map canonical lane → GitHub label name. */
+export const LANE_LABEL_MAP: Record<string, string> = Object.fromEntries(
+  DEFAULT_LANE_OPTIONS.map((lane) => [lane, `graph:lane/${lane}`]),
+)
+
+/** Set of all lane label names (for stale label removal). */
+export const LANE_LABELS_SET = new Set(Object.values(LANE_LABEL_MAP))
+
+/** Map canonical status → GitHub label name. */
+export const STATUS_LABEL_MAP: Record<string, string> = {
+  Backlog: 'status:Backlog',
+  Analysis: 'status:Analysis',
+  Specs: 'status:Specs',
+  'In Progress': 'status:In Progress',
+  Review: 'status:Review',
+  Done: 'status:Done',
+}
+
+/** Set of all status label names (for stale label removal). */
+export const STATUS_LABELS_SET = new Set(Object.values(STATUS_LABEL_MAP))
+
+export const STATUS_SHORT: Record<string, string> = {
+  'In Progress': 'In Prog',
+  Backlog: 'Backlog',
+  Analysis: 'Analysis',
+  Specs: 'Specs',
+  Review: 'Review',
+  Done: 'Done',
+}
+
+export const PRIORITY_ORDER: Record<string, number> = {
+  'P0 - Urgent': 0,
+  'P1 - High': 1,
+  'P2 - Medium': 2,
+  'P3 - Low': 3,
+  '-': 99,
+}
+
+export const SIZE_ORDER: Record<string, number> = {
+  'F-full': 0,
+  'F-lite': 1,
+  S: 2,
+  '-': 99,
+}
+
+export const STATUS_ORDER: Record<string, number> = {
+  Review: 0,
+  'In Progress': 1,
+  Specs: 2,
+  Analysis: 3,
+  Backlog: 4,
+  '-': 99,
+}
+
+export const BLOCK_ORDER: Record<string, number> = {
+  blocking: 0,
+  ready: 1,
+  blocked: 2,
+}

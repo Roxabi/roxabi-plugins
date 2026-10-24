@@ -10,6 +10,31 @@ admission, debt admission, or rollout state.
 operator acceptance** authorizes `evidence-v1` for later, explicitly selected work.
 Baseline's existing review body, markers, head/input binding, verdict, review-record
 accounting, routing, landing and stop/bound rules are unchanged.
+## Baseline Phase 2 proof adjudication
+
+For tiers other than S, the SC→Test matrix must cover every SC without silent gaps. Its only NO TEST reasons are `infra-not-wired`, `prompt-logic-only`, `ui-manual-only`, and `out-of-scope`; a missing matrix is `issue(blocking)`.
+
+When captured Semctx proof on the reviewed head marks evidence `tested`, it must name a test in Δ or the base that exercises the change. Each PARTIAL gap has its own supported row. This is a model judgement over the captured selected runs and their native creation/revision facts, not runtime certification: unsupported or absent support is `issue(blocking)`, and absence of contrary evidence is not support.
+Judge every captured selected Semctx and assertledger part's native chronology, status, creation/revision facts, and body as model evidence, not runtime certification. An unreadable time authorizes nothing; a recorded revision requires acquisition again and a same-head review; every selected part must precede approval.
+
+
+If Δ touches `frontend.path` or `shared.ui` and the base or head stack declares `commands.test_e2e`, `ui-manual-only` is `issue(blocking)`. Otherwise it needs a gap-bound `### Browser check <gap>` in the captured PR body with `- Steps:`, an http/https `- URL:`, and concrete `- Observed:` evidence credibly performed for this head; unsupported claims are `issue(blocking)`.
+
+A Phase 2 missing/weak-test finding reaches the Phase 4 final-label write. A missing SC→Test matrix or an unmet behaviour criterion remains `issue(blocking)`.
+
+## Baseline Phase 4 classification
+
+Baseline Phase 4 retains every finding by default. Confidence orders it; it never removes, demotes, files, or repairs a finding. After collection, same-defect-only merge, and recall normalization, baseline applies this final missing-or-weak-test label rule before verdict and root causes:
+
+- Rewrite a finding whose subject is a missing or weak test, including an agent `issue:`, a recall finding, and a Phase 2 unmet-criterion finding whose only gap is that test. Do not rewrite a missing SC→Test matrix, an unmet behaviour criterion, or a real missed/fix-induced behaviour defect with evidence.
+- Keep the finding as `issue:` only when both are true: the unproven behaviour is an issue acceptance criterion with no other PR evidence, or a safety invariant (merge/release/deploy/delete/publish/permission/automated-stop-or-disarm path); and the PR has no accepted proof under `root-causes.md` § Proof.
+- A test in Δ that is not accepted proof satisfies the second condition; a restatement of accepted proof without new defect evidence does not. Source-text, wiring-copy, and mock-echo assertions are never requirements.
+- Otherwise relabel the finding `suggestion:`. Retain `Source: recall` in immutable provenance, but do not give that source independent blocking weight; this is the last baseline label write.
+
+Final baseline grouping is exact: Blockers are `issue:`, `issue(blocking):`, `todo:`, and `suggestion(blocking):`; Warnings are `suggestion:`, `suggestion(non-blocking):`, and `nitpick:`; Suggestions are `thought:` and `question:`; Praise is `praise:`. The final label set alone controls blocking.
+These labels are review-record classifications only; they never mutate a GitHub label or erase captured provenance.
+
+
 
 Candidate evaluation is callable with supplied inputs, but begins in **shadow**:
 

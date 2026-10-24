@@ -117,7 +117,7 @@ export function extractWriteContent(input: Record<string, unknown>): string {
   return typeof content === 'string' ? content : ''
 }
 
-export function extractShellCommand(input: Record<string, unknown>): string {
+export function extractShellCommand(input: { command?: unknown; cmd?: unknown }): string {
   const command = input.command ?? input.cmd ?? ''
   return typeof command === 'string' ? command : ''
 }

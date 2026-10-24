@@ -1,0 +1,535 @@
+/**
+ * `init` — tracker contract, canonical labels, legacy label migration.
+ *
+ * An existing `docs/agents/issue-tracker.md` is an authored contract: init never
+ * rewrites it. The file is read from the git toplevel, not the process cwd.
+ * Label vocabulary comes from that file when it exists (a `Label | Colour`
+ * table, or canonical names in the template list); otherwise from
+ * `CANONICAL_LABELS`. A contract that parses to no vocabulary is a refusal,
+ * not an empty plan. `--repo` other than the local repo is refused: the local
+ * file is not that repo's vocabulary. Label writes go through the GitHub
+ * adapter. Preview (default) and `--dry-run` write nothing. Writes require
+ * `--approve <digest>` plus a separate `--operator-approval` reply. A repository
+ * label definition is never deleted or recoloured. Issue bodies are never edited.
+ * `--dry-run` also names the canonical issue types the org lacks (report only:
+ * it never refuses label adoption, and init never creates org issue types).
+ */
+
+import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  type Stats,
+  writeFileSync,
+} from 'node:fs'
+import { dirname, isAbsolute, join, relative, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { detectGitHubRepo } from '../../shared/adapters/config-helpers'
+import {
+  ensureLabel,
+  listEnabledOrgIssueTypes,
+  listIssueLabelSets,
+  listLabelNames,
+  updateLabels,
+} from '../../shared/adapters/github-adapter'
+import { EXTENDED_ISSUE_TYPES, ISSUE_TYPE_NAMES } from '../../shared/domain/issue-types'
+import {
+  applyRelabels,
+  CANONICAL_LABELS,
+  type IssueLabels,
+  type IssueRelabel,
+  migrateLabel,
+  planRelabels,
+  proseBlockedBy,
+} from './migrate-labels'
+
+const CONTRACT_REL = 'docs/agents/issue-tracker.md'
+const NONE_PARSED = 'vocabulary: none parsed from docs/agents/issue-tracker.md'
+
+export type VocabularySource = 'table' | 'template-list' | 'canonical' | 'none'
+
+export interface InitPlan {
+  repo: string
+  createLabels: string[]
+  labelColors: Record<string, string>
+  relabels: IssueRelabel[]
+  proseBlockedBy: number[]
+  contract: 'write' | 'unchanged' | 'skip-other-repo' | 'keep-existing'
+  vocabulary: VocabularySource
+  refused: string[]
+}
+
+export interface InitDeps {
+  listLabelNames: (repo: string) => Promise<string[]>
+  listIssueLabelSets: (repo: string) => Promise<IssueLabels[]>
+  ensureLabel: (name: string, repo: string, color?: string) => Promise<'created' | 'present'>
+  updateLabels: (issueNumber: number, add: string[], remove: string[], repo: string) => Promise<void>
+  readContract: () => string | null
+  /** Org issue type names; consulted by `--dry-run` only. Absent → no type report. */
+  listOrgIssueTypeNames?: (org: string) => Promise<string[]>
+  writeContract: (text: string) => void
+  cwdRepo: string
+}
+
+const DEFAULT_LABEL_COLOR = 'ededed'
+
+export interface ContractLabel {
+  name: string
+  color: string
+}
+
+function fold(name: string): string {
+  return name.toLowerCase()
+}
+
+function canonicalSpelling(name: string): string | null {
+  return CANONICAL_LABELS.find((label) => fold(label) === fold(name)) ?? null
+}
+
+function sameLabel(left: string, right: string): boolean {
+  return fold(left) === fold(right)
+}
+
+export function contractFile(root: string): string {
+  return join(root, CONTRACT_REL)
+}
+
+function gitRevParse(cwd: string): string {
+  return execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8' }).trim()
+}
+
+/** Contract path is the git toplevel, never the process cwd. */
+export function repoToplevel(cwd: string, revParse: (cwd: string) => string = gitRevParse): string {
+  return revParse(cwd)
+}
+
+function contained(root: string, candidate: string): boolean {
+  const fromRoot = relative(root, candidate)
+  return fromRoot === '' || (!fromRoot.startsWith(`..${sep}`) && fromRoot !== '..' && !isAbsolute(fromRoot))
+}
+
+/** Resolve the physical contract destination before enforcing checkout confinement. */
+export function containedContract(root: string): string {
+  const checkout = realpathSync(root)
+  const components = CONTRACT_REL.split('/')
+  let current = checkout
+  let expansions = 0
+
+  for (let index = 0; index < components.length; ) {
+    const component = components[index]
+    if (component === '.') {
+      index++
+      continue
+    }
+    if (component === '') {
+      if (index === components.length - 1) throw new Error('init: contract symlink target is not a file')
+      index++
+      continue
+    }
+    if (component === '..') {
+      current = dirname(current)
+      index++
+      continue
+    }
+
+    const candidate = join(current, component)
+    let stat: Stats
+    try {
+      stat = lstatSync(candidate)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      const suffix = components.slice(index)
+      if (suffix.includes('..')) throw new Error('init: contract symlink target has unresolved ..')
+      const finalName = suffix[suffix.length - 1]
+      if (finalName === '' || finalName === '.') throw new Error('init: contract symlink target is not a file')
+      const destination = join(current, ...suffix)
+      if (!contained(checkout, current) || !contained(checkout, destination)) {
+        throw new Error('init: contract symlink resolves outside the selected checkout')
+      }
+      return destination
+    }
+
+    if (stat.isSymbolicLink()) {
+      if (++expansions > 40) throw new Error('init: contract symlink resolution exceeds 40 expansions')
+      const bytes = readlinkSync(candidate, { encoding: 'buffer' })
+      if (!Buffer.from(bytes.toString('utf8')).equals(bytes)) {
+        throw new Error('init: contract symlink target is not valid text')
+      }
+      const target = bytes.toString('utf8')
+      const parts = target.split(sep)
+      const expanded: string[] = []
+      for (let partIndex = 0; partIndex < parts.length; partIndex++) {
+        if (parts[partIndex] !== '') expanded.push(parts[partIndex])
+        else if (partIndex === parts.length - 1 && target.endsWith(sep)) expanded.push('')
+      }
+      components.splice(index, 1, ...expanded)
+      if (isAbsolute(target)) current = sep
+      continue
+    }
+
+    if (index === components.length - 1 ? !stat.isFile() : !stat.isDirectory()) {
+      throw new Error('init: contract target is not a regular file')
+    }
+    current = candidate
+    index++
+  }
+
+  if (!contained(checkout, current)) {
+    throw new Error('init: contract symlink resolves outside the selected checkout')
+  }
+  return current
+}
+
+export function readContractFile(root: string): string | null {
+  const file = containedContract(root)
+  return existsSync(file) ? readFileSync(file, 'utf8') : null
+}
+
+function renderContract(repo: string, labels: string[]): string {
+  const here = dirname(fileURLToPath(import.meta.url))
+  const template = readFileSync(join(here, '../templates/issue-tracker.md'), 'utf8')
+  const list = labels.length === 0 ? '(none)' : labels.map((name) => `- \`${name}\``).join('\n')
+  return template.replaceAll('{{REPO}}', repo).replaceAll('{{LABELS}}', list)
+}
+
+export function contractReader(cwd: string, revParse: (cwd: string) => string = gitRevParse): () => string | null {
+  const file = containedContract(repoToplevel(cwd, revParse))
+  return () => (existsSync(file) ? readFileSync(file, 'utf8') : null)
+}
+export function contractAction(
+  cwdRepo: string,
+  repo: string,
+  current: string | null,
+  next: string,
+): InitPlan['contract'] {
+  if (repo !== cwdRepo) return 'skip-other-repo'
+  if (current === null) return 'write'
+  if (current === next) return 'unchanged'
+  return 'keep-existing'
+}
+
+function splitTableRow(line: string): string[] | null {
+  const trimmed = line.trim()
+  if (!trimmed.includes('|') || trimmed.startsWith('#')) return null
+  const cells = trimmed
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map((cell) => cell.trim())
+  return cells.length < 2 ? null : cells
+}
+
+function plainCell(cell: string): string {
+  return cell.replace(/`/g, '').trim()
+}
+
+function parseLabelTable(markdown: string): ContractLabel[] | null {
+  const lines = markdown.split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    const header = splitTableRow(lines[i])
+    if (!header) continue
+    const labelIdx = header.findIndex((cell) => plainCell(cell).toLowerCase() === 'label')
+    const colorIdx = header.findIndex((cell) => /^colou?r$/i.test(plainCell(cell)))
+    if (labelIdx < 0 || colorIdx < 0) continue
+    const labels: ContractLabel[] = []
+    for (const line of lines.slice(i + 1)) {
+      const row = splitTableRow(line)
+      if (!row) break
+      if (row.every((cell) => /^:?-{3,}:?$/.test(plainCell(cell)))) continue
+      const name = plainCell(row[labelIdx] ?? '')
+      if (!name) continue
+      const color = plainCell(row[colorIdx] ?? '')
+        .replace(/^#/, '')
+        .toLowerCase()
+      labels.push({ name, color: color || DEFAULT_LABEL_COLOR })
+    }
+    return labels
+  }
+  return null
+}
+
+function parseTemplateList(markdown: string): ContractLabel[] | null {
+  const lines = markdown.split('\n')
+  const start = lines.findIndex((line) => /^##\s+Labels in use\s*$/.test(line.trim()))
+  if (start < 0) return null
+  const labels: ContractLabel[] = []
+  for (const line of lines.slice(start + 1)) {
+    const trimmed = line.trim()
+    if (/^#{1,6}\s/.test(trimmed)) break
+    if (trimmed === '(none)') return []
+    const bullet = /^[-*]\s+`([^`]+)`\s*$/.exec(trimmed)
+    if (!bullet) continue
+    const name = canonicalSpelling(bullet[1])
+    if (name) labels.push({ name, color: DEFAULT_LABEL_COLOR })
+  }
+  return labels
+}
+
+export function classifyVocabulary(markdown: string): {
+  source: Exclude<VocabularySource, 'canonical'>
+  labels: ContractLabel[]
+} {
+  const table = parseLabelTable(markdown)
+  if (table && table.length > 0) return { source: 'table', labels: table }
+  const list = parseTemplateList(markdown)
+  if (list && list.length > 0) return { source: 'template-list', labels: list }
+  return { source: 'none', labels: [] }
+}
+
+/** Kit `Label | Colour` table, else canonical names listed under `## Labels in use`. */
+export function parseContractLabels(markdown: string): ContractLabel[] {
+  return classifyVocabulary(markdown).labels
+}
+
+function vocabularyFor(current: string | null): { source: VocabularySource; labels: ContractLabel[] } {
+  if (current === null) {
+    return {
+      source: 'canonical',
+      labels: CANONICAL_LABELS.map((name) => ({ name, color: DEFAULT_LABEL_COLOR })),
+    }
+  }
+  return classifyVocabulary(current)
+}
+
+export function relabelTargetsOutside(defined: string[], createLabels: string[], relabels: IssueRelabel[]): string[] {
+  const allowed = new Set([...defined, ...createLabels].map(fold))
+  const outside: string[] = []
+  for (const row of relabels) {
+    for (const add of row.add) {
+      if (!allowed.has(fold(add)) && !outside.some((name) => sameLabel(name, add))) outside.push(add)
+    }
+  }
+  return outside
+}
+
+function vocabularyLine(plan: InitPlan): string {
+  if (plan.refused.some((line) => line.startsWith('vocabulary: none parsed'))) return NONE_PARSED
+  return `vocabulary: ${plan.vocabulary}`
+}
+
+export function formatPlan(plan: InitPlan, dryRun: boolean): string {
+  const pairs = new Map<string, number>()
+  for (const row of plan.relabels) {
+    for (const removed of row.remove) {
+      const move = migrateLabel(removed)
+      const key = `${removed} → ${move.add ?? '(remove)'}`
+      pairs.set(key, (pairs.get(key) ?? 0) + 1)
+    }
+  }
+  const lines = [
+    `repo: ${plan.repo}`,
+    `dry-run: ${dryRun}`,
+    vocabularyLine(plan),
+    `create labels (${plan.createLabels.length}): ${plan.createLabels.join(', ') || '(none)'}`,
+    `relabel issues: ${plan.relabels.length}`,
+    ...[...pairs.entries()].map(([key, count]) => `  ${key}: ${count}`),
+    `prose Blocked by: ${plan.proseBlockedBy.join(', ') || '(none)'}`,
+    `contract: ${plan.contract}`,
+    ...plan.refused.filter((line) => !line.startsWith('vocabulary: none parsed')).map((line) => `refused: ${line}`),
+    `writes: ${dryRun ? 0 : 'pending'}`,
+  ]
+  return lines.join('\n')
+}
+
+export async function buildPlan(
+  repo: string,
+  cwdRepo: string,
+  deps: Pick<InitDeps, 'listLabelNames' | 'listIssueLabelSets' | 'readContract'>,
+): Promise<{ plan: InitPlan; issues: IssueLabels[]; contractText: string }> {
+  const otherRepo = repo !== cwdRepo
+  // Sequential: a parallel rejection would put whichever call failed first into
+  // the error, so two previews of the same repo could disagree and refuse approval.
+  const defined = await deps.listLabelNames(repo)
+  const issues = await deps.listIssueLabelSets(repo)
+  const current = otherRepo ? null : deps.readContract()
+  const parsed = otherRepo ? { source: 'none' as const, labels: [] } : vocabularyFor(current)
+  const createLabels: string[] = []
+  const mismatches: string[] = []
+  for (const row of parsed.labels) {
+    const match = defined.find((name) => sameLabel(name, row.name))
+    if (!match) createLabels.push(row.name)
+    else if (match !== row.name) mismatches.push(`${row.name}: repo has ${match}`)
+  }
+  const relabels = planRelabels(issues)
+  const refused: string[] = []
+  if (otherRepo) {
+    refused.push(`init: --repo ${repo} is not the local repo ${cwdRepo}; refusing without an explicit vocabulary`)
+  }
+  if (!otherRepo && current !== null && parsed.source === 'none') refused.push(NONE_PARSED)
+  for (const row of mismatches) refused.push(`label case mismatch: ${row}`)
+  for (const name of relabelTargetsOutside(defined, createLabels, relabels)) {
+    refused.push(`${name}: not in contract vocabulary, not on repo`)
+  }
+  const labelColors = Object.fromEntries(parsed.labels.map((row) => [row.name, row.color]))
+  const contractText = renderContract(repo, [...defined, ...createLabels].sort())
+  return {
+    issues,
+    contractText,
+    plan: {
+      repo,
+      createLabels,
+      labelColors,
+      relabels,
+      proseBlockedBy: proseBlockedBy(issues),
+      contract: contractAction(cwdRepo, repo, otherRepo ? null : current, contractText),
+      vocabulary: parsed.source,
+      refused,
+    },
+  }
+}
+
+/** Stable representation of exactly the tracker mutations an approval covers. */
+export function canonicalPlan(plan: InitPlan, contractText: string): string {
+  const createLabels = [...plan.createLabels].sort()
+  const relabels = [...plan.relabels]
+    .map((row) => ({ number: row.number, add: [...row.add].sort(), remove: [...row.remove].sort() }))
+    .sort((left, right) => left.number - right.number)
+  const labelColors = Object.fromEntries(
+    createLabels.map((name) => [name, plan.labelColors[name] ?? DEFAULT_LABEL_COLOR]),
+  )
+  return JSON.stringify({
+    createLabels,
+    labelColors,
+    relabels,
+    contract: plan.contract,
+    contractTextSha256: createHash('sha256').update(contractText).digest('hex'),
+    refused: [...plan.refused].sort(),
+  })
+}
+
+/** Applies a plan only after its caller has authenticated the exact canonical plan. */
+export async function applyApprovedPlan(plan: InitPlan, contractText: string, deps: InitDeps): Promise<InitPlan> {
+  if (plan.refused.length > 0) throw new Error(plan.refused.join('\n'))
+  for (const name of plan.createLabels) {
+    await deps.ensureLabel(name, plan.repo, plan.labelColors[name] ?? DEFAULT_LABEL_COLOR)
+  }
+  for (const row of plan.relabels) await deps.updateLabels(row.number, row.add, row.remove, plan.repo)
+  if (plan.contract === 'write') deps.writeContract(contractText)
+  return plan
+}
+
+/** Stable digest of the exact mutations applyApprovedPlan would perform. */
+export function planDigest(plan: InitPlan, contractText: string): string {
+  return createHash('sha256').update(canonicalPlan(plan, contractText)).digest('hex')
+}
+
+/** True when a second pass over the post-migration labels has nothing to do. */
+export function secondPassIsNoop(
+  issues: IssueLabels[],
+  defined: string[],
+  relabels: IssueRelabel[],
+  created: string[],
+  vocabulary: readonly string[] = CANONICAL_LABELS,
+): boolean {
+  const nextIssues = applyRelabels(issues, relabels)
+  const have = new Set([...defined, ...created].map(fold))
+  const missing = vocabulary.filter((name) => !have.has(fold(name)))
+  return planRelabels(nextIssues).length === 0 && missing.length === 0
+}
+
+function parseArgs(args: string[]): {
+  dryRun: boolean
+  approve?: string
+  operatorApproval?: string
+  repo?: string
+  root?: string
+} {
+  let dryRun = false
+  let approve: string | undefined
+  let operatorApproval: string | undefined
+  let repo: string | undefined
+  let root: string | undefined
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]
+    if (arg === '--dry-run') {
+      dryRun = true
+      continue
+    }
+    if (arg === '--approve' || arg === '--operator-approval' || arg === '--repo' || arg === '--root') {
+      const value = args[i + 1]
+      if (!value || value.startsWith('-')) {
+        throw new Error(
+          arg === '--approve'
+            ? 'init: --approve needs a digest'
+            : arg === '--operator-approval'
+              ? 'init: --operator-approval needs the operator reply'
+              : arg === '--repo'
+                ? 'init: --repo needs owner/repo'
+                : 'init: --root needs a checkout path',
+        )
+      }
+      if (arg === '--approve') approve = value
+      else if (arg === '--operator-approval') operatorApproval = value
+      else if (arg === '--repo') repo = value
+      else root = value
+      i++
+      continue
+    }
+    throw new Error(`init: unknown argument ${arg}`)
+  }
+  return { dryRun, approve, operatorApproval, repo, root }
+}
+
+export function defaultInitDeps(cwdRepo: string, cwd = process.cwd()): InitDeps {
+  const root = repoToplevel(cwd)
+  return {
+    listLabelNames,
+    listIssueLabelSets,
+    ensureLabel,
+    updateLabels,
+    cwdRepo,
+    listOrgIssueTypeNames: async (org) => (await listEnabledOrgIssueTypes(org)).map((type) => type.name),
+    readContract: contractReader(cwd),
+    writeContract: (text) => {
+      const destination = containedContract(root)
+      mkdirSync(dirname(destination), { recursive: true })
+      const physical = containedContract(root)
+      writeFileSync(physical, text)
+    },
+  }
+}
+
+/** One report line: canonical issue types the org lacks. A lookup failure is reported, never fatal. */
+async function issueTypeReport(repo: string, deps: Pick<InitDeps, 'listOrgIssueTypeNames'>): Promise<string | null> {
+  if (!deps.listOrgIssueTypeNames) return null
+  const org = repo.split('/')[0]
+  try {
+    const have = new Set((await deps.listOrgIssueTypeNames(org)).map(fold))
+    const missing = [...ISSUE_TYPE_NAMES, ...EXTENDED_ISSUE_TYPES].filter((name) => !have.has(fold(name)))
+    if (missing.length === 0) return 'missing org issue types: (none)'
+    return `missing org issue types (${missing.length}): ${missing.join(', ')}`
+  } catch (error) {
+    return `org issue types: unavailable (${(error as Error).message})`
+  }
+}
+
+export async function initIssues(args: string[], deps?: InitDeps): Promise<InitPlan> {
+  const { dryRun, approve, operatorApproval, repo: repoFlag, root } = parseArgs(args)
+  const cwdRepo = deps?.cwdRepo ?? detectGitHubRepo()
+  const repo = repoFlag ?? cwdRepo
+  const bound = deps ?? defaultInitDeps(cwdRepo, root)
+  const { plan, contractText } = await buildPlan(repo, cwdRepo, bound)
+  const digest = planDigest(plan, contractText)
+  // Preview is the default. Printing the plan is not approval (Spec B / #805).
+  console.log(formatPlan(plan, dryRun || approve === undefined))
+  if (dryRun) {
+    const typeLine = await issueTypeReport(repo, bound)
+    if (typeLine) console.log(typeLine)
+  }
+  console.log(`digest: ${digest}`)
+  console.log('digest is not authorization')
+  if (dryRun || approve === undefined) return plan
+  // Strip whitespace + Cf (ZWSP/ZWNJ/…) so digest±format-chars cannot pass as a
+  // distinct operator reply (Spec B: digest is not authorization).
+  const normalizedApproval = (operatorApproval ?? '').replace(/[\s\p{Cf}]/gu, '')
+  if (!approve || !normalizedApproval || normalizedApproval === approve || normalizedApproval === digest) {
+    throw new Error('init=refused explicit operator approval is required')
+  }
+  if (approve !== digest) throw new Error('init=refused approval digest does not match the preview')
+  return applyApprovedPlan(plan, contractText, bound)
+}

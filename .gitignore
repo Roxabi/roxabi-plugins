@@ -19,3 +19,7 @@ node_modules/
 
 # CI-generated (stripped) TruffleHog exclude — never commit
 trufflehog-exclude.txt
+.semctx/*
+!.semctx/semantic/
+!.semctx/semantic/**
+!.semctx/config.json
