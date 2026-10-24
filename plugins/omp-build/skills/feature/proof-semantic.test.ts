@@ -6,14 +6,11 @@ import { createHash } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
-import {
-  admitLanding,
-  captureReviewInput,
-  type Git,
-  hashReviewInput,
-  proofSemanticContext,
-  reviewSemanticCanon,
-} from './proof'
+import { admitLanding } from './proof-admission'
+import type { Git } from './proof-base'
+import { captureReviewInput } from './proof-capture'
+import { proofSemanticContext, reviewSemanticCanon } from './proof-context'
+import { hashReviewInput } from './proof-context-hash'
 
 function digest(body: string): string {
   return createHash('sha256').update(body, 'utf8').digest('hex')

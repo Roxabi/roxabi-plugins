@@ -1,7 +1,14 @@
+import { execFileSync } from 'node:child_process'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { createExtensionApiStub } from '../omp/__tests__/extension-api-stub.ts'
-import ompBuildExtension, { createOmpFixPort } from '../omp/index.ts'
-import type { NativeBatch, NativeBatchResult, NativeChildResult } from '../omp/review-runtime.ts'
-import { loadFeatureWorkflow } from '../roxabi/feature-entry.ts'
+import ompBuildExtension from '../omp/index.ts'
+import { createOmpFixPort } from '../omp/omp-controller.ts'
+import { loadFeatureWorkflow } from '../roxabi/feature-loader.ts'
+import { invokeOmpIncompleteNative } from './feature-recovery-incomplete-native.ts'
+import { invokeOmpLiveInterleave } from './feature-recovery-live-interleave.ts'
+import { observedIncompleteNativeResult } from './feature-recovery-observed-native.ts'
+import { invokeOmpReviewApplyFalsify, invokeOmpReviewLifecycle } from './feature-review-lifecycle.ts'
+import { invokeReviewRace } from './feature-review-races.ts'
 
 type Payload = {
   reference: string
@@ -27,19 +34,46 @@ function payloadFrom(raw: unknown): Payload {
   }
 }
 
-function incompleteNativeResult(batch: NativeBatch): NativeBatchResult {
-  const child: NativeChildResult = {
-    id: null,
-    expectedId: batch.tasks.tasks[0]?.name ?? null,
-    submissions: [],
-    proofEvidence: null,
-    raw: null,
-    partialText: null,
-    structured: null,
-    usable: false,
-    reason: 'missing-native-result',
+function createConcurrentPausePull(cwd: string): number {
+  const head = execFileSync('git', ['branch', '--show-current'], { cwd, encoding: 'utf8' }).trim()
+  if (head.length === 0) throw new Error('pause branch unavailable')
+  const raw = execFileSync(
+    'gh',
+    [
+      'api',
+      'repos/acme/app/pulls',
+      '--method',
+      'POST',
+      '-f',
+      `head=${head}`,
+      '-f',
+      'base=main',
+      '-f',
+      'title=concurrent pause disarm fixture',
+    ],
+    { cwd, encoding: 'utf8' },
+  )
+  const created: unknown = JSON.parse(raw)
+  if (
+    created === null ||
+    typeof created !== 'object' ||
+    !('number' in created) ||
+    typeof created.number !== 'number' ||
+    !Number.isSafeInteger(created.number)
+  ) {
+    throw new Error('pause pull creation unreadable')
   }
-  return { batch, children: [child], raw: null, complete: false }
+  return created.number
+}
+
+function makePauseDisarmUnreadable(pr: number): void {
+  const stateFile = process.env.GH_SIM_STATE
+  if (stateFile === undefined) throw new Error('pause simulator state unavailable')
+  const state = JSON.parse(readFileSync(stateFile, 'utf8')) as { prs?: Record<string, { labels?: unknown }> }
+  const pull = state.prs?.[String(pr)]
+  if (pull === undefined) throw new Error('pause disarm pull request unavailable')
+  pull.labels = [1]
+  writeFileSync(stateFile, JSON.stringify(state, null, 2))
 }
 
 const [operation, cwd, payloadText] = process.argv.slice(2)
@@ -52,24 +86,10 @@ async function continueFeature() {
     reference: payload.reference,
     control: payload.control,
     principal: false,
-    native: {
-      activate() {
-        throw new Error('unexpected-native-activation')
-      },
-      inactive() {
-        throw new Error('unexpected-native-inactivation')
-      },
-      async stopOwned() {
-        throw new Error('unexpected-native-stop')
-      },
-      async announce() {
-        throw new Error('unexpected-native-announcement')
-      },
-    },
   })
 }
 
-async function invoke(operationName: string): Promise<unknown> {
+async function invokeWorkflowOperation(operationName: string): Promise<unknown | null> {
   switch (operationName) {
     case 'continue':
       return continueFeature()
@@ -83,9 +103,10 @@ async function invoke(operationName: string): Promise<unknown> {
     case 'continuation-publish': {
       const continuation = await continueFeature()
       if (continuation.kind !== 'action') throw new Error(`continuation-not-action:${continuation.kind}`)
+      const result = await observedIncompleteNativeResult(continuation.followUp)
       const published = await workflow.publishFeatureNativeResult({
         cwd: cwd ?? '',
-        result: incompleteNativeResult(continuation.followUp),
+        result,
         start: continuation.start,
       })
       return {
@@ -107,16 +128,46 @@ async function invoke(operationName: string): Promise<unknown> {
       })
       return { result, interrupts }
     }
+    default:
+      return null
+  }
+}
+
+async function invokeSdkDriver(operationName: string): Promise<unknown> {
+  switch (operationName) {
     case 'omp-pause':
       return invokeOmpBridge()
+    case 'omp-unconfirmed-pause':
+      return invokeOmpBridge(true)
     case 'omp-lifetime':
       return invokeOmpLifetime()
+    case 'omp-incomplete-native':
+      return invokeOmpIncompleteNative(cwd ?? '')
+    case 'omp-live-interleave':
+      return invokeOmpLiveInterleave(cwd ?? '')
+    case 'omp-review-lifecycle':
+      return invokeOmpReviewLifecycle(
+        cwd ?? '',
+        payload.control === 'pause' ? 'fresh-pause' : payload.control === 'resume' ? 'publication-pause' : 'fix',
+      )
+    case 'omp-review-apply-falsify':
+      return invokeOmpReviewApplyFalsify(cwd ?? '')
+    case 'omp-review-race-latest':
+    case 'omp-review-race-pause':
+      return invokeReviewRace(cwd ?? '', operationName === 'omp-review-race-latest' ? 'latest' : 'pause')
     default:
       throw new Error(`unknown operation ${operationName}`)
   }
 }
 
-async function invokeOmpBridge(): Promise<{ messages: string[] }> {
+async function invoke(operationName: string): Promise<unknown> {
+  const workflowResult = await invokeWorkflowOperation(operationName)
+  return workflowResult ?? invokeSdkDriver(operationName)
+}
+
+async function invokeOmpBridge(
+  injectUnconfirmedPause = false,
+): Promise<{ messages: string[]; pausePr: number | null }> {
   const commands = new Map<string, Handler>()
   const events = new Map<string, Handler[]>()
   const messages: string[] = []
@@ -151,10 +202,12 @@ async function invokeOmpBridge(): Promise<{ messages: string[] }> {
   const feature = commands.get('feature')
   if (feature === undefined) throw new Error('feature-command-unregistered')
   await feature('#42', context)
+  const pausePr = injectUnconfirmedPause ? createConcurrentPausePull(cwd ?? '') : null
+  if (pausePr !== null) makePauseDisarmUnreadable(pausePr)
   for (const handler of events.get('message_end') ?? []) {
     await handler({ message: { role: 'assistant', stopReason: 'aborted', errorId: 67_108_864 } }, context)
   }
-  return { messages }
+  return { messages, pausePr }
 }
 
 async function invokeOmpLifetime(): Promise<{

@@ -102,6 +102,83 @@ function candidateAdmissionIsComplete(cause: CorrectionCause): boolean {
   )
 }
 
+type CauseAdmissionContext = {
+  policy: FixPolicy
+  findingsById: ReadonlyMap<string, FixFinding>
+  causeIds: ReadonlySet<string>
+  claimed: Set<string>
+}
+
+function addCausePlanDiagnostics(cause: CorrectionCause, diagnostics: string[]): void {
+  if (!validId(cause.id)) diagnostics.push('cause-id-invalid')
+  if (![cause.title, cause.mechanism, cause.fix, cause.failure, cause.restored, cause.proof].every(nonEmpty)) {
+    diagnostics.push('seven-field-plan-incomplete')
+  }
+  if (cause.paths.length === 0 || cause.paths.some((path) => !nonEmpty(path))) diagnostics.push('paths-invalid')
+  if (cause.findingIds.length === 0 || cause.findingIds.some((id) => !validId(id))) diagnostics.push('members-invalid')
+}
+
+function classifyFindingMember(finding: FixFinding | undefined, findingId: string, diagnostics: string[]): boolean {
+  if (!finding) {
+    diagnostics.push(`member-unknown:${findingId}`)
+    return false
+  }
+  if (!finding.usable || finding.label === null) diagnostics.push(`member-unusable:${findingId}`)
+  else if (!isKnownReviewLabel(finding.label)) diagnostics.push(`member-label-unknown:${findingId}`)
+  else if (!isActionableReviewLabel(finding.label)) diagnostics.push(`member-nonactionable:${findingId}`)
+  return isBlockingLabel(finding.label)
+}
+
+function hasBlockingMember(cause: CorrectionCause, context: CauseAdmissionContext, diagnostics: string[]): boolean {
+  let found = false
+  for (const findingId of cause.findingIds) {
+    if (classifyFindingMember(context.findingsById.get(findingId), findingId, diagnostics)) found = true
+    if (context.claimed.has(findingId)) diagnostics.push(`member-duplicate:${findingId}`)
+    context.claimed.add(findingId)
+  }
+  return found
+}
+
+function admissionResult(cause: CorrectionCause, diagnostics: string[], required: boolean): CauseAdmission {
+  return diagnostics.length === 0 ? { status: 'selected', cause, required } : { status: 'retained', cause, diagnostics }
+}
+
+function addOptionalAuthorizationDiagnostics(
+  cause: CorrectionCause,
+  causeIds: ReadonlySet<string>,
+  diagnostics: string[],
+): void {
+  if (!cause.authorization || typeof cause.authorization !== 'object') {
+    diagnostics.push('candidate-authorization-required')
+    return
+  }
+  const parent = cause.authorization.optionalNeighborOf
+  if (!validId(parent) || parent === cause.id || !causeIds.has(parent)) diagnostics.push('optional-parent-invalid')
+}
+
+function admitCandidateCause(
+  cause: CorrectionCause,
+  context: CauseAdmissionContext,
+  diagnostics: string[],
+): CauseAdmission {
+  if (!admissionPresent(cause.admission)) diagnostics.push('candidate-admission-required')
+  if (!candidateAdmissionIsComplete(cause)) diagnostics.push('candidate-admission-incomplete')
+  if (cause.authorization === 'required') return admissionResult(cause, diagnostics, true)
+  addOptionalAuthorizationDiagnostics(cause, context.causeIds, diagnostics)
+  return admissionResult(cause, diagnostics, false)
+}
+
+function admitCause(cause: CorrectionCause, context: CauseAdmissionContext): CauseAdmission {
+  const diagnostics: string[] = []
+  addCausePlanDiagnostics(cause, diagnostics)
+  const blockingMember = hasBlockingMember(cause, context, diagnostics)
+  if (context.policy.version === 'baseline') {
+    if (!blockingMember) diagnostics.push('baseline-blocking-member-required')
+    return admissionResult(cause, diagnostics, true)
+  }
+  return admitCandidateCause(cause, context, diagnostics)
+}
+
 /**
  * Admit only a posted decision's exact causes. This intentionally does not infer
  * identity, merge findings, or promote labels: those remain the model decision.
@@ -111,58 +188,13 @@ export function admitCorrectionCauses(
   causes: readonly CorrectionCause[],
   findings: readonly FixFinding[],
 ): CauseAdmission[] {
-  const findingsById = new Map(findings.map((finding) => [finding.id, finding]))
-  const causeIds = new Set(causes.map((cause) => cause.id))
-  const claimed = new Set<string>()
-
-  const admissions: CauseAdmission[] = causes.map((cause): CauseAdmission => {
-    const diagnostics: string[] = []
-    if (!validId(cause.id)) diagnostics.push('cause-id-invalid')
-    if (![cause.title, cause.mechanism, cause.fix, cause.failure, cause.restored, cause.proof].every(nonEmpty)) {
-      diagnostics.push('seven-field-plan-incomplete')
-    }
-    if (cause.paths.length === 0 || cause.paths.some((path) => !nonEmpty(path))) diagnostics.push('paths-invalid')
-    if (cause.findingIds.length === 0 || cause.findingIds.some((id) => !validId(id)))
-      diagnostics.push('members-invalid')
-
-    let hasBlockingMember = false
-    for (const findingId of cause.findingIds) {
-      const finding = findingsById.get(findingId)
-      if (!finding) diagnostics.push(`member-unknown:${findingId}`)
-      else {
-        if (!finding.usable || finding.label === null) diagnostics.push(`member-unusable:${findingId}`)
-        else if (!isKnownReviewLabel(finding.label)) diagnostics.push(`member-label-unknown:${findingId}`)
-        else if (!isActionableReviewLabel(finding.label)) diagnostics.push(`member-nonactionable:${findingId}`)
-        if (isBlockingLabel(finding.label)) hasBlockingMember = true
-      }
-      if (claimed.has(findingId)) diagnostics.push(`member-duplicate:${findingId}`)
-      claimed.add(findingId)
-    }
-
-    if (policy.version === 'baseline') {
-      if (!hasBlockingMember) diagnostics.push('baseline-blocking-member-required')
-      return diagnostics.length === 0
-        ? { status: 'selected', cause, required: true }
-        : { status: 'retained', cause, diagnostics }
-    }
-
-    if (!admissionPresent(cause.admission)) diagnostics.push('candidate-admission-required')
-    if (!candidateAdmissionIsComplete(cause)) diagnostics.push('candidate-admission-incomplete')
-    if (cause.authorization === 'required') {
-      return diagnostics.length === 0
-        ? { status: 'selected', cause, required: true }
-        : { status: 'retained', cause, diagnostics }
-    }
-    if (!cause.authorization || typeof cause.authorization !== 'object') {
-      diagnostics.push('candidate-authorization-required')
-    } else {
-      const parent = cause.authorization.optionalNeighborOf
-      if (!validId(parent) || parent === cause.id || !causeIds.has(parent)) diagnostics.push('optional-parent-invalid')
-    }
-    return diagnostics.length === 0
-      ? { status: 'selected', cause, required: false }
-      : { status: 'retained', cause, diagnostics }
-  })
+  const context: CauseAdmissionContext = {
+    policy,
+    findingsById: new Map(findings.map((finding) => [finding.id, finding])),
+    causeIds: new Set(causes.map((cause) => cause.id)),
+    claimed: new Set<string>(),
+  }
+  const admissions = causes.map((cause) => admitCause(cause, context))
   if (policy.version === 'baseline') return admissions
   const selectedRequired = new Set<string>()
   for (const admission of admissions) {

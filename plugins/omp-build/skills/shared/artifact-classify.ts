@@ -115,46 +115,50 @@ export function artifactStatus(path: string): string {
   return classifyFile(path).status
 }
 
-/**
- * First file in dir that is name-matched (anchored N, else slug) AND kind=analysis.
- * Candidate order matches the previous bash: ls order for N matches, then slug.
- */
+/** First matching analysis, preferring anchored issue-number matches over slug matches. */
 export function resolveAnalysis(dir: string, n: string, slug: string): string {
-  let entries: string[]
-  try {
-    if (!statSync(dir).isDirectory()) return ''
-    entries = readdirSync(dir)
-  } catch {
-    return ''
-  }
-
-  const candidates: string[] = []
-  const seen = new Set<string>()
-
-  if (n) {
-    // Anchored: char before N is start or non-digit, then N-, so #4 ¬matches #14.
-    const anchor = new RegExp(`(^|[^0-9])${escapeRegExp(n)}-`)
-    for (const name of entries) {
-      if (anchor.test(name) && !seen.has(name)) {
-        seen.add(name)
-        candidates.push(name)
-      }
-    }
-  }
-  if (slug) {
-    const needle = slug.toLowerCase()
-    for (const name of entries) {
-      if (name.toLowerCase().includes(needle) && !seen.has(name)) {
-        seen.add(name)
-        candidates.push(name)
-      }
-    }
-  }
-
-  for (const name of candidates) {
+  const entries = directoryEntries(dir)
+  if (entries === null) return ''
+  for (const name of analysisCandidates(entries, n, slug)) {
     if (artifactKind(join(dir, name)) === 'analysis') return name
   }
   return ''
+}
+
+function directoryEntries(dir: string): string[] | null {
+  try {
+    return statSync(dir).isDirectory() ? readdirSync(dir) : null
+  } catch {
+    return null
+  }
+}
+
+function analysisCandidates(entries: string[], n: string, slug: string): string[] {
+  const candidates: string[] = []
+  const seen = new Set<string>()
+  if (n) {
+    const anchor = new RegExp(`(^|[^0-9])${escapeRegExp(n)}-`)
+    appendMatches(entries, candidates, seen, (name) => anchor.test(name))
+  }
+  if (slug) {
+    const needle = slug.toLowerCase()
+    appendMatches(entries, candidates, seen, (name) => name.toLowerCase().includes(needle))
+  }
+  return candidates
+}
+
+function appendMatches(
+  entries: string[],
+  candidates: string[],
+  seen: Set<string>,
+  matches: (name: string) => boolean,
+): void {
+  for (const name of entries) {
+    if (matches(name) && !seen.has(name)) {
+      seen.add(name)
+      candidates.push(name)
+    }
+  }
 }
 
 function escapeRegExp(s: string): string {

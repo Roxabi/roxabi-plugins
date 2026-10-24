@@ -6,17 +6,15 @@
 import { describe, expect, it } from 'vitest'
 import {
   ASSERTLEDGER_CONFIG,
-  type CandidateFacts,
   CONFIG,
-  compareApplicableProofPins,
   type Git,
   type GitResult,
   PROOF_CONFIG_PATHS,
   type ProofConfigPin,
-  readProofConfigPins,
-  rereadProofConfigPins,
   STACK,
-} from './proof'
+} from './proof-base'
+import type { CandidateFacts } from './proof-candidate'
+import { compareApplicableProofPins, readProofConfigPins, rereadProofConfigPins } from './proof-pins'
 
 const COMMIT = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 const OTHER = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'

@@ -4,7 +4,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import type { GitRunner } from './workflow-config.ts'
+import type { GitRunner } from './workflow-pins.ts'
 
 const execFileAsync = promisify(execFile)
 const SHA = /^[0-9a-f]{40}$/
@@ -25,17 +25,32 @@ export type SessionWorktreeIdentity =
 
 type Worktree = { path: string; branch: string | null; detached: boolean }
 
+function failedGitStatus(error: object): number {
+  if (!('status' in error) || typeof error.status !== 'number') return 1
+  return error.status
+}
+
+function failedGitOutput(error: object, field: 'stdout' | 'stderr'): string {
+  if (field === 'stdout') return 'stdout' in error && typeof error.stdout === 'string' ? error.stdout : ''
+  return 'stderr' in error && typeof error.stderr === 'string' ? error.stderr : ''
+}
+
+function failedGitResult(error: unknown): { code: number; stdout: string; stderr: string } {
+  if (error === null || typeof error !== 'object') return { code: 1, stdout: '', stderr: '' }
+  return {
+    code: failedGitStatus(error),
+    stdout: failedGitOutput(error, 'stdout'),
+    stderr: failedGitOutput(error, 'stderr'),
+  }
+}
+
 export function defaultGit(): GitRunner {
   return async (cwd, args) => {
     try {
       const out = await execFileAsync('git', args, { cwd, encoding: 'utf8' })
       return { code: 0, stdout: out.stdout, stderr: out.stderr }
     } catch (error) {
-      const failed = error !== null && typeof error === 'object' ? error : {}
-      const code = 'status' in failed && typeof failed.status === 'number' ? failed.status : 1
-      const stdout = 'stdout' in failed && typeof failed.stdout === 'string' ? failed.stdout : ''
-      const stderr = 'stderr' in failed && typeof failed.stderr === 'string' ? failed.stderr : ''
-      return { code, stdout, stderr }
+      return failedGitResult(error)
     }
   }
 }
@@ -115,29 +130,31 @@ function refusedBase(path: string): boolean {
   return path === '/wt' || path.endsWith('/wt')
 }
 
-function worktreeRoot(principal: string, stackText: string | null): string | { reason: string } {
+function environmentWorktreeRoot(): string | { reason: string } | null {
   const env = process.env.OMP_WORKTREE_DIR
-  if (typeof env === 'string' && env.length > 0) {
-    if (refusedBase(env)) return { reason: 'worktree-base-refused' }
-    return env
-  }
-  if (stackText !== null) {
-    const parsed: unknown = Bun.YAML.parse(stackText)
-    if (parsed !== null && typeof parsed === 'object' && 'worktree' in parsed) {
-      const worktree = parsed.worktree
-      if (
-        worktree !== null &&
-        typeof worktree === 'object' &&
-        'base' in worktree &&
-        typeof worktree.base === 'string'
-      ) {
-        const base = worktree.base.startsWith('/') ? worktree.base : join(principal, worktree.base)
-        if (refusedBase(base)) return { reason: 'worktree-base-refused' }
-        return base
-      }
-    }
-  }
-  return join(homedir(), '.omp/wt')
+  if (typeof env !== 'string' || env.length === 0) return null
+  return refusedBase(env) ? { reason: 'worktree-base-refused' } : env
+}
+
+function stackWorktreeBase(stack: unknown): string | null {
+  if (stack === null || typeof stack !== 'object' || !('worktree' in stack)) return null
+  const worktree = stack.worktree
+  if (worktree === null || typeof worktree !== 'object' || !('base' in worktree)) return null
+  return typeof worktree.base === 'string' ? worktree.base : null
+}
+
+function stackWorktreeRoot(principal: string, stackText: string | null): string | { reason: string } | null {
+  if (stackText === null) return null
+  const configuredBase = stackWorktreeBase(Bun.YAML.parse(stackText))
+  if (configuredBase === null) return null
+  const base = configuredBase.startsWith('/') ? configuredBase : join(principal, configuredBase)
+  return refusedBase(base) ? { reason: 'worktree-base-refused' } : base
+}
+
+function worktreeRoot(principal: string, stackText: string | null): string | { reason: string } {
+  const environmentRoot = environmentWorktreeRoot()
+  if (environmentRoot !== null) return environmentRoot
+  return stackWorktreeRoot(principal, stackText) ?? join(homedir(), '.omp/wt')
 }
 
 /**

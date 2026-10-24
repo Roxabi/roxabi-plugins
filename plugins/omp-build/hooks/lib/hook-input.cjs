@@ -21,7 +21,7 @@ function readStdinJsonSync() {
   try {
     if (process.stdin.isTTY) return null
     const raw = fs.readFileSync(0, 'utf8')
-    if (!raw || !raw.trim()) return null
+    if (!raw?.trim()) return null
     return JSON.parse(raw)
   } catch {
     return null
@@ -32,59 +32,58 @@ function readStdinJsonSync() {
  * @returns {{ toolName: string|null, toolInput: object, filePaths: string[], envelope: object|null }}
  */
 function loadHookInput() {
-  let toolInput = {}
-  let toolName = null
-  let envelope = null
-
-  // Claude path: env present → do not touch stdin (avoids hang if pipe left open)
-  const hasClaudeEnv = !!(
-    process.env.CLAUDE_TOOL_INPUT ||
-    process.env.CLAUDE_FILE_PATHS
-  )
-
-  if (process.env.CLAUDE_TOOL_INPUT) {
-    try {
-      const fromEnv = JSON.parse(process.env.CLAUDE_TOOL_INPUT)
-      if (fromEnv && typeof fromEnv === 'object') toolInput = fromEnv
-    } catch {
-      // ignore malformed env
-    }
+  const claudeInput = claudeToolInput()
+  const hasClaudeEnv = Boolean(process.env.CLAUDE_TOOL_INPUT || process.env.CLAUDE_FILE_PATHS)
+  const envelope = hasClaudeEnv ? null : readStdinJsonSync()
+  const grokInput = envelopeInput(envelope)
+  const toolInput = claudeInput || grokInput.toolInput || {}
+  return {
+    toolName: grokInput.toolName,
+    toolInput,
+    filePaths: uniquePaths(claudeFilePaths().concat(toolInputPaths(toolInput))),
+    envelope,
   }
+}
 
-  if (!hasClaudeEnv) {
-    envelope = readStdinJsonSync()
-    if (envelope && typeof envelope === 'object') {
-      toolName = envelope.toolName || envelope.tool_name || null
-      const ti = envelope.toolInput || envelope.tool_input
-      if (ti && typeof ti === 'object') toolInput = ti
-    }
+function claudeToolInput() {
+  const raw = process.env.CLAUDE_TOOL_INPUT
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : null
+  } catch {
+    return null
   }
+}
 
-  const filePaths = []
-
-  if (process.env.CLAUDE_FILE_PATHS) {
-    for (const p of process.env.CLAUDE_FILE_PATHS.split('\n')) {
-      const t = p.trim()
-      if (t) filePaths.push(t)
-    }
+function envelopeInput(envelope) {
+  if (!envelope || typeof envelope !== 'object') return { toolName: null, toolInput: null }
+  const toolInput = envelope.toolInput || envelope.tool_input
+  return {
+    toolName: envelope.toolName || envelope.tool_name || null,
+    toolInput: toolInput && typeof toolInput === 'object' ? toolInput : null,
   }
+}
 
-  // Single path fields (Claude Edit/Write + Grok search_replace/write)
-  for (const key of ['file_path', 'filePath', 'path']) {
-    const v = toolInput[key]
-    if (typeof v === 'string' && v.trim()) filePaths.push(v.trim())
-  }
+function claudeFilePaths() {
+  const raw = process.env.CLAUDE_FILE_PATHS
+  return raw
+    ? raw
+        .split('\n')
+        .map((path) => path.trim())
+        .filter(Boolean)
+    : []
+}
 
-  const seen = new Set()
-  const uniq = []
-  for (const p of filePaths) {
-    if (!seen.has(p)) {
-      seen.add(p)
-      uniq.push(p)
-    }
-  }
+function toolInputPaths(toolInput) {
+  return ['file_path', 'filePath', 'path']
+    .map((key) => toolInput[key])
+    .filter((value) => typeof value === 'string' && value.trim())
+    .map((value) => value.trim())
+}
 
-  return { toolName, toolInput, filePaths: uniq, envelope }
+function uniquePaths(paths) {
+  return [...new Set(paths)]
 }
 
 /**
@@ -94,13 +93,7 @@ function loadHookInput() {
  */
 function extractWriteContent(toolInput) {
   if (!toolInput || typeof toolInput !== 'object') return ''
-  return (
-    toolInput.content ||
-    toolInput.new_string ||
-    toolInput.newString ||
-    toolInput.new_str ||
-    ''
-  )
+  return toolInput.content || toolInput.new_string || toolInput.newString || toolInput.new_str || ''
 }
 
 /**

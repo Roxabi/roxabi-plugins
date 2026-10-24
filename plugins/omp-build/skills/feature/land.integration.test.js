@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { AUTHOR, HEADS, historyPage, PR, REPOSITORY, reviewHistory } from './review-record-fixture.js'
-import { readReviewRecords } from './workflow.js'
+import { readReviewRecords } from './workflow-records.js'
 
 describe('record transport admission', () => {
   it('refuses a newer incomplete final review instead of falling back to an older approval', async () => {

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, test } from 'vitest'
-import { decodeHistory, encodeRecord } from '../../adapters/github.ts'
+import { decodeHistory, encodeRecord } from '../../adapters/github/history-codec.ts'
 import { encodedAdmissionReviewGraph } from '../../testing/record-admission.ts'
 import { finding, NATIVE_AUTHOR, submission, TEST_HEAD, TEST_SCOPE } from '../../testing/record-builders.ts'
 import { reviewGraph } from '../../testing/record-graphs.ts'

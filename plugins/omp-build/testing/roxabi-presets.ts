@@ -3,12 +3,8 @@ import { readFileSync } from 'node:fs'
 import type { PlanOutput } from '../engine/workflow-output-schema.ts'
 import type { PlanReviewSlot } from '../engine/workflow-receipt-schema.ts'
 import { loadReviewConfig } from '../roxabi/review-config.ts'
-import {
-  configPinDigest,
-  effectiveWorkflowConfig,
-  installedProductVersion,
-  WORKFLOW_CONFIG_VERSION,
-} from '../roxabi/workflow-config.ts'
+import { configPinDigest, effectiveWorkflowConfig, installedProductVersion } from '../roxabi/workflow-config-digest.ts'
+import { WORKFLOW_CONFIG_VERSION } from '../roxabi/workflow-graph.ts'
 import { encodedAdmissionReviewGraph } from './record-admission.ts'
 import { projectionConfig } from './record-builders.ts'
 import { createWorkflowActionFixtures } from './workflow-actions.ts'

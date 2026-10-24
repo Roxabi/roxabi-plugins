@@ -3,11 +3,13 @@ pre-commit:
     lint:
       run: bunx biome check --write --no-errors-on-unmatched {staged_files}
       glob: "*.{ts,tsx,js,jsx}"
+    omp-build-quality:
+      run: bun run quality:omp-build
+      glob: "{plugins/omp-build/**,tools/**/*omp-build*,tools/**/*omp-build*/**}"
     typecheck:
-      # tsconfig `include` is *.ts only and allowJs is off, so a commit with no
-      # TypeScript staged has nothing to check. Without this glob the step ran
-      # a repo-wide tsc on doc-only commits — and failed outright in a fresh
-      # worktree, where node_modules (and therefore tsc) does not exist yet.
+      # tsconfig declares TypeScript roots. `allowJs` permits reachable JavaScript
+      # dependencies but does not make arbitrary staged JS a root; keep this
+      # TypeScript-only trigger so doc-only commits do not invoke repo-wide tsc.
       run: bun run typecheck
       glob: "*.{ts,tsx}"
     trufflehog:
@@ -21,12 +23,6 @@ pre-commit:
       run: "if [ -f .venv/bin/python ]; then .venv/bin/python tools/license_check.py; else echo 'SKIP: license-check (no .venv)' >&2; fi"
     taxonomy-sync:
       run: "if [ -f .venv/bin/python ]; then .venv/bin/python tools/validate_plugins.py; else echo 'SKIP: taxonomy-sync (no .venv)' >&2; fi"
-    taxonomy-class-list-sync:
-      run: "if [ -f .venv/bin/python ]; then .venv/bin/python tools/validate_plugins.py --check class-list-sync; else echo 'SKIP: taxonomy-class-list-sync (no .venv)' >&2; fi"
-      glob: "plugins/omp-build/skills/dev-review/{review-classes.yml,SKILL.md}"
-    taxonomy-subsumption-pairs:
-      run: "if [ -f .venv/bin/python ]; then .venv/bin/python tools/validate_plugins.py --check subsumption-pairs; else echo 'SKIP: taxonomy-subsumption-pairs (no .venv)' >&2; fi"
-      glob: "plugins/omp-build/skills/dev-review/{review-classes.yml,SKILL.md}"
 
 commit-msg:
   commands:

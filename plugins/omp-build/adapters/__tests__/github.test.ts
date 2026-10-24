@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { History } from '../../engine/history-schema.ts'
-import { decodeHistory, githubScope, readGitHubHistory } from '../github.ts'
+import { decodeHistory } from '../github/history-codec.ts'
+import { githubScope, readGitHubHistory } from '../github/transport.ts'
 
 const handcraftedBody =
   '<!-- omp-build-record v=1 kind=proof id=proof-1 operationId=operation-1 part=1/1 data=eyJyZXBvc2l0b3J5IjoiYWNtZS9hcHAiLCJ0YXJnZXQiOiJhY21lL2FwcCM0MiIsInZlcnNpb24iOjEsInJlY29yZElkIjoicHJvb2YtMSIsInJ1bklkIjoicnVuLTEiLCJvcGVyYXRpb25JZCI6Im9wZXJhdGlvbi0xIiwiaW5wdXRzIjpbXSwia2luZCI6InByb29mIiwicGF5bG9hZCI6eyJjYW5kaWRhdGVHaXRTSEEiOiJhYmMiLCJkYXRhIjp7InZlcmlmaWVkIjp0cnVlfX19 -->\n# Retained projection'

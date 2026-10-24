@@ -125,49 +125,49 @@ function matchHighTrafficBranchMove(cmd) {
  * @returns {{ target: string }|null}
  */
 function matchGitArgs(args) {
-  // Pure path restore
   if (/^checkout\s+--\s/.test(args)) return null
-
-  // git switch … <target>
-  let m = args.match(
-    /^switch\s+((?:(?:-[cC]|--create(?:=\S+)?|--force-create|--detach|-d|-t|--track|-f|--force|-q|--quiet|--guess|--no-guess)\s+)*)([^\s;&|"']+)/,
+  return (
+    switchTarget(args) ||
+    checkoutCreateTarget(args) ||
+    checkoutTarget(args) ||
+    branchMoveTarget(args) ||
+    stashBranchTarget(args) ||
+    symbolicRefTarget(args)
   )
-  if (m) {
-    const target = m[2]
-    if (target === '-' || target === '@{-1}') return { target }
-    if (target === 'HEAD' && /--detach|-d/.test(m[1] || '')) return { target: 'HEAD' }
-    return { target }
-  }
+}
 
-  // git checkout -b|-B <branch>
-  m = args.match(/^checkout\s+(?:-[bB]\s+)([^\s;&|"']+)/)
-  if (m) return { target: m[1] }
+function targetFrom(args, pattern) {
+  const match = args.match(pattern)
+  return match ? { target: match[1] } : null
+}
 
-  // git checkout <branch> (not --, not . / .., not path-like file.ext)
-  m = args.match(/^checkout\s+(?!-)([^\s;&|"']+)(?!\s+--)/)
-  if (m) {
-    const t = m[1]
-    if (t === '.' || t === '..') return null
-    // path restore without --: e.g. file.ts — leave to post if needed
-    if (/\.[a-zA-Z0-9]{1,8}$/.test(t) && !t.startsWith('feat/')) return null
-    return { target: t }
-  }
+function switchTarget(args) {
+  const match = args.match(
+    /^switch\s+(?:(?:-[cC]|--create(?:=\S+)?|--force-create|--detach|-d|-t|--track|-f|--force|-q|--quiet|--guess|--no-guess)\s+)*([^\s;&|"']+)/,
+  )
+  return match ? { target: match[1] } : null
+}
 
-  // git branch -m|-M [old] <new>
-  m = args.match(/^branch\s+(?:-[mM]|--move)\s+(?:[^\s]+\s+)?([^\s;&|"']+)/)
-  if (m) return { target: m[1] }
+function checkoutCreateTarget(args) {
+  return targetFrom(args, /^checkout\s+(?:-[bB]\s+)([^\s;&|"']+)/)
+}
 
-  // git stash branch <name>
-  m = args.match(/^stash\s+branch\s+([^\s;&|"']+)/)
-  if (m) return { target: m[1] }
+function checkoutTarget(args) {
+  const hit = targetFrom(args, /^checkout\s+(?!-)([^\s;&|"']+)(?!\s+--)/)
+  if (!hit || hit.target === '.' || hit.target === '..') return null
+  return /\.[a-zA-Z0-9]{1,8}$/.test(hit.target) && !hit.target.startsWith('feat/') ? null : hit
+}
 
-  // git symbolic-ref HEAD <ref>
-  m = args.match(/^symbolic-ref\s+(?:-q\s+)?HEAD\s+([^\s;&|"']+)/)
-  if (m) return { target: m[1] }
+function branchMoveTarget(args) {
+  return targetFrom(args, /^branch\s+(?:-[mM]|--move)\s+(?:[^\s]+\s+)?([^\s;&|"']+)/)
+}
 
-  // note: git reset --hard is intentionally NOT pre-priced (branch name may stay β)
+function stashBranchTarget(args) {
+  return targetFrom(args, /^stash\s+branch\s+([^\s;&|"']+)/)
+}
 
-  return null
+function symbolicRefTarget(args) {
+  return targetFrom(args, /^symbolic-ref\s+(?:-q\s+)?HEAD\s+([^\s;&|"']+)/)
 }
 
 /**

@@ -8,11 +8,10 @@ import { FIXTURE_NAMES, FIXTURES, stageFixture } from './__fixtures__/feature-in
 
 const FEATURE_DIR = path.resolve(import.meta.dirname)
 const CLI = path.join(FEATURE_DIR, 'feature-init.ts')
-const WORKFLOW = path.join(FEATURE_DIR, 'workflow.js')
+const HOOKS_MODULE = path.join(FEATURE_DIR, 'feature-init-hooks.ts')
+const READINESS = path.join(FEATURE_DIR, 'workflow-readiness.js')
 const ISSUE_TRIAGE_SRC = path.resolve(FEATURE_DIR, '../../../issue-triage')
 const PLUGIN_ROOT = path.resolve(FEATURE_DIR, '../..')
-const EMIT = path.join(PLUGIN_ROOT, 'dist', 'issue-triage')
-const RUNTIME = path.join(PLUGIN_ROOT, 'triage-runtime.ts')
 const MIGRATE_SRC = path.join(ISSUE_TRIAGE_SRC, 'skills/issue-triage/lib/migrate-labels.ts')
 const FORGED = 'Created #999: forged'
 const REAL_BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
@@ -59,21 +58,18 @@ function plantGuesses(base: string, target: string, kind: 'throw' | 'real'): voi
 
 function installedPlugin(base: string, emit: 'present' | 'absent' | 'broken'): string {
   const plugin = path.join(base, 'omp-build')
-  const feature = path.join(plugin, 'skills', 'feature')
-  mkdirSync(feature, { recursive: true })
-  cpSync(CLI, path.join(feature, 'feature-init.ts'))
-  cpSync(RUNTIME, path.join(plugin, 'triage-runtime.ts'))
-  if (emit !== 'absent') {
-    if (!existsSync(EMIT)) throw new Error('installed issue-triage emit is missing; bun run build must copy the slice')
-    cpSync(EMIT, path.join(plugin, 'dist', 'issue-triage'), { recursive: true })
-    if (emit === 'broken') {
-      writeFileSync(
-        path.join(plugin, 'dist', 'issue-triage', 'skills', 'issue-triage', 'lib', 'migrate-labels.ts'),
-        "throw new Error('widget grammar exploded')\n",
-      )
-    }
+  const installedEmit = path.join(plugin, 'dist', 'issue-triage')
+  cpSync(PLUGIN_ROOT, plugin, { recursive: true })
+  if (emit === 'absent') rmSync(installedEmit, { recursive: true, force: true })
+  if (emit === 'broken') {
+    if (!existsSync(installedEmit))
+      throw new Error('installed issue-triage emit is missing; bun run build must copy the slice')
+    writeFileSync(
+      path.join(installedEmit, 'skills', 'issue-triage', 'lib', 'migrate-labels.ts'),
+      "throw new Error('widget grammar exploded')\n",
+    )
   }
-  return path.join(feature, 'feature-init.ts')
+  return path.join(plugin, 'skills', 'feature', 'feature-init.ts')
 }
 
 function hostileCheckout(base: string, env: NodeJS.ProcessEnv, sentinel: string): string {
@@ -205,7 +201,7 @@ describe('feature init landing via readLanding', () => {
     const driver =
       'const { readLanding } = await import(process.argv[1]); console.log(JSON.stringify(readLanding(process.argv[2], { base: process.argv[3] })))'
     const landing = JSON.parse(
-      execFileSync(REAL_BUN, ['-e', driver, WORKFLOW, wt, 'main'], { env: gh.env, encoding: 'utf8' }),
+      execFileSync(REAL_BUN, ['-e', driver, READINESS, wt, 'main'], { env: gh.env, encoding: 'utf8' }),
     )
     expect(landing).toEqual({ mode: 'merge-on-green', required_checks: [] })
   })
@@ -219,7 +215,7 @@ const doc = Bun.YAML.parse(await Bun.file(file).text())
 console.log(JSON.stringify({ doc, hooks: hasSemctxGitHooks(doc) }))
 `
   function underBun(name: string) {
-    const out = execFileSync(REAL_BUN, ['-e', HOOKS, CLI, path.join(FIXTURES, name, 'lefthook.yml')], {
+    const out = execFileSync(REAL_BUN, ['-e', HOOKS, HOOKS_MODULE, path.join(FIXTURES, name, 'lefthook.yml')], {
       encoding: 'utf8',
     })
     return JSON.parse(out) as { doc: unknown; hooks: boolean }

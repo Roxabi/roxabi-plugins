@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { AUTHOR, gateGh, HEADS, linkedApproval, noProducerInput, PR, reviewHistory } from './review-record-fixture.js'
-import { featureLandOutcome, landPr, nextReviewStep } from './workflow.js'
+import { landPr } from './workflow-landing.js'
+import { featureLandOutcome } from './workflow-outcome.js'
+import { nextReviewStep } from './workflow-review-state.js'
 
 function incompleteApprovalHistory() {
   const history = reviewHistory([{ head: HEADS[0], verdict: 'Approve (clean)' }])

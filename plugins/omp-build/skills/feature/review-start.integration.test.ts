@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { disarmReviewedBeforePush } from './landing-foundation.js'
 import { gateGh, HEADS, PR, reviewHistory } from './review-record-fixture.js'
-import { disarmReviewedBeforePush } from './workflow.js'
 
 describe('review start gate boundary', () => {
   it('confirms both arms are cleared before a review-start push callback', async () => {

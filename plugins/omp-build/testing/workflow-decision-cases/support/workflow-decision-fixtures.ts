@@ -1,10 +1,10 @@
-import { decodeHistory } from '../../../adapters/github.ts'
+import { decodeHistory } from '../../../adapters/github/history-codec.ts'
 import type { DecodedHistory } from '../../../engine/history-schema.ts'
 import { specDigest } from '../../../engine/record-digests.ts'
 import type { CanonicalRecord } from '../../../engine/record-schema.ts'
 import type { Json, Scope } from '../../../engine/record-values.ts'
 import type { MandateRecord } from '../../../engine/workflow-control.ts'
-import { workflowConfigDigest } from '../../../roxabi/workflow-config.ts'
+import { workflowConfigDigest } from '../../../roxabi/workflow-config-digest.ts'
 import { roxabiWorkflowFixtures } from '../../roxabi-presets.ts'
 
 const WORKFLOW_FIXTURES = roxabiWorkflowFixtures()

@@ -1,5 +1,5 @@
 import type { Json, Payloads, Slot } from '../dist/contracts.js'
-import type { NativeChildResult } from '../omp/review-runtime'
+import type { NativeChildResult } from '../omp/review-runtime/contracts.ts'
 
 type ContributionContent = Payloads['contribution']['content']
 

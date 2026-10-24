@@ -23,12 +23,65 @@
     "includes": [
       "**/*.ts",
       "**/*.js",
+      "plugins/omp-build/**/*.{tsx,mts,cts,jsx,mjs,cjs}",
+      "tools/**/*omp-build*.{tsx,mts,cts,jsx,mjs,cjs}",
+      "tools/**/*omp-build*/**/*.{tsx,mts,cts,jsx,mjs,cjs}",
       "!**/node_modules",
       "!**/.venv",
       "!**/.cache",
       "!.claude/worktrees",
       "!archived",
+      "!plugins/omp-build/agents",
       "!plugins/omp-build/dist"
     ]
-  }
+  },
+  "overrides": [
+    {
+      "includes": [
+        "plugins/omp-build/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}",
+        "tools/**/*omp-build*",
+        "tools/**/*omp-build*/**"
+      ],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "noExcessiveCognitiveComplexity": {
+              "level": "error",
+              "options": {
+                "maxAllowedComplexity": 15
+              }
+            }
+          },
+          "suspicious": {
+            "noFocusedTests": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "plugins/omp-build/**/*.ts",
+        "!plugins/omp-build/**/*.d.ts",
+        "!plugins/omp-build/**/*.test.ts",
+        "!plugins/omp-build/**/*.cases.ts",
+        "!plugins/omp-build/**/*.fixture*.ts",
+        "!plugins/omp-build/**/*-fixture-*.ts",
+        "!plugins/omp-build/**/*-test-support.ts",
+        "!plugins/omp-build/**/__tests__/**",
+        "!plugins/omp-build/**/testing/**",
+        "!plugins/omp-build/**/__fixtures__/**"
+      ],
+      "linter": {
+        "domains": {
+          "types": "recommended"
+        },
+        "rules": {
+          "nursery": {
+            "noFloatingPromises": "error",
+            "noMisusedPromises": "error"
+          }
+        }
+      }
+    }
+  ]
 }

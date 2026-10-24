@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { AUTHOR, gateGh, HEADS, linkedApproval, noProducerInput, PR, reviewHistory } from './review-record-fixture.js'
-import { applyCiWatchExit, nextReviewStep } from './workflow.js'
+import { nextReviewStep } from './workflow-review-state.js'
+import { applyCiWatchExit } from './workflow-watch.js'
 
 describe('durable review stop', () => {
   it('keeps a third red sticky after a later green record and confirms gate clearing', async () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { epicDiffRange, postMergeArgv } from './epic-close'
+import { epicDiffRange } from './epic-close'
+import { postMergeArgv } from './post-merge-hook'
 
 describe('epicDiffRange', () => {
   it('spans the first merged child base to the last merge commit, skipping unmerged children', () => {

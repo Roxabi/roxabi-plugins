@@ -28,6 +28,30 @@ const LOCAL_REF_RE = /^#(\d+)\b/
 /** Cross-repo `owner/repo#N` — skipped for promote re-emit. */
 const CROSS_REF_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+#(\d+)\b/
 
+function whitespaceEnd(source: string, pos: number): number {
+  return pos + (source.slice(pos).match(/^\s*/)?.[0].length ?? 0)
+}
+
+function separatorEnd(source: string, pos: number): number | null {
+  const separator = source.slice(pos).match(SEP_RE)
+  return separator ? whitespaceEnd(source, pos + separator[0].length) : null
+}
+
+type ClosingRef = { end: number; number?: number }
+
+function closingRefAt(source: string, pos: number): ClosingRef | null {
+  const cross = source.slice(pos).match(CROSS_REF_RE)
+  if (cross) return { end: pos + cross[0].length }
+
+  const local = source.slice(pos).match(LOCAL_REF_RE)
+  if (!local) return null
+  const number = Number.parseInt(local[1] ?? '', 10)
+  return {
+    end: pos + local[0].length,
+    ...(Number.isFinite(number) && number > 0 ? { number } : {}),
+  }
+}
+
 /**
  * After a closing keyword, parse only the contiguous ref list (GitHub grammar).
  * Stops at the first non-ref token so prose `#N` later on the line is ignored.
@@ -35,43 +59,17 @@ const CROSS_REF_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+#(\d+)\b/
  */
 export function parseClosingRefList(rest: string): number[] {
   const nums: number[] = []
-  let pos = 0
-  const s = rest
-  // Allow leading whitespace only (already often consumed by keyword regex)
-  const lead = s.match(/^\s*/)
-  if (lead) pos += lead[0].length
-
+  let pos = whitespaceEnd(rest, 0)
   let expectSep = false
-  while (pos < s.length) {
-    if (expectSep) {
-      const sep = s.slice(pos).match(SEP_RE)
-      if (!sep) break
-      pos += sep[0].length
-      const sp = s.slice(pos).match(/^\s*/)
-      if (sp) pos += sp[0].length
-    }
 
-    const cross = s.slice(pos).match(CROSS_REF_RE)
-    if (cross) {
-      pos += cross[0].length
-      expectSep = true
-      const trail = s.slice(pos).match(/^\s*/)
-      if (trail) pos += trail[0].length
-      continue
-    }
-
-    const local = s.slice(pos).match(LOCAL_REF_RE)
-    if (local) {
-      const n = Number.parseInt(local[1] ?? '', 10)
-      if (Number.isFinite(n) && n > 0) nums.push(n)
-      pos += local[0].length
-      expectSep = true
-      const trail = s.slice(pos).match(/^\s*/)
-      if (trail) pos += trail[0].length
-      continue
-    }
-
-    break
+  while (pos < rest.length) {
+    const referenceStart = expectSep ? separatorEnd(rest, pos) : pos
+    if (referenceStart === null) break
+    const reference = closingRefAt(rest, referenceStart)
+    if (!reference) break
+    if (reference.number !== undefined) nums.push(reference.number)
+    pos = whitespaceEnd(rest, reference.end)
+    expectSep = true
   }
   return nums
 }

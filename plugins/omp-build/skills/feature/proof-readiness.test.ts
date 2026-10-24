@@ -4,7 +4,8 @@
  */
 import { describe, expect, it } from 'vitest'
 import { decodeHistory, githubScope, type History } from '../../dist/contracts.js'
-import { CONFIG, type Gh, type Git, readProofReadiness } from './proof'
+import { CONFIG, type Gh, type Git, type GitResult } from './proof-base'
+import { readProofReadiness } from './proof-readiness'
 
 const REPOSITORY = 'acme/app'
 const CANDIDATE = '1111111111111111111111111111111111111111'
@@ -29,25 +30,27 @@ function emptyHistory(): History {
 /** Minimal committed Semctx config: a JSON object is enough for candidateFacts. */
 const CONFIG_TEXT = '{"include":[]}\n'
 
-function scriptedGit(configured: boolean): Git {
-  return async (_cwd, args) => {
-    const command = args[0]
-    if (command === 'rev-parse' && args[1] === '--show-toplevel') return { code: 0, stdout: '/repo\n', stderr: '' }
-    if (command === 'rev-parse' && args[1] === '--verify' && args[2] === 'HEAD^{commit}') {
-      return { code: 0, stdout: `${CANDIDATE}\n`, stderr: '' }
-    }
-    if (command === 'ls-tree') {
-      const atCandidate = args.includes(`${CANDIDATE}^{commit}`)
-      const body = configured && atCandidate ? `100644 blob ${OID}\t${CONFIG}\0` : ''
-      return { code: 0, stdout: body, stderr: '' }
-    }
-    // candidateFacts must hash the committed config before readiness can report required+unbound.
-    if (command === 'cat-file' && args[1] === 'blob' && args[2] === OID) {
-      return { code: 0, stdout: CONFIG_TEXT, stderr: '' }
-    }
-    if (command === 'worktree') return { code: 0, stdout: '', stderr: '' }
-    return { code: 1, stdout: '', stderr: `unexpected ${args.join(' ')}` }
+const gitSuccess = (stdout: string): GitResult => ({ code: 0, stdout, stderr: '' })
+
+function scriptedResponse(configured: boolean, args: string[]): GitResult | null {
+  switch (args[0]) {
+    case 'rev-parse':
+      if (args[1] === '--show-toplevel') return gitSuccess('/repo\n')
+      return args[1] === '--verify' && args[2] === 'HEAD^{commit}' ? gitSuccess(`${CANDIDATE}\n`) : null
+    case 'ls-tree':
+      return gitSuccess(configured && args.includes(`${CANDIDATE}^{commit}`) ? `100644 blob ${OID}\t${CONFIG}\0` : '')
+    case 'cat-file':
+      return args[1] === 'blob' && args[2] === OID ? gitSuccess(CONFIG_TEXT) : null
+    case 'worktree':
+      return gitSuccess('')
+    default:
+      return null
   }
+}
+
+function scriptedGit(configured: boolean): Git {
+  return async (_cwd, args) =>
+    scriptedResponse(configured, args) ?? { code: 1, stdout: '', stderr: `unexpected ${args.join(' ')}` }
 }
 
 describe('readProofReadiness', () => {

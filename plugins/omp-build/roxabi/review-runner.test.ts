@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CanonicalRecord } from '../dist/contracts.js'
-import type { NativeChildResult } from '../omp/review-runtime'
+import type { NativeChildResult } from '../omp/review-runtime/contracts'
 import { TEST_HEAD, TEST_INPUT_SNAPSHOT } from '../testing/record-builders.ts'
 
 const published = vi.hoisted((): CanonicalRecord[] => [])

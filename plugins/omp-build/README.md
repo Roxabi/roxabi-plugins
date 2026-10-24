@@ -138,21 +138,25 @@ Debt filing and epic fix-tickets spawn `bun --no-env-file` on the emitted `triag
 
 ## Records
 
-The engine (`engine/`) owns versioned records, reference checks, conservation, counting, derived groups and verdicts, and deterministic projection. It does not judge semantics, call GitHub, or authorize a merge. Roxabi (`roxabi/`) owns the product actions: preparation, native continuation, and publication of inventories before dispatch. It keeps no local durable business store. The GitHub adapter (`adapters/github.ts`) paginates comments, checks native author and revision facts, publishes, and reads back. It does not classify a finding or authorize landing.
+The engine (`engine/`) owns versioned records, reference checks, conservation, counting, derived groups and verdicts, and deterministic projection. It does not judge semantics, call GitHub, or authorize a merge. Roxabi (`roxabi/`) owns the product actions: preparation, native continuation, and publication of inventories before dispatch. It keeps no local durable business store. The GitHub adapters (`adapters/github/**`, `adapters/github-workflow/**`) paginate comments, check native author and revision facts, publish, and read back. They do not classify a finding or authorize landing.
 
 `encodeRecord` frames each canonical record with its projection. The header is `<!-- omp-build-record v=1 kind=… id=… operationId=… part=i/n data=<base64url> -->`. The payload is authoritative. The Markdown is presentation; no business reader takes a verdict, head, or input from it. A final `review` carries `candidateGitSHA` and `input` (64 lowercase hex SHA-256, or null). Projection lists the record, decision, candidate, input, findings, standards, and source provenance (contribution host plus originals). Legacy `<!-- omp-build:… -->` markers — including `code-review`, `review-head`, `review-input`, and `proof` — are `legacy-format`. They are refused, not parsed, resurrected, or reset.
 
 Projection takes an explicit host `RecordProjectionConfig`, or null. The host supplies `{ taxonomy, acceptedPolicy }`; the candidate does not derive the taxonomy or accept its own evidence policy. Only a final `review` renders a verdict, and that projection refuses null or unknown configuration. Explicit null permits only neutral evidence, decision, and stop publication. Publishers bind that host configuration once. Decoded operations need `authority` and distinct `claimedKinds`; those claims are evidence, not permission, and missing metadata refuses. Projection follows the record's required dependencies from the original history. A foreign, missing, incomplete, or ambiguous reference refuses; it is not repaired, and an opaque record outside that closure does not acquire review authority.
 
-Authoritative records store the full native SDK raw snapshot. The downstream model-input view omits only direct `native.raw.terminal.task` and `assignment` echoes; the stored record keeps both. Human contribution text may omit `native.raw` only by citing the canonical record or operation in the frame, not by dumping it. No semantic filter, compression, or truncation is applied.
+Authoritative review contributions retain every captured submission in `rawAttempts` and the complete SDK terminal snapshot in `native.raw`. The downstream model-input view omits only direct `native.raw.terminal.task` and `assignment` echoes; the stored record keeps both. Human contribution text may omit `native.raw` only by citing the canonical record or operation in the frame, not by dumping it. No semantic filter, compression, or truncation is applied to these retained values.
 
 An action result refers to its confirmed start and exact scoped mandate; it does not mint a replacement start at publication. Completion belongs to that action's exact inputs: an old Spec assessment, plan or implementation does not complete a different current action. Unresolved starts and rejected effects remain blocking even when a native PR exists or its current checks are green. The original native result remains visible when host admission rejects its effects; a schema-valid `implemented` claim is not proof that its commits were admitted or reached the remote branch.
+
+Implementation receipts retain the unchanged terminal snapshot in `native.raw` and observed Bash captures in `native.bashCalls`. Native publication distinguishes canonical receipt retention from effect admission. Stopped observations use the same publisher before terminal settlement, without continuation or approval. Expected but unobserved child slots never mint result receipts: their original starts remain uncertain.
+
+The current receipt contract does not persist intermediate SDK yield submissions or partial text; this migration does not silently extend that format or claim complete SDK-stream retention. The offline lifetime witnesses also do not establish actual SDK shutdown ordering or task cancellation.
 
 Before implementation or correction effects and their pushes, the host checks the current remote mandate and controls again and honors the local interruption fence. A terminal result can still be preserved after a pause without authorizing another effect. GitHub reads and Git writes are not atomic: this is not a cross-provider lock, and it cannot guarantee exclusion of a control published after the final authority read.
 
 Implementation commands are strict claims containing only `toolCallId`, `command`, and `exitCode`. The host retains the observed stdout, stderr, and working directory in its capture; those fields are not duplicated into the claim. Native correction commands have their own schema and still carry stdout and stderr. The selected correction proof field is `proofToolCallId`, not `selectedProofToolCallId`. Candidate `0.11.1` corrects the producer instructions and generated profiles to match these existing schemas; it does not change record formats, weaken admission, or establish model obedience.
 
-Native `/dev-review` runs spec → panel → recall → synthesis and publishes the confirmed records. Native `/fix` consumes those records by id through `R-review-fix-intake`, `R-review-fix-synthesis`, `R-review-fix-apply`, and `R-review-fix-falsify`. It does not edit inline in the orchestrator turn and does not revive the absent `R-fixer`. Correction records set `landing: false`.
+Native `/dev-review` runs spec → panel → recall → synthesis and publishes the confirmed records. Native `/fix` uses `R-review-fix-intake` and `R-review-fix-synthesis` for a standalone request; a review-bound request instead consumes the already-confirmed decision unchanged, without new intake or synthesis. Correction uses `R-review-fix-apply` and `R-review-fix-falsify`. It does not edit inline in the orchestrator turn and does not revive the absent `R-fixer`. Correction records set `landing: false`.
 
 Existing worktrees are entered with `/move <path>`, not recreated, and not with `/wt`. The command prints that move only when the session cwd is not the intended worktree.
 
@@ -161,6 +165,30 @@ In the matching worktree the installed command continues implement → review �
 review read; lookup failure is never treated as a local review. A closed PR on
 the branch refuses implicit reuse, so its bound cannot be reset. Existing PRs
 resume from their review records.
+
+Automatic review-bound correction carries the actual PR, confirmed review ID, complete accepted spec body as correction scope,
+and exact scoped Feature mandate reference into `/fix`. The existing scope contract requires 1–4,000 characters:
+missing or longer scopes stop instead of being truncated. The handoff reuses the existing correction permission;
+a missing, different or successor mandate is refused rather than minted. It is not a new operator approval
+and does not manufacture operator text.
+
+A persisted `fix-request` proves that a request was recorded, not that its execution completed. Only the exact request confirmed by the current live invocation can be trusted for that invocation's continuation; an unresolved cold request remains a refusal. This ownership is ephemeral host state, not a new local workflow journal.
+
+Each native correction continuation re-reads the current history and validates the originally confirmed review against it
+before confirming the mandate and live request from that same snapshot. A newer review or an exhausted review bound
+refuses execution of the older decision; it does not reset the bound or discard the recorded request.
+
+The full original review input is checked at entry. Subsequent owned correction commits are checked by the existing
+commit, proof and head fences, rather than requiring the local HEAD to remain the original review's HEAD.
+
+Feature-owned PR and epic reviews check local continuation before authorization, after authorization before publishing
+the inventory, and before native activation. Standalone `/dev-review` and `omp_build_start_review` remain independent
+of Feature inhibition. Native Feature ownership is registered before asynchronous work and is not recreated by a stop
+callback; passive diagnostics remain visible under inhibition.
+
+An already-engaged GitHub publication is not rolled back. An interrupted inventory can remain explicitly pending:
+it is not an approval, does not silently restart, and does not reset the review bound. These guards do not provide
+an atomic GitHub transaction or a compare-and-set guarantee.
 
 Review → fix record contract: [root causes and member references](skills/dev-review/root-causes.md).
 
@@ -483,9 +511,9 @@ enables auto-merge. An OPEN `BEHIND` observation stops further arming and watchi
 `landPr` returns `behind` after clearing known OPEN arms, including a pin written
 earlier in that call. A failed clear throws naming the remainder; a merge during
 the clear returns `merged`. The watch exits 7, and its mapper uses the same behind
-contract (`applyCiWatchExit` in `skills/feature/workflow.js`). Both name `gh pr update-branch <pr>`;
+contract (`applyCiWatchExit` in `skills/feature/workflow-watch.js`). Both name `gh pr update-branch <pr>`;
 omp-build never updates the branch itself. `applyCiWatchExit` preserves watch statuses while enforcing
-gate authorization; `disarmReviewedBeforePush` confirms clearing before invoking
+gate authorization; `disarmReviewedBeforePush` in `skills/feature/landing-foundation.js` confirms clearing before invoking
 the push once, and reuses that receipt if the callback fails. Neither review nor
 fix labels a PR. No duplicate spec files or `validated` gate.
 
@@ -589,15 +617,44 @@ Lint-only fixture changes must preserve the emitted shell text and cleanup/relea
 
 Source callers import the canonical owner directly. Removed engine aggregate paths have no compatibility re-exports. The engine and GitHub adapters compile together inside the contracts bundle; they never import a previous generated bundle. Installed Roxabi/OMP/skill consumers use that bundle for engine runtime values and type-only source imports for canonical types, so catalogue installation does not require the repository's development dependencies.
 
+| Product boundary | Canonical source owners |
+|---|---|
+| Review, correction and standalone fix | `roxabi/review-contract.ts`, `review-dispatch.ts`, `correction-plan-*.ts`, `fix-entry-{lifecycle,ci}.ts` |
+| Feature coordination | `roxabi/feature-contract.ts`, `workflow.ts`, `feature-result.ts`, `feature-watch.ts` |
+| GitHub history and publication | `adapters/github/`, `adapters/github-workflow/` |
+| Native OMP capture, settlement and lifetime | `omp/review-runtime/`, `omp/omp-controller.ts`, `omp/omp-feature-session.ts` |
+
+The Feature contract has four operations: continuation, native-result publication, watch-exit consumption, and session pause. Native completion and watch exits use their own operations rather than unused fields on continuation input. This internal contract cleanup does not reset review bounds or grant landing authority. CLI and trusted CI still apply the common admission contract through their concrete entry points.
+
+The review class catalogue has one source: `skills/dev-review/review-classes.yml`. The aggregate plugin validator checks that this complete asset is readable UTF-8, valid YAML and non-empty; it no longer compares an obsolete second list or pair-rule paragraphs in the skill. Native panel and recall tasks receive the canonical catalogue itself. This preserves guidance delivery, not proof that a model obeys subsumption rules; final labels remain model judgments, not classifications repaired by the engine.
+
 ### Test ownership
 
 Generic record mechanics live in `testing/record-*.ts`; generic workflow records and actions live in `testing/workflow-fixtures.ts` and `testing/workflow-actions.ts`. Product scenarios select the shipped Roxabi graph explicitly through `testing/roxabi-presets.ts`; it is not a hidden default in the generic workflow builders.
 
 Engine behavior families live in `engine/__tests__/` and `testing/workflow-decision-cases/`. Their shared support arranges inputs and external boundaries, without re-exporting the product under test. Expected consumer-visible outcomes stay in the scenarios, outside model inputs. Process-spawning scenarios retain the `*.integration.test.ts` suffix and owned resource cleanup.
 
+Feature domain simulators and subprocess harnesses live in `skills/feature/testing/{gh-simulator,epic-driver,goal,proof-integration}/`; cross-boundary SDK and recovery drivers are named explicitly in `testing/feature-*.ts` and `testing/native-review-driver.ts`. They arrange external state and invoke the real canonical product owners, rather than implementing alternate admission. Proof acquisition itself remains runtime code, not fixture support.
+
+Retained native data stays in `skills/feature/__fixtures__/proof/{records,historical.records}.json`. Raw-byte retention, conservation through the current codec, and acceptance of original historical wire framing are different claims: re-encoding retained data alone does not prove that the original framing was accepted.
+
+### Quality contract
+
+Run `bun run quality:omp-build` for the same owned-source check used by the pre-commit hook and CI. Physical discovery feeds both the line counter and the pinned Biome command; warnings fail, and an empty lint set is not success.
+
+| Surface | Enforced limit |
+|---|---|
+| Runtime code, helpers, types, schemas, live configuration and exclusive omp-build tools | 300 physical lines |
+| Genuine executable assertion scenarios, not arbitrary files named as tests | 600 physical lines |
+| Every owned JavaScript-family function, including CommonJS and scenarios | Cognitive complexity 15 |
+| Focused tests | Error |
+| Runtime TypeScript promises | Floating and misused promises are errors; declaration, scenario and test-support roles are excluded |
+
+Generated distribution files and retained inert data are distinguished by their actual ownership/provenance, not a blanket test-directory exception. Other plugins and shared root controls are outside these new caps. Parser and AST types are pinned at `8.0.8`, Biome at `2.6.2`; no effect runtime, database or workflow framework is introduced.
+
 ### Owned distribution (candidate 0.11.3)
 
-`agent-sources/*.md` holds the seven authored generic agents. The producer copies them byte for byte and derives native profiles from `roxabi/native-*-profiles.ts` and the existing strict schemas. Tests live outside the generated surface, under `testing/`.
+`agent-sources/*.md` holds the seven authored generic agents. The producer copies them byte for byte and derives native profiles from `roxabi/native-*-profiles.ts` and the existing strict schemas. Tests and support stay outside the generated surface, in their owning engine, product, adapter and testing trees.
 
 The single producer, `tools/build-omp-build-contracts.ts`, owns all of `agents/**` and `dist/**`, including the existing issue-triage runtime slice. Do not edit these outputs. Its inventory comes from successful writes and Bun build outputs, not a second list of expected artifacts. Duplicate output claims and incomplete build metadata fail. A normal build never purges the candidate or its dependencies; stale outputs remain visible to verification.
 

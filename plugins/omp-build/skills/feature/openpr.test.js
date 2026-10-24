@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { decodeHistory } from '../../dist/contracts.js'
 import { AUTHOR, HEADS, historyPage, PR, REPOSITORY, reviewHistory } from './review-record-fixture.js'
-import { readReviewRecords, reviewRecords } from './workflow.js'
+import { readReviewRecords, reviewRecords } from './workflow-records.js'
 
 describe('canonical review records', () => {
   it('derives the approval from the confirmed decision, not a rendered verdict', () => {

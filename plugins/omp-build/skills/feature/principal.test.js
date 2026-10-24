@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { pickPrincipal } from './workflow.js'
+import { pickPrincipal } from './workflow-principal.js'
 
 describe('pickPrincipal', () => {
   it('prefers staging over main and origin/HEAD', () => {

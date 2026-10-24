@@ -206,7 +206,7 @@ describe('OMP worktree base orphan scan', () => {
     })
 
     expect(result.status).not.toBe(0)
-    expect(result.stderr).toContain(path.join(repo, '.dev', 'stack.yml'))
+    expect(result.stderr).toContain(install)
     expect(result.stdout).not.toContain('forged-shell')
     expect(existsSync(marker)).toBe(false)
   })

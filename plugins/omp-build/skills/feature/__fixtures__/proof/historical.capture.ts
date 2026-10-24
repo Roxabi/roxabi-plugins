@@ -20,8 +20,10 @@ import {
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { decodeHistory, githubScope, type History } from '../../../../dist/contracts.js'
-import { HISTORICAL_CASES, type HistoricalCase, historicalSpec } from './historical'
-import { ACQUIRE, type Box, git, readSim, sandbox, worktree } from './sandbox'
+import { HISTORICAL_CASES, type HistoricalCase } from './historical-cases'
+import { historicalSpec } from './historical-spec'
+import { ACQUIRE, git, readSim, sandbox, worktree } from './sandbox-repository'
+import type { Box } from './sandbox-types'
 
 const REAL_BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
 const OUT = path.join(import.meta.dirname, 'historical.records.json')

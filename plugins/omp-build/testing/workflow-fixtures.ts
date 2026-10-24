@@ -1,4 +1,4 @@
-import { decodeHistory, encodeRecord } from '../adapters/github.ts'
+import { decodeHistory, encodeRecord } from '../adapters/github/history-codec.ts'
 import type { DecodedHistory, History } from '../engine/history-schema.ts'
 import { buildRecord } from '../engine/record-construction.ts'
 import { specDigest } from '../engine/record-digests.ts'

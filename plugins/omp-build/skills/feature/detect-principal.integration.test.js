@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import { detectPrincipal } from './workflow.js'
+import { detectPrincipal } from './workflow-principal.js'
 
 function gitEnv(extra = {}) {
   const env = { ...process.env, ...extra }

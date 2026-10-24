@@ -108,13 +108,7 @@ function gitExec(cwd, args, git = {}) {
  * @returns {boolean}
  */
 function isNotGitError(err) {
-  const msg = [
-    err && err.message,
-    err && err.stderr,
-    err && err.stdout,
-  ]
-    .filter(Boolean)
-    .join('\n')
+  const msg = [err?.message, err?.stderr, err?.stdout].filter(Boolean).join('\n')
   return /not a git repository/i.test(String(msg))
 }
 
@@ -202,11 +196,7 @@ function principalHead(cwd = process.cwd(), git = {}) {
   if (prinSt.status !== 'ok') return { status: 'probe_error' }
 
   try {
-    const branch = gitExec(
-      prinSt.path,
-      ['rev-parse', '--abbrev-ref', 'HEAD'],
-      git,
-    ).trim()
+    const branch = gitExec(prinSt.path, ['rev-parse', '--abbrev-ref', 'HEAD'], git).trim()
     if (!branch) return { status: 'probe_error' }
     return { status: 'ok', principal: prinSt.path, branch }
   } catch (e) {
@@ -241,9 +231,7 @@ function normalizeHeadResult(info) {
  * @param {number} [code]
  */
 function emitDeny(reason, code = 2) {
-  process.stdout.write(
-    JSON.stringify({ decision: 'deny', reason, message: reason }) + '\n',
-  )
+  process.stdout.write(JSON.stringify({ decision: 'deny', reason, message: reason }) + '\n')
   process.stderr.write(reason + '\n')
   process.exit(code)
 }

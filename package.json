@@ -12,9 +12,12 @@
     "typecheck": "tsc --noEmit",
     "build": "bun run tools/build-omp-build-contracts.ts",
     "verify:omp-build-distribution": "bun run tools/verify-omp-build-distribution.ts",
+    "quality:omp-build": "bun tools/check-omp-build-quality.ts --with-biome",
     "verify:pins": "bun run tools/verify-action-pins.ts"
   },
   "devDependencies": {
+    "@babel/parser": "8.0.8",
+    "@babel/types": "8.0.8",
     "@oh-my-pi/pi-coding-agent": "18.12.6",
     "@oh-my-pi/pi-ai": "18.12.6",
     "@biomejs/biome": "2.6.2",

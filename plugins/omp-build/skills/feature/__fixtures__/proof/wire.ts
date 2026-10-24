@@ -1,5 +1,6 @@
 import { decodeHistory, encodeRecord, githubScope, type History } from '../../../../dist/contracts.js'
-import { findProofRecord, newProofRecord, type Producer } from '../../proof'
+import type { Producer } from '../../proof-base'
+import { findProofRecord, newProofRecord } from '../../proof-records'
 
 const fixtureHistory = (repository: string, pr: number, comments: string[] = []): History => ({
   scope: githubScope(repository, pr),

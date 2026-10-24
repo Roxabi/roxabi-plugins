@@ -1,0 +1,88 @@
+import { describe, expect, it } from 'vitest'
+import { disarmKnownTarget } from './feature-disarm.ts'
+
+type Gate = { armed: boolean; reviewed: boolean }
+type GhReply = { output: string }
+
+type GhFixture = {
+  gh: (cwd: string, args: string[]) => Promise<string>
+  gate: Gate
+}
+
+function listReply(args: string[], linkedResponse: string | Error): GhReply | null {
+  if (args[0] !== 'pr' || args[1] !== 'list') return null
+  if (args.includes('--search')) {
+    if (linkedResponse instanceof Error) throw linkedResponse
+    return { output: linkedResponse }
+  }
+  return args.includes('--head') ? { output: JSON.stringify([{ number: 9 }]) } : null
+}
+
+function gateReply(args: string[], gate: Gate): GhReply | null {
+  if (args[0] !== 'pr') return null
+  if (args[1] === 'view') {
+    return {
+      output: JSON.stringify({
+        state: 'OPEN',
+        labels: gate.reviewed ? [{ name: 'reviewed' }] : [],
+        autoMergeRequest: null,
+        mergeStateStatus: 'CLEAN',
+      }),
+    }
+  }
+  if (args[1] !== 'edit' || !args.includes('--remove-label')) return null
+  gate.armed = false
+  gate.reviewed = false
+  return { output: '' }
+}
+
+function ghForDiscovery(linkedResponse: string | Error): GhFixture {
+  const gate = { armed: true, reviewed: true }
+  return {
+    gate,
+    async gh(_cwd, args) {
+      const listed = listReply(args, linkedResponse)
+      if (listed !== null) return listed.output
+      const gated = gateReply(args, gate)
+      if (gated !== null) return gated.output
+      throw new Error(`unexpected gh call: ${args.join(' ')}`)
+    },
+  }
+}
+
+const target = {
+  status: 'issue' as const,
+  scope: { repository: 'acme/app', target: 'acme/app#42' },
+  issue: { number: 42 },
+}
+
+describe('Feature pause disarm discovery', () => {
+  it('refuses complete disarm when linked discovery fails after branch PR 9 disarms', async () => {
+    const fixture = ghForDiscovery(new Error('linked query unavailable'))
+    const result = await disarmKnownTarget(fixture.gh, '/workspace', target, 'feature', 'feat/42')
+
+    expect(fixture.gate).toEqual({ armed: false, reviewed: false })
+    expect(result).toMatchObject({ clean: false, evidence: { note: expect.stringMatching(/pull-request-list/) } })
+  })
+
+  it('confirms complete valid discovery after PR 9 is unarmed', async () => {
+    const fixture = ghForDiscovery(JSON.stringify([{ number: 9 }]))
+    const result = await disarmKnownTarget(fixture.gh, '/workspace', target, 'feature', 'feat/42')
+
+    expect(fixture.gate).toEqual({ armed: false, reviewed: false })
+    expect(result).toMatchObject({ clean: true })
+  })
+
+  it.each([
+    ['malformed JSON', '{not json'],
+    ['non-array', JSON.stringify({ number: 9 })],
+    ['invalid entries', JSON.stringify([{ number: '9' }])],
+    ['partially invalid entries', JSON.stringify([{ number: 9 }, { number: '10' }])],
+  ])('refuses complete disarm for %s linked discovery', async (_name, linkedResponse) => {
+    const fixture = ghForDiscovery(linkedResponse)
+    const result = await disarmKnownTarget(fixture.gh, '/workspace', target, 'feature', 'feat/42')
+
+    expect(fixture.gate).toEqual({ armed: false, reviewed: false })
+    expect(result).toMatchObject({ clean: false, evidence: { note: expect.stringMatching(/pull-request-list/) } })
+  })
+})

@@ -21,7 +21,7 @@
  * would frame, or implement, on the Principal itself.
  */
 
-import { resolveTicketBranch, ticketOfBranch } from './epic'
+import { resolveTicketBranch, ticketOfBranch } from './epic-claims'
 
 /** Operator forms accepted for a ticket: `493`, `'493'`, `'#493'`. */
 const TICKET_RE = /^#?(\d+)$/

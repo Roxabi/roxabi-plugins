@@ -1,6 +1,6 @@
 import type { Policy, SpecRow } from '../dist/contracts.js'
-import type { ReviewTier } from '../skills/dev-review/roster'
-import type { ReviewSemanticContext } from './review-context'
+import type { ReviewTier } from '../skills/dev-review/roster-contract'
+import type { ReviewSemanticContext } from './review-semantic-context'
 
 export type ReviewSemanticAssets = {
   evidencePolicy: string

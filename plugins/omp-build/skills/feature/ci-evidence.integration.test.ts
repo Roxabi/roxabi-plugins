@@ -9,9 +9,9 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { failedCheckEvidenceDigest } from '../../engine/record-digests.ts'
 import type { Scope } from '../../engine/record-values.ts'
-import { readNativeCiFailureEvidence } from '../../roxabi/workflow.ts'
+import { readNativeCiFailureEvidence } from '../../roxabi/feature-ci-evidence.ts'
 
-const SIM = join(import.meta.dirname, 'gh-simulator.ts')
+const SIM = join(import.meta.dirname, 'testing', 'gh-simulator', 'gh-simulator.ts')
 const SHA = 'c'.repeat(40)
 const SCOPE: Scope = { repository: 'acme/app', target: 'acme/app#7' }
 const CHECK_ID = 'CR_publish_page2'

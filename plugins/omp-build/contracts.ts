@@ -3,8 +3,34 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Flag, is } from '@oh-my-pi/pi-ai/error/flags'
 
-export * from './adapters/github.ts'
-export * from './adapters/github-workflow.ts'
+export { decodeHistory, encodeRecord } from './adapters/github/history-codec.ts'
+export { publishGitHubRecord } from './adapters/github/publish.ts'
+export { githubScope, readGitHubHistory } from './adapters/github/transport.ts'
+export { type Gh, GitHubHistoryReadError, type GitHubOptions } from './adapters/github/types.ts'
+export { readIssueParentAssociation, readLinkedIssueAssociation } from './adapters/github-workflow/associations.ts'
+export {
+  publishConfirmedWorkflowRecord,
+  readLandingFacts,
+  readWorkflowBinding,
+} from './adapters/github-workflow/binding.ts'
+export { readComposedWorkflowHistory } from './adapters/github-workflow/history.ts'
+export {
+  readNativeIssueFacts,
+  readNativePullRequestFacts,
+  readScopeIssueBody,
+  resolveNativeScope,
+  resolveNativeTarget,
+} from './adapters/github-workflow/native-facts.ts'
+export type {
+  ComposedWorkflowHistory,
+  IssueParentAssociation,
+  LandingFactsRead,
+  LinkedIssueAssociation,
+  NativeIssueFacts,
+  NativePullRequestFacts,
+  NativeTargetResolution,
+  WorkflowPublication,
+} from './adapters/github-workflow/types.ts'
 export {
   classifyHistory,
   type HistoryClassification,

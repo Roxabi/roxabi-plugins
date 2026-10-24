@@ -3,25 +3,33 @@ import { mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { decodeHistory } from '../adapters/github.ts'
+import { decodeHistory } from '../adapters/github/history-codec.ts'
 import {
-  type Box,
   git,
-  plainSpec,
   readSim,
   sandbox,
   WORKFLOW,
   worktree,
   writeSim,
-} from '../skills/feature/__fixtures__/proof/sandbox.ts'
+} from '../skills/feature/__fixtures__/proof/sandbox-repository.ts'
+import { plainSpec } from '../skills/feature/__fixtures__/proof/sandbox-semctx-spec.ts'
+import type { Box } from '../skills/feature/__fixtures__/proof/sandbox-types.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
-import { PROOF_PIN_PATHS } from './workflow-config.ts'
+import { PROOF_PIN_PATHS } from './workflow-pins.ts'
 
 const RUNNER = path.resolve(import.meta.dirname, '../testing/feature-recovery-runner.ts')
 const BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
 const SCOPE = { repository: 'acme/app', target: 'acme/app#42' }
 const BRANCH = 'feat/42-save'
 const BODY = '## Acceptance criteria\n\n- [ ] preserves the region\n'
+
+const OBSERVED_INCOMPLETE_NATIVE_TERMINAL = {
+  index: 0,
+  id: 'R-workflow-implement',
+  agent: 'R-workflow-implement',
+  exitCode: 1,
+  structuredOutput: { status: 'invalid', data: { refusal: 'incomplete-native' } },
+}
 const { encodedAdmissionReviewGraph } = roxabiRecordFixtures()
 const {
   clearPlanContribution,
@@ -348,6 +356,52 @@ describe('feature recovery through the installed OMP bridge', () => {
     )
     expect(starts).toHaveLength(1)
   })
+
+  it('refuses the original START-bound implementation when public pause reaches the authorize-push gate', () => {
+    const { box, checkout } = featureFixture('plan')
+    const remoteBefore = git(box, box.root, ['--git-dir', box.origin, 'rev-parse', `refs/heads/${BRANCH}`])
+    const observed = invoke<{
+      operationId: string
+      activeAfterCompletion: boolean
+      pushAttempted: boolean
+      messages: string[]
+      completionError: string | null
+    }>(box, checkout, path.join(box.root, 'home-live-interleave'), 'omp-live-interleave', {})
+
+    expect(observed.completionError).toBeNull()
+    expect(observed.activeAfterCompletion).toBe(false)
+    expect(observed.pushAttempted).toBe(false)
+    expect(git(box, box.root, ['--git-dir', box.origin, 'rev-parse', `refs/heads/${BRANCH}`])).toBe(remoteBefore)
+    expect(observed.messages).toContain('pause-confirmed: pause-confirmed')
+    expect(observed.messages.filter((message) => message.includes('OMP_BUILD_NATIVE_BATCH'))).toHaveLength(1)
+
+    const paused = history(box)
+    const starts = paused.operations.flatMap((operation) => {
+      const record = operation.record
+      return record?.kind === 'action-receipt' &&
+        record.payload.phase === 'start' &&
+        record.payload.action === 'implement'
+        ? [record]
+        : []
+    })
+    const results = paused.operations.flatMap((operation) => {
+      const record = operation.record
+      return record?.kind === 'action-receipt' &&
+        record.payload.phase === 'result' &&
+        record.payload.action === 'implement'
+        ? [record]
+        : []
+    })
+    expect(starts).toHaveLength(1)
+    expect(results).toHaveLength(1)
+    const start = starts[0]
+    expect(start).toBeDefined()
+    expect(results[0]?.payload).toMatchObject({
+      actionId: observed.operationId,
+      start: { scope: SCOPE, recordId: start?.recordId, kind: 'action-receipt' },
+      admission: { admitted: false, published: false, reason: 'implementation-admission-refused' },
+    })
+  })
 })
 
 describe('feature recovery terminal and publication witnesses', () => {
@@ -469,11 +523,11 @@ describe('feature recovery terminal and publication witnesses', () => {
       agent: string
       start: { scope: typeof SCOPE; recordId: string; kind: string }
       operationId: string
-      published: { published: boolean; reason: string }
+      published: { published: boolean; retained: boolean; reason: string }
     }>(box, checkout, path.join(box.root, 'home-publication'), 'continuation-publish', { reference: '#42' })
 
     expect(observed.agent).toBe('R-workflow-implement')
-    expect(observed.published).toEqual({ published: false, reason: 'action-uncertain' })
+    expect(observed.published).toEqual({ published: false, retained: true, reason: 'action-uncertain' })
     const results = history(box).operations.flatMap((operation) => {
       const record = operation.record
       return record?.kind === 'action-receipt' &&
@@ -489,6 +543,11 @@ describe('feature recovery terminal and publication witnesses', () => {
       mandate: { recordId: 'mandate-feature-1', kind: 'mandate' },
       start: observed.start,
       exactInputs: { mandateId: 'mandate-feature-1', planActionId: 'act-plan-1' },
+      native: {
+        completion: 'incomplete',
+        strict: 'invalid',
+        raw: OBSERVED_INCOMPLETE_NATIVE_TERMINAL,
+      },
       admission: { admitted: false, published: false, reason: 'action-uncertain' },
     })
   })

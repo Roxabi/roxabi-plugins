@@ -5,8 +5,8 @@ import { join } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 import { implementationOutputSchema } from '../../engine/workflow-output-schema.ts'
-import { admitImplementationEvidence } from '../../roxabi/feature-entry'
-import type { Json, NativeProofBashCall } from '../review-runtime'
+import { admitImplementationEvidence } from '../../roxabi/feature-implementation-admission.ts'
+import type { Json, NativeProofBashCall } from '../review-runtime/contracts.ts'
 
 const fixtureRoots = new Set<string>()
 const proofCommand = 'git diff --quiet HEAD'

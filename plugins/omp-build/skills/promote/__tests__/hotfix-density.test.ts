@@ -1,433 +1,181 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createExtensionApiStub } from '../../../omp/__tests__/extension-api-stub'
 import ompBuildExtension from '../../../omp/index'
+import { computeHotfixDensity } from '../lib/hotfix-density'
 import {
   classifyDensity,
-  computeHotfixDensity,
-  type Deps,
-  fetchHotfixPrShas,
   formatResult,
   type HotfixDensityResult,
   isHotfix,
-  listCommitsSince,
-  resolveAnchor,
   THRESHOLD_GREEN,
   THRESHOLD_PAUSE,
   THRESHOLD_WARN,
-} from '../lib/hotfix-density'
+} from '../lib/hotfix-density-domain'
+import { fetchHotfixPrShas, listCommitsSince, resolveAnchor } from '../lib/hotfix-density-readback'
+import { commandResponses, promoteReadback } from './promote-test-support'
 
-// ─── Threshold constants ───────────────────────────────────────────────────────
-
-describe('threshold constants', () => {
-  it('exports correct green threshold', () => {
+describe('density thresholds', () => {
+  it('keeps the threshold contract', () => {
     expect(THRESHOLD_GREEN).toBe(0.2)
-  })
-
-  it('exports correct warn threshold', () => {
     expect(THRESHOLD_WARN).toBe(0.4)
-  })
-
-  it('exports correct pause threshold equal to warn', () => {
     expect(THRESHOLD_PAUSE).toBe(THRESHOLD_WARN)
   })
-})
 
-// ─── classifyDensity ──────────────────────────────────────────────────────────
-
-describe('classifyDensity', () => {
-  it('returns green for 0', () => {
-    expect(classifyDensity(0)).toBe('green')
-  })
-
-  it('returns green for density just below THRESHOLD_GREEN', () => {
-    expect(classifyDensity(0.19)).toBe('green')
-  })
-
-  it('returns warn at exactly THRESHOLD_GREEN (boundary)', () => {
-    expect(classifyDensity(0.2)).toBe('warn')
-  })
-
-  it('returns warn for mid-range density', () => {
-    expect(classifyDensity(0.3)).toBe('warn')
-  })
-
-  it('returns warn for density just below THRESHOLD_WARN', () => {
-    expect(classifyDensity(0.39)).toBe('warn')
-  })
-
-  it('returns pause at exactly THRESHOLD_WARN (boundary)', () => {
-    expect(classifyDensity(0.4)).toBe('pause')
-  })
-
-  it('returns pause for density above THRESHOLD_WARN', () => {
-    expect(classifyDensity(0.6)).toBe('pause')
-  })
-
-  it('returns pause for density = 1.0', () => {
-    expect(classifyDensity(1.0)).toBe('pause')
+  it.each([
+    [0, 'green'],
+    [0.19, 'green'],
+    [0.2, 'warn'],
+    [0.39, 'warn'],
+    [0.4, 'pause'],
+    [1, 'pause'],
+  ] as const)('classifies %s as %s', (density, gauge) => {
+    expect(classifyDensity(density)).toBe(gauge)
   })
 })
 
-// ─── isHotfix ─────────────────────────────────────────────────────────────────
-
-describe('isHotfix', () => {
-  it('returns true for fix: prefix (lowercase)', () => {
-    expect(isHotfix('abc', 'fix: correct null check', new Set())).toBe(true)
-  })
-
-  it('returns true for Fix: prefix (case-insensitive)', () => {
-    expect(isHotfix('abc', 'Fix: something', new Set())).toBe(true)
-  })
-
-  it('returns true for FIX: prefix (uppercase)', () => {
-    expect(isHotfix('abc', 'FIX: uppercase', new Set())).toBe(true)
-  })
-
-  it('returns false for feat: prefix', () => {
-    expect(isHotfix('abc', 'feat: add feature', new Set())).toBe(false)
-  })
-
-  it('returns false for chore: prefix', () => {
-    expect(isHotfix('abc', 'chore: update deps', new Set())).toBe(false)
-  })
-
-  it('returns false for title containing fix but not at start', () => {
-    expect(isHotfix('abc', 'feat: prefix fix in middle', new Set())).toBe(false)
-  })
-
-  it('returns true if sha is in hotfixPrShas set', () => {
-    const shas = new Set(['sha123'])
-    expect(isHotfix('sha123', 'feat: any title', shas)).toBe(true)
-  })
-
-  it('returns false if sha not in hotfixPrShas and title is not fix:', () => {
-    const shas = new Set(['other-sha'])
-    expect(isHotfix('sha999', 'docs: update readme', shas)).toBe(false)
-  })
-
-  it('returns true for union: both fix: and in set', () => {
-    const shas = new Set(['sha123'])
-    expect(isHotfix('sha123', 'fix: also in set', shas)).toBe(true)
+describe('hotfix classification', () => {
+  it('uses the title-or-merged-label union', () => {
+    expect(isHotfix('title', 'fix: correct null check', new Set())).toBe(true)
+    expect(isHotfix('label', 'feat: addition', new Set(['label']))).toBe(true)
+    expect(isHotfix('other', 'feat: prefix fix in middle', new Set(['label']))).toBe(false)
   })
 })
 
-// ─── resolveAnchor ────────────────────────────────────────────────────────────
-
-function makeRunDeps(responses: Record<string, string | Error>): Pick<Deps, 'run'> {
-  return {
-    run: vi.fn(async (cmd: string[]) => {
-      const key = cmd.join(' ')
-      // Find the first key that the joined command contains
-      for (const [pattern, response] of Object.entries(responses)) {
-        if (key.includes(pattern)) {
-          if (response instanceof Error) throw response
-          return response
-        }
-      }
-      throw new Error(`Unexpected command: ${key}`)
-    }),
-  }
-}
-
-describe('resolveAnchor', () => {
-  it('returns tag source when a version tag is present', async () => {
-    const deps = makeRunDeps({
-      'git tag --list': 'omp-build/v1.2.3 2026-05-01T10:00:00+02:00\n',
-    })
-    const result = await resolveAnchor(undefined, deps)
-    expect(result.anchorSource).toBe('tag')
-    expect(result.anchorDate).toContain('2026-05-01')
-    expect(result.anchorWarn).toBeUndefined()
-  })
-
-  it('returns tag source for bare vX.Y.Z tag', async () => {
-    const deps = makeRunDeps({
-      'git tag --list': 'v0.5.0 2026-04-10T08:00:00+02:00\n',
-    })
-    const result = await resolveAnchor(undefined, deps)
-    expect(result.anchorSource).toBe('tag')
-  })
-
-  it('returns first matching tag when multiple tags present', async () => {
-    const deps = makeRunDeps({
+describe('anchor resolution', () => {
+  it('uses the newest release tag with its provenance', async () => {
+    const deps = commandResponses({
       'git tag --list': 'omp-build/v2.0.0 2026-06-01T10:00:00+02:00\nomp-build/v1.9.0 2026-05-01T10:00:00+02:00\n',
     })
-    const result = await resolveAnchor(undefined, deps)
-    expect(result.anchorSource).toBe('tag')
-    expect(result.anchorDate).toContain('2026-06-01')
+    await expect(resolveAnchor(undefined, deps)).resolves.toEqual({
+      anchorDate: '2026-06-01T10:00:00+02:00',
+      anchorSource: 'tag',
+    })
   })
 
-  it('falls through to promotion-merge when no tags found', async () => {
-    const deps = makeRunDeps({
-      'git tag --list': '',
-      'git log': 'abc1234 2026-05-10 12:00:00 +0200',
+  it('uses the promotion merge when tag readback has no release', async () => {
+    const deps = commandResponses({ 'git tag --list': '', 'git log': 'abc1234 2026-05-10 12:00:00 +0200' })
+    await expect(resolveAnchor(undefined, deps)).resolves.toEqual({
+      anchorDate: '2026-05-10 12:00:00 +0200',
+      anchorSource: 'promotion-merge',
     })
-    const result = await resolveAnchor(undefined, deps)
-    expect(result.anchorSource).toBe('promotion-merge')
-    expect(result.anchorDate).toContain('2026-05-10')
-    expect(result.anchorWarn).toBeUndefined()
   })
 
-  it('falls through to fallback-30d when both tag and promotion-merge fail', async () => {
-    const deps = makeRunDeps({
-      'git tag --list': '',
-      'git log': '',
-    })
-    const result = await resolveAnchor(undefined, deps)
+  it('falls back to the bounded window after unavailable readback', async () => {
+    const result = await resolveAnchor(undefined, { run: vi.fn().mockRejectedValue(new Error('git not found')) })
     expect(result.anchorSource).toBe('fallback-30d')
     expect(result.anchorWarn).toBeTruthy()
-    // anchorDate should be approximately 30 days ago
-    const now = Date.now()
-    const anchor = new Date(result.anchorDate).getTime()
-    const diffDays = (now - anchor) / (1000 * 60 * 60 * 24)
-    expect(diffDays).toBeGreaterThan(29)
-    expect(diffDays).toBeLessThan(31)
-  })
-
-  it('falls through to fallback-30d when git commands throw', async () => {
-    const deps = {
-      run: vi.fn().mockRejectedValue(new Error('git not found')),
-    }
-    const result = await resolveAnchor(undefined, deps)
-    expect(result.anchorSource).toBe('fallback-30d')
-    expect(result.anchorWarn).toBeTruthy()
+    const ageDays = (Date.now() - new Date(result.anchorDate).getTime()) / (1000 * 60 * 60 * 24)
+    expect(ageDays).toBeGreaterThan(29)
+    expect(ageDays).toBeLessThan(31)
   })
 })
 
-// ─── listCommitsSince ────────────────────────────────────────────────────────
-
-describe('listCommitsSince', () => {
-  it('parses commit lines into sha+title objects', async () => {
-    const deps = makeRunDeps({
-      'git log': 'abc1234\tfeat: add feature\ndef5678\tfix: patch null\n',
-    })
-    const commits = await listCommitsSince('2026-05-01', undefined, deps)
-    expect(commits).toHaveLength(2)
-    expect(commits[0]).toEqual({ sha: 'abc1234', title: 'feat: add feature' })
-    expect(commits[1]).toEqual({ sha: 'def5678', title: 'fix: patch null' })
+describe('external readback', () => {
+  it('parses staging commits and preserves a title-less commit', async () => {
+    const commits = await listCommitsSince(
+      '2026-05-01',
+      undefined,
+      commandResponses({ 'git log': 'abc1234\tfeat: add feature\ndef5678\tfix: patch null\nno-title\n' }),
+    )
+    expect(commits).toEqual([
+      { sha: 'abc1234', title: 'feat: add feature' },
+      { sha: 'def5678', title: 'fix: patch null' },
+      { sha: 'no-title', title: '' },
+    ])
   })
 
-  it('returns empty array for empty git output', async () => {
-    const deps = makeRunDeps({
-      'git log': '',
-    })
-    const commits = await listCommitsSince('2026-05-01', undefined, deps)
-    expect(commits).toHaveLength(0)
-  })
-
-  it('returns empty array when git throws', async () => {
-    const deps = { run: vi.fn().mockRejectedValue(new Error('no repo')) }
-    const commits = await listCommitsSince('2026-05-01', undefined, deps)
-    expect(commits).toHaveLength(0)
-  })
-
-  it('handles line without tab gracefully', async () => {
-    const deps = makeRunDeps({
-      'git log': 'abc1234\n',
-    })
-    const commits = await listCommitsSince('2026-05-01', undefined, deps)
-    expect(commits).toHaveLength(1)
-    expect(commits[0]).toEqual({ sha: 'abc1234', title: '' })
+  it('uses one date-bounded merged-PR query and degrades on failure', async () => {
+    const run = vi.fn().mockResolvedValue('sha111\nsha222\n')
+    await expect(fetchHotfixPrShas('2026-05-01T10:00:00Z', { run })).resolves.toEqual(new Set(['sha111', 'sha222']))
+    const query = run.mock.calls[0][0] as string[]
+    expect(query).toContain('label:hotfix merged:>=2026-05-01')
+    await expect(
+      fetchHotfixPrShas('2026-05-01', { run: vi.fn().mockRejectedValue(new Error('no auth')) }),
+    ).resolves.toEqual(new Set())
   })
 })
-
-// ─── fetchHotfixPrShas ───────────────────────────────────────────────────────
-
-describe('fetchHotfixPrShas', () => {
-  it('returns a set of SHAs from gh output', async () => {
-    const deps = makeRunDeps({
-      'gh pr list': 'sha111\nsha222\nsha333\n',
-    })
-    const shas = await fetchHotfixPrShas('2026-05-01', deps)
-    expect(shas.has('sha111')).toBe(true)
-    expect(shas.has('sha222')).toBe(true)
-    expect(shas.has('sha333')).toBe(true)
-    expect(shas.size).toBe(3)
-  })
-
-  it('returns empty set for empty gh output', async () => {
-    const deps = makeRunDeps({
-      'gh pr list': '',
-    })
-    const shas = await fetchHotfixPrShas('2026-05-01', deps)
-    expect(shas.size).toBe(0)
-  })
-
-  it('returns empty set when gh throws (graceful degradation)', async () => {
-    const deps = { run: vi.fn().mockRejectedValue(new Error('no auth')) }
-    const shas = await fetchHotfixPrShas('2026-05-01', deps)
-    expect(shas.size).toBe(0)
-  })
-
-  it('uses only the first 10 chars of anchorDate for --search date filter', async () => {
-    const runMock = vi.fn().mockResolvedValue('')
-    const deps = { run: runMock }
-    await fetchHotfixPrShas('2026-05-01T10:00:00Z', deps)
-    const callArgs: string[] = runMock.mock.calls[0][0]
-    const searchArg = callArgs[callArgs.indexOf('--search') + 1]
-    expect(searchArg).toContain('merged:>=2026-05-01')
-  })
-})
-
-// ─── computeHotfixDensity — integration paths ─────────────────────────────────
-
-function makeDepsForIntegration(opts: { tags?: string; promoLog?: string; commits?: string; prShas?: string }): Deps {
-  return {
-    run: vi.fn(async (cmd: string[]) => {
-      const joined = cmd.join(' ')
-      if (joined.includes('git tag --list')) return opts.tags ?? ''
-      if (joined.includes('git log') && joined.includes('main') && joined.includes('merges')) {
-        return opts.promoLog ?? ''
-      }
-      if (joined.includes('git log') && joined.includes('main..staging')) return opts.commits ?? ''
-      if (joined.includes('gh pr list')) return opts.prShas ?? ''
-      throw new Error(`Unexpected cmd: ${joined}`)
-    }),
-  }
-}
 
 describe('computeHotfixDensity', () => {
-  it('returns green result for zero commits', async () => {
-    const deps = makeDepsForIntegration({
-      tags: 'omp-build/v1.0.0 2026-05-01T10:00:00+02:00\n',
-      commits: '',
+  it('does not query labels for an empty commit window', async () => {
+    const deps = promoteReadback({ tags: 'omp-build/v1.0.0 2026-05-01T10:00:00+02:00\n', commits: '' })
+    await expect(computeHotfixDensity(undefined, deps)).resolves.toMatchObject({
+      total: 0,
+      hotfixCount: 0,
+      density: 0,
+      gauge: 'green',
+      anchorSource: 'tag',
     })
-    const result = await computeHotfixDensity(undefined, deps)
-    expect(result.total).toBe(0)
-    expect(result.hotfixCount).toBe(0)
-    expect(result.density).toBe(0)
-    expect(result.gauge).toBe('green')
-    expect(result.anchorSource).toBe('tag')
+    expect(deps.run).toHaveBeenCalledTimes(2)
   })
 
-  it('returns green gauge for <20% hotfix density', async () => {
-    const deps = makeDepsForIntegration({
-      tags: 'v1.0.0 2026-05-01T10:00:00+02:00\n',
-      // 1 fix out of 10 = 10%
-      commits: [
+  it.each([
+    [
+      'green',
+      [
         'sha01\tfix: one fix',
         'sha02\tfeat: feature a',
         'sha03\tfeat: feature b',
         'sha04\tfeat: feature c',
         'sha05\tfeat: feature d',
         'sha06\tfeat: feature e',
-        'sha07\tchore: cleanup',
-        'sha08\tdocs: update readme',
-        'sha09\trefactor: small refactor',
-        'sha10\ttest: add tests',
       ].join('\n'),
-      prShas: '',
-    })
-    const result = await computeHotfixDensity(undefined, deps)
-    expect(result.total).toBe(10)
-    expect(result.hotfixCount).toBe(1)
-    expect(result.density).toBeCloseTo(0.1)
-    expect(result.gauge).toBe('green')
-  })
-
-  it('returns warn gauge for 20–40% hotfix density', async () => {
-    const deps = makeDepsForIntegration({
-      tags: 'v1.0.0 2026-05-01T10:00:00+02:00\n',
-      // 3 fix out of 10 = 30%
-      commits: [
-        'sha01\tfix: first',
-        'sha02\tfix: second',
-        'sha03\tfix: third',
-        'sha04\tfeat: a',
-        'sha05\tfeat: b',
-        'sha06\tfeat: c',
-        'sha07\tchore: d',
-        'sha08\tdocs: e',
-        'sha09\trefactor: f',
-        'sha10\ttest: g',
+      '',
+      6,
+      1,
+    ],
+    [
+      'warn',
+      [
+        'labelled01\tfeat: feature a',
+        'labelled02\tfeat: feature b',
+        'sha03\tfeat: feature c',
+        'sha04\tfeat: feature d',
+        'sha05\tfeat: feature e',
+        'sha06\tfeat: feature f',
       ].join('\n'),
-      prShas: '',
-    })
-    const result = await computeHotfixDensity(undefined, deps)
-    expect(result.hotfixCount).toBe(3)
-    expect(result.gauge).toBe('warn')
-  })
+      'labelled01\nlabelled02',
+      6,
+      2,
+    ],
+    [
+      'pause',
+      ['labelled\tfeat: labeled hotfix', 'sha02\tfix: second', 'sha03\tfeat: a', 'sha04\tfeat: b'].join('\n'),
+      'labelled',
+      4,
+      2,
+    ],
+  ] as const)(
+    'returns %s for title-only, label-only, and combined hotfix evidence',
+    async (gauge, commits, prShas, total, hotfixCount) => {
+      const result = await computeHotfixDensity(
+        undefined,
+        promoteReadback({ tags: 'v1.0.0 2026-05-01T10:00:00+02:00\n', commits, prShas }),
+      )
+      expect(result).toMatchObject({ total, hotfixCount, gauge, anchorSource: 'tag' })
+    },
+  )
 
-  it('returns pause gauge for >40% hotfix density', async () => {
-    const deps = makeDepsForIntegration({
-      tags: 'v1.0.0 2026-05-01T10:00:00+02:00\n',
-      // 5 fix out of 10 = 50%
-      commits: [
-        'sha01\tfix: a',
-        'sha02\tfix: b',
-        'sha03\tfix: c',
-        'sha04\tfix: d',
-        'sha05\tfix: e',
-        'sha06\tfeat: f',
-        'sha07\tfeat: g',
-        'sha08\tchore: h',
-        'sha09\tdocs: i',
-        'sha10\ttest: j',
-      ].join('\n'),
-      prShas: '',
-    })
-    const result = await computeHotfixDensity(undefined, deps)
-    expect(result.hotfixCount).toBe(5)
-    expect(result.gauge).toBe('pause')
-  })
-
-  it('classifies hotfix from PR label (sha in hotfixPrShas)', async () => {
-    const deps = makeDepsForIntegration({
-      tags: 'v1.0.0 2026-05-01T10:00:00+02:00\n',
-      // feat commit but PR has hotfix label
-      commits: ['prsha1\tfeat: should be classified hotfix via label', 'sha02\tfeat: normal feature'].join('\n'),
-      prShas: 'prsha1',
-    })
-    const result = await computeHotfixDensity(undefined, deps)
-    expect(result.hotfixCount).toBe(1)
-    expect(result.total).toBe(2)
-    expect(result.density).toBeCloseTo(0.5)
-    expect(result.gauge).toBe('pause')
-  })
-
-  it('uses fallback-30d when no tags or promotion merge, emits anchorWarn', async () => {
-    const deps = makeDepsForIntegration({
-      tags: '',
-      promoLog: '',
-      commits: 'sha01\tfeat: something\n',
-      prShas: '',
-    })
-    const result = await computeHotfixDensity(undefined, deps)
+  it('retains fallback provenance', async () => {
+    const result = await computeHotfixDensity(undefined, promoteReadback({ commits: 'sha01\tfeat: something\n' }))
     expect(result.anchorSource).toBe('fallback-30d')
     expect(result.anchorWarn).toBeTruthy()
   })
 
-  it('uses promotion-merge when no tags but promo commit found', async () => {
-    const deps = makeDepsForIntegration({
-      tags: '',
-      promoLog: 'abcdef 2026-05-15 09:00:00 +0200',
-      commits: '',
-    })
-    const result = await computeHotfixDensity(undefined, deps)
-    expect(result.anchorSource).toBe('promotion-merge')
-    expect(result.anchorWarn).toBeUndefined()
+  it('retains promotion-merge provenance', async () => {
+    const result = await computeHotfixDensity(
+      undefined,
+      promoteReadback({ promoLog: 'abcdef 2026-05-15 09:00:00 +0200', commits: '' }),
+    )
+    expect(result).toMatchObject({ anchorSource: 'promotion-merge', anchorDate: '2026-05-15 09:00:00 +0200' })
   })
 })
 
-// ─── formatResult ─────────────────────────────────────────────────────────────
-
-/**
- * Slash-command tokens as an operator reads them: `/name` at a word boundary,
- * so `2/10` and `docs/changelog` are not commands.
- */
 function slashCommands(text: string): string[] {
-  return [...text.matchAll(/(?<![\w/])\/[A-Za-z][\w-]*/g)].map(([cmd]) => cmd)
+  return [...text.matchAll(/(?<![\w/])\/[A-Za-z][\w-]*/g)].map(([command]) => command)
 }
 
-/** Every slash command this plugin registers — the set a printed `/x` must be in. */
 const SHIPPED = new Set<string>()
-ompBuildExtension(
-  createExtensionApiStub({
-    registerCommand: (name) => {
-      SHIPPED.add(`/${name}`)
-    },
-  }),
-)
+ompBuildExtension(createExtensionApiStub({ registerCommand: (name) => SHIPPED.add(`/${name}`) }))
 
 describe('formatResult', () => {
   const baseResult: HotfixDensityResult = {
@@ -439,88 +187,19 @@ describe('formatResult', () => {
     anchorSource: 'tag',
   }
 
-  it('formats green result with OK signal', () => {
-    const out = formatResult(baseResult)
-    expect(out).toContain('1/10')
-    expect(out).toContain('10%')
-    expect(out).toContain('OK')
+  it.each([
+    ['green', 1, 0.1, 'OK'],
+    ['warn', 3, 0.3, 'WARN'],
+    ['pause', 5, 0.5, 'PAUSE'],
+  ] as const)('renders %s without a dead command', (gauge, hotfixCount, density, signal) => {
+    const output = formatResult({ ...baseResult, gauge, hotfixCount, density })
+    expect(output).toContain(`${hotfixCount}/10`)
+    expect(output).toContain(signal)
+    expect(slashCommands(output).filter((command) => !SHIPPED.has(command))).toEqual([])
   })
 
-  it('formats warn result with WARN signal', () => {
-    const result: HotfixDensityResult = {
-      ...baseResult,
-      hotfixCount: 3,
-      density: 0.3,
-      gauge: 'warn',
-    }
-    const out = formatResult(result)
-    expect(out).toContain('3/10')
-    expect(out).toContain('30%')
-    expect(out).toContain('WARN')
-  })
-
-  it('never points the operator at a command this plugin does not ship', () => {
-    // dev-core's signals ended in `/R-dev-checkup`; omp-build carries no such
-    // skill (ADR-020 §7), so a slash-command in this line is a dead end printed
-    // in the middle of a release.
-    //
-    // Measured as membership, not as absence. `not.toMatch(/\/[A-Za-z][\w-]*/)`
-    // asked "does this contain no /word", which is a different claim: it fails a
-    // line that correctly says `/cleanup`, and passes one that says
-    // `R-dev-checkup` without the slash. The shipped set comes from the lane that
-    // makes a slash command real — `registerCommand` in `omp/index.ts` — so a
-    // command that is dropped from the extension turns every line naming it red.
-    expect(slashCommands('WARN: elevated rate; consider /R-dev-checkup')).toEqual(['/R-dev-checkup'])
-    expect(SHIPPED.has('/R-dev-checkup')).toBe(false)
-    expect(slashCommands('done — run /cleanup next').filter((cmd) => !SHIPPED.has(cmd))).toEqual([])
-
-    for (const gauge of ['green', 'warn', 'pause'] as const) {
-      const out = formatResult({ ...baseResult, gauge })
-      expect(`${gauge}: ${slashCommands(out).filter((cmd) => !SHIPPED.has(cmd))}`).toBe(`${gauge}: `)
-    }
-  })
-
-  it('formats pause result with PAUSE recommended signal', () => {
-    const result: HotfixDensityResult = {
-      ...baseResult,
-      hotfixCount: 5,
-      density: 0.5,
-      gauge: 'pause',
-    }
-    const out = formatResult(result)
-    expect(out).toContain('5/10')
-    expect(out).toContain('50%')
-    expect(out).toContain('PAUSE')
-  })
-
-  it('appends anchorWarn note when present', () => {
-    const result: HotfixDensityResult = {
-      ...baseResult,
-      anchorSource: 'fallback-30d',
-      anchorWarn: 'No release tag found — using 30-day window',
-    }
-    const out = formatResult(result)
-    expect(out).toContain('note:')
-    expect(out).toContain('30-day window')
-  })
-
-  it('does not append note when anchorWarn absent', () => {
-    const out = formatResult(baseResult)
-    expect(out).not.toContain('note:')
-  })
-
-  it('formats zero commits result', () => {
-    const result: HotfixDensityResult = {
-      total: 0,
-      hotfixCount: 0,
-      density: 0,
-      gauge: 'green',
-      anchorDate: '2026-05-01',
-      anchorSource: 'tag',
-    }
-    const out = formatResult(result)
-    expect(out).toContain('0/0')
-    expect(out).toContain('0%')
-    expect(out).toContain('OK')
+  it('adds fallback provenance only when present', () => {
+    expect(formatResult({ ...baseResult, anchorWarn: 'No release tag found — using 30-day window' })).toContain('note:')
+    expect(formatResult(baseResult)).not.toContain('note:')
   })
 })

@@ -1,4 +1,4 @@
-import { decodeHistory, encodeRecord } from '../adapters/github.ts'
+import { decodeHistory, encodeRecord } from '../adapters/github/history-codec.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Label, Scope, Verdict } from '../engine/record-values.ts'
 import type { RecordProjectionConfig } from '../engine/result.ts'

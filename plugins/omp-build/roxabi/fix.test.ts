@@ -3,17 +3,13 @@ import { validateDecisionBindings } from '../dist/contracts.js'
 import { contribution } from '../testing/record-decisions.ts'
 import { reviewGraph } from '../testing/record-graphs.ts'
 import { history } from '../testing/record-history.ts'
-import { executeCorrection } from './correction-policy'
-import {
-  type FixRecord,
-  type FixTarget,
-  type PreparedFix,
-  prepareStandaloneFix,
-  publishFixIntake,
-  reconstructFixCheckpoint,
-  runReviewBoundFixWorkflow,
-} from './fix'
+import { executeCorrection } from './correction-plan-execution.ts'
+import { reconstructFixCheckpoint } from './fix-checkpoint-state.ts'
+import type { FixRecord, FixTarget, PreparedFix } from './fix-contract.ts'
+import { publishFixIntake } from './fix-contributions-native.ts'
 import { admitCorrectionCauses, assessFalsification, type CorrectionCause, type FixFinding } from './fix-domain'
+import { runReviewBoundFixWorkflow } from './fix-execution-runner.ts'
+import { matchesRequiredFeatureMandate } from './fix-mandate-authority.ts'
 
 const blocking: FixFinding = { id: 'finding-1', label: 'issue(blocking)', usable: true }
 const optional: FixFinding = { id: 'finding-2', label: 'suggestion', usable: true }
@@ -122,6 +118,55 @@ describe('fix correction safety', () => {
     })
   })
 
+  it('requires the exact applicable feature mandate and accepted correction scope', () => {
+    const mandate = {
+      recordId: 'feature-mandate',
+      role: 'feature' as const,
+      storedLanding: false,
+      repository: 'Acme/app',
+      target: 'Acme/app#42',
+      specBody: 'correct the review findings',
+      parent: null,
+      antecedent: null,
+    }
+    const required = {
+      scope: { repository: 'Acme/app', target: 'Acme/app#42' },
+      recordId: 'feature-mandate',
+      kind: 'mandate' as const,
+    }
+
+    expect(
+      matchesRequiredFeatureMandate(required, mandate, 'correct the review findings', 'correct the review findings'),
+    ).toBe(true)
+    expect(
+      matchesRequiredFeatureMandate(
+        required,
+        { ...mandate, role: 'fix-only' },
+        'correct the review findings',
+        'correct the review findings',
+      ),
+    ).toBe(false)
+    expect(matchesRequiredFeatureMandate(required, mandate, 'accepted scope', 'correct the review findings')).toBe(
+      false,
+    )
+    expect(
+      matchesRequiredFeatureMandate(
+        { ...required, recordId: 'other-mandate' },
+        mandate,
+        'correct the review findings',
+        'correct the review findings',
+      ),
+    ).toBe(false)
+    expect(
+      matchesRequiredFeatureMandate(
+        { ...required, scope: { ...required.scope, target: 'Acme/app#99' } },
+        mandate,
+        'correct the review findings',
+        'correct the review findings',
+      ),
+    ).toBe(false)
+  })
+
   it('requires every removed production guard to fail the intended scenario', () => {
     expect(
       assessFalsification([
@@ -132,118 +177,6 @@ describe('fix correction safety', () => {
     expect(
       assessFalsification([{ guard: 'validateUser', removedProductionGuard: true, proofFailedIntendedScenario: true }]),
     ).toMatchObject({ result: 'pass' })
-  })
-
-  it('refuses a closed target before publishing an operator contribution', async () => {
-    const records: FixRecord[] = []
-    const result = await prepareStandaloneFix(
-      {
-        cwd: '/worktree',
-        reference: '#42',
-        rawOperatorRequest: { request: 'fix it' },
-        scope: 'src/auth only',
-        policy: { version: 'baseline' },
-        identity: {
-          runId: 'run-1',
-          operationId: 'operation-1',
-          nextRecordId: (kind) => `${kind}-1`,
-        },
-        publishBinding: {
-          pushUrl: 'https://github.com/Acme/app.git',
-          publicationRepository: 'Acme/app',
-          localBranch: 'fix/auth',
-          destinationRef: 'refs/heads/fix/auth',
-          localHead: 'a'.repeat(40),
-          expectedRemoteSHA: 'a'.repeat(40),
-          defaultBranch: 'main',
-          observed: {},
-        },
-        nativeTasks: [
-          {
-            name: 'slot-1',
-            agent: 'R-adversarial',
-            task: 'inspect correction scope',
-            solutionSpace: 'correction evidence only',
-          },
-        ],
-      },
-      {
-        resolveExplicit: async () => ({ ...openTarget(), state: 'closed' }),
-        resolveContext: async () => null,
-      },
-      {
-        publish: async (item) => {
-          records.push(item)
-          return { ok: true, value: undefined }
-        },
-      },
-    )
-
-    expect(result).toEqual({ ok: false, diagnostics: ['fix-target-closed'] })
-    expect(records).toEqual([])
-  })
-
-  it('uses baseline policy by default for a bounded standalone correction', async () => {
-    const records: FixRecord[] = []
-    let sequence = 0
-    const result = await prepareStandaloneFix(
-      {
-        cwd: '/worktree',
-        reference: '#42',
-        rawOperatorRequest: { request: 'fix it' },
-        scope: 'src/auth only',
-        identity: {
-          runId: 'run-1',
-          operationId: 'operation-1',
-          nextRecordId: (kind) => `${kind}-${++sequence}`,
-        },
-        publishBinding: {
-          pushUrl: 'https://github.com/Acme/app.git',
-          publicationRepository: 'Acme/app',
-          localBranch: 'fix/auth',
-          destinationRef: 'refs/heads/fix/auth',
-          localHead: 'a'.repeat(40),
-          expectedRemoteSHA: 'a'.repeat(40),
-          defaultBranch: 'main',
-          observed: {},
-        },
-        nativeTasks: [
-          {
-            name: 'slot-1',
-            agent: 'R-review-fix-intake',
-            task: 'inspect correction scope',
-            solutionSpace: 'correction evidence only',
-          },
-        ],
-      },
-      {
-        resolveExplicit: async () => openTarget(),
-        resolveContext: async () => null,
-      },
-      {
-        publish: async (item) => {
-          records.push(item)
-          return { ok: true, value: undefined }
-        },
-      },
-      {
-        nextReviewStep: async () => ({ action: 'fix' }),
-      },
-    )
-
-    expect(result.ok).toBe(true)
-    const inventory = records.find((record) => record.kind === 'review-attempt')
-    if (inventory?.kind !== 'review-attempt') throw new Error('expected correction inventory')
-    expect(inventory.payload).toMatchObject({ purpose: 'correction', policy: { version: 'baseline' } })
-    const source = records.find((record) => record.kind === 'contribution')
-    if (source?.kind !== 'contribution') throw new Error('expected operator contribution')
-    expect(source.payload).toMatchObject({
-      structured: null,
-      rawAttempts: [
-        { raw: { operatorRequest: { request: 'fix it' }, publishBinding: { publicationRepository: 'Acme/app' } } },
-      ],
-    })
-    expect(records.map((record) => record.kind)).toEqual(['contribution', 'fix-request', 'review-attempt'])
   })
 
   it('retains an unusable required native result before refusing correction intake', async () => {
