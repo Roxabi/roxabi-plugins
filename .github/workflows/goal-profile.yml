@@ -1,0 +1,35 @@
+name: Goal scenario profile
+
+on:
+  push:
+    branches: [ci/888-goal-profile]
+
+permissions:
+  contents: read
+
+jobs:
+  profile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2
+        with:
+          bun-version-file: .bun-version
+      - name: Verify bun.lock is committed
+        run: git ls-files --error-unmatch bun.lock > /dev/null
+      - run: bun install --frozen-lockfile
+      - name: Verify omp-build distribution
+        run: bun run verify:omp-build-distribution
+      - name: Check omp-build quality
+        run: bun run quality:omp-build
+      - name: Lint
+        run: bun lint
+      - name: Typecheck
+        run: bun typecheck
+      - name: Report runner sizing
+        run: bun -e 'import { availableParallelism } from "node:os"; console.log(JSON.stringify({ architecture: process.arch, availableParallelism: availableParallelism() }))'
+      - name: Profile full Vitest suite
+        run: bun tools/profile-goal-scenario.ts
