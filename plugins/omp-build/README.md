@@ -642,6 +642,8 @@ Retained native data stays in `skills/feature/__fixtures__/proof/{records,histor
 
 Run `bun run quality:omp-build` for the same owned-source check used by the pre-commit hook and CI. Physical discovery feeds both the line counter and the pinned Biome command; warnings fail, and an empty lint set is not success.
 
+Vitest bounds concurrent test files globally at `min(8, max(1, availableParallelism() - 1))`. Both inline projects inherit the root value and share the default group, so the cap contains aggregate process and I/O pressure rather than excepting a single scenario. It preserves the installed non-watch default on runners with 1, 2, or 4 available CPUs; the unit 5s and integration 30s budgets remain unchanged.
+
 | Surface | Enforced limit |
 |---|---|
 | Runtime code, helpers, types, schemas, live configuration and exclusive omp-build tools | 300 physical lines |

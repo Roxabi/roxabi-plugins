@@ -1,3 +1,4 @@
+import { availableParallelism } from 'node:os'
 import { defineConfig } from 'vitest/config'
 
 const exclude = [
@@ -23,6 +24,9 @@ const INTEGRATION = '**/*.integration.test.?(c|m)[jt]s?(x)'
 
 export default defineConfig({
   test: {
+    // Inline projects share the default group, so their process and I/O load
+    // needs one global bound. Keep Vitest's non-watch default on small runners.
+    maxWorkers: Math.min(8, Math.max(1, availableParallelism() - 1)),
     exclude,
     setupFiles: ['./vitest.setup.ts'],
     // Root-only: vitest runs a root globalSetup once per run, not per project.
@@ -34,9 +38,8 @@ export default defineConfig({
     },
     projects: [
       {
-        // `extends: true` is explicit: inline projects only inherit by default
-        // from vitest 5, and this repo is on 4.x. Without it a project resolves
-        // with no setupFiles and no env, which would drop the Bun shim.
+        // Keep root configuration inheritance explicit. Without it a project
+        // resolves with no setupFiles and no env, which would drop the Bun shim.
         extends: true,
         test: {
           name: 'unit',
