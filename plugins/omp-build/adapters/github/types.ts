@@ -158,7 +158,7 @@ export function parseComment(value: unknown, scope: Scope, page: number, index: 
 
 function viewerCredentialKey(): string {
   // `gh api user` answers for the process token, not for cwd.
-  return `${process.env.GH_HOST ?? ''}\0${process.env.GH_TOKEN ?? ''}\0${process.env.GITHUB_TOKEN ?? ''}`
+  return `${process.env.GH_HOST ?? ''}\0${process.env.GH_CONFIG_DIR ?? ''}\0${process.env.GH_TOKEN ?? ''}\0${process.env.GITHUB_TOKEN ?? ''}`
 }
 
 let cachedViewer: { key: string; value: Promise<string> } | undefined
@@ -174,11 +174,12 @@ async function resolveViewerLogin(options: GitHubOptions): Promise<string> {
 }
 
 /**
- * The authenticated login is stable for a given token for the life of the
- * process. Callers that publish or read repeatedly (workflow landing, epic
- * driver) must not pay a fresh `gh api user` process on every record.
- * Prefer `readAuthor` / `writerLogin` / `automationLogin` when known; this
- * cache only collapses the fallback.
+ * The authenticated login is fixed for one OMP process. `gh auth switch` must
+ * start a new session; changing its selected account does not invalidate this
+ * memo. Callers that publish or read repeatedly (workflow landing, epic driver)
+ * must not pay a fresh `gh api user` process on every record. Prefer
+ * `readAuthor` / `writerLogin` / `automationLogin` when known; this cache only
+ * collapses the fallback.
  */
 export async function viewer(options: GitHubOptions): Promise<string> {
   const key = viewerCredentialKey()

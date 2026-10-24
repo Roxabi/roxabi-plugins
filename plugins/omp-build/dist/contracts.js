@@ -8972,7 +8972,7 @@ function parseComment(value, scope, page, index) {
   };
 }
 function viewerCredentialKey() {
-  return `${process.env.GH_HOST ?? ""}\x00${process.env.GH_TOKEN ?? ""}\x00${process.env.GITHUB_TOKEN ?? ""}`;
+  return `${process.env.GH_HOST ?? ""}\x00${process.env.GH_CONFIG_DIR ?? ""}\x00${process.env.GH_TOKEN ?? ""}\x00${process.env.GITHUB_TOKEN ?? ""}`;
 }
 var cachedViewer;
 async function resolveViewerLogin(options) {
@@ -9614,7 +9614,7 @@ async function publishGitHubRecord(record, history, options, config, externalHis
   const stopAuthor = options.stopAuthor ?? null;
   try {
     expectedAuthor = await expectedReadAuthor(options);
-    writer = options.writerLogin ?? options.writeAuthor ?? options.automationLogin ?? await viewer(options);
+    writer = options.writerLogin ?? await viewer(options);
   } catch (error) {
     return publicationFailure("uncertain", history, publicationReadDiagnostics(error));
   }

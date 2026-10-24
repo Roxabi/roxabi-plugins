@@ -5,8 +5,8 @@
 # dependabot[bot] skips the record only. A rebase still disarms — re-label after it.
 # Reviewed PRs are not retargeted.
 #
-# Dependabot guard: semver-major bumps are never auto-merged — they require
-# manual validation before merge.
+# Dependabot guard: only semver-minor and semver-patch updates whose every
+# commit author is dependabot[bot] are eligible for auto-merge.
 #
 # Also closes linked issues after merge, because GITHUB_TOKEN-initiated
 # auto-merges don't trigger GitHub's native "Closes #X" issue closure.
@@ -119,19 +119,6 @@ jobs:
         with:
           github-token: ${{ steps.app.outputs.token }}
 
-      - name: Block dependabot semver-major bumps
-        if: >-
-          github.event.action == 'labeled' &&
-          github.event.pull_request.user.login == 'dependabot[bot]' &&
-          steps.dependabot-meta.outputs.update-type == 'version-update:semver-major'
-        env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
-            --body "Auto-merge refused: **semver-major** bump. Manual validation required (e2e / boot the artifact), then merge by hand."
-          echo "::error::semver-major dependency bump — auto-merge refused"
-          exit 1
 
       # The reviewed PR's checkout is data for the admission reader only. Never
       # run a script, package manager, config, or preload from this path. Checkout
@@ -203,6 +190,7 @@ jobs:
           BUN_OUTCOME: ${{ steps.review-gate-bun.outcome }}
           STOP_GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.run_id }}
+          DEPENDABOT_UPDATE_TYPE: ${{ steps.dependabot-meta.outputs.update-type }}
           BUN_OPTIONS: ''
           BUN_PRELOAD: ''
           NODE_OPTIONS: ''
@@ -212,9 +200,21 @@ jobs:
             echo "::error::$1"
             exit 1
           }
-          # The only intended exception: Dependabot retains the existing
-          # semver-major guard above but does not require a human review record.
+          # Dependabot does not require a review record, but only verified
+          # semver-minor/patch updates with exclusively Dependabot-authored commits
+          # can take this path.
           if [ "$AUTHOR" = "dependabot[bot]" ]; then
+            case "$DEPENDABOT_UPDATE_TYPE" in
+              version-update:semver-minor | version-update:semver-patch) ;;
+              *) refuse 'refusing auto-merge: Dependabot update is not semver-minor or semver-patch' ;;
+            esac
+            if ! commits=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json commits); then
+              refuse 'refusing auto-merge: could not read Dependabot commit authors'
+            fi
+            if ! printf '%s' "$commits" | jq -e \
+              '(.commits | length > 0) and all(.commits[]; (.authors | type == "array" and length > 0 and all(.[]; .login == "dependabot[bot"])))' >/dev/null; then
+              refuse 'refusing auto-merge: Dependabot PR has a non-Dependabot commit author'
+            fi
             SHA="$HEAD_SHA"
           else
             if ! [[ "$TOOLING_SHA" =~ ^[0-9a-f]{40}$ ]]; then

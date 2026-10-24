@@ -1,3 +1,4 @@
+import { viewer } from '../adapters/github/types.ts'
 import type { Result } from '../dist/contracts.js'
 import { proofSemanticContext } from '../skills/feature/proof-context'
 import { resolveReviewPr } from '../skills/feature/workflow-pr.js'
@@ -65,7 +66,8 @@ export async function prepareReviewTarget(
     return failed('repository-unreadable', 'repository identity is unreadable')
   }
 
-  const automationLogin = (await gh(cwd, ['api', 'user', '--jq', '.login'])).trim()
+  // Viewer identity is memoized per OMP process; `gh auth switch` requires a new session.
+  const automationLogin = await viewer({ cwd, gh })
   if (!automationLogin) return failed('automation-login-unreadable', 'gh api user returned no login')
   const semantic = await resolveReviewSemanticContext({
     cwd,
