@@ -140,12 +140,8 @@ export function readState(fixture: ReviewGateFixture): ReviewGateState {
 }
 
 export function runReviewGate(fixture: ReviewGateFixture, head = fixture.head) {
-  return runReviewGateWithBun(fixture, REAL_BUN, head)
-}
-
-export function runReviewGateWithBun(fixture: ReviewGateFixture, bunPath: string, head = fixture.head) {
   return spawnSync(
-    bunPath,
+    REAL_BUN,
     [
       path.join(fixture.tools, 'plugins/omp-build/scripts/review-gate.ts'),
       '--repository',

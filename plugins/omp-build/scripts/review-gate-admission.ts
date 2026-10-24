@@ -101,7 +101,7 @@ async function landingMandate(
         toolingRoot,
         args.pr,
         gh,
-        { head: args.head, base: coordinates.baseName, baseTip },
+        { head: args.head, base: coordinates.baseName, baseTip, automationLogin: args.automationLogin },
         git,
         args.candidateCwd,
       ),
@@ -229,7 +229,7 @@ async function postAdmissionRefusal(
     toolingRoot,
     args.pr,
     context.gh,
-    { head: fresh.head, base: fresh.baseName, baseTip: freshBase.tip },
+    { head: fresh.head, base: fresh.baseName, baseTip: freshBase.tip, automationLogin: args.automationLogin },
     context.git,
     args.candidateCwd,
   )
@@ -260,7 +260,7 @@ export async function admitReviewGate(args: Arguments, toolingRoot: string): Pro
       reviewInput: initial.summary.value.input,
       ...(mandateRead.mandate?.admitted ? { proofPins: mandateRead.mandate.proofPins } : {}),
     },
-    { gh: initial.gh, git: initial.git },
+    { gh: initial.gh, git: initial.git, automationLogin: args.automationLogin },
   )
   const ci = await ciState(toolingRoot, initial.gh, args.pr)
   const refusal = await postAdmissionRefusal(args, toolingRoot, initial, admission, ci, mandateRead)

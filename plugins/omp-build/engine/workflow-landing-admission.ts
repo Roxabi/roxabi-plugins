@@ -1,4 +1,5 @@
 import type { DecodedHistory } from './history-schema.ts'
+import { diagnostic, sameRef } from './record-diagnostics.ts'
 import { specDigest } from './record-digests.ts'
 import type { ProofConfigPin } from './record-references.ts'
 import type { Diagnostic, Scope } from './record-values.ts'
@@ -19,7 +20,6 @@ import type { MandateRefusal } from './workflow-mandate.ts'
 import { selectApplicableMandate } from './workflow-mandate-admission.ts'
 import { epicParentProblem } from './workflow-parent.ts'
 import { selectWorkflowBinding, type WorkflowBindingSelection } from './workflow-pr-binding.ts'
-import { diagnostic, sameRef } from './workflow-support.ts'
 
 export type LandingMandateInput = {
   histories: readonly DecodedHistory[]

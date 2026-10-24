@@ -4,12 +4,13 @@ import { featureWorkInterrupter, installFeatureSessionLifecycle } from './omp-fe
 import { installOmpToolGuards } from './omp-tool-guards'
 
 export default function ompBuildExtension(pi: OmpBuildExtensionApi, options: OmpBuildExtensionOptions = {}): void {
-  // User-only by construction, on the one lane that exists: `registerCommand` is
-  // the slash lane, `registerTool` is the LLM one (omp://extensions.md), and the
-  // model cannot reach a command. That alone is the property. A body's
-  // `disable-model-invocation` is not a second gate — omp normalises it to `hide`,
-  // which omits the skill from the prompt listing while `skill://<name>` and
-  // `/skill:<name>` still reach it (measured on omp 18.2.9).
+  // Slash commands are user-only: `registerCommand` is the slash lane and the
+  // model cannot reach a command. `registerTool` registers the model-reachable
+  // review entry point, whose product admission still decides whether any work
+  // starts. A body's `disable-model-invocation` is not a second gate — omp
+  // normalises it to `hide`, which omits the skill from the
+  // prompt listing while `skill://<name>` and `/skill:<name>` still reach it
+  // (measured on omp 18.2.9).
   //
   // No `rewriteHarnessPaths` here: nothing this plugin dumps carries a
   // `${CLAUDE_*}` path token to expand — agent bodies and skill bodies, the

@@ -1,22 +1,6 @@
 import type { FeatureSessionReason, FeatureWorkflow } from './feature-contract.ts'
-import { abortOwnedFeatureWatch } from './feature-host-watch.ts'
+import { abortOwnedFeatureWatch, ownedFeatureFor } from './feature-host-ownership.ts'
 import { pauseUnconfirmed } from './feature-presentation.ts'
-
-type OwnedFeature = {
-  reference: string
-  cwd: string
-  pausable: boolean
-}
-
-const ownedFeatures = new WeakMap<object, OwnedFeature>()
-
-export function rememberFeatureOwner(key: object, owned: OwnedFeature): void {
-  ownedFeatures.set(key, owned)
-}
-
-export function releaseFeatureOwner(key: object): void {
-  ownedFeatures.delete(key)
-}
 
 export async function pauseOwnedFeatureOnSessionEnd(
   key: object,
@@ -25,14 +9,14 @@ export async function pauseOwnedFeatureOnSessionEnd(
   interrupt: () => Promise<void>,
   report?: (text: string) => Promise<void>,
 ): Promise<void> {
-  const owned = ownedFeatures.get(key)
+  const owned = ownedFeatureFor(key)
   abortOwnedFeatureWatch(key)
   try {
     await interrupt()
   } catch {
     // A failed local interrupt does not skip the product pause attempt.
   }
-  if (owned === undefined || ownedFeatures.get(key) !== owned || owned.pausable !== true) return
+  if (owned === undefined || ownedFeatureFor(key) !== owned || owned.pausable !== true) return
   try {
     const paused = await workflow.requestFeatureSessionPause({
       cwd: owned.cwd,

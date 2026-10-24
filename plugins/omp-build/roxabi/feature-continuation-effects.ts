@@ -6,12 +6,12 @@ import { prepareEpicFinalReviewMaterials } from './epic-range-finalization.ts'
 import { continueCiCorrection, continueReviewBoundFix } from './feature-ci-correction.ts'
 import type { FeatureAuthority } from './feature-continuation-admission.ts'
 import { acquireFeatureProof, resumePausedFeature } from './feature-continuation-dispatch.ts'
-import type { FeatureObservation } from './feature-continuation-observation.ts'
 import type { SelectedFeature } from './feature-continuation-selection.ts'
 import type { ContinueFeatureInput, ContinueFeatureResult } from './feature-contract.ts'
 import { payload } from './feature-engine.ts'
 import { fileEpicFixTicket, runEpicPostMergeHook } from './feature-epic-actions.ts'
 import { landFeature } from './feature-landing.ts'
+import type { FeatureObservation } from './feature-observation-contract.ts'
 import { mandateRoleOf } from './feature-selection.ts'
 
 type ContinueAtTarget = (

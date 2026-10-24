@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ExtensionAPI } from '@oh-my-pi/pi-coding-agent'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { createExtensionApiStub } from '../../testing/extension-api-stub'
 import ompBuildExtension from '../index'
-import { createExtensionApiStub } from './extension-api-stub'
 
 // Integration, not unit: the principal probe shells out to git, and a unit test
 // that forks is failed by vitest.setup.ts (#502). The unit suite pins the

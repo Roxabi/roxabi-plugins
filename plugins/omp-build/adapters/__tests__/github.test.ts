@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { History } from '../../engine/history-schema.ts'
 import { decodeHistory } from '../github/history-codec.ts'
+import { publishMissingBodies } from '../github/publication-writer.ts'
 import { githubScope, readGitHubHistory } from '../github/transport.ts'
 
 const handcraftedBody =
@@ -41,18 +42,13 @@ describe('GitHub record codec', () => {
     })
   })
 
-  it('marks a foreign opaque proof and its diagnostic outside review authority', () => {
+  it('keeps a foreign opaque proof observable without authority', () => {
     const decoded = decodeHistory(history(handcraftedBody, 'other-actor'))
 
-    expect(decoded.operations[0]).toMatchObject({
-      operationId: 'operation-1',
-      status: 'invalid',
-      authority: 'foreign',
-      record: null,
-    })
-    expect(decoded.diagnostics).toContainEqual(
-      expect.objectContaining({ code: 'native-author-mismatch', operationId: 'operation-1' }),
-    )
+    expect(decoded.operations).toEqual([
+      expect.objectContaining({ operationId: 'operation-1', status: 'invalid', authority: 'foreign', record: null }),
+    ])
+    expect(decoded.diagnostics).toEqual([])
   })
 
   it('keeps a trusted stop when a malformed foreign header shares its operation identity', () => {
@@ -99,17 +95,55 @@ describe('GitHub record codec', () => {
           operationId: 'shared-operation',
           kind: 'unknown',
           status: 'invalid',
-          authority: 'authority',
-          parts: [expect.objectContaining({ nativeId: '99' })],
+          authority: 'foreign',
         }),
       ]),
     )
-    expect(decoded.diagnostics).toContainEqual(
-      expect.objectContaining({ code: 'invalid-framing', operationId: 'shared-operation' }),
-    )
+    expect(decoded.diagnostics).toEqual([])
   })
 
-  it('refuses stop-bot authorship when claimed kinds are not exclusively stop', () => {
+  it('posts over an identical foreign body', async () => {
+    const trusted = decodeHistory(history(handcraftedBody))
+    const record = trusted.operations[0]?.record
+    if (record === null || record === undefined) throw new Error('Fixture requires a decoded record')
+    const calls: string[][] = []
+    const response = JSON.stringify({
+      id: 101,
+      body: handcraftedBody,
+      user: { login: 'automation' },
+      created_at: '2026-10-21T00:00:00Z',
+      updated_at: '2026-10-21T00:00:00Z',
+    })
+
+    const result = await publishMissingBodies(
+      record,
+      [handcraftedBody],
+      decodeHistory(history(handcraftedBody, 'other-actor')),
+      {
+        cwd: '/fixture',
+        gh: async (_cwd, args) => {
+          calls.push(args)
+          return response
+        },
+      },
+      'automation',
+      'automation',
+      null,
+    )
+
+    expect(result).toBeNull()
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toEqual([
+      'api',
+      '--method',
+      'POST',
+      'repos/acme/app/issues/42/comments',
+      '-f',
+      `body=${handcraftedBody}`,
+    ])
+  })
+
+  it('keeps a bot-authored non-stop record observable without authority', () => {
     const stop = {
       repository: 'acme/app',
       target: 'acme/app#42',
@@ -128,18 +162,9 @@ describe('GitHub record codec', () => {
     const decoded = decodeHistory(source)
 
     expect(decoded.operations).toEqual([
-      expect.objectContaining({
-        operationId: 'payload-stop',
-        kind: 'proof',
-        status: 'invalid',
-        claimedKinds: ['proof', 'stop'],
-        authority: 'foreign',
-        record: null,
-      }),
+      expect.objectContaining({ operationId: 'payload-stop', status: 'invalid', authority: 'foreign', record: null }),
     ])
-    expect(decoded.diagnostics).toContainEqual(
-      expect.objectContaining({ code: 'native-author-mismatch', operationId: 'payload-stop' }),
-    )
+    expect(decoded.diagnostics).toEqual([])
   })
 
   it('retains both raw parts when a stop header collides with an opaque proof operation', () => {
@@ -198,13 +223,6 @@ describe('GitHub record codec', () => {
       authority: 'accounted',
     })
     expect(decoded.operations[0]?.parts.map((part) => part.nativeId)).toEqual(['99', '100'])
-  })
-
-  it('keeps a framed foreign-author record invalid rather than treating it as absent', () => {
-    const decoded = decodeHistory(history(handcraftedBody, 'other-actor'))
-
-    expect(decoded.operations[0]).toMatchObject({ operationId: 'operation-1', status: 'invalid', record: null })
-    expect(decoded.diagnostics.map((entry) => entry.code)).toContain('native-author-mismatch')
   })
 
   it('preserves old markers as explicit legacy refusals', () => {

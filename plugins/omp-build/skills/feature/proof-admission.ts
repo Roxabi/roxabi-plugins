@@ -2,8 +2,9 @@ import { admitAssertledger } from './proof-assertledger'
 import { type Refusal, refuse } from './proof-base'
 import { captureReviewInput } from './proof-capture'
 import { admitSemctx } from './proof-chronology'
-import type { Admission, Deps, PrBody, Read, ReviewSnapshot, SemctxOutcome, Target } from './proof-context'
+import type { Admission, Deps, PrBody, Read, ReviewSnapshot, SemctxOutcome } from './proof-context'
 import { compareApplicableProofPins } from './proof-pins'
+import type { Target } from './proof-review-contract'
 
 function boundSnapshot(snapshot: ReviewSnapshot, next: string): { read: Read; body: PrBody; input: string } | Refusal {
   if (!snapshot.read || !snapshot.body || snapshot.input === null) {

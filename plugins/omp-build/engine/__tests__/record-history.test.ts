@@ -178,6 +178,54 @@ describe('immutable admission facts', () => {
     expect(refusalCodes(validateRecordGraph(history(lostAttemptRecords)))).toContain('unusable-finding')
   })
 })
+
+describe('native history trust and chronology', () => {
+  test('ignores a foreign partial frame that reuses a trusted review operation', () => {
+    const trusted = encodedAdmissionReviewGraph(PROJECTION_CONFIG, { prefix: 'foreign-partial' })
+    const baseline = summarizeReviews(trusted.history, TAXONOMY, null)
+    const review = trusted.history.operations.find((operation) => operation.record?.kind === 'review')
+    if (review?.operationId === null || review?.operationId === undefined) throw new Error('Fixture requires a review')
+    const source = {
+      ...trusted.history.source,
+      comments: [
+        ...trusted.comments,
+        observedComment({
+          locator: 'foreign-partial',
+          nativeId: '999',
+          author: 'foreign',
+          body: `<!-- omp-build-record v=1 kind=review id=foreign operationId=${review.operationId} part=1/2 data=e30 -->\n# Foreign`,
+        }),
+      ],
+    }
+
+    expect(summarizeReviews(decodeHistory(source), TAXONOMY, null)).toEqual(baseline)
+  })
+
+  test('keeps an approving review at its native creation time after a comment edit', () => {
+    const graph = encodedAdmissionReviewGraph(PROJECTION_CONFIG, { prefix: 'review-created-at' })
+    const revised = {
+      ...graph.history,
+      operations: graph.history.operations.map((operation) =>
+        operation.record?.kind === 'review'
+          ? {
+              ...operation,
+              parts: operation.parts.map((part) => ({
+                ...part,
+                createdAt: '2026-10-21T10:00:00Z',
+                updatedAt: '2026-10-21T11:00:00Z',
+              })),
+            }
+          : operation,
+      ),
+    }
+
+    expect(summarizeReviews(revised, TAXONOMY, null)).toMatchObject({
+      ok: true,
+      value: { verdict: 'Approve (clean)', at: '2026-10-21T10:00:00Z' },
+    })
+  })
+})
+
 describe('history authority classification', () => {
   test('keeps accounted raw proof out of review accounting while foreign sources cannot satisfy authority', () => {
     const graph = reviewGraph({ prefix: 'classified', empty: true })

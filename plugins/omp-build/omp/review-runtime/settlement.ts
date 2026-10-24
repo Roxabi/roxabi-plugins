@@ -1,9 +1,8 @@
 import type { ToolResultEvent } from '@oh-my-pi/pi-coding-agent'
-import type { ResolvedTaskResult } from './bridge'
-import { capturedChild, resolveTaskResult } from './bridge'
 import { flushPendingYields } from './capture'
 import type { NativeBatchCallbacks, NativeBatchResult, NativeChildResult } from './contracts'
 import type { ActiveBatch } from './state'
+import { capturedChild, type ResolvedTaskResult, resolveTaskResult } from './task-result-resolution'
 
 async function publishRaw(callbacks: NativeBatchCallbacks, children: readonly NativeChildResult[]): Promise<string[]> {
   const errors: string[] = []

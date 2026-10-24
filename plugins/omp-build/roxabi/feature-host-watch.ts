@@ -1,16 +1,6 @@
 import { parseInstalledWatchCommand } from './feature-command.ts'
 import type { ContinueFeatureResult, FeatureCommandHost } from './feature-contract.ts'
-import { rememberFeatureOwner } from './feature-host-lifetime.ts'
-
-const ownedWatches = new WeakMap<object, AbortController>()
-
-/** Ephemeral only. Pause, abandon, and session end abort the owned watch; nothing is written to disk. */
-export function abortOwnedFeatureWatch(key: object): void {
-  const controller = ownedWatches.get(key)
-  if (controller === undefined) return
-  ownedWatches.delete(key)
-  controller.abort()
-}
+import { rememberFeatureOwner, settleOwnedFeatureWatch, startOwnedFeatureWatch } from './feature-host-ownership.ts'
 
 export async function startInstalledFeatureWatch(
   reference: string,
@@ -23,9 +13,7 @@ export async function startInstalledFeatureWatch(
     await host.send('feature-stopped: watch-command-invalid')
     return
   }
-  abortOwnedFeatureWatch(host.key)
-  const controller = new AbortController()
-  ownedWatches.set(host.key, controller)
+  const controller = startOwnedFeatureWatch(host.key)
   rememberFeatureOwner(host.key, { reference, cwd: host.cwd, pausable: true })
   settleInstalledWatch(
     reference,
@@ -53,7 +41,7 @@ function settleInstalledWatch(
 ): void {
   void pending.then(
     async (result) => {
-      if (ownedWatches.get(host.key) === controller) ownedWatches.delete(host.key)
+      settleOwnedFeatureWatch(host.key, controller)
       if (controller.signal.aborted) return
       if (result.killed || result.code < 0) {
         await host.send('feature-stopped: watch-exit-unobserved')
@@ -71,7 +59,7 @@ function settleInstalledWatch(
       }
     },
     async (error: unknown) => {
-      if (ownedWatches.get(host.key) === controller) ownedWatches.delete(host.key)
+      settleOwnedFeatureWatch(host.key, controller)
       if (controller.signal.aborted) return
       await host.send(`feature-stopped: ${error instanceof Error ? error.message : String(error)}`)
     },

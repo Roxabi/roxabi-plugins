@@ -27,6 +27,7 @@ export type ReviewGateState = {
   prBody: string
   prEditedAt: string | null
   issues: Record<string, IssueState>
+  installation?: boolean
   origin?: string
 }
 
@@ -82,6 +83,7 @@ function issueOf(number) {
 }
 function main() {
   if (argv[0] === 'api' && argv[1] === 'user') {
+    if (state.installation) fail('gh: Resource not accessible by integration (HTTP 403)')
     if (argv[2] !== '--jq' || argv[3] !== '.login') fail('unexpected gh api user')
     save()
     process.stdout.write('automation\\n')

@@ -76,3 +76,33 @@ def test_yaml_parse_error(tmp_path):
     assert errors
     assert 'failed to parse' in '\n'.join(errors).lower()
     assert _load_tool()._is_io_error(errors[0])
+
+
+def test_subsumption_pair_mentioned_together_in_note_is_valid(tmp_path):
+    """A declared pair is valid when both members appear in its catalogue note."""
+    yaml_file = tmp_path / 'review-classes.yml'
+    yaml_file.write_text(
+        'classes:\n'
+        '  - class: source-class\n'
+        '    note: "Subsumption: source-class subsumes target-class."\n'
+        '  - class: target-class\n',
+        encoding='utf-8',
+    )
+
+    assert _run_check(yaml_file) == []
+
+
+def test_subsumption_pair_missing_its_source_member_is_rejected(tmp_path):
+    """A declared pair cannot omit the source member from its catalogue note."""
+    yaml_file = tmp_path / 'review-classes.yml'
+    yaml_file.write_text(
+        'classes:\n'
+        '  - class: source-class\n'
+        '    note: "Subsumption: target-class."\n'
+        '  - class: target-class\n',
+        encoding='utf-8',
+    )
+
+    errors = _run_check(yaml_file)
+    assert errors
+    assert 'subsumption pair (source-class, target-class)' in '\n'.join(errors)

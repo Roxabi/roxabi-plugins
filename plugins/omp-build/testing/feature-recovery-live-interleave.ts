@@ -2,9 +2,9 @@ import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { createExtensionApiStub } from '../omp/__tests__/extension-api-stub.ts'
 import ompBuildExtension from '../omp/index.ts'
 import { reviewControllerFor } from '../omp/omp-controller.ts'
+import { createExtensionApiStub } from './extension-api-stub.ts'
 
 type Handler = (...args: unknown[]) => unknown
 

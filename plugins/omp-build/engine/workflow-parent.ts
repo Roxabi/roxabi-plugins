@@ -1,8 +1,8 @@
 import type { DecodedHistory } from './history-schema.ts'
+import { diagnostic, equalScope, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { Diagnostic } from './record-values.ts'
 import { type MandateRecord, mandateScope, mandatesOf } from './workflow-control.ts'
-import { diagnostic, equalScope, sameRef } from './workflow-support.ts'
 
 function epicListings(mandate: MandateRecord, histories: readonly DecodedHistory[]): ExternalRecordRef[] {
   const scope = mandateScope(mandate)

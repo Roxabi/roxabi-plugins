@@ -47,15 +47,6 @@ export type RecordProjectionConfig = {
   acceptedPolicy: string | null
 }
 
-export const diagnostic = (code: string, message: string, detail?: Json): Diagnostic =>
-  detail === undefined ? { code, message } : { code, message, detail }
-export const fail = <T>(
-  diagnostics: Diagnostic[],
-  metadata: Omit<Extract<Result<T>, { ok: false }>, 'ok' | 'diagnostics'> = {},
-): Result<T> => ({ ok: false, diagnostics, ...metadata })
-export function equalScope(left: Scope, right: Scope): boolean {
-  return left.repository === right.repository && left.target === right.target
-}
 export const unique = (values: readonly string[]): boolean => new Set(values).size === values.length
 export const recordMap = (history: DecodedHistory): Map<string, CanonicalRecord> => {
   const records = new Map<string, CanonicalRecord>()

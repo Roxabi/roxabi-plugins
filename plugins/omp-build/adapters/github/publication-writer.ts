@@ -95,7 +95,9 @@ export async function publishMissingBodies(
   writer: string,
   stopAuthor: string | null,
 ): Promise<PublicationWriteResult> {
-  const existingBodies = new Set(current.source.comments.map((comment) => comment.body))
+  const existingBodies = new Set(
+    current.source.comments.filter((comment) => comment.author === writer).map((comment) => comment.body),
+  )
   for (const body of bodies) {
     if (existingBodies.has(body)) continue
     let response: string

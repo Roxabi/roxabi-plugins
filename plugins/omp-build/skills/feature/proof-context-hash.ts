@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto'
 import type { PrComment } from './proof-base'
-import { type PrBody, type ProofSemanticContext, reviewSemanticCanon, type Target } from './proof-context'
+import type { PrBody, ProofSemanticContext } from './proof-context'
+import type { Target } from './proof-review-contract'
+import { reviewSemanticCanon } from './proof-semantic-canon'
 /** Exact observed bytes, native publication identities, and the shared semantic canon. */
 export function hashReviewInput(
   repository: string,

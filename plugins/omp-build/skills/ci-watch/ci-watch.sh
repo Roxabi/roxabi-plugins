@@ -11,7 +11,14 @@ set -Eeuo pipefail
 trap 'exit "$EXIT_INTERNAL"' ERR
 REQUIRED=""
 SCRIPT_SOURCE="${BASH_SOURCE[0]}"
-SCRIPT_DIR="$(cd "${SCRIPT_SOURCE%/*}" && pwd)"
+if [[ "$SCRIPT_SOURCE" == */* ]]; then SCRIPT_DIR="${SCRIPT_SOURCE%/*}"; else SCRIPT_DIR=.; fi
+SCRIPT_DIR="$(cd -P "$SCRIPT_DIR" && pwd -P)"
+while [[ -L "$SCRIPT_SOURCE" ]]; do
+  SCRIPT_SOURCE="$(readlink "$SCRIPT_SOURCE")"
+  [[ "$SCRIPT_SOURCE" == /* ]] || SCRIPT_SOURCE="$SCRIPT_DIR/$SCRIPT_SOURCE"
+  if [[ "$SCRIPT_SOURCE" == */* ]]; then SCRIPT_DIR="${SCRIPT_SOURCE%/*}"; else SCRIPT_DIR=.; fi
+  SCRIPT_DIR="$(cd -P "$SCRIPT_DIR" && pwd -P)"
+done
 # These helpers are internal and must be sourced through this real executable path.
 . "$SCRIPT_DIR/ci-watch-input.sh"
 . "$SCRIPT_DIR/ci-watch-poll.sh"

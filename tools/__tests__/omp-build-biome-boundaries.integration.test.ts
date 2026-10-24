@@ -38,6 +38,11 @@ function run(root: string): Result {
   return { code: result.status ?? 1, diagnostics: report.diagnostics }
 }
 
+function runRaw(root: string): { code: number; output: string } {
+  const result = spawnSync('bun', [checker, '--root', root, '--with-biome'], { cwd: root, encoding: 'utf8' })
+  return { code: result.status ?? 1, output: `${result.stdout}${result.stderr}` }
+}
+
 function format(root: string, path: string): void {
   const result = spawnSync(biome, ['format', '--write', path], { cwd: root, encoding: 'utf8' })
   if (result.status !== 0) throw new Error(result.stderr)
@@ -60,6 +65,17 @@ function expectOnly(result: Result, severity: string, category: string): void {
 }
 
 describe('C5 Biome command boundaries', () => {
+  it('refuses a populated scope with no JavaScript, TypeScript, or CJS candidate', () => {
+    const root = mkdtempSync(join(tmpdir(), 'omp-build-biome-'))
+    owned.add(root)
+    write(root, 'plugins/omp-build/quality.py', 'print("quality")\n')
+    write(root, 'tools/omp-build-quality.sh', '#!/usr/bin/env bash\necho quality\n')
+
+    const result = runRaw(root)
+    expect(result.code).toBe(1)
+    expect(result.output).toContain('expected omp-build quality scope contains no JS/TS/CJS candidates for Biome')
+  })
+
   it('enforces cognitive 15/16 through the owned-root command for CJS, scenarios, and direct/nested tools', () => {
     const root = fixture()
     const cjsName = 'plugins/omp-build/hooks/boundary.cjs'

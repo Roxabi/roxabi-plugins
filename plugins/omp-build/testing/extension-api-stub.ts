@@ -1,4 +1,4 @@
-import type { OmpBuildExtensionApi } from '../omp-controller'
+import type { OmpBuildExtensionApi } from '../omp/omp-controller'
 
 /** Public extension I/O actually exercised by ompBuildExtension + the native bridge. */
 export type ExtensionApiStub = OmpBuildExtensionApi

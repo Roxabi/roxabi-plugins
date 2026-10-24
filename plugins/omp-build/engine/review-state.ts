@@ -1,25 +1,13 @@
 import { classifyHistory } from './history-classification.ts'
 import { validateRecordGraph } from './history-graph.ts'
 import type { DecodedHistory } from './history-schema.ts'
+import { diagnostic, equalScope, fail } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
-import {
-  diagnostic,
-  equalScope,
-  fail,
-  type Result,
-  type ReviewFacts,
-  type ReviewState,
-  type ReviewSummary,
-  recordMap,
-} from './result.ts'
+import { type Result, type ReviewFacts, type ReviewState, type ReviewSummary, recordMap } from './result.ts'
 import { validateDecision } from './review-decision.ts'
-import {
-  analyzeReviewIdentity,
-  reviewOperations,
-  spentBeforeCurrentPullRequestAttempt,
-  spentInCompleteHistory,
-} from './review-history.ts'
+import { spentBeforeCurrentPullRequestAttempt, spentInCompleteHistory } from './review-history.ts'
+import { analyzeReviewIdentity, reviewOperations } from './review-identity.ts'
 import type { Stop } from './review-schema.ts'
 
 export function summarizeReviews(
@@ -149,9 +137,7 @@ function summarizeAuthorityReviews(
       true,
       reviewSpend.spent,
     )
-  const at =
-    identity.latestOperation?.parts.map((part) => part.updatedAt ?? part.createdAt).find((value) => value !== null) ??
-    null
+  const at = identity.latestOperation?.parts.map((part) => part.createdAt).find((value) => value !== null) ?? null
   return latestReviewSummary(
     identity.latest,
     at,

@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { baseFromStack } from '../skills/feature/epic-ci.ts'
 import { branchFor } from '../skills/feature/epic-naming.ts'
 import { type Contracts, type History, publishRecord, type Scope } from './feature-engine.ts'
-import { configPinDigest, effectiveWorkflowConfig, installedProductVersion } from './workflow-config-digest.ts'
+import { configPinDigest, effectiveWorkflowConfig } from './workflow-config-digest.ts'
 import { WORKFLOW_CONFIG_VERSION } from './workflow-graph.ts'
 import { parseWorkflowOverride } from './workflow-overrides.ts'
 import { type GitRunner, readProofConfigPins } from './workflow-pins.ts'
@@ -31,7 +31,6 @@ export async function publishFirstMandate(
   cwd: string,
 ): Promise<{ ok: true } | { ok: false; reason: string; diagnostics?: readonly { code: string; message: string }[] }> {
   const productVersion = contracts.shippedProductVersion()
-  if (productVersion !== installedProductVersion()) return { ok: false, reason: 'config-drift' }
   const head = await git(cwd, ['rev-parse', 'HEAD'])
   const lineageHead = head.code === 0 ? head.stdout.trim() : null
   const resolvedBase = await resolveBase(git, cwd)

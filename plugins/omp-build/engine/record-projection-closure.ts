@@ -1,9 +1,10 @@
 import { claimsReviewOrStop, type HistoryClassification } from './history-classification.ts'
 import { sameJson } from './history-conservation.ts'
 import type { DecodedHistory } from './history-schema.ts'
+import { diagnostic, fail } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
-import { diagnostic, fail, type Result } from './result.ts'
+import type { Result } from './result.ts'
 
 const trustedReviewOrStop = (operation: DecodedHistory['operations'][number]): boolean => claimsReviewOrStop(operation)
 

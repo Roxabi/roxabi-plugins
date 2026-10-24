@@ -2,9 +2,9 @@ import { realpathSync } from 'node:fs'
 import { parseFeatureCommand, runTrustedFeatureInit } from './feature-command.ts'
 import type { ContinueFeatureResult, FeatureCommandHost, FeatureFixTerminal } from './feature-contract.ts'
 import { deliverEpicFinalReview } from './feature-epic-delivery.ts'
-import { releaseFeatureOwner, rememberFeatureOwner } from './feature-host-lifetime.ts'
 import { announceFeatureBatch } from './feature-host-native.ts'
-import { abortOwnedFeatureWatch, startInstalledFeatureWatch } from './feature-host-watch.ts'
+import { abortOwnedFeatureWatch, releaseFeatureOwner, rememberFeatureOwner } from './feature-host-ownership.ts'
+import { startInstalledFeatureWatch } from './feature-host-watch.ts'
 import {
   featureAssistedFramingMessage,
   featureSessionCwdMessage,

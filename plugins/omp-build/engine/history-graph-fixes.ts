@@ -1,6 +1,6 @@
+import { diagnostic } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
-import { diagnostic } from './result.ts'
 
 function validateFixRequest(
   record: Extract<CanonicalRecord, { kind: 'fix-request' }>,

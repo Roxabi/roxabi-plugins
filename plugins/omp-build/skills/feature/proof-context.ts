@@ -1,9 +1,8 @@
 import { createHash } from 'node:crypto'
-import type { ProofConfigPin } from './proof-base'
 import { type Gh, type Git, type Refusal, refuse } from './proof-base'
-import type { CandidateFacts } from './proof-candidate'
+import type { CandidateFacts } from './proof-candidate-contract'
 import type { Justification } from './proof-justification'
-import type { SelectedRecord } from './proof-records'
+import type { SelectedRecord } from './proof-review-contract'
 export type SemctxOutcome =
   | 'absent'
   | {
@@ -13,20 +12,10 @@ export type SemctxOutcome =
     }
 export type ProofSummary = { semctx: SemctxOutcome; assertledger: 'not-applicable' | 'detection' }
 export type Admission = { ok: true; proof: ProofSummary } | Refusal
-/** Approval publication time and the retained exact review-input digest are separate constraints. */
-export type Target = {
-  pr: number
-  candidate: string
-  base: string | undefined
-  baseTip: string
-  reviewedAt: string | null
-  reviewInput: string | null
-  /** Approved mandate pins. Production landing passes this; omission is not approval. */
-  proofPins?: readonly ProofConfigPin[]
-}
 export type Deps = {
   gh: Gh
   git: Git /** Test injection. Production omits this and calls the shared resolver. */
+  automationLogin?: string
   semantic?: ProofSemanticContext
 }
 export type Read = { repository: string }
@@ -258,43 +247,4 @@ export function proofSemanticContext(value: unknown): ProofSemanticContext | Ref
   if (!isRecord(value) || (value.mode !== 'bound' && value.mode !== 'standalone'))
     return refuse('candidate', 'unreadable', 'review semantic context mode is missing')
   return value.mode === 'standalone' ? standaloneContext(value) : boundContext(value)
-}
-
-/**
- * The only semantic slot supplied to the model and to `hashReviewInput`.
- * Pause, resume, control, review count, labels, and lastEditedAt are absent.
- * Bound reviews hash the accepted Spec, not the live issue body. `sourceRefs`
- * are external-record identity, not action rights and not a second copy of `chain`.
- */
-export type ReviewSemanticCanon = string
-
-export function reviewSemanticCanon(semantic: ProofSemanticContext): ReviewSemanticCanon {
-  if (semantic.mode === 'standalone') {
-    return JSON.stringify(
-      semantic.discoveredSpec === null
-        ? ['standalone', null]
-        : [
-            'standalone',
-            semantic.discoveredSpec.reference,
-            semantic.discoveredSpec.body,
-            semantic.discoveredSpec.digest,
-          ],
-    )
-  }
-  return JSON.stringify([
-    'bound',
-    semantic.bindingId,
-    semantic.scope.repository,
-    semantic.scope.target,
-    semantic.acceptedSpec.reference,
-    semantic.acceptedSpec.body,
-    semantic.acceptedSpec.digest,
-    semantic.chain,
-    semantic.sourceRefs,
-    [...semantic.requirements],
-    semantic.config.productVersion,
-    semantic.config.version,
-    semantic.config.digest,
-    semantic.config.serialized,
-  ])
 }

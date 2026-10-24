@@ -6,8 +6,9 @@ import {
   validateDecisionBindings,
   validateRetainedUnusableLabels,
 } from '../dist/contracts.js'
-import type { DebtFilingInput, DebtIssue, ProcessRunner, Ref, Source } from './debt-filing-contract.ts'
+import type { DebtIssue, ProcessRunner, Ref, Source } from './debt-filing-contract.ts'
 import { reviewBoundDecision, selectedDecision } from './debt-filing-decision.ts'
+import type { DebtFilingInput } from './debt-filing-port.ts'
 import { command, field, graph, labels, ref, refText, sameRef } from './debt-filing-source.ts'
 import { withRoxabiGitHubPolicy } from './github-policy'
 

@@ -95,7 +95,7 @@ export function setMandateIssue(
 }
 
 export async function reviewSemanticContext(fixture: ReviewGateFixture) {
-  return confirmedReviewSemanticContext(fixture.tools, 7, gateGh(fixture), 'main')
+  return confirmedReviewSemanticContext(fixture.tools, 7, gateGh(fixture), 'main', AUTOMATION)
 }
 
 export async function boundInput(fixture: ReviewGateFixture): Promise<string> {

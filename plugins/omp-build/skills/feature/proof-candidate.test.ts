@@ -4,7 +4,8 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { semctxInputs } from './proof-association'
 import type { Git } from './proof-base'
-import { type CandidateFacts, candidateFacts, refreshSelectedBase } from './proof-candidate'
+import { candidateFacts, refreshSelectedBase } from './proof-candidate'
+import type { CandidateFacts } from './proof-candidate-contract'
 import { mergeBaseOf } from './proof-semctx-protocol'
 import {
   BASE_TIP,

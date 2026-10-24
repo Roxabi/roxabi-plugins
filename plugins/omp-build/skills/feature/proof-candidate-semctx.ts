@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { CONFIG, errorMessage, type Git, ignoredSemctxState, isMap, type Refusal, refuse } from './proof-base'
-import type { CandidateFacts } from './proof-candidate'
+import type { CandidateFacts } from './proof-candidate-contract'
 import { blob, type TreeEntry } from './proof-tree'
 
 function semctxEntry(entry: TreeEntry): boolean {

@@ -114,14 +114,12 @@ export function operationAuthority(
   clues: LooseHeaderClue[],
 ): OperationAuthority {
   const kind = operation.record?.kind ?? operation.kind
-  if (kind === null || hasInvalidAuthoritySource(operation, kind, clues)) return 'authority'
-
   const author = operation.parts[0]?.author
   if (author === null || author === undefined) return 'authority'
-
   const trusted =
     author === history.expectedAuthor || (author === history.stopAuthor && stopBotMayAuthor(operation.claimedKinds))
   if (!trusted) return 'foreign'
+  if (kind === null || hasInvalidAuthoritySource(operation, kind, clues)) return 'authority'
   if (operation.claimedKinds.some((claim) => claim !== kind)) return 'authority'
   if (isCompleteCorrection(operation)) return 'accounted'
   if (kind === 'review' || kind === 'stop') return 'authority'

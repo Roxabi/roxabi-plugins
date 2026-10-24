@@ -1,22 +1,6 @@
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
 import type { Json } from '../../engine/record-values.ts'
-import { type Gh, GitHubHistoryReadError, type GitHubOptions } from '../github/types.ts'
-import { diagnostic, object, RECORD_REPOSITORY } from './types.ts'
-
-const execFileAsync = promisify(execFile)
-
-export function defaultGh(cwd: string, args: string[]): Promise<string> {
-  return execFileAsync('gh', args, {
-    cwd,
-    encoding: 'utf8',
-    maxBuffer: 16 * 1024 * 1024,
-  }).then(({ stdout }) => String(stdout).trim())
-}
-
-export function gh(options: GitHubOptions): Gh {
-  return options.gh ?? defaultGh
-}
+import { diagnostic, GitHubHistoryReadError, type GitHubOptions, gh, RECORD_REPOSITORY } from '../github/types.ts'
+import { object } from './types.ts'
 
 export function splitRepository(repository: string): { owner: string; name: string } {
   if (!RECORD_REPOSITORY.test(repository)) {

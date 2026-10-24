@@ -1,5 +1,5 @@
-import { bridgeHarness, root } from '../omp/__tests__/review-runtime-support.ts'
 import type { NativeBatch, NativeBatchResult } from '../omp/review-runtime/contracts.ts'
+import { bridgeHarness, root } from './review-runtime-support.ts'
 
 export const INCOMPLETE_NATIVE_TERMINAL = {
   index: 0,

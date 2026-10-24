@@ -1,23 +1,13 @@
 import type { DecodedHistory } from './history-schema.ts'
+import { sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
-import type { AcceptedSpecResult } from './workflow-accepted-spec.ts'
+import type { AcceptedSpecResult } from './workflow-accepted-spec-types.ts'
 import { bindExternalRef, historyFor } from './workflow-control.ts'
-import type { AssessResultRecord } from './workflow-spec-authentication.ts'
-import { diagnostic, sameRef } from './workflow-support.ts'
+import { type AssessResultRecord, isAssessResult, specChainFailure } from './workflow-spec-assessment.ts'
 
 type SpecChainFailure = Extract<AcceptedSpecResult, { ok: false }>
 type Authentication = SpecChainFailure | { ok: true; record: AssessResultRecord }
-
-function specChainFailure(reason: SpecChainFailure['reason'], message: string, code?: string): SpecChainFailure {
-  return { ok: false, reason, evidence: [diagnostic(code ?? reason, message)] }
-}
-
-function isAssessResult(record: CanonicalRecord): record is AssessResultRecord {
-  return (
-    record.kind === 'action-receipt' && record.payload.action === 'assess-spec' && record.payload.phase === 'result'
-  )
-}
 
 function boundFailure(diagnostics: SpecChainFailure['evidence']): SpecChainFailure {
   const code = diagnostics[0]?.code

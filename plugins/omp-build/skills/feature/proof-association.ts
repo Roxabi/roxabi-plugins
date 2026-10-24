@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { CHANGES_DIR, type Git, type GitResult, gitError, oneLine, type Refusal, refuse, SHA } from './proof-base'
-import type { CandidateFacts } from './proof-candidate'
+import type { CandidateFacts } from './proof-candidate-contract'
 import { retainedProvenance } from './proof-retained-provenance'
 import {
   type ChangedContract,

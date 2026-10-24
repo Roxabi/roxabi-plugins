@@ -1,6 +1,6 @@
-import { installNativeBatchBridge } from '../review-runtime/bridge.ts'
-import type { NativeBatch, NativeExtension } from '../review-runtime/contracts.ts'
-import { NativeBatchController } from '../review-runtime/controller.ts'
+import { installNativeBatchBridge } from '../omp/review-runtime/bridge.ts'
+import type { NativeBatch, NativeExtension } from '../omp/review-runtime/contracts.ts'
+import { NativeBatchController } from '../omp/review-runtime/controller.ts'
 import { createExtensionApiStub, type ExtensionApiStub } from './extension-api-stub.ts'
 
 function userMessageText(content: Parameters<ExtensionApiStub['sendUserMessage']>[0]): string {

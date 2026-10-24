@@ -1,4 +1,5 @@
-import { proofSemanticContext, reviewSemanticCanon } from '../skills/feature/proof-context'
+import { proofSemanticContext } from '../skills/feature/proof-context'
+import { reviewSemanticCanon } from '../skills/feature/proof-semantic-canon'
 import { withRoxabiGitHubPolicy } from './github-policy'
 import type { Gh } from './review-input-contract'
 import type { ReviewSemanticContext } from './review-semantic-context'

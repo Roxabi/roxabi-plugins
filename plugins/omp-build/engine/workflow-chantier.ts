@@ -1,8 +1,8 @@
 import type { DecodedHistory } from './history-schema.ts'
+import { diagnostic, fail } from './record-diagnostics.ts'
 import type { Result } from './result.ts'
 import { workflowOperationProblem } from './workflow-control.ts'
 import type { WorkflowEvidence } from './workflow-plan.ts'
-import { diagnostic, fail } from './workflow-support.ts'
 
 export function composeChantier(input: {
   issue: DecodedHistory

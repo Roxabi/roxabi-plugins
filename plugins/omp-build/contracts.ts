@@ -1,6 +1,3 @@
-import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { Flag, is } from '@oh-my-pi/pi-ai/error/flags'
 
 export { decodeHistory, encodeRecord } from './adapters/github/history-codec.ts'
@@ -49,6 +46,7 @@ export {
 } from './engine/history-schema.ts'
 export { inspectFinding, PRODUCER_OUTPUTS, type ProducerOutput, producerJsonSchema } from './engine/producer-schema.ts'
 export { buildRecord, parseRecord, type RecordDraft } from './engine/record-construction.ts'
+export { equalScope } from './engine/record-diagnostics.ts'
 export {
   type FailedCheckFailure,
   failedCheckEvidenceDigest,
@@ -63,11 +61,9 @@ export {
   KIND_NAMES,
   kindSchema,
   type ProofConfigPin,
-  partitionScopedRefs,
   proofConfigPinSchema,
   type ScopedRecordRef,
   scopedRecordRefSchema,
-  scopedRefsOf,
   stopBotMayAuthor,
   WORKFLOW_RECORD_KINDS,
   type WorkflowRecordKind,
@@ -124,15 +120,14 @@ export {
   type Verdict,
   verdictSchema,
 } from './engine/record-values.ts'
-export {
-  type DecisionAssessment,
-  equalScope,
-  type FindingInspection,
-  type RecordProjectionConfig,
-  type Result,
-  type ReviewFacts,
-  type ReviewState,
-  type ReviewSummary,
+export type {
+  DecisionAssessment,
+  FindingInspection,
+  RecordProjectionConfig,
+  Result,
+  ReviewFacts,
+  ReviewState,
+  ReviewSummary,
 } from './engine/result.ts'
 export { deriveRecallPlan } from './engine/review-conservation.ts'
 export {
@@ -178,12 +173,12 @@ export {
   stopSchema,
 } from './engine/review-schema.ts'
 export { deriveReviewState, summarizeReviews } from './engine/review-state.ts'
-export {
-  type AcceptedSpec,
-  type AcceptedSpecRef,
-  type AcceptedSpecResult,
-  resolveAcceptedSpec,
-} from './engine/workflow-accepted-spec.ts'
+export { resolveAcceptedSpec } from './engine/workflow-accepted-spec.ts'
+export type {
+  AcceptedSpec,
+  AcceptedSpecRef,
+  AcceptedSpecResult,
+} from './engine/workflow-accepted-spec-types.ts'
 export { actionCompletion } from './engine/workflow-action-completion.ts'
 export type { BoundWork, ConfigIdentity, MandateUse } from './engine/workflow-binding.ts'
 export { resolveBoundWork } from './engine/workflow-bound-work-resolution.ts'
@@ -265,22 +260,16 @@ export type {
   WorkflowDecision,
   WorkflowFacts,
 } from './engine/workflow-reconstruction-types.ts'
-export * from './omp/tool-schemas.ts'
+export { partitionScopedRefs, scopedRefsOf } from './engine/workflow-record-references.ts'
+export {
+  type OmpBuildStartReviewParameters,
+  ompBuildStartReviewParametersJsonSchema,
+  ompBuildStartReviewParametersSchema,
+} from './omp/tool-schemas.ts'
 export { readEffectiveFixConfig } from './roxabi/workflow-config.ts'
+export { shippedProductVersion } from './roxabi/workflow-config-digest.ts'
 
 /** Session-boundary Esc/RPC user-abort: SDK stamps Flag.UserInterrupt on errorId. */
 export function hasNativeUserInterruptFlag(errorId: number | undefined): boolean {
   return is(errorId, Flag.UserInterrupt)
-}
-
-export function shippedProductVersion(): string {
-  const start = dirname(fileURLToPath(import.meta.url))
-  for (const path of [join(start, 'package.json'), join(start, '..', 'package.json')]) {
-    try {
-      const parsed = JSON.parse(readFileSync(path, 'utf8')) as { name?: unknown; version?: unknown }
-      if (parsed.name === 'omp-build' && typeof parsed.version === 'string' && parsed.version.length > 0)
-        return parsed.version
-    } catch {}
-  }
-  throw new Error('omp-build package.json version is missing')
 }

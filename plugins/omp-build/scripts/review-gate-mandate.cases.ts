@@ -38,6 +38,20 @@ export function registerReviewGateMandateCases(): void {
       expect(JSON.parse(result.stdout)).toMatchObject({ ok: true, allowed: true, ci: 'green' })
     })
 
+    it('admits App installation reads without calling api user', async () => {
+      const fixture = setupReviewGateFixture()
+      writeState(fixture, { ...readState(fixture), installation: true })
+      await seedMandate(fixture)
+      const input = await boundInput(fixture)
+      publish(fixture, cleanReview(fixture.head, 'app-installation', input), 'SUCCESS')
+
+      const result = runReviewGate(fixture)
+
+      expect(result.status).toBe(0)
+      expect(JSON.parse(result.stdout)).toEqual({ ok: true, allowed: true, reviews: 1, ci: 'green' })
+      expect(readState(fixture).calls.some((args) => args[0] === 'api' && args[1] === 'user')).toBe(false)
+    })
+
     it('admits from an immutable copied tooling tree without inherited SDK dependencies', async () => {
       const fixture = setupReviewGateFixture()
       await seedMandate(fixture)

@@ -1,5 +1,5 @@
 import { CHANGES_DIR, type Git, gitError, oneLine, SHA } from './proof-base'
-import type { SemctxConfig } from './proof-candidate'
+import type { SemctxConfig } from './proof-candidate-contract'
 // ---------------------------------------------------------------------------
 // Semctx: the protocol both acquisition and admission derive
 // ---------------------------------------------------------------------------

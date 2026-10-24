@@ -1,8 +1,8 @@
 import type { DecodedHistory, OperationAuthority } from './history-schema.ts'
+import { diagnostic, equalScope } from './record-diagnostics.ts'
 import { isWorkflowKind } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
-import { diagnostic, equalScope } from './result.ts'
 
 export type HistoryOperationClass = {
   index: number
@@ -41,7 +41,7 @@ function retainAccountedWorkflow(history: DecodedHistory, authorities: Operation
   const collided = new Set<number>()
   const byOperationId = new Map<string, number[]>()
   history.operations.forEach((operation, index) => {
-    if (operation.operationId === null) return
+    if (authorities[index] === 'foreign' || operation.operationId === null) return
     const indexes = byOperationId.get(operation.operationId) ?? []
     indexes.push(index)
     byOperationId.set(operation.operationId, indexes)
@@ -167,6 +167,7 @@ function correctionAccountedIndexes(history: DecodedHistory, authorities: readon
   const recordsById = new Map<string, CompleteRecord[]>()
   const operationCounts = new Map<string, number>()
   for (const [index, operation] of history.operations.entries()) {
+    if (authorities[index] === 'foreign') continue
     if (operation.operationId !== null)
       operationCounts.set(operation.operationId, (operationCounts.get(operation.operationId) ?? 0) + 1)
     const record = completeNativeRecord(operation, history)
@@ -206,7 +207,7 @@ function promoteReviewDependencies(history: DecodedHistory, authorities: Operati
   const diagnostics: Diagnostic[] = []
   const byRecordId = new Map<string, CompleteRecord[]>()
   for (const [index, operation] of history.operations.entries()) {
-    if (operation.status !== 'complete' || operation.record === null) continue
+    if (authorities[index] === 'foreign' || operation.status !== 'complete' || operation.record === null) continue
     const entries = byRecordId.get(operation.record.recordId) ?? []
     entries.push({ index, record: operation.record })
     byRecordId.set(operation.record.recordId, entries)
@@ -235,11 +236,12 @@ export function classifyHistory(history: DecodedHistory): HistoryClassification 
     byOperationId.set(operation.operationId, indexes)
   })
   for (const indexes of byOperationId.values()) {
-    if (indexes.length < 2) continue
-    const classifications = new Set(indexes.map((index) => authorities[index]))
-    const reviewOrStop = indexes.some((index) => claimsReviewOrStop(history.operations[index]))
+    const trusted = indexes.filter((index) => authorities[index] !== 'foreign')
+    if (trusted.length < 2) continue
+    const classifications = new Set(trusted.map((index) => authorities[index]))
+    const reviewOrStop = trusted.some((index) => claimsReviewOrStop(history.operations[index]))
     if (classifications.size > 1 || (reviewOrStop && classifications.has('authority')))
-      for (const index of indexes) authorities[index] = 'authority'
+      for (const index of trusted) authorities[index] = 'authority'
   }
   for (const index of correctionAccountedIndexes(history, authorities)) authorities[index] = 'accounted'
   const dependencyDiagnostics = promoteReviewDependencies(history, authorities)

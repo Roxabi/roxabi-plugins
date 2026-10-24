@@ -95,13 +95,8 @@ export type WorkflowBindingRead =
       evidence?: Json
     }
 
-export const RECORD_REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
 export const SHA = /^[0-9a-f]{40}$/
 export const POSITIVE_INT = /^[1-9][0-9]*$/
-
-export function diagnostic(code: string, message: string, detail?: Json): Diagnostic {
-  return detail === undefined ? { code, message } : { code, message, detail }
-}
 
 export function object(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)

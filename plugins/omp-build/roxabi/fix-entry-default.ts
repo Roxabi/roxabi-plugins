@@ -1,16 +1,14 @@
-import type { CanonicalRecord, DecodedHistory, GitHubOptions, Json, ScopedRecordRef } from '../dist/contracts.js'
+import type { CanonicalRecord, DecodedHistory, GitHubOptions } from '../dist/contracts.js'
 import { decodeHistory, githubScope, readGitHubHistory } from '../dist/contracts.js'
 import type {
   FixActionResult,
   FixIdentity,
   FixRecord,
   FixTarget,
-  NativePort,
   PublishBinding,
   RecordPublisher,
-  ReviewAuthority,
 } from './fix-contract.ts'
-import type { DebtEvidence } from './fix-domain'
+import type { DefaultFixEntry } from './fix-entry-input.ts'
 import { runReviewBoundDefaultFix } from './fix-entry-review-bound.ts'
 import { resolvePublishBinding } from './fix-entry-target-binding.ts'
 import { defaultGh, fail, type Gh, gitResult, object, targetEditedAt } from './fix-entry-target-core.ts'
@@ -28,23 +26,6 @@ import type { FixMandateView } from './fix-mandate-types.ts'
 import type { FixWorkflowRuntime } from './fix-native-dispatch.ts'
 import { withRoxabiGitHubPolicy } from './github-policy'
 import { createGitHubRecordPublisher } from './github-publisher'
-
-export { boundDecision, confirmedRecord } from './fix-entry-review-bound.ts'
-export type DefaultFixEntry = {
-  cwd: string
-  args?: string
-  reference?: string
-  scope?: string
-  rawOperatorRequest?: Json
-  reviewId?: string
-  requiredFeatureMandate?: ScopedRecordRef & { kind: 'mandate' }
-  contextWindow?: number
-  debtEvidence?: DebtEvidence
-  native: NativePort
-  workflow: ReviewAuthority
-  github?: GitHubOptions
-  gh?: Gh
-}
 
 type BoundFixMandate = { recordId: string; sameScope: boolean }
 
@@ -125,11 +106,13 @@ export async function runDefaultFix(
   id: FixIdentity,
   runtime: FixWorkflowRuntime,
 ): Promise<FixActionResult<FixRecord>> {
+  const invocation = parseInvocation(input.args, input.reference)
+  if (invocation.malformed) return fail('fix-reference-malformed')
+  const correctionScope = input.scope ?? invocation.request
+  if (correctionScope.length === 0 && input.rawOperatorRequest === undefined) return fail('fix-request-required')
   const gh = input.gh ?? defaultGh
   const repository = await readRepository(input.cwd, gh)
   if (!repository.ok) return repository
-  const invocation = parseInvocation(input.args, input.reference)
-  if (invocation.malformed) return fail('fix-reference-malformed')
   const resolver = createResolver(input.cwd, gh, repository.value)
   const target =
     invocation.reference === undefined
@@ -147,9 +130,6 @@ export async function runDefaultFix(
       return saved.ok ? { ok: true, value: undefined } : saved
     },
   }
-  if (input.reviewId === undefined && invocation.request.length === 0 && input.rawOperatorRequest === undefined)
-    return fail('fix-request-required')
-  const correctionScope = input.scope ?? invocation.request
   const readHistory = async () => decodeHistory(await readGitHubHistory(scope, github))
   const mandate = await bindFixMandate(
     input,

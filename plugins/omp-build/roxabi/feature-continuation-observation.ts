@@ -1,31 +1,20 @@
-import type { WorkflowEvidence } from '../engine/workflow-plan.ts'
-import type {
-  NativeSelector,
-  ProofSelector,
-  SpecializedDecisions,
-  WorkflowFacts,
-} from '../engine/workflow-reconstruction-types.ts'
+import type { NativeSelector, ProofSelector, SpecializedDecisions } from '../engine/workflow-reconstruction-types.ts'
 import { epicStep } from '../skills/feature/epic-driver.ts'
 import type { ProofConfigPin } from '../skills/feature/proof-base.ts'
 import { proofSelectorFor } from './feature-continuation-proof.ts'
 import type { SelectedFeature } from './feature-continuation-selection.ts'
 import type { ContinueFeatureResult, FeatureControl } from './feature-contract.ts'
 import { inhibition } from './feature-control.ts'
-import { assembleChantier, type Delivery } from './feature-delivery-facts.ts'
+import { assembleChantier } from './feature-delivery-facts.ts'
 import { isRecord } from './feature-engine.ts'
+import type { FeatureObservation } from './feature-observation-contract.ts'
 import { readReviewObservation } from './feature-review-observation.ts'
 import { mandateRoleOf } from './feature-selection.ts'
 import { configPinDigest, effectiveWorkflowConfig } from './workflow-config-digest.ts'
 import { SUPPORTED_CONFIG_VERSIONS, WORKFLOW_CONFIG_VERSION } from './workflow-graph.ts'
 import { additionalRequirementsOf } from './workflow-overrides.ts'
 import { readProofConfigPins } from './workflow-pins.ts'
-export type FeatureObservation = {
-  evidence: WorkflowEvidence
-  delivery: Delivery | null
-  facts: WorkflowFacts & { lineageHead: string | null }
-  decisions: SpecializedDecisions
-  reviewId: string | null
-}
+
 type ObservationBase = Omit<FeatureObservation, 'decisions' | 'reviewId'> & { merged: boolean }
 
 export async function readFeatureObservation(

@@ -1,10 +1,10 @@
+import { diagnostic } from './record-diagnostics.ts'
 import { completionBlockReason } from './workflow-action-state.ts'
 import { unresolvedWork } from './workflow-conditions.ts'
 import type { MandateRecord } from './workflow-control.ts'
 import type { WorkflowGraph } from './workflow-graph.ts'
 import type { WorkflowEvidence } from './workflow-plan.ts'
 import type { SpecializedDecisions, WorkflowDecision, WorkflowFacts } from './workflow-reconstruction-types.ts'
-import { diagnostic } from './workflow-support.ts'
 import { walkWorkflowStep } from './workflow-walk-step.ts'
 
 function blocked(

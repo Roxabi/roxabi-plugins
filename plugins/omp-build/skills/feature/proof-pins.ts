@@ -11,7 +11,7 @@ import {
   SHA,
   STACK,
 } from './proof-base'
-import type { CandidateFacts } from './proof-candidate'
+import type { CandidateFacts } from './proof-candidate-contract'
 import { parseTree, REGULAR, type TreeEntry } from './proof-tree'
 
 async function entryAt(git: Git, toplevel: string, commit: string, path: string): Promise<TreeEntry | null | Error> {

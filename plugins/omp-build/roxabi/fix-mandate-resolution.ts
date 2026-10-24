@@ -251,7 +251,6 @@ export function mandateRef(
 export async function buildConfirmedFixOnlyMandate(
   draft: FixOnlyMandateDraft,
 ): Promise<FixActionResult<CanonicalRecord>> {
-  if (draft.productVersion.length === 0) return failure('fix-product-version-unreadable')
   const parent = mandateRef(draft.parent)
   if (!parent.ok) return parent
   const antecedent = mandateRef(draft.antecedent)

@@ -1,13 +1,19 @@
 import type { DecodedHistory } from '../../engine/history-schema.ts'
-import type { ExternalRecordRef } from '../../engine/record-references.ts'
+import { equalScope } from '../../engine/record-diagnostics.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import type { Diagnostic, Json, Scope } from '../../engine/record-values.ts'
-import { selectWorkflowBinding, type WorkflowBindingSelection } from '../../engine/workflow-pr-binding.ts'
+import { historyFor } from '../../engine/workflow-control.ts'
+import {
+  confirmedAccountedMandate,
+  selectWorkflowBinding,
+  type WorkflowBindingSelection,
+} from '../../engine/workflow-pr-binding.ts'
+import { refKey } from '../../engine/workflow-pr-binding-chain.ts'
 import { decodeHistory } from '../github/history-codec.ts'
 import { readGitHubHistory } from '../github/transport.ts'
-import type { GitHubOptions } from '../github/types.ts'
+import { diagnostic, type GitHubOptions } from '../github/types.ts'
 import { readNativePullRequestFacts, scopeNumber } from './native-facts.ts'
-import { diagnostic, type WorkflowBindingRead } from './types.ts'
+import type { WorkflowBindingRead } from './types.ts'
 
 type NativePullRequestFacts = { branch: string; base: string; head: string; baseTip: string }
 type BoundSelection = Extract<WorkflowBindingSelection, { status: 'bound' }>
@@ -26,14 +32,6 @@ export type ParentMandateResolution =
   | { ok: true; parentScopes: Scope[]; parentHistories: DecodedHistory[] }
   | { ok: false; result: WorkflowBindingRead }
 
-export function sameScope(left: Scope, right: Scope): boolean {
-  return left.repository === right.repository && left.target === right.target
-}
-
-function refKey(ref: ExternalRecordRef): string {
-  return `${ref.kind}\0${ref.scope.repository}\0${ref.scope.target}\0${ref.recordId}`
-}
-
 export function bindingRefusal(
   status: 'absent' | 'partial' | 'conflicting' | 'unconfirmed' | 'incomplete' | 'unreadable',
   diagnostics: Diagnostic[],
@@ -42,23 +40,6 @@ export function bindingRefusal(
   return evidence === undefined
     ? { ok: false, status, reason: status, diagnostics }
     : { ok: false, status, reason: status, diagnostics, evidence }
-}
-
-export function historyFor(scope: Scope, histories: readonly DecodedHistory[]): DecodedHistory | null {
-  return histories.find((history) => sameScope(history.source.scope, scope)) ?? null
-}
-
-function confirmedMandate(
-  history: DecodedHistory,
-  ref: ExternalRecordRef,
-): Extract<CanonicalRecord, { kind: 'mandate' }> | null {
-  for (const operation of history.operations) {
-    if (operation.status !== 'complete' || operation.authority !== 'accounted' || operation.record === null) continue
-    if (operation.record.kind !== 'mandate' || operation.record.recordId !== ref.recordId) continue
-    if (!sameScope(operation.record, ref.scope)) continue
-    return operation.record
-  }
-  return null
 }
 
 type BindingMandateHistories = { ok: true; histories: DecodedHistory[] } | { ok: false; result: WorkflowBindingRead }
@@ -169,7 +150,7 @@ export async function readParentMandateChain(
       parentHistories.push(parentHistory)
     }
 
-    const parentRecord = confirmedMandate(parentHistory, parent)
+    const parentRecord = confirmedAccountedMandate(parentHistory, parent)
     if (parentRecord === null) {
       return {
         ok: false,
@@ -185,7 +166,7 @@ export async function readParentMandateChain(
 export function uniqueHistories(histories: readonly DecodedHistory[]): DecodedHistory[] {
   const unique: DecodedHistory[] = []
   for (const history of histories) {
-    if (unique.some((existing) => sameScope(existing.source.scope, history.source.scope))) continue
+    if (unique.some((existing) => equalScope(existing.source.scope, history.source.scope))) continue
     unique.push(history)
   }
   return unique

@@ -2,7 +2,7 @@ import {
   configPinDigest,
   type EffectiveWorkflowConfig,
   effectiveWorkflowConfig,
-  installedProductVersion,
+  shippedProductVersion,
 } from './workflow-config-digest.ts'
 import { WORKFLOW_CONFIG_VERSION } from './workflow-graph.ts'
 import { parseWorkflowOverride } from './workflow-overrides.ts'
@@ -33,7 +33,7 @@ export async function readEffectiveFixConfig(input: { cwd: string; commit: strin
   }
   const parsed = parseWorkflowOverride(missing ? null : shown.stdout)
   if (!parsed.ok) return parsed
-  const effective = effectiveWorkflowConfig(installedProductVersion(), parsed.additionalRequirements)
+  const effective = effectiveWorkflowConfig(shippedProductVersion(), parsed.additionalRequirements)
   return {
     ok: true,
     version: WORKFLOW_CONFIG_VERSION,

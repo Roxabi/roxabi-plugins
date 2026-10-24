@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import { batch, bridgeHarness, root } from '../../testing/review-runtime-support.ts'
 import type { NativeChildResult } from '../review-runtime/contracts.ts'
 import { NativeBatchController } from '../review-runtime/controller.ts'
 import { createNativeReviewPort } from '../review-runtime/port.ts'
-import { batch, bridgeHarness, root } from './review-runtime-support.ts'
 
 describe('native review bridge lifecycle', () => {
   it('starts an initial idle batch once without an agent-end resend', async () => {

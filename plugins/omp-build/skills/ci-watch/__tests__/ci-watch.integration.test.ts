@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { symlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -71,6 +71,22 @@ describe('ci-watch CLI refusals', () => {
 })
 
 describe('ci-watch pure merge classification', () => {
+  it('resolves its real directory for bare and symlinked pure-mode invocation', () => {
+    const bare = spawnSync('/bin/bash', ['ci-watch.sh', '--classify-checks'], {
+      cwd: join(import.meta.dirname, '..'),
+      encoding: 'utf8',
+      input: '[]',
+    })
+    expect(bare.status).toBe(0)
+    expect(bare.stdout.trim()).toBe('PENDING')
+
+    const box = fixture('symlink-pure')
+    const link = join(box.root, 'ci-watch')
+    symlinkSync(SCRIPT, link)
+    const linked = spawnSync('/bin/bash', [link, '--classify-checks'], { encoding: 'utf8', input: '[]' })
+    expect(linked.status).toBe(0)
+    expect(linked.stdout.trim()).toBe('PENDING')
+  })
   it('prioritizes terminal, behind, deadline, and eligibility outcomes independently', () => {
     expect(classifyMerge('MERGED', 'BEHIND', 'merge-on-green', 'true', '9999', '1800')).toBe('0')
     expect(classifyMerge('CLOSED', 'BEHIND', 'merge-on-green', 'true', '9999', '1800')).toBe('4')

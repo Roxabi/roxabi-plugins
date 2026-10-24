@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { parseRecord } from '../record-construction.ts'
-import { scopedRefsOf } from '../record-references.ts'
+import { scopedRefsOf } from '../workflow-record-references.ts'
 import { mandate, must, PARENT } from './workflow-test-support.ts'
 
 describe('workflow records', () => {

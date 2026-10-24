@@ -6,7 +6,7 @@ import type { Gh, Git, ProofConfigPin, Refusal } from './proof-base.ts'
 export type LandingMandateRead =
   | { admitted: true; recordId: string; proofPins: ProofConfigPin[] }
   | { admitted: false; reason: string; evidence?: Json }
-export type NativeLandingCoordinates = { head: string; base: string; baseTip: string }
+export type NativeLandingCoordinates = { head: string; base: string; baseTip: string; automationLogin?: string }
 export type ReviewBinding = { head: string | null; at: string | null; input: string | null }
 
 export declare function evidenceText(evidence: Json | null | undefined): string

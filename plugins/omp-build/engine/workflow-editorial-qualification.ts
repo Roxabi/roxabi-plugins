@@ -1,12 +1,12 @@
 import type { DecodedHistory } from './history-schema.ts'
+import { sameRef } from './record-diagnostics.ts'
 import { specDigest } from './record-digests.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
-import type { AcceptedSpecResult } from './workflow-accepted-spec.ts'
+import type { AcceptedSpecResult } from './workflow-accepted-spec-types.ts'
 import { specAssessmentSchema } from './workflow-output-schema.ts'
-import { type AssessResultRecord, specChainFailure } from './workflow-spec-authentication.ts'
+import { type AssessResultRecord, specChainFailure } from './workflow-spec-assessment.ts'
 import { authenticatedAssessResult } from './workflow-spec-authentication-chain.ts'
-import { sameRef } from './workflow-support.ts'
 
 type SpecChainFailure = Extract<AcceptedSpecResult, { ok: false }>
 export type EditorialQualification =

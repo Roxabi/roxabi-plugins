@@ -1,7 +1,8 @@
 import type { DecodedHistory } from './history-schema.ts'
+import { equalScope, sameRef } from './record-diagnostics.ts'
 import { specDigest } from './record-digests.ts'
 import type { ExternalRecordRef } from './record-references.ts'
-import type { AcceptedSpec, AcceptedSpecRef, AcceptedSpecResult } from './workflow-accepted-spec.ts'
+import type { AcceptedSpec, AcceptedSpecRef, AcceptedSpecResult } from './workflow-accepted-spec-types.ts'
 import {
   bindExternalRef,
   type ControlRecord,
@@ -12,9 +13,9 @@ import {
 } from './workflow-control.ts'
 import { qualifyEditorialCandidate } from './workflow-editorial-qualification.ts'
 import { specAssessmentSchema } from './workflow-output-schema.ts'
-import { type AssessResultRecord, receiptRef, specChainFailure } from './workflow-spec-authentication.ts'
+import { type AssessResultRecord, specChainFailure } from './workflow-spec-assessment.ts'
+import { receiptRef } from './workflow-spec-authentication.ts'
 import { authenticatedAssessResult } from './workflow-spec-authentication-chain.ts'
-import { equalScope, sameRef } from './workflow-support.ts'
 
 type SpecChainFailure = Extract<AcceptedSpecResult, { ok: false }>
 type EditorialCandidates =

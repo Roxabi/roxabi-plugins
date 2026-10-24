@@ -3,7 +3,7 @@ import type { DecodedHistory } from '../../engine/history-schema.ts'
 import { decodeHistory, encodeRecord } from '../github/history-codec.ts'
 import { githubScope } from '../github/transport.ts'
 import { readLinkedIssueAssociation } from '../github-workflow/associations.ts'
-import { publishConfirmedWorkflowRecord, readLandingFacts } from '../github-workflow/binding.ts'
+import { publishConfirmedWorkflowRecord, readLandingFacts, readWorkflowBinding } from '../github-workflow/binding.ts'
 import { readComposedWorkflowHistory } from '../github-workflow/history.ts'
 import {
   bindingRecord,
@@ -30,28 +30,20 @@ describe('GitHub workflow kind classification', () => {
       const stopBot = decodeHistory(
         historyFrom(framed(kind, `op-${kind}-bot`, `${kind}-bot`), 'github-actions[bot]', 'github-actions[bot]'),
       )
-      expect(stopBot.operations[0]).toMatchObject({
-        kind,
-        authority: 'foreign',
-        status: 'invalid',
-        record: null,
-      })
-      expect(stopBot.diagnostics.map((entry) => entry.code)).toContain('native-author-mismatch')
+      expect(stopBot.operations).toEqual([expect.objectContaining({ authority: 'foreign', record: null })])
+      expect(stopBot.diagnostics).toEqual([])
     }
   })
 
-  it('keeps a foreign mandate visible instead of treating it as absence', () => {
+  it('keeps a foreign mandate observable without workflow authority', () => {
     const decoded = decodeHistory(
       historyFrom(framed('mandate', 'op-foreign-mandate', 'mandate-foreign'), 'other-actor'),
     )
-    expect(decoded.operations).toHaveLength(1)
-    expect(decoded.operations[0]).toMatchObject({
-      kind: 'mandate',
-      authority: 'foreign',
-      status: 'invalid',
-      record: null,
-    })
-    expect(decoded.diagnostics.map((entry) => entry.code)).toContain('native-author-mismatch')
+
+    expect(decoded.operations).toEqual([
+      expect.objectContaining({ operationId: 'op-foreign-mandate', authority: 'foreign', record: null }),
+    ])
+    expect(decoded.diagnostics).toEqual([])
   })
 
   it('does not let workflow kinds share stop authority when headers collide with stop', () => {
@@ -128,6 +120,30 @@ describe('composed workflow history and landing binding readback', () => {
     expect(result.histories.map((entry) => entry.source.scope.target)).toEqual(['acme/app#42', 'acme/app#7'])
   })
 
+  it('ignores a foreign partial frame that reuses a trusted operation identity', async () => {
+    const trusted = framed('proof', 'op-pr', 'proof-pr')
+    const foreign =
+      '<!-- omp-build-record v=1 kind=proof id=proof-pr operationId=op-pr part=1/2 data=e30 -->\n# Foreign'
+    const result = await readComposedWorkflowHistory([githubScope('acme/app', 42)], {
+      cwd: '/fixture',
+      readAuthor: 'automation',
+      gh: fakeGh([
+        (args) =>
+          String(args[1] ?? '').includes('/issues/42/comments')
+            ? JSON.stringify([nativeComment(1, trusted), { ...nativeComment(2, foreign), user: { login: 'foreign' } }])
+            : undefined,
+      ]),
+    })
+
+    expect(result).toMatchObject({ ok: true, records: [expect.objectContaining({ recordId: 'proof-pr' })] })
+    if (!result.ok) throw new Error('expected composed history')
+    expect(result.histories[0]?.operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ operationId: 'op-pr', authority: 'foreign', record: null, status: 'incomplete' }),
+      ]),
+    )
+  })
+
   it('refuses composed history when a scope comment page is unreadable', async () => {
     const refused = await readComposedWorkflowHistory([githubScope('acme/app', 42)], {
       cwd: '/fixture',
@@ -189,6 +205,46 @@ describe('composed workflow history and landing binding readback', () => {
       ]),
     })
     expect(refused).toMatchObject({ ok: false, reason: 'absent' })
+  })
+
+  it('refuses divergent accounted parent mandates without reading either parent chain', async () => {
+    const firstParent = issueMandate(
+      githubScope('acme/app', 3),
+      'parent-1',
+      issueMandate(githubScope('acme/app', 4), 'grandparent-1'),
+    )
+    const secondParent = {
+      ...issueMandate(
+        githubScope('acme/app', 3),
+        'parent-1',
+        issueMandate(githubScope('acme/app', 5), 'alternate-grandparent-1'),
+      ),
+      operationId: 'op-parent-alternate',
+    }
+    const mandate = issueMandate(githubScope('acme/app', 7), 'mandate-1', firstParent)
+    const binding = bindingRecord(mandate)
+    const commentPages: Record<string, string> = {
+      '42': JSON.stringify([nativeComment(1, wire(binding))]),
+      '7': JSON.stringify([nativeComment(2, wire(mandate))]),
+      '3': JSON.stringify([nativeComment(3, wire(firstParent)), nativeComment(4, wire(secondParent))]),
+      '4': JSON.stringify([]),
+      '5': JSON.stringify([]),
+    }
+    const calls: string[][] = []
+    const result = await readWorkflowBinding(githubScope('acme/app', 42), {
+      cwd: '/fixture',
+      readAuthor: 'automation',
+      gh: async (_cwd, args) => {
+        calls.push(args)
+        if (args[0] === 'pr' && args[1] === 'view') return prView()
+        const issue = String(args[1] ?? '').match(/\/issues\/(\d+)\/comments/)?.[1]
+        const response = issue === undefined ? undefined : commentPages[issue]
+        if (response !== undefined) return response
+        throw new Error(`unexpected gh args: ${args.join(' ')}`)
+      },
+    })
+    expect(result).toMatchObject({ ok: false, reason: 'incomplete' })
+    expect(calls.some((args) => /\/issues\/[45]\/comments/.test(String(args[1] ?? '')))).toBe(false)
   })
 
   it('follows a confirmed workflow-binding and ignores tracker parentage', async () => {

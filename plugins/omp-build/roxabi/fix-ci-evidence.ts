@@ -170,8 +170,12 @@ async function reconstructAuthorizedFix(
   } catch (error) {
     return failure(`fix-proof-pins-unreadable:${error instanceof Error ? error.message : String(error)}`)
   }
-  const productVersion = shippedProductVersion()
-  if (productVersion.length === 0) return failure('fix-product-version-unreadable')
+  let productVersion: string
+  try {
+    productVersion = shippedProductVersion()
+  } catch {
+    return failure('fix-product-version-unreadable')
+  }
   const issue = linked ?? history
   const pullRequest = linked !== null && input.target.kind === 'pull-request' ? history : null
   const composed = composeChantier({ issue, pullRequest, parents })

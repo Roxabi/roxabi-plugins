@@ -1,12 +1,14 @@
 import { classifyHistory } from './history-classification.ts'
 import { validateRecordGraph } from './history-graph.ts'
 import type { DecodedHistory } from './history-schema.ts'
+import { diagnostic, equalScope, fail } from './record-diagnostics.ts'
 import { projectionClosure } from './record-projection-closure.ts'
-import { type ExternalRecordRef, isWorkflowKind, scopedRefsOf, workflowInputMeaning } from './record-references.ts'
+import { type ExternalRecordRef, isWorkflowKind } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
-import { diagnostic, equalScope, fail, type RecordProjectionConfig, type Result, recordMap } from './result.ts'
+import { type RecordProjectionConfig, type Result, recordMap } from './result.ts'
 import { validateDecision } from './review-decision.ts'
+import { scopedRefsOf, workflowInputMeaning } from './workflow-record-references.ts'
 
 function stringified(value: unknown): string {
   return JSON.stringify(value, null, 2) ?? 'null'

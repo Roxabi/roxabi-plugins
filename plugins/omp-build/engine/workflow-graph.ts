@@ -1,7 +1,7 @@
 import { z } from 'zod'
+import { diagnostic, fail } from './record-diagnostics.ts'
 import type { Result } from './result.ts'
 import type { MandateRecord } from './workflow-control.ts'
-import { diagnostic, fail } from './workflow-support.ts'
 
 export const workflowGraphActionSchema = z.enum([
   'frame',

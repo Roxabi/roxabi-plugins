@@ -235,7 +235,7 @@ def check_skill_frontmatter_scalars() -> list[str]:
 def check_review_catalogue(
     yaml_path: Path = _DEFAULT_YAML_PATH,
 ) -> list[str]:
-    """The canonical review catalogue must be readable, parseable, and non-empty."""
+    """The canonical review catalogue and its declared subsumption pairs must be valid."""
     errors: list[str] = []
 
     if not yaml_path.exists():
@@ -260,6 +260,25 @@ def check_review_catalogue(
         errors.append(
             'review-classes.yml contains no class entries — possible parse or schema error'
         )
+        return errors
+
+    yaml_slugs = {entry['class'] for entry in classes if isinstance(entry, dict) and 'class' in entry}
+    for entry in classes:
+        if not isinstance(entry, dict):
+            continue
+        slug = entry.get('class')
+        note = entry.get('note')
+        if not slug or not note or not isinstance(note, str):
+            continue
+        for other in yaml_slugs:
+            if other == slug or not re.search(rf'(?<![\w-]){re.escape(other)}(?![\w-])', note):
+                continue
+            if re.search(rf'(?<![\w-]){re.escape(slug)}(?![\w-])', note):
+                continue
+            errors.append(
+                f'subsumption pair ({slug}, {other}) declared in review-classes.yml note '
+                f'but not mentioned together in that note'
+            )
     return errors
 
 

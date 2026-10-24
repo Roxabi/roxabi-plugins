@@ -43,7 +43,7 @@ describe('workflow CI attribution behavior', () => {
       doneWhen: 'the check is green',
       criterion: 'the named check passes',
       evidence: 'the captured command',
-      paths: ['plugins/omp-build/engine/workflow.ts'],
+      paths: ['plugins/omp-build/engine/workflow-plan-macro.ts'],
     }
     expect(planOutputSchema.safeParse({ steps: [], resolutions: [] }).success).toBe(false)
     expect(planOutputSchema.safeParse({ steps: [step], resolutions: [] }).success).toBe(true)

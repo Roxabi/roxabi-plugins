@@ -100,9 +100,9 @@ function selectedControlTarget(
   epic: number,
 ): { mandateId: string; payload: Record<string, unknown>; control: EpicControlState } {
   const selected = selectApplicableMandate(history, external)
-  const inhibit = localInhibit(history)
   if (selected.status === 'applicable') {
     if (!isObject(selected.mandate.payload)) throw new Refused('epic mandate payload is unreadable')
+    const inhibit = localInhibit(history, selected.mandate.recordId)
     const control = inhibit === 'abandon' ? 'abandoned' : inhibit === 'pause' ? 'paused' : 'active'
     return { mandateId: selected.mandate.recordId, payload: selected.mandate.payload, control }
   }

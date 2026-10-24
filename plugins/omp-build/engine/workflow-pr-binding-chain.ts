@@ -1,8 +1,8 @@
 import type { DecodedHistory } from './history-schema.ts'
+import { diagnostic, equalScope, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { Diagnostic, Scope } from './record-values.ts'
 import { historyFor, type WorkflowBindingRecord } from './workflow-control.ts'
-import { diagnostic, equalScope, sameRef } from './workflow-support.ts'
 
 type BindingCandidate =
   | { status: 'bound'; binding: WorkflowBindingRecord }
@@ -20,7 +20,7 @@ function bindingRefusal(status: 'incomplete' | 'conflicting', diagnostics: Diagn
   return { status, diagnostics }
 }
 
-function refKey(ref: ExternalRecordRef): string {
+export function refKey(ref: ExternalRecordRef): string {
   return `${ref.kind}\0${ref.scope.repository}\0${ref.scope.target}\0${ref.recordId}`
 }
 

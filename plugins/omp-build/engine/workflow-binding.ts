@@ -1,5 +1,5 @@
 import type { Diagnostic, Scope } from './record-values.ts'
-import type { AcceptedSpec } from './workflow-accepted-spec.ts'
+import type { AcceptedSpec } from './workflow-accepted-spec-types.ts'
 import type { MandateRecord } from './workflow-control.ts'
 import type { LandingRefusal } from './workflow-landing.ts'
 import type { MandateRefusal } from './workflow-mandate.ts'

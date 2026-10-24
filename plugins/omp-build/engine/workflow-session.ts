@@ -1,5 +1,5 @@
+import { diagnostic } from './record-diagnostics.ts'
 import type { WorkflowFacts } from './workflow-reconstruction-types.ts'
-import { diagnostic } from './workflow-support.ts'
 
 export function sessionEvidence(facts: WorkflowFacts) {
   const path = facts.preparedWorktree ?? ''

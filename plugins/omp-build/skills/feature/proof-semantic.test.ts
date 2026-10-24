@@ -9,8 +9,9 @@ import { describe, expect, it } from 'vitest'
 import { admitLanding } from './proof-admission'
 import type { Git } from './proof-base'
 import { captureReviewInput } from './proof-capture'
-import { proofSemanticContext, reviewSemanticCanon } from './proof-context'
+import { proofSemanticContext } from './proof-context'
 import { hashReviewInput } from './proof-context-hash'
+import { reviewSemanticCanon } from './proof-semantic-canon'
 
 function digest(body: string): string {
   return createHash('sha256').update(body, 'utf8').digest('hex')

@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { installedProductVersion, workflowConfigDigest } from './workflow-config-digest.ts'
+import { shippedProductVersion, workflowConfigDigest } from './workflow-config-digest.ts'
 import { WORKFLOW_CONFIG_VERSION } from './workflow-graph.ts'
 
 const OVERRIDE_PATH = '.dev/stack.yml'
@@ -135,7 +135,7 @@ async function readCommittedOverride(
 }
 
 function productVersionError(productVersion: unknown): string | null {
-  if (typeof productVersion !== 'string' || productVersion === installedProductVersion()) return null
+  if (typeof productVersion !== 'string' || productVersion === shippedProductVersion()) return null
   return 'effective productVersion does not match the installed plugin package'
 }
 

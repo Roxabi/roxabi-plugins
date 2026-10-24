@@ -1,12 +1,13 @@
 import { resolveReviewSemanticContext } from '../../roxabi/review-semantic-context.ts'
 import { captureReviewInput as captureProofReviewInput } from './proof-capture.ts'
-import { proofSemanticContext, reviewSemanticCanon } from './proof-context.ts'
+import { proofSemanticContext } from './proof-context.ts'
+import { reviewSemanticCanon } from './proof-semantic-canon.ts'
 import { isCommitSha, readPrFields } from './workflow-gate.js'
 import { fetchBase } from './workflow-readiness.js'
 import { repositoryScope } from './workflow-records.js'
 import { gh, gitResult } from './workflow-runtime.js'
 
-export async function confirmedReviewSemanticContext(cwd, pr, ghFn, base) {
+export async function confirmedReviewSemanticContext(cwd, pr, ghFn, base, automationLogin) {
   const scope = await repositoryScope(cwd, pr, ghFn)
   const selected = await readPrFields(cwd, pr, ghFn, 'headRefName,body')
   if (typeof selected.headRefName !== 'string' || selected.headRefName === '')
@@ -18,6 +19,7 @@ export async function confirmedReviewSemanticContext(cwd, pr, ghFn, base) {
     body: typeof selected.body === 'string' ? selected.body : '',
     branch: selected.headRefName,
     base,
+    automationLogin,
     gh: ghFn,
   })
   if (resolved?.ok) return proofSemanticContext(resolved.value)

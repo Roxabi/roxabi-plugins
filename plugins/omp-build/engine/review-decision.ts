@@ -2,19 +2,12 @@ import { classifyHistory } from './history-classification.ts'
 import { validateRecordGraph } from './history-graph.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { inspectFinding } from './producer-schema.ts'
+import { diagnostic, fail } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic, Group, Json, Verdict } from './record-values.ts'
-import {
-  type DecisionAssessment,
-  diagnostic,
-  type FindingInspection,
-  fail,
-  type Result,
-  recordMap,
-  unique,
-} from './result.ts'
+import { type DecisionAssessment, type FindingInspection, type Result, recordMap, unique } from './result.ts'
 import { groupFor } from './review-groups.ts'
-import { analyzeReviewIdentity } from './review-history.ts'
+import { analyzeReviewIdentity } from './review-identity.ts'
 import { causeSchema } from './review-schema.ts'
 
 export type DecisionBindings = {

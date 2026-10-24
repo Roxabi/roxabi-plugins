@@ -36,16 +36,24 @@ export function evidenceText(evidence: { message?: string }[] | undefined): stri
   )
 }
 
-export function localInhibit(history: DecodedHistory): 'pause' | 'abandon' | null {
+export function localInhibit(history: DecodedHistory, mandateId: string): 'pause' | 'abandon' | null {
   const confirmed = new Set<string>()
   const controls: { id: string; control: string }[] = []
   for (const operation of history.operations) {
     const record = operation.record
     if (record?.kind !== 'operator-control' || !record.payload || typeof record.payload !== 'object') continue
-    const payload = record.payload as { control?: unknown; predecessor?: { recordId?: unknown } }
+    const payload = record.payload as {
+      control?: unknown
+      mandate?: { recordId?: unknown }
+      predecessor?: { recordId?: unknown }
+    }
     if (typeof payload.control !== 'string') {
       throw new Refused('operator-control record has no control phase; continuation is not confirmed')
     }
+    if (typeof payload.mandate?.recordId !== 'string') {
+      throw new Refused('operator-control record has no mandate target; continuation is not confirmed')
+    }
+    if (payload.mandate.recordId !== mandateId) continue
     if (payload.control === 'pause-confirmed' && typeof payload.predecessor?.recordId === 'string') {
       confirmed.add(payload.predecessor.recordId)
     }
@@ -214,10 +222,10 @@ export async function readEpicAuthority(repo: string, epic: number): Promise<Epi
   if (!history.source.complete) {
     throw new Refused(`epic #${epic} history is incomplete; continuation is not confirmed`)
   }
-  const inhibit = localInhibit(history)
-  if (inhibit) throw new Refused(`continuation inhibited: ${inhibit} is requested and not confirmed`)
   const external = await parentMandateHistories(repo, history)
   const mandate = selectedMandate(history, external, epic)
+  const inhibit = localInhibit(history, mandate.mandateId)
+  if (inhibit) throw new Refused(`continuation inhibited: ${inhibit} is requested and not confirmed`)
   const confirmed = await confirmedEpicMandate(repo, epic, mandate.mandateId, mandate.payload)
   return {
     epic,

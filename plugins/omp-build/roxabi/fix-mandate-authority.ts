@@ -124,8 +124,12 @@ export async function loadFixOnlyDraft(input: {
   parent: FixMandateView['parent']
   antecedent: FixMandateView['antecedent']
 }): Promise<FixActionResult<FixOnlyMandateDraft>> {
-  const productVersion = shippedProductVersion()
-  if (productVersion.length === 0) return failure('fix-product-version-unreadable')
+  let productVersion: string
+  try {
+    productVersion = shippedProductVersion()
+  } catch {
+    return failure('fix-product-version-unreadable')
+  }
   if (!/^[0-9a-f]{40}$/.test(input.commit) || input.work.body.length === 0 || input.work.lastEditedAt.length === 0) {
     return failure('fix-config-unreadable')
   }

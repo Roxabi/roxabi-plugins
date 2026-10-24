@@ -10,33 +10,73 @@ import { decodeParts, frameFrom, legacyKind, withOperationId } from './history-f
 import type { ClaimedOperation, Frame, FrameFailure, UnclaimedOperation } from './types.ts'
 import { diagnostic, WIRE_PREFIX } from './types.ts'
 
-function collectFrameGroups(comments: History['comments']) {
-  const framed = new Map<string, Frame[]>()
-  const invalidFrames = new Map<string, FrameFailure[]>()
-  const legacy: UnclaimedOperation[] = []
-  for (const comment of comments) {
+type FrameGroups = {
+  framed: Map<string, Frame[]>
+  invalidFrames: Map<string, FrameFailure[]>
+  legacy: UnclaimedOperation[]
+}
+
+function frameGroups(): FrameGroups {
+  return { framed: new Map(), invalidFrames: new Map(), legacy: [] }
+}
+
+function trustedFrame(
+  history: History,
+  comment: History['comments'][number],
+  frame: Frame | FrameFailure | null,
+): boolean {
+  if (comment.author === history.expectedAuthor) return true
+  return (
+    history.stopAuthor !== null &&
+    comment.author === history.stopAuthor &&
+    frame !== null &&
+    !('diagnostic' in frame) &&
+    frame.kind === 'stop'
+  )
+}
+
+function addFrame(groups: FrameGroups, frame: Frame | FrameFailure): void {
+  if ('diagnostic' in frame) {
+    const key =
+      frame.operationId === null
+        ? `invalid:${frame.comment.locator}`
+        : `invalid:${JSON.stringify([frame.operationId, frame.recordId, frame.kind])}`
+    const entries = groups.invalidFrames.get(key) ?? []
+    entries.push(frame)
+    groups.invalidFrames.set(key, entries)
+    return
+  }
+  const entries = groups.framed.get(frame.operationId) ?? []
+  entries.push(frame)
+  groups.framed.set(frame.operationId, entries)
+}
+
+function collectFrameGroups(history: History) {
+  const trusted = frameGroups()
+  const foreign = frameGroups()
+  const trustedComments: History['comments'] = []
+  for (const comment of history.comments) {
     const frame = frameFrom(comment)
     if (frame === null) {
-      const kind = legacyKind(comment.body)
-      if (kind !== null)
-        legacy.push({ operationId: null, recordId: null, kind, status: 'legacy', parts: [comment], record: null })
+      if (comment.author === history.expectedAuthor) {
+        const kind = legacyKind(comment.body)
+        if (kind !== null)
+          trusted.legacy.push({
+            operationId: null,
+            recordId: null,
+            kind,
+            status: 'legacy',
+            parts: [comment],
+            record: null,
+          })
+      }
       continue
     }
-    if ('diagnostic' in frame) {
-      const key =
-        frame.operationId === null
-          ? `invalid:${frame.comment.locator}`
-          : `invalid:${JSON.stringify([frame.operationId, frame.recordId, frame.kind])}`
-      const entries = invalidFrames.get(key) ?? []
-      entries.push(frame)
-      invalidFrames.set(key, entries)
-      continue
-    }
-    const entries = framed.get(frame.operationId) ?? []
-    entries.push(frame)
-    framed.set(frame.operationId, entries)
+    const accepted = trustedFrame(history, comment, frame)
+    if (accepted) trustedComments.push(comment)
+    addFrame(accepted ? trusted : foreign, frame)
   }
-  return { framed, invalidFrames, legacy }
+  return { trusted, foreign, trustedComments }
 }
 
 function decodedInvalidOperations(invalidFrames: ReadonlyMap<string, readonly FrameFailure[]>) {
@@ -74,6 +114,15 @@ function decodedFramedOperations(history: History, framed: ReadonlyMap<string, F
   return { operations, diagnostics }
 }
 
+function decodedOperations(history: History, groups: FrameGroups) {
+  const invalid = decodedInvalidOperations(groups.invalidFrames)
+  const decoded = decodedFramedOperations(history, groups.framed)
+  return {
+    operations: [...invalid.operations, ...decoded.operations, ...groups.legacy],
+    diagnostics: [...invalid.diagnostics, ...decoded.diagnostics, ...legacyDiagnostics(groups.legacy)],
+  }
+}
+
 function legacyDiagnostics(legacy: readonly UnclaimedOperation[]): Diagnostic[] {
   return legacy.map((operation) =>
     diagnostic(
@@ -85,19 +134,24 @@ function legacyDiagnostics(legacy: readonly UnclaimedOperation[]): Diagnostic[] 
 
 /** Decode only the framed transport; human Markdown is intentionally never parsed. */
 export function decodeHistory(history: History): DecodedHistory {
-  const { framed, invalidFrames, legacy } = collectFrameGroups(history.comments)
-  const invalid = decodedInvalidOperations(invalidFrames)
-  const decoded = decodedFramedOperations(history, framed)
-  const operations = [...invalid.operations, ...decoded.operations, ...legacy]
-  const diagnostics = [...invalid.diagnostics, ...decoded.diagnostics, ...legacyDiagnostics(legacy)]
-  const clues = history.comments.filter((comment) => comment.body.startsWith(WIRE_PREFIX)).map(looseHeaderClue)
+  const { trusted, foreign, trustedComments } = collectFrameGroups(history)
+  const trustedDecoded = decodedOperations(history, trusted)
+  const foreignDecoded = decodedOperations(history, foreign)
+  const clues = trustedComments.filter((comment) => comment.body.startsWith(WIRE_PREFIX)).map(looseHeaderClue)
+  const authority = (operation: UnclaimedOperation) => {
+    const claimed: ClaimedOperation = withClaimedKinds(operation)
+    return { ...claimed, authority: operationAuthority(claimed, history, clues) }
+  }
   return {
     source: history,
-    operations: operations.map((operation) => {
-      const claimed: ClaimedOperation = withClaimedKinds(operation)
-      return { ...claimed, authority: operationAuthority(claimed, history, clues) }
-    }),
-    diagnostics,
+    operations: [
+      ...trustedDecoded.operations.map(authority),
+      ...foreignDecoded.operations.map((operation) => ({
+        ...withClaimedKinds(operation),
+        authority: 'foreign' as const,
+      })),
+    ],
+    diagnostics: trustedDecoded.diagnostics,
   }
 }
 

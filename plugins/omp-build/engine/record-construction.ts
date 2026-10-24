@@ -1,7 +1,8 @@
-import { scopedRefsOf, workflowInputMeaning } from './record-references.ts'
+import { diagnostic, equalScope, fail } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import { recordSchema } from './record-schema.ts'
-import { diagnostic, equalScope, fail, type Result } from './result.ts'
+import type { Result } from './result.ts'
+import { scopedRefsOf, workflowInputMeaning } from './workflow-record-references.ts'
 
 export function parseRecord(value: unknown): Result<CanonicalRecord> {
   const parsed = recordSchema.safeParse(value)

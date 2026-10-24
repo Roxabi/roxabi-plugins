@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ExtensionAPI } from '@oh-my-pi/pi-coding-agent'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { createExtensionApiStub } from '../../testing/extension-api-stub'
 import {
   evalGuard,
   extractWriteContent,
@@ -14,7 +15,6 @@ import {
   shouldBlockPrincipalSwitch,
 } from '../guards'
 import ompBuildExtension from '../index'
-import { createExtensionApiStub } from './extension-api-stub'
 
 describe('OMP omp-build hooks', () => {
   describe('project contract', () => {

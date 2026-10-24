@@ -3,12 +3,7 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
-import {
-  ompBuildStartFixParametersJsonSchema,
-  ompBuildStartFixParametersSchema,
-  ompBuildStartReviewParametersJsonSchema,
-  ompBuildStartReviewParametersSchema,
-} from '../dist/contracts.js'
+import { ompBuildStartReviewParametersJsonSchema, ompBuildStartReviewParametersSchema } from '../dist/contracts.js'
 import type {
   FeatureCommandHost,
   FeatureFixTerminal,
@@ -204,26 +199,6 @@ export function registerOmpCommandsAndTools(
           { type: 'text', text: 'Native review inventory was confirmed and the prepared batch was announced.' },
         ],
       }
-    },
-  })
-  pi.registerTool({
-    name: 'omp_build_start_fix',
-    label: 'Start structured correction',
-    description:
-      'Prepare and dispatch the host-authorized native correction for an existing target or confirmed review.',
-    parameters: ompBuildStartFixParametersJsonSchema,
-    approval: 'write',
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const parsed = ompBuildStartFixParametersSchema.safeParse(params)
-      if (!parsed.success) throw new Error('invalid-omp-build-start-fix-parameters')
-      const start = await dispatchDefaultFix(pi, ctx, parsed.data.reference ?? '', parsed.data)
-      const text =
-        start.status === 'accepted'
-          ? `Native correction ${start.runId} was accepted and its first prepared batch was announced.`
-          : start.result.ok
-            ? `Native correction completed before native dispatch with confirmed record ${start.result.value.recordId}.`
-            : `Native correction stopped before native dispatch: ${start.result.diagnostics.join(', ')}`
-      return { content: [{ type: 'text', text }] }
     },
   })
 

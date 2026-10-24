@@ -3,7 +3,7 @@ import { promisify } from 'node:util'
 import type { ScopedRecordRef } from '../engine/record-references.ts'
 import type { NativeBatch, NativeBatchCallbacks, NativeBatchResult } from '../omp/review-runtime/contracts.ts'
 import type { ContinueFeatureResult, FeatureCommandHost, FeatureGit } from './feature-contract.ts'
-import { rememberFeatureOwner } from './feature-host-lifetime.ts'
+import { rememberFeatureOwner } from './feature-host-ownership.ts'
 
 const actionStarts = new WeakMap<NativeBatch, ScopedRecordRef>()
 const implementationStarts = new WeakMap<NativeBatch, string>()

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createExtensionApiStub } from '../../../omp/__tests__/extension-api-stub'
 import ompBuildExtension from '../../../omp/index'
+import { createExtensionApiStub } from '../../../testing/extension-api-stub'
 import { computeHotfixDensity } from '../lib/hotfix-density'
 import {
   classifyDensity,

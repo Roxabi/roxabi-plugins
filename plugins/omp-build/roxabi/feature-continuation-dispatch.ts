@@ -4,11 +4,11 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import type { PauseBinding } from '../engine/workflow-control.ts'
 import type { FeatureAuthority } from './feature-continuation-admission.ts'
-import type { FeatureObservation } from './feature-continuation-observation.ts'
 import { proofSelectorFor } from './feature-continuation-proof.ts'
 import type { ContinueFeatureResult } from './feature-contract.ts'
 import { releaseCwdInhibition, releaseInhibition } from './feature-control.ts'
 import { isRecord, payload, publishRecord } from './feature-engine.ts'
+import type { FeatureObservation } from './feature-observation-contract.ts'
 
 const execFileAsync = promisify(execFile)
 

@@ -2,7 +2,7 @@ import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import { hasNativeUserInterruptFlag } from '../dist/contracts.js'
 import type { FeatureSessionReason, FeatureWorkflow } from '../roxabi/feature-contract.ts'
 import { pauseOwnedFeatureOnSessionEnd } from '../roxabi/feature-host-lifetime.ts'
-import { abortOwnedFeatureWatch } from '../roxabi/feature-host-watch.ts'
+import { abortOwnedFeatureWatch } from '../roxabi/feature-host-ownership.ts'
 import { loadFeatureWorkflow } from '../roxabi/feature-loader.ts'
 import {
   type FixHost,

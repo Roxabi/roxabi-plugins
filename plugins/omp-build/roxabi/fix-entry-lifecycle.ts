@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { FixActionResult, FixIdentity, FixRecord, NativePort } from './fix-contract.ts'
-import type { DefaultFixEntry } from './fix-entry-default.ts'
 import { runDefaultFix } from './fix-entry-default.ts'
+import type { DefaultFixEntry } from './fix-entry-input.ts'
 import { fail } from './fix-entry-target-core.ts'
 import type { FixWorkflowRuntime } from './fix-native-dispatch.ts'
 

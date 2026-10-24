@@ -147,7 +147,10 @@ export async function currentLandingMandate(cwd, pr, ghFn, native, gitFn = gitRe
   ensureNativeLandingCoordinates(native)
   const contracts = await bundledLandingMandate()
   const pullRequest = await repositoryScope(cwd, pr, ghFn)
-  const facts = await contracts.readLandingFacts(pullRequest, withRoxabiGitHubPolicy({ cwd, gh: ghFn }))
+  const facts = await contracts.readLandingFacts(
+    pullRequest,
+    withRoxabiGitHubPolicy({ cwd, gh: ghFn, automationLogin: native.automationLogin }),
+  )
   const refusal = landingFactsRefusal(facts)
   if (refusal) return refusal
   ensureLandingFactsForNative(facts, pullRequest, native)

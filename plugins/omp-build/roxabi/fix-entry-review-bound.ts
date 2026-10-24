@@ -9,7 +9,7 @@ import type {
   RecordPublisher,
   TargetResolver,
 } from './fix-contract.ts'
-import type { DefaultFixEntry } from './fix-entry-default.ts'
+import type { DefaultFixEntry } from './fix-entry-input.ts'
 import { fail } from './fix-entry-target-core.ts'
 import type { DefaultFixRequest } from './fix-execution-policy.ts'
 import { runReviewBoundFixWorkflow } from './fix-execution-runner.ts'

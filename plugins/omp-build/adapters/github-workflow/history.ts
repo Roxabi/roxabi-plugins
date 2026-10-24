@@ -3,8 +3,8 @@ import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import type { Diagnostic, Scope } from '../../engine/record-values.ts'
 import { decodeHistory } from '../github/history-codec.ts'
 import { readGitHubHistory } from '../github/transport.ts'
-import { GitHubHistoryReadError, type GitHubOptions } from '../github/types.ts'
-import { type ComposedWorkflowHistory, diagnostic } from './types.ts'
+import { diagnostic, GitHubHistoryReadError, type GitHubOptions } from '../github/types.ts'
+import type { ComposedWorkflowHistory } from './types.ts'
 
 type RecordCollection = {
   records: CanonicalRecord[]
@@ -39,6 +39,7 @@ function appendCompleteRecord(record: CanonicalRecord, collection: RecordCollect
 
 function collectCompleteHistoryOperations(history: DecodedHistory, collection: RecordCollection): void {
   for (const operation of history.operations) {
+    if (operation.authority === 'foreign') continue
     const incomplete = incompleteOperationDiagnostic(history, operation)
     if (incomplete !== null) {
       collection.diagnostics.push(incomplete)

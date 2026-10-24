@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { FeatureWorkflow } from '../../roxabi/feature-contract'
 import { runInstalledFeatureCommand } from '../../roxabi/feature-entry'
+import { createExtensionApiStub } from '../../testing/extension-api-stub'
 import ompBuildExtension from '../index'
 import type { OmpBuildExtensionOptions } from '../omp-commands'
 import type { NativeBatch } from '../review-runtime/contracts.ts'
-import { createExtensionApiStub } from './extension-api-stub'
 
 const root = {
   cwd: '/repo/feature',
@@ -50,6 +50,7 @@ function installed(
 ) {
   const sent: string[] = []
   const commands = new Map<string, { handler: (args: string, ctx: typeof root) => Promise<void> }>()
+  const tools = new Set<string>()
   const sessions = new Map<string, (event: { signal: AbortSignal }, ctx: typeof root) => void | Promise<void>>()
   const handlers = new Map<string, (...args: never[]) => unknown>()
   const registered = new Map<string, Array<(...args: never[]) => unknown>>()
@@ -85,6 +86,9 @@ function installed(
     registerCommand: (name, command) => {
       commands.set(name, command as { handler: (args: string, ctx: typeof root) => Promise<void> })
     },
+    registerTool: (tool) => {
+      tools.add(tool.name)
+    },
     sendUserMessage: (content) => {
       sent.push(String(content))
     },
@@ -94,7 +98,7 @@ function installed(
     ...(exec === undefined ? {} : { exec }),
   })
   ompBuildExtension(pi, { principalCwd: () => false, ...options })
-  return { sent, commands, sessions, handlers, raw, pi }
+  return { sent, commands, tools, sessions, handlers, raw, pi }
 }
 
 describe('installed /feature command', () => {
@@ -241,5 +245,50 @@ describe('installed /feature command', () => {
     await host.commands.get('feature')?.handler('', root)
     expect(decisions).toEqual(['accept'])
     expect(host.sent[1]).toBe('feature-stopped: feature-reference-missing')
+  })
+
+  it('stops a branch-mismatch refusal without dispatching native work', async () => {
+    let activated = false
+    let announced = false
+    const sent: string[] = []
+    await runInstalledFeatureCommand('#12', {
+      key: {},
+      cwd: root.cwd,
+      principal: false,
+      workflow: workflow({
+        continueFeature: async () => ({ kind: 'blocked', reason: 'branch-mismatch' }),
+      }),
+      native: {
+        activate: () => {
+          activated = true
+        },
+        inactive: () => undefined,
+        stopOwned: async () => undefined,
+        announce: async () => {
+          announced = true
+        },
+      },
+      send: async (message) => {
+        sent.push(message)
+      },
+      inhibitFeatureContinuation: () => undefined,
+      releaseFeatureContinuation: () => undefined,
+      featureContinuationInhibited: () => false,
+      markFeatureBatch: () => undefined,
+      exec: async () => ({ code: 0, killed: false }),
+    })
+    expect(sent).toHaveLength(1)
+    expect(sent[0]).toMatch(/^feature-stopped:/)
+    expect(activated).toBe(false)
+    expect(announced).toBe(false)
+  })
+})
+
+describe('installed correction lane', () => {
+  it('registers no correction tool while retaining the /fix command', () => {
+    const host = installed({})
+
+    expect(host.tools.has('omp_build_start_fix')).toBe(false)
+    expect(host.commands.has('fix')).toBe(true)
   })
 })

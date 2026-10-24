@@ -117,7 +117,7 @@ Issue state is a scope fact, not execution authority. A closed Spec remains read
 
 An epic runs from the confirmed mandate on the epic issue, not from a session goal. `skills/feature/epic-driver.ts` reads that mandate. The installed command calls `next`, `stop`, `review`, `mark-fix`, `hook`, `report`, and `control-disarm`. There is no `objective` command and no goal file.
 
-A ticket stop is an `epic-event` whose `event` is the historical wire name `goal-stop`. Independent children continue. A shared-state stop is an `epic-event` whose `event` is `goal-report`. The hook runs once at the current base commit; another commit is `hook-stale`. The report heading is `## Epic run`. Merged is not complete before the hook and report are observed. Delivery matching, re-disarm, and which stops retry live in `epic-driver.ts` and `epic.ts`. A run id does not reset a spent review bound.
+A ticket stop is an `epic-event` whose `event` is the historical wire name `goal-stop`. Independent children continue. A shared-state stop is an `epic-event` whose `event` is `goal-report`. The hook runs once at the current base commit; another commit is `hook-stale`. The report heading is `## Epic run`. Merged is not complete before the hook and report are observed. Delivery matching, re-disarm, and which stops retry live in the `epic-driver-*` modules. A run id does not reset a spent review bound.
 
 Debt filing and epic fix-tickets spawn `bun --no-env-file` on the emitted `triage.ts`. The cwd is that file's directory, and `GITHUB_REPO` is set. Feature init imports only the emitted `migrate-labels.ts` and `init.ts`, and still binds the checkout with `defaultInitDeps(repository, checkout)`. The resolver is `triage-runtime.ts`. Paths come from that file. There is no sibling, home, or project fallback. A missing emit stays `issue-triage-unavailable` or `IssueTriageMissing`. `skill://issue-triage` remains the separate optional advisory skill, not the action runtime; it is not copied into this plugin. The generated `dist/issue-triage/` slice ships with omp-build so those actions need no separate plugin installation.
 
@@ -132,13 +132,14 @@ Debt filing and epic fix-tickets spawn `bun --no-env-file` on the emitted `triag
 | `/dev-review` | `registerCommand('dev-review')`. Dispatches the host-authorized native review. Not a skill dump. |
 | `/fix` | `registerCommand('fix')`. Dispatches the host-authorized native correction. Not a skill dump. |
 | `omp_build_start_review` | `registerTool`. Same review dispatch, model lane. Not execution authority. |
-| `omp_build_start_fix` | `registerTool`. Same correction dispatch, model lane. Not execution authority. |
 
-`registerCommand` is the user lane the model cannot call. That does not make the product slash-only: review and correction are also tools. A tool call still resolves one existing target, re-reads the bound, head, and proofs, and authorizes before inventory and dispatch. Unknown, stale, ambiguous, or already-closed PR targets stop review/correction dispatch. A skill body's `disable-model-invocation` is **not** a second gate: omp normalises it to `hide`, which omits the skill from the prompt listing while `skill://<name>` and `/skill:<name>` still reach it (omp 18.2.9). Requires a **restart** (extension module), not `/reload-plugins`.
+`registerCommand` is the user lane the model cannot call. `omp_build_start_review` is the only model-lane tool. Correction starts through `/fix` or the Feature review-bound handoff. A tool call still resolves one existing target, re-reads the bound, head, and proofs, and authorizes before inventory and dispatch. Unknown, stale, ambiguous, or already-closed PR targets stop review/correction dispatch. A skill body's `disable-model-invocation` is **not** a second gate: omp normalises it to `hide`, which omits the skill from the prompt listing while `skill://<name>` and `/skill:<name>` still reach it. `@skill` in a task asks the host to load a skill body; it does not create a command or tool lane.
 
 ## Records
 
 The engine (`engine/`) owns versioned records, reference checks, conservation, counting, derived groups and verdicts, and deterministic projection. It does not judge semantics, call GitHub, or authorize a merge. Roxabi (`roxabi/`) owns the product actions: preparation, native continuation, and publication of inventories before dispatch. It keeps no local durable business store. The GitHub adapters (`adapters/github/**`, `adapters/github-workflow/**`) paginate comments, check native author and revision facts, publish, and read back. They do not classify a finding or authorize landing.
+
+A record frame whose native author is not the trusted login is `foreign`. It stays observable in the decoded history, but it never completes, collides with, blocks, or deduplicates a trusted operation; an identical foreign body does not suppress a publication. A review's time is the native creation time of its final part; editing the comment does not move it.
 
 `encodeRecord` frames each canonical record with its projection. The header is `<!-- omp-build-record v=1 kind=… id=… operationId=… part=i/n data=<base64url> -->`. The payload is authoritative. The Markdown is presentation; no business reader takes a verdict, head, or input from it. A final `review` carries `candidateGitSHA` and `input` (64 lowercase hex SHA-256, or null). Projection lists the record, decision, candidate, input, findings, standards, and source provenance (contribution host plus originals). Legacy `<!-- omp-build:… -->` markers — including `code-review`, `review-head`, `review-input`, and `proof` — are `legacy-format`. They are refused, not parsed, resurrected, or reset.
 
@@ -383,7 +384,7 @@ before its diff; the review-start test exercises the fence, not model compliance
   current shared Semctx reader's results or refusal, not landing authorization.
   Reuse preserves native proof bytes and publication metadata; an archival human
   summary may still describe the older reader's refusal.
-- Then `landPr` admits that head (`admitLanding`, `proof.ts`), reading only: the
+- Then `landPr` admits that head (`admitLanding`, `proof-admission.ts`), reading only: the
   local tip must be it; Semctx applies when `origin/<base>`, the head or the
   uncommitted `.semctx/config.json` on disk at the root and the principal
   configures it, and a PR that changes or deletes the base's committed
@@ -490,6 +491,10 @@ before its diff; the review-start test exercises the fence, not model compliance
   own checkpoints and on re-entry, so a change after its last read goes
   undetected while observers retain the arm.
 
+Comment pagination is page-number based. During a multi-page read of more than 100 comments, a deletion can shift later comments and omit a record while the read reports complete. The gate's initial and refreshed reads narrow that race; consumers that read once do not.
+
+Record authorship under `OMP_BUILD_AUTOMATION_LOGIN` provides no author/reviewer separation while that login is also the PR author's identity. Choosing a dedicated identity is part of the T5 decision.
+
 The bound guards against agent mistakes, not against an agent that bypasses it:
 records by other accounts are ignored, and edits or deletions of the account's
 comments are not detected. Every posted review counts, with or without a fix
@@ -517,7 +522,7 @@ gate authorization; `disarmReviewedBeforePush` in `skills/feature/landing-founda
 the push once, and reuses that receipt if the callback fails. Neither review nor
 fix labels a PR. No duplicate spec files or `validated` gate.
 
-The trusted auto-merge checkout (`.github/workflows/auto-merge.yml`) reads canonical records only from tooling pinned by repository variable `OMP_BUILD_TOOLING_SHA` (40 lowercase hex) and attributes them to `OMP_BUILD_AUTOMATION_LOGIN`. A missing or non-hex pin refuses. There is no fallback to the candidate checkout, the workflow SHA, a moving branch, candidate code, or a dependency install; the pin's committed `dist/contracts.js` is the reader. Dependabot keeps its existing semver-major exception and does not require that human review record. The pin is the T5 activation variable. Its absence is a refusal, not an activation.
+The trusted auto-merge checkout (`.github/workflows/auto-merge.yml`) reads canonical records only from tooling pinned by repository variable `OMP_BUILD_TOOLING_SHA` (40 lowercase hex) and derives authorship for every trusted gate read from `--automation-login`: records, the landing mandate and its binding/parent chain, semantic binding, and proof selections. The gate never calls `gh api user`, which installation tokens cannot use. A missing or non-hex pin refuses. There is no fallback to the candidate checkout, the workflow SHA, a moving branch, candidate code, or a dependency install; the pin's committed `dist/contracts.js` is the reader. On `pull_request` events, GitHub runs the workflow from the PR merge ref, so this pin protects the reader code, not the workflow that decides to call it and arm. That is a known limit: before T5 activation sets the pin, a base-defined trigger or equivalent protection must own that arming decision. The pin is currently unset, so the gate refuses and disarms. Dependabot keeps its existing semver-major exception and does not require that human review record.
 
 T5 capability check, separately authorized, not done in this tree. The gate reads with the App token (`GH_TOKEN: ${{ steps.app.outputs.token }}` in `.github/workflows/auto-merge.yml`), not the job `GITHUB_TOKEN`. Job `issues: write` does not apply to that token ([workflow permissions](https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#permissions) cover the job token only). The reader must be able to read issue bodies, comments, and each explicit parent scope: `GET /repos/{owner}/{repo}/issues/{issue_number}` and `GET /repos/{owner}/{repo}/issues/{issue_number}/comments`, through `review-gate.ts` → `currentLandingMandate`. Applicable App permission for the body route is Issues: read; Pull requests does not cover it ([App permissions](https://docs.github.com/en/rest/authentication/permissions-required-for-github-apps)). Comments are also listed under Pull requests. Live installation permissions are unverified. Do not claim they are missing, and do not change the token or the installation from this tree. This is not a new tamper control.
 
@@ -537,7 +542,7 @@ The scan **fails open** above `SECURITY_SCAN_MAX_BYTES` (256 KB): a payload larg
 
 Guards are **off** unless the project declares the host-neutral contract (`.dev/stack.yml` or `.dev/dev-core.yml`); without it the interceptor is a no-op and warns once per cwd.
 
-`omp/guards.ts`, `hooks/`, `agents/R-*` (except `R-advisor`) and `skills/shared/` are a **frozen snapshot** (ADR-020): omp-build resolves nothing through a sibling plugin at runtime, so it stays installable on its own. The snapshot is not resynced. The `model:` lines on the five review agents are a deliberate local divergence from that snapshot, not a resync.
+`omp/guards.ts`, `hooks/`, `agent-sources/R-*` (except `R-advisor`) and `skills/shared/` are a **frozen snapshot** (ADR-020): omp-build resolves nothing through a sibling plugin at runtime, so it stays installable on its own. The snapshot is not resynced. The `model:` lines on the five review agents are a deliberate local divergence from that snapshot, not a resync.
 
 `skills/shared/` holds `lib.sh` (base-branch / worktree helpers, sourced as `. "$SCRIPT_DIR/../shared/lib.sh"`) and its `artifact-classify.ts` closure. No `references/` directory travels: the one reference a snapshotted agent cited is inlined into `R-architect` itself, because a `${CLAUDE_PLUGIN_ROOT}` token only expands in SKILL.md bodies — never in an agent body, and never at all in this plugin. `skills/dev-review/SKILL.md` Phase 1 and `skills/cleanup/analyze-branches.sh` are `lib.sh`'s in-plugin callers (`detect_base_branch`).
 
@@ -553,7 +558,7 @@ Guards are **off** unless the project declares the host-neutral contract (`.dev/
 
 ## Agents
 
-OMP task agents in `agents/`. **Two** are OMP-native (`R-advisor`, `elon` — `model: "@advisor"`, typed `output:` schema). **Five** are frozen snapshots of `dev-core` review agents (ADR-020 decision 7) and declare a role: `@review, @slow` for the judgment agents `R-adversarial`, `R-architect` and `R-security-auditor`; `@task` for `R-devops` and `R-tester`. When an unmapped role still hands the choice to the parent is stated below the table. Every agent carries an explicit `tools:` pin: the snapshots arrived with their posture stated in prose only, and a read-only floor whose read-only-ness is unenforced is not a control.
+`agent-sources/` contains the frozen authored agents: two OMP-native (`R-advisor`, `elon` — `model: "@advisor"`, typed `output:` schema) and five `dev-core` review snapshots (ADR-020 decision 7). `agents/` is generated output: seven copied authored agents plus 18 generated native profiles; do not edit it. The five review snapshots declare `@review, @slow` for the judgment agents `R-adversarial`, `R-architect` and `R-security-auditor`, and `@task` for `R-devops` and `R-tester`. When an unmapped role still hands the choice to the parent is stated below the table. Every authored agent carries an explicit `tools:` pin: the snapshots arrived with their posture stated in prose only, and a read-only floor whose read-only-ness is unenforced is not a control.
 
 | Agent | Model | Posture |
 |---|---|---|
@@ -570,7 +575,7 @@ OMP task agents in `agents/`. **Two** are OMP-native (`R-advisor`, `elon` — `m
 Spawn: `task` `{ agent: "R-adversarial" | "R-advisor" | "R-architect" | "R-devops" | "R-tester" | "R-security-auditor" | "elon", ... }`. Read from `agents/` of whichever package root is in the extension lane — the `link` symlink, or the marketplace install's `node_modules` symlink once it is listed in `extensions:`. `R-advisor` is a spawnable task agent, **not** the session WATCHDOG (`advisor.enabled`).
 
 `R-frontend-dev`, `R-backend-dev`, `R-fixer`, `R-doc-writer` and `R-product-lead` are deliberately absent (ADR-020 decision 7): their concerns fall to the `R-adversarial` floor through the sibling-drop rule.
-Correction does not revive `R-fixer`. `/fix` and `omp_build_start_fix` dispatch the native profiles `R-review-fix-intake`, `R-review-fix-synthesis`, `R-review-fix-apply`, and `R-review-fix-falsify`.
+Correction does not revive `R-fixer`. `/fix` dispatches the native profiles `R-review-fix-intake`, `R-review-fix-synthesis`, `R-review-fix-apply`, and `R-review-fix-falsify`; the Feature review-bound handoff starts the same correction path.
 
 Resolution when a spawn passes no `model`: explicit call model, then `task.agentModelOverrides`, then this frontmatter, then the active parent. An operator override for an agent masks the manifest role until it is removed. A role alias in an override expands through `modelRoles`, `@default` included, and OMP uses the override only when that expansion yields at least one model; otherwise it skips the override and reads the frontmatter. `R-devops: "@default"` therefore pins the configured `modelRoles.default`, not the parent's live model, and has no effect while `default` is unset. In omp 18.8.0 the parent's active model is taken by a per-call `model` entry `@default`, a single-entry frontmatter `@default`, and a single-entry frontmatter `@task` while `modelRoles.task` is unset: `R-devops` and `R-tester` run the parent's model until the operator maps `task`. The two-entry `@review, @slow` never takes that path; only the credential fallback above reaches the parent. The dev-review spawn template passes no `model`, so it does not defeat these declarations.
 
@@ -580,7 +585,7 @@ Resolution when a spawn passes no `model`: explicit call model, then `task.agent
 |---|---|
 | `feature` | Installed `/feature` command. `SKILL.md` is the reference, not a dumped lifecycle. |
 | `dev-review` | `/dev-review` and `omp_build_start_review` · native spec → panel → recall → synthesis |
-| `fix` | `/fix` and `omp_build_start_fix` · native correction profiles; not an inline walk |
+| `fix` | `/fix` · native correction profiles; the Feature review-bound handoff starts the same path; not an inline walk |
 | `promote` | `/promote` (registered command) · the optional tail |
 | `cleanup` | `/cleanup` (registered command) · the optional tail |
 | `ci-watch` | `/ci-watch` (registered command) · watches checks, then the merge |
@@ -625,14 +630,12 @@ Source callers import the canonical owner directly. Removed engine aggregate pat
 | Native OMP capture, settlement and lifetime | `omp/review-runtime/`, `omp/omp-controller.ts`, `omp/omp-feature-session.ts` |
 
 The Feature contract has four operations: continuation, native-result publication, watch-exit consumption, and session pause. Native completion and watch exits use their own operations rather than unused fields on continuation input. This internal contract cleanup does not reset review bounds or grant landing authority. CLI and trusted CI still apply the common admission contract through their concrete entry points.
-
-The review class catalogue has one source: `skills/dev-review/review-classes.yml`. The aggregate plugin validator checks that this complete asset is readable UTF-8, valid YAML and non-empty; it no longer compares an obsolete second list or pair-rule paragraphs in the skill. Native panel and recall tasks receive the canonical catalogue itself. This preserves guidance delivery, not proof that a model obeys subsumption rules; final labels remain model judgments, not classifications repaired by the engine.
+The review class catalogue has one source: `skills/dev-review/review-classes.yml`. The aggregate plugin validator checks that this complete asset is readable UTF-8, valid YAML and non-empty, and validates its declared subsumption-pair notes. Native panel and recall tasks receive the canonical catalogue itself. This preserves guidance delivery, not proof that a model obeys subsumption rules; final labels remain model judgments, not classifications repaired by the engine.
 
 ### Test ownership
 
 Generic record mechanics live in `testing/record-*.ts`; generic workflow records and actions live in `testing/workflow-fixtures.ts` and `testing/workflow-actions.ts`. Product scenarios select the shipped Roxabi graph explicitly through `testing/roxabi-presets.ts`; it is not a hidden default in the generic workflow builders.
-
-Engine behavior families live in `engine/__tests__/` and `testing/workflow-decision-cases/`. Their shared support arranges inputs and external boundaries, without re-exporting the product under test. Expected consumer-visible outcomes stay in the scenarios, outside model inputs. Process-spawning scenarios retain the `*.integration.test.ts` suffix and owned resource cleanup.
+Engine behavior families live in `engine/__tests__/` and `testing/workflow-decision-cases/`. Their shared support arranges inputs and external boundaries, without re-exporting the product under test. `testing/extension-api-stub.ts` and `testing/review-runtime-support.ts` are shared cross-boundary support. Expected consumer-visible outcomes stay in the scenarios, outside model inputs. Process-spawning scenarios retain the `*.integration.test.ts` suffix and owned resource cleanup.
 
 Feature domain simulators and subprocess harnesses live in `skills/feature/testing/{gh-simulator,epic-driver,goal,proof-integration}/`; cross-boundary SDK and recovery drivers are named explicitly in `testing/feature-*.ts` and `testing/native-review-driver.ts`. They arrange external state and invoke the real canonical product owners, rather than implementing alternate admission. Proof acquisition itself remains runtime code, not fixture support.
 
@@ -656,7 +659,7 @@ Generated distribution files and retained inert data are distinguished by their 
 
 ### Owned distribution (candidate 0.11.3)
 
-`agent-sources/*.md` holds the seven authored generic agents. The producer copies them byte for byte and derives native profiles from `roxabi/native-*-profiles.ts` and the existing strict schemas. Tests and support stay outside the generated surface, in their owning engine, product, adapter and testing trees.
+`agent-sources/*.md` holds the seven authored generic agents. The producer copies all seven into `agents/` byte for byte and derives 18 native profiles there from `roxabi/native-*-profiles.ts` and the existing strict schemas. Tests and support stay outside the generated surface, in their owning engine, product, adapter and testing trees.
 
 The single producer, `tools/build-omp-build-contracts.ts`, owns all of `agents/**` and `dist/**`, including the existing issue-triage runtime slice. Do not edit these outputs. Its inventory comes from successful writes and Bun build outputs, not a second list of expected artifacts. Duplicate output claims and incomplete build metadata fail. A normal build never purges the candidate or its dependencies; stale outputs remain visible to verification.
 

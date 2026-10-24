@@ -8,14 +8,13 @@ import {
   type Json,
 } from '../../dist/contracts.js'
 import { isMap, NATIVE_INSTANT, type PrComment, type Producer, type Refusal, refuse } from './proof-base'
-import type { Target } from './proof-context'
+import type { SelectedRecord, Target } from './proof-review-contract'
 
 // ---------------------------------------------------------------------------
 // Conserved records: common codec transport, native proof semantics
 // ---------------------------------------------------------------------------
 
-type Found = { record: unknown; recordId: string; parts: PrComment[] } | { missing: string } | { unreadable: string }
-export type SelectedRecord = Extract<Found, { record: unknown }>
+type Found = SelectedRecord | { missing: string } | { unreadable: string }
 
 const proofOperationPrefix = (producer: Producer, candidate: string) => `proof:${producer}:${candidate}:`
 

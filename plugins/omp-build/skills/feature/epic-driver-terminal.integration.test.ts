@@ -24,9 +24,10 @@ describe('epic-driver — unframed child', () => {
   it('does not start a child that has no scope', () => {
     const { epic } = sandbox()
     // Genuine unframed: accepted Spec and live body both lack framing.
-    // Policy (epic.ts TICKET_STOPS / nextStep → epic-driver ticketStop): record
-    // durable goal-stop:no-scope, do not start a branch. Exit 0 after recording
-    // is success of that stop receipt — not execution approval.
+    // Policy (epic-stops.ts TICKET_STOPS / epic-next-step.ts nextStep →
+    // epic-driver-next.ts ticketStop): record durable goal-stop:no-scope, do not
+    // start a branch. Exit 0 after recording is success of that stop receipt —
+    // not execution approval.
     const unframed = { ...childNode(2, 'feat(x): first child'), body: '## Needs framing\n' }
     serveEpic([unframed])
     const run = drive(['next'])

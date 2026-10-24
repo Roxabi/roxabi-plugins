@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import type { PlanOutput } from '../engine/workflow-output-schema.ts'
 import type { PlanReviewSlot } from '../engine/workflow-receipt-schema.ts'
 import { loadReviewConfig } from '../roxabi/review-config.ts'
-import { configPinDigest, effectiveWorkflowConfig, installedProductVersion } from '../roxabi/workflow-config-digest.ts'
+import { configPinDigest, effectiveWorkflowConfig, shippedProductVersion } from '../roxabi/workflow-config-digest.ts'
 import { WORKFLOW_CONFIG_VERSION } from '../roxabi/workflow-graph.ts'
 import { encodedAdmissionReviewGraph } from './record-admission.ts'
 import { projectionConfig } from './record-builders.ts'
@@ -46,7 +46,7 @@ const PLAN_SLOTS: readonly PlanReviewSlot[] = [
 
 /** Product-only workflow composition; generic workflow fixtures never load these facts. */
 export function roxabiWorkflowFixtures() {
-  const productVersion = installedProductVersion()
+  const productVersion = shippedProductVersion()
   const effective = effectiveWorkflowConfig(productVersion, [])
   const context = {
     productVersion,

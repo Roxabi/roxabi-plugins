@@ -343,4 +343,12 @@ describe('omp-build physical quality limits', () => {
     expect(result.code).toBe(1)
     expect(result.output).toContain('expected tools directory is missing')
   })
+
+  it('fails when a present plugin scope has no physical source candidates', () => {
+    const root = fixture()
+    const result = run(root)
+
+    expect(result.code).toBe(1)
+    expect(result.output).toContain('expected omp-build scope contains no JS/TS/CJS/Python/Bash source files')
+  })
 })

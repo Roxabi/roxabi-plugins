@@ -13,7 +13,7 @@ import {
   type ProofConfigPin,
   STACK,
 } from './proof-base'
-import type { CandidateFacts } from './proof-candidate'
+import type { CandidateFacts } from './proof-candidate-contract'
 import { compareApplicableProofPins, readProofConfigPins, rereadProofConfigPins } from './proof-pins'
 
 const COMMIT = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'

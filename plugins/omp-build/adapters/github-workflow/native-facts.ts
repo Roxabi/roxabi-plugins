@@ -1,15 +1,13 @@
 import type { Scope } from '../../engine/record-values.ts'
 import { githubScope } from '../github/transport.ts'
-import { GitHubHistoryReadError, type GitHubOptions } from '../github/types.ts'
-import { gh, parseJson, resolveRepository } from './client.ts'
+import { diagnostic, GitHubHistoryReadError, type GitHubOptions, gh, RECORD_REPOSITORY } from '../github/types.ts'
+import { parseJson, resolveRepository } from './client.ts'
 import {
-  diagnostic,
   type NativeIssueFacts,
   type NativePullRequestFacts,
   type NativeTargetResolution,
   object,
   POSITIVE_INT,
-  RECORD_REPOSITORY,
   SHA,
 } from './types.ts'
 

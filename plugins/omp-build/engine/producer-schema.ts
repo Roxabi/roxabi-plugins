@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { diagnostic } from './record-diagnostics.ts'
 import {
   actionResultSchema,
   type Diagnostic,
@@ -8,7 +9,7 @@ import {
   type Label,
   specReportSchema,
 } from './record-values.ts'
-import { diagnostic, type FindingInspection } from './result.ts'
+import type { FindingInspection } from './result.ts'
 import { decisionSchema } from './review-schema.ts'
 import {
   ciAttributionSchema,

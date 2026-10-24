@@ -1,5 +1,5 @@
 import type { ContinueFeatureResult, FeatureCommandHost } from './feature-contract.ts'
-import { releaseFeatureOwner, rememberFeatureOwner } from './feature-host-lifetime.ts'
+import { releaseFeatureOwner, rememberFeatureOwner } from './feature-host-ownership.ts'
 
 type ContinueAfterReview = (reference: string, host: FeatureCommandHost) => Promise<void>
 

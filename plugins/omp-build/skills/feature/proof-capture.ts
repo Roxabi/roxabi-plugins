@@ -4,17 +4,18 @@ import { withRoxabiGitHubPolicy } from '../../roxabi/github-policy'
 import { resolveReviewSemanticContext } from '../../roxabi/review-semantic-context'
 import { assertledgerApplies } from './proof-assertledger'
 import { type Gh, isMap, isRecord, jsonField, type Producer, type Refusal, refuse, repositoryOf } from './proof-base'
-import { type CandidateFacts, candidateFacts } from './proof-candidate'
+import { candidateFacts } from './proof-candidate'
+import type { CandidateFacts } from './proof-candidate-contract'
 import {
   type Deps,
   type PrBody,
   type ProofSemanticContext,
   proofSemanticContext,
   type ReviewSnapshot,
-  type Target,
 } from './proof-context'
 import { acquireCommand, hashReviewInput } from './proof-context-hash'
-import { findProofRecord, type SelectedRecord } from './proof-records'
+import { findProofRecord } from './proof-records'
+import type { SelectedRecord, Target } from './proof-review-contract'
 
 const PR_BODY = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
@@ -90,6 +91,7 @@ export async function loadSemantic(
     body,
     branch,
     base: target.base,
+    automationLogin: deps.automationLogin,
     gh: deps.gh,
   })
   if (!resolved.ok) {
@@ -137,7 +139,10 @@ async function captureProofSelections(
 ): Promise<ProofSelections | Refusal> {
   if (facts.semctx !== 'configured' && !ledger) return { semctx: null, assertledger: null }
   const history = decodeHistory(
-    await readGitHubHistory(githubScope(repository, target.pr), withRoxabiGitHubPolicy({ cwd, gh: deps.gh })),
+    await readGitHubHistory(
+      githubScope(repository, target.pr),
+      withRoxabiGitHubPolicy({ cwd, gh: deps.gh, automationLogin: deps.automationLogin }),
+    ),
   )
   if (!history.source.complete) {
     return refuse('candidate', 'unreadable', `the complete common proof history for PR #${target.pr} could not be read`)

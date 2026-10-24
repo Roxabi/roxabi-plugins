@@ -1,4 +1,5 @@
 import type { DecodedHistory } from './history-schema.ts'
+import { diagnostic, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { Diagnostic } from './record-values.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
@@ -12,7 +13,6 @@ import {
 } from './workflow-output-schema.ts'
 import type { PlanMacro, PlanMacroPhase, WorkflowEvidence } from './workflow-plan.ts'
 import { PLAN_REVIEW_SPECIALISTS } from './workflow-receipt-schema.ts'
-import { diagnostic, sameRef } from './workflow-support.ts'
 
 type EmptyMacro = (phase: PlanMacroPhase, evidence: Diagnostic[], extra?: Partial<PlanMacro>) => PlanMacro
 type PlanResultReceipt = ReceiptRecord & {

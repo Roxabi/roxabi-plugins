@@ -1,11 +1,10 @@
 import { execFileSync } from 'node:child_process'
-
-import { createExtensionApiStub } from '../omp/__tests__/extension-api-stub.ts'
 import ompBuildExtension from '../omp/index.ts'
 import { ownedFixRunFor, reviewControllerFor } from '../omp/omp-controller.ts'
 import type { NativeTask } from '../omp/review-runtime/contracts.ts'
 import type { NativeBatchController } from '../omp/review-runtime/controller.ts'
 import type { FixRun } from '../roxabi/fix-entry-lifecycle.ts'
+import { createExtensionApiStub } from './extension-api-stub.ts'
 
 type Handler = (...args: unknown[]) => unknown
 export type NativeData = { findings: unknown[] } | Record<string, unknown>

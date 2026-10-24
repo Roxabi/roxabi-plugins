@@ -5,9 +5,10 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import type { Json } from '../dist/contracts.js'
 import { triageCli, triageDirectory } from '../triage-runtime.ts'
-import type { DebtFiling, DebtFilingInput, ProcessResult, ProcessRunner, Source } from './debt-filing-contract.ts'
+import type { ProcessResult, ProcessRunner, Source } from './debt-filing-contract.ts'
 import { failure, REPOSITORY } from './debt-filing-contract.ts'
 import { obligationBody } from './debt-filing-decision.ts'
+import type { DebtFiling, DebtFilingInput } from './debt-filing-port.ts'
 import {
   discoveredIssues,
   discoveryQuery,

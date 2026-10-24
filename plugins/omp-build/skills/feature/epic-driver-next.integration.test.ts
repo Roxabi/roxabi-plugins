@@ -1,7 +1,11 @@
 import { writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { buildRecord } from '../../engine/record-construction.ts'
+import type { CanonicalRecord } from '../../engine/record-schema.ts'
+import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import {
+  type Comment,
   childNode,
   epicEvent,
   eventPayloads,
@@ -22,6 +26,61 @@ import {
 } from './testing/epic-driver/epic-driver-sandbox'
 
 afterEach(cleanupSandbox)
+
+function record(draft: Parameters<typeof buildRecord>[0]): CanonicalRecord {
+  const built = buildRecord(draft)
+  if (!built.ok) throw new Error(built.diagnostics.map((entry) => entry.message).join(', '))
+  return built.value
+}
+
+function successorRecords(): Comment[] {
+  const scope = { repository: 'o/r', target: 'o/r#1' }
+  const children = [childNode(2, 'feat(x): first child')]
+  const fixtures = roxabiWorkflowFixtures()
+  const first = fixtures.epicMandate(
+    scope,
+    children.map((child) => fixtures.childSnapshot({ repository: 'o/r', target: `o/r#${child.number}` }, child.body)),
+    { recordId: 'epic-m1' },
+  )
+  const second = fixtures.epicMandate(
+    scope,
+    children.map((child) => fixtures.childSnapshot({ repository: 'o/r', target: `o/r#${child.number}` }, child.body)),
+    { recordId: 'epic-m2', runId: 'run00002', operationId: 'op-epic-m2', antecedent: fixtures.mandateRef(first) },
+  )
+  const firstRef = fixtures.mandateRef(first)
+  const secondRef = fixtures.mandateRef(second)
+  return framedRecords(1, [
+    first,
+    record({
+      version: 1,
+      recordId: 'abandon-m1',
+      runId: RUN,
+      operationId: 'op-abandon-m1',
+      repository: scope.repository,
+      target: scope.target,
+      kind: 'operator-control',
+      payload: { control: 'abandon', controlId: 'abandon-m1', mandate: firstRef, predecessor: null },
+    }),
+    second,
+    record({
+      version: 1,
+      recordId: 'select-m2',
+      runId: RUN,
+      operationId: 'op-select-m2',
+      repository: scope.repository,
+      target: scope.target,
+      kind: 'operator-control',
+      payload: {
+        control: 'select-successor',
+        controlId: 'select-m2',
+        mandate: secondRef,
+        predecessor: firstRef,
+        successor: secondRef,
+      },
+    }),
+  ])
+}
+
 describe('epic-driver — the gate', () => {
   it('acts on nothing without a confirmed mandate', () => {
     sandbox()
@@ -39,6 +98,50 @@ describe('epic-driver — the gate', () => {
     const run = drive(['next'], { cwd: principal })
     expect(run.code).toBe(2)
     expect(git(principal, 'branch', '--show-current')).toBe('main')
+  })
+
+  it('continues under a selected successor after its antecedent was abandoned', () => {
+    const { epic } = sandbox()
+    serveEpic([childNode(2, 'feat(x): first child')], successorRecords(), { mandate: false })
+
+    const run = drive(['next'])
+
+    expect(run.code).toBe(0)
+    expect(run.json().step).toMatchObject({ action: 'start', ticket: 2, branch: 'feat/2-first-child' })
+    expect(git(epic, 'branch', '--show-current')).toBe('feat/2-first-child')
+  })
+
+  it('still refuses an abandoned mandate without a selected successor', () => {
+    sandbox()
+    const scope = { repository: 'o/r', target: 'o/r#1' }
+    const children = [childNode(2, 'feat(x): first child')]
+    const fixtures = roxabiWorkflowFixtures()
+    const mandate = fixtures.epicMandate(
+      scope,
+      children.map((child) => fixtures.childSnapshot({ repository: 'o/r', target: `o/r#${child.number}` }, child.body)),
+      { recordId: 'epic-m1' },
+    )
+    const abandoned = record({
+      version: 1,
+      recordId: 'abandon-m1',
+      runId: RUN,
+      operationId: 'op-abandon-m1',
+      repository: scope.repository,
+      target: scope.target,
+      kind: 'operator-control',
+      payload: {
+        control: 'abandon',
+        controlId: 'abandon-m1',
+        mandate: fixtures.mandateRef(mandate),
+        predecessor: null,
+      },
+    })
+    serveEpic(children, framedRecords(1, [mandate, abandoned]), { mandate: false })
+
+    const run = drive(['next'])
+
+    expect(run.code).toBe(2)
+    expect(writes()).toEqual([])
   })
 })
 

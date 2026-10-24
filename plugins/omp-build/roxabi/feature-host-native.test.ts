@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { batch, bridgeHarness, root } from '../omp/__tests__/review-runtime-support.ts'
 import type { NativeBatchResult } from '../omp/review-runtime/contracts.ts'
 import { createNativeReviewPort } from '../omp/review-runtime/port.ts'
+import { batch, bridgeHarness, root } from '../testing/review-runtime-support.ts'
 import type { FeatureCommandHost } from './feature-contract.ts'
 import { announceFeatureBatch } from './feature-host-native.ts'
 

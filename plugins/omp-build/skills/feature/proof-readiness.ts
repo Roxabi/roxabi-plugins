@@ -4,8 +4,10 @@ import type { ProofSelector } from '../../engine/workflow-reconstruction-types.t
 import { assertledgerApplies, readAssertledgerRecord } from './proof-assertledger'
 import { semctxInputs } from './proof-association'
 import { type Gh, type Git, gitError, oneLine, type Producer, type RefusalReason, refuse, SHA } from './proof-base'
-import { type CandidateFacts, candidateFacts } from './proof-candidate'
-import { findProofRecord, type SelectedRecord } from './proof-records'
+import { candidateFacts } from './proof-candidate'
+import type { CandidateFacts } from './proof-candidate-contract'
+import { findProofRecord } from './proof-records'
+import type { SelectedRecord } from './proof-review-contract'
 import { readSemctxRecord } from './proof-semctx-validation'
 export type ProofReadiness =
   | { status: 'ready'; selector: ProofSelector }

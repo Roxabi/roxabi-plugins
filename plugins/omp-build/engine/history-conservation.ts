@@ -1,3 +1,4 @@
+import { diagnostic } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import {
   actionResultSchema,
@@ -6,7 +7,6 @@ import {
   type Json,
   specReportSchema,
 } from './record-values.ts'
-import { diagnostic } from './result.ts'
 import { decisionSchema } from './review-schema.ts'
 
 export function inventoryRoot(

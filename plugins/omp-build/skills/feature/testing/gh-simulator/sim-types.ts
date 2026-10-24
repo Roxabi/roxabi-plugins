@@ -52,6 +52,7 @@ export type Pull = {
 export type Event = { event: string; label?: { name: string }; created_at: string }
 export type State = {
   viewer: string
+  appInstallation?: boolean
   owner: string
   name: string
   defaultBranch: string

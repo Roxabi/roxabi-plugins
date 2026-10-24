@@ -1,10 +1,10 @@
 import { semctxInputs } from './proof-association'
 import { errorMessage, type Refusal, refuse, STACK } from './proof-base'
-import type { CandidateFacts } from './proof-candidate'
-import type { Deps, PrBody, Read, SemctxOutcome, Target } from './proof-context'
+import type { CandidateFacts } from './proof-candidate-contract'
+import type { Deps, PrBody, Read, SemctxOutcome } from './proof-context'
 import { declaresE2e, type Justification, justifyGaps } from './proof-justification'
-import type { SelectedRecord } from './proof-records'
 import { reviewedRecord } from './proof-records'
+import type { SelectedRecord, Target } from './proof-review-contract'
 import { readSemctxRecord } from './proof-semctx-validation'
 import { blob } from './proof-tree'
 

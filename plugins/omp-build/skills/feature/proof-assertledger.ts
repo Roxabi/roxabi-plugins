@@ -10,9 +10,10 @@ import {
   type Refusal,
   refuse,
 } from './proof-base'
-import type { CandidateFacts } from './proof-candidate'
-import type { Deps, Read, Target } from './proof-context'
-import { reviewedRecord, type SelectedRecord } from './proof-records'
+import type { CandidateFacts } from './proof-candidate-contract'
+import type { Deps, Read } from './proof-context'
+import { reviewedRecord } from './proof-records'
+import type { SelectedRecord, Target } from './proof-review-contract'
 import type { Step } from './proof-semctx-protocol'
 import { isStep } from './proof-semctx-validation'
 import { fixKind, type TicketSignals, ticketOfBranch } from './proof-ticket'

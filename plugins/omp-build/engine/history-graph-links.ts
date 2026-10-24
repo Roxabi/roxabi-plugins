@@ -1,8 +1,8 @@
 import { inventoryRoot, requiredSlotsComplete, sameJson } from './history-conservation.ts'
 import { validateReviewLinks } from './history-graph-review-links.ts'
+import { diagnostic } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
-import { diagnostic } from './result.ts'
 import { decisionSchema } from './review-schema.ts'
 
 type Decision = Extract<CanonicalRecord, { kind: 'decision' }>

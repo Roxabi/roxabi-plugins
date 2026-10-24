@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { FeatureWorkflow } from '../../roxabi/feature-contract'
-import { pauseOwnedFeatureOnSessionEnd, rememberFeatureOwner } from '../../roxabi/feature-host-lifetime'
+import { pauseOwnedFeatureOnSessionEnd } from '../../roxabi/feature-host-lifetime'
+import { rememberFeatureOwner } from '../../roxabi/feature-host-ownership'
+import { createExtensionApiStub } from '../../testing/extension-api-stub'
+import { batch as nativeBatch } from '../../testing/review-runtime-support'
 import ompBuildExtension from '../index'
 import type { OmpBuildExtensionOptions } from '../omp-commands'
 import { reviewControllerFor } from '../omp-controller'
 import type { NativeExtension } from '../review-runtime/contracts'
-import { createExtensionApiStub } from './extension-api-stub'
-import { batch as nativeBatch } from './review-runtime-support'
 
 type CapturedHandler = {
   invoke(...args: unknown[]): unknown

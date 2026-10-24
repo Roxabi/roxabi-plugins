@@ -1,7 +1,8 @@
 import { inventoryRoot, requiredSlotsComplete } from './history-conservation.ts'
+import { diagnostic } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
-import { diagnostic, unique } from './result.ts'
+import { unique } from './result.ts'
 
 type Review = Extract<CanonicalRecord, { kind: 'review' }>
 type ReviewAttempt = Extract<CanonicalRecord, { kind: 'review-attempt' }>

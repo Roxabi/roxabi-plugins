@@ -2,17 +2,17 @@ import type { DecodedHistory } from '../../engine/history-schema.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import type { Scope } from '../../engine/record-values.ts'
 import type { RecordProjectionConfig } from '../../engine/result.ts'
+import { historyFor } from '../../engine/workflow-control.ts'
 import { publishGitHubRecord } from '../github/publish.ts'
-import { GitHubHistoryReadError, type GitHubOptions } from '../github/types.ts'
+import { diagnostic, GitHubHistoryReadError, type GitHubOptions } from '../github/types.ts'
 import {
   bindingRefusal,
-  historyFor,
   readParentMandateChain,
   resolveInitialWorkflowBinding,
   uniqueHistories,
 } from './binding-resolution.ts'
 import { readScopeIssueBody } from './native-facts.ts'
-import { diagnostic, type LandingFactsRead, type WorkflowBindingRead, type WorkflowPublication } from './types.ts'
+import type { LandingFactsRead, WorkflowBindingRead, WorkflowPublication } from './types.ts'
 
 /**
  * Confirmed PR workflow-binding via selectWorkflowBinding, then explicit parent

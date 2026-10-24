@@ -1,4 +1,5 @@
 import type { DecodedHistory } from './history-schema.ts'
+import { diagnostic } from './record-diagnostics.ts'
 import { actionCompletion } from './workflow-action-completion.ts'
 import { completionBlockReason } from './workflow-action-state.ts'
 import { conditionHolds } from './workflow-condition-evaluation.ts'
@@ -7,7 +8,6 @@ import type { WorkflowGraph } from './workflow-graph.ts'
 import type { ActionCompletion, WorkflowEvidence } from './workflow-plan.ts'
 import type { SpecializedDecisions, WorkflowDecision, WorkflowFacts } from './workflow-reconstruction-types.ts'
 import { sessionEvidence, sessionReady } from './workflow-session.ts'
-import { diagnostic } from './workflow-support.ts'
 
 function blocked(
   reason: Extract<WorkflowDecision, { status: 'blocked' }>['reason'],

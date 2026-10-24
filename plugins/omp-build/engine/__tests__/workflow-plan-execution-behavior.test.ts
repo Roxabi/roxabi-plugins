@@ -38,7 +38,7 @@ describe('workflow plan execution behavior', () => {
           doneWhen: 'the plan matches Spec B',
           criterion: 'exactInputs.specDigest is the accepted digest',
           evidence: 'planMacro.specDigest',
-          paths: ['plugins/omp-build/engine/workflow.ts'],
+          paths: ['plugins/omp-build/engine/workflow-plan-macro.ts'],
         },
       ],
       resolutions: [],

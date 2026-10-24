@@ -1,4 +1,5 @@
 import type { DecodedHistory } from './history-schema.ts'
+import { diagnostic, equalScope, sameRef } from './record-diagnostics.ts'
 import { failedCheckEvidenceDigest, specDigest } from './record-digests.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
@@ -9,9 +10,9 @@ import { ciAttributionSchema, implementationOutputSchema } from './workflow-outp
 import type { ActionCompletion, WorkflowEvidence } from './workflow-plan.ts'
 import { planMacro } from './workflow-plan-macro.ts'
 import type { SpecializedDecisions, WorkflowFacts } from './workflow-reconstruction-types.ts'
-import { type AssessResultRecord, isAssessResult, sameAssessInputs } from './workflow-spec-authentication.ts'
+import { type AssessResultRecord, isAssessResult } from './workflow-spec-assessment.ts'
+import { sameAssessInputs } from './workflow-spec-authentication.ts'
 import { authenticatedAssessResult } from './workflow-spec-authentication-chain.ts'
-import { diagnostic, equalScope, sameRef } from './workflow-support.ts'
 
 type ImplementationReceipt = ReceiptRecord & {
   payload: Extract<ReceiptRecord['payload'], { action: 'implement' }>

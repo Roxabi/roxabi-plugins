@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { batch, bridgeHarness, root } from '../../testing/review-runtime-support.ts'
 import type { NativeChildResult } from '../review-runtime/contracts.ts'
-import { batch, bridgeHarness, root } from './review-runtime-support.ts'
 
 describe('native review bridge capture', () => {
   it('binds same-profile native children by their SDK task identity rather than agent role', async () => {

@@ -3,9 +3,10 @@ import { validateContributionConservation } from './history-graph-conservation.t
 import { validateFixLinks } from './history-graph-fixes.ts'
 import { validateDecisionAndReviewLinks } from './history-graph-links.ts'
 import type { DecodedHistory } from './history-schema.ts'
+import { diagnostic, equalScope, fail } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
-import { diagnostic, equalScope, fail, type Result, recordMap, unique } from './result.ts'
+import { type Result, recordMap, unique } from './result.ts'
 
 function validateOperation(
   operation: DecodedHistory['operations'][number],

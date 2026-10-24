@@ -1,6 +1,7 @@
 import type { CanonicalRecord, DecodedHistory } from '../dist/contracts.js'
-import type { DebtFilingInput, Source } from './debt-filing-contract.ts'
+import type { Source } from './debt-filing-contract.ts'
 import { RECEIPT_ID } from './debt-filing-contract.ts'
+import type { DebtFilingInput } from './debt-filing-port.ts'
 
 export function selectedDecision(
   input: DebtFilingInput,

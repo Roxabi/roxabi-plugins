@@ -1,12 +1,13 @@
 import type { DecodedHistory } from './history-schema.ts'
+import { diagnostic } from './record-diagnostics.ts'
 import { specDigest } from './record-digests.ts'
 import type { Diagnostic, Scope } from './record-values.ts'
-import { type AcceptedSpec, resolveAcceptedSpec } from './workflow-accepted-spec.ts'
+import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
+import type { AcceptedSpec } from './workflow-accepted-spec-types.ts'
 import type { BoundWork, ConfigIdentity, MandateUse } from './workflow-binding.ts'
 import { historyFor, type MandateRecord, mandateScope, outstandingPauseInAuthority } from './workflow-control.ts'
 import { selectApplicableMandate } from './workflow-mandate-admission.ts'
 import { selectWorkflowBinding } from './workflow-pr-binding.ts'
-import { diagnostic } from './workflow-support.ts'
 
 type BoundWorkInput = {
   use: MandateUse

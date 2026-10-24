@@ -1,9 +1,9 @@
 import type { z } from 'zod'
 import type { DecodedHistory } from './history-schema.ts'
+import { diagnostic, fail } from './record-diagnostics.ts'
 import type { Diagnostic, implementationCommandSchema } from './record-values.ts'
 import type { Result } from './result.ts'
 import type { PlanBlockerRef } from './workflow-output-schema.ts'
-import { diagnostic, fail } from './workflow-support.ts'
 
 export type WorkflowEvidence = {
   issue: DecodedHistory

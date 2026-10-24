@@ -1,4 +1,5 @@
 import type { DecodedHistory } from './history-schema.ts'
+import { diagnostic, equalScope } from './record-diagnostics.ts'
 import type { Scope } from './record-values.ts'
 import {
   historyFor,
@@ -12,7 +13,6 @@ import type { FixMandateAssessment } from './workflow-correction-mandate.ts'
 import { selectApplicableMandate } from './workflow-mandate-admission.ts'
 import { ciAttributionSchema } from './workflow-output-schema.ts'
 import { selectWorkflowBinding, type WorkflowBindingSelection } from './workflow-pr-binding.ts'
-import { diagnostic, equalScope } from './workflow-support.ts'
 
 export type FixMandateInput = {
   target: { scope: Scope; kind: 'issue' | 'pull-request'; branch: string | null; base: string | null }

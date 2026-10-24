@@ -1,9 +1,9 @@
 import type { DecodedHistory } from './history-schema.ts'
+import { diagnostic, equalScope, fail, sameRef } from './record-diagnostics.ts'
 import { type ExternalRecordRef, isWorkflowKind } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic, Scope } from './record-values.ts'
 import type { Result } from './result.ts'
-import { diagnostic, equalScope, fail, sameRef } from './workflow-support.ts'
 
 export type MandateRecord = Extract<CanonicalRecord, { kind: 'mandate' }>
 export type ControlRecord = Extract<CanonicalRecord, { kind: 'operator-control' }>

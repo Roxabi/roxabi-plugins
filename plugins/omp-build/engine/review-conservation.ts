@@ -2,6 +2,7 @@ import { requiredSlotsComplete } from './history-conservation.ts'
 import { validateRecordGraph } from './history-graph.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { inspectFinding } from './producer-schema.ts'
+import { diagnostic, fail } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import {
   type Contribution,
@@ -11,7 +12,7 @@ import {
   type RecallClass,
   type RecallPlan,
 } from './record-values.ts'
-import { diagnostic, fail, type Result } from './result.ts'
+import type { Result } from './result.ts'
 
 type OriginalEntry = { id: string; data: Json; contribution: Contribution }
 type IndexedClass = {

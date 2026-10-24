@@ -1,4 +1,5 @@
 import type { DecodedHistory } from './history-schema.ts'
+import { diagnostic, equalScope, sameRef } from './record-diagnostics.ts'
 import type { Diagnostic } from './record-values.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
 import {
@@ -20,9 +21,8 @@ import type { WorkflowEvidence } from './workflow-plan.ts'
 import { selectWorkflowBinding } from './workflow-pr-binding.ts'
 import type { SpecializedDecisions, WorkflowDecision, WorkflowFacts } from './workflow-reconstruction-types.ts'
 import { sessionEvidence, sessionReady } from './workflow-session.ts'
-import { type AssessResultRecord, isAssessResult } from './workflow-spec-authentication.ts'
+import { type AssessResultRecord, isAssessResult } from './workflow-spec-assessment.ts'
 import { authenticatedAssessResult } from './workflow-spec-authentication-chain.ts'
-import { diagnostic, equalScope, sameRef } from './workflow-support.ts'
 import { walkWorkflow } from './workflow-walk.ts'
 
 type ReconstructionInput = { evidence: WorkflowEvidence; facts: WorkflowFacts; decisions: SpecializedDecisions }

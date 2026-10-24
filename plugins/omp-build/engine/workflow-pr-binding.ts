@@ -1,9 +1,9 @@
 import type { DecodedHistory } from './history-schema.ts'
+import { diagnostic, equalScope } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { Diagnostic, Scope } from './record-values.ts'
 import { historyFor, type MandateRecord, type WorkflowBindingRecord } from './workflow-control.ts'
 import { selectWorkflowBindingCandidate } from './workflow-pr-binding-chain.ts'
-import { diagnostic, equalScope } from './workflow-support.ts'
 
 export function confirmedAccountedMandate(history: DecodedHistory, ref: ExternalRecordRef): MandateRecord | null {
   const matches = history.operations.filter(

@@ -3,10 +3,10 @@ import type { PreparedEpicReview } from '../../roxabi/epic-range-finalization.ts
 import type { ContinueFeatureResult, FeatureCommandHost, FeatureWorkflow } from '../../roxabi/feature-contract'
 import { deliverFeatureResult, runInstalledFeatureCommand } from '../../roxabi/feature-entry'
 import { nativeFeatureProfiles } from '../../roxabi/native-feature-profiles'
+import { createExtensionApiStub } from '../../testing/extension-api-stub'
 import { installNativeBatchBridge } from '../review-runtime/bridge.ts'
 import type { NativeBatch, NativeExtension } from '../review-runtime/contracts.ts'
 import { NativeBatchController } from '../review-runtime/controller.ts'
-import { createExtensionApiStub } from './extension-api-stub'
 
 const root = {
   cwd: '/repo/feature',

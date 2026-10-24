@@ -1,4 +1,5 @@
 import type { DecodedHistory } from './history-schema.ts'
+import { diagnostic, equalScope, sameRef } from './record-diagnostics.ts'
 import {
   abandoned,
   bindExternalRef,
@@ -16,7 +17,6 @@ import {
 import { executableGraph } from './workflow-graph.ts'
 import type { MandateSelection } from './workflow-mandate.ts'
 import { epicParentProblem } from './workflow-parent.ts'
-import { diagnostic, equalScope, sameRef } from './workflow-support.ts'
 
 function cycleRefusal(history: DecodedHistory, seen: ReadonlySet<string>): MandateSelection | null {
   const scopeKey = `${history.source.scope.repository}\0${history.source.scope.target}`

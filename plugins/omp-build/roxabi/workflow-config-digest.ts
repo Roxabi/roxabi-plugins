@@ -45,15 +45,16 @@ export function workflowConfigDigest(): string {
     .digest('hex')
 }
 
-export function installedProductVersion(): string {
-  const parsed: unknown = JSON.parse(
-    readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../package.json'), 'utf8'),
-  )
-  if (parsed === null || typeof parsed !== 'object' || !('version' in parsed) || typeof parsed.version !== 'string') {
-    throw new Error('omp-build package version is missing')
+export function shippedProductVersion(): string {
+  const start = dirname(fileURLToPath(import.meta.url))
+  for (const path of [join(start, 'package.json'), join(start, '..', 'package.json')]) {
+    try {
+      const parsed = JSON.parse(readFileSync(path, 'utf8')) as { name?: unknown; version?: unknown }
+      if (parsed.name === 'omp-build' && typeof parsed.version === 'string' && parsed.version.length > 0)
+        return parsed.version
+    } catch {}
   }
-  if (parsed.version.length === 0) throw new Error('omp-build package version is empty')
-  return parsed.version
+  throw new Error('omp-build package.json version is missing')
 }
 
 export function effectiveWorkflowConfig(

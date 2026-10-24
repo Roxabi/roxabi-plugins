@@ -155,7 +155,7 @@ export function registerReviewGateRefusalCases(): void {
       })
     })
 
-    it('rejects a bot-authored non-stop record through the public adapter boundary', async () => {
+    it('keeps a bot-authored non-stop record observable without authority', async () => {
       const fixture = setupReviewGateFixture()
       publish(fixture, cleanReview(fixture.head, 'one'), 'SUCCESS')
       const state = readState(fixture)
@@ -165,10 +165,10 @@ export function registerReviewGateRefusalCases(): void {
       const history = await readExternalHistory(fixture)
 
       expect(history.operations.find((operation) => operation.kind === 'review')).toMatchObject({
-        status: 'invalid',
+        authority: 'foreign',
         record: null,
       })
-      expect(history.diagnostics.map((diagnostic) => diagnostic.code)).toContain('native-author-mismatch')
+      expect(history.diagnostics).toEqual([])
     })
 
     it('refuses stale head and captured review-bound mismatches without posting a stop', () => {

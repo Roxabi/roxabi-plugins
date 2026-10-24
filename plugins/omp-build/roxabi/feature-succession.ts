@@ -15,7 +15,7 @@ import { preserveSuccessorBinding } from './feature-succession-binding.ts'
 export type { Gh } from './feature-succession-binding.ts'
 
 import type { Gh } from './feature-succession-binding.ts'
-import { configPinDigest, effectiveWorkflowConfig, installedProductVersion } from './workflow-config-digest.ts'
+import { configPinDigest, effectiveWorkflowConfig } from './workflow-config-digest.ts'
 import { WORKFLOW_CONFIG_VERSION } from './workflow-graph.ts'
 import { parseWorkflowOverride } from './workflow-overrides.ts'
 import { type GitRunner, type ProofConfigPin, readProofConfigPins } from './workflow-pins.ts'
@@ -105,7 +105,6 @@ export async function publishSuccessorMandate(input: {
   const antecedent = successionAntecedent(input.history)
   if ('reason' in antecedent) return { ok: false, reason: antecedent.reason }
   const productVersion = input.loaded.shippedProductVersion()
-  if (productVersion !== installedProductVersion()) return { ok: false, reason: 'config-drift' }
   const prior = antecedent.mandate.payload
   const baseAndBranch = await successorBaseAndBranch(input, prior)
   if (!baseAndBranch.ok) return baseAndBranch

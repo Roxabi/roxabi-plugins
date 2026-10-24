@@ -1,7 +1,7 @@
 import type { CanonicalRecord, Json, Scope, Submission } from '../dist/contracts.js'
 import type { NativeBatch, NativeTask } from '../omp/review-runtime/contracts.ts'
 import type { NativeBatchController } from '../omp/review-runtime/controller.ts'
-import type { DebtFiling } from './debt-filing-contract.ts'
+import type { DebtFiling } from './debt-filing-port.ts'
 import type { FixPolicy } from './fix-domain'
 
 export type FixActionResult<T> = { ok: true; value: T } | { ok: false; diagnostics: string[] }

@@ -1,5 +1,6 @@
-import type { DebtFilingInput, ProcessRunner, Ref, Size, Source } from './debt-filing-contract.ts'
+import type { ProcessRunner, Ref, Size, Source } from './debt-filing-contract.ts'
 import { REPOSITORY } from './debt-filing-contract.ts'
+import type { DebtFilingInput } from './debt-filing-port.ts'
 
 export function ref(value: unknown): Ref | null {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null

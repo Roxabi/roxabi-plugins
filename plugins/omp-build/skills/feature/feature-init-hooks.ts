@@ -3,8 +3,6 @@ import { join } from 'node:path'
 import type { HooksState, ParseYaml } from './feature-init-types'
 import { isMap, type YamlMap } from './feature-init-yaml'
 
-export { bunYamlParse } from './feature-init-yaml'
-
 /** Lefthook groups that wrap real git hooks. Manual groups such as `pr:` are excluded. */
 export const GIT_HOOK_GROUPS = new Set([
   'applypatch-msg',

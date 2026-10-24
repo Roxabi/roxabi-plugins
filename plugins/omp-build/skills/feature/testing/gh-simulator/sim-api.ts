@@ -22,6 +22,7 @@ function duplicatePullRequestFailure(context: Context, head: string): never {
 
 function apiUser(context: Context): boolean {
   if (context.sub !== 'user') return false
+  if (context.state.appInstallation) fail('Resource not accessible by integration (HTTP 403)')
   emit({ login: context.state.viewer }, context.expression)
   return true
 }
