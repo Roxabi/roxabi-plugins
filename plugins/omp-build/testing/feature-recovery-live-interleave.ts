@@ -195,7 +195,11 @@ exec "$OMP_BUILD_REAL_GIT" "$@"
 
     writeFileSync(path.join(cwd, 'README.md'), 'live interleaving witness\n')
     execFileSync('git', ['add', '--', 'README.md'], { cwd })
-    execFileSync('git', ['commit', '-qm', 'feat(feature): retain live pause witness (#42)'], { cwd })
+    execFileSync(
+      'git',
+      ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'feat(feature): retain live pause witness (#42)'],
+      { cwd },
+    )
     const tip = execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim()
     const redCommand = 'git diff --quiet HEAD^ HEAD -- README.md'
     const red = await captureBash({
