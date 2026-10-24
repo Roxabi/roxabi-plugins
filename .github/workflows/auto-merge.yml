@@ -154,7 +154,8 @@ jobs:
       # OMP_BUILD_TOOLING_SHA is a repository variable populated only during
       # explicit T5 activation/bootstrap. On pull_request, this workflow comes from
       # the PR merge ref, so the pin protects the reader, not its call/arming decision.
-      # T5 may set it only after a base-defined trigger or equivalent protection owns that decision.
+      # Decided for T5: before setting it, move this arming decision to pull_request_target
+      # (base-defined) without executing candidate code.
       - name: Checkout pinned review tooling
         id: gate-tools
         if: >-
