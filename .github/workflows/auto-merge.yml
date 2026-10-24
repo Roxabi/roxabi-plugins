@@ -13,22 +13,26 @@
 name: Auto Merge
 
 on:
-  pull_request:
+  # This privileged workflow is selected from the base repository's default
+  # branch. Candidate files are checked out only as isolated admission data.
+  pull_request_target:
     types: [labeled, synchronize, closed]
   push:
     branches: [main]
 
-permissions:
-  contents: write
-  pull-requests: write
-  issues: write
+# Each job receives only the permissions it needs.
+permissions: {}
 
 jobs:
   auto-merge:
     name: Enable auto-merge
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
     if: >-
-      github.event_name == 'pull_request' &&
+      github.event_name == 'pull_request_target' &&
       github.event.action != 'closed' &&
       (github.event.action == 'synchronize' || contains(github.event.pull_request.labels.*.name, 'reviewed'))
     timeout-minutes: 5
@@ -130,7 +134,8 @@ jobs:
           exit 1
 
       # The reviewed PR's checkout is data for the admission reader only. Never
-      # run a script, package manager, config, or preload from this path.
+      # run a script, package manager, config, or preload from this path. Checkout
+      # v7 requires this explicit opt-in for fork heads on pull_request_target.
       - name: Checkout reviewed candidate data
         id: candidate
         if: github.event.action == 'labeled' && github.event.pull_request.user.login != 'dependabot[bot]'
@@ -141,6 +146,7 @@ jobs:
           path: .omp-build-gate-candidate
           fetch-depth: 0
           persist-credentials: false
+          allow-unsafe-pr-checkout: true
 
       # This path is never allowed to inherit a PR-controlled file. The gate
       # below requires both this checkout's successful outcome and its verified
@@ -152,10 +158,9 @@ jobs:
         run: rm -rf .omp-build-gate-tools
 
       # OMP_BUILD_TOOLING_SHA is a repository variable populated only during
-      # explicit T5 activation/bootstrap. On pull_request, this workflow comes from
-      # the PR merge ref, so the pin protects the reader, not its call/arming decision.
-      # Decided for T5: before setting it, move this arming decision to pull_request_target
-      # (base-defined) without executing candidate code.
+      # explicit T5 activation/bootstrap. pull_request_target keeps the workflow
+      # and arming decision base-defined; this immutable pin protects only the
+      # reader that inspects candidate data without executing it.
       - name: Checkout pinned review tooling
         id: gate-tools
         if: >-
@@ -183,6 +188,7 @@ jobs:
           token: ''
 
       - name: Enable auto-merge (merge commit)
+        id: arm
         if: github.event.action == 'labeled'
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
@@ -197,32 +203,12 @@ jobs:
           BUN_OUTCOME: ${{ steps.review-gate-bun.outcome }}
           STOP_GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.run_id }}
+          BUN_OPTIONS: ''
+          BUN_PRELOAD: ''
+          NODE_OPTIONS: ''
         run: |
           set -euo pipefail
-          disarm() {
-            set +e
-            disable_out=$(gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --disable-auto 2>&1)
-            disable_code=$?
-            set -e
-            if [ "$disable_code" -ne 0 ]; then
-              printf '%s\n' "$disable_out" >&2
-              if ! printf '%s' "$disable_out" | grep -qi 'not enabled'; then
-                echo "::error::failed to disable auto-merge"
-                exit 1
-              fi
-            fi
-            gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --remove-label reviewed
-            if ! armed=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json autoMergeRequest --jq '.autoMergeRequest'); then
-              echo "::error::could not confirm auto-merge is off"
-              exit 1
-            fi
-            if [ -n "$armed" ] && [ "$armed" != "null" ]; then
-                echo "::error::auto-merge still armed after disarm"
-                exit 1
-            fi
-          }
           refuse() {
-            disarm
             echo "::error::$1"
             exit 1
           }
@@ -254,7 +240,9 @@ jobs:
             if ! candidate_sha=$(git -C "$CANDIDATE" rev-parse HEAD 2>/dev/null) || [ "$candidate_sha" != "$HEAD_SHA" ]; then
               refuse 'refusing auto-merge: candidate data checkout did not resolve to the PR head'
             fi
-            if ! gate_result=$(bun "$TOOLS/plugins/omp-build/scripts/review-gate.ts" \
+            # Candidate data is a sibling directory. Run Bun from the immutable
+            # pinned tooling checkout, with no ambient Bun or Node preload.
+            if ! gate_result=$(cd "$TOOLS" && bun plugins/omp-build/scripts/review-gate.ts \
               --repository "$GITHUB_REPOSITORY" \
               --pr "$PR_NUMBER" \
               --head "$HEAD_SHA" \
@@ -265,13 +253,13 @@ jobs:
               if [[ "$gate_result" == *'"reason":"ci-failed"'* ]]; then
                 observation="$RUNNER_TEMP/omp-build-required-stop.json"
                 printf '%s\n' "$gate_result" > "$observation"
-                if ! bun "$TOOLS/plugins/omp-build/scripts/review-stop.ts" \
+                if ! (cd "$TOOLS" && bun plugins/omp-build/scripts/review-stop.ts \
                   --repository "$GITHUB_REPOSITORY" \
                   --pr "$PR_NUMBER" \
                   --head "$HEAD_SHA" \
                   --automation-login "$REVIEWER" \
                   --run-id "$RUN_ID" \
-                  --observation "$observation"; then
+                  --observation "$observation"); then
                   echo "::error::could not persist the observed ci-failed stop"
                 fi
               fi
@@ -298,11 +286,69 @@ jobs:
             fi
           fi
 
+      # This runs after every failed or skipped labeled-path admission, including
+      # an App-token mint failure before the reader can refuse. It uses the job
+      # token so cleanup is independent of the App token used by the reader.
+      - name: Disarm failed auto-merge admission
+        if: always() && github.event.action == 'labeled' && steps.arm.outcome != 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          disable_error=''
+          remove_error=''
+          cleanup_error=0
+          set +e
+          disable_out=$(gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --disable-auto 2>&1)
+          disable_code=$?
+          set -e
+          if [ "$disable_code" -ne 0 ]; then
+            printf '%s\n' "$disable_out" >&2
+            if ! printf '%s' "$disable_out" | grep -qi 'not enabled' \
+              && ! printf '%s' "$disable_out" | grep -qi "can't disable auto-merge"; then
+              disable_error=$disable_out
+              cleanup_error=1
+            fi
+          fi
+          set +e
+          remove_out=$(gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --remove-label reviewed 2>&1)
+          remove_code=$?
+          set -e
+          if [ "$remove_code" -ne 0 ]; then
+            printf '%s\n' "$remove_out" >&2
+            remove_error=$remove_out
+            cleanup_error=1
+          fi
+          set +e
+          cleanup_state=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json autoMergeRequest,labels 2>&1)
+          cleanup_code=$?
+          set -e
+          if [ "$cleanup_code" -ne 0 ]; then
+            printf '::error::could not read failed-admission cleanup state: %s\n' "$cleanup_state"
+            exit 1
+          fi
+          if ! printf '%s' "$cleanup_state" | jq -e \
+            '(.autoMergeRequest == null) and ([.labels[].name] | index("reviewed") | not)' >/dev/null; then
+            printf '::error::failed-admission cleanup remainder: %s\n' "$cleanup_state"
+            cleanup_error=1
+          fi
+          if [ -n "$disable_error" ]; then
+            printf '::error::failed to disable native auto-merge: %s\n' "$disable_error"
+          fi
+          if [ -n "$remove_error" ]; then
+            printf '::error::failed to remove reviewed label: %s\n' "$remove_error"
+          fi
+          if [ "$cleanup_error" -ne 0 ]; then
+            exit 1
+          fi
+
   update-behind-prs:
     name: Update behind PRs
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
     timeout-minutes: 5
+    permissions: {}
     steps:
       - name: Leave reviewed PRs on the commit that was reviewed
         run: |
@@ -312,8 +358,12 @@ jobs:
   close-linked-issues:
     name: Close linked issues
     runs-on: ubuntu-latest
-    if: github.event.action == 'closed' && github.event.pull_request.merged == true
-    timeout-minutes: 5
+    permissions:
+      issues: write
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.event.action == 'closed' &&
+      github.event.pull_request.merged == true
     steps:
       - name: Close issues referenced with closing keywords
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
