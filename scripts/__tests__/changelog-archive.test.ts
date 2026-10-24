@@ -38,4 +38,9 @@ describe('CHANGELOG.md is a frozen archive, not a live changelog', () => {
     const region = archiveRegion()
     expect(createHash('sha256').update(region).digest('hex')).toBe(ARCHIVE_SHA256)
   })
+
+  it('no heading is inserted above the archive', () => {
+    const header = changelog.slice(0, changelog.search(/^## Unversioned(?:\s|$)/m))
+    expect(header).not.toMatch(/^##/m)
+  })
 })

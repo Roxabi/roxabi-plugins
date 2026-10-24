@@ -29,9 +29,11 @@ repository controls. Active code and instructions must not import or execute it.
 The eleven playbooks moved from `playbooks/` to `archived/playbooks/`, and the two
 analyses from `docs/` to `archived/docs/`, with basenames and bytes unchanged.
 Together those thirteen documents contain 277,822 bytes. The remaining 34 files of
-the root `docs/` tree (236,864 bytes) then moved to `archived/docs/` under the same
-relative paths, also byte-identical; only `docs/agents/issue-tracker.md` stays in place
-because `issue-triage` and omp-build's `/feature` read it at runtime.
+the root `docs/` tree then moved to `archived/docs/` under the same relative paths.
+The ADRs, the changelog page and `omp.md` are unchanged; the six guides hold the
+condensed text written just before archiving (full originals: commit `f4674a0c`), and
+`architecture/README.md` was written for this archive. Only `docs/agents/issue-tracker.md`
+stays in place because `issue-triage` and omp-build's `/feature` read it at runtime.
 
 Original commands, statuses, relative paths and external references remain historical
 evidence. Links that left the former `docs/` tree resolve against its original location,
