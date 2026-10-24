@@ -30,6 +30,7 @@ jobs:
       - name: Typecheck
         run: bun typecheck
       - name: Report runner sizing
-        run: bun -e 'import { availableParallelism } from "node:os"; console.log(JSON.stringify({ architecture: process.arch, availableParallelism: availableParallelism() }))'
+        run: |
+          bun -e 'import { availableParallelism } from "node:os"; console.log(JSON.stringify({ architecture: process.arch, availableParallelism: availableParallelism() }))'
       - name: Profile full Vitest suite
         run: bun tools/profile-goal-scenario.ts
