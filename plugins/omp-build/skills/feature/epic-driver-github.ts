@@ -129,8 +129,26 @@ export function repoName(repo: string): { owner: string; name: string; full: str
   return { owner, name, full }
 }
 
+const adapterGhByRepo = new Map<string, (cwd: string, args: string[]) => Promise<string>>()
+let adapterViewerLogin: string | undefined
+
 export function adapterOptions(repo: string) {
-  return withRoxabiGitHubPolicy({ cwd: repo, gh: async (cwd: string, args: string[]) => gh(cwd, args) })
+  let transport = adapterGhByRepo.get(repo)
+  if (transport === undefined) {
+    transport = async (cwd: string, args: string[]) => gh(cwd, args)
+    adapterGhByRepo.set(repo, transport)
+  }
+  if (adapterViewerLogin === undefined) {
+    const login = gh(repo, ['api', 'user', '--jq', '.login']).trim()
+    if (!login || /\s/.test(login)) throw new Error('gh api user returned no login')
+    adapterViewerLogin = login
+  }
+  return withRoxabiGitHubPolicy({
+    cwd: repo,
+    gh: transport,
+    automationLogin: adapterViewerLogin,
+    writerLogin: adapterViewerLogin,
+  })
 }
 
 export async function issueHistory(repo: string, repository: string, issue: number): Promise<DecodedHistory> {

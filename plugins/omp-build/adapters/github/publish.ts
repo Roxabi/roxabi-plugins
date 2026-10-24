@@ -30,7 +30,7 @@ export async function publishGitHubRecord(
   const stopAuthor = options.stopAuthor ?? null
   try {
     expectedAuthor = await expectedReadAuthor(options)
-    writer = options.writerLogin ?? (await viewer(options))
+    writer = options.writerLogin ?? options.writeAuthor ?? options.automationLogin ?? (await viewer(options))
   } catch (error) {
     return publicationFailure('uncertain', history, publicationReadDiagnostics(error))
   }
