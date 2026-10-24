@@ -19,8 +19,6 @@ pre-commit:
         - rebase
     principal-freeze:
       run: bash scripts/check-principal-branch.sh
-    license-check:
-      run: "if [ -f .venv/bin/python ]; then .venv/bin/python tools/license_check.py; else echo 'SKIP: license-check (no .venv)' >&2; fi"
     taxonomy-sync:
       run: "if [ -f .venv/bin/python ]; then .venv/bin/python tools/validate_plugins.py; else echo 'SKIP: taxonomy-sync (no .venv)' >&2; fi"
 

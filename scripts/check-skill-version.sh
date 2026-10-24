@@ -1,14 +1,34 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# R2: skills/ or commands/ changed without a version bump -> block.
-# Two independent surfaces, same trigger (plugins/<p>/skills/** and commands/**):
+# R2: distributed plugin runtime changed without a version bump -> block.
+# Runtime includes every plugin-owned file except source-only tests and docs. This
+# covers OMP extensions, hooks, engines, generated outputs, manifests, and skills
+# while letting root/CI and plugin documentation changes remain version-neutral.
+# Two independent version surfaces:
 #   Claude: plugins/<p>/.claude-plugin/plugin.json .version
 #   OMP:    .omp-plugin/marketplace.json plugins[].version — the cache key
 #           (<marketplace>___<plugin>___<version>). Not package.json, not
 #           plugins/<p>/.omp-plugin/plugin.json, not the catalogue document version.
 # A missing version on one surface is a visible SKIP and does not hide the other.
 # Constraints (documented): plugin rename may not fire on the renaming push;
-# commands/ dir is forward-compatible (absent today); requires fetched origin/main.
+# requires fetched origin/main.
+#
+# Plugin root README/GLOSSARY, docs/, and test/fixture paths intentionally do not
+# trigger a bump: they do not change a runtime effect, even if a host copies them.
+is_distributed_runtime_path() {
+  case "$1" in
+    plugins/*/*) ;;
+    *) return 1 ;;
+  esac
+  local relative="${1#plugins/*/}"
+  case "$relative" in
+    README.md | GLOSSARY.md | docs/** | */docs/** | test/** | */test/** | tests/** | */tests/** | testing/** | */testing/** | __tests__/** | */__tests__/** | fixtures/** | */fixtures/** | __fixtures__/** | */__fixtures__/** | *.test.* | *.spec.*)
+      return 1
+      ;;
+  esac
+  return 0
+}
+
 # Preflight: jq absence skips only the Claude plugin.json branch. The OMP
 # catalogue check always runs. A failed fetch with a local origin/main is not
 # a proven baseline, so the catalogue comparison is unverified and exits 1.
@@ -28,7 +48,14 @@ if [ "$fetch_ok" -ne 1 ]; then
   echo "cannot verify origin/main:.omp-plugin/marketplace.json — fetch failed"
   exit 1
 fi
-changed=$(git diff --name-only origin/main...HEAD -- 'plugins/*/skills/**' 'plugins/*/commands/**')
+changed=$(
+  git diff --name-only origin/main...HEAD -- 'plugins/*' |
+    while IFS= read -r path; do
+      if is_distributed_runtime_path "$path"; then
+        printf '%s\n' "$path"
+      fi
+    done
+)
 mapfile -t plugins < <(printf '%s\n' "$changed" | sed -nE 's#^plugins/([^/]+)/.*#\1#p' | sort -u)
 fail=0
 
@@ -120,7 +147,7 @@ for p in "${plugins[@]}"; do
     else
       base=$(git show "origin/main:$pj" 2>/dev/null | jq -r '.version // empty' 2>/dev/null || true)
       if [ "$base" = "$cur" ]; then
-        echo "$p: skills/commands changed without version bump (still $cur) — bump $pj"
+        echo "$p: distributed runtime changed without version bump (still $cur) — bump $pj"
         fail=1
       fi
     fi
@@ -147,7 +174,7 @@ for p in "${plugins[@]}"; do
         VERSION:*)
           base_omp="${base_status#VERSION:}"
           if [ "$base_omp" = "$cur_omp" ]; then
-            echo "$p: skills/commands changed without version bump (still $cur_omp) — bump .omp-plugin/marketplace.json"
+            echo "$p: distributed runtime changed without version bump (still $cur_omp) — bump .omp-plugin/marketplace.json"
             fail=1
           elif ! omp_is_upgrade "$cur_omp" "$base_omp"; then
             omp_fail "$p" "catalogue version is not a newer semver OMP will install in .omp-plugin/marketplace.json"

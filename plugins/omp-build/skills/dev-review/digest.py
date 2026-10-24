@@ -4,7 +4,7 @@ A boundary digest is a compact summary of what a Chunk contains, sent to
 Lane-A agents reviewing *other* chunks so they can detect cross-chunk
 anti-patterns (RC-3 / parallel-path-drift) without receiving the full diff.
 
-Design intent (docs/analysis-review-fix-strategy.md §5 F2):
+Historical design intent (archived/docs/analysis-review-fix-strategy.md §5 F2):
   "Digest must include call-graph edges to named entry points + modified
    ACL/contract hunks (not just signatures)"
 

@@ -2,7 +2,7 @@
 # COMMIT this file — it declares project stack conventions (paths, commands,
 # formatter, test runner), and active tooling/CI read release.model + release.component
 # from it. No secrets go here; only `.env` stays gitignored.
-# `.dev/dev-core.yml` holds GitHub Project node IDs (public, not secrets) — commit it too.
+# `.dev/dev-core.yml` pins the GitHub repository consumed by issue-triage — commit it too.
 schema_version: "1.0"
 
 runtime: bun
