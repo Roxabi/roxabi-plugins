@@ -1,6 +1,6 @@
 """Chunker — directory-cohesion + LOC-bounded fallback.
 
-Slice 2 of the code-review redesign (see docs/analysis-review-fix-strategy.md §3 O2).
+Historical design: archived/docs/analysis-review-fix-strategy.md §3 O2.
 
 Design rules (O2):
   - Primary unit: stable directory tree (all files under the same top-level

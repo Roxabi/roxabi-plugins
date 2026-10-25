@@ -56,31 +56,8 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
-      - run: pip install pytest==8.3.5 pyyaml git+https://github.com/Roxabi/roxabi-vault.git@df12ba1c447ca6f01434db017c57f7645662813c  # main
+      - run: pip install pytest==8.3.5 pyyaml
       - name: Test (pytest)
         run: python3 -m pytest tests/ -v
       - name: Validate plugins
         run: python3 tools/validate_plugins.py
-      - name: Validate registry sync
-        run: |
-          set -euo pipefail
-          REGISTRY=".claude-plugin/external-registry.json"
-          CURATED_FILE=".claude-plugin/curated-marketplaces.json"
-
-          if [ ! -f "$REGISTRY" ] || [ ! -f "$CURATED_FILE" ]; then
-            echo "Registry files not found — skipping sync check"
-            exit 0
-          fi
-
-          REG_NAMES=$(jq -r '.curated_marketplaces[].name' "$REGISTRY" 2>/dev/null | sort || echo "")
-          FILE_NAMES=$(jq -r '.marketplaces[].name' "$CURATED_FILE" 2>/dev/null | sort || echo "")
-
-          if [ "$REG_NAMES" != "$FILE_NAMES" ]; then
-            echo "ERROR: curated_marketplaces in external-registry.json and curated-marketplaces.json are out of sync"
-            echo "  external-registry.json names: $(echo "$REG_NAMES" | tr '\n' ',' | sed 's/,$//')"
-            echo "  curated-marketplaces.json names: $(echo "$FILE_NAMES" | tr '\n' ',' | sed 's/,$//')"
-            echo "  Update curated-marketplaces.json to mirror external-registry.json curated_marketplaces[]"
-            exit 1
-          fi
-
-          echo "Registry sync OK — both files agree on curated marketplace names"

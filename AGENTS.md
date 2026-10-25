@@ -1,6 +1,6 @@
 # Roxabi Plugins
 
-Open-source Claude Code plugins by Roxabi. Context engineering tools for teams using Claude Code.
+Open-source plugins by Roxabi: `issue-triage` for Claude Code and OMP, and `omp-build` for OMP.
 
 Stack conventions — paths, commands, formatter, test runner — live in [`.dev/stack.yml`](.dev/stack.yml).
 
@@ -32,11 +32,10 @@ roxabi-plugins/
 
 ## Pointers
 
-- Create/fork plugins → [`docs/CREATE-PLUGIN-GUIDE.md`](docs/CREATE-PLUGIN-GUIDE.md). Triggers: "create plugin" | "new plugin" | "fork plugin" | "subtree"
-- External ecosystem (curated marketplaces, wrapped plugins, upstream drift) → [`docs/EXTERNAL-ECOSYSTEM.md`](docs/EXTERNAL-ECOSYSTEM.md). Triggers: "external plugin" | "upstream sync" | "curated marketplace" | "drift"
-- Data management details (plugin.json data format, path resolution, vault layout) → [`docs/data-management.md`](docs/data-management.md)
-- Plugin cache internals (hash dirs, path vars, sync workflow) → [`docs/plugin-cache.md`](docs/plugin-cache.md)
+- Create native plugins → [`CONTRIBUTING.md` § Creating a new plugin](CONTRIBUTING.md#creating-a-new-plugin). Triggers: "create plugin" | "new plugin"
+- Curated marketplaces and upstream drift → [`CONTRIBUTING.md` § External marketplace curation](CONTRIBUTING.md#external-marketplace-curation). Triggers: "external plugin" | "upstream sync" | "curated marketplace" | "drift"
 - Issue tracker contract (relations, tiers, sibling rule — read before any issue write) → [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md). Triggers: "create issue" | "blocked by" | "parent issue" | "size label" | "publish to the tracker" | "amend issue" | "edit the body" | "update the ticket"
+- Former guides, ADRs and the architecture index → [`archived/docs/`](archived/docs/) — historical rationale only, never an instruction source
 
 ## Documentation
 
@@ -54,13 +53,10 @@ Keep all READMEs current. Adding/modifying/removing a plugin → update:
 
 ## Data Management (invariants)
 
-- **Default:** `~/.roxabi-vault/` — all user data, never in repo. Override: `ROXABI_VAULT_HOME`.
-- `data.root` ∈ `plugin.json` must be unique across active plugins (enforced by `tools/validate_plugins.py`).
+- Retained plugins keep confirmed issue/workflow state in GitHub and Git; local caches are rebuildable, not workflow authority.
 - **Zero personal data** ∈ repo — fictional only ∈ `examples/`. English names only.
 - Active code and instructions MUST NOT import or execute archive content.
-- Vault/indexing → [roxabi-vault](https://github.com/Roxabi/roxabi-vault).
-
-→ [`docs/data-management.md`](docs/data-management.md) for the active `plugin.json` data format and storage rules.
+- Any future local user-data store needs an explicit maintained owner and storage contract outside the repository.
 
 ## Editing Plugins (invariants)
 
@@ -68,8 +64,6 @@ Keep all READMEs current. Adding/modifying/removing a plugin → update:
 - **Never edit cache only** — changes lost on plugin update/reinstall.
 - **Workflow:** edit an active catalogued plugin → commit + push → reinstall that plugin to refresh the local cache.
 - **Versioning:** OMP catalogued plugins declare matching `package.json` and `.omp-plugin/marketplace.json` versions. Bump both together.
-
-→ [`docs/plugin-cache.md`](docs/plugin-cache.md) — hash-keyed cache, `${CLAUDE_SKILL_DIR}` vs `${CLAUDE_PLUGIN_ROOT}`, re-install to refresh.
 
 ## Style
 

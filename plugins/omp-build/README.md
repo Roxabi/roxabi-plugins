@@ -2,7 +2,7 @@
 
 OMP-only delivery plugin. The installed `/feature` command drives a bounded graph: frame, issue, worktree, implement, native review and correction, land. A session `/goal` does not authorize that graph.
 
-Not a Claude/Grok factory — does not invoke host `/dev` or dev-core Skill() children. Package `0.11.3` in this tree is not an installed or activated release.
+Not a Claude/Grok factory — does not invoke host `/dev` or dev-core Skill() children. This source tree alone is not proof of an installed or activated release.
 
 ## Install
 
@@ -19,7 +19,7 @@ omp plugin upgrade omp-build@roxabi-marketplace
 
 If `~/.local/bin/omp-wt` exists, `rm -f ~/.local/bin/omp-wt` — the script is retired; enter a worktree with `/move <path>`.
 
-**Then arm the surfaces.** With the `claude-plugins` provider disabled, a marketplace install loads only `package.json#omp.extensions` — `skills/` and `agents/` stay dark, because the realpath filter that hides marketplace roots lives in the *installed* lane that both `omp-plugins` (skills/commands/hooks) and the agents gate read. Add the stable `node_modules` symlink to `extensions:` in `~/.omp/agent/config.yml`:
+**Check the loaded surfaces.** A loaded extension does not prove that skills and agents were discovered. If they remain unavailable with the `claude-plugins` provider disabled, add the stable `node_modules` symlink to `extensions:` in `~/.omp/agent/config.yml`:
 
 ```yaml
 extensions:
@@ -28,7 +28,7 @@ extensions:
 
 After a marketplace update or install, **restart** OMP — do **not** use `/reload-plugins`; agents and extension modules are not picked up otherwise.
 
-Keep this package **legacy**: no `plugin.json` at the package root. With one, `agent-plugins` unions the cache directory and the `node_modules` symlink as two distinct path strings and loads every skill twice.
+Keep this package's existing **legacy** layout: no `plugin.json` at the package root. Migrating discovery providers requires separate host-loading verification; it is not part of repository cleanup.
 
 ### Local authoring (link)
 
@@ -657,7 +657,7 @@ Vitest bounds concurrent test files globally at `min(8, max(1, availableParallel
 
 Generated distribution files and retained inert data are distinguished by their actual ownership/provenance, not a blanket test-directory exception. Other plugins and shared root controls are outside these new caps. Parser and AST types are pinned at `8.0.8`, Biome at `2.6.2`; no effect runtime, database or workflow framework is introduced.
 
-### Owned distribution (candidate 0.11.3)
+### Owned distribution
 
 `agent-sources/*.md` holds the seven authored generic agents. The producer copies all seven into `agents/` byte for byte and derives 18 native profiles there from `roxabi/native-*-profiles.ts` and the existing strict schemas. Tests and support stay outside the generated surface, in their owning engine, product, adapter and testing trees.
 

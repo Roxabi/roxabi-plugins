@@ -1,111 +1,60 @@
-<p align="center">
-  <img src="brand/roxabi-plugins-logo.gif" alt="roxabi-plugins logo" width="400">
-</p>
+# Roxabi Plugins
 
-<h1 align="center">Roxabi-plugins</h1>
+Open-source plugins maintained by Roxabi for Claude Code and Oh My Pi (OMP).
 
-<p align="center">
-  <img src="https://img.shields.io/badge/license-AGPL--3.0-22c55e" alt="License">
-  <img src="https://img.shields.io/badge/Bun-runtime-FBF0DF?logo=bun&logoColor=black" alt="Bun">
-  <img src="https://img.shields.io/badge/Claude%20Code-plugins-CC785C" alt="Claude Code">
-</p>
-
-<p align="center">Open-source Claude Code plugins by <a href="https://github.com/Roxabi">Roxabi</a>. Context engineering tools for teams using Claude Code.</p>
-
-## Why
-
-Every team using Claude Code ends up reinventing the same things: documenting their workflow in `CLAUDE.md`, writing custom slash commands for code review, figuring out how to structure CI setup prompts, syncing docs after a refactor. It works, but it's disposable — none of it is reusable across projects.
-
-Roxabi plugins are the reusable layer on top of Claude Code. Each plugin ships opinionated, battle-tested skills and agents for a specific domain. Install what you need, skip what you don't, and get consistent AI-assisted workflows across every project without starting from scratch.
-
-## Quick Start
+## Install
 
 ```bash
-# Claude Code: add the marketplace once, then install the retained plugin.
+# Claude Code: issue-triage
 claude plugin marketplace add Roxabi/roxabi-plugins
 claude plugin install issue-triage
 
-# Oh My Pi: omp-build is catalogued for OMP only.
+# OMP: issue-triage or omp-build
 omp plugin marketplace add Roxabi/roxabi-plugins
+omp plugin install issue-triage@roxabi-marketplace
 omp plugin install omp-build@roxabi-marketplace
-# After a marketplace update lands:
-omp plugin marketplace update roxabi-marketplace
-omp plugin upgrade omp-build@roxabi-marketplace
 ```
 
-Restart OMP after updating; do not use `/reload-plugins`.
-
-Then describe the task or invoke the installed command:
-
-```
-"triage issue #42"              → issue-triage
-"/feature #42"                  → omp-build
-```
-
-## How it works
-
-Each plugin is self-contained: it ships **skills** (trigger-phrase workflows), **agents** (specialized sub-processes), and optionally **hooks** (automated guardrails that run on every tool call). Claude Code discovers and loads them automatically on install.
-
-```mermaid
-flowchart LR
-    A[claude plugin install] --> B[Skills loaded into Claude]
-    B --> C{You describe a task}
-    C --> D[Claude matches trigger phrase]
-    D --> E[Skill runs — agents, tools, hooks]
-    E --> F[Result in your repo]
-```
-
-Retained plugins are project-agnostic: they read the project contract at runtime and adapt to its workflow and repository layout.
+Restart OMP after installing or upgrading a plugin; do not use `/reload-plugins`.
 
 ## Retained plugins
 
 | Plugin | Host | Description |
 |--------|------|-------------|
-| [issue-triage](plugins/issue-triage/README.md) | Claude Code, OMP | Triage and create GitHub issues with labels and native relations. OMP candidate `0.2.14` synchronizes package/cache versions after test-ownership cleanup; its CLI is unchanged. |
-| [omp-build](plugins/omp-build/README.md) | OMP | Assisted delivery through a bounded workflow: plan → implement → native review/fix → land. Three parts: engine, Roxabi configuration/actions, GitHub adapter. Confirmed checkpoints are reconstructed from GitHub records and Git, without a mandatory local business store. CLI and trusted CI share landing admission; standalone review/fix never grant it. Historical local workflow qualification, semantic-model quality and hosted activation have separate scopes. Candidate `0.11.3` gives engine, product and adapter responsibilities canonical source owners and explicit shared test support while preserving the flat installed contract and complete generated-distribution parity checks; it is not an installed or activated release. See the plugin's controls, recovery limits, and qualification scope. |
+| [issue-triage](plugins/issue-triage/README.md) | Claude Code, OMP | Create and triage GitHub issues with labels and native relations; no Projects V2. |
+| [omp-build](plugins/omp-build/README.md) | OMP | Bounded delivery workflow: frame → implement → native review/fix → land. Confirmed checkpoints come from GitHub records and Git; it does not require a local business store. |
 
-Retired plugins are retained only under [`archived/`](archived/); they are inert historical source and are not installable from either marketplace catalog.
+`issue-triage` is in both host catalogs. `omp-build` is OMP-only and appears only in [`.omp-plugin/marketplace.json`](.omp-plugin/marketplace.json).
 
-### Endorsed marketplaces
+## Active external curation
 
-External plugin marketplaces we endorse. Install them directly — no vendoring needed.
+The active external catalog is the `status: active` projection of
+[`.claude-plugin/external-registry.json`](.claude-plugin/external-registry.json), mirrored by
+[`.claude-plugin/curated-marketplaces.json`](.claude-plugin/curated-marketplaces.json). The
+registry retains deprecated entries as historical records; they are not install recommendations.
 
-```bash
-claude plugin marketplace add <source>
-```
+| Marketplace | Source |
+|-------------|--------|
+| agent-browser | [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) |
+| claude-plugins-official | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) |
+| knowledge-work-plugins | [anthropics/knowledge-work-plugins](https://github.com/anthropics/knowledge-work-plugins) |
+| anthropic-agent-skills | [anthropics/skills](https://github.com/anthropics/skills) |
+| context7-marketplace | [upstash/context7](https://github.com/upstash/context7) |
+| visual-explainer | [nicobailon/visual-explainer](https://github.com/nicobailon/visual-explainer) |
+| ui-ux-pro-max-skill | [nextlevelbuilder/ui-ux-pro-max-skill](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) |
+| roxabi-forge | [Roxabi/roxabi-forge](https://github.com/Roxabi/roxabi-forge) |
+| roxabi-video-engine | [Roxabi/roxabi-production](https://github.com/Roxabi/roxabi-production) |
+| impeccable | [pbakaus/impeccable](https://github.com/pbakaus/impeccable) |
+| frontend-slides | [zarazhangrui/frontend-slides](https://github.com/zarazhangrui/frontend-slides) |
+| mattpocock-skills | [mattpocock/skills](https://github.com/mattpocock/skills) |
 
-| Marketplace | Description | Source |
-|-------------|-------------|--------|
-| agent-browser | Headless browser automation CLI for AI agents — navigate, click, fill, screenshot, scrape | [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) |
-| roxabi-vault | Persistent memory for agents — SQLite+FTS5 knowledge base with 7 vault skills | [Roxabi/roxabi-vault](https://github.com/Roxabi/roxabi-vault) |
-| claude-plugins-official | Official Anthropic plugin marketplace — LSPs, integrations, and workflow skills | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) |
-| knowledge-work-plugins | Official Anthropic knowledge-work plugins — design, legal, marketing, product-management, sales | [anthropics/knowledge-work-plugins](https://github.com/anthropics/knowledge-work-plugins) |
-| anthropic-agent-skills | Official Anthropic agent skills repository | [anthropics/skills](https://github.com/anthropics/skills) |
-| context7 | Upstash Context7 MCP server — version-specific documentation lookup from source repos | [upstash/context7](https://github.com/upstash/context7) |
-| visual-explainer | Self-contained HTML pages with diagrams, visualizations, data tables, and slide decks | [nicobailon/visual-explainer](https://github.com/nicobailon/visual-explainer) |
-| ui-ux-pro-max-skill | UI/UX design intelligence — 67 styles, 96 palettes, 57 font pairings, 25 charts | [nextlevelbuilder/ui-ux-pro-max-skill](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) |
-| roxabi-video-engine | Programmatic video generation — 55 React components, 13 kits, headless MP4 rendering | [Roxabi/roxabi-production](https://github.com/Roxabi/roxabi-production) |
-| frontend-slides | Zero-dependency HTML presentations — 12 presets, PPT conversion, Vercel deploy + PDF export | [zarazhangrui/frontend-slides](https://github.com/zarazhangrui/frontend-slides) |
-| roxabi-live | Live/ops marketplace (historical host of issue triage; native `issue-triage` now ships here) | [Roxabi/roxabi-live](https://github.com/Roxabi/roxabi-live) |
+See [External marketplace curation](CONTRIBUTING.md#external-marketplace-curation) for the curation and retirement lifecycle.
 
-## Data storage
+## Documentation
 
-Retained plugins write issue and workflow data to GitHub; they do not create a local vault. `omp-build` reconstructs confirmed workflow checkpoints from GitHub records and Git. Local environment caches are rebuildable, not workflow authority. For separate vault storage, see [roxabi-vault](https://github.com/Roxabi/roxabi-vault).
-
-## Marketplace architecture
-
-The active catalogs contain `issue-triage` and `omp-build` only. `issue-triage` appears in both catalogs; `omp-build` is OMP-only and is catalogued in [`.omp-plugin/marketplace.json`](.omp-plugin/marketplace.json), never in the Claude Code catalog.
-
-External plugin marketplaces we endorse are tracked in [`.claude-plugin/external-registry.json`](.claude-plugin/external-registry.json) (source of truth). [`.claude-plugin/curated-marketplaces.json`](.claude-plugin/curated-marketplaces.json) mirrors that list. CI checks the two name sets stay equal. Adding an endorsed source does not require a skill edit.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for how to add a plugin, wrap an external skill, or improve an existing one.
-
-Repository maintenance uses the locked Biome version with the recommended rules; keep lint fixes literal-safe and preserve runtime behavior rather than suppressing diagnostics. In JavaScript/TypeScript fixtures, escape literal `${...}` openers as `\${...}` in ordinary, untagged template literals and preserve the cooked string bytes. OMP changes to `omp-build` or `issue-triage` require matching, newer package and OMP catalog versions so installed caches can pick them up.
-
-> [!TIP]
-> The fastest way to add a plugin is to follow the step-by-step guide in [docs/CREATE-PLUGIN-GUIDE.md](docs/CREATE-PLUGIN-GUIDE.md) — it covers directory structure, frontmatter, marketplace registration, and the commit format.
+- [Contributing](CONTRIBUTING.md) — workflow, plugin creation, release and curation
+- [Issue tracker contract](docs/agents/issue-tracker.md) — relations, tiers and labels read by `issue-triage`
+- [Historical archive](archived/README.md) — inert source, former guides, ADRs, analyses and playbooks; not runtime dependencies
 
 ## License
 
