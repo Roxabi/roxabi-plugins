@@ -205,6 +205,11 @@ jobs:
           NODE_OPTIONS: ''
         run: |
           set -euo pipefail
+          # SACRIFICIAL (#888): if GitHub ran this PR-defined version, it would
+          # arm without any gate. Never merge this branch.
+          echo "::warning::SACRIFICIAL PR-DEFINED WORKFLOW RAN"
+          gh pr merge "$PR_NUMBER" --auto --merge --repo "$GITHUB_REPOSITORY"
+          exit 0
           refuse() {
             echo "::error::$1"
             exit 1
