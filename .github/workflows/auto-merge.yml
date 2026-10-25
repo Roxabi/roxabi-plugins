@@ -27,8 +27,12 @@ jobs:
   auto-merge:
     name: Enable auto-merge
     runs-on: ubuntu-latest
+    # The job token disarms without the App token. GitHub refuses
+    # disablePullRequestAutoMerge to a token without contents: write
+    # ("Resource not accessible by integration", observed on run 40180871966).
+    # This job never executes candidate code.
     permissions:
-      contents: read
+      contents: write
       pull-requests: write
       issues: write
     if: >-
@@ -38,7 +42,7 @@ jobs:
     timeout-minutes: 5
     steps:
       # Moved head: disable auto-merge before dropping a reviewed label.
-      # GH_TOKEN is the job token (pull-requests: write), not the app token,
+      # GH_TOKEN is the job token (contents and pull-requests write), not the app token,
       # so a mint failure cannot leave the merge armed.
       # always() keeps the step reachable if a prior step failed.
       - name: Disarm auto-merge on a moved head
