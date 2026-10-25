@@ -8971,7 +8971,11 @@ function parseComment(value, scope, page, index) {
     updatedAt: typeof entry.updated_at === "string" ? entry.updated_at : null
   };
 }
-async function viewer(options) {
+function viewerCredentialKey() {
+  return `${process.env.GH_HOST ?? ""}\x00${process.env.GH_CONFIG_DIR ?? ""}\x00${process.env.GH_TOKEN ?? ""}\x00${process.env.GITHUB_TOKEN ?? ""}`;
+}
+var cachedViewer;
+async function resolveViewerLogin(options) {
   const login = (await gh(options)(options.cwd, ["api", "user", "--jq", ".login"])).trim();
   if (!login || /\s/.test(login)) {
     throw new GitHubHistoryReadError("GitHub did not return a native login", [
@@ -8979,6 +8983,18 @@ async function viewer(options) {
     ]);
   }
   return login;
+}
+async function viewer(options) {
+  const key = viewerCredentialKey();
+  if (cachedViewer?.key === key)
+    return cachedViewer.value;
+  const value = resolveViewerLogin(options).catch((error) => {
+    if (cachedViewer?.key === key)
+      cachedViewer = undefined;
+    throw error;
+  });
+  cachedViewer = { key, value };
+  return value;
 }
 function expectedReadAuthor(options) {
   const configured = options.readAuthor ?? options.automationLogin;

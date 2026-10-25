@@ -493,7 +493,11 @@ before its diff; the review-start test exercises the fence, not model compliance
 
 Comment pagination is page-number based. During a multi-page read of more than 100 comments, a deletion can shift later comments and omit a record while the read reports complete. The gate's initial and refreshed reads narrow that race; consumers that read once do not.
 
-Record authorship under `OMP_BUILD_AUTOMATION_LOGIN` provides no author/reviewer separation while that login is also the PR author's identity. Decided for T5: a dedicated GitHub App identity authors the review records. Only the process that publishes reviews holds its key; sessions that write code never do. Until then, there is no separation.
+Record authorship under `OMP_BUILD_AUTOMATION_LOGIN` provides no author/reviewer separation while that login is also the PR author's identity. Decided (2026-10-24, single-operator threat model): no dedicated review executor or App author. Reviews run in the local OMP session. `/feature` landing's `landPr` runs shared admission, then uses the operator's `gh` login to apply `reviewed` and enable native auto-merge; there is no human label step. The base-defined `pull_request_target` workflow re-checks admission when that label arrives and disarms on refusal or `synchronize`. Deliberate forgery of a record by the agent is an accepted, uncovered risk; revisit if a second contributor or human-less automation appears.
+
+The same trusted author is used for review records, workflow mandates/bindings and proof records. Any future author separation must split review reads from workflow/proof reads and preserve durable CI-stop records, since changing only the review login would make existing workflow authority foreign and refuse landing.
+GitHub viewer identity is fixed for one OMP process. `gh auth switch` requires a new session; the viewer memo includes `GH_HOST`, `GH_CONFIG_DIR`, `GH_TOKEN`, and `GITHUB_TOKEN` but does not observe an in-place account switch.
+
 
 The bound guards against agent mistakes, not against an agent that bypasses it:
 records by other accounts are ignored, and edits or deletions of the account's
@@ -511,18 +515,31 @@ landing authority. The feature skill is reference material, not another router.
 
 Landing resolves mode from `readLanding` on the PR base ref (`origin/<base>`): stack `landing.mode`, else
 `merge-on-green.yml`, else native. It returns the absolute `/ci-watch` command,
-including GitHub's fresh labeled-event time under merge-on-green. Native also
-enables auto-merge. An OPEN `BEHIND` observation stops further arming and watching:
-`landPr` returns `behind` after clearing known OPEN arms, including a pin written
-earlier in that call. A failed clear throws naming the remainder; a merge during
-the clear returns `merged`. The watch exits 7, and its mapper uses the same behind
-contract (`applyCiWatchExit` in `skills/feature/workflow-watch.js`). Both name `gh pr update-branch <pr>`;
-omp-build never updates the branch itself. `applyCiWatchExit` preserves watch statuses while enforcing
-gate authorization; `disarmReviewedBeforePush` in `skills/feature/landing-foundation.js` confirms clearing before invoking
-the push once, and reuses that receipt if the callback fails. Neither review nor
-fix labels a PR. No duplicate spec files or `validated` gate.
+including GitHub's fresh labeled-event time under merge-on-green. In native mode,
+`landPr` uses the operator's `gh` login for both native auto-merge and the
+`reviewed` label after shared admission. An OPEN `BEHIND` observation stops further
+arming and watching: `landPr` returns `behind` after clearing known OPEN arms,
+including a pin written earlier in that call. A failed clear throws naming the
+remainder; a merge during the clear returns `merged`. The watch exits 7, and its
+mapper uses the same behind contract (`applyCiWatchExit` in
+`skills/feature/workflow-watch.js`). Both name `gh pr update-branch <pr>`;
+omp-build never updates the branch itself. `applyCiWatchExit` preserves watch
+statuses while enforcing gate authorization; `disarmReviewedBeforePush` in
+`skills/feature/landing-foundation.js` confirms clearing before invoking the push
+once, and reuses that receipt if the callback fails. Standalone review and fix do
+not label a PR. No duplicate spec files or `validated` gate.
 
-The trusted auto-merge checkout (`.github/workflows/auto-merge.yml`) reads canonical records only from tooling pinned by repository variable `OMP_BUILD_TOOLING_SHA` (40 lowercase hex) and derives authorship for every trusted gate read from `--automation-login`: records, the landing mandate and its binding/parent chain, semantic binding, and proof selections. The gate never calls `gh api user`, which installation tokens cannot use. A missing or non-hex pin refuses. There is no fallback to the candidate checkout, the workflow SHA, a moving branch, candidate code, or a dependency install; the pin's committed `dist/contracts.js` is the reader. On `pull_request` events, GitHub runs the workflow from the PR merge ref, so this pin protects the reader code, not the workflow that decides to call it and arm. That is a known limit. Decided for T5: before the pin is set, the arming workflow runs from the base branch (`pull_request_target`) and never executes candidate code; a CODEOWNERS review of `.github/workflows/` may complement it. Such a trigger change takes effect only once merged on the base branch. The pin is currently unset, so the gate refuses and disarms. Dependabot keeps its existing semver-major exception and does not require that human review record.
+The trusted auto-merge checkout (`.github/workflows/auto-merge.yml`) reads canonical records only from tooling pinned by repository variable `OMP_BUILD_TOOLING_SHA` (40 lowercase hex) and derives authorship for every trusted gate read from `--automation-login`: records, the landing mandate and its binding/parent chain, semantic binding, and proof selections. The gate never calls `gh api user`, which installation tokens cannot use. A missing or non-hex pin refuses. There is no fallback to the candidate checkout, the workflow SHA, a moving branch, candidate code, or a dependency install; the pin's committed `dist/contracts.js` is the reader.
+
+The workflow uses `pull_request_target` so GitHub selects its arming logic from the base repository's default branch, not the PR merge ref. This protects the arming decision; the immutable tooling pin separately protects the reader. The candidate is an isolated, credential-free data checkout, including the explicit checkout-v7 opt-in for fork heads. Bun runs only from the pinned tooling directory, with ambient Bun/Node preloads cleared; candidate scripts, configuration and dependencies are never executed. A trigger change takes effect only after it reaches the default branch; local shell smoke does not prove hosted trigger selection.
+
+Every failed or skipped labeled-path admission has a final job-token cleanup, including App-token mint failure. It independently attempts native auto-merge disable and `reviewed` removal, then reads both back; failed writes or a remaining arm are errors. Cleanup never depends on the App token used by the reader. Dependabot is eligible only for semver-minor or semver-patch updates whose every commit author is `dependabot[bot]`. The tooling pin remains unset until this workflow is on the base branch and hosted T5 checks pass; this workflow change does not activate it.
+### Hosted activation prerequisites
+
+- **W1 — event policy (before 2026-12-02):** configure the repository Actions event policy to allow `pull_request_target` for `auto-merge.yml`; otherwise GitHub's enforced default can stop arming and disarming runs.
+- **W2 — secret visibility (deferred, #892):** `ROXABI_CI_APP_PRIVATE_KEY` is an organization secret visible to all repositories, so a workflow on any branch of this repository can mint the `roxabi-ci` token. Deferred on 2026-10-25 under the single-operator decision. Only the operator or their agent pushes branches here, and forks and Dependabot receive no organization secrets. This workflow does not declare `environment:`. #892 lists the triggers to reopen and the change.
+- **W3 — App token permissions:** the `roxabi-ci` installation grants checks read, contents write, issues write, pull requests write, statuses read and workflows write (observed 2026-10-25). The minted token is scoped to this repository, as before, and narrowed to checks read, contents write, issues read, pull requests write, statuses read and workflows write. Contents write performs the native auto-merge; workflows write lets it merge a PR that changes `.github/workflows/`. An explicit parent scope in another repository stays unreadable and refuses.
+
 
 T5 capability check, separately authorized, not done in this tree. The gate reads with the App token (`GH_TOKEN: ${{ steps.app.outputs.token }}` in `.github/workflows/auto-merge.yml`), not the job `GITHUB_TOKEN`. Job `issues: write` does not apply to that token ([workflow permissions](https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#permissions) cover the job token only). The reader must be able to read issue bodies, comments, and each explicit parent scope: `GET /repos/{owner}/{repo}/issues/{issue_number}` and `GET /repos/{owner}/{repo}/issues/{issue_number}/comments`, through `review-gate.ts` → `currentLandingMandate`. Applicable App permission for the body route is Issues: read; Pull requests does not cover it ([App permissions](https://docs.github.com/en/rest/authentication/permissions-required-for-github-apps)). Comments are also listed under Pull requests. Live installation permissions are unverified. Do not claim they are missing, and do not change the token or the installation from this tree. This is not a new tamper control.
 
