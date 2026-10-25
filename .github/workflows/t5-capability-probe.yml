@@ -1,26 +1,28 @@
 # Ephemeral T5 capability probe for #888 — never merged.
 # Mints the roxabi-ci token with exactly the permissions auto-merge.yml
-# requests, then exercises the reads and the arming call the gate needs.
+# requests, exercises the reads and the arming call the gate needs, then
+# checks which job-token permissions can disable an App-armed auto-merge.
+# The PR carries an unresolved review thread, so the ruleset blocks a merge.
 name: T5 capability probe
 
 on:
   pull_request:
-    types: [opened, reopened]
+    types: [opened, reopened, synchronize]
 
 permissions: {}
 
+env:
+  TOOLING_SHA: 2d9bd23eedb6a56d810af64271a1e4e72db87e29
+  PR_NUMBER: ${{ github.event.pull_request.number }}
+  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+
 jobs:
   probe:
-    name: T5 capability probe
+    name: App token reads, reader and arming
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
-      pull-requests: write
-    env:
-      TOOLING_SHA: 2d9bd23eedb6a56d810af64271a1e4e72db87e29
-      PR_NUMBER: ${{ github.event.pull_request.number }}
-      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
     steps:
       - name: Mint app token (roxabi-ci) with the gate's permissions
         id: app
@@ -68,7 +70,6 @@ jobs:
             gh api "repos/$r/issues/$n" --jq '"issue #\(.number) body bytes=\(.body | length)"'
             gh api "repos/$r/issues/$n/comments" --paginate --jq 'length' | jq -s '"issue comments pages=\(length) total=\(add)"'
           done
-          gh api "repos/$r/issues/$PR_NUMBER/comments" --paginate --jq 'length' | jq -s '"pr comments total=\(add)"'
 
       - name: PR coordinates, commits and check rollup
         env:
@@ -98,9 +99,10 @@ jobs:
           BUN_PRELOAD: ''
           NODE_OPTIONS: ''
         run: |
-          set -uo pipefail
+          set -u
           test "$(git -C .omp-build-gate-tools rev-parse HEAD)" = "$TOOLING_SHA"
           cd .omp-build-gate-tools
+          set +e
           bun plugins/omp-build/scripts/review-gate.ts \
             --repository "$GITHUB_REPOSITORY" \
             --pr "$PR_NUMBER" \
@@ -110,24 +112,75 @@ jobs:
             --tooling-sha "$TOOLING_SHA"
           echo "reader exit=$? (a refusal is expected: this PR carries no record)"
 
-      - name: Arm and disarm native auto-merge with the App token
+      - name: Arm native auto-merge with the App token
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
         run: |
           set -euo pipefail
+          state=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json mergeStateStatus --jq .mergeStateStatus)
+          echo "mergeStateStatus=$state"
+          if [ "$state" != "BLOCKED" ]; then echo "::error::probe PR must stay BLOCKED before arming"; exit 1; fi
           gh pr merge "$PR_NUMBER" --auto --merge --repo "$GITHUB_REPOSITORY" --match-head-commit "$HEAD_SHA"
           gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json autoMergeRequest \
             --jq '"armed by=\(.autoMergeRequest.enabledBy.login) method=\(.autoMergeRequest.mergeMethod)"'
-          gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --disable-auto
-          still=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json autoMergeRequest --jq '.autoMergeRequest')
-          if [ -n "$still" ] && [ "$still" != "null" ]; then echo "::error::still armed"; exit 1; fi
-          echo "disarmed"
 
-
-      - name: Leave the probe PR disarmed
-        if: always()
-        env:
+  disarm-contents-read:
+    name: Job token disable, contents read
+    needs: probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set +e
+          out=$(gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --disable-auto 2>&1)
+          echo "disable exit=$? out=$out"
+          gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json autoMergeRequest --jq '"after contents-read disable: autoMergeRequest=\(.autoMergeRequest)"'
+
+  disarm-contents-write:
+    name: Job token disable, contents write
+    needs: disarm-contents-read
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          out=$(gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --disable-auto 2>&1)
+          echo "disable exit=$? out=$out"
+          gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json autoMergeRequest --jq '"after contents-write disable: autoMergeRequest=\(.autoMergeRequest)"'
+
+  leave-disarmed:
+    name: Leave the probe PR disarmed
+    needs: [probe, disarm-contents-read, disarm-contents-write]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510
+        with:
+          app-id: ${{ vars.ROXABI_CI_APP_ID }}
+          private-key: ${{ secrets.ROXABI_CI_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          set -euo pipefail
           gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --disable-auto || true
-          gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json autoMergeRequest --jq '"final autoMergeRequest=\(.autoMergeRequest)"'
+          still=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json autoMergeRequest --jq '.autoMergeRequest')
+          if [ -n "$still" ] && [ "$still" != "null" ]; then echo "::error::probe PR still armed"; exit 1; fi
+          echo "final: disarmed"
