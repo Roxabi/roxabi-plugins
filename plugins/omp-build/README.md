@@ -537,7 +537,7 @@ Every failed or skipped labeled-path admission has a final job-token cleanup, in
 ### Hosted activation prerequisites
 
 - **W1 — event policy (before 2026-12-02):** configure the repository Actions event policy to allow `pull_request_target` for `auto-merge.yml`; otherwise GitHub's enforced default can stop arming and disarming runs.
-- **W2 — secret visibility:** move `ROXABI_CI_APP_PRIVATE_KEY` to a main-only environment with restricted secret visibility. This is an operator setting; this workflow intentionally does not declare `environment:`.
+- **W2 — secret visibility (deferred, #892):** `ROXABI_CI_APP_PRIVATE_KEY` is an organization secret visible to all repositories, so a workflow on any branch of this repository can mint the `roxabi-ci` token. Deferred on 2026-10-25 under the single-operator decision. Only the operator or their agent pushes branches here, and forks and Dependabot receive no organization secrets. This workflow does not declare `environment:`. #892 lists the triggers to reopen and the change.
 - **W3 — App token permissions:** the `roxabi-ci` installation grants checks read, contents write, issues write, pull requests write, statuses read and workflows write (observed 2026-10-25). The minted token is scoped to this repository, as before, and narrowed to checks read, contents write, issues read, pull requests write, statuses read and workflows write. Contents write performs the native auto-merge; workflows write lets it merge a PR that changes `.github/workflows/`. An explicit parent scope in another repository stays unreadable and refuses.
 
 
