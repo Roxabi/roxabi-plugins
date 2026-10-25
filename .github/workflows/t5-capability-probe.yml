@@ -1,0 +1,133 @@
+# Ephemeral T5 capability probe for #888 — never merged.
+# Mints the roxabi-ci token with exactly the permissions auto-merge.yml
+# requests, then exercises the reads and the arming call the gate needs.
+name: T5 capability probe
+
+on:
+  pull_request:
+    types: [opened, reopened]
+
+permissions: {}
+
+jobs:
+  probe:
+    name: T5 capability probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      TOOLING_SHA: 2d9bd23eedb6a56d810af64271a1e4e72db87e29
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Mint app token (roxabi-ci) with the gate's permissions
+        id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510
+        with:
+          app-id: ${{ vars.ROXABI_CI_APP_ID }}
+          private-key: ${{ secrets.ROXABI_CI_APP_PRIVATE_KEY }}
+          permission-checks: read
+          permission-contents: write
+          permission-issues: read
+          permission-pull-requests: write
+          permission-statuses: read
+          permission-workflows: write
+
+      - name: Checkout candidate data
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: .omp-build-gate-candidate
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout tooling at the pin candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          repository: Roxabi/roxabi-plugins
+          ref: ${{ env.TOOLING_SHA }}
+          path: .omp-build-gate-tools
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up pinned Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2
+        with:
+          bun-version: 1.4.3
+          token: ''
+
+      - name: Issue body, comments and explicit parent scope
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          set -euo pipefail
+          r="$GITHUB_REPOSITORY"
+          for n in 888 720; do
+            gh api "repos/$r/issues/$n" --jq '"issue #\(.number) body bytes=\(.body | length)"'
+            gh api "repos/$r/issues/$n/comments" --paginate --jq 'length' | jq -s '"issue comments pages=\(length) total=\(add)"'
+          done
+          gh api "repos/$r/issues/$PR_NUMBER/comments" --paginate --jq 'length' | jq -s '"pr comments total=\(add)"'
+
+      - name: PR coordinates, commits and check rollup
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          set -euo pipefail
+          gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
+            --json headRefOid,baseRefName,baseRefOid,commits,statusCheckRollup \
+            --jq '{head: .headRefOid, base: .baseRefName, baseOid: .baseRefOid, commits: (.commits | length), checks: [.statusCheckRollup[] | (.name // .context)]}'
+
+      - name: Selected-base fetch through the gate's credential helper
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_KEY_0: credential.helper
+          GIT_CONFIG_VALUE_0: '!gh auth git-credential'
+        run: |
+          set -euo pipefail
+          cd .omp-build-gate-candidate
+          git fetch --quiet --no-tags "https://github.com/$GITHUB_REPOSITORY" +refs/heads/main:refs/remotes/origin/main
+          echo "fetched main=$(git rev-parse refs/remotes/origin/main)"
+
+      - name: Real reader with the installation token
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          BUN_OPTIONS: ''
+          BUN_PRELOAD: ''
+          NODE_OPTIONS: ''
+        run: |
+          set -uo pipefail
+          test "$(git -C .omp-build-gate-tools rev-parse HEAD)" = "$TOOLING_SHA"
+          cd .omp-build-gate-tools
+          bun plugins/omp-build/scripts/review-gate.ts \
+            --repository "$GITHUB_REPOSITORY" \
+            --pr "$PR_NUMBER" \
+            --head "$HEAD_SHA" \
+            --automation-login MickaelV0 \
+            --candidate-cwd "$GITHUB_WORKSPACE/.omp-build-gate-candidate" \
+            --tooling-sha "$TOOLING_SHA"
+          echo "reader exit=$? (a refusal is expected: this PR carries no record)"
+
+      - name: Arm and disarm native auto-merge with the App token
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          set -euo pipefail
+          gh pr merge "$PR_NUMBER" --auto --merge --repo "$GITHUB_REPOSITORY" --match-head-commit "$HEAD_SHA"
+          gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json autoMergeRequest \
+            --jq '"armed by=\(.autoMergeRequest.enabledBy.login) method=\(.autoMergeRequest.mergeMethod)"'
+          gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --disable-auto
+          still=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json autoMergeRequest --jq '.autoMergeRequest')
+          if [ -n "$still" ] && [ "$still" != "null" ]; then echo "::error::still armed"; exit 1; fi
+          echo "disarmed"
+
+
+      - name: Leave the probe PR disarmed
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --disable-auto || true
+          gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json autoMergeRequest --jq '"final autoMergeRequest=\(.autoMergeRequest)"'
