@@ -98,7 +98,10 @@ jobs:
 
 
       # roxabi-ci App token (ephemeral, 1 h) — pushes re-trigger CI,
-      # which GITHUB_TOKEN cannot do.
+      # which GITHUB_TOKEN cannot do. Scoped to this repository and narrowed
+      # to the reader and arming calls: issue and comment reads, check and
+      # status reads, and native auto-merge, whose merge needs contents and,
+      # for a PR touching .github/workflows, workflows write.
       - name: Mint app token (roxabi-ci)
         id: app
         if: github.event.action == 'labeled'
@@ -106,6 +109,12 @@ jobs:
         with:
           app-id: ${{ vars.ROXABI_CI_APP_ID }}
           private-key: ${{ secrets.ROXABI_CI_APP_PRIVATE_KEY }}
+          permission-checks: read
+          permission-contents: write
+          permission-issues: read
+          permission-pull-requests: write
+          permission-statuses: read
+          permission-workflows: write
 
       # Read the real update-type from Dependabot's metadata rather than parsing the
       # PR title: grouped PRs are titled "bump the <group> group…" with no versions,
