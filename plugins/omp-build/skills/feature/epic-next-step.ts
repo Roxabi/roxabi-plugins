@@ -1,7 +1,8 @@
+import { hasScope } from '../../roxabi/uw-spec'
 import { ticketOfBranch } from './epic-claims'
 import { epicDiffRange } from './epic-close'
 import { finalizationBlock, hookStatus } from './epic-finalization'
-import { branchFor, hasScope } from './epic-naming'
+import { branchFor } from './epic-naming'
 import { isDone, mergedPr, openBlockers, stopOf, summarize, topological } from './epic-progress'
 import type { ChildFacts, Facts, PrFacts, Report, Step } from './epic-types'
 

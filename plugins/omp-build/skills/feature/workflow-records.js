@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import {
   decodeHistory,
   githubScope,
@@ -8,14 +6,15 @@ import {
   summarizeReviews,
 } from '../../dist/contracts.js'
 import { withRoxabiGitHubPolicy } from '../../roxabi/github-policy'
+import { loadReviewClassCatalogue } from '../../roxabi/review-assets.ts'
 import { gh, preview } from './workflow-runtime.js'
 
 let cachedTaxonomy
 
 export function reviewTaxonomy() {
   if (cachedTaxonomy !== undefined) return cachedTaxonomy
-  const source = readFileSync(fileURLToPath(new URL('../dev-review/review-classes.yml', import.meta.url)), 'utf8')
-  const taxonomy = [...source.matchAll(/^\s*-\s+class:\s*([a-z][a-z0-9-]*)\s*$/gm)].map((match) => match[1])
+  const { classes } = loadReviewClassCatalogue()
+  const taxonomy = [...classes.matchAll(/^\s*-\s+class:\s*([a-z][a-z0-9-]*)\s*$/gm)].map((match) => match[1])
   if (taxonomy.length === 0) throw new Error('reviewRecords: canonical review taxonomy is unreadable')
   cachedTaxonomy = taxonomy
   return taxonomy

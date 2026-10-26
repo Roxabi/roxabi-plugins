@@ -6,30 +6,6 @@ import type { Contracts, History, Scope } from './feature-engine.ts'
 import { isRecord, payload } from './feature-engine.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
 
-export async function readIssue(
-  gh: Gh,
-  cwd: string,
-  repository: string,
-  number: number,
-): Promise<{ title: string; body: string; labels: string[]; updatedAt: string } | null> {
-  const raw = await gh(cwd, [
-    'issue',
-    'view',
-    String(number),
-    '--repo',
-    repository,
-    '--json',
-    'title,body,labels,updatedAt',
-  ])
-  const parsed: unknown = JSON.parse(raw)
-  if (!isRecord(parsed) || typeof parsed.title !== 'string' || typeof parsed.body !== 'string') return null
-  const labels = Array.isArray(parsed.labels)
-    ? parsed.labels.flatMap((label) => (isRecord(label) && typeof label.name === 'string' ? [label.name] : []))
-    : []
-  const updatedAt = typeof parsed.updatedAt === 'string' ? parsed.updatedAt : new Date(0).toISOString()
-  return { title: parsed.title, body: parsed.body, labels, updatedAt }
-}
-
 export function mandatesInHistory(history: History): MandateRecord[] {
   return history.operations.flatMap((operation) => {
     const record = operation.record

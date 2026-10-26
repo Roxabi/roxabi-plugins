@@ -5,8 +5,8 @@ import { approvedMandateContext, finalEligiblePlanActionId, planStructuredBlock 
 import { readNativeCiFailureEvidence } from './feature-ci-evidence.ts'
 import type { ContinueFeatureResult } from './feature-contract.ts'
 import { type Contracts, type History, publishRecord, type WorkflowEvidence } from './feature-engine.ts'
+import { acceptanceCriteria } from './uw-spec'
 import type { GitRunner } from './workflow-checkout.ts'
-import { acceptanceCriteria } from './workflow-overrides.ts'
 
 type Gh = (cwd: string, args: string[]) => Promise<string>
 

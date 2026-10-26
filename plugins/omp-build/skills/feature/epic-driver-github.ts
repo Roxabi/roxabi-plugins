@@ -1,4 +1,5 @@
 import { existsSync, realpathSync } from 'node:fs'
+import type { NativeEpicChild, NativeEpicPullRequest } from '../../adapters/github-native/epic-children.ts'
 import {
   type DecodedHistory,
   decodeHistory,
@@ -7,30 +8,17 @@ import {
   summarizeReviews,
 } from '../../dist/contracts.js'
 import { withRoxabiGitHubPolicy } from '../../roxabi/github-policy.ts'
-import { loadReviewConfig } from '../../roxabi/review-config.ts'
+import { loadReviewConfig } from '../../roxabi/review-assets.ts'
 import { type CheckNode, classifyBaseCi } from './epic-ci'
 import { refuseForeignCommits, ticketOfBranch, ticketOfSubject } from './epic-claims'
 import { gh, git, graphql, Refused } from './epic-driver-runtime'
 import type { BaseCi, BranchFacts, Facts, PrFacts } from './epic-types'
 
-// ── GitHub shapes selected below ─────────────────────────────────────────────
-
-export type RawPr = {
-  number: number
-  state: 'OPEN' | 'CLOSED' | 'MERGED'
-  baseRefName: string
-  headRefName: string
-  headRefOid: string
-  mergedAt: string | null
-  mergeCommit: { oid: string; parents: { nodes: { oid: string }[] } } | null
-  autoMergeRequest: { enabledAt: string } | null
-  labels: { nodes: { name: string }[] }
-  repository: { nameWithOwner: string }
-  /** A fork PR: its head lives outside this repository, so no local ref proves what it lands. */
-  isCrossRepository: boolean
+type RollupData = {
+  repository: { object: { statusCheckRollup: { contexts: { nodes: CheckNode[] } } | null } | null }
 }
 
-function isPr(value: Partial<RawPr> | null | undefined): value is RawPr {
+function isPr(value: Partial<NativeEpicPullRequest> | null | undefined): value is NativeEpicPullRequest {
   return (
     value !== null &&
     value !== undefined &&
@@ -49,64 +37,10 @@ function isPr(value: Partial<RawPr> | null | undefined): value is RawPr {
     value.mergedAt !== undefined
   )
 }
-export type RawChild = {
-  number: number
-  title: string
-  state: 'OPEN' | 'CLOSED'
-  body: string | null
-  repository: { nameWithOwner: string }
-  labels: { nodes: { name: string }[] }
-  blockedBy: { nodes: { number: number; state: 'OPEN' | 'CLOSED'; repository: { nameWithOwner: string } }[] }
-  closedByPullRequestsReferences: { nodes: RawPr[] }
-  timelineItems: { nodes: ({ source?: Partial<RawPr> | null } | null)[] }
-}
-type EpicData = {
-  repository: {
-    issue: {
-      subIssues: { pageInfo: { hasNextPage: boolean }; nodes: RawChild[] }
-    } | null
-  }
-}
-type RollupData = {
-  repository: { object: { statusCheckRollup: { contexts: { nodes: CheckNode[] } } | null } | null }
-}
 
-const PR_FIELDS = `number state baseRefName headRefName headRefOid mergedAt isCrossRepository
-  mergeCommit { oid parents(first: 1) { nodes { oid } } }
-  autoMergeRequest { enabledAt } labels(first: 30) { nodes { name } } repository { nameWithOwner }`
-
-const EPIC_QUERY = `query($owner: String!, $name: String!, $epic: Int!) {
-  repository(owner: $owner, name: $name) {
-    issue(number: $epic) {
-      subIssues(first: 100) {
-        pageInfo { hasNextPage }
-        nodes {
-          number title state body repository { nameWithOwner }
-          labels(first: 50) { nodes { name } }
-          blockedBy(first: 50) { nodes { number state repository { nameWithOwner } } }
-          closedByPullRequestsReferences(first: 20, includeClosedPrs: true) { nodes { ${PR_FIELDS} } }
-          timelineItems(itemTypes: [CROSS_REFERENCED_EVENT], last: 50) {
-            nodes { ... on CrossReferencedEvent { source { ... on PullRequest { ${PR_FIELDS} } } } }
-          }
-        }
-      }
-    }
-  }
-}`
-
-export function epicChildren(repo: string, owner: string, name: string, epic: number, full: string): RawChild[] {
-  const issue = graphql<EpicData>(repo, EPIC_QUERY, { owner, name, epic }).repository.issue
-  if (!issue) throw new Refused(`#${epic} does not exist in ${full}`)
-  if (issue.subIssues.pageInfo.hasNextPage) throw new Refused(`#${epic} has more than 100 sub-issues`)
-  return issue.subIssues.nodes
-}
-
-export function pullRequestsForChild(child: RawChild, full: string): RawPr[] {
-  const found = new Map<number, RawPr>()
-  const sources = [
-    ...child.closedByPullRequestsReferences.nodes,
-    ...child.timelineItems.nodes.map((item) => item?.source),
-  ]
+export function pullRequestsForChild(child: NativeEpicChild, full: string): NativeEpicPullRequest[] {
+  const found = new Map<number, NativeEpicPullRequest>()
+  const sources = [...child.closedByPullRequests, ...child.timelinePullRequestSources.map((item) => item?.source)]
   for (const pr of sources) {
     if (
       isPr(pr) &&
@@ -177,7 +111,7 @@ export async function stoppedReviews(repo: string, repository: string, numbers: 
   return new Set(states.filter((number): number is number => number !== null))
 }
 
-export function prFacts(raw: RawPr, stopped: Set<number>): PrFacts {
+export function prFacts(raw: NativeEpicPullRequest, stopped: Set<number>): PrFacts {
   const labels = raw.labels.nodes.map((label) => label.name)
   return {
     number: raw.number,

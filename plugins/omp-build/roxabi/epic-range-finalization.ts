@@ -11,6 +11,7 @@ import { withRoxabiGitHubPolicy } from './github-policy'
 import type { PreparedReviewBatch, ReviewContext, ReviewPublisher } from './review-contract'
 import type { Gh, Git } from './review-input-contract'
 import { CanonicalReviewRunner } from './review-runner'
+import { readEpicLiveSpec } from './uw-spec'
 
 export type PreparedEpicReview = {
   context: ReviewContext & { readonly number: number }
@@ -40,50 +41,6 @@ export async function prepareEpicFinalReviewMaterials(input: {
     semantic.binding.scope.repository === input.mandateRef.scope.repository &&
     semantic.binding.scope.target === input.mandateRef.scope.target
 
-  const readLiveSpec = async (): Promise<LiveEpicSpec> => {
-    const issue = JSON.parse(
-      await input.gh(input.cwd, [
-        'issue',
-        'view',
-        String(epic),
-        '--repo',
-        input.request.repository,
-        '--json',
-        'body,updatedAt,labels',
-      ]),
-    ) as unknown
-    if (
-      issue === null ||
-      typeof issue !== 'object' ||
-      Array.isArray(issue) ||
-      !('body' in issue) ||
-      typeof issue.body !== 'string'
-    ) {
-      throw new Error('epic-live-spec-unreadable')
-    }
-    const labels =
-      'labels' in issue && Array.isArray(issue.labels)
-        ? issue.labels.flatMap((label) =>
-            label !== null &&
-            typeof label === 'object' &&
-            !Array.isArray(label) &&
-            'name' in label &&
-            typeof label.name === 'string'
-              ? [label.name]
-              : [],
-          )
-        : []
-    const contracts = await import('../dist/contracts.js')
-    return {
-      reference: input.request.target,
-      number: epic,
-      body: issue.body,
-      digest: contracts.specDigest(issue.body),
-      lastEditedAt: 'updatedAt' in issue && typeof issue.updatedAt === 'string' ? issue.updatedAt : null,
-      labels,
-    }
-  }
-
   const specMatches = (accepted: AcceptedEpicSemantic['spec'], live: LiveEpicSpec): boolean =>
     accepted.reference === live.reference && accepted.body === live.body && accepted.digest === live.digest
 
@@ -99,7 +56,7 @@ export async function prepareEpicFinalReviewMaterials(input: {
     throw new Error('epic-bound-semantic-mismatch')
   }
 
-  const originalLive = await readLiveSpec()
+  const originalLive = await readEpicLiveSpec(input.cwd, input.request.repository, input.request.target, epic, input.gh)
   const originalAccepted = await acceptedEpicSemantic(input.cwd, input.request.repository, epic, originalLive, input.gh)
   if (
     originalAccepted === null ||
@@ -124,7 +81,7 @@ export async function prepareEpicFinalReviewMaterials(input: {
         return { ok: false, reason: 'epic-range-context-mismatch' }
       }
 
-      const live = await readLiveSpec()
+      const live = await readEpicLiveSpec(input.cwd, input.request.repository, input.request.target, epic, input.gh)
       const accepted = await acceptedEpicSemantic(input.cwd, input.request.repository, epic, live, input.gh)
       if (
         accepted === null ||

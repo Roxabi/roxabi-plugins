@@ -3,10 +3,10 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { parsePricedFences } from '../../../roxabi/uw-spec'
 import { parseRosterConfig } from '../roster-config'
 import { hasAxialAdr } from '../roster-files'
 import { pathHit, structureHit } from '../roster-signals'
-import { parsePricedFences } from '../roster-spec'
 import { defaultConfig, dir, emptyPaths, gate, ROSTER, roster, useRosterWorkspace, writeSpec } from './roster.fixture'
 
 useRosterWorkspace()

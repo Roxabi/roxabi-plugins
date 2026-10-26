@@ -1,18 +1,18 @@
 import { randomUUID } from 'node:crypto'
-import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { githubScope, type Policy, specDigest } from '../dist/contracts.js'
+import { githubScope, type Policy } from '../dist/contracts.js'
 import { parseRosterConfig, parseStackPaths } from '../skills/dev-review/roster-config'
 import type { AllocateReviewInput } from '../skills/dev-review/roster-contract'
-import { normalizeTier, parsePricedFences, specIsDraft } from '../skills/dev-review/roster-spec'
+import { normalizeTier } from '../skills/dev-review/roster-spec'
 import type { EpicRangeReviewRequest } from '../skills/feature/epic-driver'
 import { acceptedEpicSemantic, epicSemanticCanon } from './epic-range-semantic'
+import { loadReviewAssets, loadReviewClassCatalogue, loadReviewConfig } from './review-assets'
 import { candidateText, materializeCandidateChunks } from './review-candidate-material'
-import { loadReviewConfig } from './review-config'
 import type { Gh, Git, ObservedEvidence } from './review-input-contract'
 import { buildReviewPrompts } from './review-prompts'
 import type { PreparedReviewInputs } from './review-runner'
+import { type LiveIssueSpec, parsePricedFences, readEpicInputSpec, specIsDraft } from './uw-spec'
 
 const SHA = /^[0-9a-f]{40}$/
 const RANGE = /^([0-9a-f]{40})\.\.([0-9a-f]{40})$/
@@ -48,68 +48,8 @@ async function verifyRangeCommits(git: Git, cwd: string, base: string, candidate
   ])
 }
 
-async function readEpicIssue(
-  cwd: string,
-  repository: string,
-  epic: number,
-  gh: Gh,
-): Promise<{ body: string; updatedAt: string | null; labels: string[] }> {
-  const issue = JSON.parse(
-    await gh(cwd, ['issue', 'view', String(epic), '--repo', repository, '--json', 'body,updatedAt,state,labels']),
-  ) as { state?: unknown; body?: unknown; updatedAt?: unknown; labels?: unknown }
-  if (
-    (issue.state !== 'OPEN' && issue.state !== 'CLOSED') ||
-    typeof issue.body !== 'string' ||
-    !Array.isArray(issue.labels)
-  ) {
-    throw new Error('epic issue unreadable')
-  }
-  return {
-    body: issue.body,
-    updatedAt: typeof issue.updatedAt === 'string' ? issue.updatedAt : null,
-    labels: issue.labels.flatMap((label) =>
-      typeof label === 'object' && label !== null && 'name' in label && typeof label.name === 'string'
-        ? [label.name]
-        : [],
-    ),
-  }
-}
-
-function reviewAssets() {
-  const config = loadReviewConfig()
-  const assetDir = join(config.chunker, '..')
-  const classes = readFileSync(join(assetDir, 'review-classes.yml'), 'utf8')
-  const classNames = [...classes.matchAll(/^\s*- class:\s*([a-z][a-z0-9-]*)\s*$/gm)].map((match) => match[1])
-  if (!classNames.length) throw new Error('installed class catalogue has no canonical classes')
-  return { config, assetDir, classes, classNames }
-}
-
-function promptAssets(assetDir: string, classes: string) {
-  return {
-    classes,
-    evidencePolicy: readFileSync(join(assetDir, 'evidence-policy.md'), 'utf8'),
-    rootCauses: readFileSync(join(assetDir, 'root-causes.md'), 'utf8'),
-    smells: readFileSync(join(assetDir, 'review-smells.md'), 'utf8'),
-    blindSpots: readFileSync(join(assetDir, 'review-blind-spots.md'), 'utf8'),
-  }
-}
-
-async function resolveEpicSemantic(
-  cwd: string,
-  repository: string,
-  epic: number,
-  target: string,
-  issue: { body: string; updatedAt: string | null; labels: string[] },
-  gh: Gh,
-) {
-  const live = {
-    reference: target,
-    number: epic,
-    body: issue.body,
-    digest: specDigest(issue.body),
-    lastEditedAt: issue.updatedAt,
-    labels: issue.labels,
-  }
+async function resolveEpicSemantic(cwd: string, repository: string, epic: number, issue: LiveIssueSpec, gh: Gh) {
+  const live = issue
   const accepted = await acceptedEpicSemantic(cwd, repository, epic, live, gh)
   const issueSpec =
     accepted === null
@@ -150,8 +90,11 @@ export async function assembleEpicRangeInputs(input: {
   const { base, candidate } = exactRange(input.request)
   await verifyRangeCommits(input.git, input.cwd, base, candidate)
   const epic = epicNumber(input.request.repository, input.request.target)
-  const issue = await readEpicIssue(input.cwd, input.request.repository, epic, input.gh)
-  const { config, assetDir, classes, classNames } = reviewAssets()
+  const issue = await readEpicInputSpec(input.cwd, input.request.repository, input.request.target, epic, input.gh)
+  const config = loadReviewConfig()
+  const catalogue = loadReviewClassCatalogue()
+  const { assetDir, canonicalClasses } = catalogue
+  if (!canonicalClasses.length) throw new Error('installed class catalogue has no canonical classes')
   const [stack, baseStack] = await Promise.all([
     candidateText(input.git, input.cwd, candidate, '.dev/stack.yml', false),
     candidateText(input.git, input.cwd, base, '.dev/stack.yml', false),
@@ -169,7 +112,6 @@ export async function assembleEpicRangeInputs(input: {
     input.cwd,
     input.request.repository,
     epic,
-    input.request.target,
     issue,
     input.gh,
   )
@@ -192,7 +134,14 @@ export async function assembleEpicRangeInputs(input: {
     config: parseRosterConfig(stack),
   }
   const policy: Policy = { version: 'baseline' }
-  const assets = promptAssets(assetDir, classes)
+  const loadedAssets = loadReviewAssets(catalogue)
+  const assets = {
+    classes: loadedAssets.classes,
+    evidencePolicy: loadedAssets.evidencePolicy,
+    rootCauses: loadedAssets.rootCauses,
+    smells: loadedAssets.smells,
+    blindSpots: loadedAssets.blindSpots,
+  }
   const spec = { source: 'tracker-issue' as const, issue: issueSpec.number, body: issueSpec.body, rows: [] }
   const prompts = buildReviewPrompts({ tier: roster.tier, policy, spec, semanticContext, semanticCanon, assets })
   const observedEvidence: ObservedEvidence = {
@@ -221,7 +170,7 @@ export async function assembleEpicRangeInputs(input: {
     pr: { base: 'epic-range', baseGitSHA: base },
     chunks,
     roster,
-    config: { ...config, canonicalClasses: classNames },
+    config: { ...config, canonicalClasses },
     policy,
     semantic: { spec: prompts.spec, panel: prompts.panel, synthesis: prompts.synthesis },
     observedEvidence,
@@ -233,7 +182,7 @@ export async function assembleEpicRangeInputs(input: {
         lastEditedAt: issueSpec.lastEditedAt,
       },
     },
-    canonicalClasses: classNames,
+    canonicalClasses,
     authorize: async () => ({ ok: true }),
   }
 }

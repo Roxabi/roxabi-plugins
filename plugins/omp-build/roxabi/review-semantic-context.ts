@@ -5,20 +5,11 @@ import {
   readWorkflowBinding,
   resolveBoundWork,
   type Scope,
-  specDigest,
 } from '../dist/contracts.js'
 import { withRoxabiGitHubPolicy } from './github-policy'
+import { type ReviewIssueSpec, readReviewIssueSpec } from './uw-spec'
 
 export type Gh = (cwd: string, args: string[]) => Promise<string>
-
-export type ReviewIssueSpec = {
-  reference: string
-  number: number
-  body: string
-  digest: string
-  lastEditedAt: string | null
-  labels: readonly string[]
-}
 
 export type ReviewSemanticContext =
   | {
@@ -65,34 +56,6 @@ function isObject(value: unknown): value is Record<string, unknown> {
 function issueNumber(scope: Scope): number | null {
   const match = scope.target.match(/#([1-9]\d*)$/)
   return match !== null && scope.target === `${scope.repository}#${match[1]}` ? Number(match[1]) : null
-}
-async function readIssue(cwd: string, repository: string, number: number, gh: Gh): Promise<Result<ReviewIssueSpec>> {
-  try {
-    const raw: unknown = JSON.parse(
-      await gh(cwd, ['issue', 'view', String(number), '--repo', repository, '--json', 'body,updatedAt,state,labels']),
-    )
-    if (
-      !isObject(raw) ||
-      (raw.state !== 'OPEN' && raw.state !== 'CLOSED') ||
-      typeof raw.body !== 'string' ||
-      (raw.updatedAt !== null && typeof raw.updatedAt !== 'string') ||
-      !Array.isArray(raw.labels)
-    )
-      return failed('tracker-issue-unreadable', `tracker issue #${number} is unreadable`)
-    return {
-      ok: true,
-      value: {
-        reference: `#${number}`,
-        number,
-        body: raw.body,
-        digest: specDigest(raw.body),
-        lastEditedAt: raw.updatedAt as string | null,
-        labels: raw.labels.flatMap((label) => (isObject(label) && typeof label.name === 'string' ? [label.name] : [])),
-      },
-    }
-  } catch (error) {
-    return failed('tracker-issue-unreadable', error instanceof Error ? error.message : String(error))
-  }
 }
 
 function standaloneContext(currentSpec: ReviewIssueSpec | null): Result<ReviewSemanticContext> {
@@ -144,7 +107,7 @@ async function resolveStandaloneContext(
     return failed('tracker-reference-ambiguous', error instanceof Error ? error.message : String(error))
   }
   if (number === null) return standaloneContext(null)
-  const current = await readIssue(input.cwd, input.repository, number, input.gh)
+  const current = await readReviewIssueSpec(input.cwd, input.repository, number, input.gh)
   return current.ok ? standaloneContext(current.value) : current
 }
 
@@ -171,7 +134,7 @@ export async function resolveReviewSemanticContext(
   const scope = linkedScopes[0]
   const number = issueNumber(scope)
   if (number === null) return failed('workflow-binding-incomplete', 'bound tracker issue has an invalid scope')
-  const current = await readIssue(input.cwd, scope.repository, number, input.gh)
+  const current = await readReviewIssueSpec(input.cwd, scope.repository, number, input.gh)
   if (!current.ok) return current
   const resolved = resolveBoundWork({
     use: 'review',

@@ -10,7 +10,8 @@ export {
 } from './adapters/github/record-integrity.ts'
 export { githubScope, readGitHubHistory } from './adapters/github/transport.ts'
 export { type Gh, GitHubHistoryReadError, type GitHubOptions } from './adapters/github/types.ts'
-export { readIssueParentAssociation, readLinkedIssueAssociation } from './adapters/github-workflow/associations.ts'
+export { readNativeIssueFacts } from './adapters/github-native/issue-facts.ts'
+export { readIssueParentAssociation, readLinkedIssueAssociation } from './adapters/github-native/relations.ts'
 export {
   publishConfirmedWorkflowRecord,
   readLandingFacts,
@@ -18,9 +19,7 @@ export {
 } from './adapters/github-workflow/binding.ts'
 export { readComposedWorkflowHistory } from './adapters/github-workflow/history.ts'
 export {
-  readNativeIssueFacts,
   readNativePullRequestFacts,
-  readScopeIssueBody,
   resolveNativeScope,
   resolveNativeTarget,
 } from './adapters/github-workflow/native-facts.ts'
@@ -269,6 +268,7 @@ export {
   ompBuildStartReviewParametersJsonSchema,
   ompBuildStartReviewParametersSchema,
 } from './omp/tool-schemas.ts'
+export { readScopeIssueBody } from './roxabi/uw-spec/scope-issue.ts'
 export { readEffectiveFixConfig } from './roxabi/workflow-config.ts'
 export { shippedProductVersion } from './roxabi/workflow-config-digest.ts'
 

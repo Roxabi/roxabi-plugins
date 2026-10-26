@@ -1,12 +1,12 @@
 #!/usr/bin/env bun
 
+import { parsePricedFences, specIsDraft } from '../../roxabi/uw-spec'
 import { parseRosterCliArguments, type RosterCliArguments } from './roster-cli-arguments'
 import { dispatchRosterCli, type RosterCliDispatch } from './roster-cli-dispatch'
 import { loadRosterCliInput, type RosterCliInput } from './roster-cli-input'
 import { parseRosterConfig, parseStackPaths } from './roster-config'
 import type { ComputeRosterInput } from './roster-contract'
 import { hasAxialAdr } from './roster-files'
-import { parsePricedFences, specIsDraft } from './roster-spec'
 
 type PreparedRosterInput = {
   shared: ComputeRosterInput

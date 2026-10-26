@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { githubScope } from '../github/transport.ts'
-import { readIssueParentAssociation, readLinkedIssueAssociation } from '../github-workflow/associations.ts'
+import { readIssueParentAssociation, readLinkedIssueAssociation } from '../github-native/relations.ts'
 import { resolveNativeScope, resolveNativeTarget } from '../github-workflow/native-facts.ts'
 import { BASE_TIP, closingGraphql, fakeGh, HEAD, prView } from './github-workflow-support.ts'
 

@@ -1,3 +1,4 @@
+import { readNativeIssueState } from '../adapters/github-native/issue-state.ts'
 import type { FixTarget, TargetResolver } from './fix-contract.ts'
 import { execFileAsync, type Gh, object } from './fix-entry-target-core.ts'
 
@@ -67,12 +68,7 @@ export function createResolver(cwd: string, gh: Gh, repository: string): TargetR
       )
     } catch {
       try {
-        return await targetFromIssue(
-          cwd,
-          repository,
-          number,
-          JSON.parse(await gh(cwd, ['issue', 'view', String(number), '--json', 'state'])),
-        )
+        return await targetFromIssue(cwd, repository, number, await readNativeIssueState(cwd, gh, number))
       } catch {
         return null
       }

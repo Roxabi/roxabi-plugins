@@ -13,6 +13,7 @@ import {
   summarizeReviews,
 } from '../dist/contracts.js'
 import { ROXABI_STOP_AUTHOR, withRoxabiGitHubPolicy } from '../roxabi/github-policy.ts'
+import { loadReviewClassCatalogue } from '../roxabi/review-assets.ts'
 import type { ReviewContext } from '../roxabi/review-contract.ts'
 import { persistRequiredReviewStop } from '../roxabi/review-dispatch.ts'
 import type { Gh } from '../skills/feature/review-base.ts'
@@ -90,13 +91,10 @@ async function gh(cwd: string, repository: string, args: string[]): Promise<stri
 }
 
 function taxonomy(cwd: string): string[] {
-  const classes = [
-    ...readFileSync(join(cwd, 'plugins/omp-build/skills/dev-review/review-classes.yml'), 'utf8').matchAll(
-      /^\s*-\s+class:\s*([a-z][a-z0-9-]*)\s*$/gm,
-    ),
-  ].map((match) => match[1])
-  if (classes.length === 0) throw new Error('trusted review taxonomy is unreadable')
-  return classes
+  const { classes } = loadReviewClassCatalogue(join(cwd, 'plugins/omp-build/skills/dev-review'))
+  const taxonomy = [...classes.matchAll(/^\s*-\s+class:\s*([a-z][a-z0-9-]*)\s*$/gm)].map((match) => match[1])
+  if (taxonomy.length === 0) throw new Error('trusted review taxonomy is unreadable')
+  return taxonomy
 }
 
 async function main(): Promise<void> {

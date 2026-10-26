@@ -1,19 +1,20 @@
 import type { ScopedRecordRef } from '../engine/record-references.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
-import { branchFor, hasScope } from '../skills/feature/epic-naming.ts'
-import { mandateParentHistories, readIssue } from './feature-context.ts'
+import { branchFor } from '../skills/feature/epic-naming.ts'
+import { mandateParentHistories } from './feature-context.ts'
 import type { FeatureAuthority } from './feature-continuation-admission.ts'
 import type { ContinueFeatureResult, FeatureControl } from './feature-contract.ts'
 import { scopeNumber } from './feature-delivery-facts.ts'
 import { publishFirstMandate, resolveBase } from './feature-mandate.ts'
 import { linkedMove } from './feature-selection.ts'
 import { publishSuccessorMandate } from './feature-succession.ts'
+import { hasScope, readSelectionIssueSpec, type SelectionIssueSpec } from './uw-spec'
 import { prepareFeatureCheckout, runWorktreeBootstrap } from './workflow-checkout.ts'
 
 export type SelectedFeature = {
   authority: FeatureAuthority
   number: number
-  issue: NonNullable<Awaited<ReturnType<typeof readIssue>>>
+  issue: SelectionIssueSpec
   mandate: MandateRecord | null
   mandateRef: ScopedRecordRef | null
 }
@@ -28,7 +29,7 @@ export async function selectFeatureMandate(
   const { context, identity, scope } = authority
   const number = scopeNumber(scope)
   if (number === 0) return { kind: 'blocked', reason: 'issue-unreadable' }
-  const issue = await readIssue(context.gh, context.cwd, scope.repository, number)
+  const issue = await readSelectionIssueSpec(context.cwd, scope.repository, number, context.gh)
   if (issue === null) return { kind: 'blocked', reason: 'issue-unreadable' }
   const sessionCwd = identity.ok ? identity.sessionTop : null
   const branch = branchFor({ number, title: issue.title, labels: issue.labels })
@@ -182,7 +183,7 @@ async function publishAndRefreshSuccessor(
 
 async function establishFirstMandate(input: {
   authority: FeatureAuthority
-  issue: NonNullable<Awaited<ReturnType<typeof readIssue>>>
+  issue: SelectionIssueSpec
   number: number
   branch: string
   history: FeatureAuthority['history']
