@@ -69,6 +69,34 @@ def test_registry_duplicate_identities_include_deprecated_entries(tmp_path):
     assert any('duplicate marketplace name' in error for error in errors)
     assert any('duplicate marketplace source' in error for error in errors)
 
+def test_registry_watched_paths_are_optional_but_must_be_relative_prefixes(tmp_path):
+    registry, curated = _write_projection(
+        tmp_path,
+        [
+            {
+                'name': 'active',
+                'source': 'https://example.test/active',
+                'status': 'active',
+                'watched_paths': ['skills/productivity/grilling'],
+            }
+        ],
+        [{'name': 'active', 'source': 'https://example.test/active'}],
+    )
+    assert _load_tool().check_curated_marketplace_projection(registry, curated) == []
+
+    registry.write_text(
+        json.dumps(
+            {
+                'curated_marketplaces': [
+                    {'name': 'active', 'source': 'https://example.test/active', 'status': 'active', 'watched_paths': ['/skills']}
+                ]
+            }
+        ),
+        encoding='utf-8',
+    )
+    errors = _load_tool().check_curated_marketplace_projection(registry, curated)
+    assert errors == ['external-registry.json curated_marketplaces[0]: watched_paths must be non-empty relative path prefixes']
+
 
 def test_missing_or_malformed_registry_input_is_rejected(tmp_path):
     registry = tmp_path / 'external-registry.json'

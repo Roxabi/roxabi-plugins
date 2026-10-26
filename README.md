@@ -32,6 +32,7 @@ The active external catalog is the `status: active` projection of
 [`.claude-plugin/external-registry.json`](.claude-plugin/external-registry.json), mirrored by
 [`.claude-plugin/curated-marketplaces.json`](.claude-plugin/curated-marketplaces.json). The
 registry retains deprecated entries as historical records; they are not install recommendations.
+Upstream Watch is separate: it monitors only explicit omp-build `watched_paths`, not this catalog.
 
 | Marketplace | Source |
 |-------------|--------|
