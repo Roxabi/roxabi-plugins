@@ -1,6 +1,6 @@
 import { armMergeOnGreen, armNative } from './landing-arm.js'
 import { finishLanding } from './landing-finish.js'
-import { admitLandingCandidate, readInitialLanding } from './landing-initial.js'
+import { readInitialLanding, validateLandingCandidate } from './landing-initial.js'
 import { landingExit } from './landing-initial-preparation.js'
 import { resolveReviewPr } from './workflow-pr.js'
 import { ciWatchSh, gh, gitResult, shellQuote } from './workflow-runtime.js'
@@ -62,7 +62,7 @@ export async function landPr(
     terminal = initial.terminal
     state = initial.state
     if (!terminal && state) {
-      const admitted = await admitLandingCandidate(cwd, pr, ghFn, gitFn, state)
+      const admitted = await validateLandingCandidate(cwd, pr, ghFn, gitFn, state)
       terminal = admitted.terminal
       state = admitted.state ?? state
     }

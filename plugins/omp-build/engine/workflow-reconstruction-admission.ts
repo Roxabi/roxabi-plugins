@@ -39,6 +39,8 @@ function historyProblemDecision(history: DecodedHistory): WorkflowDecision | nul
   const problem = workflowOperationProblem(history)
   if (problem === 'ambiguous')
     return blocked('ambiguous-transition', [diagnostic('ambiguous', 'Workflow history conflicts')])
+  if (problem === 'incompatible-format')
+    return blocked(problem, [diagnostic(problem, 'Workflow history uses an incompatible format')])
   if (problem === 'unconfirmed' || problem === 'incomplete')
     return blocked('incomplete', [diagnostic(problem, 'Workflow history is not complete')])
   return null
@@ -101,6 +103,7 @@ function refusalDecision(selection: Extract<MandateSelection, { status: 'refused
   if (code === 'config-drift') return blocked('config-drift', selection.evidence)
   if (code === 'unsupported-graph') return blocked('unsupported-graph', selection.evidence)
   if (code === 'missing-history' || code === 'incomplete') return blocked('missing-history', selection.evidence)
+  if (selection.reason === 'incompatible-format') return blocked(selection.reason, selection.evidence)
   if (selection.reason === 'incompatible' || selection.reason === 'unsafe' || selection.reason === 'materially-changed')
     return blocked('unsafe-authority', selection.evidence)
   return blocked(selection.reason === 'unsupported' ? 'unsupported-config' : 'unconfirmed', selection.evidence)

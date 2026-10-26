@@ -8,8 +8,8 @@ pre-push:
       run: bun run test
 pr:
   commands:
-    semctx-pr:
-      run: bash scripts/acme-semctx-pr.sh
+    review:
+      run: bash scripts/acme-review.sh
   scripts:
-    "semctx-manual.sh":
+    "manual.sh":
       runner: bash

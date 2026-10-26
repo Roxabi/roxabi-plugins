@@ -149,7 +149,7 @@ describe('epic-driver — next', () => {
   it('starts the first child from origin/<base>, ignoring a foreign canonical stop event', () => {
     const { epic } = sandbox()
     const forged = framedRecords(2, [
-      epicEvent(2, 'foreign-stop', { event: 'goal-stop', run: RUN, reason: 'proof-blocked', detail: '' }),
+      epicEvent(2, 'foreign-stop', { event: 'goal-stop', run: RUN, reason: 'base-blocked', detail: '' }),
     ]).map((comment) => ({ ...comment, author: 'mallory' }))
     serveEpic([
       childNode(2, 'feat(x): first child', { comments: forged }),

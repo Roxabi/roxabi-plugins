@@ -217,7 +217,8 @@ describe('commit claims', () => {
 describe('stop classes', () => {
   it.each<[string, string, 'ticket' | 'shared' | 'no-progress' | null]>([
     ['review loop stop', 'review-bound', 'ticket'],
-    ['proof BLOCKED', 'proof-blocked', 'ticket'],
+    ['review input refused at landing', 'review-input-refused', 'ticket'],
+    ['base blocked at landing', 'base-blocked', 'ticket'],
     ['§6.0 foreign commit', 'foreign-commit', 'ticket'],
     ['§6.0 branch mismatch', 'branch-mismatch', 'ticket'],
     ['child without scope', 'no-scope', 'ticket'],
@@ -254,7 +255,8 @@ describe('stop classes', () => {
     ['ci-blocked', { stop: 'ci-blocked', class: 'ticket' }],
     ['stopped', { stop: 'stopped', class: 'ticket' }],
     ['closed', { stop: 'closed', class: 'ticket' }],
-    ['proof-blocked', { stop: 'proof-blocked', class: 'ticket' }],
+    ['review-input-refused', { stop: 'review-input-refused', class: 'ticket' }],
+    ['base-blocked', { stop: 'base-blocked', class: 'ticket' }],
     ['behind', { stop: 'behind', class: 'ticket' }],
     ['watch-failed', { stop: 'watch-failed', class: 'shared' }],
     ['bad-landing', { stop: 'bad-landing', class: 'shared' }],
@@ -453,7 +455,7 @@ describe('armedStoppedPrs', () => {
         child(4, { prs: [pr(4, { number: 14, armed: true })] }),
         child(5, { stops: [{ run: RUN, reason: 'timeout' }], prs: [pr(5, { number: 15, armed: false })] }),
         child(6, { stops: [{ run: EARLIER, reason: 'timeout' }], prs: [pr(6, { number: 16, armed: true })] }),
-        child(7, { stops: [{ run: RUN, reason: 'proof-blocked' }], prs: [pr(7, { number: 17, armed: true })] }),
+        child(7, { stops: [{ run: RUN, reason: 'review-input-refused' }], prs: [pr(7, { number: 17, armed: true })] }),
       ]),
     )
     expect(listed).toEqual([

@@ -3,9 +3,9 @@ import { rmSync } from 'node:fs'
 import path from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
-import { readSim } from '../../skills/feature/__fixtures__/proof/sandbox-repository.ts'
-import type { Box } from '../../skills/feature/__fixtures__/proof/sandbox-types.ts'
 import { arrangeReviewFixture, seedReviewFixture } from '../../testing/feature-review-fixture.ts'
+import { readSim } from '../../testing/sandbox/sandbox-repository.ts'
+import type { Box } from '../../testing/sandbox/sandbox-types.ts'
 
 const RUNNER = path.resolve(import.meta.dirname, '../../testing/feature-recovery-runner.ts')
 const BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()

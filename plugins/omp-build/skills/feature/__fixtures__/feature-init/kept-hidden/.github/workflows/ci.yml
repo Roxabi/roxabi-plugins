@@ -1,7 +1,6 @@
 name: Widget Build
 jobs:
-  semctx-working-empty:
-    name: semctx-working-empty
+  widget-build:
     runs-on: ubuntu-latest
     steps:
       - run: echo ok

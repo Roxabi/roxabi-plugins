@@ -19,7 +19,6 @@ describe('workflow Spec assessment behavior', () => {
       base: 'main',
       lineageHead: null,
       body: BODY,
-      proofPins: [],
     })
     if (mandated.kind !== 'mandate') throw new Error('expected a mandate')
     const bodyB = 'material body B'
@@ -34,7 +33,6 @@ describe('workflow Spec assessment behavior', () => {
       publish: { status: 'absent' as const, evidence: [] },
       landing: { status: 'absent' as const, evidence: [] },
       watch: { status: 'absent' as const, evidence: [] },
-      proof: { admission: null, candidateGitSHA: null, input: null, applicability: 'required' as const, evidence: [] },
     }
     const staleEvidence = {
       issue: history([mandated, historical.start, historical.result]),
@@ -46,7 +44,6 @@ describe('workflow Spec assessment behavior', () => {
       configVersion: mandated.payload.config.version,
       configDigest: mandated.payload.config.digest,
       supportedConfigVersions: [mandated.payload.config.version],
-      proofPins: mandated.payload.proofPins,
       specBody: bodyC,
       specDigest: specDigest(bodyC),
     })
@@ -99,7 +96,6 @@ describe('workflow Spec assessment behavior', () => {
           publish: { status: 'absent', evidence: [] },
           landing: { status: 'absent', evidence: [] },
           watch: { status: 'absent', evidence: [] },
-          proof: { admission: null, candidateGitSHA: null, input: null, applicability: 'required', evidence: [] },
         },
       }),
     ).toMatchObject({ status: 'action', mandateId: mandated.recordId })
@@ -186,7 +182,6 @@ describe('workflow Spec assessment behavior', () => {
           publish: { status: 'absent', evidence: [] },
           landing: { status: 'absent', evidence: [] },
           watch: { status: 'absent', evidence: [] },
-          proof: { admission: null, candidateGitSHA: null, input: null, applicability: 'required', evidence: [] },
         },
       }),
     ).toMatchObject({ status: 'action', mandateId: successor.recordId })
@@ -209,7 +204,6 @@ describe('workflow Spec assessment behavior', () => {
           publish: { status: 'absent', evidence: [] },
           landing: { status: 'absent', evidence: [] },
           watch: { status: 'absent', evidence: [] },
-          proof: { admission: null, candidateGitSHA: null, input: null, applicability: 'required', evidence: [] },
         },
       }),
     ).toMatchObject({ status: 'terminal', reason: 'spec-ambiguous' })

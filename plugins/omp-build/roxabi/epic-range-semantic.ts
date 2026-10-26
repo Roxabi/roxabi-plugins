@@ -1,7 +1,6 @@
-import { proofSemanticContext } from '../skills/feature/proof-context'
-import { reviewSemanticCanon } from '../skills/feature/proof-semantic-canon'
 import { withRoxabiGitHubPolicy } from './github-policy'
 import type { Gh } from './review-input-contract'
+import { confirmedReviewSemanticContext, reviewSemanticCanon } from './review-semantic-canon'
 import type { ReviewSemanticContext } from './review-semantic-context'
 import { additionalRequirementsOf } from './workflow-overrides'
 
@@ -24,7 +23,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function epicSemanticCanon(semanticContext: ReviewSemanticContext): string {
-  const projected = proofSemanticContext(semanticContext)
+  const projected = confirmedReviewSemanticContext(semanticContext)
   if ('ok' in projected) throw new Error(`${projected.reason}: ${projected.error}`)
   return reviewSemanticCanon(projected)
 }

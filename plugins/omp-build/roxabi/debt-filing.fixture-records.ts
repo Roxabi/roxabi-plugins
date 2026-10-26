@@ -102,6 +102,7 @@ export function canonicalUnusableComments(): string[] {
     payload: {
       rootAttemptId: 'debt-root',
       candidateGitSHA: TARGET.candidateGitSHA,
+      inputFormat: 'omp-build:review-input/3',
       input: graph.root.payload.input,
       slots: graph.root.payload.slots,
       stage: 'initial',
@@ -122,6 +123,7 @@ export function canonicalUnusableComments(): string[] {
     payload: {
       rootAttemptId: root.recordId,
       candidateGitSHA: TARGET.candidateGitSHA,
+      inputFormat: 'omp-build:review-input/3',
       input: graph.synthesis.payload.input,
       slots: graph.synthesis.payload.slots,
       stage: 'synthesis',

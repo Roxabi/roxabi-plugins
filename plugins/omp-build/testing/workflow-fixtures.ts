@@ -2,7 +2,7 @@ import { decodeHistory, encodeRecord } from '../adapters/github/history-codec.ts
 import type { DecodedHistory, History } from '../engine/history-schema.ts'
 import { buildRecord } from '../engine/record-construction.ts'
 import { specDigest } from '../engine/record-digests.ts'
-import type { ExternalRecordRef, ProofConfigPin } from '../engine/record-references.ts'
+import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Json, Scope } from '../engine/record-values.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
@@ -10,7 +10,6 @@ import type { MandateRecord } from '../engine/workflow-control.ts'
 export type WorkflowFixtureContext = {
   productVersion: string
   config: { version: string; digest: string; effective: Json }
-  proofPins: readonly ProofConfigPin[]
   head: string | null
   editedAt: string
 }
@@ -25,7 +24,6 @@ type MandateOverrides = {
   base?: string
   lineageHead?: string | null
   body?: string
-  proofPins?: readonly ProofConfigPin[]
   parent?: ExternalRecordRef | null
   antecedent?: ExternalRecordRef | null
   config?: WorkflowFixtureContext['config']
@@ -72,13 +70,13 @@ export function createWorkflowFixtures(context: WorkflowFixtureContext) {
       kind: 'mandate',
       payload: {
         role: 'feature',
+        format: 'omp-build-mandate/2',
         run: null,
         children: null,
         branch: overrides.branch === undefined ? 'feat/42-save' : overrides.branch,
         base: overrides.base ?? 'main',
         lineageHead: overrides.lineageHead === undefined ? context.head : overrides.lineageHead,
         config: { productVersion: context.productVersion, ...(overrides.config ?? context.config) },
-        proofPins: [...(overrides.proofPins ?? context.proofPins)],
         parent: overrides.parent ?? null,
         antecedent: overrides.antecedent ?? null,
         spec: spec(body, scope.target),
@@ -98,13 +96,13 @@ export function createWorkflowFixtures(context: WorkflowFixtureContext) {
       kind: 'mandate',
       payload: {
         role: 'epic',
+        format: 'omp-build-mandate/2',
         run: overrides.runId ?? 'run00001',
         children,
         branch: null,
         base: overrides.base ?? 'main',
         lineageHead: null,
         config: { productVersion: context.productVersion, ...(overrides.config ?? context.config) },
-        proofPins: [...(overrides.proofPins ?? context.proofPins)],
         parent: null,
         antecedent: null,
         spec: spec(body, scope.target),
@@ -124,13 +122,13 @@ export function createWorkflowFixtures(context: WorkflowFixtureContext) {
       kind: 'mandate',
       payload: {
         role: 'fix-only',
+        format: 'omp-build-mandate/2',
         run: null,
         children: null,
         branch: overrides.branch ?? 'fix/42-save',
         base: overrides.base ?? 'main',
         lineageHead: overrides.lineageHead === undefined ? context.head : overrides.lineageHead,
         config: { productVersion: context.productVersion, ...(overrides.config ?? context.config) },
-        proofPins: [...(overrides.proofPins ?? context.proofPins)],
         parent: overrides.parent ?? null,
         antecedent: overrides.antecedent ?? null,
         spec: spec(body, scope.target),
@@ -211,7 +209,6 @@ export function createWorkflowFixtures(context: WorkflowFixtureContext) {
     branch: string
     base: string
     issueBody: string
-    proofPins: readonly ProofConfigPin[]
     lineageHead?: string | null
     author?: string
   }) => {
@@ -223,7 +220,6 @@ export function createWorkflowFixtures(context: WorkflowFixtureContext) {
       branch: input.branch,
       base: input.base,
       lineageHead: input.lineageHead === undefined ? null : input.lineageHead,
-      proofPins: input.proofPins,
     })
     const binding = workflowBinding(pullRequest, mandate, input.branch, input.base)
     const sameScope = issueScope.repository === pullRequest.repository && issueScope.target === pullRequest.target

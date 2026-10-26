@@ -4,23 +4,36 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { decodeHistory } from '../adapters/github/history-codec.ts'
-import {
-  git,
-  readSim,
-  sandbox,
-  WORKFLOW,
-  worktree,
-  writeSim,
-} from '../skills/feature/__fixtures__/proof/sandbox-repository.ts'
-import { plainSpec } from '../skills/feature/__fixtures__/proof/sandbox-semctx-spec.ts'
-import type { Box } from '../skills/feature/__fixtures__/proof/sandbox-types.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
-import { PROOF_PIN_PATHS } from './workflow-pins.ts'
+import { git, readSim, sandbox, WORKFLOW, worktree, writeSim } from '../testing/sandbox/sandbox-repository.ts'
+import type { Box } from '../testing/sandbox/sandbox-types.ts'
 
 const RUNNER = path.resolve(import.meta.dirname, '../testing/feature-recovery-runner.ts')
 const BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
 const SCOPE = { repository: 'acme/app', target: 'acme/app#42' }
 const BRANCH = 'feat/42-save'
+function plainSpec() {
+  return {
+    base: {
+      '.dev/stack.yml': 'landing:\n  mode: merge-on-green\n',
+      'src/a.ts': 'export const add = (a, b) => a + b\n',
+    },
+    branches: [
+      {
+        name: 'fix/5-plain',
+        from: 'main',
+        commits: [
+          {
+            message: 'fix: plain (#5)',
+            files: { 'src/a.ts': 'export const add = (a, b) => a + b\nexport const plain = true\n' },
+          },
+        ],
+      },
+    ],
+    issues: [{ number: 5, title: 'fix: plain', issueType: 'fix' }],
+    prs: [{ number: 30, branch: 'fix/5-plain', title: 'fix: plain', body: 'Closes #5\n', closes: [5] }],
+  }
+}
 const BODY = '## Acceptance criteria\n\n- [ ] preserves the region\n'
 
 const OBSERVED_INCOMPLETE_NATIVE_TERMINAL = {
@@ -94,22 +107,6 @@ function coldCheckout(box: Box, name: string, branch = BRANCH): string {
   git(box, box.root, ['clone', '-q', box.origin, principal])
   git(box, principal, ['worktree', 'add', '-q', '-b', branch, checkout, `origin/${branch}`])
   return checkout
-}
-
-function livePinsAt(box: Box, baseTip: string): { sourceCommit: string; path: string; blob: string | null }[] {
-  const toplevel = git(box, box.principal, ['rev-parse', '--show-toplevel'])
-  return PROOF_PIN_PATHS.map((pinPath) => {
-    try {
-      const blob = execFileSync('git', ['rev-parse', '--verify', '--quiet', `${baseTip}:${pinPath}`], {
-        cwd: toplevel,
-        env: box.env,
-        encoding: 'utf8',
-      }).trim()
-      return { sourceCommit: baseTip, path: pinPath, blob: /^[0-9a-f]{40}$/.test(blob) ? blob : null }
-    } catch {
-      return { sourceCommit: baseTip, path: pinPath, blob: null }
-    }
-  })
 }
 
 function workflowRead(box: Box, cwd: string, pr: number, head: string) {
@@ -462,7 +459,6 @@ describe('feature recovery terminal and publication witnesses', () => {
       branch,
       base: 'main',
       issueBody: issue.body,
-      proofPins: livePinsAt(box, baseTip),
       lineageHead: head,
       author: 'operator',
     })

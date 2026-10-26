@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { specDigest } from './record-digests.ts'
-import { type ExternalRecordRef, externalRecordRefSchema, proofConfigPinSchema } from './record-references.ts'
+import { type ExternalRecordRef, externalRecordRefSchema } from './record-references.ts'
 import { identifierSchema, jsonSchema, scopeSchema, sha256Schema, shaSchema } from './record-values.ts'
 
 const mandateConfigSchema = z.strictObject({
@@ -21,11 +21,11 @@ const approvedChildSchema = z.strictObject({
   specBody: z.string(),
 })
 const mandateShared = {
+  format: z.literal('omp-build-mandate/2'),
   branch: z.string().min(1).nullable(),
   base: z.string().min(1),
   lineageHead: shaSchema.nullable(),
   config: mandateConfigSchema,
-  proofPins: z.array(proofConfigPinSchema),
   parent: externalRecordRefSchema.nullable(),
   antecedent: externalRecordRefSchema.nullable(),
   spec: mandateSpecSchema,

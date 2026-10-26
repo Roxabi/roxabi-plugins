@@ -1,9 +1,9 @@
 import { viewer } from '../adapters/github/types.ts'
 import type { Result } from '../dist/contracts.js'
-import { proofSemanticContext } from '../skills/feature/proof-context'
 import { resolveReviewPr } from '../skills/feature/workflow-pr.js'
 import { captureReviewInput } from '../skills/feature/workflow-review-input.js'
 import type { Gh, Git, ReviewInputCapture } from './review-input-contract'
+import { confirmedReviewSemanticContext } from './review-semantic-canon'
 import { type ReviewSemanticContext, resolveReviewSemanticContext } from './review-semantic-context'
 
 const SHA = /^[0-9a-f]{40}$/
@@ -85,10 +85,10 @@ export async function prepareReviewTarget(
       semantic.diagnostics.map((item) => `${item.code}: ${item.message}`).join('; '),
     )
   }
-  const proof = proofSemanticContext(semantic.value)
-  if ('ok' in proof) return failed('review-semantic-context-refused', `${proof.reason}: ${proof.error}`)
-  const capture = await captureReviewInput(cwd, number, pr.headRefOid, { gh, git, semantic: proof })
-  if (!capture.ok) return failed('review-input-refused', `${capture.producer}:${capture.reason}: ${capture.error}`)
+  const confirmed = confirmedReviewSemanticContext(semantic.value)
+  if ('ok' in confirmed) return failed('review-semantic-context-refused', `${confirmed.reason}: ${confirmed.error}`)
+  const capture = await captureReviewInput(cwd, number, pr.headRefOid, { gh, git, semantic: confirmed })
+  if (!capture.ok) return failed('review-input-refused', `${capture.reason}: ${capture.error}`)
 
   return {
     ok: true,

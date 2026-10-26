@@ -1,4 +1,4 @@
-import type { Gh } from './proof-base.ts'
+import type { Gh } from './review-base.ts'
 
 export type DisarmReviewedBeforePushResult =
   | { disarmed: true }

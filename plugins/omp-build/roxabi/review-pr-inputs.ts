@@ -7,7 +7,7 @@ import type { Policy, Result } from '../dist/contracts.js'
 import { parseRosterConfig, parseStackPaths } from '../skills/dev-review/roster-config'
 import type { AllocateReviewInput } from '../skills/dev-review/roster-contract'
 import { normalizeTier, parsePricedFences, specIsDraft } from '../skills/dev-review/roster-spec'
-import { refreshSelectedBase } from '../skills/feature/proof-candidate'
+import { refreshReviewBase } from '../skills/feature/review-base'
 import { candidateText, materializeCandidateChunks } from './review-candidate-material'
 import { loadReviewConfig } from './review-config'
 import type {
@@ -16,7 +16,6 @@ import type {
   PreparedReviewInputs,
   PrepareReviewInputsOptions,
   ReviewInputCapture,
-  SelectedProof,
 } from './review-input-contract'
 import { prepareReviewTarget } from './review-pr-target'
 import { buildReviewPrompts, type SpecDisplay } from './review-prompts'
@@ -64,20 +63,11 @@ function snapshot(
   capture: ReviewInputCapture,
   spec: PreparedReviewInputs['issueSpec'],
 ): PreparedReviewInputs['inputSnapshot'] {
-  const parts = (selected: SelectedProof | null) =>
-    selected?.parts.map((part) => {
-      if (!Number.isInteger(part.id) || (part.id ?? 0) < 1)
-        throw new Error('selected proof part lacks a native identity')
-      return { id: part.id as number, createdAt: part.createdAt ?? null, updatedAt: part.updatedAt ?? null }
-    }) ?? null
   return {
     body: capture.body,
     spec: spec === null ? null : { reference: spec.reference, body: spec.body, lastEditedAt: spec.lastEditedAt },
-    semctxParts: parts(capture.semctx),
-    assertledgerParts: parts(capture.assertledger),
   }
 }
-
 function tierDetails(issueSpec: PreparedReviewInputs['issueSpec']) {
   const warnings: string[] = []
   const labels = issueSpec?.labels.filter((label) => label.startsWith('size:')) ?? []
@@ -128,7 +118,7 @@ async function reviewMaterial(
   base: string,
   assetDir: string,
 ): Promise<Result<ReviewMaterial>> {
-  const refreshed = await refreshSelectedBase(options.cwd, base, git, gh)
+  const refreshed = await refreshReviewBase(options.cwd, base, git, gh)
   if (!refreshed.ok || !SHA.test(refreshed.tip)) {
     return failed<ReviewMaterial>(
       'base-unreadable',
@@ -232,8 +222,6 @@ export async function prepareReviewInputs(options: PrepareReviewInputsOptions): 
                   lastEditedAt: issueSpec.lastEditedAt,
                 },
           semanticContext,
-          semctx: capture.semctx,
-          assertledger: capture.assertledger,
         },
         inputSnapshot: snapshot(capture, issueSpec),
         issueSpec,

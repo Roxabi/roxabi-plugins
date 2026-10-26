@@ -27,6 +27,14 @@ describe('an existing landing', () => {
     return { dir, stack, facts }
   }
 
+  it.each([
+    ['acme', false],
+    ['kept', false],
+    ['kept-hidden', true],
+  ])('%s: reads the existing landing state', async (name, landingHidesChecks) => {
+    expect(await factsFor(name)).toMatchObject({ landingHidesChecks })
+  })
+
   it('flags a merge-on-green required_checks list that hides other checks, and writes nothing', async () => {
     const { dir, stack, facts } = await keptWithLanding(
       { mode: 'merge-on-green', required_checks: ['widget-build'] },

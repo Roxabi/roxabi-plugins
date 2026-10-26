@@ -4,14 +4,14 @@ import path from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 import { decodeHistory } from '../../adapters/github/history-codec.ts'
-import { git, readSim } from '../../skills/feature/__fixtures__/proof/sandbox-repository.ts'
-import type { Box } from '../../skills/feature/__fixtures__/proof/sandbox-types.ts'
 import {
   arrangeReviewFixture,
   REVIEW_BRANCH as BRANCH,
   REVIEW_SCOPE as SCOPE,
   seedReviewFixture,
 } from '../../testing/feature-review-fixture.ts'
+import { git, readSim } from '../../testing/sandbox/sandbox-repository.ts'
+import type { Box } from '../../testing/sandbox/sandbox-types.ts'
 
 const RUNNER = path.resolve(import.meta.dirname, '../../testing/feature-recovery-runner.ts')
 const BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()

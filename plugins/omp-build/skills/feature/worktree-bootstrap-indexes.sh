@@ -42,9 +42,3 @@ run_pre_setup_indexes() {
   fi
 }
 
-run_semctx_index() {
-  if [ -d "$here/.semctx" ]; then
-    need_cli semctx semctx
-    (cd "$here" && semctx index)
-  fi
-}

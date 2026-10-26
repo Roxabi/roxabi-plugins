@@ -1,6 +1,12 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { decodeHistory, githubScope, readGitHubHistory, summarizeReviews } from '../../dist/contracts.js'
+import {
+  decodeHistory,
+  githubScope,
+  readGitHubHistory,
+  selectedReviewOperations,
+  summarizeReviews,
+} from '../../dist/contracts.js'
 import { withRoxabiGitHubPolicy } from '../../roxabi/github-policy'
 import { gh, preview } from './workflow-runtime.js'
 
@@ -54,6 +60,13 @@ export async function readReviewRecords(cwd, pr, { gh: ghFn = gh, taxonomy, acce
   return reviewRecords(history, { ...(taxonomy === undefined ? {} : { taxonomy }), acceptedEvidencePolicyRef })
 }
 
+export async function requiredReviewAdmission(cwd, pr, options) {
+  const { gh: ghFn = gh, taxonomy, acceptedEvidencePolicyRef = null } = options ?? {}
+  const history = await readReviewHistory(cwd, pr, ghFn)
+  const result = reviewRecords(history, { ...(taxonomy === undefined ? {} : { taxonomy }), acceptedEvidencePolicyRef })
+  if (!result.ok) throw reviewRefusal(result)
+  return { records: result.value, operations: selectedReviewOperations(history, result.value) }
+}
 export async function requiredReviewRecords(cwd, pr, options) {
   const result = await readReviewRecords(cwd, pr, options)
   if (!result.ok) throw reviewRefusal(result)

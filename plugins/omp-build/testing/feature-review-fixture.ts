@@ -1,9 +1,7 @@
 import path from 'node:path'
-
-import { readProofConfigPins } from '../roxabi/workflow-pins.ts'
-import { git, sandbox, writeSim } from '../skills/feature/__fixtures__/proof/sandbox-repository.ts'
-import type { Box } from '../skills/feature/__fixtures__/proof/sandbox-types.ts'
 import { roxabiWorkflowFixtures } from './roxabi-presets.ts'
+import { git, sandbox, writeSim } from './sandbox/sandbox-repository.ts'
+import type { Box } from './sandbox/sandbox-types.ts'
 
 export const REVIEW_SCOPE = { repository: 'acme/app', target: 'acme/app#42' }
 export const REVIEW_BRANCH = 'feat/42-save'
@@ -39,25 +37,13 @@ export function arrangeReviewFixture(): { box: Box; cwd: string } {
   return { box, cwd }
 }
 
-export async function seedReviewFixture(box: Box, cwd: string): Promise<void> {
+export async function seedReviewFixture(box: Box, _cwd: string): Promise<void> {
   const head = box.sha[REVIEW_BRANCH]
   if (head === undefined) throw new Error('review-fixture-head-missing')
-  const pins = await readProofConfigPins(
-    async (directory, args) => {
-      try {
-        return { code: 0, stdout: `${git(box, directory, args)}\n`, stderr: '' }
-      } catch (error) {
-        return { code: 1, stdout: '', stderr: error instanceof Error ? error.message : String(error) }
-      }
-    },
-    cwd,
-    head,
-  )
   const mandate = featureMandate(REVIEW_SCOPE, {
     branch: REVIEW_BRANCH,
     body: REVIEW_BODY,
     lineageHead: head,
-    proofPins: pins,
   })
   const rejected = roxabiWorkflowFixtures().rejectedImplementResult(mandate)
   if (

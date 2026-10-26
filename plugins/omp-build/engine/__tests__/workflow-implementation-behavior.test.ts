@@ -9,7 +9,7 @@ import { implementationResult, implementationStart } from './workflow-implementa
 import { binding, facts, history, must, SCOPE } from './workflow-test-support.ts'
 
 describe('workflow implementation behavior', () => {
-  test('does not let an open or rejected implement reach proof because a pull request exists', () => {
+  test('does not let an open or rejected implementation bypass confirmation because a pull request exists', () => {
     const { featureMandate: shippedFeatureMandate } = roxabiWorkflowFixtures()
     const shipped = shippedFeatureMandate(SCOPE, {
       recordId: 'mandate-1',
@@ -19,7 +19,6 @@ describe('workflow implementation behavior', () => {
       base: 'main',
       lineageHead: null,
       body: 'ship the bounded workflow',
-      proofPins: [],
     })
     if (shipped.kind !== 'mandate') throw new Error('expected a mandate')
     const pull: Scope = { repository: 'acme/app', target: 'acme/app#99' }
@@ -33,14 +32,12 @@ describe('workflow implementation behavior', () => {
       publish: { status: 'absent', evidence: [] },
       landing: { status: 'absent', evidence: [] },
       watch: { status: 'absent', evidence: [] },
-      proof: { admission: null, candidateGitSHA: null, input: null, applicability: 'required' as const, evidence: [] },
     }
     const shippedFacts = facts({
       productVersion: shipped.payload.config.productVersion,
       configVersion: shipped.payload.config.version,
       configDigest: shipped.payload.config.digest,
       supportedConfigVersions: [shipped.payload.config.version],
-      proofPins: shipped.payload.proofPins,
       pullRequest: { scope: pull, head: 'abc', base: 'main', associatedIssue: SCOPE },
     })
     const bound = history([binding(shipped, pull)], pull)
@@ -50,20 +47,18 @@ describe('workflow implementation behavior', () => {
       decisions,
     })
     expect(open).toMatchObject({ status: 'blocked', reason: 'action-uncertain' })
-    expect(open).not.toMatchObject({ status: 'action', action: 'proof' })
     const rejectedDecision = reconstructWorkflow({
       evidence: { issue: history([shipped, start, rejected]), pullRequest: bound, parents: [] },
       facts: shippedFacts,
       decisions,
     })
     expect(rejectedDecision).toMatchObject({ status: 'blocked', reason: 'unconfirmed' })
-    expect(rejectedDecision).not.toMatchObject({ status: 'action', action: 'proof' })
     const adopted = reconstructWorkflow({
       evidence: { issue: history([shipped]), pullRequest: bound, parents: [] },
       facts: shippedFacts,
       decisions,
     })
-    expect(adopted).toMatchObject({ status: 'action', action: 'proof' })
+    expect(adopted).toMatchObject({ status: 'action', action: 'review' })
     expect(history([shipped]).operations.some((operation) => operation.record?.kind === 'action-receipt')).toBe(false)
     const nativeOnly = reconstructWorkflow({
       evidence: { issue: history([shipped]), pullRequest: history([], pull), parents: [] },
@@ -71,7 +66,7 @@ describe('workflow implementation behavior', () => {
       decisions,
     })
     expect(nativeOnly).toMatchObject({ status: 'action', action: 'plan' })
-    expect(nativeOnly).not.toMatchObject({ status: 'action', action: 'proof' })
+    expect(nativeOnly).not.toMatchObject({ status: 'action', action: 'review' })
   })
   test('retains an unmatched CI attribution when the current candidate changes', () => {
     const { featureMandate: shippedFeatureMandate } = roxabiWorkflowFixtures()
@@ -83,7 +78,6 @@ describe('workflow implementation behavior', () => {
       base: 'main',
       lineageHead: null,
       body: 'ship the bounded workflow',
-      proofPins: [],
     })
     if (shipped.kind !== 'mandate') throw new Error('expected a mandate')
     const pull: Scope = { repository: SCOPE.repository, target: 'acme/app#99' }
@@ -148,7 +142,6 @@ describe('workflow implementation behavior', () => {
         configVersion: shipped.payload.config.version,
         configDigest: shipped.payload.config.digest,
         supportedConfigVersions: [shipped.payload.config.version],
-        proofPins: shipped.payload.proofPins,
         pullRequest: { scope: pull, head: currentCandidate, base: 'main', associatedIssue: SCOPE },
         failedChecks: [currentFailure.name],
         evidenceDigest: currentDigest,
@@ -161,7 +154,6 @@ describe('workflow implementation behavior', () => {
         publish: { status: 'absent', evidence: [] },
         landing: { status: 'absent', evidence: [] },
         watch: { status: 'absent', evidence: [] },
-        proof: { admission: null, candidateGitSHA: null, input: null, applicability: 'required', evidence: [] },
       },
     })
     expect(decision).toMatchObject({ status: 'blocked', reason: 'action-uncertain' })
@@ -177,7 +169,6 @@ describe('workflow implementation behavior', () => {
         configVersion: shipped.payload.config.version,
         configDigest: shipped.payload.config.digest,
         supportedConfigVersions: [shipped.payload.config.version],
-        proofPins: shipped.payload.proofPins,
         pullRequest: { scope: pull, head: currentCandidate, base: 'main', associatedIssue: SCOPE },
         failedChecks: [],
         evidenceDigest: null,
@@ -190,7 +181,6 @@ describe('workflow implementation behavior', () => {
         publish: { status: 'absent', evidence: [] },
         landing: { status: 'absent', evidence: [] },
         watch: { status: 'absent', evidence: [] },
-        proof: { admission: null, candidateGitSHA: null, input: null, applicability: 'required', evidence: [] },
       },
     })
     expect(greenDecision).toMatchObject({ status: 'blocked', reason: 'action-uncertain' })

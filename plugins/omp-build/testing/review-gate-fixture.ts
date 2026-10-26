@@ -80,7 +80,6 @@ export function setupReviewGateFixture(): ReviewGateFixture {
 
     git(root, ['init', '-q', '-b', 'main', candidate])
     writeFileSync(path.join(candidate, 'base.txt'), 'base\n')
-    writeFileSync(path.join(candidate, 'assertledger.config.json'), '{"adapter":{}}\n')
     git(candidate, ['add', '.'])
     git(candidate, ['commit', '-qm', 'base'])
     const base = git(candidate, ['rev-parse', 'HEAD'])

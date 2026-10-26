@@ -34,8 +34,8 @@ export function framed(kind: string, operationId: string, recordId: string): str
     payload:
       kind === 'stop'
         ? { reason: 'ci-failed', reviewId: 'review-1', detail: {} }
-        : kind === 'proof'
-          ? { candidateGitSHA: 'abc', data: { verified: true } }
+        : kind === 'epic-event'
+          ? { outcome: 'verified' }
           : { retained: true },
   }
   return `<!-- omp-build-record v=1 kind=${kind} id=${recordId} operationId=${operationId} part=1/1 data=${Buffer.from(JSON.stringify(record)).toString('base64url')} -->\n# ${kind}`
@@ -110,7 +110,6 @@ export function issueMandate(
           },
         },
       },
-      proofPins: [],
       parent:
         parent === null
           ? null

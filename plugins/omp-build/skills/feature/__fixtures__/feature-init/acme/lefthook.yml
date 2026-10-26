@@ -6,3 +6,5 @@ pre-push:
   commands:
     test:
       run: bun run test
+    semctx-residual:
+      run: semctx index

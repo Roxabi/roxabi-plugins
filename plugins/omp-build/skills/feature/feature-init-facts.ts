@@ -1,21 +1,21 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { landingHidesChecks, semctxHooks } from './feature-init-hooks'
 import { IssueTriageMissing, type MigrateLabel, resolveMigrateLabel } from './feature-init-triage'
 import type { Facts, LabelsState, ParseYaml } from './feature-init-types'
-import { detectsVitest } from './feature-init-workspaces'
-import { bunYamlParse } from './feature-init-yaml'
+import { bunYamlParse, isMap } from './feature-init-yaml'
 
-const HOOK_LINES: Record<'present' | 'absent' | 'unreadable' | 'extends', string | null> = {
-  present: null,
-  absent: 'semctx hooks',
-  unreadable: 'semctx hooks unknown (lefthook.yml unreadable)',
-  extends: 'semctx hooks unknown (extends)',
-}
-
-function knownHookState(hooks: Facts['hooks']): hooks is keyof typeof HOOK_LINES {
-  return Object.hasOwn(HOOK_LINES, hooks)
+function landingHidesChecks(stack: string, mergeOnGreenWorkflow: boolean, parseYaml: ParseYaml): boolean {
+  let doc: unknown
+  try {
+    doc = parseYaml(stack)
+  } catch {
+    return false
+  }
+  const landing = isMap(doc) ? doc.landing : null
+  if (!isMap(landing)) return false
+  const mode = landing.mode ?? (mergeOnGreenWorkflow ? 'merge-on-green' : 'native')
+  return mode === 'merge-on-green' && Array.isArray(landing.required_checks) && landing.required_checks.length > 0
 }
 
 function labelPlan(facts: Facts): string[] {
@@ -36,20 +36,8 @@ function trackerPlan(facts: Facts): string[] {
   return [...(facts.hasTracker ? [] : ['tracker contract']), ...labelPlan(facts)]
 }
 
-function semctxPlan(facts: Facts): string[] {
-  const lines: string[] = []
-  if (facts.hasSemctx) {
-    const hookLine = knownHookState(facts.hooks) ? HOOK_LINES[facts.hooks] : `semctx hooks unknown (${facts.hooks})`
-    if (hookLine) lines.push(hookLine)
-    if (!facts.hasWorkingEmptyJob) lines.push('CI job semctx-working-empty')
-  }
-  if (facts.activeContracts > 0) lines.push(`${facts.activeContracts} active semctx contracts`)
-  return lines
-}
-
 function toolPlan(facts: Facts): string[] {
   const lines: string[] = []
-  if (!facts.hasAssertledger) lines.push(facts.vitest ? 'assertledger + vitest adapter' : 'assertledger')
   if (!facts.hasCcc && !facts.cccConsent) lines.push('ccc proposed')
   if (!facts.hasCodegraph && !facts.codegraphConsent) lines.push('codegraph proposed')
   return lines
@@ -77,7 +65,7 @@ function releasePlan(facts: Facts): string[] {
 }
 
 export function plan(facts: Facts): string[] {
-  return [...trackerPlan(facts), ...semctxPlan(facts), ...toolPlan(facts), ...landingPlan(facts), ...releasePlan(facts)]
+  return [...trackerPlan(facts), ...toolPlan(facts), ...landingPlan(facts), ...releasePlan(facts)]
 }
 
 /** Runs `gh` in the target repo; returns stdout, or null when gh cannot answer. */
@@ -119,14 +107,6 @@ function lines(text: string | null): string[] | null {
 
 function read(path: string): string {
   return existsSync(path) ? readFileSync(path, 'utf8') : ''
-}
-
-function countActiveContracts(dir: string): number {
-  const root = join(dir, '.semctx', 'semantic', 'changes')
-  if (!existsSync(root)) return 0
-  return readdirSync(root).filter(
-    (name) => name.endsWith('.sem') && /^\s*status:\s*active\s*$/m.test(readFileSync(join(root, name), 'utf8')),
-  ).length
 }
 
 /**
@@ -193,7 +173,7 @@ type FactInputs = {
   parseYaml: ParseYaml
 }
 
-type FactSources = { stack: string; merge: string; ci: string; pkg: string }
+type FactSources = { stack: string; merge: string }
 type LabelFacts = { labels: string[]; state: LabelsState }
 
 async function factInputs(dir: string, opts: ReadFactsOpts): Promise<FactInputs> {
@@ -211,8 +191,6 @@ function factSources(dir: string): FactSources {
   return {
     stack: read(join(dir, '.dev', 'stack.yml')),
     merge: read(join(dir, '.github', 'workflows', 'merge-on-green.yml')),
-    ci: read(join(dir, '.github', 'workflows', 'ci.yml')),
-    pkg: read(join(dir, 'package.json')),
   }
 }
 
@@ -241,12 +219,6 @@ export async function readFacts(dir: string, opts: ReadFactsOpts = {}): Promise<
     labels: labels.labels,
     labelsState: labels.state,
     legacyLabels: labels.labels.filter((label) => inputs.migrate(label).remove),
-    hasSemctx: existsSync(join(dir, '.semctx')),
-    hooks: semctxHooks(dir, inputs.parseYaml),
-    hasWorkingEmptyJob: /^\s*(name:\s*)?semctx-working-empty:?\s*$/m.test(sources.ci),
-    activeContracts: countActiveContracts(dir),
-    hasAssertledger: /"assertledger"/.test(sources.pkg),
-    vitest: detectsVitest(dir),
     hasCcc: existsSync(join(dir, '.cocoindex_code')),
     hasCodegraph: existsSync(join(dir, '.codegraph')),
     mergeOnGreen: Boolean(sources.merge),

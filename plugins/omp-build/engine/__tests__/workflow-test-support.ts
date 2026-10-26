@@ -29,7 +29,6 @@ const WORKFLOW_CONFIG_VERSION = GRAPH.configVersion
 const syntheticWorkflowFixtures = createWorkflowFixtures({
   productVersion: '0.11.0',
   config: { version: WORKFLOW_CONFIG_VERSION, digest: DIGEST, effective: { graph: GRAPH } },
-  proofPins: [],
   head: null,
   editedAt: '2026-10-21T00:00:00Z',
 })
@@ -49,7 +48,6 @@ function mandate(overrides: { parent?: CanonicalRecord | null; recordId?: string
     base: 'main',
     lineageHead: null,
     body: BODY,
-    proofPins: [],
     parent:
       parent === undefined || parent === null
         ? null
@@ -70,7 +68,6 @@ function featureMandate(): MandateRecord {
     base: 'main',
     lineageHead: null,
     body: BODY,
-    proofPins: [],
   })
   if (record.kind !== 'mandate') throw new Error('fixture is not a mandate')
   return record
@@ -196,7 +193,6 @@ function facts(overrides: Partial<WorkflowFacts> = {}): WorkflowFacts {
     configVersion: 'catalogue-1',
     configDigest: DIGEST,
     supportedConfigVersions: ['catalogue-1'],
-    proofPins: [],
     explicitSelection: false,
     explicitResume: false,
     successorAntecedent: null,

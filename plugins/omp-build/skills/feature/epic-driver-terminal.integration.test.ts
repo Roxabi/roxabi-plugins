@@ -342,10 +342,10 @@ describe('epic-driver — disarm modes', () => {
   it('touches nothing on a PR that was never armed', () => {
     child2Pr({})
     servePr(11, { state: 'OPEN', labels: [], autoMerge: false })
-    drive(['stop', '--ticket', '2', '--reason', 'proof-blocked'])
+    drive(['stop', '--ticket', '2', '--reason', 'base-blocked'])
     expect(writes()).toEqual([expect.stringMatching(/^comment 2 <!-- omp-build-record /)])
     expect(eventPayloads(2)).toContainEqual(
-      expect.objectContaining({ event: 'goal-stop', run: RUN, reason: 'proof-blocked' }),
+      expect.objectContaining({ event: 'goal-stop', run: RUN, reason: 'base-blocked' }),
     )
   })
 })

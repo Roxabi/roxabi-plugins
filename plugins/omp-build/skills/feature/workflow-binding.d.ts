@@ -1,4 +1,4 @@
-import type { Gh } from './proof-base.ts'
+import type { Gh } from './review-base.ts'
 
 export type LandingMandateRefusal =
   | 'missing'
@@ -13,10 +13,10 @@ export type LandingMandateRefusal =
   | 'revoked'
   | 'material-spec'
   | 'config-drift'
-  | 'proof-pin-drift'
   | 'unbound'
   | 'conflict'
   | 'incomplete'
+  | 'incompatible-format'
   | 'unknown-binding'
   | 'incompatible'
   | 'unsafe'

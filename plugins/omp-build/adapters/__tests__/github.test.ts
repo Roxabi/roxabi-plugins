@@ -5,7 +5,7 @@ import { publishMissingBodies } from '../github/publication-writer.ts'
 import { githubScope, readGitHubHistory } from '../github/transport.ts'
 
 const handcraftedBody =
-  '<!-- omp-build-record v=1 kind=proof id=proof-1 operationId=operation-1 part=1/1 data=eyJyZXBvc2l0b3J5IjoiYWNtZS9hcHAiLCJ0YXJnZXQiOiJhY21lL2FwcCM0MiIsInZlcnNpb24iOjEsInJlY29yZElkIjoicHJvb2YtMSIsInJ1bklkIjoicnVuLTEiLCJvcGVyYXRpb25JZCI6Im9wZXJhdGlvbi0xIiwiaW5wdXRzIjpbXSwia2luZCI6InByb29mIiwicGF5bG9hZCI6eyJjYW5kaWRhdGVHaXRTSEEiOiJhYmMiLCJkYXRhIjp7InZlcmlmaWVkIjp0cnVlfX19 -->\n# Retained projection'
+  '<!-- omp-build-record v=1 kind=epic-event id=event-1 operationId=operation-1 part=1/1 data=eyJyZXBvc2l0b3J5IjoiYWNtZS9hcHAiLCJ0YXJnZXQiOiJhY21lL2FwcCM0MiIsInZlcnNpb24iOjEsInJlY29yZElkIjoiZXZlbnQtMSIsInJ1bklkIjoicnVuLTEiLCJvcGVyYXRpb25JZCI6Im9wZXJhdGlvbi0xIiwiaW5wdXRzIjpbXSwia2luZCI6ImVwaWMtZXZlbnQiLCJwYXlsb2FkIjp7Im91dGNvbWUiOiJ2ZXJpZmllZCJ9fQ -->\n# Retained projection'
 
 function history(body: string, author = 'automation'): History {
   return {
@@ -35,14 +35,14 @@ describe('GitHub record codec', () => {
     expect(decoded.operations).toHaveLength(1)
     expect(decoded.operations[0]).toMatchObject({
       operationId: 'operation-1',
-      recordId: 'proof-1',
-      kind: 'proof',
+      recordId: 'event-1',
+      kind: 'epic-event',
       status: 'complete',
-      record: { kind: 'proof', payload: { candidateGitSHA: 'abc', data: { verified: true } } },
+      record: { kind: 'epic-event', payload: { outcome: 'verified' } },
     })
   })
 
-  it('keeps a foreign opaque proof observable without authority', () => {
+  it('keeps a foreign opaque event observable without authority', () => {
     const decoded = decodeHistory(history(handcraftedBody, 'other-actor'))
 
     expect(decoded.operations).toEqual([
@@ -155,7 +155,7 @@ describe('GitHub record codec', () => {
       kind: 'stop',
       payload: { reason: 'ci-failed', reviewId: 'review-1', detail: {} },
     }
-    const body = `<!-- omp-build-record v=1 kind=proof id=stop-2 operationId=payload-stop part=1/1 data=${Buffer.from(JSON.stringify(stop)).toString('base64url')} -->\n# Mismatch`
+    const body = `<!-- omp-build-record v=1 kind=epic-event id=stop-2 operationId=payload-stop part=1/1 data=${Buffer.from(JSON.stringify(stop)).toString('base64url')} -->\n# Mismatch`
 
     const source = history(body, 'ci-stop-bot')
     source.stopAuthor = 'ci-stop-bot'
@@ -167,17 +167,17 @@ describe('GitHub record codec', () => {
     expect(decoded.diagnostics).toEqual([])
   })
 
-  it('retains both raw parts when a stop header collides with an opaque proof operation', () => {
+  it('retains both raw parts when a stop header collides with an opaque event operation', () => {
     const source = history(handcraftedBody)
-    const [proofComment] = source.comments
-    if (proofComment === undefined) throw new Error('Fixture requires a proof comment')
+    const [eventComment] = source.comments
+    if (eventComment === undefined) throw new Error('Fixture requires an event comment')
     source.comments = [
-      proofComment,
+      eventComment,
       {
-        ...proofComment,
+        ...eventComment,
         locator: 'acme/app#42:comment:99',
         nativeId: '99',
-        body: '<!-- omp-build-record v=1 kind=stop id=proof-1 operationId=operation-1 part=1/1 data=QQ -->\n# Stop',
+        body: '<!-- omp-build-record v=1 kind=stop id=event-1 operationId=operation-1 part=1/1 data=QQ -->\n# Stop',
       },
     ]
 
@@ -187,7 +187,7 @@ describe('GitHub record codec', () => {
       expect.objectContaining({
         operationId: 'operation-1',
         status: 'conflict',
-        claimedKinds: ['proof', 'stop'],
+        claimedKinds: ['epic-event', 'stop'],
         authority: 'authority',
         parts: [expect.objectContaining({ nativeId: '100' }), expect.objectContaining({ nativeId: '99' })],
       }),
@@ -199,17 +199,17 @@ describe('GitHub record codec', () => {
 
   it('retains source pagination order while ordering framed parts by their declared index', () => {
     const source = history(
-      '<!-- omp-build-record v=1 kind=proof id=proof-2 operationId=operation-2 part=2/3 data=QQ -->\n# Part two',
+      '<!-- omp-build-record v=1 kind=epic-event id=event-2 operationId=operation-2 part=2/3 data=QQ -->\n# Part two',
     )
-    const [secondProofComment] = source.comments
-    if (secondProofComment === undefined) throw new Error('Fixture requires a proof comment')
+    const [secondEventComment] = source.comments
+    if (secondEventComment === undefined) throw new Error('Fixture requires an event comment')
     source.comments = [
-      secondProofComment,
+      secondEventComment,
       {
-        ...secondProofComment,
+        ...secondEventComment,
         locator: 'acme/app#42:comment:99',
         nativeId: '99',
-        body: '<!-- omp-build-record v=1 kind=proof id=proof-2 operationId=operation-2 part=1/3 data=QQ -->\n# Part one',
+        body: '<!-- omp-build-record v=1 kind=epic-event id=event-2 operationId=operation-2 part=1/3 data=QQ -->\n# Part one',
       },
     ]
 
@@ -223,6 +223,27 @@ describe('GitHub record codec', () => {
       authority: 'accounted',
     })
     expect(decoded.operations[0]?.parts.map((part) => part.nativeId)).toEqual(['99', '100'])
+  })
+
+  it('refuses framed proof records with the incompatible-format diagnostic', () => {
+    const proof = {
+      repository: 'acme/app',
+      target: 'acme/app#42',
+      version: 1,
+      recordId: 'proof-1',
+      runId: 'run-1',
+      operationId: 'operation-proof',
+      inputs: [],
+      kind: 'proof',
+      payload: { candidateGitSHA: 'abc', data: { verified: true } },
+    }
+    const body = `<!-- omp-build-record v=1 kind=proof id=proof-1 operationId=operation-proof part=1/1 data=${Buffer.from(
+      JSON.stringify(proof),
+    ).toString('base64url')} -->\n# Removed proof`
+    const decoded = decodeHistory(history(body))
+
+    expect(decoded.operations[0]).toMatchObject({ kind: 'proof', status: 'invalid', record: null })
+    expect(decoded.diagnostics).toContainEqual(expect.objectContaining({ code: 'incompatible-format' }))
   })
 
   it('preserves old markers as explicit legacy refusals', () => {

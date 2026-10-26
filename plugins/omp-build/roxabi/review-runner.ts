@@ -110,6 +110,7 @@ export class CanonicalReviewRunner implements ReviewPublisher {
         ? {
             rootAttemptId: 'pending',
             candidateGitSHA: this.input.context.candidateGitSHA,
+            inputFormat: 'omp-build:review-input/3' as const,
             input: this.input.context.input,
             slots,
             stage: 'initial' as const,
@@ -123,6 +124,7 @@ export class CanonicalReviewRunner implements ReviewPublisher {
         : {
             rootAttemptId: 'pending',
             candidateGitSHA: this.input.context.candidateGitSHA,
+            inputFormat: 'omp-build:review-input/3' as const,
             input: this.input.context.input,
             slots,
             stage: 'initial' as const,
