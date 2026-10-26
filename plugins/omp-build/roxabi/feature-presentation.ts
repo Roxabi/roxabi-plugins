@@ -33,9 +33,15 @@ export function featureErrorMessage(error: unknown): string {
   return `feature-stopped: ${error instanceof Error ? error.message : String(error)}`
 }
 
-/** From the principal checkout nothing is dispatched; the one message still says why. */
+/** From the principal checkout nothing is dispatched; the one refusal line still names why. */
 export function principalRefusalMessage(cwd: string, stop: string): string {
-  return `session-cwd ${cwd}\nfeature-stopped: principal-dispatch-refused\n${stop}`
+  const reason = stop.replace(/^feature-stopped: /, '')
+  return `session-cwd ${cwd}\nfeature-stopped: principal-dispatch-refused: ${reason}`
+}
+
+/** Framing guidance names no checkout: a worktree would receive the same text, so it is never a refusal. */
+export function isFramingResult(result: ContinueFeatureResult): boolean {
+  return (result.kind === 'blocked' || result.kind === 'operator-decision') && isAssistedFraming(result.reason)
 }
 
 export function featurePauseMessage(result: Extract<ContinueFeatureResult, { kind: 'paused' }>): string {

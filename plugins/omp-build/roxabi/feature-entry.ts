@@ -10,6 +10,7 @@ import {
   featureSessionCwdMessage,
   featureStopMessage,
   isAssistedFraming,
+  isFramingResult,
   principalRefusalMessage,
 } from './feature-presentation.ts'
 export async function runInstalledFeatureCommand(args: string, host: FeatureCommandHost): Promise<void> {
@@ -52,15 +53,36 @@ export async function runInstalledFeatureCommand(args: string, host: FeatureComm
   await deliverFeatureResult(parsed.reference, result, host)
 }
 
-/** The principal checkout acts on nothing: it forwards a valid move, otherwise it names what stopped. */
+/**
+ * The principal checkout acts on nothing. A valid move and framing guidance pass unchanged, since
+ * neither depends on the checkout; any other result becomes one refusal that names it.
+ */
 async function deliverPrincipalRefusal(host: FeatureCommandHost, result: ContinueFeatureResult): Promise<void> {
   const stop = featureStopMessage(result)
   if (stop === null && result.kind === 'session-cwd') {
     await host.send(featureSessionCwdMessage(result.path, result.instruction))
-    return
+  } else if (stop !== null && isFramingResult(result)) {
+    await host.send(stop)
+  } else {
+    await host.send(principalRefusalMessage(host.cwd, stop ?? refusedWork(result)))
   }
-  await host.send(principalRefusalMessage(host.cwd, stop ?? `workflow-result: ${result.kind}`))
 }
+
+/** Work the principal declines to start, named by kind; any other kind is not a workflow result. */
+function refusedWork(result: ContinueFeatureResult): string {
+  switch (result.kind) {
+    case 'action':
+    case 'watch':
+    case 'review':
+    case 'fix':
+    case 'admitted-ci-correction':
+    case 'epic-final-review':
+      return `workflow-result: ${result.kind}`
+    default:
+      return 'feature-stopped: feature-result-invalid'
+  }
+}
+
 function preservesFeatureResult(result: ContinueFeatureResult): boolean {
   switch (result.kind) {
     case 'session-cwd':
@@ -83,9 +105,9 @@ export async function deliverFeatureResult(
   if (host.featureContinuationInhibited() && !preservesFeatureResult(result))
     return await host.send('feature-stopped: continuation-inhibited')
   if (result.kind === 'session-cwd') return deliverSessionCwd(result, host)
+  settleStoppedOwner(reference, result, host)
   const stop = featureStopMessage(result)
   if (stop !== null) {
-    settleStoppedOwner(reference, result, host)
     await host.send(stop)
     return
   }
@@ -140,7 +162,7 @@ async function deliverFeatureWatch(
   )
 }
 
-/** Owner bookkeeping a stop leaves behind; its operator text comes from `featureStopMessage`. */
+/** Owner bookkeeping a stop leaves behind, a no-op for work; its operator text comes from `featureStopMessage`. */
 function settleStoppedOwner(reference: string, result: ContinueFeatureResult, host: FeatureCommandHost): void {
   const retained = { reference, cwd: host.cwd, pausable: false }
   switch (result.kind) {
