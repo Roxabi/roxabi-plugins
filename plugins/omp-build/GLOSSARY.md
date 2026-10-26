@@ -72,9 +72,6 @@ _Avoid_: a ticket stop, a /goal, waiting on pending base CI before a ticket
 The GitHub issue body: agreed scope, acceptance criteria, invariants and exclusions. The SSoT for what to build.
 _Avoid_: artifacts/specs, validated, /R-spec
 
-**Change contract**:
-The Semctx change declaration derived from the issue body. It is proof, not a second Spec, and its lifecycle is Semctx's own.
-_Avoid_: artifacts/specs, a second spec home, the contract as what to build, closing it to open or land a PR
 
 **Canonical record**:
 A versioned common record whose payload is the authority for that operation. The Markdown beside it is a deterministic projection, not a second contract.
@@ -84,21 +81,13 @@ _Avoid_: a positional HTML marker, a Markdown section a consumer parses, a local
 A canonical record on an epic or child issue. Its payload `event` is one of the historical wire names `goal-stop`, `epic-review`, `epic-fix`, `post-merge`, or `goal-report`. Those names are protocol, not a session goal.
 _Avoid_: a /goal, a body marker, a `goal-stop` comment prefix, session memory
 
-**Proof record**:
-A canonical `proof` record for one candidate head: `candidateGitSHA` plus the producer's untouched native JSON. Posted on its PR by the automation account before landing and reused while it still binds that head. Legacy proof framing cannot admit landing. It attests the selected comment's current body, not what the producer printed nor who ran it: any account with write access can edit or delete the comment. Every applicable native part must have readable creation/revision facts, predate approval and have no recorded edit, regardless of producer or current verdict.
-_Avoid_: `<!-- omp-build:proof -->`, a trailing JSON frame as the contract, a ledger, a cache, a caller's boolean, a re-run at landing, a signed attestation
-
-**Proof pin**:
-The Git identity of one normative proof-configuration path: path, source commit, and blob. A null blob is explicit absence, not an omitted pin.
-_Avoid_: a local ignored file, a review-input hash, an omitted path
-
 **Landing admission**:
-The read-only check that lets a reviewed head land through the arms `landPr` writes. Semctx applies when the base, the head or the operator's uncommitted configuration configures it; it then needs the record of the change contract the head adds, VERIFIED or PARTIAL with every gap justified by a NO TEST row in a PR body the approving review judged. A fix PR needs a detection only when the established base or candidate commits a root `assertledger.config.json` with an adapter; bundled Kit Vitest tooling alone is not applicable. Each record binds one head; a new head needs its own. VERIFIED composes declared evidence statuses, never a test run: landing's runtime-proof claim depends on CI GitHub actually enforces on the selected base and head. Supplied or stack-declared check names do not establish that enforcement, and unprotected native merge need not wait for them. A `reviewed` label or auto-merge set by another actor is an override that admission does not govern. It produces nothing.
-_Avoid_: proof gate, a check before the PR opens, a green test run standing in for it, a PARTIAL reported as verified, VERIFIED read as tests passed, every merge proved
+The read-only check before `landPr` writes its arms. It admits only when the latest review approves the current head inside an unspent review bound, required CI is green, normative inputs are unchanged, and the selected outputs are authentic. Normative inputs are the mandate configuration version and digest, the accepted Spec, and a fresh `omp-build:review-input/3` capture equal to the review binding. Authentic outputs have the expected author and readable, unedited native dates on every selected review-attempt part, mandate-chain part, and workflow-binding part.
 
-**Reviewer trust ceiling**:
-The operator-authorized split for a PARTIAL gap: admission checks native producer/input/candidate/base binding, policy, form, publication/body chronology and exact observed review-input equality; the proof-aware review judges reason truth and credible browser-check performance. Unsupported claims block review. A row/block is form, timestamps show availability, the digest identifies captured inputs (not who actually read them), approval is judgement, and VERIFIED composes authored statuses — none independently certifies the unproved gap. Required CI and applicable assertledger remain independent.
-_Avoid_: approval as runtime certification, a Browser check block as an observation, a NO TEST row as proof, a review-judged gap called producer-certified
+Mandates use `omp-build-mandate/2`; reviews that carry input use `omp-build:review-input/3`. Missing or older formats, obsolete payload fields, and frames using the removed `kind: 'proof'` refuse with `incompatible-format`. They are not migrated, re-reviewed, or exempted.
+
+_Avoid_: a green check alone, an earlier review, an unbound head, treating a digest as authentication
+
 
 **TDD**:
 Test-first implementation at the seams agreed with the operator, using the model-invoked `tdd` skill.
@@ -203,8 +192,11 @@ The canonical `review` a consumer reads by record identity. It names the decisio
 _Avoid_: `<!-- omp-build:code-review -->`, a line-2 head marker, scraping `## Code Review`, reading a SHA from projection prose
 
 **Review input binding**:
-The plain SHA-256 on a canonical review, or null. Prefix `omp-build:review-input/2` covers observed PR inputs and the semantic canon, including when producer part lists are null. A null input is not approval. It is equality of observed inputs, not authentication; genuine no-proof repositories keep their existing admission path.
-_Avoid_: a line-3 HTML marker, an acquisition attestation, a frozen manifest, a cached snapshot, a digest rebound after panel work, PARTIAL-only binding
+The SHA-256 on a canonical review, or null. Prefix `omp-build:review-input/3` covers the observed PR inputs and semantic context without producer parts. A null input is not approval. Admission recaptures the input and requires equality; the digest checks observed inputs, not authorship.
+
+Missing or older input formats refuse with `incompatible-format`; they are not migrated, re-reviewed, or exempted.
+
+_Avoid_: a line-3 HTML marker, an acquisition attestation, a frozen manifest, a cached snapshot, a digest rebound after panel work
 
 **Panel**:
 The five dispatchable review roles: the `R-adversarial` floor plus at most two specialists the roster proved relevant.

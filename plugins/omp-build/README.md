@@ -101,9 +101,9 @@ Three parts, one plugin, no second runtime, no database, and no mandatory local 
 | Roxabi (`roxabi/`) | Shipped graph, named actions, and the mandate snapshot of `review.additional_requirements` | A second config file, a project graph, a bound override, an admission override |
 | GitHub adapter (`adapters/`) | Complete comment history, confirmed publication, scope reads | Finding classification, landing permission |
 
-GitHub comments hold the records: `mandate`, `operator-control`, `action-receipt`, `workflow-binding`, plus the existing review, correction, proof, and epic-event records. Git holds the code and the normative proof configuration. Proof pins are path, source commit, and blob; a null blob is explicit absence, recovered from Git. The review-input hash prefixes `omp-build:review-input/2` and includes the semantic canon even when producer part lists are null. A stored null input is not approval.
+GitHub comments hold the records: `mandate`, `operator-control`, `action-receipt`, `workflow-binding`, `review`, `correction`, and `epic-event`. Mandates carry `format: 'omp-build-mandate/2'`; reviews that carry input carry `inputFormat: 'omp-build:review-input/3'`. A missing or older format, obsolete payload fields, or a frame using the removed `kind: 'proof'` refuses with `incompatible-format`. These records are not migrated, re-reviewed, or exempted.
 
-The stack pin binds the selected base's blob. Existing UI proof rules still inspect both base and candidate stacks; a candidate stack change is not required to be byte-identical to the base. Semctx and AssertLedger retain their own configuration-divergence and applicability checks.
+Removed integration configuration is not read during adoption, worktree start, review-input capture, or landing.
 
 The only project override of the shipped workflow definition is `review.additional_requirements` in the committed `.dev/stack.yml` at `refs/remotes/origin/<base>:.dev/stack.yml`. Existing `landing`, `release`, and `commands` configuration remains in force. `parseWorkflowOverride` accepts a list of non-empty strings. Absent `review`, or a null list, means none. `review.graph` and `review.workflow` are refused. There is no `.omp-build/workflow.json`. The mandate records that list as `effective.additionalRequirements`. An uncommitted working-tree edit is not that snapshot. The list does not replace the shipped graph, a review bound, or landing admission.
 
@@ -256,12 +256,7 @@ snapshot, with unchanged runtime binaries. This is not an installed release.
 - **Ordinary checks:** build, typecheck, Biome (183 files), isolated imports
   without dependency installation, and the full suite (87 files, 2,054 tests).
   The full suite ran without concurrent native qualification jobs.
-- **Limits:** scripted local model provider, fake GitHub transport and local
-  bare Git only. Required-proof exercises actual acquisition against an
-  external Semctx stand-in, not semantic verification. Semctx verification
-  of this worktree was unavailable (`CONFIG_NOT_FOUND`). No paid-model
-  efficacy, hosted GitHub adoption, global installation or merge activation
-  is established; T4 and T5 require their separate authorizations.
+- **Limits:** scripted local model provider, fake GitHub transport and local bare Git only. No paid-model efficacy, hosted GitHub adoption, global installation or merge activation is established; T4 and T5 require their separate authorizations.
 
 ### C1 portable preparations and coordinator witnesses (candidate 0.11.1)
 
@@ -271,9 +266,6 @@ correction fixtures isolate Git configuration, inherited hooks and shell startup
 every allocated repository or remote is owned before setup can fail. A real
 failing Git setup also left no allocated sandbox behind.
 
-The affected historical landing-proof integration suite separately passed all
-201 tests using its retained producer-record fixtures. This is a local replay
-qualification, not a new Semctx/assertledger acquisition or hosted landing.
 A subsequent preservation commit ports the principal's merge-race regression to
 the actual native landing process and strict GitHub simulator. Its focused check
 passed: a completed merge adds no `reviewed` label and makes no second arm attempt.
@@ -287,13 +279,11 @@ API stand-in; this is not a running OMP session. Assertions inspect durable
 controls, original action bindings and refused effects, not message wording.
 The CLOSED-watch case proves a stopped result, not a successful MERGED landing.
 
-The real producer build completed. A separate runtime smoke used the locked OMP
-18.12.6 agent parser and both source and distributed strict schemas. Typecheck
-and Biome on the eight changed TypeScript files passed. These are not a full
-suite result, a C2 deterministic-generation/parity proof, a C4 lifecycle
-qualification, model-obedience evidence, hosted GitHub validation, installation
-or merge activation. Semctx verification returned `CONFIG_NOT_FOUND`; no semantic
-certification is claimed.
+A separate runtime smoke used the locked OMP 18.12.6 agent parser and both source
+and distributed strict schemas. Typecheck and Biome on the eight changed TypeScript
+files passed. These are not a full suite result, a C2 deterministic-generation/parity
+proof, a C4 lifecycle qualification, model-obedience evidence, hosted GitHub
+validation, installation, or merge activation.
 
 ### Existing review and landing safeguards
 
@@ -333,169 +323,33 @@ before its diff; the review-start test exercises the fence, not model compliance
 
 **What the tests prove.** `armed-gate.test.js` has a clean-baseline sweep that covers one throw-before-effect at each call of the clean baseline (the base read excluded), selected observable head moves after calls that succeeded, and a throw plus a move paired after the gate is acquired. It excludes, and leaves to table rows alone, applies-then-throws and faults inside a disarm that an injected fault first triggers; it makes no claim about future calls. The #731 seeded compound suite is separate from that sweep. The base-read failure is covered by its own real-Bun scenario in `land.integration.test.js`: a discovered, armed, strict landing whose base read fails, with a real local origin. It does not detect both base files vanishing, which defaults to native. The oracle has four negative self-tests (`approve(OLD)` over an armed head, a forged `stays armed — auto-merge` report, a spent-bound armed PR, a text-only "the gate was disarmed" claim). The unreadable-pin row carries `known: '#731'`, an inert provenance marker for a fixed regression: it grants no exemption and nothing reads it. None of this is a proof that every fault ordering is covered.
 
-- `nextReviewStep(cwd, pr, { ciFailed?, reviewing? })` returns `land`, `fix`, `stop`
-  or `review`. The transition comes from the fresh canonical summary, not a
-  caller-supplied verdict. A fix is allowed while the PR has at most two final
-  reviews: the fix's push moves the head, and a latest review of another commit
-  asks for a review first. A review past the second that does not approve spends
-  the bound for good — a later green does not lift it. A CI failure on the head
-  the third review approved stops too, and that observation is published as a
-  canonical `stop` before continuation.
-- `landPr(cwd, pr)` arms only when the latest canonical review approves and its
-  `candidateGitSHA` equals the current `headRefOid` (both 40 lowercase hex). Records
-  then head are refreshed before each arming write, including after disable/remove
-  preparation. A spent bound is `not-approved` with reason `review-bound`; an
-  unreadable candidate is `review-unbound`, and a moved head is `head-moved`.
-  Unreadable authorization never permits arming; acquired gates use the shared exit
-  policy. Native auto-merge pins that refreshed reviewed head with
-  `--match-head-commit`, checked when it is enabled: a later push or base switch by
-  an account with write access leaves it enabled. Merge-on-green remains
-  label-driven: a later push by another actor is not refused by GitHub. A legacy
-  review marker does not arm, so a PR that has only the old head line needs one
-  canonical re-review before it can land.
-  The selected PR base's name and tip are captured too. Each pre-arm checkpoint
-  and the retained-arm epilogue re-read the base name alongside the head and
-  re-fetch the base. A retarget or moved tip is `proof-blocked` / `candidate` /
-  `unbound`; missing coordinates are `unreadable`. Both force clearing, never
-  silently switch landing policy; re-entry captures the current base normally.
-  A clean PR merges as soon as it is armed, moving the base itself: a PR whose
-  merge commit's first parent is the selected tip keeps its base; merged onto
-  another tip it is refused, and the disarm reports the merge.
-  Each landing or acquisition attempt resolves `git remote get-url origin`
-  through `gh repo view <URL> --json nameWithOwner` and requires that repository
-  to match the selected GitHub repository before reading policy or applicability.
-  Mismatch is `candidate/unbound`; missing/unresolved identity is
-  `candidate/unreadable`, never an exemption based on a fork's absent config.
-  The fetch uses that verified explicit URL, not the mutable remote name, while
-  retaining the established `refs/remotes/origin/<base>` readers. Each refresh
-  revalidates the identity. It selects the tip the fetch reads —
-  never GitHub's `baseRefOid`, which is recorded when the PR opens, its head is
-  pushed or it is retargeted, and does not follow later pushes to the base.
-  Policy, declarations and merge-base consume that immutable commit, not a
-  tracking ref another await can rewrite. Failed fetches refuse as
-  `candidate/unreadable`. Acquisition revalidates head, base name, a re-fetched
-  base tip and OPEN state before producers, every publication part and its
-  final reuse/absence report.
-  Proof summaries are presentation only. Admission reads the canonical `proof`
-  record: `candidateGitSHA` plus untouched native JSON in `data`. The proof owner
-  remains the semantic validator. A legacy `<!-- omp-build:proof … -->` frame
-  cannot admit landing.
-  Fresh and reused acquisition both return `semctxAssessment` in CLI JSON: the
-  current shared Semctx reader's results or refusal, not landing authorization.
-  Reuse preserves native proof bytes and publication metadata; an archival human
-  summary may still describe the older reader's refusal.
-- Then `landPr` admits that head (`admitLanding`, `proof-admission.ts`), reading only: the
-  local tip must be it; Semctx applies when `origin/<base>`, the head or the
-  uncommitted `.semctx/config.json` on disk at the root and the principal
-  configures it, and a PR that changes or deletes the base's committed
-  configuration refuses; applicable proof records — canonical `proof` comments
-  `proof-acquire.ts` publishes after the push, one per producer and head — must bind
-  the repository, PR, head, base, merge base, changed contracts (at least one
-  added by the head) and the Semctx configuration's sha256, and carry
-  VERIFIED, or PARTIAL with each gap (every warning finding, pending evidence
-  and open unknown it names) justified by a closed-enum NO TEST row in
-  a PR body last edited before the approving record (an edit after it returns
-  the PR to review); a PARTIAL with a stale link or a blocking impact refuses.
-  A modified historical companion may retain `superseded` only when Git proves
-  its file contains only its own `change <id>` block, whose sole lifecycle field
-  changed from `active`, `partial` or `verified`, with one explicit preserved
-  provenance matching native inspect. A neighbouring block's provenance cannot
-  qualify it. Every other byte stays identical except permutation within the same contiguous run of literal
-  `  link: file:<nonempty>` lines, preserving duplicates, separators and line
-  endings; both source strings must round-trip to their Git blob IDs.
-  Broader formatting, changed obligations or insufficient provenance do not
-  qualify. The companion is still natively verified and keeps its verdict,
-  unknowns and gaps; this proves conservation, not a native transmission
-  relation. The added own contract is still mandatory and cannot use this
-  historical exception.
-  Every applicable native proof part's creation/revision facts must be readable,
-  unmodified and published before approval, regardless of producer or verdict.
-  A recorded edit requires acquisition again; a late publication requires
-  same-head review without a producer at admission.
-  A proof-aware review captures the exact body and complete selected producer
-  runs before judgement and stores their digest as the review's plain `input`
-  SHA-256 (`hashReviewInput`: repository, PR, candidate, body bytes and
-  `lastEditedAt`, and each selected part's id, body, and native times). It
-  compares again before posting. Admission compares that field with a fresh
-  capture of the same bytes and native metadata, including VERIFIED and
-  detection. Missing, malformed, or changed binding requires same-head review;
-  a recorded proof revision still needs acquisition first. Genuine no-proof
-  repositories acquire no new landing prerequisite. The digest is equality of
-  observed inputs, not authentication.
-  A fix PR — a `fix/…` head branch, or a closing ticket or the ticket the head
-  branch names (`<type>/<N>-…`) typed Fix or Bug, labelled `bug` or titled
-  `fix…:` — needs a detection only when the established base or candidate commits
-  a root `assertledger.config.json` with an `adapter`; a PR whose type nothing
-  establishes refuses. The bundled Kit Vitest module alone is incidental tooling:
-  assertledger is `not-applicable`, not per-ticket exemption, and shell/CP fixes
-  remain under CI/validate and review. An explicitly configured unsupported
-  producer remains fail-closed. GitHub links closing keywords only for a PR into
-  the default branch, so the named ticket is what classifies a PR into another base.
-  No producer, test or model runs at landing. A refusal is
-  `proof-blocked` with `producer`, `reason` and `error`, unarmed; `watching`
-  reports the admitted `proof`. `proof-acquire` reuses a record that still
-  binds, so an unchanged head is never re-proved. Assertledger records bind only
-  `assertledger check` manifests (git provenance); no Kit Vitest `verify`
-  working-tree provenance is admitted as a git-regression detection.
-  Assertledger acquisition freezes the exporter bytes in an owned read-only
-  private manifest before awaiting the tool, replays only that file, conserves
-  those same UTF-8 bytes and native result, and removes only its snapshot in
-  `finally`. An exporter rewrite cannot lend another manifest's valid replay.
-  Every pre-arm checkpoint and the retained-arm epilogue re-read these inputs,
-  even at the same head: body revisions, ignored configuration/access, ticket
-  classification and the latest native record are not immutable with a commit.
-  `landPr`'s retention never transfers an arm it wrote to a later approved
-  head; CI-watch observer exits and the review step's `land` retain an arm on
-  current-head approval and an unspent bound alone, and never re-admit.
-- What admission does not establish. VERIFIED attests Semctx's composition over
-  declared evidence statuses, never a test run. Landing's runtime-proof claim
-  depends on CI GitHub actually enforces on the selected base and head.
-  The existing native `no-required-checks` guard takes explicit `requiredContexts`,
-  otherwise a nonempty stack `landing.required_checks`, otherwise GitHub
-  protection/ruleset discovery. A supplied/declared name is not evidence of
-  enforcement: an unprotected native PR can merge before that check completes.
-  The watch's declared list names what it observes, not what GitHub enforces.
-  The review judges each `tested` evidence's named test; nothing binds CI to it.
-  Applicable producer records must be published before approval, with
-  readable native creation/revision times and no recorded edit, regardless of
-  verdict. A late publication needs a new review; a revised record needs
-  acquisition again. Nothing ties required checks to a `tested` evidence's test.
-  Under the [operator-authorized reviewer ceiling](https://github.com/Roxabi/roxabi-plugins/issues/768#issuecomment-6114046814),
-  reason truth and credible browser-check performance belong to the proof-aware
-  review; unsupported claims block it. Admission checks their policy/form and
-  availability and exact observed input equality to approval, not those two
-  truths. A row/block is form, dates show availability, the digest identifies
-  the observed inputs (not who actually read them), and approval is judgement:
-  none certifies an unproved gap. An invented check or false reason accepted
-  by that trusted reviewer is not independently detected by admission.
-  `landPr` and the pinned trusted reader used by
-  `.github/workflows/auto-merge.yml` both require shared admission before
-  writing their arms. The workflow refuses and disarms when its current
-  gate read refuses; it does not treat a `reviewed` label as sufficient proof.
-  Hosted activation was completed on 2026-10-25. Updating this README does
-  not change the hosted configuration. Another actor can still enable
-  auto-merge or merge outside these entry points. GitHub reads and arming
-  are not transactional; this does not
-  establish continuous enforcement or close the queued-run race
-  ([#787](https://github.com/Roxabi/roxabi-plugins/issues/787)).
-  A canonical record is published as one or more PR comments by the automation
-  account (`part=i/n` when it exceeds GitHub's comment ceiling, read only whole).
-  The header carries the record; the Markdown is the projection. Any account with
-  write access can edit or delete the comment, so it attests that comment's current
-  body, not what the producer printed nor who ran it. Legacy markers are refused,
-  not repaired. Both producers' parts are checked for native publication and
-  revision facts; a recorded edit refuses, including a PARTIAL edited into
-  VERIFIED or a WEAK_ORACLE/miss edited into detection.
-  The digest is not a signature or lasting pin. GitHub reads, the review post
-  and arming are not one transaction; `landPr` re-reads the inputs only at its
-  own checkpoints and on re-entry, so a change after its last read goes
-  undetected while observers retain the arm.
+- `nextReviewStep(cwd, pr, { ciFailed?, reviewing? })` returns `land`, `fix`, `stop`, or `review` from the fresh canonical summary. A fix is allowed while the PR has at most two final reviews. A review after the second that does not approve spends the bound for good; a later green check does not lift it. A CI failure on the head approved by the third review also stops the PR and is published as a canonical `stop`.
 
-Comment pagination is page-number based. During a multi-page read of more than 100 comments, a deletion can shift later comments and omit a record while the read reports complete. The gate's initial and refreshed reads narrow that race; consumers that read once do not.
+- `landPr(cwd, pr)` refreshes records and PR coordinates before every arming write. The selected review must approve and bind the current `headRefOid`; native auto-merge uses `--match-head-commit`. A moved head, spent bound, unreadable review, or failed admission clears the arms instead of retaining an earlier approval.
 
-Record authorship under `OMP_BUILD_AUTOMATION_LOGIN` provides no author/reviewer separation while that login is also the PR author's identity. Decided (2026-10-24, single-operator threat model): no dedicated review executor or App author. Reviews run in the local OMP session. `/feature` landing's `landPr` runs shared admission, then uses the operator's `gh` login to apply `reviewed` and enable native auto-merge; there is no human label step. The base-defined `pull_request_target` workflow re-checks admission when that label arrives and disarms on refusal or `synchronize`. Deliberate forgery of a record by the agent is an accepted, uncovered risk; revisit if a second contributor or human-less automation appears.
+#### Landing admission
 
-The same trusted author is used for review records, workflow mandates/bindings and proof records. Any future author separation must split review reads from workflow/proof reads and preserve durable CI-stop records, since changing only the review login would make existing workflow authority foreign and refuse landing.
+| Condition | Admission requirement |
+|---|---|
+| Current review and bound | The latest review approves the current head and the review bound is unspent. |
+| CI | Required checks are green. Pending, red, or unreadable CI does not admit landing. |
+| Normative inputs | The mandate's configuration version and digest, the accepted Spec, and a fresh `omp-build:review-input/3` capture still equal the approved values. |
+| Authentic outputs | The expected automation author published the selected review attempt, workflow binding, and mandate chain. Every selected part has readable native `createdAt` and `updatedAt` values, and no part was edited. |
+
+Mandates must use `omp-build-mandate/2`; reviews carrying input must use `omp-build:review-input/3`. Missing or older formats, obsolete payload fields, and frames using the removed `kind: 'proof'` refuse with `incompatible-format`. There is no migration, re-review, or exemption path.
+
+An adopted open PR moves directly from `ready` to `review`. The graph has no intermediate admission step.
+
+The review still judges behavioural evidence. For tiers that require it, the SC→Test matrix identifies each success criterion and any allowed `NO TEST` state. A correction keeps its behavioural proof and falsification: the falsifier removes the guard the proof covers and verifies that the test fails. Neither a passing CI check nor a digest replaces that review.
+
+`landPr` and the pinned reader in `.github/workflows/auto-merge.yml` run the same admission before writing an arm. The workflow refuses and disarms when its gate read refuses; a `reviewed` label is not enough. GitHub reads and arming are not transactional, so this does not establish continuous enforcement or close the queued-run race ([#787](https://github.com/Roxabi/roxabi-plugins/issues/787)).
+
+A canonical record can span multiple PR comments (`part=i/n`); readers accept only a complete record. The header carries the payload and the Markdown is projection. Native authorship and native timestamps establish what the gate read, not a signature or a lasting pin. GitHub reads, review publication, and arming are separate operations, so a change after the last read can remain undetected while an observer retains an arm.
+
+Record authorship under `OMP_BUILD_AUTOMATION_LOGIN` provides no author/reviewer separation while that login is also the PR author's identity. Reviews run in the local OMP session. `/feature` landing's `landPr` runs shared admission, then uses the operator's `gh` login to apply `reviewed` and enable native auto-merge; there is no human label step. The base-defined `pull_request_target` workflow re-checks admission when that label arrives and disarms on refusal or `synchronize`. Deliberate forgery of a record by the agent is an accepted, uncovered risk; revisit if a second contributor or human-less automation appears.
+
+The same trusted author is used for review records, workflow mandates, and bindings. Any future author separation must preserve durable CI-stop records and keep review reads separate from workflow-authority reads.
+
 GitHub viewer identity is fixed for one OMP process. `gh auth switch` requires a new session; the viewer memo includes `GH_HOST`, `GH_CONFIG_DIR`, `GH_TOKEN`, and `GITHUB_TOKEN` but does not observe an in-place account switch.
 
 
@@ -529,28 +383,23 @@ statuses while enforcing gate authorization; `disarmReviewedBeforePush` in
 once, and reuses that receipt if the callback fails. Standalone review and fix do
 not label a PR. No duplicate spec files or `validated` gate.
 
-The trusted auto-merge checkout (`.github/workflows/auto-merge.yml`) reads canonical records only from tooling pinned by repository variable `OMP_BUILD_TOOLING_SHA` (40 lowercase hex) and derives authorship for every trusted gate read from `--automation-login`: records, the landing mandate and its binding/parent chain, semantic binding, and proof selections. The gate never calls `gh api user`, which installation tokens cannot use. A missing or non-hex pin refuses. There is no fallback to the candidate checkout, the workflow SHA, a moving branch, candidate code, or a dependency install; the pin's committed `dist/contracts.js` is the reader.
+The trusted auto-merge checkout (`.github/workflows/auto-merge.yml`) reads canonical records only from tooling pinned by repository variable `OMP_BUILD_TOOLING_SHA` (40 lowercase hex). It derives the expected author from `--automation-login` for records, the landing mandate and its binding/parent chain, and the selected review. The gate never calls `gh api user`, which installation tokens cannot use. A missing or non-hex pin refuses. There is no fallback to the candidate checkout, workflow SHA, moving branch, candidate code, or a dependency install; the pin's committed `dist/contracts.js` is the reader.
 
-The workflow uses `pull_request_target` so GitHub selects its arming logic from the base repository's default branch, not the PR merge ref. This protects the arming decision; the immutable tooling pin separately protects the reader. The candidate is an isolated, credential-free data checkout, including the explicit checkout-v7 opt-in for fork heads. Bun runs only from the pinned tooling directory, with ambient Bun/Node preloads cleared; candidate scripts, configuration and dependencies are never executed. A trigger change takes effect only after it reaches the default branch; local shell smoke does not prove hosted trigger selection.
+The workflow uses `pull_request_target` so GitHub selects its arming logic from the base repository's default branch, not the PR merge ref. The candidate is an isolated, credential-free data checkout. Bun runs only from the pinned tooling directory, with ambient Bun/Node preloads cleared; candidate scripts, configuration, and dependencies are never executed. A trigger change takes effect only after it reaches the default branch; a local shell smoke does not prove hosted trigger selection.
 
-Every failed or skipped labeled-path admission has a final job-token cleanup, including App-token mint failure. It independently attempts native auto-merge disable and `reviewed` removal, then reads both back; failed writes or a remaining arm are errors. Cleanup never depends on the App token used by the reader. The job token therefore holds contents write: GitHub refuses `disablePullRequestAutoMerge` to a token with contents read, and an App-armed auto-merge then stays armed (observed 2026-10-25). Dependabot is eligible only for semver-minor or semver-patch updates whose every commit author is `dependabot[bot]`.
+Every failed or skipped labeled-path admission has a final job-token cleanup, including App-token mint failure. It independently attempts native auto-merge disable and `reviewed` removal, then reads both back; failed writes or a remaining arm are errors. Cleanup never depends on the App token used by the reader. Dependabot is eligible only for semver-minor or semver-patch updates whose every commit author is `dependabot[bot]`.
 
-The current tooling pin is `OMP_BUILD_TOOLING_SHA=2d9bd23eedb6a56d810af64271a1e4e72db87e29`, a `main` commit merged by [#890](https://github.com/Roxabi/roxabi-plugins/pull/890) that carries omp-build 0.11.5. Admission requires a mandate's `productVersion` to equal the pinned tooling version; otherwise it refuses with `config-drift`. Mandates published under another version are refused.
+#### Tooling-pin cutover
 
-After every merged omp-build version bump, the operator performs these two actions together:
+After #902 ships, `OMP_BUILD_TOOLING_SHA` must name a merged commit that contains the new `plugins/omp-build/dist/contracts.js`. Until it does, the hosted gate runs the older reader and refuses new-format mandates.
 
-1. Choose the full `main` SHA that carries the merged version, define `MAIN_SHA` as that SHA, and set the pin:
+After every merged omp-build version bump, set the variable to the full `main` SHA that carries that distribution, then update and restart the installed plugin:
 
-   ```sh
-   gh variable set OMP_BUILD_TOOLING_SHA --repo Roxabi/roxabi-plugins --body "$MAIN_SHA"
-   ```
-
-2. Update the installed plugin, then restart OMP:
-
-   ```sh
-   omp plugin marketplace update roxabi-marketplace
-   omp plugin upgrade omp-build@roxabi-marketplace
-   ```
+```sh
+gh variable set OMP_BUILD_TOOLING_SHA --repo Roxabi/roxabi-plugins --body "$MAIN_SHA"
+omp plugin marketplace update roxabi-marketplace
+omp plugin upgrade omp-build@roxabi-marketplace
+```
 
 ### Hosted activation prerequisites
 
