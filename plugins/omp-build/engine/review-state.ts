@@ -18,14 +18,8 @@ export function summarizeReviews(
   return summarizeAuthorityReviews(classifyHistory(history).authorityHistory, taxonomy, acceptedPolicyRef)
 }
 
-/** The native operation that published the latest review selected by a valid summary. */
-export function selectedReviewOperation(
-  history: DecodedHistory,
-  summary: ReviewSummary,
-): DecodedHistory['operations'][number] | null {
-  if (summary.reviewId === null) return null
-  return reviewOperations(history).find((operation) => operation.record?.recordId === summary.reviewId) ?? null
-}
+export { selectedReviewOperations } from './review-attempt-operations.ts'
+
 function summaryFailure(
   diagnostics: Diagnostic[],
   knownReviews: number,

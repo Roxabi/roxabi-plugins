@@ -1,3 +1,4 @@
+import { recordIntegrity } from '../../dist/contracts.js'
 import {
   approves,
   behindMessage,
@@ -9,7 +10,7 @@ import {
 } from './workflow-gate.js'
 import { currentLandingMandate, evidenceText } from './workflow-mandate.js'
 import { resolveLandingBase } from './workflow-readiness.js'
-import { requiredReviewRecords } from './workflow-records.js'
+import { requiredReviewAdmission } from './workflow-records.js'
 import { hasFreshReviewInput } from './workflow-review-input.js'
 import { persistObservedCiStop } from './workflow-review-state.js'
 import { errorText, gh, gitResult, stuckError } from './workflow-runtime.js'
@@ -63,7 +64,19 @@ function terminalState(code, gate, result) {
   return result
 }
 
-async function currentContinuation(cwd, pr, records, gate, result, ghFn, gitFn) {
+function reviewIntegrityRefusal(operations) {
+  if (operations === null)
+    return { reason: 'record-unreadable', detail: 'selected review attempt has no readable native operation' }
+  for (const operation of operations) {
+    if (operation.record === null)
+      return { reason: 'record-unreadable', detail: 'selected review attempt has no readable native operation' }
+    const refusal = recordIntegrity(operation.parts, operation.record)
+    if (refusal !== null) return refusal
+  }
+  return null
+}
+
+async function currentContinuation(cwd, pr, records, operations, gate, result, ghFn, gitFn) {
   const head = await readHeadRefOid(cwd, pr, ghFn)
   const currentGate = { ...gate, headRefOid: head }
   const base = await resolveLandingBase(cwd, pr, ghFn, gitFn)
@@ -94,6 +107,8 @@ async function currentContinuation(cwd, pr, records, gate, result, ghFn, gitFn) 
   if (!retaining || reviewBoundStopped(records) || !approves(records.verdict) || !isCommitSha(records.head)) {
     return { policy: 'allow-approved', gate: currentGate, result }
   }
+  const integrity = reviewIntegrityRefusal(operations)
+  if (integrity !== null) return { policy: 'unarmed', gate: currentGate, result }
   const inputFresh = await hasFreshReviewInput(cwd, pr, records, { gh: ghFn, git: gitFn })
   const lastHead = await readHeadRefOid(cwd, pr, ghFn)
   const lastGate = { ...gate, headRefOid: lastHead }
@@ -135,8 +150,9 @@ async function readWatchExit(cwd, pr, code, ghFn, gitFn) {
     result = terminalState(code, gate, result)
     const { continuation, retaining } = watchNeedsContinuation(result, policy, gate)
     if (continuation || retaining) {
-      records = await requiredReviewRecords(cwd, pr, { gh: ghFn })
-      const resolved = await currentContinuation(cwd, pr, records, gate, result, ghFn, gitFn)
+      const review = await requiredReviewAdmission(cwd, pr, { gh: ghFn })
+      records = review.records
+      const resolved = await currentContinuation(cwd, pr, records, review.operations, gate, result, ghFn, gitFn)
       gate = resolved.gate ?? gate
       policy = resolved.policy
       if (continuation) result = resolved.result

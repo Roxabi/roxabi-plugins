@@ -176,7 +176,7 @@ export {
   standardsRowSchema,
   stopSchema,
 } from './engine/review-schema.ts'
-export { deriveReviewState, selectedReviewOperation, summarizeReviews } from './engine/review-state.ts'
+export { deriveReviewState, selectedReviewOperations, summarizeReviews } from './engine/review-state.ts'
 export { resolveAcceptedSpec } from './engine/workflow-accepted-spec.ts'
 export type {
   AcceptedSpec,

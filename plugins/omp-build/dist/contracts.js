@@ -10868,14 +10868,47 @@ function spentInCompleteHistory(history, taxonomy, acceptedPolicyRef) {
   return false;
 }
 
+// plugins/omp-build/engine/review-attempt-operations.ts
+function reviewAttemptReferences(record) {
+  const references = [...record.inputs];
+  if (record.kind === "review")
+    references.push(...record.payload.inventoryIds, record.payload.decisionId);
+  if (record.kind === "decision")
+    references.push(record.payload.originalContributionId, ...record.payload.judgment.sourceContributionIds);
+  if (record.kind === "contribution" && record.payload.inventoryId !== null)
+    references.push(record.payload.inventoryId);
+  return references;
+}
+function collectReviewOperations(history, selected, reviewId, recordId, operations, visiting) {
+  if (operations.has(recordId))
+    return true;
+  if (visiting.has(recordId))
+    return false;
+  visiting.add(recordId);
+  const operation = recordId === reviewId ? selected : history.operations.find((candidate) => candidate.record?.recordId === recordId);
+  if (operation?.record === null || operation === undefined)
+    return false;
+  operations.set(recordId, operation);
+  for (const reference of reviewAttemptReferences(operation.record))
+    if (!collectReviewOperations(history, selected, reviewId, reference, operations, visiting))
+      return false;
+  visiting.delete(recordId);
+  return true;
+}
+function selectedReviewOperations(history, summary) {
+  if (summary.reviewId === null)
+    return [];
+  const selected = reviewOperations(history).find((operation) => operation.record?.recordId === summary.reviewId);
+  const review = selected?.record;
+  if (review?.kind !== "review" || selected === undefined)
+    return null;
+  const operations = new Map;
+  return collectReviewOperations(history, selected, review.recordId, review.recordId, operations, new Set) ? [...operations.values()] : null;
+}
+
 // plugins/omp-build/engine/review-state.ts
 function summarizeReviews(history, taxonomy, acceptedPolicyRef) {
   return summarizeAuthorityReviews(classifyHistory(history).authorityHistory, taxonomy, acceptedPolicyRef);
-}
-function selectedReviewOperation(history, summary) {
-  if (summary.reviewId === null)
-    return null;
-  return reviewOperations(history).find((operation) => operation.record?.recordId === summary.reviewId) ?? null;
 }
 function summaryFailure(diagnostics, knownReviews, countExact, spent) {
   return fail(diagnostics, { knownReviews, countExact, spent });
@@ -13108,7 +13141,7 @@ export {
   scopedRefsOf,
   selectApplicableMandate,
   selectWorkflowBinding,
-  selectedReviewOperation,
+  selectedReviewOperations,
   shippedProductVersion,
   slotSchema,
   specAssessmentSchema,

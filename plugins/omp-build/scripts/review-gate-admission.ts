@@ -5,7 +5,7 @@ import {
   githubScope,
   readGitHubHistory,
   recordIntegrity,
-  selectedReviewOperation,
+  selectedReviewOperations,
   summarizeReviews,
 } from '../dist/contracts.js'
 import { withRoxabiGitHubPolicy } from '../roxabi/github-policy.ts'
@@ -73,17 +73,26 @@ function baseRefusal(selectedBase: Refusal): MachineResult {
 }
 
 function selectedReviewIntegrity(history: DecodedHistory, summary: AcceptedSummary): MachineResult | null {
-  if (summary.value.reviewId === null) return null
-  const operation = selectedReviewOperation(history, summary.value)
-  if (operation?.record === null || operation === null)
+  const operations = selectedReviewOperations(history, summary.value)
+  if (operations === null)
     return {
       ok: false,
       allowed: false,
       reason: 'record-unreadable',
-      detail: 'selected review record has no readable native operation',
+      detail: 'selected review attempt has no readable native operation',
     }
-  const refusal = recordIntegrity(operation.parts, operation.record)
-  return refusal === null ? null : { ok: false, allowed: false, reason: refusal.reason, detail: refusal.detail }
+  for (const operation of operations) {
+    if (operation.record === null)
+      return {
+        ok: false,
+        allowed: false,
+        reason: 'record-unreadable',
+        detail: 'selected review attempt has no readable native operation',
+      }
+    const refusal = recordIntegrity(operation.parts, operation.record)
+    if (refusal !== null) return { ok: false, allowed: false, reason: refusal.reason, detail: refusal.detail }
+  }
+  return null
 }
 
 function reviewPolicy(args: Arguments, toolingRoot: string, gh: Gh) {

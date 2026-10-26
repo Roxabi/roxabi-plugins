@@ -4,7 +4,7 @@ import {
   decodeHistory,
   githubScope,
   readGitHubHistory,
-  selectedReviewOperation,
+  selectedReviewOperations,
   summarizeReviews,
 } from '../../dist/contracts.js'
 import { withRoxabiGitHubPolicy } from '../../roxabi/github-policy'
@@ -65,7 +65,7 @@ export async function requiredReviewAdmission(cwd, pr, options) {
   const history = await readReviewHistory(cwd, pr, ghFn)
   const result = reviewRecords(history, { ...(taxonomy === undefined ? {} : { taxonomy }), acceptedEvidencePolicyRef })
   if (!result.ok) throw reviewRefusal(result)
-  return { records: result.value, operation: selectedReviewOperation(history, result.value) }
+  return { records: result.value, operations: selectedReviewOperations(history, result.value) }
 }
 export async function requiredReviewRecords(cwd, pr, options) {
   const result = await readReviewRecords(cwd, pr, options)
