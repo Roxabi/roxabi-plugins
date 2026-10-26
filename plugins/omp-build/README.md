@@ -472,9 +472,10 @@ before its diff; the review-start test exercises the fence, not model compliance
   `.github/workflows/auto-merge.yml` both require shared admission before
   writing their arms. The workflow refuses and disarms when its current
   gate read refuses; it does not treat a `reviewed` label as sufficient proof.
-  Hosted activation was completed on 2026-10-25. This source change does not
-  itself alter that activation. Another actor can still enable auto-merge or merge outside these entry
-  points. GitHub reads and arming are not transactional; this does not
+  Hosted activation was completed on 2026-10-25. Updating this README does
+  not change the hosted configuration. Another actor can still enable
+  auto-merge or merge outside these entry points. GitHub reads and arming
+  are not transactional; this does not
   establish continuous enforcement or close the queued-run race
   ([#787](https://github.com/Roxabi/roxabi-plugins/issues/787)).
   A canonical record is published as one or more PR comments by the automation
@@ -558,6 +559,8 @@ After every merged omp-build version bump, the operator performs these two actio
 - **W3 — App token permissions:** the `roxabi-ci` installation grants checks read, contents write, issues write, pull requests write, statuses read and workflows write (observed 2026-10-25). The minted token is scoped to this repository, as before, and narrowed to checks read, contents write, issues read, pull requests write, statuses read and workflows write. Contents write performs the native auto-merge; workflows write lets it merge a PR that changes `.github/workflows/`. An explicit parent scope in another repository stays unreadable and refuses.
 
 The separately authorized T5 capability check passed in [run 40180871966](https://github.com/Roxabi/roxabi-plugins/actions/runs/40180871966). The gate reads with the App token (`GH_TOKEN: ${{ steps.app.outputs.token }}` in `.github/workflows/auto-merge.yml`), not the job `GITHUB_TOKEN`; job `issues: write` does not apply to that App token ([workflow permissions](https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#permissions) cover the job token only). With the App token narrowed by W3, the run exercised reading issue bodies and comments, including the explicit parent scope [#720](https://github.com/Roxabi/roxabi-plugins/issues/720), PR coordinates and rollup, and the trusted gate's selected-base Git fetch through its process-local credential helper. The real reader ran and refused a PR without a record with `reviewed-head-mismatch`; the token then armed native auto-merge. The credential helper does not persist credentials. This historical capability run is not admission evidence for another PR and does not prove access to private repositories. Local transport smoke coverage likewise does not prove that access.
+
+This is not a new tamper control.
 
 ## Guards
 
