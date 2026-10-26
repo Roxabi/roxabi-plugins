@@ -72,7 +72,6 @@ _Avoid_: a ticket stop, a /goal, waiting on pending base CI before a ticket
 The GitHub issue body: agreed scope, acceptance criteria, invariants and exclusions. The SSoT for what to build.
 _Avoid_: artifacts/specs, validated, /R-spec
 
-
 **Canonical record**:
 A versioned common record whose payload is the authority for that operation. The Markdown beside it is a deterministic projection, not a second contract.
 _Avoid_: a positional HTML marker, a Markdown section a consumer parses, a local session store
@@ -87,7 +86,6 @@ The read-only check before `landPr` writes its arms. It admits only when the lat
 Mandates use `omp-build-mandate/2`; reviews that carry input use `omp-build:review-input/3`. Missing or older formats, obsolete payload fields, and frames using the removed `kind: 'proof'` refuse with `incompatible-format`. They are not migrated, re-reviewed, or exempted.
 
 _Avoid_: a green check alone, an earlier review, an unbound head, treating a digest as authentication
-
 
 **TDD**:
 Test-first implementation at the seams agreed with the operator, using the model-invoked `tdd` skill.

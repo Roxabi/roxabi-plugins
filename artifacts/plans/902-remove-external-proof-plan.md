@@ -53,8 +53,9 @@ Delivery is manual, with review and CI, and does not run the current `/feature` 
 | Pre-arm proof freshness (`proof-changed`) | `skills/feature/workflow-review-state.js:108-140` | **removed**; the review-input and head freshness checks stay |
 
 Workflow graph: `ready --pr-open→ proof --proof-confirmed→ review` disappears
-(`roxabi/workflow-graph.ts:19,55-57`). An open bound PR reaches `review` through the existing
-`review-step-review` edge, and `review-step-land→land` is unchanged. No new edge is needed.
+(`roxabi/workflow-graph.ts:19,55-57`). Correction found in C2: `review-step-review` does not
+cover the first review of a bound open PR, so C2 adds `ready --pr-open→ review` (after
+`fix-confirmed→review`) to keep that guard; `review-step-land→land` is unchanged.
 
 ## Commits
 

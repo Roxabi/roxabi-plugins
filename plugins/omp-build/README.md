@@ -352,10 +352,10 @@ The same trusted author is used for review records, workflow mandates, and bindi
 
 GitHub viewer identity is fixed for one OMP process. `gh auth switch` requires a new session; the viewer memo includes `GH_HOST`, `GH_CONFIG_DIR`, `GH_TOKEN`, and `GITHUB_TOKEN` but does not observe an in-place account switch.
 
-
 The bound guards against agent mistakes, not against an agent that bypasses it:
-records by other accounts are ignored, and edits or deletions of the account's
-comments are not detected. Every posted review counts, with or without a fix
+records by other accounts are ignored, and the bound does not detect edits or
+deletions of the account's comments; landing admission separately refuses an
+edited selected review, mandate or binding record. Every posted review counts, with or without a fix
 before it. Older accounting comments and the `## Review Fixes Applied` receipt
 decide nothing.
 
@@ -520,9 +520,7 @@ The review class catalogue has one source: `skills/dev-review/review-classes.yml
 Generic record mechanics live in `testing/record-*.ts`; generic workflow records and actions live in `testing/workflow-fixtures.ts` and `testing/workflow-actions.ts`. Product scenarios select the shipped Roxabi graph explicitly through `testing/roxabi-presets.ts`; it is not a hidden default in the generic workflow builders.
 Engine behavior families live in `engine/__tests__/` and `testing/workflow-decision-cases/`. Their shared support arranges inputs and external boundaries, without re-exporting the product under test. `testing/extension-api-stub.ts` and `testing/review-runtime-support.ts` are shared cross-boundary support. Expected consumer-visible outcomes stay in the scenarios, outside model inputs. Process-spawning scenarios retain the `*.integration.test.ts` suffix and owned resource cleanup.
 
-Feature domain simulators and subprocess harnesses live in `skills/feature/testing/{gh-simulator,epic-driver,goal,proof-integration}/`; cross-boundary SDK and recovery drivers are named explicitly in `testing/feature-*.ts` and `testing/native-review-driver.ts`. They arrange external state and invoke the real canonical product owners, rather than implementing alternate admission. Proof acquisition itself remains runtime code, not fixture support.
-
-Retained native data stays in `skills/feature/__fixtures__/proof/{records,historical.records}.json`. Raw-byte retention, conservation through the current codec, and acceptance of original historical wire framing are different claims: re-encoding retained data alone does not prove that the original framing was accepted.
+Feature domain simulators and subprocess harnesses live in `skills/feature/testing/{gh-simulator,epic-driver,goal}/`; Git sandbox repositories live in `testing/sandbox/`; cross-boundary SDK and recovery drivers are named explicitly in `testing/feature-*.ts` and `testing/native-review-driver.ts`. They arrange external state and invoke the real canonical product owners, rather than implementing alternate admission.
 
 ### Quality contract
 
