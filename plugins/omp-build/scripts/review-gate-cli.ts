@@ -1,6 +1,7 @@
-import { readFileSync, realpathSync } from 'node:fs'
+import { realpathSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
 
+import { loadReviewClassCatalogue } from '../roxabi/review-assets.ts'
 import type { Gh, Git } from '../skills/feature/review-base.ts'
 
 export type Arguments = {
@@ -21,7 +22,6 @@ const SHA = /^[0-9a-f]{40}$/
 const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
 const LOGIN = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}(?:_[A-Za-z0-9]+)?(?:\[bot\])?$/
 const CI_WATCH = 'plugins/omp-build/skills/ci-watch/ci-watch.sh'
-const TAXONOMY = 'plugins/omp-build/skills/dev-review/review-classes.yml'
 
 export function output(result: MachineResult): void {
   process.stdout.write(`${JSON.stringify(result)}\n`)
@@ -134,8 +134,8 @@ export async function requiredCommand(cwd: string, argv: string[], input?: strin
 }
 
 export function canonicalTaxonomy(toolingRoot: string): string[] {
-  const text = readFileSync(join(toolingRoot, TAXONOMY), 'utf8')
-  const classes = [...text.matchAll(/^\s*-\s+class:\s*([a-z][a-z0-9-]*)\s*$/gm)].map((match) => match[1])
+  const { classes: source } = loadReviewClassCatalogue(join(toolingRoot, 'plugins/omp-build/skills/dev-review'))
+  const classes = [...source.matchAll(/^\s*-\s+class:\s*([a-z][a-z0-9-]*)\s*$/gm)].map((match) => match[1])
   if (classes.length === 0 || new Set(classes).size !== classes.length)
     throw new Error('trusted review taxonomy is unreadable')
   return classes

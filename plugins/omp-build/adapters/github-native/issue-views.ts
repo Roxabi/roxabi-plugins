@@ -66,7 +66,14 @@ export async function readEpicInputIssueView(
   number: number,
   options: IssueViewOptions,
 ): Promise<ReviewIssueView | null> {
-  return readReviewIssueView(repository, number, options)
+  const parsed = record(await issueView(repository, number, options, 'body,updatedAt,state,labels'))
+  if (parsed === null || typeof parsed.body !== 'string') return null
+  return {
+    body: parsed.body,
+    updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : null,
+    state: parsed.state,
+    labels: parsed.labels,
+  }
 }
 
 export async function readEpicLiveIssueView(

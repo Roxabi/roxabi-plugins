@@ -1,8 +1,8 @@
 import { diagnostic, GitHubHistoryReadError, type GitHubOptions } from '../github/types.ts'
-import { issueParentAssociation, linkedIssueAssociation } from '../github-workflow/association-validation.ts'
 import { graphql, splitRepository } from '../github-workflow/client.ts'
 import { readNativePullRequestFacts } from '../github-workflow/native-facts.ts'
 import type { IssueParentAssociation, LinkedIssueAssociation } from '../github-workflow/types.ts'
+import { issueParentAssociation, linkedIssueAssociation } from './association-validation.ts'
 
 const CLOSING_ISSUES_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {

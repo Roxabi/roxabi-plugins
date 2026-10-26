@@ -36,3 +36,15 @@ No new grammar, ids, scope unification, pagination, incompleteness/blocker/cycle
 ## Research references
 
 Source maps: `agent://SpecSeams903` and `agent://GraphDesign903` (read-only findings). Compatibility risks: raw-body digest drift; profile-specific null/Result/throw variants; added reads/permissions; graph limits and error translation; class-only loader behavior; historical record names.
+
+## Review-led compatibility corrections
+
+The first manual Q79 review of `a21c47af2cab8e04f740ca9df60ec028e544c70f` found three blocking defects. No existing expectation was changed to accept them.
+
+| Observation before correction | Causal correction | Observed proof after correction |
+|---|---|---|
+| Parent input reused the stricter PR date profile and threw `epic issue unreadable` for an absent date | Retain a separate native parent-input projection; absent/non-string dates become `null`, while PR review remains strict | Direct Spec-reader smoke passes missing/numeric/null/timestamp inputs; permanent behavioral regression |
+| New Bun state subprocess loaded worktree `.env`: baseline kept open `#42`, candidate silently filtered it using another `GH_REPO` | Disable automatic env-file loading on the new subprocess only; preserve caller environment | Real collector smoke now keeps `#42` in both baseline and candidate; integration regression also checks explicit caller `GH_REPO` |
+| Hosted admission still read the taxonomy independently | Obtain class bytes through the common loader, retaining the gate's own regex and duplicate/empty refusals | Hosted-taxonomy smoke preserves baseline classes, class-only loading, historical whitespace and both refusals |
+
+Native association decoders are colocated with their single reader; the glossary/README explicitly distinguish the future Report contract from current historical reports. Record the complete declared check results, exact final head, independent re-examination and CI on [PR #924](https://github.com/Roxabi/roxabi-plugins/pull/924) before merge.

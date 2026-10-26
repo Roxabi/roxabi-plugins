@@ -115,7 +115,7 @@ Issue state is a scope fact, not execution authority. A closed Spec remains read
 
 ### UW foundation
 
-The [glossary](GLOSSARY.md) names UWs, their parent/leaf roles, Specs and delivery records. Historical record kinds and wire names remain unchanged. The target Spec effective and action Instantané vocabulary does not imply that ancestor resolution or per-action snapshots are already implemented.
+The [glossary](GLOSSARY.md) names UWs, their parent/leaf roles, Specs and delivery records. Historical record kinds and wire names remain unchanged. The target Spec effective, Report and action Instantané vocabulary does not imply that ancestor resolution, origin-UW cause tracking or per-action snapshots are already implemented.
 
 Spec reads and body analyses belong to `roxabi/uw-spec/`; native issue/graph queries and response translation belong to `adapters/github-native/`; review-reference loading belongs to `roxabi/review-assets.ts`. Callers retain their existing workflow decisions. The two current scope and acceptance-list checks remain separate, with unchanged behavior; this foundation adds neither strict grammar nor pagination or new blocking rules.
 

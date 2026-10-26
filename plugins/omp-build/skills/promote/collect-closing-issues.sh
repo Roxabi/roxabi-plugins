@@ -152,7 +152,7 @@ ISSUES=""
 if [ -n "$RAW_ISSUES" ] && command -v gh >/dev/null 2>&1; then
   while IFS= read -r n; do
     [ -z "$n" ] && continue
-    st="$(bun run "$STATE_CLI" "$n" 2>/dev/null || echo "")"
+    st="$(bun --no-env-file run "$STATE_CLI" "$n" 2>/dev/null || echo "")"
     if [ -z "$st" ]; then
       echo "warn: could not resolve issue #$n state — keeping for re-emit" >&2
       ISSUES="${ISSUES}${n}"$'\n'

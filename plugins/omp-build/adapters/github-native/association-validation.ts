@@ -1,6 +1,6 @@
 import { githubScope } from '../github/transport.ts'
 import { diagnostic, RECORD_REPOSITORY } from '../github/types.ts'
-import { type IssueParentAssociation, type LinkedIssueAssociation, object } from './types.ts'
+import { type IssueParentAssociation, type LinkedIssueAssociation, object } from '../github-workflow/types.ts'
 
 type PullRequestFacts = { branch: string; base: string; head: string; baseTip: string }
 
