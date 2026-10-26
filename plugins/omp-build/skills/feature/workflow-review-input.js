@@ -61,8 +61,6 @@ export async function captureReviewInput(
     ok: true,
     input: snapshot.input,
     body: snapshot.body,
-    semctx: snapshot.semctx,
-    assertledger: snapshot.assertledger,
     semantic,
     semanticCanon: reviewSemanticCanon(semantic),
   }

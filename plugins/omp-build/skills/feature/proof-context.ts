@@ -1,7 +1,5 @@
 import { createHash } from 'node:crypto'
 import { type Gh, type Git, type Refusal, refuse } from './proof-base'
-import type { CandidateFacts } from './proof-candidate-contract'
-import type { SelectedRecord } from './proof-review-contract'
 export type Deps = {
   gh: Gh
   git: Git /** Test injection. Production omits this and calls the shared resolver. */
@@ -14,10 +12,6 @@ export type ReviewSnapshot = {
   ok: true
   input: string | null
   body: PrBody | null
-  facts: CandidateFacts
-  read: Read | null
-  semctx: SelectedRecord | null
-  assertledger: SelectedRecord | null
 }
 
 /** Confirmed semantic context. Proof hashes this; it does not resolve bindings. */

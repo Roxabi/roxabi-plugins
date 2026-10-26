@@ -12,7 +12,6 @@ import {
   worktree,
   writeSim,
 } from '../skills/feature/__fixtures__/proof/sandbox-repository.ts'
-import { plainSpec } from '../skills/feature/__fixtures__/proof/sandbox-semctx-spec.ts'
 import type { Box } from '../skills/feature/__fixtures__/proof/sandbox-types.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
 import { PROOF_PIN_PATHS } from './workflow-pins.ts'
@@ -21,6 +20,28 @@ const RUNNER = path.resolve(import.meta.dirname, '../testing/feature-recovery-ru
 const BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
 const SCOPE = { repository: 'acme/app', target: 'acme/app#42' }
 const BRANCH = 'feat/42-save'
+function plainSpec() {
+  return {
+    base: {
+      '.dev/stack.yml': 'landing:\n  mode: merge-on-green\n',
+      'src/a.ts': 'export const add = (a, b) => a + b\n',
+    },
+    branches: [
+      {
+        name: 'fix/5-plain',
+        from: 'main',
+        commits: [
+          {
+            message: 'fix: plain (#5)',
+            files: { 'src/a.ts': 'export const add = (a, b) => a + b\nexport const plain = true\n' },
+          },
+        ],
+      },
+    ],
+    issues: [{ number: 5, title: 'fix: plain', issueType: 'fix' }],
+    prs: [{ number: 30, branch: 'fix/5-plain', title: 'fix: plain', body: 'Closes #5\n', closes: [5] }],
+  }
+}
 const BODY = '## Acceptance criteria\n\n- [ ] preserves the region\n'
 
 const OBSERVED_INCOMPLETE_NATIVE_TERMINAL = {

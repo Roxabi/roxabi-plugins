@@ -4,21 +4,10 @@ import type { ProofSemanticContext } from '../skills/feature/proof-context'
 import type { ReviewConfig } from './review-config'
 import type { ReviewPrompts, ReviewSemanticAssets, SpecDisplay } from './review-prompts'
 import type { ReviewIssueSpec, ReviewSemanticContext } from './review-semantic-context'
-
-export type SelectedProofPart = {
-  id?: number
-  author: { login: string }
-  body: string
-  createdAt?: string
-  updatedAt?: string
-}
-export type SelectedProof = { record: unknown; parts: readonly SelectedProofPart[] }
 export type ReviewInputCapture = {
   ok: true
   input: string | null
   body: { body: string; lastEditedAt: string | null } | null
-  semctx: SelectedProof | null
-  assertledger: SelectedProof | null
   semantic: ProofSemanticContext
   semanticCanon: string
 }
@@ -29,8 +18,6 @@ export type ObservedEvidence = {
   stack: { candidate: string | null; base: string | null }
   resolvedSpec: { reference: string; body: string; lastEditedAt: string | null } | null
   semanticContext?: ReviewSemanticContext
-  semctx: SelectedProof | null
-  assertledger: SelectedProof | null
 }
 export type ReviewFile = {
   path: string

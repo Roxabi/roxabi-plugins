@@ -52,7 +52,7 @@ export function noProducerInput(head, pr = PR) {
     additionalRequirements: [],
   })
   if ('ok' in semantic) throw new Error(semantic.error)
-  return hashReviewInput(REPOSITORY, { pr, candidate: head }, { body: '', lastEditedAt: null }, null, null, semantic)
+  return hashReviewInput(REPOSITORY, { pr, candidate: head }, { body: '', lastEditedAt: null }, semantic)
 }
 
 function mandateRecord(head) {
@@ -94,14 +94,7 @@ function linkedInput(head, mandate, binding) {
     },
   })
   if ('ok' in semantic) throw new Error(semantic.error)
-  return hashReviewInput(
-    REPOSITORY,
-    { pr: PR, candidate: head },
-    { body: '', lastEditedAt: null },
-    null,
-    null,
-    semantic,
-  )
+  return hashReviewInput(REPOSITORY, { pr: PR, candidate: head }, { body: '', lastEditedAt: null }, semantic)
 }
 
 /** Approving review bound to issue 42, shipped config, and the empty-PR canon. */

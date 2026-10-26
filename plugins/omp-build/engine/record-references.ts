@@ -11,7 +11,6 @@ export const KIND_NAMES = [
   'correction-result',
   'falsification-result',
   'debt-receipt',
-  'proof',
   'stop',
   'epic-event',
   'mandate',

@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'vitest'
-import { reviewRoot, submission, synthesisInventory, TEST_HEAD, TEST_SCOPE } from '../../testing/record-builders.ts'
+import { reviewRoot, submission, synthesisInventory, TEST_SCOPE } from '../../testing/record-builders.ts'
 import { contribution, decision, finalReview } from '../../testing/record-decisions.ts'
 import { reviewGraph } from '../../testing/record-graphs.ts'
 import { history, operation } from '../../testing/record-history.ts'
-import { buildRecord } from '../record-construction.ts'
+import { buildRecord, parseRecord } from '../record-construction.ts'
 import { projectRecord } from '../record-projection.ts'
 import { validateDecision } from '../review-decision.ts'
 import { refusalCodes, TAXONOMY } from './record-test-support.ts'
@@ -129,28 +129,28 @@ describe('buildRecord', () => {
       {
         ...TEST_SCOPE,
         version: 1 as const,
-        recordId: 'closure-proof-one',
+        recordId: 'closure-event-one',
         runId: 'closure-run',
-        operationId: 'op-closure-proof-one',
-        kind: 'proof' as const,
-        payload: { candidateGitSHA: TEST_HEAD, data: { source: 'opaque-one' } },
+        operationId: 'op-closure-event-one',
+        kind: 'epic-event' as const,
+        payload: { outcome: 'opaque-one' },
       } as never,
       [],
     )
-    if (!firstResult.ok || firstResult.value.kind !== 'proof') throw new Error('Expected first closure proof')
+    if (!firstResult.ok || firstResult.value.kind !== 'epic-event') throw new Error('Expected first closure event')
     const secondResult = buildRecord(
       {
         ...TEST_SCOPE,
         version: 1 as const,
-        recordId: 'closure-proof-two',
+        recordId: 'closure-event-two',
         runId: 'closure-run',
-        operationId: 'op-closure-proof-two',
-        kind: 'proof' as const,
-        payload: { candidateGitSHA: TEST_HEAD, data: { source: 'opaque-two' } },
+        operationId: 'op-closure-event-two',
+        kind: 'epic-event' as const,
+        payload: { outcome: 'opaque-two' },
       } as never,
       [firstResult.value.recordId],
     )
-    if (!secondResult.ok || secondResult.value.kind !== 'proof') throw new Error('Expected second closure proof')
+    if (!secondResult.ok || secondResult.value.kind !== 'epic-event') throw new Error('Expected second closure event')
     const targetResult = buildRecord(
       {
         ...TEST_SCOPE,
@@ -187,7 +187,7 @@ describe('buildRecord', () => {
     })
     const ambiguousRecord = {
       ...firstResult.value,
-      payload: { ...firstResult.value.payload, data: { source: 'changed' } },
+      payload: { outcome: 'changed' },
     }
     const ambiguous = history([firstResult.value, secondResult.value], {
       operations: [
@@ -207,5 +207,22 @@ describe('buildRecord', () => {
     expect(refusalCodes(projectRecord(targetResult.value, foreign, null))).toContain('unbound')
     expect(refusalCodes(projectRecord(targetResult.value, ambiguous, null))).toContain('unbound')
     expect(refusalCodes(projectRecord(targetResult.value, missing, null))).toContain('unknown-reference')
+  })
+})
+
+describe('record format', () => {
+  test('refuses removed proof and unversioned or producer-bearing review input', () => {
+    const root = reviewRoot()
+    const { inputFormat: _removed, ...legacyPayload } = root.payload
+    const withoutFormat = { ...root, payload: legacyPayload }
+    const producerBearing = {
+      ...root,
+      payload: { ...root.payload, inputSnapshot: { body: null, spec: null, semctxParts: [] } },
+    }
+    const removedProof = { ...root, kind: 'proof', payload: {} }
+
+    expect(parseRecord(withoutFormat)).toMatchObject({ ok: false, diagnostics: [{ code: 'incompatible-format' }] })
+    expect(parseRecord(producerBearing)).toMatchObject({ ok: false, diagnostics: [{ code: 'incompatible-format' }] })
+    expect(parseRecord(removedProof)).toMatchObject({ ok: false, diagnostics: [{ code: 'incompatible-format' }] })
   })
 })

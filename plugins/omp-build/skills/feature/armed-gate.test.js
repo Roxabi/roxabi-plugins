@@ -58,7 +58,7 @@ describe('durable review stop', () => {
     })
   })
 
-  it('clears the watcher arm when the remote head moves during proof admission', async () => {
+  it('leaves the watcher arm unchanged when the head moves after proof-free admission', async () => {
     const linked = linkedApproval(HEADS[0])
     expect(linked.input).not.toBe(noProducerInput(HEADS[0]))
     const { gh, git, state } = gateGh(linked.pr, {
@@ -69,9 +69,8 @@ describe('durable review stop', () => {
     })
     await expect(applyCiWatchExit('/tmp/wt', PR, 5, { gh, git })).resolves.toMatchObject({
       status: 'timeout',
-      disarmed: true,
     })
-    expect(state).toEqual({ head: HEADS[1], label: false, auto: false })
+    expect(state).toEqual({ head: HEADS[0], label: true, auto: true })
   })
 
   it('keeps a proven bound when a newer review operation is incomplete', async () => {

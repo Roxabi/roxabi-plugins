@@ -13,7 +13,17 @@ import {
   type ProofConfigPin,
   STACK,
 } from './proof-base'
-import type { CandidateFacts } from './proof-candidate-contract'
+
+type CandidateFacts = {
+  toplevel: string
+  candidate: string
+  baseTip: string
+  semctx: 'absent' | 'configured'
+  config: { source: 'committed'; path: string; text: string; sha256: string } | null
+  stacks: { at: string; entry: { mode: string; type: string; oid: string; path: string } }[]
+  adapters: { entry: { mode: string; type: string; oid: string; path: string } }[]
+}
+
 import { compareApplicableProofPins, readProofConfigPins, rereadProofConfigPins } from './proof-pins'
 
 const COMMIT = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'

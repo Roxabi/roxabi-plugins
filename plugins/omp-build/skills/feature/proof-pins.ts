@@ -11,9 +11,27 @@ import {
   SHA,
   STACK,
 } from './proof-base'
-import type { CandidateFacts } from './proof-candidate-contract'
-import { parseTree, REGULAR, type TreeEntry } from './proof-tree'
 
+type TreeEntry = { mode: string; type: string; oid: string; path: string }
+type CandidateFacts = {
+  toplevel: string
+  candidate: string
+  baseTip: string
+  semctx: 'absent' | 'configured'
+  adapters: { entry: TreeEntry }[]
+}
+const REGULAR: Record<string, true> = { '100644': true, '100755': true }
+function parseTree(stdout: string): TreeEntry[] {
+  const entries: TreeEntry[] = []
+  for (const record of stdout.split('\0')) {
+    if (!record) continue
+    const tab = record.indexOf('\t')
+    const [mode, type, oid] = record.slice(0, tab).split(' ')
+    if (tab < 0 || !mode || !type || !oid) throw new Error(`unreadable ls-tree entry ${JSON.stringify(record)}`)
+    entries.push({ mode, type, oid, path: record.slice(tab + 1) })
+  }
+  return entries
+}
 async function entryAt(git: Git, toplevel: string, commit: string, path: string): Promise<TreeEntry | null | Error> {
   if (!SHA.test(commit)) return new Error(`commit ${JSON.stringify(commit)} is not a sha`)
   if (path === '' || path.startsWith('-') || path.includes('\0') || path.includes('..')) {

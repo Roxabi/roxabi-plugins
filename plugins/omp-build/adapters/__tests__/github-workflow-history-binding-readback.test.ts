@@ -78,12 +78,12 @@ it('threads externalHistories through encodeRecord into projection', () => {
     repository: 'acme/app',
     target: 'acme/app#42',
     version: 1 as const,
-    recordId: 'proof-external',
+    recordId: 'event-external',
     runId: 'run-1',
     operationId: 'op-external',
     inputs: [] as string[],
-    kind: 'proof' as const,
-    payload: { candidateGitSHA: 'abc', data: { verified: true } },
+    kind: 'epic-event' as const,
+    payload: { outcome: 'verified' },
   }
   const source = {
     scope: githubScope('acme/app', 42),
@@ -99,8 +99,8 @@ it('threads externalHistories through encodeRecord into projection', () => {
 
 describe('composed workflow history and landing binding readback', () => {
   it('composes PR and linked issue histories for a cold read', async () => {
-    const issueBody = framed('proof', 'op-issue', 'proof-issue')
-    const prBody = framed('proof', 'op-pr', 'proof-pr')
+    const issueBody = framed('epic-event', 'op-issue', 'event-issue')
+    const prBody = framed('epic-event', 'op-pr', 'event-pr')
     const result = await readComposedWorkflowHistory([githubScope('acme/app', 42), githubScope('acme/app', 7)], {
       cwd: '/fixture',
       readAuthor: 'automation',
@@ -121,9 +121,9 @@ describe('composed workflow history and landing binding readback', () => {
   })
 
   it('ignores a foreign partial frame that reuses a trusted operation identity', async () => {
-    const trusted = framed('proof', 'op-pr', 'proof-pr')
+    const trusted = framed('epic-event', 'op-pr', 'event-pr')
     const foreign =
-      '<!-- omp-build-record v=1 kind=proof id=proof-pr operationId=op-pr part=1/2 data=e30 -->\n# Foreign'
+      '<!-- omp-build-record v=1 kind=epic-event id=event-pr operationId=op-pr part=1/2 data=e30 -->\n# Foreign'
     const result = await readComposedWorkflowHistory([githubScope('acme/app', 42)], {
       cwd: '/fixture',
       readAuthor: 'automation',
@@ -135,7 +135,7 @@ describe('composed workflow history and landing binding readback', () => {
       ]),
     })
 
-    expect(result).toMatchObject({ ok: true, records: [expect.objectContaining({ recordId: 'proof-pr' })] })
+    expect(result).toMatchObject({ ok: true, records: [expect.objectContaining({ recordId: 'event-pr' })] })
     if (!result.ok) throw new Error('expected composed history')
     expect(result.histories[0]?.operations).toEqual(
       expect.arrayContaining([
@@ -332,12 +332,12 @@ describe('composed workflow history and landing binding readback', () => {
       repository: 'acme/app',
       target: 'acme/app#42',
       version: 1 as const,
-      recordId: 'proof-uncertain',
+      recordId: 'event-uncertain',
       runId: 'run-1',
       operationId: 'op-uncertain',
       inputs: [] as string[],
-      kind: 'proof' as const,
-      payload: { candidateGitSHA: 'abc', data: { verified: true } },
+      kind: 'epic-event' as const,
+      payload: { outcome: 'verified' },
     }
     const empty: DecodedHistory = {
       source: {

@@ -127,8 +127,6 @@ describe('reviewSemanticCanon', () => {
       'acme/app',
       { pr: 12, candidate: 'abc' },
       { body: 'pr body', lastEditedAt: null },
-      null,
-      null,
       projected,
     )
     const changed = proofSemanticContext({
@@ -154,14 +152,7 @@ describe('reviewSemanticCanon', () => {
     expect('ok' in changed).toBe(false)
     if ('ok' in changed) return
     expect(
-      hashReviewInput(
-        'acme/app',
-        { pr: 12, candidate: 'abc' },
-        { body: 'pr body', lastEditedAt: null },
-        null,
-        null,
-        changed,
-      ),
+      hashReviewInput('acme/app', { pr: 12, candidate: 'abc' }, { body: 'pr body', lastEditedAt: null }, changed),
     ).not.toBe(hashed)
   })
 })
@@ -200,8 +191,8 @@ describe('no-producer semantic binding', () => {
     const current = bound('accepted spec', '{}')
     const changed = bound('changed spec', '{}')
     const configured = bound('accepted spec', '{"gate":true}')
-    const currentHash = hashReviewInput(repository, { pr: 7, candidate }, prBody, null, null, current)
-    expect(currentHash).not.toBe(hashReviewInput(repository, { pr: 7, candidate }, prBody, null, null, changed))
-    expect(currentHash).not.toBe(hashReviewInput(repository, { pr: 7, candidate }, prBody, null, null, configured))
+    const currentHash = hashReviewInput(repository, { pr: 7, candidate }, prBody, current)
+    expect(currentHash).not.toBe(hashReviewInput(repository, { pr: 7, candidate }, prBody, changed))
+    expect(currentHash).not.toBe(hashReviewInput(repository, { pr: 7, candidate }, prBody, configured))
   })
 })

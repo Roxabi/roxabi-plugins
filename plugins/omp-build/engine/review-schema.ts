@@ -19,18 +19,13 @@ export const observedCommentSchema = z.strictObject({
   updatedAt: z.string().min(1).nullable(),
 })
 export type ObservedComment = z.infer<typeof observedCommentSchema>
-const selectedProofPartSchema = z.strictObject({
-  id: z.number().int().positive(),
-  createdAt: z.string().nullable(),
-  updatedAt: z.string().nullable(),
-})
+export const REVIEW_INPUT_FORMAT = 'omp-build:review-input/3'
+const reviewInputFormatSchema = z.literal(REVIEW_INPUT_FORMAT)
 export const reviewInputSnapshotSchema = z.strictObject({
   body: z.strictObject({ body: z.string(), lastEditedAt: z.string().nullable() }).nullable(),
   spec: z
     .strictObject({ reference: z.string().min(1), body: z.string(), lastEditedAt: z.string().nullable() })
     .nullable(),
-  semctxParts: z.array(selectedProofPartSchema).nullable(),
-  assertledgerParts: z.array(selectedProofPartSchema).nullable(),
 })
 export type ReviewInputSnapshot = z.infer<typeof reviewInputSnapshotSchema>
 export const reviewSubjectSchema = z.discriminatedUnion('kind', [
@@ -41,6 +36,7 @@ export type ReviewSubject = z.infer<typeof reviewSubjectSchema>
 const initialPullRequestInventorySchema = z.strictObject({
   rootAttemptId: identifierSchema,
   candidateGitSHA: shaSchema,
+  inputFormat: reviewInputFormatSchema,
   input: sha256Schema.nullable(),
   slots: z.array(slotSchema),
   stage: z.literal('initial'),
@@ -54,6 +50,7 @@ const initialPullRequestInventorySchema = z.strictObject({
 const initialEpicReviewInventorySchema = z.strictObject({
   rootAttemptId: identifierSchema,
   candidateGitSHA: shaSchema,
+  inputFormat: reviewInputFormatSchema,
   input: sha256Schema.nullable(),
   slots: z.array(slotSchema),
   stage: z.literal('initial'),
@@ -67,6 +64,7 @@ const initialEpicReviewInventorySchema = z.strictObject({
 const initialCorrectionInventorySchema = z.strictObject({
   rootAttemptId: identifierSchema,
   candidateGitSHA: shaSchema,
+  inputFormat: reviewInputFormatSchema,
   input: sha256Schema.nullable(),
   slots: z.array(slotSchema),
   stage: z.literal('initial'),
@@ -77,6 +75,7 @@ const initialCorrectionInventorySchema = z.strictObject({
 const recallInventorySchema = z.strictObject({
   rootAttemptId: identifierSchema,
   candidateGitSHA: shaSchema,
+  inputFormat: reviewInputFormatSchema,
   input: sha256Schema.nullable(),
   slots: z.array(slotSchema),
   stage: z.literal('recall'),
@@ -87,6 +86,7 @@ const recallInventorySchema = z.strictObject({
 const synthesisInventorySchema = z.strictObject({
   rootAttemptId: identifierSchema,
   candidateGitSHA: shaSchema,
+  inputFormat: reviewInputFormatSchema,
   input: sha256Schema.nullable(),
   slots: z.array(slotSchema),
   stage: z.literal('synthesis'),
@@ -165,6 +165,7 @@ export const decisionPayloadSchema = z.strictObject({
 
 export const finalReviewSchema = z.strictObject({
   candidateGitSHA: shaSchema,
+  inputFormat: reviewInputFormatSchema,
   input: sha256Schema.nullable(),
   inventoryIds: z.array(identifierSchema).min(1),
   decisionId: identifierSchema,

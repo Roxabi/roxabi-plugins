@@ -89,6 +89,7 @@
     "payload": {
       "rootAttemptId": "fix-28245174-555c-44d1-b988-0fd290103a82-review-attempt-3",
       "candidateGitSHA": "a55bb087c03b70bfd277ce0ac30108e58b1d782f",
+      "inputFormat": "omp-build:review-input/3",
       "input": null,
       "slots": [
         {
@@ -406,6 +407,7 @@
     "payload": {
       "rootAttemptId": "fix-28245174-555c-44d1-b988-0fd290103a82-review-attempt-3",
       "candidateGitSHA": "a55bb087c03b70bfd277ce0ac30108e58b1d782f",
+      "inputFormat": "omp-build:review-input/3",
       "input": null,
       "slots": [
         {

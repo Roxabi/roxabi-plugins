@@ -89,6 +89,7 @@ function is(id, flag) {
 }
 
 // plugins/omp-build/engine/record-diagnostics.ts
+var incompatibleFormat = "incompatible-format";
 function diagnostic(code, message, detail) {
   return detail === undefined ? { code, message } : { code, message, detail };
 }
@@ -100,6 +101,29 @@ function equalScope(left, right) {
 }
 function sameRef(left, right) {
   return left.recordId === right.recordId && left.kind === right.kind && equalScope(left.scope, right.scope);
+}
+
+// plugins/omp-build/engine/record-format.ts
+var REVIEW_INPUT_FORMAT = "omp-build:review-input/3";
+function incompatible(message) {
+  return { code: incompatibleFormat, message };
+}
+function recordFormatDiagnostic(value) {
+  if (value === null || typeof value !== "object" || Array.isArray(value))
+    return null;
+  const record = value;
+  if (record.kind === "proof")
+    return incompatible("Record kind 'proof' was removed in #902 and cannot authorize anything");
+  if (record.kind !== "review-attempt" && record.kind !== "review" || record.payload === null || typeof record.payload !== "object")
+    return null;
+  const payload = record.payload;
+  const snapshot = payload.inputSnapshot;
+  if (snapshot !== null && typeof snapshot === "object" && !Array.isArray(snapshot) && (("semctxParts" in snapshot) || ("assertledgerParts" in snapshot))) {
+    return incompatible(`Review input expects ${REVIEW_INPUT_FORMAT} without external producer parts`);
+  }
+  if (payload.inputFormat !== REVIEW_INPUT_FORMAT)
+    return incompatible(`Review input format must be ${REVIEW_INPUT_FORMAT}`);
+  return null;
 }
 
 // node_modules/zod/v4/core/util.js
@@ -6638,16 +6662,11 @@ var observedCommentSchema = strictObject({
   createdAt: string2().min(1).nullable(),
   updatedAt: string2().min(1).nullable()
 });
-var selectedProofPartSchema = strictObject({
-  id: number2().int().positive(),
-  createdAt: string2().nullable(),
-  updatedAt: string2().nullable()
-});
+var REVIEW_INPUT_FORMAT2 = "omp-build:review-input/3";
+var reviewInputFormatSchema = literal(REVIEW_INPUT_FORMAT2);
 var reviewInputSnapshotSchema = strictObject({
   body: strictObject({ body: string2(), lastEditedAt: string2().nullable() }).nullable(),
-  spec: strictObject({ reference: string2().min(1), body: string2(), lastEditedAt: string2().nullable() }).nullable(),
-  semctxParts: array(selectedProofPartSchema).nullable(),
-  assertledgerParts: array(selectedProofPartSchema).nullable()
+  spec: strictObject({ reference: string2().min(1), body: string2(), lastEditedAt: string2().nullable() }).nullable()
 });
 var reviewSubjectSchema = discriminatedUnion("kind", [
   strictObject({ kind: literal("pull-request") }),
@@ -6656,6 +6675,7 @@ var reviewSubjectSchema = discriminatedUnion("kind", [
 var initialPullRequestInventorySchema = strictObject({
   rootAttemptId: identifierSchema,
   candidateGitSHA: shaSchema,
+  inputFormat: reviewInputFormatSchema,
   input: sha256Schema.nullable(),
   slots: array(slotSchema),
   stage: literal("initial"),
@@ -6669,6 +6689,7 @@ var initialPullRequestInventorySchema = strictObject({
 var initialEpicReviewInventorySchema = strictObject({
   rootAttemptId: identifierSchema,
   candidateGitSHA: shaSchema,
+  inputFormat: reviewInputFormatSchema,
   input: sha256Schema.nullable(),
   slots: array(slotSchema),
   stage: literal("initial"),
@@ -6682,6 +6703,7 @@ var initialEpicReviewInventorySchema = strictObject({
 var initialCorrectionInventorySchema = strictObject({
   rootAttemptId: identifierSchema,
   candidateGitSHA: shaSchema,
+  inputFormat: reviewInputFormatSchema,
   input: sha256Schema.nullable(),
   slots: array(slotSchema),
   stage: literal("initial"),
@@ -6692,6 +6714,7 @@ var initialCorrectionInventorySchema = strictObject({
 var recallInventorySchema = strictObject({
   rootAttemptId: identifierSchema,
   candidateGitSHA: shaSchema,
+  inputFormat: reviewInputFormatSchema,
   input: sha256Schema.nullable(),
   slots: array(slotSchema),
   stage: literal("recall"),
@@ -6702,6 +6725,7 @@ var recallInventorySchema = strictObject({
 var synthesisInventorySchema = strictObject({
   rootAttemptId: identifierSchema,
   candidateGitSHA: shaSchema,
+  inputFormat: reviewInputFormatSchema,
   input: sha256Schema.nullable(),
   slots: array(slotSchema),
   stage: literal("synthesis"),
@@ -6773,6 +6797,7 @@ var decisionPayloadSchema = strictObject({
 });
 var finalReviewSchema = strictObject({
   candidateGitSHA: shaSchema,
+  inputFormat: reviewInputFormatSchema,
   input: sha256Schema.nullable(),
   inventoryIds: array(identifierSchema).min(1),
   decisionId: identifierSchema
@@ -6890,7 +6915,6 @@ var KIND_NAMES = [
   "correction-result",
   "falsification-result",
   "debt-receipt",
-  "proof",
   "stop",
   "epic-event",
   "mandate",
@@ -7404,7 +7428,6 @@ var recordSchema = discriminatedUnion("kind", [
   record2("correction-result", correctionResultSchema),
   record2("falsification-result", falsificationResultSchema),
   record2("debt-receipt", debtReceiptSchema),
-  record2("proof", strictObject({ candidateGitSHA: shaSchema, data: jsonSchema })),
   record2("stop", stopSchema),
   record2("epic-event", jsonSchema),
   record2("mandate", mandatePayloadSchema),
@@ -7467,6 +7490,9 @@ function workflowInputMeaning(record) {
 
 // plugins/omp-build/engine/record-construction.ts
 function parseRecord(value) {
+  const format = recordFormatDiagnostic(value);
+  if (format)
+    return fail([format]);
   const parsed = recordSchema.safeParse(value);
   if (!parsed.success)
     return fail([
@@ -7505,7 +7531,6 @@ function derivedInputs(draft) {
       ];
     case "stop":
       return [draft.payload.reviewId];
-    case "proof":
     case "epic-event":
       return [];
     case "mandate":

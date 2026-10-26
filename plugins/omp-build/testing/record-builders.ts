@@ -1,7 +1,7 @@
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { FindingData, Json, NativeOutcome, Policy, Scope, Submission } from '../engine/record-values.ts'
 import type { RecordProjectionConfig } from '../engine/result.ts'
-import type { ReviewInputSnapshot, ReviewStandards, ReviewSubject } from '../engine/review-schema.ts'
+import { type ReviewInputSnapshot, type ReviewStandards, type ReviewSubject } from '../engine/review-schema.ts'
 
 export const TEST_SCOPE: Scope = { repository: 'acme/widgets', target: 'acme/widgets#42' }
 export const NATIVE_AUTHOR = 'roxabi-bot'
@@ -18,8 +18,6 @@ export function projectionConfig(taxonomy: readonly string[]): RecordProjectionC
 export const TEST_INPUT_SNAPSHOT: ReviewInputSnapshot = {
   body: { body: 'The selected region must remain selected after save.', lastEditedAt: '2026-10-20T09:00:00Z' },
   spec: { reference: 'SPEC-42', body: 'Persist the selected region.', lastEditedAt: null },
-  semctxParts: [{ id: 17, createdAt: '2026-10-20T09:05:00Z', updatedAt: null }],
-  assertledgerParts: [{ id: 8, createdAt: '2026-10-20T09:06:00Z', updatedAt: '2026-10-20T09:07:00Z' }],
 }
 export const TEST_STANDARDS: ReviewStandards = {
   state: 'observed',
@@ -84,6 +82,7 @@ export function reviewRoot(
   const subject = options.subject ?? { kind: 'pull-request' as const }
   const payload = {
     rootAttemptId: id,
+    inputFormat: 'omp-build:review-input/3' as const,
     candidateGitSHA: options.head ?? TEST_HEAD,
     input: 'input' in options ? (options.input ?? null) : TEST_INPUT,
     slots: options.slots ?? [
@@ -148,6 +147,7 @@ export function synthesisInventory(
     payload: {
       rootAttemptId: rootId,
       candidateGitSHA: options.head ?? TEST_HEAD,
+      inputFormat: 'omp-build:review-input/3' as const,
       input: 'input' in options ? (options.input ?? null) : TEST_INPUT,
       slots: [
         {

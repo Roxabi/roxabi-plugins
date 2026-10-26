@@ -105,8 +105,6 @@ export async function boundInput(fixture: ReviewGateFixture): Promise<string> {
     'acme/app',
     { pr: 7, candidate: fixture.head },
     { body: PR_TEXT, lastEditedAt: PR_EDITED },
-    null,
-    null,
     semantic,
   )
 }
@@ -125,8 +123,6 @@ export async function standaloneNoProducerInput(fixture: ReviewGateFixture): Pro
     'acme/app',
     { pr: 7, candidate: fixture.head },
     { body: state.prBody, lastEditedAt: state.prEditedAt },
-    null,
-    null,
     semantic,
   )
 }

@@ -1,10 +1,12 @@
 import { diagnostic, equalScope, fail } from './record-diagnostics.ts'
-import type { CanonicalRecord } from './record-schema.ts'
-import { recordSchema } from './record-schema.ts'
+import { recordFormatDiagnostic } from './record-format.ts'
+import { type CanonicalRecord, recordSchema } from './record-schema.ts'
 import type { Result } from './result.ts'
 import { scopedRefsOf, workflowInputMeaning } from './workflow-record-references.ts'
 
 export function parseRecord(value: unknown): Result<CanonicalRecord> {
+  const format = recordFormatDiagnostic(value)
+  if (format) return fail([format])
   const parsed = recordSchema.safeParse(value)
   if (!parsed.success)
     return fail([
@@ -52,7 +54,6 @@ function derivedInputs(draft: RecordDraft): string[] {
       ]
     case 'stop':
       return [draft.payload.reviewId]
-    case 'proof':
     case 'epic-event':
       return []
     case 'mandate':

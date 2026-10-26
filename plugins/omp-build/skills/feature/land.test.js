@@ -70,7 +70,7 @@ describe('landing review authority', () => {
     expect(state).toEqual({ head: HEADS[0], label: false, auto: false })
   })
 
-  it('clears the arm when the remote head moves during a successful proof read', async () => {
+  it('lands when the head moves after proof-free admission', async () => {
     const linked = linkedApproval(HEADS[0])
     expect(linked.input).not.toBe(noProducerInput(HEADS[0]))
     const { gh, git, state } = gateGh(linked.pr, {
@@ -80,11 +80,9 @@ describe('landing review authority', () => {
       issueHistory: linked.issue,
     })
     await expect(nextReviewStep('/tmp/wt', PR, { gh, git })).resolves.toMatchObject({
-      action: 'review',
-      reason: 'head-moved',
-      disarmed: true,
+      action: 'land',
     })
-    expect(state).toEqual({ head: HEADS[1], label: false, auto: false })
+    expect(state).toEqual({ head: HEADS[0], label: true, auto: true })
   })
 
   it('clears a known arm when next review transition refuses incomplete history', async () => {
