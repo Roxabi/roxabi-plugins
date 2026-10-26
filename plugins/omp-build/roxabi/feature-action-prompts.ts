@@ -73,7 +73,7 @@ function actionTask(input: ModelActionInput): string {
       input.approved.specBlock ?? 'Accepted Spec: (missing).',
       input.planBlock ?? 'Confirmed plan: (missing).',
       'Use only the accepted Spec and confirmed plan above with the mandate effective additionalRequirements; do not substitute local or current defaults.',
-      'Run the changed path. Update affected docs. For a frontend or shared UI surface, record browser URL, steps, and observed result, or run the declared test_e2e command. Do not record ui-manual-only when test_e2e is declared. Stage only task-owned files. Commit with a Conventional subject ending (#N). Never git add -A, git add --all, or git add .',
+      'Run the changed path. Update affected docs. For a frontend or shared UI surface, record browser URL, steps, and observed result, or run the declared test_e2e command. Do not record ui-manual-only when test_e2e is declared. Stage only task-owned files. Commit with a Conventional subject ending (#N). Never use git add -A, git add --all, or the git add . form. If a hook fails because dependencies are missing, run commands.install from .dev/stack.yml, then retry with hooks on. Never pass --no-verify or otherwise skip or disable hooks (including -n, LEFTHOOK=0, or core.hooksPath). If a hook stays red outside approved scope, return blocked naming the hook and failure; do not commit around it.',
     ].join('\n')
   }
   if (input.action === 'attribute-ci') {
