@@ -389,13 +389,15 @@ The workflow uses `pull_request_target` so GitHub selects its arming logic from 
 
 Every failed or skipped labeled-path admission has a final job-token cleanup, including App-token mint failure. It independently attempts native auto-merge disable and `reviewed` removal, then reads both back; failed writes or a remaining arm are errors. Cleanup never depends on the App token used by the reader. Dependabot is eligible only for semver-minor or semver-patch updates whose every commit author is `dependabot[bot]`.
 
-The current tooling pin is `OMP_BUILD_TOOLING_SHA=73a38ec509b09129cd277d7fbee2e9f698c4b13b`, a `main` commit merged by [#911](https://github.com/Roxabi/roxabi-plugins/pull/911) that carries omp-build 0.11.6. Admission requires a mandate's `productVersion` to equal the pinned tooling version; otherwise it refuses with `config-drift`. Mandates published under another version are refused.
+Admission requires a mandate's `productVersion` to equal the version of the pinned tooling; otherwise it refuses with `config-drift`. The repository variable is the only record of the current pin:
 
-#### Tooling-pin cutover
+```sh
+gh variable get OMP_BUILD_TOOLING_SHA --repo Roxabi/roxabi-plugins
+```
 
-After #902 ships, `OMP_BUILD_TOOLING_SHA` must name a merged commit that contains the new `plugins/omp-build/dist/contracts.js`. Until it does, the hosted gate runs the older reader and refuses new-format mandates.
+#### Tooling-pin update
 
-After every merged omp-build version bump, set the variable to the full `main` SHA that carries that distribution, then update and restart the installed plugin:
+After every merged omp-build version bump, set the variable to the full `main` SHA that carries that distribution, then update and restart the installed plugin. Until the pin moves, the hosted gate reads with the previous version and refuses mandates published by the new one.
 
 ```sh
 gh variable set OMP_BUILD_TOOLING_SHA --repo Roxabi/roxabi-plugins --body "$MAIN_SHA"
