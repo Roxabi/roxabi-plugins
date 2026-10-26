@@ -222,7 +222,6 @@ async function reconstructAuthorizedFix(
       publish: { status: 'not-applicable', evidence: [] },
       landing: { status: 'not-applicable', evidence: [] },
       watch: { status: 'not-applicable', evidence: [] },
-      proof: { admission: null, candidateGitSHA: null, input: null, applicability: 'not-applicable', evidence: [] },
     },
   })
   return reconstructedFixOutcome(decision, failedChecks)

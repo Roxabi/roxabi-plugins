@@ -58,13 +58,6 @@ export function decisions(reviewStep: 'stop' | null = null, ciWatchStatus: 'gree
     publish: { status: 'absent' as const, evidence: [] },
     landing: { status: 'absent' as const, evidence: [] },
     watch: { status: 'absent' as const, evidence: [] },
-    proof: {
-      admission: null,
-      candidateGitSHA: null,
-      input: null,
-      applicability: 'not-applicable' as const,
-      evidence: [],
-    },
   }
 }
 
@@ -105,13 +98,6 @@ export function shippedFacts(
   pullRequest: { scope: Scope; head: string; base: string; associatedIssue: Scope | null } | null = null,
 ) {
   return { ...facts(), pullRequest }
-}
-
-export function openProof() {
-  return {
-    ...decisions(),
-    proof: { ...decisions().proof, applicability: 'required' as const, admission: null },
-  }
 }
 
 export function eligiblePlan(mandate: MandateRecord): CanonicalRecord[] {

@@ -254,7 +254,6 @@ export { reconstructWorkflow } from './engine/workflow-reconstruction-admission.
 export type {
   NativeSelector,
   NativeSelectorStatus,
-  ProofSelector,
   SpecializedDecisions,
   WorkflowBlockReason,
   WorkflowDecision,

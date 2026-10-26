@@ -21,7 +21,6 @@ export const WORKTREE_ACTIONS = new Set<string>([
   'plan',
   'implement',
   'publish',
-  'proof',
   'review',
   'fix',
   'attribute-ci',

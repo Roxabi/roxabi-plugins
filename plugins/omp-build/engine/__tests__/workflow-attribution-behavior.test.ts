@@ -130,13 +130,6 @@ describe('workflow CI attribution behavior', () => {
       publish: { status: 'not-applicable' as const, evidence: [] },
       landing: { status: 'not-applicable' as const, evidence: [] },
       watch: { status: 'not-applicable' as const, evidence: [] },
-      proof: {
-        admission: null,
-        candidateGitSHA: null,
-        input: null,
-        applicability: 'not-applicable' as const,
-        evidence: [],
-      },
     }
     const shared = {
       evidence: { issue: history([mandated, binding(mandated)]), pullRequest: history([receipt], pr), parents: [] },

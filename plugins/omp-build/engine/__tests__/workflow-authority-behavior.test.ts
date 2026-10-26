@@ -164,7 +164,6 @@ describe('workflow authority behavior', () => {
         publish: { status: 'absent', evidence: [] },
         landing: { status: 'absent', evidence: [] },
         watch: { status: 'absent', evidence: [] },
-        proof: { admission: null, candidateGitSHA: null, input: null, applicability: 'required', evidence: [] },
       },
     })
     expect(decision.status).toBe('paused')
@@ -317,7 +316,6 @@ describe('workflow authority behavior', () => {
           publish: { status: 'absent', evidence: [] },
           landing: { status: 'absent', evidence: [] },
           watch: { status: 'absent', evidence: [] },
-          proof: { admission: null, candidateGitSHA: null, input: null, applicability: 'required', evidence: [] },
         },
       }),
     ).not.toMatchObject({ status: 'action' })

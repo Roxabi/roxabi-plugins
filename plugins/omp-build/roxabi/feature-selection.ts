@@ -46,7 +46,6 @@ export function actionRequiresFeatureCheckout(action: string): boolean {
     action === 'assess-spec' ||
     action === 'attribute-ci' ||
     action === 'publish' ||
-    action === 'proof' ||
     action === 'review' ||
     action === 'fix' ||
     action === 'land'

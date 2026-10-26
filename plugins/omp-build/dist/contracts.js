@@ -10002,7 +10002,6 @@ var WORKTREE_ACTIONS = new Set([
   "plan",
   "implement",
   "publish",
-  "proof",
   "review",
   "fix",
   "attribute-ci",
@@ -11450,8 +11449,6 @@ function actionCompletion(action, evidence, decisions, mandate, facts = null) {
       return assessSpecCompletion(evidence, facts, mandate);
     case "attribute-ci":
       return ciAttributionCompletion(evidence, facts, mandate);
-    case "proof":
-      return proofCompletion(decisions);
     case "publish":
       return selectedCompletion(decisions.publish);
     case "land":
@@ -11518,12 +11515,6 @@ function planCompletion(evidence, mandate) {
   if (macro.phase === "uncertain")
     return { status: "uncertain", evidence: macro.evidence };
   return { status: "not-started", evidence: macro.evidence };
-}
-function proofCompletion(decisions) {
-  if (decisions.proof.applicability === "not-applicable" || decisions.proof.admission?.ok === true) {
-    return { status: "confirmed", evidence: decisions.proof.evidence };
-  }
-  return { status: "not-started", evidence: decisions.proof.evidence };
 }
 function selectedCompletion(selector) {
   if (selector.status === "published" || selector.status === "not-applicable") {
@@ -11648,7 +11639,6 @@ var workflowGraphActionSchema = _enum([
   "plan",
   "implement",
   "publish",
-  "proof",
   "review",
   "fix",
   "attribute-ci",
@@ -11671,7 +11661,6 @@ var workflowConditionSchema = _enum([
   "plan-confirmed",
   "implement-confirmed",
   "pr-open",
-  "proof-confirmed",
   "review-step-review",
   "review-step-fix",
   "review-step-land",
@@ -12425,8 +12414,6 @@ function conditionHolds(when, history, facts, decisions, mandate, pullRequest) {
       return implementConfirmed(history, mandate);
     case "pr-open":
       return pullRequestIsOpen(history, facts, mandate, pullRequest);
-    case "proof-confirmed":
-      return decisions.proof.applicability === "not-applicable" || decisions.proof.admission?.ok === true;
     case "review-step-review":
       return decisions.reviewStep === "review";
     case "review-step-fix":
@@ -12489,11 +12476,9 @@ function ciConditionHolds(when, history, facts, decisions, mandate, pullRequest)
 function blocked(reason, evidence) {
   return { status: "blocked", reason, evidence };
 }
-function pendingAction(node, completion, evidence, facts, mandate) {
+function pendingAction(node, completion, facts, mandate) {
   if (completion.status !== "not-started" || node.action === "stop" || node.action === "done")
     return null;
-  if (node.action === "proof" && evidence.pullRequest === null)
-    return blocked("missing-history", [diagnostic("missing-history", "proof requires pull request history")]);
   if (WORKTREE_ACTIONS.has(node.action) && !sessionReady(facts))
     return blocked("session-cwd", sessionEvidence(facts));
   return {
@@ -12555,7 +12540,7 @@ function walkWorkflowStep(graph, nodes, current, evidence, facts, decisions, man
     return blocked("action-uncertain", completion.evidence);
   if (completion.status === "blocked")
     return blocked(completionBlockReason(completion), completion.evidence);
-  const pending = pendingAction(node, completion, evidence, facts, mandate);
+  const pending = pendingAction(node, completion, facts, mandate);
   if (pending !== null)
     return pending;
   const terminal = terminalDecision(node, evidence.issue, facts, decisions, mandate, evidence.pullRequest);
@@ -12785,7 +12770,6 @@ var NODES = [
   { id: "plan", action: "plan" },
   { id: "implement", action: "implement" },
   { id: "publish", action: "publish" },
-  { id: "proof", action: "proof" },
   { id: "review", action: "review" },
   { id: "fix", action: "fix" },
   { id: "attribute-ci", action: "attribute-ci" },
@@ -12817,8 +12801,6 @@ var EDGES = [
   { from: "ready", to: "done", when: "end-obligations-met" },
   { from: "ready", to: "hook", when: "merged" },
   { from: "ready", to: "review", when: "fix-confirmed" },
-  { from: "ready", to: "review", when: "proof-confirmed" },
-  { from: "ready", to: "proof", when: "pr-open" },
   { from: "ready", to: "publish", when: "implement-confirmed" },
   { from: "ready", to: "implement", when: "plan-confirmed" },
   { from: "ready", to: "assess-spec", when: "spec-differs" },

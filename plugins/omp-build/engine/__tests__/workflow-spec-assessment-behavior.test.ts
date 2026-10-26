@@ -34,7 +34,6 @@ describe('workflow Spec assessment behavior', () => {
       publish: { status: 'absent' as const, evidence: [] },
       landing: { status: 'absent' as const, evidence: [] },
       watch: { status: 'absent' as const, evidence: [] },
-      proof: { admission: null, candidateGitSHA: null, input: null, applicability: 'required' as const, evidence: [] },
     }
     const staleEvidence = {
       issue: history([mandated, historical.start, historical.result]),
@@ -99,7 +98,6 @@ describe('workflow Spec assessment behavior', () => {
           publish: { status: 'absent', evidence: [] },
           landing: { status: 'absent', evidence: [] },
           watch: { status: 'absent', evidence: [] },
-          proof: { admission: null, candidateGitSHA: null, input: null, applicability: 'required', evidence: [] },
         },
       }),
     ).toMatchObject({ status: 'action', mandateId: mandated.recordId })
@@ -186,7 +184,6 @@ describe('workflow Spec assessment behavior', () => {
           publish: { status: 'absent', evidence: [] },
           landing: { status: 'absent', evidence: [] },
           watch: { status: 'absent', evidence: [] },
-          proof: { admission: null, candidateGitSHA: null, input: null, applicability: 'required', evidence: [] },
         },
       }),
     ).toMatchObject({ status: 'action', mandateId: successor.recordId })
@@ -209,7 +206,6 @@ describe('workflow Spec assessment behavior', () => {
           publish: { status: 'absent', evidence: [] },
           landing: { status: 'absent', evidence: [] },
           watch: { status: 'absent', evidence: [] },
-          proof: { admission: null, candidateGitSHA: null, input: null, applicability: 'required', evidence: [] },
         },
       }),
     ).toMatchObject({ status: 'terminal', reason: 'spec-ambiguous' })

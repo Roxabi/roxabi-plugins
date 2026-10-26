@@ -248,7 +248,6 @@ describe('workflow plan execution behavior', () => {
       publish: { status: 'absent', evidence: [] },
       landing: { status: 'absent', evidence: [] },
       watch: { status: 'absent', evidence: [] },
-      proof: { admission: null, candidateGitSHA: null, input: null, applicability: 'required', evidence: [] },
     }
     const oldImplementationStart = implementationStart(mandated, 'act-implement-a', 'act-plan-a')
     const oldImplementationResult = implementationResult(
@@ -332,7 +331,7 @@ describe('workflow plan execution behavior', () => {
     expect(published).toMatchObject({ status: 'action', action: 'publish' })
     const pull: Scope = { repository: SCOPE.repository, target: 'acme/app#99' }
     const boundPull = history([binding(mandated, pull)], pull)
-    const proof = reconstructWorkflow({
+    const review = reconstructWorkflow({
       evidence: {
         issue: history([
           ...eligibleRecords,
@@ -348,9 +347,9 @@ describe('workflow plan execution behavior', () => {
         ...workflowFacts,
         pullRequest: { scope: pull, head: 'abc', base: 'main', associatedIssue: SCOPE },
       },
-      decisions: workflowDecisions,
+      decisions: { ...workflowDecisions, reviewStep: 'review' },
     })
-    expect(proof).toMatchObject({ status: 'action', action: 'proof' })
+    expect(review).toMatchObject({ status: 'action', action: 'review' })
 
     const abandoned = must(
       buildRecord({

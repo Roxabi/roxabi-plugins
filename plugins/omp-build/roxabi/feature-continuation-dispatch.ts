@@ -1,16 +1,10 @@
-import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { fileURLToPath } from 'node:url'
-import { promisify } from 'node:util'
 import type { PauseBinding } from '../engine/workflow-control.ts'
 import type { FeatureAuthority } from './feature-continuation-admission.ts'
-import { proofSelectorFor } from './feature-continuation-proof.ts'
 import type { ContinueFeatureResult } from './feature-contract.ts'
 import { releaseCwdInhibition, releaseInhibition } from './feature-control.ts'
 import { isRecord, payload, publishRecord } from './feature-engine.ts'
 import type { FeatureObservation } from './feature-observation-contract.ts'
-
-const execFileAsync = promisify(execFile)
 
 /** Publishes a validated resume control; null means the source publication succeeded. */
 export async function resumePausedFeature(input: {
@@ -65,52 +59,6 @@ export async function resumePausedFeature(input: {
   if (!published.ok) return { kind: 'blocked', reason: published.reason, diagnostics: published.diagnostics }
   releaseInhibition(scope)
   releaseCwdInhibition(context.cwd)
-  return null
-}
-
-/** Runs proof acquisition and confirms the freshly selected exact candidate head. */
-export async function acquireFeatureProof(
-  authority: FeatureAuthority,
-  observation: FeatureObservation,
-): Promise<ContinueFeatureResult | null> {
-  const { context, scope } = authority
-  const { delivery } = observation
-  if (delivery === null) return { kind: 'blocked', reason: 'proof-requires-pull-request' }
-  const script = fileURLToPath(new URL('../skills/feature/proof-acquire.ts', import.meta.url))
-  try {
-    await execFileAsync('bun', ['--no-env-file', script, '--pr', String(delivery.number)], {
-      cwd: context.cwd,
-      encoding: 'utf8',
-      maxBuffer: 32 * 1024 * 1024,
-    })
-  } catch (error) {
-    const failed = error !== null && typeof error === 'object' ? error : {}
-    const stderr = 'stderr' in failed && typeof failed.stderr === 'string' ? failed.stderr.trim() : ''
-    const message = error instanceof Error ? error.message : String(error)
-    return {
-      kind: 'blocked',
-      reason:
-        stderr.length > 0
-          ? `proof-acquire-failed:${stderr.slice(0, 240)}`
-          : `proof-acquire-failed:${message.slice(0, 240)}`,
-    }
-  }
-  const readiness = await proofSelectorFor({
-    cwd: context.cwd,
-    repository: scope.repository,
-    delivery,
-    git: context.git,
-    gh: context.gh,
-  })
-  if (!readiness.ok) return { kind: 'blocked', reason: readiness.reason }
-  const admission = readiness.selector.admission
-  if (
-    admission === null ||
-    admission.candidateGitSHA !== delivery.head ||
-    readiness.selector.candidateGitSHA !== delivery.head
-  ) {
-    return { kind: 'blocked', reason: 'proof-acquire-unconfirmed' }
-  }
   return null
 }
 

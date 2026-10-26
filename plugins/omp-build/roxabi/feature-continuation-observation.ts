@@ -1,7 +1,6 @@
-import type { NativeSelector, ProofSelector, SpecializedDecisions } from '../engine/workflow-reconstruction-types.ts'
+import type { NativeSelector, SpecializedDecisions } from '../engine/workflow-reconstruction-types.ts'
 import { epicStep } from '../skills/feature/epic-driver.ts'
 import type { ProofConfigPin } from '../skills/feature/proof-base.ts'
-import { proofSelectorFor } from './feature-continuation-proof.ts'
 import type { SelectedFeature } from './feature-continuation-selection.ts'
 import type { ContinueFeatureResult, FeatureControl } from './feature-contract.ts'
 import { inhibition } from './feature-control.ts'
@@ -101,7 +100,7 @@ async function readObservationDecisions(
   observation: ObservationBase,
 ): Promise<(SpecializedDecisions & { reviewId: string | null }) | ContinueFeatureResult> {
   const { authority, mandate, number } = selected
-  const { context, target, scope } = authority
+  const { context, target } = authority
   const { delivery, facts, merged } = observation
   const review = await readReviewObservation(delivery, merged, context)
   if (isContinuationResult(review)) return review
@@ -109,32 +108,12 @@ async function readObservationDecisions(
   facts.evidenceDigest = review.evidenceDigest
   const epic = await readEpicStep(target, mandate, context.cwd, number)
   if (isContinuationResult(epic)) return epic
-  const proof = merged
-    ? {
-        ok: true as const,
-        selector: {
-          admission: null,
-          candidateGitSHA: null,
-          input: null,
-          applicability: 'not-applicable' as const,
-          evidence: [],
-        },
-      }
-    : await proofSelectorFor({
-        cwd: context.cwd,
-        repository: scope.repository,
-        delivery,
-        git: context.git,
-        gh: context.gh,
-      })
-  if (!proof.ok) return { kind: 'blocked', reason: proof.reason }
   return buildSpecializedDecisions({
     reviewStep: review.review,
     reviewId: review.reviewId,
     epicStep: epic,
     ciWatchStatus: merged ? null : review.ciWatchStatus,
     pullRequestOpen: delivery !== null,
-    proof: proof.selector,
   })
 }
 
@@ -188,7 +167,6 @@ function buildSpecializedDecisions(input: {
   epicStep: SpecializedDecisions['epicStep']
   ciWatchStatus: SpecializedDecisions['ciWatchStatus']
   pullRequestOpen: boolean
-  proof: ProofSelector
 }): SpecializedDecisions & { reviewId: string | null } {
   const absent = (status: NativeSelector['status'] = 'absent'): NativeSelector => ({ status, evidence: [] })
   return {
@@ -200,6 +178,5 @@ function buildSpecializedDecisions(input: {
     publish: absent(input.pullRequestOpen ? 'published' : 'absent'),
     landing: absent(),
     watch: absent(),
-    proof: input.proof,
   }
 }

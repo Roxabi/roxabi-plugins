@@ -78,13 +78,6 @@ export type WorkflowFacts = {
 
 export type NativeSelectorStatus = 'absent' | 'published' | 'uncertain' | 'failed' | 'not-applicable'
 export type NativeSelector = { status: NativeSelectorStatus; evidence: Diagnostic[] }
-export type ProofSelector = {
-  admission: { ok: true; candidateGitSHA: string; input: string; recordIds: readonly string[] } | null
-  candidateGitSHA: string | null
-  input: string | null
-  applicability: 'required' | 'not-applicable'
-  evidence: Diagnostic[]
-}
 export type SpecializedDecisions = {
   reviewStep: 'review' | 'fix' | 'land' | 'stop' | null
   epicStep: 'start' | 'resume' | 'stop' | 'final-review' | 'fix-ticket' | 'post-merge' | 'complete' | 'drop' | null
@@ -93,5 +86,4 @@ export type SpecializedDecisions = {
   publish: NativeSelector
   landing: NativeSelector
   watch: NativeSelector
-  proof: ProofSelector
 }
