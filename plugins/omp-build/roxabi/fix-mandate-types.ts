@@ -22,7 +22,6 @@ export const MANDATE_REFUSAL: Record<string, true> = {
   'fix-only': true,
   stale: true,
   foreign: true,
-  'proof-pin-drift': true,
   unbound: true,
   conflict: true,
 }

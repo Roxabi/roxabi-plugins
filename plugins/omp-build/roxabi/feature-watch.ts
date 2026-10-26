@@ -3,7 +3,7 @@ import { featureLandOutcome } from '../skills/feature/workflow-outcome.js'
 import { applyCiWatchExit } from '../skills/feature/workflow-watch.js'
 import type { ContinueFeatureResult } from './feature-contract.ts'
 import { continueFeature } from './workflow.ts'
-import type { GitRunner } from './workflow-pins.ts'
+import type { GitRunner } from './workflow-checkout.ts'
 
 function reenterFeature(input: {
   cwd: string

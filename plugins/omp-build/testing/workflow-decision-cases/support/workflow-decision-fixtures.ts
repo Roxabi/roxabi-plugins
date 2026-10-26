@@ -17,7 +17,7 @@ export const BODY = '## Acceptance\n- [ ] Save keeps the selected region'
 
 function fixtureConfig() {
   const mandate = WORKFLOW_FIXTURES.featureMandate(SCOPE, { body: BODY })
-  return { config: mandate.payload.config, proofPins: mandate.payload.proofPins }
+  return { config: mandate.payload.config }
 }
 
 export function blank(scope: Scope = SCOPE): DecodedHistory {
@@ -58,18 +58,11 @@ export function decisions(reviewStep: 'stop' | null = null, ciWatchStatus: 'gree
     publish: { status: 'absent' as const, evidence: [] },
     landing: { status: 'absent' as const, evidence: [] },
     watch: { status: 'absent' as const, evidence: [] },
-    proof: {
-      admission: null,
-      candidateGitSHA: null,
-      input: null,
-      applicability: 'not-applicable' as const,
-      evidence: [],
-    },
   }
 }
 
 export function facts(overrides: Partial<{ sessionCwd: string | null }> = {}) {
-  const { config, proofPins } = fixtureConfig()
+  const { config } = fixtureConfig()
   return {
     specDigest: specDigest(BODY),
     specBody: BODY,
@@ -84,7 +77,6 @@ export function facts(overrides: Partial<{ sessionCwd: string | null }> = {}) {
     configVersion: config.version,
     configDigest: config.digest,
     supportedConfigVersions: [config.version],
-    proofPins: [...proofPins],
     explicitSelection: false,
     explicitResume: false,
     successorAntecedent: null,
@@ -105,13 +97,6 @@ export function shippedFacts(
   pullRequest: { scope: Scope; head: string; base: string; associatedIssue: Scope | null } | null = null,
 ) {
   return { ...facts(), pullRequest }
-}
-
-export function openProof() {
-  return {
-    ...decisions(),
-    proof: { ...decisions().proof, applicability: 'required' as const, admission: null },
-  }
 }
 
 export function eligiblePlan(mandate: MandateRecord): CanonicalRecord[] {

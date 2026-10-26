@@ -225,30 +225,29 @@ describe('native history trust and chronology', () => {
     })
   })
 })
-
 describe('history authority classification', () => {
-  test('keeps accounted raw proof out of review accounting while foreign sources cannot satisfy authority', () => {
+  test('keeps accounted opaque events out of review accounting while foreign sources cannot satisfy authority', () => {
     const graph = reviewGraph({ prefix: 'classified', empty: true })
-    const proof = {
+    const event = {
       ...TEST_SCOPE,
       version: 1 as const,
-      recordId: 'classified-proof',
+      recordId: 'classified-event',
       runId: 'run-classified',
-      operationId: 'op-classified-proof',
+      operationId: 'op-classified-event',
       inputs: [],
-      kind: 'proof' as const,
-      payload: { candidateGitSHA: TEST_HEAD, data: { transport: 'opaque' } },
+      kind: 'epic-event' as const,
+      payload: { outcome: 'opaque' },
     }
-    const accounted = history([...graph.records, proof], {
-      operations: [...graph.history.operations, operation(proof, { authority: 'accounted' })],
+    const accounted = history([...graph.records, event], {
+      operations: [...graph.history.operations, operation(event, { authority: 'accounted' })],
     })
     const classification = classifyHistory(accounted)
 
     expect(classification.authorityHistory.source).toBe(accounted.source)
-    expect(classification.classes.find((entry) => entry.operationId === proof.operationId)).toMatchObject({
+    expect(classification.classes.find((entry) => entry.operationId === event.operationId)).toMatchObject({
       authority: 'accounted',
     })
-    expect(classification.authorityHistory.operations.some((entry) => entry.recordId === proof.recordId)).toBe(false)
+    expect(classification.authorityHistory.operations.some((entry) => entry.recordId === event.recordId)).toBe(false)
     expect(summarizeReviews(accounted, TAXONOMY, null)).toMatchObject({
       ok: true,
       value: { verdict: 'Approve (clean)', reviews: 1 },
@@ -270,36 +269,36 @@ describe('history authority classification', () => {
   })
 
   test('promotes an accounted dependency of an authority review root but refuses foreign or missing dependencies', () => {
-    const graph = reviewGraph({ prefix: 'root-proof', empty: true })
-    const proofResult = buildRecord(
+    const graph = reviewGraph({ prefix: 'root-context', empty: true })
+    const eventResult = buildRecord(
       {
         ...TEST_SCOPE,
         version: 1 as const,
-        recordId: 'root-proof-evidence',
-        runId: 'root-proof-run',
-        operationId: 'op-root-proof-evidence',
-        kind: 'proof' as const,
-        payload: { candidateGitSHA: TEST_HEAD, data: { origin: 'accounted-context' } },
+        recordId: 'root-context-evidence',
+        runId: 'root-context-run',
+        operationId: 'op-root-context-evidence',
+        kind: 'epic-event' as const,
+        payload: { outcome: 'accounted-context' },
       } as never,
       [],
     )
-    if (!proofResult.ok || proofResult.value.kind !== 'proof') throw new Error('Expected accounted proof')
-    const root = { ...graph.root, inputs: [proofResult.value.recordId] }
+    if (!eventResult.ok || eventResult.value.kind !== 'epic-event') throw new Error('Expected accounted event')
+    const root = { ...graph.root, inputs: [eventResult.value.recordId] }
     const records = [
-      proofResult.value,
+      eventResult.value,
       ...graph.records.map((record) => (record.recordId === root.recordId ? root : record)),
     ]
     const recorded = history(records)
     const accounted = {
       ...recorded,
       operations: recorded.operations.map((entry) =>
-        entry.recordId === proofResult.value.recordId ? { ...entry, authority: 'accounted' as const } : entry,
+        entry.recordId === eventResult.value.recordId ? { ...entry, authority: 'accounted' as const } : entry,
       ),
     }
     const foreign = {
       ...recorded,
       operations: recorded.operations.map((entry) =>
-        entry.recordId === proofResult.value.recordId ? { ...entry, authority: 'foreign' as const } : entry,
+        entry.recordId === eventResult.value.recordId ? { ...entry, authority: 'foreign' as const } : entry,
       ),
     }
     const missing = history(graph.records.map((record) => (record.recordId === root.recordId ? root : record)))
@@ -310,13 +309,12 @@ describe('history authority classification', () => {
     })
     expect(
       classifyHistory(accounted).authorityHistory.operations.some(
-        (entry) => entry.recordId === proofResult.value.recordId,
+        (entry) => entry.recordId === eventResult.value.recordId,
       ),
     ).toBe(true)
     expect(summarizeReviews(foreign, TAXONOMY, null).ok).toBe(false)
     expect(summarizeReviews(missing, TAXONOMY, null).ok).toBe(false)
   })
-
   test('keeps a complete independent accounted correction graph out of green review accounting', () => {
     const correction = correctionFixtureRecords()
     const frameSet = correctionFrameSet(correction)

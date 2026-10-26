@@ -12,7 +12,6 @@ import {
   mandateView,
 } from './fix-mandate-types.ts'
 import { readEffectiveFixConfig } from './workflow-config.ts'
-import { readProofConfigPins } from './workflow-pins.ts'
 
 export type FixAuthorityDecision =
   | { status: 'reuse'; mandate: FixMandateView; execution: CorrectionExecutionRights; sameScope: boolean }
@@ -135,12 +134,6 @@ export async function loadFixOnlyDraft(input: {
   }
   const config = await readEffectiveFixConfig({ cwd: input.cwd, commit: input.commit, git: input.git })
   if (!config.ok) return failure(`fix-config-${config.reason}`, ...config.diagnostics.map((item) => item.code))
-  let pins: { sourceCommit: string; path: string; blob: string | null }[]
-  try {
-    pins = await readProofConfigPins(input.git, input.cwd, input.commit)
-  } catch (error) {
-    return failure(`fix-proof-pins-unreadable:${error instanceof Error ? error.message : String(error)}`)
-  }
   return {
     ok: true,
     value: {
@@ -154,7 +147,6 @@ export async function loadFixOnlyDraft(input: {
       productVersion,
       work: input.work,
       config: { version: config.version, digest: config.digest, effective: config.effective as Json },
-      proofPins: pins,
       parent: input.parent,
       antecedent: input.antecedent,
     },

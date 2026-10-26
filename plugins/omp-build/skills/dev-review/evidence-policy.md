@@ -14,11 +14,8 @@ accounting, routing, landing and stop/bound rules are unchanged.
 
 For tiers other than S, the SC→Test matrix must cover every SC without silent gaps. Its only NO TEST reasons are `infra-not-wired`, `prompt-logic-only`, `ui-manual-only`, and `out-of-scope`; a missing matrix is `issue(blocking)`.
 
-When captured Semctx proof on the reviewed head marks evidence `tested`, it must name a test in Δ or the base that exercises the change. Each PARTIAL gap has its own supported row. This is a model judgement over the captured selected runs and their native creation/revision facts, not runtime certification: unsupported or absent support is `issue(blocking)`, and absence of contrary evidence is not support.
-Judge every captured selected Semctx and assertledger part's native chronology, status, creation/revision facts, and body as model evidence, not runtime certification. An unreadable time authorizes nothing; a recorded revision requires acquisition again and a same-head review; every selected part must precede approval.
+For each browser-scoped success criterion, if Δ touches `frontend.path` or `shared.ui` and the base or head stack declares `commands.test_e2e`, `ui-manual-only` is `issue(blocking)`. Otherwise it needs a `### Browser check <criterion>` in the captured PR body with `- Steps:`, an http/https `- URL:`, and concrete `- Observed:` evidence credibly performed for this head; unsupported claims are `issue(blocking)`.
 
-
-If Δ touches `frontend.path` or `shared.ui` and the base or head stack declares `commands.test_e2e`, `ui-manual-only` is `issue(blocking)`. Otherwise it needs a gap-bound `### Browser check <gap>` in the captured PR body with `- Steps:`, an http/https `- URL:`, and concrete `- Observed:` evidence credibly performed for this head; unsupported claims are `issue(blocking)`.
 
 A Phase 2 missing/weak-test finding reaches the Phase 4 final-label write. A missing SC→Test matrix or an unmet behaviour criterion remains `issue(blocking)`.
 

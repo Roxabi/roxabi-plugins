@@ -1,8 +1,6 @@
 import { withRoxabiGitHubPolicy } from '../../roxabi/github-policy'
-import { admitLanding } from './proof-admission.ts'
 import { bindingRefusalReason, mandateReason } from './workflow-binding.js'
 import { isCommitSha } from './workflow-gate.js'
-import { resolveLandingBase } from './workflow-readiness.js'
 import { repositoryScope } from './workflow-records.js'
 import { gitResult } from './workflow-runtime.js'
 
@@ -21,6 +19,8 @@ async function bundledLandingMandate() {
   if (
     typeof contracts.requireLandingMandate !== 'function' ||
     typeof contracts.readLandingFacts !== 'function' ||
+    typeof contracts.recordIntegrity !== 'function' ||
+    typeof contracts.recordOperation !== 'function' ||
     typeof contracts.specDigest !== 'function' ||
     typeof contracts.shippedProductVersion !== 'function'
   )
@@ -69,17 +69,6 @@ function liveSpec(contracts, scopes, bodies) {
   return { specDigest: contracts.specDigest(match.body), specBody: match.body }
 }
 
-export async function liveProofPins(gitCwd, gitFn, baseTip) {
-  const top = await gitFn(gitCwd, ['rev-parse', '--show-toplevel'])
-  if (top.code !== 0 || typeof top.stdout !== 'string' || top.stdout.trim() === '')
-    throw new Error('git rev-parse --show-toplevel failed')
-  const owner = await import('../../roxabi/workflow-pins.ts')
-  if (typeof owner.readProofConfigPins !== 'function') throw new Error('shipped proof pin reader is missing')
-  const pins = await owner.readProofConfigPins(gitFn, top.stdout.trim(), baseTip)
-  if (!Array.isArray(pins)) throw new Error('current proof pins are unreadable')
-  return pins
-}
-
 function validFactsScopes(facts, pullRequest) {
   return (
     facts.native?.pullRequest &&
@@ -119,30 +108,48 @@ function currentProductVersion(contracts) {
   return productVersion
 }
 
-function validProofPin(pin) {
-  return (
-    pin &&
-    typeof pin.path === 'string' &&
-    pin.path !== '' &&
-    isCommitSha(pin.sourceCommit) &&
-    (pin.blob === null || isCommitSha(pin.blob))
-  )
-}
-
 function landingMandateDecision(decision) {
-  if (decision?.ok !== true || typeof decision.recordId !== 'string' || !Array.isArray(decision.proofPins)) {
+  if (decision?.ok !== true || typeof decision.recordId !== 'string') {
     return { admitted: false, reason: mandateReason(decision?.reason), evidence: decision?.evidence }
   }
-  if (decision.proofPins.some((pin) => !validProofPin(pin))) {
-    return {
-      admitted: false,
-      reason: 'unknown-binding',
-      evidence: { error: 'landing mandate proof pins are malformed' },
-    }
-  }
-  return { admitted: true, recordId: decision.recordId, proofPins: decision.proofPins }
+  return { admitted: true, recordId: decision.recordId }
 }
 
+function nativeRecordIntegrity(contracts, histories, record) {
+  const operation = contracts.recordOperation(histories, record)
+  if (operation === null)
+    return {
+      reason: 'record-unreadable',
+      detail: `${record.kind} record ${record.recordId} has no readable native operation`,
+    }
+  return contracts.recordIntegrity(operation.parts, record)
+}
+
+function landingRecordIntegrity(contracts, facts, decision) {
+  const binding = nativeRecordIntegrity(contracts, facts.histories, facts.binding)
+  if (binding !== null) return binding
+  let mandate = decision.mandate
+  const seen = new Set()
+  while (true) {
+    if (seen.has(mandate.recordId))
+      return {
+        reason: 'record-unreadable',
+        detail: `mandate record ${mandate.recordId} has a cyclic admitted parent chain`,
+      }
+    seen.add(mandate.recordId)
+    const integrity = nativeRecordIntegrity(contracts, facts.histories, mandate)
+    if (integrity !== null) return integrity
+    const parent = mandate.payload.parent
+    if (parent === null) return null
+    const operation = contracts.recordOperation(facts.histories, { kind: 'mandate', ...parent })
+    if (operation?.record?.kind !== 'mandate')
+      return {
+        reason: 'record-unreadable',
+        detail: `mandate record ${parent.recordId} has no readable native operation`,
+      }
+    mandate = operation.record
+  }
+}
 export async function currentLandingMandate(cwd, pr, ghFn, native, gitFn = gitResult, gitCwd = cwd) {
   ensureNativeLandingCoordinates(native)
   const contracts = await bundledLandingMandate()
@@ -155,10 +162,7 @@ export async function currentLandingMandate(cwd, pr, ghFn, native, gitFn = gitRe
   if (refusal) return refusal
   ensureLandingFactsForNative(facts, pullRequest, native)
   const productVersion = currentProductVersion(contracts)
-  const [config, proofPins] = await Promise.all([
-    trustedLandingWorkflowConfig(gitCwd, gitFn, native.baseTip, productVersion),
-    liveProofPins(gitCwd, gitFn, native.baseTip),
-  ])
+  const config = await trustedLandingWorkflowConfig(gitCwd, gitFn, native.baseTip, productVersion)
   const spec = liveSpec(contracts, facts.native.linkedIssueScopes, facts.linkedIssueBodies)
   const decision = contracts.requireLandingMandate({
     histories: facts.histories,
@@ -169,32 +173,12 @@ export async function currentLandingMandate(cwd, pr, ghFn, native, gitFn = gitRe
       linkedIssueScopes: facts.native.linkedIssueScopes,
     },
     parentScopes: facts.parentScopes,
-    current: { productVersion, ...config, proofPins, ...spec },
+    current: { productVersion, ...config, ...spec },
     localInhibit: null,
   })
-  return landingMandateDecision(decision)
-}
-
-export async function admitCurrentReviewBinding(cwd, pr, records, ghFn, gitFn, proofPins) {
-  if (!isCommitSha(records.head) || (proofPins !== undefined && !Array.isArray(proofPins))) return { ok: false }
-  const base = await resolveLandingBase(cwd, pr, ghFn, gitFn ?? gitResult)
-  if (base.refusal) return base.refusal
-  return admitLanding(
-    cwd,
-    {
-      pr: Number(pr),
-      candidate: records.head,
-      base: base.name,
-      baseTip: base.tip,
-      reviewedAt: records.at,
-      reviewInput: records.input,
-      ...(Array.isArray(proofPins) ? { proofPins } : {}),
-    },
-    { gh: ghFn, git: gitFn ?? gitResult },
-  )
-}
-
-export async function hasFreshReviewInput(cwd, pr, records, options = {}) {
-  if (options.proofPins !== undefined && !Array.isArray(options.proofPins)) return false
-  return (await admitCurrentReviewBinding(cwd, pr, records, options.gh, options.git, options.proofPins)).ok
+  const admission = landingMandateDecision(decision)
+  if (!admission.admitted) return admission
+  const integrity = landingRecordIntegrity(contracts, facts, decision)
+  if (integrity !== null) return { admitted: false, reason: integrity.reason, evidence: integrity.detail }
+  return admission
 }

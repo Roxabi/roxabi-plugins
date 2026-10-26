@@ -2,7 +2,7 @@ import type { Gh } from '../adapters/github/types.ts'
 import { landPr } from '../skills/feature/workflow-landing.js'
 import type { ContinueFeatureResult } from './feature-contract.ts'
 import type { Contracts, History, Scope } from './feature-engine.ts'
-import type { GitRunner } from './workflow-pins.ts'
+import type { GitRunner } from './workflow-checkout.ts'
 
 type Delivery = {
   number: number

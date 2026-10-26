@@ -5,7 +5,7 @@ import { featureLandOutcome } from '../skills/feature/workflow-outcome.js'
 import { prepareEpicFinalReviewMaterials } from './epic-range-finalization.ts'
 import { continueCiCorrection, continueReviewBoundFix } from './feature-ci-correction.ts'
 import type { FeatureAuthority } from './feature-continuation-admission.ts'
-import { acquireFeatureProof, resumePausedFeature } from './feature-continuation-dispatch.ts'
+import { resumePausedFeature } from './feature-continuation-dispatch.ts'
 import type { SelectedFeature } from './feature-continuation-selection.ts'
 import type { ContinueFeatureInput, ContinueFeatureResult } from './feature-contract.ts'
 import { payload } from './feature-engine.ts'
@@ -39,8 +39,6 @@ export async function coordinateContinuationEffects(
       return coordinateLanding(input, exactMandateRef, authority, observation, continueAtTarget)
     case 'resume':
       return resumeFeature(pause, input.reference, exactMandateRef, authority, observation, continueAtTarget)
-    case 'proof':
-      return acquireProof(input.reference, exactMandateRef, authority, observation, continueAtTarget)
     case 'epic-next':
       return continueEpicNext(context.cwd, context.git, context.gh, number, continueAtTarget)
     case 'epic-final':
@@ -67,17 +65,6 @@ async function resumeFeature(
   if (pause === undefined) return { kind: 'blocked', reason: 'resume-pause-missing' }
   const resumed = await resumePausedFeature({ pause, authority, observation })
   return resumed ?? reenterCurrent(reference, exactMandateRef, authority, continueAtTarget)
-}
-
-async function acquireProof(
-  reference: string,
-  exactMandateRef: ScopedRecordRef | undefined,
-  authority: FeatureAuthority,
-  observation: FeatureObservation,
-  continueAtTarget: ContinueAtTarget,
-): Promise<ContinueFeatureResult> {
-  const acquired = await acquireFeatureProof(authority, observation)
-  return acquired ?? reenterCurrent(reference, exactMandateRef, authority, continueAtTarget)
 }
 
 async function fileEpicFix(

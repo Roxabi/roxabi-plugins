@@ -5,21 +5,6 @@
   "historicalSourceRule": "Each historical claim is tied to the listed reviewed revision and public source link; no packet asserts that the current worktree equals a historical revision.",
   "cases": [
     {
-      "id": "C01",
-      "name": "borrowed historical provenance",
-      "kind": "historical",
-      "sources": {"pullRequest": 819, "reviewedRevision": "9f393b10454041cb505d333162430b8f65f174df", "reviewComment": "https://github.com/Roxabi/roxabi-plugins/pull/819#issuecomment-6217104084"},
-      "verbatimEvidence": [
-        {"kind": "producer-contract-fixture", "path": "plugins/omp-build/skills/feature/__fixtures__/proof/historical.ts", "url": "https://github.com/Roxabi/roxabi-plugins/blob/9f393b10454041cb505d333162430b8f65f174df/plugins/omp-build/skills/feature/__fixtures__/proof/historical.ts#L49-L83", "verbatimLines": ["'change change.fx.history',", "`  statement: ${statement}`,", "`  status: ${status}`,", "...(provenance ? [`  provenance: ${provenance}`] : []),", "'  serves: goal.fx.add',", "'  preserves: invariant.fx.add-sum',"]},
-        {"kind": "producer-code", "path": "plugins/omp-build/skills/feature/proof.ts", "url": "https://github.com/Roxabi/roxabi-plugins/blob/9f393b10454041cb505d333162430b8f65f174df/plugins/omp-build/skills/feature/proof.ts#L1160-L1200", "verbatimLines": ["const key = line.slice(0, colon).trim()", "const raw = line.slice(colon + 1)", "const value = raw.trim()", "if (key === 'status') {", "  if (status || (value !== 'active' && value !== 'partial' && value !== 'verified')) return undefined", "  status = { line: index, replacement: line.slice(0, colon + 1) + raw.replace(value, 'superseded') }", "} else if (key === 'provenance') {", "  if (provenance !== undefined || (value !== 'author' && value !== 'agent' && value !== 'derived')) return undefined", "  provenance = value", "}"]},
-        {"kind": "caller-code", "path": "plugins/omp-build/skills/feature/proof.ts", "url": "https://github.com/Roxabi/roxabi-plugins/blob/9f393b10454041cb505d333162430b8f65f174df/plugins/omp-build/skills/feature/proof.ts#L800-L850", "verbatimLines": ["if (lifecycle === 'superseded' && historicalProvenance !== undefined && inspect.provenance !== historicalProvenance) {", "  return refuse('semctx', 'unbound', `${name}: native provenance does not match its retained Git source`)", "}", "if (!LANDABLE[lifecycle] && !(lifecycle === 'superseded' && historicalProvenance !== undefined)) {"]},
-        {"kind": "review-result", "url": "https://github.com/Roxabi/roxabi-plugins/pull/819#issuecomment-6217104084", "text": "An existing historical file can contain a change with status verified but no provenance, followed by an unchanged goal goal.fx.decoy block containing statement Supplementary goal and provenance author, without a status field. Changing only the historical change’s status to superseded makes retainedProvenance accept the goal’s provenance."}
-      ],
-      "sourceGaps": ["The exact mixed change-plus-goal counterexample blob is retained in the public review evidence, not in the checked-in historical fixture."],
-      "findings": [{"id": "C01-F1", "text": "A selected historical contract may borrow explicit provenance from a different block in the same file.", "sourceReviewerProposal": "issue(blocking)"}],
-      "validationEvents": [{"type": "mixed-block-provenance", "input": "selected change without provenance, unchanged decoy goal provenance, then status-only transition"}]
-    },
-    {
       "id": "C02",
       "name": "head movement before authorization",
       "kind": "historical",

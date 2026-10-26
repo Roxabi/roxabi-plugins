@@ -14,7 +14,6 @@ import { type AttributedCiCorrectionInput, diagnosticCodes, objectValue } from '
 import { defaultGit } from './workflow-checkout.ts'
 import { readEffectiveFixConfig } from './workflow-config.ts'
 import { SUPPORTED_CONFIG_VERSIONS } from './workflow-graph.ts'
-import { readProofConfigPins } from './workflow-pins.ts'
 
 const execFileAsync = promisify(execFile)
 
@@ -164,12 +163,6 @@ async function reconstructAuthorizedFix(
   const git = defaultGit()
   const config = await readEffectiveFixConfig({ cwd: input.cwd, commit, git })
   if (!config.ok) return failure(`fix-config-${config.reason}`, ...config.diagnostics.map((item) => item.code))
-  let proofPins: { sourceCommit: string; path: string; blob: string | null }[]
-  try {
-    proofPins = await readProofConfigPins(git, input.cwd, commit)
-  } catch (error) {
-    return failure(`fix-proof-pins-unreadable:${error instanceof Error ? error.message : String(error)}`)
-  }
   let productVersion: string
   try {
     productVersion = shippedProductVersion()
@@ -207,7 +200,6 @@ async function reconstructAuthorizedFix(
       configVersion: config.version,
       configDigest: config.digest,
       supportedConfigVersions: [...SUPPORTED_CONFIG_VERSIONS],
-      proofPins,
       explicitSelection: true,
       explicitResume: false,
       successorAntecedent: null,
@@ -222,7 +214,6 @@ async function reconstructAuthorizedFix(
       publish: { status: 'not-applicable', evidence: [] },
       landing: { status: 'not-applicable', evidence: [] },
       watch: { status: 'not-applicable', evidence: [] },
-      proof: { admission: null, candidateGitSHA: null, input: null, applicability: 'not-applicable', evidence: [] },
     },
   })
   return reconstructedFixOutcome(decision, failedChecks)

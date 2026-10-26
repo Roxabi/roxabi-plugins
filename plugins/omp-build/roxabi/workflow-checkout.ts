@@ -4,7 +4,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import type { GitRunner } from './workflow-pins.ts'
+export type GitRunner = (cwd: string, args: string[]) => Promise<{ code: number; stdout: string; stderr: string }>
 
 const execFileAsync = promisify(execFile)
 const SHA = /^[0-9a-f]{40}$/

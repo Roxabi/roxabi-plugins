@@ -1,3 +1,4 @@
+import { recordIntegrity } from '../../dist/contracts.js'
 import {
   bindLandingBase,
   landingBaseBlocked,
@@ -6,12 +7,33 @@ import {
   prepareInitialLanding,
   readLandingFields,
 } from './landing-initial-preparation.js'
-import { admitLanding } from './proof-admission.ts'
 import { approves, behindMessage, isBehind, isCommitSha, readGate, reviewBoundStopped } from './workflow-gate.js'
 import { currentLandingMandate, evidenceText } from './workflow-mandate.js'
 import { resolveLandingBase } from './workflow-readiness.js'
-import { requiredReviewRecords } from './workflow-records.js'
+import { requiredReviewAdmission } from './workflow-records.js'
+import { validateLandingReviewInput } from './workflow-review-input.js'
 import { errorText } from './workflow-runtime.js'
+
+function reviewIntegrityRefusal(operations) {
+  if (operations === null)
+    return { reason: 'record-unreadable', detail: 'selected review attempt has no readable native operation' }
+  for (const operation of operations) {
+    if (operation.record === null)
+      return { reason: 'record-unreadable', detail: 'selected review attempt has no readable native operation' }
+    const refusal = recordIntegrity(operation.parts, operation.record)
+    if (refusal !== null) return refusal
+  }
+  return null
+}
+
+function refusedReviewIntegrity(records, operations, state) {
+  const refusal = reviewIntegrityRefusal(operations)
+  if (refusal === null) return null
+  return {
+    terminal: landingExit({ ...landingRefused(records, refusal.reason), error: refusal.detail }, { policy: 'unarmed' }),
+    state,
+  }
+}
 export function knownLandingGate(gate, armedAuto, armedLabel) {
   if (!gate) return gate
   return {
@@ -98,7 +120,7 @@ export async function checkBeforeArm(cwd, pr, gh, git, state, armedAuto, armedLa
   return checkLandingCoordinates(cwd, pr, gh, git, state, armedAuto, armedLabel, adapter)
 }
 
-export async function admitLandingCandidate(cwd, pr, gh, git, state) {
+export async function validateLandingCandidate(cwd, pr, gh, git, state) {
   let current
   try {
     current = await resolveLandingBase(cwd, pr, gh, git)
@@ -127,33 +149,22 @@ export async function admitLandingCandidate(cwd, pr, gh, git, state) {
       state,
     }
   }
-  const admission = await admitLanding(
-    cwd,
-    {
-      pr: Number(pr),
-      candidate: state.records.head,
-      base: state.landingBase,
-      baseTip: state.landingContext.tip,
-      reviewedAt: state.records.at,
-      reviewInput: state.records.input,
-      proofPins: mandate.proofPins,
-    },
-    { gh, git },
-  )
-  if (!admission.ok) {
+  const reviewInput = await validateLandingReviewInput(cwd, pr, state.records.head, state.records.input, { gh, git })
+  if (!reviewInput.ok) {
     return {
       terminal: landingExit(
-        { status: 'proof-blocked', producer: admission.producer, reason: admission.reason, error: admission.error },
+        { status: 'review-input-refused', reason: reviewInput.reason, error: reviewInput.error },
         { policy: 'unarmed' },
       ),
       state,
     }
   }
-  return { state: { ...state, admitted: state.records.head, proof: admission.proof } }
+  return { state: { ...state, admitted: state.records.head } }
 }
 
 export async function refreshLandingAuthorization(cwd, pr, gh, git, state, retaining) {
-  const records = await requiredReviewRecords(cwd, pr, { gh })
+  const review = await requiredReviewAdmission(cwd, pr, { gh })
+  const { records, operations } = review
   const refreshed = { ...state, records }
   if (reviewBoundStopped(records)) {
     return { terminal: landingExit(landingRefused(records, 'review-bound'), { policy: 'unarmed' }), state: refreshed }
@@ -164,10 +175,12 @@ export async function refreshLandingAuthorization(cwd, pr, gh, git, state, retai
   if (!isCommitSha(records.head)) {
     return { terminal: landingExit(landingRefused(records, 'review-unbound'), { policy: 'unarmed' }), state: refreshed }
   }
+  const integrity = refusedReviewIntegrity(records, operations, refreshed)
+  if (integrity !== null) return integrity
   if (retaining && state.admitted !== undefined && records.head !== state.admitted) {
     return { terminal: landingExit(landingRefused(records, 'head-moved'), { policy: 'unarmed' }), state: refreshed }
   }
-  return admitLandingCandidate(cwd, pr, gh, git, refreshed)
+  return validateLandingCandidate(cwd, pr, gh, git, refreshed)
 }
 function initialLandingRefusal(pr, records, gate, opening) {
   let reason = null
@@ -188,10 +201,13 @@ function initialLandingRefusal(pr, records, gate, opening) {
 export async function readInitialLanding(cwd, pr, gh, git, landing, requiredContexts, owner) {
   const gate = await readGate(cwd, pr, gh)
   if (owner) owner.gate = gate
-  const records = await requiredReviewRecords(cwd, pr, { gh })
+  const review = await requiredReviewAdmission(cwd, pr, { gh })
+  const { records, operations } = review
   const opening = { records, gate }
   const refused = initialLandingRefusal(pr, records, gate, opening)
   if (refused) return refused
+  const integrity = refusedReviewIntegrity(records, operations, opening)
+  if (integrity !== null) return integrity
   const prepared = await prepareInitialLanding(cwd, pr, gh, git, landing, requiredContexts, opening)
   if (prepared.terminal) return prepared
   return {

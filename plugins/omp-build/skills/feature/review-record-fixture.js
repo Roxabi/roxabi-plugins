@@ -1,10 +1,9 @@
 import { decodeHistory, buildRecord as frameRecord } from '../../dist/contracts.js'
 import { specDigest } from '../../engine/record-digests.ts'
-import { PROOF_PIN_PATHS } from '../../roxabi/workflow-pins.ts'
+import { confirmedReviewSemanticContext } from '../../roxabi/review-semantic-canon.ts'
 import { reviewGraph } from '../../testing/record-graphs.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
-import { proofSemanticContext } from './proof-context.ts'
-import { hashReviewInput } from './proof-context-hash.ts'
+import { hashReviewInput } from './review-input.ts'
 import { createGateGit } from './review-record-git-fixture.js'
 import { createGateGh } from './review-record-github-fixture.js'
 
@@ -43,7 +42,7 @@ function framed(record) {
 
 /** No-producer canon: empty PR body, no tracker, null producer parts. */
 export function noProducerInput(head, pr = PR) {
-  const semantic = proofSemanticContext({
+  const semantic = confirmedReviewSemanticContext({
     mode: 'standalone',
     binding: null,
     acceptedSpec: null,
@@ -52,7 +51,7 @@ export function noProducerInput(head, pr = PR) {
     additionalRequirements: [],
   })
   if ('ok' in semantic) throw new Error(semantic.error)
-  return hashReviewInput(REPOSITORY, { pr, candidate: head }, { body: '', lastEditedAt: null }, null, null, semantic)
+  return hashReviewInput(REPOSITORY, { pr, candidate: head }, { body: '', lastEditedAt: null }, semantic)
 }
 
 function mandateRecord(head) {
@@ -63,14 +62,13 @@ function mandateRecord(head) {
     branch: 'feat/save',
     base: 'main',
     lineageHead: head,
-    proofPins: PROOF_PIN_PATHS.map((path) => ({ sourceCommit: HEADS[0], path, blob: null })),
   })
 }
 
 function linkedInput(head, mandate, binding) {
   const config = mandate.payload.config
   const digest = specDigest(SPEC)
-  const semantic = proofSemanticContext({
+  const semantic = confirmedReviewSemanticContext({
     mode: 'bound',
     binding: { recordId: binding.recordId, scope: ISSUE_SCOPE },
     acceptedSpec: {
@@ -94,14 +92,7 @@ function linkedInput(head, mandate, binding) {
     },
   })
   if ('ok' in semantic) throw new Error(semantic.error)
-  return hashReviewInput(
-    REPOSITORY,
-    { pr: PR, candidate: head },
-    { body: '', lastEditedAt: null },
-    null,
-    null,
-    semantic,
-  )
+  return hashReviewInput(REPOSITORY, { pr: PR, candidate: head }, { body: '', lastEditedAt: null }, semantic)
 }
 
 /** Approving review bound to issue 42, shipped config, and the empty-PR canon. */
@@ -120,7 +111,7 @@ export function linkedApproval(head = HEADS[0]) {
       body: framed(record),
       author: AUTHOR,
       createdAt: `2026-01-01T00:00:${String(index + 1).padStart(2, '0')}Z`,
-      updatedAt: null,
+      updatedAt: `2026-01-01T00:00:${String(index + 1).padStart(2, '0')}Z`,
     })),
   ].map((comment, index) => ({
     ...comment,
@@ -153,7 +144,7 @@ export function reviewHistory(specs) {
       body: framed(record),
       author: AUTHOR,
       createdAt: `2026-01-01T00:00:${String(index).padStart(2, '0')}Z`,
-      updatedAt: null,
+      updatedAt: `2026-01-01T00:00:${String(index).padStart(2, '0')}Z`,
     })),
   })
 }
@@ -173,7 +164,7 @@ export function historyPage(history) {
 /** Stateful common-adapter/GitHub boundary for workflow gate tests. */
 export function gateGh(
   history,
-  { head = HEADS[0], armed = true, moveHeadAfterProofRead = null, issueHistory = null } = {},
+  { head = HEADS[0], armed = true, moveHeadAfterInputRead = null, issueHistory = null } = {},
 ) {
   const calls = []
   const state = { head, label: armed, auto: armed }
@@ -187,7 +178,7 @@ export function gateGh(
   }
   return {
     gh: createGateGh({ history, issueHistory, state, calls, fixture, historyPage }),
-    git: createGateGit({ state, moveHeadAfterProofRead, heads: HEADS }),
+    git: createGateGit({ state, moveHeadAfterInputRead, heads: HEADS }),
     state,
     calls,
   }

@@ -1,6 +1,6 @@
 import type { DecodedHistory } from './history-schema.ts'
 import type { CanonicalRecord } from './record-schema.ts'
-import type { Diagnostic, Group, Json, Label, Scope, Verdict } from './record-values.ts'
+import type { Diagnostic, Group, Label, Scope, Verdict } from './record-values.ts'
 import type { Stop } from './review-schema.ts'
 
 export type Result<T> =
@@ -18,7 +18,6 @@ export type DecisionAssessment = {
 export type ReviewFacts = Scope & {
   candidateGitSHA: string
   input: string | null
-  proofAdmission: Result<Json>
   ci: 'green' | 'red' | 'pending' | 'unknown'
   acceptedEvidencePolicyRef: string | null
 }

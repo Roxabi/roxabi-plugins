@@ -1,5 +1,7 @@
 import type { Diagnostic, Json, Scope } from './record-values.ts'
 
+export const incompatibleFormat = 'incompatible-format'
+
 type RecordReference = { recordId: string; kind: string; scope: Scope }
 type FailureMetadata = {
   knownReviews?: number

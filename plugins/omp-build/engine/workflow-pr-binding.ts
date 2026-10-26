@@ -2,7 +2,12 @@ import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { Diagnostic, Scope } from './record-values.ts'
-import { historyFor, type MandateRecord, type WorkflowBindingRecord } from './workflow-control.ts'
+import {
+  historyFor,
+  type MandateRecord,
+  type WorkflowBindingRecord,
+  workflowOperationProblem,
+} from './workflow-control.ts'
 import { selectWorkflowBindingCandidate } from './workflow-pr-binding-chain.ts'
 
 export function confirmedAccountedMandate(history: DecodedHistory, ref: ExternalRecordRef): MandateRecord | null {
@@ -28,7 +33,7 @@ export type WorkflowBindingSelection =
       mandateRecord: MandateRecord
     }
   | { status: 'absent' }
-  | { status: 'incomplete' | 'conflicting'; diagnostics: Diagnostic[] }
+  | { status: 'incomplete' | 'conflicting' | 'incompatible-format'; diagnostics: Diagnostic[] }
 
 export function selectWorkflowBinding(input: {
   pullRequest: Scope
@@ -42,6 +47,14 @@ export function selectWorkflowBinding(input: {
     return {
       status: 'incomplete',
       diagnostics: [diagnostic('incomplete', 'Binding mandate history is missing or incomplete')],
+    }
+  }
+  const problem = workflowOperationProblem(home)
+  if (problem === 'incompatible-format') {
+    const formatDiagnostic = home.diagnostics.find((entry) => entry.code === problem)
+    return {
+      status: problem,
+      diagnostics: [formatDiagnostic ?? diagnostic(problem, 'Binding mandate uses an incompatible format')],
     }
   }
   const mandateRecord = confirmedAccountedMandate(home, chained.binding.payload.mandate)

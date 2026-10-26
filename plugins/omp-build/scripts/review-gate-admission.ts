@@ -1,18 +1,17 @@
+import type { DecodedHistory } from '../dist/contracts.js'
 import {
   decodeHistory,
   deriveReviewState,
   githubScope,
-  type Json,
-  type Result,
   readGitHubHistory,
+  recordIntegrity,
+  selectedReviewOperations,
   summarizeReviews,
 } from '../dist/contracts.js'
 import { withRoxabiGitHubPolicy } from '../roxabi/github-policy.ts'
-import { admitLanding } from '../skills/feature/proof-admission.ts'
-import type { Gh, Git, Refusal } from '../skills/feature/proof-base.ts'
-import { refreshSelectedBase } from '../skills/feature/proof-candidate.ts'
-import type { Admission } from '../skills/feature/proof-context.ts'
+import { type Gh, type Git, type Refusal, refreshReviewBase } from '../skills/feature/review-base.ts'
 import { currentLandingMandate, type LandingMandateRead } from '../skills/feature/workflow-mandate.js'
+import { validateLandingReviewInput } from '../skills/feature/workflow-review-input.js'
 import {
   type Arguments,
   canonicalTaxonomy,
@@ -40,16 +39,6 @@ type GateContext = {
   baseTip: string
 }
 type InitialReview = GateContext | { refusal: MachineResult }
-
-function proofResult(value: Admission): Result<Json> {
-  if (value.ok) return { ok: true, value: value.proof as unknown as Json }
-  return {
-    ok: false,
-    diagnostics: [
-      { code: value.reason, message: value.error, detail: { producer: value.producer, reason: value.reason } },
-    ],
-  }
-}
 
 function currentHeadAndBase(raw: string): Coordinates {
   let value: unknown
@@ -79,8 +68,31 @@ function baseRefusal(selectedBase: Refusal): MachineResult {
     ok: false,
     allowed: false,
     reason: 'base-unreadable',
-    detail: { producer: selectedBase.producer, reason: selectedBase.reason, error: selectedBase.error },
+    detail: { reason: selectedBase.reason, error: selectedBase.error },
   }
+}
+
+function selectedReviewIntegrity(history: DecodedHistory, summary: AcceptedSummary): MachineResult | null {
+  const operations = selectedReviewOperations(history, summary.value)
+  if (operations === null)
+    return {
+      ok: false,
+      allowed: false,
+      reason: 'record-unreadable',
+      detail: 'selected review attempt has no readable native operation',
+    }
+  for (const operation of operations) {
+    if (operation.record === null)
+      return {
+        ok: false,
+        allowed: false,
+        reason: 'record-unreadable',
+        detail: 'selected review attempt has no readable native operation',
+      }
+    const refusal = recordIntegrity(operation.parts, operation.record)
+    if (refusal !== null) return { ok: false, allowed: false, reason: refusal.reason, detail: refusal.detail }
+  }
+  return null
 }
 
 function reviewPolicy(args: Arguments, toolingRoot: string, gh: Gh) {
@@ -116,16 +128,18 @@ async function readInitialReview(args: Arguments, toolingRoot: string): Promise<
   const git = scopedGit(args.candidateCwd)
   const scope = githubScope(args.repository, args.pr)
   const taxonomy = canonicalTaxonomy(toolingRoot)
-  const history = await readGitHubHistory(scope, reviewPolicy(args, toolingRoot, gh))
-  const summary = summarizeReviews(decodeHistory(history), taxonomy, null)
+  const history = decodeHistory(await readGitHubHistory(scope, reviewPolicy(args, toolingRoot, gh)))
+  const summary = summarizeReviews(history, taxonomy, null)
   if (!summary.ok)
     return { refusal: { ok: false, allowed: false, reason: 'review-history-refused', detail: summary.diagnostics } }
+  const integrity = selectedReviewIntegrity(history, summary)
+  if (integrity !== null) return { refusal: integrity }
   const coordinates = currentHeadAndBase(
     await gh(toolingRoot, ['pr', 'view', String(args.pr), '--json', 'headRefOid,baseRefName,baseRefOid']),
   )
   if (coordinates.head !== args.head) return { refusal: { ok: false, allowed: false, reason: 'current-head-mismatch' } }
   void coordinates.recordedBaseOid
-  const selectedBase = await refreshSelectedBase(args.candidateCwd, coordinates.baseName, git, gh)
+  const selectedBase = await refreshReviewBase(args.candidateCwd, coordinates.baseName, git, gh)
   if (!selectedBase.ok) return { refusal: baseRefusal(selectedBase) }
   return { gh, git, scope, taxonomy, summary, coordinates, baseTip: selectedBase.tip }
 }
@@ -148,7 +162,6 @@ function reviewStateRefusal(
   state: ReviewState,
   refreshed: AcceptedSummary,
   args: Arguments,
-  admission: Admission,
   ci: 'green' | 'red' | 'pending' | 'unknown',
   mandateRead: Awaited<ReturnType<typeof landingMandate>>,
 ): MachineResult | null {
@@ -175,13 +188,6 @@ function reviewStateRefusal(
       reason: mandateRead.mandate?.reason ?? 'unknown-binding',
       detail: jsonDetail(mandateRead.mandate?.evidence),
     }
-  if (!admission.ok)
-    return {
-      ok: false,
-      allowed: false,
-      reason: 'proof-refused',
-      detail: { producer: admission.producer, reason: admission.reason },
-    }
   if (state.next !== 'admit' && !nativeAutoMergePending(state, args.head, ci))
     return { ok: false, allowed: false, reason: `review-state-${state.next}` }
   return null
@@ -191,24 +197,25 @@ async function postAdmissionRefusal(
   args: Arguments,
   toolingRoot: string,
   context: GateContext,
-  admission: Admission,
   ci: 'green' | 'red' | 'pending' | 'unknown',
   mandateRead: Awaited<ReturnType<typeof landingMandate>>,
 ): Promise<MachineResult | null> {
   const refreshedHistory = await readGitHubHistory(context.scope, reviewPolicy(args, toolingRoot, context.gh))
-  const refreshed = summarizeReviews(decodeHistory(refreshedHistory), context.taxonomy, null)
+  const refreshedDecoded = decodeHistory(refreshedHistory)
+  const refreshed = summarizeReviews(refreshedDecoded, context.taxonomy, null)
   if (!refreshed.ok)
     return { ok: false, allowed: false, reason: 'review-history-refused', detail: refreshed.diagnostics }
+  const integrity = selectedReviewIntegrity(refreshedDecoded, refreshed)
+  if (integrity !== null) return integrity
   if (JSON.stringify(refreshed.value) !== JSON.stringify(context.summary.value))
     return { ok: false, allowed: false, reason: 'review-inputs-moved' }
   const state = deriveReviewState(
-    decodeHistory(refreshedHistory),
+    refreshedDecoded,
     {
       repository: args.repository,
       target: `${args.repository}#${args.pr}`,
       candidateGitSHA: args.head,
       input: refreshed.value.input,
-      proofAdmission: proofResult(admission),
       ci,
       acceptedEvidencePolicyRef: null,
     },
@@ -220,10 +227,10 @@ async function postAdmissionRefusal(
   if (fresh.head !== args.head || fresh.baseName !== context.coordinates.baseName)
     return { ok: false, allowed: false, reason: 'pr-coordinates-moved' }
   void fresh.recordedBaseOid
-  const freshBase = await refreshSelectedBase(args.candidateCwd, fresh.baseName, context.git, context.gh)
+  const freshBase = await refreshReviewBase(args.candidateCwd, fresh.baseName, context.git, context.gh)
   if (!freshBase.ok) return baseRefusal(freshBase)
   if (freshBase.tip !== context.baseTip) return { ok: false, allowed: false, reason: 'pr-coordinates-moved' }
-  const refusal = reviewStateRefusal(state, refreshed, args, admission, ci, mandateRead)
+  const refusal = reviewStateRefusal(state, refreshed, args, ci, mandateRead)
   if (refusal !== null) return refusal
   const lastMandate = await currentLandingMandate(
     toolingRoot,
@@ -249,21 +256,28 @@ export async function admitReviewGate(args: Arguments, toolingRoot: string): Pro
     initial.coordinates,
     initial.baseTip,
   )
-  const admission = await admitLanding(
-    args.candidateCwd,
-    {
-      pr: args.pr,
-      candidate: args.head,
-      base: initial.coordinates.baseName,
-      baseTip: initial.baseTip,
-      reviewedAt: initial.summary.value.at,
-      reviewInput: initial.summary.value.input,
-      ...(mandateRead.mandate?.admitted ? { proofPins: mandateRead.mandate.proofPins } : {}),
-    },
-    { gh: initial.gh, git: initial.git, automationLogin: args.automationLogin },
-  )
+  if (mandateRead.mandate?.admitted) {
+    const reviewInput = await validateLandingReviewInput(
+      args.candidateCwd,
+      args.pr,
+      args.head,
+      initial.summary.value.input,
+      {
+        gh: initial.gh,
+        git: initial.git,
+        automationLogin: args.automationLogin,
+      },
+    )
+    if (!reviewInput.ok)
+      return {
+        ok: false,
+        allowed: false,
+        reason: reviewInput.reason,
+        detail: { error: reviewInput.error },
+      }
+  }
   const ci = await ciState(toolingRoot, initial.gh, args.pr)
-  const refusal = await postAdmissionRefusal(args, toolingRoot, initial, admission, ci, mandateRead)
+  const refusal = await postAdmissionRefusal(args, toolingRoot, initial, ci, mandateRead)
   if (refusal !== null) return refusal
   return { ok: true, allowed: true, reviews: initial.summary.value.reviews, ci }
 }

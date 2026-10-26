@@ -1,3 +1,4 @@
+import type { GitRunner } from './workflow-checkout.ts'
 import {
   configPinDigest,
   type EffectiveWorkflowConfig,
@@ -6,7 +7,6 @@ import {
 } from './workflow-config-digest.ts'
 import { WORKFLOW_CONFIG_VERSION } from './workflow-graph.ts'
 import { parseWorkflowOverride } from './workflow-overrides.ts'
-import type { GitRunner } from './workflow-pins.ts'
 
 const OVERRIDE_PATH = '.dev/stack.yml'
 

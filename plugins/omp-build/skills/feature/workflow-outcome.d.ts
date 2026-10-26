@@ -8,14 +8,11 @@ export type FeatureLandReentry =
   | 'fix-landing-config-then-land'
   | 'resolve-check-enforcement-then-land'
   | 'clear-remainder-by-hand'
-  | 'acquire'
-  | 'acquire-then-review'
   | 'same-head-review'
-  | 'obtain-native-metadata'
   | 'after-named-cause'
 
 export type FeatureLandOutcome =
-  | { action: 'start-watch'; claimMerged: false; reportProof: true }
+  | { action: 'start-watch'; claimMerged: false }
   | { action: 'reattach-watch'; claimMerged: false }
   | { action: 'next-review-step'; ciFailed: boolean; claimMerged: false; reason?: 'head-moved' }
   | { action: 'review-if-unspent'; claimMerged: false; reason: string }
@@ -27,9 +24,6 @@ export type FeatureLandOutcome =
       reenter: FeatureLandReentry
       reviewAgain?: false
       bound?: 'sticky'
-      producer?: 'candidate' | 'semctx' | 'assertledger' | null
-      proofReason?: string | null
-      producerAtAdmission?: false
       startWatch?: false
       updateBranchFromCycle?: false
       wait?: false
@@ -44,7 +38,6 @@ export type FeatureLandOutcome =
 export type LandingStatus = {
   status?: string
   reason?: string
-  producer?: 'candidate' | 'semctx' | 'assertledger'
   error?: string
   code?: number
   armed?: boolean

@@ -4,11 +4,10 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { hermeticGh } from './__fixtures__/feature-init/hermetic'
-import { FIXTURE_NAMES, FIXTURES, stageFixture } from './__fixtures__/feature-init/stage'
+import { FIXTURES, stageFixture } from './__fixtures__/feature-init/stage'
 
 const FEATURE_DIR = path.resolve(import.meta.dirname)
 const CLI = path.join(FEATURE_DIR, 'feature-init.ts')
-const HOOKS_MODULE = path.join(FEATURE_DIR, 'feature-init-hooks.ts')
 const READINESS = path.join(FEATURE_DIR, 'workflow-readiness.js')
 const ISSUE_TRIAGE_SRC = path.resolve(FEATURE_DIR, '../../../issue-triage')
 const PLUGIN_ROOT = path.resolve(FEATURE_DIR, '../..')
@@ -207,41 +206,6 @@ describe('feature init landing via readLanding', () => {
   })
 })
 
-describe('lefthook snapshots under real bun', () => {
-  const HOOKS = `
-const [mod, file] = process.argv.slice(1)
-const { hasSemctxGitHooks } = await import(mod)
-const doc = Bun.YAML.parse(await Bun.file(file).text())
-console.log(JSON.stringify({ doc, hooks: hasSemctxGitHooks(doc) }))
-`
-  function underBun(name: string) {
-    const out = execFileSync(REAL_BUN, ['-e', HOOKS, HOOKS_MODULE, path.join(FIXTURES, name, 'lefthook.yml')], {
-      encoding: 'utf8',
-    })
-    return JSON.parse(out) as { doc: unknown; hooks: boolean }
-  }
-
-  it.each(FIXTURE_NAMES)('%s: the unit snapshots equal Bun.YAML.parse', (name) => {
-    const snapshot = JSON.parse(readFileSync(path.join(FIXTURES, name, 'lefthook.parsed.json'), 'utf8'))
-    expect(underBun(name).doc).toEqual(snapshot)
-    const stack = execFileSync(
-      REAL_BUN,
-      [
-        '-e',
-        'console.log(JSON.stringify(Bun.YAML.parse(await Bun.file(process.argv[1]).text())))',
-        path.join(FIXTURES, name, '.dev', 'stack.yml'),
-      ],
-      { encoding: 'utf8' },
-    )
-    expect(JSON.parse(stack)).toEqual(JSON.parse(readFileSync(path.join(FIXTURES, name, 'stack.parsed.json'), 'utf8')))
-  })
-
-  it('finds semctx in a pre-push command and not in a manual pr: group', () => {
-    expect(underBun('hooks-ok').hooks).toBe(true)
-    expect(underBun('pr-only').hooks).toBe(false)
-  })
-})
-
 describe('feature init facts under real bun', () => {
   function dryRun(mutate: (dir: string) => void) {
     root = mkdtempSync(path.join(tmpdir(), 'omp-init-real-'))
@@ -269,9 +233,18 @@ describe('feature init facts under real bun', () => {
     expect(result.stdout).toContain('landing kept (existing; required_checks hides other checks)')
   })
 
-  it('reports an unparseable lefthook.yml instead of crashing', () => {
-    const result = dryRun((dir) => writeFileSync(path.join(dir, 'lefthook.yml'), 'pre-push: [unclosed\n'))
+  it('ignores residual Semctx and AssertLedger configuration without refusing', () => {
+    const result = dryRun((dir) => {
+      mkdirSync(path.join(dir, '.semctx', 'semantic', 'changes'), { recursive: true })
+      writeFileSync(path.join(dir, '.semctx', 'semantic', 'changes', 'residual.sem'), 'status: active\n')
+      writeFileSync(path.join(dir, 'lefthook.yml'), 'pre-push:\n  commands:\n    semctx:\n      run: semctx index\n')
+      writeFileSync(
+        path.join(dir, '.github', 'workflows', 'ci.yml'),
+        'jobs:\n  semctx-working-empty:\n    runs-on: ubuntu-latest\n',
+      )
+      writeFileSync(path.join(dir, 'package.json'), '{"devDependencies":{"assertledger":"1.0.0"}}\n')
+    })
     expect(result.status).toBe(0)
-    expect(result.stdout).toContain('semctx hooks unknown (lefthook.yml unreadable)')
+    expect(result.stdout).not.toMatch(/semctx|assertledger/i)
   })
 })

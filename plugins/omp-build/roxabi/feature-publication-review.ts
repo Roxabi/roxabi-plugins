@@ -3,7 +3,7 @@ import type { MandateRecord } from '../engine/workflow-control.ts'
 import { openPr } from '../skills/feature/workflow-pr.js'
 import type { ContinueFeatureResult } from './feature-contract.ts'
 import { type Contracts, type History, payload, type Scope } from './feature-engine.ts'
-import type { GitRunner } from './workflow-pins.ts'
+import type { GitRunner } from './workflow-checkout.ts'
 
 type Delivery = {
   number: number

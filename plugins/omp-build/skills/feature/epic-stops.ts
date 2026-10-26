@@ -3,7 +3,8 @@
 /** Report, record a goal-stop marker, skip dependents, continue independents. */
 export const TICKET_STOPS = [
   'review-bound',
-  'proof-blocked',
+  'review-input-refused',
+  'base-blocked',
   'foreign-commit',
   'branch-mismatch',
   'no-scope',
@@ -66,7 +67,8 @@ export function landOutcome(
     case 'ci-blocked':
     case 'stopped':
     case 'closed':
-    case 'proof-blocked':
+    case 'review-input-refused':
+    case 'base-blocked':
     case 'behind':
       return { stop: status, class: 'ticket' }
     case 'watch-failed':

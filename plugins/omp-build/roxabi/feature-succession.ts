@@ -15,15 +15,15 @@ import { preserveSuccessorBinding } from './feature-succession-binding.ts'
 export type { Gh } from './feature-succession-binding.ts'
 
 import type { Gh } from './feature-succession-binding.ts'
+import type { GitRunner } from './workflow-checkout.ts'
 import { configPinDigest, effectiveWorkflowConfig } from './workflow-config-digest.ts'
 import { WORKFLOW_CONFIG_VERSION } from './workflow-graph.ts'
 import { parseWorkflowOverride } from './workflow-overrides.ts'
-import { type GitRunner, type ProofConfigPin, readProofConfigPins } from './workflow-pins.ts'
 
 type MandateRecord = Extract<HistoryRecord, { kind: 'mandate' }>
 type SuccessorShared = Pick<
   MandateRecord['payload'],
-  'branch' | 'base' | 'lineageHead' | 'config' | 'proofPins' | 'parent' | 'antecedent' | 'spec'
+  'format' | 'branch' | 'base' | 'lineageHead' | 'config' | 'parent' | 'antecedent' | 'spec'
 >
 
 export function mandatesInHistory(history: History): MandateRecord[] {
@@ -182,12 +182,6 @@ async function successorShared(
   productVersion: string,
 ): Promise<{ ok: true; shared: SuccessorShared } | { ok: false; reason: string }> {
   const head = await input.git(input.cwd, ['rev-parse', 'HEAD'])
-  let proofPins: ProofConfigPin[]
-  try {
-    proofPins = await readProofConfigPins(input.git, input.cwd, `refs/remotes/origin/${baseAndBranch.base}`)
-  } catch (error) {
-    return { ok: false as const, reason: error instanceof Error ? error.message : 'proof-pin-unreadable' }
-  }
   const override = await input.git(input.cwd, ['show', `refs/remotes/origin/${baseAndBranch.base}:.dev/stack.yml`])
   const parsed = parseWorkflowOverride(override.code === 0 ? override.stdout : null)
   if (!parsed.ok) return { ok: false as const, reason: parsed.reason }
@@ -195,11 +189,11 @@ async function successorShared(
   return {
     ok: true as const,
     shared: {
+      format: 'omp-build-mandate/2',
       branch: baseAndBranch.branch,
       base: baseAndBranch.base,
       lineageHead: head.code === 0 ? head.stdout.trim() : null,
       config: { productVersion, version: WORKFLOW_CONFIG_VERSION, digest: configPinDigest(effective), effective },
-      proofPins,
       parent: prior.parent,
       antecedent,
       spec: {

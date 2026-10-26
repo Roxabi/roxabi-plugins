@@ -10,6 +10,7 @@ export type MandateRefusal =
   | 'config-invalid'
   | 'ambiguous'
   | 'incomplete'
+  | 'incompatible-format'
   | 'unconfirmed'
   | 'unknown-binding'
   | 'incompatible'

@@ -31,8 +31,6 @@ export function conditionHolds(
       return implementConfirmed(history, mandate)
     case 'pr-open':
       return pullRequestIsOpen(history, facts, mandate, pullRequest)
-    case 'proof-confirmed':
-      return decisions.proof.applicability === 'not-applicable' || decisions.proof.admission?.ok === true
     case 'review-step-review':
       return decisions.reviewStep === 'review'
     case 'review-step-fix':

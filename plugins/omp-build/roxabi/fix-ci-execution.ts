@@ -101,6 +101,7 @@ async function prepareCiCorrection(
     {
       rootAttemptId: prepared.inventoryId,
       candidateGitSHA: input.target.candidateGitSHA,
+      inputFormat: 'omp-build:review-input/3',
       input: null,
       stage: 'initial',
       purpose: 'correction',

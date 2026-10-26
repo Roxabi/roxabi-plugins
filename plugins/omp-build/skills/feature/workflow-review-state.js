@@ -8,7 +8,6 @@ import {
   readHeadRefOid,
   reviewBoundStopped,
 } from './workflow-gate.js'
-import { admitCurrentReviewBinding, hasFreshReviewInput, liveProofPins } from './workflow-mandate.js'
 import { resolveReviewPr } from './workflow-pr.js'
 import { resolveLandingBase } from './workflow-readiness.js'
 import {
@@ -18,7 +17,8 @@ import {
   reviewRefusal,
   reviewTaxonomy,
 } from './workflow-records.js'
-import { errorText, gh, gitResult } from './workflow-runtime.js'
+import { hasFreshReviewInput } from './workflow-review-input.js'
+import { errorText, gh } from './workflow-runtime.js'
 
 export const MAX_FIX_ROUNDS = 2
 const STOP_GUIDANCE =
@@ -52,38 +52,19 @@ export function reviewStep(records, { head, ciFailed = false }) {
   return { action: 'review', reason: 'no-verdict', reviews }
 }
 
-export async function persistObservedCiStop(cwd, pr, { gh: ghFn = gh, git: gitFn } = {}) {
+export async function persistObservedCiStop(cwd, pr, { gh: ghFn = gh } = {}) {
   const history = await readReviewHistory(cwd, pr, ghFn)
   const summary = reviewRecords(history)
   if (!summary.ok) throw reviewRefusal(summary)
   const gate = await readGate(cwd, pr, ghFn)
   if (!isCommitSha(gate.headRefOid) || summary.value.head !== gate.headRefOid || !approves(summary.value.verdict))
     throw new Error('required CI stop is no longer bound to a current approving review')
-  let proofAdmission = {
-    ok: false,
-    producer: 'candidate',
-    reason: 'unreadable',
-    error: 'proof admission could not be re-read while persisting the observed CI stop',
-  }
-  try {
-    const base = await resolveLandingBase(cwd, pr, ghFn, gitFn)
-    if (!base.refusal)
-      proofAdmission = await admitCurrentReviewBinding(
-        cwd,
-        pr,
-        summary.value,
-        ghFn,
-        gitFn,
-        await liveProofPins(cwd, gitFn ?? gitResult, base.tip),
-      )
-  } catch {}
   const state = deriveReviewState(
     history,
     {
       ...history.source.scope,
       candidateGitSHA: gate.headRefOid,
       input: summary.value.input,
-      proofAdmission,
       ci: 'red',
       acceptedEvidencePolicyRef: null,
     },
@@ -117,20 +98,16 @@ export async function persistObservedCiStop(cwd, pr, { gh: ghFn = gh, git: gitFn
 async function stableArmReview(cwd, number, records, gate, ciFailed, ghFn, gitFn) {
   const base = await resolveLandingBase(cwd, number, ghFn, gitFn)
   if (base.refusal) return { policy: 'unarmed' }
-  const proofFresh = await hasFreshReviewInput(cwd, number, records, {
-    gh: ghFn,
-    git: gitFn,
-    proofPins: await liveProofPins(cwd, gitFn ?? gitResult, base.tip),
-  })
+  const inputFresh = await hasFreshReviewInput(cwd, number, records, { gh: ghFn, git: gitFn })
   const lastHead = await readHeadRefOid(cwd, number, ghFn)
   const currentGate = { ...gate, headRefOid: lastHead }
-  if (!proofFresh || lastHead !== records.head) {
+  if (!inputFresh || lastHead !== records.head) {
     return {
       policy: 'unarmed',
       gate: currentGate,
       step: {
         action: 'review',
-        reason: lastHead !== records.head ? 'head-moved' : 'proof-changed',
+        reason: lastHead !== records.head ? 'head-moved' : 'review-input-changed',
         reviews: records.reviews,
       },
     }

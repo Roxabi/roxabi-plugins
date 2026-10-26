@@ -3,7 +3,7 @@ import type { ScopedRecordRef } from '../engine/record-references.ts'
 import type { Diagnostic } from '../engine/record-values.ts'
 import type { NativeBatch, NativeBatchCallbacks, NativeBatchResult } from '../omp/review-runtime/contracts.ts'
 import type { PreparedEpicReview } from './epic-range-finalization.ts'
-import type { GitRunner } from './workflow-pins.ts'
+import type { GitRunner } from './workflow-checkout.ts'
 
 export type FeatureControl = 'select' | 'continue' | 'resume' | 'pause' | 'abandon' | 'new' | 'material-decision'
 export type FeatureDecision = 'accept' | 'reject'

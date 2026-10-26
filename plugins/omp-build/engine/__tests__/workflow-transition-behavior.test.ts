@@ -36,7 +36,6 @@ describe('workflow transition behavior', () => {
         publish: { status: 'absent', evidence: [] },
         landing: { status: 'absent', evidence: [] },
         watch: { status: 'absent', evidence: [] },
-        proof: { admission: null, candidateGitSHA: null, input: null, applicability: 'required', evidence: [] },
       },
     })
     expect(decision).toMatchObject({
@@ -51,7 +50,6 @@ describe('workflow transition behavior', () => {
       configVersion: 'catalogue-1',
       configDigest: DIGEST,
       supportedConfigVersions: ['catalogue-1'],
-      proofPins: [],
       specDigest: specDigest(BODY),
       specBody: BODY,
     }
@@ -210,7 +208,6 @@ describe('workflow transition behavior', () => {
           publish: { status: 'absent', evidence: [] },
           landing: { status: 'absent', evidence: [] },
           watch: { status: 'absent', evidence: [] },
-          proof: { admission: null, candidateGitSHA: null, input: null, applicability: 'required', evidence: [] },
         },
       }),
     ).toMatchObject({ status: 'blocked', reason: 'unknown-binding' })
@@ -223,7 +220,6 @@ describe('workflow transition behavior', () => {
       configVersion: 'catalogue-1',
       configDigest: DIGEST,
       supportedConfigVersions: ['catalogue-1'],
-      proofPins: [],
       specDigest: specDigest(BODY),
       specBody: BODY,
     }
@@ -237,7 +233,6 @@ describe('workflow transition behavior', () => {
       publish: { status: 'absent', evidence: [] },
       landing: { status: 'absent', evidence: [] },
       watch: { status: 'absent', evidence: [] },
-      proof: { admission: null, candidateGitSHA: null, input: null, applicability: 'required', evidence: [] },
     }
     const bound = (histories: DecodedHistory[], use: 'review' | 'correction') =>
       resolveBoundWork({ use, explicitSelection: true, pullRequest: pr, histories, native })

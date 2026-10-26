@@ -22,7 +22,6 @@ describe('workflow plan execution behavior', () => {
       base: 'main',
       lineageHead: null,
       body: BODY,
-      proofPins: [],
     })
     if (mandated.kind !== 'mandate') throw new Error('expected a mandate')
     const originalDigest = mandated.payload.spec.bodySha256
@@ -238,7 +237,6 @@ describe('workflow plan execution behavior', () => {
       configVersion: mandated.payload.config.version,
       configDigest: mandated.payload.config.digest,
       supportedConfigVersions: [mandated.payload.config.version],
-      proofPins: mandated.payload.proofPins,
     })
     const workflowDecisions: SpecializedDecisions = {
       reviewStep: null,
@@ -248,7 +246,6 @@ describe('workflow plan execution behavior', () => {
       publish: { status: 'absent', evidence: [] },
       landing: { status: 'absent', evidence: [] },
       watch: { status: 'absent', evidence: [] },
-      proof: { admission: null, candidateGitSHA: null, input: null, applicability: 'required', evidence: [] },
     }
     const oldImplementationStart = implementationStart(mandated, 'act-implement-a', 'act-plan-a')
     const oldImplementationResult = implementationResult(
@@ -332,7 +329,7 @@ describe('workflow plan execution behavior', () => {
     expect(published).toMatchObject({ status: 'action', action: 'publish' })
     const pull: Scope = { repository: SCOPE.repository, target: 'acme/app#99' }
     const boundPull = history([binding(mandated, pull)], pull)
-    const proof = reconstructWorkflow({
+    const review = reconstructWorkflow({
       evidence: {
         issue: history([
           ...eligibleRecords,
@@ -350,7 +347,7 @@ describe('workflow plan execution behavior', () => {
       },
       decisions: workflowDecisions,
     })
-    expect(proof).toMatchObject({ status: 'action', action: 'proof' })
+    expect(review).toMatchObject({ status: 'action', action: 'review' })
 
     const abandoned = must(
       buildRecord({
@@ -377,7 +374,6 @@ describe('workflow plan execution behavior', () => {
         digest: mandated.payload.config.digest,
         effective: mandated.payload.config.effective,
       },
-      proofPins: [],
       parent: null,
       antecedent: mandateRef,
     })
@@ -454,7 +450,6 @@ describe('workflow plan execution behavior', () => {
         configVersion: mandated.payload.config.version,
         configDigest: mandated.payload.config.digest,
         supportedConfigVersions: [mandated.payload.config.version],
-        proofPins: mandated.payload.proofPins,
       }),
       decisions: workflowDecisions,
     })

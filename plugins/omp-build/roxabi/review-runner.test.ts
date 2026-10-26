@@ -61,8 +61,6 @@ describe('CanonicalReviewRunner native contribution publication', () => {
         pullRequest: null,
         stack: { candidate: null, base: null },
         resolvedSpec: null,
-        semctx: null,
-        assertledger: null,
       },
       inputSnapshot: TEST_INPUT_SNAPSHOT,
       canonicalClasses: ['missing-input-validation'],

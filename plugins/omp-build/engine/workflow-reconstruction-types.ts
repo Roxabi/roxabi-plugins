@@ -1,4 +1,4 @@
-import type { ExternalRecordRef, ProofConfigPin } from './record-references.ts'
+import type { ExternalRecordRef } from './record-references.ts'
 import type { Diagnostic, Scope } from './record-values.ts'
 import type { PauseBinding } from './workflow-control.ts'
 import type { WorkflowGraphAction } from './workflow-graph.ts'
@@ -8,7 +8,6 @@ export type WorkflowBlockReason =
   | 'pause-unconfirmed'
   | 'spec-decision-required'
   | 'config-drift'
-  | 'proof-pin-drift'
   | 'unsupported-config'
   | 'action-uncertain'
   | 'unknown-outcome'
@@ -21,6 +20,7 @@ export type WorkflowBlockReason =
   | 'cycle'
   | 'unsupported-graph'
   | 'unconfirmed'
+  | 'incompatible-format'
   | 'incomplete'
   | 'missing-history'
   | 'unknown-binding'
@@ -64,7 +64,6 @@ export type WorkflowFacts = {
   configVersion: string
   configDigest: string
   supportedConfigVersions: readonly string[]
-  proofPins: readonly ProofConfigPin[]
   explicitSelection: boolean
   explicitResume: boolean
   successorAntecedent: ExternalRecordRef | null
@@ -78,13 +77,6 @@ export type WorkflowFacts = {
 
 export type NativeSelectorStatus = 'absent' | 'published' | 'uncertain' | 'failed' | 'not-applicable'
 export type NativeSelector = { status: NativeSelectorStatus; evidence: Diagnostic[] }
-export type ProofSelector = {
-  admission: { ok: true; candidateGitSHA: string; input: string; recordIds: readonly string[] } | null
-  candidateGitSHA: string | null
-  input: string | null
-  applicability: 'required' | 'not-applicable'
-  evidence: Diagnostic[]
-}
 export type SpecializedDecisions = {
   reviewStep: 'review' | 'fix' | 'land' | 'stop' | null
   epicStep: 'start' | 'resume' | 'stop' | 'final-review' | 'fix-ticket' | 'post-merge' | 'complete' | 'drop' | null
@@ -93,5 +85,4 @@ export type SpecializedDecisions = {
   publish: NativeSelector
   landing: NativeSelector
   watch: NativeSelector
-  proof: ProofSelector
 }

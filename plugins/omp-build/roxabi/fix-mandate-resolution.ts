@@ -234,7 +234,6 @@ export type FixOnlyMandateDraft = {
   productVersion: string
   work: { reference: string; body: string; lastEditedAt: string }
   config: { version: string; digest: string; effective: Json }
-  proofPins: { sourceCommit: string; path: string; blob: string | null }[]
   parent: { scope: Scope; recordId: string; kind: string } | null
   antecedent: { scope: Scope; recordId: string; kind: string } | null
 }
@@ -266,7 +265,6 @@ export async function buildConfirmedFixOnlyMandate(
     productVersion: draft.productVersion,
     work: draft.work,
     config: draft.config,
-    proofPins: draft.proofPins,
     parent: parent.value,
     antecedent: antecedent.value,
   })

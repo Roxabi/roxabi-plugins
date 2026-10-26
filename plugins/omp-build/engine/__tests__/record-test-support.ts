@@ -17,7 +17,6 @@ export function reviewFacts(head = TEST_HEAD, ci: 'green' | 'red' | 'pending' | 
     ...TEST_SCOPE,
     candidateGitSHA: head,
     input: TEST_INPUT,
-    proofAdmission: { ok: true as const, value: null },
     ci,
     acceptedEvidencePolicyRef: null,
   }

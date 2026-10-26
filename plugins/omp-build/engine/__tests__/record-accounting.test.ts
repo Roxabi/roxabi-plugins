@@ -158,13 +158,7 @@ describe('review accounting and stops', () => {
       next: 'review',
       requiredStop: null,
     })
-    expect(
-      deriveReviewState(
-        records,
-        { ...reviewFacts(foreignHead, 'red'), input: null, proofAdmission: { ok: false, diagnostics: [] } },
-        TAXONOMY,
-      ),
-    ).toMatchObject({
+    expect(deriveReviewState(records, { ...reviewFacts(foreignHead, 'red'), input: null }, TAXONOMY)).toMatchObject({
       ok: true,
       next: 'stop',
       requiredStop: { reason: 'ci-failed', reviewId: 'foreign-fourth-final' },

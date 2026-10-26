@@ -18,6 +18,8 @@ export function summarizeReviews(
   return summarizeAuthorityReviews(classifyHistory(history).authorityHistory, taxonomy, acceptedPolicyRef)
 }
 
+export { selectedReviewOperations } from './review-attempt-operations.ts'
+
 function summaryFailure(
   diagnostics: Diagnostic[],
   knownReviews: number,
@@ -221,7 +223,6 @@ function reviewStateFailure(
 }
 
 function nextReviewState(summary: ReviewSummary, facts: ReviewFacts): ReviewState {
-  if (!facts.proofAdmission.ok) return { ok: true, summary, next: 'wait', requiredStop: null }
   if (summary.head !== null && summary.head !== facts.candidateGitSHA)
     return { ok: true, summary, next: 'review', requiredStop: null }
   if (summary.input !== facts.input) return { ok: true, summary, next: 'review', requiredStop: null }

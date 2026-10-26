@@ -1,4 +1,4 @@
-import type { Gh } from './proof-base.ts'
+import type { Gh } from './review-base.ts'
 
 export type ReviewPr = number | string | null | undefined
 export type ResolveReviewPrDeps = { gh?: Gh; git?: (cwd: string, args: readonly string[]) => Promise<string> }

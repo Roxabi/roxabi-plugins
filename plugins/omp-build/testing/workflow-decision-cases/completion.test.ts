@@ -8,7 +8,6 @@ import {
   decisions,
   eligiblePlan,
   HEAD,
-  openProof,
   PR,
   SCOPE,
   shippedFacts,
@@ -140,7 +139,7 @@ describe('workflow completion decisions', () => {
     const macro = planMacro(evidence, mandate)
     expect(macro.phase).toBe('eligible')
     expect(macro.amendmentActionId).toBe('act-plan-2')
-    expect(actionCompletion('plan', evidence, openProof(), mandate).status).toBe('confirmed')
+    expect(actionCompletion('plan', evidence, decisions(), mandate).status).toBe('confirmed')
   })
 
   it('does not treat a clear review of another plan as completion', () => {
@@ -189,7 +188,7 @@ describe('workflow completion decisions', () => {
     }
     const macro = planMacro(evidence, mandate)
     expect(macro.phase).toBe('blocked')
-    const decision = reconstructWorkflow({ evidence, facts: shippedFacts(), decisions: openProof() })
+    const decision = reconstructWorkflow({ evidence, facts: shippedFacts(), decisions: decisions() })
     expect(decision).toMatchObject({ status: 'blocked', reason: 'missing-contribution' })
     expect(decision).not.toMatchObject({ status: 'action' })
   })
@@ -207,7 +206,7 @@ describe('workflow completion decisions', () => {
       parents: [],
     }
     expect(planMacro(evidence, mandate).phase).toBe('uncertain')
-    const decision = reconstructWorkflow({ evidence, facts: shippedFacts(), decisions: openProof() })
+    const decision = reconstructWorkflow({ evidence, facts: shippedFacts(), decisions: decisions() })
     expect(decision).toMatchObject({ status: 'blocked', reason: 'action-uncertain' })
     expect(decision).not.toMatchObject({ status: 'action' })
   })
@@ -220,7 +219,7 @@ describe('workflow completion decisions', () => {
       pullRequest: null,
       parents: [],
     }
-    const startedDecision = reconstructWorkflow({ evidence: started, facts: shippedFacts(), decisions: openProof() })
+    const startedDecision = reconstructWorkflow({ evidence: started, facts: shippedFacts(), decisions: decisions() })
     expect(startedDecision).toMatchObject({ status: 'blocked', reason: 'action-uncertain' })
     expect(startedDecision).not.toMatchObject({ status: 'action' })
     const rejected = {
@@ -228,7 +227,7 @@ describe('workflow completion decisions', () => {
       pullRequest: null,
       parents: [],
     }
-    const rejectedDecision = reconstructWorkflow({ evidence: rejected, facts: shippedFacts(), decisions: openProof() })
+    const rejectedDecision = reconstructWorkflow({ evidence: rejected, facts: shippedFacts(), decisions: decisions() })
     expect(rejectedDecision).toMatchObject({ status: 'blocked', reason: 'unconfirmed' })
     expect(rejectedDecision).not.toMatchObject({ status: 'action' })
     const pull = { scope: PR, head: HEAD, base: 'main', associatedIssue: SCOPE }
@@ -242,10 +241,9 @@ describe('workflow completion decisions', () => {
     const rejectedBoundDecision = reconstructWorkflow({
       evidence: rejectedBound,
       facts: shippedFacts(pull),
-      decisions: openProof(),
+      decisions: decisions(),
     })
     expect(rejectedBoundDecision).toMatchObject({ status: 'blocked', reason: 'unconfirmed' })
-    expect(rejectedBoundDecision).not.toMatchObject({ status: 'action', action: 'proof' })
-    expect(actionCompletion('implement', rejected, openProof(), mandate).status).not.toBe('confirmed')
+    expect(actionCompletion('implement', rejected, decisions(), mandate).status).not.toBe('confirmed')
   })
 })

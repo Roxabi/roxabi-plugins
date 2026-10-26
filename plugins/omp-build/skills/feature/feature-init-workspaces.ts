@@ -1,26 +1,6 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { isMap, type YamlMap } from './feature-init-yaml'
-
-const DEPENDENCY_MAPS = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']
-
-function readPackage(dir: string): YamlMap | null {
-  try {
-    const doc: unknown = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
-    return isMap(doc) ? doc : null
-  } catch {
-    return null
-  }
-}
-
-/** The package names a package.json declares in its dependency maps. Scripts are not dependencies. */
-function dependencyNames(pkg: YamlMap | null): string[] {
-  if (!pkg) return []
-  return DEPENDENCY_MAPS.flatMap((key) => {
-    const deps = pkg[key]
-    return isMap(deps) ? Object.keys(deps) : []
-  })
-}
 
 /** One `workspaces` glob as an anchored regex over `/`-joined relative paths. */
 function workspaceGlob(glob: string): RegExp {
@@ -80,23 +60,4 @@ function collectWorkspaceDirs(
 export function workspaceDirs(dir: string, pkg: YamlMap | null): string[] {
   const patterns = workspacePatterns(pkg)
   return patterns.include.length ? collectWorkspaceDirs(dir, patterns) : []
-}
-
-const VITEST_CONFIG = /^vitest\.(?:config|workspace)\.[a-z]+$/
-
-/**
- * True when the repository uses vitest: a `vitest` or `@vitest/*` dependency,
- * or a `vitest.config.*` / `vitest.workspace.*` file, at the root or in a
- * `workspaces` package. A script that merely mentions vitest does not count.
- */
-export function detectsVitest(dir: string): boolean {
-  const root = readPackage(dir)
-  for (const pkgDir of [dir, ...workspaceDirs(dir, root)]) {
-    const pkg = pkgDir === dir ? root : readPackage(pkgDir)
-    if (dependencyNames(pkg).some((name) => name === 'vitest' || name.startsWith('@vitest/'))) return true
-    try {
-      if (readdirSync(pkgDir).some((name) => VITEST_CONFIG.test(name))) return true
-    } catch {}
-  }
-  return false
 }

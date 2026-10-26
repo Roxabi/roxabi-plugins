@@ -41,63 +41,6 @@ describe('workflow authority behavior', () => {
     expect(projectRecord(record, broken, null)).toMatchObject({ ok: true })
     expect(projectRecord(record, broken, null, []).ok).toBe(true)
   })
-  test('accepts a new base commit when approved path and blob are unchanged', () => {
-    const approved = 'a'.repeat(40)
-    const advanced = 'b'.repeat(40)
-    const blob = 'c'.repeat(40)
-    const changed = 'd'.repeat(40)
-    const path = 'plugins/omp-build/skills/dev-review/review-classes.yml'
-    const stack = '.dev/stack.yml'
-    const record = must(
-      parseRecord({
-        ...featureMandate(),
-        payload: {
-          ...featureMandate().payload,
-          proofPins: [
-            { sourceCommit: approved, path, blob },
-            { sourceCommit: approved, path: stack, blob: null },
-          ],
-        },
-      }),
-    )
-    const current = {
-      productVersion: '0.11.0',
-      configVersion: 'catalogue-1',
-      configDigest: DIGEST,
-      supportedConfigVersions: ['catalogue-1'],
-      proofPins: [
-        { sourceCommit: advanced, path: stack, blob: null },
-        { sourceCommit: advanced, path, blob },
-      ],
-      specDigest: specDigest(BODY),
-      specBody: BODY,
-    }
-    const native = { branch: 'feature/bounded', base: 'main', pullRequest: SCOPE, linkedIssueScopes: [SCOPE] }
-    expect(
-      requireLandingMandate({
-        histories: [history([record, binding(record)])],
-        native,
-        parentScopes: [],
-        current,
-        localInhibit: null,
-      }).ok,
-    ).toBe(true)
-    expect(
-      requireLandingMandate({
-        histories: [history([record, binding(record)])],
-        native,
-        parentScopes: [],
-        current: {
-          ...current,
-          proofPins: [
-            { sourceCommit: advanced, path, blob: changed },
-            { sourceCommit: advanced, path: stack, blob: null },
-          ],
-        },
-        localInhibit: null,
-      }),
-    ).toMatchObject({ ok: false, reason: 'proof-pin-drift' })
-  })
   test('refuses a fix-only mandate at landing and does not treat pause as stop', () => {
     const record = mandate()
     const landing = requireLandingMandate({
@@ -109,7 +52,6 @@ describe('workflow authority behavior', () => {
         configVersion: 'catalogue-1',
         configDigest: DIGEST,
         supportedConfigVersions: ['catalogue-1'],
-        proofPins: [],
         specDigest: specDigest(BODY),
         specBody: BODY,
       },
@@ -164,7 +106,6 @@ describe('workflow authority behavior', () => {
         publish: { status: 'absent', evidence: [] },
         landing: { status: 'absent', evidence: [] },
         watch: { status: 'absent', evidence: [] },
-        proof: { admission: null, candidateGitSHA: null, input: null, applicability: 'required', evidence: [] },
       },
     })
     expect(decision.status).toBe('paused')
@@ -218,13 +159,13 @@ describe('workflow authority behavior', () => {
         kind: 'mandate',
         payload: {
           role: 'epic',
+          format: 'omp-build-mandate/2',
           run: 'run00001',
           children: [{ scope: SCOPE, specDigest: specDigest(BODY), specBody: BODY }],
           branch: null,
           base: 'main',
           lineageHead: null,
           config: child.payload.config,
-          proofPins: [],
           parent: null,
           antecedent: null,
           spec: {
@@ -249,13 +190,13 @@ describe('workflow authority behavior', () => {
         kind: 'mandate',
         payload: {
           role: 'epic',
+          format: 'omp-build-mandate/2',
           run: 'run00002',
           children: [],
           branch: null,
           base: 'main',
           lineageHead: null,
           config: child.payload.config,
-          proofPins: [],
           parent: null,
           antecedent: parentOneRef,
           spec: {
@@ -317,7 +258,6 @@ describe('workflow authority behavior', () => {
           publish: { status: 'absent', evidence: [] },
           landing: { status: 'absent', evidence: [] },
           watch: { status: 'absent', evidence: [] },
-          proof: { admission: null, candidateGitSHA: null, input: null, applicability: 'required', evidence: [] },
         },
       }),
     ).not.toMatchObject({ status: 'action' })
@@ -341,7 +281,6 @@ describe('workflow authority behavior', () => {
           configVersion: 'catalogue-1',
           configDigest: DIGEST,
           supportedConfigVersions: ['catalogue-1'],
-          proofPins: [],
           specDigest: specDigest(BODY),
           specBody: BODY,
         },
