@@ -106,7 +106,7 @@ export function sandbox(stack = 'release:\n  model: trunk\n'): Sandbox {
   writeFileSync(path.join(bin, 'gh'), GH_STUB)
   chmodSync(path.join(bin, 'gh'), 0o755)
   const env: NodeJS.ProcessEnv = { PATH: `${bin}:${process.env.PATH}`, HOME: root, DRIVER_STATE: state }
-  env.GIT_CONFIG_GLOBAL = '/dev/null'
+  env.GIT_CONFIG_GLOBAL = process.env.GIT_CONFIG_GLOBAL
   env.GIT_CONFIG_NOSYSTEM = '1'
   box = {
     root,

@@ -54,7 +54,6 @@ function sandboxEnvironment(root: string, bin: string, stateFile: string, spec: 
     PATH: [...(spec.path ?? []), bin, process.env.PATH].join(':'),
     HOME: root,
     GH_SIM_STATE: stateFile,
-    GIT_CONFIG_GLOBAL: '/dev/null',
     GIT_CONFIG_NOSYSTEM: '1',
     GIT_AUTHOR_DATE: DATE,
     GIT_COMMITTER_DATE: DATE,

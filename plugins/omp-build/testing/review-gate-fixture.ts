@@ -19,7 +19,6 @@ const REAL_BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
 
 const GIT_ENV: NodeJS.ProcessEnv = {
   ...process.env,
-  GIT_CONFIG_GLOBAL: '/dev/null',
   GIT_CONFIG_NOSYSTEM: '1',
 }
 for (const key of Object.keys(GIT_ENV))
@@ -113,8 +112,12 @@ export function setupReviewGateFixture(): ReviewGateFixture {
       BUN_INSTALL: path.join(home, '.bun'),
       BUN_INSTALL_CACHE_DIR: path.join(home, '.bun-cache'),
       PATH: `${bin}:${process.env.PATH ?? ''}`,
-      GIT_CONFIG_GLOBAL: '/dev/null',
+      GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL,
       GIT_CONFIG_NOSYSTEM: '1',
+      // The gate swaps the global config for /dev/null; these keys survive it.
+      GIT_CONFIG_COUNT: '1',
+      GIT_CONFIG_KEY_0: 'maintenance.auto',
+      GIT_CONFIG_VALUE_0: 'false',
       GATE_STATE: statePath,
       GATE_STATE_DIR: stateDir,
     }
