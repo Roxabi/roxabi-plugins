@@ -1,5 +1,6 @@
 import type * as ChildProcess from 'node:child_process'
 import { createRequire } from 'node:module'
+import path from 'node:path'
 import { afterAll, expect } from 'vitest'
 
 /**
@@ -35,6 +36,25 @@ for (const name of [
 ]) {
   delete process.env[name]
 }
+
+/**
+ * Gives every git process a test starts a global config that turns automatic
+ * maintenance off.
+ *
+ * `git commit`, `merge`, `fetch` and `rebase`, and `receive-pack` in the bare
+ * remote a push lands in, end by starting `git maintenance run --auto
+ * --detach`. That process outlives the command and takes
+ * `.git/objects/maintenance.lock`, so a teardown removing the fixture meanwhile
+ * fails with ENOTEMPTY (#917). The config file reaches the remote side of a
+ * local push, which drops GIT_CONFIG_COUNT; the GIT_CONFIG_COUNT keys reach
+ * code under test that swaps the global config for /dev/null, as the review
+ * gate does. A fixture that drops the caller's GIT_* passes GIT_CONFIG_GLOBAL
+ * on.
+ */
+process.env.GIT_CONFIG_GLOBAL = path.join(import.meta.dirname, 'vitest.gitconfig')
+process.env.GIT_CONFIG_COUNT = '1'
+process.env.GIT_CONFIG_KEY_0 = 'maintenance.auto'
+process.env.GIT_CONFIG_VALUE_0 = 'false'
 
 /**
  * Counts the processes a test file really forks, and fails a unit test that

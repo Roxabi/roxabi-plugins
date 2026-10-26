@@ -302,7 +302,9 @@ export function ghCalls(log: string): GhCall[] {
     })
 }
 
-const GIT_ENV = { GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' }
+const GIT_CONFIG_GLOBAL = process.env.GIT_CONFIG_GLOBAL
+if (!GIT_CONFIG_GLOBAL) throw new Error('GIT_CONFIG_GLOBAL is unset: vitest.setup.ts did not run')
+const GIT_ENV = { GIT_CONFIG_GLOBAL, GIT_CONFIG_NOSYSTEM: '1' }
 
 function git(cwd: string, ...args: string[]): void {
   // biome-ignore format: one git invocation

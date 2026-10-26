@@ -48,7 +48,7 @@ exit 0`
   )
   const env: NodeJS.ProcessEnv = {
     ...Object.fromEntries(inherited),
-    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL,
     GIT_CONFIG_SYSTEM: '/dev/null',
     GIT_AUTHOR_NAME: 'Fixture',
     GIT_AUTHOR_EMAIL: 'fixture@example.com',

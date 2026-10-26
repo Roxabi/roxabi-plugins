@@ -15,7 +15,10 @@ const LIB = path.resolve(import.meta.dirname, '..', 'lib.sh')
  * one (#532).
  */
 function envWithoutGit(): NodeJS.ProcessEnv {
-  return Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
+  return {
+    ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))),
+    GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL,
+  }
 }
 
 function runHelper(snippet: string, cwd: string): string {

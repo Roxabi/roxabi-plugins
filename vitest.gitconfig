@@ -1,0 +1,3 @@
+# The global git config of every test: vitest.setup.ts points GIT_CONFIG_GLOBAL here.
+[maintenance]
+	auto = false

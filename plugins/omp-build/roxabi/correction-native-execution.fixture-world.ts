@@ -10,7 +10,6 @@ const roots = new Set<string>()
 const environment = {
   ...process.env,
   GIT_CONFIG_NOSYSTEM: '1',
-  GIT_CONFIG_GLOBAL: '/dev/null',
   BASH_ENV: '/dev/null',
 }
 

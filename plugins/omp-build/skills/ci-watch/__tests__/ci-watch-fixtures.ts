@@ -55,7 +55,7 @@ export function fixture(label: string): WatchFixture {
 export function gitEnv(): Record<string, string> {
   const env: Record<string, string> = {}
   for (const [key, value] of Object.entries(process.env)) {
-    if (!key.startsWith('GIT_') && value !== undefined) env[key] = value
+    if ((!key.startsWith('GIT_') || key === 'GIT_CONFIG_GLOBAL') && value !== undefined) env[key] = value
   }
   return env
 }
