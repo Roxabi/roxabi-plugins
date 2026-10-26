@@ -12,7 +12,7 @@ import { admitAttributedCiCorrection } from './fix-ci-admission.ts'
 import { acceptedSpecOf, boundCorrection } from './fix-mandate-resolution.ts'
 import { classifyCiCorrectionStep } from './fix-mandate-types.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
-import type { GitRunner } from './workflow-pins.ts'
+import type { GitRunner } from './workflow-checkout.ts'
 
 type Gh = (cwd: string, args: string[]) => Promise<string>
 

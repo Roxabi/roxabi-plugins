@@ -1,8 +1,8 @@
 import type { ReviewSummary } from '../../contracts.ts'
-import type { Gh, Git } from './proof-base.ts'
+import type { Gh, Git } from './review-base.ts'
 
 export type ReviewStep =
-  | { action: 'review'; reviews: number; reason: 'no-review' | 'head-moved' | 'no-verdict' | 'proof-changed' }
+  | { action: 'review'; reviews: number; reason: 'no-review' | 'head-moved' | 'no-verdict' | 'review-input-changed' }
   | { action: 'fix'; reviews: number; remaining: number; reason?: 'ci-failed' }
   | { action: 'land'; reviews: number }
   | { action: 'stop'; reviews: number; reason: 'review-bound' | 'ci-failed'; message: string }
@@ -15,11 +15,7 @@ export declare function reviewStep(
   records: Pick<ReviewSummary, 'reviews' | 'verdict' | 'head' | 'spent'>,
   at: { head: string | null | undefined; ciFailed?: boolean },
 ): ReviewStep
-export declare function persistObservedCiStop(
-  cwd: string,
-  pr: number | string,
-  deps?: { gh?: Gh; git?: Git },
-): Promise<boolean>
+export declare function persistObservedCiStop(cwd: string, pr: number | string, deps?: { gh?: Gh }): Promise<boolean>
 /** Progress selector only. It does not admit landing; landPr and CI allow exits do. */
 export declare function nextReviewStep(
   cwd: string,

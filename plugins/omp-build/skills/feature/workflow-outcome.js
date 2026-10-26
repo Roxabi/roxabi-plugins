@@ -6,32 +6,12 @@ function blocked(status, reason) {
   return { action: 'blocked', claimMerged: false, reason, status }
 }
 
-function proofBlockedReentry(land) {
-  const error = typeof land.error === 'string' ? land.error : ''
-  if (error.includes('Produce it outside admission')) return 'acquire'
-  if (error.includes('was revised after publication')) return 'acquire-then-review'
-  if (
-    [
-      'not before approving review',
-      'without a producer',
-      'body that justifies',
-      'has no review-input binding',
-      'review-input binding is malformed',
-      'is not the exact input that was reviewed',
-      'applicability changed after review',
-      're-review the head',
-    ].some((fragment) => error.includes(fragment))
-  )
-    return 'same-head-review'
-  if (
-    [
-      'obtain readable GitHub metadata',
-      'no readable native comment identity',
-      'unreadable native creation/revision facts',
-    ].some((fragment) => error.includes(fragment))
-  )
-    return 'obtain-native-metadata'
-  return 'after-named-cause'
+function reviewInputRefusedOutcome() {
+  return stop('review-input-refused', 'same-head-review', { bound: 'sticky' })
+}
+
+function baseBlockedOutcome() {
+  return stop('base-blocked', 'after-named-cause', { bound: 'sticky' })
 }
 
 function notApprovedOutcome(land) {
@@ -47,26 +27,17 @@ function notApprovedOutcome(land) {
   }
 }
 
-function proofBlockedOutcome(land) {
-  const reenter = proofBlockedReentry(land)
-  return stop('proof-blocked', reenter, {
-    bound: 'sticky',
-    producer: land.producer ?? null,
-    proofReason: land.reason ?? null,
-    ...(reenter === 'same-head-review' ? { producerAtAdmission: false } : {}),
-  })
-}
-
 const OUTCOMES = {
   watching: (land) =>
     typeof land.watch === 'string' && land.watch !== ''
-      ? { action: 'start-watch', claimMerged: false, reportProof: true }
+      ? { action: 'start-watch', claimMerged: false }
       : blocked('watching', 'watch-missing'),
   timeout: () => ({ action: 'reattach-watch', claimMerged: false }),
   'ci-failed': () => ({ action: 'next-review-step', ciFailed: true, claimMerged: false }),
   'not-approved': notApprovedOutcome,
   merged: () => ({ action: 'report-merged', claimMerged: true, offerTail: true }),
-  'proof-blocked': proofBlockedOutcome,
+  'review-input-refused': reviewInputRefusedOutcome,
+  'base-blocked': baseBlockedOutcome,
   'ci-cancelled': () => stop('ci-cancelled', 'rerun-ci-then-land'),
   'ci-blocked': () => stop('ci-blocked', 'resolve-checks-then-land'),
   behind: () => stop('behind', 'update-branch-then-land', { startWatch: false, updateBranchFromCycle: false }),

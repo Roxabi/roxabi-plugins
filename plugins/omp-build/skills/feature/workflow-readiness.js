@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { refreshSelectedBase } from './proof-candidate.ts'
+import { refreshReviewBase } from './review-base.ts'
 import { readPrFields } from './workflow-gate.js'
 import { stripGitHookEnv } from './workflow-runtime.js'
 
@@ -59,7 +59,7 @@ export function readLanding(cwd, { base } = {}) {
 }
 
 export async function fetchBase(cwd, name, gitFn, ghFn) {
-  const fetched = await refreshSelectedBase(cwd, typeof name === 'string' ? name : '', gitFn, ghFn)
+  const fetched = await refreshReviewBase(cwd, typeof name === 'string' ? name : '', gitFn, ghFn)
   return fetched.ok ? { name, tip: fetched.tip } : { name, refusal: fetched }
 }
 

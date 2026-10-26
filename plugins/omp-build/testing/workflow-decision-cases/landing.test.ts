@@ -4,7 +4,7 @@ import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import type { Scope } from '../../engine/record-values.ts'
 import { requireLandingMandate } from '../../engine/workflow-landing-admission.ts'
 import { reconstructWorkflow } from '../../engine/workflow-reconstruction-admission.ts'
-import { roxabiCatalogueProofPin, roxabiWorkflowFixtures } from '../roxabi-presets.ts'
+import { roxabiWorkflowFixtures } from '../roxabi-presets.ts'
 import {
   BODY,
   blank,
@@ -48,7 +48,6 @@ function landingInput(
       configVersion: current.configVersion,
       configDigest: overrides.digest ?? current.configDigest,
       supportedConfigVersions: current.supportedConfigVersions,
-      proofPins: current.proofPins,
       specDigest: current.specDigest,
       specBody: current.specBody,
     },
@@ -133,7 +132,6 @@ describe('workflow landing decisions', () => {
     if (!decision.ok) return
     expect(decision.recordId).toBe(mandate.recordId)
     expect(decision.scope).toEqual(SCOPE)
-    expect(decision.proofPins).toEqual([roxabiCatalogueProofPin()])
   })
 
   it('refuses an omitted epic parent as missing, not as an empty parent list', () => {

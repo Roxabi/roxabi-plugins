@@ -26,7 +26,7 @@ afterAll(() => {
 // Free of every GIT_* the caller had, so no command here can reach the real repository.
 const CLEAN_ENV: NodeJS.ProcessEnv = {
   ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))),
-  GIT_CONFIG_GLOBAL: '/dev/null',
+  GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL,
   GIT_CONFIG_NOSYSTEM: '1',
 }
 

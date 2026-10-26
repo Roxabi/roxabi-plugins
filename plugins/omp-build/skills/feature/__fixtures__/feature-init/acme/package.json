@@ -1,10 +1,8 @@
 {
   "name": "acme-app",
   "private": true,
-  "scripts": {
-    "ledger": "echo assertledger is not installed here"
-  },
   "devDependencies": {
+    "assertledger": "1.0.0",
     "vitest": "1.0.0"
   }
 }

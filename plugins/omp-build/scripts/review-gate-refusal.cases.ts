@@ -2,6 +2,13 @@ import { writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
+  approvals,
+  boundInput,
+  capturedCiFailure,
+  cleanReview,
+  seedMandate,
+} from '../testing/review-gate-arrangement.ts'
+import {
   git,
   postCalls,
   publish,
@@ -13,7 +20,6 @@ import {
   writeState,
 } from '../testing/review-gate-fixture.ts'
 import { AUTOMATION, STOP_BOT } from '../testing/review-gate-gh.ts'
-import { approvals, capturedCiFailure, cleanReview } from '../testing/review-gate-proof-arrangement.ts'
 
 export function registerReviewGateRefusalCases(): void {
   describe('review-gate CLI refusals and persistent stops', () => {
@@ -36,6 +42,26 @@ export function registerReviewGateRefusalCases(): void {
 
       expect(result.status).toBe(1)
       expect(JSON.parse(result.stdout)).toMatchObject({ ok: false, allowed: false, reason: 'review-history-refused' })
+      expect(result.stderr).toBe('')
+    })
+
+    it('requires a fresh review when the review input changes before landing', async () => {
+      const fixture = setupReviewGateFixture()
+      await seedMandate(fixture)
+      publish(fixture, cleanReview(fixture.head, 'one', await boundInput(fixture)), 'SUCCESS')
+      const state = readState(fixture)
+      state.prBody = `${state.prBody}changed after review\n`
+      state.prEditedAt = '2026-10-21T00:01:00Z'
+      writeState(fixture, state)
+
+      const result = runReviewGate(fixture)
+
+      expect(result.status).toBe(1)
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        ok: false,
+        allowed: false,
+        reason: 'review-input-changed',
+      })
       expect(result.stderr).toBe('')
     })
 

@@ -44,6 +44,7 @@ export async function prepareCorrectionSynthesis(
     {
       rootAttemptId: prepared.inventoryId,
       candidateGitSHA: prepared.target.candidateGitSHA,
+      inputFormat: 'omp-build:review-input/3',
       input: null,
       stage: 'synthesis',
       purpose: 'correction',

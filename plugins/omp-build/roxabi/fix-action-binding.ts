@@ -27,6 +27,7 @@ export async function bindCorrectionAction(
     {
       rootAttemptId: inventoryId,
       candidateGitSHA: prepared.target.candidateGitSHA,
+      inputFormat: 'omp-build:review-input/3',
       input: null,
       stage: 'initial',
       purpose: 'correction',

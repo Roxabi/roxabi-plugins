@@ -1,5 +1,4 @@
-import type { Gh, Git } from './proof-base.ts'
-import type { ProofSummary } from './proof-context.ts'
+import type { Gh, Git } from './review-base.ts'
 import type { LandingConfig, LandingMode } from './workflow-readiness.js'
 
 export type LandingResult = {
@@ -7,10 +6,8 @@ export type LandingResult = {
   mode?: LandingMode
   watch?: string
   reason?: string
-  producer?: 'candidate' | 'semctx' | 'assertledger'
   disarmed?: true
   armed?: boolean
-  proof?: ProofSummary
   error?: string
 }
 export type LandPrOptions = {

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { contributionSchema, identifierSchema, type Json, jsonSchema, scopeSchema, shaSchema } from './record-values.ts'
+import { contributionSchema, identifierSchema, type Json, jsonSchema, scopeSchema } from './record-values.ts'
 import {
   correctionResultSchema,
   debtReceiptSchema,
@@ -53,7 +53,6 @@ type PayloadByKind = {
   'correction-result': z.infer<typeof correctionResultSchema>
   'falsification-result': z.infer<typeof falsificationResultSchema>
   'debt-receipt': z.infer<typeof debtReceiptSchema>
-  proof: { candidateGitSHA: string; data: Json }
   stop: z.infer<typeof stopSchema>
   'epic-event': Json
   mandate: MandatePayload
@@ -73,7 +72,6 @@ export const recordSchema = z.discriminatedUnion('kind', [
   record('correction-result', correctionResultSchema),
   record('falsification-result', falsificationResultSchema),
   record('debt-receipt', debtReceiptSchema),
-  record('proof', z.strictObject({ candidateGitSHA: shaSchema, data: jsonSchema })),
   record('stop', stopSchema),
   record('epic-event', jsonSchema),
   record('mandate', mandatePayloadSchema),

@@ -19,13 +19,10 @@ function blocked(
 function pendingAction(
   node: WorkflowGraph['nodes'][number],
   completion: ActionCompletion,
-  evidence: WorkflowEvidence,
   facts: WorkflowFacts,
   mandate: MandateRecord,
 ): WorkflowDecision | null {
   if (completion.status !== 'not-started' || node.action === 'stop' || node.action === 'done') return null
-  if (node.action === 'proof' && evidence.pullRequest === null)
-    return blocked('missing-history', [diagnostic('missing-history', 'proof requires pull request history')])
   if (WORKTREE_ACTIONS.has(node.action) && !sessionReady(facts)) return blocked('session-cwd', sessionEvidence(facts))
   return {
     status: 'action',
@@ -117,7 +114,7 @@ export function walkWorkflowStep(
   const completion = actionCompletion(node.action, evidence, decisions, mandate, facts)
   if (completion.status === 'uncertain') return blocked('action-uncertain', completion.evidence)
   if (completion.status === 'blocked') return blocked(completionBlockReason(completion), completion.evidence)
-  const pending = pendingAction(node, completion, evidence, facts, mandate)
+  const pending = pendingAction(node, completion, facts, mandate)
   if (pending !== null) return pending
   const terminal = terminalDecision(node, evidence.issue, facts, decisions, mandate, evidence.pullRequest)
   if (terminal !== null) return terminal

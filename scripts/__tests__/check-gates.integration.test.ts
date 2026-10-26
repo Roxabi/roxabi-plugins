@@ -18,7 +18,7 @@ const AI_MARKER = 'CLA' + 'UDE:'
 
 const CLEAN_ENV: NodeJS.ProcessEnv = {
   ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_'))),
-  GIT_CONFIG_GLOBAL: '/dev/null',
+  GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL,
   GIT_CONFIG_SYSTEM: '/dev/null',
 }
 
@@ -183,10 +183,16 @@ describe('check-skill-version.sh', () => {
     return { work, bare }
   }
 
-  function commitSkillChange(work: string, pluginName: string, body: string): void {
-    fs.writeFileSync(path.join(work, 'plugins', pluginName, 'skills', 'my-skill.md'), body)
+  function commitPluginPathChange(work: string, pluginName: string, relativePath: string, body: string): void {
+    const file = path.join(work, 'plugins', pluginName, relativePath)
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, body)
     git('git add -A', work)
-    git('git -c user.email=t@t -c user.name=t commit -q -m "update skill"', work)
+    git('git -c user.email=t@t -c user.name=t commit -q -m "update plugin runtime"', work)
+  }
+
+  function commitSkillChange(work: string, pluginName: string, body: string): void {
+    commitPluginPathChange(work, pluginName, 'skills/my-skill.md', body)
   }
 
   function bumpCatalogueEntry(work: string, pluginName: string, version: string): void {
@@ -375,6 +381,75 @@ describe('check-skill-version.sh', () => {
     const { code } = runScriptCapture(CHECK_SKILL_VERSION, work)
 
     expect(code).toBe(0)
+  })
+
+  it.each([
+    'omp/index.ts',
+    'hooks/preflight.ts',
+    'engine/runner.ts',
+    'roxabi/profile.ts',
+    'agents/reviewer.md',
+    'agent-sources/reviewer.md',
+    'dist/contracts.js',
+    'triage-runtime.ts',
+    '.claude-plugin/plugin.json',
+    '.omp-plugin/plugin.json',
+    'package.json',
+  ])('exits 1 when distributed runtime path %s changes without an OMP catalogue bump', (runtimePath) => {
+    const { work, bare } = setupOriginWithPlugin({
+      pluginName: 'omp-build',
+      pluginJson: false,
+      catalogue: { documentVersion: '9.9.9', entryVersion: '0.7.0' },
+    })
+    workDir = work
+    bareDir = bare
+    commitPluginPathChange(work, 'omp-build', runtimePath, `runtime change at ${runtimePath}\n`)
+
+    expect(runScript(CHECK_SKILL_VERSION, work)).toBe(1)
+  })
+
+  it('exits 0 when an OMP extension changes with a matching catalogue bump', () => {
+    const { work, bare } = setupOriginWithPlugin({
+      pluginName: 'omp-build',
+      pluginJson: false,
+      catalogue: { documentVersion: '9.9.9', entryVersion: '0.7.0' },
+    })
+    workDir = work
+    bareDir = bare
+    bumpCatalogueEntry(work, 'omp-build', '0.8.0')
+    commitPluginPathChange(work, 'omp-build', 'omp/index.ts', 'export const extension = true\n')
+
+    expect(runScript(CHECK_SKILL_VERSION, work)).toBe(0)
+  })
+
+  it('exits 0 for root/docs/test/fixture-only changes', () => {
+    const { work, bare } = setupOriginWithPlugin({
+      pluginName: 'omp-build',
+      pluginJson: false,
+      catalogue: { documentVersion: '9.9.9', entryVersion: '0.7.0' },
+    })
+    workDir = work
+    bareDir = bare
+    fs.writeFileSync(path.join(work, 'README.md'), '# root documentation\n')
+    fs.writeFileSync(path.join(work, 'plugins', 'omp-build', 'README.md'), '# plugin documentation\n')
+    fs.mkdirSync(path.join(work, 'plugins', 'omp-build', 'testing'), { recursive: true })
+    fs.writeFileSync(path.join(work, 'plugins', 'omp-build', 'testing', 'runtime.test.ts'), 'export {}\n')
+    fs.mkdirSync(path.join(work, 'plugins', 'omp-build', 'fixtures'), { recursive: true })
+    fs.writeFileSync(path.join(work, 'plugins', 'omp-build', 'fixtures', 'runtime.json'), '{}\n')
+    fs.mkdirSync(path.join(work, 'plugins', 'omp-build', 'skills', 'helpers', '__fixtures__'), { recursive: true })
+    fs.writeFileSync(
+      path.join(work, 'plugins', 'omp-build', 'skills', 'helpers', '__fixtures__', 'fixture.json'),
+      '{}\n',
+    )
+    fs.mkdirSync(path.join(work, 'plugins', 'omp-build', 'skills', 'helpers', '__tests__'), { recursive: true })
+    fs.writeFileSync(
+      path.join(work, 'plugins', 'omp-build', 'skills', 'helpers', '__tests__', 'fixture.test.ts'),
+      'export {}\n',
+    )
+    git('git add -A', work)
+    git('git -c user.email=t@t -c user.name=t commit -q -m "documentation and fixture updates"', work)
+
+    expect(runScript(CHECK_SKILL_VERSION, work)).toBe(0)
   })
 
   it('exits 0 and emits a visible SKIP when the OMP catalogue entry has no version', () => {

@@ -58,20 +58,33 @@ describe('durable review stop', () => {
     })
   })
 
-  it('clears the watcher arm when the remote head moves during proof admission', async () => {
+  it('clears the watcher arm when its selected review was edited', async () => {
+    const linked = linkedApproval(HEADS[0])
+    const review = linked.pr.source.comments.find((entry) => entry.body.includes('kind=review '))
+    if (!review) throw new Error('missing review fixture record')
+    review.updatedAt = '2026-10-21T12:00:01Z'
+    const { gh, git, state } = gateGh(linked.pr, { head: HEADS[0], armed: true, issueHistory: linked.issue })
+
+    await expect(applyCiWatchExit('/tmp/wt', PR, 5, { gh, git })).resolves.toMatchObject({
+      status: 'timeout',
+      disarmed: true,
+    })
+    expect(state).toEqual({ head: HEADS[0], label: false, auto: false })
+  })
+
+  it('leaves the watcher arm unchanged when the head moves after landing admission', async () => {
     const linked = linkedApproval(HEADS[0])
     expect(linked.input).not.toBe(noProducerInput(HEADS[0]))
     const { gh, git, state } = gateGh(linked.pr, {
       head: HEADS[0],
       armed: true,
-      moveHeadAfterProofRead: HEADS[1],
+      moveHeadAfterInputRead: HEADS[1],
       issueHistory: linked.issue,
     })
     await expect(applyCiWatchExit('/tmp/wt', PR, 5, { gh, git })).resolves.toMatchObject({
       status: 'timeout',
-      disarmed: true,
     })
-    expect(state).toEqual({ head: HEADS[1], label: false, auto: false })
+    expect(state).toEqual({ head: HEADS[0], label: true, auto: true })
   })
 
   it('keeps a proven bound when a newer review operation is incomplete', async () => {

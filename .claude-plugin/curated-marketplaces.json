@@ -1,16 +1,11 @@
 {
   "version": "1.0",
-  "description": "Curated external plugin marketplaces endorsed by Roxabi. Source of truth: .claude-plugin/external-registry.json (curated_marketplaces array) — this file mirrors it for Claude Code runtime discovery. Install via: claude plugin marketplace add <source>.",
+  "description": "Active external plugin marketplaces curated by Roxabi. Source of truth: the status: active projection of .claude-plugin/external-registry.json (curated_marketplaces array). Install via: claude plugin marketplace add <source>.",
   "marketplaces": [
     {
       "name": "agent-browser",
       "source": "https://github.com/vercel-labs/agent-browser",
       "description": "Headless browser automation CLI for AI agents — navigate, click, fill, screenshot, scrape."
-    },
-    {
-      "name": "roxabi-vault",
-      "source": "https://github.com/Roxabi/roxabi-vault",
-      "description": "Persistent memory for agents — SQLite+FTS5 knowledge base with CLI, library, and 7 vault skills."
     },
     {
       "name": "claude-plugins-official",
@@ -66,11 +61,6 @@
       "name": "mattpocock-skills",
       "source": "https://github.com/mattpocock/skills",
       "description": "Matt Pocock's skills — 14 skills across productivity (caveman, grill-me, handoff, write-a-skill) and engineering (diagnose, grill-with-docs, triage, tdd, to-issues, to-prd, zoom-out, prototype, improve-codebase-architecture, setup-matt-pocock-skills)."
-    },
-    {
-      "name": "roxabi-live",
-      "source": "https://github.com/Roxabi/roxabi-live",
-      "description": "Historical host of issue triage (relocated from dev-core). Current home is the native issue-triage plugin in this marketplace (./plugins/issue-triage); labels + native relations, no Projects V2. roxabi-live is not the install name."
     }
   ]
 }

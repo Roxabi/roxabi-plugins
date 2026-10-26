@@ -1,6 +1,6 @@
-import type { Gh, Git } from './proof-base.ts'
+import type { Gh, Git } from './review-base.ts'
 
-export type { Gh, Git, GitResult } from './proof-base.ts'
+export type { Gh, Git, GitResult } from './review-base.ts'
 
 export type Stringable = string | number | boolean | bigint | symbol | null | undefined | { toString(): string }
 

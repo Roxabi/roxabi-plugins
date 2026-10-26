@@ -6,7 +6,6 @@ import { Assisted, currentEpicEffects, Refused } from './epic-driver-runtime'
 import { frameEpic } from './epic-frame'
 import { BASE_NAME, RUN_ID } from './epic-naming'
 import type { Facts } from './epic-types'
-import type { ProofConfigPin } from './proof-base.ts'
 
 // ── Confirmed mandate ─────────────────────────────────────────────────────────
 
@@ -21,7 +20,6 @@ export type EpicAuthority = {
   children: EpicChildGrant[]
   /** Child scopes a confirmed epic-fix record on this epic issue already admits. */
   extensions: { repository: string; target: string }[]
-  proofPins: ProofConfigPin[]
   config: { productVersion: string; version: string; digest: string; effective: unknown }
 }
 
@@ -107,21 +105,6 @@ export function childGrants(value: unknown): EpicChildGrant[] | string {
   return grants
 }
 
-export function pinsOf(value: unknown): ProofConfigPin[] | string {
-  if (!Array.isArray(value)) return 'epic mandate has no proof pins'
-  const pins: ProofConfigPin[] = []
-  for (const item of value) {
-    if (!item || typeof item !== 'object') return 'epic mandate proof pin is unreadable'
-    const pin = item as { path?: unknown; sourceCommit?: unknown; blob?: unknown }
-    if (typeof pin.path !== 'string' || pin.path === '' || typeof pin.sourceCommit !== 'string') {
-      return 'epic mandate proof pin is not a path and source commit'
-    }
-    if (pin.blob !== null && typeof pin.blob !== 'string') return `proof pin ${pin.path} blob is not an identity`
-    pins.push({ path: pin.path, sourceCommit: pin.sourceCommit, blob: pin.blob })
-  }
-  return pins
-}
-
 function parentScopeOf(
   record: DecodedHistory['operations'][number]['record'],
 ): { repository: string; target: string } | null {
@@ -183,8 +166,6 @@ async function confirmedEpicMandate(
   }
   const children = childGrants(payload.children)
   if (typeof children === 'string') throw new Refused(children)
-  const proofPins = pinsOf(payload.proofPins)
-  if (typeof proofPins === 'string') throw new Refused(proofPins)
   const config = isObject(payload.config) ? payload.config : null
   if (
     config === null ||
@@ -201,7 +182,6 @@ async function confirmedEpicMandate(
     run: payload.run,
     base: payload.base,
     children,
-    proofPins,
     config: {
       productVersion: config.productVersion,
       version: config.version,

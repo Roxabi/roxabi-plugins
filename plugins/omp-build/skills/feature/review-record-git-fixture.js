@@ -23,19 +23,19 @@ function revisionResult(args, state, heads) {
   return success(`${heads[0]}\n`)
 }
 
-function proofTreeReader(state, moveHeadAfterProofRead) {
+function inputTreeReader(state, moveHeadAfterInputRead) {
   let reads = 0
   return (args) => {
     if (args[0] !== 'ls-tree') return null
     if (!args.includes('-r')) return success()
     reads += 1
-    if (reads === 2 && moveHeadAfterProofRead !== null) state.head = moveHeadAfterProofRead
+    if (reads === 2 && moveHeadAfterInputRead !== null) state.head = moveHeadAfterInputRead
     return success()
   }
 }
 
-export function createGateGit({ state, moveHeadAfterProofRead, heads }) {
-  const proofTreeRead = proofTreeReader(state, moveHeadAfterProofRead)
+export function createGateGit({ state, moveHeadAfterInputRead, heads }) {
+  const inputTreeRead = inputTreeReader(state, moveHeadAfterInputRead)
   return async (_cwd, args) => {
     const remote = remoteUrl(args)
     if (remote !== null) return remote
@@ -45,7 +45,7 @@ export function createGateGit({ state, moveHeadAfterProofRead, heads }) {
     if (stack !== null) return stack
     const revision = revisionResult(args, state, heads)
     if (revision !== null) return revision
-    const tree = proofTreeRead(args)
+    const tree = inputTreeRead(args)
     if (tree !== null) return tree
     return success()
   }

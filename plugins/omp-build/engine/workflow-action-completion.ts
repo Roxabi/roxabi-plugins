@@ -34,8 +34,6 @@ export function actionCompletion(
       return assessSpecCompletion(evidence, facts, mandate)
     case 'attribute-ci':
       return ciAttributionCompletion(evidence, facts, mandate)
-    case 'proof':
-      return proofCompletion(decisions)
     case 'publish':
       return selectedCompletion(decisions.publish)
     case 'land':
@@ -104,13 +102,6 @@ function planCompletion(evidence: WorkflowEvidence, mandate: MandateRecord | nul
   if (macro.phase === 'blocked') return { status: 'blocked', evidence: macro.evidence }
   if (macro.phase === 'uncertain') return { status: 'uncertain', evidence: macro.evidence }
   return { status: 'not-started', evidence: macro.evidence }
-}
-
-function proofCompletion(decisions: SpecializedDecisions): ActionCompletion {
-  if (decisions.proof.applicability === 'not-applicable' || decisions.proof.admission?.ok === true) {
-    return { status: 'confirmed', evidence: decisions.proof.evidence }
-  }
-  return { status: 'not-started', evidence: decisions.proof.evidence }
 }
 
 function selectedCompletion(

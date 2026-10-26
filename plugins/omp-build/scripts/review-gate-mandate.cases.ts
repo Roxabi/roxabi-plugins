@@ -2,16 +2,6 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
-  attachBareOriginAtBase,
-  postCalls,
-  publish,
-  readState,
-  runReviewGate,
-  setupReviewGateFixture,
-  writeState,
-} from '../testing/review-gate-fixture.ts'
-import { PR_EDITED } from '../testing/review-gate-gh.ts'
-import {
   advanceOriginNormativeStack,
   boundInput,
   cleanReview,
@@ -21,7 +11,17 @@ import {
   seedMandate,
   setMandateIssue,
   standaloneNoProducerInput,
-} from '../testing/review-gate-proof-arrangement.ts'
+} from '../testing/review-gate-arrangement.ts'
+import {
+  attachBareOriginAtBase,
+  postCalls,
+  publish,
+  readState,
+  runReviewGate,
+  setupReviewGateFixture,
+  writeState,
+} from '../testing/review-gate-fixture.ts'
+import { PR_EDITED } from '../testing/review-gate-gh.ts'
 
 export function registerReviewGateMandateCases(): void {
   describe('review-gate CLI mandate and binding', () => {
@@ -92,8 +92,6 @@ export function registerReviewGateMandateCases(): void {
         expect(result.status).toBe(1)
         expect(result.stderr).toBe('')
         expect(body).toMatchObject({ ok: false, allowed: false, reason: 'missing' })
-        expect(body.reason).not.toBe('proof-refused')
-        expect(body.detail?.reason).not.toBe('unbound')
       },
     )
 
@@ -157,7 +155,7 @@ export function registerReviewGateMandateCases(): void {
       expect(JSON.parse(result.stdout)).toMatchObject({ ok: false, allowed: false, reason: 'missing' })
     })
 
-    it('refuses a stored null review input when no producer applies', async () => {
+    it('refuses a stored null review input at landing', async () => {
       const fixture = setupReviewGateFixture()
       await seedMandate(fixture)
       publish(fixture, cleanReview(fixture.head, 'one'), 'SUCCESS')
@@ -168,8 +166,8 @@ export function registerReviewGateMandateCases(): void {
       expect(result.stderr).toBe('')
       expect(JSON.parse(result.stdout)).toMatchObject({
         allowed: false,
-        reason: 'proof-refused',
-        detail: { reason: 'unbound' },
+        reason: 'review-input-changed',
+        detail: { error: expect.any(String) },
       })
     })
 
@@ -201,11 +199,11 @@ export function registerReviewGateMandateCases(): void {
 
         expect(result.status).toBe(1)
         expect(result.stderr).toBe('')
-        expect(JSON.parse(result.stdout)).toMatchObject({ ok: false, allowed: false, reason: 'proof-pin-drift' })
+        expect(JSON.parse(result.stdout)).toMatchObject({ ok: false, allowed: false, reason: 'config-drift' })
       },
     )
 
-    it('refuses the same head after the accepted Spec changes', async () => {
+    it('requires a fresh review when the accepted Spec changes at the same head', async () => {
       const fixture = setupReviewGateFixture()
       await seedMandate(fixture)
       const input = await boundInput(fixture)
@@ -218,8 +216,8 @@ export function registerReviewGateMandateCases(): void {
       expect(result.stderr).toBe('')
       expect(JSON.parse(result.stdout)).toMatchObject({
         allowed: false,
-        reason: 'proof-refused',
-        detail: { reason: 'unbound' },
+        reason: 'review-input-changed',
+        detail: { error: expect.any(String) },
       })
     })
 
@@ -234,6 +232,60 @@ export function registerReviewGateMandateCases(): void {
       expect(result.status).toBe(1)
       expect(JSON.parse(result.stdout)).toEqual({ ok: false, allowed: false, reason: 'review-state-wait' })
       expect(result.stderr).toBe('')
+    })
+
+    it.each(['review', 'review-attempt', 'decision', 'mandate', 'workflow-binding'] as const)(
+      'refuses an edited %s record',
+      async (kind) => {
+        const fixture = setupReviewGateFixture()
+        await seedMandate(fixture)
+        publish(fixture, cleanReview(fixture.head, 'integrity', await boundInput(fixture)), 'SUCCESS')
+        const state = readState(fixture)
+        const comment =
+          kind === 'mandate'
+            ? state.issues['42']?.comments.find((entry) => entry.body.includes('kind=mandate '))
+            : state.comments.find((entry) => entry.body.includes(`kind=${kind} `))
+        if (!comment) throw new Error(`missing ${kind} fixture record`)
+        comment.updated_at = '2026-10-21T00:00:01Z'
+        writeState(fixture, state)
+
+        const result = runReviewGate(fixture)
+
+        expect(result.status).toBe(1)
+        expect(JSON.parse(result.stdout)).toMatchObject({ ok: false, allowed: false, reason: 'record-edited' })
+      },
+    )
+
+    it.each(['review-attempt', 'decision'] as const)('refuses a foreign-author %s record', async (kind) => {
+      const fixture = setupReviewGateFixture()
+      await seedMandate(fixture)
+      publish(fixture, cleanReview(fixture.head, 'foreign', await boundInput(fixture)), 'SUCCESS')
+      const state = readState(fixture)
+      const comment = state.comments.find((entry) => entry.body.includes(`kind=${kind} `))
+      if (!comment) throw new Error(`missing ${kind} fixture record`)
+      comment.user.login = 'foreign-automation'
+      writeState(fixture, state)
+
+      const result = runReviewGate(fixture)
+
+      expect(result.status).toBe(1)
+      expect(JSON.parse(result.stdout)).toMatchObject({ ok: false, allowed: false })
+    })
+
+    it('refuses an approval with absent native revision metadata', async () => {
+      const fixture = setupReviewGateFixture()
+      await seedMandate(fixture)
+      publish(fixture, cleanReview(fixture.head, 'unreadable', await boundInput(fixture)), 'SUCCESS')
+      const state = readState(fixture)
+      const review = state.comments.find((comment) => comment.body.includes('kind=review '))
+      if (!review) throw new Error('missing review fixture record')
+      delete (review as Partial<typeof review>).updated_at
+      writeState(fixture, state)
+
+      const result = runReviewGate(fixture)
+
+      expect(result.status).toBe(1)
+      expect(JSON.parse(result.stdout)).toMatchObject({ ok: false, allowed: false, reason: 'record-unreadable' })
     })
   })
 }

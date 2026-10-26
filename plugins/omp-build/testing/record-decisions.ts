@@ -169,6 +169,7 @@ export function finalReview(
     kind: 'review',
     payload: {
       candidateGitSHA: options.head ?? TEST_HEAD,
+      inputFormat: 'omp-build:review-input/3',
       input: 'input' in options ? (options.input ?? null) : TEST_INPUT,
       inventoryIds,
       decisionId,

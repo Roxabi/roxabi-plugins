@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "description": "Registry of all external Claude Code plugin sources endorsed or vendored by Roxabi. Source of truth for upstream URLs, sync state, and curation status. See CLAUDE.md ## External Ecosystem for full workflow documentation.",
+  "description": "Registry of externally curated marketplaces and retired historical records. Source of truth for upstream URLs, check metadata, and curation status. See CONTRIBUTING.md (External marketplace curation) for the active workflow.",
   "_docs": {
     "curated_marketplaces": {
       "name": "identifier, kebab-case",
@@ -44,8 +44,8 @@
       "last_checked_commit": "df12ba1c447ca6f01434db017c57f7645662813c",
       "upstream_branch": "main",
       "criteria_met": ["marketplace_json", "install_mechanism", "maintained_90d", "quality_content", "lt50pct_overlap"],
-      "status": "active",
-      "notes": "Roxabi-owned. Persistent memory for agents — SQLite+FTS5 knowledge base with CLI, library, and vault skills. Renamed roxabi-memory → roxabi-vault. 7 focused skills (v0.2.0)."
+      "status": "deprecated",
+      "notes": "Deprecated 2026-10-24: upstream repository is archived and states that it is superseded by cortex. Retained as a historical registry record; not in the active curated mirror."
     },
     {
       "name": "claude-plugins-official",
@@ -144,9 +144,9 @@
       "added": "2026-05-20",
       "last_checked_commit": "b8be62ffacb0118fa3eaa29a0923c87c8c11985c",
       "upstream_branch": "main",
-      "criteria_met": ["install_mechanism", "maintained_90d", "quality_content", "lt50pct_overlap"],
+      "criteria_met": ["marketplace_json", "install_mechanism", "maintained_90d", "quality_content", "lt50pct_overlap"],
       "status": "active",
-      "notes": "Community. Single Claude Code plugin (ships .claude-plugin/plugin.json, no marketplace.json). 14 skills across productivity (caveman, grill-me, handoff, write-a-skill) and engineering (diagnose, grill-with-docs, triage, improve-codebase-architecture, setup-matt-pocock-skills, tdd, to-issues, to-prd, zoom-out, prototype). MIT. By Matt Pocock. Promoted from wrapped 2026-05-20 — upstream now ships proper plugin.json; users get all 14 skills directly instead of our 5-skill curated subset."
+      "notes": "Community. Upstream ships a marketplace at .claude-plugin/marketplace.json. 14 skills across productivity (caveman, grill-me, handoff, write-a-skill) and engineering (diagnose, grill-with-docs, triage, improve-codebase-architecture, setup-matt-pocock-skills, tdd, to-issues, to-prd, zoom-out, prototype). MIT. By Matt Pocock. Promoted from wrapped 2026-05-20; users install it directly."
     },
     {
       "name": "frontend-slides",
@@ -165,8 +165,8 @@
       "last_checked_commit": "",
       "upstream_branch": "staging",
       "criteria_met": ["marketplace_json", "install_mechanism", "maintained_90d", "quality_content", "lt50pct_overlap"],
-      "status": "active",
-      "notes": "Roxabi-owned. issue-triage now ships as a native plugin in Roxabi/roxabi-plugins; this marketplace entry stays curated/active. Extracted historically from dev-core."
+      "status": "deprecated",
+      "notes": "Deprecated 2026-10-24: upstream repository is archived. Retained as a historical registry record; issue-triage is native to this repository and roxabi-live is not in the active curated mirror."
     }
   ],
   "wrapped_plugins": [

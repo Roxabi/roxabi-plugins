@@ -11,14 +11,16 @@ const MANDATE_REASONS = new Set([
   'revoked',
   'material-spec',
   'config-drift',
-  'proof-pin-drift',
   'unbound',
   'conflict',
   'incomplete',
+  'incompatible-format',
   'unknown-binding',
   'incompatible',
   'unsafe',
   'materially-changed',
+  'record-edited',
+  'record-unreadable',
 ])
 
 export function mandateReason(reason) {

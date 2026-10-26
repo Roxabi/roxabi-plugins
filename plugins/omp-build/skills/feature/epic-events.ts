@@ -1,5 +1,8 @@
 import { RUN_ID } from './epic-naming'
-import { isRecord } from './proof-base'
+
+function object(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
 
 const SHA = /^[0-9a-f]{40}$/
 
@@ -38,7 +41,7 @@ function strings(value: unknown): value is string[] {
 
 /** Validate the domain payload carried by one common `epic-event` record. */
 export function parseEpicEvent(value: unknown): EpicEvent | null {
-  if (!isRecord(value)) return null
+  if (!object(value)) return null
   const run = validRun(value)
   if (!run) return null
   if (value.event === 'epic-fix') return { event: 'epic-fix', run }

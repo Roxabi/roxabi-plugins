@@ -156,7 +156,14 @@ export function parseComment(value: unknown, scope: Scope, page: number, index: 
   }
 }
 
-export async function viewer(options: GitHubOptions): Promise<string> {
+function viewerCredentialKey(): string {
+  // `gh api user` answers for the process token, not for cwd.
+  return `${process.env.GH_HOST ?? ''}\0${process.env.GH_CONFIG_DIR ?? ''}\0${process.env.GH_TOKEN ?? ''}\0${process.env.GITHUB_TOKEN ?? ''}`
+}
+
+let cachedViewer: { key: string; value: Promise<string> } | undefined
+
+async function resolveViewerLogin(options: GitHubOptions): Promise<string> {
   const login = (await gh(options)(options.cwd, ['api', 'user', '--jq', '.login'])).trim()
   if (!login || /\s/.test(login)) {
     throw new GitHubHistoryReadError('GitHub did not return a native login', [
@@ -164,6 +171,25 @@ export async function viewer(options: GitHubOptions): Promise<string> {
     ])
   }
   return login
+}
+
+/**
+ * The authenticated login is fixed for one OMP process. `gh auth switch` must
+ * start a new session; changing its selected account does not invalidate this
+ * memo. Callers that publish or read repeatedly (workflow landing, epic driver)
+ * must not pay a fresh `gh api user` process on every record. Prefer
+ * `readAuthor` / `writerLogin` / `automationLogin` when known; this cache only
+ * collapses the fallback.
+ */
+export async function viewer(options: GitHubOptions): Promise<string> {
+  const key = viewerCredentialKey()
+  if (cachedViewer?.key === key) return cachedViewer.value
+  const value = resolveViewerLogin(options).catch((error) => {
+    if (cachedViewer?.key === key) cachedViewer = undefined
+    throw error
+  })
+  cachedViewer = { key, value }
+  return value
 }
 
 export function expectedReadAuthor(options: GitHubOptions): Promise<string> {

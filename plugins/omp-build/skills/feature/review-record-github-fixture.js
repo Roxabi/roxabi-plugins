@@ -50,7 +50,7 @@ function publishComment(args, history, fixture) {
     nativeId,
     author: fixture.author,
     createdAt: '2026-01-01T00:03:00Z',
-    updatedAt: null,
+    updatedAt: '2026-01-01T00:03:00Z',
     body,
   })
   return JSON.stringify({ id: Number(nativeId), body, user: { login: fixture.author } })

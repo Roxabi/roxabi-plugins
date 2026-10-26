@@ -36,6 +36,10 @@ LINK_ONLY_PLUGIN_NAMES = frozenset()
 MARKETPLACE_JSON = REPO_ROOT / '.claude-plugin' / 'marketplace.json'
 OMP_MARKETPLACE_JSON = REPO_ROOT / '.omp-plugin' / 'marketplace.json'
 README_MD = REPO_ROOT / 'README.md'
+EXTERNAL_REGISTRY_JSON = REPO_ROOT / '.claude-plugin' / 'external-registry.json'
+CURATED_MARKETPLACES_JSON = REPO_ROOT / '.claude-plugin' / 'curated-marketplaces.json'
+
+
 
 
 
@@ -338,6 +342,102 @@ def check_marketplace_readme_catalog(
     return errors
 
 
+def _read_json_object(path: Path, label: str) -> tuple[dict | None, list[str]]:
+    if not path.is_file():
+        return None, [f'{label} not found at {path}']
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
+        return None, [f'failed to parse {label}: {e}']
+    if not isinstance(data, dict):
+        return None, [f'failed to parse {label}: root must be an object']
+    return data, []
+
+
+def _active_marketplace_projection(
+    rows,
+    label: str,
+    statuses: bool,
+) -> tuple[dict[str, str], list[str]]:
+    if not isinstance(rows, list):
+        return {}, [f'{label}: marketplaces must be a list']
+
+    active: dict[str, str] = {}
+    names: dict[str, str] = {}
+    sources: dict[str, str] = {}
+    errors: list[str] = []
+    for index, row in enumerate(rows):
+        row_label = f'{label}[{index}]'
+        if not isinstance(row, dict):
+            errors.append(f'{row_label}: marketplace entry must be an object')
+            continue
+        name = row.get('name')
+        source = row.get('source')
+        if not isinstance(name, str) or not name.strip():
+            errors.append(f'{row_label}: marketplace name must be a non-empty string')
+            continue
+        if not isinstance(source, str) or not source.strip():
+            errors.append(f'{row_label}: marketplace source must be a non-empty string')
+            continue
+
+        status = row.get('status') if statuses else 'active'
+        if statuses and status not in {'active', 'deprecated'}:
+            errors.append(f'{row_label}: marketplace status must be active or deprecated')
+            continue
+        if name in names:
+            errors.append(f'{row_label}: duplicate marketplace name {name!r} (already used by {names[name]!r})')
+            continue
+        if source in sources:
+            errors.append(f'{row_label}: duplicate marketplace source {source!r} (already used by {sources[source]!r})')
+            continue
+        names[name] = row_label
+        sources[source] = row_label
+        if status == 'active':
+            active[name] = source
+    return active, errors
+
+
+def check_curated_marketplace_projection(
+    registry_path=None,
+    curated_path=None,
+) -> list[str]:
+    """The runtime marketplace file must be the active name/source registry projection."""
+    registry_path = Path(registry_path) if registry_path is not None else EXTERNAL_REGISTRY_JSON
+    curated_path = Path(curated_path) if curated_path is not None else CURATED_MARKETPLACES_JSON
+    registry, errors = _read_json_object(registry_path, 'external-registry.json')
+    curated, curated_errors = _read_json_object(curated_path, 'curated-marketplaces.json')
+    errors.extend(curated_errors)
+    if registry is None or curated is None:
+        return errors
+
+    expected, expected_errors = _active_marketplace_projection(
+        registry.get('curated_marketplaces'),
+        'external-registry.json curated_marketplaces',
+        statuses=True,
+    )
+    actual, actual_errors = _active_marketplace_projection(
+        curated.get('marketplaces'),
+        'curated-marketplaces.json marketplaces',
+        statuses=False,
+    )
+    errors.extend(expected_errors)
+    errors.extend(actual_errors)
+    if errors:
+        return errors
+
+    for name in sorted(expected.keys() - actual.keys()):
+        errors.append(f'{name}: active external registry marketplace missing from curated-marketplaces.json')
+    for name in sorted(actual.keys() - expected.keys()):
+        errors.append(f'{name}: curated-marketplaces.json marketplace is not active in external-registry.json')
+    for name in sorted(expected.keys() & actual.keys()):
+        if expected[name] != actual[name]:
+            errors.append(
+                f'{name}: marketplace source mismatch: '
+                f'external-registry.json={expected[name]!r}, curated-marketplaces.json={actual[name]!r}'
+            )
+    return errors
+
+
 def _strip_dot_slash(path_text: str) -> str:
     text = path_text.strip()
     while text.startswith('./'):
@@ -540,6 +640,7 @@ def main(argv: list[str] | None = None) -> int:
         ('Tempfile convention', check_tempfile_convention),
         ('SKILL.md frontmatter scalars', check_skill_frontmatter_scalars),
         ('Review catalogue', check_review_catalogue),
+        ('Curated marketplace projection', check_curated_marketplace_projection),
         ('Marketplace README catalog', check_marketplace_readme_catalog),
         ('OMP catalog versions', check_omp_catalog),
         ('Claude catalog archived sources', check_claude_catalog_archived_sources),

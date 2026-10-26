@@ -206,8 +206,6 @@ export async function assembleEpicRangeInputs(input: {
       lastEditedAt: issueSpec.lastEditedAt,
     },
     semanticContext,
-    semctx: null,
-    assertledger: null,
   }
   const scope = { repository: input.request.repository, target: input.request.target }
   return {
@@ -234,8 +232,6 @@ export async function assembleEpicRangeInputs(input: {
         body: issueSpec.body,
         lastEditedAt: issueSpec.lastEditedAt,
       },
-      semctxParts: null,
-      assertledgerParts: null,
     },
     canonicalClasses: classNames,
     authorize: async () => ({ ok: true }),

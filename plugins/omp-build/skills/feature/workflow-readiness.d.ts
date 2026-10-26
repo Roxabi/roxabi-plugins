@@ -1,4 +1,4 @@
-import type { Gh, Git, Refusal } from './proof-base.ts'
+import type { Gh, Git, Refusal } from './review-base.ts'
 
 export type LandingMode = 'native' | 'merge-on-green'
 export type LandingConfig = { mode: LandingMode; required_checks: string[] }

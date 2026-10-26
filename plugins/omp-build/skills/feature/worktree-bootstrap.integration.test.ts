@@ -20,7 +20,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 const BOOT = path.resolve(import.meta.dirname, 'worktree-bootstrap.sh')
 const ENV: NodeJS.ProcessEnv = {
   ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))),
-  GIT_CONFIG_GLOBAL: '/dev/null',
+  GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL,
   GIT_CONFIG_SYSTEM: '/dev/null',
   GIT_AUTHOR_NAME: 'Fixture',
   GIT_AUTHOR_EMAIL: 'fixture@example.com',
@@ -84,6 +84,15 @@ function fakeIndexers(dir: string): { env: NodeJS.ProcessEnv; log: string } {
     chmodSync(file, 0o755)
   }
   return { env: { ...ENV, PATH: `${bin}:${ENV.PATH}` }, log }
+}
+
+function withoutSemctx(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return {
+    ...env,
+    PATH: env.PATH?.split(path.delimiter)
+      .filter((entry) => !existsSync(path.join(entry, 'semctx')))
+      .join(path.delimiter),
+  }
 }
 
 describe('worktree bootstrap', () => {
@@ -348,7 +357,7 @@ commands:
     expect(readFileSync(path.join(repo, 'out', 'NEW'), 'utf8')).toBe('src-bytes\n')
   })
 
-  it('indexes the worktree itself before setup, starting ccc from a copy of the principal stores', () => {
+  it('indexes the worktree itself before setup despite a residual Semctx directory', () => {
     const { repo, wt } = principalWith('worktree:\n  setup: echo setup >> ../indexers.log\n')
     const ccc = path.join(repo, '.cocoindex_code')
     mkdirSync(path.join(ccc, 'cocoindex.db', 'mdb'), { recursive: true })
@@ -369,10 +378,11 @@ commands:
     sql(path.join(ccc, 'target_sqlite.db'), "insert into chunks values ('src/a.ts')")
     mkdirSync(path.join(repo, '.codegraph'))
     writeFileSync(path.join(repo, '.codegraph', 'codegraph.db'), 'graph\n')
+    mkdirSync(path.join(wt, '.semctx'))
     const { env, log } = fakeIndexers(path.dirname(repo))
     const here = realpathSync(wt)
 
-    const out = execFileSync('bash', [BOOT], { cwd: wt, env, encoding: 'utf8' })
+    const out = execFileSync('bash', [BOOT], { cwd: wt, env: withoutSemctx(env), encoding: 'utf8' })
 
     expect(out.trim().split('\n').at(-1)).toBe('bootstrap=done')
     expect(readFileSync(log, 'utf8').trim().split('\n')).toEqual([
@@ -380,6 +390,7 @@ commands:
       `codegraph init -y ${here}|${here}|cocoindex.db,settings.yml,target_sqlite.db`,
       'setup',
     ])
+    expect(readFileSync(log, 'utf8')).not.toMatch(/semctx/i)
     expect(readFileSync(path.join(wt, '.cocoindex_code', 'settings.yml'), 'utf8')).toBe('include_patterns: []\n')
     expect(readFileSync(path.join(wt, '.cocoindex_code', 'cocoindex.db', 'mdb', 'data.mdb'), 'utf8')).toBe('state\n')
     expect(sql(path.join(wt, '.cocoindex_code', 'target_sqlite.db'), 'select path from chunks').trim()).toBe(

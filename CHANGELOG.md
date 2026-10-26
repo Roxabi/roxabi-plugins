@@ -1,20 +1,16 @@
 # Changelog
 
-**Frozen archive, not a live changelog.** Releases are cut by
-`.github/workflows/auto-release.yml` on every merge to `main`, and the generated GitHub Release
-notes are the source of truth for what shipped in which version — see
-<https://github.com/Roxabi/roxabi-plugins/releases>.
+**Frozen archive, not a live changelog.** Releases are explicit: an annotated
+`roxabi-plugins/vX.Y.Z` tag on `main` triggers [release.yml](.github/workflows/release.yml), which
+publishes the GitHub Release with generated notes. GitHub Releases are the source of truth for what
+shipped in which version — see <https://github.com/Roxabi/roxabi-plugins/releases>.
 
 **Do not add entries here.** Per-change prose (failure mode, migration path, why) belongs in the
-PR body. `--generate-notes` emits merged-PR **titles and links**, ¬bodies: the release links the
-PR, it does not quote it. A second hand-maintained surface is what produced the drift below.
+PR body. Generated release notes contain merged-PR titles and links, not their bodies. A second
+hand-maintained surface produced the drift below.
 
-Sections `[0.4.0]` and older were produced by release-please or `/promote`, when a version was
-known before the merge. Under trunk it is derived *at* merge from the payload's commit types
-(`skills/promote/price.sh:117-132`), so in-tree per-version headings are racy (concurrent PRs
-race the number) and self-releasing (a `docs:` cut PR is itself a patch bump, D18). Not
-impossible — just not worth it. Full reasoning, incl. why `finalize.ts`'s `heading` witness
-stays null: `docs/release-convention.md` § Changelog.
+The archive below predates the explicit-tag release flow. It remains a historical record, not a
+statement of pending work; the section after `## Unversioned` is byte-frozen.
 
 ## Unversioned — shipped across v0.5.0 … v4.0.1
 

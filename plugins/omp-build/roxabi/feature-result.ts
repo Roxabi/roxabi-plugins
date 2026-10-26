@@ -16,8 +16,8 @@ import { claimedToolCallIds, refusedImplementationPayload } from './feature-impl
 import { hasObservedNativeCapture, implementNativeOutcome } from './feature-native-outcome.ts'
 import { proveAuthorizedBranch } from './feature-publication.ts'
 import { bindImplementationResult, type ImplementationResultBinding } from './feature-result-binding.ts'
+import type { GitRunner } from './workflow-checkout.ts'
 import { defaultGit } from './workflow-checkout.ts'
-import type { GitRunner } from './workflow-pins.ts'
 
 const execFileAsync = promisify(execFile)
 

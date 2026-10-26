@@ -5,20 +5,12 @@ export type ParseYaml = (text: string) => unknown
 
 /** `ok`, or why the repository's labels are not known. */
 export type LabelsState = 'ok' | 'gh-failed' | 'no-origin' | 'non-github'
-/** Whether a lefthook git hook runs semctx, or why that cannot be told. */
-export type HooksState = 'present' | 'absent' | 'unreadable' | 'extends' | `lefthook.${'toml' | 'json' | 'jsonc'}`
 
 export type Facts = {
   hasTracker: boolean
   labels: string[]
   labelsState: LabelsState
   legacyLabels: string[]
-  hasSemctx: boolean
-  hooks: HooksState
-  hasWorkingEmptyJob: boolean
-  activeContracts: number
-  hasAssertledger: boolean
-  vitest: boolean
   hasCcc: boolean
   hasCodegraph: boolean
   mergeOnGreen: boolean

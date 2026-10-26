@@ -129,7 +129,6 @@ export function sandbox(): Box {
     PATH: `${bin}:${process.env.PATH}`,
     HOME: root,
     GH_SIM_STATE: stateFile,
-    GIT_CONFIG_GLOBAL: '/dev/null',
     GIT_CONFIG_NOSYSTEM: '1',
   }
   for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY'])

@@ -89,6 +89,7 @@ function is(id, flag) {
 }
 
 // plugins/omp-build/engine/record-diagnostics.ts
+var incompatibleFormat = "incompatible-format";
 function diagnostic(code, message, detail) {
   return detail === undefined ? { code, message } : { code, message, detail };
 }
@@ -100,6 +101,36 @@ function equalScope(left, right) {
 }
 function sameRef(left, right) {
   return left.recordId === right.recordId && left.kind === right.kind && equalScope(left.scope, right.scope);
+}
+
+// plugins/omp-build/engine/record-format.ts
+var REVIEW_INPUT_FORMAT = "omp-build:review-input/3";
+var MANDATE_FORMAT = "omp-build-mandate/2";
+function incompatible(message) {
+  return { code: incompatibleFormat, message };
+}
+function recordFormatDiagnostic(value) {
+  if (value === null || typeof value !== "object" || Array.isArray(value))
+    return null;
+  const record = value;
+  if (record.kind === "proof")
+    return incompatible("Record kind 'proof' was removed in #902 and cannot authorize anything");
+  if (record.kind === "mandate") {
+    const payload = record.payload;
+    if (payload === null || typeof payload !== "object" || Array.isArray(payload) || "proofPins" in payload || payload.format !== MANDATE_FORMAT) {
+      return incompatible(`Mandate format must be ${MANDATE_FORMAT}; pre-#902 mandates (proof pins) cannot authorize landing`);
+    }
+  }
+  if (record.kind !== "review-attempt" && record.kind !== "review" || record.payload === null || typeof record.payload !== "object")
+    return null;
+  const payload = record.payload;
+  const snapshot = payload.inputSnapshot;
+  if (snapshot !== null && typeof snapshot === "object" && !Array.isArray(snapshot) && (("semctxParts" in snapshot) || ("assertledgerParts" in snapshot))) {
+    return incompatible(`Review input expects ${REVIEW_INPUT_FORMAT} without external producer parts`);
+  }
+  if (payload.inputFormat !== REVIEW_INPUT_FORMAT)
+    return incompatible(`Review input format must be ${REVIEW_INPUT_FORMAT}`);
+  return null;
 }
 
 // node_modules/zod/v4/core/util.js
@@ -6638,16 +6669,10 @@ var observedCommentSchema = strictObject({
   createdAt: string2().min(1).nullable(),
   updatedAt: string2().min(1).nullable()
 });
-var selectedProofPartSchema = strictObject({
-  id: number2().int().positive(),
-  createdAt: string2().nullable(),
-  updatedAt: string2().nullable()
-});
+var reviewInputFormatSchema = literal(REVIEW_INPUT_FORMAT);
 var reviewInputSnapshotSchema = strictObject({
   body: strictObject({ body: string2(), lastEditedAt: string2().nullable() }).nullable(),
-  spec: strictObject({ reference: string2().min(1), body: string2(), lastEditedAt: string2().nullable() }).nullable(),
-  semctxParts: array(selectedProofPartSchema).nullable(),
-  assertledgerParts: array(selectedProofPartSchema).nullable()
+  spec: strictObject({ reference: string2().min(1), body: string2(), lastEditedAt: string2().nullable() }).nullable()
 });
 var reviewSubjectSchema = discriminatedUnion("kind", [
   strictObject({ kind: literal("pull-request") }),
@@ -6656,6 +6681,7 @@ var reviewSubjectSchema = discriminatedUnion("kind", [
 var initialPullRequestInventorySchema = strictObject({
   rootAttemptId: identifierSchema,
   candidateGitSHA: shaSchema,
+  inputFormat: reviewInputFormatSchema,
   input: sha256Schema.nullable(),
   slots: array(slotSchema),
   stage: literal("initial"),
@@ -6669,6 +6695,7 @@ var initialPullRequestInventorySchema = strictObject({
 var initialEpicReviewInventorySchema = strictObject({
   rootAttemptId: identifierSchema,
   candidateGitSHA: shaSchema,
+  inputFormat: reviewInputFormatSchema,
   input: sha256Schema.nullable(),
   slots: array(slotSchema),
   stage: literal("initial"),
@@ -6682,6 +6709,7 @@ var initialEpicReviewInventorySchema = strictObject({
 var initialCorrectionInventorySchema = strictObject({
   rootAttemptId: identifierSchema,
   candidateGitSHA: shaSchema,
+  inputFormat: reviewInputFormatSchema,
   input: sha256Schema.nullable(),
   slots: array(slotSchema),
   stage: literal("initial"),
@@ -6692,6 +6720,7 @@ var initialCorrectionInventorySchema = strictObject({
 var recallInventorySchema = strictObject({
   rootAttemptId: identifierSchema,
   candidateGitSHA: shaSchema,
+  inputFormat: reviewInputFormatSchema,
   input: sha256Schema.nullable(),
   slots: array(slotSchema),
   stage: literal("recall"),
@@ -6702,6 +6731,7 @@ var recallInventorySchema = strictObject({
 var synthesisInventorySchema = strictObject({
   rootAttemptId: identifierSchema,
   candidateGitSHA: shaSchema,
+  inputFormat: reviewInputFormatSchema,
   input: sha256Schema.nullable(),
   slots: array(slotSchema),
   stage: literal("synthesis"),
@@ -6773,6 +6803,7 @@ var decisionPayloadSchema = strictObject({
 });
 var finalReviewSchema = strictObject({
   candidateGitSHA: shaSchema,
+  inputFormat: reviewInputFormatSchema,
   input: sha256Schema.nullable(),
   inventoryIds: array(identifierSchema).min(1),
   decisionId: identifierSchema
@@ -6890,7 +6921,6 @@ var KIND_NAMES = [
   "correction-result",
   "falsification-result",
   "debt-receipt",
-  "proof",
   "stop",
   "epic-event",
   "mandate",
@@ -6913,12 +6943,6 @@ var externalRecordRefSchema = strictObject({
 });
 var scopedRecordRefSchema = externalRecordRefSchema;
 var gitObjectIdSchema = string2().regex(/^[0-9a-f]{40}$/);
-var proofPinPathSchema = repoRelativePathSchema.refine((path) => !path.includes("://"), "proof pin path must be a relative git path");
-var proofConfigPinSchema = strictObject({
-  sourceCommit: gitObjectIdSchema,
-  path: proofPinPathSchema,
-  blob: gitObjectIdSchema.nullable()
-});
 
 // plugins/omp-build/engine/workflow-mandate-schema.ts
 var mandateConfigSchema = strictObject({
@@ -6939,11 +6963,11 @@ var approvedChildSchema = strictObject({
   specBody: string2()
 });
 var mandateShared = {
+  format: literal("omp-build-mandate/2"),
   branch: string2().min(1).nullable(),
   base: string2().min(1),
   lineageHead: shaSchema.nullable(),
   config: mandateConfigSchema,
-  proofPins: array(proofConfigPinSchema),
   parent: externalRecordRefSchema.nullable(),
   antecedent: externalRecordRefSchema.nullable(),
   spec: mandateSpecSchema
@@ -7404,7 +7428,6 @@ var recordSchema = discriminatedUnion("kind", [
   record2("correction-result", correctionResultSchema),
   record2("falsification-result", falsificationResultSchema),
   record2("debt-receipt", debtReceiptSchema),
-  record2("proof", strictObject({ candidateGitSHA: shaSchema, data: jsonSchema })),
   record2("stop", stopSchema),
   record2("epic-event", jsonSchema),
   record2("mandate", mandatePayloadSchema),
@@ -7467,6 +7490,9 @@ function workflowInputMeaning(record) {
 
 // plugins/omp-build/engine/record-construction.ts
 function parseRecord(value) {
+  const format = recordFormatDiagnostic(value);
+  if (format)
+    return fail([format]);
   const parsed = recordSchema.safeParse(value);
   if (!parsed.success)
     return fail([
@@ -7505,7 +7531,6 @@ function derivedInputs(draft) {
       ];
     case "stop":
       return [draft.payload.reviewId];
-    case "proof":
     case "epic-event":
       return [];
     case "mandate":
@@ -8971,7 +8996,11 @@ function parseComment(value, scope, page, index) {
     updatedAt: typeof entry.updated_at === "string" ? entry.updated_at : null
   };
 }
-async function viewer(options) {
+function viewerCredentialKey() {
+  return `${process.env.GH_HOST ?? ""}\x00${process.env.GH_CONFIG_DIR ?? ""}\x00${process.env.GH_TOKEN ?? ""}\x00${process.env.GITHUB_TOKEN ?? ""}`;
+}
+var cachedViewer;
+async function resolveViewerLogin(options) {
   const login = (await gh(options)(options.cwd, ["api", "user", "--jq", ".login"])).trim();
   if (!login || /\s/.test(login)) {
     throw new GitHubHistoryReadError("GitHub did not return a native login", [
@@ -8979,6 +9008,18 @@ async function viewer(options) {
     ]);
   }
   return login;
+}
+async function viewer(options) {
+  const key = viewerCredentialKey();
+  if (cachedViewer?.key === key)
+    return cachedViewer.value;
+  const value = resolveViewerLogin(options).catch((error) => {
+    if (cachedViewer?.key === key)
+      cachedViewer = undefined;
+    throw error;
+  });
+  cachedViewer = { key, value };
+  return value;
 }
 function expectedReadAuthor(options) {
   const configured = options.readAuthor ?? options.automationLogin;
@@ -9643,6 +9684,43 @@ async function publishGitHubRecord(record, history, options, config, externalHis
     diagnostic2("publication-unconfirmed", `Operation ${record.operationId} was not completely confirmed by native read-back`)
   ]) : { status: "confirmed", operation: readBack };
 }
+// plugins/omp-build/adapters/github/record-integrity.ts
+var NATIVE_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
+function nativeInstant(value) {
+  if (typeof value !== "string" || !NATIVE_INSTANT.test(value))
+    return null;
+  const time = Date.parse(value);
+  if (!Number.isFinite(time) || new Date(time).toISOString().slice(0, 19) !== value.slice(0, 19))
+    return null;
+  return time;
+}
+function recordIntegrity(parts, { kind, recordId }) {
+  for (const [index, part] of parts.entries()) {
+    const created = nativeInstant(part.createdAt);
+    const updated = nativeInstant(part.updatedAt);
+    const identity = `${kind} record ${recordId} part ${index + 1}/${parts.length}`;
+    if (created === null || updated === null || updated < created) {
+      return {
+        reason: "record-unreadable",
+        detail: `${identity} has unreadable native creation/revision facts (${JSON.stringify(part.createdAt)}, ${JSON.stringify(part.updatedAt)})`
+      };
+    }
+    if (updated !== created)
+      return { reason: "record-edited", detail: `${identity} was revised after publication` };
+  }
+  return null;
+}
+function recordOperation(histories, record) {
+  const scope = record.scope ?? (typeof record.repository === "string" && typeof record.target === "string" ? { repository: record.repository, target: record.target } : undefined);
+  for (const history of histories) {
+    if (scope !== undefined && (history.source.scope.repository !== scope.repository || history.source.scope.target !== scope.target))
+      continue;
+    const operation = history.operations.find((entry) => entry.record?.recordId === record.recordId && entry.record.kind === record.kind);
+    if (operation !== undefined)
+      return operation;
+  }
+  return null;
+}
 // plugins/omp-build/adapters/github-workflow/types.ts
 var SHA = /^[0-9a-f]{40}$/;
 var POSITIVE_INT = /^[1-9][0-9]*$/;
@@ -9986,7 +10064,6 @@ var WORKTREE_ACTIONS = new Set([
   "plan",
   "implement",
   "publish",
-  "proof",
   "review",
   "fix",
   "attribute-ci",
@@ -10012,19 +10089,28 @@ function recordsOf(history) {
   }
   return records;
 }
+function hasIncompatibleFormat(history, operation) {
+  return history.diagnostics.some((entry) => entry.code === incompatibleFormat && entry.operationId === operation.operationId);
+}
+function operationProblem(history, operation) {
+  const kind = operation.record?.kind ?? operation.kind;
+  if (!isWorkflowKind(kind ?? "") && !operation.claimedKinds.some((claim) => isWorkflowKind(claim)))
+    return null;
+  if (operation.status === "conflict")
+    return "ambiguous";
+  if (hasIncompatibleFormat(history, operation))
+    return incompatibleFormat;
+  if (operation.status === "incomplete" || operation.status === "invalid" || operation.status === "legacy")
+    return "unconfirmed";
+  return operation.authority === "foreign" ? "unconfirmed" : null;
+}
 function workflowOperationProblem(history) {
   if (!history.source.complete)
     return "incomplete";
   for (const operation of history.operations) {
-    const kind = operation.record?.kind ?? operation.kind;
-    if (!isWorkflowKind(kind ?? "") && !operation.claimedKinds.some((claim) => isWorkflowKind(claim)))
-      continue;
-    if (operation.status === "conflict")
-      return "ambiguous";
-    if (operation.status === "incomplete" || operation.status === "invalid" || operation.status === "legacy")
-      return "unconfirmed";
-    if (operation.authority === "foreign")
-      return "unconfirmed";
+    const problem = operationProblem(history, operation);
+    if (problem !== null)
+      return problem;
   }
   return null;
 }
@@ -10218,8 +10304,15 @@ function successors(bindings, histories) {
         diagnostic("incomplete", "Binding mandate history is missing or incomplete")
       ]);
     }
+    const problem = workflowOperationProblem(home);
+    if (problem === "incompatible-format") {
+      const formatDiagnostic = home.diagnostics.find((entry) => entry.code === problem);
+      return bindingRefusal(problem, [
+        formatDiagnostic ?? diagnostic(problem, "Binding mandate uses an incompatible format")
+      ]);
+    }
     const successor = successorClaim(home, binding.payload.mandate);
-    if (successor.status === "incomplete" || successor.status === "conflicting")
+    if (successor.status === "incomplete" || successor.status === "conflicting" || successor.status === "incompatible-format")
       return successor;
     if (successor.status === "next") {
       const key = refKey(successor.ref);
@@ -10368,6 +10461,14 @@ function selectWorkflowBinding(input) {
       diagnostics: [diagnostic("incomplete", "Binding mandate history is missing or incomplete")]
     };
   }
+  const problem = workflowOperationProblem(home);
+  if (problem === "incompatible-format") {
+    const formatDiagnostic = home.diagnostics.find((entry) => entry.code === problem);
+    return {
+      status: problem,
+      diagnostics: [formatDiagnostic ?? diagnostic(problem, "Binding mandate uses an incompatible format")]
+    };
+  }
   const mandateRecord = confirmedAccountedMandate(home, chained.binding.payload.mandate);
   if (mandateRecord === null) {
     return {
@@ -10468,6 +10569,15 @@ async function readParentMandateChain(mandate, knownHistories, options) {
         };
       }
       parentHistories.push(parentHistory);
+    }
+    if (workflowOperationProblem(parentHistory) === "incompatible-format") {
+      const formatDiagnostic = parentHistory.diagnostics.find((entry) => entry.code === "incompatible-format");
+      return {
+        ok: false,
+        result: bindingRefusal2("incompatible-format", [
+          formatDiagnostic ?? diagnostic2("incompatible-format", "Parent mandate uses an incompatible format")
+        ])
+      };
     }
     const parentRecord = confirmedAccountedMandate(parentHistory, parent);
     if (parentRecord === null) {
@@ -10790,6 +10900,44 @@ function spentInCompleteHistory(history, taxonomy, acceptedPolicyRef) {
   return false;
 }
 
+// plugins/omp-build/engine/review-attempt-operations.ts
+function reviewAttemptReferences(record) {
+  const references = [...record.inputs];
+  if (record.kind === "review")
+    references.push(...record.payload.inventoryIds, record.payload.decisionId);
+  if (record.kind === "decision")
+    references.push(record.payload.originalContributionId, ...record.payload.judgment.sourceContributionIds);
+  if (record.kind === "contribution" && record.payload.inventoryId !== null)
+    references.push(record.payload.inventoryId);
+  return references;
+}
+function collectReviewOperations(history, selected, reviewId, recordId, operations, visiting) {
+  if (operations.has(recordId))
+    return true;
+  if (visiting.has(recordId))
+    return false;
+  visiting.add(recordId);
+  const operation = recordId === reviewId ? selected : history.operations.find((candidate) => candidate.record?.recordId === recordId);
+  if (operation?.record === null || operation === undefined)
+    return false;
+  operations.set(recordId, operation);
+  for (const reference of reviewAttemptReferences(operation.record))
+    if (!collectReviewOperations(history, selected, reviewId, reference, operations, visiting))
+      return false;
+  visiting.delete(recordId);
+  return true;
+}
+function selectedReviewOperations(history, summary) {
+  if (summary.reviewId === null)
+    return [];
+  const selected = reviewOperations(history).find((operation) => operation.record?.recordId === summary.reviewId);
+  const review = selected?.record;
+  if (review?.kind !== "review" || selected === undefined)
+    return null;
+  const operations = new Map;
+  return collectReviewOperations(history, selected, review.recordId, review.recordId, operations, new Set) ? [...operations.values()] : null;
+}
+
 // plugins/omp-build/engine/review-state.ts
 function summarizeReviews(history, taxonomy, acceptedPolicyRef) {
   return summarizeAuthorityReviews(classifyHistory(history).authorityHistory, taxonomy, acceptedPolicyRef);
@@ -10912,8 +11060,6 @@ function reviewStateFailure(diagnostics, knownReviews, countExact, spent) {
   return { ok: false, next: "stop", knownReviews, countExact, spent, diagnostics };
 }
 function nextReviewState(summary, facts) {
-  if (!facts.proofAdmission.ok)
-    return { ok: true, summary, next: "wait", requiredStop: null };
   if (summary.head !== null && summary.head !== facts.candidateGitSHA)
     return { ok: true, summary, next: "review", requiredStop: null };
   if (summary.input !== facts.input)
@@ -11434,8 +11580,6 @@ function actionCompletion(action, evidence, decisions, mandate, facts = null) {
       return assessSpecCompletion(evidence, facts, mandate);
     case "attribute-ci":
       return ciAttributionCompletion(evidence, facts, mandate);
-    case "proof":
-      return proofCompletion(decisions);
     case "publish":
       return selectedCompletion(decisions.publish);
     case "land":
@@ -11502,12 +11646,6 @@ function planCompletion(evidence, mandate) {
   if (macro.phase === "uncertain")
     return { status: "uncertain", evidence: macro.evidence };
   return { status: "not-started", evidence: macro.evidence };
-}
-function proofCompletion(decisions) {
-  if (decisions.proof.applicability === "not-applicable" || decisions.proof.admission?.ok === true) {
-    return { status: "confirmed", evidence: decisions.proof.evidence };
-  }
-  return { status: "not-started", evidence: decisions.proof.evidence };
 }
 function selectedCompletion(selector) {
   if (selector.status === "published" || selector.status === "not-applicable") {
@@ -11632,7 +11770,6 @@ var workflowGraphActionSchema = _enum([
   "plan",
   "implement",
   "publish",
-  "proof",
   "review",
   "fix",
   "attribute-ci",
@@ -11655,7 +11792,6 @@ var workflowConditionSchema = _enum([
   "plan-confirmed",
   "implement-confirmed",
   "pr-open",
-  "proof-confirmed",
   "review-step-review",
   "review-step-fix",
   "review-step-land",
@@ -11772,6 +11908,10 @@ function historyRefusal(history) {
     return refused("incomplete", [diagnostic("incomplete", "History pagination is incomplete")]);
   if (problem === "ambiguous")
     return refused("ambiguous", [diagnostic("ambiguous", "Workflow history conflicts")]);
+  if (problem === incompatibleFormat) {
+    const formatDiagnostic = history.diagnostics.find((entry) => entry.code === problem);
+    return refused(problem, [formatDiagnostic ?? diagnostic(problem, "Mandate uses an incompatible format")]);
+  }
   if (problem === "unconfirmed")
     return refused("unconfirmed", [diagnostic("unconfirmed", "Workflow history has an incomplete operation")]);
   if (problem === "incomplete")
@@ -12119,6 +12259,7 @@ function buildFixOnlyMandate(draft) {
     operationId: draft.operationId,
     payload: {
       role: "fix-only",
+      format: "omp-build-mandate/2",
       branch: draft.branch,
       base: draft.base,
       lineageHead: draft.lineageHead,
@@ -12131,7 +12272,6 @@ function buildFixOnlyMandate(draft) {
         digest: draft.config.digest,
         effective: draft.config.effective
       },
-      proofPins: draft.proofPins,
       parent: draft.parent,
       antecedent: draft.antecedent,
       spec: {
@@ -12158,6 +12298,8 @@ function incompleteListedParent(scopes, histories) {
 function landingBindingReason(selection) {
   if (selection.status === "conflicting")
     return "conflict";
+  if (selection.status === "incompatible-format")
+    return "incompatible-format";
   if (selection.status === "incomplete")
     return "incomplete";
   return "unknown-binding";
@@ -12172,6 +12314,7 @@ function landingReason(reason) {
     case "revoked":
     case "unsupported":
     case "ambiguous":
+    case "incompatible-format":
     case "incomplete":
     case "unconfirmed":
     case "unknown-binding":
@@ -12181,15 +12324,6 @@ function landingReason(reason) {
     case "missing-history":
       return reason;
   }
-}
-function pinIdentity(pin) {
-  return `${pin.path}\x00${pin.blob ?? "absent"}`;
-}
-function samePins(approved, current) {
-  const identity = (pins) => [...new Set(pins.map(pinIdentity))].sort();
-  const left = identity(approved);
-  const right = identity(current);
-  return left.length === right.length && left.every((key, index) => key === right[index]);
 }
 function selectedCandidate(input) {
   const selected = selectWorkflowBinding({
@@ -12266,8 +12400,6 @@ function currentAuthority(candidate, input) {
     return landingRefusal("config-drift", [
       diagnostic("config-drift", "Mandate config digest differs from current config")
     ]);
-  if (!samePins(mandate.payload.proofPins, input.current.proofPins))
-    return landingRefusal("proof-pin-drift", [diagnostic("proof-pin-drift", "Proof pins differ from the mandate")]);
   return null;
 }
 function acceptedSpecAuthority(candidate, input) {
@@ -12317,7 +12449,6 @@ function requireLandingMandate(input) {
     ok: true,
     recordId: selected.mandate.recordId,
     scope: mandateScope(selected.mandate),
-    proofPins: selected.mandate.payload.proofPins,
     mandate: selected.mandate
   };
 }
@@ -12409,8 +12540,6 @@ function conditionHolds(when, history, facts, decisions, mandate, pullRequest) {
       return implementConfirmed(history, mandate);
     case "pr-open":
       return pullRequestIsOpen(history, facts, mandate, pullRequest);
-    case "proof-confirmed":
-      return decisions.proof.applicability === "not-applicable" || decisions.proof.admission?.ok === true;
     case "review-step-review":
       return decisions.reviewStep === "review";
     case "review-step-fix":
@@ -12473,11 +12602,9 @@ function ciConditionHolds(when, history, facts, decisions, mandate, pullRequest)
 function blocked(reason, evidence) {
   return { status: "blocked", reason, evidence };
 }
-function pendingAction(node, completion, evidence, facts, mandate) {
+function pendingAction(node, completion, facts, mandate) {
   if (completion.status !== "not-started" || node.action === "stop" || node.action === "done")
     return null;
-  if (node.action === "proof" && evidence.pullRequest === null)
-    return blocked("missing-history", [diagnostic("missing-history", "proof requires pull request history")]);
   if (WORKTREE_ACTIONS.has(node.action) && !sessionReady(facts))
     return blocked("session-cwd", sessionEvidence(facts));
   return {
@@ -12539,7 +12666,7 @@ function walkWorkflowStep(graph, nodes, current, evidence, facts, decisions, man
     return blocked("action-uncertain", completion.evidence);
   if (completion.status === "blocked")
     return blocked(completionBlockReason(completion), completion.evidence);
-  const pending = pendingAction(node, completion, evidence, facts, mandate);
+  const pending = pendingAction(node, completion, facts, mandate);
   if (pending !== null)
     return pending;
   const terminal = terminalDecision(node, evidence.issue, facts, decisions, mandate, evidence.pullRequest);
@@ -12579,6 +12706,8 @@ function historyProblemDecision(history) {
   const problem = workflowOperationProblem(history);
   if (problem === "ambiguous")
     return blocked3("ambiguous-transition", [diagnostic("ambiguous", "Workflow history conflicts")]);
+  if (problem === "incompatible-format")
+    return blocked3(problem, [diagnostic(problem, "Workflow history uses an incompatible format")]);
   if (problem === "unconfirmed" || problem === "incomplete")
     return blocked3("incomplete", [diagnostic(problem, "Workflow history is not complete")]);
   return null;
@@ -12632,6 +12761,8 @@ function refusalDecision(selection) {
     return blocked3("unsupported-graph", selection.evidence);
   if (code === "missing-history" || code === "incomplete")
     return blocked3("missing-history", selection.evidence);
+  if (selection.reason === "incompatible-format")
+    return blocked3(selection.reason, selection.evidence);
   if (selection.reason === "incompatible" || selection.reason === "unsafe" || selection.reason === "materially-changed")
     return blocked3("unsafe-authority", selection.evidence);
   return blocked3(selection.reason === "unsupported" ? "unsupported-config" : "unconfirmed", selection.evidence);
@@ -12769,7 +12900,6 @@ var NODES = [
   { id: "plan", action: "plan" },
   { id: "implement", action: "implement" },
   { id: "publish", action: "publish" },
-  { id: "proof", action: "proof" },
   { id: "review", action: "review" },
   { id: "fix", action: "fix" },
   { id: "attribute-ci", action: "attribute-ci" },
@@ -12801,8 +12931,7 @@ var EDGES = [
   { from: "ready", to: "done", when: "end-obligations-met" },
   { from: "ready", to: "hook", when: "merged" },
   { from: "ready", to: "review", when: "fix-confirmed" },
-  { from: "ready", to: "review", when: "proof-confirmed" },
-  { from: "ready", to: "proof", when: "pr-open" },
+  { from: "ready", to: "review", when: "pr-open" },
   { from: "ready", to: "publish", when: "implement-confirmed" },
   { from: "ready", to: "implement", when: "plan-confirmed" },
   { from: "ready", to: "assess-spec", when: "spec-differs" },
@@ -12999,6 +13128,7 @@ export {
   labelSchema,
   locationSchema,
   mandatePayloadSchema,
+  nativeInstant,
   nativeOutcomeSchema,
   nativeProofBashCallSchema,
   observedCommentSchema,
@@ -13023,7 +13153,6 @@ export {
   policySchema,
   producerJsonSchema,
   projectRecord,
-  proofConfigPinSchema,
   publishConfirmedWorkflowRecord,
   publishGitHubRecord,
   readComposedWorkflowHistory,
@@ -13039,6 +13168,8 @@ export {
   recallClassSchema,
   recallPlanSchema,
   reconstructWorkflow,
+  recordIntegrity,
+  recordOperation,
   recordSchema,
   requireLandingMandate,
   resolveAcceptedSpec,
@@ -13053,6 +13184,7 @@ export {
   scopedRefsOf,
   selectApplicableMandate,
   selectWorkflowBinding,
+  selectedReviewOperations,
   shippedProductVersion,
   slotSchema,
   specAssessmentSchema,

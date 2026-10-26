@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Idempotent worktree bootstrap. Never writes on the principal.
 # Marker: $(git rev-parse --git-dir)/omp-build-bootstrapped
-# Reads .dev/stack.yml worktree.copy / worktree.seed; runs the selected setup
-# after ccc/codegraph and before semctx.
+# after ccc/codegraph and before setup.
 set -euo pipefail
 
 toplevel="$(git rev-parse --show-toplevel)"
@@ -91,7 +90,6 @@ case "$setup_mode" in
     ;;
 esac
 
-run_semctx_index
 
 # Emit status before the stamp, then flush file-backed stdout. glibc fully
 # buffers non-TTY stdout; without the flush, waiters can see the stamp while
