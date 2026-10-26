@@ -14,6 +14,7 @@ const MANDATE_REASONS = new Set([
   'unbound',
   'conflict',
   'incomplete',
+  'incompatible-format',
   'unknown-binding',
   'incompatible',
   'unsafe',

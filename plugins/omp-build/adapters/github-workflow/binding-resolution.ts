@@ -2,7 +2,7 @@ import type { DecodedHistory } from '../../engine/history-schema.ts'
 import { equalScope } from '../../engine/record-diagnostics.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import type { Diagnostic, Json, Scope } from '../../engine/record-values.ts'
-import { historyFor } from '../../engine/workflow-control.ts'
+import { historyFor, workflowOperationProblem } from '../../engine/workflow-control.ts'
 import {
   confirmedAccountedMandate,
   selectWorkflowBinding,
@@ -33,7 +33,7 @@ export type ParentMandateResolution =
   | { ok: false; result: WorkflowBindingRead }
 
 export function bindingRefusal(
-  status: 'absent' | 'partial' | 'conflicting' | 'unconfirmed' | 'incomplete' | 'unreadable',
+  status: 'absent' | 'partial' | 'conflicting' | 'unconfirmed' | 'incomplete' | 'incompatible-format' | 'unreadable',
   diagnostics: Diagnostic[],
   evidence?: Json,
 ): WorkflowBindingRead {
@@ -148,6 +148,15 @@ export async function readParentMandateChain(
         }
       }
       parentHistories.push(parentHistory)
+    }
+    if (workflowOperationProblem(parentHistory) === 'incompatible-format') {
+      const formatDiagnostic = parentHistory.diagnostics.find((entry) => entry.code === 'incompatible-format')
+      return {
+        ok: false,
+        result: bindingRefusal('incompatible-format', [
+          formatDiagnostic ?? diagnostic('incompatible-format', 'Parent mandate uses an incompatible format'),
+        ]),
+      }
     }
 
     const parentRecord = confirmedAccountedMandate(parentHistory, parent)

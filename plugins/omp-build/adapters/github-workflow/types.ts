@@ -65,7 +65,15 @@ export type LandingFactsRead =
     }
   | {
       ok: false
-      reason: 'absent' | 'partial' | 'conflicting' | 'unconfirmed' | 'incomplete' | 'ambiguous' | 'unreadable'
+      reason:
+        | 'absent'
+        | 'partial'
+        | 'conflicting'
+        | 'unconfirmed'
+        | 'incomplete'
+        | 'incompatible-format'
+        | 'ambiguous'
+        | 'unreadable'
       diagnostics: Diagnostic[]
       evidence?: Json
     }
@@ -89,8 +97,8 @@ export type WorkflowBindingRead =
     }
   | {
       ok: false
-      status: 'absent' | 'partial' | 'conflicting' | 'unconfirmed' | 'incomplete' | 'unreadable'
-      reason: 'absent' | 'partial' | 'conflicting' | 'unconfirmed' | 'incomplete' | 'unreadable'
+      status: 'absent' | 'partial' | 'conflicting' | 'unconfirmed' | 'incomplete' | 'incompatible-format' | 'unreadable'
+      reason: 'absent' | 'partial' | 'conflicting' | 'unconfirmed' | 'incomplete' | 'incompatible-format' | 'unreadable'
       diagnostics: Diagnostic[]
       evidence?: Json
     }

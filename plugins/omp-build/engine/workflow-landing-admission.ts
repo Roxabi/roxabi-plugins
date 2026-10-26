@@ -57,6 +57,7 @@ function landingBindingReason(
   selection: Exclude<WorkflowBindingSelection, { status: 'bound' | 'absent' }>,
 ): LandingRefusal {
   if (selection.status === 'conflicting') return 'conflict'
+  if (selection.status === 'incompatible-format') return 'incompatible-format'
   if (selection.status === 'incomplete') return 'incomplete'
   return 'unknown-binding'
 }
@@ -71,6 +72,7 @@ function landingReason(reason: MandateRefusal): LandingRefusal {
     case 'revoked':
     case 'unsupported':
     case 'ambiguous':
+    case 'incompatible-format':
     case 'incomplete':
     case 'unconfirmed':
     case 'unknown-binding':

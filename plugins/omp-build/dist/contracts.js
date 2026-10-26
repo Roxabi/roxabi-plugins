@@ -10090,19 +10090,28 @@ function recordsOf(history) {
   }
   return records;
 }
+function hasIncompatibleFormat(history, operation) {
+  return history.diagnostics.some((entry) => entry.code === incompatibleFormat && entry.operationId === operation.operationId);
+}
+function operationProblem(history, operation) {
+  const kind = operation.record?.kind ?? operation.kind;
+  if (!isWorkflowKind(kind ?? "") && !operation.claimedKinds.some((claim) => isWorkflowKind(claim)))
+    return null;
+  if (operation.status === "conflict")
+    return "ambiguous";
+  if (hasIncompatibleFormat(history, operation))
+    return incompatibleFormat;
+  if (operation.status === "incomplete" || operation.status === "invalid" || operation.status === "legacy")
+    return "unconfirmed";
+  return operation.authority === "foreign" ? "unconfirmed" : null;
+}
 function workflowOperationProblem(history) {
   if (!history.source.complete)
     return "incomplete";
   for (const operation of history.operations) {
-    const kind = operation.record?.kind ?? operation.kind;
-    if (!isWorkflowKind(kind ?? "") && !operation.claimedKinds.some((claim) => isWorkflowKind(claim)))
-      continue;
-    if (operation.status === "conflict")
-      return "ambiguous";
-    if (operation.status === "incomplete" || operation.status === "invalid" || operation.status === "legacy")
-      return "unconfirmed";
-    if (operation.authority === "foreign")
-      return "unconfirmed";
+    const problem = operationProblem(history, operation);
+    if (problem !== null)
+      return problem;
   }
   return null;
 }
@@ -10296,8 +10305,15 @@ function successors(bindings, histories) {
         diagnostic("incomplete", "Binding mandate history is missing or incomplete")
       ]);
     }
+    const problem = workflowOperationProblem(home);
+    if (problem === "incompatible-format") {
+      const formatDiagnostic = home.diagnostics.find((entry) => entry.code === problem);
+      return bindingRefusal(problem, [
+        formatDiagnostic ?? diagnostic(problem, "Binding mandate uses an incompatible format")
+      ]);
+    }
     const successor = successorClaim(home, binding.payload.mandate);
-    if (successor.status === "incomplete" || successor.status === "conflicting")
+    if (successor.status === "incomplete" || successor.status === "conflicting" || successor.status === "incompatible-format")
       return successor;
     if (successor.status === "next") {
       const key = refKey(successor.ref);
@@ -10446,6 +10462,14 @@ function selectWorkflowBinding(input) {
       diagnostics: [diagnostic("incomplete", "Binding mandate history is missing or incomplete")]
     };
   }
+  const problem = workflowOperationProblem(home);
+  if (problem === "incompatible-format") {
+    const formatDiagnostic = home.diagnostics.find((entry) => entry.code === problem);
+    return {
+      status: problem,
+      diagnostics: [formatDiagnostic ?? diagnostic(problem, "Binding mandate uses an incompatible format")]
+    };
+  }
   const mandateRecord = confirmedAccountedMandate(home, chained.binding.payload.mandate);
   if (mandateRecord === null) {
     return {
@@ -10546,6 +10570,15 @@ async function readParentMandateChain(mandate, knownHistories, options) {
         };
       }
       parentHistories.push(parentHistory);
+    }
+    if (workflowOperationProblem(parentHistory) === "incompatible-format") {
+      const formatDiagnostic = parentHistory.diagnostics.find((entry) => entry.code === "incompatible-format");
+      return {
+        ok: false,
+        result: bindingRefusal2("incompatible-format", [
+          formatDiagnostic ?? diagnostic2("incompatible-format", "Parent mandate uses an incompatible format")
+        ])
+      };
     }
     const parentRecord = confirmedAccountedMandate(parentHistory, parent);
     if (parentRecord === null) {
@@ -11876,6 +11909,10 @@ function historyRefusal(history) {
     return refused("incomplete", [diagnostic("incomplete", "History pagination is incomplete")]);
   if (problem === "ambiguous")
     return refused("ambiguous", [diagnostic("ambiguous", "Workflow history conflicts")]);
+  if (problem === incompatibleFormat) {
+    const formatDiagnostic = history.diagnostics.find((entry) => entry.code === problem);
+    return refused(problem, [formatDiagnostic ?? diagnostic(problem, "Mandate uses an incompatible format")]);
+  }
   if (problem === "unconfirmed")
     return refused("unconfirmed", [diagnostic("unconfirmed", "Workflow history has an incomplete operation")]);
   if (problem === "incomplete")
@@ -12262,6 +12299,8 @@ function incompleteListedParent(scopes, histories) {
 function landingBindingReason(selection) {
   if (selection.status === "conflicting")
     return "conflict";
+  if (selection.status === "incompatible-format")
+    return "incompatible-format";
   if (selection.status === "incomplete")
     return "incomplete";
   return "unknown-binding";
@@ -12276,6 +12315,7 @@ function landingReason(reason) {
     case "revoked":
     case "unsupported":
     case "ambiguous":
+    case "incompatible-format":
     case "incomplete":
     case "unconfirmed":
     case "unknown-binding":
@@ -12667,6 +12707,8 @@ function historyProblemDecision(history) {
   const problem = workflowOperationProblem(history);
   if (problem === "ambiguous")
     return blocked3("ambiguous-transition", [diagnostic("ambiguous", "Workflow history conflicts")]);
+  if (problem === "incompatible-format")
+    return blocked3(problem, [diagnostic(problem, "Workflow history uses an incompatible format")]);
   if (problem === "unconfirmed" || problem === "incomplete")
     return blocked3("incomplete", [diagnostic(problem, "Workflow history is not complete")]);
   return null;
@@ -12720,6 +12762,8 @@ function refusalDecision(selection) {
     return blocked3("unsupported-graph", selection.evidence);
   if (code === "missing-history" || code === "incomplete")
     return blocked3("missing-history", selection.evidence);
+  if (selection.reason === "incompatible-format")
+    return blocked3(selection.reason, selection.evidence);
   if (selection.reason === "incompatible" || selection.reason === "unsafe" || selection.reason === "materially-changed")
     return blocked3("unsafe-authority", selection.evidence);
   return blocked3(selection.reason === "unsupported" ? "unsupported-config" : "unconfirmed", selection.evidence);

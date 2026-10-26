@@ -20,6 +20,7 @@ export type WorkflowBlockReason =
   | 'cycle'
   | 'unsupported-graph'
   | 'unconfirmed'
+  | 'incompatible-format'
   | 'incomplete'
   | 'missing-history'
   | 'unknown-binding'

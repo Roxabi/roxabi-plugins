@@ -17,6 +17,7 @@ export type LandingRefusal =
   | 'unbound'
   | 'conflict'
   | 'incomplete'
+  | 'incompatible-format'
   | 'unknown-binding'
   | 'incompatible'
   | 'unsafe'

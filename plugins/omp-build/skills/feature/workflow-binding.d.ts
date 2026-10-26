@@ -16,6 +16,7 @@ export type LandingMandateRefusal =
   | 'unbound'
   | 'conflict'
   | 'incomplete'
+  | 'incompatible-format'
   | 'unknown-binding'
   | 'incompatible'
   | 'unsafe'

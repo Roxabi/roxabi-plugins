@@ -1,5 +1,5 @@
 import type { DecodedHistory } from './history-schema.ts'
-import { diagnostic, equalScope, fail, sameRef } from './record-diagnostics.ts'
+import { diagnostic, equalScope, fail, incompatibleFormat, sameRef } from './record-diagnostics.ts'
 import { type ExternalRecordRef, isWorkflowKind } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic, Scope } from './record-values.ts'
@@ -50,15 +50,32 @@ export function recordsOf(history: DecodedHistory): CanonicalRecord[] {
   return records
 }
 
-export function workflowOperationProblem(history: DecodedHistory): 'ambiguous' | 'incomplete' | 'unconfirmed' | null {
+function hasIncompatibleFormat(history: DecodedHistory, operation: DecodedHistory['operations'][number]): boolean {
+  return history.diagnostics.some(
+    (entry) => entry.code === incompatibleFormat && entry.operationId === operation.operationId,
+  )
+}
+
+function operationProblem(
+  history: DecodedHistory,
+  operation: DecodedHistory['operations'][number],
+): 'ambiguous' | 'incompatible-format' | 'unconfirmed' | null {
+  const kind = operation.record?.kind ?? operation.kind
+  if (!isWorkflowKind(kind ?? '') && !operation.claimedKinds.some((claim) => isWorkflowKind(claim))) return null
+  if (operation.status === 'conflict') return 'ambiguous'
+  if (hasIncompatibleFormat(history, operation)) return incompatibleFormat
+  if (operation.status === 'incomplete' || operation.status === 'invalid' || operation.status === 'legacy')
+    return 'unconfirmed'
+  return operation.authority === 'foreign' ? 'unconfirmed' : null
+}
+
+export function workflowOperationProblem(
+  history: DecodedHistory,
+): 'ambiguous' | 'incomplete' | 'incompatible-format' | 'unconfirmed' | null {
   if (!history.source.complete) return 'incomplete'
   for (const operation of history.operations) {
-    const kind = operation.record?.kind ?? operation.kind
-    if (!isWorkflowKind(kind ?? '') && !operation.claimedKinds.some((claim) => isWorkflowKind(claim))) continue
-    if (operation.status === 'conflict') return 'ambiguous'
-    if (operation.status === 'incomplete' || operation.status === 'invalid' || operation.status === 'legacy')
-      return 'unconfirmed'
-    if (operation.authority === 'foreign') return 'unconfirmed'
+    const problem = operationProblem(history, operation)
+    if (problem !== null) return problem
   }
   return null
 }

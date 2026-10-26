@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { decodeHistory } from '../../dist/contracts.js'
 import { AUTHOR, gateGh, HEADS, linkedApproval, noProducerInput, PR, reviewHistory } from './review-record-fixture.js'
 import { landPr } from './workflow-landing.js'
 import { featureLandOutcome } from './workflow-outcome.js'
@@ -15,6 +16,19 @@ function incompleteApprovalHistory() {
     body: '<!-- omp-build-record v=1 kind=review id=review-incomplete operationId=op-review-incomplete part=1/2 data=e30 -->\n',
   })
   return history
+}
+
+function incompatibleMandateHistory(variant) {
+  const linked = linkedApproval(HEADS[0])
+  const comment = linked.issue.source.comments.find((entry) => entry.body.includes('kind=mandate '))
+  if (!comment) throw new Error('missing mandate fixture record')
+  const match = /data=([A-Za-z0-9_-]+)/.exec(comment.body)
+  if (!match?.[1]) throw new Error('mandate fixture record has no data')
+  const record = JSON.parse(Buffer.from(match[1], 'base64url').toString('utf8'))
+  if (variant === 'missing format') delete record.payload.format
+  else record.payload.proofPins = []
+  comment.body = comment.body.replace(match[1], Buffer.from(JSON.stringify(record)).toString('base64url'))
+  return { ...linked, issue: decodeHistory(linked.issue.source) }
 }
 
 describe('landing review authority', () => {
@@ -123,6 +137,25 @@ describe('landing review authority', () => {
     ).resolves.toMatchObject({
       status: 'mandate-refused',
       reason: 'missing',
+      disarmed: true,
+    })
+    expect(state).toEqual({ head: HEADS[0], label: false, auto: false })
+  })
+
+  it.each(['missing format', 'removed proof pins'])('refuses a mandate with %s before arming', async (variant) => {
+    const linked = incompatibleMandateHistory(variant)
+    const { gh, git, state } = gateGh(linked.pr, { head: HEADS[0], armed: true, issueHistory: linked.issue })
+
+    await expect(
+      landPr('/tmp/wt', PR, {
+        gh,
+        git,
+        requiredContexts: ['ci'],
+        landing: { mode: 'native', required_checks: ['ci'] },
+      }),
+    ).resolves.toMatchObject({
+      status: 'mandate-refused',
+      reason: 'incompatible-format',
       disarmed: true,
     })
     expect(state).toEqual({ head: HEADS[0], label: false, auto: false })
