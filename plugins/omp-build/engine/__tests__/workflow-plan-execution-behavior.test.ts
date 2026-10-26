@@ -347,7 +347,7 @@ describe('workflow plan execution behavior', () => {
         ...workflowFacts,
         pullRequest: { scope: pull, head: 'abc', base: 'main', associatedIssue: SCOPE },
       },
-      decisions: { ...workflowDecisions, reviewStep: 'review' },
+      decisions: workflowDecisions,
     })
     expect(review).toMatchObject({ status: 'action', action: 'review' })
 

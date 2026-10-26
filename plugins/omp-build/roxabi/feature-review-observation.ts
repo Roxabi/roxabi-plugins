@@ -88,10 +88,7 @@ async function currentReviewStep(
   const records = await readReviewRecords(cwd, number, { gh })
   if (!records.ok) throw new Error(records.diagnostics[0]?.message || 'review-records-unreadable')
   const step = reviewStep(records.value, { head }).action
-  return {
-    action: step === 'stop' || step === 'review' || records.value.head === head ? step : null,
-    reviewId: records.value.reviewId,
-  }
+  return { action: step === 'stop' || records.value.head === head ? step : null, reviewId: records.value.reviewId }
 }
 
 async function currentCiWatchStatus(

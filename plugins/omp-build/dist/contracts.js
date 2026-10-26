@@ -12801,6 +12801,7 @@ var EDGES = [
   { from: "ready", to: "done", when: "end-obligations-met" },
   { from: "ready", to: "hook", when: "merged" },
   { from: "ready", to: "review", when: "fix-confirmed" },
+  { from: "ready", to: "review", when: "pr-open" },
   { from: "ready", to: "publish", when: "implement-confirmed" },
   { from: "ready", to: "implement", when: "plan-confirmed" },
   { from: "ready", to: "assess-spec", when: "spec-differs" },

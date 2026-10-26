@@ -31,7 +31,7 @@ describe('workflow CI decisions', () => {
     expect(decision).not.toMatchObject({ status: 'action' })
   })
 
-  it('dispatches publish, review, and land from the shipped selectors without a duplicate receipt', () => {
+  it('dispatches publish, a bound first or moved-head review, and land without a duplicate receipt', () => {
     const mandate = shippedMandate()
     if (mandate.kind !== 'mandate') throw new Error('expected a mandate')
     const pull = { scope: PR, head: HEAD, base: 'main', associatedIssue: SCOPE }
@@ -48,16 +48,18 @@ describe('workflow CI decisions', () => {
     expect(bareDecision).toMatchObject({ status: 'action', action: 'plan' })
     const review = { issue, pullRequest: bound, parents: [] }
     expect(hasAction(review.issue, 'review')).toBe(false)
-    expect(
-      reconstructWorkflow({
-        evidence: review,
-        facts: shippedFacts(pull),
-        decisions: { ...decisions(), reviewStep: 'review' },
-      }),
-    ).toMatchObject({
+    expect(reconstructWorkflow({ evidence: review, facts: shippedFacts(pull), decisions: decisions() })).toMatchObject({
       status: 'action',
       action: 'review',
     })
+    const movedHead = '2222222222222222222222222222222222222222'
+    expect(
+      reconstructWorkflow({
+        evidence: review,
+        facts: shippedFacts({ ...pull, head: movedHead }),
+        decisions: decisions(),
+      }),
+    ).toMatchObject({ status: 'action', action: 'review' })
     expect(hasAction(review.issue, 'land')).toBe(false)
     expect(
       reconstructWorkflow({

@@ -58,7 +58,7 @@ describe('workflow implementation behavior', () => {
     const adopted = reconstructWorkflow({
       evidence: { issue: history([shipped]), pullRequest: bound, parents: [] },
       facts: shippedFacts,
-      decisions: { ...decisions, reviewStep: 'review' },
+      decisions,
     })
     expect(adopted).toMatchObject({ status: 'action', action: 'review' })
     expect(history([shipped]).operations.some((operation) => operation.record?.kind === 'action-receipt')).toBe(false)
@@ -68,6 +68,7 @@ describe('workflow implementation behavior', () => {
       decisions,
     })
     expect(nativeOnly).toMatchObject({ status: 'action', action: 'plan' })
+    expect(nativeOnly).not.toMatchObject({ status: 'action', action: 'review' })
   })
   test('retains an unmatched CI attribution when the current candidate changes', () => {
     const { featureMandate: shippedFeatureMandate } = roxabiWorkflowFixtures()
