@@ -163,6 +163,7 @@ export function registerReviewGateMandateCases(): void {
       const result = runReviewGate(fixture)
 
       expect(result.status).toBe(1)
+      expect(result.stderr).toBe('')
       expect(JSON.parse(result.stdout)).toMatchObject({
         allowed: false,
         reason: 'review-input-changed',
@@ -212,6 +213,7 @@ export function registerReviewGateMandateCases(): void {
       const result = runReviewGate(fixture)
 
       expect(result.status).toBe(1)
+      expect(result.stderr).toBe('')
       expect(JSON.parse(result.stdout)).toMatchObject({
         allowed: false,
         reason: 'review-input-changed',

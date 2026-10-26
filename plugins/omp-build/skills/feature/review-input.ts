@@ -18,9 +18,6 @@ export type ReviewTarget = {
   pr: number
   candidate: string
   base: string | undefined
-  baseTip: string
-  reviewedAt: string | null
-  reviewInput: string | null
 }
 export type ReviewInputDeps = {
   gh: Gh

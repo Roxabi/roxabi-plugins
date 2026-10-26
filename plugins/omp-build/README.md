@@ -332,7 +332,8 @@ before its diff; the review-start test exercises the fence, not model compliance
 | Condition | Admission requirement |
 |---|---|
 | Current review and bound | The latest review approves the current head and the review bound is unspent. |
-| CI | Required checks are green. Pending, red, or unreadable CI does not admit landing. |
+| CI | Red or unreadable CI refuses. Pending CI may be armed; the merge itself waits until the required checks pass. |
+| Normative inputs | The mandate's configuration version and digest, the accepted Spec, and a fresh `omp-build:review-input/3` capture still equal the approved values. |
 | Authentic outputs | The expected automation author published every record that establishes the selected review's verdict and findings: its review, inventories, decision, synthesis and finding contributions, and their bound inputs; it also published the workflow binding and mandate chain. Every selected part has readable native `createdAt` and `updatedAt` values, and no part was edited. |
 
 Mandates must use `omp-build-mandate/2`; reviews carrying input must use `omp-build:review-input/3`. Missing or older formats, obsolete payload fields, and frames using the removed `kind: 'proof'` refuse with `incompatible-format`. There is no migration, re-review, or exemption path.

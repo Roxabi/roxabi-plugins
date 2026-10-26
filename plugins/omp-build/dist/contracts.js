@@ -6669,8 +6669,7 @@ var observedCommentSchema = strictObject({
   createdAt: string2().min(1).nullable(),
   updatedAt: string2().min(1).nullable()
 });
-var REVIEW_INPUT_FORMAT2 = "omp-build:review-input/3";
-var reviewInputFormatSchema = literal(REVIEW_INPUT_FORMAT2);
+var reviewInputFormatSchema = literal(REVIEW_INPUT_FORMAT);
 var reviewInputSnapshotSchema = strictObject({
   body: strictObject({ body: string2(), lastEditedAt: string2().nullable() }).nullable(),
   spec: strictObject({ reference: string2().min(1), body: string2(), lastEditedAt: string2().nullable() }).nullable()

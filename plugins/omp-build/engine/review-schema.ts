@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { REVIEW_INPUT_FORMAT } from './record-format.ts'
 import {
   identifierSchema,
   jsonSchema,
@@ -19,7 +20,6 @@ export const observedCommentSchema = z.strictObject({
   updatedAt: z.string().min(1).nullable(),
 })
 export type ObservedComment = z.infer<typeof observedCommentSchema>
-export const REVIEW_INPUT_FORMAT = 'omp-build:review-input/3'
 const reviewInputFormatSchema = z.literal(REVIEW_INPUT_FORMAT)
 export const reviewInputSnapshotSchema = z.strictObject({
   body: z.strictObject({ body: z.string(), lastEditedAt: z.string().nullable() }).nullable(),
