@@ -2,17 +2,14 @@ import {
   decodeHistory,
   deriveReviewState,
   githubScope,
-  type Json,
-  type Result,
   readGitHubHistory,
   summarizeReviews,
 } from '../dist/contracts.js'
 import { withRoxabiGitHubPolicy } from '../roxabi/github-policy.ts'
-import { admitLanding } from '../skills/feature/proof-admission.ts'
 import type { Gh, Git, Refusal } from '../skills/feature/proof-base.ts'
 import { refreshSelectedBase } from '../skills/feature/proof-candidate.ts'
-import type { Admission } from '../skills/feature/proof-context.ts'
 import { currentLandingMandate, type LandingMandateRead } from '../skills/feature/workflow-mandate.js'
+import { validateReviewInput } from '../skills/feature/workflow-review-input.js'
 import {
   type Arguments,
   canonicalTaxonomy,
@@ -40,16 +37,6 @@ type GateContext = {
   baseTip: string
 }
 type InitialReview = GateContext | { refusal: MachineResult }
-
-function proofResult(value: Admission): Result<Json> {
-  if (value.ok) return { ok: true, value: value.proof as unknown as Json }
-  return {
-    ok: false,
-    diagnostics: [
-      { code: value.reason, message: value.error, detail: { producer: value.producer, reason: value.reason } },
-    ],
-  }
-}
 
 function currentHeadAndBase(raw: string): Coordinates {
   let value: unknown
@@ -148,7 +135,6 @@ function reviewStateRefusal(
   state: ReviewState,
   refreshed: AcceptedSummary,
   args: Arguments,
-  admission: Admission,
   ci: 'green' | 'red' | 'pending' | 'unknown',
   mandateRead: Awaited<ReturnType<typeof landingMandate>>,
 ): MachineResult | null {
@@ -175,13 +161,6 @@ function reviewStateRefusal(
       reason: mandateRead.mandate?.reason ?? 'unknown-binding',
       detail: jsonDetail(mandateRead.mandate?.evidence),
     }
-  if (!admission.ok)
-    return {
-      ok: false,
-      allowed: false,
-      reason: 'proof-refused',
-      detail: { producer: admission.producer, reason: admission.reason },
-    }
   if (state.next !== 'admit' && !nativeAutoMergePending(state, args.head, ci))
     return { ok: false, allowed: false, reason: `review-state-${state.next}` }
   return null
@@ -191,7 +170,6 @@ async function postAdmissionRefusal(
   args: Arguments,
   toolingRoot: string,
   context: GateContext,
-  admission: Admission,
   ci: 'green' | 'red' | 'pending' | 'unknown',
   mandateRead: Awaited<ReturnType<typeof landingMandate>>,
 ): Promise<MachineResult | null> {
@@ -208,7 +186,6 @@ async function postAdmissionRefusal(
       target: `${args.repository}#${args.pr}`,
       candidateGitSHA: args.head,
       input: refreshed.value.input,
-      proofAdmission: proofResult(admission),
       ci,
       acceptedEvidencePolicyRef: null,
     },
@@ -223,7 +200,7 @@ async function postAdmissionRefusal(
   const freshBase = await refreshSelectedBase(args.candidateCwd, fresh.baseName, context.git, context.gh)
   if (!freshBase.ok) return baseRefusal(freshBase)
   if (freshBase.tip !== context.baseTip) return { ok: false, allowed: false, reason: 'pr-coordinates-moved' }
-  const refusal = reviewStateRefusal(state, refreshed, args, admission, ci, mandateRead)
+  const refusal = reviewStateRefusal(state, refreshed, args, ci, mandateRead)
   if (refusal !== null) return refusal
   const lastMandate = await currentLandingMandate(
     toolingRoot,
@@ -249,21 +226,22 @@ export async function admitReviewGate(args: Arguments, toolingRoot: string): Pro
     initial.coordinates,
     initial.baseTip,
   )
-  const admission = await admitLanding(
-    args.candidateCwd,
-    {
-      pr: args.pr,
-      candidate: args.head,
-      base: initial.coordinates.baseName,
-      baseTip: initial.baseTip,
-      reviewedAt: initial.summary.value.at,
-      reviewInput: initial.summary.value.input,
-      ...(mandateRead.mandate?.admitted ? { proofPins: mandateRead.mandate.proofPins } : {}),
-    },
-    { gh: initial.gh, git: initial.git, automationLogin: args.automationLogin },
-  )
+  if (mandateRead.mandate?.admitted) {
+    const reviewInput = await validateReviewInput(args.candidateCwd, args.pr, args.head, initial.summary.value.input, {
+      gh: initial.gh,
+      git: initial.git,
+      automationLogin: args.automationLogin,
+    })
+    if (!reviewInput.ok)
+      return {
+        ok: false,
+        allowed: false,
+        reason: reviewInput.reason,
+        detail: { producer: reviewInput.producer, error: reviewInput.error },
+      }
+  }
   const ci = await ciState(toolingRoot, initial.gh, args.pr)
-  const refusal = await postAdmissionRefusal(args, toolingRoot, initial, admission, ci, mandateRead)
+  const refusal = await postAdmissionRefusal(args, toolingRoot, initial, ci, mandateRead)
   if (refusal !== null) return refusal
   return { ok: true, allowed: true, reviews: initial.summary.value.reviews, ci }
 }

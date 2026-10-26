@@ -1,8 +1,6 @@
 import { withRoxabiGitHubPolicy } from '../../roxabi/github-policy'
-import { admitLanding } from './proof-admission.ts'
 import { bindingRefusalReason, mandateReason } from './workflow-binding.js'
 import { isCommitSha } from './workflow-gate.js'
-import { resolveLandingBase } from './workflow-readiness.js'
 import { repositoryScope } from './workflow-records.js'
 import { gitResult } from './workflow-runtime.js'
 
@@ -173,28 +171,4 @@ export async function currentLandingMandate(cwd, pr, ghFn, native, gitFn = gitRe
     localInhibit: null,
   })
   return landingMandateDecision(decision)
-}
-
-export async function admitCurrentReviewBinding(cwd, pr, records, ghFn, gitFn, proofPins) {
-  if (!isCommitSha(records.head) || (proofPins !== undefined && !Array.isArray(proofPins))) return { ok: false }
-  const base = await resolveLandingBase(cwd, pr, ghFn, gitFn ?? gitResult)
-  if (base.refusal) return base.refusal
-  return admitLanding(
-    cwd,
-    {
-      pr: Number(pr),
-      candidate: records.head,
-      base: base.name,
-      baseTip: base.tip,
-      reviewedAt: records.at,
-      reviewInput: records.input,
-      ...(Array.isArray(proofPins) ? { proofPins } : {}),
-    },
-    { gh: ghFn, git: gitFn ?? gitResult },
-  )
-}
-
-export async function hasFreshReviewInput(cwd, pr, records, options = {}) {
-  if (options.proofPins !== undefined && !Array.isArray(options.proofPins)) return false
-  return (await admitCurrentReviewBinding(cwd, pr, records, options.gh, options.git, options.proofPins)).ok
 }

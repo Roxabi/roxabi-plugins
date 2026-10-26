@@ -6,11 +6,11 @@ import {
   prepareInitialLanding,
   readLandingFields,
 } from './landing-initial-preparation.js'
-import { admitLanding } from './proof-admission.ts'
 import { approves, behindMessage, isBehind, isCommitSha, readGate, reviewBoundStopped } from './workflow-gate.js'
 import { currentLandingMandate, evidenceText } from './workflow-mandate.js'
 import { resolveLandingBase } from './workflow-readiness.js'
 import { requiredReviewRecords } from './workflow-records.js'
+import { validateReviewInput } from './workflow-review-input.js'
 import { errorText } from './workflow-runtime.js'
 export function knownLandingGate(gate, armedAuto, armedLabel) {
   if (!gate) return gate
@@ -98,7 +98,7 @@ export async function checkBeforeArm(cwd, pr, gh, git, state, armedAuto, armedLa
   return checkLandingCoordinates(cwd, pr, gh, git, state, armedAuto, armedLabel, adapter)
 }
 
-export async function admitLandingCandidate(cwd, pr, gh, git, state) {
+export async function validateLandingCandidate(cwd, pr, gh, git, state) {
   let current
   try {
     current = await resolveLandingBase(cwd, pr, gh, git)
@@ -127,29 +127,17 @@ export async function admitLandingCandidate(cwd, pr, gh, git, state) {
       state,
     }
   }
-  const admission = await admitLanding(
-    cwd,
-    {
-      pr: Number(pr),
-      candidate: state.records.head,
-      base: state.landingBase,
-      baseTip: state.landingContext.tip,
-      reviewedAt: state.records.at,
-      reviewInput: state.records.input,
-      proofPins: mandate.proofPins,
-    },
-    { gh, git },
-  )
-  if (!admission.ok) {
+  const reviewInput = await validateReviewInput(cwd, pr, state.records.head, state.records.input, { gh, git })
+  if (!reviewInput.ok) {
     return {
       terminal: landingExit(
-        { status: 'proof-blocked', producer: admission.producer, reason: admission.reason, error: admission.error },
+        { status: 'review-input-refused', reason: reviewInput.reason, error: reviewInput.error },
         { policy: 'unarmed' },
       ),
       state,
     }
   }
-  return { state: { ...state, admitted: state.records.head, proof: admission.proof } }
+  return { state: { ...state, admitted: state.records.head } }
 }
 
 export async function refreshLandingAuthorization(cwd, pr, gh, git, state, retaining) {
@@ -167,7 +155,7 @@ export async function refreshLandingAuthorization(cwd, pr, gh, git, state, retai
   if (retaining && state.admitted !== undefined && records.head !== state.admitted) {
     return { terminal: landingExit(landingRefused(records, 'head-moved'), { policy: 'unarmed' }), state: refreshed }
   }
-  return admitLandingCandidate(cwd, pr, gh, git, refreshed)
+  return validateLandingCandidate(cwd, pr, gh, git, refreshed)
 }
 function initialLandingRefusal(pr, records, gate, opening) {
   let reason = null

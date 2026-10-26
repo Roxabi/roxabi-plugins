@@ -7,9 +7,10 @@ import {
   readHeadRefOid,
   reviewBoundStopped,
 } from './workflow-gate.js'
-import { currentLandingMandate, evidenceText, hasFreshReviewInput } from './workflow-mandate.js'
+import { currentLandingMandate, evidenceText } from './workflow-mandate.js'
 import { resolveLandingBase } from './workflow-readiness.js'
 import { requiredReviewRecords } from './workflow-records.js'
+import { hasFreshReviewInput } from './workflow-review-input.js'
 import { persistObservedCiStop } from './workflow-review-state.js'
 import { errorText, gh, gitResult, stuckError } from './workflow-runtime.js'
 
@@ -93,10 +94,10 @@ async function currentContinuation(cwd, pr, records, gate, result, ghFn, gitFn) 
   if (!retaining || reviewBoundStopped(records) || !approves(records.verdict) || !isCommitSha(records.head)) {
     return { policy: 'allow-approved', gate: currentGate, result }
   }
-  const proofFresh = await hasFreshReviewInput(cwd, pr, records, { gh: ghFn, git: gitFn, proofPins: mandate.proofPins })
+  const inputFresh = await hasFreshReviewInput(cwd, pr, records, { gh: ghFn, git: gitFn })
   const lastHead = await readHeadRefOid(cwd, pr, ghFn)
   const lastGate = { ...gate, headRefOid: lastHead }
-  if (!proofFresh || lastHead !== records.head || lastHead !== head)
+  if (!inputFresh || lastHead !== records.head || lastHead !== head)
     return { policy: 'unarmed', gate: lastGate, result }
   const lastMandate = await currentLandingMandate(
     cwd,

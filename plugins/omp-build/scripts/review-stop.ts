@@ -122,7 +122,6 @@ async function main(): Promise<void> {
       ...scope,
       candidateGitSHA: args.head,
       input: summary.value.input,
-      proofAdmission: { ok: true, value: null },
       ci: 'red',
       acceptedEvidencePolicyRef: null,
     },

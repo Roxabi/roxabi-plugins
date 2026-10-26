@@ -10927,8 +10927,6 @@ function reviewStateFailure(diagnostics, knownReviews, countExact, spent) {
   return { ok: false, next: "stop", knownReviews, countExact, spent, diagnostics };
 }
 function nextReviewState(summary, facts) {
-  if (!facts.proofAdmission.ok)
-    return { ok: true, summary, next: "wait", requiredStop: null };
   if (summary.head !== null && summary.head !== facts.candidateGitSHA)
     return { ok: true, summary, next: "review", requiredStop: null };
   if (summary.input !== facts.input)

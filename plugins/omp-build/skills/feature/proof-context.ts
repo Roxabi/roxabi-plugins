@@ -1,17 +1,7 @@
 import { createHash } from 'node:crypto'
 import { type Gh, type Git, type Refusal, refuse } from './proof-base'
 import type { CandidateFacts } from './proof-candidate-contract'
-import type { Justification } from './proof-justification'
 import type { SelectedRecord } from './proof-review-contract'
-export type SemctxOutcome =
-  | 'absent'
-  | {
-      verdict: 'VERIFIED' | 'PARTIAL'
-      changes: { id: string; verdict: 'VERIFIED' | 'PARTIAL' }[]
-      gaps: Justification[]
-    }
-export type ProofSummary = { semctx: SemctxOutcome; assertledger: 'not-applicable' | 'detection' }
-export type Admission = { ok: true; proof: ProofSummary } | Refusal
 export type Deps = {
   gh: Gh
   git: Git /** Test injection. Production omits this and calls the shared resolver. */

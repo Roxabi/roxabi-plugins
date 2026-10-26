@@ -3,12 +3,7 @@
  * this exact string; pause, resume, and control stay out of it.
  */
 import { createHash } from 'node:crypto'
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
-import { admitLanding } from './proof-admission'
-import type { Git } from './proof-base'
-import { captureReviewInput } from './proof-capture'
 import { proofSemanticContext } from './proof-context'
 import { hashReviewInput } from './proof-context-hash'
 import { reviewSemanticCanon } from './proof-semantic-canon'
@@ -173,7 +168,6 @@ describe('reviewSemanticCanon', () => {
 
 describe('no-producer semantic binding', () => {
   const candidate = 'c'.repeat(40)
-  const baseTip = 'd'.repeat(40)
   const repository = 'acme/app'
   const prBody = { body: 'pr body', lastEditedAt: null as string | null }
 
@@ -202,73 +196,12 @@ describe('no-producer semantic binding', () => {
     return projected
   }
 
-  function deps(semantic: ReturnType<typeof bound>) {
-    const root = mkdtempSync(`${tmpdir()}/proof-semantic-`)
-    const git: Git = async (_cwd, args) => {
-      if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return { code: 0, stdout: `${root}\n`, stderr: '' }
-      if (args[0] === 'rev-parse' && args.includes('HEAD^{commit}'))
-        return { code: 0, stdout: `${candidate}\n`, stderr: '' }
-      if (args[0] === 'ls-tree') return { code: 0, stdout: '', stderr: '' }
-      if (args[0] === 'worktree') return { code: 0, stdout: '', stderr: '' }
-      return { code: 1, stdout: '', stderr: `unexpected git ${args.join(' ')}` }
-    }
-    const gh = async (_cwd: string, args: string[]) => {
-      if (args[0] === 'repo' && args[1] === 'view') return JSON.stringify({ nameWithOwner: repository })
-      if (args[0] === 'api') {
-        return JSON.stringify({
-          data: { repository: { pullRequest: { body: prBody.body, lastEditedAt: prBody.lastEditedAt } } },
-        })
-      }
-      throw new Error(`unexpected gh ${args.join(' ')}`)
-    }
-    return {
-      root,
-      deps: { gh, git, semantic },
-      target: {
-        pr: 7,
-        candidate,
-        base: 'main',
-        baseTip,
-        reviewedAt: null,
-        reviewInput: null as string | null,
-      },
-    }
-  }
-
-  it('hashes an empty proof publication, and a Spec-only change makes the old approval stale', async () => {
+  it('hashes an empty proof publication, and a Spec-only change makes the old approval stale', () => {
     const current = bound('accepted spec', '{}')
     const changed = bound('changed spec', '{}')
     const configured = bound('accepted spec', '{"gate":true}')
     const currentHash = hashReviewInput(repository, { pr: 7, candidate }, prBody, null, null, current)
     expect(currentHash).not.toBe(hashReviewInput(repository, { pr: 7, candidate }, prBody, null, null, changed))
     expect(currentHash).not.toBe(hashReviewInput(repository, { pr: 7, candidate }, prBody, null, null, configured))
-
-    const harness = deps(current)
-    try {
-      const captured = await captureReviewInput(harness.root, harness.target, harness.deps)
-      expect(captured).toMatchObject({
-        ok: true,
-        input: currentHash,
-        semctx: null,
-        assertledger: null,
-      })
-      await expect(admitLanding(harness.root, harness.target, harness.deps)).resolves.toMatchObject({
-        ok: false,
-        reason: 'unbound',
-      })
-      await expect(
-        admitLanding(harness.root, { ...harness.target, reviewInput: currentHash }, harness.deps),
-      ).resolves.toEqual({ ok: true, proof: { semctx: 'absent', assertledger: 'not-applicable' } })
-      const drifted = deps(changed)
-      try {
-        await expect(
-          admitLanding(drifted.root, { ...drifted.target, reviewInput: currentHash }, drifted.deps),
-        ).resolves.toMatchObject({ ok: false, reason: 'unbound' })
-      } finally {
-        rmSync(drifted.root, { recursive: true, force: true })
-      }
-    } finally {
-      rmSync(harness.root, { recursive: true, force: true })
-    }
   })
 })

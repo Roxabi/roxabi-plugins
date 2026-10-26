@@ -10,7 +10,7 @@ export type ReviewCapture = Pick<
   semantic: ProofSemanticContext
   semanticCanon: ReviewSemanticCanon
 }
-export type ReviewInputDeps = { gh?: Gh; git?: Git; semantic?: ProofSemanticContext }
+export type ReviewInputDeps = { gh?: Gh; git?: Git; semantic?: ProofSemanticContext; automationLogin?: string }
 
 export declare function confirmedReviewSemanticContext(
   cwd: string,
@@ -34,3 +34,10 @@ export declare function validateReviewInput(
   input: string | null,
   deps?: Omit<ReviewInputDeps, 'semantic'>,
 ): Promise<{ ok: true } | Refusal>
+
+export declare function hasFreshReviewInput(
+  cwd: string,
+  pr: number | string,
+  records: { head: string | null; input: string | null },
+  deps?: Omit<ReviewInputDeps, 'semantic'>,
+): Promise<boolean>

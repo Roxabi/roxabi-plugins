@@ -38,12 +38,12 @@ describe('landing review authority', () => {
     })
   })
 
-  it('disarms when the retained proof input no longer admits at the same head', async () => {
+  it('disarms when the retained review input changes at the same head', async () => {
     const history = reviewHistory([{ head: HEADS[0], verdict: 'Approve (clean)', input: 'a'.repeat(64) }])
     const { gh, git, state } = gateGh(history, { head: HEADS[0], armed: true })
     await expect(nextReviewStep('/tmp/wt', PR, { gh, git })).resolves.toMatchObject({
       action: 'review',
-      reason: 'proof-changed',
+      reason: 'review-input-changed',
       disarmed: true,
     })
     expect(state).toEqual({ head: HEADS[0], label: false, auto: false })

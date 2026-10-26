@@ -92,8 +92,6 @@ export function registerReviewGateMandateCases(): void {
         expect(result.status).toBe(1)
         expect(result.stderr).toBe('')
         expect(body).toMatchObject({ ok: false, allowed: false, reason: 'missing' })
-        expect(body.reason).not.toBe('proof-refused')
-        expect(body.detail?.reason).not.toBe('unbound')
       },
     )
 
@@ -165,11 +163,10 @@ export function registerReviewGateMandateCases(): void {
       const result = runReviewGate(fixture)
 
       expect(result.status).toBe(1)
-      expect(result.stderr).toBe('')
       expect(JSON.parse(result.stdout)).toMatchObject({
         allowed: false,
-        reason: 'proof-refused',
-        detail: { reason: 'unbound' },
+        reason: 'unbound',
+        detail: { producer: 'candidate' },
       })
     })
 
@@ -215,11 +212,10 @@ export function registerReviewGateMandateCases(): void {
       const result = runReviewGate(fixture)
 
       expect(result.status).toBe(1)
-      expect(result.stderr).toBe('')
       expect(JSON.parse(result.stdout)).toMatchObject({
         allowed: false,
-        reason: 'proof-refused',
-        detail: { reason: 'unbound' },
+        reason: 'unbound',
+        detail: { producer: 'candidate' },
       })
     })
 

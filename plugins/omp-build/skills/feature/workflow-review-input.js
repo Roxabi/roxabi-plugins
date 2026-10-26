@@ -37,7 +37,7 @@ export async function captureReviewInput(
   cwd,
   pr,
   head,
-  { gh: ghFn = gh, git: gitFn = gitResult, semantic: supplied } = {},
+  { gh: ghFn = gh, git: gitFn = gitResult, semantic: supplied, automationLogin } = {},
 ) {
   const selected = await readPrFields(cwd, pr, ghFn, 'headRefOid,baseRefName')
   if (!isCommitSha(head) || selected.headRefOid !== head)
@@ -49,7 +49,7 @@ export async function captureReviewInput(
     }
   const base = await fetchBase(cwd, selected.baseRefName, gitFn, ghFn)
   if (base.refusal) return base.refusal
-  const semantic = supplied ?? (await confirmedReviewSemanticContext(cwd, pr, ghFn, base.name))
+  const semantic = supplied ?? (await confirmedReviewSemanticContext(cwd, pr, ghFn, base.name, automationLogin))
   if (semantic.ok === false) return semantic
   const snapshot = await captureProofReviewInput(
     cwd,
@@ -81,4 +81,8 @@ export async function validateReviewInput(cwd, pr, head, input, deps = {}) {
         'review inputs changed during review; do not post this approval or replace its binding — start a fresh review',
     }
   return { ok: true }
+}
+
+export async function hasFreshReviewInput(cwd, pr, records, deps = {}) {
+  return (await validateReviewInput(cwd, pr, records.head, records.input, deps)).ok
 }
