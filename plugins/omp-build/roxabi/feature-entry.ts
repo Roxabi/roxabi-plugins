@@ -6,11 +6,12 @@ import { announceFeatureBatch } from './feature-host-native.ts'
 import { abortOwnedFeatureWatch, releaseFeatureOwner, rememberFeatureOwner } from './feature-host-ownership.ts'
 import { startInstalledFeatureWatch } from './feature-host-watch.ts'
 import {
-  featureAssistedFramingMessage,
+  featureErrorMessage,
   featureSessionCwdMessage,
-  featureStoppedWithDiagnostics,
+  featureStopMessage,
   isAssistedFraming,
-  pauseUnconfirmed,
+  isFramingResult,
+  principalRefusalMessage,
 } from './feature-presentation.ts'
 export async function runInstalledFeatureCommand(args: string, host: FeatureCommandHost): Promise<void> {
   const parsed = parseFeatureCommand(args)
@@ -41,12 +42,8 @@ export async function runInstalledFeatureCommand(args: string, host: FeatureComm
       principal: host.principal,
     })
   } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error)
-    if (principalDispatch) {
-      await host.send(`session-cwd ${host.cwd}\nfeature-stopped: principal-dispatch-refused`)
-      return
-    }
-    await host.send(`feature-stopped: ${reason}`)
+    const stop = featureErrorMessage(error)
+    await host.send(principalDispatch ? principalRefusalMessage(host.cwd, stop) : stop)
     return
   }
   if (principalDispatch) {
@@ -56,13 +53,36 @@ export async function runInstalledFeatureCommand(args: string, host: FeatureComm
   await deliverFeatureResult(parsed.reference, result, host)
 }
 
+/**
+ * The principal checkout acts on nothing. A valid move and framing guidance pass unchanged, since
+ * neither depends on the checkout; any other result becomes one refusal that names it.
+ */
 async function deliverPrincipalRefusal(host: FeatureCommandHost, result: ContinueFeatureResult): Promise<void> {
-  if (result.kind === 'session-cwd' && result.path.startsWith('/') && result.instruction === `/move ${result.path}`) {
+  const stop = featureStopMessage(result)
+  if (stop === null && result.kind === 'session-cwd') {
     await host.send(featureSessionCwdMessage(result.path, result.instruction))
-    return
+  } else if (stop !== null && isFramingResult(result)) {
+    await host.send(stop)
+  } else {
+    await host.send(principalRefusalMessage(host.cwd, stop ?? refusedWork(result)))
   }
-  await host.send(`session-cwd ${host.cwd}\nfeature-stopped: principal-dispatch-refused`)
 }
+
+/** Work the principal declines to start, named by kind; any other kind is not a workflow result. */
+function refusedWork(result: ContinueFeatureResult): string {
+  switch (result.kind) {
+    case 'action':
+    case 'watch':
+    case 'review':
+    case 'fix':
+    case 'admitted-ci-correction':
+    case 'epic-final-review':
+      return `workflow-result: ${result.kind}`
+    default:
+      return 'feature-stopped: feature-result-invalid'
+  }
+}
+
 function preservesFeatureResult(result: ContinueFeatureResult): boolean {
   switch (result.kind) {
     case 'session-cwd':
@@ -84,9 +104,14 @@ export async function deliverFeatureResult(
 ): Promise<void> {
   if (host.featureContinuationInhibited() && !preservesFeatureResult(result))
     return await host.send('feature-stopped: continuation-inhibited')
+  if (result.kind === 'session-cwd') return deliverSessionCwd(result, host)
+  settleStoppedOwner(reference, result, host)
+  const stop = featureStopMessage(result)
+  if (stop !== null) {
+    await host.send(stop)
+    return
+  }
   switch (result.kind) {
-    case 'session-cwd':
-      return deliverSessionCwd(result, host)
     case 'action':
       await announceFeatureBatch(reference, result.followUp, result.start, host, async (next) =>
         deliverFeatureResult(reference, next, host),
@@ -94,18 +119,6 @@ export async function deliverFeatureResult(
       return
     case 'watch':
       return deliverFeatureWatch(reference, result, host)
-    case 'paused':
-      return deliverFeaturePause(reference, result, host)
-    case 'abandoned':
-      return deliverFeatureAbandonment(reference, result, host)
-    case 'blocked':
-      return deliverFeatureBlock(reference, result, host)
-    case 'terminal':
-      releaseFeatureOwner(host.key)
-      await host.send(featureStoppedWithDiagnostics(result.reason, result.diagnostics))
-      return
-    case 'operator-decision':
-      return deliverOperatorDecision(result, host)
     case 'review':
       return deliverFeatureReview(reference, result, host)
     case 'fix':
@@ -123,8 +136,9 @@ async function deliverSessionCwd(
   result: Extract<ContinueFeatureResult, { kind: 'session-cwd' }>,
   host: FeatureCommandHost,
 ): Promise<void> {
-  if (!(result.path.startsWith('/') && result.instruction === `/move ${result.path}`)) {
-    await host.send(`session-cwd ${host.cwd}\nfeature-stopped: move-instruction-invalid`)
+  const stop = featureStopMessage(result)
+  if (stop !== null) {
+    await host.send(`session-cwd ${host.cwd}\n${stop}`)
     return
   }
   if (sameRealpath(result.path, host.cwd)) {
@@ -148,51 +162,24 @@ async function deliverFeatureWatch(
   )
 }
 
-async function deliverFeaturePause(
-  reference: string,
-  result: Extract<ContinueFeatureResult, { kind: 'paused' }>,
-  host: FeatureCommandHost,
-): Promise<void> {
-  rememberFeatureOwner(host.key, { reference, cwd: host.cwd, pausable: false })
-  await host.send(result.confirmed === true ? `pause-confirmed: ${result.reason}` : pauseUnconfirmed(result.reason))
-}
-
-async function deliverFeatureAbandonment(
-  reference: string,
-  result: Extract<ContinueFeatureResult, { kind: 'abandoned' }>,
-  host: FeatureCommandHost,
-): Promise<void> {
-  if (result.confirmed !== true) {
-    rememberFeatureOwner(host.key, { reference, cwd: host.cwd, pausable: false })
-    await host.send('feature-stopped: abandon-unconfirmed')
-    return
+/** Owner bookkeeping a stop leaves behind, a no-op for work; its operator text comes from `featureStopMessage`. */
+function settleStoppedOwner(reference: string, result: ContinueFeatureResult, host: FeatureCommandHost): void {
+  const retained = { reference, cwd: host.cwd, pausable: false }
+  switch (result.kind) {
+    case 'paused':
+      rememberFeatureOwner(host.key, retained)
+      return
+    case 'abandoned':
+      if (result.confirmed === true) releaseFeatureOwner(host.key)
+      else rememberFeatureOwner(host.key, retained)
+      return
+    case 'blocked':
+      if (!isAssistedFraming(result.reason)) rememberFeatureOwner(host.key, retained)
+      return
+    case 'terminal':
+      releaseFeatureOwner(host.key)
+      return
   }
-  releaseFeatureOwner(host.key)
-  await host.send('feature-abandoned')
-}
-
-async function deliverFeatureBlock(
-  reference: string,
-  result: Extract<ContinueFeatureResult, { kind: 'blocked' }>,
-  host: FeatureCommandHost,
-): Promise<void> {
-  if (isAssistedFraming(result.reason)) {
-    await host.send(featureAssistedFramingMessage())
-    return
-  }
-  rememberFeatureOwner(host.key, { reference, cwd: host.cwd, pausable: false })
-  await host.send(featureStoppedWithDiagnostics(result.reason, result.diagnostics))
-}
-
-async function deliverOperatorDecision(
-  result: Extract<ContinueFeatureResult, { kind: 'operator-decision' }>,
-  host: FeatureCommandHost,
-): Promise<void> {
-  if (isAssistedFraming(result.reason)) {
-    await host.send(featureAssistedFramingMessage())
-    return
-  }
-  await host.send(`feature-stopped: operator-decision:${result.reason}`)
 }
 
 async function deliverFeatureReview(
@@ -241,7 +228,7 @@ function observeFeatureTerminal(
       await deliverFeatureResult(reference, next, host)
     })
     .catch(async (error: unknown) => {
-      await host.send(`feature-stopped: ${error instanceof Error ? error.message : String(error)}`)
+      await host.send(featureErrorMessage(error))
     })
 }
 

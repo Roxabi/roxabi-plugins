@@ -1,6 +1,6 @@
 import type { FeatureSessionReason, FeatureWorkflow } from './feature-contract.ts'
 import { abortOwnedFeatureWatch, ownedFeatureFor } from './feature-host-ownership.ts'
-import { pauseUnconfirmed } from './feature-presentation.ts'
+import { featureErrorMessage, featurePauseMessage } from './feature-presentation.ts'
 
 export async function pauseOwnedFeatureOnSessionEnd(
   key: object,
@@ -24,10 +24,8 @@ export async function pauseOwnedFeatureOnSessionEnd(
       interrupt,
       reference: owned.reference,
     })
-    if (paused.kind === 'paused') {
-      await report?.(paused.confirmed === true ? `pause-confirmed: ${paused.reason}` : pauseUnconfirmed(paused.reason))
-    }
+    if (paused.kind === 'paused') await report?.(featurePauseMessage(paused))
   } catch (error) {
-    await report?.(`feature-stopped: ${error instanceof Error ? error.message : String(error)}`)
+    await report?.(featureErrorMessage(error))
   }
 }

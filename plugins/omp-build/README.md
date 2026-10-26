@@ -77,7 +77,7 @@ Symlinking into `~/.omp/agent/agents/` is not supported — use `link` (or the c
 | `/feature material-decision <reference> accept\|reject` | The only material-Spec decision. Editorial continues without a question. Unknown stops. |
 | `/feature init` | Preview of the invoking checkout. Not a subject, not framing, not a mandate, not a native task. |
 
-From the Principal, or when the session cwd is not the intended worktree, select, resume, and new return `session-cwd` and `/move <path>`. They publish no mandate, branch binding, or native work. After `/move`, the same `/feature <reference>` is continuation, not a second approval. Pause and abandon of existing remote authority may still run without native work. There is no `/wt`. `/dev-review` and `/fix` do not grant landing.
+From the Principal, or when the session cwd is not the intended worktree, select, resume, and new return `session-cwd` and `/move <path>`. They publish no mandate, branch binding, or native work. When the workflow stops or hands back work instead, the Principal sends one `feature-stopped: principal-dispatch-refused: <reason>` message and starts nothing. The reason is the workflow's stop, for example `operator-decision:needs-scope`, or the refused `workflow-result: <kind>`. `needs-framing` guidance is sent as is: moving would not change it. After `/move`, the same `/feature <reference>` is continuation, not a second approval. Pause and abandon of existing remote authority may still run without native work. There is no `/wt`. `/dev-review` and `/fix` do not grant landing.
 
 Detected mid-turn user interruption, session switch, and shutdown await the durable pause for a pausable owner. Confirmation is the read-back `pause-confirmed` control, not the local interrupt. A finished or confirmed-abandoned owner is released and is not paused again. An unconfirmed pause is not a resumable pause.
 
@@ -388,6 +388,8 @@ The trusted auto-merge checkout (`.github/workflows/auto-merge.yml`) reads canon
 The workflow uses `pull_request_target` so GitHub selects its arming logic from the base repository's default branch, not the PR merge ref. The candidate is an isolated, credential-free data checkout. Bun runs only from the pinned tooling directory, with ambient Bun/Node preloads cleared; candidate scripts, configuration, and dependencies are never executed. A trigger change takes effect only after it reaches the default branch; a local shell smoke does not prove hosted trigger selection.
 
 Every failed or skipped labeled-path admission has a final job-token cleanup, including App-token mint failure. It independently attempts native auto-merge disable and `reviewed` removal, then reads both back; failed writes or a remaining arm are errors. Cleanup never depends on the App token used by the reader. Dependabot is eligible only for semver-minor or semver-patch updates whose every commit author is `dependabot[bot]`.
+
+The current tooling pin is `OMP_BUILD_TOOLING_SHA=73a38ec509b09129cd277d7fbee2e9f698c4b13b`, a `main` commit merged by [#911](https://github.com/Roxabi/roxabi-plugins/pull/911) that carries omp-build 0.11.6. Admission requires a mandate's `productVersion` to equal the pinned tooling version; otherwise it refuses with `config-drift`. Mandates published under another version are refused.
 
 #### Tooling-pin cutover
 
