@@ -30,7 +30,7 @@ export function buildReviewPrompts(input: {
   policy: Policy
   spec: SpecDisplay
   semanticContext: ReviewSemanticContext
-  /** Exact review-input/2 semantic canon, supplied by the proof owner. */
+  /** Exact review-input/2 semantic canon. */
   semanticCanon: string
   assets: ReviewSemanticAssets
 }): ReviewPrompts {
@@ -53,7 +53,7 @@ export function buildReviewPrompts(input: {
       'Stage P2 — spec compliance. This is a model judgment over the supplied canonical tracker issue body and candidate context.',
       `P2.policy=${policyId}; P2.tier=${input.tier}. Tier comes only from the tracker size label; do not infer it from diff size or title.`,
       'P2.criterion: assess each verifiable criterion in tracker order. Emit one structured display row `{criterionText, verdict:"met"|"missing"}` per criterion, verbatim trimmed. A missing criterion requires a model-emitted `issue(blocking)` finding; a met criterion may be praise. Rows are display data, not independent findings.',
-      'P2.tests: apply the Baseline Phase 2 proof adjudication in the supplied evidence-policy asset: τ≠S requires complete SC→Test coverage and the closed NO TEST enum; judge selected Semctx PARTIAL/tested evidence and UI/browser proof from captured facts only. A missing matrix or unmet behaviour criterion is `issue(blocking)`; a missing/weak-test subject proceeds to P4 for its final label.',
+      'P2.tests: apply the Baseline Phase 2 proof adjudication in the supplied evidence-policy asset: τ≠S requires complete SC→Test coverage and the closed NO TEST enum. Evaluate concrete behavioral/browser evidence against its success criterion. A missing matrix or unmet behaviour criterion is `issue(blocking)`; a missing/weak-test subject proceeds to P4 for its final label.',
       'P2.binding: preserve policy IDs and supplied evidence facts; do not add policy, rewrite a binding, or propose a fix.',
       canonicalSpec,
       'Review semantic canon (same exact review-input/2 semantic slot used for admission; structured nonfinding data):',
