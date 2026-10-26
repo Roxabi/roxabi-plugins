@@ -472,10 +472,10 @@ before its diff; the review-start test exercises the fence, not model compliance
   `.github/workflows/auto-merge.yml` both require shared admission before
   writing their arms. The workflow refuses and disarms when its current
   gate read refuses; it does not treat a `reviewed` label as sufficient proof.
-  This source change is not hosted activation: the immutable tooling pin
-  and installation capabilities remain a separately authorized T5 check.
-  Another actor can still enable auto-merge or merge outside these entry
-  points. GitHub reads and arming are not transactional; this does not
+  Hosted activation was completed on 2026-10-25. Updating this README does
+  not change the hosted configuration. Another actor can still enable
+  auto-merge or merge outside these entry points. GitHub reads and arming
+  are not transactional; this does not
   establish continuous enforcement or close the queued-run race
   ([#787](https://github.com/Roxabi/roxabi-plugins/issues/787)).
   A canonical record is published as one or more PR comments by the automation
@@ -533,17 +533,34 @@ The trusted auto-merge checkout (`.github/workflows/auto-merge.yml`) reads canon
 
 The workflow uses `pull_request_target` so GitHub selects its arming logic from the base repository's default branch, not the PR merge ref. This protects the arming decision; the immutable tooling pin separately protects the reader. The candidate is an isolated, credential-free data checkout, including the explicit checkout-v7 opt-in for fork heads. Bun runs only from the pinned tooling directory, with ambient Bun/Node preloads cleared; candidate scripts, configuration and dependencies are never executed. A trigger change takes effect only after it reaches the default branch; local shell smoke does not prove hosted trigger selection.
 
-Every failed or skipped labeled-path admission has a final job-token cleanup, including App-token mint failure. It independently attempts native auto-merge disable and `reviewed` removal, then reads both back; failed writes or a remaining arm are errors. Cleanup never depends on the App token used by the reader. The job token therefore holds contents write: GitHub refuses `disablePullRequestAutoMerge` to a token with contents read, and an App-armed auto-merge then stays armed (observed 2026-10-25). Dependabot is eligible only for semver-minor or semver-patch updates whose every commit author is `dependabot[bot]`. The tooling pin remains unset until this workflow is on the base branch and hosted T5 checks pass; this workflow change does not activate it.
+Every failed or skipped labeled-path admission has a final job-token cleanup, including App-token mint failure. It independently attempts native auto-merge disable and `reviewed` removal, then reads both back; failed writes or a remaining arm are errors. Cleanup never depends on the App token used by the reader. The job token therefore holds contents write: GitHub refuses `disablePullRequestAutoMerge` to a token with contents read, and an App-armed auto-merge then stays armed (observed 2026-10-25). Dependabot is eligible only for semver-minor or semver-patch updates whose every commit author is `dependabot[bot]`.
+
+The current tooling pin is `OMP_BUILD_TOOLING_SHA=2d9bd23eedb6a56d810af64271a1e4e72db87e29`, a `main` commit merged by [#890](https://github.com/Roxabi/roxabi-plugins/pull/890) that carries omp-build 0.11.5. Admission requires a mandate's `productVersion` to equal the pinned tooling version; otherwise it refuses with `config-drift`. Mandates published under another version are refused.
+
+After every merged omp-build version bump, the operator performs these two actions together:
+
+1. Choose the full `main` SHA that carries the merged version, define `MAIN_SHA` as that SHA, and set the pin:
+
+   ```sh
+   gh variable set OMP_BUILD_TOOLING_SHA --repo Roxabi/roxabi-plugins --body "$MAIN_SHA"
+   ```
+
+2. Update the installed plugin, then restart OMP:
+
+   ```sh
+   omp plugin marketplace update roxabi-marketplace
+   omp plugin upgrade omp-build@roxabi-marketplace
+   ```
+
 ### Hosted activation prerequisites
 
-- **W1 — event policy (before 2026-12-02):** configure the repository Actions event policy to allow `pull_request_target` for `auto-merge.yml`; otherwise GitHub's enforced default can stop arming and disarming runs.
+- **W1 — event policy:** configured in policy `8844` to allow `pull_request_target` and `push` for `.github/workflows/auto-merge.yml`.
 - **W2 — secret visibility (deferred, #892):** `ROXABI_CI_APP_PRIVATE_KEY` is an organization secret visible to all repositories, so a workflow on any branch of this repository can mint the `roxabi-ci` token. Deferred on 2026-10-25 under the single-operator decision. Only the operator or their agent pushes branches here, and forks and Dependabot receive no organization secrets. This workflow does not declare `environment:`. #892 lists the triggers to reopen and the change.
 - **W3 — App token permissions:** the `roxabi-ci` installation grants checks read, contents write, issues write, pull requests write, statuses read and workflows write (observed 2026-10-25). The minted token is scoped to this repository, as before, and narrowed to checks read, contents write, issues read, pull requests write, statuses read and workflows write. Contents write performs the native auto-merge; workflows write lets it merge a PR that changes `.github/workflows/`. An explicit parent scope in another repository stays unreadable and refuses.
 
+The separately authorized T5 capability check passed in [run 40180871966](https://github.com/Roxabi/roxabi-plugins/actions/runs/40180871966). The gate reads with the App token (`GH_TOKEN: ${{ steps.app.outputs.token }}` in `.github/workflows/auto-merge.yml`), not the job `GITHUB_TOKEN`; job `issues: write` does not apply to that App token ([workflow permissions](https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#permissions) cover the job token only). With the App token narrowed by W3, the run exercised reading issue bodies and comments, including the explicit parent scope [#720](https://github.com/Roxabi/roxabi-plugins/issues/720), PR coordinates and rollup, and the trusted gate's selected-base Git fetch through its process-local credential helper. The real reader ran and refused a PR without a record with `reviewed-head-mismatch`; the token then armed native auto-merge. The credential helper does not persist credentials. This historical capability run is not admission evidence for another PR and does not prove access to private repositories. Local transport smoke coverage likewise does not prove that access.
 
-T5 capability check, separately authorized, not done in this tree. The gate reads with the App token (`GH_TOKEN: ${{ steps.app.outputs.token }}` in `.github/workflows/auto-merge.yml`), not the job `GITHUB_TOKEN`. Job `issues: write` does not apply to that token ([workflow permissions](https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#permissions) cover the job token only). The reader must be able to read issue bodies, comments, and each explicit parent scope: `GET /repos/{owner}/{repo}/issues/{issue_number}` and `GET /repos/{owner}/{repo}/issues/{issue_number}/comments`, through `review-gate.ts` → `currentLandingMandate`. Applicable App permission for the body route is Issues: read; Pull requests does not cover it ([App permissions](https://docs.github.com/en/rest/authentication/permissions-required-for-github-apps)). Comments are also listed under Pull requests. Live installation permissions are unverified. Do not claim they are missing, and do not change the token or the installation from this tree. This is not a new tamper control.
-
-That capability check must also exercise the trusted gate's selected-base Git fetch, including private-repository access when applicable. Its process-local credential helper does not persist credentials. Local transport smoke coverage does not prove the hosted App can fetch that base or read all referenced scopes.
+This is not a new tamper control.
 
 ## Guards
 
