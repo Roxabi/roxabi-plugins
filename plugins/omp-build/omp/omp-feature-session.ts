@@ -2,8 +2,9 @@ import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import { hasNativeUserInterruptFlag } from '../dist/contracts.js'
 import type { FeatureSessionReason, FeatureWorkflow } from '../roxabi/feature-contract.ts'
 import { pauseOwnedFeatureOnSessionEnd } from '../roxabi/feature-host-lifetime.ts'
-import { abortOwnedFeatureWatch } from '../roxabi/feature-host-ownership.ts'
+import { abortOwnedFeatureWatch, ownedFeatureFor } from '../roxabi/feature-host-ownership.ts'
 import { loadFeatureWorkflow } from '../roxabi/feature-loader.ts'
+import { INSTALL_ROOT, installRootStatus, replacedInstallRootMessage } from './install-root'
 import {
   type FixHost,
   interruptExactOwnedFixRun,
@@ -14,7 +15,7 @@ import {
 } from './omp-controller'
 import type { NativeExtension } from './review-runtime/contracts.ts'
 
-export type FeatureSessionOptions = { featureWorkflow?: FeatureWorkflow }
+export type FeatureSessionOptions = { featureWorkflow?: FeatureWorkflow; installRoot?: string }
 
 export function rootContext(ctx: ExtensionContext): boolean {
   return ctx.agent.kind === 'main' && ctx.agent.depth === 0
@@ -30,6 +31,24 @@ export function featureWorkInterrupter(pi: NativeExtension): (reason: string) =>
     if (active) await controller.stopOwned(active, reason)
   }
 }
+async function loadFeatureWorkflowForSessionEnd(
+  pi: FixHost,
+  options: FeatureSessionOptions,
+): Promise<FeatureWorkflow | null> {
+  if (ownedFeatureFor(pi)?.pausable !== true) return null
+  const install = installRootStatus(options.installRoot ?? INSTALL_ROOT)
+  if (!install.present) {
+    reportFeatureTerminalStatus(pi, `feature-stopped: ${replacedInstallRootMessage(install.root, install.version)}`)
+    return null
+  }
+  return (
+    options.featureWorkflow ??
+    (await loadFeatureWorkflow().catch(() => {
+      reportFeatureTerminalStatus(pi, 'feature-stopped: feature-workflow-unavailable')
+      return null
+    }))
+  )
+}
 
 export function installFeatureSessionLifecycle(
   pi: FixHost,
@@ -39,10 +58,9 @@ export function installFeatureSessionLifecycle(
   const pauseFeatureOnSessionEnd = (reason: FeatureSessionReason): Promise<void> => {
     const local = interruptOwnedFeatureWork(reason)
     return (async () => {
-      const workflow = options.featureWorkflow ?? (await loadFeatureWorkflow().catch(() => null))
+      const workflow = await loadFeatureWorkflowForSessionEnd(pi, options)
       if (workflow === null) {
         await local
-        reportFeatureTerminalStatus(pi, 'feature-stopped: feature-workflow-unavailable')
         return
       }
       try {
