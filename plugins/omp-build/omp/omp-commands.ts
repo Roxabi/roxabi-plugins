@@ -1,7 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import { ompBuildStartReviewParametersJsonSchema, ompBuildStartReviewParametersSchema } from '../dist/contracts.js'
 import type {
@@ -14,6 +13,7 @@ import { runInstalledFeatureCommand } from '../roxabi/feature-entry.ts'
 import { loadFeatureWorkflow } from '../roxabi/feature-loader.ts'
 import type { FixStart } from '../roxabi/fix-entry-lifecycle.ts'
 import type { prepareReviewInputs } from '../roxabi/review-pr-inputs.ts'
+import { INSTALL_ROOT, installRootStatus, replacedInstallRootMessage } from './install-root'
 import {
   type OmpBuildExtensionApi,
   ownedFixRunFor,
@@ -25,8 +25,6 @@ import { dispatchAdmittedCiCorrection, dispatchDefaultFix } from './omp-fix-disp
 import { dispatchDefaultReview, prepareInstalledEpicRangeReview } from './omp-review-dispatch'
 import type { NativeBatchController } from './review-runtime/controller.ts'
 import { createNativeReviewPort } from './review-runtime/port.ts'
-
-const SKILLS_DIR = join(dirname(dirname(fileURLToPath(import.meta.url))), 'skills')
 
 /** Slash commands with a skill body; native review, correction, and feature have real host pipelines. */
 const SKILL_COMMANDS: readonly { name: string; skill?: string; description: string; requires: readonly string[] }[] = [
@@ -65,6 +63,7 @@ const SKILL_COMMANDS: readonly { name: string; skill?: string; description: stri
 
 export type OmpBuildExtensionOptions = {
   exists?: (path: string) => boolean
+  installRoot?: string
   featureWorkflow?: FeatureWorkflow
   principalCwd?: (cwd: string) => boolean
   prepareReview?: typeof prepareReviewInputs
@@ -178,12 +177,65 @@ async function runFeatureCommand(
   )
 }
 
+function readSkillBody(
+  pi: OmpBuildExtensionApi,
+  name: string,
+  skillPath: string,
+  installRoot: string,
+  exists: (path: string) => boolean,
+): string | undefined {
+  const install = installRootStatus(installRoot, exists)
+  if (!install.present) {
+    pi.sendUserMessage(`/${name}: ${replacedInstallRootMessage(install.root, install.version)}`)
+    return undefined
+  }
+  try {
+    return readFileSync(skillPath, 'utf8')
+  } catch (error) {
+    pi.sendUserMessage(
+      `/${name}: cannot read its own body at ${skillPath} — ${error instanceof Error ? error.message : String(error)}. Reinstall omp-build.`,
+    )
+    return undefined
+  }
+}
+
+function registerSkillCommand(
+  pi: OmpBuildExtensionApi,
+  name: string,
+  skill: string,
+  description: string,
+  requires: readonly string[],
+  installRoot: string,
+  skillsDir: string,
+  exists: (path: string) => boolean,
+): void {
+  const skillDir = join(skillsDir, skill)
+  pi.registerCommand(name, {
+    description,
+    handler: async (args) => {
+      const raw = readSkillBody(pi, name, join(skillDir, 'SKILL.md'), installRoot, exists)
+      if (raw === undefined) return
+      const missing = requires.filter((requiredSkill) => !exists(join(skillsDir, requiredSkill, 'SKILL.md')))
+      const banner = missing.length
+        ? `> **\`/${name}\` is partially installed**: ${missing.map((requiredSkill) => `\`${requiredSkill}\``).join(', ')} — no SKILL.md under ${skillsDir}. Every step of this body that names one of those stops there. Reinstall omp-build.\n`
+        : ''
+      const body = stripFrontmatter(raw).trim()
+      const trimmedArgs = args.trim()
+      pi.sendUserMessage(
+        [banner, body, '', `[Skill directory: ${skillDir}]`, trimmedArgs ? `\n${trimmedArgs}` : ''].join('\n').trim(),
+      )
+    },
+  })
+}
+
 export function registerOmpCommandsAndTools(
   pi: OmpBuildExtensionApi,
   options: OmpBuildExtensionOptions,
   interruptOwnedFeatureWork: (reason: string) => Promise<void>,
 ): void {
   const { exists = existsSync } = options
+  const installRoot = options.installRoot ?? INSTALL_ROOT
+  const skillsDir = join(installRoot, 'skills')
   pi.registerTool({
     name: 'omp_build_start_review',
     label: 'Start structured review',
@@ -223,30 +275,6 @@ export function registerOmpCommandsAndTools(
       })
       continue
     }
-    const skillDir = join(SKILLS_DIR, skill)
-    pi.registerCommand(name, {
-      description,
-      handler: async (args) => {
-        const skillPath = join(skillDir, 'SKILL.md')
-        let raw: string
-        try {
-          raw = readFileSync(skillPath, 'utf8')
-        } catch (error) {
-          pi.sendUserMessage(
-            `/${name}: cannot read its own body at ${skillPath} — ${error instanceof Error ? error.message : String(error)}. Reinstall omp-build.`,
-          )
-          return
-        }
-        const missing = requires.filter((requiredSkill) => !exists(join(SKILLS_DIR, requiredSkill, 'SKILL.md')))
-        const banner = missing.length
-          ? `> **\`/${name}\` is partially installed**: ${missing.map((requiredSkill) => `\`${requiredSkill}\``).join(', ')} — no SKILL.md under ${SKILLS_DIR}. Every step of this body that names one of those stops there. Reinstall omp-build.\n`
-          : ''
-        const body = stripFrontmatter(raw).trim()
-        const trimmedArgs = args.trim()
-        pi.sendUserMessage(
-          [banner, body, '', `[Skill directory: ${skillDir}]`, trimmedArgs ? `\n${trimmedArgs}` : ''].join('\n').trim(),
-        )
-      },
-    })
+    registerSkillCommand(pi, name, skill, description, requires, installRoot, skillsDir, exists)
   }
 }
