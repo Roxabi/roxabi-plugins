@@ -9685,6 +9685,43 @@ async function publishGitHubRecord(record, history, options, config, externalHis
     diagnostic2("publication-unconfirmed", `Operation ${record.operationId} was not completely confirmed by native read-back`)
   ]) : { status: "confirmed", operation: readBack };
 }
+// plugins/omp-build/adapters/github/record-integrity.ts
+var NATIVE_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
+function nativeInstant(value) {
+  if (typeof value !== "string" || !NATIVE_INSTANT.test(value))
+    return null;
+  const time = Date.parse(value);
+  if (!Number.isFinite(time) || new Date(time).toISOString().slice(0, 19) !== value.slice(0, 19))
+    return null;
+  return time;
+}
+function recordIntegrity(parts, { kind, recordId }) {
+  for (const [index, part] of parts.entries()) {
+    const created = nativeInstant(part.createdAt);
+    const updated = nativeInstant(part.updatedAt);
+    const identity = `${kind} record ${recordId} part ${index + 1}/${parts.length}`;
+    if (created === null || updated === null || updated < created) {
+      return {
+        reason: "record-unreadable",
+        detail: `${identity} has unreadable native creation/revision facts (${JSON.stringify(part.createdAt)}, ${JSON.stringify(part.updatedAt)})`
+      };
+    }
+    if (updated !== created)
+      return { reason: "record-edited", detail: `${identity} was revised after publication` };
+  }
+  return null;
+}
+function recordOperation(histories, record) {
+  const scope = record.scope ?? (typeof record.repository === "string" && typeof record.target === "string" ? { repository: record.repository, target: record.target } : undefined);
+  for (const history of histories) {
+    if (scope !== undefined && (history.source.scope.repository !== scope.repository || history.source.scope.target !== scope.target))
+      continue;
+    const operation = history.operations.find((entry) => entry.record?.recordId === record.recordId && entry.record.kind === record.kind);
+    if (operation !== undefined)
+      return operation;
+  }
+  return null;
+}
 // plugins/omp-build/adapters/github-workflow/types.ts
 var SHA = /^[0-9a-f]{40}$/;
 var POSITIVE_INT = /^[1-9][0-9]*$/;
@@ -10834,6 +10871,11 @@ function spentInCompleteHistory(history, taxonomy, acceptedPolicyRef) {
 // plugins/omp-build/engine/review-state.ts
 function summarizeReviews(history, taxonomy, acceptedPolicyRef) {
   return summarizeAuthorityReviews(classifyHistory(history).authorityHistory, taxonomy, acceptedPolicyRef);
+}
+function selectedReviewOperation(history, summary) {
+  if (summary.reviewId === null)
+    return null;
+  return reviewOperations(history).find((operation) => operation.record?.recordId === summary.reviewId) ?? null;
 }
 function summaryFailure(diagnostics, knownReviews, countExact, spent) {
   return fail(diagnostics, { knownReviews, countExact, spent });
@@ -13010,6 +13052,7 @@ export {
   labelSchema,
   locationSchema,
   mandatePayloadSchema,
+  nativeInstant,
   nativeOutcomeSchema,
   nativeProofBashCallSchema,
   observedCommentSchema,
@@ -13049,6 +13092,8 @@ export {
   recallClassSchema,
   recallPlanSchema,
   reconstructWorkflow,
+  recordIntegrity,
+  recordOperation,
   recordSchema,
   requireLandingMandate,
   resolveAcceptedSpec,
@@ -13063,6 +13108,7 @@ export {
   scopedRefsOf,
   selectApplicableMandate,
   selectWorkflowBinding,
+  selectedReviewOperation,
   shippedProductVersion,
   slotSchema,
   specAssessmentSchema,

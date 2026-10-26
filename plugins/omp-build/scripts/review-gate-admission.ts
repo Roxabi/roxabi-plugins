@@ -1,8 +1,11 @@
+import type { DecodedHistory } from '../dist/contracts.js'
 import {
   decodeHistory,
   deriveReviewState,
   githubScope,
   readGitHubHistory,
+  recordIntegrity,
+  selectedReviewOperation,
   summarizeReviews,
 } from '../dist/contracts.js'
 import { withRoxabiGitHubPolicy } from '../roxabi/github-policy.ts'
@@ -70,6 +73,20 @@ function baseRefusal(selectedBase: Refusal): MachineResult {
   }
 }
 
+function selectedReviewIntegrity(history: DecodedHistory, summary: AcceptedSummary): MachineResult | null {
+  if (summary.value.reviewId === null) return null
+  const operation = selectedReviewOperation(history, summary.value)
+  if (operation?.record === null || operation === null)
+    return {
+      ok: false,
+      allowed: false,
+      reason: 'record-unreadable',
+      detail: 'selected review record has no readable native operation',
+    }
+  const refusal = recordIntegrity(operation.parts, operation.record)
+  return refusal === null ? null : { ok: false, allowed: false, reason: refusal.reason, detail: refusal.detail }
+}
+
 function reviewPolicy(args: Arguments, toolingRoot: string, gh: Gh) {
   return withRoxabiGitHubPolicy({ cwd: toolingRoot, automationLogin: args.automationLogin, gh })
 }
@@ -103,10 +120,12 @@ async function readInitialReview(args: Arguments, toolingRoot: string): Promise<
   const git = scopedGit(args.candidateCwd)
   const scope = githubScope(args.repository, args.pr)
   const taxonomy = canonicalTaxonomy(toolingRoot)
-  const history = await readGitHubHistory(scope, reviewPolicy(args, toolingRoot, gh))
-  const summary = summarizeReviews(decodeHistory(history), taxonomy, null)
+  const history = decodeHistory(await readGitHubHistory(scope, reviewPolicy(args, toolingRoot, gh)))
+  const summary = summarizeReviews(history, taxonomy, null)
   if (!summary.ok)
     return { refusal: { ok: false, allowed: false, reason: 'review-history-refused', detail: summary.diagnostics } }
+  const integrity = selectedReviewIntegrity(history, summary)
+  if (integrity !== null) return { refusal: integrity }
   const coordinates = currentHeadAndBase(
     await gh(toolingRoot, ['pr', 'view', String(args.pr), '--json', 'headRefOid,baseRefName,baseRefOid']),
   )
@@ -174,13 +193,16 @@ async function postAdmissionRefusal(
   mandateRead: Awaited<ReturnType<typeof landingMandate>>,
 ): Promise<MachineResult | null> {
   const refreshedHistory = await readGitHubHistory(context.scope, reviewPolicy(args, toolingRoot, context.gh))
-  const refreshed = summarizeReviews(decodeHistory(refreshedHistory), context.taxonomy, null)
+  const refreshedDecoded = decodeHistory(refreshedHistory)
+  const refreshed = summarizeReviews(refreshedDecoded, context.taxonomy, null)
   if (!refreshed.ok)
     return { ok: false, allowed: false, reason: 'review-history-refused', detail: refreshed.diagnostics }
+  const integrity = selectedReviewIntegrity(refreshedDecoded, refreshed)
+  if (integrity !== null) return integrity
   if (JSON.stringify(refreshed.value) !== JSON.stringify(context.summary.value))
     return { ok: false, allowed: false, reason: 'review-inputs-moved' }
   const state = deriveReviewState(
-    decodeHistory(refreshedHistory),
+    refreshedDecoded,
     {
       repository: args.repository,
       target: `${args.repository}#${args.pr}`,

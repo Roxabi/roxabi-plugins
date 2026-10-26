@@ -1,3 +1,4 @@
+import { recordIntegrity } from '../../dist/contracts.js'
 import {
   bindLandingBase,
   landingBaseBlocked,
@@ -9,9 +10,24 @@ import {
 import { approves, behindMessage, isBehind, isCommitSha, readGate, reviewBoundStopped } from './workflow-gate.js'
 import { currentLandingMandate, evidenceText } from './workflow-mandate.js'
 import { resolveLandingBase } from './workflow-readiness.js'
-import { requiredReviewRecords } from './workflow-records.js'
+import { requiredReviewAdmission } from './workflow-records.js'
 import { validateReviewInput } from './workflow-review-input.js'
 import { errorText } from './workflow-runtime.js'
+
+function reviewIntegrityRefusal(operation) {
+  if (operation?.record === null || operation === null)
+    return { reason: 'record-unreadable', detail: 'selected review record has no readable native operation' }
+  return recordIntegrity(operation.parts, operation.record)
+}
+
+function refusedReviewIntegrity(records, operation, state) {
+  const refusal = reviewIntegrityRefusal(operation)
+  if (refusal === null) return null
+  return {
+    terminal: landingExit({ ...landingRefused(records, refusal.reason), error: refusal.detail }, { policy: 'unarmed' }),
+    state,
+  }
+}
 export function knownLandingGate(gate, armedAuto, armedLabel) {
   if (!gate) return gate
   return {
@@ -141,7 +157,8 @@ export async function validateLandingCandidate(cwd, pr, gh, git, state) {
 }
 
 export async function refreshLandingAuthorization(cwd, pr, gh, git, state, retaining) {
-  const records = await requiredReviewRecords(cwd, pr, { gh })
+  const review = await requiredReviewAdmission(cwd, pr, { gh })
+  const { records, operation } = review
   const refreshed = { ...state, records }
   if (reviewBoundStopped(records)) {
     return { terminal: landingExit(landingRefused(records, 'review-bound'), { policy: 'unarmed' }), state: refreshed }
@@ -152,6 +169,8 @@ export async function refreshLandingAuthorization(cwd, pr, gh, git, state, retai
   if (!isCommitSha(records.head)) {
     return { terminal: landingExit(landingRefused(records, 'review-unbound'), { policy: 'unarmed' }), state: refreshed }
   }
+  const integrity = refusedReviewIntegrity(records, operation, refreshed)
+  if (integrity !== null) return integrity
   if (retaining && state.admitted !== undefined && records.head !== state.admitted) {
     return { terminal: landingExit(landingRefused(records, 'head-moved'), { policy: 'unarmed' }), state: refreshed }
   }
@@ -176,10 +195,13 @@ function initialLandingRefusal(pr, records, gate, opening) {
 export async function readInitialLanding(cwd, pr, gh, git, landing, requiredContexts, owner) {
   const gate = await readGate(cwd, pr, gh)
   if (owner) owner.gate = gate
-  const records = await requiredReviewRecords(cwd, pr, { gh })
+  const review = await requiredReviewAdmission(cwd, pr, { gh })
+  const { records, operation } = review
   const opening = { records, gate }
   const refused = initialLandingRefusal(pr, records, gate, opening)
   if (refused) return refused
+  const integrity = refusedReviewIntegrity(records, operation, opening)
+  if (integrity !== null) return integrity
   const prepared = await prepareInitialLanding(cwd, pr, gh, git, landing, requiredContexts, opening)
   if (prepared.terminal) return prepared
   return {

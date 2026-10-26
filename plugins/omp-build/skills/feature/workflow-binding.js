@@ -18,6 +18,8 @@ const MANDATE_REASONS = new Set([
   'incompatible',
   'unsafe',
   'materially-changed',
+  'record-edited',
+  'record-unreadable',
 ])
 
 export function mandateReason(reason) {

@@ -26,6 +26,11 @@ export declare function requiredReviewRecords(
   pr: number | string,
   options?: ReviewRecordOptions & { gh?: Gh },
 ): Promise<ReviewSummary>
+export declare function requiredReviewAdmission(
+  cwd: string,
+  pr: number | string,
+  options?: ReviewRecordOptions & { gh?: Gh },
+): Promise<{ records: ReviewSummary; operation: DecodedHistory['operations'][number] | null }>
 export declare function readComments(
   cwd: string,
   pr: number | string,

@@ -19,6 +19,8 @@ async function bundledLandingMandate() {
   if (
     typeof contracts.requireLandingMandate !== 'function' ||
     typeof contracts.readLandingFacts !== 'function' ||
+    typeof contracts.recordIntegrity !== 'function' ||
+    typeof contracts.recordOperation !== 'function' ||
     typeof contracts.specDigest !== 'function' ||
     typeof contracts.shippedProductVersion !== 'function'
   )
@@ -113,6 +115,41 @@ function landingMandateDecision(decision) {
   return { admitted: true, recordId: decision.recordId }
 }
 
+function nativeRecordIntegrity(contracts, histories, record) {
+  const operation = contracts.recordOperation(histories, record)
+  if (operation === null)
+    return {
+      reason: 'record-unreadable',
+      detail: `${record.kind} record ${record.recordId} has no readable native operation`,
+    }
+  return contracts.recordIntegrity(operation.parts, record)
+}
+
+function landingRecordIntegrity(contracts, facts, decision) {
+  const binding = nativeRecordIntegrity(contracts, facts.histories, facts.binding)
+  if (binding !== null) return binding
+  let mandate = decision.mandate
+  const seen = new Set()
+  while (true) {
+    if (seen.has(mandate.recordId))
+      return {
+        reason: 'record-unreadable',
+        detail: `mandate record ${mandate.recordId} has a cyclic admitted parent chain`,
+      }
+    seen.add(mandate.recordId)
+    const integrity = nativeRecordIntegrity(contracts, facts.histories, mandate)
+    if (integrity !== null) return integrity
+    const parent = mandate.payload.parent
+    if (parent === null) return null
+    const operation = contracts.recordOperation(facts.histories, { kind: 'mandate', ...parent })
+    if (operation?.record?.kind !== 'mandate')
+      return {
+        reason: 'record-unreadable',
+        detail: `mandate record ${parent.recordId} has no readable native operation`,
+      }
+    mandate = operation.record
+  }
+}
 export async function currentLandingMandate(cwd, pr, ghFn, native, gitFn = gitResult, gitCwd = cwd) {
   ensureNativeLandingCoordinates(native)
   const contracts = await bundledLandingMandate()
@@ -139,5 +176,9 @@ export async function currentLandingMandate(cwd, pr, ghFn, native, gitFn = gitRe
     current: { productVersion, ...config, ...spec },
     localInhibit: null,
   })
-  return landingMandateDecision(decision)
+  const admission = landingMandateDecision(decision)
+  if (!admission.admitted) return admission
+  const integrity = landingRecordIntegrity(contracts, facts, decision)
+  if (integrity !== null) return { admitted: false, reason: integrity.reason, evidence: integrity.detail }
+  return admission
 }

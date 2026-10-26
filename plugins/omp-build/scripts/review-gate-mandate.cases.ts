@@ -231,5 +231,40 @@ export function registerReviewGateMandateCases(): void {
       expect(JSON.parse(result.stdout)).toEqual({ ok: false, allowed: false, reason: 'review-state-wait' })
       expect(result.stderr).toBe('')
     })
+
+    it.each(['review', 'mandate', 'workflow-binding'] as const)('refuses an edited %s record', async (kind) => {
+      const fixture = setupReviewGateFixture()
+      await seedMandate(fixture)
+      publish(fixture, cleanReview(fixture.head, 'integrity', await boundInput(fixture)), 'SUCCESS')
+      const state = readState(fixture)
+      const comment =
+        kind === 'mandate'
+          ? state.issues['42']?.comments.find((entry) => entry.body.includes('kind=mandate '))
+          : state.comments.find((entry) => entry.body.includes(`kind=${kind} `))
+      if (!comment) throw new Error(`missing ${kind} fixture record`)
+      comment.updated_at = '2026-10-21T00:00:01Z'
+      writeState(fixture, state)
+
+      const result = runReviewGate(fixture)
+
+      expect(result.status).toBe(1)
+      expect(JSON.parse(result.stdout)).toMatchObject({ ok: false, allowed: false, reason: 'record-edited' })
+    })
+
+    it('refuses an approval with absent native revision metadata', async () => {
+      const fixture = setupReviewGateFixture()
+      await seedMandate(fixture)
+      publish(fixture, cleanReview(fixture.head, 'unreadable', await boundInput(fixture)), 'SUCCESS')
+      const state = readState(fixture)
+      const review = state.comments.find((comment) => comment.body.includes('kind=review '))
+      if (!review) throw new Error('missing review fixture record')
+      delete (review as Partial<typeof review>).updated_at
+      writeState(fixture, state)
+
+      const result = runReviewGate(fixture)
+
+      expect(result.status).toBe(1)
+      expect(JSON.parse(result.stdout)).toMatchObject({ ok: false, allowed: false, reason: 'record-unreadable' })
+    })
   })
 }

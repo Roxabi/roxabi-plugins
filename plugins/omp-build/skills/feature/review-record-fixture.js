@@ -111,7 +111,7 @@ export function linkedApproval(head = HEADS[0]) {
       body: framed(record),
       author: AUTHOR,
       createdAt: `2026-01-01T00:00:${String(index + 1).padStart(2, '0')}Z`,
-      updatedAt: null,
+      updatedAt: `2026-01-01T00:00:${String(index + 1).padStart(2, '0')}Z`,
     })),
   ].map((comment, index) => ({
     ...comment,
@@ -144,7 +144,7 @@ export function reviewHistory(specs) {
       body: framed(record),
       author: AUTHOR,
       createdAt: `2026-01-01T00:00:${String(index).padStart(2, '0')}Z`,
-      updatedAt: null,
+      updatedAt: `2026-01-01T00:00:${String(index).padStart(2, '0')}Z`,
     })),
   })
 }

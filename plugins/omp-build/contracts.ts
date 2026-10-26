@@ -2,6 +2,12 @@ import { Flag, is } from '@oh-my-pi/pi-ai/error/flags'
 
 export { decodeHistory, encodeRecord } from './adapters/github/history-codec.ts'
 export { publishGitHubRecord } from './adapters/github/publish.ts'
+export {
+  nativeInstant,
+  type RecordIntegrityRefusal,
+  recordIntegrity,
+  recordOperation,
+} from './adapters/github/record-integrity.ts'
 export { githubScope, readGitHubHistory } from './adapters/github/transport.ts'
 export { type Gh, GitHubHistoryReadError, type GitHubOptions } from './adapters/github/types.ts'
 export { readIssueParentAssociation, readLinkedIssueAssociation } from './adapters/github-workflow/associations.ts'
@@ -170,7 +176,7 @@ export {
   standardsRowSchema,
   stopSchema,
 } from './engine/review-schema.ts'
-export { deriveReviewState, summarizeReviews } from './engine/review-state.ts'
+export { deriveReviewState, selectedReviewOperation, summarizeReviews } from './engine/review-state.ts'
 export { resolveAcceptedSpec } from './engine/workflow-accepted-spec.ts'
 export type {
   AcceptedSpec,
