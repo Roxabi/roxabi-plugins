@@ -535,7 +535,7 @@ The workflow uses `pull_request_target` so GitHub selects its arming logic from 
 
 Every failed or skipped labeled-path admission has a final job-token cleanup, including App-token mint failure. It independently attempts native auto-merge disable and `reviewed` removal, then reads both back; failed writes or a remaining arm are errors. Cleanup never depends on the App token used by the reader. The job token therefore holds contents write: GitHub refuses `disablePullRequestAutoMerge` to a token with contents read, and an App-armed auto-merge then stays armed (observed 2026-10-25). Dependabot is eligible only for semver-minor or semver-patch updates whose every commit author is `dependabot[bot]`.
 
-The current tooling pin is `OMP_BUILD_TOOLING_SHA=2d9bd23eedb6a56d810af64271a1e4e72db87e29`, a `main` commit merged by [#890](https://github.com/Roxabi/roxabi-plugins/pull/890) that carries omp-build 0.11.5. Admission requires a mandate's `productVersion` to equal the pinned tooling version; otherwise it refuses with `config-drift`. Mandates published under another version are refused.
+The current tooling pin is `OMP_BUILD_TOOLING_SHA=73a38ec509b09129cd277d7fbee2e9f698c4b13b`, a `main` commit merged by [#911](https://github.com/Roxabi/roxabi-plugins/pull/911) that carries omp-build 0.11.6. Admission requires a mandate's `productVersion` to equal the pinned tooling version; otherwise it refuses with `config-drift`. Mandates published under another version are refused.
 
 After every merged omp-build version bump, the operator performs these two actions together:
 
