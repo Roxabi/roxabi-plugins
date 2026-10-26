@@ -72,7 +72,7 @@ jobs:
 
                 # Skip if an open drift issue already exists for this plugin
                 existing=$(gh issue list \
-                  --label "upstream-update" \
+                  --label "ci" \
                   --search "upstream drift: $plugin" \
                   --state open \
                   --json number \
@@ -114,9 +114,8 @@ jobs:
                 gh issue create \
                   --title "upstream drift: $plugin" \
                   --body "$BODY" \
-                  --label "upstream-update" \
-                  --repo "$GITHUB_REPOSITORY" \
-                || echo "  WARNING: failed to create issue for $plugin (label may not exist yet)"
+                  --label "ci" \
+                  --repo "$GITHUB_REPOSITORY"
               else
                 echo "  OK: $plugin is current ($current)"
               fi
@@ -162,7 +161,7 @@ jobs:
 
                 # Skip if an open drift issue already exists for this marketplace
                 existing=$(gh issue list \
-                  --label "upstream-update" \
+                  --label "ci" \
                   --search "upstream drift: $name" \
                   --state open \
                   --json number \
@@ -189,9 +188,8 @@ jobs:
           Review the upstream changelog. Once verified, update \`last_checked_commit\` in \`external-registry.json\`.
 
           > This issue was opened automatically by the Upstream Watch workflow. CI never auto-merges." \
-                  --label "upstream-update" \
-                  --repo "$GITHUB_REPOSITORY" \
-                || echo "  WARNING: failed to create issue for $name"
+                  --label "ci" \
+                  --repo "$GITHUB_REPOSITORY"
               else
                 echo "  OK: $name is current ($current)"
               fi
