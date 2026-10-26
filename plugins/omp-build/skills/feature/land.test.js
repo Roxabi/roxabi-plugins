@@ -49,6 +49,64 @@ describe('landing review authority', () => {
     expect(state).toEqual({ head: HEADS[0], label: false, auto: false })
   })
 
+  it('refuses landing when the retained review input changes', async () => {
+    const linked = linkedApproval(HEADS[0])
+    const { gh, git, state } = gateGh(linked.pr, { head: HEADS[0], armed: true, issueHistory: linked.issue })
+    const changedGh = async (cwd, args) => {
+      const output = await gh(cwd, args)
+      if (
+        (args[0] === 'pr' && args[1] === 'view' && String(args.at(-1)).includes('body')) ||
+        (args[0] === 'api' && args.includes('graphql') && args.some((arg) => String(arg).includes('lastEditedAt')))
+      ) {
+        const value = JSON.parse(output)
+        if (args[0] === 'pr') value.body = 'changed after review'
+        else value.data.repository.pullRequest.body = 'changed after review'
+        return JSON.stringify(value)
+      }
+      return output
+    }
+
+    await expect(
+      landPr('/tmp/wt', PR, {
+        gh: changedGh,
+        git,
+        requiredContexts: ['ci'],
+        landing: { mode: 'native', required_checks: ['ci'] },
+      }),
+    ).resolves.toMatchObject({ status: 'review-input-refused', reason: 'review-input-changed', disarmed: true })
+    expect(state).toEqual({ head: HEADS[0], label: false, auto: false })
+  })
+
+  it('reports a base refusal as base-blocked', async () => {
+    const linked = linkedApproval(HEADS[0])
+    const { gh, git, state } = gateGh(linked.pr, { head: HEADS[0], armed: true, issueHistory: linked.issue })
+    const refusingGit = async (cwd, args) =>
+      args[0] === 'fetch' ? { code: 1, stdout: '', stderr: 'base unavailable' } : git(cwd, args)
+
+    await expect(
+      landPr('/tmp/wt', PR, {
+        gh,
+        git: refusingGit,
+        requiredContexts: ['ci'],
+        landing: { mode: 'native', required_checks: ['ci'] },
+      }),
+    ).resolves.toMatchObject({ status: 'base-blocked', disarmed: true })
+    expect(state).toEqual({ head: HEADS[0], label: false, auto: false })
+  })
+
+  it('disarms a base read refusal without scheduling a review', async () => {
+    const linked = linkedApproval(HEADS[0])
+    const { gh, git, state } = gateGh(linked.pr, { head: HEADS[0], armed: true, issueHistory: linked.issue })
+    const refusingGit = async (cwd, args) =>
+      args[0] === 'fetch' ? { code: 1, stdout: '', stderr: 'base unavailable' } : git(cwd, args)
+
+    await expect(nextReviewStep('/tmp/wt', PR, { gh, git: refusingGit })).resolves.toMatchObject({
+      action: 'land',
+      disarmed: true,
+    })
+    expect(state).toEqual({ head: HEADS[0], label: false, auto: false })
+  })
+
   it('refuses landing without a workflow-binding (closed Spec alone is not landing authority)', async () => {
     const input = noProducerInput(HEADS[0])
     const history = reviewHistory([{ head: HEADS[0], verdict: 'Approve (clean)', input }])
@@ -120,13 +178,13 @@ describe('landing review authority', () => {
       }),
     ).resolves.toMatchObject({ status: 'auto-merge-failed', armed: false })
   })
-  it('lands when the head moves after proof-free admission', async () => {
+  it('lands when the head moves after landing admission', async () => {
     const linked = linkedApproval(HEADS[0])
     expect(linked.input).not.toBe(noProducerInput(HEADS[0]))
     const { gh, git, state } = gateGh(linked.pr, {
       head: HEADS[0],
       armed: true,
-      moveHeadAfterProofRead: HEADS[1],
+      moveHeadAfterInputRead: HEADS[1],
       issueHistory: linked.issue,
     })
     await expect(nextReviewStep('/tmp/wt', PR, { gh, git })).resolves.toMatchObject({
@@ -198,7 +256,7 @@ describe('non-Epic landing outcome', () => {
     })
   })
 
-  it('keeps a spent review bound and a revised proof as sticky stops', () => {
+  it('keeps a spent review bound and maps landing refusals to sticky stops', () => {
     expect(featureLandOutcome({ status: 'not-approved', reason: 'review-bound' })).toEqual({
       action: 'stop',
       claimMerged: false,
@@ -206,21 +264,19 @@ describe('non-Epic landing outcome', () => {
       reenter: 'none',
       reviewAgain: false,
     })
-    expect(
-      featureLandOutcome({
-        status: 'proof-blocked',
-        reason: 'unreadable',
-        producer: 'candidate',
-        error: 'the proof was revised after publication',
-      }),
-    ).toMatchObject({
+    expect(featureLandOutcome({ status: 'review-input-refused' })).toEqual({
       action: 'stop',
       claimMerged: false,
-      reason: 'proof-blocked',
-      reenter: 'acquire-then-review',
+      reason: 'review-input-refused',
+      reenter: 'same-head-review',
       bound: 'sticky',
-      producer: 'candidate',
-      proofReason: 'unreadable',
+    })
+    expect(featureLandOutcome({ status: 'base-blocked' })).toEqual({
+      action: 'stop',
+      claimMerged: false,
+      reason: 'base-blocked',
+      reenter: 'after-named-cause',
+      bound: 'sticky',
     })
   })
 

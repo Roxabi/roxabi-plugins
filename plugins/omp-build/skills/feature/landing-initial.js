@@ -11,7 +11,7 @@ import { approves, behindMessage, isBehind, isCommitSha, readGate, reviewBoundSt
 import { currentLandingMandate, evidenceText } from './workflow-mandate.js'
 import { resolveLandingBase } from './workflow-readiness.js'
 import { requiredReviewAdmission } from './workflow-records.js'
-import { validateReviewInput } from './workflow-review-input.js'
+import { validateLandingReviewInput } from './workflow-review-input.js'
 import { errorText } from './workflow-runtime.js'
 
 function reviewIntegrityRefusal(operation) {
@@ -143,7 +143,7 @@ export async function validateLandingCandidate(cwd, pr, gh, git, state) {
       state,
     }
   }
-  const reviewInput = await validateReviewInput(cwd, pr, state.records.head, state.records.input, { gh, git })
+  const reviewInput = await validateLandingReviewInput(cwd, pr, state.records.head, state.records.input, { gh, git })
   if (!reviewInput.ok) {
     return {
       terminal: landingExit(

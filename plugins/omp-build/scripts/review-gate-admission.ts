@@ -11,7 +11,7 @@ import {
 import { withRoxabiGitHubPolicy } from '../roxabi/github-policy.ts'
 import { type Gh, type Git, type Refusal, refreshReviewBase } from '../skills/feature/review-base.ts'
 import { currentLandingMandate, type LandingMandateRead } from '../skills/feature/workflow-mandate.js'
-import { validateReviewInput } from '../skills/feature/workflow-review-input.js'
+import { validateLandingReviewInput } from '../skills/feature/workflow-review-input.js'
 import {
   type Arguments,
   canonicalTaxonomy,
@@ -248,11 +248,17 @@ export async function admitReviewGate(args: Arguments, toolingRoot: string): Pro
     initial.baseTip,
   )
   if (mandateRead.mandate?.admitted) {
-    const reviewInput = await validateReviewInput(args.candidateCwd, args.pr, args.head, initial.summary.value.input, {
-      gh: initial.gh,
-      git: initial.git,
-      automationLogin: args.automationLogin,
-    })
+    const reviewInput = await validateLandingReviewInput(
+      args.candidateCwd,
+      args.pr,
+      args.head,
+      initial.summary.value.input,
+      {
+        gh: initial.gh,
+        git: initial.git,
+        automationLogin: args.automationLogin,
+      },
+    )
     if (!reviewInput.ok)
       return {
         ok: false,

@@ -62,18 +62,28 @@ export async function captureReviewInput(
   }
 }
 
-export async function validateReviewInput(cwd, pr, head, input, deps = {}) {
+async function validateInput(cwd, pr, head, input, deps, changed) {
   const { semantic: _stale, ...fresh } = deps
   const current = await captureReviewInput(cwd, pr, head, fresh)
   if (!current.ok) return current
-  if (current.input !== input)
-    return {
-      ok: false,
-      reason: 'unbound',
-      error:
-        'review inputs changed during review; do not post this approval or replace its binding — start a fresh review',
-    }
-  return { ok: true }
+  return current.input === input ? { ok: true } : changed
+}
+
+export async function validateReviewInput(cwd, pr, head, input, deps = {}) {
+  return validateInput(cwd, pr, head, input, deps, {
+    ok: false,
+    reason: 'unbound',
+    error:
+      'review inputs changed during review; do not post this approval or replace its binding — start a fresh review',
+  })
+}
+
+export async function validateLandingReviewInput(cwd, pr, head, input, deps = {}) {
+  return validateInput(cwd, pr, head, input, deps, {
+    ok: false,
+    reason: 'review-input-changed',
+    error: 'review inputs changed after review; re-review the current head before landing',
+  })
 }
 
 export async function hasFreshReviewInput(cwd, pr, records, deps = {}) {

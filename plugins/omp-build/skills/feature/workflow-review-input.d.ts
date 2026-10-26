@@ -35,6 +35,14 @@ export declare function validateReviewInput(
   input: string | null,
   deps?: Omit<ReviewInputDeps, 'semantic'>,
 ): Promise<{ ok: true } | Refusal>
+/** Refuse changed inputs at landing; the current head requires a fresh review. */
+export declare function validateLandingReviewInput(
+  cwd: string,
+  pr: number | string,
+  head: string,
+  input: string | null,
+  deps?: Omit<ReviewInputDeps, 'semantic'>,
+): Promise<{ ok: true } | Refusal>
 
 export declare function hasFreshReviewInput(
   cwd: string,

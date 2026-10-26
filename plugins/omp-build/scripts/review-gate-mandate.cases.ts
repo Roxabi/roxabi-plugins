@@ -155,7 +155,7 @@ export function registerReviewGateMandateCases(): void {
       expect(JSON.parse(result.stdout)).toMatchObject({ ok: false, allowed: false, reason: 'missing' })
     })
 
-    it('refuses a stored null review input when no producer applies', async () => {
+    it('refuses a stored null review input at landing', async () => {
       const fixture = setupReviewGateFixture()
       await seedMandate(fixture)
       publish(fixture, cleanReview(fixture.head, 'one'), 'SUCCESS')
@@ -165,7 +165,7 @@ export function registerReviewGateMandateCases(): void {
       expect(result.status).toBe(1)
       expect(JSON.parse(result.stdout)).toMatchObject({
         allowed: false,
-        reason: 'unbound',
+        reason: 'review-input-changed',
         detail: { error: expect.any(String) },
       })
     })
@@ -202,7 +202,7 @@ export function registerReviewGateMandateCases(): void {
       },
     )
 
-    it('refuses the same head after the accepted Spec changes', async () => {
+    it('requires a fresh review when the accepted Spec changes at the same head', async () => {
       const fixture = setupReviewGateFixture()
       await seedMandate(fixture)
       const input = await boundInput(fixture)
@@ -214,7 +214,7 @@ export function registerReviewGateMandateCases(): void {
       expect(result.status).toBe(1)
       expect(JSON.parse(result.stdout)).toMatchObject({
         allowed: false,
-        reason: 'unbound',
+        reason: 'review-input-changed',
         detail: { error: expect.any(String) },
       })
     })

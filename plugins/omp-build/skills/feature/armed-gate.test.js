@@ -58,13 +58,13 @@ describe('durable review stop', () => {
     })
   })
 
-  it('leaves the watcher arm unchanged when the head moves after proof-free admission', async () => {
+  it('leaves the watcher arm unchanged when the head moves after landing admission', async () => {
     const linked = linkedApproval(HEADS[0])
     expect(linked.input).not.toBe(noProducerInput(HEADS[0]))
     const { gh, git, state } = gateGh(linked.pr, {
       head: HEADS[0],
       armed: true,
-      moveHeadAfterProofRead: HEADS[1],
+      moveHeadAfterInputRead: HEADS[1],
       issueHistory: linked.issue,
     })
     await expect(applyCiWatchExit('/tmp/wt', PR, 5, { gh, git })).resolves.toMatchObject({

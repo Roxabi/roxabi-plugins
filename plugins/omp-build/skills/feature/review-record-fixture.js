@@ -164,7 +164,7 @@ export function historyPage(history) {
 /** Stateful common-adapter/GitHub boundary for workflow gate tests. */
 export function gateGh(
   history,
-  { head = HEADS[0], armed = true, moveHeadAfterProofRead = null, issueHistory = null } = {},
+  { head = HEADS[0], armed = true, moveHeadAfterInputRead = null, issueHistory = null } = {},
 ) {
   const calls = []
   const state = { head, label: armed, auto: armed }
@@ -178,7 +178,7 @@ export function gateGh(
   }
   return {
     gh: createGateGh({ history, issueHistory, state, calls, fixture, historyPage }),
-    git: createGateGit({ state, moveHeadAfterProofRead, heads: HEADS }),
+    git: createGateGit({ state, moveHeadAfterInputRead, heads: HEADS }),
     state,
     calls,
   }

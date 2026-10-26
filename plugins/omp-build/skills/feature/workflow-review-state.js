@@ -9,6 +9,7 @@ import {
   reviewBoundStopped,
 } from './workflow-gate.js'
 import { resolveReviewPr } from './workflow-pr.js'
+import { resolveLandingBase } from './workflow-readiness.js'
 import {
   readReviewHistory,
   requiredReviewRecords,
@@ -95,6 +96,8 @@ export async function persistObservedCiStop(cwd, pr, { gh: ghFn = gh } = {}) {
 }
 
 async function stableArmReview(cwd, number, records, gate, ciFailed, ghFn, gitFn) {
+  const base = await resolveLandingBase(cwd, number, ghFn, gitFn)
+  if (base.refusal) return { policy: 'unarmed' }
   const inputFresh = await hasFreshReviewInput(cwd, number, records, { gh: ghFn, git: gitFn })
   const lastHead = await readHeadRefOid(cwd, number, ghFn)
   const currentGate = { ...gate, headRefOid: lastHead }

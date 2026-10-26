@@ -21,7 +21,7 @@ export async function readLandingFields(cwd, pr, gh, fields) {
 }
 
 export function landingBaseBlocked(reason, error) {
-  return landingExit({ status: 'proof-blocked', producer: 'candidate', reason, error }, { policy: 'unarmed' })
+  return landingExit({ status: 'base-blocked', reason, error }, { policy: 'unarmed' })
 }
 
 export async function mergeParents(cwd, pr, gh, git) {
