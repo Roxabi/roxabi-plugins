@@ -124,9 +124,9 @@ picks one up sets the tier first — `/issue-triage set <n> --size <tier>` — b
   `dependencies` + its exact title; each failing run comments on it, and the next
   run on its ref that delivers its result (clean, or filed) closes it. Keep those
   labels and titles: a relabelled or renamed issue gets a duplicate on the next run.
-- `.github/workflows/upstream-watch.yml` is meant to file drift issues, but files
-  none today: its `upstream-update` label does not exist, and the failure is masked
-  behind a green run (#649).
+- `.github/workflows/upstream-watch.yml` files one issue per drift, labeled `ci`
+  and deduplicated by that label plus its exact title. A filing failure fails the
+  workflow so missed drift cannot be reported green.
 
 ## When a skill says "publish to the issue tracker"
 
@@ -154,7 +154,7 @@ requests.
 ## Labels in use
 
 Type: `bug` `enhancement` `feature` `refactor` `docs` `documentation` `chore`
-`research` `test`
+`ci` `research` `test`
 Area: `dev-core` `marketplace` `forge` `backend` `frontend` `api` `infra`
 `design` `init` `review` `dependencies` `javascript` `github_actions` `security`
 (`security`: a human triage label, and the dedup key of dependency-audit's finding
