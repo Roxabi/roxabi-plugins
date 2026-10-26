@@ -73,7 +73,17 @@ export interface Ignore {
 }
 
 /** Accepted advisories. Each entry names why and when it goes; a stale entry is reported. */
-export const IGNORED: readonly Ignore[] = []
+export const IGNORED: readonly Ignore[] = [
+  {
+    ghsa: 'GHSA-mrhx-c7xc-m3w5',
+    package: 'zod',
+    severity: 'high',
+    reason:
+      'Dev-only @oh-my-pi/pi-coding-agent pins puppeteer-core 25.3.0, which pins chromium-bidi 16.0.1 and its zod ^3.24.1 range excludes the fixed major.',
+    removeWhen:
+      '@oh-my-pi/pi-coding-agent releases a version whose puppeteer-core chain permits chromium-bidi with zod >=4.6.6.',
+  },
+]
 
 export class AuditOutputError extends Error {}
 
