@@ -124,9 +124,10 @@ picks one up sets the tier first — `/issue-triage set <n> --size <tier>` — b
   `dependencies` + its exact title; each failing run comments on it, and the next
   run on its ref that delivers its result (clean, or filed) closes it. Keep those
   labels and titles: a relabelled or renamed issue gets a duplicate on the next run.
-- `.github/workflows/upstream-watch.yml` files one issue per drift, labeled `ci`
-  and deduplicated by that label plus its exact title. A filing failure fails the
-  workflow so missed drift cannot be reported green.
+- `.github/workflows/upstream-watch.yml` files or refreshes one `ci` issue per watched-entry
+  drift. It identifies the issue by its stable `<!-- upstream-watch: <entry> -->` body marker;
+  API, upstream, truncation, or filing failures fail the workflow so missed drift cannot report
+  green.
 
 ## When a skill says "publish to the issue tracker"
 

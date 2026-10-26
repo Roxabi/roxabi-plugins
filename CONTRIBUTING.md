@@ -97,6 +97,12 @@ For an active entry:
    dated factual reason and remove it from the active mirror.
 4. Keep the README's active external table aligned with the mirror by name and source.
 
+The curation registry is not an install inventory. Upstream Watch monitors only entries with a
+`watched_paths` declaration, for omp-build dependencies. To watch another skill, append its
+upstream relative path to that entry's `watched_paths` list; paths are prefix-matched. A drift
+issue identifies the changed watched paths and compare link, then asks the reviewer to review the
+change and bump that entry's `last_checked_commit`.
+
 Historical wrapping and subtree procedures are retained only in
 [archived/docs/legacy-plugin-authoring.md](archived/docs/legacy-plugin-authoring.md); they are not
 part of the current contributor path.

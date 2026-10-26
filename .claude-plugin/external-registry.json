@@ -8,6 +8,7 @@
       "added": "ISO date (YYYY-MM-DD)",
       "last_checked_commit": "HEAD SHA at last CI check (HEAD — no branch tracking unless upstream_branch set)",
       "upstream_branch": "(optional) branch to check instead of HEAD, e.g. main",
+      "watched_paths": "(optional) explicit upstream path prefixes consumed by omp-build; entries without it are not watched",
       "criteria_met": "array: marketplace_json | install_mechanism | maintained_90d | quality_content | lt50pct_overlap",
       "status": "active | deprecated",
       "notes": "free text"
@@ -144,6 +145,7 @@
       "added": "2026-05-20",
       "last_checked_commit": "b8be62ffacb0118fa3eaa29a0923c87c8c11985c",
       "upstream_branch": "main",
+      "watched_paths": ["skills/productivity/grilling"],
       "criteria_met": ["marketplace_json", "install_mechanism", "maintained_90d", "quality_content", "lt50pct_overlap"],
       "status": "active",
       "notes": "Community. Upstream ships a marketplace at .claude-plugin/marketplace.json. 14 skills across productivity (caveman, grill-me, handoff, write-a-skill) and engineering (diagnose, grill-with-docs, triage, improve-codebase-architecture, setup-matt-pocock-skills, tdd, to-issues, to-prd, zoom-out, prototype). MIT. By Matt Pocock. Promoted from wrapped 2026-05-20; users install it directly."

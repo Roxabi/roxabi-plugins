@@ -384,6 +384,21 @@ def _active_marketplace_projection(
         if statuses and status not in {'active', 'deprecated'}:
             errors.append(f'{row_label}: marketplace status must be active or deprecated')
             continue
+        if statuses and 'watched_paths' in row:
+            watched_paths = row['watched_paths']
+            if (
+                not isinstance(watched_paths, list)
+                or not watched_paths
+                or any(
+                    not isinstance(path, str)
+                    or not re.fullmatch(r'[A-Za-z0-9._/-]+', path)
+                    or path.startswith('/')
+                    or path.endswith('/')
+                    for path in watched_paths
+                )
+            ):
+                errors.append(f'{row_label}: watched_paths must be non-empty relative path prefixes')
+                continue
         if name in names:
             errors.append(f'{row_label}: duplicate marketplace name {name!r} (already used by {names[name]!r})')
             continue
