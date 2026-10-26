@@ -17,6 +17,7 @@ function fixtureEnv(): NodeJS.ProcessEnv {
     ...Object.fromEntries(
       Object.entries(process.env).filter(([name]) => !name.startsWith('GIT_') && name !== 'GH_REPO'),
     ),
+    GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL,
     GIT_CONFIG_SYSTEM: '/dev/null',
     GIT_AUTHOR_NAME: 'Fixture',
     GIT_AUTHOR_EMAIL: 'fixture@example.com',
