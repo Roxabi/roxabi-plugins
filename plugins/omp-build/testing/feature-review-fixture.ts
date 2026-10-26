@@ -1,8 +1,7 @@
 import path from 'node:path'
-
-import { git, sandbox, writeSim } from '../skills/feature/__fixtures__/proof/sandbox-repository.ts'
-import type { Box } from '../skills/feature/__fixtures__/proof/sandbox-types.ts'
 import { roxabiWorkflowFixtures } from './roxabi-presets.ts'
+import { git, sandbox, writeSim } from './sandbox/sandbox-repository.ts'
+import type { Box } from './sandbox/sandbox-types.ts'
 
 export const REVIEW_SCOPE = { repository: 'acme/app', target: 'acme/app#42' }
 export const REVIEW_BRANCH = 'feat/42-save'

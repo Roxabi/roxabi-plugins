@@ -4,16 +4,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { decodeHistory } from '../adapters/github/history-codec.ts'
-import {
-  git,
-  readSim,
-  sandbox,
-  WORKFLOW,
-  worktree,
-  writeSim,
-} from '../skills/feature/__fixtures__/proof/sandbox-repository.ts'
-import type { Box } from '../skills/feature/__fixtures__/proof/sandbox-types.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
+import { git, readSim, sandbox, WORKFLOW, worktree, writeSim } from '../testing/sandbox/sandbox-repository.ts'
+import type { Box } from '../testing/sandbox/sandbox-types.ts'
 
 const RUNNER = path.resolve(import.meta.dirname, '../testing/feature-recovery-runner.ts')
 const BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()

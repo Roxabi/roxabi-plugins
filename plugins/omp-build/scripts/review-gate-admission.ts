@@ -9,8 +9,7 @@ import {
   summarizeReviews,
 } from '../dist/contracts.js'
 import { withRoxabiGitHubPolicy } from '../roxabi/github-policy.ts'
-import type { Gh, Git, Refusal } from '../skills/feature/proof-base.ts'
-import { refreshSelectedBase } from '../skills/feature/proof-candidate.ts'
+import { type Gh, type Git, type Refusal, refreshReviewBase } from '../skills/feature/review-base.ts'
 import { currentLandingMandate, type LandingMandateRead } from '../skills/feature/workflow-mandate.js'
 import { validateReviewInput } from '../skills/feature/workflow-review-input.js'
 import {
@@ -69,7 +68,7 @@ function baseRefusal(selectedBase: Refusal): MachineResult {
     ok: false,
     allowed: false,
     reason: 'base-unreadable',
-    detail: { producer: selectedBase.producer, reason: selectedBase.reason, error: selectedBase.error },
+    detail: { reason: selectedBase.reason, error: selectedBase.error },
   }
 }
 
@@ -131,7 +130,7 @@ async function readInitialReview(args: Arguments, toolingRoot: string): Promise<
   )
   if (coordinates.head !== args.head) return { refusal: { ok: false, allowed: false, reason: 'current-head-mismatch' } }
   void coordinates.recordedBaseOid
-  const selectedBase = await refreshSelectedBase(args.candidateCwd, coordinates.baseName, git, gh)
+  const selectedBase = await refreshReviewBase(args.candidateCwd, coordinates.baseName, git, gh)
   if (!selectedBase.ok) return { refusal: baseRefusal(selectedBase) }
   return { gh, git, scope, taxonomy, summary, coordinates, baseTip: selectedBase.tip }
 }
@@ -219,7 +218,7 @@ async function postAdmissionRefusal(
   if (fresh.head !== args.head || fresh.baseName !== context.coordinates.baseName)
     return { ok: false, allowed: false, reason: 'pr-coordinates-moved' }
   void fresh.recordedBaseOid
-  const freshBase = await refreshSelectedBase(args.candidateCwd, fresh.baseName, context.git, context.gh)
+  const freshBase = await refreshReviewBase(args.candidateCwd, fresh.baseName, context.git, context.gh)
   if (!freshBase.ok) return baseRefusal(freshBase)
   if (freshBase.tip !== context.baseTip) return { ok: false, allowed: false, reason: 'pr-coordinates-moved' }
   const refusal = reviewStateRefusal(state, refreshed, args, ci, mandateRead)
@@ -259,7 +258,7 @@ export async function admitReviewGate(args: Arguments, toolingRoot: string): Pro
         ok: false,
         allowed: false,
         reason: reviewInput.reason,
-        detail: { producer: reviewInput.producer, error: reviewInput.error },
+        detail: { error: reviewInput.error },
       }
   }
   const ci = await ciState(toolingRoot, initial.gh, args.pr)

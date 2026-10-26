@@ -1,5 +1,5 @@
 import type { Json } from '../../contracts.ts'
-import type { Gh, Git } from './proof-base.ts'
+import type { Gh, Git } from './review-base.ts'
 
 /** Exact JS-leaf return; callers that expose a landing mandate publicly use the canonical contracts.ts decision. */
 export type LandingMandateRead =

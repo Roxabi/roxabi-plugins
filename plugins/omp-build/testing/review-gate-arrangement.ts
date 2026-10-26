@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { hashReviewInput } from '../skills/feature/proof-context-hash.ts'
+import { hashReviewInput } from '../skills/feature/review-input.ts'
 import { confirmedReviewSemanticContext } from '../skills/feature/workflow-review-input.js'
 import { git, type ReviewGateFixture, readState, writeState } from './review-gate-fixture.ts'
 import { AUTOMATION, type IssueState, PR_EDITED, PR_TEXT, SCOPE, type StoredComment } from './review-gate-gh.ts'

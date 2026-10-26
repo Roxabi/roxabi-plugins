@@ -1,5 +1,5 @@
 import type { ReviewSummary } from '../../contracts.ts'
-import type { Gh, Git } from './proof-base.ts'
+import type { Gh, Git } from './review-base.ts'
 
 export type ReviewStep =
   | { action: 'review'; reviews: number; reason: 'no-review' | 'head-moved' | 'no-verdict' | 'review-input-changed' }

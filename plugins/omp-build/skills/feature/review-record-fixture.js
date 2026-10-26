@@ -1,9 +1,9 @@
 import { decodeHistory, buildRecord as frameRecord } from '../../dist/contracts.js'
 import { specDigest } from '../../engine/record-digests.ts'
+import { confirmedReviewSemanticContext } from '../../roxabi/review-semantic-canon.ts'
 import { reviewGraph } from '../../testing/record-graphs.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
-import { proofSemanticContext } from './proof-context.ts'
-import { hashReviewInput } from './proof-context-hash.ts'
+import { hashReviewInput } from './review-input.ts'
 import { createGateGit } from './review-record-git-fixture.js'
 import { createGateGh } from './review-record-github-fixture.js'
 
@@ -42,7 +42,7 @@ function framed(record) {
 
 /** No-producer canon: empty PR body, no tracker, null producer parts. */
 export function noProducerInput(head, pr = PR) {
-  const semantic = proofSemanticContext({
+  const semantic = confirmedReviewSemanticContext({
     mode: 'standalone',
     binding: null,
     acceptedSpec: null,
@@ -68,7 +68,7 @@ function mandateRecord(head) {
 function linkedInput(head, mandate, binding) {
   const config = mandate.payload.config
   const digest = specDigest(SPEC)
-  const semantic = proofSemanticContext({
+  const semantic = confirmedReviewSemanticContext({
     mode: 'bound',
     binding: { recordId: binding.recordId, scope: ISSUE_SCOPE },
     acceptedSpec: {

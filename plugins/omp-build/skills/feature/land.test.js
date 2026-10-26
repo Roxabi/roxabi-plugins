@@ -210,7 +210,7 @@ describe('non-Epic landing outcome', () => {
       featureLandOutcome({
         status: 'proof-blocked',
         reason: 'unreadable',
-        producer: 'semctx',
+        producer: 'candidate',
         error: 'the proof was revised after publication',
       }),
     ).toMatchObject({
@@ -219,7 +219,7 @@ describe('non-Epic landing outcome', () => {
       reason: 'proof-blocked',
       reenter: 'acquire-then-review',
       bound: 'sticky',
-      producer: 'semctx',
+      producer: 'candidate',
       proofReason: 'unreadable',
     })
   })

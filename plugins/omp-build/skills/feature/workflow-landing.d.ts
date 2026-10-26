@@ -1,4 +1,4 @@
-import type { Gh, Git } from './proof-base.ts'
+import type { Gh, Git } from './review-base.ts'
 import type { LandingConfig, LandingMode } from './workflow-readiness.js'
 
 export type LandingResult = {

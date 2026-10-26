@@ -4,9 +4,8 @@
  */
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import { proofSemanticContext } from './proof-context'
-import { hashReviewInput } from './proof-context-hash'
-import { reviewSemanticCanon } from './proof-semantic-canon'
+import { confirmedReviewSemanticContext, reviewSemanticCanon } from '../../roxabi/review-semantic-canon'
+import { hashReviewInput } from './review-input'
 
 function digest(body: string): string {
   return createHash('sha256').update(body, 'utf8').digest('hex')
@@ -21,7 +20,7 @@ describe('reviewSemanticCanon', () => {
   })
 
   it('encodes a discovered spec as raw reference, body, and digest', () => {
-    const projected = proofSemanticContext({
+    const projected = confirmedReviewSemanticContext({
       mode: 'standalone',
       binding: null,
       acceptedSpec: null,
@@ -39,7 +38,7 @@ describe('reviewSemanticCanon', () => {
 
   it('refuses a missing digest instead of inventing one', () => {
     expect(
-      proofSemanticContext({
+      confirmedReviewSemanticContext({
         mode: 'standalone',
         binding: null,
         acceptedSpec: null,
@@ -51,7 +50,7 @@ describe('reviewSemanticCanon', () => {
 
   it('refuses a chain item presented as a source ref', () => {
     expect(
-      proofSemanticContext({
+      confirmedReviewSemanticContext({
         mode: 'bound',
         binding: { recordId: 'bind-1', scope: { repository: 'acme/app', target: 'acme/app#12' } },
         acceptedSpec: {
@@ -82,7 +81,7 @@ describe('reviewSemanticCanon', () => {
   })
 
   it('places the accepted body and requirements as raw strings, and source refs as identity tuples', () => {
-    const projected = proofSemanticContext({
+    const projected = confirmedReviewSemanticContext({
       mode: 'bound',
       binding: { recordId: 'bind-1', scope: { repository: 'acme/app', target: 'acme/app#12' } },
       acceptedSpec: {
@@ -129,7 +128,7 @@ describe('reviewSemanticCanon', () => {
       { body: 'pr body', lastEditedAt: null },
       projected,
     )
-    const changed = proofSemanticContext({
+    const changed = confirmedReviewSemanticContext({
       mode: 'bound',
       binding: { recordId: 'bind-1', scope: { repository: 'acme/app', target: 'acme/app#12' } },
       acceptedSpec: {
@@ -163,7 +162,7 @@ describe('no-producer semantic binding', () => {
   const prBody = { body: 'pr body', lastEditedAt: null as string | null }
 
   function bound(spec: string, serialized: string) {
-    const projected = proofSemanticContext({
+    const projected = confirmedReviewSemanticContext({
       mode: 'bound',
       binding: { recordId: 'bind-1', scope: { repository, target: `${repository}#7` } },
       acceptedSpec: {

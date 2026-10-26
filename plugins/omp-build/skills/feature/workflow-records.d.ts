@@ -1,5 +1,5 @@
 import type { DecodedHistory, Result, ReviewSummary, Scope } from '../../contracts.ts'
-import type { Gh } from './proof-base.ts'
+import type { Gh } from './review-base.ts'
 
 export type ReviewRecordOptions = { taxonomy?: readonly string[]; acceptedEvidencePolicyRef?: string | null }
 export type ReviewComment = {

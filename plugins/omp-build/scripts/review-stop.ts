@@ -15,7 +15,7 @@ import {
 import { ROXABI_STOP_AUTHOR, withRoxabiGitHubPolicy } from '../roxabi/github-policy.ts'
 import type { ReviewContext } from '../roxabi/review-contract.ts'
 import { persistRequiredReviewStop } from '../roxabi/review-dispatch.ts'
-import type { Gh } from '../skills/feature/proof-base.ts'
+import type { Gh } from '../skills/feature/review-base.ts'
 
 const SHA = /^[0-9a-f]{40}$/
 const STOP_AUTHOR = ROXABI_STOP_AUTHOR

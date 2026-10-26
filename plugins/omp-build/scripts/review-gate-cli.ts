@@ -1,7 +1,7 @@
 import { readFileSync, realpathSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
 
-import type { Gh, Git } from '../skills/feature/proof-base.ts'
+import type { Gh, Git } from '../skills/feature/review-base.ts'
 
 export type Arguments = {
   repository: string

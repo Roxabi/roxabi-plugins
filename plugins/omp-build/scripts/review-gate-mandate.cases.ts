@@ -2,16 +2,6 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
-  attachBareOriginAtBase,
-  postCalls,
-  publish,
-  readState,
-  runReviewGate,
-  setupReviewGateFixture,
-  writeState,
-} from '../testing/review-gate-fixture.ts'
-import { PR_EDITED } from '../testing/review-gate-gh.ts'
-import {
   advanceOriginNormativeStack,
   boundInput,
   cleanReview,
@@ -21,7 +11,17 @@ import {
   seedMandate,
   setMandateIssue,
   standaloneNoProducerInput,
-} from '../testing/review-gate-proof-arrangement.ts'
+} from '../testing/review-gate-arrangement.ts'
+import {
+  attachBareOriginAtBase,
+  postCalls,
+  publish,
+  readState,
+  runReviewGate,
+  setupReviewGateFixture,
+  writeState,
+} from '../testing/review-gate-fixture.ts'
+import { PR_EDITED } from '../testing/review-gate-gh.ts'
 
 export function registerReviewGateMandateCases(): void {
   describe('review-gate CLI mandate and binding', () => {
@@ -166,7 +166,7 @@ export function registerReviewGateMandateCases(): void {
       expect(JSON.parse(result.stdout)).toMatchObject({
         allowed: false,
         reason: 'unbound',
-        detail: { producer: 'candidate' },
+        detail: { error: expect.any(String) },
       })
     })
 
@@ -215,7 +215,7 @@ export function registerReviewGateMandateCases(): void {
       expect(JSON.parse(result.stdout)).toMatchObject({
         allowed: false,
         reason: 'unbound',
-        detail: { producer: 'candidate' },
+        detail: { error: expect.any(String) },
       })
     })
 

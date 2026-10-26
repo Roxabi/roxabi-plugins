@@ -1,6 +1,7 @@
 import { writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { approvals, capturedCiFailure, cleanReview } from '../testing/review-gate-arrangement.ts'
 import {
   git,
   postCalls,
@@ -13,7 +14,6 @@ import {
   writeState,
 } from '../testing/review-gate-fixture.ts'
 import { AUTOMATION, STOP_BOT } from '../testing/review-gate-gh.ts'
-import { approvals, capturedCiFailure, cleanReview } from '../testing/review-gate-proof-arrangement.ts'
 
 export function registerReviewGateRefusalCases(): void {
   describe('review-gate CLI refusals and persistent stops', () => {

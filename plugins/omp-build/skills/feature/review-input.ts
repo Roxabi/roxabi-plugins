@@ -1,14 +1,11 @@
-import { resolveReviewSemanticContext } from '../../roxabi/review-semantic-context'
-import { type Gh, isMap, isRecord, jsonField, type Refusal, refuse, repositoryOf } from './proof-base'
+import { createHash } from 'node:crypto'
 import {
-  type Deps,
-  type PrBody,
-  type ProofSemanticContext,
-  proofSemanticContext,
-  type ReviewSnapshot,
-} from './proof-context'
-import { hashReviewInput } from './proof-context-hash'
-import type { Target } from './proof-review-contract'
+  type ConfirmedReviewSemanticContext,
+  confirmedReviewSemanticContext,
+  reviewSemanticCanon,
+} from '../../roxabi/review-semantic-canon'
+import { resolveReviewSemanticContext } from '../../roxabi/review-semantic-context'
+import { type Gh, isMap, jsonField, type Refusal, refuse, repositoryOf } from './review-base'
 
 const PR_BODY = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
@@ -16,8 +13,42 @@ const PR_BODY = `query($owner: String!, $name: String!, $number: Int!) {
   }
 }`
 
+export type ReviewPrBody = { body: string; lastEditedAt: string | null }
+export type ReviewTarget = {
+  pr: number
+  candidate: string
+  base: string | undefined
+  baseTip: string
+  reviewedAt: string | null
+  reviewInput: string | null
+}
+export type ReviewInputDeps = {
+  gh: Gh
+  automationLogin?: string
+  semantic?: ConfirmedReviewSemanticContext
+}
+export type ReviewInputCapture = { ok: true; input: string | null; body: ReviewPrBody | null } | Refusal
+
+/** Exact observed review inputs and the shared semantic canon. */
+export function hashReviewInput(
+  repository: string,
+  target: Pick<ReviewTarget, 'pr' | 'candidate'>,
+  body: ReviewPrBody,
+  semantic: ConfirmedReviewSemanticContext,
+): string {
+  const bytes = JSON.stringify([
+    'omp-build:review-input/3',
+    repository,
+    target.pr,
+    target.candidate,
+    [body.body, body.lastEditedAt],
+    reviewSemanticCanon(semantic),
+  ])
+  return createHash('sha256').update(bytes, 'utf8').digest('hex')
+}
+
 /** Current body and native edit metadata from one response, without tightening the existing date policy. */
-export async function readPrBody(cwd: string, pr: number, gh: Gh, repository: string): Promise<PrBody> {
+export async function readPrBody(cwd: string, pr: number, gh: Gh, repository: string): Promise<ReviewPrBody> {
   const [owner, name] = repository.split('/')
   const raw = await gh(cwd, [
     'api',
@@ -45,37 +76,32 @@ export async function readPrBody(cwd: string, pr: number, gh: Gh, repository: st
   return { body, lastEditedAt: edited }
 }
 
-export async function pullRequestBranch(
-  cwd: string,
-  pr: number,
-  gh: Gh,
-  repository: string,
-): Promise<string | Refusal> {
+async function pullRequestBranch(cwd: string, pr: number, gh: Gh, repository: string): Promise<string | Refusal> {
   const raw = await gh(cwd, ['pr', 'view', String(pr), '--repo', repository, '--json', 'headRefName'])
   let parsed: unknown
   try {
     parsed = JSON.parse(raw)
   } catch {
-    return refuse('candidate', 'unreadable', `PR #${pr} branch could not be read`)
+    return refuse('unreadable', `PR #${pr} branch could not be read`)
   }
-  if (!isRecord(parsed) || typeof parsed.headRefName !== 'string' || parsed.headRefName.length === 0) {
-    return refuse('candidate', 'unreadable', `PR #${pr} has no head branch`)
+  if (!isMap(parsed) || typeof parsed.headRefName !== 'string' || parsed.headRefName.length === 0) {
+    return refuse('unreadable', `PR #${pr} has no head branch`)
   }
   return parsed.headRefName
 }
 
-export async function loadSemantic(
+async function loadSemantic(
   cwd: string,
-  target: Pick<Target, 'pr' | 'base'>,
-  deps: Deps,
+  target: Pick<ReviewTarget, 'pr' | 'base'>,
+  deps: ReviewInputDeps,
   repository: string,
   body: string,
-): Promise<ProofSemanticContext | Refusal> {
+): Promise<ConfirmedReviewSemanticContext | Refusal> {
   if (deps.semantic) return deps.semantic
   const branch = await pullRequestBranch(cwd, target.pr, deps.gh, repository)
   if (typeof branch !== 'string') return branch
   if (target.base === undefined || target.base.length === 0) {
-    return refuse('candidate', 'unreadable', `PR #${target.pr} has no base branch`)
+    return refuse('unreadable', `PR #${target.pr} has no base branch`)
   }
   const resolved = await resolveReviewSemanticContext({
     cwd,
@@ -91,30 +117,20 @@ export async function loadSemantic(
     const diagnostic = resolved.diagnostics[0]
     const code = typeof diagnostic?.code === 'string' ? diagnostic.code : ''
     const message = typeof diagnostic?.message === 'string' ? diagnostic.message : ''
-    return refuse(
-      'candidate',
-      code.endsWith('unreadable') ? 'unreadable' : 'unbound',
-      message.length > 0 ? message : 'review semantic context refused',
-    )
+    return refuse(code.endsWith('unreadable') ? 'unreadable' : 'unbound', message || 'review semantic context refused')
   }
-  return proofSemanticContext(resolved.value)
+  return confirmedReviewSemanticContext(resolved.value)
 }
-
-export type CaptureReviewInput = ReviewSnapshot | Refusal
 
 /** Capture the current review input without reading producer configuration or history. */
 export async function captureReviewInput(
   cwd: string,
-  target: Pick<Target, 'pr' | 'candidate' | 'base' | 'baseTip'>,
-  deps: Deps,
-): Promise<CaptureReviewInput> {
+  target: Pick<ReviewTarget, 'pr' | 'candidate' | 'base'>,
+  deps: ReviewInputDeps,
+): Promise<ReviewInputCapture> {
   const repository = await repositoryOf(deps.gh, cwd)
   const body = await readPrBody(cwd, target.pr, deps.gh, repository)
   const semantic = await loadSemantic(cwd, target, deps, repository, body.body)
   if ('ok' in semantic) return semantic
-  return {
-    ok: true,
-    input: hashReviewInput(repository, target, body, semantic),
-    body,
-  }
+  return { ok: true, input: hashReviewInput(repository, target, body, semantic), body }
 }

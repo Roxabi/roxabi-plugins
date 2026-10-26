@@ -4,9 +4,26 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { Box, Files, SimIssue, SimState, Spec } from './sandbox-types'
 
-export const SIM = path.resolve(import.meta.dirname, '..', '..', 'testing', 'gh-simulator', 'gh-simulator.ts')
-export const WORKFLOW = path.resolve(import.meta.dirname, '..', '..', 'testing', 'goal', 'goal-scenario-workflow.ts')
-export const ACQUIRE = path.resolve(import.meta.dirname, '..', '..', 'proof-acquire.ts')
+export const SIM = path.resolve(
+  import.meta.dirname,
+  '..',
+  '..',
+  'skills',
+  'feature',
+  'testing',
+  'gh-simulator',
+  'gh-simulator.ts',
+)
+export const WORKFLOW = path.resolve(
+  import.meta.dirname,
+  '..',
+  '..',
+  'skills',
+  'feature',
+  'testing',
+  'goal',
+  'goal-scenario-workflow.ts',
+)
 
 const DATE = '2026-01-01T00:00:00Z'
 const RETAINED_GIT_ENV = ['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'GIT_AUTHOR_DATE', 'GIT_COMMITTER_DATE']

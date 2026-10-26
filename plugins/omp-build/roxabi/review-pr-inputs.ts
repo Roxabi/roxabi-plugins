@@ -7,7 +7,7 @@ import type { Policy, Result } from '../dist/contracts.js'
 import { parseRosterConfig, parseStackPaths } from '../skills/dev-review/roster-config'
 import type { AllocateReviewInput } from '../skills/dev-review/roster-contract'
 import { normalizeTier, parsePricedFences, specIsDraft } from '../skills/dev-review/roster-spec'
-import { refreshSelectedBase } from '../skills/feature/proof-candidate'
+import { refreshReviewBase } from '../skills/feature/review-base'
 import { candidateText, materializeCandidateChunks } from './review-candidate-material'
 import { loadReviewConfig } from './review-config'
 import type {
@@ -118,7 +118,7 @@ async function reviewMaterial(
   base: string,
   assetDir: string,
 ): Promise<Result<ReviewMaterial>> {
-  const refreshed = await refreshSelectedBase(options.cwd, base, git, gh)
+  const refreshed = await refreshReviewBase(options.cwd, base, git, gh)
   if (!refreshed.ok || !SHA.test(refreshed.tip)) {
     return failed<ReviewMaterial>(
       'base-unreadable',

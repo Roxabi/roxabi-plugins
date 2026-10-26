@@ -27,7 +27,7 @@ export type FeatureLandOutcome =
       reenter: FeatureLandReentry
       reviewAgain?: false
       bound?: 'sticky'
-      producer?: 'candidate' | 'semctx' | 'assertledger' | null
+      producer?: 'candidate' | null
       proofReason?: string | null
       producerAtAdmission?: false
       startWatch?: false
@@ -44,7 +44,7 @@ export type FeatureLandOutcome =
 export type LandingStatus = {
   status?: string
   reason?: string
-  producer?: 'candidate' | 'semctx' | 'assertledger'
+  producer?: 'candidate'
   error?: string
   code?: number
   armed?: boolean
