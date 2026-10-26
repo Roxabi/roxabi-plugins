@@ -137,7 +137,7 @@ function green(box: Box, head = box.sha[BRANCH] as string): void {
   })
 }
 
-function mutateAfter(box: Box, when: 'label' | 'pin', change: string): () => void {
+function mutateAfter(box: Box, when: 'label' | 'pin' | 'admission-comments', change: string): () => void {
   const dir = mkdtempSync(path.join(tmpdir(), 'omp-selected-base-'))
   const shim = path.join(dir, 'gh')
   const originalPath = box.env.PATH
@@ -147,11 +147,17 @@ function mutateAfter(box: Box, when: 'label' | 'pin', change: string): () => voi
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 const args = process.argv.slice(2)
+const comments = args.some((arg) => arg.includes('/comments?') || arg.endsWith('/comments'))
+const countFile = ${JSON.stringify(path.join(dir, 'comment-reads'))}
+const count = comments ? (existsSync(countFile) ? Number(readFileSync(countFile, 'utf8')) : 0) + 1 : 0
+if (comments) writeFileSync(countFile, String(count))
 const output = spawnSync(${JSON.stringify(BUN)}, [${JSON.stringify(SIM)}, ...args], { env: process.env, encoding: 'utf8' })
 const marker = ${JSON.stringify(path.join(dir, 'mutated'))}
 const match = ${JSON.stringify(when)} === 'label'
   ? args[0] === 'pr' && args[1] === 'edit' && args.includes('--add-label')
-  : args[0] === 'pr' && args[1] === 'merge' && args.includes('--auto')
+  : ${JSON.stringify(when)} === 'pin'
+    ? args[0] === 'pr' && args[1] === 'merge' && args.includes('--auto')
+    : comments && count === 2
 if (output.status === 0 && match && !existsSync(marker)) {
   const state = JSON.parse(readFileSync(process.env.GH_SIM_STATE, 'utf8'))
   ${change}
@@ -171,7 +177,7 @@ process.exit(output.status ?? 1)
   }
 }
 
-describe('landPr retains the selected base name and tip without external proof', () => {
+describe('landPr retains the selected base name and tip', () => {
   it.each(['native', 'merge-on-green'] as const)('%s keeps watching when nothing moves', (mode) => {
     const { box, cwd } = createBox(mode)
     prepare(box, cwd)
@@ -243,9 +249,7 @@ describe('landPr retains the selected base name and tip without external proof',
     )
     try {
       const run = land(box, cwd, 'merge-on-green')
-      expect(run.result.status).not.toBe('watching')
-      expect(run.result.status).not.toBe('merged')
-      expect(['not-approved', 'auto-merge-failed', 'proof-blocked']).toContain(run.result.status)
+      expect(run.result).toMatchObject({ status: 'not-approved', reason: 'head-moved' })
     } finally {
       restore()
     }
@@ -264,9 +268,31 @@ describe('landPr retains the selected base name and tip without external proof',
     )
     try {
       const run = land(box, cwd, 'native')
-      expect(run.result.status).not.toBe('watching')
-      expect(run.result.status).not.toBe('merged')
-      expect(['not-approved', 'auto-merge-failed', 'proof-blocked']).toContain(run.result.status)
+      expect(run.result).toMatchObject({ status: 'auto-merge-failed' })
+    } finally {
+      restore()
+    }
+  })
+
+  it('does not claim merged or watching when admission never succeeds and a prior arm settles onto the tip', () => {
+    const { box, cwd } = createBox()
+    prepare(box, cwd, true)
+    green(box)
+    const restore = mutateAfter(box, 'admission-comments', `state.prs[${PR}].baseRefName = 'staging'`)
+    try {
+      let result: { status: string } | undefined
+      let thrown: unknown
+      try {
+        result = land(box, cwd, 'native').result
+      } catch (error) {
+        thrown = error
+      }
+      if (result !== undefined) {
+        expect(result).toMatchObject({ status: 'review-input-refused', reason: 'unbound' })
+      } else {
+        expect(String(thrown)).toMatch(/merged while being disarmed|landPr failed/)
+        expect(String(thrown)).not.toMatch(/"status":"watching"|"status":"merged"/)
+      }
     } finally {
       restore()
     }
@@ -278,7 +304,7 @@ describe('landPr retains the selected base name and tip without external proof',
     const restore = mutateAfter(box, 'label', `state.prs[${PR}].baseRefName = 'missing'`)
     try {
       const run = land(box, cwd, mode)
-      expect(run.result).toMatchObject({ status: 'proof-blocked', reason: 'unreadable' })
+      expect(run.result).toMatchObject({ status: 'base-blocked', reason: 'unreadable' })
       expect(run.pull.labels).toEqual([])
       expect(run.pull.autoMerge).toBeNull()
     } finally {
@@ -300,7 +326,7 @@ describe('origin identity is bound to the selected repository before base policy
 
     const run = land(box, cwd, mode)
 
-    expect(run.result).toMatchObject({ status: 'proof-blocked', reason: 'unbound' })
+    expect(run.result).toMatchObject({ status: 'base-blocked', reason: 'unbound' })
     expect(run.pull.labels).toEqual([])
     expect(run.pull.autoMerge).toBeNull()
     expect(run.calls.some((args) => args[0] === 'pr' && args[1] === 'merge')).toBe(false)
