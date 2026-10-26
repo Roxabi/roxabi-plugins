@@ -60,8 +60,6 @@ export {
   isWorkflowKind,
   KIND_NAMES,
   kindSchema,
-  type ProofConfigPin,
-  proofConfigPinSchema,
   type ScopedRecordRef,
   scopedRecordRefSchema,
   stopBotMayAuthor,

@@ -67,17 +67,6 @@ function liveSpec(contracts, scopes, bodies) {
   return { specDigest: contracts.specDigest(match.body), specBody: match.body }
 }
 
-export async function liveProofPins(gitCwd, gitFn, baseTip) {
-  const top = await gitFn(gitCwd, ['rev-parse', '--show-toplevel'])
-  if (top.code !== 0 || typeof top.stdout !== 'string' || top.stdout.trim() === '')
-    throw new Error('git rev-parse --show-toplevel failed')
-  const owner = await import('../../roxabi/workflow-pins.ts')
-  if (typeof owner.readProofConfigPins !== 'function') throw new Error('shipped proof pin reader is missing')
-  const pins = await owner.readProofConfigPins(gitFn, top.stdout.trim(), baseTip)
-  if (!Array.isArray(pins)) throw new Error('current proof pins are unreadable')
-  return pins
-}
-
 function validFactsScopes(facts, pullRequest) {
   return (
     facts.native?.pullRequest &&
@@ -117,28 +106,11 @@ function currentProductVersion(contracts) {
   return productVersion
 }
 
-function validProofPin(pin) {
-  return (
-    pin &&
-    typeof pin.path === 'string' &&
-    pin.path !== '' &&
-    isCommitSha(pin.sourceCommit) &&
-    (pin.blob === null || isCommitSha(pin.blob))
-  )
-}
-
 function landingMandateDecision(decision) {
-  if (decision?.ok !== true || typeof decision.recordId !== 'string' || !Array.isArray(decision.proofPins)) {
+  if (decision?.ok !== true || typeof decision.recordId !== 'string') {
     return { admitted: false, reason: mandateReason(decision?.reason), evidence: decision?.evidence }
   }
-  if (decision.proofPins.some((pin) => !validProofPin(pin))) {
-    return {
-      admitted: false,
-      reason: 'unknown-binding',
-      evidence: { error: 'landing mandate proof pins are malformed' },
-    }
-  }
-  return { admitted: true, recordId: decision.recordId, proofPins: decision.proofPins }
+  return { admitted: true, recordId: decision.recordId }
 }
 
 export async function currentLandingMandate(cwd, pr, ghFn, native, gitFn = gitResult, gitCwd = cwd) {
@@ -153,10 +125,7 @@ export async function currentLandingMandate(cwd, pr, ghFn, native, gitFn = gitRe
   if (refusal) return refusal
   ensureLandingFactsForNative(facts, pullRequest, native)
   const productVersion = currentProductVersion(contracts)
-  const [config, proofPins] = await Promise.all([
-    trustedLandingWorkflowConfig(gitCwd, gitFn, native.baseTip, productVersion),
-    liveProofPins(gitCwd, gitFn, native.baseTip),
-  ])
+  const config = await trustedLandingWorkflowConfig(gitCwd, gitFn, native.baseTip, productVersion)
   const spec = liveSpec(contracts, facts.native.linkedIssueScopes, facts.linkedIssueBodies)
   const decision = contracts.requireLandingMandate({
     histories: facts.histories,
@@ -167,7 +136,7 @@ export async function currentLandingMandate(cwd, pr, ghFn, native, gitFn = gitRe
       linkedIssueScopes: facts.native.linkedIssueScopes,
     },
     parentScopes: facts.parentScopes,
-    current: { productVersion, ...config, proofPins, ...spec },
+    current: { productVersion, ...config, ...spec },
     localInhibit: null,
   })
   return landingMandateDecision(decision)

@@ -19,7 +19,6 @@ describe('workflow Spec assessment behavior', () => {
       base: 'main',
       lineageHead: null,
       body: BODY,
-      proofPins: [],
     })
     if (mandated.kind !== 'mandate') throw new Error('expected a mandate')
     const bodyB = 'material body B'
@@ -45,7 +44,6 @@ describe('workflow Spec assessment behavior', () => {
       configVersion: mandated.payload.config.version,
       configDigest: mandated.payload.config.digest,
       supportedConfigVersions: [mandated.payload.config.version],
-      proofPins: mandated.payload.proofPins,
       specBody: bodyC,
       specDigest: specDigest(bodyC),
     })

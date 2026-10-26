@@ -14,7 +14,6 @@ import {
 } from '../skills/feature/__fixtures__/proof/sandbox-repository.ts'
 import type { Box } from '../skills/feature/__fixtures__/proof/sandbox-types.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
-import { PROOF_PIN_PATHS } from './workflow-pins.ts'
 
 const RUNNER = path.resolve(import.meta.dirname, '../testing/feature-recovery-runner.ts')
 const BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
@@ -115,22 +114,6 @@ function coldCheckout(box: Box, name: string, branch = BRANCH): string {
   git(box, box.root, ['clone', '-q', box.origin, principal])
   git(box, principal, ['worktree', 'add', '-q', '-b', branch, checkout, `origin/${branch}`])
   return checkout
-}
-
-function livePinsAt(box: Box, baseTip: string): { sourceCommit: string; path: string; blob: string | null }[] {
-  const toplevel = git(box, box.principal, ['rev-parse', '--show-toplevel'])
-  return PROOF_PIN_PATHS.map((pinPath) => {
-    try {
-      const blob = execFileSync('git', ['rev-parse', '--verify', '--quiet', `${baseTip}:${pinPath}`], {
-        cwd: toplevel,
-        env: box.env,
-        encoding: 'utf8',
-      }).trim()
-      return { sourceCommit: baseTip, path: pinPath, blob: /^[0-9a-f]{40}$/.test(blob) ? blob : null }
-    } catch {
-      return { sourceCommit: baseTip, path: pinPath, blob: null }
-    }
-  })
 }
 
 function workflowRead(box: Box, cwd: string, pr: number, head: string) {
@@ -483,7 +466,6 @@ describe('feature recovery terminal and publication witnesses', () => {
       branch,
       base: 'main',
       issueBody: issue.body,
-      proofPins: livePinsAt(box, baseTip),
       lineageHead: head,
       author: 'operator',
     })

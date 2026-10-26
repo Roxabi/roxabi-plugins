@@ -24,7 +24,6 @@ export function roxabiRecordFixtures() {
 }
 
 const CATALOGUE = new URL('../skills/dev-review/review-classes.yml', import.meta.url)
-const PIN_COMMIT = '2222222222222222222222222222222222222222'
 
 const PLAN_OUTPUT: PlanOutput = {
   steps: [
@@ -51,7 +50,6 @@ export function roxabiWorkflowFixtures() {
   const context = {
     productVersion,
     config: { version: WORKFLOW_CONFIG_VERSION, digest: configPinDigest(effective), effective },
-    proofPins: [roxabiCatalogueProofPin()],
     head: '1111111111111111111111111111111111111111',
     editedAt: '2026-10-21T12:00:00Z',
   }
@@ -64,10 +62,6 @@ export function roxabiWorkflowFixtures() {
       head: context.head,
     }),
   }
-}
-
-export function roxabiCatalogueProofPin(blob: string | null = null) {
-  return { sourceCommit: PIN_COMMIT, path: 'plugins/omp-build/skills/dev-review/review-classes.yml', blob }
 }
 
 export function roxabiCatalogueConfigPin() {

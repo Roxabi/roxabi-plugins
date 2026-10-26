@@ -110,7 +110,6 @@ export function issueMandate(
           },
         },
       },
-      proofPins: [],
       parent:
         parent === null
           ? null

@@ -50,7 +50,6 @@ describe('workflow transition behavior', () => {
       configVersion: 'catalogue-1',
       configDigest: DIGEST,
       supportedConfigVersions: ['catalogue-1'],
-      proofPins: [],
       specDigest: specDigest(BODY),
       specBody: BODY,
     }
@@ -221,7 +220,6 @@ describe('workflow transition behavior', () => {
       configVersion: 'catalogue-1',
       configDigest: DIGEST,
       supportedConfigVersions: ['catalogue-1'],
-      proofPins: [],
       specDigest: specDigest(BODY),
       specBody: BODY,
     }

@@ -7,6 +7,7 @@ import { buildRecord, parseRecord } from '../record-construction.ts'
 import { projectRecord } from '../record-projection.ts'
 import { validateDecision } from '../review-decision.ts'
 import { refusalCodes, TAXONOMY } from './record-test-support.ts'
+import { featureMandate } from './workflow-test-support.ts'
 
 describe('buildRecord', () => {
   test('derives typed review edges then appends distinct explicit context', () => {
@@ -211,7 +212,7 @@ describe('buildRecord', () => {
 })
 
 describe('record format', () => {
-  test('refuses removed proof and unversioned or producer-bearing review input', () => {
+  test('refuses removed proof, unversioned mandate, pinned mandate, and unversioned or producer-bearing review input', () => {
     const root = reviewRoot()
     const { inputFormat: _removed, ...legacyPayload } = root.payload
     const withoutFormat = { ...root, payload: legacyPayload }
@@ -220,9 +221,17 @@ describe('record format', () => {
       payload: { ...root.payload, inputSnapshot: { body: null, spec: null, semctxParts: [] } },
     }
     const removedProof = { ...root, kind: 'proof', payload: {} }
+    const mandate = featureMandate()
+    const { format: _format, ...legacyMandate } = mandate.payload
+    const pinnedMandate = { ...mandate, payload: { ...mandate.payload, proofPins: [] } }
 
     expect(parseRecord(withoutFormat)).toMatchObject({ ok: false, diagnostics: [{ code: 'incompatible-format' }] })
     expect(parseRecord(producerBearing)).toMatchObject({ ok: false, diagnostics: [{ code: 'incompatible-format' }] })
     expect(parseRecord(removedProof)).toMatchObject({ ok: false, diagnostics: [{ code: 'incompatible-format' }] })
+    expect(parseRecord({ ...mandate, payload: legacyMandate })).toMatchObject({
+      ok: false,
+      diagnostics: [{ code: 'incompatible-format' }],
+    })
+    expect(parseRecord(pinnedMandate)).toMatchObject({ ok: false, diagnostics: [{ code: 'incompatible-format' }] })
   })
 })

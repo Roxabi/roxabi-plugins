@@ -13,7 +13,6 @@ export type LandingMandateRefusal =
   | 'revoked'
   | 'material-spec'
   | 'config-drift'
-  | 'proof-pin-drift'
   | 'unbound'
   | 'conflict'
   | 'incomplete'

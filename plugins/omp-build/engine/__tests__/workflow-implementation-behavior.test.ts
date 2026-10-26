@@ -19,7 +19,6 @@ describe('workflow implementation behavior', () => {
       base: 'main',
       lineageHead: null,
       body: 'ship the bounded workflow',
-      proofPins: [],
     })
     if (shipped.kind !== 'mandate') throw new Error('expected a mandate')
     const pull: Scope = { repository: 'acme/app', target: 'acme/app#99' }
@@ -39,7 +38,6 @@ describe('workflow implementation behavior', () => {
       configVersion: shipped.payload.config.version,
       configDigest: shipped.payload.config.digest,
       supportedConfigVersions: [shipped.payload.config.version],
-      proofPins: shipped.payload.proofPins,
       pullRequest: { scope: pull, head: 'abc', base: 'main', associatedIssue: SCOPE },
     })
     const bound = history([binding(shipped, pull)], pull)
@@ -80,7 +78,6 @@ describe('workflow implementation behavior', () => {
       base: 'main',
       lineageHead: null,
       body: 'ship the bounded workflow',
-      proofPins: [],
     })
     if (shipped.kind !== 'mandate') throw new Error('expected a mandate')
     const pull: Scope = { repository: SCOPE.repository, target: 'acme/app#99' }
@@ -145,7 +142,6 @@ describe('workflow implementation behavior', () => {
         configVersion: shipped.payload.config.version,
         configDigest: shipped.payload.config.digest,
         supportedConfigVersions: [shipped.payload.config.version],
-        proofPins: shipped.payload.proofPins,
         pullRequest: { scope: pull, head: currentCandidate, base: 'main', associatedIssue: SCOPE },
         failedChecks: [currentFailure.name],
         evidenceDigest: currentDigest,
@@ -173,7 +169,6 @@ describe('workflow implementation behavior', () => {
         configVersion: shipped.payload.config.version,
         configDigest: shipped.payload.config.digest,
         supportedConfigVersions: [shipped.payload.config.version],
-        proofPins: shipped.payload.proofPins,
         pullRequest: { scope: pull, head: currentCandidate, base: 'main', associatedIssue: SCOPE },
         failedChecks: [],
         evidenceDigest: null,

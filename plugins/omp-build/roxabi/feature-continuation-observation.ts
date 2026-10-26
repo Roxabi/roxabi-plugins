@@ -1,6 +1,5 @@
 import type { NativeSelector, SpecializedDecisions } from '../engine/workflow-reconstruction-types.ts'
 import { epicStep } from '../skills/feature/epic-driver.ts'
-import type { ProofConfigPin } from '../skills/feature/proof-base.ts'
 import type { SelectedFeature } from './feature-continuation-selection.ts'
 import type { ContinueFeatureResult, FeatureControl } from './feature-contract.ts'
 import { inhibition } from './feature-control.ts'
@@ -12,7 +11,6 @@ import { mandateRoleOf } from './feature-selection.ts'
 import { configPinDigest, effectiveWorkflowConfig } from './workflow-config-digest.ts'
 import { SUPPORTED_CONFIG_VERSIONS, WORKFLOW_CONFIG_VERSION } from './workflow-graph.ts'
 import { additionalRequirementsOf } from './workflow-overrides.ts'
-import { readProofConfigPins } from './workflow-pins.ts'
 
 type ObservationBase = Omit<FeatureObservation, 'decisions' | 'reviewId'> & { merged: boolean }
 
@@ -45,8 +43,6 @@ async function assembleObservationBase(
   if (!assembled.ok) return { kind: 'blocked', reason: assembled.reason }
   const { evidence, delivery } = assembled
   const head = delivery?.head ?? null
-  const proofPins = await readPins(context.git, context.cwd, head)
-  if ('kind' in proofPins) return proofPins
   const requirements = mandateRequirements(mandate?.payload.config)
   const effectiveConfig = effectiveWorkflowConfig(context.engine.shippedProductVersion(), requirements)
   const merged = delivery !== null && (await pullRequestMerged(context.gh, context.cwd, delivery.number))
@@ -80,7 +76,6 @@ async function assembleObservationBase(
       configVersion: WORKFLOW_CONFIG_VERSION,
       configDigest: configPinDigest(effectiveConfig),
       supportedConfigVersions: SUPPORTED_CONFIG_VERSIONS,
-      proofPins,
       explicitSelection: control === 'select' || control === 'new',
       explicitResume: control === 'resume',
       successorAntecedent: null,
@@ -119,19 +114,6 @@ async function readObservationDecisions(
 
 function isContinuationResult(value: unknown): value is ContinueFeatureResult {
   return value !== null && typeof value === 'object' && 'kind' in value
-}
-
-async function readPins(
-  git: SelectedFeature['authority']['context']['git'],
-  cwd: string,
-  head: string | null,
-): Promise<readonly ProofConfigPin[] | ContinueFeatureResult> {
-  if (head === null) return []
-  try {
-    return await readProofConfigPins(git, cwd, head)
-  } catch (error) {
-    return { kind: 'blocked', reason: error instanceof Error ? error.message : 'proof-pin-unreadable' }
-  }
 }
 
 async function readEpicStep(

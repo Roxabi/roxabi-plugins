@@ -1,6 +1,5 @@
 import { lstatSync } from 'node:fs'
 import { join } from 'node:path'
-import { type DecodedHistory, selectApplicableMandate } from '../../dist/contracts.js'
 export type GitResult = { code: number; stdout: string; stderr: string }
 /** Non-throwing Git with untrimmed UTF-8 stdout; qualifying blobs also bind their exact bytes. */
 export type Git = (cwd: string, args: string[]) => Promise<GitResult>
@@ -18,45 +17,6 @@ export type NoTestReason = (typeof NO_TEST_REASONS)[number]
 export const SHA = /^[0-9a-f]{40}$/
 export const NATIVE_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/
 export const CHANGES_DIR = '.semctx/semantic/changes/'
-export const CONFIG = '.semctx/config.json'
-export const STACK = '.dev/stack.yml'
-export const ASSERTLEDGER_CONFIG = 'assertledger.config.json'
-/** Paths a mandate pin must name. Omission is not absence. */
-export const PROOF_CONFIG_PATHS = [CONFIG, STACK, ASSERTLEDGER_CONFIG] as const
-export const PIN_PRODUCER: Record<string, Producer | 'candidate'> = {
-  [CONFIG]: 'semctx',
-  [ASSERTLEDGER_CONFIG]: 'assertledger',
-}
-
-/**
- * Git identity of one proof-configuration path at one source commit.
- * `blob: null` is explicit absence. Ignored working-tree files are never a pin.
- * Field names match the engine `ProofConfigPin`; this alias is replaced by that export.
- */
-export type ProofConfigPin = {
-  path: string
-  sourceCommit: string
-  blob: string | null
-}
-/**
- * Pins of the one applicable mandate. `null` means no mandate exists: the
- * existing producer no-op stays. A refused, empty, or drifted pin is not that no-op.
- */
-export function pinsFromApplicableMandate(
-  history: DecodedHistory,
-  external: DecodedHistory[] = [],
-): ProofConfigPin[] | Refusal | null {
-  const selected = selectApplicableMandate(history, external) as
-    | { status: 'applicable'; mandate: { payload: { proofPins?: unknown } } }
-    | { status: 'refused'; reason?: string }
-  if (selected.status !== 'applicable') {
-    if (selected.reason === 'missing') return null
-    return refuse('candidate', 'missing', `mandate ${selected.reason ?? 'unresolved'}`)
-  }
-  const pins = selected.mandate.payload.proofPins
-  if (!Array.isArray(pins) || pins.length === 0) return refuse('candidate', 'missing', 'mandate has no proof pins')
-  return pins as ProofConfigPin[]
-}
 
 export function refuse(producer: Producer | 'candidate', reason: RefusalReason, error: string): Refusal {
   return { ok: false, producer, reason, error }

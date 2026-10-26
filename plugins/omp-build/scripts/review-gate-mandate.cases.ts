@@ -198,7 +198,7 @@ export function registerReviewGateMandateCases(): void {
 
         expect(result.status).toBe(1)
         expect(result.stderr).toBe('')
-        expect(JSON.parse(result.stdout)).toMatchObject({ ok: false, allowed: false, reason: 'proof-pin-drift' })
+        expect(JSON.parse(result.stdout)).toMatchObject({ ok: false, allowed: false, reason: 'config-drift' })
       },
     )
 

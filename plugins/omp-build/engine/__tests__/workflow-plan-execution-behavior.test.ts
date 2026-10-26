@@ -22,7 +22,6 @@ describe('workflow plan execution behavior', () => {
       base: 'main',
       lineageHead: null,
       body: BODY,
-      proofPins: [],
     })
     if (mandated.kind !== 'mandate') throw new Error('expected a mandate')
     const originalDigest = mandated.payload.spec.bodySha256
@@ -238,7 +237,6 @@ describe('workflow plan execution behavior', () => {
       configVersion: mandated.payload.config.version,
       configDigest: mandated.payload.config.digest,
       supportedConfigVersions: [mandated.payload.config.version],
-      proofPins: mandated.payload.proofPins,
     })
     const workflowDecisions: SpecializedDecisions = {
       reviewStep: null,
@@ -376,7 +374,6 @@ describe('workflow plan execution behavior', () => {
         digest: mandated.payload.config.digest,
         effective: mandated.payload.config.effective,
       },
-      proofPins: [],
       parent: null,
       antecedent: mandateRef,
     })
@@ -453,7 +450,6 @@ describe('workflow plan execution behavior', () => {
         configVersion: mandated.payload.config.version,
         configDigest: mandated.payload.config.digest,
         supportedConfigVersions: [mandated.payload.config.version],
-        proofPins: mandated.payload.proofPins,
       }),
       decisions: workflowDecisions,
     })

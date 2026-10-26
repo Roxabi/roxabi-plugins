@@ -2,8 +2,8 @@
 import { realpathSync } from 'node:fs'
 import type { ContinueFeatureResult } from './feature-contract.ts'
 import { type HistoryRecord, isRecord, payload, type Scope } from './feature-engine.ts'
+import type { GitRunner } from './workflow-checkout.ts'
 import { prepareFeatureCheckout } from './workflow-checkout.ts'
-import type { GitRunner } from './workflow-pins.ts'
 
 /** A free /feature subject is not an issue. Do not gh-view it. */
 export function issueReference(reference: string): boolean {

@@ -1,4 +1,4 @@
-import type { GitRunner } from './workflow-pins.ts'
+import type { GitRunner } from './workflow-checkout.ts'
 
 export async function proveAuthorizedBranch(
   git: GitRunner,

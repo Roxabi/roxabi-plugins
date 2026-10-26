@@ -105,6 +105,7 @@ function sameRef(left, right) {
 
 // plugins/omp-build/engine/record-format.ts
 var REVIEW_INPUT_FORMAT = "omp-build:review-input/3";
+var MANDATE_FORMAT = "omp-build-mandate/2";
 function incompatible(message) {
   return { code: incompatibleFormat, message };
 }
@@ -114,6 +115,12 @@ function recordFormatDiagnostic(value) {
   const record = value;
   if (record.kind === "proof")
     return incompatible("Record kind 'proof' was removed in #902 and cannot authorize anything");
+  if (record.kind === "mandate") {
+    const payload = record.payload;
+    if (payload === null || typeof payload !== "object" || Array.isArray(payload) || "proofPins" in payload || payload.format !== MANDATE_FORMAT) {
+      return incompatible(`Mandate format must be ${MANDATE_FORMAT}; pre-#902 mandates (proof pins) cannot authorize landing`);
+    }
+  }
   if (record.kind !== "review-attempt" && record.kind !== "review" || record.payload === null || typeof record.payload !== "object")
     return null;
   const payload = record.payload;
@@ -6937,12 +6944,6 @@ var externalRecordRefSchema = strictObject({
 });
 var scopedRecordRefSchema = externalRecordRefSchema;
 var gitObjectIdSchema = string2().regex(/^[0-9a-f]{40}$/);
-var proofPinPathSchema = repoRelativePathSchema.refine((path) => !path.includes("://"), "proof pin path must be a relative git path");
-var proofConfigPinSchema = strictObject({
-  sourceCommit: gitObjectIdSchema,
-  path: proofPinPathSchema,
-  blob: gitObjectIdSchema.nullable()
-});
 
 // plugins/omp-build/engine/workflow-mandate-schema.ts
 var mandateConfigSchema = strictObject({
@@ -6963,11 +6964,11 @@ var approvedChildSchema = strictObject({
   specBody: string2()
 });
 var mandateShared = {
+  format: literal("omp-build-mandate/2"),
   branch: string2().min(1).nullable(),
   base: string2().min(1),
   lineageHead: shaSchema.nullable(),
   config: mandateConfigSchema,
-  proofPins: array(proofConfigPinSchema),
   parent: externalRecordRefSchema.nullable(),
   antecedent: externalRecordRefSchema.nullable(),
   spec: mandateSpecSchema
@@ -12147,6 +12148,7 @@ function buildFixOnlyMandate(draft) {
     operationId: draft.operationId,
     payload: {
       role: "fix-only",
+      format: "omp-build-mandate/2",
       branch: draft.branch,
       base: draft.base,
       lineageHead: draft.lineageHead,
@@ -12159,7 +12161,6 @@ function buildFixOnlyMandate(draft) {
         digest: draft.config.digest,
         effective: draft.config.effective
       },
-      proofPins: draft.proofPins,
       parent: draft.parent,
       antecedent: draft.antecedent,
       spec: {
@@ -12209,15 +12210,6 @@ function landingReason(reason) {
     case "missing-history":
       return reason;
   }
-}
-function pinIdentity(pin) {
-  return `${pin.path}\x00${pin.blob ?? "absent"}`;
-}
-function samePins(approved, current) {
-  const identity = (pins) => [...new Set(pins.map(pinIdentity))].sort();
-  const left = identity(approved);
-  const right = identity(current);
-  return left.length === right.length && left.every((key, index) => key === right[index]);
 }
 function selectedCandidate(input) {
   const selected = selectWorkflowBinding({
@@ -12294,8 +12286,6 @@ function currentAuthority(candidate, input) {
     return landingRefusal("config-drift", [
       diagnostic("config-drift", "Mandate config digest differs from current config")
     ]);
-  if (!samePins(mandate.payload.proofPins, input.current.proofPins))
-    return landingRefusal("proof-pin-drift", [diagnostic("proof-pin-drift", "Proof pins differ from the mandate")]);
   return null;
 }
 function acceptedSpecAuthority(candidate, input) {
@@ -12345,7 +12335,6 @@ function requireLandingMandate(input) {
     ok: true,
     recordId: selected.mandate.recordId,
     scope: mandateScope(selected.mandate),
-    proofPins: selected.mandate.payload.proofPins,
     mandate: selected.mandate
   };
 }
@@ -13045,7 +13034,6 @@ export {
   policySchema,
   producerJsonSchema,
   projectRecord,
-  proofConfigPinSchema,
   publishConfirmedWorkflowRecord,
   publishGitHubRecord,
   readComposedWorkflowHistory,

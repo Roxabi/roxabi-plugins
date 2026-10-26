@@ -1,6 +1,5 @@
 import { decodeHistory, buildRecord as frameRecord } from '../../dist/contracts.js'
 import { specDigest } from '../../engine/record-digests.ts'
-import { PROOF_PIN_PATHS } from '../../roxabi/workflow-pins.ts'
 import { reviewGraph } from '../../testing/record-graphs.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { proofSemanticContext } from './proof-context.ts'
@@ -63,7 +62,6 @@ function mandateRecord(head) {
     branch: 'feat/save',
     base: 'main',
     lineageHead: head,
-    proofPins: PROOF_PIN_PATHS.map((path) => ({ sourceCommit: HEADS[0], path, blob: null })),
   })
 }
 

@@ -1,5 +1,4 @@
 import { type CanonicalRecord, decodeHistory, encodeRecord } from '../../../../contracts.ts'
-import { PROOF_PIN_PATHS } from '../../../../roxabi/workflow-pins.ts'
 import { reviewRoot } from '../../../../testing/record-builders.ts'
 import { epicReviewGraph } from '../../../../testing/record-graphs.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../../../../testing/roxabi-presets.ts'
@@ -18,11 +17,9 @@ import {
 import {
   callWorkflow,
   gh,
-  git,
   readSim,
   runDriver,
   sandboxEpic,
-  sandboxOrigin,
   writeSim,
 } from './goal-scenario-sandbox.ts'
 
@@ -90,20 +87,6 @@ export function seedEpicDecision(range: string): string {
   return graph.decision.recordId
 }
 
-function liveBaseProofPins() {
-  const origin = sandboxOrigin()
-  const sourceCommit = git(origin, ['rev-parse', 'refs/heads/main'])
-  if (!/^[0-9a-f]{40}$/.test(sourceCommit)) throw new Error(`origin/main tip unreadable: ${sourceCommit}`)
-  return PROOF_PIN_PATHS.map((pinPath) => {
-    try {
-      const blob = git(origin, ['rev-parse', '--verify', '--quiet', `${sourceCommit}:${pinPath}`])
-      return { sourceCommit, path: pinPath, blob: /^[0-9a-f]{40}$/.test(blob) ? blob : null }
-    } catch {
-      return { sourceCommit, path: pinPath, blob: null }
-    }
-  })
-}
-
 function epicRecord() {
   const scope = { repository: 'acme/app', target: `acme/app#${EPIC}` }
   const children = [A, B, C].map((number) =>
@@ -137,7 +120,6 @@ export function ensureChildMandate(number: number, branch: string, id: string): 
       branch,
       base: 'main',
       lineageHead: null,
-      proofPins: liveBaseProofPins(),
       parent: mandateRef(epic),
     },
   )

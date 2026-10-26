@@ -1,6 +1,6 @@
 import { buildRecord } from './record-construction.ts'
 import { specDigest } from './record-digests.ts'
-import type { ExternalRecordRef, ProofConfigPin } from './record-references.ts'
+import type { ExternalRecordRef } from './record-references.ts'
 import type { Diagnostic, Json, Scope } from './record-values.ts'
 import type { Result } from './result.ts'
 import type { MandateRecord } from './workflow-control.ts'
@@ -21,7 +21,6 @@ export function buildFixOnlyMandate(draft: {
   productVersion: string
   work: { reference: string; body: string; lastEditedAt: string }
   config: { version: string; digest: string; effective: Json }
-  proofPins: ProofConfigPin[]
   parent: ExternalRecordRef | null
   antecedent: ExternalRecordRef | null
 }): Result<MandateRecord> {
@@ -35,6 +34,7 @@ export function buildFixOnlyMandate(draft: {
     operationId: draft.operationId,
     payload: {
       role: 'fix-only',
+      format: 'omp-build-mandate/2',
       branch: draft.branch,
       base: draft.base,
       lineageHead: draft.lineageHead,
@@ -47,7 +47,6 @@ export function buildFixOnlyMandate(draft: {
         digest: draft.config.digest,
         effective: draft.config.effective,
       },
-      proofPins: draft.proofPins,
       parent: draft.parent,
       antecedent: draft.antecedent,
       spec: {

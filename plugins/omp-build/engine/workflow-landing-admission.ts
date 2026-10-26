@@ -1,7 +1,6 @@
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, sameRef } from './record-diagnostics.ts'
 import { specDigest } from './record-digests.ts'
-import type { ProofConfigPin } from './record-references.ts'
 import type { Diagnostic, Scope } from './record-values.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
 import {
@@ -30,7 +29,6 @@ export type LandingMandateInput = {
     configVersion: string
     configDigest: string
     supportedConfigVersions: readonly string[]
-    proofPins: readonly ProofConfigPin[]
     specDigest: string | null
     specBody: string | null
   }
@@ -82,17 +80,6 @@ function landingReason(reason: MandateRefusal): LandingRefusal {
     case 'missing-history':
       return reason
   }
-}
-
-function pinIdentity(pin: ProofConfigPin): string {
-  return `${pin.path}\0${pin.blob ?? 'absent'}`
-}
-
-function samePins(approved: readonly ProofConfigPin[], current: readonly ProofConfigPin[]): boolean {
-  const identity = (pins: readonly ProofConfigPin[]): string[] => [...new Set(pins.map(pinIdentity))].sort()
-  const left = identity(approved)
-  const right = identity(current)
-  return left.length === right.length && left.every((key, index) => key === right[index])
 }
 
 function selectedCandidate(input: LandingMandateInput): LandingCandidate | LandingMandateDecision {
@@ -179,8 +166,6 @@ function currentAuthority(candidate: LandingCandidate, input: LandingMandateInpu
     return landingRefusal('config-drift', [
       diagnostic('config-drift', 'Mandate config digest differs from current config'),
     ])
-  if (!samePins(mandate.payload.proofPins, input.current.proofPins))
-    return landingRefusal('proof-pin-drift', [diagnostic('proof-pin-drift', 'Proof pins differ from the mandate')])
   return null
 }
 
@@ -223,7 +208,6 @@ export function requireLandingMandate(input: LandingMandateInput): LandingMandat
     ok: true,
     recordId: selected.mandate.recordId,
     scope: mandateScope(selected.mandate),
-    proofPins: selected.mandate.payload.proofPins,
     mandate: selected.mandate,
   }
 }

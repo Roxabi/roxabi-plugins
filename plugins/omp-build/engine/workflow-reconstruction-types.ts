@@ -1,4 +1,4 @@
-import type { ExternalRecordRef, ProofConfigPin } from './record-references.ts'
+import type { ExternalRecordRef } from './record-references.ts'
 import type { Diagnostic, Scope } from './record-values.ts'
 import type { PauseBinding } from './workflow-control.ts'
 import type { WorkflowGraphAction } from './workflow-graph.ts'
@@ -8,7 +8,6 @@ export type WorkflowBlockReason =
   | 'pause-unconfirmed'
   | 'spec-decision-required'
   | 'config-drift'
-  | 'proof-pin-drift'
   | 'unsupported-config'
   | 'action-uncertain'
   | 'unknown-outcome'
@@ -64,7 +63,6 @@ export type WorkflowFacts = {
   configVersion: string
   configDigest: string
   supportedConfigVersions: readonly string[]
-  proofPins: readonly ProofConfigPin[]
   explicitSelection: boolean
   explicitResume: boolean
   successorAntecedent: ExternalRecordRef | null

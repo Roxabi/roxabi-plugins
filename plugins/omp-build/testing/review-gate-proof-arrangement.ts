@@ -1,7 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { readProofConfigPins } from '../roxabi/workflow-pins.ts'
 import { hashReviewInput } from '../skills/feature/proof-context-hash.ts'
 import { confirmedReviewSemanticContext } from '../skills/feature/workflow-review-input.js'
 import { git, type ReviewGateFixture, readState, writeState } from './review-gate-fixture.ts'
@@ -43,7 +42,6 @@ export function capturedCiFailure(reviewId = 'three-final') {
 }
 
 export async function seedMandate(fixture: ReviewGateFixture, spec = SPEC): Promise<void> {
-  const pins = await readProofConfigPins(gitResult, fixture.candidate, fixture.base)
   const mandate = roxabiWorkflowFixtures().featureMandate(
     { repository: 'acme/app', target: 'acme/app#42' },
     {
@@ -53,7 +51,6 @@ export async function seedMandate(fixture: ReviewGateFixture, spec = SPEC): Prom
       branch: 'feat/7-fixture',
       base: 'main',
       lineageHead: fixture.head,
-      proofPins: pins,
       body: spec,
     },
   )
@@ -131,7 +128,10 @@ export function advanceOriginNormativeStack(fixture: ReviewGateFixture, origin: 
   const stage = path.join(fixture.root, 'origin-stage')
   git(fixture.root, ['clone', '-q', origin, stage])
   mkdirSync(path.join(stage, '.dev'), { recursive: true })
-  writeFileSync(path.join(stage, '.dev/stack.yml'), 'landing:\n  mode: merge-on-green\n')
+  writeFileSync(
+    path.join(stage, '.dev/stack.yml'),
+    'review:\n  additional_requirements:\n    - updated normative requirement\n',
+  )
   git(stage, ['add', '.dev/stack.yml'])
   git(stage, ['commit', '-qm', 'advance origin/main normative stack'])
   git(stage, ['push', '-q', 'origin', 'HEAD:main'])
@@ -152,13 +152,6 @@ function gateGh(fixture: ReviewGateFixture) {
   }
 }
 
-async function gitResult(cwd: string, args: string[]) {
-  const result = spawnSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', ...args], {
-    cwd,
-    encoding: 'utf8',
-  })
-  return { code: result.status ?? 1, stdout: result.stdout ?? '', stderr: result.stderr ?? '' }
-}
 
 function recordKind(body: string): string | null {
   const framed = /^<!-- omp-build-record v=1 kind=([a-z][a-z0-9-]*) /.exec(body)

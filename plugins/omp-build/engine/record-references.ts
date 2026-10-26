@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { identifierSchema, repoRelativePathSchema, scopeSchema } from './record-values.ts'
+import { identifierSchema, scopeSchema } from './record-values.ts'
 
 export const KIND_NAMES = [
   'review-attempt',
@@ -40,14 +40,3 @@ export const scopedRecordRefSchema = externalRecordRefSchema
 export type ScopedRecordRef = ExternalRecordRef
 
 export const gitObjectIdSchema = z.string().regex(/^[0-9a-f]{40}$/)
-const proofPinPathSchema = repoRelativePathSchema.refine(
-  (path) => !path.includes('://'),
-  'proof pin path must be a relative git path',
-)
-
-export const proofConfigPinSchema = z.strictObject({
-  sourceCommit: gitObjectIdSchema,
-  path: proofPinPathSchema,
-  blob: gitObjectIdSchema.nullable(),
-})
-export type ProofConfigPin = z.infer<typeof proofConfigPinSchema>
