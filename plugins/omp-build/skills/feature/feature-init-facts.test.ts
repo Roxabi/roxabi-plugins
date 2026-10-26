@@ -8,13 +8,14 @@ import {
   factsFor,
   factsIn,
   fixtureRoot,
+  originAcme,
   recordedArgv,
   recordedGh,
   recordedParseYaml,
   scratchCopy,
 } from './feature-init.fixture'
 import type { Gh } from './feature-init-facts'
-import { plan, readFacts } from './feature-init-facts'
+import { ownerRepoFromRemote, plan, readFacts } from './feature-init-facts'
 import { applyStack } from './feature-init-stack'
 import { type MigrateLabel, resolveMigrateLabel } from './feature-init-triage'
 
@@ -32,82 +33,19 @@ describe('feature init on the fictional acme fixture', () => {
     expect(plan(await factsFor('acme'))).toEqual([
       'tracker contract',
       'label migration',
-      'semctx hooks',
-      'CI job semctx-working-empty',
-      '3 active semctx contracts',
-      'assertledger + vitest adapter',
       'landing = merge-on-green (every check; gates: widget-audit ; (widget-build|widget-build-full) ; Widget scan, nightly|widget-scan)',
       'worktree block',
       'release.post_merge asked',
     ])
   })
 
-  it('counts a contract only on an anchored status: active line of a .sem file', async () => {
-    // Decoys: `note: was status: active` (only ^ rejects it), `status: active-draft` (only $ rejects it),
-    // and a non-.sem file.
-    expect((await factsFor('acme')).activeContracts).toBe(3)
-  })
-
-  it('ignores a ci.yml comment and a package script that only mention the tools', async () => {
+  it('ignores residual Semctx and AssertLedger configuration', async () => {
     const facts = await factsFor('acme')
-    expect(facts.hasWorkingEmptyJob).toBe(false)
-    expect(facts.hasAssertledger).toBe(false)
-  })
-
-  const WIDGET = { name: 'widget-app', private: true }
-  it.each([
-    ['a root vitest dependency', { 'package.json': { ...WIDGET, devDependencies: { vitest: '1.0.0' } } }, true],
-    [
-      'only a scoped @vitest/* root dependency',
-      { 'package.json': { ...WIDGET, devDependencies: { '@vitest/coverage-v8': '1.0.0' } } },
-      true,
-    ],
-    [
-      'a workspace package that depends on vitest',
-      {
-        'package.json': { ...WIDGET, workspaces: ['apps/*', 'packages/**'] },
-        'packages/widget/core/package.json': { name: 'widget-core', devDependencies: { vitest: '1.0.0' } },
-      },
-      true,
-    ],
-    [
-      'an excluded workspace package',
-      {
-        'package.json': { ...WIDGET, workspaces: ['apps/*', '!apps/legacy'] },
-        'apps/legacy/package.json': { name: 'widget-legacy', devDependencies: { vitest: '1.0.0' } },
-      },
-      false,
-    ],
-    [
-      'a package outside the workspaces globs',
-      {
-        'package.json': { ...WIDGET, workspaces: ['apps/*'] },
-        'tools/bench/package.json': { name: 'widget-bench', devDependencies: { vitest: '1.0.0' } },
-      },
-      false,
-    ],
-    ['a vitest.config file', { 'package.json': WIDGET, 'vitest.config.ts': '' }, true],
-    ['a vitest.workspace file', { 'package.json': WIDGET, 'vitest.workspace.json': '' }, true],
-    [
-      'a script that only mentions vitest',
-      {
-        'package.json': {
-          ...WIDGET,
-          scripts: { test: 'vitest run' },
-          devDependencies: { 'widget-vitest-reporter': '1.0.0' },
-        },
-      },
-      false,
-    ],
-  ])('vitest adapter for %s → %s', async (_row, files, adapter) => {
-    const dir = scratchCopy('acme')
-    for (const [rel, body] of Object.entries(files)) {
-      mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true })
-      writeFileSync(path.join(dir, rel), typeof body === 'string' ? body : JSON.stringify(body))
-    }
-    const lines = plan(await factsIn(dir, 'acme'))
-    expect(lines).toContain(adapter ? 'assertledger + vitest adapter' : 'assertledger')
-    expect(lines).not.toContain(adapter ? 'assertledger' : 'assertledger + vitest adapter')
+    const lines = plan(facts)
+    expect(facts).not.toHaveProperty('hasSemctx')
+    expect(lines).not.toContain('semctx hooks')
+    expect(lines).not.toContain('CI job semctx-working-empty')
+    expect(lines).not.toContain('assertledger')
   })
 
   it('decides label migration with issue-triage grammar', async () => {
@@ -231,10 +169,71 @@ describe('feature init on the fictional acme fixture', () => {
   })
 })
 
+describe('ownerRepoFromRemote', () => {
+  it.each([
+    ['git@github.com:acme/app.git', 'acme/app'],
+    ['https://github.com/acme/app.git', 'acme/app'],
+    ['ssh://git@github.com:22/acme/app', 'acme/app'],
+    ['https://GitHub.com/acme/app', 'acme/app'],
+    ['git@ghe.acme.test:acme/app.git', null],
+    ['https://ghe.acme.test/acme/app', null],
+    ['git@gitlab.acme.test:acme/app.git', null],
+    ['https://github.com./acme/app', null],
+    ['git@github.com.:acme/app.git', null],
+    ['acme-alias:acme/app.git', null],
+    ['ssh://git@10.0.0.7:2222/acme/app', null],
+    ['https://[::1]/acme/app', null],
+    ['/srv/git/app.git', null],
+    ['../app', null],
+    ['file:///srv/git/acme/app.git', null],
+    ['file://nas/acme/app.git', null],
+    ['https://gitlab.acme.test/group/sub/app.git', null],
+    ['https://github.com/acme', null],
+    ['git@GitHub.COM:acme/app.git', 'acme/app'],
+    ['ftp://github.com/acme/app.git', null],
+    ['https://github.com/acme/app/tree', null],
+    ['', null],
+    [null, null],
+  ])('%s → %s', (url, repo) => {
+    expect(ownerRepoFromRemote(url)).toBe(repo)
+  })
+
+  it.each([
+    ['a GitLab-style two-segment origin', 'git@gitlab.acme.test:acme/app.git'],
+    ['a GHE origin', 'https://ghe.acme.test/acme/app.git'],
+    ['a trailing-dot github.com origin', 'https://github.com./acme/app'],
+  ])('never calls gh for %s', async (_row, url) => {
+    const seen: string[][] = []
+    const facts = await readFacts(path.join(staged, 'acme'), {
+      gh: (args) => {
+        seen.push(args)
+        return 'size: M\n'
+      },
+      gitRemoteUrl: (remote) => (remote === 'origin' ? url : null),
+      migrateLabel,
+      parseYaml: recordedParseYaml('acme'),
+    })
+    expect(seen).toEqual([])
+    expect(plan(facts)).toContain('labels unknown (non-GitHub origin)')
+    expect(plan(facts)).not.toContain('label migration')
+  })
+})
+
 describe('issue-triage lookup', () => {
   it('names why the grammar is unusable', async () => {
     await expect(resolveMigrateLabel(async () => null as unknown as MigrateLabel)).rejects.toThrow(
       'issue-triage missing (migrateLabel is not a function)',
     )
+  })
+
+  it('blocks fact gathering when migrateLabel is not a function', async () => {
+    await expect(
+      readFacts(path.join(staged, 'acme'), {
+        gh: recordedGh('acme'),
+        gitRemoteUrl: originAcme,
+        migrateLabel: null as unknown as MigrateLabel,
+        parseYaml: recordedParseYaml('acme'),
+      }),
+    ).rejects.toThrow('issue-triage missing (migrateLabel is not a function)')
   })
 })
