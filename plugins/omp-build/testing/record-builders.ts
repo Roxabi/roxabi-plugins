@@ -1,7 +1,7 @@
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { FindingData, Json, NativeOutcome, Policy, Scope, Submission } from '../engine/record-values.ts'
 import type { RecordProjectionConfig } from '../engine/result.ts'
-import { type ReviewInputSnapshot, type ReviewStandards, type ReviewSubject } from '../engine/review-schema.ts'
+import type { ReviewInputSnapshot, ReviewStandards, ReviewSubject } from '../engine/review-schema.ts'
 
 export const TEST_SCOPE: Scope = { repository: 'acme/widgets', target: 'acme/widgets#42' }
 export const NATIVE_AUTHOR = 'roxabi-bot'
