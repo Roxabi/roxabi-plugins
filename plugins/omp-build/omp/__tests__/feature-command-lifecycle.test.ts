@@ -145,20 +145,23 @@ describe('native feature profiles', () => {
 })
 
 describe('principal refusal stays one message', () => {
-  it('sends the move instruction once when the workflow returns it', async () => {
+  function principal(continueFeature: FeatureWorkflow['continueFeature']) {
     const sent: string[] = []
-    await runInstalledFeatureCommand('#4', {
+    const starts: string[] = []
+    const value: FeatureCommandHost = {
       key: {},
       cwd: '/principal',
       principal: true,
-      workflow: workflow({
-        continueFeature: async (input) => ({ kind: 'session-cwd', path: input.cwd, instruction: `/move ${input.cwd}` }),
-      }),
+      workflow: workflow({ continueFeature }),
       native: {
-        activate() {},
+        activate() {
+          starts.push('activate')
+        },
         inactive() {},
         async stopOwned() {},
-        async announce() {},
+        async announce() {
+          starts.push('announce')
+        },
       },
       send: async (message) => {
         sent.push(message)
@@ -166,11 +169,97 @@ describe('principal refusal stays one message', () => {
       inhibitFeatureContinuation() {},
       releaseFeatureContinuation() {},
       featureContinuationInhibited: () => false,
-      markFeatureBatch() {},
-      exec: async () => ({ code: -1, killed: true }),
+      markFeatureBatch() {
+        starts.push('batch')
+      },
+      startReview: async () => {
+        starts.push('review')
+      },
+      startFix: async () => {
+        starts.push('fix')
+        return { terminal: Promise.resolve({ status: 'stopped', diagnostics: [] }) }
+      },
+      startAdmittedCiCorrection: async () => {
+        starts.push('admitted-ci-correction')
+        return { terminal: Promise.resolve({ status: 'stopped', diagnostics: [] }) }
+      },
+      prepareEpicRangeReview: async () => {
+        starts.push('epic-final-review')
+      },
+      exec: async () => {
+        starts.push('watch')
+        return { code: 0, killed: false }
+      },
+    }
+    return { sent, starts, value }
+  }
+
+  it('sends the move instruction once when the workflow returns it', async () => {
+    const fixture = principal(async (input) => ({
+      kind: 'session-cwd',
+      path: input.cwd,
+      instruction: `/move ${input.cwd}`,
+    }))
+    await runInstalledFeatureCommand('#4', fixture.value)
+    expect(fixture.sent).toHaveLength(1)
+    expect(fixture.sent[0]).toContain('/move /principal')
+  })
+
+  it('names the operator decision that stopped the workflow', async () => {
+    const fixture = principal(async () => ({ kind: 'operator-decision', reason: 'needs-scope' }))
+    await runInstalledFeatureCommand('#895', fixture.value)
+    expect(fixture.sent).toHaveLength(1)
+    expect(fixture.sent[0]).toContain('principal-dispatch-refused')
+    expect(fixture.sent[0]).toContain('operator-decision:needs-scope')
+  })
+
+  it('names a block reason and its diagnostics', async () => {
+    const fixture = principal(async () => ({
+      kind: 'blocked',
+      reason: 'base-not-current',
+      diagnostics: [{ code: 'base', message: 'origin/main is unreachable' }],
+    }))
+    await runInstalledFeatureCommand('#4', fixture.value)
+    expect(fixture.sent).toHaveLength(1)
+    expect(fixture.sent[0]).toContain('principal-dispatch-refused')
+    expect(fixture.sent[0]).toContain('base-not-current')
+    expect(fixture.sent[0]).toContain('origin/main is unreachable')
+  })
+
+  it('names the error a failing workflow raised', async () => {
+    const fixture = principal(async () => {
+      throw new Error('issue-unreadable')
     })
-    expect(sent).toHaveLength(1)
-    expect(sent[0]).toContain('/move /principal')
+    await runInstalledFeatureCommand('#4', fixture.value)
+    expect(fixture.sent).toHaveLength(1)
+    expect(fixture.sent[0]).toContain('principal-dispatch-refused')
+    expect(fixture.sent[0]).toContain('issue-unreadable')
+  })
+
+  it('starts no work the workflow hands back and names what it refused', async () => {
+    const handed: ContinueFeatureResult[] = [
+      {
+        kind: 'action',
+        node: 'implement',
+        followUp: batch('principal-action'),
+        start: {
+          scope: { repository: 'acme/widgets', target: 'acme/widgets#42' },
+          recordId: 'principal-start',
+          kind: 'action-receipt',
+        },
+      },
+      { kind: 'watch', command: 'ci-watch' },
+      { kind: 'review', pr: 7 },
+      { kind: 'admitted-ci-correction', reference: '#7', attributionRecordId: 'ci-receipt', scope: 'repair CI' },
+    ]
+    for (const result of handed) {
+      const fixture = principal(async () => result)
+      await runInstalledFeatureCommand('#42', fixture.value)
+      expect(fixture.starts).toEqual([])
+      expect(fixture.sent).toHaveLength(1)
+      expect(fixture.sent[0]).toContain('principal-dispatch-refused')
+      expect(fixture.sent[0]).toContain(result.kind)
+    }
   })
 })
 
