@@ -27,8 +27,18 @@ describe('selectWatchedEntries', () => {
     expect(
       selectWatchedEntries({
         curated_marketplaces: [
-          { name: 'unwatched', source: 'https://github.com/example/unwatched', last_checked_commit: 'a', upstream_branch: 'main' },
-          { ...ENTRY, watched_paths: ENTRY.watchedPaths, last_checked_commit: ENTRY.baseline, upstream_branch: ENTRY.branch },
+          {
+            name: 'unwatched',
+            source: 'https://github.com/example/unwatched',
+            last_checked_commit: 'a',
+            upstream_branch: 'main',
+          },
+          {
+            ...ENTRY,
+            watched_paths: ENTRY.watchedPaths,
+            last_checked_commit: ENTRY.baseline,
+            upstream_branch: ENTRY.branch,
+          },
         ],
       }).map((entry) => entry.name),
     ).toEqual(['mattpocock-skills'])
@@ -37,28 +47,48 @@ describe('selectWatchedEntries', () => {
   it('files exactly one fixture drift when only one watched path changed', () => {
     const entries = selectWatchedEntries({
       curated_marketplaces: [
-        { name: 'unwatched', source: 'https://github.com/example/unwatched', last_checked_commit: 'a', upstream_branch: 'main' },
-        { ...ENTRY, watched_paths: ENTRY.watchedPaths, last_checked_commit: ENTRY.baseline, upstream_branch: ENTRY.branch },
+        {
+          name: 'unwatched',
+          source: 'https://github.com/example/unwatched',
+          last_checked_commit: 'a',
+          upstream_branch: 'main',
+        },
+        {
+          ...ENTRY,
+          watched_paths: ENTRY.watchedPaths,
+          last_checked_commit: ENTRY.baseline,
+          upstream_branch: ENTRY.branch,
+        },
       ],
     })
-    const drifts = entries.map((entry) => detectDrift(entry, HEAD, { files: [{ filename: 'skills/productivity/grilling/SKILL.md' }], commits: [{}] })).filter(Boolean)
+    const drifts = entries
+      .map((entry) =>
+        detectDrift(entry, HEAD, { files: [{ filename: 'skills/productivity/grilling/SKILL.md' }], commits: [{}] }),
+      )
+      .filter(Boolean)
     expect(drifts).toHaveLength(1)
   })
 })
 
 describe('detectDrift', () => {
   it('does not count a commit outside watched paths as drift', () => {
-    expect(detectDrift(ENTRY, HEAD, { files: [{ filename: 'skills/productivity/handoff/SKILL.md' }], commits: [{}] })).toBeNull()
+    expect(
+      detectDrift(ENTRY, HEAD, { files: [{ filename: 'skills/productivity/handoff/SKILL.md' }], commits: [{}] }),
+    ).toBeNull()
   })
 
   it('counts a commit inside a watched path as drift', () => {
-    expect(detectDrift(ENTRY, HEAD, { files: [{ filename: 'skills/productivity/grilling/SKILL.md' }], commits: [{}] })).toMatchObject({
+    expect(
+      detectDrift(ENTRY, HEAD, { files: [{ filename: 'skills/productivity/grilling/SKILL.md' }], commits: [{}] }),
+    ).toMatchObject({
       changedPaths: ['skills/productivity/grilling'],
     })
   })
 
   it('keeps prefix matching within the watched path boundary', () => {
-    expect(changedWatchedPaths(ENTRY.watchedPaths, [{ filename: 'skills/productivity/grilling-extra/SKILL.md' }])).toEqual([])
+    expect(
+      changedWatchedPaths(ENTRY.watchedPaths, [{ filename: 'skills/productivity/grilling-extra/SKILL.md' }]),
+    ).toEqual([])
   })
 
   it('never treats a truncated compare response as clean', () => {

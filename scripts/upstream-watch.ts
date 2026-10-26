@@ -29,7 +29,8 @@ const SAFE_NAME = /^[A-Za-z0-9._-]+$/
 const SAFE_PATH = /^[A-Za-z0-9._/-]+$/
 
 function object(value: unknown, label: string): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new UpstreamWatchError(`${label} must be an object`)
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new UpstreamWatchError(`${label} must be an object`)
   return value as Record<string, unknown>
 }
 
@@ -41,7 +42,12 @@ function text(value: unknown, label: string): string {
 function githubSource(source: string): { owner: string; repo: string } {
   const url = new URL(source)
   const parts = url.pathname.split('/').filter(Boolean)
-  if (url.protocol !== 'https:' || url.hostname !== 'github.com' || parts.length !== 2 || !parts.every((part) => SAFE_NAME.test(part))) {
+  if (
+    url.protocol !== 'https:' ||
+    url.hostname !== 'github.com' ||
+    parts.length !== 2 ||
+    !parts.every((part) => SAFE_NAME.test(part))
+  ) {
     throw new UpstreamWatchError(`unsupported upstream source: ${source}`)
   }
   return { owner: parts[0], repo: parts[1] }
@@ -50,7 +56,8 @@ function githubSource(source: string): { owner: string; repo: string } {
 /** Only an explicit watched_paths declaration makes a curated entry an upstream dependency. */
 export function selectWatchedEntries(registry: unknown): WatchEntry[] {
   const root = object(registry, 'registry')
-  if (!Array.isArray(root.curated_marketplaces)) throw new UpstreamWatchError('registry curated_marketplaces must be an array')
+  if (!Array.isArray(root.curated_marketplaces))
+    throw new UpstreamWatchError('registry curated_marketplaces must be an array')
   return root.curated_marketplaces.flatMap((value, index) => {
     const row = object(value, `curated_marketplaces[${index}]`)
     if (!Object.hasOwn(row, 'watched_paths')) return []
@@ -68,7 +75,17 @@ export function selectWatchedEntries(registry: unknown): WatchEntry[] {
     if (!SAFE_NAME.test(name)) throw new UpstreamWatchError(`invalid entry name: ${name}`)
     const source = text(row.source, `curated_marketplaces[${index}] source`)
     const { owner, repo } = githubSource(source)
-    return [{ name, owner, repo, source, baseline: text(row.last_checked_commit, `${name} last_checked_commit`), branch: text(row.upstream_branch, `${name} upstream_branch`), watchedPaths }]
+    return [
+      {
+        name,
+        owner,
+        repo,
+        source,
+        baseline: text(row.last_checked_commit, `${name} last_checked_commit`),
+        branch: text(row.upstream_branch, `${name} upstream_branch`),
+        watchedPaths,
+      },
+    ]
   })
 }
 
@@ -84,7 +101,12 @@ export function changedWatchedPaths(paths: readonly string[], files: readonly { 
   return paths.filter((path) => files.some((file) => pathMatches(path, file.filename)))
 }
 
-export function detectDrift(entry: WatchEntry, head: string, compare: Compare, fallbackChangedPaths: readonly string[] | null = null): Drift | null {
+export function detectDrift(
+  entry: WatchEntry,
+  head: string,
+  compare: Compare,
+  fallbackChangedPaths: readonly string[] | null = null,
+): Drift | null {
   if (!SAFE_NAME.test(head)) throw new UpstreamWatchError(`invalid upstream head for ${entry.name}`)
   const truncated = compareIsTruncated(compare)
   if (truncated) {
@@ -160,20 +182,30 @@ class Gh {
 }
 
 function pages<T>(value: unknown, label: string): T[] {
-  if (!Array.isArray(value) || !value.every(Array.isArray)) throw new UpstreamWatchError(`${label} pagination response is invalid`)
+  if (!Array.isArray(value) || !value.every(Array.isArray))
+    throw new UpstreamWatchError(`${label} pagination response is invalid`)
   return value.flat() as T[]
 }
 
 function pathScopedChanges(gh: Gh, entry: WatchEntry, head: string): string[] {
   return entry.watchedPaths.filter((path) => {
     const commits = pages<{ sha?: unknown }>(
-      gh.json(['api', '--paginate', '--slurp', `repos/${entry.owner}/${entry.repo}/commits?sha=${head}&path=${encodeURIComponent(path)}&per_page=100`]),
+      gh.json([
+        'api',
+        '--paginate',
+        '--slurp',
+        `repos/${entry.owner}/${entry.repo}/commits?sha=${head}&path=${encodeURIComponent(path)}&per_page=100`,
+      ]),
       `${entry.name} ${path}`,
     )
     return commits.some((commit) => {
       const sha = text(commit.sha, `${entry.name} ${path} commit sha`)
-      const ancestry = gh.json<{ ahead_by?: unknown }>(['api', `repos/${entry.owner}/${entry.repo}/compare/${entry.baseline}...${sha}`])
-      if (!Number.isInteger(ancestry.ahead_by)) throw new UpstreamWatchError(`invalid ancestry response for ${entry.name} ${path}`)
+      const ancestry = gh.json<{ ahead_by?: unknown }>([
+        'api',
+        `repos/${entry.owner}/${entry.repo}/compare/${entry.baseline}...${sha}`,
+      ])
+      if (!Number.isInteger(ancestry.ahead_by))
+        throw new UpstreamWatchError(`invalid ancestry response for ${entry.name} ${path}`)
       return (ancestry.ahead_by as number) > 0
     })
   })
@@ -186,7 +218,13 @@ function issuePayload(title: string, body: string): string {
   return path
 }
 
-function deliverIssue(gh: Gh, repository: string, drift: Drift, issues: readonly ExistingIssue[], dryRun: boolean): void {
+function deliverIssue(
+  gh: Gh,
+  repository: string,
+  drift: Drift,
+  issues: readonly ExistingIssue[],
+  dryRun: boolean,
+): void {
   const action = existingIssueAction(drift.entry, issues)
   const title = `upstream drift: ${drift.entry.name} (omp-build dependency)`
   const body = renderIssue(drift)
@@ -210,13 +248,24 @@ export function main(argv: readonly string[], env: NodeJS.ProcessEnv = process.e
   try {
     if (argv.length > 1) throw new UpstreamWatchError('usage: upstream-watch.ts [registry path]')
     const repository = text(env.GITHUB_REPOSITORY, 'GITHUB_REPOSITORY')
-    const entries = selectWatchedEntries(JSON.parse(readFileSync(argv[0] ?? '.claude-plugin/external-registry.json', 'utf8')))
+    const entries = selectWatchedEntries(
+      JSON.parse(readFileSync(argv[0] ?? '.claude-plugin/external-registry.json', 'utf8')),
+    )
     const gh = new Gh()
-    const issues = pages<ExistingIssue>(gh.json(['api', '--paginate', '--slurp', `repos/${repository}/issues?state=open&labels=ci&per_page=100`]), 'open issues')
+    const issues = pages<ExistingIssue>(
+      gh.json(['api', '--paginate', '--slurp', `repos/${repository}/issues?state=open&labels=ci&per_page=100`]),
+      'open issues',
+    )
     let drifts = 0
     for (const entry of entries) {
-      const head = text(gh.json<{ sha?: unknown }>(['api', `repos/${entry.owner}/${entry.repo}/commits/${entry.branch}`]).sha, `${entry.name} head`)
-      const compare = gh.json<Compare>(['api', `repos/${entry.owner}/${entry.repo}/compare/${entry.baseline}...${head}`])
+      const head = text(
+        gh.json<{ sha?: unknown }>(['api', `repos/${entry.owner}/${entry.repo}/commits/${entry.branch}`]).sha,
+        `${entry.name} head`,
+      )
+      const compare = gh.json<Compare>([
+        'api',
+        `repos/${entry.owner}/${entry.repo}/compare/${entry.baseline}...${head}`,
+      ])
       const fallback = compareIsTruncated(compare) ? pathScopedChanges(gh, entry, head) : []
       const drift = detectDrift(entry, head, compare, fallback)
       if (!drift) continue
