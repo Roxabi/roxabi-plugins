@@ -117,6 +117,7 @@ export {
   verdictSchema,
 } from './engine/record-values.ts'
 export { assessUwAdmission } from './engine/uw-admission.ts'
+export { projectNativeUwChildren } from './engine/uw-child-admission.ts'
 export { uwCreateInputSchema, uwProposalInputSchema } from './engine/uw-command-schema.ts'
 export { toDiagnostic, toDiagnostics, uwDiagnosticSchema, uwLocationSchema } from './engine/uw-diagnostics.ts'
 export {

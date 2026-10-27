@@ -1,4 +1,5 @@
 import type { Scope } from './record-values.ts'
+import { projectNativeUwChildren } from './uw-child-admission.ts'
 import type { UwDiagnostic } from './uw-diagnostics.ts'
 import {
   isWayfinder,
@@ -46,8 +47,14 @@ function diag(
   code: string,
   message: string,
   connection: 'labels' | 'children' | 'blockers' | 'state' = 'state',
+  related?: { uw: Scope; connection: 'children' | 'labels' | 'state' },
 ): UwDiagnostic {
-  return { code, message, location: { kind: 'native', uw, connection }, related: [] }
+  return {
+    code,
+    message,
+    location: { kind: 'native', uw, connection },
+    related: related === undefined ? [] : [{ kind: 'native', ...related }],
+  }
 }
 function tier(node: UwNativeNode): { value: UwTier | null; diagnostics: UwDiagnostic[] } {
   const labels = node.labels.filter((label) => label === 'size:S' || label === 'size:F-lite' || label === 'size:F-full')
@@ -93,9 +100,22 @@ function blockerDiagnostics(root: UwNativeNode, nodes: ReadonlyMap<string, UwNat
     const blocker = nodes.get(scopeKey(scope))
     if (blocker === undefined) continue
     if (isWayfinder(blocker) || unknownWayfinderLabels(blocker).length)
-      diagnostics.push(diag(root.uw, 'dependency-not-uw', 'A blocker is not a UW', 'blockers'))
+      diagnostics.push(
+        diag(root.uw, 'dependency-not-uw', `Blocker ${scope.target} is not a UW`, 'blockers', {
+          uw: scope,
+          connection: 'labels',
+        }),
+      )
     else if (blocker.native.state !== 'CLOSED' || blocker.native.stateReason !== 'COMPLETED')
-      diagnostics.push(diag(root.uw, 'blocker-not-completed', 'Blocker is not CLOSED/COMPLETED', 'blockers'))
+      diagnostics.push(
+        diag(
+          root.uw,
+          'blocker-not-completed',
+          `Blocker ${scope.target} is ${blocker.native.state}/${blocker.native.stateReason ?? 'unknown'}`,
+          'blockers',
+          { uw: scope, connection: 'state' },
+        ),
+      )
   }
   return diagnostics
 }
@@ -141,22 +161,14 @@ function childConcordanceDiagnostics(
         ),
       )
   }
-  const acceptedByScope = new Map(input.accepted.value.children.map((child) => [scopeKey(child.scope), child]))
+  const membership = projectNativeUwChildren({ uw: input.uw, graph: input.graph, accepted: input.accepted })
+  if (!membership.ok) diagnostics.push(...membership.diagnostics)
   for (const child of input.accepted.value.children) {
-    const childIsNative = root.children.some((scope) => sameScope(scope, child.scope))
-    if (!childIsNative) {
-      diagnostics.push(
-        diag(input.uw, 'material-change-pending', 'Accepted child was removed from native children', 'children'),
-      )
-      continue
+    if (root.children.some((scope) => sameScope(scope, child.scope))) {
+      const native = nodes.get(scopeKey(child.scope))
+      if (native !== undefined && !isWayfinder(native))
+        diagnostics.push(...acceptedChildDiagnostics(input.currentChildren, input, child, native))
     }
-    diagnostics.push(...acceptedChildDiagnostics(input.currentChildren, input, child, nodes.get(scopeKey(child.scope))))
-  }
-  for (const childScope of root.children) {
-    const native = nodes.get(scopeKey(childScope))
-    if (native === undefined || isWayfinder(native)) continue
-    if (!acceptedByScope.has(scopeKey(childScope)))
-      diagnostics.push(diag(input.uw, 'material-change-pending', 'Native UW child was added', 'children'))
   }
   return diagnostics
 }
@@ -165,27 +177,42 @@ function acceptedChildDiagnostics(
   projection: CurrentChildrenProjection,
   input: TransitionUwAdmissionInput,
   child: AcceptedOwnSpec['children'][number],
-  native: UwNativeNode | undefined,
+  native: UwNativeNode,
 ): UwDiagnostic[] {
-  if (native === undefined || isWayfinder(native))
-    return [diag(input.uw, 'material-change-pending', 'Accepted child drifted before wayfinder filtering', 'children')]
   const diagnostics: UwDiagnostic[] = []
   const nativeTier = tier(native)
   diagnostics.push(...nativeTier.diagnostics)
   if (nativeTier.value !== null && nativeTier.value !== child.tier)
-    diagnostics.push(diag(input.uw, 'material-change-pending', 'Accepted child tier drifted', 'labels'))
+    diagnostics.push(
+      diag(
+        input.uw,
+        'material-change-pending',
+        `Accepted child ${child.scope.target} tier drifted from ${child.tier} to ${nativeTier.value}`,
+        'labels',
+        { uw: child.scope, connection: 'labels' },
+      ),
+    )
   const current = projection.ok ? projection.value.find((entry) => sameScope(entry.scope, child.scope)) : undefined
   if (projection.ok && current === undefined)
     diagnostics.push(
       diag(
         input.uw,
         'current-child-projection-incomplete',
-        'Current child commitment projection is incomplete',
+        `Current child ${child.scope.target} commitment projection is incomplete`,
         'children',
+        { uw: child.scope, connection: 'state' },
       ),
     )
   else if (current !== undefined && current.specVersion !== child.specVersion)
-    diagnostics.push(diag(input.uw, 'material-change-pending', 'Accepted child Spec version drifted', 'children'))
+    diagnostics.push(
+      diag(
+        input.uw,
+        'material-change-pending',
+        `Accepted child ${child.scope.target} Spec version drifted from ${child.specVersion} to ${current.specVersion}`,
+        'children',
+        { uw: child.scope, connection: 'state' },
+      ),
+    )
   return diagnostics
 }
 

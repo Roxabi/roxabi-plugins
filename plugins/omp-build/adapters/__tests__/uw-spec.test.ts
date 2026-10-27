@@ -137,6 +137,96 @@ describe('UW Spec body grammar', () => {
     ])
   })
 
+  it('locates canonically empty literal criteria and invariants without losing meaningful whitespace', () => {
+    const emptyCriterion = '- C1 :\n  ~~~omp-build-text\n  \n  \n  ~~~'
+    const emptyInvariant = '- I1 :\n  ~~~omp-build-text\n  \n  \n  ~~~'
+    const body = strictBody()
+      .replace(
+        '- C1 : Première obligation\n  avec une continuation 😀 indentée.',
+        `${emptyCriterion}\n- C2 : literal  whitespace/value`,
+      )
+      .replace('- I1 : Une invariance.', `${emptyInvariant}\n- I2 : literal  whitespace/value`)
+    const parsed = parseIssueSpecBody({ uw, raw: rawSource('#17', body, null) })
+    const lines = body.split('\n')
+    const criterionLine = lines.indexOf('- C1 :') + 1
+    const invariantLine = lines.indexOf('- I1 :') + 1
+
+    expect(parsed.status).toBe('malformed')
+    expect(parsed.analysis.criterionSources).toContainEqual(
+      expect.objectContaining({ id: 'C2', statement: 'literal  whitespace/value' }),
+    )
+    expect(parsed.analysis.invariantSources).toContainEqual(
+      expect.objectContaining({ id: 'I2', statement: 'literal  whitespace/value' }),
+    )
+    expect(parsed.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'spec-item-malformed',
+          message: expect.stringContaining('C1'),
+          location: expect.objectContaining({
+            kind: 'body',
+            section: 'Acceptance Criteria',
+            start: { line: criterionLine, column: 1 },
+            end: { line: criterionLine + 4, column: '  ~~~'.length + 1 },
+          }),
+        }),
+        expect.objectContaining({
+          code: 'spec-item-malformed',
+          message: expect.stringContaining('I1'),
+          location: expect.objectContaining({
+            kind: 'body',
+            section: 'Invariants',
+            start: { line: invariantLine, column: 1 },
+            end: { line: invariantLine + 4, column: '  ~~~'.length + 1 },
+          }),
+        }),
+      ]),
+    )
+  })
+
+  it.each([
+    ['C1', '- C1 : Première obligation\n  avec une continuation 😀 indentée.', 'Acceptance Criteria'],
+    ['I1', '- I1 : Une invariance.', 'Invariants'],
+  ])('does not diagnose a valid sibling when %s has a canonically empty literal', (id, original, section) => {
+    const body = strictBody().replace(original, `- ${id} :\n  ~~~omp-build-text\n  \n  \n  ~~~`)
+    const parsed = parseIssueSpecBody({ uw, raw: rawSource('#17', body, null) })
+    const line = body.split('\n').indexOf(`- ${id} :`) + 1
+
+    expect(parsed.status).toBe('malformed')
+    expect(parsed.diagnostics).toEqual([
+      expect.objectContaining({
+        code: 'spec-item-malformed',
+        message: expect.stringContaining(id),
+        location: expect.objectContaining({ kind: 'body', section, start: { line, column: 1 } }),
+      }),
+    ])
+  })
+
+  it('keeps meaningful whitespace inside nonempty literal obligations', () => {
+    const body = strictBody()
+      .replace(
+        '- C1 : Première obligation\n  avec une continuation 😀 indentée.',
+        '- C1 :\n  ~~~omp-build-text\n  first  value\n  \n    second value\n  ~~~',
+      )
+      .replace('- I1 : Une invariance.', '- I1 :\n  ~~~omp-build-text\n  keep  spaces\n  \n    and indentation\n  ~~~')
+    const parsed = parseIssueSpecBody({ uw, raw: rawSource('#17', body, null) })
+
+    expect(parsed.status).toBe('conformant')
+    if (parsed.status !== 'conformant') throw new Error('expected conformant Spec')
+    expect(parsed.snapshot.spec.criteria[0]?.statement).toBe('first  value\n\n  second value')
+    expect(parsed.snapshot.spec.invariants[0]?.statement).toBe('keep  spaces\n\n  and indentation')
+  })
+
+  it.each(['* C1 : Première obligation', '  - C1 : Première obligation'])(
+    'does not accept legacy bullet syntax in strict destination grammar: %s',
+    (bullet) => {
+      const body = strictBody().replace('- C1 : Première obligation\n  avec une continuation 😀 indentée.', bullet)
+      const parsed = parseIssueSpecBody({ uw, raw: rawSource('#17', body, null) })
+
+      expect(parsed.status).toBe('malformed')
+    },
+  )
+
   it('retains blank paragraphs within an indented continuation but excludes trailing section whitespace', () => {
     const body = strictBody().replace(
       '  avec une continuation 😀 indentée.',

@@ -5,6 +5,7 @@ import {
   type CriterionId,
   canonicalSpec,
   type InvariantId,
+  normalized,
   type Spec,
   type SpecContent,
   type SpecDraft,
@@ -114,11 +115,36 @@ function identifiedItems<K extends CriterionId | InvariantId>(
   })
 }
 
+function invalidItemDiagnostics(
+  uw: Scope,
+  criteria: readonly SourceCriterionBlock[],
+  invariants: readonly SourceCriterionBlock[],
+): UwDiagnostic[] {
+  return [
+    ...criteria
+      .filter((block) => normalized(block.statement) === '')
+      .map((block) =>
+        diagnostic(
+          uw,
+          'spec-item-malformed',
+          `${block.id} must have a non-empty statement`,
+          block.span,
+          'Acceptance Criteria',
+        ),
+      ),
+    ...invariants
+      .filter((block) => normalized(block.statement) === '')
+      .map((block) =>
+        diagnostic(uw, 'spec-item-malformed', `${block.id} must have a non-empty statement`, block.span, 'Invariants'),
+      ),
+  ]
+}
+
 export function parseSpecBody(uw: Scope, raw: SpecRawSource): ParsedBody {
   const parsed = scanSpecStructure(uw, raw.body)
   const byHeading = sectionsByHeading(parsed)
   const diagnostics = [...parsed.diagnostics, ...structuralDiagnostics(uw, parsed, byHeading)]
-  const sourceFacts = scanBodySources(uw, parsed.sections, byHeading)
+  const sourceFacts = scanBodySources(uw, parsed.sections, byHeading, parsed.marked)
   const { criteria, invariants, exclusions, questionBlocks, contentBlocks, legacySections, preserved } = sourceFacts
   diagnostics.push(...sourceFacts.malformed)
   diagnostics.push(...preservePreamble(uw, raw, parsed.sections, preserved))
@@ -170,22 +196,27 @@ export function parseSpecBody(uw: Scope, raw: SpecRawSource): ParsedBody {
       contentBlocks,
       preserved,
     }
-  const canonical = canonicalSpec({
+  const content = {
     format: 'omp-build-spec-content/1',
     criteria: identifiedItems(criteria.blocks, isCriterionId),
     invariants: identifiedItems(invariants.blocks, isInvariantId),
     exclusions: exclusions.blocks.map((block) => block.statement),
     openQuestions: draft.openQuestions,
     sections,
-  } satisfies SpecContent)
-  if (!canonical.ok)
+  } satisfies SpecContent
+  const canonical = canonicalSpec(content)
+  if (!canonical.ok) {
+    const itemDiagnostics = invalidItemDiagnostics(uw, criteria.blocks, invariants.blocks)
     return malformedResult(
-      canonical.diagnostics.map((entry) => diagnostic(uw, entry.code, entry.message, sourceLineSpan(1))),
+      itemDiagnostics.length > 0
+        ? itemDiagnostics
+        : canonical.diagnostics.map((entry) => diagnostic(uw, entry.code, entry.message, sourceLineSpan(1))),
       criteria.blocks,
       invariants.blocks,
       contentBlocks,
       preserved,
     )
+  }
   return {
     status: 'conformant',
     content: canonical.value,

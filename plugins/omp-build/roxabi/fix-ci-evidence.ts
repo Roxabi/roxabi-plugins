@@ -5,6 +5,7 @@ import {
   assessUwAdmission,
   composeChantier,
   failedCheckEvidenceDigest,
+  projectNativeUwChildren,
   reconstructWorkflow,
   shippedProductVersion,
 } from '../dist/contracts.js'
@@ -180,7 +181,8 @@ function currentFixFacts(uw: UwRead): FixActionResult<CurrentFixFacts> {
     return failure('fix-own-uw-unsettled', ...admission.deliverable.diagnostics.map((item) => item.code))
   if (!uw.proposed.ok) return failure('fix-own-uw-unsettled')
   const root = uw.graph.nodes.find((node) => node.uw.repository === uw.uw.repository && node.uw.target === uw.uw.target)
-  if (root === undefined || root.children.length !== 0) return failure('fix-own-uw-unsettled')
+  const children = projectNativeUwChildren({ uw: uw.uw, graph: uw.graph, accepted: uw.accepted })
+  if (root === undefined || !children.ok || children.value.length !== 0) return failure('fix-own-uw-unsettled')
   const tiers = root.labels.filter((label) => label === 'size:S' || label === 'size:F-lite' || label === 'size:F-full')
   if (tiers.length !== 1 || tiers[0] === undefined) return failure('fix-own-uw-unsettled')
   const tier = nativeTier(tiers[0])

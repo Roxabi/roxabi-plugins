@@ -12258,6 +12258,7 @@ function decodeContinuationLines(lines) {
 }
 // plugins/omp-build/adapters/github-native/uw-spec-item-scanner.ts
 var ITEM = /^-\s+(?:(C[1-9][0-9]*|I[1-9][0-9]*)\s*:(?: )?)?(.*)$/;
+var LEGACY_ITEM = /^\s*[-*]\s+(?:(C[1-9][0-9]*|I[1-9][0-9]*)\s*:(?: )?)?(.*)$/;
 function decodedStatement(item) {
   if (item.source.length === 1)
     return item.statement;
@@ -12285,7 +12286,34 @@ function completedItem(uw, section, expected, item, span) {
     malformed.push(bodyDiagnostic(uw, "spec-text-fence-malformed", "Tagged visible text requires a matching closing fence", block.span, section.heading));
   return { block, malformed };
 }
-function scanSourceItems(uw, section, expected) {
+function startItem(line, index, legacyCriteria) {
+  const match = (legacyCriteria ? LEGACY_ITEM : ITEM).exec(line);
+  if (!match)
+    return null;
+  return {
+    first: index,
+    last: index,
+    source: [line],
+    pendingBlankLines: [],
+    id: match[1] ?? null,
+    statement: match[2] ?? ""
+  };
+}
+function appendContinuation(active, line, index) {
+  if (active === null)
+    return false;
+  if (line.trim() === "") {
+    active.pendingBlankLines.push(line);
+    return true;
+  }
+  if (!/^\s+/.test(line))
+    return false;
+  active.source.push(...active.pendingBlankLines, line);
+  active.pendingBlankLines = [];
+  active.last = index;
+  return true;
+}
+function scanSourceItems(uw, section, expected, legacyCriteria = false) {
   if (!section)
     return { blocks: [], malformed: [], noncriterion: [] };
   const lines = normalizeNewlines(section.content).split(`
@@ -12308,29 +12336,14 @@ function scanSourceItems(uw, section, expected) {
   };
   for (let index = 0;index < lines.length; index += 1) {
     const line = lines[index] ?? "";
-    const match = ITEM.exec(line);
-    if (match) {
+    const next = startItem(line, index, legacyCriteria);
+    if (next !== null) {
       finish();
-      active = {
-        first: index,
-        last: index,
-        source: [line],
-        pendingBlankLines: [],
-        id: match[1] ?? null,
-        statement: match[2] ?? ""
-      };
+      active = next;
       continue;
     }
-    if (active && line.trim() === "") {
-      active.pendingBlankLines.push(line);
+    if (appendContinuation(active, line, index))
       continue;
-    }
-    if (active && /^\s+/.test(line)) {
-      active.source.push(...active.pendingBlankLines, line);
-      active.pendingBlankLines = [];
-      active.last = index;
-      continue;
-    }
     finish();
     if (line !== "") {
       const span = itemSpan(index, index);
@@ -12667,10 +12680,10 @@ function malformedTextFenceDiagnostics(uw, byHeading) {
 }
 
 // plugins/omp-build/adapters/github-native/uw-spec-body-scan.ts
-function scanBodySources(uw, sections, byHeading) {
+function scanBodySources(uw, sections, byHeading, marked) {
   const legacySections = sections.filter((section) => isLegacyHeading(section.heading));
   const legacyCriteria = legacySections.filter((section) => section.heading !== "Acceptance Criteria");
-  const criteria = scanMany(uw, [...byHeading.get("Acceptance Criteria") ?? [], ...legacyCriteria], "C");
+  const criteria = scanMany(uw, [...byHeading.get("Acceptance Criteria") ?? [], ...legacyCriteria], "C", !marked);
   const invariants = scanMany(uw, byHeading.get("Invariants") ?? [], "I");
   const exclusionScans = (byHeading.get("Exclusions") ?? []).map((section) => scanLiteralItems(uw, section));
   const questionScans = (byHeading.get("Open Questions") ?? []).map((section) => scanOpenQuestionItems(section));
@@ -12707,8 +12720,8 @@ function scanBodySources(uw, sections, byHeading) {
     malformed: [...criteria.malformed, ...invariants.malformed, ...exclusionScans.flatMap((scan) => scan.malformed)]
   };
 }
-function scanMany(uw, sections, expected) {
-  const scans = sections.map((section) => scanSourceItems(uw, section, expected));
+function scanMany(uw, sections, expected, legacyCriteria = false) {
+  const scans = sections.map((section) => scanSourceItems(uw, section, expected, legacyCriteria));
   return {
     blocks: scans.flatMap((scan) => scan.blocks),
     malformed: scans.flatMap((scan) => scan.malformed),
@@ -12771,11 +12784,17 @@ function identifiedItems(blocks, matches) {
     return { id: block.id, statement: block.statement };
   });
 }
+function invalidItemDiagnostics(uw, criteria, invariants) {
+  return [
+    ...criteria.filter((block) => normalized(block.statement) === "").map((block) => bodyDiagnostic(uw, "spec-item-malformed", `${block.id} must have a non-empty statement`, block.span, "Acceptance Criteria")),
+    ...invariants.filter((block) => normalized(block.statement) === "").map((block) => bodyDiagnostic(uw, "spec-item-malformed", `${block.id} must have a non-empty statement`, block.span, "Invariants"))
+  ];
+}
 function parseSpecBody(uw, raw) {
   const parsed = scanSpecStructure(uw, raw.body);
   const byHeading = sectionsByHeading(parsed);
   const diagnostics = [...parsed.diagnostics, ...structuralDiagnostics(uw, parsed, byHeading)];
-  const sourceFacts = scanBodySources(uw, parsed.sections, byHeading);
+  const sourceFacts = scanBodySources(uw, parsed.sections, byHeading, parsed.marked);
   const { criteria, invariants, exclusions, questionBlocks, contentBlocks, legacySections, preserved } = sourceFacts;
   diagnostics.push(...sourceFacts.malformed);
   diagnostics.push(...preservePreamble(uw, raw, parsed.sections, preserved));
@@ -12813,16 +12832,19 @@ function parseSpecBody(uw, raw) {
       contentBlocks,
       preserved
     };
-  const canonical = canonicalSpec({
+  const content = {
     format: "omp-build-spec-content/1",
     criteria: identifiedItems(criteria.blocks, isCriterionId),
     invariants: identifiedItems(invariants.blocks, isInvariantId),
     exclusions: exclusions.blocks.map((block) => block.statement),
     openQuestions: draft.openQuestions,
     sections
-  });
-  if (!canonical.ok)
-    return malformedResult(canonical.diagnostics.map((entry) => bodyDiagnostic(uw, entry.code, entry.message, sourceLineSpan(1))), criteria.blocks, invariants.blocks, contentBlocks, preserved);
+  };
+  const canonical = canonicalSpec(content);
+  if (!canonical.ok) {
+    const itemDiagnostics = invalidItemDiagnostics(uw, criteria.blocks, invariants.blocks);
+    return malformedResult(itemDiagnostics.length > 0 ? itemDiagnostics : canonical.diagnostics.map((entry) => bodyDiagnostic(uw, entry.code, entry.message, sourceLineSpan(1))), criteria.blocks, invariants.blocks, contentBlocks, preserved);
+  }
   return {
     status: "conformant",
     content: canonical.value,
@@ -14062,38 +14084,111 @@ var decodedHistorySchema = strictObject({
   operations: array(operationReadSchema),
   diagnostics: array(diagnosticSchema)
 });
+// plugins/omp-build/engine/uw-child-admission.ts
+function diag2(uw, code, message, connection, related) {
+  return {
+    code,
+    message,
+    location: { kind: "native", uw, connection },
+    related: related ? [{ kind: "native", ...related }] : []
+  };
+}
+function checkAcceptedChildren(uw, root, nodes, accepted, diagnostics) {
+  for (const child of accepted ?? []) {
+    if (!root.children.some((scope) => sameScope2(scope, child.scope)))
+      diagnostics.push(diag2(uw, "material-change-pending", `Accepted child ${child.scope.target} was removed from native children`, "children", { uw: child.scope, connection: "state" }));
+    else {
+      const native = nodes.get(scopeKey(child.scope));
+      if (native === undefined)
+        diagnostics.push(diag2(uw, "graph-incomplete", `Accepted child ${child.scope.target} was not read`, "children", {
+          uw: child.scope,
+          connection: "state"
+        }));
+      else if (isWayfinder(native))
+        diagnostics.push(diag2(uw, "material-change-pending", `Accepted child ${child.scope.target} was reclassified as wayfinder`, "children", { uw: child.scope, connection: "labels" }));
+    }
+  }
+}
+function collectNativeChildren(uw, root, nodes, accepted, diagnostics, children) {
+  for (const scope of root.children) {
+    const native = nodes.get(scopeKey(scope));
+    if (native === undefined) {
+      diagnostics.push(diag2(uw, "graph-incomplete", `Native child ${scope.target} was not read`, "children", {
+        uw: scope,
+        connection: "state"
+      }));
+    } else if (unknownWayfinderLabels(native).length) {
+      diagnostics.push(diag2(uw, "wayfinder-unknown", `Child ${scope.target} has an unknown wayfinder label`, "children", {
+        uw: scope,
+        connection: "labels"
+      }));
+    } else if (!isWayfinder(native)) {
+      children.push(native);
+      if (accepted !== null && !accepted.some((child) => sameScope2(child.scope, scope)))
+        diagnostics.push(diag2(uw, "material-change-pending", `Native UW child ${scope.target} was added`, "children", {
+          uw: scope,
+          connection: "state"
+        }));
+    }
+  }
+}
+function projectNativeUwChildren(input) {
+  if (input.graph.status === "incomplete")
+    return {
+      ok: false,
+      diagnostics: input.graph.diagnostics.length ? input.graph.diagnostics : [diag2(input.uw, "graph-incomplete", "Native graph is incomplete", "children")]
+    };
+  if (input.accepted.status === "refused")
+    return { ok: false, diagnostics: input.accepted.diagnostics };
+  const nodes = new Map(input.graph.nodes.map((node) => [scopeKey(node.uw), node]));
+  const root = nodes.get(scopeKey(input.uw));
+  if (root === undefined)
+    return { ok: false, diagnostics: [diag2(input.uw, "graph-incomplete", "Selected UW is absent", "children")] };
+  const diagnostics = [];
+  const accepted = input.accepted.status === "accepted" ? input.accepted.value.children : null;
+  checkAcceptedChildren(input.uw, root, nodes, accepted, diagnostics);
+  const children = [];
+  collectNativeChildren(input.uw, root, nodes, accepted, diagnostics, children);
+  return diagnostics.length ? { ok: false, diagnostics } : { ok: true, value: children };
+}
+
 // plugins/omp-build/engine/uw-admission.ts
-function diag2(uw, code, message, connection = "state") {
-  return { code, message, location: { kind: "native", uw, connection }, related: [] };
+function diag3(uw, code, message, connection = "state", related) {
+  return {
+    code,
+    message,
+    location: { kind: "native", uw, connection },
+    related: related === undefined ? [] : [{ kind: "native", ...related }]
+  };
 }
 function tier(node) {
   const labels = node.labels.filter((label) => label === "size:S" || label === "size:F-lite" || label === "size:F-full");
   return labels.length === 1 ? { value: labels[0].slice(5), diagnostics: [] } : {
     value: null,
     diagnostics: [
-      diag2(node.uw, labels.length ? "tier-conflicting" : "tier-missing", "UW must have one native size tier", "labels")
+      diag3(node.uw, labels.length ? "tier-conflicting" : "tier-missing", "UW must have one native size tier", "labels")
     ]
   };
 }
 function framingDiagnostics(input, root) {
   const diagnostics = [];
   if (root === undefined)
-    diagnostics.push(diag2(input.uw, "graph-incomplete", "Selected UW is absent"));
+    diagnostics.push(diag3(input.uw, "graph-incomplete", "Selected UW is absent"));
   else if (isWayfinder(root)) {
-    diagnostics.push(diag2(input.uw, "wayfinder-not-uw", "Wayfinder is not a UW", "labels"));
+    diagnostics.push(diag3(input.uw, "wayfinder-not-uw", "Wayfinder is not a UW", "labels"));
     if (root.labels.some((label) => label.startsWith("size:")))
-      diagnostics.push(diag2(input.uw, "wayfinder-has-tier", "Wayfinder has a tier", "labels"));
+      diagnostics.push(diag3(input.uw, "wayfinder-has-tier", "Wayfinder has a tier", "labels"));
   } else {
     diagnostics.push(...tier(root).diagnostics);
     if (unknownWayfinderLabels(root).length)
-      diagnostics.push(diag2(root.uw, "wayfinder-unknown", "Unknown wayfinder label", "labels"));
+      diagnostics.push(diag3(root.uw, "wayfinder-unknown", "Unknown wayfinder label", "labels"));
   }
   if (!input.proposed.ok)
     return [...diagnostics, ...input.proposed.diagnostics];
   if (!input.proposed.snapshot.spec.criteria.length)
-    diagnostics.push(diag2(input.uw, "criteria-missing", "Spec has no criteria"));
+    diagnostics.push(diag3(input.uw, "criteria-missing", "Spec has no criteria"));
   if (input.proposed.snapshot.spec.openQuestions.length)
-    diagnostics.push(diag2(input.uw, "open-question", "Spec has open questions"));
+    diagnostics.push(diag3(input.uw, "open-question", "Spec has open questions"));
   const identities = validateSpecIds(input.proposed.snapshot.spec, input.identities);
   if (!identities.ok)
     diagnostics.push(...identities.diagnostics);
@@ -14106,9 +14201,12 @@ function blockerDiagnostics(root, nodes) {
     if (blocker === undefined)
       continue;
     if (isWayfinder(blocker) || unknownWayfinderLabels(blocker).length)
-      diagnostics.push(diag2(root.uw, "dependency-not-uw", "A blocker is not a UW", "blockers"));
+      diagnostics.push(diag3(root.uw, "dependency-not-uw", `Blocker ${scope.target} is not a UW`, "blockers", {
+        uw: scope,
+        connection: "labels"
+      }));
     else if (blocker.native.state !== "CLOSED" || blocker.native.stateReason !== "COMPLETED")
-      diagnostics.push(diag2(root.uw, "blocker-not-completed", "Blocker is not CLOSED/COMPLETED", "blockers"));
+      diagnostics.push(diag3(root.uw, "blocker-not-completed", `Blocker ${scope.target} is ${blocker.native.state}/${blocker.native.stateReason ?? "unknown"}`, "blockers", { uw: scope, connection: "state" }));
   }
   return diagnostics;
 }
@@ -14116,16 +14214,16 @@ function transitionDiagnostics(input, root, nodes) {
   if (input.phase === "initial-selection")
     return [];
   if (input.accepted.status === "absent")
-    return [diag2(input.uw, "own-spec-unaccepted", "No accepted own Spec")];
+    return [diag3(input.uw, "own-spec-unaccepted", "No accepted own Spec")];
   if (input.accepted.status === "refused")
     return [...input.accepted.diagnostics];
   const diagnostics = [];
   if (!sameScope2(input.accepted.value.ref.uw, input.uw) || input.proposed.ok && input.accepted.value.snapshot.spec.version !== input.proposed.snapshot.spec.version)
-    diagnostics.push(diag2(input.uw, "material-change-pending", "Own Spec changed"));
+    diagnostics.push(diag3(input.uw, "material-change-pending", "Own Spec changed"));
   const nativeTier = tier(root);
   diagnostics.push(...nativeTier.diagnostics);
   if (nativeTier.value !== null && nativeTier.value !== input.accepted.value.tier)
-    diagnostics.push(diag2(input.uw, "material-change-pending", "Tier changed", "labels"));
+    diagnostics.push(diag3(input.uw, "material-change-pending", "Tier changed", "labels"));
   diagnostics.push(...childConcordanceDiagnostics(input, root, nodes));
   return diagnostics;
 }
@@ -14136,39 +14234,31 @@ function childConcordanceDiagnostics(input, root, nodes) {
   if (!input.currentChildren.ok) {
     diagnostics.push(...input.currentChildren.diagnostics);
     if (input.currentChildren.diagnostics.length === 0)
-      diagnostics.push(diag2(input.uw, "current-child-projection-incomplete", "Current child commitment projection is unavailable", "children"));
+      diagnostics.push(diag3(input.uw, "current-child-projection-incomplete", "Current child commitment projection is unavailable", "children"));
   }
-  const acceptedByScope = new Map(input.accepted.value.children.map((child) => [scopeKey(child.scope), child]));
+  const membership = projectNativeUwChildren({ uw: input.uw, graph: input.graph, accepted: input.accepted });
+  if (!membership.ok)
+    diagnostics.push(...membership.diagnostics);
   for (const child of input.accepted.value.children) {
-    const childIsNative = root.children.some((scope) => sameScope2(scope, child.scope));
-    if (!childIsNative) {
-      diagnostics.push(diag2(input.uw, "material-change-pending", "Accepted child was removed from native children", "children"));
-      continue;
+    if (root.children.some((scope) => sameScope2(scope, child.scope))) {
+      const native = nodes.get(scopeKey(child.scope));
+      if (native !== undefined && !isWayfinder(native))
+        diagnostics.push(...acceptedChildDiagnostics(input.currentChildren, input, child, native));
     }
-    diagnostics.push(...acceptedChildDiagnostics(input.currentChildren, input, child, nodes.get(scopeKey(child.scope))));
-  }
-  for (const childScope of root.children) {
-    const native = nodes.get(scopeKey(childScope));
-    if (native === undefined || isWayfinder(native))
-      continue;
-    if (!acceptedByScope.has(scopeKey(childScope)))
-      diagnostics.push(diag2(input.uw, "material-change-pending", "Native UW child was added", "children"));
   }
   return diagnostics;
 }
 function acceptedChildDiagnostics(projection, input, child, native) {
-  if (native === undefined || isWayfinder(native))
-    return [diag2(input.uw, "material-change-pending", "Accepted child drifted before wayfinder filtering", "children")];
   const diagnostics = [];
   const nativeTier = tier(native);
   diagnostics.push(...nativeTier.diagnostics);
   if (nativeTier.value !== null && nativeTier.value !== child.tier)
-    diagnostics.push(diag2(input.uw, "material-change-pending", "Accepted child tier drifted", "labels"));
+    diagnostics.push(diag3(input.uw, "material-change-pending", `Accepted child ${child.scope.target} tier drifted from ${child.tier} to ${nativeTier.value}`, "labels", { uw: child.scope, connection: "labels" }));
   const current = projection.ok ? projection.value.find((entry) => sameScope2(entry.scope, child.scope)) : undefined;
   if (projection.ok && current === undefined)
-    diagnostics.push(diag2(input.uw, "current-child-projection-incomplete", "Current child commitment projection is incomplete", "children"));
+    diagnostics.push(diag3(input.uw, "current-child-projection-incomplete", `Current child ${child.scope.target} commitment projection is incomplete`, "children", { uw: child.scope, connection: "state" }));
   else if (current !== undefined && current.specVersion !== child.specVersion)
-    diagnostics.push(diag2(input.uw, "material-change-pending", "Accepted child Spec version drifted", "children"));
+    diagnostics.push(diag3(input.uw, "material-change-pending", `Accepted child ${child.scope.target} Spec version drifted from ${child.specVersion} to ${current.specVersion}`, "children", { uw: child.scope, connection: "state" }));
   return diagnostics;
 }
 function assessUwAdmission(input) {
@@ -14438,7 +14528,7 @@ function replaySpecIdentityHistory(history, uw, diagnostics) {
 }
 
 // plugins/omp-build/engine/uw-identity.ts
-function diag3(uw, code, message) {
+function diag4(uw, code, message) {
   return { code, message, location: { kind: "native", uw, connection: "state" }, related: [] };
 }
 function acceptedIds(accepted) {
@@ -14454,12 +14544,12 @@ function replayAcceptedRetirements(accepted, history, replay, uw, diagnostics) {
     const payload = operation?.record?.payload;
     const ids = payload?.identityDelta?.retired;
     if (operation === undefined || operation.status !== "complete" || operation.authority === "foreign" || !Array.isArray(ids)) {
-      diagnostics.push(diag3(uw, "spec-ledger-incomplete", `Accepted retirement ${step.source.recordId} is unreadable`));
+      diagnostics.push(diag4(uw, "spec-ledger-incomplete", `Accepted retirement ${step.source.recordId} is unreadable`));
       continue;
     }
     for (const id of ids) {
       if (!replay.allocations.has(id) || replay.retired.has(id))
-        diagnostics.push(diag3(uw, "spec-ledger-conflict", `Accepted retirement ${id} is invalid`));
+        diagnostics.push(diag4(uw, "spec-ledger-conflict", `Accepted retirement ${id} is invalid`));
       else
         replay.retired.set(id, step.source);
     }
@@ -14468,15 +14558,15 @@ function replayAcceptedRetirements(accepted, history, replay, uw, diagnostics) {
 function validateAcceptedIds(active, replay, uw, diagnostics) {
   for (const id of active) {
     if (!replay.allocations.has(id))
-      diagnostics.push(diag3(uw, "spec-ledger-conflict", `Accepted identity ${id} is unavailable`));
+      diagnostics.push(diag4(uw, "spec-ledger-conflict", `Accepted identity ${id} is unavailable`));
     if (replay.retired.get(id)?.kind === "spec-identity")
-      diagnostics.push(diag3(uw, "spec-ledger-conflict", `Accepted identity ${id} was retired as proposed`));
+      diagnostics.push(diag4(uw, "spec-ledger-conflict", `Accepted identity ${id} was retired as proposed`));
   }
 }
 function resolveSpecIdentityLedger(input) {
   const diagnostics = [];
   if (!input.history.source.complete)
-    diagnostics.push(diag3(input.uw, "spec-ledger-incomplete", "Identity history is incomplete"));
+    diagnostics.push(diag4(input.uw, "spec-ledger-incomplete", "Identity history is incomplete"));
   const replay = replaySpecIdentityHistory(input.history, input.uw, diagnostics);
   const active = acceptedIds(input.accepted);
   replayAcceptedRetirements(input.accepted, input.history, replay, input.uw, diagnostics);
@@ -14495,7 +14585,7 @@ function resolveSpecIdentityLedger(input) {
 }
 function prepareSpecAllocation(draft, ledger) {
   const parsed = specDraftSchema.safeParse(draft);
-  return parsed.success ? buildSpecAllocationPlan(parsed.data, ledger) : { ok: false, diagnostics: [diag3(ledger.uw, "spec-invalid", "Spec draft is invalid")] };
+  return parsed.success ? buildSpecAllocationPlan(parsed.data, ledger) : { ok: false, diagnostics: [diag4(ledger.uw, "spec-invalid", "Spec draft is invalid")] };
 }
 function identityDraft(uw, operationId, suffix, payload) {
   const id = `${operationId}${suffix}`;
@@ -14515,7 +14605,7 @@ function confirmedIdentityEvidence(uw, input, effects) {
   if (!confirmation.success || confirmation.data.operationId !== input.operationId || confirmation.data.proposalDigest !== input.proposalDigest || effects.length === 0)
     return {
       ok: false,
-      diagnostics: [diag3(uw, "operator-confirmation-required", "Exact native confirmation is required")]
+      diagnostics: [diag4(uw, "operator-confirmation-required", "Exact native confirmation is required")]
     };
   return { ok: true, value: confirmation.data };
 }
@@ -16615,6 +16705,7 @@ export {
   prepareReviewReplacementInventoryPublication,
   prepareSpecAllocation,
   producerJsonSchema,
+  projectNativeUwChildren,
   projectRecord,
   proveHistoricalReviewAssociation,
   publishConfirmedWorkflowRecord,

@@ -34,10 +34,11 @@ export function scanBodySources(
   uw: Scope,
   sections: readonly ParsedSection[],
   byHeading: ReadonlyMap<string, readonly ParsedSection[]>,
+  marked: boolean,
 ): BodySourceFacts {
   const legacySections = sections.filter((section) => isLegacyHeading(section.heading))
   const legacyCriteria = legacySections.filter((section) => section.heading !== 'Acceptance Criteria')
-  const criteria = scanMany(uw, [...(byHeading.get('Acceptance Criteria') ?? []), ...legacyCriteria], 'C')
+  const criteria = scanMany(uw, [...(byHeading.get('Acceptance Criteria') ?? []), ...legacyCriteria], 'C', !marked)
   const invariants = scanMany(uw, byHeading.get('Invariants') ?? [], 'I')
   const exclusionScans = (byHeading.get('Exclusions') ?? []).map((section) => scanLiteralItems(uw, section))
   const questionScans = (byHeading.get('Open Questions') ?? []).map((section) => scanOpenQuestionItems(section))
@@ -77,8 +78,8 @@ export function scanBodySources(
   }
 }
 
-function scanMany(uw: Scope, sections: readonly ParsedSection[], expected: 'C' | 'I') {
-  const scans = sections.map((section) => scanSourceItems(uw, section, expected))
+function scanMany(uw: Scope, sections: readonly ParsedSection[], expected: 'C' | 'I', legacyCriteria = false) {
+  const scans = sections.map((section) => scanSourceItems(uw, section, expected, legacyCriteria))
   return {
     blocks: scans.flatMap((scan) => scan.blocks),
     malformed: scans.flatMap((scan) => scan.malformed),

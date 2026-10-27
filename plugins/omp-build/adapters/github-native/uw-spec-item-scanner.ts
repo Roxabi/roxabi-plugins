@@ -12,6 +12,7 @@ import {
 import { decodeContinuationLines, decodeSpecText, isSpecTextFence } from './uw-spec-text-codec.ts'
 
 const ITEM = /^-\s+(?:(C[1-9][0-9]*|I[1-9][0-9]*)\s*:(?: )?)?(.*)$/
+const LEGACY_ITEM = /^\s*[-*]\s+(?:(C[1-9][0-9]*|I[1-9][0-9]*)\s*:(?: )?)?(.*)$/
 
 type ActiveSourceItem = {
   first: number
@@ -78,7 +79,38 @@ function completedItem(
   return { block, malformed }
 }
 
-export function scanSourceItems(uw: Scope, section: ParsedSection | undefined, expected: 'C' | 'I'): ScannedItems {
+function startItem(line: string, index: number, legacyCriteria: boolean): ActiveSourceItem | null {
+  const match = (legacyCriteria ? LEGACY_ITEM : ITEM).exec(line)
+  if (!match) return null
+  return {
+    first: index,
+    last: index,
+    source: [line],
+    pendingBlankLines: [],
+    id: match[1] ?? null,
+    statement: match[2] ?? '',
+  }
+}
+
+function appendContinuation(active: ActiveSourceItem | null, line: string, index: number): boolean {
+  if (active === null) return false
+  if (line.trim() === '') {
+    active.pendingBlankLines.push(line)
+    return true
+  }
+  if (!/^\s+/.test(line)) return false
+  active.source.push(...active.pendingBlankLines, line)
+  active.pendingBlankLines = []
+  active.last = index
+  return true
+}
+
+export function scanSourceItems(
+  uw: Scope,
+  section: ParsedSection | undefined,
+  expected: 'C' | 'I',
+  legacyCriteria = false,
+): ScannedItems {
   if (!section) return { blocks: [], malformed: [], noncriterion: [] }
   const lines = normalizeNewlines(section.content).split('\n')
   const blocks: SourceCriterionBlock[] = []
@@ -98,29 +130,13 @@ export function scanSourceItems(uw: Scope, section: ParsedSection | undefined, e
   }
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index] ?? ''
-    const match = ITEM.exec(line)
-    if (match) {
+    const next = startItem(line, index, legacyCriteria)
+    if (next !== null) {
       finish()
-      active = {
-        first: index,
-        last: index,
-        source: [line],
-        pendingBlankLines: [],
-        id: match[1] ?? null,
-        statement: match[2] ?? '',
-      }
+      active = next
       continue
     }
-    if (active && line.trim() === '') {
-      active.pendingBlankLines.push(line)
-      continue
-    }
-    if (active && /^\s+/.test(line)) {
-      active.source.push(...active.pendingBlankLines, line)
-      active.pendingBlankLines = []
-      active.last = index
-      continue
-    }
+    if (appendContinuation(active, line, index)) continue
     finish()
     if (line !== '') {
       const span = itemSpan(index, index)

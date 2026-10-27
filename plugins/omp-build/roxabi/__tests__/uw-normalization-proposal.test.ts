@@ -71,6 +71,76 @@ describe('UW normalization conservation', () => {
     expect(diagnostics(judgement, parsed)).toEqual([])
   })
 
+  it.each([
+    ['# Acceptance Criteria', '* Preserve existing authorized requests.', 'kept'],
+    ['# Critères d’acceptation', '  - Preserve existing authorized requests.', 'reworded'],
+  ])('conserves a legacy criterion from %s with bullet %s as %s', (heading, bullet, decision) => {
+    const raw = rawSource('#17', `${heading}\n\n${bullet}`, null)
+    const parsed = parseIssueSpecBody({ uw, raw })
+    const source = parsed.analysis.criterionSources[0]
+    expect(parsed.status).toBe('legacy')
+    expect(source).toMatchObject({ id: null, statement: 'Preserve existing authorized requests.', source: bullet })
+    if (source === undefined) throw new Error('legacy bullet must be a criterion source')
+
+    const target: { kind: 'new'; draftKey: string } = { kind: 'new', draftKey: 'legacy-criterion' }
+    const judgement: NormalizationJudgement = {
+      draft: {
+        criteria: [
+          {
+            ...target,
+            statement: decision === 'kept' ? source.statement : 'Continue to preserve authorized requests.',
+          },
+        ],
+        invariants: [],
+        sections: { origin: '', context: '', change: '' },
+        exclusions: [],
+        openQuestions: [],
+      },
+      normalization: [
+        decision === 'kept'
+          ? { kind: 'kept', source: source.span, target }
+          : { kind: 'reworded', source: source.span, target, reason: 'Clarify the original criterion' },
+      ],
+      factors: { files: 1, risk: 1, architecture: 1, unknowns: 1, domains: 1 },
+      tierOverride: null,
+    }
+    const observedAt = '2026-10-27T12:00:00.000Z'
+    const result = validateNormalizationJudgement(
+      {
+        uw,
+        title: 'Normalize',
+        parsed,
+        graph: {
+          status: 'complete',
+          root: uw,
+          observedAt,
+          nodes: [
+            {
+              uw,
+              title: 'Normalize',
+              raw,
+              updatedAt: observedAt,
+              labels: ['size:S'],
+              wayfinderLabels: [],
+              parent: null,
+              children: [],
+              blockers: [],
+              native: { state: 'OPEN', stateReason: null },
+            },
+          ],
+        },
+        writes: {
+          labels: { add: [], remove: [] },
+          relations: { addChildren: [], removeChildren: [], addBlockers: [], removeBlockers: [] },
+        },
+      },
+      judgement,
+    )
+
+    expect(parsed.analysis.preservedContent).toEqual([])
+    expect(result).toEqual([])
+  })
+
   it('refuses omitted prose and an identified criterion moved to another ID', () => {
     const { parsed, judgement } = fixture()
     const criterion = parsed.analysis.criterionSources[0]

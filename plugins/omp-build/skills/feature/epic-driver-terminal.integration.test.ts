@@ -1,7 +1,7 @@
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { reviewGraph } from '../../testing/record-graphs.ts'
+import { epicReviewGraph, reviewGraph } from '../../testing/record-graphs.ts'
 import {
   type Comment,
   childNode,
@@ -253,6 +253,105 @@ function landedEpic(files: Record<string, string> = {}): {
   })
   return { range: `${base}..${merge}`, merged, proof }
 }
+
+describe('epic-driver — fresh parent admission at terminal effects', () => {
+  function prepare(action: 'review' | 'hook' | 'complete') {
+    const { range, merged, proof } = landedEpic()
+    // Generate an independent native blocker through the same fixture builder;
+    // it is not a child of the accepted Epic.
+    serveEpic([childNode(3, 'fix(y): independent blocker')])
+    const blockerPath = path.join(sandboxOf().state, 'uw-3.json')
+    const blocker = JSON.parse(readFileSync(blockerPath, 'utf8'))
+    blocker.data.repository.issue.parent = null
+    writeFileSync(blockerPath, JSON.stringify(blocker))
+
+    const history = epicDecisionHistory(range, false)
+    const decision = epicReviewGraph({ prefix: `epic-${range.split('..')[1].slice(0, 8)}`, head: range.split('..')[1] })
+    const hook = framedRecords(1, [
+      epicEvent(1, 'terminal-hook-ok', {
+        event: 'post-merge',
+        run: RUN,
+        result: 'ok',
+        sha: range.split('..')[1],
+        exitCode: 0,
+      }),
+    ])
+    serveEpic(
+      [childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] })],
+      action === 'review' ? history.slice(0, -1) : action === 'hook' ? history : [...history, ...hook],
+    )
+    return { range, proof, decisionId: decision.decision.recordId }
+  }
+
+  function changeParent(change: 'blocker' | 'tier'): void {
+    const parentPath = path.join(sandboxOf().state, 'uw-1.json')
+    const parent = JSON.parse(readFileSync(parentPath, 'utf8'))
+    if (change === 'blocker') {
+      parent.data.repository.issue.blockedBy.nodes = [{ number: 3, repository: { nameWithOwner: 'o/r' } }]
+    } else {
+      parent.data.repository.issue.labels.nodes = []
+    }
+    writeFileSync(parentPath, JSON.stringify(parent))
+  }
+
+  it.each<{ action: 'review' | 'hook' | 'complete'; change: 'blocker' | 'tier' }>([
+    { action: 'review', change: 'blocker' },
+    { action: 'review', change: 'tier' },
+    { action: 'hook', change: 'blocker' },
+    { action: 'hook', change: 'tier' },
+    { action: 'complete', change: 'blocker' },
+    { action: 'complete', change: 'tier' },
+  ])('refuses $action when the accepted parent acquires a $change change', ({ action, change }) => {
+    const { range, proof, decisionId } = prepare(action)
+    changeParent(change)
+    const args =
+      action === 'review'
+        ? ['review', '--decision-record', decisionId, '--range', range]
+        : action === 'hook'
+          ? ['hook']
+          : ['report', '--outcome', 'complete']
+
+    const { epic, root } = sandboxOf()
+    const run = action === 'hook' ? drive([...args, '--repo', epic], { cwd: root }) : drive(args)
+
+    expect(run.code, run.stderr).toBe(2)
+    expect(run.stderr).toContain('native delivery admission refused')
+    expect(writes()).toEqual([])
+    expect(existsSync(proof)).toBe(false)
+  })
+
+  it('publishes an exact-range review when the parent remains deliverable', () => {
+    const { range, decisionId } = prepare('review')
+    const run = drive(['review', '--decision-record', decisionId, '--range', range])
+    expect(run.code).toBe(0)
+    expect(eventPayloads(1)).toContainEqual(expect.objectContaining({ event: 'epic-review', decisionId, range }))
+  })
+
+  it('runs the hook with the same unchanged parent fixture', () => {
+    const { proof } = prepare('hook')
+    const { epic, root } = sandboxOf()
+    const run = drive(['hook', '--repo', epic], { cwd: root })
+    expect(run.code, run.stderr).toBe(0)
+    expect(run.json()).toMatchObject({ result: 'ok' })
+    expect(existsSync(proof)).toBe(true)
+    expect(eventPayloads(1)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ event: 'post-merge', result: 'started' }),
+        expect.objectContaining({ event: 'post-merge', result: 'ok' }),
+      ]),
+    )
+  })
+
+  it('still permits a drop report when the parent loses its tier', () => {
+    prepare('complete')
+    changeParent('tier')
+    const run = drive(['report', '--outcome', 'drop', '--reason', 'driver-error'])
+    expect(run.code).toBe(0)
+    expect(eventPayloads(1)).toContainEqual(
+      expect.objectContaining({ event: 'goal-report', outcome: 'drop', reason: 'driver-error' }),
+    )
+  })
+})
 
 describe('epic-driver — canonical final review history', () => {
   it('uses the exact epic range, complete decision graph, and no free verdict', () => {

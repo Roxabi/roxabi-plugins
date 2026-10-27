@@ -112,6 +112,57 @@ function successorRecords(): Comment[] {
 }
 
 describe('epic-driver — the gate', () => {
+  it('does not report an accepted child as changed for its never-accepted wayfinder', () => {
+    sandbox()
+    const fixtures = roxabiWorkflowFixtures()
+    const parentScope = { repository: 'o/r', target: 'o/r#1' }
+    const childScope = { repository: 'o/r', target: 'o/r#2' }
+    const child = childNode(2, 'feat(x): first child')
+    const parentBody = strictSpecBody('works')
+    const childSnapshot = strictSnapshot(childScope, child.body)
+    const parent = fixtures.epicMandate(
+      parentScope,
+      [{ scope: childScope, snapshot: childSnapshot, specVersion: childSnapshot.spec.version, tier: 'S' }],
+      {
+        body: parentBody,
+        ownSpec: fixtures.ownSpecFromSnapshot(parentScope, strictSnapshot(parentScope, parentBody)),
+      },
+    )
+    const childMandate = fixtures.featureMandate(childScope, {
+      body: child.body,
+      ownSpec: fixtures.ownSpecFromSnapshot(childScope, childSnapshot),
+      parent: fixtures.mandateRef(parent),
+    })
+    serveEpic(
+      [
+        {
+          ...child,
+          fixtureComments: fixtures
+            .framedBodies([childMandate], 'operator', [fixtures.historyFrom([parent])])
+            .map((body) => ({ body, author: 'operator' })),
+        },
+      ],
+      framedRecords(1, [parent]),
+      { mandate: false },
+    )
+    const childPath = path.join(sandboxOf().state, 'uw-2.json')
+    const childGraph = JSON.parse(readFileSync(childPath, 'utf8'))
+    childGraph.data.repository.issue.subIssues.nodes = [{ number: 3, repository: { nameWithOwner: 'o/r' } }]
+    writeFileSync(childPath, JSON.stringify(childGraph))
+    const wayfinderGraph = structuredClone(childGraph)
+    const wayfinder = wayfinderGraph.data.repository.issue
+    wayfinder.number = 3
+    wayfinder.title = 'wayfinder map'
+    wayfinder.labels.nodes = [{ name: 'wayfinder:map' }]
+    wayfinder.parent = { number: 2, repository: { nameWithOwner: 'o/r' } }
+    wayfinder.subIssues.nodes = []
+    writeFileSync(path.join(sandboxOf().state, 'uw-3.json'), JSON.stringify(wayfinderGraph))
+
+    const run = drive(['next'])
+    expect(run.code, `stderr: ${run.stderr}\nstdout: ${run.stdout}`).toBe(0)
+    expect(run.json().step).toMatchObject({ action: 'start', ticket: 2 })
+  })
+
   it('acts on nothing without a confirmed mandate', () => {
     sandbox()
     serveEpic([childNode(2, 'feat(x): first child')], [], { mandate: false })

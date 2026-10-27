@@ -1,4 +1,4 @@
-import { assessUwAdmission, isWayfinder, sameScope } from '../../dist/contracts.js'
+import { assessUwAdmission, isWayfinder, projectNativeUwChildren, sameScope } from '../../dist/contracts.js'
 import type { UwAdmission } from '../../engine/uw-admission.ts'
 import type { SpecSnapshot } from '../../engine/uw-spec.ts'
 import type { UwRead, UwReadPort } from '../../roxabi/uw-contract.ts'
@@ -21,16 +21,6 @@ export type CanonicalEpic = {
 
 function diagnostic(uw: { repository: string; target: string }, code: string, message: string): OwnUwDiagnostic {
   return { code, message, location: { kind: 'native', uw, connection: 'state' }, related: [] }
-}
-
-function childCommitmentsMatch(
-  nativeChildren: readonly { repository: string; target: string }[],
-  acceptedChildren: readonly { scope: { repository: string; target: string } }[],
-): boolean {
-  return (
-    nativeChildren.length === acceptedChildren.length &&
-    nativeChildren.every((child) => acceptedChildren.some((accepted) => sameScope(child, accepted.scope)))
-  )
 }
 
 function observationDiagnostics(read: OwnUwRead): OwnUwDiagnostic[] {
@@ -61,7 +51,6 @@ function acceptedOwnSpec(
   read: OwnUwRead,
   current: SpecSnapshot,
   uw: { repository: string; target: string },
-  nativeChildren: readonly { repository: string; target: string }[],
   tier: OwnUwTier,
   diagnostics: OwnUwDiagnostic[],
 ) {
@@ -72,10 +61,8 @@ function acceptedOwnSpec(
     diagnostics.push(diagnostic(uw, 'material-change-pending', 'Current child Spec differs from its accepted snapshot'))
   if (tier !== read.accepted.value.tier)
     diagnostics.push(diagnostic(uw, 'material-change-pending', 'Current child tier differs from its accepted tier'))
-  if (!childCommitmentsMatch(nativeChildren, read.accepted.value.children))
-    diagnostics.push(
-      diagnostic(uw, 'material-change-pending', 'Current child commitments differ from accepted child commitments'),
-    )
+  const nativeChildren = projectNativeUwChildren({ uw, graph: read.graph, accepted: read.accepted })
+  if (!nativeChildren.ok) diagnostics.push(...nativeChildren.diagnostics)
   return diagnostics.length === 0 ? read.accepted.value : null
 }
 
@@ -105,7 +92,7 @@ function settledOwnUw(
       graphComplete: true,
       identityAllocations: allocations,
     }
-  const accepted = acceptedOwnSpec(read, proposed.snapshot, uw, root.children, tier, diagnostics)
+  const accepted = acceptedOwnSpec(read, proposed.snapshot, uw, tier, diagnostics)
   return accepted === null
     ? null
     : { status: 'accepted', accepted, graphComplete: true, identityAllocations: allocations }

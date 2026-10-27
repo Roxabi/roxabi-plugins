@@ -38,7 +38,7 @@ export {
 } from './uw-spec-schema.ts'
 export type OwnSpecRef = { uw: Scope; version: SpecVersion; sourceAccepted: ExternalRecordRef }
 export type ExclusionRef = { spec: OwnSpecRef; index: number }
-function normalized(value: string): string {
+export function normalized(value: string): string {
   return value
     .replace(/\r\n?/g, '\n')
     .replace(/^(?:[ \t]*\n)+/, '')

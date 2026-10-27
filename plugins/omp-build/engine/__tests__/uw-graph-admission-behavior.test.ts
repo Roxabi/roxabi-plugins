@@ -174,6 +174,10 @@ test('lifts a dependency only when its native state is CLOSED with exactly COMPL
   expect(completed.deliverable.ok).toBe(true)
   expect(codes(notPlanned.deliverable)).toContain('blocker-not-completed')
   expect(codes(unknownReason.deliverable)).toContain('blocker-not-completed')
+  const blockerDiagnostic = notPlanned.deliverable.diagnostics.find((entry) => entry.code === 'blocker-not-completed')
+  expect(blockerDiagnostic).toBeDefined()
+  expect(JSON.stringify(blockerDiagnostic)).toContain(BLOCKER.target)
+  expect(JSON.stringify(blockerDiagnostic)).toContain('NOT_PLANNED')
 })
 
 test('validates the combined hierarchy and dependency closure across repositories', () => {
@@ -229,7 +233,7 @@ test('refuses wayfinder roots and dependencies, and retains an accepted child re
     uw: ROOT,
     graph: graph([
       node({ uw: ROOT, children: [CHILD] }),
-      node({ uw: CHILD, labels: ['wayfinder:research'], wayfinderLabels: ['wayfinder:research'] }),
+      node({ uw: CHILD, labels: ['wayfinder:research'], wayfinderLabels: ['wayfinder:research'], parent: ROOT }),
     ]),
     proposed: { ok: true, snapshot: own },
     accepted: {
@@ -249,6 +253,9 @@ test('refuses wayfinder roots and dependencies, and retains an accepted child re
   expect(codes(rootWayfinder.framed)).toEqual(expect.arrayContaining(['wayfinder-not-uw', 'wayfinder-has-tier']))
   expect(codes(dependencyWayfinder.deliverable)).toContain('dependency-not-uw')
   expect(codes(reclassifiedChild.deliverable)).toContain('material-change-pending')
+  const drift = reclassifiedChild.deliverable.diagnostics.find((entry) => entry.code === 'material-change-pending')
+  expect(drift).toBeDefined()
+  expect(JSON.stringify(drift)).toContain(CHILD.target)
 })
 
 test('requires root child membership and a canonical child projection without treating missing child facts as material drift', () => {
@@ -295,8 +302,26 @@ test('requires root child membership and a canonical child projection without tr
       ],
     },
   })
+  const changed = snapshot([{ id: 'C1', statement: 'Changed child commitment' }], [], CHILD)
+  const changedVersion = assessUwAdmission({
+    uw: ROOT,
+    graph: graph([node({ uw: ROOT, children: [CHILD] }), node({ uw: CHILD, parent: ROOT })]),
+    proposed: { ok: true, snapshot: own },
+    accepted: { status: 'accepted', value: accepted(own, [acceptedChild]) },
+    identities: ledger(),
+    phase: 'landing',
+    currentChildren: { ok: true, value: [{ scope: CHILD, specVersion: changed.spec.version, tier: 'S' }] },
+  })
+  const versionDrift = changedVersion.deliverable.diagnostics.find((entry) => entry.code === 'material-change-pending')
+  expect(versionDrift).toBeDefined()
+  expect(JSON.stringify(versionDrift)).toContain(CHILD.target)
+  expect(JSON.stringify(versionDrift)).toContain(child.spec.version)
+  expect(JSON.stringify(versionDrift)).toContain(changed.spec.version)
 
   expect(codes(detached.deliverable)).toContain('material-change-pending')
+  const removed = detached.deliverable.diagnostics.find((entry) => entry.code === 'material-change-pending')
+  expect(removed).toBeDefined()
+  expect(JSON.stringify(removed)).toContain(CHILD.target)
   expect(codes(missingTier.deliverable)).toContain('tier-missing')
   expect(codes(missingTier.deliverable)).not.toContain('material-change-pending')
   expect(codes(unavailableProjection.deliverable)).toContain('current-child-projection-incomplete')

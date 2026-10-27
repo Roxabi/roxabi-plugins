@@ -5,8 +5,9 @@ import {
   validateDecision,
   validateRecordGraph,
 } from '../../dist/contracts.js'
+import type { UwAdmission } from '../../engine/uw-admission.ts'
 import { loadReviewConfig } from '../../roxabi/review-assets.ts'
-import { assertChildGrant, readEpicAuthority } from './epic-driver-authority'
+import { assertChildGrant, evidenceText, readEpicAuthority } from './epic-driver-authority'
 import { gather } from './epic-driver-gather'
 import { diagnosticsText } from './epic-driver-github'
 import { epicEvents } from './epic-driver-history'
@@ -23,6 +24,13 @@ import { type HookResult, runPostMergeHook } from './post-merge-hook'
 
 function refusePrincipal(repo: string): void {
   if (isPrincipal(repo)) throw new Refused('epic driver refuses the principal worktree')
+}
+
+function requireDeliveryAdmission(epic: number, admission: UwAdmission): void {
+  if (!admission.deliverable.ok)
+    throw new Refused(
+      `epic #${epic} native delivery admission refused: ${evidenceText(admission.deliverable.diagnostics)}`,
+    )
 }
 
 export async function stop(
@@ -53,7 +61,8 @@ export async function review(repo: string, epic: number, decisionRecord: string,
   const { run, base } = authority
   if (!decisionRecord) throw new Refused('--decision-record <ID> is required')
   refusePrincipal(repo)
-  const { facts, epicHistory } = await gather(repo, epic, run, base)
+  const { facts, epicHistory, parentAdmission } = await gather(repo, epic, run, base)
+  requireDeliveryAdmission(epic, parentAdmission)
   const step = nextStep(facts)
   if (step.action !== 'final-review' || step.stage !== 'review' || step.range !== range) {
     throw new Refused(`the driver expects no final review of ${range} (next: ${step.action})`)
@@ -134,7 +143,8 @@ export async function hook(repo: string, epic: number): Promise<HookResult> {
   const authority = await readEpicAuthority(repo, epic)
   const { run, base } = authority
   refusePrincipal(repo)
-  const { facts } = await gather(repo, epic, run, base)
+  const { facts, parentAdmission } = await gather(repo, epic, run, base)
+  requireDeliveryAdmission(epic, parentAdmission)
   const step = nextStep(facts)
   if (step.action !== 'post-merge') throw new Refused(`the driver expects no post-merge hook (next: ${step.action})`)
   const mark = async (
@@ -166,7 +176,8 @@ type ReportData = {
 
 async function reportData(repo: string, epic: number, run: string, base: string, outcome: string): Promise<ReportData> {
   if (outcome === 'complete') {
-    const { facts, epicHistory } = await gather(repo, epic, run, base)
+    const { facts, epicHistory, parentAdmission } = await gather(repo, epic, run, base)
+    requireDeliveryAdmission(epic, parentAdmission)
     const step = nextStep(facts)
     if (step.action !== 'complete') throw new Refused(`the epic is not complete (next: ${step.action})`)
     return { facts, epicHistory, disarmed: {}, stillArmed: [] }

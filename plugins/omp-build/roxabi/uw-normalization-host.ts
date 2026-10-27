@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
+import { toDiagnostic, toDiagnostics } from '../dist/contracts.js'
 import type { Diagnostic } from '../engine/record-values.ts'
-import { toDiagnostic, toDiagnostics, type UwDiagnostic } from '../engine/uw-diagnostics.ts'
+import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
 import type { NormalizationJudgement } from '../engine/uw-normalization-schema.ts'
 import type { NativeBatch, NativeBatchResult } from '../omp/review-runtime/contracts.ts'
 import type { ContinueFeatureInput, ContinueFeatureResult, FeatureCommandHost } from './feature-contract.ts'

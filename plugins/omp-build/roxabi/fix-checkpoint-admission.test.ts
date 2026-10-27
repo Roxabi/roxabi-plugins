@@ -14,6 +14,7 @@ import * as checkout from './workflow-checkout.ts'
 const UW: Scope = { repository: 'acme/payments', target: 'acme/payments#41' }
 const PR: Scope = { repository: 'acme/payments', target: 'acme/payments#99' }
 const BLOCKER: Scope = { repository: 'acme/payments', target: 'acme/payments#7' }
+const WAYFINDER: Scope = { repository: 'acme/payments', target: 'acme/payments#42' }
 const OBSERVED_AT = '2026-10-27T12:00:00.000Z'
 const SHA = 'a'.repeat(40)
 
@@ -76,7 +77,7 @@ function pullRequestTarget(): FixTarget {
   }
 }
 
-function fixture(nativeBlocker: UwNativeNode['native']) {
+function fixture(nativeBlocker: UwNativeNode['native'], withWayfinder = false) {
   const fixtures = roxabiWorkflowFixtures()
   const ownSpec = fixtures.ownSpecFromSnapshot(UW, snapshot(UW))
   const mandate = fixtures.featureMandate(UW, {
@@ -90,8 +91,21 @@ function fixture(nativeBlocker: UwNativeNode['native']) {
   const binding = fixtures.workflowBinding(PR, mandate, 'feature/41', 'main')
   const history = fixtures.historyFrom([mandate])
   const observed = graph(UW, [
-    node({ scope: UW, snapshot: ownSpec.snapshot, blockers: [BLOCKER] }),
+    {
+      ...node({ scope: UW, snapshot: ownSpec.snapshot, blockers: [BLOCKER] }),
+      children: withWayfinder ? [WAYFINDER] : [],
+    },
     node({ scope: BLOCKER, snapshot: snapshot(BLOCKER), native: nativeBlocker }),
+    ...(withWayfinder
+      ? [
+          {
+            ...node({ scope: WAYFINDER, snapshot: snapshot(WAYFINDER) }),
+            labels: ['wayfinder:map'],
+            wayfinderLabels: ['wayfinder:map'],
+            parent: UW,
+          },
+        ]
+      : []),
   ])
   const reader = createInstalledObservedUwReadPort({ graph: observed, histories: [history] })
   const bindingRead = {
@@ -114,6 +128,37 @@ afterEach(() => {
 })
 
 describe('fix checkpoint UW delivery admission', () => {
+  it('allows default and CI correction past leaf admission with an unchanged never-accepted wayfinder', async () => {
+    const leaf = fixture({ state: 'CLOSED', stateReason: 'COMPLETED' }, true)
+    const read = await leaf.reader.readUw(UW)
+    expect(read.accepted).toMatchObject({ status: 'accepted', value: { children: [] } })
+    expect(read.admission).toMatchObject({ framed: { ok: true }, deliverable: { ok: true } })
+
+    vi.spyOn(contracts, 'readWorkflowBinding').mockResolvedValueOnce(leaf.bindingRead)
+    const binding = await linkedIssueBinding(pullRequestTarget(), { cwd: '/worktree' }, leaf.reader)
+    expect(binding).toMatchObject({ ok: true, value: { currentSpec: { tier: 'S', children: [] } } })
+
+    const git = vi.fn(async () => ({ code: 1, stdout: '', stderr: 'correction config unavailable' }))
+    vi.spyOn(checkout, 'defaultGit').mockReturnValue(git)
+    const ci = await authorizeFixAction(
+      {
+        cwd: '/worktree',
+        target: pullRequestTarget(),
+        branch: 'feature/41',
+        base: 'main',
+        options: { cwd: '/worktree' },
+      },
+      leaf.history,
+      null,
+      [],
+      'fix',
+      { failedChecks: ['unit'], evidenceDigest: 'c'.repeat(64), failures: [] },
+      read,
+    )
+    expect(ci).toMatchObject({ ok: false, diagnostics: expect.arrayContaining(['fix-config-unreadable']) })
+    expect(git).toHaveBeenCalledTimes(1)
+  })
+
   it('refuses default-fix advancement for a CLOSED/NOT_PLANNED blocker while preserving CLOSED/COMPLETED', async () => {
     const blocked = fixture({ state: 'CLOSED', stateReason: 'NOT_PLANNED' })
     const completed = fixture({ state: 'CLOSED', stateReason: 'COMPLETED' })

@@ -1,5 +1,10 @@
 import type { DecodedHistory, GitHubOptions, Scope } from '../dist/contracts.js'
-import { assessUwAdmission, readNativePullRequestFacts, readWorkflowBinding } from '../dist/contracts.js'
+import {
+  assessUwAdmission,
+  projectNativeUwChildren,
+  readNativePullRequestFacts,
+  readWorkflowBinding,
+} from '../dist/contracts.js'
 import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
 import type { AssessSpecExact } from '../engine/workflow-receipt-schema.ts'
 import type { FixActionResult, FixTarget } from './fix-contract.ts'
@@ -114,7 +119,8 @@ async function freshBoundOwnSpec(
     return failure('fix-own-uw-unsettled', ...admission.deliverable.diagnostics.map((item) => item.code))
   if (!read.proposed.ok || read.accepted.status !== 'accepted') return failure('fix-own-uw-unsettled')
   const root = read.graph.nodes.find((node) => sameScope(node.uw, scope))
-  if (root === undefined || root.children.length !== 0) return failure('fix-own-uw-unsettled')
+  const children = projectNativeUwChildren({ uw: scope, graph: read.graph, accepted: read.accepted })
+  if (root === undefined || !children.ok || children.value.length !== 0) return failure('fix-own-uw-unsettled')
   const tiers = root.labels.filter((label) => label === 'size:S' || label === 'size:F-lite' || label === 'size:F-full')
   const tierLabel = tiers[0]
   if (tiers.length !== 1 || tierLabel === undefined) return failure('fix-own-uw-unsettled')
