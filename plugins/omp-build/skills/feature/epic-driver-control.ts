@@ -1,6 +1,7 @@
 import { type DecodedHistory, githubScope, resolveAcceptedSpec, selectApplicableMandate } from '../../dist/contracts.js'
 import type { MandateRecord } from '../../engine/workflow-control.ts'
 import { confirmedEpicMandate, evidenceText, localInhibit, readEpicAuthority } from './epic-driver-authority'
+import { discoverAcceptedChildPrs } from './epic-driver-containment'
 import { gather } from './epic-driver-gather'
 import { historyFor, issueHistory, repoName } from './epic-driver-github'
 import { type Disarm, disarm } from './epic-driver-publication'
@@ -108,10 +109,6 @@ function selectedControlTarget(
   throw new Refused(`epic mandate ${selected.reason}: ${evidenceText(selected.evidence)}`)
 }
 
-function approvedScopes(children: readonly { scope: { repository: string; target: string } }[]): Set<string> {
-  return new Set(children.map((child) => `${child.scope.repository}\0${child.scope.target}`))
-}
-
 /**
  * The intact normal mandate, including when continuation is paused, abandoned,
  * or revoked. It reads the authenticated accepted child projection but does not
@@ -128,16 +125,7 @@ export async function readEpicControlTarget(repo: string, epic: number): Promise
     throw new Refused(`epic parent accepted Spec ${accepted.reason}: ${evidenceText(accepted.evidence)}`)
   }
   const fields = confirmedEpicMandate(target.mandate, accepted.spec)
-  const { facts } = await gather(repo, epic, fields.run, fields.base, { git: false, dashboard: false, reviews: false })
-  const approved = approvedScopes(fields.children)
-  const openPrs = new Map<number, { ticket: number; pr: number }>()
-  for (const child of facts.children) {
-    const scope = githubScope(full, child.number)
-    if (!approved.has(`${scope.repository}\0${scope.target}`)) continue
-    for (const pr of child.prs) {
-      if (pr.state === 'OPEN') openPrs.set(pr.number, { ticket: child.number, pr: pr.number })
-    }
-  }
+  const openPrs = await discoverAcceptedChildPrs(repo, full, epic, fields.mandateId, fields.children)
   return {
     epic,
     repository: full,
@@ -145,7 +133,7 @@ export async function readEpicControlTarget(repo: string, epic: number): Promise
     run: fields.run,
     base: fields.base,
     control: target.control,
-    openPrs: [...openPrs.values()],
+    openPrs,
   }
 }
 
@@ -179,7 +167,11 @@ export type EpicRangeReviewRequest = {
 /** Confirmed final-review context for the native range review. Does not dispatch it. */
 export async function epicFinalReviewRequest(repo: string, epic: number): Promise<EpicRangeReviewRequest> {
   const authority = await readEpicAuthority(repo, epic)
-  const { facts } = await gather(repo, epic, authority.run, authority.base)
+  const { facts, parentAdmission } = await gather(repo, epic, authority.run, authority.base)
+  if (!parentAdmission.deliverable.ok)
+    throw new Refused(
+      `epic #${epic} native delivery admission refused: ${evidenceText(parentAdmission.deliverable.diagnostics)}`,
+    )
   const step = nextStep(facts)
   if (step.action !== 'final-review' || step.stage !== 'review' || !step.range) {
     throw new Refused(`the driver expects no final review (next: ${step.action})`)

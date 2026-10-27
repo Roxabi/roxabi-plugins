@@ -147,6 +147,8 @@ export function serveEpic(
       labels?: { nodes?: { name: string }[] }
       subIssues?: { nodes?: { number: number }[] }
       blockedBy?: { nodes?: { number: number }[] }
+      closedByPullRequestsReferences?: { nodes?: unknown[] }
+      timelineItems?: { nodes?: { source?: Record<string, unknown> | null }[] }
     }
     writeFileSync(
       path.join(sandboxOf().state, `uw-${child.number}.json`),
@@ -165,6 +167,33 @@ export function serveEpic(
           1,
         ),
       ),
+    )
+    writeFileSync(
+      path.join(sandboxOf().state, `containment-${child.number}.json`),
+      JSON.stringify({
+        data: {
+          repository: {
+            issue: {
+              number: child.number,
+              repository: { nameWithOwner: 'o/r' },
+              closedByPullRequestsReferences: {
+                pageInfo: { hasNextPage: false },
+                nodes: node.closedByPullRequestsReferences?.nodes ?? [],
+              },
+              timelineItems: {
+                pageInfo: { hasPreviousPage: false },
+                nodes: (node.timelineItems?.nodes ?? []).map(({ source }) => ({
+                  source: source ? { __typename: 'PullRequest', ...source } : null,
+                })),
+              },
+            },
+          },
+        },
+      }),
+    )
+    writeFileSync(
+      path.join(sandboxOf().state, `branch-prs-${child.number}.json`),
+      JSON.stringify(node.closedByPullRequestsReferences?.nodes ?? []),
     )
   }
 }

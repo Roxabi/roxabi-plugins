@@ -1,4 +1,7 @@
 import { expect, test } from 'vitest'
+import { parseIssueSpecBody, rawSource, renderIssueSpecBody } from '../../adapters/github-native/uw-spec.ts'
+import { createInstalledObservedUwReadPort } from '../../roxabi/uw-read-port.ts'
+import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { specDigest } from '../record-digests.ts'
 import type { ExternalRecordRef } from '../record-references.ts'
 import type { Scope } from '../record-values.ts'
@@ -102,6 +105,51 @@ function accepted(value: SpecSnapshot, children: AcceptedOwnSpec['children'] = [
 function codes(check: { diagnostics: readonly { code: string }[] }): string[] {
   return check.diagnostics.map((diagnostic) => diagnostic.code)
 }
+test('refuses an accepted UW when a parser draft has no diagnostics', async () => {
+  const body = renderIssueSpecBody(snapshot().spec, { complexity: 5 })
+  const source = rawSource(ROOT.target, body, OBSERVED_AT)
+  const parsed = parseIssueSpecBody({ uw: ROOT, raw: source })
+  if (parsed.status !== 'conformant') throw new Error('expected a conformant accepted baseline')
+  const fixtures = roxabiWorkflowFixtures()
+  const mandate = fixtures.featureMandate(ROOT, { ownSpec: fixtures.ownSpecFromSnapshot(ROOT, parsed.snapshot) })
+  const history = fixtures.historyFrom([mandate])
+  const draftBody = body.replace('# Invariants', '- An additional unapproved commitment\n\n# Invariants')
+  const draftSource = rawSource(ROOT.target, draftBody, OBSERVED_AT)
+  const draft = parseIssueSpecBody({ uw: ROOT, raw: draftSource })
+  expect(draft.status).toBe('draft')
+  expect(draft.diagnostics).toEqual([])
+
+  const baseline = createInstalledObservedUwReadPort({
+    graph: graph([{ ...node({ uw: ROOT }), raw: source }]),
+    histories: [history],
+  })
+  const changed = createInstalledObservedUwReadPort({
+    graph: graph([{ ...node({ uw: ROOT }), raw: draftSource }]),
+    histories: [history],
+  })
+  const before = await baseline.readUw(ROOT)
+  const read = await changed.readUw(ROOT)
+  expect(before.accepted.status).toBe('accepted')
+  expect(before.admission).toMatchObject({ framed: { ok: true }, deliverable: { ok: true } })
+  expect(read.proposed).toEqual({ ok: false, diagnostics: [] })
+  if (!read.identity.ok) throw new Error('fixture identity ledger must resolve')
+  const admission = assessUwAdmission({
+    uw: ROOT,
+    graph: read.graph,
+    proposed: read.proposed,
+    accepted: read.accepted,
+    identities: read.identity.value,
+    phase: 'delivery-transition',
+    currentChildren: { ok: true, value: [] },
+  })
+  expect(admission.framed.ok).toBe(false)
+  expect(admission.deliverable.ok).toBe(false)
+  expect(admission.framed.diagnostics).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ code: 'proposed-spec-unavailable', location: expect.objectContaining({ uw: ROOT }) }),
+    ]),
+  )
+})
 
 test('frames the own Spec only, requiring an explicit native tier and no open questions before accepted applicability', () => {
   const own = snapshot()

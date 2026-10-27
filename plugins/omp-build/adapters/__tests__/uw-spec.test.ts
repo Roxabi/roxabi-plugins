@@ -184,6 +184,89 @@ describe('UW Spec body grammar', () => {
     )
   })
 
+  it('locates every empty obligation when a canonical-empty literal and a plain empty item coexist', () => {
+    const body = strictBody()
+      .replace(
+        '- C1 : Première obligation\n  avec une continuation 😀 indentée.',
+        '- C1 :\n  ~~~omp-build-text\n  \n  \n  ~~~\n- C2 : valid criterion',
+      )
+      .replace('- I1 : Une invariance.', '- I1 :\n- I2 : valid invariant')
+    const parsed = parseIssueSpecBody({ uw, raw: rawSource('#17', body, null) })
+    const lines = body.split('\n')
+    const criterionLine = lines.indexOf('- C1 :') + 1
+    const invariantLine = lines.indexOf('- I1 :') + 1
+
+    expect(parsed.status).toBe('malformed')
+    expect(parsed.analysis.criterionSources).toContainEqual(
+      expect.objectContaining({ id: 'C2', statement: 'valid criterion' }),
+    )
+    expect(parsed.analysis.invariantSources).toContainEqual(
+      expect.objectContaining({ id: 'I2', statement: 'valid invariant' }),
+    )
+    expect(parsed.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'spec-item-malformed',
+          message: expect.stringContaining('C1'),
+          location: expect.objectContaining({
+            kind: 'body',
+            section: 'Acceptance Criteria',
+            start: { line: criterionLine, column: 1 },
+            end: { line: criterionLine + 4, column: '  ~~~'.length + 1 },
+          }),
+        }),
+        expect.objectContaining({
+          code: 'spec-item-malformed',
+          message: expect.stringContaining('I1'),
+          location: expect.objectContaining({
+            kind: 'body',
+            section: 'Invariants',
+            start: { line: invariantLine, column: 1 },
+            end: { line: invariantLine, column: '- I1 :'.length + 1 },
+          }),
+        }),
+      ]),
+    )
+  })
+
+  it.each(['structural error', 'unnamed draft sibling'])(
+    'locates a canonically empty identified item despite a %s',
+    (scenario) => {
+      let body = strictBody().replace(
+        '- C1 : Première obligation\n  avec une continuation 😀 indentée.',
+        '- C1 :\n  ~~~omp-build-text\n  \n  \n  ~~~\n- C2 : valid criterion',
+      )
+      body =
+        scenario === 'structural error'
+          ? body.replace('# Open Questions', '# Unexpected Heading')
+          : body.replace('- I1 : Une invariance.', '- I1 : Une invariance.\n- Additional draft invariant')
+      const parsed = parseIssueSpecBody({ uw, raw: rawSource('#17', body, null) })
+      const criterionLine = body.split('\n').indexOf('- C1 :') + 1
+
+      expect(parsed.status).toBe('malformed')
+      expect(parsed.analysis.criterionSources).toContainEqual(
+        expect.objectContaining({ id: 'C2', statement: 'valid criterion' }),
+      )
+      expect(parsed.analysis.invariantSources).toContainEqual(
+        expect.objectContaining({ id: 'I1', statement: 'Une invariance.' }),
+      )
+      expect(parsed.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: 'spec-item-malformed',
+            message: expect.stringContaining('C1'),
+            location: expect.objectContaining({
+              kind: 'body',
+              section: 'Acceptance Criteria',
+              start: { line: criterionLine, column: 1 },
+              end: { line: criterionLine + 4, column: '  ~~~'.length + 1 },
+            }),
+          }),
+        ]),
+      )
+    },
+  )
+
   it.each([
     ['C1', '- C1 : Première obligation\n  avec une continuation 😀 indentée.', 'Acceptance Criteria'],
     ['I1', '- I1 : Une invariance.', 'Invariants'],

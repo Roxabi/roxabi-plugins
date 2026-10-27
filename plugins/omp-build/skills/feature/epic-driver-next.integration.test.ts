@@ -5,6 +5,7 @@ import { parseIssueSpecBody, rawSource } from '../../contracts.ts'
 import { buildRecord } from '../../engine/record-construction.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
+import { serveBoundEpic } from './testing/epic-driver/epic-driver-bound-fixture.ts'
 import {
   type Comment,
   childNode,
@@ -438,10 +439,11 @@ describe('epic-driver — review and report', () => {
   it('disarms every armed child PR on drop and posts one canonical report event per run', () => {
     sandbox()
     const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
-    const children = [
+    serveBoundEpic(
       childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', 'c'.repeat(40), armed)] }),
-    ]
-    serveEpic(children)
+      11,
+      'feat/2-first-child',
+    )
     servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
 
     const first = drive(['report', '--outcome', 'drop', '--reason', 'base-ci-red'])

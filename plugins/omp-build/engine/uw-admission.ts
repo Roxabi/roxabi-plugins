@@ -84,7 +84,16 @@ function framingDiagnostics(input: UwAdmissionInput, root: UwNativeNode | undefi
     if (unknownWayfinderLabels(root).length)
       diagnostics.push(diag(root.uw, 'wayfinder-unknown', 'Unknown wayfinder label', 'labels'))
   }
-  if (!input.proposed.ok) return [...diagnostics, ...input.proposed.diagnostics]
+  if (!input.proposed.ok) {
+    if (input.proposed.diagnostics.length === 0)
+      diagnostics.push({
+        code: 'proposed-spec-unavailable',
+        message: 'Proposed own Spec is not conformant',
+        location: { kind: 'spec', uw: input.uw, path: [] },
+        related: [],
+      })
+    return [...diagnostics, ...input.proposed.diagnostics]
+  }
   if (!input.proposed.snapshot.spec.criteria.length)
     diagnostics.push(diag(input.uw, 'criteria-missing', 'Spec has no criteria'))
   if (input.proposed.snapshot.spec.openQuestions.length)

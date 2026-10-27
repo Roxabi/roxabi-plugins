@@ -2,6 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'n
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { epicReviewGraph, reviewGraph } from '../../testing/record-graphs.ts'
+import { serveBoundEpic } from './testing/epic-driver/epic-driver-bound-fixture.ts'
 import {
   type Comment,
   childNode,
@@ -207,9 +208,11 @@ describe('epic-driver — unreadable landing', () => {
   it('drops on it, disarms, and reports through one canonical event', () => {
     sandbox('release:\n  model: trunk\nlanding:\n  mode: squash\n')
     const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
-    serveEpic([
+    serveBoundEpic(
       childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', 'c'.repeat(40), armed)] }),
-    ])
+      11,
+      'feat/2-first-child',
+    )
     servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
 
     const next = drive(['next'])
@@ -556,9 +559,11 @@ describe('epic-driver — drop disarms without the dashboard', () => {
   it('disarms every armed PR when the base-CI rollup query fails and records the report event', () => {
     sandbox()
     const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
-    serveEpic([
+    serveBoundEpic(
       childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', 'c'.repeat(40), armed)] }),
-    ])
+      11,
+      'feat/2-first-child',
+    )
     servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
     writeFileSync(
       path.join(sandboxOf().state, 'rollup.json'),

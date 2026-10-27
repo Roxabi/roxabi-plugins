@@ -8,10 +8,11 @@ import {
 import type { UwAdmission } from '../../engine/uw-admission.ts'
 import { loadReviewConfig } from '../../roxabi/review-assets.ts'
 import { assertChildGrant, evidenceText, readEpicAuthority } from './epic-driver-authority'
+import { disarmEpicControlTarget } from './epic-driver-control'
 import { gather } from './epic-driver-gather'
 import { diagnosticsText } from './epic-driver-github'
 import { epicEvents } from './epic-driver-history'
-import { type Disarm, disarm, publishEpicEvent, ticketStop } from './epic-driver-publication'
+import { type Disarm, publishEpicEvent, ticketStop } from './epic-driver-publication'
 import { reportPayload, reportText } from './epic-driver-report'
 import { git, Refused } from './epic-driver-runtime'
 import { hookStatus } from './epic-finalization'
@@ -123,7 +124,8 @@ export async function markFix(repo: string, epic: number, ticket: number): Promi
   const { run, base } = authority
   if (!Number.isInteger(ticket) || ticket <= 0) throw new Refused('--ticket <N> is required')
   refusePrincipal(repo)
-  const { facts } = await gather(repo, epic, run, base)
+  const { facts, parentAdmission } = await gather(repo, epic, run, base)
+  requireDeliveryAdmission(epic, parentAdmission)
   const step = nextStep(facts)
   if (step.action !== 'final-review' || step.stage !== 'fix-ticket') {
     throw new Refused(`the driver expects no final-review fix ticket (next: ${step.action})`)
@@ -182,8 +184,10 @@ async function reportData(repo: string, epic: number, run: string, base: string,
     if (step.action !== 'complete') throw new Refused(`the epic is not complete (next: ${step.action})`)
     return { facts, epicHistory, disarmed: {}, stillArmed: [] }
   }
+  const containment = await disarmEpicControlTarget(repo, epic)
+  const { disarmed } = containment
+  const stillArmed = containment.failed.map(({ pr }) => pr)
   const light = await gather(repo, epic, run, base, { git: false, dashboard: false, reviews: false })
-  const { disarmed, stillArmed } = await disarmOpenPrs(repo, light.facts)
   try {
     const full = await gather(repo, epic, run, base)
     const facts: Facts = full.facts.landingError
@@ -199,23 +203,6 @@ async function reportData(repo: string, epic: number, run: string, base: string,
       stillArmed,
     }
   }
-}
-
-async function disarmOpenPrs(repo: string, facts: Facts): Promise<Pick<ReportData, 'disarmed' | 'stillArmed'>> {
-  const disarmed: Record<string, Disarm> = {}
-  const stillArmed: number[] = []
-  const armed = facts.children
-    .flatMap((child) => child.prs)
-    .filter((pr) => pr.state === 'OPEN' && pr.armed)
-    .sort((left, right) => left.number - right.number)
-  for (const pr of armed) {
-    try {
-      disarmed[pr.number] = await disarm(repo, pr.number)
-    } catch {
-      stillArmed.push(pr.number)
-    }
-  }
-  return { disarmed, stillArmed }
 }
 
 export async function report(

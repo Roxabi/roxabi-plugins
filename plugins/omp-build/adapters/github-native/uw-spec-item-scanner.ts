@@ -1,5 +1,6 @@
 import type { Scope } from '../../engine/record-values.ts'
 import type { UwDiagnostic } from '../../engine/uw-diagnostics.ts'
+import { normalized } from '../../engine/uw-spec.ts'
 import {
   bodyDiagnostic,
   normalizeNewlines,
@@ -46,7 +47,7 @@ function completedItem(
     span,
   }
   const malformed: UwDiagnostic[] = []
-  if (item.id !== null && block.statement === '')
+  if (item.id !== null && normalized(block.statement) === '')
     malformed.push(
       bodyDiagnostic(
         uw,

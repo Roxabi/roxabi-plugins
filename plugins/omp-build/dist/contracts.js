@@ -12278,7 +12278,7 @@ function completedItem(uw, section, expected, item, span) {
     span
   };
   const malformed = [];
-  if (item.id !== null && block.statement === "")
+  if (item.id !== null && normalized(block.statement) === "")
     malformed.push(bodyDiagnostic(uw, "spec-item-malformed", `${item.id} must have a non-empty statement`, block.span, section.heading));
   if (item.id !== null && !item.id.startsWith(expected))
     malformed.push(bodyDiagnostic(uw, "spec-item-malformed", `${item.id} is not valid in ${section.heading}`, block.span, section.heading));
@@ -12784,12 +12784,6 @@ function identifiedItems(blocks, matches) {
     return { id: block.id, statement: block.statement };
   });
 }
-function invalidItemDiagnostics(uw, criteria, invariants) {
-  return [
-    ...criteria.filter((block) => normalized(block.statement) === "").map((block) => bodyDiagnostic(uw, "spec-item-malformed", `${block.id} must have a non-empty statement`, block.span, "Acceptance Criteria")),
-    ...invariants.filter((block) => normalized(block.statement) === "").map((block) => bodyDiagnostic(uw, "spec-item-malformed", `${block.id} must have a non-empty statement`, block.span, "Invariants"))
-  ];
-}
 function parseSpecBody(uw, raw) {
   const parsed = scanSpecStructure(uw, raw.body);
   const byHeading = sectionsByHeading(parsed);
@@ -12842,8 +12836,7 @@ function parseSpecBody(uw, raw) {
   };
   const canonical = canonicalSpec(content);
   if (!canonical.ok) {
-    const itemDiagnostics = invalidItemDiagnostics(uw, criteria.blocks, invariants.blocks);
-    return malformedResult(itemDiagnostics.length > 0 ? itemDiagnostics : canonical.diagnostics.map((entry) => bodyDiagnostic(uw, entry.code, entry.message, sourceLineSpan(1))), criteria.blocks, invariants.blocks, contentBlocks, preserved);
+    return malformedResult(canonical.diagnostics.map((entry) => bodyDiagnostic(uw, entry.code, entry.message, sourceLineSpan(1))), criteria.blocks, invariants.blocks, contentBlocks, preserved);
   }
   return {
     status: "conformant",
@@ -14183,8 +14176,16 @@ function framingDiagnostics(input, root) {
     if (unknownWayfinderLabels(root).length)
       diagnostics.push(diag3(root.uw, "wayfinder-unknown", "Unknown wayfinder label", "labels"));
   }
-  if (!input.proposed.ok)
+  if (!input.proposed.ok) {
+    if (input.proposed.diagnostics.length === 0)
+      diagnostics.push({
+        code: "proposed-spec-unavailable",
+        message: "Proposed own Spec is not conformant",
+        location: { kind: "spec", uw: input.uw, path: [] },
+        related: []
+      });
     return [...diagnostics, ...input.proposed.diagnostics];
+  }
   if (!input.proposed.snapshot.spec.criteria.length)
     diagnostics.push(diag3(input.uw, "criteria-missing", "Spec has no criteria"));
   if (input.proposed.snapshot.spec.openQuestions.length)

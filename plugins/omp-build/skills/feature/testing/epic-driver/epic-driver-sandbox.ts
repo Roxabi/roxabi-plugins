@@ -25,7 +25,26 @@ case "$1 \${2:-}" in
   "api user") echo "$ME" ;;
   "api graphql")
     q="$*"
-    if [[ "$q" == *stateReason* && "$q" == *blockedBy* ]]; then
+    if [[ "$q" == *EpicContainmentBranch* ]]; then
+      query containment-branch
+      branch=""
+      for arg in "$@"; do
+        [[ "$arg" == head=* ]] && branch="\${arg#head=}"
+      done
+      [[ ! -f "$S/branch-unavailable" ]] || { echo "stub gh: branch discovery unavailable" >&2; exit 9; }
+      jq -s --arg branch "$branch" '{data:{repository:{pullRequests:{pageInfo:{hasNextPage:false},nodes:[.[][] | select(.headRefName == $branch and .state == "OPEN")]}}}}' "$S"/branch-prs-*.json
+    elif [[ "$q" == *EpicContainmentIssue* ]]; then
+      query containment-issue
+      number=""
+      for arg in "$@"; do
+        [[ "$arg" == number=* ]] && number="\${arg#number=}"
+      done
+      [[ "$number" =~ ^[0-9]+$ && -f "$S/uw-$number.json" && -f "$S/containment-$number.json" ]] || {
+        echo "stub gh: missing containment issue $number" >&2
+        exit 9
+      }
+      cat "$S/containment-$number.json"
+    elif [[ "$q" == *stateReason* && "$q" == *blockedBy* ]]; then
       query uw-graph
       number=""
       for arg in "$@"; do

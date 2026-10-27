@@ -5,7 +5,6 @@ import {
   type CriterionId,
   canonicalSpec,
   type InvariantId,
-  normalized,
   type Spec,
   type SpecContent,
   type SpecDraft,
@@ -115,31 +114,6 @@ function identifiedItems<K extends CriterionId | InvariantId>(
   })
 }
 
-function invalidItemDiagnostics(
-  uw: Scope,
-  criteria: readonly SourceCriterionBlock[],
-  invariants: readonly SourceCriterionBlock[],
-): UwDiagnostic[] {
-  return [
-    ...criteria
-      .filter((block) => normalized(block.statement) === '')
-      .map((block) =>
-        diagnostic(
-          uw,
-          'spec-item-malformed',
-          `${block.id} must have a non-empty statement`,
-          block.span,
-          'Acceptance Criteria',
-        ),
-      ),
-    ...invariants
-      .filter((block) => normalized(block.statement) === '')
-      .map((block) =>
-        diagnostic(uw, 'spec-item-malformed', `${block.id} must have a non-empty statement`, block.span, 'Invariants'),
-      ),
-  ]
-}
-
 export function parseSpecBody(uw: Scope, raw: SpecRawSource): ParsedBody {
   const parsed = scanSpecStructure(uw, raw.body)
   const byHeading = sectionsByHeading(parsed)
@@ -206,11 +180,8 @@ export function parseSpecBody(uw: Scope, raw: SpecRawSource): ParsedBody {
   } satisfies SpecContent
   const canonical = canonicalSpec(content)
   if (!canonical.ok) {
-    const itemDiagnostics = invalidItemDiagnostics(uw, criteria.blocks, invariants.blocks)
     return malformedResult(
-      itemDiagnostics.length > 0
-        ? itemDiagnostics
-        : canonical.diagnostics.map((entry) => diagnostic(uw, entry.code, entry.message, sourceLineSpan(1))),
+      canonical.diagnostics.map((entry) => diagnostic(uw, entry.code, entry.message, sourceLineSpan(1))),
       criteria.blocks,
       invariants.blocks,
       contentBlocks,
