@@ -8,6 +8,8 @@ type MandatePayload = Extract<CanonicalRecord, { kind: 'mandate' }>['payload']
 type OperatorControlPayload = Extract<CanonicalRecord, { kind: 'operator-control' }>['payload']
 type ActionReceiptPayload = Extract<CanonicalRecord, { kind: 'action-receipt' }>['payload']
 type WorkflowBindingPayload = Extract<CanonicalRecord, { kind: 'workflow-binding' }>['payload']
+type ReviewInterruptionPayload = Extract<CanonicalRecord, { kind: 'review-interruption' }>['payload']
+type ReviewReplacementGrantPayload = Extract<CanonicalRecord, { kind: 'review-replacement-grant' }>['payload']
 
 export function scopedRefsOf(record: { kind: Kind; payload: unknown }): ExternalRecordRef[] {
   switch (record.kind) {
@@ -39,6 +41,10 @@ export function scopedRefsOf(record: { kind: Kind; payload: unknown }): External
     }
     case 'workflow-binding':
       return [(record.payload as WorkflowBindingPayload).mandate]
+    case 'review-interruption':
+      return [(record.payload as ReviewInterruptionPayload).historicalBinding]
+    case 'review-replacement-grant':
+      return [(record.payload as ReviewReplacementGrantPayload).binding]
     default:
       return []
   }

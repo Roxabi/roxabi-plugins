@@ -34,8 +34,12 @@ export type {
   WorkflowPublication,
 } from './adapters/github-workflow/types.ts'
 export { hasNativeUserInterruptFlag } from './adapters/omp-native/user-interrupt.ts'
-export type { HistoryClassification, HistoryOperationClass } from './engine/history-classification.ts'
-export { classifyHistory } from './engine/history-classification.ts'
+export * from './contracts-review.ts'
+export {
+  classifyHistory,
+  type HistoryClassification,
+  type HistoryOperationClass,
+} from './engine/history-classification.ts'
 export { validateRecordGraph } from './engine/history-graph.ts'
 export type { DecodedHistory, History, OperationAuthority, OperationRead } from './engine/history-schema.ts'
 export {
@@ -112,58 +116,6 @@ export {
   type Verdict,
   verdictSchema,
 } from './engine/record-values.ts'
-export type {
-  DecisionAssessment,
-  FindingInspection,
-  RecordProjectionConfig,
-  Result,
-  ReviewFacts,
-  ReviewState,
-  ReviewSummary,
-} from './engine/result.ts'
-export { deriveRecallPlan } from './engine/review-conservation.ts'
-export type { DecisionBindings, ReviewDecisionBindings } from './engine/review-decision.ts'
-export {
-  validateDecision,
-  validateDecisionBindings,
-  validateRetainedUnusableLabels,
-  validateReviewDecisionBindings,
-} from './engine/review-decision.ts'
-export {
-  type Cause,
-  type CorrectionResult,
-  causeSchema,
-  correctionResultSchema,
-  type DebtReceipt,
-  type Decision,
-  debtReceiptSchema,
-  decisionPayloadSchema,
-  decisionSchema,
-  type FalsificationResult,
-  type FinalFinding,
-  type FinalReview,
-  type FixRequest,
-  type FixResult,
-  falsificationResultSchema,
-  finalFindingSchema,
-  finalReviewSchema,
-  fixRequestSchema,
-  fixResultSchema,
-  type Inventory,
-  inventorySchema,
-  type ObservedComment,
-  observedCommentSchema,
-  type ReviewInputSnapshot,
-  type ReviewStandards,
-  type ReviewSubject,
-  reviewInputSnapshotSchema,
-  reviewStandardsSchema,
-  reviewSubjectSchema,
-  type Stop,
-  standardsRowSchema,
-  stopSchema,
-} from './engine/review-schema.ts'
-export { deriveReviewState, selectedReviewOperations, summarizeReviews } from './engine/review-state.ts'
 export { assessUwAdmission } from './engine/uw-admission.ts'
 export { uwCreateInputSchema, uwProposalInputSchema } from './engine/uw-command-schema.ts'
 export { toDiagnostic, toDiagnostics, uwDiagnosticSchema, uwLocationSchema } from './engine/uw-diagnostics.ts'
@@ -288,8 +240,17 @@ export {
   mechanicalSpecDelta,
   sameCurrentAssessedState,
 } from './engine/workflow-spec-assessment.ts'
-export type { OmpBuildStartReviewParameters } from './omp/tool-schemas.ts'
-export { ompBuildStartReviewParametersJsonSchema, ompBuildStartReviewParametersSchema } from './omp/tool-schemas.ts'
+export {
+  type OmpBuildRecoveryPrParameters,
+  type OmpBuildRecoveryReplaceParameters,
+  type OmpBuildStartReviewParameters,
+  ompBuildRecoveryPrParametersJsonSchema,
+  ompBuildRecoveryPrParametersSchema,
+  ompBuildRecoveryReplaceParametersJsonSchema,
+  ompBuildRecoveryReplaceParametersSchema,
+  ompBuildStartReviewParametersJsonSchema,
+  ompBuildStartReviewParametersSchema,
+} from './omp/tool-schemas.ts'
 export { readScopeIssueBody } from './roxabi/uw-spec/scope-issue.ts'
 export { readEffectiveFixConfig } from './roxabi/workflow-config.ts'
 export { shippedProductVersion } from './roxabi/workflow-config-digest.ts'

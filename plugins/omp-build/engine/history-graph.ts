@@ -7,6 +7,12 @@ import { diagnostic, equalScope, fail } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
 import { type Result, recordMap, unique } from './result.ts'
+import { type InitialPullRequestReviewInventory, isInitialPullRequestReviewInventory } from './review-schema.ts'
+
+type InitialReviewInventory = Extract<
+  Extract<CanonicalRecord, { kind: 'review-attempt' }>['payload'],
+  { stage: 'initial' }
+>
 
 function validateOperation(
   operation: DecodedHistory['operations'][number],
@@ -90,6 +96,63 @@ function validateAcyclicRecords(records: Map<string, CanonicalRecord>, diagnosti
   for (const id of records.keys()) visit(id)
 }
 
+function validateReplacementInventory(
+  record: Extract<CanonicalRecord, { kind: 'review-attempt' }>,
+  inventory: InitialPullRequestReviewInventory,
+  records: Map<string, CanonicalRecord>,
+  diagnostics: Diagnostic[],
+): void {
+  const link = inventory.replacement
+  if (link === undefined) return
+  const root = records.get(link.rootAttemptId)
+  const historicalRoot =
+    root?.kind === 'review-attempt' &&
+    isInitialPullRequestReviewInventory(root.payload) &&
+    root.payload.replacement === undefined
+      ? root
+      : null
+  const disposition = records.get(link.dispositionId)
+  const grant = records.get(link.grantId)
+  if (
+    historicalRoot === null ||
+    disposition?.kind !== 'review-interruption' ||
+    disposition.payload.rootAttemptId !== historicalRoot.recordId ||
+    grant?.kind !== 'review-replacement-grant' ||
+    grant.payload.rootAttemptId !== historicalRoot.recordId ||
+    grant.payload.dispositionId !== disposition.recordId ||
+    grant.payload.candidateGitSHA !== inventory.candidateGitSHA ||
+    grant.payload.input !== inventory.input ||
+    record.recordId !== `review-replacement-inventory-${grant.recordId}` ||
+    record.inputs.length !== 3 ||
+    !record.inputs.includes(historicalRoot.recordId) ||
+    !record.inputs.includes(disposition.recordId) ||
+    !record.inputs.includes(grant.recordId)
+  )
+    diagnostics.push(
+      diagnostic('unbound', `Replacement inventory ${record.recordId} is not exactly bound to its terminal and grant`),
+    )
+}
+
+function validateInitialInventory(
+  record: Extract<CanonicalRecord, { kind: 'review-attempt' }>,
+  inventory: InitialReviewInventory,
+  records: Map<string, CanonicalRecord>,
+  diagnostics: Diagnostic[],
+): void {
+  if (inventory.rootAttemptId !== record.recordId)
+    diagnostics.push(diagnostic('unbound', `Initial inventory ${record.recordId} does not root itself`))
+  if (isInitialPullRequestReviewInventory(inventory))
+    validateReplacementInventory(record, inventory, records, diagnostics)
+  if (
+    inventory.purpose === 'review' &&
+    inventory.subject.kind === 'epic-range' &&
+    inventory.subject.range.slice(-40) !== inventory.candidateGitSHA
+  )
+    diagnostics.push(
+      diagnostic('unbound', `Epic range subject for ${record.recordId} does not end at the candidate SHA`),
+    )
+}
+
 function validateReviewAttempt(
   record: Extract<CanonicalRecord, { kind: 'review-attempt' }>,
   records: Map<string, CanonicalRecord>,
@@ -98,18 +161,8 @@ function validateReviewAttempt(
   const inventory = record.payload
   if (!unique(inventory.slots.map((slot) => slot.slotId)))
     diagnostics.push(diagnostic('duplicate-reference', `Inventory ${record.recordId} repeats slot IDs`))
-  if (inventory.stage === 'initial') {
-    if (inventory.rootAttemptId !== record.recordId)
-      diagnostics.push(diagnostic('unbound', `Initial inventory ${record.recordId} does not root itself`))
-    if (
-      inventory.purpose === 'review' &&
-      inventory.subject.kind === 'epic-range' &&
-      inventory.subject.range.slice(-40) !== inventory.candidateGitSHA
-    )
-      diagnostics.push(
-        diagnostic('unbound', `Epic range subject for ${record.recordId} does not end at the candidate SHA`),
-      )
-  } else {
+  if (inventory.stage === 'initial') validateInitialInventory(record, inventory, records, diagnostics)
+  else {
     const root = inventoryRoot(records, record)
     if (root === null || root.payload.stage !== 'initial')
       diagnostics.push(diagnostic('unknown-reference', `Inventory ${record.recordId} has no initial root`))

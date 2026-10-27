@@ -161,28 +161,43 @@ describe('landing review authority', () => {
     expect(state).toEqual({ head: HEADS[0], label: false, auto: false })
   })
 
-  it.each(['review', 'review-attempt', 'decision', 'mandate', 'workflow-binding'])(
-    'refuses an edited %s record before landing',
-    async (kind) => {
-      const linked = await linkedApproval(HEADS[0])
-      const comment =
-        kind === 'mandate'
-          ? linked.issue.source.comments.find((entry) => entry.body.includes('kind=mandate '))
-          : linked.pr.source.comments.find((entry) => entry.body.includes(`kind=${kind} `))
-      if (!comment) throw new Error(`missing ${kind} fixture record`)
-      comment.updatedAt = '2026-10-21T12:00:01Z'
-      const { gh, git } = gateGh(linked.pr, { head: HEADS[0], armed: true, issueHistory: linked.issue })
+  it.each(['review', 'review-attempt', 'decision'])('refuses an edited %s record before landing', async (kind) => {
+    const linked = await linkedApproval(HEADS[0])
+    const comment = linked.pr.source.comments.find((entry) => entry.body.includes(`kind=${kind} `))
+    if (!comment) throw new Error(`missing ${kind} fixture record`)
+    comment.updatedAt = '2026-10-21T12:00:01Z'
+    const { gh, git } = gateGh(linked.pr, { head: HEADS[0], armed: true, issueHistory: linked.issue })
 
-      await expect(
-        landPr('/tmp/wt', PR, {
-          gh,
-          git,
-          requiredContexts: ['ci'],
-          landing: { mode: 'native', required_checks: ['ci'] },
-        }),
-      ).resolves.toMatchObject({ reason: 'record-edited' })
-    },
-  )
+    await expect(
+      landPr('/tmp/wt', PR, {
+        gh,
+        git,
+        requiredContexts: ['ci'],
+        landing: { mode: 'native', required_checks: ['ci'] },
+      }),
+    ).resolves.toMatchObject({ reason: 'record-edited' })
+  })
+
+  it.each(['mandate', 'workflow-binding'])('refuses an edited %s record before landing effects', async (kind) => {
+    const linked = await linkedApproval(HEADS[0])
+    const comment =
+      kind === 'mandate'
+        ? linked.issue.source.comments.find((entry) => entry.body.includes('kind=mandate '))
+        : linked.pr.source.comments.find((entry) => entry.body.includes(`kind=${kind} `))
+    if (!comment) throw new Error(`missing ${kind} fixture record`)
+    comment.updatedAt = '2026-10-21T12:00:01Z'
+    const { gh, git, state } = gateGh(linked.pr, { head: HEADS[0], armed: true, issueHistory: linked.issue })
+
+    await expect(
+      landPr('/tmp/wt', PR, {
+        gh,
+        git,
+        requiredContexts: ['ci'],
+        landing: { mode: 'native', required_checks: ['ci'] },
+      }),
+    ).resolves.toMatchObject({ status: 'mandate-refused', disarmed: true })
+    expect(state).toEqual({ head: HEADS[0], label: false, auto: false })
+  })
 
   it('refuses a review with absent native revision metadata before landing', async () => {
     const linked = await linkedApproval(HEADS[0])

@@ -9,6 +9,7 @@ import type { AcceptedOwnSpec } from '../../engine/workflow-accepted-spec-types.
 import type { MandateRecord } from '../../engine/workflow-control.ts'
 import type { AcceptedChildCommitment } from '../../engine/workflow-mandate-schema.ts'
 import { configCompatibility } from '../../roxabi/workflow-overrides.ts'
+import type { CanonicalEpic } from './epic-driver-canonical'
 import { gather } from './epic-driver-gather'
 import { historyFor, issueHistory, repoName } from './epic-driver-github'
 import { Assisted, currentEpicEffects, Refused } from './epic-driver-runtime'
@@ -34,7 +35,7 @@ export type EpicAuthority = {
 
 const ASSISTED_MANDATE = 'no confirmed mandate authorizes epic'
 
-export function evidenceText(evidence: { message?: string }[] | undefined): string {
+export function evidenceText(evidence: readonly { message?: string }[] | undefined): string {
   return (
     evidence
       ?.map((item) => item.message)
@@ -171,21 +172,11 @@ export async function readEpicAuthority(repo: string, epic: number): Promise<Epi
   }
 }
 
-/**
- * Re-reads the active authority with current native children, then establishes
- * that every current child is accepted and ready before a delivery step.
- */
-export async function frameEpicChildren(
-  repo: string,
-  epic: number,
-): Promise<{
-  authority: EpicAuthority
-  facts: Facts
-  order: number[]
-  blocked: { ticket: number; blockers: number[] }[]
-}> {
-  const authority = await readEpicAuthority(repo, epic)
-  const { facts } = await gather(repo, epic, authority.run, authority.base)
+export function frameCurrentChildren(
+  authority: EpicAuthority,
+  facts: Facts,
+  parentAdmission: CanonicalEpic['parentAdmission'],
+) {
   if (
     facts.children.length !== authority.children.length ||
     facts.children.some(
@@ -202,9 +193,31 @@ export async function frameEpicChildren(
   for (const child of facts.children) {
     if (!isDone(child, authority.base)) assertChildGrant(authority, facts, child.number)
   }
+  if (!parentAdmission.deliverable.ok)
+    throw new Refused(
+      `epic #${authority.epic} native delivery admission refused: ${evidenceText(parentAdmission.deliverable.diagnostics)}`,
+    )
   const framed = frameEpic({ base: authority.base, children: facts.children })
   if ('error' in framed) throw new Refused(framed.error)
-  return { authority, facts, ...framed }
+  return framed
+}
+
+/**
+ * Re-reads the active authority with current native children, then establishes
+ * that every current child is accepted and ready before a delivery step.
+ */
+export async function frameEpicChildren(
+  repo: string,
+  epic: number,
+): Promise<{
+  authority: EpicAuthority
+  facts: Facts
+  order: number[]
+  blocked: { ticket: number; blockers: number[] }[]
+}> {
+  const authority = await readEpicAuthority(repo, epic)
+  const { facts, parentAdmission } = await gather(repo, epic, authority.run, authority.base)
+  return { authority, facts, ...frameCurrentChildren(authority, facts, parentAdmission) }
 }
 
 export function assertChildGrant(authority: EpicAuthority, facts: Facts, ticket: number): void {

@@ -56,10 +56,19 @@ function hasIncompatibleFormat(history: DecodedHistory, operation: DecodedHistor
   )
 }
 
+function isForeignIdentityOnly(operation: DecodedHistory['operations'][number]): boolean {
+  return (
+    operation.authority === 'foreign' &&
+    operation.claimedKinds.includes('spec-identity') &&
+    operation.claimedKinds.every((claim) => claim === 'spec-identity')
+  )
+}
+
 function operationProblem(
   history: DecodedHistory,
   operation: DecodedHistory['operations'][number],
 ): 'ambiguous' | 'incompatible-format' | 'unconfirmed' | null {
+  if (isForeignIdentityOnly(operation)) return null
   const kind = operation.record?.kind ?? operation.kind
   if (!isWorkflowKind(kind ?? '') && !operation.claimedKinds.some((claim) => isWorkflowKind(claim))) return null
   if (operation.status === 'conflict') return 'ambiguous'

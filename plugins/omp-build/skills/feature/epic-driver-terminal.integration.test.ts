@@ -138,7 +138,7 @@ describe('epic-driver — eventual consistency', () => {
     })
     // The first read is the stale one; every later read shows the merge.
     writeFileSync(path.join(state, 'epic.json.1'), readFileSync(path.join(state, 'epic.json')))
-    serveEpic([childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] })])
+    serveEpic([childNode(2, 'feat(x): first child', { state: 'CLOSED', stateReason: 'COMPLETED', prs: [merged] })])
 
     const run = drive(['next'])
 

@@ -13,7 +13,7 @@ import type { UwGraphObservation } from '../engine/uw-graph.ts'
 import type { SpecAllocationPlan, SpecIdentityLedger } from '../engine/uw-identity.ts'
 import type { OperatorConfirmationEvidence } from '../engine/uw-identity-schema.ts'
 import type { NormalizationDecision, NormalizationJudgement } from '../engine/uw-normalization-schema.ts'
-import type { SpecDraft, UwTier } from '../engine/uw-spec.ts'
+import type { SpecDraft, SpecRawSource, UwTier } from '../engine/uw-spec.ts'
 import type { PreparedMaterialAcceptance } from '../engine/workflow-spec-assessment.ts'
 
 export type TierOverride = { tier: UwTier; reason: string } | null
@@ -27,6 +27,7 @@ export type UwWritePrecondition = {
 
 export type UwProposalInput = {
   uw: Scope
+  sourceBodySha256: SpecRawSource['bodySha256']
   draft: SpecDraft
   title: string
   factors: ComplexityFactors
@@ -35,7 +36,7 @@ export type UwProposalInput = {
   tierOverride: TierOverride
 }
 
-export type UwCreateInput = Omit<UwProposalInput, 'uw'> & { repository: string }
+export type UwCreateInput = Omit<UwProposalInput, 'uw' | 'sourceBodySha256'> & { repository: string }
 
 export type UwProposal = {
   format: 'omp-build-uw-proposal/1'

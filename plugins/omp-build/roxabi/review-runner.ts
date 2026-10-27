@@ -29,6 +29,7 @@ import {
   candidateSource,
   createInventory,
   createReviewIdentity,
+  observedEvidenceContext,
   type ReviewSlot,
   recordBase,
   requireRecord,
@@ -50,6 +51,8 @@ export type PreparedReviewInputs = {
   observedEvidence: ObservedEvidence
   inputSnapshot: ReviewInputSnapshot
   canonicalClasses: readonly string[]
+  /** Recovery inventory already passed admission/readback; rebuild allocation locally before activation. */
+  initialInventory?: Extract<CanonicalRecord, { kind: 'review-attempt' }>
   /** Fresh host revalidation; it must reject a moved, stale, or closed target. */
   authorize(stage: ReviewStage): Promise<{ ok: true } | { ok: false; reason: string }>
 }
@@ -135,12 +138,45 @@ export class CanonicalReviewRunner implements ReviewPublisher {
             subject: this.input.context.subject,
             inputSnapshot: null,
           }
+    const tasks = [specTask, ...panel.tasks]
+    if (this.input.initialInventory !== undefined) {
+      const inventory = this.input.initialInventory
+      if (
+        inventory.repository !== this.#scope.repository ||
+        inventory.target !== this.#scope.target ||
+        inventory.recordId !== inventory.payload.rootAttemptId ||
+        inventory.payload.candidateGitSHA !== payload.candidateGitSHA ||
+        inventory.payload.input !== payload.input ||
+        inventory.payload.stage !== payload.stage ||
+        inventory.payload.purpose !== payload.purpose ||
+        JSON.stringify(inventory.payload.slots) !== JSON.stringify(payload.slots) ||
+        JSON.stringify(inventory.payload.allocation) !== JSON.stringify(payload.allocation) ||
+        JSON.stringify(inventory.payload.policy) !== JSON.stringify(payload.policy) ||
+        JSON.stringify(inventory.payload.subject) !== JSON.stringify(payload.subject) ||
+        JSON.stringify(inventory.payload.inputSnapshot) !== JSON.stringify(payload.inputSnapshot)
+      ) {
+        throw new Error('replacement-inventory-template-mismatch')
+      }
+      for (const slot of slots) this.#slots.set(slot.slotId, slot)
+      return {
+        stage: 'initial',
+        rootAttemptId: inventory.payload.rootAttemptId,
+        inventory,
+        batch: {
+          operationId: inventory.operationId,
+          tasks: {
+            context: observedEvidenceContext(this.input.observedEvidence),
+            tasks,
+          },
+        },
+      }
+    }
     return createInventory({
       identity: this.#identity,
       scope: this.#scope,
       stage: 'initial',
       slots,
-      tasks: [specTask, ...panel.tasks],
+      tasks,
       payload,
       observedEvidence: this.input.observedEvidence,
       knownSlots: this.#slots,
@@ -161,6 +197,10 @@ export class CanonicalReviewRunner implements ReviewPublisher {
   async publishInventory(prepared: PreparedReviewBatch): Promise<{ ok: true } | { ok: false; reason: string }> {
     const parsed = parseRecord(prepared.inventory)
     if (!parsed.ok) return { ok: false, reason: 'inventory-invalid' }
+    if (this.input.initialInventory?.recordId === parsed.value.recordId) {
+      if (!this.#inventories.includes(parsed.value.recordId)) this.#inventories.push(parsed.value.recordId)
+      return { ok: true }
+    }
     const saved = await this.#publisher.publish(parsed.value)
     if (!saved.ok) return { ok: false, reason: saved.diagnostics.join(',') }
     this.#inventories.push(parsed.value.recordId)

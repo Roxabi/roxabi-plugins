@@ -31,6 +31,7 @@ import { rootContext } from './omp-feature-session'
 import { dispatchAdmittedCiCorrection, dispatchDefaultFix } from './omp-fix-dispatch'
 import { createOperatorConfirmation } from './omp-operator-confirmation.ts'
 import { dispatchDefaultReview, prepareInstalledEpicRangeReview } from './omp-review-dispatch'
+import { registerOmpReviewRecoveryTools } from './omp-review-recovery-tools'
 import { SKILL_COMMANDS } from './omp-skill-commands.ts'
 import { registerUwCommand, type UwOperationsFactory } from './omp-uw-command.ts'
 import type { NativeBatchController } from './review-runtime/controller.ts'
@@ -263,6 +264,7 @@ export function registerOmpCommandsAndTools(
       }
     },
   })
+  registerOmpReviewRecoveryTools(pi, options)
 
   registerUwCommand(pi, options.uwOperations ?? createInstalledUwOperations)
 

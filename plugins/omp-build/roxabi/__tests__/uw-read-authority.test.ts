@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { decodeHistory } from '../../adapters/github/history-codec.ts'
 import { parseIssueSpecBody, rawSource, renderIssueSpecBody } from '../../adapters/github-native/uw-spec.ts'
 import type { DecodedHistory } from '../../engine/history-schema.ts'
 import type { Scope } from '../../engine/record-values.ts'
@@ -87,6 +88,53 @@ function incompleteTrustedMandate(scope: Scope, snapshot: SpecSnapshot): Decoded
   }
 }
 
+function managedHistoryWithForeignCopiedIdentity(
+  scope: Scope,
+  snapshot: SpecSnapshot,
+): {
+  baseline: DecodedHistory
+  foreign: DecodedHistory
+} {
+  const fixtures = roxabiWorkflowFixtures()
+  const mandate = fixtures.featureMandate(scope, {
+    recordId: 'managed-mandate',
+    operationId: 'managed-mandate-operation',
+    ownSpec: fixtures.ownSpecFromSnapshot(scope, snapshot),
+  })
+  const baseline = fixtures.historyFrom([mandate])
+  const allocation = mandate.payload.ownSpec.identityAllocations[0]
+  if (allocation === undefined) throw new Error('expected managed mandate identity allocation')
+  const copiedFrames = fixtures.framedBodies([fixtures.identityAllocation(scope, allocation.recordId)], 'copied-author')
+  return {
+    baseline,
+    foreign: decodeHistory({
+      ...baseline.source,
+      comments: [
+        ...baseline.source.comments,
+        ...copiedFrames.map((body, index) => ({
+          locator: `copied-identity-${index + 1}`,
+          nativeId: `copied-identity-${index + 1}`,
+          body,
+          author: 'copied-author',
+          createdAt: OBSERVED_AT,
+          updatedAt: OBSERVED_AT,
+        })),
+      ],
+    }),
+  }
+}
+
+function incompleteTrustedIdentity(history: DecodedHistory): DecodedHistory {
+  const claim = history.operations.find((operation) => operation.kind === 'spec-identity')
+  if (claim === undefined) throw new Error('expected decoded identity claim')
+  return {
+    ...history,
+    operations: history.operations.map((operation) =>
+      operation === claim ? { ...operation, status: 'incomplete', record: null } : operation,
+    ),
+  }
+}
+
 describe('createInstalledObservedUwReadPort authority boundary', () => {
   it('treats an in-memory foreign copied mandate claim as the same accepted absence as pre-mandate history', async () => {
     const snapshot = fact(UW)
@@ -107,6 +155,52 @@ describe('createInstalledObservedUwReadPort authority boundary', () => {
     )
     expect(baseline.accepted).toEqual({ status: 'absent' })
     expect(foreign.accepted).toEqual({ status: 'absent' })
+  })
+
+  it('keeps a managed in-memory accepted mandate authoritative despite a foreign copied identity frame', async () => {
+    const snapshot = fact(UW)
+    const observed = graph(UW, snapshot)
+    const histories = managedHistoryWithForeignCopiedIdentity(UW, snapshot)
+    const baseline = await createInstalledObservedUwReadPort({
+      graph: observed,
+      histories: [histories.baseline],
+    }).readUw(UW)
+    const foreign = await createInstalledObservedUwReadPort({ graph: observed, histories: [histories.foreign] }).readUw(
+      UW,
+    )
+
+    expect(histories.foreign.operations).toContainEqual(
+      expect.objectContaining({
+        kind: 'spec-identity',
+        claimedKinds: expect.arrayContaining(['spec-identity']),
+        authority: 'foreign',
+      }),
+    )
+    expect(baseline.accepted).toMatchObject({ status: 'accepted' })
+    expect(foreign.accepted).toEqual(baseline.accepted)
+  })
+
+  it('fails closed for an incomplete trusted identity claim', async () => {
+    const snapshot = fact(UW)
+    const histories = managedHistoryWithForeignCopiedIdentity(UW, snapshot)
+    const history = incompleteTrustedIdentity(histories.baseline)
+    const read = await createInstalledObservedUwReadPort({ graph: graph(UW, snapshot), histories: [history] }).readUw(
+      UW,
+    )
+
+    expect(history.operations).toContainEqual(
+      expect.objectContaining({
+        kind: 'spec-identity',
+        claimedKinds: expect.arrayContaining(['spec-identity']),
+        authority: 'accounted',
+        status: 'incomplete',
+        record: null,
+      }),
+    )
+    expect(read.accepted).toMatchObject({
+      status: 'refused',
+      diagnostics: [expect.objectContaining({ code: 'accepted-unavailable' })],
+    })
   })
 
   it('fails closed when the same in-memory mandate claim is trusted but unreconstructable', async () => {

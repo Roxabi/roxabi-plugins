@@ -23,13 +23,14 @@ import type {
   UwProposal,
   UwProposalInput,
   UwRead,
-  UwWritePrecondition,
 } from './uw-contract.ts'
 import { validateNormalizationJudgement } from './uw-normalization-proposal.ts'
 import {
-  nativeIssueObservationDigest,
+  parentRepositoryDiagnostics,
   prepareCreateProposal,
   prepareExistingProposal,
+  sourceBindingDiagnostics,
+  staleWrite,
   type UwProposalPreparationPorts,
 } from './uw-proposal-preparation.ts'
 import { UwGraphUnavailableError } from './uw-read-port.ts'
@@ -114,19 +115,6 @@ async function readAfterEffect(
   }
 }
 
-function sameRef(left: UwWritePrecondition['ledgerHead'], right: UwWritePrecondition['ledgerHead']): boolean {
-  return left === null || right === null
-    ? left === right
-    : left.scope.repository === right.scope.repository &&
-        left.scope.target === right.scope.target &&
-        left.recordId === right.recordId &&
-        left.kind === right.kind
-}
-
-function sameObservation(left: IssueWriteObservation, right: IssueWriteObservation): boolean {
-  return nativeIssueObservationDigest(left) === nativeIssueObservationDigest(right)
-}
-
 function issuePlan(proposal: UwProposal): NativeIssueWritePlan {
   return {
     repository: proposal.target.kind === 'existing' ? proposal.target.uw.repository : proposal.target.repository,
@@ -142,23 +130,6 @@ function writeDiagnostics(uw: Scope, result: IssueWriteResult): readonly UwDiagn
   return result.diagnostics.map((item) => diagnostic(uw, item.code, item.message))
 }
 
-function operationOf(input: UwProposalInput): UwProposal['operation'] {
-  return input.normalization.length === 0 ? 'write' : 'normalize'
-}
-function staleWrite(prepared: PreparedUwProposal, read: UwRead, fresh: IssueWriteObservation): boolean {
-  return (
-    !read.identity.ok ||
-    read.accepted.status === 'refused' ||
-    prepared.proposal.expected === null ||
-    !sameObservation(fresh, prepared.proposal.expected.observed) ||
-    !sameRef(
-      read.accepted.status === 'accepted' ? read.accepted.value.ref.sourceAccepted : null,
-      prepared.proposal.expected.acceptedPredecessor,
-    ) ||
-    !sameRef(read.identity.value.head, prepared.proposal.expected.ledgerHead)
-  )
-}
-
 async function commitWrite(
   input: UwProposalInput,
   prepared: PreparedUwProposal,
@@ -166,6 +137,8 @@ async function commitWrite(
   ports: UwOperationsPorts,
 ): Promise<UwOperationResult> {
   const freshRead = await ports.read(input.uw)
+  const sourceDiagnostics = sourceBindingDiagnostics(input, freshRead)
+  if (sourceDiagnostics.length > 0) return { status: 'refused', diagnostics: sourceDiagnostics }
   const freshIssue = observation(freshRead)
   const target = issueRef(input.uw)
   if (freshIssue === null || target === null || staleWrite(prepared, freshRead, freshIssue))
@@ -243,7 +216,11 @@ export function createUwOperations(ports: UwOperationsPorts): UwOperations {
   const prepareExisting = async (
     input: UwProposalInput,
   ): Promise<PreparedUwProposal | { diagnostics: readonly UwDiagnostic[] }> => {
+    const parentDiagnostics = parentRepositoryDiagnostics(input)
+    if (parentDiagnostics.length > 0) return { diagnostics: parentDiagnostics }
     const read = await ports.read(input.uw)
+    const sourceDiagnostics = sourceBindingDiagnostics(input, read)
+    if (sourceDiagnostics.length > 0) return { diagnostics: sourceDiagnostics }
     const observed = observation(read)
     if (observed === null)
       return {
@@ -251,7 +228,7 @@ export function createUwOperations(ports: UwOperationsPorts): UwOperations {
           diagnostic(input.uw, 'graph-root-missing', 'UW graph root cannot provide a complete native observation'),
         ],
       }
-    return prepareExistingProposal(input, read, observed, operationOf(input), proposalPorts)
+    return prepareExistingProposal(input, read, observed, proposalPorts)
   }
 
   return {
@@ -264,8 +241,10 @@ export function createUwOperations(ports: UwOperationsPorts): UwOperations {
     },
     async prepare(input) {
       const request = structuredClone(input)
-      return 'uw' in request
-        ? preparedResult(await prepareExisting(request))
+      if ('uw' in request) return preparedResult(await prepareExisting(request))
+      const parentDiagnostics = parentRepositoryDiagnostics(request)
+      return parentDiagnostics.length > 0
+        ? { ok: false, diagnostics: [...parentDiagnostics] }
         : preparedResult(prepareCreateProposal(request, proposalPorts))
     },
     async write(input) {
@@ -279,11 +258,14 @@ export function createUwOperations(ports: UwOperationsPorts): UwOperations {
       )
     },
     async create(input) {
-      const prepared = prepareCreateProposal(input, proposalPorts)
+      const request = structuredClone(input)
+      const parentDiagnostics = parentRepositoryDiagnostics(request)
+      if (parentDiagnostics.length > 0) return { status: 'refused', diagnostics: parentDiagnostics }
+      const prepared = prepareCreateProposal(request, proposalPorts)
       if ('diagnostics' in prepared) return { status: 'refused', diagnostics: prepared.diagnostics }
       return confirmedResult(
         await ports.operator.executeConfirmed(prepared, (confirmation) =>
-          commitCreate(input, prepared, confirmation, ports),
+          commitCreate(request, prepared, confirmation, ports),
         ),
       )
     },

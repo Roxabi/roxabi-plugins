@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parseIssueSpecBody, rawSource } from '../../contracts.ts'
@@ -42,6 +42,15 @@ function strictSnapshot(scope: { repository: string; target: string }, body: str
   })
   if (parsed.status !== 'conformant') throw new Error(`fixture Spec ${scope.target} is ${parsed.status}`)
   return parsed.snapshot
+}
+
+function setNativeStateReason(issue: number, stateReason: string): void {
+  const fixture = path.join(sandboxOf().state, `uw-${issue}.json`)
+  const graph = JSON.parse(readFileSync(fixture, 'utf8')) as {
+    data: { repository: { issue: { stateReason: string | null } } }
+  }
+  graph.data.repository.issue.stateReason = stateReason
+  writeFileSync(fixture, JSON.stringify(graph))
 }
 
 function successorRecords(): Comment[] {
@@ -184,6 +193,38 @@ describe('epic-driver — next', () => {
     expect(git(epic, 'rev-parse', 'HEAD')).toBe(git(epic, 'rev-parse', 'refs/remotes/origin/main'))
   })
 
+  it('does not schedule a child behind a native NOT_PLANNED sibling, but starts behind COMPLETED', () => {
+    const { epic: notPlannedEpic } = sandbox()
+    serveEpic([
+      childNode(2, 'feat(x): prerequisite', { state: 'CLOSED' }),
+      childNode(3, 'fix(y): dependent child', { blockedBy: [[2, 'CLOSED']] }),
+    ])
+    setNativeStateReason(2, 'NOT_PLANNED')
+    const notPlanned = drive(['next'])
+    const notPlannedBranch = git(notPlannedEpic, 'branch', '--show-current')
+    const notPlannedWrites = writes()
+
+    cleanupSandbox()
+
+    const { epic: completedEpic } = sandbox()
+    serveEpic([
+      childNode(2, 'feat(x): prerequisite', { state: 'CLOSED' }),
+      childNode(3, 'fix(y): dependent child', { blockedBy: [[2, 'CLOSED']] }),
+    ])
+    setNativeStateReason(2, 'COMPLETED')
+    const completed = drive(['next'])
+
+    expect(notPlanned.code).toBe(0)
+    expect(notPlanned.json().step).toMatchObject({ action: 'drop', stop: 'no-progress' })
+    expect(notPlanned.json().step.report.skipped).toEqual([{ ticket: 3, blockers: [2] }])
+    expect(notPlannedBranch).toBe('')
+    expect(notPlannedWrites).toEqual([])
+    expect(completed.code).toBe(0)
+    expect(completed.json().step).toMatchObject({ action: 'start', ticket: 3, branch: 'fix/3-dependent-child' })
+    expect(git(completedEpic, 'branch', '--show-current')).toBe('fix/3-dependent-child')
+    expect(writes()).toEqual([])
+  })
+
   it('confirms a merged child, deletes its local branch and starts the next one', () => {
     const { epic, root } = sandbox()
     serveEpic([
@@ -211,6 +252,7 @@ describe('epic-driver — next', () => {
       childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] }),
       childNode(3, 'fix(y): second child', { blockedBy: [[2, 'CLOSED']] }),
     ])
+    setNativeStateReason(2, 'COMPLETED')
 
     const run = drive(['next'])
     expect(run.code).toBe(0)

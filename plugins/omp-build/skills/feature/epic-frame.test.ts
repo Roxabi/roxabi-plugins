@@ -43,15 +43,21 @@ describe('mergedLocalBranches', () => {
 describe('frameEpic', () => {
   const frame = (children: ChildFacts[], base = BASE) => frameEpic({ base, children })
 
-  it('drops closed and merged children from the order and treats them as satisfied blockers', () => {
+  it('drops completed and merged children from the order, but only native completion relieves a blocker', () => {
     expect(
       frame([
-        child(1, { state: 'CLOSED' }),
+        child(1, { state: 'CLOSED', stateReason: 'COMPLETED' }),
         child(2, { prs: [landed(2, T1, sha('1'), sha('2'))] }),
-        child(3, { blockedBy: [on(1, 'CLOSED'), on(2)] }),
+        child(3, { blockedBy: [{ number: 1, state: 'CLOSED', stateReason: 'COMPLETED' }, on(2)] }),
         child(4, { blockedBy: [on(3)] }),
       ]),
-    ).toEqual({ order: [3, 4], blocked: [] })
+    ).toEqual({
+      order: [],
+      blocked: [
+        { ticket: 3, blockers: [2] },
+        { ticket: 4, blockers: [3] },
+      ],
+    })
   })
 
   it('orders by blocked_by, not by number', () => {
@@ -67,7 +73,7 @@ describe('frameEpic', () => {
         child(1, { blockedBy: [on(900, 'OPEN', OTHER_REPO)] }),
         child(2, { blockedBy: [on(1)] }),
         child(3, { blockedBy: [on(42)] }),
-        child(4, { blockedBy: [on(43, 'CLOSED')] }),
+        child(4, { blockedBy: [{ number: 43, state: 'CLOSED', stateReason: 'COMPLETED' }] }),
       ]),
     ).toEqual({
       order: [4],

@@ -1,313 +1,20 @@
-import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import { describe, expect, it } from 'vitest'
-import { calculateTier } from '../../../issue-triage/skills/shared/domain/complexity.ts'
-import type {
-  IssueRef,
-  IssueWriteObservation,
-  IssueWritePorts,
-} from '../../../issue-triage/skills/shared/domain/issue-write.ts'
-import { createIssueWriter } from '../../../issue-triage/skills/shared/domain/issue-write.ts'
-import { renderIssueSpecBody } from '../../adapters/github-native/uw-spec.ts'
-import type { ExternalRecordRef } from '../../engine/record-references.ts'
-import type { Scope } from '../../engine/record-values.ts'
-import { prepareSpecAllocation, type SpecIdentityLedger } from '../../engine/uw-identity.ts'
-import { createOperatorConfirmation } from '../../omp/omp-operator-confirmation.ts'
-import type { UwCreateInput, UwProposalInput, UwRead } from '../uw-contract.ts'
-import { createUwOperations, type IdentityPublicationResult, type UwOperationsPorts } from '../uw-operations.ts'
+import {
+  allocationRef,
+  CREATED_UW,
+  createInput,
+  fixture,
+  ISSUE,
+  identityFailure,
+  input,
+  type MutablePlanWrites,
+  planWrites,
+  SOURCE_BODY,
+  UW,
+  WRITES,
+} from '../../testing/uw-operations-fixture.ts'
+import type { UwProposalInput } from '../uw-contract.ts'
 import { UwGraphUnavailableError } from '../uw-read-port.ts'
-
-const UW: Scope = { repository: 'acme/widgets', target: 'acme/widgets#42' }
-const ISSUE = { repository: UW.repository, number: 42 }
-const CREATED = { repository: UW.repository, number: 99 }
-const CREATED_UW: Scope = { repository: UW.repository, target: `${UW.repository}#${CREATED.number}` }
-const FACTORS = { files: 1, risk: 1, architecture: 1, unknowns: 1, domains: 1 }
-const WRITES = {
-  labels: { add: [], remove: [] },
-  relations: { addChildren: [], removeChildren: [], addBlockers: [], removeBlockers: [] },
-}
-
-type MutablePlanWrites = {
-  labels: { add: string[]; remove: string[] }
-  relations: {
-    addChildren: IssueRef[]
-    removeChildren: IssueRef[]
-    addBlockers: IssueRef[]
-    removeBlockers: IssueRef[]
-  }
-}
-
-function planWrites(): MutablePlanWrites {
-  return {
-    labels: { add: ['domain:billing'], remove: [] },
-    relations: {
-      addChildren: [{ repository: UW.repository, number: 43 }],
-      removeChildren: [],
-      addBlockers: [],
-      removeBlockers: [],
-    },
-  }
-}
-
-function identityFailure(status: 'refused' | 'partial' | 'uncertain'): IdentityPublicationResult {
-  return {
-    status,
-    diagnostics: [
-      {
-        code: `identity-${status}`,
-        message: `Identity publication ${status}`,
-        location: { kind: 'native', uw: UW, connection: 'state' },
-        related: [],
-      },
-    ],
-  }
-}
-
-function input(draftKey: string, statement: string): UwProposalInput {
-  return {
-    uw: UW,
-    title: 'Normalize the current UW',
-    draft: {
-      criteria: [{ kind: 'new', draftKey, statement }],
-      invariants: [],
-      exclusions: [],
-      openQuestions: [],
-      sections: { origin: '', context: '', change: '' },
-    },
-    factors: FACTORS,
-    writes: WRITES,
-    normalization: [],
-    tierOverride: null,
-  }
-}
-function createInput(): UwCreateInput {
-  const { uw: _uw, ...request } = input('unused', 'Unused')
-  return {
-    ...request,
-    repository: UW.repository,
-    draft: {
-      criteria: [],
-      invariants: [],
-      exclusions: [],
-      openQuestions: [],
-      sections: { origin: '', context: '', change: '' },
-    },
-  }
-}
-
-type State = {
-  title: string
-  body: string
-  labels: string[]
-  children: IssueRef[]
-  updatedAt: string
-  ledger: SpecIdentityLedger
-  acceptedSource: ExternalRecordRef | null
-  acceptedRefused: boolean
-  conflictOnPatch: boolean
-  published: ExternalRecordRef[]
-  patchCount: number
-  readScopes: Scope[]
-  issueReadIssues: IssueRef[]
-  identityScopes: Scope[]
-  patchedIssues: IssueRef[]
-}
-
-function allocationRef(recordId: string): ExternalRecordRef {
-  return { scope: UW, recordId, kind: 'spec-identity' }
-}
-
-function acceptedResult(source: ExternalRecordRef | null, refused = false): UwRead['accepted'] {
-  if (refused)
-    return {
-      status: 'refused',
-      diagnostics: [
-        {
-          code: 'accepted-unreadable',
-          message: 'Accepted chain is unreadable',
-          location: { kind: 'native', uw: UW, connection: 'state' },
-          related: [],
-        },
-      ],
-    }
-  if (source === null) return { status: 'absent' }
-  return {
-    status: 'accepted',
-    value: {
-      ref: { uw: UW, version: 'a'.repeat(64), sourceAccepted: source },
-    },
-  } as UwRead['accepted']
-}
-
-function observation(state: State): IssueWriteObservation {
-  return {
-    issue: ISSUE,
-    title: state.title,
-    body: state.body,
-    updatedAt: state.updatedAt,
-    labels: [...state.labels],
-    parent: null,
-    children: [...state.children],
-    blockers: [],
-  }
-}
-
-function fixture(
-  options: {
-    onConfirm?: (state: State) => void
-    conflictOnPatch?: boolean
-    readBarrier?: Promise<void>
-    publishIdentityResult?: IdentityPublicationResult
-    acceptedRefused?: boolean
-    postEffectReadFailure?: Error
-  } = {},
-) {
-  const state: State = {
-    title: 'Current UW framing',
-    body: 'Current issue body',
-    labels: [],
-    children: [],
-    updatedAt: '2026-10-27T12:00:00.000Z',
-    ledger: {
-      uw: UW,
-      head: null,
-      nextCriterion: '1',
-      nextInvariant: '1',
-      allocations: new Map(),
-      retired: new Map(),
-    },
-    acceptedSource: null,
-    acceptedRefused: options.acceptedRefused ?? false,
-    conflictOnPatch: options.conflictOnPatch ?? false,
-    published: [],
-    patchCount: 0,
-    readScopes: [],
-    issueReadIssues: [],
-    identityScopes: [],
-    patchedIssues: [],
-  }
-  const issuePorts: IssueWritePorts = {
-    read: async (issue) => {
-      state.issueReadIssues.push({ ...issue })
-      if (
-        (issue.repository === ISSUE.repository && issue.number === ISSUE.number) ||
-        (issue.repository === CREATED.repository && issue.number === CREATED.number)
-      )
-        return { ...observation(state), issue }
-      return {
-        issue,
-        title: 'Referenced UW',
-        body: '',
-        updatedAt: state.updatedAt,
-        labels: [],
-        parent: null,
-        children: [],
-        blockers: [],
-      }
-    },
-    create: async () => CREATED,
-    patch: async (issue, value) => {
-      state.patchCount += 1
-      state.patchedIssues.push({ ...issue })
-      state.title = value.title ?? state.title
-      state.body = state.conflictOnPatch ? 'Remote body won the race' : value.body
-      state.updatedAt = '2026-10-27T12:02:00.000Z'
-    },
-    updateLabels: async (_issue, value) => {
-      const labels = new Set(state.labels)
-      for (const label of value.remove) labels.delete(label)
-      for (const label of value.add) labels.add(label)
-      state.labels = [...labels]
-    },
-    addChild: async (parent, child) => {
-      if (parent.repository === ISSUE.repository && parent.number === ISSUE.number) state.children.push({ ...child })
-    },
-    removeChild: async () => undefined,
-    addBlocker: async () => undefined,
-    removeBlocker: async () => undefined,
-  }
-  const operator = createOperatorConfirmation({
-    agent: { kind: 'main', depth: 0 },
-    hasUI: true,
-    mode: 'tui',
-    ui: {
-      confirm: async () => {
-        options.onConfirm?.(state)
-        return true
-      },
-    },
-  } as unknown as ExtensionContext)
-  const ports: UwOperationsPorts = {
-    read: async (uw) => {
-      state.readScopes.push(structuredClone(uw))
-      await options.readBarrier
-      if (state.patchCount > 0 && options.postEffectReadFailure !== undefined) throw options.postEffectReadFailure
-      return {
-        uw: UW,
-        graph: {
-          status: 'complete',
-          root: UW,
-          observedAt: state.updatedAt,
-          nodes: [
-            {
-              uw: UW,
-              title: state.title,
-              raw: {
-                reference: UW.target,
-                body: state.body,
-                bodySha256: 'b'.repeat(64),
-                lastEditedAt: state.updatedAt,
-              },
-              updatedAt: state.updatedAt,
-              labels: [...state.labels],
-              wayfinderLabels: [],
-              parent: null,
-              children: [],
-              blockers: [],
-              native: { state: 'OPEN', stateReason: null },
-            },
-          ],
-        },
-        identity: { ok: true, value: state.ledger },
-        accepted: acceptedResult(state.acceptedSource, state.acceptedRefused),
-        parsed: {} as never,
-        proposed: {} as never,
-        admission: {} as never,
-      } as UwRead
-    },
-    writer: createIssueWriter(issuePorts),
-    operator,
-    prepareSpecAllocation,
-    renderIssueSpecBody,
-    calculateTier,
-    parseNormalization: () => ({ ok: false, diagnostics: [] }),
-    publishIdentity: async ({ uw, proposal }) => {
-      state.identityScopes.push(structuredClone(uw))
-      if (options.publishIdentityResult?.status === 'refused') return options.publishIdentityResult
-      const ref = allocationRef(`identity-${state.published.length + 1}`)
-      const allocations = new Map(state.ledger.allocations)
-      for (const assignment of proposal.proposal.allocation.assignments) allocations.set(assignment.id, ref)
-      const criterionAllocations = proposal.proposal.allocation.assignments.filter((assignment) =>
-        assignment.id.startsWith('C'),
-      )
-      const invariantAllocations = proposal.proposal.allocation.assignments.filter((assignment) =>
-        assignment.id.startsWith('I'),
-      )
-      state.ledger = {
-        ...state.ledger,
-        head: ref,
-        nextCriterion: (BigInt(state.ledger.nextCriterion) + BigInt(criterionAllocations.length)).toString(),
-        nextInvariant: (BigInt(state.ledger.nextInvariant) + BigInt(invariantAllocations.length)).toString(),
-        allocations,
-      }
-      state.published.push(ref)
-      state.updatedAt = '2026-10-27T12:01:00.000Z'
-      return options.publishIdentityResult ?? { status: 'confirmed' }
-    },
-    acceptMaterial: async () => ({ status: 'refused', diagnostics: [] }),
-    scopeOf: (issue) => (issue.number === CREATED.number ? CREATED_UW : UW),
-  }
-  return { state, operations: createUwOperations(ports) }
-}
 
 describe('UW operation write authority', () => {
   it('writes after its confirmed allocation advances the ledger even though only updatedAt changed', async () => {
@@ -322,6 +29,89 @@ describe('UW operation write authority', () => {
     expect(state.ledger.allocations.get('C1')).toEqual(state.published[0])
     expect(state.ledger.nextCriterion).toBe('2')
     expect(state.patchCount).toBe(1)
+  })
+
+  it('refuses preparation when the observed source differs from the bound source', async () => {
+    const { operations, state } = fixture()
+    state.body = `${SOURCE_BODY}changed`
+
+    await expect(operations.prepare(input('first', 'Keep payments auditable'))).resolves.toMatchObject({
+      ok: false,
+      diagnostics: [{ code: 'normalization-source-stale' }],
+    })
+
+    expect(state.published).toEqual([])
+    expect(state.patchCount).toBe(0)
+  })
+
+  it('refuses before identity publication when the source changes during confirmation', async () => {
+    const { operations, state } = fixture({
+      onConfirm: (current) => {
+        current.body = `${SOURCE_BODY}changed`
+      },
+    })
+
+    await expect(operations.write(input('first', 'Keep payments auditable'))).resolves.toMatchObject({
+      status: 'refused',
+      diagnostics: [{ code: 'normalization-source-stale' }],
+    })
+
+    expect(state.published).toEqual([])
+    expect(state.patchCount).toBe(0)
+  })
+
+  it('refuses a cross-repository parent for existing and create UW preparation', async () => {
+    const { operations, state } = fixture()
+    const crossRepositoryParent = { repository: 'acme/planning', number: 41 }
+    const existing = {
+      ...input('first', 'Keep payments auditable'),
+      writes: {
+        ...WRITES,
+        relations: {
+          ...WRITES.relations,
+          parent: crossRepositoryParent,
+        },
+      },
+    }
+    const creation = {
+      ...createInput(),
+      writes: {
+        ...WRITES,
+        relations: {
+          ...WRITES.relations,
+          parent: crossRepositoryParent,
+        },
+      },
+    }
+
+    await expect(operations.prepare(existing)).resolves.toMatchObject({
+      ok: false,
+      diagnostics: [{ code: 'cross-repository-parent' }],
+    })
+    await expect(operations.create(creation)).resolves.toMatchObject({
+      status: 'refused',
+      diagnostics: [{ code: 'cross-repository-parent' }],
+    })
+
+    expect(state.published).toEqual([])
+    expect(state.patchCount).toBe(0)
+  })
+
+  it('refuses a public write that omits accounting for the current legacy criterion', async () => {
+    const { operations, state } = fixture()
+    state.body = '# Acceptance Criteria\n- Preserve the customer audit trail'
+    const request = {
+      ...input('first', 'Keep payments auditable', state.body),
+      normalization: [],
+    }
+
+    const result = await operations.write(request)
+    expect(result.status).toBe('refused')
+    if (result.status !== 'refused') throw new Error('Expected source conservation refusal')
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain('normalization-source-unaccounted')
+
+    expect(state.published).toEqual([])
+    expect(state.patchCount).toBe(0)
   })
 
   it('refuses without patching when identity publication is refused', async () => {
@@ -439,6 +229,7 @@ describe('UW operation write authority', () => {
     })
 
     expect(state.ledger.allocations.has('C1')).toBe(true)
+    state.body = SOURCE_BODY
     await expect(operations.prepare(input('second', 'Keep payment history available'))).resolves.toMatchObject({
       ok: true,
       value: { proposal: { allocation: { assignments: [{ draftKey: 'second', id: 'C2' }] } } },
@@ -456,6 +247,7 @@ describe('UW operation write authority', () => {
     state.acceptedSource = { scope: UW, recordId: 'accepted-c1', kind: 'operator-control' }
     const request = {
       ...input('replacement', 'Not used'),
+      normalization: [],
       draft: {
         criteria: [],
         invariants: [],

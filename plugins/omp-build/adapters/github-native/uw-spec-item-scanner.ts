@@ -45,6 +45,16 @@ function completedItem(
     span,
   }
   const malformed: UwDiagnostic[] = []
+  if (item.id !== null && block.statement === '')
+    malformed.push(
+      bodyDiagnostic(
+        uw,
+        'spec-item-malformed',
+        `${item.id} must have a non-empty statement`,
+        block.span,
+        section.heading,
+      ),
+    )
   if (item.id !== null && !item.id.startsWith(expected))
     malformed.push(
       bodyDiagnostic(

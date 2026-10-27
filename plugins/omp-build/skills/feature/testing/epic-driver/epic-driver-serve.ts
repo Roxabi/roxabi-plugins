@@ -37,7 +37,13 @@ export function serveComments(issue: number, comments: Comment[]): void {
 }
 
 export function serveEpic(
-  children: { number: number; body?: string; specBody?: string; fixtureComments?: Comment[] }[],
+  children: {
+    number: number
+    body?: string
+    specBody?: string
+    stateReason?: string | null
+    fixtureComments?: Comment[]
+  }[],
   epicComments: Comment[] = [],
   options: { mandate?: boolean } = {},
 ): void {
@@ -89,6 +95,7 @@ export function serveEpic(
       title: string
       body: string
       state: 'OPEN' | 'CLOSED'
+      stateReason: string | null
       labels: string[]
       subIssues: number[]
       blockedBy: number[]
@@ -103,7 +110,7 @@ export function serveEpic(
           body: issue.body,
           updatedAt: '2026-10-21T12:00:00Z',
           state: issue.state,
-          stateReason: null,
+          stateReason: issue.stateReason,
           repository: { nameWithOwner: 'o/r' },
           parent: parent === null ? null : { number: parent, repository: { nameWithOwner: 'o/r' } },
           labels: connection(issue.labels.map((name) => ({ name }))),
@@ -123,6 +130,7 @@ export function serveEpic(
           title: 'epic: test',
           body: framedBody,
           state: 'OPEN',
+          stateReason: null,
           labels: ['size:S'],
           subIssues: children.map((child) => child.number),
           blockedBy: [],
@@ -135,6 +143,7 @@ export function serveEpic(
     const node = child as typeof child & {
       title?: string
       state?: 'OPEN' | 'CLOSED'
+      stateReason?: string | null
       labels?: { nodes?: { name: string }[] }
       subIssues?: { nodes?: { number: number }[] }
       blockedBy?: { nodes?: { number: number }[] }
@@ -148,6 +157,7 @@ export function serveEpic(
             title: node.title ?? `issue #${child.number}`,
             body: child.body ?? framedBody,
             state: node.state ?? 'OPEN',
+            stateReason: node.stateReason ?? null,
             labels: node.labels?.nodes?.map((label) => label.name) ?? ['size:S'],
             subIssues: node.subIssues?.nodes?.map((issue) => issue.number) ?? [],
             blockedBy: node.blockedBy?.nodes?.map((issue) => issue.number) ?? [],

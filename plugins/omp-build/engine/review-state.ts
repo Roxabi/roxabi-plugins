@@ -8,6 +8,7 @@ import { type Result, type ReviewFacts, type ReviewState, type ReviewSummary, re
 import { validateDecision } from './review-decision.ts'
 import { spentBeforeCurrentPullRequestAttempt, spentInCompleteHistory } from './review-history.ts'
 import { analyzeReviewIdentity, reviewOperations } from './review-identity.ts'
+import { readReviewRecovery } from './review-recovery.ts'
 import type { Stop } from './review-schema.ts'
 
 export function summarizeReviews(
@@ -113,6 +114,15 @@ function summarizeAuthorityReviews(
   const transportDiagnostics = reviewTransportDiagnostics(identity.transportDiagnostics, identity.incompleteFinal)
   if (transportDiagnostics !== null)
     return summaryFailure(transportDiagnostics, knownReviews, history.source.complete, uncertainSpent)
+  const recovery = readReviewRecovery(history)
+  if (!recovery.ok) return summaryFailure(recovery.diagnostics, knownReviews, history.source.complete, uncertainSpent)
+  if (recovery.value.normalProgression === 'stopped')
+    return summaryFailure(
+      [diagnostic('incomplete', 'An interrupted review root remains stopped pending its replacement outcome')],
+      knownReviews,
+      true,
+      uncertainSpent,
+    )
   const graph = validateRecordGraph(history)
   if (!graph.ok) return summaryFailure(graph.diagnostics, knownReviews, history.source.complete, uncertainSpent)
   const records = new Map(graph.value.map((record) => [record.recordId, record]))

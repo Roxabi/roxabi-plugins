@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { parseIssueSpecBody, rawSource } from '../../adapters/github-native/uw-spec.ts'
 import type { UwDiagnostic } from '../../engine/uw-diagnostics.ts'
 import type { NormalizationJudgement } from '../../engine/uw-normalization-schema.ts'
 import type { NativeBatch, NativeBatchCallbacks, NativeBatchResult } from '../../omp/review-runtime/contracts.ts'
@@ -9,7 +10,10 @@ import { announceUwNormalization } from '../uw-normalization-host.ts'
 const request = {
   uw: { repository: 'acme/widgets', target: 'acme/widgets#42' },
   title: 'Normalize the current UW',
-  parsed: {} as never,
+  parsed: parseIssueSpecBody({
+    uw: { repository: 'acme/widgets', target: 'acme/widgets#42' },
+    raw: rawSource('acme/widgets#42', '', null),
+  }),
   graph: {} as never,
   writes: {} as never,
 } as NormalizationProposalRequest

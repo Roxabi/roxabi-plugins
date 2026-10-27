@@ -5,8 +5,9 @@ import { githubScope, uwCreateInputSchema, uwProposalInputSchema } from '../dist
 import type { UwCreateInput, UwOperations, UwProposalInput } from '../roxabi/uw-contract.ts'
 import { UwGraphUnavailableError } from '../roxabi/uw-read-port.ts'
 import type { OmpBuildExtensionApi } from './omp-controller.ts'
+import { beginFeatureUwOperation, cancelFeatureUwOperation } from './omp-feature-composition.ts'
+import { rootContext } from './omp-feature-session.ts'
 import { type CommandOperatorPort, createOperatorConfirmation } from './omp-operator-confirmation.ts'
-
 export type UwOperationsFactory = (input: {
   cwd: string
   operator: CommandOperatorPort
@@ -256,11 +257,14 @@ export function registerUwCommand(pi: OmpBuildExtensionApi, factory: UwOperation
         pi.sendMessage(`uw-stopped: ${parsed.reason}`, { triggerTurn: false })
         return
       }
-      const operator = createOperatorConfirmation(ctx)
+      const privateOperator = createOperatorConfirmation(ctx)
+      const ownsRootCapability = rootContext(ctx)
+      const operator = ownsRootCapability ? beginFeatureUwOperation(pi, privateOperator) : privateOperator
       try {
         reportOutcome(pi, ctx, await executeUwCommand(parsed, await factory({ cwd: ctx.cwd, operator })))
       } finally {
-        operator.cancel()
+        if (ownsRootCapability) cancelFeatureUwOperation(pi, operator)
+        else operator.cancel()
       }
     },
   })

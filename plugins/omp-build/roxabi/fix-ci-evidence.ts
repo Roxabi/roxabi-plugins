@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { DecodedHistory, GitHubOptions, Scope } from '../dist/contracts.js'
 import {
+  assessUwAdmission,
   composeChantier,
   failedCheckEvidenceDigest,
   reconstructWorkflow,
@@ -127,7 +128,9 @@ export async function authorizeFixAction(
   }
   const commit = input.target.candidateGitSHA
   if (commit === null || !/^[0-9a-f]{40}$/.test(commit)) return failure('fix-config-unreadable')
-  return reconstructAuthorizedFix(input, history, linked, parents, reviewStep, liveEvidence, uw, commit)
+  const currentFacts = currentFixFacts(uw)
+  if (!currentFacts.ok) return currentFacts
+  return reconstructAuthorizedFix(input, history, linked, parents, reviewStep, liveEvidence, currentFacts.value, commit)
 }
 
 type ReconstructedWorkflowDecision = {
@@ -162,17 +165,32 @@ function nativeTier(label: string): AssessSpecExact['proposed']['tier'] | null {
   return null
 }
 
-function currentFixFacts(uw: UwRead): CurrentFixFacts | null {
-  if (!uw.proposed.ok || !uw.identity.ok || !uw.admission.framed.ok || uw.graph.status !== 'complete') return null
+function currentFixFacts(uw: UwRead): FixActionResult<CurrentFixFacts> {
+  if (!uw.identity.ok) return failure('fix-own-uw-unsettled', ...uw.identity.diagnostics.map((item) => item.code))
+  const admission = assessUwAdmission({
+    uw: uw.uw,
+    graph: uw.graph,
+    proposed: uw.proposed,
+    accepted: uw.accepted,
+    identities: uw.identity.value,
+    phase: 'delivery-transition',
+    currentChildren: { ok: true, value: [] },
+  })
+  if (!admission.deliverable.ok)
+    return failure('fix-own-uw-unsettled', ...admission.deliverable.diagnostics.map((item) => item.code))
+  if (!uw.proposed.ok) return failure('fix-own-uw-unsettled')
   const root = uw.graph.nodes.find((node) => node.uw.repository === uw.uw.repository && node.uw.target === uw.uw.target)
-  if (root === undefined || root.children.length !== 0) return null
+  if (root === undefined || root.children.length !== 0) return failure('fix-own-uw-unsettled')
   const tiers = root.labels.filter((label) => label === 'size:S' || label === 'size:F-lite' || label === 'size:F-full')
-  if (tiers.length !== 1 || tiers[0] === undefined) return null
+  if (tiers.length !== 1 || tiers[0] === undefined) return failure('fix-own-uw-unsettled')
   const tier = nativeTier(tiers[0])
-  if (tier === null) return null
+  if (tier === null) return failure('fix-own-uw-unsettled')
   return {
-    currentSpec: { snapshot: uw.proposed.snapshot, tier, children: [] },
-    identityAllocations: [...uw.identity.value.allocations.values()],
+    ok: true,
+    value: {
+      currentSpec: { snapshot: uw.proposed.snapshot, tier, children: [] },
+      identityAllocations: [...uw.identity.value.allocations.values()],
+    },
   }
 }
 
@@ -183,7 +201,7 @@ async function reconstructAuthorizedFix(
   parents: readonly DecodedHistory[],
   reviewStep: 'fix' | 'review' | 'land' | 'stop',
   liveEvidence: LiveCiEvidence,
-  uw: UwRead,
+  currentFacts: CurrentFixFacts,
   commit: string,
 ): Promise<FixActionResult<readonly string[]>> {
   const failedChecks = liveEvidence.failedChecks
@@ -209,8 +227,6 @@ async function reconstructAuthorizedFix(
           associatedIssue: linked?.source.scope ?? null,
         }
       : null
-  const currentFacts = currentFixFacts(uw)
-  if (currentFacts === null) return failure('fix-own-uw-unsettled')
   const decision = reconstructWorkflow({
     evidence: composed.value,
     facts: {

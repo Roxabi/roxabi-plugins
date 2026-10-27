@@ -426,4 +426,105 @@ describe('workflow transition behavior', () => {
       }),
     ).toMatchObject({ status: 'refused', reason: 'unconfirmed' })
   })
+
+  test('keeps parent pause cycles active for a child with a current accepted grant', () => {
+    const pr: Scope = { repository: 'acme/app', target: 'acme/app#99' }
+    const childGrant = landingFixtures.childSnapshot(SCOPE, BODY)
+    const parent = landingFixtures.epicMandate(PARENT, [childGrant], {
+      recordId: 'parent-pause-matrix',
+      runId: 'run-parent-pause-matrix',
+      operationId: 'op-parent-pause-matrix',
+      body: BODY,
+    })
+    const child = landingFixtures.featureMandate(SCOPE, {
+      recordId: 'child-pause-matrix',
+      runId: 'run-child-pause-matrix',
+      operationId: 'op-child-pause-matrix',
+      branch: 'feature/bounded',
+      base: 'main',
+      lineageHead: null,
+      body: BODY,
+      ownSpec: landingFixtures.ownSpecFromSnapshot(SCOPE, childGrant.snapshot),
+      tier: childGrant.tier,
+      parent: { scope: PARENT, recordId: parent.recordId, kind: 'mandate' },
+    })
+    const decisions: SpecializedDecisions = {
+      reviewStep: null,
+      epicStep: null,
+      epicLand: null,
+      ciWatchStatus: null,
+      publish: { status: 'absent', evidence: [] },
+      landing: { status: 'absent', evidence: [] },
+      watch: { status: 'absent', evidence: [] },
+    }
+    const childFacts = facts({
+      productVersion: child.payload.config.productVersion,
+      configVersion: child.payload.config.version,
+      configDigest: child.payload.config.digest,
+      supportedConfigVersions: [child.payload.config.version],
+    })
+    const first = pauseControls(parent, 'parent-first-pause')
+    const second = pauseControls(parent, 'parent-second-pause')
+    const parentPending = history([parent, first.requested, first.confirmed, first.resumed, second.requested], PARENT)
+    const pendingHistories = [history([child]), history([binding(child, pr)], pr), parentPending]
+    for (const use of ['review', 'correction'] as const)
+      expect(
+        resolveBoundWork({
+          use,
+          explicitSelection: true,
+          pullRequest: pr,
+          histories: pendingHistories,
+          native: { branch: 'feature/bounded', base: 'main' },
+        }),
+      ).toMatchObject({ status: 'refused' })
+    expect(requireLandingMandate(landingInput(child, pendingHistories, pr, [PARENT]))).toMatchObject({ ok: false })
+    expect(
+      reconstructWorkflow({
+        evidence: { issue: history([child]), pullRequest: null, parents: [parentPending] },
+        facts: childFacts,
+        decisions,
+      }),
+    ).not.toMatchObject({ status: 'action' })
+
+    const wrongChildResume = must(
+      parseRecord({
+        version: 1,
+        repository: PARENT.repository,
+        target: PARENT.target,
+        recordId: 'parent-second-resume-for-child',
+        runId: 'run-parent-pause-matrix',
+        operationId: 'op-parent-second-resume-for-child',
+        kind: 'operator-control',
+        inputs: [parent.recordId, second.confirmed.recordId],
+        payload: {
+          control: 'resume',
+          controlId: 'parent-second-pause',
+          predecessor: { scope: PARENT, recordId: second.confirmed.recordId, kind: 'operator-control' },
+          mandate: { scope: SCOPE, recordId: child.recordId, kind: 'mandate' },
+        },
+      }),
+    )
+    const parentPaused = history(
+      [parent, first.requested, first.confirmed, first.resumed, second.requested, second.confirmed, wrongChildResume],
+      PARENT,
+    )
+    const pausedHistories = [history([child]), history([binding(child, pr)], pr), parentPaused]
+    expect(
+      resolveBoundWork({
+        use: 'review',
+        explicitSelection: true,
+        pullRequest: pr,
+        histories: pausedHistories,
+        native: { branch: 'feature/bounded', base: 'main' },
+      }),
+    ).toMatchObject({ status: 'refused' })
+    expect(requireLandingMandate(landingInput(child, pausedHistories, pr, [PARENT]))).toMatchObject({ ok: false })
+    expect(
+      reconstructWorkflow({
+        evidence: { issue: history([child]), pullRequest: null, parents: [parentPaused] },
+        facts: { ...childFacts, explicitResume: true },
+        decisions,
+      }),
+    ).not.toMatchObject({ status: 'action' })
+  })
 })

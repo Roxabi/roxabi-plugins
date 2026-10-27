@@ -9,6 +9,8 @@ export function normalizationInput(
 ): UwProposalInput {
   return {
     uw: request.uw,
+    sourceBodySha256:
+      request.parsed.status === 'conformant' ? request.parsed.snapshot.raw.bodySha256 : request.parsed.raw.bodySha256,
     title: request.title,
     writes: request.writes,
     draft: judgement.draft,

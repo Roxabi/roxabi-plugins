@@ -13,12 +13,12 @@ import {
   prepareSpecAllocation,
   resolveSpecIdentityLedger,
 } from '../uw-identity.ts'
-import { canonicalSpec, type SpecSnapshot, validateSpecIds } from '../uw-spec.ts'
+import { canonicalSpec, type SpecItemId, type SpecSnapshot, validateSpecIds } from '../uw-spec.ts'
 import type { AcceptedOwnSpec } from '../workflow-accepted-spec-types.ts'
 
 const UW: Scope = { repository: 'acme/payments', target: 'acme/payments#41' }
 const DIGEST = 'a'.repeat(64)
-const CONFIRMED_AT = '2026-10-27T12:00:00.000Z'
+const CONFIRMED_AT = '2026-10-27T12:00:00Z'
 
 function must<T>(result: { ok: true; value: T } | { ok: false; diagnostics: readonly { code: string }[] }): T {
   if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.code).join(','))
@@ -33,7 +33,22 @@ function ref(record: CanonicalRecord): ExternalRecordRef {
   }
 }
 
-function decode(records: readonly CanonicalRecord[], complete = true): DecodedHistory {
+type NativeFrameTiming = {
+  createdAt: string
+  updatedAt: string
+  revisedRecordIds: ReadonlySet<string>
+}
+const DEFAULT_FRAME_TIMING: NativeFrameTiming = {
+  createdAt: CONFIRMED_AT,
+  updatedAt: CONFIRMED_AT,
+  revisedRecordIds: new Set(),
+}
+
+function decode(
+  records: readonly CanonicalRecord[],
+  complete = true,
+  timing: NativeFrameTiming = DEFAULT_FRAME_TIMING,
+): DecodedHistory {
   const comments: History['comments'] = []
   for (const [index, record] of records.entries()) {
     const frames = must(encodeParts(record, `# ${record.kind}`, 65_536))
@@ -43,8 +58,8 @@ function decode(records: readonly CanonicalRecord[], complete = true): DecodedHi
         nativeId: String(index * 10 + frame + 1),
         body,
         author: 'operator',
-        createdAt: CONFIRMED_AT,
-        updatedAt: CONFIRMED_AT,
+        createdAt: timing.createdAt,
+        updatedAt: timing.revisedRecordIds.has(record.recordId) ? timing.updatedAt : timing.createdAt,
       })),
     )
   }
@@ -85,7 +100,7 @@ function allocation(recordId: string, operationId: string, predecessor: External
   )
 }
 
-function retireProposed(recordId: string, operationId: string, predecessor: ExternalRecordRef, id: 'C1') {
+function retireProposed(recordId: string, operationId: string, predecessor: ExternalRecordRef, id: SpecItemId) {
   return must(
     buildRecord({
       version: 1,
@@ -400,4 +415,31 @@ test('ignores copied foreign identity frames but refuses incomplete trusted iden
   expect(codes(resolveSpecIdentityLedger({ uw: UW, history: incompleteTrusted, accepted: null }))).toContain(
     'spec-ledger-incomplete',
   )
+})
+test('refuses an edited local retirement before it can resurrect its original identity', () => {
+  const first = allocation('identity-c1', 'allocate-c1', null, 'C1')
+  const second = allocation('identity-c2', 'allocate-c2', ref(first), 'C2')
+  const retiredC1 = retireProposed('retire-c1', 'retire-c1', ref(second), 'C1')
+  const nativeFrame: NativeFrameTiming = {
+    createdAt: '2026-10-27T12:00:00Z',
+    updatedAt: '2026-10-27T12:01:00Z',
+    revisedRecordIds: new Set(),
+  }
+  const unedited = must(
+    resolveSpecIdentityLedger({
+      uw: UW,
+      history: decode([first, second, retiredC1], true, nativeFrame),
+      accepted: null,
+    }),
+  )
+  const replacement = retireProposed('retire-c1', 'retire-c1', ref(second), 'C2')
+  const revised = decode([first, second, replacement], true, {
+    ...nativeFrame,
+    revisedRecordIds: new Set([replacement.recordId]),
+  })
+
+  expect(
+    codes(validateSpecIds(snapshot([{ id: 'C1', statement: 'Resurrected commitment' }]).spec, unedited)),
+  ).toContain('spec-id-retired')
+  expect(resolveSpecIdentityLedger({ uw: UW, history: revised, accepted: null })).toMatchObject({ ok: false })
 })

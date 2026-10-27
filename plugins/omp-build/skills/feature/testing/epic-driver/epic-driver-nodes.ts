@@ -20,8 +20,9 @@ export function prNode(number: number, head: string, headSha: string, over: Reco
 export function childNode(
   number: number,
   title: string,
-  { state = 'OPEN', blockedBy = [], comments = [], prs = [] as unknown[] } = {} as {
+  { state = 'OPEN', stateReason = null, blockedBy = [], comments = [], prs = [] as unknown[] } = {} as {
     state?: 'OPEN' | 'CLOSED'
+    stateReason?: string | null
     blockedBy?: [number, 'OPEN' | 'CLOSED'][]
     comments?: Comment[]
     prs?: unknown[]
@@ -31,6 +32,7 @@ export function childNode(
     number,
     title,
     state,
+    stateReason,
     body: strictSpecBody(title),
     author: { login: ME },
     repository: { nameWithOwner: 'o/r' },

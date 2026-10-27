@@ -13,6 +13,7 @@ import type {
   UwRead,
   UwWritePrecondition,
 } from './uw-contract.ts'
+import { validateNormalizationConservation } from './uw-normalization-conservation.ts'
 
 export type UwProposalPreparationPorts = {
   prepareSpecAllocation: typeof prepareSpecAllocation
@@ -21,6 +22,8 @@ export type UwProposalPreparationPorts = {
 }
 
 type PreparedProposal = PreparedUwProposal | { diagnostics: readonly UwDiagnostic[] }
+
+type ProposalAssemblyInput = Omit<UwProposalInput, 'sourceBodySha256'>
 
 function diagnostic(uw: Scope, code: string, message: string): UwDiagnostic {
   return { code, message, location: { kind: 'native', uw, connection: 'state' }, related: [] }
@@ -41,12 +44,63 @@ export function nativeIssueObservationDigest(observed: IssueWriteObservation): s
     .digest('hex')
 }
 
+function parsedSourceHash(read: UwRead): string {
+  return read.parsed.status === 'conformant' ? read.parsed.snapshot.raw.bodySha256 : read.parsed.raw.bodySha256
+}
+
+export function sourceBindingDiagnostics(input: UwProposalInput, read: UwRead): readonly UwDiagnostic[] {
+  if (input.sourceBodySha256 !== parsedSourceHash(read))
+    return [
+      diagnostic(
+        input.uw,
+        'normalization-source-stale',
+        'The current native Spec source differs from the source bound to this proposal input',
+      ),
+    ]
+  return validateNormalizationConservation(input, read.parsed.analysis)
+}
+
+export function parentRepositoryDiagnostics(input: UwProposalInput | UwCreateInput): readonly UwDiagnostic[] {
+  const parent = input.writes.relations.parent
+  const repository = 'uw' in input ? input.uw.repository : input.repository
+  if (parent === undefined || parent === null || parent.repository === repository) return []
+  const uw = 'uw' in input ? input.uw : { repository, target: `${repository}#0` }
+  return [diagnostic(uw, 'cross-repository-parent', 'A UW parent must be in the same repository as the UW')]
+}
+
+function sameRef(left: UwWritePrecondition['ledgerHead'], right: UwWritePrecondition['ledgerHead']): boolean {
+  return left === null || right === null
+    ? left === right
+    : left.scope.repository === right.scope.repository &&
+        left.scope.target === right.scope.target &&
+        left.recordId === right.recordId &&
+        left.kind === right.kind
+}
+
+function sameObservation(left: IssueWriteObservation, right: IssueWriteObservation): boolean {
+  return nativeIssueObservationDigest(left) === nativeIssueObservationDigest(right)
+}
+
+export function staleWrite(prepared: PreparedUwProposal, read: UwRead, fresh: IssueWriteObservation): boolean {
+  return (
+    !read.identity.ok ||
+    read.accepted.status === 'refused' ||
+    prepared.proposal.expected === null ||
+    !sameObservation(fresh, prepared.proposal.expected.observed) ||
+    !sameRef(
+      read.accepted.status === 'accepted' ? read.accepted.value.ref.sourceAccepted : null,
+      prepared.proposal.expected.acceptedPredecessor,
+    ) ||
+    !sameRef(read.identity.value.head, prepared.proposal.expected.ledgerHead)
+  )
+}
+
 function proposalDigest(proposal: UwProposal): string {
   return createHash('sha256').update(JSON.stringify(proposal)).digest('hex')
 }
 
 function calculateProposalTier(
-  input: UwProposalInput,
+  input: ProposalAssemblyInput,
   ports: UwProposalPreparationPorts,
 ): ComplexityTierResult | { diagnostics: readonly UwDiagnostic[] } {
   try {
@@ -59,7 +113,7 @@ function calculateProposalTier(
 }
 
 function writesWithTier(
-  input: UwProposalInput,
+  input: ProposalAssemblyInput,
   tier: ComplexityTierResult['tier'],
   observed: IssueWriteObservation | null,
 ): UwProposalInput['writes'] {
@@ -76,7 +130,7 @@ function writesWithTier(
 }
 
 function assemblePlan(
-  input: UwProposalInput,
+  input: ProposalAssemblyInput,
   ledger: SpecIdentityLedger,
   acceptedPredecessor: UwWritePrecondition['acceptedPredecessor'],
   observed: IssueWriteObservation | null,
@@ -124,7 +178,6 @@ export function prepareExistingProposal(
   input: UwProposalInput,
   read: UwRead,
   observed: IssueWriteObservation,
-  operation: UwProposal['operation'],
   ports: UwProposalPreparationPorts,
 ): PreparedProposal {
   if (read.accepted.status === 'refused') return { diagnostics: read.accepted.diagnostics }
@@ -134,13 +187,13 @@ export function prepareExistingProposal(
     read.identity.value,
     read.accepted.status === 'accepted' ? read.accepted.value.ref.sourceAccepted : null,
     observed,
-    operation,
+    input.normalization.length === 0 ? 'write' : 'normalize',
     ports,
   )
 }
 
 export function prepareCreateProposal(input: UwCreateInput, ports: UwProposalPreparationPorts): PreparedProposal {
-  const provisional: UwProposalInput = {
+  const provisional: ProposalAssemblyInput = {
     ...input,
     uw: { repository: input.repository, target: `${input.repository}#0` },
   }

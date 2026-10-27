@@ -1,14 +1,13 @@
 import { hasFramedOwnUw, ownUwRefusal } from './epic-own-uw'
-import { isDone, topological } from './epic-progress'
+import { blockerCompleted, isDone, topological } from './epic-progress'
 import type { ChildFacts } from './epic-types'
 
 // ── Framing, not authority ────────────────────────────────────────────────────
 
 /**
- * Closed or merged children leave the order and satisfy dependents. An open
- * blocker outside the epic reports the child (and its in-epic dependents) as
- * blocked. Open children require a fresh, framed own UW. This does not
- * authorize a run or a base.
+ * Closed or merged children leave the order. A dependency is relieved only by
+ * its canonical native CLOSED/COMPLETED observation. This frames scheduling and
+ * does not authorize a run or a base.
  */
 export function frameEpic(input: {
   base: string
@@ -24,12 +23,18 @@ export function frameEpic(input: {
     }
 
   const byNumber = new Map(children.map((child) => [child.number, child]))
+  const pending = new Set(open.map((child) => child.number))
   const blocked = new Map<number, number[]>()
   for (const child of open) {
-    const outside = child.blockedBy
-      .filter((blocker) => (blocker.repo || !byNumber.has(blocker.number)) && blocker.state === 'OPEN')
+    const unsatisfied = child.blockedBy
+      .filter((blocker) => {
+        const sibling = blocker.repo ? undefined : byNumber.get(blocker.number)
+        return sibling === undefined
+          ? !blockerCompleted(blocker)
+          : !pending.has(sibling.number) && !blockerCompleted(sibling)
+      })
       .map((blocker) => blocker.number)
-    if (outside.length) blocked.set(child.number, outside)
+    if (unsatisfied.length) blocked.set(child.number, unsatisfied)
   }
   for (let grew = true; grew; ) {
     grew = false

@@ -13,15 +13,30 @@ export function mergedPr(child: ChildFacts, base: string): PrFacts | null {
   )
 }
 
-/** Closed, or merged into the base (staging-train leaves a merged child open). */
+/**
+ * CLOSED/NOT_PLANNED is terminal for scheduling. CLOSED/COMPLETED waits for an
+ * observed ticket PR to settle unless its stop is permanent; a qualifying merged
+ * PR completes its own child.
+ */
 export function isDone(child: ChildFacts, base: string): boolean {
-  return child.state === 'CLOSED' || mergedPr(child, base) !== null
+  return (
+    (child.state === 'CLOSED' &&
+      (child.stateReason !== 'COMPLETED' ||
+        !child.prs.some((pr) => pr.state === 'OPEN') ||
+        stickyStopReason(child) !== null)) ||
+    mergedPr(child, base) !== null
+  )
+}
+
+function stickyStopReason(child: ChildFacts): string | null {
+  const sticky = child.stops.find((stop) => STICKY_STOPS.includes(stop.reason))
+  if (sticky) return sticky.reason
+  return child.prs.some((pr) => pr.state === 'OPEN' && pr.exhausted) ? 'review-bound' : null
 }
 
 export function stopOf(child: ChildFacts, run: string): { reason: string; sticky: boolean } | null {
-  const sticky = child.stops.find((stop) => STICKY_STOPS.includes(stop.reason))
-  if (sticky) return { reason: sticky.reason, sticky: true }
-  if (child.prs.some((pr) => pr.state === 'OPEN' && pr.exhausted)) return { reason: 'review-bound', sticky: true }
+  const sticky = stickyStopReason(child)
+  if (sticky !== null) return { reason: sticky, sticky: true }
   const current = child.stops.filter((stop) => stop.run === run).at(-1)
   return current ? { reason: current.reason, sticky: false } : null
 }
@@ -65,11 +80,15 @@ export function mergedStoppedPrs(facts: Facts): { ticket: number; pr: number }[]
   return found
 }
 
-export function openBlockers(child: ChildFacts, byNumber: Map<number, ChildFacts>, base: string): number[] {
+export function blockerCompleted(blocker: { state: 'OPEN' | 'CLOSED'; stateReason?: string | null }): boolean {
+  return blocker.state === 'CLOSED' && blocker.stateReason === 'COMPLETED'
+}
+
+export function openBlockers(child: ChildFacts, byNumber: Map<number, ChildFacts>, _base: string): number[] {
   return child.blockedBy
     .filter((blocker) => {
       const sibling = blocker.repo ? undefined : byNumber.get(blocker.number)
-      return sibling ? !isDone(sibling, base) : blocker.state === 'OPEN'
+      return sibling ? !blockerCompleted(sibling) : !blockerCompleted(blocker)
     })
     .map((blocker) => blocker.number)
 }

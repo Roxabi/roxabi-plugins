@@ -48,6 +48,18 @@ _Avoid_: automatic renewal, a second issue, a second pull request, `/feature <re
 A confirmed record that pauses, resumes, abandons, names a successor, or records an explicit material-Spec decision. A local process stop is not this record.
 _Avoid_: a session goal, an unconfirmed inhibit
 
+**Review interruption**:
+A confirmed neutral terminal for an interrupted initial pull-request review inventory. It preserves the historical root and its inputs; it is not a review verdict, approval, or a fresh attempt.
+_Avoid_: Request changes, Approve, abort-as-verdict, rewriting the historical root
+
+**Replacement grant**:
+A separate, one-use authorization to run one linked replacement review after a Review interruption. Issuing it does not start tasks; a confirmed linked replacement inventory consumes it. Repeating terminalization or republication does not refill it.
+_Avoid_: a new Review bound, erasing historical attempts, automatic third recovery
+
+**Replacement review**:
+The second attempt that names a Replacement grant and the interrupted historical root. Its completed final is an ordinary review for accounting; an incomplete replacement stops and needs a new human checkpoint.
+_Avoid_: treating it as a first attempt, treating a genuine Request changes as a third recovery
+
 **Action receipt**:
 The confirmed start or result of a semantic, planning, or implementation action that otherwise has no durable product record.
 _Avoid_: a review record, a transcript, a local cache

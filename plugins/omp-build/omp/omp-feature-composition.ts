@@ -7,8 +7,8 @@ const activeOperators = new WeakMap<object, CommandOperatorPort>()
 const installedLifecycles = new WeakSet<object>()
 
 /**
- * One /feature operation owns one context-bound confirmation capability. A replacement, an
- * aborted root session, or a terminal session transition invalidates the old capability.
+ * One interactive root UW operation owns one confirmation capability. A replacement, an aborted
+ * root session, or a terminal session transition invalidates the old capability.
  */
 export function beginFeatureUwOperation(pi: OmpBuildExtensionApi, operator: CommandOperatorPort): CommandOperatorPort {
   activeOperators.get(pi)?.cancel()
@@ -22,9 +22,9 @@ function cancelExactFeatureUwOperation(pi: OmpBuildExtensionApi, operator: Comma
   activeOperators.delete(pi)
 }
 
-export function cancelFeatureUwOperation(pi: OmpBuildExtensionApi): void {
-  const operator = activeOperators.get(pi)
-  if (operator !== undefined) cancelExactFeatureUwOperation(pi, operator)
+export function cancelFeatureUwOperation(pi: OmpBuildExtensionApi, operator?: CommandOperatorPort): void {
+  const current = operator ?? activeOperators.get(pi)
+  if (current !== undefined) cancelExactFeatureUwOperation(pi, current)
 }
 
 export function installFeatureUwOperationLifecycle(pi: OmpBuildExtensionApi): void {

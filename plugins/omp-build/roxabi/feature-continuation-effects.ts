@@ -33,7 +33,7 @@ export async function coordinateContinuationEffects(
     case 'fix':
       return observation.facts.failedChecks === null
         ? continueReviewBoundFix(selected, observation)
-        : continueCiCorrection(authority, observation, input.uw)
+        : continueCiCorrection(authority, observation, selected.reader ?? input.read ?? input.uw)
     case 'land':
       return coordinateLanding(input, exactMandateRef, authority, observation, continueAtTarget)
     case 'resume':

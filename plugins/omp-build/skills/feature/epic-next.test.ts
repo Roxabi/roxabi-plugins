@@ -41,8 +41,13 @@ describe('nextStep', () => {
       {
         name: 'closed in-epic and out-of-epic blockers → the child is actionable',
         facts: facts([
-          child(1, { state: 'CLOSED' }),
-          child(2, { blockedBy: [on(1, 'CLOSED'), on(900, 'CLOSED', OTHER_REPO)] }),
+          child(1, { state: 'CLOSED', stateReason: 'COMPLETED' }),
+          child(2, {
+            blockedBy: [
+              { number: 1, state: 'CLOSED', stateReason: 'COMPLETED' },
+              { number: 900, state: 'CLOSED', stateReason: 'COMPLETED', repo: OTHER_REPO },
+            ],
+          }),
         ]),
         step: { action: 'start', ticket: 2, branch: 'feat/2-child-2' },
         report: { closed: [1], skipped: [] },
@@ -61,7 +66,10 @@ describe('nextStep', () => {
       },
       {
         name: 'a same-repo blocker outside the epic counts by its own state',
-        facts: facts([child(1, { blockedBy: [on(42)] }), child(2, { blockedBy: [on(43, 'CLOSED')] })]),
+        facts: facts([
+          child(1, { blockedBy: [on(42)] }),
+          child(2, { blockedBy: [{ number: 43, state: 'CLOSED', stateReason: 'COMPLETED' }] }),
+        ]),
         step: { action: 'start', ticket: 2 },
         report: { skipped: [{ ticket: 1, blockers: [42] }] },
       },

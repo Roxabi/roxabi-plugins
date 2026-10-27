@@ -69,6 +69,74 @@ describe('UW Spec body grammar', () => {
     ).toBe(true)
   })
 
+  it('locates empty identified criteria and invariants at their retained source items', () => {
+    const body = strictBody()
+      .replace(
+        '- C1 : Première obligation\n  avec une continuation 😀 indentée.',
+        '- C1 :\n- C2 : literal  whitespace/value',
+      )
+      .replace('- I1 : Une invariance.', '- I1 :\n- I2 : literal  whitespace/value')
+    const parsed = parseIssueSpecBody({ uw, raw: rawSource('#17', body, null) })
+    const lines = body.split('\n')
+    const criterionLine = lines.indexOf('- C1 :') + 1
+    const invariantLine = lines.indexOf('- I1 :') + 1
+
+    expect(parsed.status).toBe('malformed')
+    expect(criterionLine).not.toBe(1)
+    expect(invariantLine).not.toBe(1)
+    expect(criterionLine).not.toBe(invariantLine)
+    expect(parsed.analysis.criterionSources).toContainEqual(
+      expect.objectContaining({
+        id: 'C1',
+        statement: '',
+        source: '- C1 :',
+        span: {
+          start: { line: criterionLine, column: 1 },
+          end: { line: criterionLine, column: '- C1 :'.length + 1 },
+        },
+      }),
+    )
+    expect(parsed.analysis.invariantSources).toContainEqual(
+      expect.objectContaining({
+        id: 'I1',
+        statement: '',
+        source: '- I1 :',
+        span: {
+          start: { line: invariantLine, column: 1 },
+          end: { line: invariantLine, column: '- I1 :'.length + 1 },
+        },
+      }),
+    )
+    expect(parsed.analysis.criterionSources).toContainEqual(
+      expect.objectContaining({ id: 'C2', statement: 'literal  whitespace/value' }),
+    )
+    expect(parsed.analysis.invariantSources).toContainEqual(
+      expect.objectContaining({ id: 'I2', statement: 'literal  whitespace/value' }),
+    )
+    expect(parsed.diagnostics).toEqual([
+      expect.objectContaining({
+        code: 'spec-item-malformed',
+        message: expect.stringContaining('C1'),
+        location: expect.objectContaining({
+          kind: 'body',
+          section: 'Acceptance Criteria',
+          start: { line: criterionLine, column: 1 },
+          end: { line: criterionLine, column: '- C1 :'.length + 1 },
+        }),
+      }),
+      expect.objectContaining({
+        code: 'spec-item-malformed',
+        message: expect.stringContaining('I1'),
+        location: expect.objectContaining({
+          kind: 'body',
+          section: 'Invariants',
+          start: { line: invariantLine, column: 1 },
+          end: { line: invariantLine, column: '- I1 :'.length + 1 },
+        }),
+      }),
+    ])
+  })
+
   it('retains blank paragraphs within an indented continuation but excludes trailing section whitespace', () => {
     const body = strictBody().replace(
       '  avec une continuation 😀 indentée.',

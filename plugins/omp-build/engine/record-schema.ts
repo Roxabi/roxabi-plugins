@@ -1,6 +1,12 @@
 import { z } from 'zod'
 import { contributionSchema, identifierSchema, type Json, jsonSchema, scopeSchema } from './record-values.ts'
 import {
+  type ReviewInterruptionPayload,
+  type ReviewReplacementGrantPayload,
+  reviewInterruptionPayloadSchema,
+  reviewReplacementGrantPayloadSchema,
+} from './review-interruption-schema.ts'
+import {
   correctionResultSchema,
   debtReceiptSchema,
   decisionPayloadSchema,
@@ -61,6 +67,8 @@ type PayloadByKind = {
   'operator-control': OperatorControlPayload
   'action-receipt': ActionReceiptPayload
   'workflow-binding': WorkflowBindingPayload
+  'review-interruption': ReviewInterruptionPayload
+  'review-replacement-grant': ReviewReplacementGrantPayload
 }
 // The schema stays the runtime authority. Its inferred union is too large for TS to
 // keep kind and payload paired, so the export type is the explicit pairing above.
@@ -81,6 +89,8 @@ export const recordSchema = z.discriminatedUnion('kind', [
   record('operator-control', operatorControlPayloadSchema),
   record('action-receipt', actionReceiptPayloadSchema),
   record('workflow-binding', workflowBindingPayloadSchema),
+  record('review-interruption', reviewInterruptionPayloadSchema),
+  record('review-replacement-grant', reviewReplacementGrantPayloadSchema),
 ]) as z.ZodType<CanonicalRecord>
 export type Kind = CanonicalRecord['kind']
 export type Payloads = {

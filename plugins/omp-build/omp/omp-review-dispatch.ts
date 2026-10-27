@@ -1,8 +1,10 @@
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
+import type { CanonicalRecord } from '../dist/contracts.js'
 import type { PreparedEpicReview } from '../roxabi/epic-range-finalization.ts'
 import type { ReviewPublisher } from '../roxabi/review-contract.ts'
 import { ReviewProduct } from '../roxabi/review-dispatch.ts'
 import { createPreparedReviewRunner } from '../roxabi/review-entry'
+import type { PreparedReviewInputs } from '../roxabi/review-input-contract.ts'
 import { prepareReviewInputs } from '../roxabi/review-pr-inputs.ts'
 import { validateReviewInput } from '../skills/feature/workflow-review-input.js'
 import { nextReviewStep } from '../skills/feature/workflow-review-state.js'
@@ -38,6 +40,51 @@ type DefaultReviewOptions = {
   onComplete?: () => Promise<void>
   prepareReview?: typeof prepareReviewInputs
   scopedGuard?: () => boolean
+}
+
+type ReplacementDispatchOptions = {
+  validateReview?: typeof validateReviewInput
+}
+
+/**
+ * Activate the already read-back replacement inventory without consulting the
+ * ordinary root allocator. The runner rebuilds and checks its native slots
+ * against that exact inventory before the product is allowed to announce it.
+ */
+async function dispatchPreparedReplacementReview(
+  pi: NativeExtension,
+  ctx: Pick<ExtensionContext, 'cwd'>,
+  input: PreparedReviewInputs,
+  inventory: Extract<CanonicalRecord, { kind: 'review-attempt' }>,
+  grantId: string,
+  options: ReplacementDispatchOptions = {},
+): Promise<void> {
+  if (hasOwnedFixRun(pi)) throw new Error('fix-run-already-active')
+  const authorize = async (
+    stage: 'initial' | 'recall' | 'synthesis',
+  ): Promise<{ ok: true } | { ok: false; reason: string }> => {
+    const validation = await (options.validateReview ?? validateReviewInput)(
+      ctx.cwd,
+      input.pr.number,
+      input.pr.head,
+      input.capture.input,
+    )
+    if (!validation.ok) return { ok: false, reason: `${stage}:${validation.reason}` }
+    return { ok: true }
+  }
+  const runner = createPreparedReviewRunner(
+    input,
+    { cwd: ctx.cwd, readAuthor: input.automationLogin, writeAuthor: input.automationLogin },
+    authorize,
+    {
+      identity: {
+        runId: `review-replacement-${grantId}`,
+        operationId: `review-replacement-operation-${grantId}`,
+      },
+      initialInventory: inventory,
+    },
+  )
+  await createOmpReviewProduct(pi, runner).preparePullRequestReview(runner.context, runner.initialBatch())
 }
 
 async function dispatchDefaultReview(
@@ -103,4 +150,4 @@ async function dispatchDefaultReview(
   await product.preparePullRequestReview(runner.context, runner.initialBatch())
 }
 
-export { dispatchDefaultReview, prepareInstalledEpicRangeReview }
+export { dispatchDefaultReview, dispatchPreparedReplacementReview, prepareInstalledEpicRangeReview }

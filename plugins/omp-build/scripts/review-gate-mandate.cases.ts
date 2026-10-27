@@ -236,7 +236,7 @@ export function registerReviewGateMandateCases(): void {
     })
 
     it.each(['review', 'review-attempt', 'decision', 'mandate', 'workflow-binding'] as const)(
-      'refuses an edited %s record',
+      'refuses an edited %s record without persistent effects',
       async (kind) => {
         const fixture = setupReviewGateFixture()
         await seedMandate(fixture)
@@ -251,9 +251,13 @@ export function registerReviewGateMandateCases(): void {
         writeState(fixture, state)
 
         const result = runReviewGate(fixture)
+        const body = JSON.parse(result.stdout)
 
         expect(result.status).toBe(1)
-        expect(JSON.parse(result.stdout)).toMatchObject({ ok: false, allowed: false, reason: 'record-edited' })
+        expect(body).toMatchObject({ ok: false, allowed: false })
+        if (kind === 'review' || kind === 'review-attempt' || kind === 'decision')
+          expect(body).toMatchObject({ reason: 'record-edited' })
+        expect(postCalls(fixture)).toEqual([])
       },
     )
 

@@ -83,6 +83,8 @@ From the Principal, or when the session cwd is not the intended worktree, select
 
 Detected mid-turn user interruption, session switch, and shutdown await the durable pause for a pausable owner. Confirmation is the read-back `pause-confirmed` control, not the local interrupt. A finished or confirmed-abandoned owner is released and is not paused again. An unconfirmed pause is not a resumable pause.
 
+Interactive `/feature` and `/uw` confirmation capabilities are bound to their root command: ordinary idle settlement preserves deferred work; root abort, session switch, shutdown, or command replacement invalidates pending confirmation.
+
 Ordinary SDK `session_stop` means turn settlement, not workflow pause: a host-owned CI watch continues. When only that watch is running, idle Esc/RPC abort does not guarantee pause or disarm; use `/feature pause` or `/feature abandon`. This is the explicit-stop contract, not an idle-abort hook. Mid-turn interruption uses the SDK's session-stamped `UserInterrupt` flag on an aborted assistant message. That SDK primitive is bundled at build time into the existing contracts bundle; there is no runtime SDK dependency, copied error-label fallback, or second supervisor. Status delivery requests `triggerTurn: false`; it does not grant continuation authority.
 
 Spec assessment receives the exact accepted and proposed canonical snapshots together with their original raw bytes, tier and accepted-child commitments. Its original classification stays in the action result. Additions/removals of criteria, invariants or exclusions, and tier/accepted-child changes are mechanically material; a stable-ID rewording still receives semantic editorial/material/unknown judgment. Material or unknown acceptance requires a real operator decision bound to that exact assessment and proposal. Declining publishes no acceptance and grants no continuation or landing authority.
@@ -103,7 +105,9 @@ Three parts, one plugin, no second runtime, no database, and no mandatory local 
 | Roxabi (`roxabi/`) | Shipped graph, named actions, and the mandate snapshot of `review.additional_requirements` | A second config file, a project graph, a bound override, an admission override |
 | GitHub adapter (`adapters/`) | Complete comment history, confirmed publication, scope reads | Finding classification, landing permission |
 
-GitHub comments hold the records: `mandate`, `spec-identity`, `operator-control`, `action-receipt`, `workflow-binding`, `review`, `correction`, and `epic-event`. Mandates carry `format: 'omp-build-mandate/3'`; Spec assessments use `omp-build-spec-assessment/2`; reviews that carry input still use `inputFormat: 'omp-build:review-input/3'`. Missing/older incompatible formats, obsolete payload fields and the removed `kind: 'proof'` refuse with `incompatible-format`. No active migration, automatic renewal, cross-format recovery or exemption is provided.
+GitHub comments hold the records: `mandate`, `spec-identity`, `operator-control`, `action-receipt`, `workflow-binding`, `review-interruption`, `review-replacement-grant`, `review`, `correction`, and `epic-event`. Mandates carry `format: 'omp-build-mandate/3'`; Spec assessments use `omp-build-spec-assessment/2`; reviews that carry input use `inputFormat: 'omp-build:review-input/3'`. Missing/older incompatible formats, obsolete payload fields and the removed `kind: 'proof'` refuse with `incompatible-format`. No active migration, automatic renewal, cross-format recovery or exemption is provided. An interrupted initial pull-request review is terminalized by `review-interruption`; one linked replacement inventory may consume a one-use `review-replacement-grant` afterward.
+
+Trusted complete workflow records — `spec-identity`, mandate, `operator-control`, `action-receipt`, and `workflow-binding` — require readable UTC native creation/revision facts on every part, with `updatedAt === createdAt`. Missing or unreadable facts refuse as `record-unreadable`; a revised part refuses as `record-edited`. Foreign observations remain readable but never become authoritative, and do not make unrelated history globally unreadable.
 
 Removed integration configuration is not read during adoption, worktree start, review-input capture, or landing.
 
@@ -114,6 +118,20 @@ A confirmed checkpoint is a published record read back, plus the Git facts that 
 The landing binding on every base is the confirmed `workflow-binding` on that PR. A closing keyword, issue body, or branch name is not landing authority.
 
 Issue state is a scope fact, not execution authority. A closed Spec remains readable when reconstructing its bound mandate. Closing an issue neither pauses or revokes that mandate nor approves landing; a closed PR still cannot authorize another review or correction.
+
+#### Interrupted native review
+
+Recovery is three explicit write-approved host actions, each with `{ "pr": <number> }` in the PR's worktree:
+
+| Tool | Confirmed effect |
+|---|---|
+| `omp_build_terminalize_interrupted_review` | Publishes a neutral interruption for the unfinished initial PR inventory after reconstructing its historical mandate, binding and input. No verdict or review tasks. |
+| `omp_build_grant_review_replacement` | Captures fresh review inputs against the verified current binding and grants one replacement. No review tasks. |
+| `omp_build_replace_interrupted_review` | Recaptures those inputs, confirms the exact linked inventory by remote readback, then activates and announces its native review batch. |
+
+Historical inputs need not equal the fresh grant's inputs. Replacement inputs, head and binding must equal the grant's freshly verified values. Roots and publication identities are derived from the recorded chain, not supplied by the caller. A confirmed linked inventory consumes the grant once; a transport acknowledgement alone does not. Incomplete, conflicting or unauthenticated evidence refuses progression rather than minting another attempt.
+
+The interruption, grant and unfinished replacement all leave ordinary review/correction progression stopped. A genuine completed replacement verdict re-enters normal review/correction accounting with all historical bounds and stops retained. An interrupted replacement needs a new human checkpoint; these tools do not grant a third recovery, a new review bound, a mandate succession or landing permission. An uncertain publication must be reconciled against native history before retrying; restarting the host does not refill the allowance.
 
 ### UW Spec and admission
 
@@ -157,7 +175,7 @@ All seven headings are fixed English H1s in that order; their text may use the a
 
 Canonical rendering encloses text values in visible `~~~omp-build-text` literal fences, indented beneath list prefixes where needed. The delimiter is lengthened beyond every tilde run in the value, so literal headings, bullets, code fences, indentation and leading/trailing blank lines round-trip without becoming body structure. The parser reads that visible payload directly; there is no hidden authoritative copy. Plain hand-written values remain valid where they satisfy the same structural grammar.
 
-`Spec.version` identifies parsed canonical content, not presentation-only blanks. Meaningful literal/code whitespace remains content. The raw `bodySha256` separately protects exact observed bytes and authenticated assessment pairs. A conforming manual edit creates a proposed version; it never changes the accepted reference by itself.
+`Spec.version` identifies parsed canonical content, not presentation-only blanks. Meaningful literal/code whitespace remains content. The raw `bodySha256` separately protects exact observed bytes and authenticated assessment pairs. Existing-UW prepare/write inputs bind that exact current hash as required `sourceBodySha256`; preparation and the pre-write read recheck it together with exhaustive normalization accounting before allocation or effects. A conforming manual edit creates a proposed version; it never changes the accepted reference by itself.
 
 The engine allocates criterion/invariant IDs durably on the UW through `spec-identity`, including before the first mandate. Rewording preserves an existing identity; accepted withdrawal retires it, and re-adding requires a new ID. Unknown, duplicate, retired, conflicting or incompletely observed identities refuse. Proposed omission does not withdraw an accepted obligation. Exclusions are cited within a Spec version, not by a stable C/I allocation.
 
@@ -218,7 +236,7 @@ A create input has this shape; coordinates and content here are fictional:
 }
 ```
 
-For an existing UW, replace `repository` with `"uw": { "repository": "example/demo", "target": "example/demo#42" }`. Existing draft items name a known durable ID; new items use a unique draft key and leave C/I allocation to the engine. The normalization accounting must match the observed source, not merely this illustrative new-item case. κ determines the proposed tier unless an explicit, explained override is included in the confirmed proposal.
+For an existing UW, replace `repository` with `"uw": { "repository": "example/demo", "target": "example/demo#42" }` and add required `"sourceBodySha256"` copied exactly from its current `/uw read` detailed result's raw source. A create input omits that field. The optional `writes.relations.parent` distinguishes omission from explicit `null` removal; when set, its repository must match the UW's repository. Existing draft items name a known durable ID; new items use a unique draft key and leave C/I allocation to the engine. The normalization accounting must match the observed source, not merely this illustrative new-item case. κ determines the proposed tier unless an explicit, explained override is included in the confirmed proposal.
 
 The command emits compact status and a consultable detailed-result path in the session artifact store, not an automatic dump of bodies/graph/results into the conversation. Artifacts are derived observations with session retention, never workflow authority. A create response lost after POST is `uncertain`: the issue may exist, no reference is invented, and no search/retry/rollback is automatic. Known partial effects remain explicit.
 
@@ -227,6 +245,8 @@ The command emits compact status and a consultable detailed-result path in the s
 A UW parente runs from its confirmed mandate, not from a session goal. `skills/feature/epic-driver.ts` reads that mandate. The installed command calls `next`, `stop`, `review`, `mark-fix`, `hook`, `report`, and `control-disarm`. There is no `objective` command and no goal file.
 
 Parent/leaf execution follows the **current authenticated accepted child set**, not the mandate's historical `feature`/`epic` field. Native additions, removals or changed child versions/tiers remain proposals until the existing assessment and exact material-confirmation chain accepts them. Pending drift enters that control path before either delivery lifecycle; missing replay is a refusal, not an empty child set.
+
+Scheduling terminality and dependency completion are separate. A closed `NOT_PLANNED` child is not restarted, but does not relieve its dependents; a merged PR alone does not relieve them either. A natively completed child with a still-resumable `OPEN` PR remains in the existing resume/disarm flow. A permanent stop does not reactivate that PR; stopped-PR containment is reconciled before selecting the next step. A merge discovered during disarm uses the existing bounded reread before final review, rather than declaring completion from stale PR facts.
 
 Every normal `/3` mandate persists an eight-character coordination run at first creation, including a leaf. Leaf ↔ parent transitions and explicit successors retain that run, mandate lineage and actual permission limits; no promotion, replacement mandate or fresh run is inferred from a link edit. Correction-only authority keeps its separate restrictions. An originally parent-shaped mandate becoming a leaf does not acquire permission bits it lacked.
 

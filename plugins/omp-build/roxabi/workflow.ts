@@ -250,7 +250,7 @@ async function coordinatePlanAndReceiptAction(
             principal: false,
             git: context.git,
             gh: context.gh,
-            ...(input.read === undefined ? {} : { read: input.read }),
+            ...(selected.reader === null ? {} : { read: selected.reader }),
           },
           exactMandateRef,
         )

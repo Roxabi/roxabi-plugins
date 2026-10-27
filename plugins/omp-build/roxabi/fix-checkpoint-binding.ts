@@ -1,5 +1,5 @@
 import type { DecodedHistory, GitHubOptions, Scope } from '../dist/contracts.js'
-import { readNativePullRequestFacts, readWorkflowBinding } from '../dist/contracts.js'
+import { assessUwAdmission, readNativePullRequestFacts, readWorkflowBinding } from '../dist/contracts.js'
 import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
 import type { AssessSpecExact } from '../engine/workflow-receipt-schema.ts'
 import type { FixActionResult, FixTarget } from './fix-contract.ts'
@@ -100,10 +100,19 @@ async function freshBoundOwnSpec(
   } catch {
     return failure('fix-own-uw-unreadable')
   }
-  if (!read.proposed.ok || !read.identity.ok || !read.admission.framed.ok || read.graph.status !== 'complete') {
-    return failure('fix-own-uw-unsettled')
-  }
-  if (read.accepted.status !== 'accepted') return failure('fix-own-uw-unsettled')
+  if (!read.identity.ok) return failure('fix-own-uw-unsettled', ...read.identity.diagnostics.map((item) => item.code))
+  const admission = assessUwAdmission({
+    uw: scope,
+    graph: read.graph,
+    proposed: read.proposed,
+    accepted: read.accepted,
+    identities: read.identity.value,
+    phase: 'delivery-transition',
+    currentChildren: { ok: true, value: [] },
+  })
+  if (!admission.deliverable.ok)
+    return failure('fix-own-uw-unsettled', ...admission.deliverable.diagnostics.map((item) => item.code))
+  if (!read.proposed.ok || read.accepted.status !== 'accepted') return failure('fix-own-uw-unsettled')
   const root = read.graph.nodes.find((node) => sameScope(node.uw, scope))
   if (root === undefined || root.children.length !== 0) return failure('fix-own-uw-unsettled')
   const tiers = root.labels.filter((label) => label === 'size:S' || label === 'size:F-lite' || label === 'size:F-full')

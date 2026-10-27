@@ -33,6 +33,11 @@ export const reviewSubjectSchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('epic-range'), range: z.string().regex(/^[0-9a-f]{40}\.\.[0-9a-f]{40}$/) }),
 ])
 export type ReviewSubject = z.infer<typeof reviewSubjectSchema>
+const replacementLinkSchema = z.strictObject({
+  rootAttemptId: identifierSchema,
+  dispositionId: identifierSchema,
+  grantId: identifierSchema,
+})
 const initialPullRequestInventorySchema = z.strictObject({
   rootAttemptId: identifierSchema,
   candidateGitSHA: shaSchema,
@@ -46,6 +51,7 @@ const initialPullRequestInventorySchema = z.strictObject({
   policy: policySchema,
   subject: z.strictObject({ kind: z.literal('pull-request') }),
   inputSnapshot: reviewInputSnapshotSchema,
+  replacement: replacementLinkSchema.optional(),
 })
 const initialEpicReviewInventorySchema = z.strictObject({
   rootAttemptId: identifierSchema,
@@ -79,6 +85,7 @@ const recallInventorySchema = z.strictObject({
   input: sha256Schema.nullable(),
   slots: z.array(slotSchema),
   stage: z.literal('recall'),
+
   purpose: z.literal('review'),
   plan: recallPlanSchema,
   policy: policySchema,
@@ -101,6 +108,17 @@ export const inventorySchema = z.union([
   synthesisInventorySchema,
 ])
 export type Inventory = z.infer<typeof inventorySchema>
+
+export type InitialPullRequestReviewInventory = Extract<
+  Inventory,
+  { stage: 'initial'; purpose: 'review'; subject: { kind: 'pull-request' } }
+>
+
+export function isInitialPullRequestReviewInventory(
+  inventory: Inventory,
+): inventory is InitialPullRequestReviewInventory {
+  return inventory.stage === 'initial' && inventory.purpose === 'review' && inventory.subject.kind === 'pull-request'
+}
 
 export const finalFindingSchema = z.discriminatedUnion('state', [
   z.strictObject({

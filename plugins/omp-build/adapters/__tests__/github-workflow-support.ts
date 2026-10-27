@@ -19,7 +19,7 @@ export function comment(body: string, author = 'automation', nativeId = '100'): 
     body,
     author,
     createdAt: '2026-10-21T00:00:00Z',
-    updatedAt: '2026-10-21T00:00:01Z',
+    updatedAt: '2026-10-21T00:00:00Z',
   }
 }
 
@@ -183,7 +183,7 @@ export function nativeComment(id: number, body: string) {
     body,
     user: { login: 'automation' },
     created_at: '2026-10-21T00:00:00Z',
-    updated_at: '2026-10-21T00:00:01Z',
+    updated_at: '2026-10-21T00:00:00Z',
   }
 }
 

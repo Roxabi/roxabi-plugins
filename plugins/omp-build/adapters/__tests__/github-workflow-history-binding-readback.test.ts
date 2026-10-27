@@ -1,4 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import {
+  acceptMaterialFixture,
+  assessFixture,
+  mandateAssessmentState,
+  proposedAssessmentState,
+} from '../../engine/__tests__/workflow-spec-assessment-support.ts'
 import type { DecodedHistory } from '../../engine/history-schema.ts'
 import { decodeHistory, encodeRecord } from '../github/history-codec.ts'
 import { githubScope } from '../github/transport.ts'
@@ -33,6 +39,50 @@ describe('GitHub workflow kind classification', () => {
       expect(stopBot.operations).toEqual([expect.objectContaining({ authority: 'foreign', record: null })])
       expect(stopBot.diagnostics).toEqual([])
     }
+  })
+  it('invalidates edited local assessment, material-control, and mandate frames without refusing foreign observations', () => {
+    const mandate = issueMandate(githubScope('acme/app', 42), 'mandate-integrity')
+    if (mandate.kind !== 'mandate') throw new Error('fixture requires mandate')
+    const accepted = mandateAssessmentState(mandate)
+    const assessment = assessFixture(
+      mandate,
+      'assessment-integrity',
+      accepted,
+      proposedAssessmentState(accepted, { body: 'Editorial assessment revision.' }),
+      'material',
+    )
+    const control = acceptMaterialFixture(mandate, 'control-integrity', assessment)
+    for (const record of [assessment.start, control, mandate]) {
+      const pristine = decodeHistory(historyFrom(wire(record)))
+      expect(pristine.operations[0]).toMatchObject({
+        kind: record.kind,
+        status: 'complete',
+        authority: 'accounted',
+        record: { recordId: record.recordId },
+      })
+
+      const source = historyFrom(wire(record))
+      source.comments = source.comments.map((comment) => ({ ...comment, updatedAt: '2026-10-21T00:00:01Z' }))
+      const decoded = decodeHistory(source)
+      expect(decoded.operations[0]).toMatchObject({
+        kind: record.kind,
+        status: 'invalid',
+        authority: 'accounted',
+        record: null,
+        claimedKinds: [record.kind],
+      })
+      expect(decoded.operations[0]?.parts).toHaveLength(1)
+      expect(decoded.diagnostics).toContainEqual(expect.objectContaining({ code: 'record-edited' }))
+    }
+
+    const foreignSource = historyFrom(wire(control), 'other-actor')
+    foreignSource.comments = foreignSource.comments.map((comment) => ({
+      ...comment,
+      updatedAt: '2026-10-21T00:00:01Z',
+    }))
+    const foreign = decodeHistory(foreignSource)
+    expect(foreign.operations[0]).toMatchObject({ authority: 'foreign', record: null })
+    expect(foreign.diagnostics).toEqual([])
   })
 
   it('keeps a foreign mandate observable without workflow authority', () => {

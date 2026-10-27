@@ -1,10 +1,15 @@
 import { describe, expect, test } from 'vitest'
-import { reviewRoot, TEST_HEAD } from '../../testing/record-builders.ts'
+import { reviewRoot, TEST_HEAD, TEST_SCOPE } from '../../testing/record-builders.ts'
 import { finalReview } from '../../testing/record-decisions.ts'
 import { reviewGraph } from '../../testing/record-graphs.ts'
 import { history, operation } from '../../testing/record-history.ts'
+import { buildRecord } from '../record-construction.ts'
+import type { CanonicalRecord } from '../record-schema.ts'
+import type { Result } from '../result.ts'
+import { readReviewRecovery } from '../review-recovery.ts'
 import { deriveReviewState, summarizeReviews } from '../review-state.ts'
 import { refusalCodes, reviewFacts, TAXONOMY } from './record-test-support.ts'
+import { binding, mandate } from './workflow-test-support.ts'
 
 describe('review accounting and stops', () => {
   test('does not fall back to an older green review after a newer partial publication', () => {
@@ -25,6 +30,25 @@ describe('review accounting and stops', () => {
     expect(refusalCodes(summary)).toContain('incomplete')
   })
 
+  test('refuses an unresolved older initial review root despite a later clean approval', () => {
+    const unresolved = reviewRoot({ id: 'older-unresolved', head: TEST_HEAD })
+    const later = reviewGraph({ prefix: 'later-clean', empty: true })
+    const summary = summarizeReviews(history([unresolved, ...later.records]), TAXONOMY, null)
+
+    expect(summary).toMatchObject({
+      ok: false,
+      knownReviews: 1,
+      countExact: true,
+      spent: false,
+      diagnostics: [
+        expect.objectContaining({
+          code: 'incomplete',
+          detail: { rootId: 'older-unresolved', pendingRoot: true },
+        }),
+      ],
+    })
+  })
+
   test('refuses an abandoned newer initial review without replacing it by an older clean approval', () => {
     const older = reviewGraph({ prefix: 'older-clean', empty: true })
     const abandoned = reviewRoot({ id: 'newer-abandoned', head: TEST_HEAD })
@@ -37,7 +61,6 @@ describe('review accounting and stops', () => {
       decisionId: older.decision.recordId,
     })
     const staleFinal = history([...older.records, abandoned, delayedOlderFinal])
-    const resumed = reviewGraph({ prefix: 'resumed-clean', empty: true })
 
     expect(summarizeReviews(interrupted, TAXONOMY, null)).toMatchObject({
       ok: false,
@@ -64,10 +87,6 @@ describe('review accounting and stops', () => {
           detail: { rootId: 'newer-abandoned', pendingRoot: true },
         }),
       ],
-    })
-    expect(summarizeReviews(history([...older.records, abandoned, ...resumed.records]), TAXONOMY, null)).toMatchObject({
-      ok: true,
-      value: { reviews: 2, verdict: 'Approve (clean)', spent: false },
     })
   })
 
@@ -173,6 +192,146 @@ describe('review accounting and stops', () => {
       next: 'wait',
       requiredStop: null,
       summary: { reviews: 1, verdict: 'Approve (clean)', spent: false },
+    })
+  })
+
+  test('treats a completed replacement final as ordinary after interrupting the historical root', () => {
+    const historical = reviewRoot({ id: 'historical-interrupted-root', head: TEST_HEAD })
+    const historicalMandate = mandate()
+    const historicalBinding = binding(historicalMandate, TEST_SCOPE)
+    const disposition: Result<CanonicalRecord> = buildRecord({
+      version: 1,
+      repository: TEST_SCOPE.repository,
+      target: TEST_SCOPE.target,
+      recordId: 'review-interruption-historical-interrupted-root',
+      runId: 'recovery-run',
+      operationId: 'recovery-interruption-historical-interrupted-root',
+      kind: 'review-interruption',
+      payload: {
+        rootAttemptId: historical.recordId,
+        historicalBinding: {
+          scope: { repository: historicalBinding.repository, target: historicalBinding.target },
+          recordId: historicalBinding.recordId,
+          kind: 'workflow-binding',
+        },
+      },
+    } as never)
+    const freshBinding: Result<CanonicalRecord> = buildRecord({
+      version: 1,
+      repository: TEST_SCOPE.repository,
+      target: TEST_SCOPE.target,
+      recordId: 'binding-fresh-historical-interrupted-root',
+      runId: 'recovery-run',
+      operationId: 'recovery-binding-fresh-historical-interrupted-root',
+      kind: 'workflow-binding',
+      payload: {
+        branch: 'feature/bounded',
+        base: 'main',
+        mandate: {
+          scope: { repository: historicalMandate.repository, target: historicalMandate.target },
+          recordId: historicalMandate.recordId,
+          kind: 'mandate',
+        },
+      },
+    } as never)
+    expect(disposition).toMatchObject({ ok: true })
+    expect(freshBinding).toMatchObject({ ok: true })
+    if (!disposition.ok || !freshBinding.ok) return
+    const grant: Result<CanonicalRecord> = buildRecord({
+      version: 1,
+      repository: TEST_SCOPE.repository,
+      target: TEST_SCOPE.target,
+      recordId: 'review-replacement-grant-review-interruption-historical-interrupted-root',
+      runId: 'recovery-run',
+      operationId: 'recovery-replacement-grant-historical-interrupted-root',
+      kind: 'review-replacement-grant',
+      payload: {
+        rootAttemptId: historical.recordId,
+        dispositionId: disposition.value.recordId,
+        candidateGitSHA: TEST_HEAD,
+        inputFormat: 'omp-build:review-input/3',
+        input: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        binding: {
+          scope: { repository: freshBinding.value.repository, target: freshBinding.value.target },
+          recordId: freshBinding.value.recordId,
+          kind: 'workflow-binding',
+        },
+      },
+    } as never)
+    expect(grant).toMatchObject({ ok: true })
+    if (!grant.ok) return
+    const replacementId =
+      'review-replacement-inventory-review-replacement-grant-review-interruption-historical-interrupted-root'
+    const replacementRoot: Result<CanonicalRecord> = buildRecord({
+      ...reviewRoot({
+        id: replacementId,
+        head: TEST_HEAD,
+        input: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      }),
+      inputs: undefined,
+      payload: {
+        ...reviewRoot({
+          id: replacementId,
+          head: TEST_HEAD,
+          input: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        }).payload,
+        replacement: {
+          rootAttemptId: historical.recordId,
+          dispositionId: disposition.value.recordId,
+          grantId: grant.value.recordId,
+        },
+      },
+    } as never)
+    expect(replacementRoot).toMatchObject({ ok: true })
+    if (!replacementRoot.ok) return
+
+    const completed = reviewGraph({
+      prefix: 'review-replacement-inventory-review-replacement-grant-review-interruption-historical-interrupted',
+      empty: true,
+      head: TEST_HEAD,
+    })
+    const replacementRecords = completed.records.map((record) => {
+      if (record.recordId === completed.root.recordId) return replacementRoot.value
+      if (record.kind === 'review')
+        return {
+          ...record,
+          payload: {
+            ...record.payload,
+            input: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          },
+          inputs: record.inputs,
+        }
+      if (record.kind === 'review-attempt' && record.payload.stage !== 'initial')
+        return {
+          ...record,
+          payload: {
+            ...record.payload,
+            input: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          },
+        }
+      return record
+    }) as CanonicalRecord[]
+    const recoveredHistory = history([
+      historical,
+      historicalBinding,
+      disposition.value,
+      freshBinding.value,
+      grant.value,
+      ...replacementRecords,
+    ])
+
+    expect(readReviewRecovery(recoveredHistory)).toMatchObject({
+      ok: true,
+      value: { normalProgression: 'eligible', replacementGrant: null },
+    })
+    expect(summarizeReviews(recoveredHistory, TAXONOMY, null)).toMatchObject({
+      ok: true,
+      value: {
+        reviews: 1,
+        verdict: 'Approve (clean)',
+        reviewId: completed.review.recordId,
+        input: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      },
     })
   })
 })

@@ -80,10 +80,10 @@ describe('stops across runs', () => {
 describe('merged children', () => {
   it.each<Case>([
     {
-      name: 'merged into the base with the issue still open (staging-train) → done',
+      name: 'merged into the base with the issue still open (staging-train) completes itself but not a dependent',
       facts: facts([child(1, { prs: [landed(1, T1, sha('1'), sha('2'))] }), child(2, { blockedBy: [on(1)] })]),
-      step: { action: 'start', ticket: 2 },
-      report: { merged: [1], skipped: [] },
+      step: { action: 'drop', stop: 'no-progress' },
+      report: { merged: [1], skipped: [{ ticket: 2, blockers: [1] }] },
     },
     {
       name: 'merged into another base → not done',

@@ -6,6 +6,7 @@ import {
   validateDecision,
   validateRecordGraph,
 } from '../../dist/contracts.js'
+import type { UwAdmission } from '../../engine/uw-admission.ts'
 import { loadReviewConfig } from '../../roxabi/review-assets.ts'
 import { diagnosticsText } from './epic-driver-github'
 import { Refused } from './epic-driver-runtime'
@@ -13,7 +14,7 @@ import { parseEpicEvent } from './epic-events'
 import type { ChildFacts, Facts } from './epic-types'
 
 export type EpicEvent = { record: Extract<CanonicalRecord, { kind: 'epic-event' }>; payload: Record<string, Json> }
-export type Gathered = { facts: Facts; epicHistory: DecodedHistory }
+export type Gathered = { facts: Facts; epicHistory: DecodedHistory; parentAdmission: UwAdmission }
 
 function assertAdmissibleHistory(
   history: DecodedHistory,

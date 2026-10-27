@@ -4,6 +4,14 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { decodeHistory } from '../adapters/github/history-codec.ts'
+import {
+  BRANCH,
+  cleanupFeatureRecoveryRoots,
+  featureFixture,
+  OBSERVED_INCOMPLETE_NATIVE_TERMINAL,
+  SCOPE,
+  trackFeatureRecoveryRoot,
+} from '../testing/feature-recovery-fixture.ts'
 import { nativeFeatureSpec } from '../testing/feature-review-fixture.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
 import { git, readSim, sandbox, WORKFLOW, worktree, writeSim } from '../testing/sandbox/sandbox-repository.ts'
@@ -11,8 +19,7 @@ import type { Box } from '../testing/sandbox/sandbox-types.ts'
 
 const RUNNER = path.resolve(import.meta.dirname, '../testing/feature-recovery-runner.ts')
 const BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
-const SCOPE = { repository: 'acme/app', target: 'acme/app#42' }
-const BRANCH = 'feat/42-save'
+
 function plainSpec() {
   return {
     base: {
@@ -35,34 +42,11 @@ function plainSpec() {
     prs: [{ number: 30, branch: 'fix/5-plain', title: 'fix: plain', body: 'Closes #5\n', closes: [5] }],
   }
 }
-const FEATURE_SPEC = nativeFeatureSpec(SCOPE, 'preserves the region')
-const BODY = FEATURE_SPEC.body
 
-const OBSERVED_INCOMPLETE_NATIVE_TERMINAL = {
-  index: 0,
-  id: 'R-workflow-implement',
-  agent: 'R-workflow-implement',
-  exitCode: 1,
-  structuredOutput: { status: 'invalid', data: { refusal: 'incomplete-native' } },
-}
 const { encodedAdmissionReviewGraph } = roxabiRecordFixtures()
-const {
-  clearPlanContribution,
-  featureMandate,
-  framedBodies,
-  implementStart,
-  linkedLandingAuthority,
-  planDraftRecords,
-  planReviewRecord,
-  planReviewStart,
-  publishedPlanDigest,
-} = roxabiWorkflowFixtures()
+const { linkedLandingAuthority } = roxabiWorkflowFixtures()
 
-let roots: string[] = []
-afterEach(() => {
-  for (const root of roots) rmSync(root, { recursive: true, force: true })
-  roots = []
-})
+afterEach(cleanupFeatureRecoveryRoots)
 
 function invoke<T>(box: Box, cwd: string, home: string, operation: string, payload: object): T {
   mkdirSync(home, { recursive: true })
@@ -129,55 +113,6 @@ function land(box: Box, cwd: string, pr: number): { status: string } {
   )
   if (run.status !== 0) throw new Error(`landPr failed: ${run.stderr}`)
   return JSON.parse(run.stdout) as { status: string }
-}
-
-function featureFixture(
-  records: 'plan' | 'start',
-  options: { malformedDisarmPr?: boolean } = {},
-): { box: Box; checkout: string } {
-  const box = sandbox({
-    base: { '.dev/stack.yml': 'package_manager: bun\n', 'README.md': 'base\n' },
-    branches: [{ name: BRANCH, from: 'main', commits: [] }],
-    issues: [{ number: 42, title: 'feat: preserve region', labels: ['size:S'] }],
-    prs: options.malformedDisarmPr
-      ? [{ number: 9, branch: BRANCH, title: 'unreadable pause gate', body: '', closes: [] }]
-      : [],
-  })
-  roots.push(box.root)
-  const checkout = path.join(box.root, 'feature')
-  git(box, box.principal, ['worktree', 'add', '-q', checkout, BRANCH])
-  const mandate = featureMandate(SCOPE, {
-    branch: BRANCH,
-    body: BODY,
-    ownSpec: FEATURE_SPEC.ownSpec,
-    lineageHead: box.sha.main,
-  })
-  const accepted =
-    records === 'plan'
-      ? [
-          mandate,
-          ...planDraftRecords(mandate),
-          planReviewStart(mandate, 'act-plan-1', publishedPlanDigest()),
-          planReviewRecord(mandate, 'act-plan-1', publishedPlanDigest(), [
-            clearPlanContribution('slot-architect', 'R-workflow-plan-architect'),
-            clearPlanContribution('slot-adversarial', 'R-workflow-plan-adversarial'),
-          ]),
-        ]
-      : [mandate, implementStart(mandate)]
-  writeSim(box, (state) => {
-    const issue = state.issues['42']
-    if (!issue) throw new Error('missing feature issue')
-    issue.body = BODY
-    issue.comments.push(...framedBodies(accepted, 'operator').map((body) => ({ author: 'operator', body })))
-  })
-  if (options.malformedDisarmPr) {
-    writeSim(box, (state) => {
-      const pull = state.prs['9']
-      if (!pull) throw new Error('missing disarm pull request')
-      Object.assign(pull, { labels: [1] })
-    })
-  }
-  return { box, checkout }
 }
 
 describe('proof sandbox construction', () => {
@@ -416,7 +351,7 @@ describe('feature recovery terminal and publication witnesses', () => {
       issues: [{ number: 7, title: 'feat: watch', labels: ['size:S'] }],
       prs: [{ number: 8, branch: 'feat/watch', title: 'feat: watch', body: 'Closes #7', closes: [7] }],
     })
-    roots.push(box.root)
+    trackFeatureRecoveryRoot(box.root)
     writeSim(box, (state) => {
       const pull = state.prs['8']
       if (!pull) throw new Error('missing watch pull request')
@@ -449,7 +384,7 @@ describe('feature recovery terminal and publication witnesses', () => {
 
   it('cold-observes a real MERGED native landing without new effects', () => {
     const box = sandbox(plainSpec())
-    roots.push(box.root)
+    trackFeatureRecoveryRoot(box.root)
     const pr = 30
     const issueNumber = 5
     const branch = 'fix/5-plain'
@@ -526,6 +461,25 @@ describe('feature recovery terminal and publication witnesses', () => {
       }),
     ).toMatchObject({ kind: 'terminal', reason: 'done' })
     expect(effectCalls(box, callsBefore)).toEqual([])
+  })
+
+  it('continues a cold command UW through simulated publication into a fresh review', () => {
+    const { box } = featureFixture('confirmed-implementation')
+    const cold = coldCheckout(box, 'publication-command')
+
+    const observed = invoke<{ kind: string; pr: number }>(
+      box,
+      cold,
+      path.join(box.root, 'home-publication-command'),
+      'cold-publish-uw',
+      { reference: '#42' },
+    )
+
+    const pulls = Object.values(readSim(box).prs)
+    const published = pulls.find((pull) => pull.headRefName === BRANCH && pull.closes.includes(42))
+
+    expect(published, JSON.stringify(pulls)).toBeDefined()
+    expect(observed, JSON.stringify(observed)).toMatchObject({ kind: 'review', pr: expect.any(Number) })
   })
 
   it('publishes a refused observed result against the live continuation batch and original start', () => {

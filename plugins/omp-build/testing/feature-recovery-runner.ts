@@ -3,6 +3,8 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import ompBuildExtension from '../omp/index.ts'
 import { createOmpFixPort } from '../omp/omp-controller.ts'
 import { loadFeatureWorkflow } from '../roxabi/feature-loader.ts'
+import type { OperatorPort } from '../roxabi/uw-contract.ts'
+import { createInstalledUwOperations } from '../roxabi/uw-installed-operations.ts'
 import { createInstalledUwReadPort } from '../roxabi/uw-read-port.ts'
 import { createExtensionApiStub } from './extension-api-stub.ts'
 import { invokeOmpIncompleteNative } from './feature-recovery-incomplete-native.ts'
@@ -92,10 +94,29 @@ async function continueFeature() {
   })
 }
 
+const noWriteOperator: OperatorPort = {
+  async executeConfirmed() {
+    throw new Error('unexpected-uw-write')
+  },
+}
+
+async function continueWithCommandUw() {
+  const sessionCwd = cwd ?? ''
+  return workflow.continueFeature({
+    cwd: sessionCwd,
+    reference: payload.reference,
+    control: payload.control,
+    principal: false,
+    uw: await createInstalledUwOperations({ cwd: sessionCwd, operator: noWriteOperator }),
+  })
+}
+
 async function invokeWorkflowOperation(operationName: string): Promise<unknown | null> {
   switch (operationName) {
     case 'continue':
       return continueFeature()
+    case 'cold-publish-uw':
+      return continueWithCommandUw()
     case 'watch':
       return workflow.consumeWatchExit({
         cwd: cwd ?? '',

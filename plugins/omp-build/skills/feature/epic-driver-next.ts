@@ -1,4 +1,5 @@
 import { resolveTicketBranch } from './epic-claims'
+import { revalidateEpicActivation } from './epic-driver-activation'
 import { assertChildGrant, frameEpicChildren } from './epic-driver-authority'
 import { gather } from './epic-driver-gather'
 import { tree } from './epic-driver-github'
@@ -138,6 +139,19 @@ async function activateNextStep(
 ): Promise<{ disarmed: Disarm | null; pr: number | null }> {
   if (step.action !== 'start' && step.action !== 'resume') return { disarmed: null, pr: null }
   const { ticket, branch } = step
+  const fresh = await revalidateEpicActivation(repo, authority, facts)
+  const current = nextStep(fresh.facts)
+  if (
+    fresh.authority.base !== base ||
+    current.action !== step.action ||
+    (current.action !== 'start' && current.action !== 'resume') ||
+    current.ticket !== ticket ||
+    current.branch !== branch
+  ) {
+    throw new Refused('epic native state changed before branch activation')
+  }
+  authority = fresh.authority
+  facts = fresh.facts
   assertChildGrant(authority, facts, ticket)
   if (step.action === 'start') git(repo, ['switch', '-c', branch, `refs/remotes/origin/${base}`])
   else if (git(repo, ['branch', '--show-current']) !== branch) {
