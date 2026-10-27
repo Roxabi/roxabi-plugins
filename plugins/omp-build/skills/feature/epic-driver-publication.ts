@@ -1,5 +1,7 @@
 import { buildRecord, type CanonicalRecord, type Json, publishGitHubRecord } from '../../dist/contracts.js'
 import { ticketOfBranch } from './epic-claims'
+import type { EpicAuthority } from './epic-driver-authority'
+import { authenticateChildPrBatch } from './epic-driver-containment'
 import { adapterOptions, diagnosticsText, issueHistory, tree } from './epic-driver-github'
 import { gh, git, repoName } from './epic-driver-runtime'
 import type { ChildFacts } from './epic-types'
@@ -104,14 +106,16 @@ export async function recordStop(
  */
 export async function ticketStop(
   repo: string,
-  run: string,
-  base: string,
+  authority: EpicAuthority,
   child: ChildFacts,
   reason: string,
   detail: string,
 ): Promise<{ merged: number | null; disarmed: Record<number, Disarm> }> {
+  const { run, base } = authority
+  const prs = child.prs.filter((pr) => pr.state === 'OPEN')
+  await authenticateChildPrBatch(repo, authority, child, prs)
   const disarmed: Record<number, Disarm> = {}
-  for (const pr of child.prs.filter((p) => p.state === 'OPEN')) {
+  for (const pr of prs) {
     disarmed[pr.number] = await disarm(repo, pr.number)
     if (disarmed[pr.number] === 'merged') return { merged: pr.number, disarmed }
   }

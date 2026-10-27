@@ -52,7 +52,7 @@ export async function stop(
   assertChildGrant(authority, facts, ticket)
   const child = facts.children.find((c) => c.number === ticket)
   if (!child) throw new Refused(`#${ticket} is not a sub-issue of #${epic}`)
-  const outcome = await ticketStop(repo, run, base, child, reason, detail)
+  const outcome = await ticketStop(repo, authority, child, reason, detail)
   if (outcome.merged !== null) return { ticket, merged: outcome.merged, disarmed: outcome.disarmed }
   return { ticket, stop: reason, sticky: STICKY_STOPS.includes(reason), disarmed: outcome.disarmed }
 }

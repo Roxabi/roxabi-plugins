@@ -329,6 +329,123 @@ describe('epic-driver — accepted child containment after topology drift', () =
   })
 })
 
+function prepareArmedOwnPr(role: 'leaf' | 'accepted-parent' | 'epic'): void {
+  const { epic, state } = sandbox()
+  const branch = 'feat/1-own-work'
+  git(epic, 'switch', '-q', '-c', branch, 'refs/remotes/origin/main')
+  git(epic, 'push', '-q', 'origin', branch)
+  const tip = git(epic, 'rev-parse', 'HEAD')
+  git(epic, 'switch', '-q', '--detach', 'refs/remotes/origin/main')
+
+  const fixtures = roxabiWorkflowFixtures()
+  const rootScope = { repository: 'o/r', target: 'o/r#1' }
+  const childScope = { repository: 'o/r', target: 'o/r#2' }
+  const prScope = { repository: 'o/r', target: 'o/r#11' }
+  const body = strictSpecBody('works')
+  const child = childNode(2, 'feat(x): first child')
+  const childSnapshot = snapshot(childScope, child.body)
+  const children: Parameters<typeof fixtures.epicMandate>[1] = [
+    { scope: childScope, snapshot: childSnapshot, specVersion: childSnapshot.spec.version, tier: 'S' },
+  ]
+  const options = {
+    body,
+    ownSpec: fixtures.ownSpecFromSnapshot(rootScope, snapshot(rootScope, body)),
+    branch,
+    runId: RUN,
+    run: RUN,
+  }
+  const epicMandate = fixtures.epicMandate(rootScope, children, options)
+  const mandate = role === 'epic' ? epicMandate : fixtures.featureMandate(rootScope, options)
+  const records: CanonicalRecord[] = [mandate]
+  if (role === 'accepted-parent') {
+    const initial = mandateAssessmentState(mandate)
+    const proposed = {
+      ...proposedAssessmentState(initial, { body, children: epicMandate.payload.children }),
+      snapshot: initial.snapshot,
+    }
+    const assessment = assessFixture(mandate, 'root-accept-parent', initial, proposed, 'material')
+    records.push(assessment.start, assessment.result, acceptMaterialFixture(mandate, 'accept-root-parent', assessment))
+  }
+  const rootHistory = fixtures.historyFrom(records, ME, ME)
+  const accepted = resolveAcceptedSpec(mandate, [rootHistory])
+  if (!accepted.ok) throw new Error(`root acceptance refused: ${accepted.reason}`)
+  expect(mandate.payload.role).toBe(role === 'epic' ? 'epic' : 'feature')
+  expect(effectiveMandateRole(mandate.payload.role, accepted.spec)).toBe(role === 'leaf' ? 'feature' : 'epic')
+  expect(accepted.spec.children).toHaveLength(role === 'leaf' ? 0 : 1)
+
+  const binding = fixtures.workflowBinding(prScope, mandate, branch, 'main')
+  const prHistory = fixtures.historyFrom([binding], ME, ME, [rootHistory])
+  expect(
+    selectWorkflowBinding({
+      pullRequest: prScope,
+      histories: [prHistory, rootHistory],
+      native: { branch, base: 'main' },
+    }),
+  ).toMatchObject({ status: 'bound', mandate: fixtures.mandateRef(mandate) })
+  const armed = prNode(11, branch, tip, {
+    labels: { nodes: [{ name: 'reviewed' }] },
+    autoMergeRequest: { enabledAt: 'x' },
+  })
+  serveEpic(role === 'leaf' ? [] : [child], framedRecords(1, records), { mandate: false })
+  if (role !== 'leaf') serveComments(2, [])
+  serveComments(
+    11,
+    fixtures.framedBodies([binding], ME, [rootHistory]).map((entry) => ({ body: entry, author: ME })),
+  )
+  servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+  const prPath = path.join(state, 'pr', '11.json')
+  const prView = JSON.parse(readFileSync(prPath, 'utf8'))
+  writeFileSync(prPath, JSON.stringify({ ...prView, headRefName: branch, baseRefName: 'main' }))
+  writeFileSync(
+    path.join(state, 'containment-1.json'),
+    JSON.stringify({
+      data: {
+        repository: {
+          issue: {
+            number: 1,
+            repository: { nameWithOwner: 'o/r' },
+            closedByPullRequestsReferences: { pageInfo: { hasNextPage: false }, nodes: [armed] },
+            timelineItems: { pageInfo: { hasPreviousPage: false }, nodes: [] },
+          },
+        },
+      },
+    }),
+  )
+  writeFileSync(path.join(state, 'branch-prs-1.json'), JSON.stringify([armed]))
+}
+
+describe('epic-driver — own bound PR containment', () => {
+  it('control-disarm contains an authenticated normal leaf own PR', () => {
+    prepareArmedOwnPr('leaf')
+    const run = drive(['control-disarm'])
+    expect(run.code, run.stderr).toBe(0)
+    expect(run.json()).toMatchObject({ failed: [] })
+    expectDisarmed()
+  })
+
+  it.each(['control', 'drop'])('%s contains the retained own PR after a leaf accepts a child', (action) => {
+    prepareArmedOwnPr('accepted-parent')
+    const run = drive(
+      action === 'control' ? ['control-disarm'] : ['report', '--outcome', 'drop', '--reason', 'driver-error'],
+    )
+    expect(run.code, run.stderr).toBe(0)
+    expectDisarmed()
+    if (action === 'control') expect(run.json()).toMatchObject({ failed: [] })
+    else
+      expect(eventPayloads(1)).toContainEqual(
+        expect.objectContaining({ event: 'goal-report', outcome: 'drop', run: RUN }),
+      )
+  })
+
+  it('control-disarm contains an own PR bound to an original epic mandate', () => {
+    prepareArmedOwnPr('epic')
+    const run = drive(['control-disarm'])
+    expect(run.code, run.stderr).toBe(0)
+    expect(run.json()).toMatchObject({ failed: [] })
+    expectDisarmed()
+  })
+})
+
 function prepareFinalReview(blocking: boolean): string {
   const { principal, epic, state } = sandbox()
   const base = git(principal, 'rev-parse', 'HEAD')

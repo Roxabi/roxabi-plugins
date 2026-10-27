@@ -1,7 +1,7 @@
 import { type DecodedHistory, githubScope, resolveAcceptedSpec, selectApplicableMandate } from '../../dist/contracts.js'
 import type { MandateRecord } from '../../engine/workflow-control.ts'
 import { confirmedEpicMandate, evidenceText, localInhibit, readEpicAuthority } from './epic-driver-authority'
-import { discoverAcceptedChildPrs } from './epic-driver-containment'
+import { discoverAcceptedChildPrs, discoverOwnPrs } from './epic-driver-containment'
 import { gather } from './epic-driver-gather'
 import { historyFor, issueHistory, repoName } from './epic-driver-github'
 import { type Disarm, disarm } from './epic-driver-publication'
@@ -125,7 +125,15 @@ export async function readEpicControlTarget(repo: string, epic: number): Promise
     throw new Refused(`epic parent accepted Spec ${accepted.reason}: ${evidenceText(accepted.evidence)}`)
   }
   const fields = confirmedEpicMandate(target.mandate, accepted.spec)
-  const openPrs = await discoverAcceptedChildPrs(repo, full, epic, fields.mandateId, fields.children)
+  const own = await discoverOwnPrs(repo, full, epic, target.mandate, history.source.scope)
+  const children = await discoverAcceptedChildPrs(repo, full, epic, fields.mandateId, fields.children)
+  const inventory = new Map<number, { ticket: number; pr: number }>()
+  for (const item of [...own, ...children]) {
+    const prior = inventory.get(item.pr)
+    if (prior && prior.ticket !== item.ticket) throw new Refused(`containment PR #${item.pr} has conflicting owners`)
+    inventory.set(item.pr, item)
+  }
+  const openPrs = [...inventory.values()]
   return {
     epic,
     repository: full,

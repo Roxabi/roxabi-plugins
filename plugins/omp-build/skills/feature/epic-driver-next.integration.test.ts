@@ -54,6 +54,12 @@ function setNativeStateReason(issue: number, stateReason: string): void {
   writeFileSync(fixture, JSON.stringify(graph))
 }
 
+function setNativePrRefs(number: number, branch: string): void {
+  const file = path.join(sandboxOf().state, 'pr', `${number}.json`)
+  const view = JSON.parse(readFileSync(file, 'utf8'))
+  writeFileSync(file, JSON.stringify({ ...view, headRefName: branch, baseRefName: 'main' }))
+}
+
 function successorRecords(): Comment[] {
   const scope = { repository: 'o/r', target: 'o/r#1' }
   const children = [childNode(2, 'feat(x): first child')]
@@ -324,8 +330,13 @@ describe('epic-driver — next', () => {
     const tip = git(epic, 'rev-parse', 'HEAD')
     git(epic, 'switch', '-q', '--detach', 'refs/remotes/origin/main')
     const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
-    serveEpic([childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', tip, armed)] })])
+    serveBoundEpic(
+      childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', tip, armed)] }),
+      11,
+      'feat/2-first-child',
+    )
     servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    setNativePrRefs(11, 'feat/2-first-child')
 
     const run = drive(['next'])
     expect(run.code).toBe(0)
@@ -346,8 +357,13 @@ describe('epic-driver — next', () => {
     git(epic, 'switch', '-q', '-c', 'feat/2-first-child', 'refs/remotes/origin/main')
     git(epic, 'push', '-q', 'origin', 'feat/2-first-child')
     git(epic, 'switch', '-q', '--detach', 'refs/remotes/origin/main')
-    serveEpic([childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', 'f'.repeat(40))] })])
+    serveBoundEpic(
+      childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', 'f'.repeat(40))] }),
+      11,
+      'feat/2-first-child',
+    )
     servePr(11, { state: 'OPEN', labels: [], autoMerge: false })
+    setNativePrRefs(11, 'feat/2-first-child')
     const run = drive(['next'])
     expect(run.json().recorded).toMatchObject([{ ticket: 2, stop: 'branch-mismatch' }])
     expect(git(epic, 'branch', '--show-current')).toBe('')
@@ -361,7 +377,11 @@ describe('epic-driver — stop', () => {
     git(epic, 'push', '-q', 'origin', 'feat/2-first-child')
     const tip = git(epic, 'rev-parse', 'HEAD')
     const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
-    serveEpic([childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', tip, armed)] })])
+    serveBoundEpic(
+      childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', tip, armed)] }),
+      11,
+      'feat/2-first-child',
+    )
     return epic
   }
 
@@ -383,6 +403,7 @@ describe('epic-driver — stop', () => {
   it('disarms, detaches and keeps the branch before recording a canonical stop event', () => {
     const epic = armedChild()
     servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    setNativePrRefs(11, 'feat/2-first-child')
     const run = drive(['stop', '--ticket', '2', '--reason', 'timeout', ...detail("watch timed out; it's re-run later")])
     expect(run.code).toBe(0)
     expect(writes()).toEqual([
@@ -405,6 +426,7 @@ describe('epic-driver — stop', () => {
   it('writes no event when the PR is still armed after the disarm', () => {
     armedChild()
     servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true }, true)
+    setNativePrRefs(11, 'feat/2-first-child')
     const run = drive(['stop', '--ticket', '2', '--reason', 'timeout'])
     expect(run.code).toBe(1)
     expect(writes().filter((line) => line.startsWith('comment'))).toEqual([])
@@ -413,6 +435,7 @@ describe('epic-driver — stop', () => {
   it('writes no event when the PR merged before the disarm', () => {
     armedChild()
     servePr(11, { state: 'MERGED', labels: ['reviewed'], autoMerge: false })
+    setNativePrRefs(11, 'feat/2-first-child')
     const run = drive(['stop', '--ticket', '2', '--reason', 'timeout'])
     expect(run.code).toBe(0)
     expect(run.json()).toMatchObject({ ticket: 2, merged: 11 })

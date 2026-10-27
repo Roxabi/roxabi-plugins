@@ -84,6 +84,8 @@ export function serveEpic(
         issue: {
           comments: { nodes: [] },
           subIssues: { pageInfo: { hasNextPage: false }, nodes: children },
+          closedByPullRequestsReferences: { pageInfo: { hasNextPage: false }, nodes: [] },
+          timelineItems: { pageInfo: { hasPreviousPage: false }, nodes: [] },
         },
       },
     },
@@ -121,6 +123,22 @@ export function serveEpic(
     },
   })
   writeFileSync(path.join(sandboxOf().state, 'epic.json'), JSON.stringify(data))
+  const root = data.data.repository.issue
+  writeFileSync(
+    path.join(sandboxOf().state, 'containment-1.json'),
+    JSON.stringify({
+      data: {
+        repository: {
+          issue: {
+            number: 1,
+            repository: { nameWithOwner: 'o/r' },
+            closedByPullRequestsReferences: root.closedByPullRequestsReferences,
+            timelineItems: root.timelineItems,
+          },
+        },
+      },
+    }),
+  )
   writeFileSync(
     path.join(sandboxOf().state, 'uw-1.json'),
     JSON.stringify(

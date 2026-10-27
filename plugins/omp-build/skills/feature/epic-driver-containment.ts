@@ -1,142 +1,21 @@
 import { type DecodedHistory, githubScope, selectWorkflowBinding } from '../../dist/contracts.js'
 import type { MandateRecord } from '../../engine/workflow-control.ts'
+import { authenticateOwnPullRequests } from '../../roxabi/feature-disarm-ownership.ts'
+import { loadContracts } from '../../roxabi/feature-engine.ts'
+import type { EpicAuthority } from './epic-driver-authority'
+import {
+  branchCandidates,
+  type Candidate,
+  candidate,
+  exactIssueCandidates,
+  uniqueCandidates,
+} from './epic-driver-containment-discovery'
 import { issueHistory } from './epic-driver-github'
-import { graphql, Refused } from './epic-driver-runtime'
+import { gh, Refused } from './epic-driver-runtime'
+import type { ChildFacts, PrFacts } from './epic-types'
 
-// Issue links and mandate branches discover candidates; neither grants authority.
-const QUERY = `query EpicContainmentIssue($owner: String!, $name: String!, $number: Int!) {
-  repository(owner: $owner, name: $name) {
-    issue(number: $number) {
-      number repository { nameWithOwner }
-      closedByPullRequestsReferences(first: 100, includeClosedPrs: true) {
-        pageInfo { hasNextPage } nodes { number state baseRefName headRefName isCrossRepository repository { nameWithOwner } }
-      }
-      timelineItems(itemTypes: [CROSS_REFERENCED_EVENT], last: 100) {
-        pageInfo { hasPreviousPage } nodes { ... on CrossReferencedEvent {
-          source { __typename ... on PullRequest { number state baseRefName headRefName isCrossRepository repository { nameWithOwner } } }
-        } }
-      }
-    }
-  }
-}`
-
-const BRANCH_QUERY = `query EpicContainmentBranch($owner: String!, $name: String!, $head: String!) {
-  repository(owner: $owner, name: $name) {
-    pullRequests(first: 100, headRefName: $head, states: OPEN) {
-      pageInfo { hasNextPage }
-      nodes { number state baseRefName headRefName isCrossRepository repository { nameWithOwner } }
-    }
-  }
-}`
-
-type Candidate = {
-  number: number
-  state: 'OPEN' | 'CLOSED' | 'MERGED'
-  baseRefName: string
-  headRefName: string
-  isCrossRepository: boolean
-  repository: { nameWithOwner: string }
-}
-type IssueResponse = {
-  repository: {
-    issue: {
-      number: number
-      repository: { nameWithOwner: string }
-      closedByPullRequestsReferences: { pageInfo: { hasNextPage: boolean }; nodes: Candidate[] }
-      timelineItems: {
-        pageInfo: { hasPreviousPage: boolean }
-        nodes: { source: (Candidate & { __typename: string }) | { __typename: string } | null }[]
-      }
-    } | null
-  }
-}
 type Scope = { repository: string; target: string }
 type Owner = { repo: string; full: string; epic: number; mandateId: string; child: Scope; number: number }
-
-function repository(full: string): { owner: string; name: string } {
-  const [owner, name] = full.split('/')
-  if (!owner || !name) throw new Refused(`containment repository ${full} is invalid`)
-  return { owner, name }
-}
-
-function candidate(value: unknown): value is Candidate {
-  if (value === null || typeof value !== 'object') return false
-  const pr = value as Partial<Candidate>
-  return (
-    Number.isSafeInteger(pr.number) &&
-    (pr.number ?? 0) > 0 &&
-    (pr.state === 'OPEN' || pr.state === 'CLOSED' || pr.state === 'MERGED') &&
-    typeof pr.baseRefName === 'string' &&
-    pr.baseRefName.length > 0 &&
-    typeof pr.headRefName === 'string' &&
-    pr.headRefName.length > 0 &&
-    typeof pr.isCrossRepository === 'boolean' &&
-    typeof pr.repository?.nameWithOwner === 'string'
-  )
-}
-
-function timelineCandidates(
-  timeline: NonNullable<IssueResponse['repository']['issue']>['timelineItems'],
-  target: string,
-): unknown[] {
-  const found: unknown[] = []
-  for (const entry of timeline.nodes) {
-    if (!entry || !('source' in entry)) throw new Refused(`containment timeline for ${target} is unreadable`)
-    if (entry.source === null) continue
-    if (entry.source.__typename === 'PullRequest') found.push(entry.source)
-    else if (typeof entry.source.__typename !== 'string')
-      throw new Refused(`containment timeline for ${target} is unreadable`)
-  }
-  return found
-}
-
-function uniqueCandidates(values: readonly unknown[], full: string, target: string): Candidate[] {
-  const found = new Map<number, Candidate>()
-  for (const value of values) {
-    if (!candidate(value)) throw new Refused(`containment PR discovery for ${target} is unreadable`)
-    if (value.isCrossRepository || value.repository.nameWithOwner !== full || value.state !== 'OPEN') continue
-    const previous = found.get(value.number)
-    if (previous && (previous.headRefName !== value.headRefName || previous.baseRefName !== value.baseRefName))
-      throw new Refused(`containment PR #${value.number} has conflicting observations`)
-    found.set(value.number, value)
-  }
-  return [...found.values()]
-}
-
-function exactIssueCandidates(context: Owner): Candidate[] {
-  const { repo, full, number } = context
-  const issue = graphql<IssueResponse>(repo, QUERY, { ...repository(full), number }).repository?.issue
-  if (!issue || issue.number !== number || issue.repository?.nameWithOwner !== full)
-    throw new Refused(`containment issue ${full}#${number} is inaccessible or mismatched`)
-  const closed = issue.closedByPullRequestsReferences
-  const timeline = issue.timelineItems
-  if (
-    !closed ||
-    !timeline ||
-    closed.pageInfo?.hasNextPage !== false ||
-    timeline.pageInfo?.hasPreviousPage !== false ||
-    !Array.isArray(closed.nodes) ||
-    !Array.isArray(timeline.nodes)
-  )
-    throw new Refused(`containment PR discovery for ${full}#${number} is incomplete`)
-  const target = `${full}#${number}`
-  return uniqueCandidates([...closed.nodes, ...timelineCandidates(timeline, target)], full, target)
-}
-
-function branchCandidates(context: Owner, head: string): Candidate[] {
-  const data = graphql<{ repository: { pullRequests: { pageInfo: { hasNextPage: boolean }; nodes: unknown[] } } }>(
-    context.repo,
-    BRANCH_QUERY,
-    { ...repository(context.full), head },
-  )
-  const connection = data.repository?.pullRequests
-  if (connection?.pageInfo?.hasNextPage !== false || !Array.isArray(connection.nodes))
-    throw new Refused(`containment PR discovery for branch ${head} is incomplete`)
-  const found = uniqueCandidates(connection.nodes, context.full, `branch ${head}`)
-  if (found.some((pr) => pr.headRefName !== head))
-    throw new Refused(`containment PR discovery for branch ${head} is unreadable`)
-  return found
-}
 
 function ownedMandate(mandate: MandateRecord, context: Owner): boolean {
   const own = mandate.payload.ownSpec.uw
@@ -162,8 +41,7 @@ function ownedBranches(history: DecodedHistory, context: Owner): Set<string> {
   return branches
 }
 
-async function childCandidates(context: Owner): Promise<{ candidates: Candidate[]; history: DecodedHistory }> {
-  const linked = exactIssueCandidates(context)
+async function childHistory(context: Owner): Promise<DecodedHistory> {
   const history = await issueHistory(context.repo, context.full, context.number)
   if (
     !history.source.complete ||
@@ -179,6 +57,12 @@ async function childCandidates(context: Owner): Promise<{ candidates: Candidate[
     })
   )
     throw new Refused(`containment history for ${context.child.target} is unconfirmed`)
+  return history
+}
+
+async function childCandidates(context: Owner): Promise<{ candidates: Candidate[]; history: DecodedHistory }> {
+  const linked = exactIssueCandidates(context)
+  const history = await childHistory(context)
   for (const branch of ownedBranches(history, context)) linked.push(...branchCandidates(context, branch))
   return { candidates: uniqueCandidates(linked, context.full, context.child.target), history }
 }
@@ -205,6 +89,74 @@ function acceptedNumber(full: string, child: Scope): number {
   return number
 }
 
+async function authenticateBatch(
+  context: Owner,
+  history: DecodedHistory,
+  candidates: readonly Candidate[],
+): Promise<void> {
+  for (const pr of candidates) await authenticateCandidate(context, history, pr)
+}
+
+export async function authenticateChildPrBatch(
+  repo: string,
+  authority: EpicAuthority,
+  child: ChildFacts,
+  prs: readonly PrFacts[],
+): Promise<void> {
+  const full = authority.repository
+  const scope = githubScope(full, child.number)
+  if (!authority.children.some((grant) => grant.scope.repository === full && grant.scope.target === scope.target))
+    throw new Refused(`containment child ${scope.target} is not accepted by the selected parent`)
+  const number = acceptedNumber(full, scope)
+  const context = { repo, full, epic: authority.epic, mandateId: authority.mandateId, child: scope, number }
+  const history = await childHistory(context)
+  const candidates = prs.map((pr) => ({
+    number: pr.number,
+    state: pr.state,
+    headRefName: pr.head,
+    baseRefName: pr.base,
+    isCrossRepository: false,
+    repository: { nameWithOwner: full },
+  }))
+  const observations = new Map<number, Candidate>()
+  for (const pr of candidates) {
+    const prNumber = pr.number
+    if (!candidate(pr)) throw new Refused(`containment PR #${prNumber} metadata is unreadable`)
+    const previous = observations.get(pr.number)
+    if (
+      previous &&
+      (previous.headRefName !== pr.headRefName ||
+        previous.baseRefName !== pr.baseRefName ||
+        previous.state !== pr.state)
+    )
+      throw new Refused(`containment PR #${pr.number} has conflicting observations`)
+    observations.set(pr.number, pr)
+  }
+  await authenticateBatch(context, history, [...observations.values()])
+}
+
+export async function discoverOwnPrs(
+  repo: string,
+  full: string,
+  epic: number,
+  mandate: MandateRecord,
+  scope: Scope,
+): Promise<{ ticket: number; pr: number }[]> {
+  const context = { repo, full, number: epic }
+  const candidates = exactIssueCandidates(context)
+  if (mandate.payload.branch) candidates.push(...branchCandidates(context, mandate.payload.branch))
+  const numbers = new Set(uniqueCandidates(candidates, full, scope.target).map((pr) => pr.number))
+  const loaded = await loadContracts()
+  if ('missing' in loaded) throw new Refused(`containment contracts unavailable: ${loaded.missing}`)
+  const result = await authenticateOwnPullRequests(async (cwd, args) => gh(cwd, args), repo, full, numbers, {
+    loaded,
+    mandate: { kind: 'mandate', recordId: mandate.recordId, scope },
+  })
+  if (result.incomplete)
+    throw new Refused(`containment own PR ownership unconfirmed: ${JSON.stringify(result.evidence)}`)
+  return [...result.numbers].map((pr) => ({ ticket: epic, pr }))
+}
+
 export async function discoverAcceptedChildPrs(
   repo: string,
   full: string,
@@ -217,8 +169,8 @@ export async function discoverAcceptedChildPrs(
     const number = acceptedNumber(full, child)
     const context = { repo, full, epic, mandateId, child, number }
     const { candidates, history } = await childCandidates(context)
+    await authenticateBatch(context, history, candidates)
     for (const pr of candidates) {
-      await authenticateCandidate(context, history, pr)
       const prior = found.get(pr.number)
       if (prior && prior.ticket !== number) throw new Refused(`containment PR #${pr.number} has conflicting owners`)
       found.set(pr.number, { ticket: number, pr: pr.number })

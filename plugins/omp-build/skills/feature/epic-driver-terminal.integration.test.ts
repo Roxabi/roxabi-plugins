@@ -124,7 +124,11 @@ describe('epic-driver — eventual consistency', () => {
     const tip = git(epic, 'rev-parse', 'HEAD')
     git(epic, 'switch', '-q', '--detach', 'refs/remotes/origin/main')
     const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
-    serveEpic([childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', tip, armed)] })])
+    serveBoundEpic(
+      childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', tip, armed)] }),
+      11,
+      'feat/2-first-child',
+    )
     servePr(11, { state: 'MERGED', labels: ['reviewed'], autoMerge: false })
     return tip
   }
@@ -139,7 +143,11 @@ describe('epic-driver — eventual consistency', () => {
     })
     // The first read is the stale one; every later read shows the merge.
     writeFileSync(path.join(state, 'epic.json.1'), readFileSync(path.join(state, 'epic.json')))
-    serveEpic([childNode(2, 'feat(x): first child', { state: 'CLOSED', stateReason: 'COMPLETED', prs: [merged] })])
+    serveBoundEpic(
+      childNode(2, 'feat(x): first child', { state: 'CLOSED', stateReason: 'COMPLETED', prs: [merged] }),
+      11,
+      'feat/2-first-child',
+    )
 
     const run = drive(['next'])
 
@@ -423,7 +431,11 @@ describe('epic-driver — disarm modes', () => {
     git(epic, 'switch', '-q', '-c', 'feat/2-first-child', 'refs/remotes/origin/main')
     git(epic, 'push', '-q', 'origin', 'feat/2-first-child')
     const tip = git(epic, 'rev-parse', 'HEAD')
-    serveEpic([childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', tip, armed)] })])
+    serveBoundEpic(
+      childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', tip, armed)] }),
+      11,
+      'feat/2-first-child',
+    )
   }
 
   it('removes a merge-on-green label with no auto-merge to disable', () => {
