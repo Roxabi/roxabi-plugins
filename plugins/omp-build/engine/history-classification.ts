@@ -207,15 +207,19 @@ function promoteReviewDependencies(history: DecodedHistory, authorities: Operati
   const diagnostics: Diagnostic[] = []
   const byRecordId = new Map<string, CompleteRecord[]>()
   for (const [index, operation] of history.operations.entries()) {
-    if (authorities[index] === 'foreign' || operation.status !== 'complete' || operation.record === null) continue
-    const entries = byRecordId.get(operation.record.recordId) ?? []
-    entries.push({ index, record: operation.record })
-    byRecordId.set(operation.record.recordId, entries)
+    if (authorities[index] === 'foreign') continue
+    const record = completeNativeRecord(operation, history)
+    if (record === null) continue
+    const entries = byRecordId.get(record.recordId) ?? []
+    entries.push({ index, record })
+    byRecordId.set(record.recordId, entries)
   }
   for (const [index, operation] of history.operations.entries()) {
-    if (authorities[index] !== 'authority' || operation.record?.kind !== 'review') continue
-    for (const input of operation.record.inputs)
-      promoteReviewDependency(input, new Set([operation.record.recordId]), byRecordId, authorities, diagnostics)
+    if (authorities[index] !== 'authority') continue
+    const review = completeNativeRecord(operation, history)
+    if (review?.kind !== 'review') continue
+    for (const input of review.inputs)
+      promoteReviewDependency(input, new Set([review.recordId]), byRecordId, authorities, diagnostics)
   }
   return diagnostics
 }
@@ -244,8 +248,8 @@ export function classifyHistory(history: DecodedHistory): HistoryClassification 
       for (const index of trusted) authorities[index] = 'authority'
   }
   for (const index of correctionAccountedIndexes(history, authorities)) authorities[index] = 'accounted'
-  const dependencyDiagnostics = promoteReviewDependencies(history, authorities)
   retainAccountedWorkflow(history, authorities)
+  const dependencyDiagnostics = promoteReviewDependencies(history, authorities)
   const classes = history.operations.map((operation, index) => ({
     index,
     operationId: operation.operationId,

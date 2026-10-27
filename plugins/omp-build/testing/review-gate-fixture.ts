@@ -70,7 +70,10 @@ export function setupReviewGateFixture(): ReviewGateFixture {
     mkdirSync(home)
     mkdirSync(bin)
     mkdirSync(path.join(tools, 'plugins'), { recursive: true })
-    cpSync(PLUGIN, path.join(tools, 'plugins/omp-build'), { recursive: true })
+    cpSync(PLUGIN, path.join(tools, 'plugins/omp-build'), {
+      recursive: true,
+      filter: (source) => path.basename(source) !== 'node_modules',
+    })
     git(tools, ['init', '-q', '-b', 'main'])
     git(tools, ['add', '.'])
     git(tools, ['commit', '-qm', 'trusted tooling'])

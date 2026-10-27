@@ -101,7 +101,7 @@ Three parts, one plugin, no second runtime, no database, and no mandatory local 
 | Roxabi (`roxabi/`) | Shipped graph, named actions, and the mandate snapshot of `review.additional_requirements` | A second config file, a project graph, a bound override, an admission override |
 | GitHub adapter (`adapters/`) | Complete comment history, confirmed publication, scope reads | Finding classification, landing permission |
 
-GitHub comments hold the records: `mandate`, `operator-control`, `action-receipt`, `workflow-binding`, `review`, `correction`, and `epic-event`. Mandates carry `format: 'omp-build-mandate/2'`; reviews that carry input carry `inputFormat: 'omp-build:review-input/3'`. A missing or older format, obsolete payload fields, or a frame using the removed `kind: 'proof'` refuses with `incompatible-format`. These records are not migrated, re-reviewed, or exempted.
+GitHub comments hold the records: `mandate`, `operator-control`, `action-receipt`, `workflow-binding`, `review-interruption`, `review-replacement-grant`, `review`, `correction`, and `epic-event`. Mandates carry `format: 'omp-build-mandate/2'`; reviews that carry input carry `inputFormat: 'omp-build:review-input/3'`. A missing or older format, obsolete payload fields, or a frame using the removed `kind: 'proof'` refuses with `incompatible-format`. These records are not migrated, re-reviewed, or exempted. An interrupted initial pull-request review is terminalized by `review-interruption`; one linked replacement inventory may consume a one-use `review-replacement-grant` afterward.
 
 Removed integration configuration is not read during adoption, worktree start, review-input capture, or landing.
 
@@ -112,6 +112,20 @@ A confirmed checkpoint is a published record read back, plus the Git facts that 
 The landing binding on every base is the confirmed `workflow-binding` on that PR. A closing keyword, issue body, or branch name is not landing authority.
 
 Issue state is a scope fact, not execution authority. A closed Spec remains readable when reconstructing its bound mandate. Closing an issue neither pauses or revokes that mandate nor approves landing; a closed PR still cannot authorize another review or correction.
+
+#### Interrupted native review
+
+Recovery is three explicit write-approved host actions, each with `{ "pr": <number> }` in the PR's worktree:
+
+| Tool | Confirmed effect |
+|---|---|
+| `omp_build_terminalize_interrupted_review` | Publishes a neutral interruption for the unfinished initial PR inventory after reconstructing its historical mandate, binding and input. No verdict or review tasks. |
+| `omp_build_grant_review_replacement` | Captures fresh review inputs against the verified current binding and grants one replacement. No review tasks. |
+| `omp_build_replace_interrupted_review` | Recaptures those inputs, confirms the exact linked inventory by remote readback, then activates and announces its native review batch. |
+
+Historical inputs need not equal the fresh grant's inputs. Replacement inputs, head and binding must equal the grant's freshly verified values. Roots and publication identities are derived from the recorded chain, not supplied by the caller. A confirmed linked inventory consumes the grant once; a transport acknowledgement alone does not. Incomplete, conflicting or unauthenticated evidence refuses progression rather than minting another attempt.
+
+The interruption, grant and unfinished replacement all leave ordinary review/correction progression stopped. A genuine completed replacement verdict re-enters normal review/correction accounting with all historical bounds and stops retained. An interrupted replacement needs a new human checkpoint; these tools do not grant a third recovery, a new review bound, a mandate succession or landing permission. An uncertain publication must be reconciled against native history before retrying; restarting the host does not refill the allowance.
 
 ### UW foundation
 

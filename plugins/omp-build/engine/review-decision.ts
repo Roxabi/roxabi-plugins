@@ -8,6 +8,7 @@ import type { Diagnostic, Group, Json, Verdict } from './record-values.ts'
 import { type DecisionAssessment, type FindingInspection, type Result, recordMap, unique } from './result.ts'
 import { groupFor } from './review-groups.ts'
 import { analyzeReviewIdentity } from './review-identity.ts'
+import { readReviewRecovery } from './review-recovery.ts'
 import { causeSchema } from './review-schema.ts'
 
 export type DecisionBindings = {
@@ -156,6 +157,12 @@ export function validateReviewDecisionBindings(
   review: Extract<CanonicalRecord, { kind: 'review' }>,
   history: DecodedHistory,
 ): Result<ReviewDecisionBindings> {
+  const recovery = readReviewRecovery(history)
+  if (!recovery.ok) return fail(recovery.diagnostics)
+  if (recovery.value.normalProgression === 'stopped')
+    return fail([
+      diagnostic('incomplete', 'An interrupted review root remains stopped pending its replacement outcome'),
+    ])
   const authorityHistory = classifyHistory(history).authorityHistory
   const admissionGraph = validateRecordGraph(authorityHistory)
   if (!admissionGraph.ok) return fail(admissionGraph.diagnostics)

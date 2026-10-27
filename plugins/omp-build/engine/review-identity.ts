@@ -21,20 +21,25 @@ export function reviewOperations(history: DecodedHistory) {
 export function latestUnfinishedPullRequestRoot(
   records: ReadonlyMap<string, CanonicalRecord>,
 ): Extract<CanonicalRecord, { kind: 'review-attempt' }> | null {
-  let latest: Extract<CanonicalRecord, { kind: 'review-attempt' }> | null = null
+  const completedInventories = new Set<string>()
+  const interruptedRoots = new Set<string>()
   for (const record of records.values()) {
+    if (record.kind === 'review')
+      for (const inventoryId of record.payload.inventoryIds) completedInventories.add(inventoryId)
+    if (record.kind === 'review-interruption') interruptedRoots.add(record.payload.rootAttemptId)
+  }
+
+  let latest: Extract<CanonicalRecord, { kind: 'review-attempt' }> | null = null
+  for (const record of records.values())
     if (
       record.kind === 'review-attempt' &&
       record.payload.stage === 'initial' &&
       record.payload.purpose === 'review' &&
-      record.payload.subject.kind === 'pull-request'
-    ) {
+      record.payload.subject.kind === 'pull-request' &&
+      !completedInventories.has(record.recordId) &&
+      !interruptedRoots.has(record.recordId)
+    )
       latest = record
-      continue
-    }
-    if (record.kind === 'review' && latest !== null && record.payload.inventoryIds.includes(latest.recordId))
-      latest = null
-  }
   return latest
 }
 
