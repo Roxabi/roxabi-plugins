@@ -40,6 +40,10 @@ Use the installed `omp-build` review product, not a shell runner or a replacemen
 
 Any incomplete or unusable required result stops. Retain raw partial output, including extractable reports, rather than replacing it with `[]` or a successful empty finding list. A third-red or third-green+CI-red stop remains sticky and is published as canonical `stop` before continuation/disarm.
 
+## Recovery after a stop
+
+Use the canonical [operator-supervised recovery procedure](recovery.md). It preserves the stopped PR, its findings, antecedent history, and consumed rounds; an operator-approved dossier, revised scope/plan, and concrete checkpoint are all required before any superseding branch, worktree, mandate, binding, PR, review, or push. A successor gets fresh normal admission, never an implicit budget reset.
+
 ## Next action
 
 `deriveReviewState`/`nextReviewStep` derive the specialized PR review state. Standalone `/dev-review` ends with confirmed review records and grants no landing authority. Under `/feature`, completion returns to `continueFeature` → `reconstructWorkflow` before selecting the next lifecycle action. `/fix` consumes confirmed records by reference without reclassifying findings. Human choice remains only at the existing explicit decision boundaries; no routine continuation confirmation is introduced.

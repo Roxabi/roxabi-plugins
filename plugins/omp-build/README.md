@@ -63,6 +63,100 @@ Symlinking into `~/.omp/agent/agents/` is not supported — use `link` (or the c
 
 `omp/index.ts` registers `/feature` and calls `runInstalledFeatureCommand` in `roxabi/feature-entry.ts`. That registered command does not dump `skills/feature/SKILL.md`. Explicit `skill://feature` or `/skill:feature` access supplies reference material for human decisions, not a second lifecycle or execution authority. The local T3 qualification below covers workflow integration, not semantic-model quality or hosted activation; both remain separately authorized.
 
+### Adopted manual delivery
+
+**Scope.** For the adopted engine/VPS goal and indispensable tooling prerequisites, an operator may compose the existing published primitives below without starting `/feature`, `/fix`, or a Feature continuation. This is a manual recipe, not a new command, runner, review format, writer, or a claim that the route has already completed end to end. The automatic `/feature` route remains unchanged; `landPr` remains the sole writer of `reviewed`.
+
+**Trusted distribution first.** Bootstrap imports only one identified, previously published plugin root, never the candidate checkout being admitted. Keep the candidate source for the change itself and the trusted root for every bootstrap primitive; do not edit a cache. The historical bootstrap for this documentation used published `0.12.4` at `/home/mickael/.omp/plugins/cache/plugins/roxabi-marketplace___omp-build___0.12.4`: it prepared this issue's worktree, bootstrapped it, and published/read back mandate `21a80937-720e-4c54-b317-dcc2d3701ddb`. Those are historical bootstrap facts, not independent-review, CI, landing, merge, activation, or E2E qualification evidence.
+
+The following are library call shapes, not shell commands to copy into a second runner. `trustedRoot` is the identified published root; `candidateRoot` must not be substituted into these imports. `git` is the established `GitRunner`, `gh` the established GitHub adapter, and `cwd` is the real linked worktree.
+
+```ts
+const { branchFor } = await import(`${trustedRoot}/skills/feature/epic-naming.ts`)
+const { resolveBase, publishFirstMandate } = await import(`${trustedRoot}/roxabi/feature-mandate.ts`)
+const { sessionWorktreeIdentity, prepareFeatureCheckout, runWorktreeBootstrap } =
+  await import(`${trustedRoot}/roxabi/workflow-checkout.ts`)
+const { loadContracts } = await import(`${trustedRoot}/roxabi/feature-engine.ts`)
+const { mandateParentHistories } = await import(`${trustedRoot}/roxabi/feature-context.ts`)
+const { withRoxabiGitHubPolicy } = await import(`${trustedRoot}/roxabi/github-policy.ts`)
+const { confirmWorkflowBinding } = await import(`${trustedRoot}/roxabi/feature-admission.ts`)
+const { disarmReviewedBeforePush } = await import(`${trustedRoot}/skills/feature/landing-foundation.js`)
+const { landPr } = await import(`${trustedRoot}/skills/feature/workflow-landing.js`)
+```
+
+1. **Read authority, then establish one checkout.** Read the issue authority, canonical history, repository identity, and `sessionWorktreeIdentity(git, sessionCwd)`. Use `branchFor({ number, title, labels })` and `resolveBase(git, identity.principalTop)`; do not recreate their naming or base logic. Pass the returned values exactly:
+
+   ```ts
+   const checkout = await prepareFeatureCheckout({
+     git,
+     sessionCwd,
+     branch,
+     base,
+     repository,
+     detached: false,
+   })
+   ```
+
+   `ready` supplies the worktree; `move` requires `/move <path>` or a new trusted OMP session rooted at that path; `blocked` stops. A Bash `cwd`, even in a subprocess, does not relocate the OMP host session. Once in the linked worktree, run and await `runWorktreeBootstrap(cwd)` in the foreground; a principal refusal or any non-`ok` result stops. Existing worktrees retain their admitted coordinates; refresh their base through the existing reader before a new action.
+
+2. **Select before the first mandate; publish only an admissible absence.** Load contracts, read the issue scope and its parent histories, then select:
+
+   ```ts
+   const contracts = await loadContracts()
+   if ('missing' in contracts) throw new Error(`engine-unavailable:${contracts.missing}`)
+   const historyOptions = withRoxabiGitHubPolicy({ cwd, gh })
+   const scope = contracts.githubScope(repository, issueNumber)
+   const read = await contracts.readComposedWorkflowHistory([scope], historyOptions)
+   if (!read.ok || read.histories[0] === undefined) throw new Error('history-unreadable')
+   const history = read.histories[0]
+   const parents = await mandateParentHistories(contracts, history, historyOptions)
+   if (!parents.ok) throw new Error(`parent-history-unreadable:${parents.reason}`)
+   const selected = contracts.selectApplicableMandate(history, parents.parents)
+   ```
+
+   Reuse an `applicable` mandate only when its scope, branch/base, Spec, config, and permissions still apply. `publishFirstMandate(contracts, history, scope, issue, issueNumber, git, gh, cwd)` is allowed only after the native selection is the explicit admissible `missing` absence; immediately re-read history, parents, and selection and require `applicable`. A conflict, partial record, pause, revocation, stop, legacy/incompatible record, or any other refusal stops: it is never replaced by an invented “first” mandate.
+
+3. **Implement, bind, and prove real work.** Implement manually, create a normal PR, retain its native `number` as `actualPr`, maintain the required criterion-to-test/proof mapping, and retain only commands, code, and proofs actually run. No automatic implementation/action receipt is fabricated or required by this manual path. `issueNumber` and `actualPr` are different coordinates: issue #927 is not a created PR. After the PR exists and its native coordinates match, bind and require the confirmed result:
+
+   ```ts
+   const actualPr = createdPullRequest.number
+   const binding = await confirmWorkflowBinding({ cwd, pr: actualPr, issue: issueNumber, branch, base, gh })
+   if (!binding.ok) throw new Error(`binding-unconfirmed:${binding.reason}`)
+   const bindingRead = await contracts.readComposedWorkflowHistory(
+     [contracts.githubScope(repository, actualPr)],
+     historyOptions,
+   )
+   ```
+
+   The primitive confirms its publication; require a readable complete `workflow-binding` matching `binding.recordId` in `bindingRead` before review. Before **every** corrective push, use the existing barrier and inspect its result; only the provided callback performs the one intended push:
+
+   ```ts
+   await disarmReviewedBeforePush(cwd, actualPr, { gh, push: pushExactlyOnce })
+   ```
+
+   `merged`, `closed`, an uncleared/failed barrier, or moved coordinates stop that push. A changed HEAD, base, Spec, committed config, or review input requires the existing mandate/binding/input/bound readers to admit the changed state again before review or landing.
+
+4. **Review one exact candidate in its actual host context.** From a fresh trusted OMP root whose host cwd is the linked worktree, invoke the native tool with the actual created PR number:
+
+   ```ts
+   const reviewParameters = { pr: actualPr }
+   ```
+
+   Pass `reviewParameters` to `omp_build_start_review`; `pr` is a positive integer and is the complete supplied schema. The illustrative value is always the created PR's `number`, never `issueNumber` (so never `927` merely because this documentation issue is #927). The tool does not accept a repository or cwd override. Do not infer host context from Bash's cwd. This standalone invocation has no Feature `onComplete` callback, so it creates no automatic correction or landing loop. The reviewer is independent of implementation and the native product retains its actual inventory, contributions, decision, and readback. A correction is manually chosen only if the existing bound admits it; disarm before its push, then review the new HEAD independently.
+
+5. **Land only after exact-head admission and observe the result.** Re-read the fresh approving review, unspent bound, mandate, binding, accepted Spec/config, and review input. For `go-silex/silex-engine`, wait for the three current required checks — `ci`, `nika-check`, and `TruffleHog` — to be `SUCCESS` on that exact reviewed HEAD; another repository resolves and requires its own current required-check set. This is serial operator discipline: confirmed disarm before corrective pushes and no HEAD/input movement between admission and observed merge. It is **not** a new independent remote native gate, a deployment permission, or a guarantee against races outside that discipline.
+
+   Call `await landPr(cwd, actualPr)` only after those reads. Execute its emitted watch command and use the existing watch exit handling; `watching` is not `merged`, and `merged` is not activation or deployment. Observe the merged PR/SHA before reporting a merge. Never replace a stopped result with a direct merge, label write, or a second `reviewed` writer.
+
+6. **Publish before using this candidate.** This documentation release is `0.12.5`; after its PR merges, publish the normal distribution, set `OMP_BUILD_TOOLING_SHA` to the full `main` SHA carrying it, then marketplace-update/upgrade and restart OMP as described in [Tooling-pin update](#tooling-pin-update). A source checkout, package version, pin update, or plugin doctor result alone does not qualify host loading, native review, exact-head CI, landing, or merge. The remaining qualification is a real worktree/bootstrap and mandate/binding readback using an identified prior distribution, followed by independent native review, exact-head CI, normal `landPr`/watch, and observed merge.
+
+For a stopped bound or a superseding PR, use the single [operator-supervised recovery procedure](skills/dev-review/recovery.md). Its checkpoint is required before creation; adoption of this recipe does not authorize an actual PR #118 successor.
+
+**Release record.** The root `CHANGELOG.md` is a byte-frozen archive; GitHub Releases remain its declared release record, so this pending source change adds no hand-maintained changelog entry.
+
+**Automatic route.** Nothing above changes `/feature`, `continueFeature`, its callbacks, review-bound accounting, codec, policy baseline, or guard semantics.
+
+
 ### Controls
 
 `parseFeatureCommand` is the word list. A known transition does not ask again. There is no per-PR merge approval.
@@ -299,11 +393,11 @@ login (`gh api user`). The count and the latest review come from that history. A
 refusal is not an empty history. Nothing writes accounting. A legacy marker is not a
 review and does not reset the bound.
 
-When a bound is spent, its PR remains stopped and disarmed. The operator approves
-the revised scope, diagnostic/correction plan and continuation checkpoint; Phase 8
-then directs agents to perform the recovery, targeted proof and independent review
-on a superseding PR. Its fresh admission still follows the normal review, proof, CI
-and `landPr` path; the original dossier and records remain evidence.
+When a bound is spent, its PR remains stopped and disarmed. The [operator-supervised
+recovery procedure](skills/dev-review/recovery.md) requires the operator-approved
+dossier, revised scope/plan, and concrete checkpoint before a superseding PR. Its
+fresh admission still follows the normal review, proof, CI and `landPr` path; the
+original dossier and records remain evidence.
 
 **The armed gate (#713).** An OPEN PR is armed — `reviewed` label or auto-merge
 enabled — only when the latest review record approves the current head, the bound
@@ -365,9 +459,9 @@ edited selected review, mandate or binding record. Every posted review counts, w
 before it. Older accounting comments and the `## Review Fixes Applied` receipt
 decide nothing.
 
-The canonical choices and escalation dossier live in `skills/dev-review/SKILL.md`
-Phase 8. `continueFeature` → `reconstructWorkflow` selects the next Feature lifecycle
-action. `nextReviewStep` retains specialized PR review/bound policy; `landPr` and
+The canonical stop recovery is [operator-supervised recovery](skills/dev-review/recovery.md).
+`continueFeature` → `reconstructWorkflow` selects the next Feature lifecycle action.
+`nextReviewStep` retains specialized PR review/bound policy; `landPr` and
 `applyCiWatchExit` retain guarded landing/watch execution, with shared
 `requireLandingMandate` admission at actual landing. Explicit standalone review
 and autonomous correction keep their separately admitted paths; neither grants

@@ -22,7 +22,7 @@ import { errorText, gh } from './workflow-runtime.js'
 
 export const MAX_FIX_ROUNDS = 2
 const STOP_GUIDANCE =
-  'Publish the escalation dossier (dev-review Phase 8). Automation on this PR remains stopped and disarmed: operator-supervised agent processing begins only after the operator explicitly approves revised scope, a diagnostic/correction plan and a continuation checkpoint. Agents carry the work to a NEW superseding PR for fresh independent review, proof, CI and normal landing admission; no extra review on this PR or manual merge bypass.'
+  'Use the canonical operator-supervised recovery procedure (skills/dev-review/recovery.md). This PR remains stopped and disarmed; preserve its antecedent, findings and consumed rounds. A successor begins only after the operator approves the dossier, revised scope/plan and concrete checkpoint; it then requires fresh independent review, proof, CI and normal landing admission. No extra review on this PR or manual merge bypass.'
 
 function stopStep(reason, reviews) {
   const why =
