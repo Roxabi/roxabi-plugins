@@ -1,15 +1,14 @@
 import { execFile } from 'node:child_process'
-import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 
 import type { Policy, Result } from '../dist/contracts.js'
 import { parseRosterConfig, parseStackPaths } from '../skills/dev-review/roster-config'
 import type { AllocateReviewInput } from '../skills/dev-review/roster-contract'
-import { normalizeTier, parsePricedFences, specIsDraft } from '../skills/dev-review/roster-spec'
+import { normalizeTier } from '../skills/dev-review/roster-spec'
 import { refreshReviewBase } from '../skills/feature/review-base'
+import { loadReviewAssets, loadReviewClassCatalogue, loadReviewConfig } from './review-assets'
 import { candidateText, materializeCandidateChunks } from './review-candidate-material'
-import { loadReviewConfig } from './review-config'
 import type {
   Git,
   GitResult,
@@ -19,6 +18,7 @@ import type {
 } from './review-input-contract'
 import { prepareReviewTarget } from './review-pr-target'
 import { buildReviewPrompts, type SpecDisplay } from './review-prompts'
+import { parsePricedFences, specIsDraft } from './uw-spec'
 
 const SHA = /^[0-9a-f]{40}$/
 const SIZE_VALUES: Record<string, true> = {
@@ -86,23 +86,6 @@ function tierDetails(issueSpec: PreparedReviewInputs['issueSpec']) {
   return { tier, warnings }
 }
 
-function reviewClassCatalogue() {
-  const config = loadReviewConfig()
-  const assetDir = join(config.chunker, '..')
-  const classes = readFileSync(join(assetDir, 'review-classes.yml'), 'utf8')
-  const classNames = [...classes.matchAll(/^\s*- class:\s*([a-z][a-z0-9-]*)\s*$/gm)].map((match) => match[1])
-  return { config, assetDir, classes, classNames }
-}
-
-function reviewAssets(assetDir: string, classes: string) {
-  return {
-    classes,
-    evidencePolicy: readFileSync(join(assetDir, 'evidence-policy.md'), 'utf8'),
-    rootCauses: readFileSync(join(assetDir, 'root-causes.md'), 'utf8'),
-    smells: readFileSync(join(assetDir, 'review-smells.md'), 'utf8'),
-    blindSpots: readFileSync(join(assetDir, 'review-blind-spots.md'), 'utf8'),
-  }
-}
 type ReviewMaterial = {
   refreshed: { ok: true; tip: string }
   stack: string | null
@@ -157,8 +140,10 @@ export async function prepareReviewInputs(options: PrepareReviewInputsOptions): 
     const { number, repository, automationLogin, candidate, pr, semanticContext, capture } = target.value
     const issueSpec = semanticContext.currentSpec
     const { tier, warnings } = tierDetails(issueSpec)
-    const { config, assetDir, classes, classNames } = reviewClassCatalogue()
-    if (!classNames.length) {
+    const config = loadReviewConfig()
+    const catalogue = loadReviewClassCatalogue()
+    const { assetDir, canonicalClasses } = catalogue
+    if (!canonicalClasses.length) {
       return failed('review-class-catalogue-invalid', 'installed class catalogue has no canonical classes')
     }
     const material = await reviewMaterial(options, git, gh, candidate, pr.base, assetDir)
@@ -186,7 +171,14 @@ export async function prepareReviewInputs(options: PrepareReviewInputsOptions): 
       issueSpec === null
         ? { source: 'absent', issue: null, body: null, rows: [] }
         : { source: 'tracker-issue', issue: issueSpec.number, body: issueSpec.body, rows: [] }
-    const assets = reviewAssets(assetDir, classes)
+    const loadedAssets = loadReviewAssets(catalogue)
+    const assets = {
+      classes: loadedAssets.classes,
+      evidencePolicy: loadedAssets.evidencePolicy,
+      rootCauses: loadedAssets.rootCauses,
+      smells: loadedAssets.smells,
+      blindSpots: loadedAssets.blindSpots,
+    }
     const scope = { repository, target: `${repository}#${number}` }
     return {
       ok: true,
@@ -230,7 +222,7 @@ export async function prepareReviewInputs(options: PrepareReviewInputsOptions): 
         warnings: rosterConfig.warnings,
         chunks,
         roster,
-        config: { ...config, canonicalClasses: classNames },
+        config: { ...config, canonicalClasses },
         policy,
         semantic: {
           assets,

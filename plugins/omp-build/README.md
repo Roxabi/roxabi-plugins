@@ -113,11 +113,17 @@ The landing binding on every base is the confirmed `workflow-binding` on that PR
 
 Issue state is a scope fact, not execution authority. A closed Spec remains readable when reconstructing its bound mandate. Closing an issue neither pauses or revokes that mandate nor approves landing; a closed PR still cannot authorize another review or correction.
 
-### Epic
+### UW foundation
 
-An epic runs from the confirmed mandate on the epic issue, not from a session goal. `skills/feature/epic-driver.ts` reads that mandate. The installed command calls `next`, `stop`, `review`, `mark-fix`, `hook`, `report`, and `control-disarm`. There is no `objective` command and no goal file.
+The [glossary](GLOSSARY.md) names UWs, their parent/leaf roles, Specs and delivery records. Historical record kinds and wire names remain unchanged. The target Spec effective, Report and action Instantané vocabulary does not imply that ancestor resolution, origin-UW cause tracking or per-action snapshots are already implemented.
 
-A ticket stop is an `epic-event` whose `event` is the historical wire name `goal-stop`. Independent children continue. A shared-state stop is an `epic-event` whose `event` is `goal-report`. The hook runs once at the current base commit; another commit is `hook-stale`. The report heading is `## Epic run`. Merged is not complete before the hook and report are observed. Delivery matching, re-disarm, and which stops retry live in the `epic-driver-*` modules. A run id does not reset a spent review bound.
+Spec reads and body analyses belong to `roxabi/uw-spec/`; native issue/graph queries and response translation belong to `adapters/github-native/`; review-reference loading belongs to `roxabi/review-assets.ts`. Callers retain their existing workflow decisions. The two current scope and acceptance-list checks remain separate, with unchanged behavior; this foundation adds neither strict grammar nor pagination or new blocking rules.
+
+### Parent UW delivery
+
+A UW parente runs from its confirmed mandate, not from a session goal. `skills/feature/epic-driver.ts` reads that mandate. The installed command calls `next`, `stop`, `review`, `mark-fix`, `hook`, `report`, and `control-disarm`. There is no `objective` command and no goal file.
+
+An Arrêt d'UW is an `epic-event` whose `event` is the historical wire name `goal-stop`. Independent children continue. A shared-state stop is an `epic-event` whose `event` is `goal-report`. The hook runs once at the current base commit; another commit is `hook-stale`. The report heading remains the historical `## Epic run`. Merged is not complete before the hook and report are observed. Delivery matching, re-disarm, and which stops retry live in the `epic-driver-*` modules. A run id does not reset a spent review bound.
 
 Debt filing and epic fix-tickets spawn `bun --no-env-file` on the emitted `triage.ts`. The cwd is that file's directory, and `GITHUB_REPO` is set. Feature init imports only the emitted `migrate-labels.ts` and `init.ts`, and still binds the checkout with `defaultInitDeps(repository, checkout)`. The resolver is `triage-runtime.ts`. Paths come from that file. There is no sibling, home, or project fallback. A missing emit stays `issue-triage-unavailable` or `IssueTriageMissing`. `skill://issue-triage` remains the separate optional advisory skill, not the action runtime; it is not copied into this plugin. The generated `dist/issue-triage/` slice ships with omp-build so those actions need no separate plugin installation.
 

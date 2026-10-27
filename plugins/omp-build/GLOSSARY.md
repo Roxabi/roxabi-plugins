@@ -8,8 +8,20 @@ OMP-only delivery plugin. Owns the OMP cycle after `dev-core` is uninstalled fro
 The OMP-only plugin that owns the OMP delivery cycle.
 _Avoid_: factory, /R-dev, /build, dev-core (on OMP)
 
+**UW (unit of work)**:
+A unit of work identified by its repository and issue number; it may contain other UWs.
+_Avoid_: ticket, epic
+
+**UW parente**:
+A UW with children, as determined by its native GitHub relations rather than an issue type.
+_Avoid_: epic, a delivery inferred from its children's approvals alone
+
+**UW feuille**:
+A UW without children, as determined by its native GitHub relations.
+_Avoid_: ticket, a role fixed by an issue type
+
 **Feature**:
-The unit of OMP delivery, run by `/feature`.
+The delivery of a UW, from framing through merge, driven by `/feature`.
 _Avoid_: build, /build, /dev, /R-dev, omp-wt
 
 **Mandate**:
@@ -52,32 +64,52 @@ _Avoid_: `.omp-build/workflow.json`, a working-tree copy, `review.graph`, `revie
 A published result whose complete remote record has been read back and can support resumption. Unpublished work and a still-running agent are not checkpoints.
 _Avoid_: a local snapshot, an attempted write, an unconfirmed acknowledgement
 
-**Epic mandate**:
-The confirmed `mandate` on the epic issue: run, base, and approved child scope for that delivery. It is not a session goal.
-_Avoid_: Epic goal, /goal, an autonomy level stored on the issue, one goal per ticket
+**Parent UW mandate**:
+The confirmed mandate on a UW parente: run, base, and approved child scope for that delivery. It is not a session goal.
+_Avoid_: Epic goal, /goal, an autonomy level stored on the issue, one goal per UW
 
 **Run**:
-The run id stored on an Epic mandate. It names one delivery pass. It does not authorize the pass, reset a review bound, or join authority by itself.
+The run id stored on a Parent UW mandate. It names one delivery pass without authorizing it, resetting a review bound, or joining authority by itself.
 _Avoid_: Goal run, a /goal line, `run=` in an objective, a counter of attempts
 
-**Ticket stop**:
-A child the epic driver stops while independent children continue. The child record is an `epic-event` whose `event` is the historical wire name `goal-stop`.
-_Avoid_: a shared-state stop, a /goal drop, a stop held in session memory
+**Arrêt d'UW**:
+A stop confined to one child UW while independent children may continue.
+_Avoid_: ticket stop, a shared-state stop, a /goal drop, a stop held only in session memory
 
 **Shared-state stop**:
-A failure that makes every remaining child unsafe to continue. The drop record is an `epic-event` whose `event` is the historical wire name `goal-report`.
-_Avoid_: a ticket stop, a /goal, waiting on pending base CI before a ticket
+A failure that makes every remaining child UW unsafe to continue.
+_Avoid_: an Arrêt d'UW, a /goal, waiting on pending base CI before a child UW
 
 **Spec**:
-The GitHub issue body: agreed scope, acceptance criteria, invariants and exclusions. The SSoT for what to build.
-_Avoid_: artifacts/specs, validated, /R-spec
+The versioned framing of a UW: criteria, invariants, exclusions, open questions, and named context sections. Its proposal is carried by the issue body; acceptance belongs to the existing mandate and operator-decision chain.
+_Avoid_: artifacts/specs, validated, /R-spec, acceptance inferred from a body edit
+
+**Spec effective**:
+The UW's own accepted Spec together with its ancestors' invariants and exclusions, pinned by their references and versions.
+_Avoid_: an unversioned body concatenation, treating a missing ancestor as empty
+
+**Issue**:
+The GitHub support for a proposed Spec, native graph facts, records, and the display of a UW.
+_Avoid_: the UW itself, proof of delivery from native closure
+
+**Report**:
+A formalized, untreated cause retained on its UW of origin.
+_Avoid_: an automatically created follow-up issue, a satisfied criterion
+
+**Orchestrateur**:
+The omp-build code that runs `/feature`, dispatches agents, submits their forms to the engine for verification, and publishes confirmed results.
+_Avoid_: a LLM, an agent with publication authority
+
+**Instantané**:
+A read-only dossier of pinned inputs for one action, providing the agent's UW data and references.
+_Avoid_: a dev-core snapshot, a mutable cache, the durable review fingerprint
 
 **Canonical record**:
 A versioned common record whose payload is the authority for that operation. The Markdown beside it is a deterministic projection, not a second contract.
 _Avoid_: a positional HTML marker, a Markdown section a consumer parses, a local session store
 
-**Epic event**:
-A canonical record on an epic or child issue. Its payload `event` is one of the historical wire names `goal-stop`, `epic-review`, `epic-fix`, `post-merge`, or `goal-report`. Those names are protocol, not a session goal.
+**UW event**:
+A canonical `epic-event` record on a UW parente or child UW. Its historical payload names, including `goal-stop`, `epic-review`, `epic-fix`, `post-merge`, and `goal-report`, are protocol rather than a session goal.
 _Avoid_: a /goal, a body marker, a `goal-stop` comment prefix, session memory
 
 **Landing admission**:
@@ -92,7 +124,7 @@ Test-first implementation at the seams agreed with the operator, using the model
 _Avoid_: automatic tests for every change, a mandatory user slash
 
 **Implementation**:
-Work that satisfies one ticket's acceptance criteria inside its matching Worktree.
+Work that satisfies one UW's acceptance criteria inside its matching Worktree.
 _Avoid_: an external `implement` skill as a prerequisite, implementation on the Principal
 
 **Land**:
@@ -102,8 +134,8 @@ Arming the gate is not evidence that the PR merged.
 _Avoid_: manual merge while checks run, treating a label as a completed landing
 
 **Post-merge hook**:
-The repository's declared command that runs once the epic has landed, not after each ticket. This run's `ok` or `skipped` counts only at the current base commit; at another commit the driver stops `hook-stale` and does not run the hook again.
-_Avoid_: a per-ticket deploy, a release cut, re-running this run's hook on a moved base
+The repository's declared command that runs once the UW parente has landed, not after each child UW. This run's `ok` or `skipped` counts only at the current base commit; at another commit the driver stops `hook-stale` and does not run the hook again.
+_Avoid_: a per-child deploy, a release cut, re-running this run's hook on a moved base
 
 **Review bound**:
 At most two automated fixes per PR, one per canonical final review, derived on every read from the automation login's complete `review` records: how many there are, and the latest one. A legacy marker is not a review.
@@ -113,13 +145,13 @@ Every posted review counts, with or without a fix before it. Nothing writes acco
 After a stop, resumption is operator-supervised agent processing: the operator explicitly approves revised scope, a diagnostic/correction plan and the continuation checkpoint; agents perform the correction, targeted proof and independent review. A spent PR stays stopped and disarmed, so revised work goes to a superseding PR with a fresh bound while its records remain evidence; fresh review, proof, CI and `landPr` admission still apply.
 _Avoid_: a ledger, counting fix receipts, resetting a canonical stop, one more automatic retry, raw label or manual-merge bypass
 
-**Snapshot**:
+**dev-core snapshot**:
 A frozen copy of selected `dev-core` files inside `omp-build`. No resync. Claude's `dev-core` evolves alone.
-_Avoid_: fork, submodule, live share
+_Avoid_: Instantané, fork, submodule, live share
 
-**Ticket link**:
-A native GitHub relation between tracker issues: sub-issue (parent/child) or dependency (blocked-by/blocks). Written by `issue-triage`.
-_Avoid_: a `Blocked by:` text line, `.scratch/` local edges, raw `gh issue create` for a relation
+**Lien d'UW**:
+A native GitHub relation between UWs: sub-issue (parent/child) or dependency (blocked-by/blocks), written through issue-triage.
+_Avoid_: ticket link, a `Blocked by:` text line, `.scratch/` local edges, raw `gh issue create` for a relation
 
 **Sibling rule**:
 A deferred follow-up is a sibling of its origin under their shared parent, blocked-by the origin — never its child.
@@ -130,7 +162,7 @@ _Avoid_: child-of-origin, nested deferral cascade
 _Avoid_: spec frontmatter, κ alone, tier-selected review agents
 
 **issue-triage**:
-The tracker plugin: creates issues, writes `size:`/`priority:`/type labels, and owns every Ticket link. Sibling to `omp-build`, not part of it.
+The tracker plugin: creates issues, writes `size:`/`priority:`/type labels, and owns every Lien d'UW. Sibling to `omp-build`, not part of it.
 _Avoid_: folding it into omp-build, copying its mutations
 
 **Optional tail**:
@@ -153,16 +185,16 @@ _Avoid_: main, staging, master (those are bases, not this worktree)
 A durable linked git checkout (ω) that isolates delivery from the Principal. Created from a fresh `origin/<base>`, meaning `refs/remotes/origin/<base>`. The operator enters it with `/move <path>`, not `/wt`.
 _Avoid_: branch; Isolation (ephemeral `task.isolated` sandbox); `/wt`; a session goal
 
-**Epic worktree**:
-The one Worktree an epic is delivered from, created **detached** at `refs/remotes/origin/<base>`, with no epic branch. Each child gets its own branch inside it, from the base, and its own PR; after a confirmed merge HEAD is detached there again and the child's local branch deleted.
-_Avoid_: one worktree per ticket, an epic branch, the Principal, Isolation
+**Parent UW worktree**:
+The one Worktree a UW parente is delivered from, created **detached** at `refs/remotes/origin/<base>`, with no parent branch. Each child UW gets its own branch inside it, from the base, and its own PR; after a confirmed merge HEAD is detached there again and the child's local branch deleted.
+_Avoid_: one worktree per child UW, a parent branch, the Principal, Isolation
 
 **Bootstrap**:
-The prepared state of an Epic worktree, taken once from what the repository declares, before its first ticket.
+The prepared state of a Parent UW worktree, taken once from what the repository declares, before its first child UW.
 _Avoid_: a hand-maintained checklist, copying the Principal's uncommitted state
 
 **Init**:
-A repository's adoption by `/feature`: its tracker contract, canonical labels, proof tools and declared stack blocks.
+A repository's adoption by `/feature`: its tracker contract, canonical labels and declared stack blocks.
 _Avoid_: R-dev-init, assuming every repository is already adopted
 
 **Isolation**:

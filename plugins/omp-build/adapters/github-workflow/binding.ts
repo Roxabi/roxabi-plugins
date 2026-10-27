@@ -3,6 +3,7 @@ import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import type { Scope } from '../../engine/record-values.ts'
 import type { RecordProjectionConfig } from '../../engine/result.ts'
 import { historyFor } from '../../engine/workflow-control.ts'
+import { readScopeIssueBody } from '../../roxabi/uw-spec/scope-issue.ts'
 import { publishGitHubRecord } from '../github/publish.ts'
 import { diagnostic, GitHubHistoryReadError, type GitHubOptions } from '../github/types.ts'
 import {
@@ -11,7 +12,6 @@ import {
   resolveInitialWorkflowBinding,
   uniqueHistories,
 } from './binding-resolution.ts'
-import { readScopeIssueBody } from './native-facts.ts'
 import type { LandingFactsRead, WorkflowBindingRead, WorkflowPublication } from './types.ts'
 
 /**

@@ -1,13 +1,15 @@
+import {
+  type NativeEpicChild,
+  type NativeEpicPullRequest,
+  readNativeEpicChildren,
+} from '../../adapters/github-native/epic-children.ts'
 import type { DecodedHistory } from '../../dist/contracts.js'
 import {
   baseCi,
   branchRefs,
-  epicChildren,
   issueHistory,
   prFacts,
   pullRequestsForChild,
-  type RawChild,
-  type RawPr,
   repoName,
   stoppedReviews,
   tree,
@@ -19,18 +21,18 @@ import {
   reviewsFromEvents,
   stopsFromEvents,
 } from './epic-driver-history'
-import { git, Refused } from './epic-driver-runtime'
+import { git, graphql, Refused } from './epic-driver-runtime'
 import type { BranchFacts, ChildFacts, Facts } from './epic-types'
 import { readLanding } from './workflow-readiness.js'
 
-type EpicChild = RawChild
+type EpicChild = NativeEpicChild
 type ChildHistory = DecodedHistory
 type ChildHistoryEntry = [number, ChildHistory]
 
 function ensureLocalChildren(nodes: readonly EpicChild[], full: string): void {
-  const elsewhere = nodes.filter((node) => node.repository.nameWithOwner !== full)
+  const elsewhere = nodes.filter((node) => node.repository !== full)
   if (elsewhere.length === 0) return
-  const names = elsewhere.map((node) => `${node.repository.nameWithOwner}#${node.number}`).join(', ')
+  const names = elsewhere.map((node) => `${node.repository}#${node.number}`).join(', ')
   throw new Refused(`the Epic run delivers only ${full}; sub-issues elsewhere: ${names}`)
 }
 
@@ -50,7 +52,7 @@ function observedChild(
   node: EpicChild,
   full: string,
   history: ChildHistory,
-  rawPrs: Map<number, RawPr[]>,
+  rawPrs: Map<number, NativeEpicPullRequest[]>,
   stopped: Set<number>,
   refs: Map<number, BranchFacts[]>,
 ): ChildFacts {
@@ -62,13 +64,13 @@ function observedChild(
     number: node.number,
     title: node.title,
     state: node.state,
-    labels: node.labels.nodes.map((label) => label.name),
+    labels: node.labels,
     body,
     epicFix: hasEpicFixEvent(history),
-    blockedBy: node.blockedBy.nodes.map((blocker) =>
-      blocker.repository.nameWithOwner === full
+    blockedBy: node.blockedBy.map((blocker) =>
+      blocker.repository === full
         ? { number: blocker.number, state: blocker.state }
-        : { number: blocker.number, state: blocker.state, repo: blocker.repository.nameWithOwner },
+        : { number: blocker.number, state: blocker.state, repo: blocker.repository },
     ),
     stops: stopsFromEvents(history),
     prs: (rawPrs.get(node.number) ?? []).map((pr) => prFacts(pr, stopped)),
@@ -80,7 +82,7 @@ function observedChildren(
   nodes: readonly EpicChild[],
   full: string,
   histories: Map<number, ChildHistory>,
-  rawPrs: Map<number, RawPr[]>,
+  rawPrs: Map<number, NativeEpicPullRequest[]>,
   stopped: Set<number>,
   refs: Map<number, BranchFacts[]>,
 ): ChildFacts[] {
@@ -112,7 +114,10 @@ export async function gather(
   { git: withGit = true, dashboard = true, reviews = true } = {},
 ): Promise<Gathered> {
   const { owner, name, full } = repoName(repo)
-  const nodes = epicChildren(repo, owner, name, epic, full)
+  const graph = <T>(query: string, variables: Record<string, string | number>): T => graphql<T>(repo, query, variables)
+  const nodes = readNativeEpicChildren(owner, name, epic, full, graph, (message) => {
+    throw new Refused(message)
+  })
   ensureLocalChildren(nodes, full)
   const rawPrs = new Map(nodes.map((node) => [node.number, pullRequestsForChild(node, full)]))
   const open = [

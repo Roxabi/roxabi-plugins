@@ -1,4 +1,4 @@
-import { hasScope } from './epic-naming'
+import { hasScope } from '../../roxabi/uw-spec'
 import { isDone, topological } from './epic-progress'
 import type { ChildFacts } from './epic-types'
 

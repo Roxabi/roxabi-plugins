@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { DecodedHistory } from '../../engine/history-schema.ts'
 import { decodeHistory, encodeRecord } from '../github/history-codec.ts'
 import { githubScope } from '../github/transport.ts'
-import { readLinkedIssueAssociation } from '../github-workflow/associations.ts'
+import { readLinkedIssueAssociation } from '../github-native/relations.ts'
 import { publishConfirmedWorkflowRecord, readLandingFacts, readWorkflowBinding } from '../github-workflow/binding.ts'
 import { readComposedWorkflowHistory } from '../github-workflow/history.ts'
 import {

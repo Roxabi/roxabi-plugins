@@ -1,6 +1,6 @@
-import type { ProcessRunner, Ref, Size, Source } from './debt-filing-contract.ts'
-import { REPOSITORY } from './debt-filing-contract.ts'
-import type { DebtFilingInput } from './debt-filing-port.ts'
+import type { DebtIssue, ProcessRunner, Ref, Size, Source } from '../../roxabi/debt-filing-contract.ts'
+import { REPOSITORY } from '../../roxabi/debt-filing-contract.ts'
+import type { DebtFilingInput } from '../../roxabi/debt-filing-port.ts'
 
 export function ref(value: unknown): Ref | null {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
@@ -49,16 +49,11 @@ export async function command(
   return result.stdout
 }
 
-export async function graph(
-  runner: ProcessRunner,
-  query: string,
-  cwd: string,
-  env: NodeJS.ProcessEnv,
-): Promise<unknown> {
+async function graph(runner: ProcessRunner, query: string, cwd: string, env: NodeJS.ProcessEnv): Promise<unknown> {
   return parseJson(await command(runner, 'gh', ['api', 'graphql', '-f', `query=${query}`], cwd, env))
 }
 
-export function field(root: unknown, path: readonly string[]): unknown {
+function field(root: unknown, path: readonly string[]): unknown {
   let current: unknown = root
   for (const name of path) {
     if (current === null || typeof current !== 'object' || Array.isArray(current) || !(name in current))
@@ -68,7 +63,7 @@ export function field(root: unknown, path: readonly string[]): unknown {
   return current
 }
 
-export function labels(value: unknown): string[] | null {
+function labels(value: unknown): string[] | null {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
   const nodes = (value as Record<string, unknown>).nodes
   if (!Array.isArray(nodes)) return null
@@ -78,13 +73,13 @@ export function labels(value: unknown): string[] | null {
   return names.every((name): name is string => typeof name === 'string') ? names : null
 }
 
-export function sizeOf(value: unknown): Size | null {
+function sizeOf(value: unknown): Size | null {
   const found =
     labels(value)?.filter((name) => name === 'size:S' || name === 'size:F-lite' || name === 'size:F-full') ?? []
   return found.length === 1 ? (found[0].slice('size:'.length) as Size) : null
 }
 
-export async function resolveSource(
+export async function resolveNativeDebtSource(
   input: DebtFilingInput,
   runner: ProcessRunner,
   cwd: string,
@@ -133,4 +128,87 @@ export async function resolveSource(
     parent: ref(field(nodes[0], ['parent'])),
     size,
   }
+}
+
+function debtIssue(value: unknown): DebtIssue | null {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
+  const item = value as Record<string, unknown>
+  const author = item.author
+  const issueType = item.issueType
+  const blockedBy = item.blockedBy
+  const authorLogin =
+    author !== null && typeof author === 'object' && !Array.isArray(author)
+      ? (author as Record<string, unknown>).login
+      : null
+  const type =
+    issueType !== null && typeof issueType === 'object' && !Array.isArray(issueType)
+      ? (issueType as Record<string, unknown>).name
+      : null
+  const dependencies =
+    blockedBy !== null && typeof blockedBy === 'object' && !Array.isArray(blockedBy)
+      ? (blockedBy as Record<string, unknown>).nodes
+      : null
+  if (
+    typeof item.number !== 'number' ||
+    !Number.isSafeInteger(item.number) ||
+    item.number < 1 ||
+    typeof item.title !== 'string' ||
+    typeof item.body !== 'string' ||
+    (authorLogin !== null && typeof authorLogin !== 'string') ||
+    (type !== null && typeof type !== 'string') ||
+    !Array.isArray(dependencies)
+  )
+    return null
+  const refs = dependencies.map(ref)
+  const issueLabels = labels(item.labels)
+  return refs.some((entry) => entry === null) || issueLabels === null
+    ? null
+    : {
+        number: item.number,
+        title: item.title,
+        body: item.body,
+        author: authorLogin,
+        labels: issueLabels,
+        type,
+        parent: ref(item.parent),
+        blockedBy: refs as Ref[],
+      }
+}
+
+export async function readNativeDebtIssue(
+  repository: string,
+  number: number,
+  runner: ProcessRunner,
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+): Promise<DebtIssue | null> {
+  const [owner, name] = repository.split('/')
+  if (!owner || !name) return null
+  const data = await graph(
+    runner,
+    `query{repository(owner:${JSON.stringify(owner)},name:${JSON.stringify(name)}){issue(number:${number}){number title body author{login} labels(first:100){nodes{name}} issueType{name} parent{number repository{nameWithOwner}} blockedBy(first:100){nodes{number repository{nameWithOwner}}}}}}`,
+    cwd,
+    env,
+  )
+  const result = debtIssue(field(data, ['data', 'repository', 'issue']))
+  return result?.number === number ? result : null
+}
+
+function discoveryQuery(repository: string, marker: string): string {
+  return `query{search(query:${JSON.stringify(`repo:${repository} in:body ${marker}`)},type:ISSUE,first:100){issueCount nodes{...on Issue{number title body author{login} labels(first:100){nodes{name}} issueType{name} parent{number repository{nameWithOwner}} blockedBy(first:100){nodes{number repository{nameWithOwner}}}}}}}`
+}
+
+export async function discoverNativeDebtIssues(
+  repository: string,
+  marker: string,
+  runner: ProcessRunner,
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+): Promise<DebtIssue[] | null> {
+  const search = field(await graph(runner, discoveryQuery(repository, marker), cwd, env), ['data', 'search'])
+  const count = field(search, ['issueCount'])
+  const nodes = field(search, ['nodes'])
+  if (!Array.isArray(nodes) || typeof count !== 'number' || count !== nodes.length || count > 100) return null
+  const entries = nodes.map(debtIssue)
+  return entries.some((entry) => entry === null) ? null : (entries as DebtIssue[])
 }

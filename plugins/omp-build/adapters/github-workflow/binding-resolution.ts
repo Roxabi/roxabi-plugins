@@ -12,7 +12,8 @@ import { refKey } from '../../engine/workflow-pr-binding-chain.ts'
 import { decodeHistory } from '../github/history-codec.ts'
 import { readGitHubHistory } from '../github/transport.ts'
 import { diagnostic, type GitHubOptions } from '../github/types.ts'
-import { readNativePullRequestFacts, scopeNumber } from './native-facts.ts'
+import { scopeNumber } from '../github-native/issue-facts.ts'
+import { readNativePullRequestFacts } from './native-facts.ts'
 import type { WorkflowBindingRead } from './types.ts'
 
 type NativePullRequestFacts = { branch: string; base: string; head: string; baseTip: string }

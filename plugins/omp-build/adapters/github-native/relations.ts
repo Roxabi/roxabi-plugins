@@ -1,8 +1,8 @@
 import { diagnostic, GitHubHistoryReadError, type GitHubOptions } from '../github/types.ts'
+import { graphql, splitRepository } from '../github-workflow/client.ts'
+import { readNativePullRequestFacts } from '../github-workflow/native-facts.ts'
+import type { IssueParentAssociation, LinkedIssueAssociation } from '../github-workflow/types.ts'
 import { issueParentAssociation, linkedIssueAssociation } from './association-validation.ts'
-import { graphql, splitRepository } from './client.ts'
-import { readNativePullRequestFacts } from './native-facts.ts'
-import type { IssueParentAssociation, LinkedIssueAssociation } from './types.ts'
 
 const CLOSING_ISSUES_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
@@ -21,16 +21,7 @@ const PARENT_ISSUE_QUERY = `query($owner: String!, $name: String!, $number: Int!
   }
 }`
 
-/**
- * Observe native PR→issue association from closingIssuesReferences only.
- * Absence is `none`, never approval or a synthetic mandate. Ambiguity and
- * incomplete pagination remain explicit.
- *
- * GitHub interprets closing keywords only when the PR targets the default
- * branch. On any other base those keywords create no link. This reader does
- * not parse PR body or branch names to invent one. A non-default base remains
- * a valid coordinate; a node the API actually returns is kept.
- */
+/** Observe native PR→issue association from closingIssuesReferences only. */
 export async function readLinkedIssueAssociation(
   repository: string,
   pr: number,

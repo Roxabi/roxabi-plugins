@@ -15,7 +15,7 @@ import type { NativeBatchResult, NativeChildResult, NativeTask } from '../omp/re
 import { withRoxabiGitHubPolicy } from './github-policy'
 import { createGitHubRecordPublisher } from './github-publisher'
 import { nativeContributionPayload } from './native-contribution'
-import type { ReviewConfig } from './review-config'
+import type { ReviewConfig } from './review-assets'
 import type {
   PreparedReviewBatch,
   PublishedContribution,

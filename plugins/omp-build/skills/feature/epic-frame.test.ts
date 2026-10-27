@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import { hasScope } from '../../roxabi/uw-spec'
 import type { CheckNode } from './epic-ci'
 import { baseFromStack, classifyBaseCi } from './epic-ci'
 import { refuseForeignCommits, resolveTicketBranch, ticketOfBranch, ticketOfSubject } from './epic-claims'
 import { hookStatus } from './epic-finalization'
 import { frameEpic } from './epic-frame'
-import { BASE_NAME, branchFor, hasScope, RUN_ID } from './epic-naming'
+import { BASE_NAME, branchFor, RUN_ID } from './epic-naming'
 import { armedStoppedPrs, mergedLocalBranches, mergedStoppedPrs } from './epic-progress'
 import { landOutcome, stopClass } from './epic-stops'
 import {

@@ -9728,7 +9728,203 @@ function object(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
 
-// plugins/omp-build/adapters/github-workflow/association-validation.ts
+// plugins/omp-build/adapters/github-workflow/client.ts
+function splitRepository(repository) {
+  if (!RECORD_REPOSITORY.test(repository)) {
+    throw new GitHubHistoryReadError("GitHub repository is invalid", [
+      diagnostic2("invalid-scope", `Repository ${repository} is not owner/name`)
+    ]);
+  }
+  const [owner, name] = repository.split("/");
+  if (!owner || !name) {
+    throw new GitHubHistoryReadError("GitHub repository is invalid", [
+      diagnostic2("invalid-scope", `Repository ${repository} is not owner/name`)
+    ]);
+  }
+  return { owner, name };
+}
+function parseJson(raw, label) {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new GitHubHistoryReadError(`${label} is not JSON`, [
+      diagnostic2("invalid-github-response", `${label} is not valid JSON`)
+    ]);
+  }
+}
+async function graphql(options, query, variables) {
+  const raw = await gh(options)(options.cwd, [
+    "api",
+    "graphql",
+    "-f",
+    `query=${query}`,
+    "-f",
+    `owner=${variables.owner}`,
+    "-f",
+    `name=${variables.name}`,
+    "-F",
+    `number=${variables.number}`
+  ]);
+  const parsed = object(parseJson(raw, "GitHub GraphQL response"));
+  if (parsed === null) {
+    throw new GitHubHistoryReadError("GitHub GraphQL response is invalid", [
+      diagnostic2("invalid-github-response", "GraphQL response is not an object")
+    ]);
+  }
+  if (Array.isArray(parsed.errors) && parsed.errors.length > 0) {
+    throw new GitHubHistoryReadError("GitHub GraphQL returned errors", [
+      diagnostic2("github-read-failed", "GraphQL errors prevent a complete native read", parsed.errors)
+    ]);
+  }
+  if (!("data" in parsed) || parsed.data === null || parsed.data === undefined) {
+    throw new GitHubHistoryReadError("GitHub GraphQL data is absent", [
+      diagnostic2("incomplete", "GraphQL data is absent")
+    ]);
+  }
+  return parsed.data;
+}
+async function resolveRepository(options, repository) {
+  if (repository !== undefined) {
+    if (!RECORD_REPOSITORY.test(repository)) {
+      throw new GitHubHistoryReadError("GitHub repository is invalid", [
+        diagnostic2("invalid-scope", `Repository ${repository} is not owner/name`)
+      ]);
+    }
+    return repository;
+  }
+  const raw = await gh(options)(options.cwd, ["repo", "view", "--json", "nameWithOwner"]);
+  const parsed = object(parseJson(raw, "gh repo view"));
+  const nameWithOwner = parsed?.nameWithOwner;
+  if (typeof nameWithOwner !== "string" || !RECORD_REPOSITORY.test(nameWithOwner)) {
+    throw new GitHubHistoryReadError("GitHub repository identity is unreadable", [
+      diagnostic2("unreadable", "gh repo view did not return nameWithOwner")
+    ]);
+  }
+  return nameWithOwner;
+}
+
+// plugins/omp-build/adapters/github-native/issue-facts.ts
+function scopeNumber(scope) {
+  const separator = scope.target.lastIndexOf("#");
+  const repository = separator > 0 ? scope.target.slice(0, separator) : "";
+  const number = separator > 0 ? Number(scope.target.slice(separator + 1)) : Number.NaN;
+  if (!RECORD_REPOSITORY.test(scope.repository) || repository !== scope.repository || !Number.isSafeInteger(number) || number < 1) {
+    throw new GitHubHistoryReadError("GitHub scope is invalid", [
+      diagnostic2("invalid-scope", `Scope ${scope.target} is not a GitHub repository issue target`)
+    ]);
+  }
+  return number;
+}
+async function readNativeIssueFacts(repository, number, options) {
+  if (!POSITIVE_INT.test(String(number))) {
+    throw new GitHubHistoryReadError("GitHub issue number is invalid", [
+      diagnostic2("invalid-scope", `Issue number ${number} is invalid`)
+    ]);
+  }
+  const raw = await gh(options)(options.cwd, ["api", `repos/${repository}/issues/${number}`]);
+  const parsed = object(parseJson(raw, `issue #${number}`));
+  const user = object(parsed?.user);
+  const author = typeof user?.login === "string" ? user.login : null;
+  const state = parsed?.state;
+  const returnedNumber = parsed?.number;
+  const body = parsed?.body;
+  if (parsed === null || returnedNumber !== number || state !== "open" && state !== "closed" || typeof state !== "string" || typeof body !== "string") {
+    throw new GitHubHistoryReadError(`Issue #${number} is unreadable`, [
+      diagnostic2("unreadable", `Issue #${number} native payload is incomplete`)
+    ]);
+  }
+  return {
+    repository,
+    number,
+    state: state.toUpperCase(),
+    author,
+    body,
+    isPullRequest: object(parsed.pull_request) !== null
+  };
+}
+// plugins/omp-build/adapters/github-workflow/native-facts.ts
+function referenceNumber(reference) {
+  if (typeof reference === "number")
+    return Number.isSafeInteger(reference) && reference >= 1 ? reference : null;
+  const match = /^(?:#|pr\/|issue\/)?([1-9][0-9]*)$/i.exec(reference.trim());
+  if (match === null)
+    return null;
+  const number = Number(match[1]);
+  return Number.isSafeInteger(number) ? number : null;
+}
+async function readNativePullRequestFacts(repository, pr, options) {
+  if (!POSITIVE_INT.test(String(pr))) {
+    throw new GitHubHistoryReadError("GitHub pull request number is invalid", [
+      diagnostic2("invalid-scope", `Pull request number ${pr} is invalid`)
+    ]);
+  }
+  const raw = await gh(options)(options.cwd, [
+    "pr",
+    "view",
+    String(pr),
+    "--repo",
+    repository,
+    "--json",
+    "number,state,headRefOid,headRefName,baseRefName,baseRefOid,author"
+  ]);
+  const parsed = object(parseJson(raw, `pull request #${pr}`));
+  const authorObject = object(parsed?.author);
+  const author = typeof authorObject?.login === "string" ? authorObject.login : null;
+  const number = parsed?.number;
+  const state = parsed?.state;
+  const head = parsed?.headRefOid;
+  const branch = parsed?.headRefName;
+  const base = parsed?.baseRefName;
+  const baseTip = parsed?.baseRefOid;
+  if (number !== pr || typeof state !== "string" || typeof head !== "string" || !SHA.test(head) || typeof branch !== "string" || branch.length === 0 || typeof base !== "string" || base.length === 0 || typeof baseTip !== "string" || !SHA.test(baseTip)) {
+    throw new GitHubHistoryReadError(`Pull request #${pr} is unreadable`, [
+      diagnostic2("unreadable", `Pull request #${pr} native head/base facts are incomplete`)
+    ]);
+  }
+  return { repository, pr, head, base, baseTip, branch, state, author };
+}
+async function resolveNativeTarget(reference, options, repository) {
+  try {
+    const number = referenceNumber(reference);
+    if (number === null)
+      return {
+        status: "refused",
+        diagnostics: [diagnostic2("invalid-reference", `Reference ${JSON.stringify(reference)} is not an issue or PR`)]
+      };
+    const resolvedRepository = await resolveRepository(options, repository);
+    const issue = await readNativeIssueFacts(resolvedRepository, number, options);
+    if (!issue.isPullRequest)
+      return { status: "issue", scope: githubScope(resolvedRepository, number), issue };
+    const pullRequest = await readNativePullRequestFacts(resolvedRepository, number, options);
+    return { status: "pull-request", scope: githubScope(resolvedRepository, number), pullRequest };
+  } catch (error) {
+    if (error instanceof GitHubHistoryReadError) {
+      const codes = new Set(error.diagnostics.map((entry) => entry.code));
+      return {
+        status: codes.has("incomplete") ? "incomplete" : codes.has("ambiguous") ? "ambiguous" : "unreadable",
+        diagnostics: error.diagnostics
+      };
+    }
+    return {
+      status: "unreadable",
+      diagnostics: [diagnostic2("github-read-failed", error instanceof Error ? error.message : String(error))]
+    };
+  }
+}
+async function resolveNativeScope(scope, options) {
+  try {
+    return await resolveNativeTarget(scopeNumber(scope), options, scope.repository);
+  } catch (error) {
+    if (error instanceof GitHubHistoryReadError)
+      return { status: "refused", diagnostics: error.diagnostics };
+    return {
+      status: "unreadable",
+      diagnostics: [diagnostic2("github-read-failed", error instanceof Error ? error.message : String(error))]
+    };
+  }
+}
+
+// plugins/omp-build/adapters/github-native/association-validation.ts
 function completeClosingIssueNodes(data, facts) {
   const repo = object(object(data)?.repository);
   const pull = object(repo?.pullRequest);
@@ -9810,206 +10006,7 @@ function issueParentAssociation(data, number) {
   return { status: "linked", scope: githubScope(parentRepository, parentNumber), number: parentNumber };
 }
 
-// plugins/omp-build/adapters/github-workflow/client.ts
-function splitRepository(repository) {
-  if (!RECORD_REPOSITORY.test(repository)) {
-    throw new GitHubHistoryReadError("GitHub repository is invalid", [
-      diagnostic2("invalid-scope", `Repository ${repository} is not owner/name`)
-    ]);
-  }
-  const [owner, name] = repository.split("/");
-  if (!owner || !name) {
-    throw new GitHubHistoryReadError("GitHub repository is invalid", [
-      diagnostic2("invalid-scope", `Repository ${repository} is not owner/name`)
-    ]);
-  }
-  return { owner, name };
-}
-function parseJson(raw, label) {
-  try {
-    return JSON.parse(raw);
-  } catch {
-    throw new GitHubHistoryReadError(`${label} is not JSON`, [
-      diagnostic2("invalid-github-response", `${label} is not valid JSON`)
-    ]);
-  }
-}
-async function graphql(options, query, variables) {
-  const raw = await gh(options)(options.cwd, [
-    "api",
-    "graphql",
-    "-f",
-    `query=${query}`,
-    "-f",
-    `owner=${variables.owner}`,
-    "-f",
-    `name=${variables.name}`,
-    "-F",
-    `number=${variables.number}`
-  ]);
-  const parsed = object(parseJson(raw, "GitHub GraphQL response"));
-  if (parsed === null) {
-    throw new GitHubHistoryReadError("GitHub GraphQL response is invalid", [
-      diagnostic2("invalid-github-response", "GraphQL response is not an object")
-    ]);
-  }
-  if (Array.isArray(parsed.errors) && parsed.errors.length > 0) {
-    throw new GitHubHistoryReadError("GitHub GraphQL returned errors", [
-      diagnostic2("github-read-failed", "GraphQL errors prevent a complete native read", parsed.errors)
-    ]);
-  }
-  if (!("data" in parsed) || parsed.data === null || parsed.data === undefined) {
-    throw new GitHubHistoryReadError("GitHub GraphQL data is absent", [
-      diagnostic2("incomplete", "GraphQL data is absent")
-    ]);
-  }
-  return parsed.data;
-}
-async function resolveRepository(options, repository) {
-  if (repository !== undefined) {
-    if (!RECORD_REPOSITORY.test(repository)) {
-      throw new GitHubHistoryReadError("GitHub repository is invalid", [
-        diagnostic2("invalid-scope", `Repository ${repository} is not owner/name`)
-      ]);
-    }
-    return repository;
-  }
-  const raw = await gh(options)(options.cwd, ["repo", "view", "--json", "nameWithOwner"]);
-  const parsed = object(parseJson(raw, "gh repo view"));
-  const nameWithOwner = parsed?.nameWithOwner;
-  if (typeof nameWithOwner !== "string" || !RECORD_REPOSITORY.test(nameWithOwner)) {
-    throw new GitHubHistoryReadError("GitHub repository identity is unreadable", [
-      diagnostic2("unreadable", "gh repo view did not return nameWithOwner")
-    ]);
-  }
-  return nameWithOwner;
-}
-
-// plugins/omp-build/adapters/github-workflow/native-facts.ts
-function scopeNumber(scope) {
-  const separator = scope.target.lastIndexOf("#");
-  const repository = separator > 0 ? scope.target.slice(0, separator) : "";
-  const number = separator > 0 ? Number(scope.target.slice(separator + 1)) : Number.NaN;
-  if (!RECORD_REPOSITORY.test(scope.repository) || repository !== scope.repository || !Number.isSafeInteger(number) || number < 1) {
-    throw new GitHubHistoryReadError("GitHub scope is invalid", [
-      diagnostic2("invalid-scope", `Scope ${scope.target} is not a GitHub repository issue target`)
-    ]);
-  }
-  return number;
-}
-function referenceNumber(reference) {
-  if (typeof reference === "number")
-    return Number.isSafeInteger(reference) && reference >= 1 ? reference : null;
-  const match = /^(?:#|pr\/|issue\/)?([1-9][0-9]*)$/i.exec(reference.trim());
-  if (match === null)
-    return null;
-  const number = Number(match[1]);
-  return Number.isSafeInteger(number) ? number : null;
-}
-async function readNativeIssueFacts(repository, number, options) {
-  if (!POSITIVE_INT.test(String(number))) {
-    throw new GitHubHistoryReadError("GitHub issue number is invalid", [
-      diagnostic2("invalid-scope", `Issue number ${number} is invalid`)
-    ]);
-  }
-  const raw = await gh(options)(options.cwd, ["api", `repos/${repository}/issues/${number}`]);
-  const parsed = object(parseJson(raw, `issue #${number}`));
-  const user = object(parsed?.user);
-  const author = typeof user?.login === "string" ? user.login : null;
-  const state = parsed?.state;
-  const returnedNumber = parsed?.number;
-  const body = parsed?.body;
-  if (parsed === null || returnedNumber !== number || state !== "open" && state !== "closed" || typeof state !== "string" || typeof body !== "string") {
-    throw new GitHubHistoryReadError(`Issue #${number} is unreadable`, [
-      diagnostic2("unreadable", `Issue #${number} native payload is incomplete`)
-    ]);
-  }
-  return {
-    repository,
-    number,
-    state: state.toUpperCase(),
-    author,
-    body,
-    isPullRequest: object(parsed.pull_request) !== null
-  };
-}
-async function readScopeIssueBody(scope, options) {
-  const facts = await readNativeIssueFacts(scope.repository, scopeNumber(scope), options);
-  return facts.body;
-}
-async function readNativePullRequestFacts(repository, pr, options) {
-  if (!POSITIVE_INT.test(String(pr))) {
-    throw new GitHubHistoryReadError("GitHub pull request number is invalid", [
-      diagnostic2("invalid-scope", `Pull request number ${pr} is invalid`)
-    ]);
-  }
-  const raw = await gh(options)(options.cwd, [
-    "pr",
-    "view",
-    String(pr),
-    "--repo",
-    repository,
-    "--json",
-    "number,state,headRefOid,headRefName,baseRefName,baseRefOid,author"
-  ]);
-  const parsed = object(parseJson(raw, `pull request #${pr}`));
-  const authorObject = object(parsed?.author);
-  const author = typeof authorObject?.login === "string" ? authorObject.login : null;
-  const number = parsed?.number;
-  const state = parsed?.state;
-  const head = parsed?.headRefOid;
-  const branch = parsed?.headRefName;
-  const base = parsed?.baseRefName;
-  const baseTip = parsed?.baseRefOid;
-  if (number !== pr || typeof state !== "string" || typeof head !== "string" || !SHA.test(head) || typeof branch !== "string" || branch.length === 0 || typeof base !== "string" || base.length === 0 || typeof baseTip !== "string" || !SHA.test(baseTip)) {
-    throw new GitHubHistoryReadError(`Pull request #${pr} is unreadable`, [
-      diagnostic2("unreadable", `Pull request #${pr} native head/base facts are incomplete`)
-    ]);
-  }
-  return { repository, pr, head, base, baseTip, branch, state, author };
-}
-async function resolveNativeTarget(reference, options, repository) {
-  try {
-    const number = referenceNumber(reference);
-    if (number === null)
-      return {
-        status: "refused",
-        diagnostics: [diagnostic2("invalid-reference", `Reference ${JSON.stringify(reference)} is not an issue or PR`)]
-      };
-    const resolvedRepository = await resolveRepository(options, repository);
-    const issue = await readNativeIssueFacts(resolvedRepository, number, options);
-    if (!issue.isPullRequest)
-      return { status: "issue", scope: githubScope(resolvedRepository, number), issue };
-    const pullRequest = await readNativePullRequestFacts(resolvedRepository, number, options);
-    return { status: "pull-request", scope: githubScope(resolvedRepository, number), pullRequest };
-  } catch (error) {
-    if (error instanceof GitHubHistoryReadError) {
-      const codes = new Set(error.diagnostics.map((entry) => entry.code));
-      return {
-        status: codes.has("incomplete") ? "incomplete" : codes.has("ambiguous") ? "ambiguous" : "unreadable",
-        diagnostics: error.diagnostics
-      };
-    }
-    return {
-      status: "unreadable",
-      diagnostics: [diagnostic2("github-read-failed", error instanceof Error ? error.message : String(error))]
-    };
-  }
-}
-async function resolveNativeScope(scope, options) {
-  try {
-    return await resolveNativeTarget(scopeNumber(scope), options, scope.repository);
-  } catch (error) {
-    if (error instanceof GitHubHistoryReadError)
-      return { status: "refused", diagnostics: error.diagnostics };
-    return {
-      status: "unreadable",
-      diagnostics: [diagnostic2("github-read-failed", error instanceof Error ? error.message : String(error))]
-    };
-  }
-}
-
-// plugins/omp-build/adapters/github-workflow/associations.ts
+// plugins/omp-build/adapters/github-native/relations.ts
 var CLOSING_ISSUES_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
@@ -10251,6 +10248,12 @@ function childPermitted(parent, childScope, histories) {
   if (parent.payload.children.some((child) => equalScope(child.scope, childScope)))
     return true;
   return epicFixScopes(histories, parent.payload.run).some((scope) => equalScope(scope, childScope));
+}
+
+// plugins/omp-build/roxabi/uw-spec/scope-issue.ts
+async function readScopeIssueBody(scope, options) {
+  const facts = await readNativeIssueFacts(scope.repository, scopeNumber(scope), options);
+  return facts.body;
 }
 
 // plugins/omp-build/engine/workflow-pr-binding-chain.ts

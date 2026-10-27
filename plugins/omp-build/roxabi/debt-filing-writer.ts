@@ -3,22 +3,19 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
+import {
+  discoverNativeDebtIssues,
+  readNativeDebtIssue,
+  refText,
+  resolveNativeDebtSource,
+} from '../adapters/github-native/debt.ts'
 import type { Json } from '../dist/contracts.js'
 import { triageCli, triageDirectory } from '../triage-runtime.ts'
 import type { ProcessResult, ProcessRunner, Source } from './debt-filing-contract.ts'
 import { failure, REPOSITORY } from './debt-filing-contract.ts'
 import { obligationBody } from './debt-filing-decision.ts'
 import type { DebtFiling, DebtFilingInput } from './debt-filing-port.ts'
-import {
-  discoveredIssues,
-  discoveryQuery,
-  expectedAuthor,
-  mismatch,
-  missingMetadata,
-  readIssue,
-  relationshipConflict,
-} from './debt-filing-readback.ts'
-import { graph, refText, resolveSource } from './debt-filing-source.ts'
+import { expectedAuthor, mismatch, missingMetadata, relationshipConflict } from './debt-filing-readback.ts'
 import type { FixActionResult } from './fix-contract.ts'
 
 const execFileAsync = promisify(execFile)
@@ -63,8 +60,12 @@ async function resolveDebtIssueNumber(
   content: { title: string; body: string },
 ): Promise<{ number: number } | { result: FilingResult }> {
   const marker = `omp-build-debt-receipt:${input.receiptId}`
-  const discovery = discoveredIssues(
-    await graph(runtime.runner, discoveryQuery(input.target.repository, marker), runtime.cwd, runtime.env),
+  const discovery = await discoverNativeDebtIssues(
+    input.target.repository,
+    marker,
+    runtime.runner,
+    runtime.cwd,
+    runtime.env,
   )
   if (discovery === null) return filingFailure('issue-triage-existing-receipt-uncertain')
   if (discovery.length > 1) return filingFailure('issue-triage-existing-receipt-ambiguous')
@@ -116,7 +117,7 @@ async function verifyDebtIssue(
   content: { title: string; body: string },
   runtime: FilingRuntime,
 ): Promise<FilingResult | null> {
-  const firstRead = await readIssue(input.target.repository, number, runtime.runner, runtime.cwd, runtime.env)
+  const firstRead = await readNativeDebtIssue(input.target.repository, number, runtime.runner, runtime.cwd, runtime.env)
   if (firstRead === null) return failure('issue-triage-readback-unavailable')
   const immutable = mismatch(firstRead, { ...content, author })
   const conflict = relationshipConflict(firstRead, source)
@@ -129,7 +130,7 @@ async function verifyDebtIssue(
     env: runtime.env,
   })
   if ((repair.exitCode ?? 0) !== 0) return failure('issue-triage-repair-failed', repair.stderr || repair.stdout)
-  const repaired = await readIssue(input.target.repository, number, runtime.runner, runtime.cwd, runtime.env)
+  const repaired = await readNativeDebtIssue(input.target.repository, number, runtime.runner, runtime.cwd, runtime.env)
   if (repaired === null) return failure('issue-triage-readback-unavailable')
   const repairedProblems = [
     ...mismatch(repaired, { ...content, author }),
@@ -158,7 +159,7 @@ export function createTrustedDebtFiling(runner: ProcessRunner = defaultRunner): 
         files: mkdtempSync(join(tmpdir(), 'omp-build-fix-debt-')),
       }
       try {
-        const source = await resolveSource(input, runner, runtime.cwd, runtime.env)
+        const source = await resolveNativeDebtSource(input, runner, runtime.cwd, runtime.env)
         const canonical = await expectedAuthor(input, runner, runtime.cwd, runtime.env)
         const content = obligationBody(input, canonical.decision, source)
         const resolved = await resolveDebtIssueNumber(input, runtime, source, canonical.author, content)

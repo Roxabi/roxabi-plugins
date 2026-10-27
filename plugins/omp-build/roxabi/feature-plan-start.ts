@@ -14,7 +14,7 @@ import {
 } from './feature-approved-context.ts'
 import type { ContinueFeatureResult } from './feature-contract.ts'
 import { type Contracts, type History, publishRecord, type Scope, type WorkflowEvidence } from './feature-engine.ts'
-import { acceptanceCriteria } from './workflow-overrides.ts'
+import { acceptanceCriteria } from './uw-spec'
 
 type Gh = (cwd: string, args: string[]) => Promise<string>
 

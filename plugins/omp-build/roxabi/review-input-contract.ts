@@ -1,9 +1,10 @@
 import type { Json, Policy, ReviewInputSnapshot, Scope } from '../dist/contracts.js'
 import type { AllocateReviewInput, ReviewTier } from '../skills/dev-review/roster-contract'
-import type { ReviewConfig } from './review-config'
+import type { ReviewConfig } from './review-assets'
 import type { ReviewPrompts, ReviewSemanticAssets, SpecDisplay } from './review-prompts'
 import type { ConfirmedReviewSemanticContext } from './review-semantic-canon'
-import type { ReviewIssueSpec, ReviewSemanticContext } from './review-semantic-context'
+import type { ReviewSemanticContext } from './review-semantic-context'
+import type { ReviewIssueSpec } from './uw-spec'
 export type ReviewInputCapture = {
   ok: true
   input: string | null

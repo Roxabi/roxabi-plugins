@@ -2,7 +2,7 @@ import type { NativeTask } from '../omp/review-runtime/contracts'
 import type { AllocateReviewInput, AllocateReviewResult } from '../skills/dev-review/roster-contract'
 import { allocateReview } from '../skills/dev-review/roster-selection'
 import { nativePanelProfileByRole } from './native-review-profiles'
-import type { ReviewConfig } from './review-config'
+import type { ReviewConfig } from './review-assets'
 
 export type ReviewChunk = {
   index: number

@@ -6,7 +6,7 @@ import {
   validateDecision,
   validateRecordGraph,
 } from '../../dist/contracts.js'
-import { loadReviewConfig } from '../../roxabi/review-config.ts'
+import { loadReviewConfig } from '../../roxabi/review-assets.ts'
 import { assertChildGrant, readEpicAuthority } from './epic-driver-authority'
 import { gather } from './epic-driver-gather'
 import { diagnosticsText } from './epic-driver-github'
