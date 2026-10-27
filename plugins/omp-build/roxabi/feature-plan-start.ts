@@ -14,8 +14,10 @@ import {
 } from './feature-approved-context.ts'
 import type { ContinueFeatureResult } from './feature-contract.ts'
 import { type Contracts, type History, publishRecord, type Scope, type WorkflowEvidence } from './feature-engine.ts'
-import { acceptanceCriteria } from './uw-spec'
 
+function criteriaText(approved: ReadyMandateContext): string[] {
+  return approved.accepted.snapshot.spec.criteria.map((criterion) => `${criterion.id}: ${criterion.statement}`)
+}
 type Gh = (cwd: string, args: string[]) => Promise<string>
 
 type ReadyMandateContext = Extract<ApprovedMandateContext, { status: 'ready' }>
@@ -70,7 +72,7 @@ async function startPlanReview(
         exactInputs: planReviewExactInputs({
           mandateId: mandate.recordId,
           draftActionId,
-          specDigest: contracts.specDigest(approved.specBody),
+          specDigest: approved.accepted.ref.version,
           planDigest,
         }),
         slots,
@@ -81,7 +83,7 @@ async function startPlanReview(
     evidence.parents,
   )
   if (!started.ok) return { kind: 'blocked', reason: started.reason, diagnostics: started.diagnostics }
-  const criteria = acceptanceCriteria(approved.specBody)
+  const criteria = criteriaText(approved)
   const draftBlock = `Confirmed plan draft actionId=${draftActionId}:\n${JSON.stringify(structured)}`
   const reviewTask = [
     `Review the confirmed plan draft ${draftActionId}.`,
@@ -122,7 +124,7 @@ async function startPlanAmendment(
   approved: ReadyMandateContext,
   macro: AmendmentPlanMacro,
 ): Promise<ContinueFeatureResult> {
-  const criteria = acceptanceCriteria(approved.specBody)
+  const criteria = criteriaText(approved)
   const draftBlock = planStructuredBlock(history, macro.draftActionId, 'Original plan draft')
   if (draftBlock === null) return { kind: 'blocked', reason: 'plan-draft-unreadable' }
   const originals = planReviewOriginalsBlock(history, macro.reviewActionId)
@@ -147,7 +149,7 @@ async function startPlanAmendment(
         mandate: { scope, recordId: mandate.recordId, kind: 'mandate' },
         exactInputs: planExactInputs({
           mandateId: mandate.recordId,
-          specDigest: contracts.specDigest(approved.specBody),
+          specDigest: approved.accepted.ref.version,
           amendsReviewActionId: macro.reviewActionId,
           requiredBlockers: macro.blockers,
         }),
@@ -190,7 +192,7 @@ async function startPlanDraft(
   mandate: MandateRecord,
   approved: ReadyMandateContext,
 ): Promise<ContinueFeatureResult> {
-  const criteria = acceptanceCriteria(approved.specBody)
+  const criteria = criteriaText(approved)
   if (criteria.length === 0) return { kind: 'operator-decision', reason: 'needs-scope' }
   const operationId = randomUUID()
   const startId = randomUUID()
@@ -212,7 +214,7 @@ async function startPlanDraft(
         mandate: { scope, recordId: mandate.recordId, kind: 'mandate' },
         exactInputs: planExactInputs({
           mandateId: mandate.recordId,
-          specDigest: contracts.specDigest(approved.specBody),
+          specDigest: approved.accepted.ref.version,
           amendsReviewActionId: null,
           requiredBlockers: [],
         }),
@@ -252,7 +254,6 @@ export async function planAction(
   contracts: Contracts,
   evidence: WorkflowEvidence,
   history: History,
-  body: string,
   gh: Gh,
   cwd: string,
   scope: Scope,
@@ -264,7 +265,6 @@ export async function planAction(
   }
   if (approved.status !== 'ready') return { kind: 'blocked', reason: 'mandate-spec-missing' }
   // Plan/implement consume the accepted Spec snapshot, not a live reread.
-  void body
   const macro = contracts.planMacro(evidence, approved.mandate)
   if (macro.phase === 'uncertain' || macro.phase === 'blocked') {
     return { kind: 'blocked', reason: macro.evidence[0]?.code ?? macro.phase, diagnostics: macro.evidence }

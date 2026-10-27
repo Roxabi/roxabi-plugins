@@ -81,6 +81,38 @@ function issueOf(number) {
   if (!issue) fail('missing issue ' + number)
   return issue
 }
+function graphConnection(nodes) {
+  return { nodes, pageInfo: { hasNextPage: false, endCursor: null } }
+}
+function graphVariable(name) {
+  const entry = argv.find((value) => value.startsWith(name + '='))
+  return entry === undefined ? undefined : entry.slice(name.length + 1)
+}
+function nativeGraphIssue(number) {
+  const issue = issueOf(number)
+  return {
+    number: Number(number),
+    title: number === '7' ? 'Feature' : 'Save selected region',
+    body: issue.body,
+    updatedAt: issue.updatedAt,
+    state: issue.state,
+    stateReason: null,
+    repository: { nameWithOwner: 'acme/app' },
+    parent: null,
+    labels: graphConnection(issue.labels.map((label) => ({ name: label.name }))),
+    subIssues: graphConnection([]),
+    blockedBy: graphConnection([]),
+  }
+}
+function isNativeGraphQuery(query) {
+  return (
+    query.includes('number title body updatedAt state stateReason repository') &&
+    query.includes('labels(first: 100, after: $labelsCursor)') &&
+    query.includes('subIssues(first: 100, after: $childrenCursor)') &&
+    query.includes('blockedBy(first: 100, after: $blockersCursor)')
+  )
+}
+
 function main() {
   if (argv[0] === 'api' && argv[1] === 'user') {
     if (state.installation) fail('gh: Resource not accessible by integration (HTTP 403)')
@@ -90,8 +122,15 @@ function main() {
     return
   }
   if (argv[0] === 'api' && argv[1] === 'graphql') {
-    if (argv[9] !== 'number=7' || !argv.some((value) => value.startsWith('query='))) fail('unexpected gh GraphQL argv')
+    if (!argv.some((value) => value.startsWith('query='))) fail('unexpected gh GraphQL argv')
     const query = argv.find((value) => value.startsWith('query='))
+    if (isNativeGraphQuery(query)) {
+      const number = graphVariable('number')
+      if (number === undefined || !/^[1-9]\\d*$/.test(number)) fail('missing native graph issue number')
+      output({ data: { repository: { issue: nativeGraphIssue(number) } } })
+      return
+    }
+    if (argv[9] !== 'number=7') fail('unexpected gh GraphQL argv')
     if (query.includes('issue(number: $number)')) {
       output({ data: { repository: { issue: { number: 7, title: 'Feature', labels: { totalCount: 0, nodes: [] }, issueType: { name: 'Feature' } } } } })
       return

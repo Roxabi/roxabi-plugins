@@ -1,6 +1,7 @@
 import type { FailedCheckFailure } from '../engine/record-digests.ts'
 import type { ScopedRecordRef } from '../engine/record-references.ts'
 import type { Scope } from '../engine/record-values.ts'
+import type { AssessSpecExact } from '../engine/workflow-receipt-schema.ts'
 import type { NativeBatch } from '../omp/review-runtime/contracts.ts'
 import type { ContinueFeatureResult } from './feature-contract.ts'
 
@@ -24,12 +25,7 @@ export type ModelActionInput =
       scope: Scope
       start: ScopedRecordRef
       operationId: string
-      assessPair: {
-        acceptedBody: string
-        acceptedDigest: string
-        currentBody: string
-        currentDigest: string
-      }
+      assessExact: AssessSpecExact
     }
   | {
       action: 'implement'
@@ -92,19 +88,20 @@ function actionTask(input: ModelActionInput): string {
     }
   }
   if (input.action === 'assess-spec') {
-    const { assessPair } = input
-    if (assessPair !== undefined) {
-      return [
-        `Assess Spec change for ${input.scope.target}. Return only the structured classification. Do not implement a semantic repair.`,
-        `acceptedDigest=${assessPair.acceptedDigest}`,
-        `currentDigest=${assessPair.currentDigest}`,
-        'acceptedBody:',
-        JSON.stringify(assessPair.acceptedBody),
-        'currentBody:',
-        JSON.stringify(assessPair.currentBody),
-        'Decode both JSON strings exactly; do not normalize whitespace.',
-      ].join('\n')
-    }
+    return [
+      `Assess canonical Spec change for ${input.scope.target}. Return only the structured classification. Do not implement a semantic repair.`,
+      `acceptedVersion=${input.assessExact.accepted.ref.version}`,
+      `proposedVersion=${input.assessExact.proposed.snapshot.spec.version}`,
+      `acceptedTier=${input.assessExact.accepted.tier}`,
+      `proposedTier=${input.assessExact.proposed.tier}`,
+      'acceptedCanonicalSpec:',
+      JSON.stringify(input.assessExact.accepted.snapshot.spec),
+      'proposedCanonicalSpec:',
+      JSON.stringify(input.assessExact.proposed.snapshot.spec),
+      `acceptedChildren=${JSON.stringify(input.assessExact.accepted.children)}`,
+      `proposedChildren=${JSON.stringify(input.assessExact.proposed.children)}`,
+      `mechanical=${JSON.stringify(input.assessExact.mechanical)}`,
+    ].join('\n')
   }
   return `Perform the named ${input.action} action for ${input.scope.target}. Return only the structured classification. Do not implement a semantic repair.`
 }

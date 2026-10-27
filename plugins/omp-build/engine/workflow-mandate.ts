@@ -1,5 +1,14 @@
 import type { Diagnostic } from './record-values.ts'
+import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
 import type { MandateRecord, PauseBinding } from './workflow-control.ts'
+import type { MandatePayload } from './workflow-mandate-schema.ts'
+
+export function effectiveMandateRole(
+  storedRole: MandatePayload['role'],
+  accepted: AcceptedOwnSpec,
+): MandatePayload['role'] {
+  return storedRole === 'fix-only' ? 'fix-only' : accepted.children.length > 0 ? 'epic' : 'feature'
+}
 
 export type MandateRefusal =
   | 'missing'

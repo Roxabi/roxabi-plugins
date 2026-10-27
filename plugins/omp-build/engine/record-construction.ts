@@ -56,6 +56,7 @@ function derivedInputs(draft: RecordDraft): string[] {
       return [draft.payload.reviewId]
     case 'epic-event':
       return []
+    case 'spec-identity':
     case 'mandate':
     case 'operator-control':
     case 'action-receipt':

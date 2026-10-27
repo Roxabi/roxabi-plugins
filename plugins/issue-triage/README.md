@@ -64,6 +64,18 @@ Filing from a checkout you do not trust (a PR under review): start Bun in this s
 
 Startup separation assumes the resolved CLI and its directory are operator-trusted. A normal installed cache is separate from the candidate checkout; a development link into candidate-controlled source does not establish that trust boundary. This launcher is not a validator or sandbox for the CLI it resolves.
 
+## Importable issue writer
+
+The standalone skill, CLI and repository-selection rules above remain independent of omp-build. UW consumers use an injected library rather than importing the CLI or starting it as a subprocess:
+
+- [`domain/issue-write.ts`](skills/shared/domain/issue-write.ts): `createIssueWriter(ports)`, explicit `IssueRef` coordinates, mutation plans and observed results.
+- [`adapters/issue-writer.ts`](skills/shared/adapters/issue-writer.ts): `createGhIssueWritePorts({ gh, read })`, adapting a supplied command runner and a complete logical reader to native GitHub mutations.
+- [`domain/complexity.ts`](skills/shared/domain/complexity.ts): the existing weighted κ rubric and canonical tier mapping, without repository discovery or omp-build dependencies.
+
+The caller supplies repository, policy, authorization and complete observations, including native relations. An update checks the expected body, title, labels and relations before mutation, then reads back the actual result. `updatedAt` is descriptive: publishing a separate identity-allocation comment must not make an otherwise unchanged issue conflict. These checks are not GitHub compare-and-swap or protection against every concurrent writer.
+
+Results distinguish a completed write, a refusal before mutation, known partial effects and an attempted creation whose remote outcome is uncertain. A failed create response does not prove that GitHub created nothing: no issue reference is invented, and the library does not search, retry or roll back. Known partial results retain the actual reference and completed steps. UW grammar, durable criterion identities and operator-confirmation authority belong to the injecting engine, not this generic writer. The autonomous CLI does not acquire UW-only restrictions.
+
 ## Size
 
 | Size | Description |
@@ -91,7 +103,7 @@ P1 fires on either of two triggers: the milestone in progress, or a shipped chec
 
 Keep literal harness placeholders intact when changing the OMP path-rewrite implementation; lint maintenance must not change expansion behavior. Publish OMP changes with matching, newer versions in `package.json` and `.omp-plugin/marketplace.json`; Claude's hash-keyed delivery is unchanged.
 
-OMP candidate `0.2.14` synchronizes that cache contract after removing cross-plugin omp-build assertions from the issue-triage test subtree. This is test-ownership cleanup, not an issue-triage CLI or runtime interface change. The existing path-based version gate and Claude SHA-based delivery policy are unchanged; no installation or activation is implied.
+Version `0.3.0` adds the injected writer and pure κ module. Existing standalone commands, repository selection, cross-repository behavior and Claude/OMP entrypoints retain their contracts. Matching source/catalogue versions describe the candidate; they do not prove installation or activation.
 
 ## Verification
 

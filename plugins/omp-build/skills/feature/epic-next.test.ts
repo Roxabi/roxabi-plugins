@@ -1,6 +1,18 @@
 import { describe, it } from 'vitest'
 import { branchFor } from './epic-naming'
-import { branch, type Case, child, decides, facts, head, OTHER_REPO, on, pr, sha } from './epic-transition.fixture'
+import {
+  branch,
+  type Case,
+  child,
+  decides,
+  facts,
+  head,
+  OTHER_REPO,
+  on,
+  pr,
+  refusedOwnUw,
+  sha,
+} from './epic-transition.fixture'
 
 describe('nextStep', () => {
   describe('order and blockers', () => {
@@ -171,13 +183,13 @@ describe('nextStep', () => {
         step: { action: 'resume', ticket: 1, branch: head(1), pr: null },
       },
       {
-        name: 'no size label → no-scope',
-        facts: facts([child(1, { labels: ['type:feat'] })]),
+        name: 'an incomplete shared UW observation → no-scope',
+        facts: facts([child(1, { ownUw: refusedOwnUw('incomplete') })]),
         step: { action: 'stop', ticket: 1, stop: 'no-scope' },
       },
       {
-        name: 'a needs-framing heading → no-scope',
-        facts: facts([child(1, { body: '## Acceptance\n\n- [ ] x\n\n## Needs framing\n' })]),
+        name: 'a changed child commitment → no-scope',
+        facts: facts([child(1, { ownUw: refusedOwnUw('changed-child', 'material-change-pending') })]),
         step: { action: 'stop', ticket: 1, stop: 'no-scope' },
       },
     ])('$name', decides)

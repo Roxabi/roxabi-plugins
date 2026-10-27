@@ -49,44 +49,82 @@ function semanticSpecBytes(
   return { reference: value.reference, body: value.body, digest: value.digest }
 }
 
-function semanticAcceptanceRef(
-  item: Record<string, unknown>,
-  scope: { repository: string; target: string },
-): unknown[] | Refusal {
-  if (typeof item.specDigest !== 'string' || !isMap(item.assessment))
-    return refuse('unreadable', 'accept-material chain ref has no assessment')
-  const assessment = semanticScopeOf(item.assessment.scope)
-  if (!assessment || typeof item.assessment.recordId !== 'string' || typeof item.assessment.kind !== 'string')
-    return refuse('unreadable', 'accept-material assessment ref is unreadable')
+type SemanticExternalRecordRef = {
+  scope: { repository: string; target: string }
+  recordId: string
+  kind: string
+}
+
+function semanticExternalRecordRef(value: unknown, label: string): SemanticExternalRecordRef | Refusal {
+  if (
+    !isMap(value) ||
+    typeof value.recordId !== 'string' ||
+    value.recordId.length === 0 ||
+    typeof value.kind !== 'string' ||
+    value.kind.length === 0
+  )
+    return refuse('unreadable', `${label} is unreadable`)
+  const scope = semanticScopeOf(value.scope)
+  return scope === null
+    ? refuse('unreadable', `${label} has no scope`)
+    : { scope, recordId: value.recordId, kind: value.kind }
+}
+
+function mandateChainRef(item: Record<string, unknown>, source: SemanticExternalRecordRef): unknown[] | Refusal {
+  if (source.kind !== 'mandate' || typeof item.version !== 'string')
+    return refuse('unreadable', 'mandate chain ref is unreadable')
+  return ['mandate', source.recordId, source.scope.repository, source.scope.target, item.version]
+}
+
+function editorialChainRef(item: Record<string, unknown>, source: SemanticExternalRecordRef): unknown[] | Refusal {
+  if (source.kind !== 'action-receipt' || typeof item.from !== 'string' || typeof item.to !== 'string')
+    return refuse('unreadable', 'editorial chain ref is unreadable')
+  return ['editorial', source.recordId, source.scope.repository, source.scope.target, item.from, item.to]
+}
+
+function materialChainRef(item: Record<string, unknown>, source: SemanticExternalRecordRef): unknown[] | Refusal {
+  if (
+    source.kind !== 'operator-control' ||
+    typeof item.from !== 'string' ||
+    typeof item.to !== 'string' ||
+    typeof item.proposalDigest !== 'string'
+  ) {
+    return refuse('unreadable', 'accept-material chain ref is unreadable')
+  }
+  const assessment = semanticExternalRecordRef(item.assessment, 'accept-material assessment ref')
+  if ('ok' in assessment) return assessment
+  if (assessment.kind !== 'action-receipt')
+    return refuse('unreadable', 'accept-material assessment ref has an invalid record kind')
   return [
     'accept-material',
-    item.recordId,
-    scope.repository,
-    scope.target,
-    item.specDigest,
-    assessment.repository,
-    assessment.target,
-    item.assessment.recordId,
-    item.assessment.kind,
+    source.recordId,
+    source.scope.repository,
+    source.scope.target,
+    item.from,
+    item.to,
+    item.proposalDigest,
+    assessment.scope.repository,
+    assessment.scope.target,
+    assessment.recordId,
+    assessment.kind,
   ]
 }
 
 function semanticChainRef(item: unknown): unknown[] | Refusal {
-  if (!isMap(item) || typeof item.kind !== 'string' || typeof item.recordId !== 'string' || item.recordId.length === 0)
+  if (!isMap(item) || typeof item.kind !== 'string')
     return refuse('unreadable', 'accepted Spec chain ref is unreadable')
-  const scope = semanticScopeOf(item.scope)
-  if (!scope) return refuse('unreadable', 'accepted Spec chain ref has no scope')
-  if (item.kind === 'mandate') {
-    if (typeof item.specDigest !== 'string') return refuse('unreadable', 'mandate chain ref has no spec digest')
-    return ['mandate', item.recordId, scope.repository, scope.target, item.specDigest]
+  const source = semanticExternalRecordRef(item.source, 'accepted Spec chain source ref')
+  if ('ok' in source) return source
+  switch (item.kind) {
+    case 'mandate':
+      return mandateChainRef(item, source)
+    case 'editorial':
+      return editorialChainRef(item, source)
+    case 'accept-material':
+      return materialChainRef(item, source)
+    default:
+      return refuse('unreadable', `accepted Spec chain ref kind ${item.kind} is not a spec acceptance`)
   }
-  if (item.kind === 'editorial') {
-    if (typeof item.acceptedDigest !== 'string' || typeof item.currentDigest !== 'string')
-      return refuse('unreadable', 'editorial chain ref has no digests')
-    return ['editorial', item.recordId, scope.repository, scope.target, item.acceptedDigest, item.currentDigest]
-  }
-  if (item.kind === 'accept-material') return semanticAcceptanceRef(item, scope)
-  return refuse('unreadable', `accepted Spec chain ref kind ${item.kind} is not a spec acceptance`)
 }
 
 function semanticChainCanon(chain: unknown): unknown[] | Refusal {

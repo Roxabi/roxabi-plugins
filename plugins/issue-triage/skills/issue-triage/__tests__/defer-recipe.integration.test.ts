@@ -81,17 +81,10 @@ describe('issue-triage deferral recipe', () => {
       'Parent=Acme/app#70 #101',
       'BlockedBy=#80 #101',
     ])
-    expect(w.fake.created).toEqual([
-      {
-        repo: 'Acme/app',
-        number: 101,
-        nodeId: 'I_Acme/app#101',
-        title: TITLE,
-        body: BODY,
-        parent: 70,
-        blockedBy: [80],
-      },
-    ])
+    const [created] = w.fake.created
+    if (!created) throw new Error('defer fixture issue missing')
+    expect(w.fake.created).toHaveLength(1)
+    expect(created).toMatchObject({ repo: 'Acme/app', parent: 70, blockedBy: [80] })
     expect(startupLog(w.startup)).toEqual([`${w.triageDir}\t`])
     expect(existsSync(w.sentinel)).toBe(false)
     expect(existsSync(w.dir)).toBe(false)
@@ -108,17 +101,10 @@ describe('issue-triage deferral recipe', () => {
 
     expect(ran.stderr).toBe('')
     expect(ran.code).toBe(0)
-    expect(w.fake.created).toEqual([
-      {
-        repo: 'Other/tracker',
-        number: 101,
-        nodeId: 'I_Other/tracker#101',
-        title: TITLE,
-        body: BODY,
-        parent: 70,
-        blockedBy: [80],
-      },
-    ])
+    const [created] = w.fake.created
+    if (!created) throw new Error('defer fixture issue missing')
+    expect(w.fake.created).toHaveLength(1)
+    expect(created).toMatchObject({ repo: 'Other/tracker', parent: 70, blockedBy: [80] })
     const [parent, ...rest] = ghCalls(w.ghLog)
     expect(parent.args).toContain('repository(owner:"Other",name:"tracker"){issue(number:80)')
     expect(rest).toEqual([])

@@ -4,6 +4,7 @@ import { boundCiAttribution } from './workflow-action-completion.ts'
 import { adoptedOrConfirmed, implementConfirmed, planConfirmed, workflowBound } from './workflow-action-state.ts'
 import { type MandateRecord, recordsOf } from './workflow-control.ts'
 import type { WorkflowCondition } from './workflow-graph.ts'
+import type { AcceptedChildCommitment } from './workflow-mandate-schema.ts'
 import type { SpecializedDecisions, WorkflowFacts } from './workflow-reconstruction-types.ts'
 
 export function conditionHolds(
@@ -13,6 +14,7 @@ export function conditionHolds(
   decisions: SpecializedDecisions,
   mandate: MandateRecord | null,
   pullRequest: DecodedHistory | null,
+  externalHistories: readonly DecodedHistory[] = [],
 ): boolean | null {
   switch (when) {
     case 'always':
@@ -22,9 +24,9 @@ export function conditionHolds(
     case 'mandate-ready':
       return mandate !== null
     case 'spec-differs':
-      return specMatches(false, history, facts, mandate)
+      return specMatches(false, history, facts, mandate, externalHistories)
     case 'spec-settled':
-      return specMatches(true, history, facts, mandate)
+      return specMatches(true, history, facts, mandate, externalHistories)
     case 'plan-confirmed':
       return planConfirmed(history, mandate)
     case 'implement-confirmed':
@@ -75,11 +77,37 @@ function specMatches(
   history: DecodedHistory,
   facts: WorkflowFacts,
   mandate: MandateRecord | null,
+  externalHistories: readonly DecodedHistory[],
 ): boolean {
-  if (mandate === null || facts.specDigest === null) return false
-  const accepted = resolveAcceptedSpec(mandate, [history])
+  if (mandate === null || facts.currentSpec === null) return false
+  const accepted = resolveAcceptedSpec(mandate, [history, ...externalHistories])
   if (!accepted.ok) return false
-  return settled ? facts.specDigest === accepted.spec.digest : facts.specDigest !== accepted.spec.digest
+  const same =
+    facts.currentSpec.snapshot.spec.version === accepted.spec.snapshot.spec.version &&
+    facts.currentSpec.tier === accepted.spec.tier &&
+    sameChildren(facts.currentSpec.children, accepted.spec.children)
+  return settled ? same : !same
+}
+
+function sameChildren(
+  current: readonly AcceptedChildCommitment[],
+  accepted: readonly AcceptedChildCommitment[],
+): boolean {
+  if (current.length !== accepted.length) return false
+  for (let index = 0; index < current.length; index += 1) {
+    const left = current[index]
+    const right = accepted[index]
+    if (
+      left === undefined ||
+      right === undefined ||
+      left.scope.repository !== right.scope.repository ||
+      left.scope.target !== right.scope.target ||
+      left.specVersion !== right.specVersion ||
+      left.tier !== right.tier
+    )
+      return false
+  }
+  return true
 }
 
 function pullRequestIsOpen(

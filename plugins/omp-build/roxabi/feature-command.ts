@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import type { FeatureCommandHost, FeatureControl, ParsedFeatureCommand } from './feature-contract.ts'
 
+type FeatureInitHost = Pick<FeatureCommandHost, 'cwd' | 'send' | 'exec' | 'git'>
+
 const CONTROL_BY_WORD: Record<string, FeatureControl> = {
   pause: 'pause',
   abandon: 'abandon',
@@ -20,17 +22,12 @@ function parseInitCommand(input: string): ParsedFeatureCommand | null {
   return { ok: true, control: 'init', args: tokens.slice(1) }
 }
 
-function acceptedMaterialDecision(value: string | undefined): value is 'accept' | 'reject' {
-  return value === 'accept' || value === 'reject'
-}
-
 function parseMaterialDecision(tokens: string[]): ParsedFeatureCommand {
   const reference = normalizeReference(tokens[1])
-  const decision = tokens[2]
-  if (reference === null || !acceptedMaterialDecision(decision) || tokens.length !== 3) {
+  if (reference === null || tokens.length !== 2) {
     return { ok: false, reason: 'feature-material-decision-invalid' }
   }
-  return { ok: true, control: 'material-decision', reference, decision }
+  return { ok: true, control: 'material-decision', reference }
 }
 
 function parseControlCommand(control: FeatureControl, tokens: string[]): ParsedFeatureCommand {
@@ -138,7 +135,7 @@ function readQuotedToken(input: string, start: number): ShellToken | null {
   return null
 }
 
-export async function runTrustedFeatureInit(args: readonly string[], host: FeatureCommandHost): Promise<void> {
+export async function runTrustedFeatureInit(args: readonly string[], host: FeatureInitHost): Promise<void> {
   const git = host.git ?? defaultFeatureGit
   const captured = await git(['rev-parse', '--show-toplevel'], host.cwd)
   const dir = captured.stdout.trim()

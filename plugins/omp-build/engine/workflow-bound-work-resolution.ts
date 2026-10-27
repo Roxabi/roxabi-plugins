@@ -1,13 +1,14 @@
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic } from './record-diagnostics.ts'
-import { specDigest } from './record-digests.ts'
 import type { Diagnostic, Scope } from './record-values.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
-import type { AcceptedSpec } from './workflow-accepted-spec-types.ts'
+import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
 import type { BoundWork, ConfigIdentity, MandateUse } from './workflow-binding.ts'
 import { historyFor, type MandateRecord, mandateScope, outstandingPauseInAuthority } from './workflow-control.ts'
 import { selectApplicableMandate } from './workflow-mandate-admission.ts'
 import { selectWorkflowBinding } from './workflow-pr-binding.ts'
+import type { AssessSpecExact } from './workflow-receipt-schema.ts'
+import { sameCurrentAssessedState } from './workflow-spec-assessment.ts'
 
 type BoundWorkInput = {
   use: MandateUse
@@ -15,7 +16,7 @@ type BoundWorkInput = {
   pullRequest: Scope
   histories: readonly DecodedHistory[]
   native: { branch: string; base: string }
-  currentSpec?: { body: string; digest: string } | null
+  currentSpec?: AssessSpecExact['proposed'] | null
 }
 
 function configIdentityOf(
@@ -68,7 +69,7 @@ function applicableBoundWork(
   input: BoundWorkInput,
   mandate: MandateRecord,
   permissions: { landing: boolean; correct: boolean },
-  acceptedSpec: AcceptedSpec,
+  acceptedSpec: AcceptedOwnSpec,
   configIdentity: ConfigIdentity,
 ): BoundWork {
   const scope = mandateScope(mandate)
@@ -83,13 +84,7 @@ function applicableBoundWork(
       configIdentity,
       drift: null,
     }
-  if (specDigest(input.currentSpec.body) !== input.currentSpec.digest) {
-    return {
-      status: 'refused',
-      reason: 'material-spec',
-      evidence: [diagnostic('material-spec', 'Current spec digest does not match its body')],
-    }
-  }
+  const sameCurrent = sameCurrentAssessedState(input.currentSpec, acceptedSpec)
   return {
     status: 'applicable',
     binding: 'bound',
@@ -98,7 +93,7 @@ function applicableBoundWork(
     permissions,
     acceptedSpec,
     configIdentity,
-    drift: input.currentSpec.digest === acceptedSpec.digest ? 'settled' : 'differs',
+    drift: sameCurrent ? 'settled' : 'differs',
   }
 }
 

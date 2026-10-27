@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { failedCheckEvidenceDigest, failedCheckFailureSchema, specDigest } from './record-digests.ts'
+import { failedCheckEvidenceDigest, failedCheckFailureSchema } from './record-digests.ts'
 import { type ExternalRecordRef, externalRecordRefSchema, gitObjectIdSchema } from './record-references.ts'
 import {
   contributionSchema,
@@ -11,7 +11,8 @@ import {
   sha256Schema,
   shaSchema,
 } from './record-values.ts'
-import { sameRefMeaning } from './workflow-mandate-schema.ts'
+import { specItemIdSchema, specSnapshotSchema, uwTierSchema } from './uw-spec-schema.ts'
+import { acceptedChildCommitmentSchema, sameRefMeaning } from './workflow-mandate-schema.ts'
 import {
   ciAttributionSchema,
   implementationOutputSchema,
@@ -29,21 +30,33 @@ export const workflowReceiptActionSchema = z.enum([
   'attribute-ci',
 ])
 export type WorkflowReceiptAction = z.infer<typeof workflowReceiptActionSchema>
-const assessSpecExactSchema = z
-  .strictObject({
-    acceptedDigest: sha256Schema,
-    currentDigest: sha256Schema,
-    acceptedBody: z.string(),
-    currentBody: z.string(),
-  })
-  .superRefine((value, context) => {
-    if (specDigest(value.acceptedBody) !== value.acceptedDigest) {
-      context.addIssue({ code: 'custom', path: ['acceptedDigest'], message: 'accepted body digest mismatch' })
-    }
-    if (specDigest(value.currentBody) !== value.currentDigest) {
-      context.addIssue({ code: 'custom', path: ['currentDigest'], message: 'current body digest mismatch' })
-    }
-  })
+const ownSpecRefSchema = z.strictObject({
+  uw: scopeSchema,
+  version: sha256Schema,
+  sourceAccepted: externalRecordRefSchema,
+})
+const assessedOwnStateSchema = z.strictObject({
+  snapshot: specSnapshotSchema,
+  tier: uwTierSchema,
+  children: z.array(acceptedChildCommitmentSchema),
+})
+const mechanicalSpecDeltaSchema = z.strictObject({
+  added: z.array(specItemIdSchema),
+  removed: z.array(specItemIdSchema),
+  changedStatements: z.array(specItemIdSchema),
+  exclusionsChanged: z.boolean(),
+  tierChanged: z.boolean(),
+  childrenChanged: z.boolean(),
+  sectionsOrOrderChanged: z.boolean(),
+})
+export const assessSpecExactSchema = z.strictObject({
+  format: z.literal('omp-build-spec-assessment/2'),
+  accepted: assessedOwnStateSchema.extend({ ref: ownSpecRefSchema }),
+  proposed: assessedOwnStateSchema,
+  identityAllocations: z.array(externalRecordRefSchema),
+  mechanical: mechanicalSpecDeltaSchema,
+})
+export type AssessSpecExact = z.infer<typeof assessSpecExactSchema>
 const frameExactSchema = z.strictObject({
   specDigest: sha256Schema,
   branch: z.string().min(1),
@@ -258,6 +271,9 @@ export const actionReceiptPayloadSchema = z
   .superRefine((receipt, context) => {
     const refs: ExternalRecordRef[] = [receipt.mandate]
     if (receipt.phase === 'result') refs.push(receipt.start)
+    if (receipt.action === 'assess-spec') {
+      refs.push(receipt.exactInputs.accepted.ref.sourceAccepted, ...receipt.exactInputs.identityAllocations)
+    }
     sameRefMeaning(refs, context)
     if (receipt.action !== 'plan-review') return
     declaredPlanSlots(receipt.slots, context)

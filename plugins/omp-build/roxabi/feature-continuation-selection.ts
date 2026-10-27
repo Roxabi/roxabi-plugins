@@ -1,21 +1,28 @@
 import type { ScopedRecordRef } from '../engine/record-references.ts'
+import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
 import { branchFor } from '../skills/feature/epic-naming.ts'
 import { mandateParentHistories } from './feature-context.ts'
 import type { FeatureAuthority } from './feature-continuation-admission.ts'
 import type { ContinueFeatureResult, FeatureControl } from './feature-contract.ts'
 import { scopeNumber } from './feature-delivery-facts.ts'
-import { publishFirstMandate, resolveBase } from './feature-mandate.ts'
+import { establishFirstMandate, freshOwnSpec } from './feature-initial-mandate.ts'
+import { resolveBase } from './feature-mandate.ts'
 import { linkedMove } from './feature-selection.ts'
+import { prepareRequestedSession } from './feature-selection-session.ts'
 import { publishSuccessorMandate } from './feature-succession.ts'
-import { hasScope, readSelectionIssueSpec, type SelectionIssueSpec } from './uw-spec'
+import type { NormalizationProposalRequest, UwOperations, UwRead, UwReadPort } from './uw-contract.ts'
+import { readSelectionIssueSpec, type SelectionIssueSpec } from './uw-spec'
 import { prepareFeatureCheckout, runWorktreeBootstrap } from './workflow-checkout.ts'
 
 export type SelectedFeature = {
   authority: FeatureAuthority
   number: number
+  reader: UwReadPort | null
   issue: SelectionIssueSpec
+  uwRead: UwRead | null
   mandate: MandateRecord | null
+  acceptedSpec: AcceptedOwnSpec | null
   mandateRef: ScopedRecordRef | null
 }
 
@@ -25,15 +32,20 @@ export async function selectFeatureMandate(
   control: FeatureControl,
   exactMandateRef: ScopedRecordRef | undefined,
   authority: FeatureAuthority,
+  uw?: UwOperations,
+  reader: UwReadPort | undefined = uw,
 ): Promise<SelectedFeature | ContinueFeatureResult> {
   const { context, identity, scope } = authority
   const number = scopeNumber(scope)
   if (number === 0) return { kind: 'blocked', reason: 'issue-unreadable' }
   const issue = await readSelectionIssueSpec(context.cwd, scope.repository, number, context.gh)
   if (issue === null) return { kind: 'blocked', reason: 'issue-unreadable' }
+  const uwRead = reader === undefined ? null : await reader.readUw(scope)
+  const normalization = selectionNormalization(control, authority, uwRead)
+  if (normalization !== null) return normalization
   const sessionCwd = identity.ok ? identity.sessionTop : null
   const branch = branchFor({ number, title: issue.title, labels: issue.labels })
-  const updated = await updateMandateSelection(control, authority, issue, number, branch, sessionCwd)
+  const updated = await updateMandateSelection(control, authority, issue, uwRead, uw, number, branch, sessionCwd)
   if ('kind' in updated) return updated
   const prepared = await prepareSelectionSession(control, authority, branch, sessionCwd, updated)
   if (prepared !== null) return prepared
@@ -41,22 +53,60 @@ export async function selectFeatureMandate(
     exactMandateRef === undefined
       ? context.engine.selectApplicableMandate(updated.history, updated.parentHistories)
       : updated.selection
-  const mandate = applicable.status === 'applicable' ? applicable.mandate : null
+  const own = context.engine.resolveOwnSpecAuthority(updated.history, updated.parentHistories)
+  const mandate = own.ok ? own.value.mandate : null
   const mandateRef: ScopedRecordRef | null =
     exactMandateRef ?? (mandate === null ? null : { scope, recordId: mandate.recordId, kind: 'mandate' })
   return {
-    authority: { ...authority, ...updated },
+    authority: { ...authority, ...updated, selection: applicable },
     number,
+    reader: reader ?? null,
     issue,
+    uwRead,
     mandate,
+    acceptedSpec: own.ok ? own.value.accepted : null,
     mandateRef,
   }
+}
+
+function needsInitialSpec(control: FeatureControl, selection: FeatureAuthority['selection']): boolean {
+  if (selection.status !== 'refused') return false
+  if (selection.reason === 'missing') return control === 'select' || control === 'continue'
+  return control === 'new' && (selection.reason === 'abandoned' || selection.reason === 'revoked')
+}
+
+function selectionNormalization(
+  control: FeatureControl,
+  authority: FeatureAuthority,
+  read: UwRead | null,
+): ContinueFeatureResult | null {
+  if (!needsInitialSpec(control, authority.selection)) return null
+  if (read === null) return { kind: 'blocked', reason: 'uw-read-required' }
+  const { scope } = authority
+  const root = read.graph.nodes.find(
+    (node) => node.uw.repository === scope.repository && node.uw.target === scope.target,
+  )
+  if (root === undefined) return { kind: 'blocked', reason: 'graph-root-missing' }
+  if (read.parsed.status === 'conformant') return null
+  const request: NormalizationProposalRequest = {
+    uw: scope,
+    title: root.title,
+    parsed: read.parsed,
+    graph: read.graph,
+    writes: {
+      labels: { add: [], remove: [] },
+      relations: { addChildren: [], removeChildren: [], addBlockers: [], removeBlockers: [] },
+    },
+  }
+  return { kind: 'normalization', request }
 }
 
 async function updateMandateSelection(
   control: FeatureControl,
   authority: FeatureAuthority,
   issue: SelectedFeature['issue'],
+  uwRead: UwRead | null,
+  reader: UwReadPort | undefined,
   number: number,
   branch: string,
   sessionCwd: string | null,
@@ -70,6 +120,8 @@ async function updateMandateSelection(
     const successor = await createSuccessorSelection({
       authority,
       issue,
+      uwRead,
+      reader,
       number,
       branch,
       sessionCwd,
@@ -78,10 +130,14 @@ async function updateMandateSelection(
     if ('kind' in successor) return successor
     state = successor
   }
-  if (state.selection.status === 'refused' && state.selection.reason === 'missing' && control === 'select') {
-    const established = await establishFirstMandate({ authority, issue, number, branch, history: state.history })
+  if (
+    state.selection.status === 'refused' &&
+    state.selection.reason === 'missing' &&
+    (control === 'select' || control === 'continue')
+  ) {
+    const established = await establishFirstMandate({ authority, uwRead, reader, branch, history: state.history })
     if ('kind' in established) return established
-    state = { ...state, history: established.history }
+    state = { ...state, ...established }
   }
   return state
 }
@@ -110,18 +166,22 @@ async function prepareSelectionSession(
 async function createSuccessorSelection(input: {
   authority: FeatureAuthority
   issue: SelectedFeature['issue']
+  uwRead: UwRead | null
   number: number
+  reader: UwReadPort | undefined
   branch: string
   sessionCwd: string | null
   history: FeatureAuthority['history']
   parentHistories: FeatureAuthority['parentHistories']
 }): Promise<SelectionState | ContinueFeatureResult> {
-  const { authority, issue, number, branch, sessionCwd, history, parentHistories } = input
+  const { authority, issue, uwRead, reader, number, branch, sessionCwd, history, parentHistories } = input
+  const own = await freshOwnSpec(authority.scope, uwRead, reader)
+  if ('kind' in own) return own
   const checkout = await prepareSuccessorCheckout(authority, branch, sessionCwd)
   if (checkout !== null) return checkout
   const boot = await runWorktreeBootstrap(authority.context.cwd)
   if (!boot.ok) return { kind: 'blocked', reason: boot.reason }
-  return publishAndRefreshSuccessor(authority, issue, number, history, parentHistories)
+  return publishAndRefreshSuccessor(authority, issue, own, number, history, parentHistories)
 }
 
 async function prepareSuccessorCheckout(
@@ -152,6 +212,7 @@ async function prepareSuccessorCheckout(
 async function publishAndRefreshSuccessor(
   authority: FeatureAuthority,
   issue: SelectedFeature['issue'],
+  own: Pick<MandateRecord['payload'], 'ownSpec' | 'tier' | 'children'>,
   number: number,
   history: FeatureAuthority['history'],
   parentHistories: FeatureAuthority['parentHistories'],
@@ -162,6 +223,7 @@ async function publishAndRefreshSuccessor(
     history,
     scope,
     issue,
+    ...own,
     number,
     git: context.git,
     gh: context.gh,
@@ -179,72 +241,4 @@ async function publishAndRefreshSuccessor(
     return { kind: 'blocked', reason: `successor-${selection.status === 'refused' ? selection.reason : 'unconfirmed'}` }
   }
   return { history: nextHistory, parentHistories: parents.parents, selection }
-}
-
-async function establishFirstMandate(input: {
-  authority: FeatureAuthority
-  issue: SelectionIssueSpec
-  number: number
-  branch: string
-  history: FeatureAuthority['history']
-}): Promise<{ history: FeatureAuthority['history'] } | ContinueFeatureResult> {
-  const { authority, issue, number, branch, history } = input
-  const { context, identity, scope } = authority
-  if (!hasScope({ labels: issue.labels, body: issue.body })) return { kind: 'operator-decision', reason: 'needs-scope' }
-  const base = await resolveBase(context.git, identity.ok ? identity.principalTop : context.cwd)
-  if ('reason' in base) return { kind: 'blocked', reason: base.reason }
-  const prepared = await prepareFeatureCheckout({
-    git: context.git,
-    sessionCwd: context.cwd,
-    branch,
-    base: base.base,
-    repository: scope.repository,
-    detached: false,
-  })
-  if (prepared.status === 'blocked') return { kind: 'blocked', reason: prepared.reason }
-  if (prepared.status === 'move') {
-    const move = linkedMove(context.cwd, prepared.path)
-    if (move) return move
-  }
-  if (prepared.status !== 'ready') return { kind: 'blocked', reason: 'session-not-intended-worktree' }
-  const boot = await runWorktreeBootstrap(context.cwd)
-  if (!boot.ok) return { kind: 'blocked', reason: boot.reason }
-  const published = await publishFirstMandate(
-    context.engine,
-    history,
-    scope,
-    issue,
-    number,
-    context.git,
-    context.gh,
-    context.cwd,
-  )
-  if (!published.ok) return { kind: 'blocked', reason: published.reason, diagnostics: published.diagnostics }
-  const refreshed = await context.engine.readComposedWorkflowHistory([scope], { cwd: context.cwd, gh: context.gh })
-  return { history: refreshed.ok && refreshed.histories[0] !== undefined ? refreshed.histories[0] : history }
-}
-
-async function prepareRequestedSession(
-  authority: FeatureAuthority,
-  branch: string,
-): Promise<ContinueFeatureResult | null> {
-  const { context, identity, scope } = authority
-  const base = await resolveBase(context.git, identity.ok ? identity.principalTop : context.cwd)
-  if ('reason' in base) return { kind: 'blocked', reason: base.reason }
-  const prepared = await prepareFeatureCheckout({
-    git: context.git,
-    sessionCwd: context.cwd,
-    branch,
-    base: base.base,
-    repository: scope.repository,
-    detached: false,
-  })
-  if (prepared.status === 'blocked') return { kind: 'blocked', reason: prepared.reason }
-  if (prepared.status === 'move') {
-    const move = linkedMove(context.cwd, prepared.path)
-    if (move) return move
-  }
-  if (prepared.status !== 'ready') return { kind: 'blocked', reason: 'session-not-intended-worktree' }
-  const boot = await runWorktreeBootstrap(context.cwd)
-  return boot.ok ? null : { kind: 'blocked', reason: boot.reason }
 }

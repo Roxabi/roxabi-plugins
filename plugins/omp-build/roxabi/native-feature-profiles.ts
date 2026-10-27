@@ -4,7 +4,7 @@ export type NativeFeatureProducerOutput =
   | 'plan-review'
   | 'implementation'
   | 'ci-attribution'
-
+  | 'uw-normalization'
 export type NativeFeatureProfile = {
   name: string
   description: string
@@ -125,12 +125,26 @@ export const nativeFeatureProfiles: readonly NativeFeatureProfile[] = [
       '3. Return that attribution and the evidence that supports it.',
       '',
       'Done when attribution is one of those five values and evidence cites the check plus the scope fact that supports it.',
+    ].join('\n'),
+  },
+  {
+    name: 'R-uw-normalize',
+    description: 'Read-only structured proposal for minimal existing-UW normalization.',
+    tools: 'read, grep, glob',
+    model: '@advisor',
+    maxTurns: 20,
+    output: 'uw-normalization',
+    body: [
+      'Transform only the supplied parser facts into one typed UW normalization judgement.',
       '',
-      'change: the approved change causes the failure.',
-      'pre-existing: the failure is on the base without this change.',
-      'infra: the failure is in the runner, network, or external service.',
-      'out-of-scope: the failure is outside the approved mandate.',
-      'unknown: the evidence does not support one of the other four.',
+      '1. Return only draft, normalization accounting, factors, and optional tierOverride.',
+      '2. Account for every supplied criterion, invariant, named content, and preserved prose source exactly once as kept, reworded, or removed. Every nonblank draft section, exclusion, and open-question value needs non-overlapping half-open UTF-16 target ranges that cover it exactly once.',
+      '3. kept copies the parser-decoded source exactly into its target range. reworded, removed, and new carry a reason. Keep named Origin, Context, Change, Exclusions, and Open Questions in their typed parser destination unless explicitly removed.',
+      '4. Keep identified C/I items on their supplied same-family existing ID. Unnamed C/I items use draftKey; never allocate or invent C/I IDs. New obligations use a new draftKey and reason.',
+      '',
+      'Done when the typed output has exhaustive source and destination accounting for this minimal conversion.',
+      '',
+      'Do not write files, publish records, mutate GitHub, create issues, invent operator approval, add scope, or perform freeform cadrage. The host and engine validate, allocate, confirm, and write after this read-only proposal.',
     ].join('\n'),
   },
 ]

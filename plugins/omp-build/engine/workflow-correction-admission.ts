@@ -1,6 +1,7 @@
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope } from './record-diagnostics.ts'
 import type { Scope } from './record-values.ts'
+import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
 import {
   historyFor,
   type MandateRecord,
@@ -25,8 +26,15 @@ export type FixMandateInput = {
 
 type BoundSelection = Extract<WorkflowBindingSelection, { status: 'bound' }>
 
-function applicable(mandate: MandateRecord): FixMandateAssessment {
-  return { status: 'applicable', mandate, execution: { correct: true, landing: false } }
+function applicable(mandate: MandateRecord, histories: readonly DecodedHistory[]): FixMandateAssessment {
+  const accepted = resolveAcceptedSpec(mandate, histories)
+  if (!accepted.ok)
+    return {
+      status: 'refused',
+      reason: accepted.reason === 'material-spec' ? 'incompatible' : accepted.reason,
+      evidence: accepted.evidence,
+    }
+  return { status: 'applicable', mandate, acceptedSpec: accepted.spec, execution: { correct: true, landing: false } }
 }
 
 function ciAttributionUnsafe(history: DecodedHistory, evidenceDigest?: string | null): boolean {
@@ -79,20 +87,14 @@ function boundPullRequestAdmission(
     histories.filter((item) => item !== home),
   )
   if (applicableMandate.status === 'refused') return applicableMandate
-  const refusal = correctionAuthority(applicableMandate.mandate, histories, input.history, input.evidenceDigest)
-  return refusal ?? applicable(applicableMandate.mandate)
+  const authority = correctionAuthority(applicableMandate.mandate, histories, input.history, input.evidenceDigest)
+  return authority ?? applicable(applicableMandate.mandate, histories)
 }
 
-function unboundPullRequestAdmission(input: FixMandateInput, extra: readonly DecodedHistory[]): FixMandateAssessment {
-  const local = selectApplicableMandate(input.history, extra)
-  if (local.status === 'refused') return local
-  if (local.mandate.payload.role !== 'fix-only' || !equalScope(mandateScope(local.mandate), input.target.scope)) {
-    return refused('unknown-binding', [
-      diagnostic('unknown-binding', 'A pull request without a binding can only correct an explicit fix-only mandate'),
-    ])
-  }
-  const refusal = pauseAndCiAuthority(local.mandate, [input.history, ...extra], input.history, input.evidenceDigest)
-  return refusal ?? applicable(local.mandate)
+function unboundPullRequestAdmission(): FixMandateAssessment {
+  return refused('unknown-binding', [
+    diagnostic('fix-own-uw-required', 'A pull request requires an authenticated binding to an applicable UW mandate'),
+  ])
 }
 
 function pullRequestAdmission(input: FixMandateInput, extra: readonly DecodedHistory[]): FixMandateAssessment {
@@ -106,7 +108,7 @@ function pullRequestAdmission(input: FixMandateInput, extra: readonly DecodedHis
     native: { branch: input.target.branch, base: input.target.base },
   })
   if (selected.status === 'bound') return boundPullRequestAdmission(input, histories, selected)
-  if (selected.status === 'absent') return unboundPullRequestAdmission(input, extra)
+  if (selected.status === 'absent') return unboundPullRequestAdmission()
   return refused(selected.status === 'conflicting' ? 'ambiguous' : 'incomplete', selected.diagnostics)
 }
 
@@ -126,7 +128,7 @@ function issueAdmission(input: FixMandateInput, extra: readonly DecodedHistory[]
     return refused('incompatible', [diagnostic('incompatible', 'Mandate does not permit correction')])
   if (ciAttributionUnsafe(input.history, input.evidenceDigest))
     return refused('unsafe', [diagnostic('unsafe', 'CI attribution is not the change')])
-  return applicable(mandate)
+  return applicable(mandate, [input.history, ...histories])
 }
 
 export function assessFixMandate(input: FixMandateInput): FixMandateAssessment {

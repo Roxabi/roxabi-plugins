@@ -3,6 +3,9 @@ import { sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { AcceptedSpecResult } from './workflow-accepted-spec-types.ts'
+
+export { sameAssessInputs } from './workflow-spec-assessment.ts'
+
 import { recordsOf } from './workflow-control.ts'
 import { specChainFailure } from './workflow-spec-assessment.ts'
 import { authenticatedAssessResult } from './workflow-spec-authentication-chain.ts'
@@ -13,18 +16,6 @@ export function receiptRef(record: CanonicalRecord): ExternalRecordRef {
     recordId: record.recordId,
     kind: record.kind,
   }
-}
-
-export function sameAssessInputs(
-  left: { acceptedDigest: string; currentDigest: string; acceptedBody: string; currentBody: string },
-  right: { acceptedDigest: string; currentDigest: string; acceptedBody: string; currentBody: string },
-): boolean {
-  return (
-    left.acceptedDigest === right.acceptedDigest &&
-    left.currentDigest === right.currentDigest &&
-    left.acceptedBody === right.acceptedBody &&
-    left.currentBody === right.currentBody
-  )
 }
 
 export function confirmedAssessPairs(

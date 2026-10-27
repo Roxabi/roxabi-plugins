@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { decodeHistory } from '../adapters/github/history-codec.ts'
+import { nativeFeatureSpec } from '../testing/feature-review-fixture.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
 import { git, readSim, sandbox, WORKFLOW, worktree, writeSim } from '../testing/sandbox/sandbox-repository.ts'
 import type { Box } from '../testing/sandbox/sandbox-types.ts'
@@ -30,11 +31,12 @@ function plainSpec() {
         ],
       },
     ],
-    issues: [{ number: 5, title: 'fix: plain', issueType: 'fix' }],
+    issues: [{ number: 5, title: 'fix: plain', issueType: 'fix', labels: ['size:S'] }],
     prs: [{ number: 30, branch: 'fix/5-plain', title: 'fix: plain', body: 'Closes #5\n', closes: [5] }],
   }
 }
-const BODY = '## Acceptance criteria\n\n- [ ] preserves the region\n'
+const FEATURE_SPEC = nativeFeatureSpec(SCOPE, 'preserves the region')
+const BODY = FEATURE_SPEC.body
 
 const OBSERVED_INCOMPLETE_NATIVE_TERMINAL = {
   index: 0,
@@ -136,7 +138,7 @@ function featureFixture(
   const box = sandbox({
     base: { '.dev/stack.yml': 'package_manager: bun\n', 'README.md': 'base\n' },
     branches: [{ name: BRANCH, from: 'main', commits: [] }],
-    issues: [{ number: 42, title: 'feat: preserve region' }],
+    issues: [{ number: 42, title: 'feat: preserve region', labels: ['size:S'] }],
     prs: options.malformedDisarmPr
       ? [{ number: 9, branch: BRANCH, title: 'unreadable pause gate', body: '', closes: [] }]
       : [],
@@ -144,7 +146,12 @@ function featureFixture(
   roots.push(box.root)
   const checkout = path.join(box.root, 'feature')
   git(box, box.principal, ['worktree', 'add', '-q', checkout, BRANCH])
-  const mandate = featureMandate(SCOPE, { branch: BRANCH, body: BODY, lineageHead: box.sha.main })
+  const mandate = featureMandate(SCOPE, {
+    branch: BRANCH,
+    body: BODY,
+    ownSpec: FEATURE_SPEC.ownSpec,
+    lineageHead: box.sha.main,
+  })
   const accepted =
     records === 'plan'
       ? [
@@ -406,7 +413,7 @@ describe('feature recovery terminal and publication witnesses', () => {
     const box = sandbox({
       base: { '.dev/stack.yml': 'package_manager: bun\n', 'README.md': 'base\n' },
       branches: [{ name: 'feat/watch', from: 'main', commits: [] }],
-      issues: [{ number: 7, title: 'feat: watch' }],
+      issues: [{ number: 7, title: 'feat: watch', labels: ['size:S'] }],
       prs: [{ number: 8, branch: 'feat/watch', title: 'feat: watch', body: 'Closes #7', closes: [7] }],
     })
     roots.push(box.root)
@@ -452,13 +459,21 @@ describe('feature recovery terminal and publication witnesses', () => {
     const checkout = worktree(box, 'merged-landing', head)
     const issue = readSim(box).issues[String(issueNumber)]
     if (issue === undefined) throw new Error('plain landing fixture missing issue')
+    const landingScope = { repository: 'acme/app', target: `acme/app#${issueNumber}` }
+    const landingSpec = nativeFeatureSpec(landingScope, 'lands')
+    writeSim(box, (state) => {
+      const linkedIssue = state.issues[String(issueNumber)]
+      if (linkedIssue === undefined) throw new Error('plain landing fixture missing issue')
+      linkedIssue.body = landingSpec.body
+    })
     const authority = linkedLandingAuthority({
       repository: 'acme/app',
       issueNumber,
       prNumber: pr,
       branch,
       base: 'main',
-      issueBody: issue.body,
+      issueBody: landingSpec.body,
+      ownSpec: landingSpec.ownSpec,
       lineageHead: head,
       author: 'operator',
     })

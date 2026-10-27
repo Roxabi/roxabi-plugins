@@ -194,6 +194,18 @@ describe('installed /feature command', () => {
     expect(host.sent.join('\n')).not.toContain('feature-reference-invalid')
     expect(host.sent.join('\n')).not.toContain('operator-decision:needs-scope')
   })
+  it('rejects an argv material decision at the /uw UI boundary before creating operations', async () => {
+    let created = false
+    const host = installed({
+      uwOperations: async () => {
+        created = true
+        throw new Error('operations should not be created')
+      },
+    })
+    await host.commands.get('uw')?.handler('accept-material acme/widgets#12 accept', root)
+    expect(created).toBe(false)
+    expect(host.sent).toEqual(['uw-stopped: uw-reference-invalid'])
+  })
 
   it('refuses needs-scope without assisted framing and without dispatching a batch', async () => {
     let activated = false
@@ -229,22 +241,6 @@ describe('installed /feature command', () => {
     expect(sent).toEqual(['feature-stopped: operator-decision:needs-scope'])
     expect(activated).toBe(false)
     expect(announced).toBe(false)
-  })
-
-  it('forwards an explicit material decision and rejects a missing reference before the workflow', async () => {
-    const decisions: string[] = []
-    const host = installed({
-      featureWorkflow: workflow({
-        continueFeature: async (input) => {
-          decisions.push(input.decision ?? '')
-          return { kind: 'operator-decision', reason: 'recorded' }
-        },
-      }),
-    })
-    await host.commands.get('feature')?.handler('material-decision #12 accept', root)
-    await host.commands.get('feature')?.handler('', root)
-    expect(decisions).toEqual(['accept'])
-    expect(host.sent[1]).toBe('feature-stopped: feature-reference-missing')
   })
 
   it('stops a branch-mismatch refusal without dispatching native work', async () => {

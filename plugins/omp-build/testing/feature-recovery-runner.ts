@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import ompBuildExtension from '../omp/index.ts'
 import { createOmpFixPort } from '../omp/omp-controller.ts'
 import { loadFeatureWorkflow } from '../roxabi/feature-loader.ts'
+import { createInstalledUwReadPort } from '../roxabi/uw-read-port.ts'
 import { createExtensionApiStub } from './extension-api-stub.ts'
 import { invokeOmpIncompleteNative } from './feature-recovery-incomplete-native.ts'
 import { invokeOmpLiveInterleave } from './feature-recovery-live-interleave.ts'
@@ -81,11 +82,13 @@ const payload = payloadFrom(JSON.parse(payloadText ?? '{}') as unknown)
 const workflow = await loadFeatureWorkflow()
 
 async function continueFeature() {
+  const sessionCwd = cwd ?? ''
   return workflow.continueFeature({
-    cwd: cwd ?? '',
+    cwd: sessionCwd,
     reference: payload.reference,
     control: payload.control,
     principal: false,
+    read: createInstalledUwReadPort({ cwd: sessionCwd }),
   })
 }
 

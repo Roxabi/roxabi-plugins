@@ -78,9 +78,3 @@ export async function requireMandateCheckout(input: {
   }
   return null
 }
-
-export function mandateRoleOf(mandate: HistoryRecord | null): 'feature' | 'epic' | 'fix-only' | null {
-  if (mandate === null || mandate.kind !== 'mandate') return null
-  const role = payload(mandate).role
-  return role === 'feature' || role === 'epic' || role === 'fix-only' ? role : null
-}

@@ -1,5 +1,5 @@
 import { resolveTicketBranch } from './epic-claims'
-import { assertChildGrant, readEpicAuthority } from './epic-driver-authority'
+import { assertChildGrant, frameEpicChildren } from './epic-driver-authority'
 import { gather } from './epic-driver-gather'
 import { tree } from './epic-driver-github'
 import { type Disarm, disarm, ticketStop } from './epic-driver-publication'
@@ -179,14 +179,13 @@ function driverError(
 }
 
 export async function next(repo: string, epic: number, dry: boolean, reread = 0): Promise<NextOut> {
-  const authority = await readEpicAuthority(repo, epic)
-  const { run, base } = authority
   if (!dry) {
     refusePrincipal(repo)
     git(repo, ['fetch', '--prune', 'origin', '+refs/heads/*:refs/remotes/origin/*'])
   }
-  const gathered = await gather(repo, epic, run, base)
-  const cleaned = await cleanMergedBranches(repo, epic, run, base, gathered.facts, dry)
+  const { authority, facts } = await frameEpicChildren(repo, epic)
+  const { run, base } = authority
+  const cleaned = await cleanMergedBranches(repo, epic, run, base, facts, dry)
   const reconciliation = await reconcileStoppedPrs(repo, cleaned.facts, dry)
   const recorded: RecordedStop[] = []
   if (reconciliation.problems.length) {

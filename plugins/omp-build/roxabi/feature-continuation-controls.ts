@@ -6,7 +6,7 @@ import type { ContinueFeatureResult } from './feature-contract.ts'
 import { bindsOwnPause, publishConfirmedPause } from './feature-control.ts'
 import { disarmKnownTarget } from './feature-disarm.ts'
 import { payload, publishRecord } from './feature-engine.ts'
-import { mandateBranch, mandateRoleOf } from './feature-selection.ts'
+import { mandateBranch } from './feature-selection.ts'
 
 /** Publishes the source pause or abandon control after authority admission. */
 export async function applyFeatureControl(
@@ -30,7 +30,12 @@ export async function applyFeatureControl(
     await disarmKnownTarget(context.gh, context.cwd, target, null)
     return { kind: 'blocked', reason: control === 'pause' ? 'pause-uncertain' : 'abandon-uncertain' }
   }
-  const role = mandateRoleOf(mandate)
+  const accepted = context.engine.resolveAcceptedSpec(mandate, [history, ...parentHistories])
+  if (!accepted.ok) {
+    await disarmKnownTarget(context.gh, context.cwd, target, null)
+    return { kind: 'blocked', reason: control === 'pause' ? 'pause-uncertain' : 'abandon-uncertain' }
+  }
+  const role = context.engine.effectiveMandateRole(mandate.payload.role, accepted.spec)
   const branch = mandateBranch(mandate)
   const mandateRef: ScopedRecordRef = { scope: history.source.scope, recordId: mandate.recordId, kind: 'mandate' }
   if (control === 'pause') {
@@ -65,8 +70,8 @@ export async function applyFeatureControl(
     context.cwd,
     parentHistories,
   )
-  await disarmKnownTarget(context.gh, context.cwd, target, role, branch)
-  if (!published.ok) return { kind: 'abandoned', confirmed: false }
+  const disarmed = await disarmKnownTarget(context.gh, context.cwd, target, role, branch)
+  if (!published.ok || !disarmed.clean) return { kind: 'abandoned', confirmed: false }
   const reread = await context.engine.readComposedWorkflowHistory([scope], { cwd: context.cwd, gh: context.gh })
   const confirmed =
     reread.ok &&

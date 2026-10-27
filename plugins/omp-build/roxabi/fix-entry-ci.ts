@@ -14,17 +14,20 @@ import { createIdentity, type FixRun, type FixStart } from './fix-entry-lifecycl
 import { resolvePublishBinding } from './fix-entry-target-binding.ts'
 import { defaultGh, fail, type Gh, gitResult, object } from './fix-entry-target-core.ts'
 import { createResolver } from './fix-entry-target-resolver.ts'
+import type { CiCorrectionAdmission } from './fix-mandate-types.ts'
 import type { FixWorkflowRuntime } from './fix-native-dispatch.ts'
 import { withRoxabiGitHubPolicy } from './github-policy'
 import { createGitHubRecordPublisher } from './github-publisher'
+import type { UwReadPort } from './uw-contract.ts'
 
 export type AdmittedCiCorrectionEntry = {
   cwd: string
   reference: string
   attributionRecordId: string
-  scope: string
   native: NativePort
   workflow: ReviewAuthority
+  uw: UwReadPort
+  expectedUw: CiCorrectionAdmission['uw']
   github?: GitHubOptions
   gh?: Gh
   debtEvidence?: DebtEvidence
@@ -36,7 +39,6 @@ export async function runAdmittedCiCorrectionEntry(
 ): Promise<FixActionResult<FixRecord>> {
   if (input.reference.trim().length === 0) return fail('fix-target-required')
   if (input.attributionRecordId.trim().length === 0) return fail('ci-correction-evidence-missing')
-  if (input.scope.trim().length === 0) return fail('fix-scope-invalid')
   const gh = input.gh ?? defaultGh
   const repository = await gitResult(input.cwd, ['remote', 'get-url', 'origin'])
   if (repository.code !== 0) return fail(`fix-repository-unreadable:${repository.stderr.trim()}`)
@@ -68,7 +70,8 @@ export async function runAdmittedCiCorrectionEntry(
     {
       cwd: input.cwd,
       target,
-      scope: input.scope,
+      uw: input.uw,
+      expectedUw: input.expectedUw,
       branch: publishBinding.value.localBranch,
       base: publishBinding.value.defaultBranch,
       attributionRecordId: input.attributionRecordId,

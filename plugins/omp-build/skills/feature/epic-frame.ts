@@ -1,14 +1,14 @@
-import { hasScope } from '../../roxabi/uw-spec'
+import { hasFramedOwnUw, ownUwRefusal } from './epic-own-uw'
 import { isDone, topological } from './epic-progress'
 import type { ChildFacts } from './epic-types'
 
 // ── Framing, not authority ────────────────────────────────────────────────────
 
 /**
- * Framing for an epic mandate. Closed or merged children leave the order and
- * satisfy their dependents. An open blocker outside the epic reports the child
- * (and its in-epic dependents) as blocked. Any open child without scope refuses.
- * This does not authorize a run or a base.
+ * Closed or merged children leave the order and satisfy dependents. An open
+ * blocker outside the epic reports the child (and its in-epic dependents) as
+ * blocked. Open children require a fresh, framed own UW. This does not
+ * authorize a run or a base.
  */
 export function frameEpic(input: {
   base: string
@@ -16,8 +16,12 @@ export function frameEpic(input: {
 }): { order: number[]; blocked: { ticket: number; blockers: number[] }[] } | { error: string; missing?: number[] } {
   const { base, children } = input
   const open = children.filter((child) => !isDone(child, base))
-  const missing = open.filter((child) => !hasScope(child)).map((child) => child.number)
-  if (missing.length) return { error: `missing scope: ${missing.join(', ')}`, missing }
+  const missing = open.filter((child) => !hasFramedOwnUw(child))
+  if (missing.length)
+    return {
+      error: `unsettled own UW: ${missing.map((child) => `#${child.number} (${ownUwRefusal(child)})`).join(', ')}`,
+      missing: missing.map((child) => child.number),
+    }
 
   const byNumber = new Map(children.map((child) => [child.number, child]))
   const blocked = new Map<number, number[]>()

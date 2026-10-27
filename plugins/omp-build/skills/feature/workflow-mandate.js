@@ -21,7 +21,6 @@ async function bundledLandingMandate() {
     typeof contracts.readLandingFacts !== 'function' ||
     typeof contracts.recordIntegrity !== 'function' ||
     typeof contracts.recordOperation !== 'function' ||
-    typeof contracts.specDigest !== 'function' ||
     typeof contracts.shippedProductVersion !== 'function'
   )
     throw new Error('requireLandingMandate is not in the trusted contracts bundle')
@@ -56,19 +55,42 @@ async function trustedLandingWorkflowConfig(gitCwd, gitFn, baseTip, productVersi
   }
 }
 
-function liveSpec(contracts, scopes, bodies) {
-  if (!Array.isArray(scopes) || !Array.isArray(bodies) || bodies.length !== scopes.length)
-    throw new Error('landing facts issue bodies are incomplete')
-  if (scopes.length === 0) return { specDigest: null, specBody: null }
-  if (scopes.length !== 1) throw new Error('landing facts issue bodies are ambiguous')
-  const scope = scopes[0]
-  const match = bodies.find(
-    (entry) => entry?.scope?.repository === scope.repository && entry?.scope?.target === scope.target,
+async function currentSpecProjection(facts) {
+  const currentFacts = await import('../../roxabi/uw-current-facts.ts')
+  const readerFactory = await import('../../roxabi/uw-read-port.ts')
+  if (
+    typeof currentFacts.readCurrentChildrenProjection !== 'function' ||
+    typeof readerFactory.createInstalledObservedUwReadPort !== 'function'
+  ) {
+    throw new Error('trusted current child projection reader is incomplete')
+  }
+  const root = facts.uwGraph.nodes.find(
+    (node) => node?.uw?.repository === facts.uwGraph.root.repository && node?.uw?.target === facts.uwGraph.root.target,
   )
-  if (!match || typeof match.body !== 'string') throw new Error('linked issue body is unreadable')
-  return { specDigest: contracts.specDigest(match.body), specBody: match.body }
+  if (!root) {
+    const diagnostics =
+      facts.uwGraph.status === 'incomplete' && facts.uwGraph.diagnostics.length > 0
+        ? facts.uwGraph.diagnostics
+        : [
+            {
+              code: 'graph-root-missing',
+              message: `UW graph root ${facts.uwGraph.root.target} is absent`,
+              location: { kind: 'native', uw: facts.uwGraph.root, connection: 'state' },
+              related: [],
+            },
+          ]
+    return { proposedSpec: { ok: false, diagnostics }, currentChildren: { ok: false, diagnostics } }
+  }
+  const reader = readerFactory.createInstalledObservedUwReadPort({
+    graph: facts.uwGraph,
+    histories: facts.histories,
+  })
+  const read = await reader.readUw(facts.uwGraph.root)
+  return {
+    proposedSpec: read.proposed,
+    currentChildren: await currentFacts.readCurrentChildrenProjection({ uw: facts.uwGraph.root, read, reader }),
+  }
 }
-
 function validFactsScopes(facts, pullRequest) {
   return (
     facts.native?.pullRequest &&
@@ -76,7 +98,8 @@ function validFactsScopes(facts, pullRequest) {
     facts.native.pullRequest.target === pullRequest.target &&
     Array.isArray(facts.native.linkedIssueScopes) &&
     Array.isArray(facts.parentScopes) &&
-    Array.isArray(facts.linkedIssueBodies)
+    facts.uwGraph?.root &&
+    Array.isArray(facts.uwGraph.nodes)
   )
 }
 
@@ -163,7 +186,7 @@ export async function currentLandingMandate(cwd, pr, ghFn, native, gitFn = gitRe
   ensureLandingFactsForNative(facts, pullRequest, native)
   const productVersion = currentProductVersion(contracts)
   const config = await trustedLandingWorkflowConfig(gitCwd, gitFn, native.baseTip, productVersion)
-  const spec = liveSpec(contracts, facts.native.linkedIssueScopes, facts.linkedIssueBodies)
+  const current = await currentSpecProjection(facts)
   const decision = contracts.requireLandingMandate({
     histories: facts.histories,
     native: {
@@ -173,7 +196,8 @@ export async function currentLandingMandate(cwd, pr, ghFn, native, gitFn = gitRe
       linkedIssueScopes: facts.native.linkedIssueScopes,
     },
     parentScopes: facts.parentScopes,
-    current: { productVersion, ...config, ...spec },
+    uwGraph: facts.uwGraph,
+    current: { productVersion, ...config, ...current },
     localInhibit: null,
   })
   const admission = landingMandateDecision(decision)

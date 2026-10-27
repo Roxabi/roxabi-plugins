@@ -1,5 +1,8 @@
 // Source: plugins/omp-build/roxabi/workflow.ts:638-705,2009-2156
+
 import { randomUUID } from 'node:crypto'
+import type { UwTier } from '../engine/uw-spec.ts'
+import type { AcceptedChildCommitment, MandatePayload } from '../engine/workflow-mandate-schema.ts'
 import { branchFor } from '../skills/feature/epic-naming.ts'
 import {
   type Contracts,
@@ -23,7 +26,7 @@ import { parseWorkflowOverride } from './workflow-overrides.ts'
 type MandateRecord = Extract<HistoryRecord, { kind: 'mandate' }>
 type SuccessorShared = Pick<
   MandateRecord['payload'],
-  'format' | 'branch' | 'base' | 'lineageHead' | 'config' | 'parent' | 'antecedent' | 'spec'
+  'format' | 'branch' | 'base' | 'lineageHead' | 'config' | 'parent' | 'antecedent' | 'ownSpec' | 'tier' | 'children'
 >
 
 export function mandatesInHistory(history: History): MandateRecord[] {
@@ -95,7 +98,10 @@ export async function publishSuccessorMandate(input: {
   loaded: Contracts
   history: History
   scope: Scope
-  issue: { title: string; body: string; labels: string[]; updatedAt: string }
+  issue: { title: string; labels: string[] }
+  ownSpec: MandatePayload['ownSpec']
+  tier: UwTier
+  children: AcceptedChildCommitment[]
   number: number
   git: GitRunner
   gh: Gh
@@ -172,7 +178,9 @@ async function successorShared(
   input: {
     loaded: Contracts
     scope: Scope
-    issue: { body: string; updatedAt: string }
+    ownSpec: MandatePayload['ownSpec']
+    tier: UwTier
+    children: AcceptedChildCommitment[]
     git: GitRunner
     cwd: string
   },
@@ -189,19 +197,16 @@ async function successorShared(
   return {
     ok: true as const,
     shared: {
-      format: 'omp-build-mandate/2',
+      format: 'omp-build-mandate/3',
       branch: baseAndBranch.branch,
       base: baseAndBranch.base,
       lineageHead: head.code === 0 ? head.stdout.trim() : null,
       config: { productVersion, version: WORKFLOW_CONFIG_VERSION, digest: configPinDigest(effective), effective },
       parent: prior.parent,
       antecedent,
-      spec: {
-        reference: input.scope.target,
-        body: input.issue.body,
-        bodySha256: input.loaded.specDigest(input.issue.body),
-        lastEditedAt: input.issue.updatedAt,
-      },
+      ownSpec: input.ownSpec,
+      tier: input.tier,
+      children: input.children,
     },
   }
 }
@@ -212,7 +217,6 @@ function successorRolePayload(prior: MandateRecord['payload'], shared: Successor
       role: 'epic',
       ...shared,
       run: prior.run,
-      children: prior.children,
       permissions: prior.permissions,
     }
   }
@@ -221,16 +225,14 @@ function successorRolePayload(prior: MandateRecord['payload'], shared: Successor
       role: 'fix-only',
       ...shared,
       run: null,
-      children: null,
       permissions: { landing: false, correct: true },
     }
   }
   return {
     role: 'feature',
     ...shared,
-    run: null,
-    children: null,
-    permissions: { landing: true, correct: true },
+    run: prior.run,
+    permissions: prior.permissions,
   }
 }
 

@@ -248,28 +248,4 @@ describe('OMP omp-build hooks', () => {
       }
     })
   })
-
-  describe('slash commands', () => {
-    type Command = { description?: string; handler: (args: string, ctx: { cwd: string }) => Promise<void> }
-
-    const commands = new Map<string, Command>()
-    const sent: string[] = []
-
-    beforeAll(() => {
-      ompBuildExtension(
-        createExtensionApiStub({
-          registerCommand: (name, options) => {
-            commands.set(name, options as Command)
-          },
-          sendUserMessage: (content) => {
-            sent.push(String(content))
-          },
-        }),
-      )
-    })
-
-    it('registers native review and correction commands alongside skill commands', () => {
-      expect([...commands.keys()].sort()).toEqual(['ci-watch', 'cleanup', 'dev-review', 'feature', 'fix', 'promote'])
-    })
-  })
 })

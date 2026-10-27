@@ -30,8 +30,47 @@ function issueComments(page, history, issueHistory, fixture, historyPage) {
   return null
 }
 
+function graphConnection(nodes) {
+  return { nodes, pageInfo: { hasNextPage: false, endCursor: null } }
+}
+
+function nativeGraphResponse(args, fixture) {
+  const query = args.find((arg) => String(arg).startsWith('query='))
+  if (
+    typeof query !== 'string' ||
+    !query.includes('number title body updatedAt state stateReason repository') ||
+    !query.includes('labels(first: 100, after: $labelsCursor)') ||
+    !query.includes('subIssues(first: 100, after: $childrenCursor)') ||
+    !query.includes('blockedBy(first: 100, after: $blockersCursor)')
+  )
+    return null
+  const number = args.find((arg) => String(arg).startsWith('number='))
+  if (number !== `number=${fixture.issue}`) throw new Error(`unexpected native graph issue: ${number}`)
+  return JSON.stringify({
+    data: {
+      repository: {
+        issue: {
+          number: fixture.issue,
+          title: 'Save selected region',
+          body: fixture.spec,
+          updatedAt: '2026-10-21T12:00:00Z',
+          state: 'OPEN',
+          stateReason: null,
+          repository: { nameWithOwner: fixture.repository },
+          parent: null,
+          labels: graphConnection([{ name: 'size:S' }]),
+          subIssues: graphConnection([]),
+          blockedBy: graphConnection([]),
+        },
+      },
+    },
+  })
+}
+
 function apiResponse(args, history, issueHistory, fixture, historyPage) {
   if (args[1] === 'user') return `${fixture.author}\n`
+  const nativeGraph = args.includes('graphql') ? nativeGraphResponse(args, fixture) : null
+  if (nativeGraph !== null) return nativeGraph
   if (args.includes('graphql') && args.some((arg) => arg.includes('lastEditedAt')))
     return JSON.stringify({ data: { repository: { pullRequest: { body: '', lastEditedAt: null } } } })
   if (args[1] === `repos/${fixture.repository}/issues/${fixture.issue}`)
@@ -67,7 +106,12 @@ function apiCommand(args, history, issueHistory, fixture, historyPage) {
 
 function issueView(args, fixture) {
   return args[0] === 'issue' && args[1] === 'view'
-    ? JSON.stringify({ body: fixture.spec, updatedAt: '2026-10-21T12:00:00Z', state: 'OPEN', labels: [] })
+    ? JSON.stringify({
+        body: fixture.spec,
+        updatedAt: '2026-10-21T12:00:00Z',
+        state: 'OPEN',
+        labels: [{ name: 'size:S' }],
+      })
     : null
 }
 

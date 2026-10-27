@@ -16,7 +16,7 @@ function workflow(impl: Partial<FeatureWorkflow> = {}): FeatureWorkflow {
 }
 
 describe('feature command grammar', () => {
-  it('accepts a reference, explicit resume, and a material decision without treating resume as a second confirmation', () => {
+  it('accepts a reference, explicit resume, and a material decision without argv authority', () => {
     expect(parseFeatureCommand('#12')).toEqual({ ok: true, control: 'select', reference: '12' })
     expect(parseFeatureCommand('resume 12')).toEqual({ ok: true, control: 'resume', reference: '12' })
     expect(parseFeatureCommand('new feature-subject')).toEqual({
@@ -24,14 +24,13 @@ describe('feature command grammar', () => {
       control: 'new',
       reference: 'feature-subject',
     })
-    expect(parseFeatureCommand('material-decision #9 reject')).toEqual({
+    expect(parseFeatureCommand('material-decision #9')).toEqual({
       ok: true,
       control: 'material-decision',
       reference: '9',
-      decision: 'reject',
     })
     expect(parseFeatureCommand('pause')).toEqual({ ok: false, reason: 'feature-reference-missing' })
-    expect(parseFeatureCommand('material-decision #9 maybe')).toEqual({
+    expect(parseFeatureCommand('material-decision #9 accept')).toEqual({
       ok: false,
       reason: 'feature-material-decision-invalid',
     })

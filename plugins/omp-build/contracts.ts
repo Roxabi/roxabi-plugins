@@ -1,17 +1,17 @@
-import { Flag, is } from '@oh-my-pi/pi-ai/error/flags'
-
+export { createGhIssueWritePorts } from '../issue-triage/skills/shared/adapters/issue-writer.ts'
+export { calculateTier } from '../issue-triage/skills/shared/domain/complexity.ts'
+export { createIssueWriter } from '../issue-triage/skills/shared/domain/issue-write.ts'
 export { decodeHistory, encodeRecord } from './adapters/github/history-codec.ts'
 export { publishGitHubRecord } from './adapters/github/publish.ts'
-export {
-  nativeInstant,
-  type RecordIntegrityRefusal,
-  recordIntegrity,
-  recordOperation,
-} from './adapters/github/record-integrity.ts'
+export type { RecordIntegrityRefusal } from './adapters/github/record-integrity.ts'
+export { nativeInstant, recordIntegrity, recordOperation } from './adapters/github/record-integrity.ts'
 export { githubScope, readGitHubHistory } from './adapters/github/transport.ts'
-export { type Gh, GitHubHistoryReadError, type GitHubOptions } from './adapters/github/types.ts'
+export { type Gh, GitHubHistoryReadError, type GitHubOptions, gh, viewer } from './adapters/github/types.ts'
 export { readNativeIssueFacts } from './adapters/github-native/issue-facts.ts'
 export { readIssueParentAssociation, readLinkedIssueAssociation } from './adapters/github-native/relations.ts'
+export { readUwGraph } from './adapters/github-native/uw-graph-reader.ts'
+export { parseIssueSpecBody, renderIssueSpecBody } from './adapters/github-native/uw-spec.ts'
+export { rawSource } from './adapters/github-native/uw-spec-parser.ts'
 export {
   publishConfirmedWorkflowRecord,
   readLandingFacts,
@@ -33,43 +33,32 @@ export type {
   NativeTargetResolution,
   WorkflowPublication,
 } from './adapters/github-workflow/types.ts'
-export {
-  classifyHistory,
-  type HistoryClassification,
-  type HistoryOperationClass,
-} from './engine/history-classification.ts'
+export { hasNativeUserInterruptFlag } from './adapters/omp-native/user-interrupt.ts'
+export type { HistoryClassification, HistoryOperationClass } from './engine/history-classification.ts'
+export { classifyHistory } from './engine/history-classification.ts'
 export { validateRecordGraph } from './engine/history-graph.ts'
+export type { DecodedHistory, History, OperationAuthority, OperationRead } from './engine/history-schema.ts'
 export {
-  type DecodedHistory,
   decodedHistorySchema,
-  type History,
   historySchema,
-  type OperationAuthority,
-  type OperationRead,
   operationAuthoritySchema,
   operationReadSchema,
 } from './engine/history-schema.ts'
 export { inspectFinding, PRODUCER_OUTPUTS, type ProducerOutput, producerJsonSchema } from './engine/producer-schema.ts'
 export { buildRecord, parseRecord, type RecordDraft } from './engine/record-construction.ts'
 export { equalScope } from './engine/record-diagnostics.ts'
-export {
-  type FailedCheckFailure,
-  failedCheckEvidenceDigest,
-  failedCheckFailureSchema,
-  specDigest,
-} from './engine/record-digests.ts'
+export type { FailedCheckFailure } from './engine/record-digests.ts'
+export { failedCheckEvidenceDigest, failedCheckFailureSchema, specDigest } from './engine/record-digests.ts'
 export { projectRecord } from './engine/record-projection.ts'
+export type { ExternalRecordRef, ScopedRecordRef, WorkflowRecordKind } from './engine/record-references.ts'
 export {
-  type ExternalRecordRef,
   externalRecordRefSchema,
   isWorkflowKind,
   KIND_NAMES,
   kindSchema,
-  type ScopedRecordRef,
   scopedRecordRefSchema,
   stopBotMayAuthor,
   WORKFLOW_RECORD_KINDS,
-  type WorkflowRecordKind,
 } from './engine/record-references.ts'
 export { type CanonicalRecord, type Kind, type Payloads, recordSchema } from './engine/record-schema.ts'
 export {
@@ -133,9 +122,8 @@ export type {
   ReviewSummary,
 } from './engine/result.ts'
 export { deriveRecallPlan } from './engine/review-conservation.ts'
+export type { DecisionBindings, ReviewDecisionBindings } from './engine/review-decision.ts'
 export {
-  type DecisionBindings,
-  type ReviewDecisionBindings,
   validateDecision,
   validateDecisionBindings,
   validateRetainedUnusableLabels,
@@ -176,12 +164,45 @@ export {
   stopSchema,
 } from './engine/review-schema.ts'
 export { deriveReviewState, selectedReviewOperations, summarizeReviews } from './engine/review-state.ts'
+export { assessUwAdmission } from './engine/uw-admission.ts'
+export { uwCreateInputSchema, uwProposalInputSchema } from './engine/uw-command-schema.ts'
+export { toDiagnostic, toDiagnostics, uwDiagnosticSchema, uwLocationSchema } from './engine/uw-diagnostics.ts'
+export {
+  isWayfinder,
+  knownWayfinderLabels,
+  sameScope,
+  scopeKey,
+  unknownWayfinderLabels,
+  validateUwGraph,
+  WAYFINDER_LABELS,
+} from './engine/uw-graph.ts'
+export {
+  buildSpecIdentityAllocation,
+  buildSpecIdentityProposedRetirement,
+  prepareSpecAllocation,
+  resolveSpecIdentityLedger,
+} from './engine/uw-identity.ts'
+export {
+  operatorConfirmationEvidenceSchema,
+  SPEC_IDENTITY_FORMAT,
+  specIdentityPayloadSchema,
+} from './engine/uw-identity-schema.ts'
+export { normalizationJudgementSchema } from './engine/uw-normalization-schema.ts'
+export { canonicalSpec, specVersion, validateSpecIds } from './engine/uw-spec.ts'
+export {
+  criterionIdSchema,
+  invariantIdSchema,
+  SPEC_CONTENT_FORMAT,
+  specContentSchema,
+  specDraftSchema,
+  specItemIdSchema,
+  specRawSourceSchema,
+  specSchema,
+  specSnapshotSchema,
+  uwTierSchema,
+} from './engine/uw-spec-schema.ts'
 export { resolveAcceptedSpec } from './engine/workflow-accepted-spec.ts'
-export type {
-  AcceptedSpec,
-  AcceptedSpecRef,
-  AcceptedSpecResult,
-} from './engine/workflow-accepted-spec-types.ts'
+export type { AcceptedOwnSpec, AcceptedSpecResult, AcceptedSpecStep } from './engine/workflow-accepted-spec-types.ts'
 export { actionCompletion } from './engine/workflow-action-completion.ts'
 export type { BoundWork, ConfigIdentity, MandateUse } from './engine/workflow-binding.ts'
 export { resolveBoundWork } from './engine/workflow-bound-work-resolution.ts'
@@ -189,20 +210,19 @@ export { composeChantier } from './engine/workflow-chantier.ts'
 export { bindExternalRef, type MandateRecord, type PauseBinding } from './engine/workflow-control.ts'
 export { assessFixMandate } from './engine/workflow-correction-admission.ts'
 export { buildFixOnlyMandate, type FixMandateAssessment } from './engine/workflow-correction-mandate.ts'
+export type { WorkflowCondition, WorkflowGraph, WorkflowGraphAction } from './engine/workflow-graph.ts'
 export {
   validateWorkflowGraph,
-  type WorkflowCondition,
-  type WorkflowGraph,
-  type WorkflowGraphAction,
   workflowConditionSchema,
   workflowGraphActionSchema,
   workflowGraphSchema,
 } from './engine/workflow-graph.ts'
 export type { LandingMandateDecision, LandingRefusal } from './engine/workflow-landing.ts'
 export { requireLandingMandate } from './engine/workflow-landing-admission.ts'
-export type { MandateRefusal, MandateSelection } from './engine/workflow-mandate.ts'
-export { selectApplicableMandate } from './engine/workflow-mandate-admission.ts'
+export { effectiveMandateRole, type MandateRefusal, type MandateSelection } from './engine/workflow-mandate.ts'
+export { resolveOwnSpecAuthority, selectApplicableMandate } from './engine/workflow-mandate-admission.ts'
 export {
+  acceptedChildCommitmentSchema,
   type MandatePayload,
   mandatePayloadSchema,
   type OperatorControlPayload,
@@ -210,6 +230,11 @@ export {
   type WorkflowBindingPayload,
   workflowBindingPayloadSchema,
 } from './engine/workflow-mandate-schema.ts'
+export {
+  buildMaterialAcceptanceControl,
+  prepareMaterialAcceptance,
+  recheckMaterialAcceptance,
+} from './engine/workflow-material-acceptance.ts'
 export {
   type CiAttribution,
   ciAttributionSchema,
@@ -229,13 +254,8 @@ export {
   type SpecAssessment,
   specAssessmentSchema,
 } from './engine/workflow-output-schema.ts'
-export {
-  type ActionCompletion,
-  bindImplementationCommand,
-  type PlanMacro,
-  type PlanMacroPhase,
-  type WorkflowEvidence,
-} from './engine/workflow-plan.ts'
+export type { ActionCompletion, PlanMacro, PlanMacroPhase, WorkflowEvidence } from './engine/workflow-plan.ts'
+export { bindImplementationCommand } from './engine/workflow-plan.ts'
 export { planMacro } from './engine/workflow-plan-macro.ts'
 export { selectWorkflowBinding, type WorkflowBindingSelection } from './engine/workflow-pr-binding.ts'
 export {
@@ -264,15 +284,12 @@ export type {
 } from './engine/workflow-reconstruction-types.ts'
 export { partitionScopedRefs, scopedRefsOf } from './engine/workflow-record-references.ts'
 export {
-  type OmpBuildStartReviewParameters,
-  ompBuildStartReviewParametersJsonSchema,
-  ompBuildStartReviewParametersSchema,
-} from './omp/tool-schemas.ts'
+  materialAcceptanceDigest,
+  mechanicalSpecDelta,
+  sameCurrentAssessedState,
+} from './engine/workflow-spec-assessment.ts'
+export type { OmpBuildStartReviewParameters } from './omp/tool-schemas.ts'
+export { ompBuildStartReviewParametersJsonSchema, ompBuildStartReviewParametersSchema } from './omp/tool-schemas.ts'
 export { readScopeIssueBody } from './roxabi/uw-spec/scope-issue.ts'
 export { readEffectiveFixConfig } from './roxabi/workflow-config.ts'
 export { shippedProductVersion } from './roxabi/workflow-config-digest.ts'
-
-/** Session-boundary Esc/RPC user-abort: SDK stamps Flag.UserInterrupt on errorId. */
-export function hasNativeUserInterruptFlag(errorId: number | undefined): boolean {
-  return is(errorId, Flag.UserInterrupt)
-}

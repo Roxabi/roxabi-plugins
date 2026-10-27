@@ -1,18 +1,37 @@
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import { type CanonicalRecord, decodeHistory, encodeRecord, type History, type Json } from '../../../../contracts.ts'
+import {
+  type CanonicalRecord,
+  canonicalSpec,
+  decodeHistory,
+  type History,
+  type Json,
+  renderIssueSpecBody,
+} from '../../../../contracts.ts'
 import { submission } from '../../../../testing/record-builders.ts'
 import { epicReviewGraph } from '../../../../testing/record-graphs.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../../../../testing/roxabi-presets.ts'
 import { sandboxOf } from './epic-driver-sandbox.ts'
 
 const { projection: TEST_PROJECTION_CONFIG } = roxabiRecordFixtures()
-const { childSnapshot, epicMandate, framedBodies } = roxabiWorkflowFixtures()
+const { framedBodies } = roxabiWorkflowFixtures()
 
 export const RUN = 'run00001'
 export const ME = 'operator'
 
 export type Comment = { body: string; author: string }
+export function strictSpecBody(statement: string): string {
+  const canonical = canonicalSpec({
+    format: 'omp-build-spec-content/1',
+    criteria: [{ id: 'C1', statement }],
+    invariants: [],
+    exclusions: [],
+    openQuestions: [],
+    sections: { origin: '', context: '', change: '' },
+  })
+  if (!canonical.ok) throw new Error(`fixture Spec rejected: ${canonical.diagnostics.map((d) => d.code).join(',')}`)
+  return renderIssueSpecBody(canonical.value, { complexity: 1 })
+}
 
 export function recordHistory(issue: number, comments: Comment[] = []): History {
   return {
@@ -32,17 +51,12 @@ export function recordHistory(issue: number, comments: Comment[] = []): History 
   }
 }
 export function framedRecords(issue: number, records: CanonicalRecord[]): Comment[] {
-  const comments: Comment[] = []
-  for (const record of records) {
-    const encoded = encodeRecord(
-      { ...record, repository: 'o/r', target: `o/r#${issue}` },
-      recordHistory(issue, comments),
-      TEST_PROJECTION_CONFIG,
-    )
-    if (!encoded.ok) throw new Error(encoded.diagnostics.map((entry) => `${entry.code}: ${entry.message}`).join('; '))
-    comments.push(...encoded.value.map((body) => ({ body, author: ME })))
-  }
-  return comments
+  return framedBodies(
+    records.map((record) => ({ ...record, repository: 'o/r', target: `o/r#${issue}` })),
+    ME,
+    [],
+    TEST_PROJECTION_CONFIG,
+  ).map((body) => ({ body, author: ME }))
 }
 
 export function epicEvent(
@@ -146,114 +160,5 @@ export function epicDecisionHistory(range: string, blocking: boolean): Comment[]
   ])
 }
 
-export function serveComments(issue: number, comments: Comment[]): void {
-  writeFileSync(
-    path.join(sandboxOf().state, `comments-${issue}.json`),
-    JSON.stringify(
-      comments.map((comment, index) => ({
-        id: index + 1,
-        body: comment.body,
-        user: { login: comment.author },
-        created_at: '2026-10-21T10:00:00Z',
-        updated_at: '2026-10-21T10:00:00Z',
-      })),
-    ),
-  )
-}
-
-export function prNode(number: number, head: string, headSha: string, over: Record<string, unknown> = {}) {
-  return {
-    number,
-    state: 'OPEN',
-    baseRefName: 'main',
-    headRefName: head,
-    headRefOid: headSha,
-    mergedAt: null,
-    mergeCommit: null,
-    autoMergeRequest: null,
-    labels: { nodes: [] },
-    repository: { nameWithOwner: 'o/r' },
-    isCrossRepository: false,
-    ...over,
-  }
-}
-
-export function childNode(
-  number: number,
-  title: string,
-  { state = 'OPEN', blockedBy = [], comments = [], prs = [] as unknown[] } = {} as {
-    state?: 'OPEN' | 'CLOSED'
-    blockedBy?: [number, 'OPEN' | 'CLOSED'][]
-    comments?: Comment[]
-    prs?: unknown[]
-  },
-) {
-  return {
-    number,
-    title,
-    state,
-    body: '## Acceptance criteria\n\n- [ ] works\n',
-    author: { login: ME },
-    repository: { nameWithOwner: 'o/r' },
-    labels: { nodes: [{ name: 'size:S' }] },
-    blockedBy: { nodes: blockedBy.map(([n, s]) => ({ number: n, state: s, repository: { nameWithOwner: 'o/r' } })) },
-    closedByPullRequestsReferences: { nodes: prs },
-    comments: { nodes: [] },
-    fixtureComments: comments,
-    timelineItems: { nodes: [] },
-  }
-}
-
-export function serveEpic(
-  children: { number: number; body?: string; specBody?: string; fixtureComments?: Comment[] }[],
-  epicComments: Comment[] = [],
-  options: { mandate?: boolean } = {},
-): void {
-  const framedBody = '## Acceptance criteria\n\n- [ ] works\n'
-  const mandate =
-    options.mandate === false
-      ? []
-      : framedBodies(
-          [
-            epicMandate(
-              { repository: 'o/r', target: 'o/r#1' },
-              children.map((child) =>
-                childSnapshot(
-                  { repository: 'o/r', target: `o/r#${child.number}` },
-                  // Accepted Spec is authority; live issue body may diverge (unframed/drift).
-                  child.specBody ?? child.body ?? framedBody,
-                ),
-              ),
-              { runId: RUN },
-            ),
-          ],
-          ME,
-        ).map((body) => ({ body, author: ME }))
-  serveComments(1, [...mandate, ...epicComments])
-  for (const child of children) serveComments(child.number, child.fixtureComments ?? [])
-  const data = {
-    data: {
-      viewer: { login: ME },
-      repository: {
-        issue: {
-          comments: { nodes: [] },
-          subIssues: { pageInfo: { hasNextPage: false }, nodes: children },
-        },
-      },
-    },
-  }
-  writeFileSync(path.join(sandboxOf().state, 'epic.json'), JSON.stringify(data))
-}
-
-export function servePr(number: number, view: { state: string; labels: string[]; autoMerge: boolean }, sticky = false) {
-  const { state } = sandboxOf()
-  writeFileSync(
-    path.join(state, 'pr', `${number}.json`),
-    JSON.stringify({
-      state: view.state,
-      labels: view.labels.map((name) => ({ name })),
-      autoMergeRequest: view.autoMerge ? { enabledAt: 'x' } : null,
-    }),
-  )
-  if (sticky) writeFileSync(path.join(state, 'pr', `${number}.sticky`), '')
-}
+export { childNode, prNode } from './epic-driver-nodes.ts'
+export { serveComments, serveEpic, servePr } from './epic-driver-serve.ts'

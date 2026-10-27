@@ -1,7 +1,7 @@
 // Source: plugins/omp-build/roxabi/workflow.ts:857-1023
 
 import type { Gh } from '../adapters/github/types.ts'
-import { epicDisarmControl } from '../skills/feature/epic-driver.ts'
+import { epicControlTarget } from '../skills/feature/epic-driver.ts'
 import { disarmReviewedBeforePush } from '../skills/feature/landing-foundation.js'
 import { isRecord, type Scope } from './feature-engine.ts'
 
@@ -101,15 +101,6 @@ async function openBranchPullRequests(
 
 type DisarmResult = { clean: boolean; evidence: unknown }
 
-async function disarmEpicTarget(cwd: string, issue: number): Promise<DisarmResult> {
-  try {
-    const evidence = await epicDisarmControl(cwd, issue)
-    return { clean: evidence.failed.length === 0, evidence }
-  } catch (error) {
-    return { clean: false, evidence: { error: error instanceof Error ? error.message : 'epic-disarm-unavailable' } }
-  }
-}
-
 async function discoverPullRequests(
   gh: Gh,
   cwd: string,
@@ -133,6 +124,34 @@ async function discoverPullRequests(
     evidence.push(branchPullRequests.evidence)
   }
   return { numbers, incomplete, evidence }
+}
+
+async function discoverApprovedChildPullRequests(
+  cwd: string,
+  issue: number,
+): Promise<{ numbers: Set<number>; incomplete: boolean; evidence: unknown }> {
+  try {
+    const control = await epicControlTarget(cwd, issue)
+    return {
+      numbers: new Set(control.openPrs.map(({ pr }) => pr)),
+      incomplete: false,
+      evidence: {
+        status: 'complete',
+        mandateId: control.mandateId,
+        control: control.control,
+        openPrs: control.openPrs,
+      },
+    }
+  } catch (error) {
+    return {
+      numbers: new Set(),
+      incomplete: true,
+      evidence: {
+        status: 'unconfirmed',
+        error: error instanceof Error ? error.message : 'epic-control-discovery-unavailable',
+      },
+    }
+  }
 }
 
 function disarmSucceeded(result: unknown): boolean {
@@ -166,33 +185,38 @@ export async function disarmKnownTarget(
   role: 'feature' | 'epic' | 'fix-only' | null = null,
   branch: string | null = null,
 ): Promise<DisarmResult> {
-  // Epic owns role-aware child/PR disarm. Ordinary Feature never calls epicDisarmControl.
-  if (target.status === 'issue' && role === 'epic') return disarmEpicTarget(cwd, target.issue.number)
-  const discovered = await discoverPullRequests(gh, cwd, target, branch)
-  const discovery = { incomplete: discovered.incomplete, evidence: discovered.evidence }
-  if (discovered.numbers.size === 0) {
-    // Empty discovery is not observed disarm when incomplete or a branch was
-    // expected. Issue-only with complete empty lists stays clean.
+  const own = await discoverPullRequests(gh, cwd, target, branch)
+  const children =
+    target.status === 'issue' && role === 'epic'
+      ? await discoverApprovedChildPullRequests(cwd, target.issue.number)
+      : null
+  const numbers = new Set([...own.numbers, ...(children?.numbers ?? [])])
+  const incomplete = own.incomplete || children?.incomplete === true
+  const discovery = {
+    own: { incomplete: own.incomplete, evidence: own.evidence },
+    ...(children === null ? {} : { children: { incomplete: children.incomplete, evidence: children.evidence } }),
+  }
+  if (numbers.size === 0) {
     return {
-      clean: !discovered.incomplete && target.status === 'issue',
+      clean: !incomplete && target.status === 'issue',
       evidence: {
         disarmed: [],
         role: role ?? 'unknown',
-        note: discovered.incomplete ? 'pull-request-list-incomplete' : 'no-open-pull-requests',
+        note: incomplete ? 'pull-request-list-incomplete' : 'no-open-pull-requests',
         branch,
         discovery,
       },
     }
   }
-  const result = await disarmPullRequests(gh, cwd, discovered.numbers)
+  const result = await disarmPullRequests(gh, cwd, numbers)
   return {
-    clean: !discovered.incomplete && result.clean,
+    clean: !incomplete && result.clean,
     evidence: {
       disarmed: result.evidence,
       role: role ?? 'unknown',
       branch,
       discovery,
-      ...(discovered.incomplete ? { note: 'pull-request-list-incomplete' } : {}),
+      ...(incomplete ? { note: 'pull-request-list-incomplete' } : {}),
     },
   }
 }

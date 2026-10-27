@@ -16,6 +16,7 @@ const KNOWN_KINDS: Record<string, true> = {
   proof: true,
   stop: true,
   'epic-event': true,
+  'spec-identity': true,
   ...Object.fromEntries(WORKFLOW_RECORD_KINDS.map((kind) => [kind, true as const])),
 }
 

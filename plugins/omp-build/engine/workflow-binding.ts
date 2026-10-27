@@ -1,5 +1,5 @@
 import type { Diagnostic, Scope } from './record-values.ts'
-import type { AcceptedSpec } from './workflow-accepted-spec-types.ts'
+import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
 import type { MandateRecord } from './workflow-control.ts'
 import type { LandingRefusal } from './workflow-landing.ts'
 import type { MandateRefusal } from './workflow-mandate.ts'
@@ -21,7 +21,7 @@ export type BoundWork =
       mandate: MandateRecord
       scope: Scope
       permissions: { landing: boolean; correct: boolean }
-      acceptedSpec: AcceptedSpec
+      acceptedSpec: AcceptedOwnSpec
       configIdentity: ConfigIdentity
       drift: 'settled' | 'differs' | null
     }

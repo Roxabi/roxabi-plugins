@@ -23,6 +23,7 @@ export type LandingRefusal =
   | 'unsafe'
   | 'materially-changed'
   | 'missing-history'
+  | 'uw-not-deliverable'
 
 export type LandingMandateDecision =
   | { ok: true; recordId: string; scope: Scope; mandate: MandateRecord }

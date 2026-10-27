@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 
 import { recordedBase, rollupPage, settleAll } from './sim-git.ts'
 import { type Comment, fail, fullName, type Issue, type Pull, type State } from './sim-types.ts'
+import { graphIssueResponse } from './sim-uw-graph.ts'
 
 export function prNode(state: State, pr: Pull): Record<string, unknown> {
   return {
@@ -251,6 +252,9 @@ function lastEditedResponse(state: State, query: string, vars: Record<string, st
 }
 
 function specialQueryResponse(state: State, query: string, vars: Record<string, string>): unknown | undefined {
+  if (query.includes('stateReason') && query.includes('blockedBy') && query.includes('subIssues')) {
+    return graphIssueResponse(state, vars.number, vars)
+  }
   if (query.includes('subIssues')) return subIssuesResponse(state, state.issues[String(vars.epic)], vars.epic)
   if (query.includes('statusCheckRollup')) return rollupResponse(state, query, vars.sha ?? '', vars.after)
   if (query.includes('closingIssuesReferences')) return closingIssuesResponse(state, vars.number)

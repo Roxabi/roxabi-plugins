@@ -3,9 +3,9 @@ import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic, Group, Label, Scope, Verdict } from './record-values.ts'
 import type { Stop } from './review-schema.ts'
 
-export type Result<T> =
+export type Result<T, D extends Diagnostic = Diagnostic> =
   | { ok: true; value: T }
-  | { ok: false; diagnostics: Diagnostic[]; knownReviews?: number; countExact?: boolean; spent?: boolean | null }
+  | { ok: false; diagnostics: D[]; knownReviews?: number; countExact?: boolean; spent?: boolean | null }
 
 export type FindingInspection = { usable: boolean; knownLabel: Label | null; diagnostics: Diagnostic[] }
 export type DecisionAssessment = {

@@ -1,10 +1,12 @@
 import type { DecodedHistory } from './history-schema.ts'
-import { diagnostic, equalScope, incompatibleFormat, sameRef } from './record-diagnostics.ts'
+import { diagnostic, equalScope, fail, incompatibleFormat, sameRef } from './record-diagnostics.ts'
+import type { Result } from './result.ts'
+import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
+import type { AcceptedOwnSpec, AcceptedSpecResult } from './workflow-accepted-spec-types.ts'
 import {
   abandoned,
   bindExternalRef,
   type ControlRecord,
-  childPermitted,
   historyFor,
   type MandateRecord,
   mandateScope,
@@ -18,12 +20,14 @@ import { executableGraph } from './workflow-graph.ts'
 import type { MandateSelection } from './workflow-mandate.ts'
 import { epicParentProblem } from './workflow-parent.ts'
 
-function cycleRefusal(history: DecodedHistory, seen: ReadonlySet<string>): MandateSelection | null {
+type MandateRefusalSelection = Extract<MandateSelection, { status: 'refused' }>
+
+function cycleRefusal(history: DecodedHistory, seen: ReadonlySet<string>): MandateRefusalSelection | null {
   const scopeKey = `${history.source.scope.repository}\0${history.source.scope.target}`
   return seen.has(scopeKey) ? refused('ambiguous', [diagnostic('ambiguous', 'Mandate parent chain cycles')]) : null
 }
 
-function historyRefusal(history: DecodedHistory): MandateSelection | null {
+function historyRefusal(history: DecodedHistory): MandateRefusalSelection | null {
   const problem = workflowOperationProblem(history)
   if (problem !== null && mandatesOf(history).length === 0 && problem === 'incomplete')
     return refused('incomplete', [diagnostic('incomplete', 'History pagination is incomplete')])
@@ -39,7 +43,7 @@ function historyRefusal(history: DecodedHistory): MandateSelection | null {
   return null
 }
 
-function noMandateRefusal(history: DecodedHistory): MandateSelection {
+function noMandateRefusal(history: DecodedHistory): MandateRefusalSelection {
   const claimed = history.operations.some(
     (operation) => operation.kind === 'mandate' || operation.claimedKinds.includes('mandate'),
   )
@@ -48,7 +52,7 @@ function noMandateRefusal(history: DecodedHistory): MandateSelection {
     : refused('missing', [diagnostic('missing', 'No mandate record exists')])
 }
 
-function selectedMandate(history: DecodedHistory): MandateRecord | MandateSelection {
+function selectedMandate(history: DecodedHistory): MandateRecord | MandateRefusalSelection {
   const mandates = mandatesOf(history)
   if (mandates.length === 0) return noMandateRefusal(history)
   const active = mandates.filter((mandate) => !abandoned(history, mandate) && successorOf(history, mandate) === null)
@@ -66,7 +70,7 @@ function selectedMandate(history: DecodedHistory): MandateRecord | MandateSelect
   return mandate
 }
 
-function pauseRefusal(mandate: MandateRecord, pause: ControlRecord): MandateSelection {
+function pauseRefusal(mandate: MandateRecord, pause: ControlRecord): MandateRefusalSelection {
   return {
     status: 'refused',
     reason: 'paused',
@@ -81,6 +85,44 @@ function pauseRefusal(mandate: MandateRecord, pause: ControlRecord): MandateSele
     },
   }
 }
+function acceptedRefusal(result: Exclude<AcceptedSpecResult, { ok: true }>): MandateRefusalSelection {
+  return refused(
+    result.reason === 'ambiguous'
+      ? 'ambiguous'
+      : result.reason === 'missing-history'
+        ? 'missing-history'
+        : 'incomplete',
+    result.evidence,
+  )
+}
+
+function permissionRefusal(mandate: MandateRecord, parent: MandateRecord): MandateRefusalSelection | null {
+  if (mandate.payload.permissions.landing && !parent.payload.permissions.landing)
+    return refused('incompatible', [diagnostic('incompatible', 'Child landing exceeds the parent')])
+  if (mandate.payload.permissions.correct && !parent.payload.permissions.correct)
+    return refused('incompatible', [diagnostic('incompatible', 'Child correction exceeds the parent')])
+  return null
+}
+
+export function childCommitmentRefusal(
+  mandate: MandateRecord,
+  parent: AcceptedOwnSpec,
+  child: AcceptedOwnSpec,
+): MandateRefusalSelection | null {
+  const approved = parent.children.find((commitment) => equalScope(commitment.scope, mandateScope(mandate)))
+  if (approved === undefined)
+    return refused('unknown-binding', [
+      diagnostic('unknown-binding', 'Child scope is not approved by the current accepted parent Spec'),
+    ])
+  if (approved.specVersion !== child.ref.version || approved.tier !== child.tier)
+    return refused('materially-changed', [
+      diagnostic(
+        'materially-changed',
+        'Child accepted Spec version or tier differs from the current parent commitment',
+      ),
+    ])
+  return null
+}
 
 function parentPolicyRefusal(
   mandate: MandateRecord,
@@ -89,23 +131,13 @@ function parentPolicyRefusal(
   history: DecodedHistory,
   externalHistories: readonly DecodedHistory[],
 ): MandateSelection | null {
-  if (
-    parent.payload.role === 'epic' &&
-    !childPermitted(parent, mandateScope(mandate), [parentHistory, history, ...externalHistories])
-  )
-    return refused('unknown-binding', [diagnostic('unknown-binding', 'Child scope is not approved')])
-  if (mandate.payload.permissions.landing && !parent.payload.permissions.landing)
-    return refused('incompatible', [diagnostic('incompatible', 'Child landing exceeds the parent')])
-  if (mandate.payload.permissions.correct && !parent.payload.permissions.correct)
-    return refused('incompatible', [diagnostic('incompatible', 'Child correction exceeds the parent')])
-  if (parent.payload.role !== 'epic') return null
-  const approved = parent.payload.children.find((child) => equalScope(child.scope, mandateScope(mandate)))
-  if (approved !== undefined && mandate.payload.spec.bodySha256 !== approved.specDigest) {
-    return refused('materially-changed', [
-      diagnostic('materially-changed', 'Child spec digest differs from the approved snapshot'),
-    ])
-  }
-  return null
+  const permissions = permissionRefusal(mandate, parent)
+  if (permissions !== null) return permissions
+  const parentAccepted = resolveAcceptedSpec(parent, [parentHistory, history, ...externalHistories])
+  if (!parentAccepted.ok) return acceptedRefusal(parentAccepted)
+  const childAccepted = resolveAcceptedSpec(mandate, [history, parentHistory, ...externalHistories])
+  if (!childAccepted.ok) return acceptedRefusal(childAccepted)
+  return childCommitmentRefusal(mandate, parentAccepted.spec, childAccepted.spec)
 }
 
 function parentAdmission(
@@ -122,17 +154,19 @@ function parentAdmission(
   if (!parent.ok) return refused('incomplete', parent.diagnostics)
   if (parent.value.kind !== 'mandate')
     return refused('unknown-binding', [diagnostic('kind-mismatch', 'Parent reference is not a mandate')])
-  const parentSelection = selectApplicableMandate(parentHistory, externalHistories, seen)
-  if (parentSelection.status === 'refused') return parentSelection
+  const selectedParent = selectedMandate(parentHistory)
+  if ('status' in selectedParent) return selectedParent
   if (
     !sameRef(
-      { scope: mandateScope(parentSelection.mandate), recordId: parentSelection.mandate.recordId, kind: 'mandate' },
+      { scope: mandateScope(selectedParent), recordId: selectedParent.recordId, kind: 'mandate' },
       mandate.payload.parent,
     )
   ) {
     return refused('revoked', [diagnostic('revoked', 'Child parent reference does not name the active parent mandate')])
   }
-  const policy = parentPolicyRefusal(mandate, parent.value, parentHistory, history, externalHistories)
+  const parentSelection = selectApplicableMandate(parentHistory, externalHistories, seen)
+  if (parentSelection.status === 'refused') return parentSelection
+  const policy = parentPolicyRefusal(mandate, parentSelection.mandate, parentHistory, history, externalHistories)
   return policy
 }
 
@@ -166,4 +200,65 @@ export function selectApplicableMandate(
   const nextSeen = new Set(seen)
   nextSeen.add(`${history.source.scope.repository}\0${history.source.scope.target}`)
   return mandateAdmission(selected, history, externalHistories, nextSeen)
+}
+
+export type OwnSpecAuthority = {
+  mandate: MandateRecord
+  accepted: AcceptedOwnSpec
+}
+
+function controlParentAuthority(
+  mandate: MandateRecord,
+  externalHistories: readonly DecodedHistory[],
+  seen: ReadonlySet<string>,
+): Result<void> {
+  if (mandate.payload.parent === null) return { ok: true, value: undefined }
+  const parentHistory = historyFor(mandate.payload.parent.scope, externalHistories)
+  if (parentHistory === null) return fail([diagnostic('missing-history', 'Parent mandate history is missing')])
+  const bound = bindExternalRef(mandate.payload.parent, parentHistory)
+  if (!bound.ok) return bound
+  if (bound.value.kind !== 'mandate') return fail([diagnostic('kind-mismatch', 'Parent reference is not a mandate')])
+  const parent = resolveOwnSpecAuthority(parentHistory, externalHistories, seen)
+  if (!parent.ok) return parent
+  if (
+    !sameRef(
+      { scope: mandateScope(parent.value.mandate), recordId: parent.value.mandate.recordId, kind: 'mandate' },
+      mandate.payload.parent,
+    )
+  )
+    return fail([diagnostic('revoked', 'Child parent reference does not name the active parent mandate')])
+  if (mandate.payload.permissions.landing && !parent.value.mandate.payload.permissions.landing)
+    return fail([diagnostic('incompatible', 'Child landing exceeds the parent')])
+  if (mandate.payload.permissions.correct && !parent.value.mandate.payload.permissions.correct)
+    return fail([diagnostic('incompatible', 'Child correction exceeds the parent')])
+  return { ok: true, value: undefined }
+}
+
+/**
+ * Resolves the authenticated active mandate and its own accepted Spec for Spec
+ * controls. It deliberately excludes delivery-only parent/child commitment
+ * concordance so a child can confirm its already-parent-committed proposal.
+ */
+export function resolveOwnSpecAuthority(
+  history: DecodedHistory,
+  externalHistories: readonly DecodedHistory[] = [],
+  seen: ReadonlySet<string> = new Set(),
+): Result<OwnSpecAuthority> {
+  const cycle = cycleRefusal(history, seen)
+  if (cycle !== null) return fail(cycle.evidence)
+  const historyProblem = historyRefusal(history)
+  if (historyProblem !== null) return fail(historyProblem.evidence)
+  const selected = selectedMandate(history)
+  if ('status' in selected) return fail(selected.evidence)
+  const pause = unliftedPause(history, selected)
+  if (pause !== null) return fail(pauseRefusal(selected, pause).evidence)
+  const graph = executableGraph(selected)
+  if (!graph.ok) return fail(graph.diagnostics)
+  const nextSeen = new Set(seen)
+  nextSeen.add(`${history.source.scope.repository}\0${history.source.scope.target}`)
+  const parent = controlParentAuthority(selected, externalHistories, nextSeen)
+  if (!parent.ok) return parent
+  const accepted = resolveAcceptedSpec(selected, [history, ...externalHistories])
+  if (!accepted.ok) return fail(accepted.evidence)
+  return { ok: true, value: { mandate: selected, accepted: accepted.spec } }
 }

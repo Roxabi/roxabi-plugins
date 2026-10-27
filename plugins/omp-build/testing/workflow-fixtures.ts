@@ -1,25 +1,26 @@
 import { decodeHistory, encodeRecord } from '../adapters/github/history-codec.ts'
 import type { DecodedHistory, History } from '../engine/history-schema.ts'
 import { buildRecord } from '../engine/record-construction.ts'
-import { specDigest } from '../engine/record-digests.ts'
 import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
-import type { Json, Scope } from '../engine/record-values.ts'
+import type { Scope } from '../engine/record-values.ts'
+import type { RecordProjectionConfig } from '../engine/result.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
+import {
+  type ApprovedChild,
+  createWorkflowSpecFixtures,
+  type WorkflowOwnSpec,
+  type WorkflowSpecFixtureContext,
+} from './workflow-spec-fixtures.ts'
 
-export type WorkflowFixtureContext = {
-  productVersion: string
-  config: { version: string; digest: string; effective: Json }
-  head: string | null
-  editedAt: string
-}
-
-export type ApprovedChild = { scope: Scope; specDigest: string; specBody: string }
+export type { ApprovedChild } from './workflow-spec-fixtures.ts'
+export type WorkflowFixtureContext = WorkflowSpecFixtureContext
 
 type MandateOverrides = {
   recordId?: string
   operationId?: string
   runId?: string
+  run?: string
   branch?: string | null
   base?: string
   lineageHead?: string | null
@@ -27,6 +28,8 @@ type MandateOverrides = {
   parent?: ExternalRecordRef | null
   antecedent?: ExternalRecordRef | null
   config?: WorkflowFixtureContext['config']
+  ownSpec?: WorkflowOwnSpec
+  tier?: ApprovedChild['tier']
 }
 
 function mustRecord(draft: Parameters<typeof buildRecord>[0]): CanonicalRecord {
@@ -42,21 +45,12 @@ function mustMandate(draft: Parameters<typeof buildRecord>[0]): MandateRecord {
 }
 
 export function createWorkflowFixtures(context: WorkflowFixtureContext) {
-  const spec = (body: string, reference: string) => ({
-    reference,
-    body,
-    bodySha256: specDigest(body),
-    lastEditedAt: context.editedAt,
-  })
+  const { ownSpec, ownSpecFromSnapshot, childSnapshot, identityAllocation, withIdentities } =
+    createWorkflowSpecFixtures(context)
   const mandateRef = (record: CanonicalRecord): ExternalRecordRef => ({
     scope: { repository: record.repository, target: record.target },
     recordId: record.recordId,
     kind: record.kind,
-  })
-  const childSnapshot = (scope: Scope, specBody: string): ApprovedChild => ({
-    scope,
-    specBody,
-    specDigest: specDigest(specBody),
   })
   const featureMandate = (scope: Scope, overrides: MandateOverrides = {}) => {
     const body = overrides.body ?? '## Acceptance\n- [ ] Save keeps the selected region'
@@ -70,16 +64,17 @@ export function createWorkflowFixtures(context: WorkflowFixtureContext) {
       kind: 'mandate',
       payload: {
         role: 'feature',
-        format: 'omp-build-mandate/2',
-        run: null,
-        children: null,
+        format: 'omp-build-mandate/3',
+        run: overrides.run ?? 'run00001',
+        children: [],
         branch: overrides.branch === undefined ? 'feat/42-save' : overrides.branch,
         base: overrides.base ?? 'main',
         lineageHead: overrides.lineageHead === undefined ? context.head : overrides.lineageHead,
         config: { productVersion: context.productVersion, ...(overrides.config ?? context.config) },
         parent: overrides.parent ?? null,
         antecedent: overrides.antecedent ?? null,
-        spec: spec(body, scope.target),
+        ownSpec: overrides.ownSpec ?? ownSpec(scope, body),
+        tier: overrides.tier ?? 'S',
         permissions: { landing: true, correct: true },
       },
     })
@@ -96,8 +91,8 @@ export function createWorkflowFixtures(context: WorkflowFixtureContext) {
       kind: 'mandate',
       payload: {
         role: 'epic',
-        format: 'omp-build-mandate/2',
-        run: overrides.runId ?? 'run00001',
+        format: 'omp-build-mandate/3',
+        run: overrides.run ?? 'run00001',
         children,
         branch: null,
         base: overrides.base ?? 'main',
@@ -105,7 +100,8 @@ export function createWorkflowFixtures(context: WorkflowFixtureContext) {
         config: { productVersion: context.productVersion, ...(overrides.config ?? context.config) },
         parent: null,
         antecedent: null,
-        spec: spec(body, scope.target),
+        ownSpec: overrides.ownSpec ?? ownSpec(scope, body),
+        tier: overrides.tier ?? 'S',
         permissions: { landing: true, correct: true },
       },
     })
@@ -122,16 +118,17 @@ export function createWorkflowFixtures(context: WorkflowFixtureContext) {
       kind: 'mandate',
       payload: {
         role: 'fix-only',
-        format: 'omp-build-mandate/2',
+        format: 'omp-build-mandate/3',
         run: null,
-        children: null,
+        children: [],
         branch: overrides.branch ?? 'fix/42-save',
         base: overrides.base ?? 'main',
         lineageHead: overrides.lineageHead === undefined ? context.head : overrides.lineageHead,
         config: { productVersion: context.productVersion, ...(overrides.config ?? context.config) },
         parent: overrides.parent ?? null,
         antecedent: overrides.antecedent ?? null,
-        spec: spec(body, scope.target),
+        ownSpec: overrides.ownSpec ?? ownSpec(scope, body),
+        tier: overrides.tier ?? 'S',
         permissions: { landing: false, correct: true },
       },
     })
@@ -153,9 +150,10 @@ export function createWorkflowFixtures(context: WorkflowFixtureContext) {
     records: readonly CanonicalRecord[],
     author: string,
     externalHistories: readonly DecodedHistory[] = [],
+    projection: RecordProjectionConfig | null = null,
   ) => {
     const comments: string[] = []
-    for (const record of records) {
+    for (const record of withIdentities(records)) {
       const history: History = {
         scope: { repository: record.repository, target: record.target },
         expectedAuthor: author,
@@ -171,7 +169,7 @@ export function createWorkflowFixtures(context: WorkflowFixtureContext) {
         })),
         diagnostics: [],
       }
-      const encoded = encodeRecord(record, history, null, externalHistories)
+      const encoded = encodeRecord(record, history, projection, externalHistories)
       if (!encoded.ok) throw new Error(encoded.diagnostics.map(({ code, message }) => `${code}: ${message}`).join('; '))
       comments.push(...encoded.value)
     }
@@ -183,9 +181,10 @@ export function createWorkflowFixtures(context: WorkflowFixtureContext) {
     expectedAuthor = author,
     externalHistories: readonly DecodedHistory[] = [],
   ) => {
-    const first = records[0]
+    const completeRecords = withIdentities(records)
+    const first = completeRecords[0]
     if (first === undefined) throw new Error('a history needs at least one record')
-    const bodies = framedBodies(records, author, externalHistories)
+    const bodies = framedBodies(completeRecords, author, externalHistories)
     return decodeHistory({
       scope: { repository: first.repository, target: first.target },
       expectedAuthor,
@@ -209,6 +208,7 @@ export function createWorkflowFixtures(context: WorkflowFixtureContext) {
     branch: string
     base: string
     issueBody: string
+    ownSpec?: WorkflowOwnSpec
     lineageHead?: string | null
     author?: string
   }) => {
@@ -217,6 +217,7 @@ export function createWorkflowFixtures(context: WorkflowFixtureContext) {
     const pullRequest = { repository: input.repository, target: `${input.repository}#${input.prNumber}` }
     const mandate = featureMandate(issueScope, {
       body: input.issueBody,
+      ownSpec: input.ownSpec,
       branch: input.branch,
       base: input.base,
       lineageHead: input.lineageHead === undefined ? null : input.lineageHead,
@@ -248,6 +249,8 @@ export function createWorkflowFixtures(context: WorkflowFixtureContext) {
   }
   return {
     childSnapshot,
+    identityAllocation,
+    ownSpecFromSnapshot,
     featureMandate,
     epicMandate,
     fixOnlyMandate,

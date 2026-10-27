@@ -1,15 +1,26 @@
-import { type DecodedHistory, githubScope, selectApplicableMandate, specDigest } from '../../dist/contracts.js'
+import {
+  type DecodedHistory,
+  effectiveMandateRole,
+  githubScope,
+  resolveAcceptedSpec,
+  selectApplicableMandate,
+} from '../../dist/contracts.js'
+import type { AcceptedOwnSpec } from '../../engine/workflow-accepted-spec-types.ts'
+import type { MandateRecord } from '../../engine/workflow-control.ts'
+import type { AcceptedChildCommitment } from '../../engine/workflow-mandate-schema.ts'
 import { configCompatibility } from '../../roxabi/workflow-overrides.ts'
 import { gather } from './epic-driver-gather'
 import { historyFor, issueHistory, repoName } from './epic-driver-github'
 import { Assisted, currentEpicEffects, Refused } from './epic-driver-runtime'
 import { frameEpic } from './epic-frame'
 import { BASE_NAME, RUN_ID } from './epic-naming'
+import { hasFramedOwnUw, ownUwRefusal } from './epic-own-uw'
+import { isDone } from './epic-progress'
 import type { Facts } from './epic-types'
 
 // ── Confirmed mandate ─────────────────────────────────────────────────────────
 
-export type EpicChildGrant = { scope: { repository: string; target: string }; specDigest: string; specBody: string }
+export type EpicChildGrant = AcceptedChildCommitment
 
 export type EpicAuthority = {
   epic: number
@@ -17,9 +28,7 @@ export type EpicAuthority = {
   mandateId: string
   run: string
   base: string
-  children: EpicChildGrant[]
-  /** Child scopes a confirmed epic-fix record on this epic issue already admits. */
-  extensions: { repository: string; target: string }[]
+  children: readonly EpicChildGrant[]
   config: { productVersion: string; version: string; digest: string; effective: unknown }
 }
 
@@ -68,56 +77,11 @@ export async function assertConfig(repo: string, effective: unknown): Promise<vo
   if (!checked.ok) throw new Refused(checked.error)
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object'
-}
-
-function childGrantOf(value: unknown): EpicChildGrant | string {
-  if (!isObject(value) || !('scope' in value) || !('specDigest' in value) || !('specBody' in value)) {
-    return 'epic mandate child snapshot is unreadable'
-  }
-  if (!isObject(value.scope)) return 'epic mandate child scope is unreadable'
-  const { repository, target } = value.scope
-  if (typeof repository !== 'string' || typeof target !== 'string' || repository === '' || target === '') {
-    return 'epic mandate child scope is unreadable'
-  }
-  if (typeof value.specBody !== 'string' || typeof value.specDigest !== 'string') {
-    return 'epic mandate child has no approved spec snapshot'
-  }
-  if (specDigest(value.specBody) !== value.specDigest) {
-    return 'epic mandate child specDigest does not match specBody'
-  }
-  return {
-    scope: { repository, target },
-    specDigest: value.specDigest,
-    specBody: value.specBody,
-  }
-}
-
-export function childGrants(value: unknown): EpicChildGrant[] | string {
-  if (!Array.isArray(value) || value.length === 0) return 'epic mandate names no approved child'
-  const grants: EpicChildGrant[] = []
-  for (const item of value) {
-    const grant = childGrantOf(item)
-    if (typeof grant === 'string') return grant
-    grants.push(grant)
-  }
-  return grants
-}
-
 function parentScopeOf(
   record: DecodedHistory['operations'][number]['record'],
 ): { repository: string; target: string } | null {
-  const payload = record?.kind === 'mandate' ? record.payload : null
-  if (!isObject(payload) || !('parent' in payload) || payload.parent == null) return null
-  if (!isObject(payload.parent) || !isObject(payload.parent.scope)) {
-    throw new Refused('epic mandate parent reference is unreadable')
-  }
-  const { repository, target } = payload.parent.scope
-  if (typeof repository !== 'string' || typeof target !== 'string') {
-    throw new Refused('epic mandate parent reference is unreadable')
-  }
-  return { repository, target }
+  if (record?.kind !== 'mandate' || record.payload.parent === null) return null
+  return record.payload.parent.scope
 }
 
 async function parentMandateHistories(repo: string, history: DecodedHistory): Promise<DecodedHistory[]> {
@@ -132,62 +96,45 @@ async function parentMandateHistories(repo: string, history: DecodedHistory): Pr
   return external
 }
 
-function selectedMandate(
-  history: DecodedHistory,
-  external: DecodedHistory[],
-  epic: number,
-): { mandateId: string; payload: Record<string, unknown> } {
+function selectedMandate(history: DecodedHistory, external: DecodedHistory[], epic: number): MandateRecord {
   const selected = selectApplicableMandate(history, external)
   if (selected.status === 'refused') {
     if (selected.reason === 'missing') throw new Assisted(`${ASSISTED_MANDATE} #${epic}`)
     throw new Refused(`epic mandate ${selected.reason}: ${evidenceText(selected.evidence)}`)
   }
-  if (!isObject(selected.mandate.payload)) throw new Refused('epic mandate payload is unreadable')
-  return { mandateId: selected.mandate.recordId, payload: selected.mandate.payload }
+  return selected.mandate
 }
 
-type ConfirmedEpicMandate = Omit<EpicAuthority, 'epic' | 'repository' | 'extensions'>
+export type ConfirmedEpicMandate = Omit<EpicAuthority, 'epic' | 'repository'>
 
-async function confirmedEpicMandate(
-  repo: string,
-  epic: number,
-  mandateId: string,
-  payload: Record<string, unknown>,
-): Promise<ConfirmedEpicMandate> {
-  if (payload.role !== 'epic') throw new Refused(`#${epic} mandate role is ${String(payload.role)}, not epic`)
-  if (!isObject(payload.permissions) || payload.permissions.landing !== true) {
-    throw new Refused(`epic #${epic} mandate does not grant landing`)
-  }
+/**
+ * Projects immutable mandate identity and current authenticated own-Spec state.
+ * This establishes no active continuation, landing, or config compatibility.
+ */
+export function confirmedEpicMandate(record: MandateRecord, accepted: AcceptedOwnSpec): ConfirmedEpicMandate {
+  const payload = record.payload
+  if (payload.role === 'fix-only') throw new Refused(`mandate ${record.recordId} is fix-only, not normal authority`)
   if (typeof payload.run !== 'string' || !RUN_ID.test(payload.run)) {
-    throw new Refused(`epic #${epic} mandate run is not an 8-character id`)
+    throw new Refused(`mandate ${record.recordId} run is not an 8-character id`)
   }
   if (typeof payload.base !== 'string' || !BASE_NAME.test(payload.base) || payload.base.includes('..')) {
-    throw new Refused(`epic #${epic} mandate base is not a branch name`)
+    throw new Refused(`mandate ${record.recordId} base is not a branch name`)
   }
-  const children = childGrants(payload.children)
-  if (typeof children === 'string') throw new Refused(children)
-  const config = isObject(payload.config) ? payload.config : null
+  const { config } = payload
   if (
-    config === null ||
     typeof config.productVersion !== 'string' ||
     typeof config.version !== 'string' ||
     typeof config.digest !== 'string' ||
     !('effective' in config)
   ) {
-    throw new Refused('epic mandate config identity is incomplete')
+    throw new Refused(`mandate ${record.recordId} config identity is incomplete`)
   }
-  await assertConfig(repo, config.effective)
   return {
-    mandateId,
+    mandateId: record.recordId,
     run: payload.run,
     base: payload.base,
-    children,
-    config: {
-      productVersion: config.productVersion,
-      version: config.version,
-      digest: config.digest,
-      effective: config.effective,
-    },
+    children: accepted.children,
+    config,
   }
 }
 
@@ -204,33 +151,60 @@ export async function readEpicAuthority(repo: string, epic: number): Promise<Epi
   }
   const external = await parentMandateHistories(repo, history)
   const mandate = selectedMandate(history, external, epic)
-  const inhibit = localInhibit(history, mandate.mandateId)
+  const inhibit = localInhibit(history, mandate.recordId)
   if (inhibit) throw new Refused(`continuation inhibited: ${inhibit} is requested and not confirmed`)
-  const confirmed = await confirmedEpicMandate(repo, epic, mandate.mandateId, mandate.payload)
+  const resolved = resolveAcceptedSpec(mandate, [history, ...external])
+  if (!resolved.ok)
+    throw new Refused(`epic parent accepted Spec ${resolved.reason}: ${evidenceText(resolved.evidence)}`)
+  const confirmed = confirmedEpicMandate(mandate, resolved.spec)
+  if (effectiveMandateRole(mandate.payload.role, resolved.spec) !== 'epic') {
+    throw new Refused(`epic #${epic} accepted own Spec names no approved child`)
+  }
+  if (mandate.payload.permissions.landing !== true) {
+    throw new Refused(`epic #${epic} mandate does not grant landing`)
+  }
+  await assertConfig(repo, confirmed.config.effective)
   return {
     epic,
     repository: full,
-    extensions: extensionScopes(history),
     ...confirmed,
   }
 }
 
-function extensionScopeOf(value: unknown): { repository: string; target: string } | null {
-  if (!isObject(value)) return null
-  if (value.event !== 'epic-fix' && value.event !== 'mark-fix') return null
-  if (!isObject(value.child) || !isObject(value.child.scope)) return null
-  const { repository, target } = value.child.scope
-  return typeof repository === 'string' && typeof target === 'string' ? { repository, target } : null
-}
-
-export function extensionScopes(history: DecodedHistory): { repository: string; target: string }[] {
-  const scopes: { repository: string; target: string }[] = []
-  for (const operation of history.operations) {
-    if (operation.record?.kind !== 'epic-event') continue
-    const scope = extensionScopeOf(operation.record.payload)
-    if (scope !== null) scopes.push(scope)
+/**
+ * Re-reads the active authority with current native children, then establishes
+ * that every current child is accepted and ready before a delivery step.
+ */
+export async function frameEpicChildren(
+  repo: string,
+  epic: number,
+): Promise<{
+  authority: EpicAuthority
+  facts: Facts
+  order: number[]
+  blocked: { ticket: number; blockers: number[] }[]
+}> {
+  const authority = await readEpicAuthority(repo, epic)
+  const { facts } = await gather(repo, epic, authority.run, authority.base)
+  if (
+    facts.children.length !== authority.children.length ||
+    facts.children.some(
+      (child) =>
+        !authority.children.some(
+          (grant) =>
+            grant.scope.repository === authority.repository &&
+            grant.scope.target === `${authority.repository}#${child.number}`,
+        ),
+    )
+  ) {
+    throw new Refused('current native epic children differ from the accepted own Spec')
   }
-  return scopes
+  for (const child of facts.children) {
+    if (!isDone(child, authority.base)) assertChildGrant(authority, facts, child.number)
+  }
+  const framed = frameEpic({ base: authority.base, children: facts.children })
+  if ('error' in framed) throw new Refused(framed.error)
+  return { authority, facts, ...framed }
 }
 
 export function assertChildGrant(authority: EpicAuthority, facts: Facts, ticket: number): void {
@@ -238,26 +212,36 @@ export function assertChildGrant(authority: EpicAuthority, facts: Facts, ticket:
   const grant = authority.children.find(
     (child) => child.scope.repository === scope.repository && child.scope.target === scope.target,
   )
-  const extended = authority.extensions.some(
-    (entry) => entry.repository === scope.repository && entry.target === scope.target,
-  )
-  if (!grant && !extended) throw new Refused(`#${ticket} is outside the epic mandate's approved child scope`)
+  if (!grant) throw new Refused(`#${ticket} is outside the epic mandate's approved child scope`)
   const live = facts.children.find((child) => child.number === ticket)
   if (!live) throw new Refused(`#${ticket} is not a sub-issue of #${authority.epic}`)
-  if (grant && live.body !== grant.specBody) {
-    throw new Refused(`#${ticket} issue body differs from the approved spec snapshot`)
+  if (live.ownUw.status === 'refused') {
+    const nativeDiagnostics = live.ownUw.diagnostics
+      .flatMap((diagnostic) => {
+        const { location } = diagnostic
+        if (location.kind !== 'native') return []
+        const page = location.page === undefined ? '' : ` page=${location.page}`
+        return [`${location.uw.target} native.${location.connection}${page}`]
+      })
+      .join(', ')
+    throw new Refused(
+      `#${ticket} ${live.ownUw.reason}-child: ${ownUwRefusal(live)}${nativeDiagnostics ? ` [${nativeDiagnostics}]` : ''}`,
+    )
   }
-}
-
-/** Order and blocked children for a publisher. Does not authorize a run or emit objective text. */
-export async function frameEpicChildren(
-  repo: string,
-  epic: number,
-  base: string,
-): Promise<
-  { order: number[]; blocked: { ticket: number; blockers: number[] }[] } | { error: string; missing?: number[] }
-> {
-  if (!BASE_NAME.test(base) || base.includes('..')) throw new Refused(`base ${base} is not a branch name`)
-  const { facts } = await gather(repo, epic, '00000000', base, { git: false })
-  return frameEpic({ base, children: facts.children })
+  if (!hasFramedOwnUw(live)) {
+    throw new Refused(`#${ticket} unsettled-child: own UW is not completely framed with durable identity allocations`)
+  }
+  const current =
+    live.ownUw.status === 'accepted'
+      ? { snapshot: live.ownUw.accepted.snapshot, tier: live.ownUw.accepted.tier }
+      : live.ownUw
+  if (
+    current.tier !== grant.tier ||
+    current.snapshot.spec.version !== grant.specVersion ||
+    current.snapshot.spec.version !== grant.snapshot.spec.version
+  ) {
+    throw new Refused(
+      `#${ticket} changed-child: fresh own UW no longer matches the committed child Spec version or tier`,
+    )
+  }
 }

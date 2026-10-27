@@ -5,9 +5,9 @@ import { reconstructWorkflow } from '../../engine/workflow-reconstruction-admiss
 import { roxabiWorkflowFixtures } from '../roxabi-presets.ts'
 import {
   BODY,
+  BRANCH,
   decisions,
   eligiblePlan,
-  HEAD,
   PR,
   SCOPE,
   shippedFacts,
@@ -188,7 +188,7 @@ describe('workflow completion decisions', () => {
     }
     const macro = planMacro(evidence, mandate)
     expect(macro.phase).toBe('blocked')
-    const decision = reconstructWorkflow({ evidence, facts: shippedFacts(), decisions: decisions() })
+    const decision = reconstructWorkflow({ evidence, facts: shippedFacts(mandate), decisions: decisions() })
     expect(decision).toMatchObject({ status: 'blocked', reason: 'missing-contribution' })
     expect(decision).not.toMatchObject({ status: 'action' })
   })
@@ -206,7 +206,7 @@ describe('workflow completion decisions', () => {
       parents: [],
     }
     expect(planMacro(evidence, mandate).phase).toBe('uncertain')
-    const decision = reconstructWorkflow({ evidence, facts: shippedFacts(), decisions: decisions() })
+    const decision = reconstructWorkflow({ evidence, facts: shippedFacts(mandate), decisions: decisions() })
     expect(decision).toMatchObject({ status: 'blocked', reason: 'action-uncertain' })
     expect(decision).not.toMatchObject({ status: 'action' })
   })
@@ -219,7 +219,11 @@ describe('workflow completion decisions', () => {
       pullRequest: null,
       parents: [],
     }
-    const startedDecision = reconstructWorkflow({ evidence: started, facts: shippedFacts(), decisions: decisions() })
+    const startedDecision = reconstructWorkflow({
+      evidence: started,
+      facts: shippedFacts(mandate),
+      decisions: decisions(),
+    })
     expect(startedDecision).toMatchObject({ status: 'blocked', reason: 'action-uncertain' })
     expect(startedDecision).not.toMatchObject({ status: 'action' })
     const rejected = {
@@ -227,10 +231,14 @@ describe('workflow completion decisions', () => {
       pullRequest: null,
       parents: [],
     }
-    const rejectedDecision = reconstructWorkflow({ evidence: rejected, facts: shippedFacts(), decisions: decisions() })
+    const rejectedDecision = reconstructWorkflow({
+      evidence: rejected,
+      facts: shippedFacts(mandate),
+      decisions: decisions(),
+    })
     expect(rejectedDecision).toMatchObject({ status: 'blocked', reason: 'unconfirmed' })
     expect(rejectedDecision).not.toMatchObject({ status: 'action' })
-    const pull = { scope: PR, head: HEAD, base: 'main', associatedIssue: SCOPE }
+    const pull = { scope: PR, head: BRANCH, base: 'main', associatedIssue: SCOPE }
     const rejectedBound = {
       issue: rejected.issue,
       pullRequest: historyFrom([workflowBinding(PR, mandate, 'feat/42-save', 'main')], 'operator', 'operator', [
@@ -240,7 +248,7 @@ describe('workflow completion decisions', () => {
     }
     const rejectedBoundDecision = reconstructWorkflow({
       evidence: rejectedBound,
-      facts: shippedFacts(pull),
+      facts: shippedFacts(mandate, pull),
       decisions: decisions(),
     })
     expect(rejectedBoundDecision).toMatchObject({ status: 'blocked', reason: 'unconfirmed' })

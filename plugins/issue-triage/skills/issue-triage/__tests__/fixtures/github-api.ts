@@ -30,6 +30,7 @@ export type Issue = {
   nodeId: string
   title: string
   body: string
+  labels: string[]
   type?: string
   parent?: number
   parentRepo?: string
@@ -87,8 +88,8 @@ export async function startGitHub(dir: string, seed: string[]): Promise<GitHubFa
     }
     return undefined
   }
-  const add = (repo: string, number: number, title = '', body = ''): Issue => {
-    const issue: Issue = { repo, number, nodeId: `I_${repo}#${number}`, title, body, blockedBy: [] }
+  const add = (repo: string, number: number, title = '', body = '', labels: string[] = []): Issue => {
+    const issue: Issue = { repo, number, nodeId: `I_${repo}#${number}`, title, body, labels, blockedBy: [] }
     issues.set(`${repo}#${number}`, issue)
     return issue
   }
@@ -153,6 +154,15 @@ export async function startGitHub(dir: string, seed: string[]): Promise<GitHubFa
       if (!issue.blockedBy.includes(blocking.number)) issue.blockedBy.push(blocking.number)
       return { status: 200, data: { data: { addBlockedBy: { issue: { number: issue.number } } } } }
     }
+    if (op === 'removeBlockedBy') {
+      const issue = byNode(vars.issueId)
+      const blocking = byNode(vars.blockingId)
+      if (!issue || !blocking || !issue.blockedBy.includes(blocking.number)) {
+        return { status: 200, data: { errors: [{ message: 'unknown blocking relationship' }] } }
+      }
+      issue.blockedBy = issue.blockedBy.filter((number) => number !== blocking.number)
+      return { status: 200, data: { data: { removeBlockedBy: { issue: { number: issue.number } } } } }
+    }
     return { status: 400, data: { message: `the fixture does not answer the ${op} operation` } }
   }
 
@@ -168,10 +178,22 @@ export async function startGitHub(dir: string, seed: string[]): Promise<GitHubFa
         res.writeHead(status, { 'content-type': 'application/json' })
         res.end(JSON.stringify(data))
       }
+      const labelsRoute = /^\/repos\/([^/]+\/[^/]+)\/issues\/(\d+)\/labels$/.exec(url)
+      if (labelsRoute && (req.method === 'PUT' || req.method === 'POST')) {
+        const issue = issues.get(`${labelsRoute[1]}#${labelsRoute[2]}`)
+        if (!issue) return reply(404, { message: 'Not Found' }, 'labels')
+        const payload = JSON.parse(raw) as { labels?: string[] }
+        issue.labels = payload.labels ?? []
+        return reply(
+          200,
+          issue.labels.map((name) => ({ name })),
+          'labels',
+        )
+      }
       const rest = /^\/repos\/([^/]+\/[^/]+)\/issues(?:\/(\d+))?$/.exec(url)
       if (rest && req.method === 'POST' && !rest[2]) {
-        const payload = JSON.parse(raw) as { title: string; body?: string }
-        const issue = add(rest[1], ++next, payload.title, payload.body ?? '')
+        const payload = JSON.parse(raw) as { title: string; body?: string; labels?: string[] }
+        const issue = add(rest[1], ++next, payload.title, payload.body ?? '', payload.labels ?? [])
         created.push(issue)
         return reply(
           201,
@@ -186,14 +208,48 @@ export async function startGitHub(dir: string, seed: string[]): Promise<GitHubFa
       if (rest && req.method === 'GET' && rest[2]) {
         const issue = issues.get(`${rest[1]}#${rest[2]}`)
         return issue
-          ? reply(200, { number: issue.number, node_id: issue.nodeId }, 'node')
-          : reply(404, { message: 'Not Found' }, 'node')
+          ? reply(
+              200,
+              {
+                number: issue.number,
+                node_id: issue.nodeId,
+                title: issue.title,
+                body: issue.body,
+                labels: issue.labels.map((name) => ({ name })),
+                parent: issue.parent
+                  ? { number: issue.parent, repository: { nameWithOwner: issue.parentRepo ?? issue.repo } }
+                  : null,
+                children: [...issues.values()]
+                  .filter((child) => child.parent === issue.number && (child.parentRepo ?? child.repo) === issue.repo)
+                  .map((child) => ({
+                    number: child.number,
+                    repository: { nameWithOwner: child.repo },
+                  })),
+                blocked_by: issue.blockedBy.map((number) => ({
+                  number,
+                  repository: { nameWithOwner: issue.repo },
+                })),
+                updated_at: '2026-10-27T00:00:00Z',
+              },
+              'read',
+            )
+          : reply(404, { message: 'Not Found' }, 'read')
+      }
+      if (rest && req.method === 'PATCH' && rest[2]) {
+        const issue = issues.get(`${rest[1]}#${rest[2]}`)
+        if (!issue) return reply(404, { message: 'Not Found' }, 'patch')
+        const payload = JSON.parse(raw) as { title?: string; body?: string; labels?: string[] }
+        if (payload.title !== undefined) issue.title = payload.title
+        if (payload.body !== undefined) issue.body = payload.body
+        if (payload.labels !== undefined) issue.labels = payload.labels
+        return reply(200, { number: issue.number, node_id: issue.nodeId }, 'patch')
       }
       if (url === '/graphql' && req.method === 'POST') {
         const { query, variables } = JSON.parse(raw) as { query: string; variables: Record<string, unknown> }
         const op =
-          /\b(addSubIssue|removeSubIssue|addBlockedBy|updateIssueIssueType|issueTypes)\b/.exec(query)?.[1] ??
-          (query.includes('issue(number:') ? 'parent' : 'unknown')
+          /\b(addSubIssue|removeSubIssue|addBlockedBy|removeBlockedBy|updateIssueIssueType|issueTypes)\b/.exec(
+            query,
+          )?.[1] ?? (query.includes('issue(number:') ? 'parent' : 'unknown')
         const { status, data } = graphql(op, variables, query)
         return reply(status, data, op)
       }

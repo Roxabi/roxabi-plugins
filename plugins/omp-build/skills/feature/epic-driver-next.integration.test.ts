@@ -1,6 +1,7 @@
 import { writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { parseIssueSpecBody, rawSource } from '../../contracts.ts'
 import { buildRecord } from '../../engine/record-construction.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
@@ -14,6 +15,7 @@ import {
   RUN,
   serveEpic,
   servePr,
+  strictSpecBody,
 } from './testing/epic-driver/epic-driver-records'
 import {
   cleanupSandbox,
@@ -33,20 +35,39 @@ function record(draft: Parameters<typeof buildRecord>[0]): CanonicalRecord {
   return built.value
 }
 
+function strictSnapshot(scope: { repository: string; target: string }, body: string) {
+  const parsed = parseIssueSpecBody({
+    uw: scope,
+    raw: rawSource(scope.target, body, '2026-10-21T12:00:00Z'),
+  })
+  if (parsed.status !== 'conformant') throw new Error(`fixture Spec ${scope.target} is ${parsed.status}`)
+  return parsed.snapshot
+}
+
 function successorRecords(): Comment[] {
   const scope = { repository: 'o/r', target: 'o/r#1' }
   const children = [childNode(2, 'feat(x): first child')]
   const fixtures = roxabiWorkflowFixtures()
-  const first = fixtures.epicMandate(
-    scope,
-    children.map((child) => fixtures.childSnapshot({ repository: 'o/r', target: `o/r#${child.number}` }, child.body)),
-    { recordId: 'epic-m1' },
-  )
-  const second = fixtures.epicMandate(
-    scope,
-    children.map((child) => fixtures.childSnapshot({ repository: 'o/r', target: `o/r#${child.number}` }, child.body)),
-    { recordId: 'epic-m2', runId: 'run00002', operationId: 'op-epic-m2', antecedent: fixtures.mandateRef(first) },
-  )
+  const childScope = { repository: 'o/r', target: `o/r#${children[0].number}` }
+  const childSnapshot = strictSnapshot(childScope, children[0].body)
+  const approvedChildren = [
+    { scope: childScope, specVersion: childSnapshot.spec.version, snapshot: childSnapshot, tier: 'S' as const },
+  ]
+  const epicBody = strictSpecBody('works')
+  const epicSnapshot = strictSnapshot(scope, epicBody)
+  const first = fixtures.epicMandate(scope, approvedChildren, {
+    recordId: 'epic-m1',
+    body: epicBody,
+    ownSpec: fixtures.ownSpecFromSnapshot(scope, epicSnapshot),
+  })
+  const second = fixtures.epicMandate(scope, approvedChildren, {
+    recordId: 'epic-m2',
+    runId: 'run00002',
+    operationId: 'op-epic-m2',
+    antecedent: fixtures.mandateRef(first),
+    body: epicBody,
+    ownSpec: fixtures.ownSpecFromSnapshot(scope, epicSnapshot),
+  })
   const firstRef = fixtures.mandateRef(first)
   const secondRef = fixtures.mandateRef(second)
   return framedRecords(1, [

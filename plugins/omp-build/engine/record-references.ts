@@ -13,13 +13,20 @@ export const KIND_NAMES = [
   'debt-receipt',
   'stop',
   'epic-event',
+  'spec-identity',
   'mandate',
   'operator-control',
   'action-receipt',
   'workflow-binding',
 ] as const
 export const kindSchema = z.enum(KIND_NAMES)
-export const WORKFLOW_RECORD_KINDS = ['mandate', 'operator-control', 'action-receipt', 'workflow-binding'] as const
+export const WORKFLOW_RECORD_KINDS = [
+  'spec-identity',
+  'mandate',
+  'operator-control',
+  'action-receipt',
+  'workflow-binding',
+] as const
 export type WorkflowRecordKind = (typeof WORKFLOW_RECORD_KINDS)[number]
 
 export function isWorkflowKind(kind: string): kind is WorkflowRecordKind {

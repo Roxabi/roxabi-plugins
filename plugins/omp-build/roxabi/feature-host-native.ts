@@ -82,6 +82,7 @@ export async function announceFeatureBatch(
         reference,
         control: 'continue',
         principal: false,
+        ...(host.uw === undefined ? {} : { read: host.uw }),
       })
       await deliver(next)
     },

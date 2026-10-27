@@ -255,14 +255,30 @@ describe('composed workflow history and landing binding readback', () => {
       readAuthor: 'automation',
       gh: fakeGh([
         (args) => (args[0] === 'pr' && args[1] === 'view' ? prView() : undefined),
-        (args) =>
-          args.includes('graphql')
-            ? JSON.stringify({ data: { repository: { issue: { number: 7, parent: { number: 3 } } } } })
-            : undefined,
-        (args) =>
-          args[0] === 'api' && String(args[1] ?? '') === 'repos/acme/app/issues/7'
-            ? JSON.stringify({ number: 7, state: 'open', user: { login: 'operator' }, body: 'live linked issue body' })
-            : undefined,
+        (args) => {
+          if (!args.includes('graphql')) return undefined
+          if (!args.some((arg) => arg.includes('subIssues(first: 100, after:')))
+            return JSON.stringify({ data: { repository: { issue: { number: 7, parent: { number: 3 } } } } })
+          return JSON.stringify({
+            data: {
+              repository: {
+                issue: {
+                  number: 7,
+                  title: 'Save selection',
+                  body: 'live strict spec',
+                  updatedAt: '2026-10-27T12:00:00Z',
+                  state: 'OPEN',
+                  stateReason: null,
+                  repository: { nameWithOwner: 'acme/app' },
+                  parent: null,
+                  labels: { nodes: [{ name: 'size:S' }], pageInfo: { hasNextPage: false, endCursor: null } },
+                  subIssues: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+                  blockedBy: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+                },
+              },
+            },
+          })
+        },
         (args) => {
           const path = args[1] ?? ''
           if (path.includes('/issues/42/comments')) return JSON.stringify([nativeComment(1, wire(binding))])
@@ -283,7 +299,11 @@ describe('composed workflow history and landing binding readback', () => {
       head: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       baseTip: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
     })
-    expect(result.linkedIssueBodies).toEqual([{ scope: githubScope('acme/app', 7), body: 'live linked issue body' }])
+    expect(result.uwGraph).toMatchObject({
+      status: 'complete',
+      root: githubScope('acme/app', 7),
+      nodes: [expect.objectContaining({ raw: expect.objectContaining({ body: 'live strict spec' }) })],
+    })
     expect(result.parentScopes).toEqual([])
     expect(result.histories.map((entry) => entry.source.scope.target)).toEqual(['acme/app#42', 'acme/app#7'])
     expect(result.binding.recordId).toBe('bind-1')
@@ -303,11 +323,10 @@ describe('composed workflow history and landing binding readback', () => {
     })
     expect(refused).toMatchObject({ ok: false, reason: 'incomplete' })
   })
-
-  it('refuses landing facts when the bound mandate body is missing', async () => {
+  it('preserves a graph read failure as a named incomplete graph fact', async () => {
     const mandate = issueMandate(githubScope('acme/app', 7))
     const binding = bindingRecord(mandate)
-    const refused = await readLandingFacts(githubScope('acme/app', 42), {
+    const facts = await readLandingFacts(githubScope('acme/app', 42), {
       cwd: '/fixture',
       readAuthor: 'automation',
       gh: fakeGh([
@@ -324,7 +343,7 @@ describe('composed workflow history and landing binding readback', () => {
         },
       ]),
     })
-    expect(refused).toMatchObject({ ok: false, reason: 'unreadable' })
+    expect(facts).toMatchObject({ ok: true, uwGraph: { status: 'incomplete' } })
   })
 
   it('never treats uncertain publication as a confirmed workflow checkpoint', async () => {

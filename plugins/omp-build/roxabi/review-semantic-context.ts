@@ -1,12 +1,17 @@
+import type { LandingFactsRead } from '../adapters/github-workflow/types.ts'
 import {
-  type AcceptedSpecRef,
+  type AcceptedOwnSpec,
+  type AcceptedSpecStep,
   type ExternalRecordRef,
   type Result,
-  readWorkflowBinding,
+  readLandingFacts,
   resolveBoundWork,
   type Scope,
+  toDiagnostics,
 } from '../dist/contracts.js'
 import { withRoxabiGitHubPolicy } from './github-policy'
+import { readCurrentOwnSpecFacts } from './uw-current-facts.ts'
+import { createInstalledObservedUwReadPort } from './uw-read-port.ts'
 import { type ReviewIssueSpec, readReviewIssueSpec } from './uw-spec'
 
 export type Gh = (cwd: string, args: string[]) => Promise<string>
@@ -28,7 +33,7 @@ export type ReviewSemanticContext =
         body: string
         digest: string
         lastEditedAt: string | null
-        chain: readonly AcceptedSpecRef[]
+        chain: readonly AcceptedSpecStep[]
         sourceRefs: readonly ExternalRecordRef[]
       }
       currentSpec: ReviewIssueSpec
@@ -69,6 +74,21 @@ function standaloneContext(currentSpec: ReviewIssueSpec | null): Result<ReviewSe
       effectiveConfig: null,
       additionalRequirements: [],
     },
+  }
+}
+
+/** Published review-input/3 source view; accepted authority remains the engine snapshot. */
+export function reviewAcceptedSpecView(
+  accepted: AcceptedOwnSpec,
+): Extract<ReviewSemanticContext, { mode: 'bound' }>['acceptedSpec'] {
+  const { raw } = accepted.snapshot
+  return {
+    reference: raw.reference,
+    body: raw.body,
+    digest: raw.bodySha256,
+    lastEditedAt: raw.lastEditedAt,
+    chain: accepted.chain,
+    sourceRefs: accepted.sourceRefs,
   }
 }
 
@@ -121,43 +141,72 @@ export async function resolveReviewSemanticContext(
       ? { cwd: input.cwd, gh: input.gh }
       : { cwd: input.cwd, automationLogin: input.automationLogin, gh: input.gh },
   )
-  const binding = await readWorkflowBinding(pullRequest, github)
-  if (!binding.ok) {
-    return binding.status === 'absent'
+  const landing = await readLandingFacts(pullRequest, github)
+  if (!landing.ok) {
+    return landing.reason === 'absent'
       ? resolveStandaloneContext(input)
-      : { ok: false, diagnostics: binding.diagnostics }
+      : { ok: false, diagnostics: landing.diagnostics }
   }
-  const linkedScopes = binding.value.linkedIssueBodies.map(({ scope }) => scope)
-  if (linkedScopes.length !== 1) {
-    return failed('workflow-binding-incomplete', 'bound review requires exactly one linked tracker issue')
-  }
+  return resolveBoundSemanticContext(input, pullRequest, landing)
+}
+
+type BoundObservation = Extract<LandingFactsRead, { ok: true }>
+
+async function resolveBoundSemanticContext(
+  input: ResolveReviewSemanticContextInput,
+  pullRequest: Scope,
+  observation: BoundObservation,
+): Promise<Result<ReviewSemanticContext>> {
+  const linkedScopes = observation.native.linkedIssueScopes
   const scope = linkedScopes[0]
+  if (linkedScopes.length !== 1 || scope === undefined)
+    return failed('workflow-binding-incomplete', 'bound review requires exactly one linked tracker issue')
   const number = issueNumber(scope)
   if (number === null) return failed('workflow-binding-incomplete', 'bound tracker issue has an invalid scope')
-  const current = await readReviewIssueSpec(input.cwd, scope.repository, number, input.gh)
-  if (!current.ok) return current
+  const graph = observation.uwGraph
+  if (graph.status !== 'complete')
+    return {
+      ok: false,
+      diagnostics: [
+        { code: 'uw-graph-incomplete', message: 'Bound native UW graph is incomplete' },
+        ...toDiagnostics(graph.diagnostics),
+      ],
+    }
+  const node = graph.nodes.find((entry) => entry.uw.repository === scope.repository && entry.uw.target === scope.target)
+  if (node === undefined) return failed('graph-root-missing', 'Bound UW is absent from its native graph')
+  const reader = createInstalledObservedUwReadPort({ graph, histories: observation.histories })
+  const read = await reader.readUw(scope)
+  if (!read.admission.deliverable.ok)
+    return { ok: false, diagnostics: toDiagnostics(read.admission.deliverable.diagnostics) }
+  const facts = await readCurrentOwnSpecFacts({ uw: scope, read, reader })
+  if (!facts.ok) return { ok: false, diagnostics: toDiagnostics(facts.diagnostics) }
   const resolved = resolveBoundWork({
     use: 'review',
     explicitSelection: true,
     pullRequest,
-    histories: binding.value.histories,
+    histories: observation.histories,
     native: { branch: input.branch, base: input.base },
-    currentSpec: { body: current.value.body, digest: current.value.digest },
+    currentSpec: facts.value.currentSpec,
   })
-  if (resolved.status === 'standalone') {
+  if (resolved.status === 'standalone')
     return failed('workflow-binding-incomplete', 'confirmed workflow binding became absent during semantic preparation')
-  }
   if (resolved.status === 'refused') return { ok: false, diagnostics: resolved.evidence }
-  if (resolved.drift !== 'settled') {
+  if (resolved.drift !== 'settled')
     return failed('workflow-spec-drift', 'current tracker Spec differs from the accepted mandate Spec')
-  }
   return {
     ok: true,
     value: {
       mode: 'bound',
-      binding: { recordId: binding.value.binding.recordId, scope: resolved.scope },
-      acceptedSpec: { ...resolved.acceptedSpec, sourceRefs: resolved.acceptedSpec.sourceRefs },
-      currentSpec: current.value,
+      binding: { recordId: observation.binding.recordId, scope: resolved.scope },
+      acceptedSpec: reviewAcceptedSpecView(resolved.acceptedSpec),
+      currentSpec: {
+        reference: `#${number}`,
+        number,
+        body: node.raw.body,
+        digest: node.raw.bodySha256,
+        lastEditedAt: node.raw.lastEditedAt,
+        labels: node.labels,
+      },
       effectiveConfig: {
         productVersion: resolved.configIdentity.productVersion,
         version: resolved.configIdentity.version,

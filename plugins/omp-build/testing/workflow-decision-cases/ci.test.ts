@@ -4,12 +4,12 @@ import { roxabiWorkflowFixtures } from '../roxabi-presets.ts'
 import {
   admittedImplement,
   BODY,
+  BRANCH,
   blank,
   decisions,
   eligiblePlan,
   factsForMandate,
   graphConfig,
-  HEAD,
   hasAction,
   PR,
   SCOPE,
@@ -34,38 +34,47 @@ describe('workflow CI decisions', () => {
   it('dispatches publish, a bound first or moved-head review, and land without a duplicate receipt', () => {
     const mandate = shippedMandate()
     if (mandate.kind !== 'mandate') throw new Error('expected a mandate')
-    const pull = { scope: PR, head: HEAD, base: 'main', associatedIssue: SCOPE }
+    const pull = { scope: PR, head: BRANCH, base: 'main', associatedIssue: SCOPE }
     const issue = historyFrom([...eligiblePlan(mandate), implementStart(mandate), admittedImplement(mandate)])
     const bound = historyFrom([workflowBinding(PR, mandate, 'feat/42-save', 'main')], 'operator', 'operator', [issue])
     const published = { issue, pullRequest: null, parents: [] }
     expect(hasAction(published.issue, 'publish')).toBe(false)
-    expect(reconstructWorkflow({ evidence: published, facts: shippedFacts(), decisions: decisions() })).toMatchObject({
+    expect(
+      reconstructWorkflow({ evidence: published, facts: shippedFacts(mandate), decisions: decisions() }),
+    ).toMatchObject({
       status: 'action',
       action: 'publish',
     })
+    const afterPublished = { ...decisions(), publish: { status: 'published' as const, evidence: [] } }
     const barePull = { issue: historyFrom([mandate]), pullRequest: blank(PR), parents: [] }
-    const bareDecision = reconstructWorkflow({ evidence: barePull, facts: shippedFacts(pull), decisions: decisions() })
+    const bareDecision = reconstructWorkflow({
+      evidence: barePull,
+      facts: shippedFacts(mandate, pull),
+      decisions: decisions(),
+    })
     expect(bareDecision).toMatchObject({ status: 'action', action: 'plan' })
     const review = { issue, pullRequest: bound, parents: [] }
     expect(hasAction(review.issue, 'review')).toBe(false)
-    expect(reconstructWorkflow({ evidence: review, facts: shippedFacts(pull), decisions: decisions() })).toMatchObject({
+    expect(
+      reconstructWorkflow({ evidence: review, facts: shippedFacts(mandate, pull), decisions: afterPublished }),
+    ).toMatchObject({
       status: 'action',
       action: 'review',
     })
-    const movedHead = '2222222222222222222222222222222222222222'
+    const movedCandidate = '2222222222222222222222222222222222222222'
     expect(
       reconstructWorkflow({
         evidence: review,
-        facts: shippedFacts({ ...pull, head: movedHead }),
-        decisions: decisions(),
+        facts: { ...shippedFacts(mandate, pull), candidateGitSHA: movedCandidate },
+        decisions: afterPublished,
       }),
     ).toMatchObject({ status: 'action', action: 'review' })
     expect(hasAction(review.issue, 'land')).toBe(false)
     expect(
       reconstructWorkflow({
         evidence: review,
-        facts: shippedFacts(pull),
-        decisions: { ...decisions(), reviewStep: 'land' },
+        facts: shippedFacts(mandate, pull),
+        decisions: { ...afterPublished, reviewStep: 'land' },
       }),
     ).toMatchObject({ status: 'action', action: 'land' })
   })

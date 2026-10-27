@@ -1,6 +1,7 @@
 import type { DecodedHistory } from '../../engine/history-schema.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import type { Diagnostic, Json, Scope } from '../../engine/record-values.ts'
+import type { UwGraphObservation } from '../../engine/uw-graph.ts'
 
 export type LinkedIssueAssociation =
   | { status: 'linked'; scope: Scope; number: number }
@@ -56,12 +57,12 @@ export type LandingFactsRead =
       native: { branch: string; base: string; pullRequest: Scope; linkedIssueScopes: Scope[] }
       /** Observed PR tips for product gates; never copied into engine native. */
       observed: { head: string; baseTip: string }
-      /** Exact live issue bodies for the bound mandate scope. */
-      linkedIssueBodies: { scope: Scope; body: string }[]
       /** Explicit mandate.parent scopes. Empty means no delivery parent; missing is not empty. */
       parentScopes: Scope[]
       /** Applicable PR workflow-binding. Predecessor records may remain in histories. */
       binding: CanonicalRecord
+      /** Fresh complete or incomplete native UW graph rooted at the bound own UW. */
+      uwGraph: UwGraphObservation
     }
   | {
       ok: false
@@ -89,10 +90,11 @@ export type WorkflowBindingRead =
         binding: CanonicalRecord
         history: DecodedHistory
         histories: DecodedHistory[]
-        linkedIssueBodies: { scope: Scope; body: string }[]
         parentScopes: Scope[]
         native: Extract<LandingFactsRead, { ok: true }>['native']
         observed: { head: string; baseTip: string }
+        /** Same fresh graph observation exposed by LandingFactsRead without re-reading GitHub. */
+        uwGraph: UwGraphObservation
       }
     }
   | {

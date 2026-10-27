@@ -1,4 +1,4 @@
-import type { CanonicalRecord, DecodedHistory, GitHubOptions } from '../dist/contracts.js'
+import type { DecodedHistory, GitHubOptions } from '../dist/contracts.js'
 import { decodeHistory, githubScope, readGitHubHistory } from '../dist/contracts.js'
 import type {
   FixActionResult,
@@ -11,18 +11,11 @@ import type {
 import type { DefaultFixEntry } from './fix-entry-input.ts'
 import { runReviewBoundDefaultFix } from './fix-entry-review-bound.ts'
 import { resolvePublishBinding } from './fix-entry-target-binding.ts'
-import { defaultGh, fail, type Gh, gitResult, object, targetEditedAt } from './fix-entry-target-core.ts'
+import { defaultGh, fail, type Gh, object } from './fix-entry-target-core.ts'
 import { createResolver, parseInvocation } from './fix-entry-target-resolver.ts'
 import type { DefaultFixRequest } from './fix-execution-policy.ts'
 import { runDefaultFixWorkflow } from './fix-execution-runner.ts'
-import {
-  confirmFixContinuation,
-  confirmPublishedMandate,
-  decideFixAuthority,
-  loadFixOnlyDraft,
-} from './fix-mandate-authority.ts'
-import { buildConfirmedFixOnlyMandate } from './fix-mandate-resolution.ts'
-import type { FixMandateView } from './fix-mandate-types.ts'
+import { confirmFixContinuation, decideFixAuthority } from './fix-mandate-authority.ts'
 import type { FixWorkflowRuntime } from './fix-native-dispatch.ts'
 import { withRoxabiGitHubPolicy } from './github-policy'
 import { createGitHubRecordPublisher } from './github-publisher'
@@ -40,13 +33,10 @@ async function readRepository(cwd: string, gh: Gh): Promise<FixActionResult<stri
 
 export async function bindFixMandate(
   input: DefaultFixEntry,
-  id: FixIdentity,
   target: FixTarget,
   github: GitHubOptions,
   publishBinding: PublishBinding,
-  correctionScope: string,
   readHistory: () => Promise<DecodedHistory>,
-  publishMandate: (record: CanonicalRecord) => Promise<FixActionResult<unknown>>,
 ): Promise<FixActionResult<BoundFixMandate>> {
   const authority = await decideFixAuthority({
     target,
@@ -54,7 +44,7 @@ export async function bindFixMandate(
     readHistory,
     branch: publishBinding.localBranch,
     base: publishBinding.defaultBranch,
-    correctionScope,
+    uw: input.uw,
     requiredFeatureMandate: input.requiredFeatureMandate,
   })
   if (!authority.ok) return authority
@@ -63,41 +53,7 @@ export async function bindFixMandate(
   if (authority.value.status === 'reuse') {
     return { ok: true, value: { recordId: authority.value.mandate.recordId, sameScope: authority.value.sameScope } }
   }
-  const editedAt = await targetEditedAt(input.cwd, input.gh ?? defaultGh, target)
-  const commit = target.candidateGitSHA
-  if (editedAt === null || commit === null || correctionScope.length === 0) return fail('fix-only-scope-unreadable')
-  const antecedent =
-    authority.value.status === 'successor'
-      ? {
-          scope: { repository: authority.value.antecedent.repository, target: authority.value.antecedent.target },
-          recordId: authority.value.antecedent.recordId,
-          kind: 'mandate',
-        }
-      : null
-  const parent: FixMandateView['parent'] =
-    authority.value.status === 'successor' ? authority.value.antecedent.parent : null
-  const draft = await loadFixOnlyDraft({
-    cwd: input.cwd,
-    commit,
-    git: gitResult,
-    scope: { repository: target.repository, target: target.target },
-    recordId: `${id.runId}-mandate-1`,
-    runId: id.runId,
-    operationId: `${id.operationId}-mandate`,
-    branch: publishBinding.localBranch,
-    base: publishBinding.defaultBranch,
-    candidateGitSHA: commit,
-    work: { reference: target.target, body: correctionScope, lastEditedAt: editedAt },
-    parent,
-    antecedent,
-  })
-  if (!draft.ok) return draft
-  const built = await buildConfirmedFixOnlyMandate(draft.value)
-  if (!built.ok) return built
-  const saved = await publishMandate(built.value)
-  if (!saved.ok) return saved
-  const confirmed = confirmPublishedMandate(await readHistory(), built.value.recordId)
-  return confirmed.ok ? { ok: true, value: { recordId: confirmed.value.recordId, sameScope: true } } : confirmed
+  return fail('fix-own-uw-required')
 }
 
 /** Actual `/fix` ingress: fresh GH target/history binding, then standalone or review-bound correction. */
@@ -131,19 +87,7 @@ export async function runDefaultFix(
     },
   }
   const readHistory = async () => decodeHistory(await readGitHubHistory(scope, github))
-  const mandate = await bindFixMandate(
-    input,
-    id,
-    target,
-    github,
-    publishBinding.value,
-    correctionScope,
-    readHistory,
-    async (record) => {
-      const saved = await rawPublisher.publish(record)
-      return saved.ok ? { ok: true, value: undefined } : saved
-    },
-  )
+  const mandate = await bindFixMandate(input, target, github, publishBinding.value, readHistory)
   if (!mandate.ok) return mandate
   const request = {
     cwd: input.cwd,
@@ -165,7 +109,7 @@ export async function runDefaultFix(
         readHistory,
         branch: publishBinding.value.localBranch,
         base: publishBinding.value.defaultBranch,
-        correctionScope,
+        uw: input.uw,
         boundRecordId: mandate.value.recordId,
       }),
     )

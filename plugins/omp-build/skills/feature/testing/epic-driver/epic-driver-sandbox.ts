@@ -25,7 +25,18 @@ case "$1 \${2:-}" in
   "api user") echo "$ME" ;;
   "api graphql")
     q="$*"
-    if [[ "$q" == *subIssues* ]]; then
+    if [[ "$q" == *stateReason* && "$q" == *blockedBy* ]]; then
+      query uw-graph
+      number=""
+      for arg in "$@"; do
+        [[ "$arg" == number=* ]] && number="\${arg#number=}"
+      done
+      [[ "$number" =~ ^[0-9]+$ && -f "$S/uw-$number.json" ]] || {
+        echo "stub gh: missing strict graph for $number" >&2
+        exit 9
+      }
+      cat "$S/uw-$number.json"
+    elif [[ "$q" == *subIssues* ]]; then
       query subIssues
       n=$(( $(cat "$S/reads" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$S/reads"
       if [[ -f "$S/epic.json.$n" ]]; then cat "$S/epic.json.$n"; else cat "$S/epic.json"; fi

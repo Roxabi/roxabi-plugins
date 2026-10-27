@@ -32,18 +32,21 @@ export async function graphql(
   query: string,
   variables: { owner: string; name: string; number: number },
 ): Promise<unknown> {
-  const raw = await gh(options)(options.cwd, [
-    'api',
-    'graphql',
-    '-f',
-    `query=${query}`,
-    '-f',
-    `owner=${variables.owner}`,
-    '-f',
-    `name=${variables.name}`,
-    '-F',
-    `number=${variables.number}`,
-  ])
+  return graphqlVariables(options, query, variables)
+}
+
+/** Executes the existing Gh GraphQL transport with nullable pagination variables omitted. */
+export async function graphqlVariables(
+  options: GitHubOptions,
+  query: string,
+  variables: Record<string, string | number | null | undefined>,
+): Promise<unknown> {
+  const args = ['api', 'graphql', '-f', `query=${query}`]
+  for (const [name, value] of Object.entries(variables)) {
+    if (value === undefined || value === null) continue
+    args.push(typeof value === 'number' ? '-F' : '-f', `${name}=${value}`)
+  }
+  const raw = await gh(options)(options.cwd, args)
   const parsed = object(parseJson(raw, 'GitHub GraphQL response'))
   if (parsed === null) {
     throw new GitHubHistoryReadError('GitHub GraphQL response is invalid', [

@@ -3,6 +3,7 @@ import { type ExternalRecordRef, isWorkflowKind } from './record-references.ts'
 import type { CanonicalRecord, Kind } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
 
+type SpecIdentityPayload = Extract<CanonicalRecord, { kind: 'spec-identity' }>['payload']
 type MandatePayload = Extract<CanonicalRecord, { kind: 'mandate' }>['payload']
 type OperatorControlPayload = Extract<CanonicalRecord, { kind: 'operator-control' }>['payload']
 type ActionReceiptPayload = Extract<CanonicalRecord, { kind: 'action-receipt' }>['payload']
@@ -10,9 +11,15 @@ type WorkflowBindingPayload = Extract<CanonicalRecord, { kind: 'workflow-binding
 
 export function scopedRefsOf(record: { kind: Kind; payload: unknown }): ExternalRecordRef[] {
   switch (record.kind) {
+    case 'spec-identity': {
+      const payload = record.payload as SpecIdentityPayload
+      return payload.predecessor === null ? [] : [payload.predecessor]
+    }
     case 'mandate': {
       const payload = record.payload as MandatePayload
-      return [payload.parent, payload.antecedent].filter((ref): ref is ExternalRecordRef => ref !== null)
+      return [payload.parent, payload.antecedent, ...payload.ownSpec.identityAllocations].filter(
+        (ref): ref is ExternalRecordRef => ref !== null,
+      )
     }
     case 'operator-control': {
       const payload = record.payload as OperatorControlPayload
@@ -23,8 +30,11 @@ export function scopedRefsOf(record: { kind: Kind; payload: unknown }): External
     }
     case 'action-receipt': {
       const payload = record.payload as ActionReceiptPayload
-      const refs = [payload.mandate]
+      const refs: ExternalRecordRef[] = [payload.mandate]
       if (payload.phase === 'result') refs.push(payload.start)
+      if (payload.action === 'assess-spec') {
+        refs.push(payload.exactInputs.accepted.ref.sourceAccepted, ...payload.exactInputs.identityAllocations)
+      }
       return refs
     }
     case 'workflow-binding':

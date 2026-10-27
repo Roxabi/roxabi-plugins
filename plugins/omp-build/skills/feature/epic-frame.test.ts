@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { hasScope } from '../../roxabi/uw-spec'
 import type { CheckNode } from './epic-ci'
 import { baseFromStack, classifyBaseCi } from './epic-ci'
 import { refuseForeignCommits, resolveTicketBranch, ticketOfBranch, ticketOfSubject } from './epic-claims'
@@ -20,6 +19,7 @@ import {
   on,
   pr,
   RUN,
+  refusedOwnUw,
   sha,
   T1,
   T2,
@@ -85,22 +85,32 @@ describe('frameEpic', () => {
     })
   })
 
-  it('refuses when an open child lacks scope, naming only those', () => {
+  it('refuses only open children whose shared UW observation is unsettled', () => {
     expect(
-      frame([child(1), child(2, { labels: [] }), child(3, { body: '## Acceptance\n## Needs framing\n' })]),
-    ).toEqual({ error: 'missing scope: 2, 3', missing: [2, 3] })
+      frame([
+        child(1),
+        child(2, { ownUw: refusedOwnUw('incomplete') }),
+        child(3, { ownUw: refusedOwnUw('unsettled') }),
+      ]),
+    ).toEqual({
+      error: 'unsettled own UW: #2 (graph-incomplete), #3 (own-spec-unaccepted)',
+      missing: [2, 3],
+    })
   })
 
-  it('ignores a closed child without scope', () => {
-    expect(frame([child(1, { state: 'CLOSED', labels: [], body: '' }), child(2)])).toEqual({
+  it('ignores a closed child with an incomplete UW observation', () => {
+    expect(frame([child(1, { state: 'CLOSED', ownUw: refusedOwnUw('incomplete') }), child(2)])).toEqual({
       order: [2],
       blocked: [],
     })
   })
 
-  it('ignores a merged child still open under staging-train, and names only the unframed one', () => {
-    const merged = child(4, { labels: [], body: '', prs: [landed(4, T1, sha('1'), sha('2'))] })
-    expect(frame([merged, child(5, { labels: [] })])).toEqual({ error: 'missing scope: 5', missing: [5] })
+  it('ignores a merged child still open under staging-train, and names only the unsettled one', () => {
+    const merged = child(4, { ownUw: refusedOwnUw('incomplete'), prs: [landed(4, T1, sha('1'), sha('2'))] })
+    expect(frame([merged, child(5, { ownUw: refusedOwnUw('changed-child', 'material-change-pending') })])).toEqual({
+      error: 'unsettled own UW: #5 (material-change-pending)',
+      missing: [5],
+    })
   })
 })
 
@@ -117,32 +127,6 @@ describe('mandate identity', () => {
     expect(BASE_NAME.test('main^')).toBe(false)
     expect(BASE_NAME.test('main@{1}')).toBe(false)
     expect(BASE_NAME.test('main:x')).toBe(false)
-  })
-})
-describe('hasScope', () => {
-  it.each<[string, string[], string, boolean]>([
-    ['size label and acceptance heading', ['size:S'], '## Acceptance\n- [ ] x', true],
-    ['a criteria heading', ['size:M'], '### Success criteria\n', true],
-    ['no size label', ['type:feat'], '## Acceptance\n', false],
-    ['acceptance only in prose', ['size:S'], 'Acceptance: it works\n', false],
-    ['#Acceptance without a space is no heading', ['size:S'], '#Acceptance\n', false],
-    [
-      'a needs-framing heading after the acceptance one',
-      ['size:S'],
-      '## Acceptance\n\n#### Needs Framing — why\n',
-      false,
-    ],
-    ['needs framing only in prose', ['size:S'], '## Acceptance\nThis needs framing later.\n', true],
-    ['a needs-framing heading inside a fence', ['size:S'], '## Acceptance\n```md\n## Needs framing\n```\n', true],
-    ['a needs-framing heading inside a tilde fence', ['size:S'], '~~~\n## Needs framing\n~~~\n## Acceptance\n', true],
-    ['an acceptance heading only inside a fence', ['size:S'], '```\n## Acceptance\n```\n', false],
-    ['a needs-framing heading indented one space', ['size:S'], '## Acceptance\n ## Needs framing\n', false],
-    ['a needs-framing heading indented three spaces', ['size:S'], '## Acceptance\n   ## Needs framing\n', false],
-    ['an acceptance heading indented three spaces', ['size:S'], '   ## Acceptance\n', true],
-    ['an acceptance line indented four spaces is code', ['size:S'], '    ## Acceptance\n', false],
-    ['a needs-framing line indented four spaces is code', ['size:S'], '## Acceptance\n    ## Needs framing\n', true],
-  ])('%s', (_name, labels, body, expected) => {
-    expect(hasScope({ labels, body })).toBe(expected)
   })
 })
 

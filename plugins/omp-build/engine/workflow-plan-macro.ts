@@ -36,8 +36,8 @@ export function planMacro(evidence: WorkflowEvidence, mandate: MandateRecord | n
     ...evidence.parents,
   ])
   if (!accepted.ok) return empty('blocked', accepted.evidence)
-  const acceptedEmpty = emptyMacro(mandate, accepted.spec.digest)
-  const reviewContext = prepareReview(evidence.issue, mandate, accepted.spec.digest, acceptedEmpty)
+  const acceptedEmpty = emptyMacro(mandate, accepted.spec.ref.version)
+  const reviewContext = prepareReview(evidence.issue, mandate, accepted.spec.ref.version, acceptedEmpty)
   if ('macro' in reviewContext) return reviewContext.macro
   return evaluateReview(reviewContext, acceptedEmpty)
 }

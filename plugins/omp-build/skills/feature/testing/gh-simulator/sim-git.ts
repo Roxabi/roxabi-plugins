@@ -204,7 +204,10 @@ function mergeIntoOrigin(state: State, pr: Pull): void {
     pr.autoMerge = null
     for (const number of pr.closes) {
       const issue = state.issues[String(number)]
-      if (issue && issue.state === 'OPEN') issue.state = 'CLOSED'
+      if (issue && issue.state === 'OPEN') {
+        issue.state = 'CLOSED'
+        issue.stateReason = 'COMPLETED'
+      }
     }
     persist(state)
   } finally {

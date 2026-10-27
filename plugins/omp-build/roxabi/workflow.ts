@@ -1,3 +1,4 @@
+import { effectiveMandateRole } from '../dist/contracts.js'
 import type { ScopedRecordRef } from '../engine/record-references.ts'
 import type { WorkflowDecision } from '../engine/workflow-reconstruction-types.ts'
 import { startImplement, startModelReceiptAction } from './feature-action-start.ts'
@@ -9,16 +10,11 @@ import { type SelectedFeature, selectFeatureMandate } from './feature-continuati
 import type { ContinueFeatureInput, ContinueFeatureResult, FeatureSessionPauseInput } from './feature-contract.ts'
 import { inhibitCwd } from './feature-control.ts'
 import { payload } from './feature-engine.ts'
-import { handleMaterialDecision } from './feature-material-decision.ts'
 import type { FeatureObservation } from './feature-observation-contract.ts'
 import { planAction } from './feature-plan-start.ts'
 import { openPullRequestAfterRemoteProof, reviewAfterBinding } from './feature-publication-review.ts'
-import {
-  actionRequiresFeatureCheckout,
-  mandateRoleOf,
-  moveFromEvidence,
-  requireMandateCheckout,
-} from './feature-selection.ts'
+import { actionRequiresFeatureCheckout, moveFromEvidence, requireMandateCheckout } from './feature-selection.ts'
+import { acceptMaterialDecision, acceptOwnMaterialDecision } from './workflow-material-decision.ts'
 /** Installed /feature continuation. The engine remains the only next-action authority. */
 export async function continueFeature(input: ContinueFeatureInput): Promise<ContinueFeatureResult> {
   return continueFeatureAtTarget(input)
@@ -30,39 +26,42 @@ async function continueFeatureAtTarget(
   const authority = await resolveFeatureAuthority(input, exactMandateRef)
   if (isResult(authority)) return authority
   if (input.control === 'pause' || input.control === 'abandon') return applyFeatureControl(input.control, authority)
-  const selected = await selectFeatureMandate(input.control, exactMandateRef, authority)
+  if (input.control === 'material-decision')
+    return acceptOwnMaterialDecision(input, authority, () =>
+      continueFeatureAtTarget({ ...input, control: 'continue' }, exactMandateRef),
+    )
+  const selected = await selectFeatureMandate(
+    input.control,
+    exactMandateRef,
+    authority,
+    input.uw,
+    input.read ?? input.uw,
+  )
   if (isResult(selected)) return selected
   const observation = await readFeatureObservation(input.control, selected)
-  if (isResult(observation)) return observation
-  return coordinateDecision(input, exactMandateRef, selected, observation)
+  return isResult(observation) ? observation : coordinateDecision(input, exactMandateRef, selected, observation)
 }
+
 async function coordinateDecision(
   input: ContinueFeatureInput,
   exactMandateRef: ScopedRecordRef | undefined,
   selected: SelectedFeature,
   observation: FeatureObservation,
 ): Promise<ContinueFeatureResult> {
-  const { authority, mandate } = selected
-  const { context } = authority
-  const decision = context.engine.reconstructWorkflow({
+  const { mandate, acceptedSpec } = selected
+  if (mandate !== null && acceptedSpec === null) return { kind: 'blocked', reason: 'mandate-spec-missing' }
+  const decision = selected.authority.context.engine.reconstructWorkflow({
     evidence: observation.evidence,
     facts: observation.facts,
     decisions: observation.decisions,
   })
-  if (decision.status !== 'action') {
-    return handleNonActionDecision(input, exactMandateRef, selected, observation, decision)
-  }
+  if (decision.status !== 'action')
+    return coordinateNonActionDecision(input, exactMandateRef, selected, observation, decision)
   if (input.control === 'material-decision') return { kind: 'blocked', reason: 'material-decision-not-pending' }
-  if (mandateRoleOf(mandate) === 'feature' && actionRequiresFeatureCheckout(decision.action)) {
-    if (mandate === null) return { kind: 'blocked', reason: 'mandate-missing' }
-    const checkout = await requireMandateCheckout({
-      cwd: context.cwd,
-      git: context.git,
-      scope: authority.scope,
-      mandate,
-    })
-    if (checkout !== null) return checkout
-  }
+  const admission = deliveryAdmission(observation, decision.action)
+  if (admission !== null) return admission
+  const checkout = await checkoutForFeatureAction(selected, decision.action)
+  if (checkout !== null) return checkout
   const planned = await coordinatePlanAndReceiptAction(input, exactMandateRef, selected, observation, decision.action)
   if (planned !== null) return planned
   return coordinateContinuationEffects(
@@ -75,6 +74,52 @@ async function coordinateDecision(
     continueFeatureAtTarget,
   )
 }
+
+async function coordinateNonActionDecision(
+  input: ContinueFeatureInput,
+  exactMandateRef: ScopedRecordRef | undefined,
+  selected: SelectedFeature,
+  observation: FeatureObservation,
+  decision: Exclude<WorkflowDecision, { status: 'action' }>,
+): Promise<ContinueFeatureResult> {
+  if (decision.status === 'terminal' && decision.reason === 'done') {
+    const admission = deliveryAdmission(observation, 'done')
+    if (admission !== null) return admission
+  }
+  return handleNonActionDecision(input, exactMandateRef, selected, observation, decision)
+}
+
+async function checkoutForFeatureAction(
+  selected: SelectedFeature,
+  action: Extract<WorkflowDecision, { status: 'action' }>['action'],
+): Promise<ContinueFeatureResult | null> {
+  const { authority, mandate, acceptedSpec } = selected
+  if (
+    mandate === null ||
+    acceptedSpec === null ||
+    effectiveMandateRole(mandate.payload.role, acceptedSpec) !== 'feature' ||
+    !actionRequiresFeatureCheckout(action)
+  )
+    return null
+  return requireMandateCheckout({
+    cwd: authority.context.cwd,
+    git: authority.context.git,
+    scope: authority.scope,
+    mandate,
+  })
+}
+
+function deliveryAdmission(
+  observation: FeatureObservation,
+  action: Extract<WorkflowDecision, { status: 'action' }>['action'],
+): ContinueFeatureResult | null {
+  if (action === 'frame' || action === 'assess-spec' || action === 'resume') return null
+  const admission = observation.deliveryAdmission
+  if (admission === null) return { kind: 'blocked', reason: 'uw-delivery-admission-required' }
+  const diagnostics = 'diagnostics' in admission ? admission.diagnostics : admission.admission.deliverable.diagnostics
+  return diagnostics.length === 0 ? null : { kind: 'blocked', reason: 'uw-delivery-admission-refused', diagnostics }
+}
+
 async function handleNonActionDecision(
   input: ContinueFeatureInput,
   exactMandateRef: ScopedRecordRef | undefined,
@@ -82,45 +127,37 @@ async function handleNonActionDecision(
   observation: FeatureObservation,
   decision: Exclude<WorkflowDecision, { status: 'action' }>,
 ): Promise<ContinueFeatureResult> {
-  const { authority, mandate, issue } = selected
-  const { context } = authority
-  if (decision.status === 'blocked' && decision.reason === 'session-cwd') {
-    return moveFromEvidence(context.cwd, decision.evidence) ?? { kind: 'blocked', reason: 'session-cwd' }
-  }
-  if (decision.status === 'blocked' && decision.reason === 'spec-decision-required') {
-    if (input.control !== 'material-decision') return { kind: 'operator-decision', reason: 'material-spec' }
-    if (mandate === null) return { kind: 'blocked', reason: 'material-decision-mandate-missing' }
-    const material = await handleMaterialDecision({
-      decision: input.decision,
-      loaded: context.engine,
-      history: observation.evidence.issue,
-      parents: observation.evidence.parents,
-      mandate,
-      issue,
-      gh: context.gh,
-      cwd: context.cwd,
-    })
-    return material.kind === 'accepted'
-      ? continueFeatureAtTarget({ ...input, control: 'resume', decision: undefined }, exactMandateRef)
-      : material
-  }
-  if (decision.status === 'blocked') return { kind: 'blocked', reason: decision.reason, diagnostics: decision.evidence }
+  if (decision.status === 'blocked') return handleBlockedDecision(input, exactMandateRef, selected, decision)
   if (decision.status === 'paused') return { kind: 'paused', confirmed: true, reason: 'paused' }
-  if (decision.status === 'abandoned') {
-    const confirmed = observation.evidence.issue.operations.some((operation) => {
-      const record = operation.record
-      if (
-        operation.status !== 'complete' ||
-        record === null ||
-        record === undefined ||
-        record.kind !== 'operator-control'
-      )
-        return false
-      return payload(record).control === 'abandon'
-    })
-    return { kind: 'abandoned', confirmed }
-  }
+  if (decision.status === 'abandoned') return { kind: 'abandoned', confirmed: abandonmentConfirmed(observation) }
   return { kind: 'terminal', reason: decision.reason, diagnostics: decision.evidence }
+}
+
+async function handleBlockedDecision(
+  input: ContinueFeatureInput,
+  exactMandateRef: ScopedRecordRef | undefined,
+  selected: SelectedFeature,
+  decision: Extract<WorkflowDecision, { status: 'blocked' }>,
+): Promise<ContinueFeatureResult> {
+  const { context, scope } = selected.authority
+  if (decision.reason === 'session-cwd')
+    return moveFromEvidence(context.cwd, decision.evidence) ?? { kind: 'blocked', reason: 'session-cwd' }
+  if (decision.reason !== 'spec-decision-required') {
+    return { kind: 'blocked', reason: decision.reason, diagnostics: decision.evidence }
+  }
+  if (input.control !== 'material-decision') return { kind: 'operator-decision', reason: 'material-spec' }
+  return acceptMaterialDecision(input, scope, () =>
+    continueFeatureAtTarget({ ...input, control: 'resume' }, exactMandateRef),
+  )
+}
+
+function abandonmentConfirmed(observation: FeatureObservation): boolean {
+  return observation.evidence.issue.operations.some((operation) => {
+    const record = operation.record
+    return (
+      operation.status === 'complete' && record?.kind === 'operator-control' && payload(record).control === 'abandon'
+    )
+  })
 }
 async function coordinatePlanAndReceiptAction(
   input: ContinueFeatureInput,
@@ -136,7 +173,7 @@ async function coordinatePlanAndReceiptAction(
     case 'plan':
       return mandate === null
         ? missingMandate()
-        : planAction(context.engine, observation.evidence, history, issue.body, context.gh, context.cwd, scope, mandate)
+        : planAction(context.engine, observation.evidence, history, context.gh, context.cwd, scope, mandate)
     case 'implement':
       return mandate === null
         ? missingMandate()
@@ -161,7 +198,8 @@ async function coordinatePlanAndReceiptAction(
             mandate,
             evidence: observation.evidence,
             scope,
-            issue,
+            currentSpec: observation.facts.currentSpec,
+            identityAllocations: observation.facts.identityAllocations,
             target,
             gh: context.gh,
             cwd: context.cwd,
@@ -178,7 +216,8 @@ async function coordinatePlanAndReceiptAction(
         mandate,
         evidence: observation.evidence,
         scope: delivery.scope,
-        issue,
+        currentSpec: observation.facts.currentSpec,
+        identityAllocations: observation.facts.identityAllocations,
         target: {
           status: 'pull-request',
           scope: delivery.scope,
@@ -211,6 +250,7 @@ async function coordinatePlanAndReceiptAction(
             principal: false,
             git: context.git,
             gh: context.gh,
+            ...(input.read === undefined ? {} : { read: input.read }),
           },
           exactMandateRef,
         )

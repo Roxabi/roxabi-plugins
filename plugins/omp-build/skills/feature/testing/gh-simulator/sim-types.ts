@@ -23,6 +23,8 @@ export type Issue = {
   title: string
   body: string
   state: 'OPEN' | 'CLOSED'
+  /** Native GraphQL reason; omitted remains unknown rather than inferred from state. */
+  stateReason?: string | null
   author: string
   labels: string[]
   comments: Comment[]

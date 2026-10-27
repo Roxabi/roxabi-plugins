@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { specDigest } from '../../engine/record-digests.ts'
+import { canonicalSpec } from '../../engine/uw-spec.ts'
+import type { AcceptedOwnSpec } from '../../engine/workflow-accepted-spec-types.ts'
 import type { PreparedEpicReview } from '../../roxabi/epic-range-finalization.ts'
 import type { ContinueFeatureResult, FeatureCommandHost, FeatureWorkflow } from '../../roxabi/feature-contract'
 import { deliverFeatureResult, runInstalledFeatureCommand } from '../../roxabi/feature-entry'
@@ -68,6 +71,42 @@ const review: PreparedEpicReview = {
   },
 }
 
+function admittedCiCorrection(): Extract<ContinueFeatureResult, { kind: 'admitted-ci-correction' }> {
+  const scope = { repository: 'acme/widgets', target: 'acme/widgets#42' }
+  const body = 'C1: Preserve the confirmed CI correction scope.'
+  const canonical = canonicalSpec({
+    format: 'omp-build-spec-content/1',
+    criteria: [{ id: 'C1', statement: 'Preserve the confirmed CI correction scope.' }],
+    invariants: [],
+    exclusions: [],
+    openQuestions: [],
+    sections: { origin: '', context: '', change: '' },
+  })
+  if (!canonical.ok) throw new Error('expected canonical correction Spec')
+  const source: AcceptedOwnSpec['ref']['sourceAccepted'] = {
+    scope,
+    recordId: 'feature-mandate-42',
+    kind: 'mandate',
+  }
+  const ownSpec: AcceptedOwnSpec = {
+    ref: { uw: scope, version: canonical.value.version, sourceAccepted: source },
+    snapshot: {
+      spec: canonical.value,
+      raw: { reference: scope.target, body, bodySha256: specDigest(body), lastEditedAt: null },
+    },
+    tier: 'S',
+    children: [],
+    chain: [{ kind: 'mandate', source, version: canonical.value.version }],
+    sourceRefs: [source],
+  }
+  return {
+    kind: 'admitted-ci-correction',
+    reference: '#42',
+    attributionRecordId: 'ci-attribution-42',
+    uw: { ownSpec, children: [] },
+  }
+}
+
 /** Every result kind that hands work on, one each. */
 function handedWork(): ContinueFeatureResult[] {
   return [
@@ -97,7 +136,7 @@ function handedWork(): ContinueFeatureResult[] {
         kind: 'mandate',
       },
     },
-    { kind: 'admitted-ci-correction', reference: '#7', attributionRecordId: 'ci-receipt', scope: 'repair CI' },
+    admittedCiCorrection(),
     { kind: 'epic-final-review', review },
   ]
 }
@@ -357,6 +396,7 @@ describe('prepared epic final review delivery', () => {
   function resultHost(inhibited: boolean) {
     const starts: string[] = []
     const sent: string[] = []
+    const corrections: Array<Parameters<NonNullable<FeatureCommandHost['startAdmittedCiCorrection']>>[0]> = []
     const value: FeatureCommandHost = {
       key: {},
       cwd: root.cwd,
@@ -384,7 +424,8 @@ describe('prepared epic final review delivery', () => {
         starts.push('fix')
         return { terminal: Promise.resolve({ status: 'stopped', diagnostics: [] }) }
       },
-      startAdmittedCiCorrection: async () => {
+      startAdmittedCiCorrection: async (input) => {
+        corrections.push(input)
         starts.push('admitted-ci-correction')
         return { terminal: Promise.resolve({ status: 'stopped', diagnostics: [] }) }
       },
@@ -396,7 +437,7 @@ describe('prepared epic final review delivery', () => {
         return { code: 0, killed: false }
       },
     }
-    return { starts, sent, value }
+    return { starts, sent, corrections, value }
   }
 
   it('reports continuation inhibition instead of starting any active feature result', async () => {
@@ -417,6 +458,7 @@ describe('prepared epic final review delivery', () => {
     const fixture = resultHost(false)
     for (const result of handedWork()) await deliverFeatureResult('#42', result, fixture.value)
     expect(fixture.starts).toEqual(['action', 'watch', 'review', 'fix', 'admitted-ci-correction', 'epic-final-review'])
+    expect(fixture.corrections).toMatchObject([{ reference: '#42', attributionRecordId: 'ci-attribution-42' }])
   })
 
   it('still reports passive feature results while continuation is inhibited', async () => {

@@ -2,7 +2,6 @@ import {
   type CanonicalRecord,
   classifyHistory,
   type DecodedHistory,
-  githubScope,
   validateDecision,
   validateRecordGraph,
 } from '../../dist/contracts.js'
@@ -126,10 +125,8 @@ export async function markFix(repo: string, epic: number, ticket: number): Promi
   }
   const child = facts.children.find((entry) => entry.number === ticket)
   if (!child) throw new Refused(`#${ticket} is not a sub-issue of #${epic}`)
+  assertChildGrant(authority, facts, ticket)
   await publishEpicEvent(repo, ticket, run, 'epic-fix', String(ticket), {})
-  await publishEpicEvent(repo, epic, run, 'epic-fix', `extend-${ticket}`, {
-    child: { scope: { repository: authority.repository, target: githubScope(authority.repository, ticket).target } },
-  })
   return { ticket, range: step.range }
 }
 

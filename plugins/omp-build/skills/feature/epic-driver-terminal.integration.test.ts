@@ -16,42 +16,40 @@ import {
   serveComments,
   serveEpic,
   servePr,
+  strictSpecBody,
 } from './testing/epic-driver/epic-driver-records.ts'
 import { cleanupSandbox, drive, git, sandbox, sandboxOf, writes } from './testing/epic-driver/epic-driver-sandbox.ts'
 
 afterEach(cleanupSandbox)
 describe('epic-driver — unframed child', () => {
   it('does not start a child that has no scope', () => {
+    // The confirmed parent grant remains valid; the child itself deliberately
+    // omits the required Spec framing and must never activate.
     const { epic } = sandbox()
-    // Genuine unframed: accepted Spec and live body both lack framing.
-    // Policy (epic-stops.ts TICKET_STOPS / epic-next-step.ts nextStep →
-    // epic-driver-next.ts ticketStop): record durable goal-stop:no-scope, do not
-    // start a branch. Exit 0 after recording is success of that stop receipt —
-    // not execution approval.
-    const unframed = { ...childNode(2, 'feat(x): first child'), body: '## Needs framing\n' }
+    const unframed = {
+      ...childNode(2, 'feat(x): first child'),
+      body: '## Needs framing\n',
+      specBody: strictSpecBody('feat(x): first child'),
+    }
     serveEpic([unframed])
     const run = drive(['next'])
-    expect(run.code).toBe(0)
-    expect(run.json().recorded).toMatchObject([{ ticket: 2, stop: 'no-scope' }])
-    expect(run.json().step).toMatchObject({ action: 'drop', stop: 'no-progress' })
+    expect(run.code).toBe(2)
+    expect(run.stderr).toContain('unsettled-child')
     expect(git(epic, 'branch', '--show-current')).toBe('')
-    expect(writes()).toEqual([expect.stringMatching(/^comment 2 <!-- omp-build-record /)])
-    expect(eventPayloads(2)).toContainEqual(
-      expect.objectContaining({ event: 'goal-stop', run: RUN, reason: 'no-scope' }),
-    )
+    expect(writes()).toEqual([])
   })
 
   it('refuses when live body drifts from the framed accepted Spec', () => {
     const { epic } = sandbox()
     const drifted = {
       ...childNode(2, 'feat(x): first child'),
-      body: '## Needs framing\n',
-      specBody: '## Acceptance criteria\n\n- [ ] works\n',
+      body: strictSpecBody('feat(x): changed child'),
+      specBody: strictSpecBody('feat(x): first child'),
     }
     serveEpic([drifted])
     const run = drive(['next'])
     expect(run.code).toBe(2)
-    expect(run.stderr).toContain('issue body differs from the approved spec snapshot')
+    expect(run.stderr).toContain('changed-child')
     expect(git(epic, 'branch', '--show-current')).toBe('')
     expect(writes()).toEqual([])
   })
@@ -277,6 +275,7 @@ describe('epic-driver — canonical final review history', () => {
     const marked = drive(['mark-fix', '--ticket', '2'])
     expect(marked.code).toBe(0)
     expect(eventPayloads(2)).toContainEqual(expect.objectContaining({ event: 'epic-fix', run: RUN }))
+    expect(eventPayloads(1)).not.toContainEqual(expect.objectContaining({ event: 'epic-fix', run: RUN }))
     expect(drive(['review', '--range', range]).code).toBe(2)
   })
 
