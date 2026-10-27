@@ -142,7 +142,7 @@ At most two automated fixes per PR, one per canonical final review, derived on e
 A fix — after a red review, or after a CI failure on the approved head — is allowed while the PR has at most two records; the fix's push moves the head, so the next step needs a review of it.
 A review past the second that does not approve spends the bound for good: a later green does not lift it, and `landPr` refuses to arm. A CI failure on the head the third review approved is a canonical `stop` and stays spent.
 Every posted review counts, with or without a fix before it. Nothing writes accounting.
-After a stop, use the canonical [operator-supervised recovery procedure](skills/dev-review/recovery.md). It preserves the stopped PR and its history; a dossier, revised scope/plan, and explicit operator checkpoint precede any successor. A successor is freshly admitted and does not erase consumed rounds.
+A stopped PR remains evidence and its bound is never reset. The concrete legacy #118 case uses the scoped [operator-supervised replacement procedure](skills/dev-review/recovery.md) only after its own checkpoint and #107's complete native `missing` authority; other stopped PRs need a separately supported/adopted transition.
 _Avoid_: a ledger, counting fix receipts, resetting a canonical stop, one more automatic retry, raw label or manual-merge bypass
 
 **dev-core snapshot**:

@@ -40,9 +40,9 @@ Use the installed `omp-build` review product, not a shell runner or a replacemen
 
 Any incomplete or unusable required result stops. Retain raw partial output, including extractable reports, rather than replacing it with `[]` or a successful empty finding list. A third-red or third-green+CI-red stop remains sticky and is published as canonical `stop` before continuation/disarm.
 
-## Recovery after a stop
+## Scoped PR #118 replacement
 
-Use the canonical [operator-supervised recovery procedure](recovery.md). It preserves the stopped PR, its findings, antecedent history, and consumed rounds; an operator-approved dossier, revised scope/plan, and concrete checkpoint are all required before any superseding branch, worktree, mandate, binding, PR, review, or push. A successor gets fresh normal admission, never an implicit budget reset.
+Use the [operator-supervised PR #118 replacement procedure](recovery.md) only for its documented legacy-admission failure or stop case. It preserves #118's evidence and requires a separate checkpoint plus #107's genuine native `missing` authority before a distinct PR. A generic stopped bound is not a successor authorization.
 
 ## Next action
 

@@ -76,8 +76,8 @@ then exactly `Policy: evidence-v1` and `Acceptance: <real reference>`. It is the
 authoritative Phase 4 body for that selected work: it contains the qualified findings
 and selected plans, is posted through the normal writer, and is the same marked record
 the normal `/fix` reader consumes. It preserves head/input binding, verdict accounting,
-the canonical [stop recovery](recovery.md), and bounds. Missing, malformed,
-self-generated, or unverified acceptance means shadow; it never authorizes a patch.
+stops, and bounds. The scoped #118 legacy replacement is documented in
+[recovery.md](recovery.md); missing, malformed, self-generated, or unverified acceptance means shadow and never authorizes a patch.
 
 Suspend candidate use immediately on a missed required blocker, an out-of-policy
 correction, an inadmissible debt issue, or a lost residual obligation. Retain the

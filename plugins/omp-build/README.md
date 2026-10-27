@@ -67,7 +67,7 @@ Symlinking into `~/.omp/agent/agents/` is not supported — use `link` (or the c
 
 **Scope.** For the adopted engine/VPS goal and indispensable tooling prerequisites, an operator may compose the existing published primitives below without starting `/feature`, `/fix`, or a Feature continuation. This is a manual recipe, not a new command, runner, review format, writer, or a claim that the route has already completed end to end. The automatic `/feature` route remains unchanged; `landPr` remains the sole writer of `reviewed`.
 
-**Trusted distribution first.** Bootstrap imports only one identified, previously published plugin root, never the candidate checkout being admitted. Keep the candidate source for the change itself and the trusted root for every bootstrap primitive; do not edit a cache. The historical bootstrap for this documentation used published `0.12.4` at `/home/mickael/.omp/plugins/cache/plugins/roxabi-marketplace___omp-build___0.12.4`: it prepared this issue's worktree, bootstrapped it, and published/read back mandate `21a80937-720e-4c54-b317-dcc2d3701ddb`. Those are historical bootstrap facts, not independent-review, CI, landing, merge, activation, or E2E qualification evidence.
+**Trusted distribution first.** Bootstrap imports only one identified, previously published plugin root, never the candidate checkout being admitted. Keep the candidate source for the change itself and the trusted root for every bootstrap primitive; do not edit a cache. The historical bootstrap for this documentation used published `0.12.4` at `~/.omp/plugins/cache/plugins/roxabi-marketplace___omp-build___0.12.4`: it prepared this issue's worktree, bootstrapped it, and published/read back mandate `21a80937-720e-4c54-b317-dcc2d3701ddb`. Those are historical bootstrap facts, not independent-review, CI, landing, merge, activation, or E2E qualification evidence.
 
 The following are library call shapes, not shell commands to copy into a second runner. `trustedRoot` is the identified published root; `candidateRoot` must not be substituted into these imports. `git` is the established `GitRunner`, `gh` the established GitHub adapter, and `cwd` is the real linked worktree.
 
@@ -80,6 +80,9 @@ const { loadContracts } = await import(`${trustedRoot}/roxabi/feature-engine.ts`
 const { mandateParentHistories } = await import(`${trustedRoot}/roxabi/feature-context.ts`)
 const { withRoxabiGitHubPolicy } = await import(`${trustedRoot}/roxabi/github-policy.ts`)
 const { confirmWorkflowBinding } = await import(`${trustedRoot}/roxabi/feature-admission.ts`)
+const { readNativePullRequestFacts } = await import(`${trustedRoot}/adapters/github-workflow/native-facts.ts`)
+const { resolveInitialWorkflowBinding } = await import(`${trustedRoot}/adapters/github-workflow/binding-resolution.ts`)
+const { readGate } = await import(`${trustedRoot}/skills/feature/workflow-gate.js`)
 const { disarmReviewedBeforePush } = await import(`${trustedRoot}/skills/feature/landing-foundation.js`)
 const { landPr } = await import(`${trustedRoot}/skills/feature/workflow-landing.js`)
 ```
@@ -126,15 +129,40 @@ const { landPr } = await import(`${trustedRoot}/skills/feature/workflow-landing.
      [contracts.githubScope(repository, actualPr)],
      historyOptions,
    )
+   const boundNative = await readNativePullRequestFacts(repository, actualPr, historyOptions)
+   if (boundNative.branch !== branch || boundNative.base !== base) throw new Error('binding-coordinates-changed')
+   const expectedRemoteHead = boundNative.head
    ```
 
-   The primitive confirms its publication; require a readable complete `workflow-binding` matching `binding.recordId` in `bindingRead` before review. Before **every** corrective push, use the existing barrier and inspect its result; only the provided callback performs the one intended push:
+   The primitive confirms its publication; require a readable complete `workflow-binding` matching `binding.recordId` in `bindingRead` before review. Before **every** corrective push, call the existing barrier **without** its optional callback, then freshly re-read the gate, native coordinates, and binding before the one intended push:
 
    ```ts
-   await disarmReviewedBeforePush(cwd, actualPr, { gh, push: pushExactlyOnce })
+   const prePush = await disarmReviewedBeforePush(cwd, actualPr, { gh })
+   if (!('disarmed' in prePush || 'unarmed' in prePush)) throw new Error('push-not-admitted')
+
+   const gate = await readGate(cwd, actualPr, gh)
+   if (
+     gate.state !== 'OPEN' ||
+     gate.headRefOid !== expectedRemoteHead ||
+     gate.autoMergeRequest !== null ||
+     gate.labels.some((label) => label.name === 'reviewed')
+   ) throw new Error('push-gate-changed')
+
+   const native = await readNativePullRequestFacts(repository, actualPr, historyOptions)
+   if (native.head !== expectedRemoteHead || native.branch !== branch || native.base !== base)
+     throw new Error('push-coordinates-changed')
+
+   const freshBinding = await resolveInitialWorkflowBinding(
+     contracts.githubScope(repository, actualPr),
+     historyOptions,
+   )
+   if (!freshBinding.ok || freshBinding.selected.binding.recordId !== binding.recordId)
+     throw new Error('push-binding-changed')
+
+   await pushExactlyOnce()
    ```
 
-   `merged`, `closed`, an uncleared/failed barrier, or moved coordinates stop that push. A changed HEAD, base, Spec, committed config, or review input requires the existing mandate/binding/input/bound readers to admit the changed state again before review or landing.
+   `merged`, `closed`, a barrier failure, an unreadable/unknown state, or any result other than documented `disarmed`/`unarmed` stops before the push. The disarm and fresh reads are not an atomic lock: the accepted serial freeze requires no external HEAD/input movement in the gap, and the changed HEAD/base/Spec/committed config/review input must pass the existing mandate/binding/input/bound readers again before review or landing.
 
 4. **Review one exact candidate in its actual host context.** From a fresh trusted OMP root whose host cwd is the linked worktree, invoke the native tool with the actual created PR number:
 
@@ -150,7 +178,7 @@ const { landPr } = await import(`${trustedRoot}/skills/feature/workflow-landing.
 
 6. **Publish before using this candidate.** This documentation release is `0.12.5`; after its PR merges, publish the normal distribution, set `OMP_BUILD_TOOLING_SHA` to the full `main` SHA carrying it, then marketplace-update/upgrade and restart OMP as described in [Tooling-pin update](#tooling-pin-update). A source checkout, package version, pin update, or plugin doctor result alone does not qualify host loading, native review, exact-head CI, landing, or merge. The remaining qualification is a real worktree/bootstrap and mandate/binding readback using an identified prior distribution, followed by independent native review, exact-head CI, normal `landPr`/watch, and observed merge.
 
-For a stopped bound or a superseding PR, use the single [operator-supervised recovery procedure](skills/dev-review/recovery.md). Its checkpoint is required before creation; adoption of this recipe does not authorize an actual PR #118 successor.
+For the concrete legacy PR #118 replacement, use the scoped [operator-supervised recovery procedure](skills/dev-review/recovery.md). Its separate checkpoint and native-absence read are required before creation; adoption of this recipe does not authorize either.
 
 **Release record.** The root `CHANGELOG.md` is a byte-frozen archive; GitHub Releases remain its declared release record, so this pending source change adds no hand-maintained changelog entry.
 
@@ -393,11 +421,7 @@ login (`gh api user`). The count and the latest review come from that history. A
 refusal is not an empty history. Nothing writes accounting. A legacy marker is not a
 review and does not reset the bound.
 
-When a bound is spent, its PR remains stopped and disarmed. The [operator-supervised
-recovery procedure](skills/dev-review/recovery.md) requires the operator-approved
-dossier, revised scope/plan, and concrete checkpoint before a superseding PR. Its
-fresh admission still follows the normal review, proof, CI and `landPr` path; the
-original dossier and records remain evidence.
+When a bound is spent, its PR remains stopped and disarmed. A bound stop itself does not authorize a fresh replacement. The scoped [PR #118 recovery procedure](skills/dev-review/recovery.md) applies only after its separate operator checkpoint and a genuine native absence on #107; otherwise stop for a separately supported/adopted path. The original dossier and records remain evidence.
 
 **The armed gate (#713).** An OPEN PR is armed — `reviewed` label or auto-merge
 enabled — only when the latest review record approves the current head, the bound
@@ -459,7 +483,7 @@ edited selected review, mandate or binding record. Every posted review counts, w
 before it. Older accounting comments and the `## Review Fixes Applied` receipt
 decide nothing.
 
-The canonical stop recovery is [operator-supervised recovery](skills/dev-review/recovery.md).
+The scoped PR #118 replacement procedure is [operator-supervised recovery](skills/dev-review/recovery.md); a generic stop does not itself create a new PR or reset a bound.
 `continueFeature` → `reconstructWorkflow` selects the next Feature lifecycle action.
 `nextReviewStep` retains specialized PR review/bound policy; `landPr` and
 `applyCiWatchExit` retain guarded landing/watch execution, with shared
