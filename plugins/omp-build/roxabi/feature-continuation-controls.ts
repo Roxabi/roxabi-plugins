@@ -70,7 +70,10 @@ export async function applyFeatureControl(
     context.cwd,
     parentHistories,
   )
-  const disarmed = await disarmKnownTarget(context.gh, context.cwd, target, role, branch)
+  const disarmed = await disarmKnownTarget(context.gh, context.cwd, target, role, branch, {
+    loaded: context.engine,
+    mandate: mandateRef,
+  })
   if (!published.ok || !disarmed.clean) return { kind: 'abandoned', confirmed: false }
   const reread = await context.engine.readComposedWorkflowHistory([scope], { cwd: context.cwd, gh: context.gh })
   const confirmed =

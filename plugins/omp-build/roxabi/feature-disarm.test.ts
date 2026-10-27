@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { validateComposedWorkflowHistories } from '../adapters/github-workflow/history.ts'
+import * as contracts from '../contracts.ts'
+import type { DecodedHistory } from '../engine/history-schema.ts'
+import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
 
 const { epicControlTarget } = vi.hoisted(() => ({ epicControlTarget: vi.fn() }))
 
@@ -49,7 +53,7 @@ function gateReply(args: string[], gates: Map<number, Gate>): GhReply | null {
   return null
 }
 
-function ghForDiscovery(linkedResponse: string | Error): GhFixture {
+function ghForDiscovery(linkedResponse: string | Error, branch = 'feat/42'): GhFixture {
   const gates = new Map<number, Gate>([
     [9, { reviewed: true, autoMerge: true }],
     [10, { reviewed: true, autoMerge: true }],
@@ -57,6 +61,9 @@ function ghForDiscovery(linkedResponse: string | Error): GhFixture {
   return {
     gates,
     async gh(_cwd, args) {
+      if (args[0] === 'pr' && args[1] === 'view' && args.includes('headRefName,baseRefName')) {
+        return JSON.stringify({ headRefName: branch, baseRefName: 'main' })
+      }
       const listed = listReply(args, linkedResponse)
       if (listed !== null) return listed.output
       const gated = gateReply(args, gates)
@@ -72,6 +79,49 @@ const target = {
   issue: { number: 42 },
 }
 
+function composedHistory(histories: DecodedHistory[]) {
+  const validated = validateComposedWorkflowHistories(histories)
+  if (!validated.ok) throw new Error(`invalid fixture histories: ${validated.reason}`)
+  return {
+    ok: true as const,
+    scopes: histories.map((history) => history.source.scope),
+    histories,
+    records: validated.records,
+  }
+}
+
+function featureAuthority() {
+  const fixtures = roxabiWorkflowFixtures()
+  const mandate = fixtures.featureMandate(target.scope, { branch: 'feat/42' })
+  const mandateHistory = fixtures.historyFrom([mandate])
+  const binding = fixtures.workflowBinding(contracts.githubScope('acme/app', 9), mandate, 'feat/42', 'main')
+  const prHistory = fixtures.historyFrom([binding], 'operator', 'operator', [mandateHistory])
+  return {
+    mandate: fixtures.mandateRef(mandate),
+    loaded: {
+      ...contracts,
+      readComposedWorkflowHistory: async () => composedHistory([prHistory, mandateHistory]),
+    },
+  }
+}
+
+function epicAuthority() {
+  const fixtures = roxabiWorkflowFixtures()
+  const child = fixtures.childSnapshot(contracts.githubScope('acme/app', 43), '## Acceptance\n- [ ] Deliver the child')
+  const mandate = fixtures.epicMandate(target.scope, [child], { recordId: 'mandate-42' })
+  const mandateHistory = fixtures.historyFrom([mandate])
+  const prScope = contracts.githubScope('acme/app', 9)
+  const binding = fixtures.workflowBinding(prScope, mandate, 'epic/42', 'main')
+  const prHistory = fixtures.historyFrom([binding], 'operator', 'operator', [mandateHistory])
+  return {
+    mandate: fixtures.mandateRef(mandate),
+    loaded: {
+      ...contracts,
+      readComposedWorkflowHistory: async () => composedHistory([prHistory, mandateHistory]),
+    },
+  }
+}
+
 beforeEach(() => {
   epicControlTarget.mockReset()
 })
@@ -79,7 +129,7 @@ beforeEach(() => {
 describe('Feature pause disarm discovery', () => {
   it('refuses complete disarm when linked discovery fails after branch PR 9 disarms', async () => {
     const fixture = ghForDiscovery(new Error('linked query unavailable'))
-    const result = await disarmKnownTarget(fixture.gh, '/workspace', target, 'feature', 'feat/42')
+    const result = await disarmKnownTarget(fixture.gh, '/workspace', target, 'feature', 'feat/42', featureAuthority())
 
     expect(fixture.gates.get(9)).toEqual({ reviewed: false, autoMerge: false })
     expect(result).toMatchObject({ clean: false, evidence: { note: expect.stringMatching(/pull-request-list/) } })
@@ -87,7 +137,7 @@ describe('Feature pause disarm discovery', () => {
 
   it('confirms complete valid discovery after PR 9 is unarmed', async () => {
     const fixture = ghForDiscovery(JSON.stringify([{ number: 9 }]))
-    const result = await disarmKnownTarget(fixture.gh, '/workspace', target, 'feature', 'feat/42')
+    const result = await disarmKnownTarget(fixture.gh, '/workspace', target, 'feature', 'feat/42', featureAuthority())
 
     expect(fixture.gates.get(9)).toEqual({ reviewed: false, autoMerge: false })
     expect(result).toMatchObject({ clean: true })
@@ -100,11 +150,30 @@ describe('Feature pause disarm discovery', () => {
     ['partially invalid entries', JSON.stringify([{ number: 9 }, { number: '10' }])],
   ])('refuses complete disarm for %s linked discovery', async (_name, linkedResponse) => {
     const fixture = ghForDiscovery(linkedResponse)
-    const result = await disarmKnownTarget(fixture.gh, '/workspace', target, 'feature', 'feat/42')
+    const result = await disarmKnownTarget(fixture.gh, '/workspace', target, 'feature', 'feat/42', featureAuthority())
 
     expect(fixture.gates.get(9)).toEqual({ reviewed: false, autoMerge: false })
     expect(result).toMatchObject({ clean: false, evidence: { note: expect.stringMatching(/pull-request-list/) } })
   })
+
+  it.each([
+    ['feature', false],
+    ['feature', true],
+    ['epic', false],
+    ['epic', true],
+  ] as const)('refuses %s disarm without selected authority (empty discovery: %s)', async (role, empty) => {
+    epicControlTarget.mockResolvedValue({ mandateId: 'mandate-42', control: 'paused', openPrs: [] })
+    const fixture = ghForDiscovery(JSON.stringify(empty ? [] : [{ number: 9 }]))
+
+    const result = await disarmKnownTarget(fixture.gh, '/workspace', target, role, null, null)
+
+    expect(fixture.gates.get(9)).toEqual({ reviewed: true, autoMerge: true })
+    expect(result).toMatchObject({
+      clean: false,
+      evidence: { note: 'pull-request-list-incomplete', discovery: { own: { incomplete: true } } },
+    })
+  })
+
   it('disarms parent and current approved child PRs', async () => {
     epicControlTarget.mockResolvedValue({
       mandateId: 'mandate-42',
@@ -114,9 +183,9 @@ describe('Feature pause disarm discovery', () => {
         { ticket: 43, pr: 10 },
       ],
     })
-    const fixture = ghForDiscovery(JSON.stringify([{ number: 9 }]))
+    const fixture = ghForDiscovery(JSON.stringify([{ number: 9 }]), 'epic/42')
 
-    const result = await disarmKnownTarget(fixture.gh, '/workspace', target, 'epic')
+    const result = await disarmKnownTarget(fixture.gh, '/workspace', target, 'epic', null, epicAuthority())
 
     expect(fixture.gates).toEqual(
       new Map([
@@ -129,9 +198,9 @@ describe('Feature pause disarm discovery', () => {
 
   it('refuses confirmation when approved-child discovery is unavailable', async () => {
     epicControlTarget.mockRejectedValue(new Error('accepted child replay unavailable'))
-    const fixture = ghForDiscovery(JSON.stringify([{ number: 9 }]))
+    const fixture = ghForDiscovery(JSON.stringify([{ number: 9 }]), 'epic/42')
 
-    const result = await disarmKnownTarget(fixture.gh, '/workspace', target, 'epic')
+    const result = await disarmKnownTarget(fixture.gh, '/workspace', target, 'epic', null, epicAuthority())
 
     expect(fixture.gates).toEqual(
       new Map([

@@ -2,7 +2,22 @@ import { spawnSync } from 'node:child_process'
 import { readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { parseIssueSpecBody, rawSource, selectWorkflowBinding } from '../../contracts.ts'
+import {
+  decodeHistory,
+  effectiveMandateRole,
+  parseIssueSpecBody,
+  parseRecord,
+  rawSource,
+  resolveAcceptedSpec,
+  selectWorkflowBinding,
+} from '../../contracts.ts'
+import {
+  acceptMaterialFixture,
+  assessFixture,
+  mandateAssessmentState,
+  proposedAssessmentState,
+} from '../../engine/__tests__/workflow-spec-assessment-support.ts'
+import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import {
   childNode,
@@ -12,6 +27,7 @@ import {
   ME,
   prNode,
   RUN,
+  recordHistory,
   serveComments,
   serveEpic,
   servePr,
@@ -28,7 +44,7 @@ function snapshot(scope: { repository: string; target: string }, body: string) {
   return parsed.snapshot
 }
 
-function prepareArmedChild(change: Change | 'none', foreignParent = false): void {
+function prepareArmedChild(change: Change | 'none', foreignParent = false, historicalEpic = false): void {
   const { epic, state } = sandbox()
   git(epic, 'switch', '-q', '-c', 'feat/2-first-child', 'refs/remotes/origin/main')
   git(epic, 'push', '-q', 'origin', 'feat/2-first-child')
@@ -58,7 +74,7 @@ function prepareArmedChild(change: Change | 'none', foreignParent = false): void
         { body: parentBody, ownSpec: fixtures.ownSpecFromSnapshot(otherScope, snapshot(otherScope, parentBody)) },
       )
     : parent
-  const childMandate = fixtures.featureMandate(childScope, {
+  const featureMandate = fixtures.featureMandate(childScope, {
     body: node.body,
     ownSpec: fixtures.ownSpecFromSnapshot(childScope, childSnapshot),
     parent: fixtures.mandateRef(owner),
@@ -66,8 +82,41 @@ function prepareArmedChild(change: Change | 'none', foreignParent = false): void
     runId: 'run00002',
     run: 'run00002',
   })
+  // First-mandate publication records the current branch and sets role from
+  // child commitments, even when the initial role is Epic.
+  const built = parseRecord(
+    historicalEpic
+      ? {
+          ...featureMandate,
+          payload: {
+            ...featureMandate.payload,
+            role: 'epic',
+            children: [fixtures.childSnapshot({ repository: 'o/r', target: 'o/r#3' }, 'historic grandchild')],
+          },
+        }
+      : featureMandate,
+  )
+  if (!built.ok || built.value.kind !== 'mandate') throw new Error('historical child mandate fixture rejected')
+  const childMandate = built.value
+  const records: CanonicalRecord[] = [childMandate]
+  if (historicalEpic) {
+    const initial = mandateAssessmentState(childMandate)
+    const proposed = proposedAssessmentState(initial, { body: node.body, children: [] })
+    const assessment = assessFixture(childMandate, 'child-accept-leaf', initial, proposed, 'material')
+    records.push(
+      assessment.start,
+      assessment.result,
+      acceptMaterialFixture(childMandate, 'accept-child-leaf', assessment),
+    )
+  }
   const parentHistory = fixtures.historyFrom([owner])
-  const childHistory = fixtures.historyFrom([childMandate], ME, ME, [parentHistory])
+  const childHistory = fixtures.historyFrom(records, ME, ME, [parentHistory])
+  if (historicalEpic) {
+    const accepted = resolveAcceptedSpec(childMandate, [childHistory, parentHistory])
+    if (!accepted.ok) throw new Error(`historical child acceptance refused: ${accepted.reason}`)
+    expect(childMandate.payload.role).toBe('epic')
+    expect(effectiveMandateRole(childMandate.payload.role, accepted.spec)).toBe('feature')
+  }
   const binding = fixtures.workflowBinding(prScope, childMandate, 'feat/2-first-child', 'main')
   const prHistory = fixtures.historyFrom([binding], ME, ME, [childHistory, parentHistory])
   const selected = selectWorkflowBinding({
@@ -84,9 +133,7 @@ function prepareArmedChild(change: Change | 'none', foreignParent = false): void
     [
       {
         ...node,
-        fixtureComments: fixtures
-          .framedBodies([childMandate], ME, [parentHistory])
-          .map((body) => ({ body, author: ME })),
+        fixtureComments: fixtures.framedBodies(records, ME, [parentHistory]).map((body) => ({ body, author: ME })),
       },
     ],
     framedRecords(1, [parent]),
@@ -124,6 +171,37 @@ function clearIssuePrLinks(): void {
   writeFileSync(file, JSON.stringify(issue))
 }
 
+function editChildMandateComment(): void {
+  const file = path.join(sandboxOf().state, 'comments-2.json')
+  const comments = JSON.parse(readFileSync(file, 'utf8'))
+  const mandate = comments.find((entry: { body: string }) => entry.body.includes('kind=mandate '))
+  if (!mandate) throw new Error('missing child mandate fixture')
+  mandate.updated_at = '2026-10-21T10:00:01Z'
+  writeFileSync(file, JSON.stringify(comments))
+  const source = recordHistory(
+    2,
+    comments.map((entry: { body: string; user: { login: string } }) => ({
+      body: entry.body,
+      author: entry.user.login,
+    })),
+  )
+  source.comments = source.comments.map((comment, index) => ({
+    ...comment,
+    createdAt: comments[index].created_at,
+    updatedAt: comments[index].updated_at,
+  }))
+  const decoded = decodeHistory(source)
+  expect(decoded.diagnostics).toContainEqual(expect.objectContaining({ code: 'record-edited' }))
+  expect(decoded.operations).toContainEqual(
+    expect.objectContaining({
+      kind: 'mandate',
+      status: 'invalid',
+      authority: 'accounted',
+      record: null,
+    }),
+  )
+}
+
 function expectDisarmed(): void {
   const pr = JSON.parse(readFileSync(path.join(sandboxOf().state, 'pr', '11.json'), 'utf8'))
   expect(pr.autoMergeRequest).toBeNull()
@@ -138,6 +216,44 @@ describe('epic-driver — accepted child containment after topology drift', () =
     expect(run.code, run.stderr).toBe(0)
     expectDisarmed()
     expect(run.json()).toMatchObject({ failed: [] })
+  })
+
+  it.each(['control', 'drop'])('%s cannot claim clean containment after the child mandate was edited', (action) => {
+    prepareArmedChild('removed')
+    clearIssuePrLinks()
+    editChildMandateComment()
+    const run = drive(
+      action === 'control' ? ['control-disarm'] : ['report', '--outcome', 'drop', '--reason', 'driver-error'],
+    )
+    expect(run.code !== 0 || (action === 'control' && run.json().failed.length > 0), run.stderr).toBe(true)
+    expect(writes()).toEqual([])
+    const pr = JSON.parse(readFileSync(path.join(sandboxOf().state, 'pr', '11.json'), 'utf8'))
+    expect(pr.autoMergeRequest).not.toBeNull()
+    expect(pr.labels).toContainEqual({ name: 'reviewed' })
+  })
+
+  it.each(['control', 'drop'])('%s permits a complete empty child history with no PR', (action) => {
+    prepareArmedChild('removed')
+    clearIssuePrLinks()
+    serveComments(2, [])
+    writeFileSync(path.join(sandboxOf().state, 'branch-prs-2.json'), '[]')
+    unlinkSync(path.join(sandboxOf().state, 'pr', '11.json'))
+    const run = drive(
+      action === 'control' ? ['control-disarm'] : ['report', '--outcome', 'drop', '--reason', 'driver-error'],
+    )
+    expect(run.code, run.stderr).toBe(0)
+    if (action === 'control') expect(run.json()).toMatchObject({ failed: [], disarmed: {} })
+    else expect(eventPayloads(1)).toContainEqual(expect.objectContaining({ event: 'goal-report', outcome: 'drop' }))
+  })
+
+  it.each(['control', 'drop'])('%s contains the bound child that was originally an Epic', (action) => {
+    prepareArmedChild('removed', false, true)
+    clearIssuePrLinks()
+    const run = drive(
+      action === 'control' ? ['control-disarm'] : ['report', '--outcome', 'drop', '--reason', 'driver-error'],
+    )
+    expect(run.code, run.stderr).toBe(0)
+    expectDisarmed()
   })
 
   it.each(['control', 'drop'])('%s does not disarm a candidate bound to a different parent mandate', (action) => {

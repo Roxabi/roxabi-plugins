@@ -27,9 +27,13 @@ function prList(context: Context): boolean {
   const head = one(context.flag, '--head')
   const base = one(context.flag, '--base')
   const wanted = one(context.flag, '--state') ?? 'open'
+  const search = one(context.flag, '--search')
+  const linked = search?.match(/^linked:issue:(\d+)$/)
+  if (search && !linked) fail(`gh: unsupported PR search ${search}`)
   const rows = Object.values(context.state.prs)
     .filter((pr) => (head ? pr.headRefName === head : true))
     .filter((pr) => (base ? pr.baseRefName === base : true))
+    .filter((pr) => !linked || pr.closes.includes(Number(linked[1])))
     .filter((pr) => (wanted === 'all' ? true : pr.state === wanted.toUpperCase()))
     .map((pr) => fields(context.flag, pr, context.state))
   emit(rows, context.expression)

@@ -15,7 +15,7 @@ import { invokeReviewRace } from './feature-review-races.ts'
 
 type Payload = {
   reference: string
-  control: 'continue' | 'resume' | 'pause'
+  control: 'continue' | 'resume' | 'pause' | 'abandon'
   pr: number
   code: number
 }
@@ -28,7 +28,10 @@ function payloadFrom(raw: unknown): Payload {
   const reference = 'reference' in raw ? raw.reference : undefined
   const pr = 'pr' in raw ? raw.pr : undefined
   const code = 'code' in raw ? raw.code : undefined
-  const resolvedControl = control === 'continue' || control === 'resume' || control === 'pause' ? control : 'continue'
+  const resolvedControl =
+    control === 'continue' || control === 'resume' || control === 'pause' || control === 'abandon'
+      ? control
+      : 'continue'
   return {
     reference: typeof reference === 'string' ? reference : '',
     control: resolvedControl,

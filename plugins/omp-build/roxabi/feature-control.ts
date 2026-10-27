@@ -158,7 +158,10 @@ async function publishPause(input: PausePublicationInput): Promise<PausedContinu
     input.cwd,
     parents,
   )
-  const evidence = await disarmKnownTarget(input.gh, input.cwd, input.target, input.role, input.branch)
+  const evidence = await disarmKnownTarget(input.gh, input.cwd, input.target, input.role, input.branch, {
+    loaded: input.loaded,
+    mandate: input.mandate,
+  })
   if (!requested.ok || !evidence.clean) {
     return { kind: 'paused', confirmed: false, reason: requested.ok ? 'pause-unconfirmed' : 'pause-uncertain' }
   }

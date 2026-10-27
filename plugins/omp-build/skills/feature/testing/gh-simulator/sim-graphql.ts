@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process'
 
+import { containmentResponse } from './sim-containment.ts'
 import { recordedBase, rollupPage, settleAll } from './sim-git.ts'
 import { type Comment, fail, fullName, type Issue, type Pull, type State } from './sim-types.ts'
 import { graphIssueResponse } from './sim-uw-graph.ts'
@@ -79,6 +80,7 @@ export function flags(argv: string[]): ParsedFlags {
     '--head': true,
     '--base': true,
     '--state': true,
+    '--search': true,
     '--add-label': true,
     '--remove-label': true,
     '--body': true,
@@ -252,6 +254,8 @@ function lastEditedResponse(state: State, query: string, vars: Record<string, st
 }
 
 function specialQueryResponse(state: State, query: string, vars: Record<string, string>): unknown | undefined {
+  const containment = containmentResponse(state, query, vars, prNode)
+  if (containment !== undefined) return containment
   if (query.includes('stateReason') && query.includes('blockedBy') && query.includes('subIssues')) {
     return graphIssueResponse(state, vars.number, vars)
   }

@@ -142,7 +142,7 @@ function ownedMandate(mandate: MandateRecord, context: Owner): boolean {
   const own = mandate.payload.ownSpec.uw
   const parent = mandate.payload.parent
   return (
-    mandate.payload.role === 'feature' &&
+    (mandate.payload.role === 'feature' || mandate.payload.role === 'epic') &&
     own.repository === context.full &&
     own.target === context.child.target &&
     parent?.kind === 'mandate' &&
@@ -165,7 +165,20 @@ function ownedBranches(history: DecodedHistory, context: Owner): Set<string> {
 async function childCandidates(context: Owner): Promise<{ candidates: Candidate[]; history: DecodedHistory }> {
   const linked = exactIssueCandidates(context)
   const history = await issueHistory(context.repo, context.full, context.number)
-  if (!history.source.complete) throw new Refused(`containment history for ${context.child.target} is incomplete`)
+  if (
+    !history.source.complete ||
+    history.operations.some((operation) => {
+      const claimsMandate =
+        operation.record?.kind === 'mandate' ||
+        operation.kind === 'mandate' ||
+        operation.claimedKinds.includes('mandate')
+      return (
+        claimsMandate &&
+        (operation.status !== 'complete' || operation.record?.kind !== 'mandate' || operation.authority === 'authority')
+      )
+    })
+  )
+    throw new Refused(`containment history for ${context.child.target} is unconfirmed`)
   for (const branch of ownedBranches(history, context)) linked.push(...branchCandidates(context, branch))
   return { candidates: uniqueCandidates(linked, context.full, context.child.target), history }
 }

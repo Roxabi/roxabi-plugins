@@ -3,6 +3,7 @@
 import type { Gh } from '../adapters/github/types.ts'
 import { epicControlTarget } from '../skills/feature/epic-driver.ts'
 import { disarmReviewedBeforePush } from '../skills/feature/landing-foundation.js'
+import { authenticateOwnPullRequests, type SelectedMandateAuthority } from './feature-disarm-ownership.ts'
 import { isRecord, type Scope } from './feature-engine.ts'
 
 export type ControlTarget =
@@ -178,14 +179,35 @@ async function disarmPullRequests(gh: Gh, cwd: string, numbers: Set<number>): Pr
   return { clean, evidence: disarmed }
 }
 
+async function discoverOwnPullRequests(
+  gh: Gh,
+  cwd: string,
+  target: ControlTarget,
+  role: 'feature' | 'epic' | 'fix-only' | null,
+  branch: string | null,
+  authority: SelectedMandateAuthority | null,
+): Promise<{ numbers: Set<number>; incomplete: boolean; evidence: unknown[] }> {
+  const discovered = await discoverPullRequests(gh, cwd, target, branch)
+  const authentication =
+    role === 'feature' || role === 'epic'
+      ? await authenticateOwnPullRequests(gh, cwd, target.scope.repository, discovered.numbers, authority)
+      : null
+  return {
+    numbers: authentication?.numbers ?? discovered.numbers,
+    incomplete: discovered.incomplete || authentication?.incomplete === true,
+    evidence: [...discovered.evidence, ...(authentication === null ? [] : [{ ownership: authentication.evidence }])],
+  }
+}
+
 export async function disarmKnownTarget(
   gh: Gh,
   cwd: string,
   target: ControlTarget,
   role: 'feature' | 'epic' | 'fix-only' | null = null,
   branch: string | null = null,
+  authority: SelectedMandateAuthority | null = null,
 ): Promise<DisarmResult> {
-  const own = await discoverPullRequests(gh, cwd, target, branch)
+  const own = await discoverOwnPullRequests(gh, cwd, target, role, branch, authority)
   const children =
     target.status === 'issue' && role === 'epic'
       ? await discoverApprovedChildPullRequests(cwd, target.issue.number)
