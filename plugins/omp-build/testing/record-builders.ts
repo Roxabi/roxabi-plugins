@@ -76,6 +76,11 @@ export function reviewRoot(
     subject?: ReviewSubject
     tier?: 'S' | 'F-lite' | 'F-full'
     inputSnapshot?: ReviewInputSnapshot
+    replacement?: {
+      rootAttemptId: string
+      dispositionId: string
+      grantId: string
+    }
   } = {},
 ): ReviewAttempt {
   const id = options.id ?? 'root-review'
@@ -124,6 +129,7 @@ export function reviewRoot(
             tier: options.tier ?? 'S',
             subject,
             inputSnapshot: options.inputSnapshot ?? TEST_INPUT_SNAPSHOT,
+            ...(options.replacement !== undefined ? { replacement: options.replacement } : {}),
           },
   }
 }

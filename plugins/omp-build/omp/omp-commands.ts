@@ -23,6 +23,7 @@ import {
 import { rootContext } from './omp-feature-session'
 import { dispatchAdmittedCiCorrection, dispatchDefaultFix } from './omp-fix-dispatch'
 import { dispatchDefaultReview, prepareInstalledEpicRangeReview } from './omp-review-dispatch'
+import { registerOmpReviewRecoveryTools } from './omp-review-recovery-tools'
 import type { NativeBatchController } from './review-runtime/controller.ts'
 import { createNativeReviewPort } from './review-runtime/port.ts'
 
@@ -253,6 +254,7 @@ export function registerOmpCommandsAndTools(
       }
     },
   })
+  registerOmpReviewRecoveryTools(pi, options)
 
   for (const { name, skill = name, description, requires } of SKILL_COMMANDS) {
     if (name === 'feature') {

@@ -2,6 +2,7 @@ import { diagnostic, equalScope, fail } from './record-diagnostics.ts'
 import { recordFormatDiagnostic } from './record-format.ts'
 import { type CanonicalRecord, recordSchema } from './record-schema.ts'
 import type { Result } from './result.ts'
+import { isInitialPullRequestReviewInventory } from './review-schema.ts'
 import { scopedRefsOf, workflowInputMeaning } from './workflow-record-references.ts'
 
 export function parseRecord(value: unknown): Result<CanonicalRecord> {
@@ -27,7 +28,14 @@ function derivedInputs(draft: RecordDraft): string[] {
   switch (draft.kind) {
     case 'review-attempt':
       if (draft.payload.stage !== 'initial') return [draft.payload.rootAttemptId]
-      return draft.payload.purpose === 'correction' ? [draft.payload.requestId] : []
+      if (draft.payload.purpose === 'correction') return [draft.payload.requestId]
+      if (isInitialPullRequestReviewInventory(draft.payload) && draft.payload.replacement !== undefined)
+        return [
+          draft.payload.replacement.rootAttemptId,
+          draft.payload.replacement.dispositionId,
+          draft.payload.replacement.grantId,
+        ]
+      return []
     case 'contribution':
       return draft.payload.inventoryId === null ? [] : [draft.payload.inventoryId]
     case 'decision':
@@ -56,6 +64,21 @@ function derivedInputs(draft: RecordDraft): string[] {
       return [draft.payload.reviewId]
     case 'epic-event':
       return []
+    case 'review-interruption':
+      return [
+        draft.payload.rootAttemptId,
+        ...scopedRefsOf(draft)
+          .filter((ref) => equalScope(ref.scope, { repository: draft.repository, target: draft.target }))
+          .map((ref) => ref.recordId),
+      ]
+    case 'review-replacement-grant':
+      return [
+        draft.payload.rootAttemptId,
+        draft.payload.dispositionId,
+        ...scopedRefsOf(draft)
+          .filter((ref) => equalScope(ref.scope, { repository: draft.repository, target: draft.target }))
+          .map((ref) => ref.recordId),
+      ]
     case 'mandate':
     case 'operator-control':
     case 'action-receipt':

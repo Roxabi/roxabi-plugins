@@ -2,6 +2,7 @@ import { createWorkflowFixtures } from '../../testing/workflow-fixtures.ts'
 import type { DecodedHistory } from '../history-schema.ts'
 import { buildRecord, parseRecord } from '../record-construction.ts'
 import { specDigest } from '../record-digests.ts'
+import { isWorkflowKind } from '../record-references.ts'
 import type { CanonicalRecord } from '../record-schema.ts'
 import type { Scope } from '../record-values.ts'
 import type { MandateRecord } from '../workflow-control.ts'
@@ -81,13 +82,7 @@ function history(records: CanonicalRecord[], scope = SCOPE): DecodedHistory {
       recordId: record.recordId,
       kind: record.kind,
       status: 'complete',
-      authority:
-        record.kind === 'mandate' ||
-        record.kind === 'operator-control' ||
-        record.kind === 'action-receipt' ||
-        record.kind === 'workflow-binding'
-          ? 'accounted'
-          : 'authority',
+      authority: isWorkflowKind(record.kind) ? 'accounted' : 'authority',
       claimedKinds: [record.kind],
       parts: [],
       record,
