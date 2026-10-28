@@ -4,6 +4,7 @@ import type { CurrentChildrenProjection } from '../engine/uw-admission.ts'
 import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
 import type { AssessSpecExact } from '../engine/workflow-receipt-schema.ts'
 import type { UwRead, UwReadPort } from './uw-contract.ts'
+import { historicalProjection } from './uw-normalization-internal.ts'
 
 export type CurrentOwnSpecFacts = {
   currentSpec: AssessSpecExact['proposed']
@@ -87,7 +88,8 @@ async function childCommitment(
   if (!childRoot.ok) return childRoot
   if (isWayfinder(childRoot.value)) return { ok: true, value: null }
   if (!childRead.admission.framed.ok) return { ok: false, diagnostics: childRead.admission.framed.diagnostics }
-  if (childRead.accepted.status === 'refused') return { ok: false, diagnostics: childRead.accepted.diagnostics }
+  if (childRead.accepted.status === 'refused' && historicalProjection(childRead) === undefined)
+    return { ok: false, diagnostics: childRead.accepted.diagnostics }
   if (!childRead.proposed.ok) return { ok: false, diagnostics: childRead.proposed.diagnostics }
   const allocations = allocationRefs(child, childRead)
   if (!allocations.ok) return allocations
