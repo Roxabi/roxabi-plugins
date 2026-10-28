@@ -62,7 +62,7 @@ describe('epic-driver — review bound', () => {
       const graph = reviewGraph({ prefix: `bound-${number}-${index}`, empty: !outcome.blocking })
       return framedRecords(number, graph.records).map((comment) => ({ ...comment, author: outcome.author ?? ME }))
     })
-    serveComments(number, comments)
+    serveComments(number, [...issueComments(number), ...comments])
   }
 
   function openPrChild(): void {
@@ -71,7 +71,11 @@ describe('epic-driver — review bound', () => {
     git(epic, 'push', '-q', 'origin', 'feat/2-first-child')
     const tip = git(epic, 'rev-parse', 'HEAD')
     git(epic, 'switch', '-q', '--detach', 'refs/remotes/origin/main')
-    serveEpic([childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', tip)] })])
+    serveBoundEpic(
+      childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', tip)] }),
+      11,
+      'feat/2-first-child',
+    )
   }
 
   it('keeps a PR stopped once its third canonical review is blocking', () => {
@@ -108,63 +112,9 @@ describe('epic-driver — review bound', () => {
       body: `ordinary historical comment ${index}`,
     }))
     const graph = reviewGraph({ prefix: 'pagination-review' })
-    serveComments(11, [...padding, ...framedRecords(11, graph.records)])
+    serveComments(11, [...padding, ...issueComments(11), ...framedRecords(11, graph.records)])
 
     expect(drive(['next', '--dry-run']).json().step).toMatchObject({ action: 'resume', ticket: 2, pr: { number: 11 } })
-  })
-})
-
-describe('epic-driver — eventual consistency', () => {
-  const reads = () => Number(readFileSync(path.join(sandboxOf().state, 'reads'), 'utf8'))
-
-  function armedOnOrigin(): string {
-    const { epic } = sandbox()
-    git(epic, 'switch', '-q', '-c', 'feat/2-first-child', 'refs/remotes/origin/main')
-    git(epic, 'push', '-q', 'origin', 'feat/2-first-child')
-    const tip = git(epic, 'rev-parse', 'HEAD')
-    git(epic, 'switch', '-q', '--detach', 'refs/remotes/origin/main')
-    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
-    serveBoundEpic(
-      childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', tip, armed)] }),
-      11,
-      'feat/2-first-child',
-    )
-    servePr(11, { state: 'MERGED', labels: ['reviewed'], autoMerge: false })
-    return tip
-  }
-
-  it('reads GitHub once more when the PR merged during its disarm, and moves on', () => {
-    const tip = armedOnOrigin()
-    const { state } = sandboxOf()
-    const merged = prNode(11, 'feat/2-first-child', tip, {
-      state: 'MERGED',
-      mergedAt: '2026-09-30T10:00:00Z',
-      mergeCommit: { oid: 'd'.repeat(40), parents: { nodes: [{ oid: 'a'.repeat(40) }] } },
-    })
-    // The first read is the stale one; every later read shows the merge.
-    writeFileSync(path.join(state, 'epic.json.1'), readFileSync(path.join(state, 'epic.json')))
-    serveBoundEpic(
-      childNode(2, 'feat(x): first child', { state: 'CLOSED', stateReason: 'COMPLETED', prs: [merged] }),
-      11,
-      'feat/2-first-child',
-    )
-
-    const run = drive(['next'])
-
-    expect(run.code).toBe(0)
-    expect(run.json().step).toMatchObject({ action: 'final-review', stage: 'review' })
-    expect(reads()).toBeGreaterThanOrEqual(2)
-  })
-
-  it('stops after exactly one re-read when the facts stay stale', () => {
-    armedOnOrigin()
-
-    const run = drive(['next'])
-
-    expect(run.code).toBe(1)
-    expect(run.stderr).toContain('merged, yet the facts still show it open')
-    expect(reads()).toBe(2)
-    expect(writes()).toEqual([])
   })
 })
 

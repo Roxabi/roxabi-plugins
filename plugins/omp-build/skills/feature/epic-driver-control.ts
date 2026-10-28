@@ -3,7 +3,7 @@ import type { MandateRecord } from '../../engine/workflow-control.ts'
 import { confirmedEpicMandate, evidenceText, localInhibit, readEpicAuthority } from './epic-driver-authority'
 import { discoverAcceptedChildPrs, discoverOwnPrs } from './epic-driver-containment'
 import { gather } from './epic-driver-gather'
-import { historyFor, issueHistory, repoName } from './epic-driver-github'
+import { issueHistory, parentMandateHistories, repoName } from './epic-driver-github'
 import { type Disarm, disarm } from './epic-driver-publication'
 import { Assisted, Refused } from './epic-driver-runtime'
 import { nextStep } from './epic-next-step'
@@ -55,33 +55,6 @@ function namedTerminalMandate(history: DecodedHistory, control: 'abandoned' | 'r
     if (mandate !== null) return mandate
   }
   return null
-}
-
-function parentScopeOf(
-  record: DecodedHistory['operations'][number]['record'],
-): { repository: string; target: string } | null {
-  const payload = record?.kind === 'mandate' ? record.payload : null
-  if (!isObject(payload) || !('parent' in payload) || payload.parent == null) return null
-  if (!isObject(payload.parent) || !isObject(payload.parent.scope)) {
-    throw new Refused('epic mandate parent reference is unreadable')
-  }
-  const { repository, target } = payload.parent.scope
-  if (typeof repository !== 'string' || typeof target !== 'string') {
-    throw new Refused('epic mandate parent reference is unreadable')
-  }
-  return { repository, target }
-}
-
-async function parentMandateHistories(repo: string, history: DecodedHistory): Promise<DecodedHistory[]> {
-  const external: DecodedHistory[] = []
-  for (const operation of history.operations) {
-    const scope = parentScopeOf(operation.record)
-    if (scope === null) continue
-    const parentHistory = await historyFor(repo, scope)
-    if (!parentHistory.source.complete) throw new Refused('parent mandate history is incomplete')
-    external.push(parentHistory)
-  }
-  return external
 }
 
 function selectedControlTarget(

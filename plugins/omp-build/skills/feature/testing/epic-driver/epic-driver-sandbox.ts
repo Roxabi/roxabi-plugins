@@ -33,6 +33,18 @@ case "$1 \${2:-}" in
       done
       [[ ! -f "$S/branch-unavailable" ]] || { echo "stub gh: branch discovery unavailable" >&2; exit 9; }
       jq -s --arg branch "$branch" '{data:{repository:{pullRequests:{pageInfo:{hasNextPage:false},nodes:[.[][] | select(.headRefName == $branch and .state == "OPEN")]}}}}' "$S"/branch-prs-*.json
+    elif [[ "$q" == *EpicContainmentPullRequest* ]]; then
+      query containment-pull-request
+      number=""
+      for arg in "$@"; do
+        [[ "$arg" == number=* ]] && number="\${arg#number=}"
+      done
+      [[ "$number" =~ ^[0-9]+$ ]] || { echo "stub gh: invalid PR number" >&2; exit 9; }
+      if [[ -f "$S/pr/$number.native.json" ]]; then
+        jq -c '{data:{repository:{pullRequest:.}}}' "$S/pr/$number.native.json"
+      else
+        jq -s --argjson number "$number" '{data:{repository:{pullRequest:([.[][] | select(.number == $number)] | first // null)}}}' "$S"/branch-prs-*.json
+      fi
     elif [[ "$q" == *EpicContainmentIssue* ]]; then
       query containment-issue
       number=""
@@ -95,7 +107,18 @@ case "$1 \${2:-}" in
   "pr view") cat "$S/pr/$3.json" ;;
   "pr edit")
     log "edit $3 \${*:4}"
-    [[ -f "$S/pr/$3.sticky" ]] || { jq -c '.labels = []' "$S/pr/$3.json" > "$S/tmp" && mv "$S/tmp" "$S/pr/$3.json"; } ;;
+    if [[ -f "$S/pr/$3.merge-on-edit.json" ]]; then
+      cp "$S/pr/$3.merge-on-edit.json" "$S/pr/$3.native.json"
+      jq -c '{state, labels: [.labels.nodes[]], autoMergeRequest}' "$S/pr/$3.native.json" > "$S/pr/$3.json"
+      for staged in "$S"/containment-*.json.after-edit "$S"/branch-prs-*.json.after-edit "$S"/uw-*.json.after-edit; do
+        [[ -f "$staged" ]] || continue
+        cp "$staged" "\${staged%.after-edit}"
+        rm "$staged"
+      done
+      rm "$S/pr/$3.merge-on-edit.json"
+    elif [[ ! -f "$S/pr/$3.sticky" ]]; then
+      jq -c '.labels = []' "$S/pr/$3.json" > "$S/tmp" && mv "$S/tmp" "$S/pr/$3.json"
+    fi ;;
   "pr merge")
     log "merge $3 \${*:4}"
     [[ -f "$S/pr/$3.sticky" ]] || { jq -c '.autoMergeRequest = null' "$S/pr/$3.json" > "$S/tmp" && mv "$S/tmp" "$S/pr/$3.json"; } ;;

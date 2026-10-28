@@ -8,9 +8,10 @@ import {
   type Candidate,
   candidate,
   exactIssueCandidates,
+  readCandidate,
   uniqueCandidates,
 } from './epic-driver-containment-discovery'
-import { issueHistory } from './epic-driver-github'
+import { isPr, issueHistory, prFacts, stoppedReviews } from './epic-driver-github'
 import { gh, Refused } from './epic-driver-runtime'
 import type { ChildFacts, PrFacts } from './epic-types'
 
@@ -97,42 +98,51 @@ async function authenticateBatch(
   for (const pr of candidates) await authenticateCandidate(context, history, pr)
 }
 
-export async function authenticateChildPrBatch(
+export async function readChildPrInventory(
   repo: string,
   authority: EpicAuthority,
   child: ChildFacts,
-  prs: readonly PrFacts[],
-): Promise<void> {
+): Promise<PrFacts[]> {
   const full = authority.repository
   const scope = githubScope(full, child.number)
   if (!authority.children.some((grant) => grant.scope.repository === full && grant.scope.target === scope.target))
     throw new Refused(`containment child ${scope.target} is not accepted by the selected parent`)
   const number = acceptedNumber(full, scope)
   const context = { repo, full, epic: authority.epic, mandateId: authority.mandateId, child: scope, number }
-  const history = await childHistory(context)
-  const candidates = prs.map((pr) => ({
-    number: pr.number,
-    state: pr.state,
-    headRefName: pr.head,
-    baseRefName: pr.base,
-    isCrossRepository: false,
-    repository: { nameWithOwner: full },
-  }))
-  const observations = new Map<number, Candidate>()
-  for (const pr of candidates) {
-    const prNumber = pr.number
-    if (!candidate(pr)) throw new Refused(`containment PR #${prNumber} metadata is unreadable`)
-    const previous = observations.get(pr.number)
+  const { candidates, history } = await childCandidates(context)
+  const observations = new Map(candidates.map((pr) => [pr.number, pr]))
+  for (const hint of child.prs) {
+    let observed = observations.get(hint.number)
+    if (hint.state === 'OPEN' && !observed) {
+      const raw = readCandidate(context, hint.number)
+      if (
+        !candidate(raw) ||
+        raw.number !== hint.number ||
+        raw.isCrossRepository ||
+        raw.repository.nameWithOwner !== full
+      )
+        throw new Refused(`containment PR #${hint.number} metadata is unreadable or foreign`)
+      observed = raw
+      observations.set(raw.number, raw)
+    }
     if (
-      previous &&
-      (previous.headRefName !== pr.headRefName ||
-        previous.baseRefName !== pr.baseRefName ||
-        previous.state !== pr.state)
+      observed &&
+      (observed.state !== hint.state || observed.headRefName !== hint.head || observed.baseRefName !== hint.base)
     )
-      throw new Refused(`containment PR #${pr.number} has conflicting observations`)
-    observations.set(pr.number, pr)
+      throw new Refused(`containment PR #${hint.number} has conflicting observations`)
   }
-  await authenticateBatch(context, history, [...observations.values()])
+  const all = [...observations.values()]
+  await authenticateBatch(context, history, all)
+  const native = all.map((pr) => {
+    if (!isPr(pr)) throw new Refused(`containment PR #${pr.number} native metadata is unreadable`)
+    return pr
+  })
+  const stopped = await stoppedReviews(
+    repo,
+    full,
+    native.map((pr) => pr.number),
+  )
+  return [...child.prs.filter((pr) => pr.state !== 'OPEN'), ...native.map((pr) => prFacts(pr, stopped))]
 }
 
 export async function discoverOwnPrs(

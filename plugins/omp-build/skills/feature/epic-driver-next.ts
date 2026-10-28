@@ -1,7 +1,7 @@
 import { resolveTicketBranch } from './epic-claims'
 import { revalidateEpicActivation } from './epic-driver-activation'
 import { assertChildGrant, frameEpicChildren } from './epic-driver-authority'
-import { authenticateChildPrBatch } from './epic-driver-containment'
+import { readChildPrInventory } from './epic-driver-containment'
 import { gather } from './epic-driver-gather'
 import { tree } from './epic-driver-github'
 import { type Disarm, disarm, ticketStop } from './epic-driver-publication'
@@ -29,6 +29,13 @@ function refusePrincipal(repo: string): void {
   if (isPrincipal(repo)) throw new Refused('epic driver refuses the principal worktree')
 }
 
+async function inventoryChildren(repo: string, authority: Authority, facts: Facts): Promise<Facts> {
+  for (const child of facts.children) {
+    child.prs = await readChildPrInventory(repo, authority, child)
+  }
+  return facts
+}
+
 async function cleanMergedBranches(
   repo: string,
   epic: number,
@@ -54,25 +61,13 @@ async function cleanMergedBranches(
 
 async function reconcileStoppedPrs(
   repo: string,
-  authority: Authority,
   facts: Facts,
   dry: boolean,
 ): Promise<{ reconciled: ReconciledPr[]; problems: string[] }> {
   const reconciled: ReconciledPr[] = []
   const problems: string[] = []
   const entries = armedStoppedPrs(facts)
-  for (const ticket of new Set(entries.map((entry) => entry.ticket))) {
-    const child = facts.children.find((entry) => entry.number === ticket)
-    if (!child) throw new Refused(`missing observation for stopped child #${ticket}`)
-    const prs = entries
-      .filter((entry) => entry.ticket === ticket)
-      .map((entry) => {
-        const pr = child.prs.find((candidate) => candidate.number === entry.pr)
-        if (!pr) throw new Refused(`missing observation for PR #${entry.pr}`)
-        return pr
-      })
-    await authenticateChildPrBatch(repo, authority, child, prs)
-  }
+  // All child inventories were authenticated before reconciliation starts.
   for (const entry of entries) {
     if (dry) {
       reconciled.push({ ticket: entry.ticket, pr: entry.pr, disarmed: 'dry-run' })
@@ -110,20 +105,14 @@ async function recordStop(
   recorded: RecordedStop[],
 ): Promise<Facts> {
   const child = childForStop(authority, facts, step.ticket, epic)
-  if (dry)
-    await authenticateChildPrBatch(
-      repo,
-      authority,
-      child,
-      child.prs.filter((pr) => pr.state === 'OPEN'),
-    )
+  if (dry) child.prs = await readChildPrInventory(repo, authority, child)
   if (dry) {
     recorded.push({ ticket: step.ticket, stop: step.stop })
     child.stops.push({ run, reason: step.stop })
     return facts
   }
   const outcome = await ticketStop(repo, authority, child, step.stop, step.reason)
-  if (outcome.merged !== null) return (await gather(repo, epic, run, base)).facts
+  if (outcome.merged !== null) return inventoryChildren(repo, authority, (await gather(repo, epic, run, base)).facts)
   recorded.push({ ticket: step.ticket, stop: step.stop, disarmed: outcome.disarmed })
   child.stops.push({ run, reason: step.stop })
   facts.tree = tree(repo)
@@ -176,13 +165,11 @@ function switchToChildBranch(
   }
 }
 
-async function authenticateResumePr(
-  repo: string,
-  authority: Authority,
+function authenticateResumePr(
   facts: Facts,
   step: Extract<Step, { action: 'start' | 'resume' }>,
   current: Extract<Step, { action: 'start' | 'resume' }>,
-): Promise<number | null> {
+): number | null {
   if (
     step.action === 'resume' &&
     step.pr?.armed &&
@@ -194,7 +181,7 @@ async function authenticateResumePr(
   const child = facts.children.find((entry) => entry.number === step.ticket)
   const pr = child?.prs.find((entry) => entry.number === current.pr?.number)
   if (!child || !pr) throw new Refused(`missing observation for PR #${current.pr.number}`)
-  await authenticateChildPrBatch(repo, authority, child, [pr])
+  // The fresh child inventory was authenticated before selecting current.
   return pr.number
 }
 
@@ -208,6 +195,9 @@ async function activateNextStep(
   if (step.action !== 'start' && step.action !== 'resume') return { disarmed: null, pr: null }
   const { ticket, branch } = step
   const fresh = await revalidateEpicActivation(repo, authority, facts)
+  const child = fresh.facts.children.find((entry) => entry.number === ticket)
+  if (!child) throw new Refused(`missing observation for child #${ticket}`)
+  child.prs = await readChildPrInventory(repo, fresh.authority, child)
   const current = nextStep(fresh.facts)
   if (
     fresh.authority.base !== base ||
@@ -221,7 +211,7 @@ async function activateNextStep(
   authority = fresh.authority
   facts = fresh.facts
   assertChildGrant(authority, facts, ticket)
-  const resumePr = await authenticateResumePr(repo, authority, facts, step, current)
+  const resumePr = authenticateResumePr(facts, step, current)
   switchToChildBranch(repo, base, facts, step)
   if (resumePr === null) return { disarmed: null, pr: null }
   return { disarmed: await disarm(repo, resumePr), pr: resumePr }
@@ -255,7 +245,8 @@ export async function next(repo: string, epic: number, dry: boolean, reread = 0)
   const { authority, facts } = await frameEpicChildren(repo, epic)
   const { run, base } = authority
   const cleaned = await cleanMergedBranches(repo, epic, run, base, facts, dry)
-  const reconciliation = await reconcileStoppedPrs(repo, authority, cleaned.facts, dry)
+  await inventoryChildren(repo, authority, cleaned.facts)
+  const reconciliation = await reconcileStoppedPrs(repo, cleaned.facts, dry)
   const recorded: RecordedStop[] = []
   if (reconciliation.problems.length) {
     return driverError(
@@ -269,13 +260,6 @@ export async function next(repo: string, epic: number, dry: boolean, reread = 0)
     )
   }
   const stopped = await stopNextTickets(repo, epic, authority, run, base, cleaned.facts, dry, recorded)
-  const dryStep = stopped.step
-  if (dry && dryStep.action === 'resume' && dryStep.pr?.armed) {
-    const child = stopped.facts.children.find((entry) => entry.number === dryStep.ticket)
-    const pr = child?.prs.find((entry) => entry.number === dryStep.pr?.number)
-    if (!child || !pr) throw new Refused(`missing observation for PR #${dryStep.pr.number}`)
-    await authenticateChildPrBatch(repo, authority, child, [pr])
-  }
   const activation = dry
     ? { disarmed: null, pr: null }
     : await activateNextStep(repo, base, authority, stopped.facts, stopped.step)

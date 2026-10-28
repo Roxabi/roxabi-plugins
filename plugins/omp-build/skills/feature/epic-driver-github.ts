@@ -7,6 +7,8 @@ import {
   readGitHubHistory,
   summarizeReviews,
 } from '../../dist/contracts.js'
+import { mandateParentHistories } from '../../roxabi/feature-context.ts'
+import { loadContracts } from '../../roxabi/feature-engine.ts'
 import { withRoxabiGitHubPolicy } from '../../roxabi/github-policy.ts'
 import { loadReviewConfig } from '../../roxabi/review-assets.ts'
 import { type CheckNode, classifyBaseCi } from './epic-ci'
@@ -18,7 +20,7 @@ type RollupData = {
   repository: { object: { statusCheckRollup: { contexts: { nodes: CheckNode[] } } | null } | null }
 }
 
-function isPr(value: Partial<NativeEpicPullRequest> | null | undefined): value is NativeEpicPullRequest {
+export function isPr(value: Partial<NativeEpicPullRequest> | null | undefined): value is NativeEpicPullRequest {
   return (
     value !== null &&
     value !== undefined &&
@@ -89,8 +91,12 @@ export async function issueHistory(repo: string, repository: string, issue: numb
   return decodeHistory(await readGitHubHistory(githubScope(repository, issue), adapterOptions(repo)))
 }
 
-export async function historyFor(repo: string, scope: { repository: string; target: string }): Promise<DecodedHistory> {
-  return decodeHistory(await readGitHubHistory(scope, adapterOptions(repo)))
+export async function parentMandateHistories(repo: string, history: DecodedHistory): Promise<DecodedHistory[]> {
+  const loaded = await loadContracts()
+  if ('missing' in loaded) throw new Refused(`engine-unavailable:${loaded.missing}`)
+  const result = await mandateParentHistories(loaded, history, adapterOptions(repo))
+  if (!result.ok) throw new Refused(result.reason)
+  return result.parents
 }
 
 export function diagnosticsText(diagnostics: readonly { code: string; message: string }[]): string {

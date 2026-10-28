@@ -11,7 +11,7 @@ import type { AcceptedChildCommitment } from '../../engine/workflow-mandate-sche
 import { configCompatibility } from '../../roxabi/workflow-overrides.ts'
 import type { CanonicalEpic } from './epic-driver-canonical'
 import { gather } from './epic-driver-gather'
-import { historyFor, issueHistory, repoName } from './epic-driver-github'
+import { issueHistory, parentMandateHistories, repoName } from './epic-driver-github'
 import { Assisted, currentEpicEffects, Refused } from './epic-driver-runtime'
 import { frameEpic } from './epic-frame'
 import { BASE_NAME, RUN_ID } from './epic-naming'
@@ -76,25 +76,6 @@ export async function assertConfig(repo: string, effective: unknown): Promise<vo
   const injected = currentEpicEffects()?.configCompatible
   const checked = await (injected ?? configCompatibility)(repo, effective)
   if (!checked.ok) throw new Refused(checked.error)
-}
-
-function parentScopeOf(
-  record: DecodedHistory['operations'][number]['record'],
-): { repository: string; target: string } | null {
-  if (record?.kind !== 'mandate' || record.payload.parent === null) return null
-  return record.payload.parent.scope
-}
-
-async function parentMandateHistories(repo: string, history: DecodedHistory): Promise<DecodedHistory[]> {
-  const external: DecodedHistory[] = []
-  for (const operation of history.operations) {
-    const scope = parentScopeOf(operation.record)
-    if (scope === null) continue
-    const parentHistory = await historyFor(repo, scope)
-    if (!parentHistory.source.complete) throw new Refused('parent mandate history is incomplete')
-    external.push(parentHistory)
-  }
-  return external
 }
 
 function selectedMandate(history: DecodedHistory, external: DecodedHistory[], epic: number): MandateRecord {

@@ -1,16 +1,20 @@
 import { graphql, Refused } from './epic-driver-runtime'
 
+const PR_FIELDS = `number state baseRefName headRefName headRefOid mergedAt isCrossRepository
+  mergeCommit { oid parents(first: 1) { nodes { oid } } }
+  autoMergeRequest { enabledAt } labels(first: 30) { nodes { name } } repository { nameWithOwner }`
+
 // Issue links and mandate branches discover candidates; neither grants authority.
 const QUERY = `query EpicContainmentIssue($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     issue(number: $number) {
       number repository { nameWithOwner }
       closedByPullRequestsReferences(first: 100, includeClosedPrs: true) {
-        pageInfo { hasNextPage } nodes { number state baseRefName headRefName isCrossRepository repository { nameWithOwner } }
+        pageInfo { hasNextPage } nodes { ${PR_FIELDS} }
       }
       timelineItems(itemTypes: [CROSS_REFERENCED_EVENT], last: 100) {
         pageInfo { hasPreviousPage } nodes { ... on CrossReferencedEvent {
-          source { __typename ... on PullRequest { number state baseRefName headRefName isCrossRepository repository { nameWithOwner } } }
+          source { __typename ... on PullRequest { ${PR_FIELDS} } }
         } }
       }
     }
@@ -21,9 +25,13 @@ const BRANCH_QUERY = `query EpicContainmentBranch($owner: String!, $name: String
   repository(owner: $owner, name: $name) {
     pullRequests(first: 100, headRefName: $head, states: OPEN) {
       pageInfo { hasNextPage }
-      nodes { number state baseRefName headRefName isCrossRepository repository { nameWithOwner } }
+      nodes { ${PR_FIELDS} }
     }
   }
+}`
+
+const PR_QUERY = `query EpicContainmentPullRequest($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) { pullRequest(number: $number) { ${PR_FIELDS} } }
 }`
 
 export type Candidate = {
@@ -53,6 +61,13 @@ function repository(full: string): { owner: string; name: string } {
   const [owner, name] = full.split('/')
   if (!owner || !name) throw new Refused(`containment repository ${full} is invalid`)
   return { owner, name }
+}
+
+export function readCandidate(context: Locator, number: number): unknown {
+  return graphql<{ repository: { pullRequest: unknown } | null }>(context.repo, PR_QUERY, {
+    ...repository(context.full),
+    number,
+  }).repository?.pullRequest
 }
 
 export function candidate(value: unknown): value is Candidate {
