@@ -24,6 +24,8 @@ import { sessionEvidence, sessionReady } from './workflow-session.ts'
 import {
   type AssessResultRecord,
   isAssessResult,
+  isMechanical,
+  mechanicalSpecDelta,
   sameAssessedState,
   sameCurrentAssessedState,
 } from './workflow-spec-assessment.ts'
@@ -216,7 +218,13 @@ function authenticatedAssessmentDecision(
       evidence: [diagnostic('spec-ambiguous', 'Spec assessment result is malformed')],
     }
   }
-  if (parsed.data.classification === 'unknown' || parsed.data.classification === 'material') {
+  const exact = authenticated.record.payload.exactInputs
+  const mechanical = mechanicalSpecDelta(exact.accepted, exact.proposed)
+  if (
+    isMechanical(mechanical) ||
+    parsed.data.classification === 'unknown' ||
+    parsed.data.classification === 'material'
+  ) {
     return blocked('spec-decision-required', [
       diagnostic(
         'spec-decision-required',

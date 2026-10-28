@@ -2,7 +2,7 @@ import { expect, test } from 'vitest'
 import { decodeHistory } from '../../adapters/github/history-codec.ts'
 import { encodeParts } from '../../adapters/github/history-encoder.ts'
 import type { DecodedHistory, History } from '../history-schema.ts'
-import { buildRecord } from '../record-construction.ts'
+import { buildRecord, parseRecord } from '../record-construction.ts'
 import { specDigest } from '../record-digests.ts'
 import type { ExternalRecordRef } from '../record-references.ts'
 import type { CanonicalRecord } from '../record-schema.ts'
@@ -11,10 +11,27 @@ import {
   buildSpecIdentityAllocation,
   buildSpecIdentityProposedRetirement,
   prepareSpecAllocation,
-  resolveSpecIdentityLedger,
+  resolveSpecIdentityLedger as resolveLedger,
 } from '../uw-identity.ts'
 import { canonicalSpec, type SpecItemId, type SpecSnapshot, validateSpecIds } from '../uw-spec.ts'
+import { resolveAcceptedSpec } from '../workflow-accepted-spec.ts'
 import type { AcceptedOwnSpec } from '../workflow-accepted-spec-types.ts'
+import {
+  acceptMaterialFixture,
+  assessFixture,
+  mandateAssessmentState,
+  proposedAssessmentState,
+} from './workflow-spec-assessment-support.ts'
+import { history as workflowHistory, mandate as workflowMandate } from './workflow-test-support.ts'
+
+function resolveSpecIdentityLedger(input: {
+  uw: Scope
+  history: DecodedHistory
+  accepted: AcceptedOwnSpec | null
+  histories?: readonly DecodedHistory[]
+}) {
+  return resolveLedger({ ...input, histories: input.histories ?? [input.history] })
+}
 
 const UW: Scope = { repository: 'acme/payments', target: 'acme/payments#41' }
 const DIGEST = 'a'.repeat(64)
@@ -142,61 +159,6 @@ function snapshot(criteria: { id: 'C1' | 'C2'; statement: string }[]): SpecSnaps
   return { spec, raw: { reference: UW.target, body, bodySha256: specDigest(body), lastEditedAt: CONFIRMED_AT } }
 }
 
-function acceptedHistoricalC1(source: ExternalRecordRef): AcceptedOwnSpec {
-  const historical = snapshot([{ id: 'C1', statement: 'Original accepted commitment' }])
-  return {
-    ref: { uw: UW, version: historical.spec.version, sourceAccepted: source },
-    snapshot: historical,
-    tier: 'S',
-    children: [],
-    chain: [
-      {
-        kind: 'accept-material',
-        source,
-        assessment: { scope: UW, recordId: 'assessment-retire-c1', kind: 'action-receipt' },
-        from: historical.spec.version,
-        to: historical.spec.version,
-        proposalDigest: DIGEST,
-      },
-    ],
-    sourceRefs: [source],
-  }
-}
-
-function materialAcceptance(
-  recordId: string,
-  predecessor: ExternalRecordRef,
-  retired: readonly 'C1'[] = [],
-): CanonicalRecord {
-  return must(
-    buildRecord({
-      version: 1,
-      repository: UW.repository,
-      target: UW.target,
-      recordId,
-      runId: 'run-accept-retirement',
-      operationId: 'op-accept-retirement',
-      kind: 'operator-control',
-      payload: {
-        control: 'accept-material',
-        controlId: 'accept-retirement',
-        mandate: { scope: UW, recordId: 'mandate-41', kind: 'mandate' },
-        predecessor,
-        assessment: { scope: UW, recordId: 'assessment-retire-c1', kind: 'action-receipt' },
-        specVersion: DIGEST,
-        proposalDigest: DIGEST,
-        confirmation: {
-          route: 'omp-native-command',
-          operationId: 'op-accept-retirement',
-          proposalDigest: DIGEST,
-          confirmedAt: CONFIRMED_AT,
-        },
-        identityDelta: { retired: [...retired] },
-      },
-    }),
-  )
-}
-
 function codes(
   result: { ok: true; value: unknown } | { ok: false; diagnostics: readonly { code: string }[] },
 ): string[] {
@@ -302,27 +264,141 @@ test('does not retire an omitted proposal, but recognizes authenticated accepted
       allocated,
     ),
   )
-  const acceptedRetirement = materialAcceptance('accept-retire-c1', ref(first), ['C1'])
-  const historicalAccepted = acceptedHistoricalC1(ref(acceptedRetirement))
-  const withAcceptedRetirement = resolveSpecIdentityLedger({
-    uw: UW,
-    history: decode([first, acceptedRetirement]),
-    accepted: historicalAccepted,
+  const second = allocation('identity-c2', 'allocate-c2', ref(first), 'C2')
+  const base = workflowMandate({ scope: UW })
+  if (base.kind !== 'mandate') throw new Error('expected mandate')
+  const initial = snapshot([
+    { id: 'C1', statement: 'Original accepted commitment' },
+    { id: 'C2', statement: 'Kept commitment' },
+  ])
+  const mandated = must(
+    buildRecord({
+      ...base,
+      payload: {
+        ...base.payload,
+        ownSpec: {
+          ...base.payload.ownSpec,
+          uw: UW,
+          version: initial.spec.version,
+          snapshot: initial,
+          identityAllocations: [ref(first), ref(second)],
+        },
+      },
+    }),
+  )
+  if (mandated.kind !== 'mandate') throw new Error('expected mandate')
+  const state = mandateAssessmentState(mandated)
+  const proposed = proposedAssessmentState(state, {
+    body: 'Kept commitment',
+    content: {
+      criteria: [{ id: 'C2', statement: 'Kept commitment' }],
+      invariants: [],
+      exclusions: [],
+      openQuestions: [],
+      sections: { origin: '', context: '', change: '' },
+    },
   })
-  const proposedRetirement = retireProposed('retire-accepted-c1', 'retire-accepted-c1', ref(first), 'C1')
-  const activeAcceptance = materialAcceptance('accept-keep-c1', ref(first))
-  const activeAccepted = acceptedHistoricalC1(ref(activeAcceptance))
+  const assessment = assessFixture(mandated, 'withdraw-c1', state, proposed, 'material')
+  const acceptedRetirement = acceptMaterialFixture(mandated, 'accept-retire-c1', assessment)
+  const historical = workflowHistory(
+    [first, second, mandated, assessment.start, assessment.result, acceptedRetirement],
+    UW,
+  )
+  const resolved = resolveAcceptedSpec(mandated, [historical])
+  if (!resolved.ok) throw new Error('canonical accepted chain refused')
+  const withAcceptedRetirement = resolveSpecIdentityLedger({ uw: UW, history: historical, accepted: resolved.spec })
+  const afterAbandonment = resolveSpecIdentityLedger({ uw: UW, history: historical, accepted: null })
+  const successor = must(
+    buildRecord({
+      ...mandated,
+      recordId: 'mandate-successor',
+      operationId: 'op-successor',
+      payload: {
+        ...mandated.payload,
+        antecedent: ref(mandated),
+        ownSpec: {
+          ...mandated.payload.ownSpec,
+          version: proposed.snapshot.spec.version,
+          snapshot: proposed.snapshot,
+        },
+      },
+    }),
+  )
+  if (successor.kind !== 'mandate') throw new Error('expected successor mandate')
+  const successorHistory = workflowHistory(
+    [first, second, mandated, assessment.start, assessment.result, acceptedRetirement, successor],
+    UW,
+  )
+  const successorAccepted = resolveAcceptedSpec(successor, [successorHistory])
+  if (!successorAccepted.ok) throw new Error('canonical successor refused')
+  const successorLedger = resolveSpecIdentityLedger({
+    uw: UW,
+    history: successorHistory,
+    accepted: successorAccepted.spec,
+  })
+  const proposedRetirement = retireProposed('retire-accepted-c1', 'retire-accepted-c1', ref(second), 'C1')
+  const activeHistory = workflowHistory([first, second, mandated, proposedRetirement], UW)
+  const active = resolveAcceptedSpec(mandated, [activeHistory])
+  if (!active.ok) throw new Error('canonical initial mandate refused')
   const forbiddenProposedRetirement = resolveSpecIdentityLedger({
     uw: UW,
-    history: decode([first, activeAcceptance, proposedRetirement]),
-    accepted: activeAccepted,
+    history: activeHistory,
+    accepted: active.spec,
   })
+  const missingAssessment = workflowHistory([first, second, mandated, acceptedRetirement], UW)
+  if (acceptedRetirement.kind !== 'operator-control' || acceptedRetirement.payload.control !== 'accept-material')
+    throw new Error('expected material control')
+  const changed = must(
+    parseRecord({
+      ...acceptedRetirement,
+      payload: {
+        ...acceptedRetirement.payload,
+        identityDelta: { retired: [] },
+      },
+    }),
+  )
+  const changedHistory = workflowHistory([first, second, mandated, assessment.start, assessment.result, changed], UW)
+  const ignored = must(
+    parseRecord({
+      ...acceptedRetirement,
+      recordId: 'ignored-material',
+      payload: {
+        ...acceptedRetirement.payload,
+        controlId: 'ignored-material',
+        predecessor: ref(assessment.result),
+      },
+    }),
+  )
+  const ignoredHistory = workflowHistory([first, second, mandated, assessment.start, assessment.result, ignored], UW)
+  const ignoredAccepted = resolveAcceptedSpec(mandated, [ignoredHistory])
+  if (!ignoredAccepted.ok) throw new Error('canonical ignored control refused')
+  const ignoredLedger = resolveSpecIdentityLedger({ uw: UW, history: ignoredHistory, accepted: ignoredAccepted.spec })
+  const forged = { ...resolved.spec, snapshot: initial }
+  const next = must(
+    prepareSpecAllocation(
+      {
+        criteria: [{ kind: 'new', draftKey: 'new', statement: 'New commitment' }],
+        invariants: [],
+        exclusions: [],
+        openQuestions: [],
+        sections: { origin: '', context: '', change: '' },
+      },
+      must(afterAbandonment),
+    ),
+  )
 
   expect(omitted.assignments).toEqual([])
   expect(allocated.retired.has('C1')).toBe(false)
   expect(must(withAcceptedRetirement).retired.has('C1')).toBe(true)
+  expect(must(afterAbandonment).retired.get('C1')).toEqual(ref(acceptedRetirement))
+  expect(must(successorLedger).retired.get('C1')).toEqual(ref(acceptedRetirement))
   expect(forbiddenProposedRetirement).toMatchObject({ ok: false })
   expect(codes(forbiddenProposedRetirement)).toContain('spec-ledger-conflict')
+  expect(next.assignments).toEqual([{ draftKey: 'new', id: 'C3' }])
+  expect(must(ignoredLedger).retired.has('C1')).toBe(false)
+  expect(resolveSpecIdentityLedger({ uw: UW, history: missingAssessment, accepted: null })).toMatchObject({ ok: false })
+  expect(resolveSpecIdentityLedger({ uw: UW, history: changedHistory, accepted: null })).toMatchObject({ ok: false })
+  expect(resolveSpecIdentityLedger({ uw: UW, history: historical, accepted: forged })).toMatchObject({ ok: false })
 })
 test('persists a confirmed pre-mandate withdrawal so the identity cannot return after reload', () => {
   const first = allocation('identity-c1', 'allocate-c1', null, 'C1')

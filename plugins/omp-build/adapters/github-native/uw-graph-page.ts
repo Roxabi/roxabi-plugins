@@ -65,15 +65,16 @@ export async function page(
   cursors: Record<'labelsCursor' | 'childrenCursor' | 'blockersCursor', string | undefined>,
 ): Promise<GraphqlIssue> {
   const { owner, name } = splitRepository(scope.repository)
+  const number = Number(scope.target.slice(scope.target.lastIndexOf('#') + 1))
   const data = await graphqlVariables(options, UW_GRAPH_QUERY, {
     owner,
     name,
-    number: Number(scope.target.slice(scope.target.lastIndexOf('#') + 1)),
+    number,
     ...cursors,
   })
   const repository = asRecord(data)?.repository
   const issue = parseIssue(asRecord(repository)?.issue)
-  if (issue === null || issue.repository.nameWithOwner !== scope.repository)
+  if (issue === null || issue.repository.nameWithOwner !== scope.repository || issue.number !== number)
     throw new Error(`Native graph payload for ${scope.target} is incomplete`)
   return issue
 }

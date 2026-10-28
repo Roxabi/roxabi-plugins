@@ -24,6 +24,7 @@ import type {
   UwProposalInput,
   UwRead,
 } from './uw-contract.ts'
+import { bindSuccessorWriter } from './uw-normalization-internal.ts'
 import { validateNormalizationJudgement } from './uw-normalization-proposal.ts'
 import {
   parentRepositoryDiagnostics,
@@ -215,6 +216,7 @@ export function createUwOperations(ports: UwOperationsPorts): UwOperations {
   const proposalPorts: UwProposalPreparationPorts = ports
   const prepareExisting = async (
     input: UwProposalInput,
+    successorNormalization = false,
   ): Promise<PreparedUwProposal | { diagnostics: readonly UwDiagnostic[] }> => {
     const parentDiagnostics = parentRepositoryDiagnostics(input)
     if (parentDiagnostics.length > 0) return { diagnostics: parentDiagnostics }
@@ -228,10 +230,10 @@ export function createUwOperations(ports: UwOperationsPorts): UwOperations {
           diagnostic(input.uw, 'graph-root-missing', 'UW graph root cannot provide a complete native observation'),
         ],
       }
-    return prepareExistingProposal(input, read, observed, proposalPorts)
+    return prepareExistingProposal(input, read, observed, proposalPorts, successorNormalization)
   }
 
-  return {
+  const operations: UwOperations = {
     readUw: ports.read,
     validateNormalization(request, value) {
       const parsed = ports.parseNormalization(request.uw, value)
@@ -271,4 +273,20 @@ export function createUwOperations(ports: UwOperationsPorts): UwOperations {
     },
     acceptMaterial: ports.acceptMaterial,
   }
+  bindSuccessorWriter(operations, async (input, historyDigest) => {
+    const request = structuredClone(input)
+    const prepared = await prepareExisting(request, true)
+    if ('diagnostics' in prepared) return { status: 'refused', diagnostics: prepared.diagnostics }
+    if (prepared.proposal.expected?.successorHistoryDigest !== historyDigest)
+      return {
+        status: 'refused',
+        diagnostics: [diagnostic(input.uw, 'proposal-stale', 'Successor history changed before proposal preparation')],
+      }
+    return confirmedResult(
+      await ports.operator.executeConfirmed(prepared, (confirmation) =>
+        commitWrite(request, prepared, confirmation, ports),
+      ),
+    )
+  })
+  return operations
 }

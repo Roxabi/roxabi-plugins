@@ -12,6 +12,7 @@ import { linkedMove } from './feature-selection.ts'
 import { prepareRequestedSession } from './feature-selection-session.ts'
 import { publishSuccessorMandate } from './feature-succession.ts'
 import type { NormalizationProposalRequest, UwOperations, UwRead, UwReadPort } from './uw-contract.ts'
+import { markSuccessorNormalization } from './uw-normalization-internal.ts'
 import { readSelectionIssueSpec, type SelectionIssueSpec } from './uw-spec'
 import { prepareFeatureCheckout, runWorktreeBootstrap } from './workflow-checkout.ts'
 
@@ -75,9 +76,9 @@ function needsInitialSpec(control: FeatureControl, selection: FeatureAuthority['
   return control === 'new' && (selection.reason === 'abandoned' || selection.reason === 'revoked')
 }
 
-function selectionNormalization(
+export function selectionNormalization(
   control: FeatureControl,
-  authority: FeatureAuthority,
+  authority: Pick<FeatureAuthority, 'scope' | 'selection'>,
   read: UwRead | null,
 ): ContinueFeatureResult | null {
   if (!needsInitialSpec(control, authority.selection)) return null
@@ -97,6 +98,13 @@ function selectionNormalization(
       labels: { add: [], remove: [] },
       relations: { addChildren: [], removeChildren: [], addBlockers: [], removeBlockers: [] },
     },
+  }
+  if (
+    control === 'new' &&
+    authority.selection.status === 'refused' &&
+    (authority.selection.reason === 'abandoned' || authority.selection.reason === 'revoked')
+  ) {
+    markSuccessorNormalization(request, read)
   }
   return { kind: 'normalization', request }
 }

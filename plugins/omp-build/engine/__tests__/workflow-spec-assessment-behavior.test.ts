@@ -166,6 +166,95 @@ describe('workflow Spec assessment behavior', () => {
     ).toMatchObject({ ok: true })
   })
 
+  test('requires a material decision for an editorial assessment of a tier change', () => {
+    const mandated = shippedFeatureMandate()
+    const accepted = mandateAssessmentState(mandated)
+    const proposed = { snapshot: accepted.snapshot, tier: 'F-lite' as const, children: accepted.children }
+    const assessment = assessFixture(mandated, 'editorial-tier-change', accepted, proposed, 'editorial')
+    const issue = history([mandated, assessment.start, assessment.result])
+
+    expect(accepted.tier).toBe('S')
+    expect(assessment.result.payload.exactInputs.mechanical).toMatchObject({
+      added: [],
+      removed: [],
+      exclusionsChanged: false,
+      tierChanged: true,
+      childrenChanged: false,
+    })
+    expect(assessment.proposed.snapshot.spec).toEqual(accepted.snapshot.spec)
+    expect(resolveAcceptedSpec(mandated, [issue])).toMatchObject({ ok: true, spec: accepted })
+    expect(
+      reconstructWorkflow({
+        evidence: { issue, pullRequest: null, parents: [] },
+        facts: currentFacts(mandated, assessment.proposed),
+        decisions: decisions(),
+      }),
+    ).toMatchObject({ status: 'blocked', reason: 'spec-decision-required' })
+  })
+
+  test('refuses an authenticated editorial tier assessment with a false mechanical delta', () => {
+    const mandated = shippedFeatureMandate()
+    const accepted = mandateAssessmentState(mandated)
+    const proposed = { snapshot: accepted.snapshot, tier: 'F-lite' as const, children: accepted.children }
+    const assessment = assessFixture(mandated, 'false-editorial-tier-delta', accepted, proposed, 'editorial')
+    if (assessment.start.kind !== 'action-receipt') throw new Error('expected assessment start fixture')
+    const startPayload = assessment.start.payload
+    if (startPayload.phase !== 'start' || startPayload.action !== 'assess-spec')
+      throw new Error('expected assessment start fixture')
+    const exactInputs = {
+      ...assessment.result.payload.exactInputs,
+      mechanical: { ...assessment.result.payload.exactInputs.mechanical, tierChanged: false },
+    }
+    const start = must(buildRecord({ ...assessment.start, payload: { ...startPayload, exactInputs } }))
+    const result = must(buildRecord({ ...assessment.result, payload: { ...assessment.result.payload, exactInputs } }))
+    const issue = history([mandated, start, result])
+
+    expect(accepted.tier).toBe('S')
+    expect(proposed.tier).toBe('F-lite')
+    expect(resolveAcceptedSpec(mandated, [issue])).toMatchObject({
+      ok: false,
+      evidence: [{ message: 'Spec assessment mechanical delta does not match its exact states' }],
+    })
+    expect(
+      reconstructWorkflow({
+        evidence: { issue, pullRequest: null, parents: [] },
+        facts: currentFacts(mandated, proposed),
+        decisions: decisions(),
+      }),
+    ).toMatchObject({
+      status: 'terminal',
+      reason: 'spec-ambiguous',
+      evidence: [{ message: 'Spec assessment mechanical delta does not match its exact states' }],
+    })
+  })
+
+  test('accepts a genuinely non-mechanical editorial assessment without a material decision', () => {
+    const mandated = shippedFeatureMandate()
+    const accepted = mandateAssessmentState(mandated)
+    const proposed = proposedAssessmentState(accepted, { body: 'editorially revised wording' })
+    const assessment = assessFixture(mandated, 'editorial-wording-only', accepted, proposed, 'editorial')
+    const issue = history([mandated, assessment.start, assessment.result])
+
+    expect(assessment.result.payload.exactInputs.mechanical).toMatchObject({
+      added: [],
+      removed: [],
+      exclusionsChanged: false,
+      tierChanged: false,
+      childrenChanged: false,
+    })
+    expect(resolveAcceptedSpec(mandated, [issue])).toMatchObject({
+      ok: true,
+      spec: { ref: { version: assessment.currentVersion, sourceAccepted: { recordId: assessment.result.recordId } } },
+    })
+    expect(
+      reconstructWorkflow({
+        evidence: { issue, pullRequest: null, parents: [] },
+        facts: currentFacts(mandated, assessment.proposed),
+        decisions: decisions(),
+      }),
+    ).toMatchObject({ status: 'action', mandateId: mandated.recordId })
+  })
+
   test('keeps an editorial return as the current accepted source rather than a competing assessment', () => {
     const mandated = shippedFeatureMandate()
     const initial = mandateAssessmentState(mandated)

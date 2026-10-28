@@ -1,19 +1,24 @@
+import { createHash } from 'node:crypto'
 import type { Gh, GitHubOptions } from '../adapters/github/types.ts'
 import {
   assessUwAdmission,
   parseIssueSpecBody,
   readComposedWorkflowHistory,
   readUwGraph,
+  resolveAcceptedSpec,
   resolveOwnSpecAuthority,
   resolveSpecIdentityLedger,
+  selectApplicableMandate,
 } from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { AcceptedOwnSpecResult, ProposedOwnSpecResult, UwAdmission } from '../engine/uw-admission.ts'
 import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
 import type { UwGraphObservation } from '../engine/uw-graph.ts'
+import { successionAntecedent } from './feature-succession.ts'
 import type { UwRead, UwReadPort } from './uw-contract.ts'
 import { readCurrentChildrenProjection } from './uw-current-facts.ts'
+import { bindHistoricalProjection, historicalProjection } from './uw-normalization-internal.ts'
 
 type InstalledUwContracts = Pick<
   typeof import('../dist/contracts.js'),
@@ -22,6 +27,8 @@ type InstalledUwContracts = Pick<
   | 'readComposedWorkflowHistory'
   | 'readUwGraph'
   | 'resolveOwnSpecAuthority'
+  | 'resolveAcceptedSpec'
+  | 'selectApplicableMandate'
   | 'resolveSpecIdentityLedger'
 >
 
@@ -94,6 +101,33 @@ function coldAccepted(
   return { status: 'accepted', value: resolved.value.accepted }
 }
 
+function bindEligibleHistoricalProjection(
+  contracts: InstalledUwContracts,
+  result: UwRead,
+  own: DecodedHistory,
+  histories: readonly DecodedHistory[],
+): void {
+  const selection = contracts.selectApplicableMandate(
+    own,
+    histories.filter((entry) => entry !== own),
+  )
+  if (
+    result.accepted.status !== 'refused' ||
+    selection.status !== 'refused' ||
+    (selection.reason !== 'abandoned' && selection.reason !== 'revoked')
+  )
+    return
+  const antecedent = successionAntecedent(own)
+  if ('reason' in antecedent || antecedent.mandate.payload.format !== 'omp-build-mandate/3') return
+  const historical = contracts.resolveAcceptedSpec(antecedent.mandate, histories)
+  if (historical.ok)
+    bindHistoricalProjection(
+      result,
+      historical.spec,
+      createHash('sha256').update(JSON.stringify(histories)).digest('hex'),
+    )
+}
+
 function assembleUwRead(
   contracts: InstalledUwContracts,
   input: { uw: Scope; graph: UwGraphObservation; history: HistoryObservation; observedReader?: UwReadPort },
@@ -138,9 +172,10 @@ function assembleUwRead(
   const identity = contracts.resolveSpecIdentityLedger({
     uw,
     history: own,
+    histories: history.histories,
     accepted: accepted.status === 'accepted' ? accepted.value : null,
   })
-  return {
+  const result: UwRead = {
     uw,
     parsed,
     graph,
@@ -159,6 +194,8 @@ function assembleUwRead(
         })
       : admissionUnavailable(identity.diagnostics),
   }
+  bindEligibleHistoricalProjection(contracts, result, own, history.histories)
+  return result
 }
 
 async function withTransitionAdmission(
@@ -168,7 +205,7 @@ async function withTransitionAdmission(
 ): Promise<UwRead> {
   if (!read.identity.ok) return read
   const currentChildren = await readCurrentChildrenProjection({ uw: read.uw, read, reader })
-  return {
+  const result: UwRead = {
     ...read,
     admission: contracts.assessUwAdmission({
       uw: read.uw,
@@ -180,6 +217,9 @@ async function withTransitionAdmission(
       currentChildren,
     }),
   }
+  const historical = historicalProjection(read)
+  if (historical !== undefined) bindHistoricalProjection(result, historical.accepted, historical.historyDigest)
+  return result
 }
 
 /** Test seam for a loaded facade. */
@@ -237,8 +277,10 @@ const installedUwContracts: InstalledUwContracts = {
   parseIssueSpecBody,
   readComposedWorkflowHistory,
   readUwGraph,
+  resolveAcceptedSpec,
   resolveOwnSpecAuthority,
   resolveSpecIdentityLedger,
+  selectApplicableMandate,
 }
 
 /** Production factory: statically binds the installed contracts bundle, never repository engine source. */

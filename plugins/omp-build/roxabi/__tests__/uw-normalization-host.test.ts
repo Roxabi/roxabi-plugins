@@ -6,6 +6,11 @@ import type { NativeBatch, NativeBatchCallbacks, NativeBatchResult } from '../..
 import type { ContinueFeatureResult, FeatureCommandHost, FeatureWorkflow } from '../feature-contract.ts'
 import type { NormalizationProposalRequest, UwOperations } from '../uw-contract.ts'
 import { announceUwNormalization } from '../uw-normalization-host.ts'
+import {
+  bindHistoricalProjection,
+  bindSuccessorWriter,
+  markSuccessorNormalization,
+} from '../uw-normalization-internal.ts'
 
 const request = {
   uw: { repository: 'acme/widgets', target: 'acme/widgets#42' },
@@ -52,7 +57,7 @@ function settled(batch: NativeBatch): NativeBatchResult {
   }
 }
 
-function fixture() {
+function fixture(control: 'select' | 'new' = 'select', eligible = false) {
   let callbacks: NativeBatchCallbacks | undefined
   let activeBatch: NativeBatch | undefined
   let inhibited = false
@@ -81,6 +86,12 @@ function fixture() {
     acceptMaterial: async () => {
       throw new Error('unexpected acceptMaterial')
     },
+  }
+  if (eligible) {
+    const read = {} as never
+    bindHistoricalProjection(read, {} as never, 'history')
+    markSuccessorNormalization(request, read)
+    bindSuccessorWriter(operations, async (input) => operations.write(input))
   }
   const workflow = {
     continueFeature: async (input: unknown) => {
@@ -120,7 +131,7 @@ function fixture() {
     announceUwNormalization({
       reference: 'acme/widgets#42',
       request,
-      original: { cwd: '/repo/feature', reference: 'acme/widgets#42', control: 'select', principal: false },
+      original: { cwd: '/repo/feature', reference: 'acme/widgets#42', control, principal: false },
       host,
       deliver: (result) => deliver(result),
     })
@@ -161,6 +172,37 @@ function diagnostic(code: string): UwDiagnostic {
 }
 
 describe('UW normalization native lifecycle', () => {
+  it('retains explicit new only for an eligible live normalization', async () => {
+    vi.useFakeTimers()
+    try {
+      const subject = fixture('new', true)
+      await subject.announce()
+      subject.complete()
+      subject.settle()
+      await vi.runAllTimersAsync()
+      expect(subject.writes).toHaveLength(1)
+      expect(subject.continued).toEqual([expect.objectContaining({ control: 'new' })])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('refuses forged explicit new intent without a selection capability', async () => {
+    vi.useFakeTimers()
+    try {
+      const subject = fixture('new')
+      await subject.announce()
+      subject.complete()
+      subject.settle()
+      await vi.runAllTimersAsync()
+      expect(subject.writes).toEqual([])
+      expect(subject.continued).toEqual([])
+      expect(subject.delivered).toContainEqual(expect.objectContaining({ reason: 'uw-normalization-ineligible' }))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('keeps effects unresolved when native completion returns and starts them only after settlement', async () => {
     vi.useFakeTimers()
     try {

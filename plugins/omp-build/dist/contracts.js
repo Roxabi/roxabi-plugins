@@ -12174,15 +12174,16 @@ function parseIssue(value) {
 }
 async function page(scope, options, cursors) {
   const { owner, name } = splitRepository(scope.repository);
+  const number = Number(scope.target.slice(scope.target.lastIndexOf("#") + 1));
   const data = await graphqlVariables(options, UW_GRAPH_QUERY, {
     owner,
     name,
-    number: Number(scope.target.slice(scope.target.lastIndexOf("#") + 1)),
+    number,
     ...cursors
   });
   const repository = asRecord(data)?.repository;
   const issue = parseIssue(asRecord(repository)?.issue);
-  if (issue === null || issue.repository.nameWithOwner !== scope.repository)
+  if (issue === null || issue.repository.nameWithOwner !== scope.repository || issue.number !== number)
     throw new Error(`Native graph payload for ${scope.target} is incomplete`);
   return issue;
 }
@@ -14567,20 +14568,21 @@ function diag4(uw, code, message) {
 function acceptedIds(accepted) {
   return new Set(accepted === null ? [] : [...accepted.snapshot.spec.criteria, ...accepted.snapshot.spec.invariants].map((item) => item.id));
 }
-function replayAcceptedRetirements(accepted, history, replay, uw, diagnostics) {
-  if (accepted === null)
-    return;
-  for (const step of accepted.chain) {
-    if (step.kind !== "accept-material")
+function replayAcceptedSteps(spec, controls, seen, replay, uw, diagnostics) {
+  for (const step of spec.chain) {
+    if (step.kind !== "accept-material" || seen.some((source) => sameRef2(source, step.source)))
       continue;
-    const operation = history.operations.find((candidate) => candidate.record?.recordId === step.source.recordId);
-    const payload = operation?.record?.payload;
-    const ids = payload?.identityDelta?.retired;
-    if (operation === undefined || operation.status !== "complete" || operation.authority === "foreign" || !Array.isArray(ids)) {
+    seen.push(step.source);
+    const control = controls.find((record) => sameRef2(step.source, {
+      scope: { repository: record.repository, target: record.target },
+      recordId: record.recordId,
+      kind: record.kind
+    }));
+    if (control === undefined || control.payload.control !== "accept-material") {
       diagnostics.push(diag4(uw, "spec-ledger-incomplete", `Accepted retirement ${step.source.recordId} is unreadable`));
       continue;
     }
-    for (const id of ids) {
+    for (const id of control.payload.identityDelta.retired) {
       if (!replay.allocations.has(id) || replay.retired.has(id))
         diagnostics.push(diag4(uw, "spec-ledger-conflict", `Accepted retirement ${id} is invalid`));
       else
@@ -14588,21 +14590,68 @@ function replayAcceptedRetirements(accepted, history, replay, uw, diagnostics) {
     }
   }
 }
+function replayAcceptedRetirements(history, histories, replay, uw, diagnostics) {
+  const authenticated = [];
+  const seen = [];
+  const controls = controlsOf(history).filter((record) => record.payload.control === "accept-material");
+  for (const mandate of mandatesOf(history)) {
+    const result = resolveAcceptedSpec(mandate, histories);
+    if (!result.ok) {
+      diagnostics.push(diag4(uw, "spec-ledger-incomplete", `Historical mandate ${mandate.recordId} cannot be authenticated: ${result.reason}`));
+      continue;
+    }
+    authenticated.push(result.spec);
+    replayAcceptedSteps(result.spec, controls, seen, replay, uw, diagnostics);
+  }
+  return authenticated;
+}
 function validateAcceptedIds(active, replay, uw, diagnostics) {
   for (const id of active) {
     if (!replay.allocations.has(id))
       diagnostics.push(diag4(uw, "spec-ledger-conflict", `Accepted identity ${id} is unavailable`));
-    if (replay.retired.get(id)?.kind === "spec-identity")
-      diagnostics.push(diag4(uw, "spec-ledger-conflict", `Accepted identity ${id} was retired as proposed`));
+    if (replay.retired.has(id))
+      diagnostics.push(diag4(uw, "spec-ledger-conflict", `Accepted identity ${id} was retired`));
+  }
+}
+function referencedHistoryScopes(uw, histories, authenticated) {
+  const refs = authenticated.flatMap((spec) => [...spec.sourceRefs]);
+  const scopes = [uw, ...refs.map((ref) => ref.scope)];
+  for (const history of histories) {
+    if (!scopes.some((scope) => equalScope(scope, history.source.scope)))
+      continue;
+    for (const operation of history.operations) {
+      const record = operation.record;
+      if (record?.kind === "action-receipt" && record.payload.action === "assess-spec" && record.payload.phase === "result" && refs.some((ref) => sameRef2(ref, { scope: history.source.scope, recordId: record.recordId, kind: record.kind })))
+        scopes.push(record.payload.start.scope);
+    }
+  }
+  return scopes;
+}
+function validateReferencedHistories(uw, histories, authenticated, diagnostics) {
+  const scopes = referencedHistoryScopes(uw, histories, authenticated);
+  for (let i = 0;i < histories.length; i += 1) {
+    const history = histories[i];
+    if (history === undefined || !scopes.some((scope) => equalScope(scope, history.source.scope)))
+      continue;
+    if (histories.slice(0, i).some((other) => equalScope(other.source.scope, history.source.scope) && JSON.stringify(other) !== JSON.stringify(history)))
+      diagnostics.push(diag4(uw, "spec-ledger-conflict", "Conflicting histories claim a referenced scope"));
   }
 }
 function resolveSpecIdentityLedger(input) {
   const diagnostics = [];
+  if (!equalScope(input.history.source.scope, input.uw))
+    diagnostics.push(diag4(input.uw, "spec-ledger-incomplete", "Identity history belongs to another UW"));
+  const own = input.histories.find((history) => equalScope(history.source.scope, input.uw));
+  if (own === undefined || JSON.stringify(own) !== JSON.stringify(input.history))
+    diagnostics.push(diag4(input.uw, "spec-ledger-incomplete", "Identity history does not match authentication context"));
   if (!input.history.source.complete)
     diagnostics.push(diag4(input.uw, "spec-ledger-incomplete", "Identity history is incomplete"));
   const replay = replaySpecIdentityHistory(input.history, input.uw, diagnostics);
   const active = acceptedIds(input.accepted);
-  replayAcceptedRetirements(input.accepted, input.history, replay, input.uw, diagnostics);
+  const authenticated = replayAcceptedRetirements(input.history, input.histories, replay, input.uw, diagnostics);
+  validateReferencedHistories(input.uw, input.histories, authenticated, diagnostics);
+  if (input.accepted !== null && !authenticated.some((spec) => JSON.stringify(spec) === JSON.stringify(input.accepted)))
+    diagnostics.push(diag4(input.uw, "spec-ledger-conflict", "Current accepted Spec is not authenticated by history"));
   validateAcceptedIds(active, replay, input.uw, diagnostics);
   return diagnostics.length === 0 ? {
     ok: true,
@@ -15765,7 +15814,12 @@ function uwAdmissionAuthority(candidate, input) {
   if (!resolved.ok)
     return landingRefusal2(acceptedReason(resolved.reason), resolved.evidence);
   const accepted = { status: "accepted", value: resolved.spec };
-  const identities = resolveSpecIdentityLedger({ uw: ownUw, history: ownHistory, accepted: resolved.spec });
+  const identities = resolveSpecIdentityLedger({
+    uw: ownUw,
+    history: ownHistory,
+    histories: input.histories,
+    accepted: resolved.spec
+  });
   if (!identities.ok)
     return landingRefusal2("uw-not-deliverable", toDiagnostics(identities.diagnostics));
   const admission = assessUwAdmission({
@@ -16371,7 +16425,9 @@ function authenticatedAssessmentDecision(assessment, mandate, histories) {
       evidence: [diagnostic2("spec-ambiguous", "Spec assessment result is malformed")]
     };
   }
-  if (parsed.data.classification === "unknown" || parsed.data.classification === "material") {
+  const exact = authenticated.record.payload.exactInputs;
+  const mechanical = mechanicalSpecDelta(exact.accepted, exact.proposed);
+  if (isMechanical(mechanical) || parsed.data.classification === "unknown" || parsed.data.classification === "material") {
     return blocked3("spec-decision-required", [
       diagnostic2("spec-decision-required", parsed.data.classification === "unknown" ? "Authenticated Spec assessment requires an operator decision" : "Material spec change has no operator decision")
     ]);

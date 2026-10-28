@@ -212,7 +212,12 @@ function uwAdmissionAuthority(candidate: LandingCandidate, input: LandingMandate
   const resolved = resolveAcceptedSpec(candidate.mandate, input.histories)
   if (!resolved.ok) return landingRefusal(acceptedReason(resolved.reason), resolved.evidence)
   const accepted: AcceptedOwnSpecResult = { status: 'accepted', value: resolved.spec }
-  const identities = resolveSpecIdentityLedger({ uw: ownUw, history: ownHistory, accepted: resolved.spec })
+  const identities = resolveSpecIdentityLedger({
+    uw: ownUw,
+    history: ownHistory,
+    histories: input.histories,
+    accepted: resolved.spec,
+  })
   if (!identities.ok) return landingRefusal('uw-not-deliverable', toDiagnostics(identities.diagnostics))
   const admission = assessUwAdmission({
     uw: ownUw,

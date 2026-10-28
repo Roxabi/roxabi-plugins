@@ -23,6 +23,7 @@ export type UwWritePrecondition = {
   nativeDigest: string
   ledgerHead: ExternalRecordRef | null
   acceptedPredecessor: ExternalRecordRef | null
+  successorHistoryDigest?: string
 }
 
 export type UwProposalInput = {
