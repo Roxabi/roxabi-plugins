@@ -20,7 +20,6 @@ export function normalizationBatch(request: NormalizationProposalRequest): Nativ
         {
           name: 'R-uw-normalize',
           agent: 'R-uw-normalize',
-          tools: ['read', 'grep', 'glob'],
           task: 'Return the typed uw-normalization proposal from the supplied observed UW source facts only.',
           solutionSpace: 'one typed normalization judgement; no IDs, writes, or freeform scope',
         },

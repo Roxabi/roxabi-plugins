@@ -601,6 +601,8 @@ Guards are **off** unless the project declares the host-neutral contract (`.dev/
 
 `agent-sources/` contains the frozen authored agents: two OMP-native (`R-advisor`, `elon` — `model: "@advisor"`, typed `output:` schema) and five `dev-core` review snapshots (ADR-020 decision 7). `agents/` is generated output: seven copied authored agents plus 18 generated native profiles; do not edit it. The five review snapshots declare `@review, @slow` for the judgment agents `R-adversarial`, `R-architect` and `R-security-auditor`, and `@task` for `R-devops` and `R-tester`. When an unmapped role still hands the choice to the parent is stated below the table. Every authored agent carries an explicit `tools:` pin: the snapshots arrived with their posture stated in prose only, and a read-only floor whose read-only-ness is unenforced is not a control.
 
+Agent-profile `tools` pins the child's built-in capabilities. The separate native task-item `tools` field names parent Eval-defined tools to inject; it is not a built-in allowlist. Normalization selects `R-uw-normalize` with its existing read-only profile rather than injecting built-in names as Eval tools.
+
 | Agent | Model | Posture |
 |---|---|---|
 | `R-adversarial` | `@review, @slow` | Review floor. Red-team the priced claim: bypass, fleet-regression, operational, assumption-kill, vacuous-guard, scope-attack — **plus the OWASP lens**, because `R-security-auditor` is not spawned by default. Sibling-drop applies only to siblings actually in the `Spawned roster:`; absent roster ⇒ it owns everything. |

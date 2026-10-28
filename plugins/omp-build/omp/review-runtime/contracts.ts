@@ -14,6 +14,7 @@ export type NativeTask = {
   agent: string
   task: string
   solutionSpace: string
+  /** Parent Eval-defined tool names to inject; child built-ins are pinned by the agent profile. */
   tools?: string[]
   /** Host-only proof contract; stripped from the native task wire input. */
   proofEvidence?: NativeProofDirective
