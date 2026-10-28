@@ -2,6 +2,9 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { renderIssueSpecBody } from '../../adapters/github-native/uw-spec.ts'
+import { canonicalSpec } from '../../engine/uw-spec.ts'
+import { SPEC_CONTENT_FORMAT } from '../../engine/uw-spec-schema.ts'
 import type { Box, Files, SimIssue, SimState, Spec } from './sandbox-types'
 
 export const SIM = path.resolve(
@@ -26,6 +29,18 @@ export const WORKFLOW = path.resolve(
 )
 
 const DATE = '2026-01-01T00:00:00Z'
+const DEFAULT_ISSUE_BODY = (() => {
+  const canonical = canonicalSpec({
+    format: SPEC_CONTENT_FORMAT,
+    criteria: [{ id: 'C1', statement: 'lands' }],
+    invariants: [],
+    exclusions: [],
+    openQuestions: [],
+    sections: { origin: '', context: '', change: '' },
+  })
+  if (!canonical.ok) throw new Error(canonical.diagnostics.map((item) => item.code).join(','))
+  return renderIssueSpecBody(canonical.value)
+})()
 const RETAINED_GIT_ENV = ['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'GIT_AUTHOR_DATE', 'GIT_COMMITTER_DATE']
 
 export function git(box: Pick<Box, 'env'>, cwd: string, args: string[]): string {
@@ -115,10 +130,11 @@ function simulatorIssues(spec: Spec): Record<string, SimIssue> {
     issues[issue.number] = {
       number: issue.number,
       title: issue.title,
-      body: '## Acceptance criteria\n\n- [ ] lands\n',
+      body: DEFAULT_ISSUE_BODY,
+      updatedAt: DATE,
       state: 'OPEN',
       author: 'operator',
-      labels: ['size:F-lite'],
+      labels: issue.labels ?? ['size:S'],
       comments: [],
       subIssues: [],
       blockedBy: [],

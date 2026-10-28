@@ -1,5 +1,7 @@
 import type { DecodedHistory, GitHubOptions, Json, Scope, ScopedRecordRef } from '../dist/contracts.js'
-import { shippedProductVersion } from '../dist/contracts.js'
+import { effectiveMandateRole, shippedProductVersion } from '../dist/contracts.js'
+import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
+import type { MandatePayload } from '../engine/workflow-mandate-schema.ts'
 import { linkedIssueBinding } from './fix-checkpoint-binding.ts'
 import { reconstructFixCheckpoint } from './fix-checkpoint-state.ts'
 import type { FixActionResult, FixRecord, FixTarget } from './fix-contract.ts'
@@ -11,6 +13,7 @@ import {
   type FixMandateView,
   mandateView,
 } from './fix-mandate-types.ts'
+import type { UwReadPort } from './uw-contract.ts'
 import { readEffectiveFixConfig } from './workflow-config.ts'
 
 export type FixAuthorityDecision =
@@ -20,16 +23,16 @@ export type FixAuthorityDecision =
 export function matchesRequiredFeatureMandate(
   required: ScopedRecordRef & { kind: 'mandate' },
   mandate: FixMandateView,
-  acceptedScope: string,
-  correctionScope: string,
+  acceptedSpec: AcceptedOwnSpec,
 ): boolean {
   return (
     required.kind === 'mandate' &&
-    mandate.role === 'feature' &&
+    effectiveMandateRole(mandate.role, acceptedSpec) === 'feature' &&
     required.recordId === mandate.recordId &&
     required.scope.repository === mandate.repository &&
     required.scope.target === mandate.target &&
-    acceptedScope === correctionScope
+    acceptedSpec.ref.uw.repository === mandate.repository &&
+    acceptedSpec.ref.uw.target === mandate.target
   )
 }
 
@@ -39,7 +42,7 @@ export async function decideFixAuthority(input: {
   readHistory: () => Promise<DecodedHistory>
   branch: string | null
   base: string | null
-  correctionScope: string
+  uw: UwReadPort
   requiredFeatureMandate?: ScopedRecordRef & { kind: 'mandate' }
   trustedLiveRequest?: Extract<FixRecord, { kind: 'fix-request' }>
 }): Promise<FixActionResult<FixAuthorityDecision>> {
@@ -47,7 +50,7 @@ export async function decideFixAuthority(input: {
   if (!history.source.complete) return failure('fix-history-incomplete')
   const checkpoint = reconstructFixCheckpoint(history, input.trustedLiveRequest)
   if (checkpoint.status === 'blocked') return failure(...checkpoint.diagnostics)
-  const linked = await linkedIssueBinding(input.target, input.options)
+  const linked = await linkedIssueBinding(input.target, input.options, input.uw)
   if (!linked.ok) return linked
   const selected = await resolveCorrectionMandate({
     target: input.target,
@@ -65,17 +68,9 @@ export async function decideFixAuthority(input: {
   const mandate = selected.value.mandate
   if (
     input.requiredFeatureMandate !== undefined &&
-    !matchesRequiredFeatureMandate(
-      input.requiredFeatureMandate,
-      mandate,
-      selected.value.acceptedSpec.body,
-      input.correctionScope,
-    )
+    !matchesRequiredFeatureMandate(input.requiredFeatureMandate, mandate, selected.value.acceptedSpec)
   ) {
     return failure('feature-mandate-required')
-  }
-  if (mandate.role === 'fix-only' && selected.value.acceptedSpec.body !== input.correctionScope) {
-    return { ok: true, value: { status: 'successor', antecedent: mandate } }
   }
   return {
     ok: true,
@@ -94,7 +89,7 @@ export async function confirmFixContinuation(input: {
   readHistory: () => Promise<DecodedHistory>
   branch: string | null
   base: string | null
-  correctionScope: string
+  uw: UwReadPort
   boundRecordId: string
   requiredFeatureMandate?: ScopedRecordRef & { kind: 'mandate' }
   trustedLiveRequest?: Extract<FixRecord, { kind: 'fix-request' }>
@@ -119,7 +114,9 @@ export async function loadFixOnlyDraft(input: {
   branch: string | null
   base: string
   candidateGitSHA: string | null
-  work: { reference: string; body: string; lastEditedAt: string }
+  ownSpec: Extract<MandatePayload, { role: 'fix-only' }>['ownSpec']
+  tier: Extract<MandatePayload, { role: 'fix-only' }>['tier']
+  children: Extract<MandatePayload, { role: 'fix-only' }>['children']
   parent: FixMandateView['parent']
   antecedent: FixMandateView['antecedent']
 }): Promise<FixActionResult<FixOnlyMandateDraft>> {
@@ -129,7 +126,7 @@ export async function loadFixOnlyDraft(input: {
   } catch {
     return failure('fix-product-version-unreadable')
   }
-  if (!/^[0-9a-f]{40}$/.test(input.commit) || input.work.body.length === 0 || input.work.lastEditedAt.length === 0) {
+  if (!/^[0-9a-f]{40}$/.test(input.commit)) {
     return failure('fix-config-unreadable')
   }
   const config = await readEffectiveFixConfig({ cwd: input.cwd, commit: input.commit, git: input.git })
@@ -145,7 +142,9 @@ export async function loadFixOnlyDraft(input: {
       base: input.base,
       candidateGitSHA: input.candidateGitSHA,
       productVersion,
-      work: input.work,
+      ownSpec: input.ownSpec,
+      tier: input.tier,
+      children: input.children,
       config: { version: config.version, digest: config.digest, effective: config.effective as Json },
       parent: input.parent,
       antecedent: input.antecedent,

@@ -16,9 +16,3 @@ Read the failing check evidence and the approved change scope in the task. Retur
 3. Return that attribution and the evidence that supports it.
 
 Done when attribution is one of those five values and evidence cites the check plus the scope fact that supports it.
-
-change: the approved change causes the failure.
-pre-existing: the failure is on the base without this change.
-infra: the failure is in the runner, network, or external service.
-out-of-scope: the failure is outside the approved mandate.
-unknown: the evidence does not support one of the other four.

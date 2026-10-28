@@ -1,6 +1,11 @@
 import { realpathSync } from 'node:fs'
 import { parseFeatureCommand, runTrustedFeatureInit } from './feature-command.ts'
-import type { ContinueFeatureResult, FeatureCommandHost, FeatureFixTerminal } from './feature-contract.ts'
+import type {
+  ContinueFeatureInput,
+  ContinueFeatureResult,
+  FeatureCommandHost,
+  FeatureFixTerminal,
+} from './feature-contract.ts'
 import { deliverEpicFinalReview } from './feature-epic-delivery.ts'
 import { announceFeatureBatch } from './feature-host-native.ts'
 import { abortOwnedFeatureWatch, releaseFeatureOwner, rememberFeatureOwner } from './feature-host-ownership.ts'
@@ -13,6 +18,7 @@ import {
   isFramingResult,
   principalRefusalMessage,
 } from './feature-presentation.ts'
+import { announceUwNormalization } from './uw-normalization-host.ts'
 export async function runInstalledFeatureCommand(args: string, host: FeatureCommandHost): Promise<void> {
   const parsed = parseFeatureCommand(args)
   if (!parsed.ok) {
@@ -28,19 +34,21 @@ export async function runInstalledFeatureCommand(args: string, host: FeatureComm
     abortOwnedFeatureWatch(host.key)
     host.inhibitFeatureContinuation()
     await host.interruptOwnedWork?.(parsed.control)
-  } else if (parsed.control === 'select' || parsed.control === 'resume') host.releaseFeatureContinuation()
-
+  } else if (parsed.control === 'select' || parsed.control === 'resume') {
+    host.releaseFeatureContinuation()
+  }
   const principalDispatch =
     host.principal && (parsed.control === 'select' || parsed.control === 'resume' || parsed.control === 'new')
+  const commandInput: ContinueFeatureInput = {
+    cwd: host.cwd,
+    reference: parsed.reference,
+    control: parsed.control,
+    principal: host.principal,
+    ...(host.uw === undefined ? {} : { uw: host.uw }),
+  }
   let result: ContinueFeatureResult
   try {
-    result = await host.workflow.continueFeature({
-      cwd: host.cwd,
-      reference: parsed.reference,
-      control: parsed.control,
-      decision: parsed.decision,
-      principal: host.principal,
-    })
+    result = await host.workflow.continueFeature(commandInput)
   } catch (error) {
     const stop = featureErrorMessage(error)
     await host.send(principalDispatch ? principalRefusalMessage(host.cwd, stop) : stop)
@@ -50,7 +58,7 @@ export async function runInstalledFeatureCommand(args: string, host: FeatureComm
     await deliverPrincipalRefusal(host, result)
     return
   }
-  await deliverFeatureResult(parsed.reference, result, host)
+  await deliverFeatureResult(parsed.reference, result, host, commandInput)
 }
 
 /**
@@ -77,6 +85,7 @@ function refusedWork(result: ContinueFeatureResult): string {
     case 'fix':
     case 'admitted-ci-correction':
     case 'epic-final-review':
+    case 'normalization':
       return `workflow-result: ${result.kind}`
     default:
       return 'feature-stopped: feature-result-invalid'
@@ -101,6 +110,7 @@ export async function deliverFeatureResult(
   reference: string,
   result: ContinueFeatureResult,
   host: FeatureCommandHost,
+  original?: ContinueFeatureInput,
 ): Promise<void> {
   if (host.featureContinuationInhibited() && !preservesFeatureResult(result))
     return await host.send('feature-stopped: continuation-inhibited')
@@ -114,7 +124,7 @@ export async function deliverFeatureResult(
   switch (result.kind) {
     case 'action':
       await announceFeatureBatch(reference, result.followUp, result.start, host, async (next) =>
-        deliverFeatureResult(reference, next, host),
+        deliverFeatureResult(reference, next, host, original),
       )
       return
     case 'watch':
@@ -127,11 +137,22 @@ export async function deliverFeatureResult(
       return continueAfterAdmittedCiCorrection(reference, result, host)
     case 'epic-final-review':
       return deliverEpicFinalReview(result, host, continueAfterReview)
+    case 'normalization':
+      if (original === undefined) {
+        await host.send('feature-stopped: normalization-original-request-missing')
+        return
+      }
+      return announceUwNormalization({
+        reference,
+        request: result.request,
+        original,
+        host,
+        deliver: (next) => deliverFeatureResult(reference, next, host, original),
+      })
     default:
       await host.send('feature-stopped: feature-result-invalid')
   }
 }
-
 async function deliverSessionCwd(
   result: Extract<ContinueFeatureResult, { kind: 'session-cwd' }>,
   host: FeatureCommandHost,
@@ -207,6 +228,7 @@ async function continueAfterReview(reference: string, host: FeatureCommandHost):
     reference,
     control: 'continue',
     principal: false,
+    ...(host.uw === undefined ? {} : { read: host.uw }),
   })
   await deliverFeatureResult(reference, next, host)
 }
@@ -224,6 +246,7 @@ function observeFeatureTerminal(
         reference,
         control: 'continue',
         principal: false,
+        ...(host.uw === undefined ? {} : { read: host.uw }),
       })
       await deliverFeatureResult(reference, next, host)
     })
@@ -257,7 +280,7 @@ async function continueAfterAdmittedCiCorrection(
   const run = await host.startAdmittedCiCorrection({
     reference: result.reference,
     attributionRecordId: result.attributionRecordId,
-    scope: result.scope,
+    uw: result.uw,
   })
   observeFeatureTerminal(reference, host, run.terminal)
 }

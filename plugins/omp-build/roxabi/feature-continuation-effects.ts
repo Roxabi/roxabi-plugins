@@ -12,7 +12,6 @@ import { payload } from './feature-engine.ts'
 import { fileEpicFixTicket, runEpicPostMergeHook } from './feature-epic-actions.ts'
 import { landFeature } from './feature-landing.ts'
 import type { FeatureObservation } from './feature-observation-contract.ts'
-import { mandateRoleOf } from './feature-selection.ts'
 
 type ContinueAtTarget = (
   input: ContinueFeatureInput,
@@ -34,19 +33,19 @@ export async function coordinateContinuationEffects(
     case 'fix':
       return observation.facts.failedChecks === null
         ? continueReviewBoundFix(selected, observation)
-        : continueCiCorrection(authority, observation)
+        : continueCiCorrection(authority, observation, selected.reader ?? input.read ?? input.uw)
     case 'land':
       return coordinateLanding(input, exactMandateRef, authority, observation, continueAtTarget)
     case 'resume':
-      return resumeFeature(pause, input.reference, exactMandateRef, authority, observation, continueAtTarget)
+      return resumeFeature(pause, input, exactMandateRef, authority, observation, continueAtTarget)
     case 'epic-next':
-      return continueEpicNext(context.cwd, context.git, context.gh, number, continueAtTarget)
+      return continueEpicNext(input, context.cwd, context.git, context.gh, number, continueAtTarget)
     case 'epic-final':
       return prepareEpicFinal(context.cwd, context.git, context.gh, number, mandateRef)
     case 'mark-fix':
-      return fileEpicFix(input.reference, exactMandateRef, authority, number, observation, continueAtTarget)
+      return fileEpicFix(input, exactMandateRef, authority, number, observation, continueAtTarget)
     case 'hook':
-      return coordinateHook(input.reference, exactMandateRef, authority, observation, number, continueAtTarget)
+      return coordinateHook(input, exactMandateRef, authority, observation, number, continueAtTarget)
     case 'report':
       return reportEpic(context.cwd, number)
     default:
@@ -56,7 +55,7 @@ export async function coordinateContinuationEffects(
 
 async function resumeFeature(
   pause: PauseBinding | undefined,
-  reference: string,
+  input: ContinueFeatureInput,
   exactMandateRef: ScopedRecordRef | undefined,
   authority: FeatureAuthority,
   observation: FeatureObservation,
@@ -64,11 +63,11 @@ async function resumeFeature(
 ): Promise<ContinueFeatureResult> {
   if (pause === undefined) return { kind: 'blocked', reason: 'resume-pause-missing' }
   const resumed = await resumePausedFeature({ pause, authority, observation })
-  return resumed ?? reenterCurrent(reference, exactMandateRef, authority, continueAtTarget)
+  return resumed ?? reenterCurrent(input, exactMandateRef, authority, continueAtTarget)
 }
 
 async function fileEpicFix(
-  reference: string,
+  input: ContinueFeatureInput,
   exactMandateRef: ScopedRecordRef | undefined,
   authority: FeatureAuthority,
   epic: number,
@@ -77,7 +76,7 @@ async function fileEpicFix(
 ): Promise<ContinueFeatureResult> {
   const filed = await fileEpicFixTicket(authority.context.cwd, epic, observation.evidence.issue)
   return filed.kind === 'terminal' && filed.reason.startsWith('epic-fix-marked:')
-    ? reenterCurrent(reference, exactMandateRef, authority, continueAtTarget)
+    ? reenterCurrent(input, exactMandateRef, authority, continueAtTarget)
     : filed
 }
 
@@ -105,27 +104,27 @@ async function coordinateLanding(
       ? { kind: 'watch', command: landed.watch }
       : { kind: 'blocked', reason: 'watch-missing' }
   }
-  if (outcome.action === 'report-merged')
-    return reenterCurrent(input.reference, exactMandateRef, authority, continueAtTarget)
+  if (outcome.action === 'report-merged') return reenterCurrent(input, exactMandateRef, authority, continueAtTarget)
   return outcome.action === 'stop' || outcome.action === 'blocked'
     ? { kind: 'terminal', reason: outcome.reason }
     : { kind: 'blocked', reason: outcome.action }
 }
 
 function reenterCurrent(
-  reference: string,
+  input: ContinueFeatureInput,
   exactMandateRef: ScopedRecordRef | undefined,
   authority: FeatureAuthority,
   continueAtTarget: ContinueAtTarget,
 ): Promise<ContinueFeatureResult> {
   const { context } = authority
   return continueAtTarget(
-    { cwd: context.cwd, reference, control: 'continue', principal: false, git: context.git, gh: context.gh },
+    { ...input, cwd: context.cwd, control: 'continue', principal: false, git: context.git, gh: context.gh },
     exactMandateRef,
   )
 }
 
 async function continueEpicNext(
+  input: ContinueFeatureInput,
   cwd: string,
   git: FeatureAuthority['context']['git'],
   gh: FeatureAuthority['context']['gh'],
@@ -135,7 +134,15 @@ async function continueEpicNext(
   try {
     const step = (await epicNext(cwd, epic, false)).step
     return (step.action === 'start' || step.action === 'resume') && typeof step.ticket === 'number'
-      ? continueAtTarget({ cwd, reference: `#${step.ticket}`, control: 'continue', principal: false, git, gh })
+      ? continueAtTarget({
+          ...input,
+          cwd,
+          reference: `#${step.ticket}`,
+          control: 'continue',
+          principal: false,
+          git,
+          gh,
+        })
       : { kind: 'terminal', reason: `epic-${step.action}` }
   } catch (error) {
     return { kind: 'blocked', reason: error instanceof Error ? error.message : 'epic-next-failed' }
@@ -162,7 +169,7 @@ async function prepareEpicFinal(
 }
 
 async function coordinateHook(
-  reference: string,
+  input: ContinueFeatureInput,
   exactMandateRef: ScopedRecordRef | undefined,
   authority: FeatureAuthority,
   observation: FeatureObservation,
@@ -175,10 +182,17 @@ async function coordinateHook(
     return { kind: 'blocked', reason: 'hook-mandate-missing' }
   const mandate = selected.mandate
   const parent = payload(mandate).parent
-  if (mandateRoleOf(mandate) === 'feature') {
+  const accepted = context.engine.resolveAcceptedSpec(mandate, [
+    observation.evidence.issue,
+    ...observation.evidence.parents,
+  ])
+  if (!accepted.ok) return { kind: 'blocked', reason: 'hook-spec-unreadable', diagnostics: accepted.evidence }
+  const role = context.engine.effectiveMandateRole(mandate.payload.role, accepted.spec)
+  if (role === 'feature') {
     if (!isMandateReference(parent)) return { kind: 'blocked', reason: 'parent-mandate-unreadable' }
     return continueAtTarget(
       {
+        ...input,
         cwd: context.cwd,
         reference: parent.scope.target,
         control: 'continue',
@@ -189,10 +203,10 @@ async function coordinateHook(
       parent,
     )
   }
-  if (mandateRoleOf(mandate) !== 'epic') return { kind: 'blocked', reason: 'epic-hook-role' }
+  if (role !== 'epic') return { kind: 'blocked', reason: 'epic-hook-role' }
   try {
     await runEpicPostMergeHook(context.cwd, epic)
-    return reenterCurrent(reference, exactMandateRef, authority, continueAtTarget)
+    return reenterCurrent(input, exactMandateRef, authority, continueAtTarget)
   } catch (error) {
     return { kind: 'blocked', reason: error instanceof Error ? error.message : 'epic-hook-failed' }
   }

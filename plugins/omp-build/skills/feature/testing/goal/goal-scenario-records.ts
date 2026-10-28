@@ -1,23 +1,19 @@
-import { type CanonicalRecord, decodeHistory, encodeRecord } from '../../../../contracts.ts'
+import {
+  type CanonicalRecord,
+  decodeHistory,
+  encodeRecord,
+  parseIssueSpecBody,
+  rawSource,
+} from '../../../../contracts.ts'
 import { reviewRoot } from '../../../../testing/record-builders.ts'
 import { epicReviewGraph } from '../../../../testing/record-graphs.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../../../../testing/roxabi-presets.ts'
-import {
-  A,
-  B,
-  C,
-  CHILD_BODY,
-  type Comment,
-  type DriverNext,
-  EPIC,
-  EPIC_BODY,
-  RUN_A,
-  RUN_B,
-} from './goal-scenario-domain.ts'
+import { A, B, C, type Comment, type DriverNext, EPIC, RUN_A, RUN_B } from './goal-scenario-domain.ts'
 import { callWorkflow, gh, readSim, runDriver, sandboxEpic, writeSim } from './goal-scenario-sandbox.ts'
 
 const { encodedAdmissionReviewGraph, projection: TEST_PROJECTION_CONFIG } = roxabiRecordFixtures()
-const { childSnapshot, epicMandate, featureMandate, framedBodies, historyFrom, mandateRef } = roxabiWorkflowFixtures()
+const { epicMandate, featureMandate, framedBodies, historyFrom, identityAllocation, mandateRef, ownSpecFromSnapshot } =
+  roxabiWorkflowFixtures()
 
 function nativeComments(issue: number, comments: Comment[]) {
   return comments.map((comment, index) => ({
@@ -28,6 +24,17 @@ function nativeComments(issue: number, comments: Comment[]) {
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
   }))
+}
+function currentSpec(number: number) {
+  const issue = readSim().issues[String(number)]
+  if (!issue) throw new Error(`missing issue #${number}`)
+  const scope = { repository: 'acme/app', target: `acme/app#${number}` }
+  const parsed = parseIssueSpecBody({
+    uw: scope,
+    raw: rawSource(scope.target, issue.body, '2026-01-01T00:00:00Z'),
+  })
+  if (parsed.status !== 'conformant') throw new Error(`fixture Spec #${number} is ${parsed.status}`)
+  return { scope, snapshot: parsed.snapshot }
 }
 
 export function events(issue: number) {
@@ -81,47 +88,89 @@ export function seedEpicDecision(range: string): string {
 }
 
 function epicRecord() {
-  const scope = { repository: 'acme/app', target: `acme/app#${EPIC}` }
-  const children = [A, B, C].map((number) =>
-    childSnapshot({ repository: 'acme/app', target: `acme/app#${number}` }, CHILD_BODY),
-  )
-  return epicMandate(scope, children, { runId: RUN_A, body: EPIC_BODY })
+  const current = currentSpec(EPIC)
+  const children = [A, B, C].map((number) => {
+    const child = currentSpec(number)
+    return {
+      scope: child.scope,
+      specVersion: child.snapshot.spec.version,
+      snapshot: child.snapshot,
+      tier: 'F-lite' as const,
+    }
+  })
+  return epicMandate(current.scope, children, {
+    runId: RUN_A,
+    run: RUN_A,
+    body: current.snapshot.raw.body,
+    ownSpec: ownSpecFromSnapshot(current.scope, current.snapshot),
+    tier: 'F-lite',
+  })
+}
+
+function ensureIdentity(number: number): void {
+  const scope = { repository: 'acme/app', target: `acme/app#${number}` }
+  if (readSim().issues[String(number)]?.comments.some((comment) => comment.body.includes('kind=spec-identity'))) return
+  const bodies = framedBodies([identityAllocation(scope)], 'operator')
+  writeSim((sim) => {
+    const issue = sim.issues[String(number)]
+    if (!issue) throw new Error(`missing issue #${number}`)
+    issue.comments.push(...bodies.map((body) => ({ author: 'operator', body })))
+  })
 }
 
 function ensureMandate(): void {
   const state = readSim()
-  if (state.issues[String(EPIC)]?.comments.some((comment) => comment.body.includes('kind=mandate'))) return
-  const bodies = framedBodies([epicRecord()], 'operator')
-  writeSim((sim) => {
-    const issue = sim.issues[String(EPIC)]
-    if (!issue) throw new Error('missing epic issue')
-    issue.comments.push(...bodies.map((body) => ({ author: 'operator', body })))
-  })
+  if (!state.issues[String(EPIC)]?.comments.some((comment) => comment.body.includes('kind=mandate'))) {
+    const bodies = framedBodies([epicRecord()], 'operator')
+    writeSim((sim) => {
+      const issue = sim.issues[String(EPIC)]
+      if (!issue) throw new Error('missing epic issue')
+      issue.comments.push(...bodies.map((body) => ({ author: 'operator', body })))
+    })
+  }
+  for (const number of [A, B, C]) ensureIdentity(number)
 }
 
 export function ensureChildMandate(number: number, branch: string, id: string): void {
   ensureMandate()
   if (readSim().issues[String(number)]?.comments.some((comment) => comment.body.includes('kind=mandate'))) return
   const epic = epicRecord()
-  const mandate = featureMandate(
-    { repository: 'acme/app', target: `acme/app#${number}` },
+  const current = currentSpec(number)
+  const mandate = featureMandate(current.scope, {
+    recordId: `mandate-feature-${id}`,
+    operationId: `op-mandate-feature-${id}`,
+    runId: RUN_A,
+    run: RUN_A,
+    body: current.snapshot.raw.body,
+    branch,
+    base: 'main',
+    lineageHead: null,
+    parent: mandateRef(epic),
+    ownSpec: ownSpecFromSnapshot(current.scope, current.snapshot),
+    tier: 'F-lite',
+  })
+  const parentHistory = historyFrom([epic], 'operator')
+  const issue = readSim().issues[String(number)]
+  if (!issue) throw new Error(`missing child issue #${number}`)
+  const encoded = encodeRecord(
+    mandate,
     {
-      recordId: `mandate-feature-${id}`,
-      operationId: `op-mandate-feature-${id}`,
-      runId: RUN_A,
-      body: CHILD_BODY,
-      branch,
-      base: 'main',
-      lineageHead: null,
-      parent: mandateRef(epic),
+      scope: { repository: 'acme/app', target: `acme/app#${number}` },
+      expectedAuthor: 'operator',
+      stopAuthor: null,
+      complete: true,
+      comments: nativeComments(number, issue.comments),
+      diagnostics: [],
     },
+    TEST_PROJECTION_CONFIG,
+    [parentHistory],
   )
-  const bodies = framedBodies([mandate], 'operator', [historyFrom([epic], 'operator')])
+  if (!encoded.ok) throw new Error(encoded.diagnostics.map((entry) => entry.code).join(', '))
   writeSim((sim) => {
     const child = sim.issues[String(number)]
     if (!child) throw new Error(`missing child issue #${number}`)
     if (!child.comments.some((comment) => comment.body.includes('kind=mandate')))
-      child.comments.push(...bodies.map((body) => ({ author: 'operator', body })))
+      child.comments.push(...encoded.value.map((body) => ({ author: 'operator', body })))
   })
 }
 

@@ -4,7 +4,7 @@ import type { CanonicalRecord } from './record-schema.ts'
 import type { Result } from './result.ts'
 import { type InitialPullRequestReviewInventory, isInitialPullRequestReviewInventory } from './review-schema.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
-import type { AcceptedSpec } from './workflow-accepted-spec-types.ts'
+import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
 import type { MandateRecord } from './workflow-control.ts'
 
 type ReviewRoot = Extract<CanonicalRecord, { kind: 'review-attempt' }>
@@ -21,7 +21,7 @@ type HistoricalReviewAssociationInput = {
 export type HistoricalReviewAssociation = {
   binding: WorkflowBinding
   mandate: MandateRecord
-  accepted: AcceptedSpec
+  accepted: AcceptedOwnSpec
 }
 
 function samePullRequestScope(
@@ -58,8 +58,7 @@ export function historicalReviewAssociations(
       (mandate): mandate is MandateRecord =>
         mandate.recordId === mandateRef.recordId &&
         mandate.kind === 'mandate' &&
-        samePullRequestScope(mandate, mandateRef.scope) &&
-        samePullRequestScope(mandate, rootScope),
+        samePullRequestScope(mandate, mandateRef.scope),
     )
     if (mandates.length !== 1) continue
     const accepted = resolveAcceptedSpec(mandates[0], input.histories)

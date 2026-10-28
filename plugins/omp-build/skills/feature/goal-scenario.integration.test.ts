@@ -243,7 +243,10 @@ describe('stateful gh — one continuous goal', () => {
     expect(prOf(BRANCH_B).mergeCommit?.parents[1]).toBe(shaB)
     writeSim((state) => {
       const issue = state.issues[String(C)]
-      if (issue) issue.state = 'CLOSED'
+      if (issue) {
+        issue.state = 'CLOSED'
+        issue.stateReason = 'COMPLETED'
+      }
     })
     const afterStop = jsonOf(drive(['next'], RUN_B))
     expect(stoppedArms()).toEqual([])

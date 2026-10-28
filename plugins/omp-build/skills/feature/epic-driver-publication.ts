@@ -1,5 +1,7 @@
 import { buildRecord, type CanonicalRecord, type Json, publishGitHubRecord } from '../../dist/contracts.js'
 import { ticketOfBranch } from './epic-claims'
+import type { EpicAuthority } from './epic-driver-authority'
+import { readChildPrInventory } from './epic-driver-containment'
 import { adapterOptions, diagnosticsText, issueHistory, tree } from './epic-driver-github'
 import { gh, git, repoName } from './epic-driver-runtime'
 import type { ChildFacts } from './epic-types'
@@ -68,6 +70,14 @@ export async function publishEpicEvent(
 
 export type Disarm = 'merged' | 'closed' | 'disarmed' | 'unarmed'
 
+function confirmedMerged(repo: string, pr: number): boolean {
+  try {
+    return prState(repo, pr).state === 'MERGED'
+  } catch {
+    return false
+  }
+}
+
 /**
  * No stopped ticket stays armed: remove `reviewed`, disable native auto-merge
  * (`disarmReviewedBeforePush`, no push), read back. `merged` when the PR landed first.
@@ -77,9 +87,14 @@ export async function disarm(repo: string, pr: number): Promise<Disarm> {
   if (before.state === 'MERGED') return 'merged'
   if (before.state !== 'OPEN') return 'closed'
   const labelled = before.labels.includes('reviewed')
-  if (before.autoMerge)
-    await disarmReviewedBeforePush(repo, pr, { gh: async (cwd: string, args: string[]) => gh(cwd, args) })
-  else if (labelled) gh(repo, ['pr', 'edit', String(pr), '--remove-label', 'reviewed'])
+  if (before.autoMerge) {
+    try {
+      await disarmReviewedBeforePush(repo, pr, { gh: async (cwd: string, args: string[]) => gh(cwd, args) })
+    } catch (error) {
+      if (confirmedMerged(repo, pr)) return 'merged'
+      throw error
+    }
+  } else if (labelled) gh(repo, ['pr', 'edit', String(pr), '--remove-label', 'reviewed'])
   const after = prState(repo, pr)
   if (after.state === 'MERGED') return 'merged'
   if (after.labels.includes('reviewed') || after.autoMerge) throw new Error(`PR #${pr} is still armed after the disarm`)
@@ -104,14 +119,15 @@ export async function recordStop(
  */
 export async function ticketStop(
   repo: string,
-  run: string,
-  base: string,
+  authority: EpicAuthority,
   child: ChildFacts,
   reason: string,
   detail: string,
 ): Promise<{ merged: number | null; disarmed: Record<number, Disarm> }> {
+  const { run, base } = authority
+  const prs = (await readChildPrInventory(repo, authority, child)).filter((pr) => pr.state === 'OPEN')
   const disarmed: Record<number, Disarm> = {}
-  for (const pr of child.prs.filter((p) => p.state === 'OPEN')) {
+  for (const pr of prs) {
     disarmed[pr.number] = await disarm(repo, pr.number)
     if (disarmed[pr.number] === 'merged') return { merged: pr.number, disarmed }
   }

@@ -1,6 +1,10 @@
 import type { CanonicalRecord, DecodedHistory, GitHubOptions, Scope } from '../dist/contracts.js'
+import { mandatePayloadSchema } from '../dist/contracts.js'
+import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
+import type { AcceptedChildCommitment, MandatePayload } from '../engine/workflow-mandate-schema.ts'
 import type { FixActionResult, FixTarget, ReviewAuthority, ReviewStepResult } from './fix-contract.ts'
 import { failure } from './fix-contract.ts'
+import type { UwReadPort } from './uw-contract.ts'
 
 export const MANDATE_REFUSAL: Record<string, true> = {
   paused: true,
@@ -51,7 +55,9 @@ export type FixMandateView = {
   storedLanding: boolean
   repository: string
   target: string
-  specBody: string | null
+  ownSpec: MandatePayload['ownSpec']
+  tier: MandatePayload['tier']
+  children: MandatePayload['children']
   parent: { scope: Scope; recordId: string; kind: string } | null
   antecedent: { scope: Scope; recordId: string; kind: string } | null
 }
@@ -83,7 +89,7 @@ export type CiCorrectionAdmission = {
   readonly remaining?: number
   readonly attributionRecordId: string
   readonly candidateGitSHA: string
-  readonly scope: string
+  readonly uw: { ownSpec: AcceptedOwnSpec; children: readonly AcceptedChildCommitment[] }
   readonly mandateRecordId: string
   readonly failedChecks: readonly string[]
 }
@@ -115,7 +121,7 @@ export function classifyCiCorrectionStep(step: ReviewStepResult): CiCorrectionSt
 export type AttributedCiCorrectionInput = {
   cwd: string
   target: FixTarget
-  scope: string
+  uw: UwReadPort
   branch: string | null
   base: string | null
   attributionRecordId: string
@@ -149,20 +155,12 @@ export function completeRecord(history: DecodedHistory, recordId: string): Canon
 }
 
 export function mandateView(record: CanonicalRecord): FixActionResult<FixMandateView> {
-  const payload = objectValue(record.payload)
-  const permissions = objectValue(payload?.permissions)
-  const role = payload?.role
-  if (
-    payload === null ||
-    permissions === null ||
-    (role !== 'feature' && role !== 'epic' && role !== 'fix-only') ||
-    typeof permissions.landing !== 'boolean' ||
-    permissions.correct !== true
-  ) {
-    return failure('fix-mandate-unrecognized')
-  }
-  if (role === 'fix-only' && permissions.landing !== false) return failure('fix-mandate-lands')
-  const spec = objectValue(payload.spec)
+  if (record.kind !== 'mandate') return failure('fix-mandate-unrecognized')
+  const parsed = mandatePayloadSchema.safeParse(record.payload)
+  if (!parsed.success) return failure('fix-mandate-unrecognized')
+  const payload = parsed.data
+  if (payload.permissions.correct !== true) return failure('fix-mandate-unrecognized')
+  if (payload.role === 'fix-only' && payload.permissions.landing !== false) return failure('fix-mandate-lands')
   const parent = externalRef(payload.parent)
   const antecedent = externalRef(payload.antecedent)
   if (payload.parent !== null && parent === null) return failure('fix-mandate-parent-unreadable')
@@ -171,11 +169,13 @@ export function mandateView(record: CanonicalRecord): FixActionResult<FixMandate
     ok: true,
     value: {
       recordId: record.recordId,
-      role,
-      storedLanding: permissions.landing,
+      role: payload.role,
+      storedLanding: payload.permissions.landing,
       repository: record.repository,
       target: record.target,
-      specBody: spec !== null && typeof spec.body === 'string' ? spec.body : null,
+      ownSpec: payload.ownSpec,
+      tier: payload.tier,
+      children: payload.children,
       parent,
       antecedent,
     },

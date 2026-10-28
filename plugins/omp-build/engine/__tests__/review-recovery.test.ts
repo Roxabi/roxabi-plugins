@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { reviewRoot, TEST_INPUT, TEST_SCOPE } from '../../testing/record-builders.ts'
 import { history } from '../../testing/record-history.ts'
+import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { buildRecord } from '../record-construction.ts'
 import type { CanonicalRecord } from '../record-schema.ts'
 import type { Result } from '../result.ts'
@@ -223,9 +224,78 @@ describe('review recovery', () => {
       value: {
         binding: { recordId: historicalBinding.recordId },
         mandate: { recordId: mandated.recordId },
-        accepted: { digest: mandated.payload.spec.bodySha256 },
+        accepted: { snapshot: { raw: { bodySha256: mandated.payload.ownSpec.snapshot.raw.bodySha256 } } },
       },
     })
+  })
+
+  test('authenticates the issue-scoped mandate referenced by the PR-scoped historical binding', () => {
+    const issueScope = { repository: WORKFLOW_SCOPE.repository, target: `${WORKFLOW_SCOPE.repository}#7` }
+    const mandated = roxabiWorkflowFixtures().featureMandate(issueScope, {
+      recordId: 'issue-mandate-for-recovery',
+      runId: 'issue-mandate-run',
+      operationId: 'issue-mandate-operation',
+      branch: 'feature/recovery',
+      base: 'main',
+      lineageHead: null,
+      body: 'ship the bounded workflow',
+    })
+    if (mandated.kind !== 'mandate') throw new Error('fixture mandate is not a mandate')
+    const historicalBinding = binding(mandated)
+    const histories = [workflowHistory([mandated], issueScope), workflowHistory([historicalBinding])]
+    const root = {
+      ...reviewRoot({ id: 'issue-bound-interrupted-root' }),
+      repository: WORKFLOW_SCOPE.repository,
+      target: WORKFLOW_SCOPE.target,
+    }
+
+    expect(
+      reviewRecovery.proveHistoricalReviewAssociation({
+        root,
+        bindings: [historicalBinding as Extract<CanonicalRecord, { kind: 'workflow-binding' }>],
+        mandates: [mandated],
+        histories,
+      }),
+    ).toMatchObject({
+      ok: true,
+      value: {
+        binding: { recordId: historicalBinding.recordId },
+        mandate: { recordId: mandated.recordId, target: issueScope.target },
+      },
+    })
+  })
+
+  test('refuses a PR-scoped mandate reference when the historical mandate is issue scoped', () => {
+    const issueScope = { repository: WORKFLOW_SCOPE.repository, target: `${WORKFLOW_SCOPE.repository}#7` }
+    const mandated = roxabiWorkflowFixtures().featureMandate(issueScope, {
+      recordId: 'issue-mandate-wrong-reference',
+      runId: 'issue-mandate-wrong-reference-run',
+      operationId: 'issue-mandate-wrong-reference-operation',
+      branch: 'feature/recovery',
+      base: 'main',
+      lineageHead: null,
+      body: 'ship the bounded workflow',
+    })
+    if (mandated.kind !== 'mandate') throw new Error('fixture mandate is not a mandate')
+    const wrongReferenceBinding = binding(
+      { ...mandated, repository: WORKFLOW_SCOPE.repository, target: WORKFLOW_SCOPE.target },
+      WORKFLOW_SCOPE,
+    )
+    const histories = [workflowHistory([mandated], issueScope), workflowHistory([wrongReferenceBinding])]
+    const root = {
+      ...reviewRoot({ id: 'wrong-reference-interrupted-root' }),
+      repository: WORKFLOW_SCOPE.repository,
+      target: WORKFLOW_SCOPE.target,
+    }
+
+    expect(
+      reviewRecovery.proveHistoricalReviewAssociation({
+        root,
+        bindings: [wrongReferenceBinding as Extract<CanonicalRecord, { kind: 'workflow-binding' }>],
+        mandates: [mandated],
+        histories,
+      }),
+    ).toMatchObject({ ok: false, diagnostics: expect.arrayContaining([expect.objectContaining({ code: 'unbound' })]) })
   })
 
   test('derives replacement inventory inputs from the historical root, disposition, and grant', () => {

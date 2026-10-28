@@ -1,6 +1,18 @@
 import { describe, it } from 'vitest'
 import { branchFor } from './epic-naming'
-import { branch, type Case, child, decides, facts, head, OTHER_REPO, on, pr, sha } from './epic-transition.fixture'
+import {
+  branch,
+  type Case,
+  child,
+  decides,
+  facts,
+  head,
+  OTHER_REPO,
+  on,
+  pr,
+  refusedOwnUw,
+  sha,
+} from './epic-transition.fixture'
 
 describe('nextStep', () => {
   describe('order and blockers', () => {
@@ -29,8 +41,13 @@ describe('nextStep', () => {
       {
         name: 'closed in-epic and out-of-epic blockers → the child is actionable',
         facts: facts([
-          child(1, { state: 'CLOSED' }),
-          child(2, { blockedBy: [on(1, 'CLOSED'), on(900, 'CLOSED', OTHER_REPO)] }),
+          child(1, { state: 'CLOSED', stateReason: 'COMPLETED' }),
+          child(2, {
+            blockedBy: [
+              { number: 1, state: 'CLOSED', stateReason: 'COMPLETED' },
+              { number: 900, state: 'CLOSED', stateReason: 'COMPLETED', repo: OTHER_REPO },
+            ],
+          }),
         ]),
         step: { action: 'start', ticket: 2, branch: 'feat/2-child-2' },
         report: { closed: [1], skipped: [] },
@@ -49,7 +66,10 @@ describe('nextStep', () => {
       },
       {
         name: 'a same-repo blocker outside the epic counts by its own state',
-        facts: facts([child(1, { blockedBy: [on(42)] }), child(2, { blockedBy: [on(43, 'CLOSED')] })]),
+        facts: facts([
+          child(1, { blockedBy: [on(42)] }),
+          child(2, { blockedBy: [{ number: 43, state: 'CLOSED', stateReason: 'COMPLETED' }] }),
+        ]),
         step: { action: 'start', ticket: 2 },
         report: { skipped: [{ ticket: 1, blockers: [42] }] },
       },
@@ -171,13 +191,13 @@ describe('nextStep', () => {
         step: { action: 'resume', ticket: 1, branch: head(1), pr: null },
       },
       {
-        name: 'no size label → no-scope',
-        facts: facts([child(1, { labels: ['type:feat'] })]),
+        name: 'an incomplete shared UW observation → no-scope',
+        facts: facts([child(1, { ownUw: refusedOwnUw('incomplete') })]),
         step: { action: 'stop', ticket: 1, stop: 'no-scope' },
       },
       {
-        name: 'a needs-framing heading → no-scope',
-        facts: facts([child(1, { body: '## Acceptance\n\n- [ ] x\n\n## Needs framing\n' })]),
+        name: 'a changed child commitment → no-scope',
+        facts: facts([child(1, { ownUw: refusedOwnUw('changed-child', 'material-change-pending') })]),
         step: { action: 'stop', ticket: 1, stop: 'no-scope' },
       },
     ])('$name', decides)

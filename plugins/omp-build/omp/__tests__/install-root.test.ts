@@ -36,10 +36,18 @@ function temporaryInstallRoot(): string {
 function installed(options: InstallRootOptions) {
   const commands = new Map<string, Command>()
   const handlers = new Map<string, Shutdown>()
+  const registered = new Map<string, Shutdown[]>()
   const sent: string[] = []
   const pi = createExtensionApiStub({
     registerCommand: (name, command) => commands.set(name, command as Command),
-    on: (event, handler) => handlers.set(event, handler as Shutdown),
+    on: (event, handler) => {
+      const listeners = registered.get(event) ?? []
+      listeners.push(handler as Shutdown)
+      registered.set(event, listeners)
+      handlers.set(event, async (session, ctx) => {
+        for (const listener of listeners) await listener(session, ctx)
+      })
+    },
     sendUserMessage: (message) => sent.push(String(message)),
     sendMessage: (message) => sent.push(typeof message === 'string' ? message : String(message?.content ?? message)),
   })

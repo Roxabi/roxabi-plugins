@@ -2,6 +2,7 @@ import type { ExternalRecordRef } from './record-references.ts'
 import type { Diagnostic, Scope } from './record-values.ts'
 import type { PauseBinding } from './workflow-control.ts'
 import type { WorkflowGraphAction } from './workflow-graph.ts'
+import type { AssessSpecExact } from './workflow-receipt-schema.ts'
 
 export type WorkflowBlockReason =
   | 'mandate-absent'
@@ -51,9 +52,8 @@ export type WorkflowDecision =
     }
 
 export type WorkflowFacts = {
-  specDigest: string | null
-  specBody: string | null
-  branch: string | null
+  currentSpec: AssessSpecExact['proposed'] | null
+  identityAllocations: AssessSpecExact['identityAllocations'] | null
   base: string | null
   candidateGitSHA: string | null
   pullRequest: { scope: Scope; head: string; base: string; associatedIssue: Scope | null } | null

@@ -96,9 +96,57 @@ _Avoid_: an Arrêt d'UW, a /goal, waiting on pending base CI before a child UW
 The versioned framing of a UW: criteria, invariants, exclusions, open questions, and named context sections. Its proposal is carried by the issue body; acceptance belongs to the existing mandate and operator-decision chain.
 _Avoid_: artifacts/specs, validated, /R-spec, acceptance inferred from a body edit
 
+**Spec propre**:
+The framing authored for one UW, distinct from obligations inherited from its ancestors.
+_Avoid_: an ancestor's Spec, an inherited body concatenation
+
+**Spec proposée**:
+The framing offered by the current issue body. A conforming proposal is not acceptance.
+_Avoid_: the accepted Spec, authority inferred from a manual edit
+
+**Spec acceptée**:
+The immutable framing version established by the confirmed mandate and its authenticated acceptance chain. A newer proposed version does not replace it implicitly.
+_Avoid_: the latest body, an identity allocation, a local approval flag
+
+**Référence de Spec**:
+The UW identity, canonical content version and confirmed source that accepted that version.
+_Avoid_: a body URL alone, an unversioned obligation
+
+**Version de Spec**:
+The identity of parsed canonical framing content, independent of presentation-only spacing and distinct from the integrity of the exact source bytes.
+_Avoid_: a raw-body digest, whitespace erasure inside an obligation or example
+
+**Critère**:
+A UW obligation with a durable identity that survives rewording and is never reused after withdrawal.
+_Avoid_: an identity inferred from matching text, an untracked bullet
+
+**Invariant**:
+A durably identified rule that must remain true throughout a UW's delivery.
+_Avoid_: an optional criterion, an exclusion
+
+**Exclusion**:
+Additional work explicitly outside a Spec version's scope, cited within that version rather than by a durable criterion identity. It never permits a regression or an invariant violation.
+_Avoid_: permission to break compatibility, a satisfied criterion
+
+**Historique d'identités**:
+The durable allocation and withdrawal history of a UW's criteria and invariants. It establishes identities, not acceptance of a Spec.
+_Avoid_: the current body alone, a second accepted-Spec registry
+
+**Cadrée**:
+A UW whose applicable framing has a tier, at least one criterion and no open question.
+_Avoid_: syntax validity alone, an accepted delivery
+
+**Livrable**:
+A UW whose applicable Spec is framed and whose required graph facts and dependencies permit delivery.
+_Avoid_: completed, native issue closure, an earlier admission reused without checking
+
+**Wayfinder**:
+A navigation map and its decision tickets for a path that needs exploration beyond one delivery. They are not UWs, have no UW tier and are excluded from the UW work graph.
+_Avoid_: an accepted child silently removed by reclassification, a completed blocker inferred from a label
+
 **Spec effective**:
-The UW's own accepted Spec together with its ancestors' invariants and exclusions, pinned by their references and versions.
-_Avoid_: an unversioned body concatenation, treating a missing ancestor as empty
+The target applicable framing: the UW's own accepted Spec together with its ancestors' invariants and exclusions, pinned by their references and versions.
+_Avoid_: the own Spec alone, an unversioned body concatenation, treating a missing ancestor as empty
 
 **Issue**:
 The GitHub support for a proposed Spec, native graph facts, records, and the display of a UW.
@@ -127,7 +175,7 @@ _Avoid_: a /goal, a body marker, a `goal-stop` comment prefix, session memory
 **Landing admission**:
 The read-only check before `landPr` writes its arms. It admits only when the latest review approves the current head inside an unspent review bound, required CI is not red or unreadable, normative inputs are unchanged, and the selected outputs are authentic. Pending CI may be armed; the merge waits until the required checks pass. Normative inputs are the mandate configuration version and digest, the accepted Spec, and a fresh `omp-build:review-input/3` capture equal to the review binding. Authentic outputs have the expected author and readable, unedited native dates on every record that establishes the selected review's verdict and findings: its review, inventories, decision, synthesis and finding contributions, and their bound inputs; and on every mandate-chain and workflow-binding part.
 
-Mandates use `omp-build-mandate/2`; reviews that carry input use `omp-build:review-input/3`. Missing or older formats, obsolete payload fields, and frames using the removed `kind: 'proof'` refuse with `incompatible-format`. They are not migrated, re-reviewed, or exempted.
+Admission also requires the selected UW to remain deliverable on a fresh, complete native graph with its accepted own Spec applicable. Missing or incompatible authority is a refusal, not permission to infer acceptance, migrate a record or renew a mandate.
 
 _Avoid_: a green check alone, an earlier review, an unbound head, treating a digest as authentication
 
@@ -170,7 +218,7 @@ A deferred follow-up is a sibling of its origin under their shared parent, block
 _Avoid_: child-of-origin, nested deferral cascade
 
 **Tier**:
-`S` | `F-lite` | `F-full`, read from the tracker issue's `size:` label. Determines the review's spec-evidence requirements, not its agent roster.
+`S` | `F-lite` | `F-full`, read from the UW's native GitHub `size:` label. Determines the review's spec-evidence requirements, not its agent roster.
 _Avoid_: spec frontmatter, κ alone, tier-selected review agents
 
 **issue-triage**:

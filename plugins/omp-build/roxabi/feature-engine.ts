@@ -10,6 +10,8 @@ const execFileAsync = promisify(execFile)
 const requiredContractNames = [
   'reconstructWorkflow',
   'selectApplicableMandate',
+  'resolveOwnSpecAuthority',
+  'effectiveMandateRole',
   'specDigest',
   'shippedProductVersion',
   'buildRecord',

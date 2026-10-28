@@ -1,17 +1,18 @@
 import type { DecodedHistory } from '../../engine/history-schema.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
-import type { Scope } from '../../engine/record-values.ts'
+import type { Diagnostic, Scope } from '../../engine/record-values.ts'
 import type { RecordProjectionConfig } from '../../engine/result.ts'
 import { historyFor } from '../../engine/workflow-control.ts'
-import { readScopeIssueBody } from '../../roxabi/uw-spec/scope-issue.ts'
 import { publishGitHubRecord } from '../github/publish.ts'
 import { diagnostic, GitHubHistoryReadError, type GitHubOptions } from '../github/types.ts'
+import { readUwGraph } from '../github-native/uw-graph.ts'
 import {
   bindingRefusal,
   readParentMandateChain,
   resolveInitialWorkflowBinding,
   uniqueHistories,
 } from './binding-resolution.ts'
+import { readComposedWorkflowHistory, validateComposedWorkflowHistories } from './history.ts'
 import type { LandingFactsRead, WorkflowBindingRead, WorkflowPublication } from './types.ts'
 
 /**
@@ -37,16 +38,7 @@ export async function readWorkflowBinding(prScope: Scope, options: GitHubOptions
     )
     if (!parentResolution.ok) return parentResolution.result
 
-    let body: string
-    try {
-      body = await readScopeIssueBody(selected.mandate.scope, options)
-    } catch (error) {
-      const diagnostics =
-        error instanceof GitHubHistoryReadError
-          ? error.diagnostics
-          : [diagnostic('unreadable', error instanceof Error ? error.message : String(error))]
-      return bindingRefusal('unreadable', diagnostics, { scope: selected.mandate.scope })
-    }
+    const uwGraph = await readUwGraph(selected.mandateRecord.payload.ownSpec.uw, options)
 
     return {
       ok: true,
@@ -54,13 +46,13 @@ export async function readWorkflowBinding(prScope: Scope, options: GitHubOptions
         binding: selected.binding,
         history: mandateHistory,
         histories: uniqueHistories([prHistory, ...mandateHistories, ...parentResolution.parentHistories]),
-        linkedIssueBodies: [{ scope: selected.mandate.scope, body }],
+        uwGraph,
         parentScopes: parentResolution.parentScopes,
         native: {
           branch: pullRequest.branch,
           base: pullRequest.base,
           pullRequest: prScope,
-          linkedIssueScopes: [selected.mandate.scope],
+          linkedIssueScopes: [selected.mandateRecord.payload.ownSpec.uw],
         },
         observed: { head: pullRequest.head, baseTip: pullRequest.baseTip },
       },
@@ -72,6 +64,77 @@ export async function readWorkflowBinding(prScope: Scope, options: GitHubOptions
         : [diagnostic('github-read-failed', error instanceof Error ? error.message : String(error))]
     return bindingRefusal('unreadable', diagnostics)
   }
+}
+
+function scopeKey(scope: Scope): string {
+  return `${scope.repository}\0${scope.target}`
+}
+
+function mergeObservedHistories(
+  known: readonly DecodedHistory[],
+  observed: readonly DecodedHistory[],
+): { ok: true; histories: DecodedHistory[] } | { ok: false; diagnostics: Diagnostic[] } {
+  const histories = new Map<string, DecodedHistory>()
+  for (const history of [...known, ...observed]) {
+    const key = scopeKey(history.source.scope)
+    const existing = histories.get(key)
+    if (existing !== undefined && JSON.stringify(existing) !== JSON.stringify(history)) {
+      return {
+        ok: false,
+        diagnostics: [
+          diagnostic(
+            'conflicting',
+            `Workflow history for ${history.source.scope.target} changed during landing observation`,
+          ),
+        ],
+      }
+    }
+    histories.set(key, history)
+  }
+  return { ok: true, histories: [...histories.values()] }
+}
+
+function graphHistoryScopes(
+  graph: Extract<WorkflowBindingRead, { ok: true }>['value']['uwGraph'],
+): { ok: true; scopes: Scope[] } | { ok: false; diagnostics: Diagnostic[] } {
+  const scopes = new Map<string, (typeof graph)['nodes'][number]>()
+  for (const node of graph.nodes) {
+    const key = scopeKey(node.uw)
+    const existing = scopes.get(key)
+    if (existing !== undefined && JSON.stringify(existing) !== JSON.stringify(node)) {
+      return {
+        ok: false,
+        diagnostics: [diagnostic('conflicting', `Native UW graph has conflicting observations for ${node.uw.target}`)],
+      }
+    }
+    scopes.set(key, node)
+  }
+  return { ok: true, scopes: [...scopes.values()].map((node) => node.uw) }
+}
+
+function landingRefusal(
+  reason: Extract<LandingFactsRead, { ok: false }>['reason'],
+  diagnostics: Diagnostic[],
+): Extract<LandingFactsRead, { ok: false }> {
+  return { ok: false, reason, diagnostics }
+}
+
+async function completeLandingHistories(
+  bound: Extract<WorkflowBindingRead, { ok: true }>['value'],
+  options: GitHubOptions,
+): Promise<{ ok: true; histories: DecodedHistory[] } | Extract<LandingFactsRead, { ok: false }>> {
+  if (bound.uwGraph.status !== 'complete') return { ok: true, histories: bound.histories }
+  const graphScopes = graphHistoryScopes(bound.uwGraph)
+  if (!graphScopes.ok) return landingRefusal('conflicting', graphScopes.diagnostics)
+  const known = new Set(bound.histories.map((history) => scopeKey(history.source.scope)))
+  const scopes = graphScopes.scopes.filter((scope) => !known.has(scopeKey(scope)))
+  if (scopes.length === 0) return { ok: true, histories: bound.histories }
+  const composed = await readComposedWorkflowHistory(scopes, options)
+  if (!composed.ok) return landingRefusal(composed.reason, composed.diagnostics)
+  const merged = mergeObservedHistories(bound.histories, composed.histories)
+  if (!merged.ok) return landingRefusal('conflicting', merged.diagnostics)
+  const validated = validateComposedWorkflowHistories(merged.histories)
+  return validated.ok ? merged : landingRefusal(validated.reason, validated.diagnostics)
 }
 
 /**
@@ -89,12 +152,14 @@ export async function readLandingFacts(prScope: Scope, options: GitHubOptions): 
     }
   }
 
+  const complete = await completeLandingHistories(bound.value, options)
+  if (!complete.ok) return complete
   return {
     ok: true,
-    histories: bound.value.histories,
+    histories: complete.histories,
     native: bound.value.native,
     observed: bound.value.observed,
-    linkedIssueBodies: bound.value.linkedIssueBodies,
+    uwGraph: bound.value.uwGraph,
     parentScopes: bound.value.parentScopes,
     binding: bound.value.binding,
   }

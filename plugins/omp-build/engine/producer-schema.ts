@@ -11,6 +11,7 @@ import {
 } from './record-values.ts'
 import type { FindingInspection } from './result.ts'
 import { decisionSchema } from './review-schema.ts'
+import { normalizationJudgementSchema } from './uw-normalization-schema.ts'
 import {
   ciAttributionSchema,
   implementationOutputSchema,
@@ -29,6 +30,7 @@ export const PRODUCER_OUTPUTS = [
   'plan-review',
   'implementation',
   'ci-attribution',
+  'uw-normalization',
 ] as const
 export type ProducerOutput = (typeof PRODUCER_OUTPUTS)[number]
 
@@ -42,6 +44,7 @@ const producerSchemas = {
   'plan-review': planReviewSchema,
   implementation: implementationOutputSchema,
   'ci-attribution': ciAttributionSchema,
+  'uw-normalization': normalizationJudgementSchema,
 } as const satisfies Record<ProducerOutput, z.ZodType>
 
 export function producerJsonSchema(output: string): Json {

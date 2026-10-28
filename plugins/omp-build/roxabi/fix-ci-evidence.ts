@@ -2,15 +2,19 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { DecodedHistory, GitHubOptions, Scope } from '../dist/contracts.js'
 import {
+  assessUwAdmission,
   composeChantier,
   failedCheckEvidenceDigest,
+  projectNativeUwChildren,
   reconstructWorkflow,
   shippedProductVersion,
 } from '../dist/contracts.js'
+import type { AssessSpecExact } from '../engine/workflow-receipt-schema.ts'
 import { readNativeCiFailureEvidence } from './feature-ci-evidence.ts'
 import type { FixActionResult } from './fix-contract.ts'
 import { failure } from './fix-contract.ts'
 import { type AttributedCiCorrectionInput, diagnosticCodes, objectValue } from './fix-mandate-types.ts'
+import type { UwRead } from './uw-contract.ts'
 import { defaultGit } from './workflow-checkout.ts'
 import { readEffectiveFixConfig } from './workflow-config.ts'
 import { SUPPORTED_CONFIG_VERSIONS } from './workflow-graph.ts'
@@ -117,7 +121,7 @@ export async function authorizeFixAction(
   parents: readonly DecodedHistory[],
   reviewStep: 'fix' | 'review' | 'land' | 'stop',
   liveEvidence: LiveCiEvidence,
-  acceptedSpec: { body: string; digest: string },
+  uw: UwRead,
 ): Promise<FixActionResult<readonly string[]>> {
   if (input.target.state !== 'open') return failure('fix-target-closed')
   if (input.target.kind === 'pull-request' && (input.base === null || input.target.candidateGitSHA === null)) {
@@ -125,7 +129,9 @@ export async function authorizeFixAction(
   }
   const commit = input.target.candidateGitSHA
   if (commit === null || !/^[0-9a-f]{40}$/.test(commit)) return failure('fix-config-unreadable')
-  return reconstructAuthorizedFix(input, history, linked, parents, reviewStep, liveEvidence, acceptedSpec, commit)
+  const currentFacts = currentFixFacts(uw)
+  if (!currentFacts.ok) return currentFacts
+  return reconstructAuthorizedFix(input, history, linked, parents, reviewStep, liveEvidence, currentFacts.value, commit)
 }
 
 type ReconstructedWorkflowDecision = {
@@ -148,6 +154,47 @@ function reconstructedFixOutcome(
         : decision.status
   return failure(`fix-workflow-refused:${reason}`, ...diagnosticCodes(decision.evidence))
 }
+type CurrentFixFacts = {
+  currentSpec: AssessSpecExact['proposed']
+  identityAllocations: AssessSpecExact['identityAllocations']
+}
+
+function nativeTier(label: string): AssessSpecExact['proposed']['tier'] | null {
+  if (label === 'size:S') return 'S'
+  if (label === 'size:F-lite') return 'F-lite'
+  if (label === 'size:F-full') return 'F-full'
+  return null
+}
+
+function currentFixFacts(uw: UwRead): FixActionResult<CurrentFixFacts> {
+  if (!uw.identity.ok) return failure('fix-own-uw-unsettled', ...uw.identity.diagnostics.map((item) => item.code))
+  const admission = assessUwAdmission({
+    uw: uw.uw,
+    graph: uw.graph,
+    proposed: uw.proposed,
+    accepted: uw.accepted,
+    identities: uw.identity.value,
+    phase: 'delivery-transition',
+    currentChildren: { ok: true, value: [] },
+  })
+  if (!admission.deliverable.ok)
+    return failure('fix-own-uw-unsettled', ...admission.deliverable.diagnostics.map((item) => item.code))
+  if (!uw.proposed.ok) return failure('fix-own-uw-unsettled')
+  const root = uw.graph.nodes.find((node) => node.uw.repository === uw.uw.repository && node.uw.target === uw.uw.target)
+  const children = projectNativeUwChildren({ uw: uw.uw, graph: uw.graph, accepted: uw.accepted })
+  if (root === undefined || !children.ok || children.value.length !== 0) return failure('fix-own-uw-unsettled')
+  const tiers = root.labels.filter((label) => label === 'size:S' || label === 'size:F-lite' || label === 'size:F-full')
+  if (tiers.length !== 1 || tiers[0] === undefined) return failure('fix-own-uw-unsettled')
+  const tier = nativeTier(tiers[0])
+  if (tier === null) return failure('fix-own-uw-unsettled')
+  return {
+    ok: true,
+    value: {
+      currentSpec: { snapshot: uw.proposed.snapshot, tier, children: [] },
+      identityAllocations: [...uw.identity.value.allocations.values()],
+    },
+  }
+}
 
 async function reconstructAuthorizedFix(
   input: Pick<AttributedCiCorrectionInput, 'cwd' | 'target' | 'branch' | 'base' | 'options'>,
@@ -156,7 +203,7 @@ async function reconstructAuthorizedFix(
   parents: readonly DecodedHistory[],
   reviewStep: 'fix' | 'review' | 'land' | 'stop',
   liveEvidence: LiveCiEvidence,
-  acceptedSpec: { body: string; digest: string },
+  currentFacts: CurrentFixFacts,
   commit: string,
 ): Promise<FixActionResult<readonly string[]>> {
   const failedChecks = liveEvidence.failedChecks
@@ -185,9 +232,8 @@ async function reconstructAuthorizedFix(
   const decision = reconstructWorkflow({
     evidence: composed.value,
     facts: {
-      specDigest: acceptedSpec.digest,
-      specBody: acceptedSpec.body,
-      branch: input.branch,
+      currentSpec: currentFacts.currentSpec,
+      identityAllocations: currentFacts.identityAllocations,
       base: input.base,
       candidateGitSHA: commit,
       pullRequest: pullRequestFacts,

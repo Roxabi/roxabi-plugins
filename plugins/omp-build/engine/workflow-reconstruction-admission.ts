@@ -15,13 +15,20 @@ import {
 } from './workflow-control.ts'
 import { executableGraph } from './workflow-graph.ts'
 import type { MandateSelection } from './workflow-mandate.ts'
-import { selectApplicableMandate } from './workflow-mandate-admission.ts'
+import { resolveOwnSpecAuthority, selectApplicableMandate } from './workflow-mandate-admission.ts'
 import { specAssessmentSchema } from './workflow-output-schema.ts'
 import type { WorkflowEvidence } from './workflow-plan.ts'
 import { selectWorkflowBinding } from './workflow-pr-binding.ts'
 import type { SpecializedDecisions, WorkflowDecision, WorkflowFacts } from './workflow-reconstruction-types.ts'
 import { sessionEvidence, sessionReady } from './workflow-session.ts'
-import { type AssessResultRecord, isAssessResult } from './workflow-spec-assessment.ts'
+import {
+  type AssessResultRecord,
+  isAssessResult,
+  isMechanical,
+  mechanicalSpecDelta,
+  sameAssessedState,
+  sameCurrentAssessedState,
+} from './workflow-spec-assessment.ts'
 import { authenticatedAssessResult } from './workflow-spec-authentication-chain.ts'
 import { walkWorkflow } from './workflow-walk.ts'
 
@@ -114,6 +121,8 @@ function selectedMandate(
   externalHistories: readonly DecodedHistory[],
   facts: WorkflowFacts,
 ): MandateAdmission {
+  const own = resolveOwnSpecAuthority(history, externalHistories)
+  if (own.ok) return { mandate: own.value.mandate }
   const selection = selectApplicableMandate(history, externalHistories)
   if (selection.status === 'applicable') return { mandate: selection.mandate }
   if (selection.reason === 'missing') return missingMandateDecision(facts)
@@ -153,13 +162,13 @@ function matchingAssessments(
   mandate: MandateRecord,
   facts: WorkflowFacts,
 ): AssessResultRecord[] {
-  if (facts.specDigest === null || facts.specBody === null) return []
+  const currentSpec = facts.currentSpec
+  if (currentSpec === null) return []
   return recordsOf(history).filter(
     (record): record is AssessResultRecord =>
       isAssessResult(record) &&
       sameRef(record.payload.mandate, { scope: mandateScope(mandate), recordId: mandate.recordId, kind: 'mandate' }) &&
-      record.payload.exactInputs.currentDigest === facts.specDigest &&
-      record.payload.exactInputs.currentBody === facts.specBody,
+      sameCurrentAssessedState(record.payload.exactInputs.proposed, currentSpec),
   )
 }
 
@@ -171,10 +180,13 @@ function assessmentDecision(
   if (assessments.length === 0) return null
   const accepted = resolveAcceptedSpec(mandate, histories)
   if (!accepted.ok) return { status: 'terminal', reason: 'spec-ambiguous', evidence: accepted.evidence }
-  const qualified = assessments.filter(
-    (assessment) =>
-      assessment.payload.exactInputs.acceptedDigest === accepted.spec.digest &&
-      assessment.payload.exactInputs.acceptedBody === accepted.spec.body,
+  const qualified = assessments.filter((assessment) =>
+    sameAssessedState(assessment.payload.exactInputs.accepted, {
+      ref: accepted.spec.ref,
+      snapshot: accepted.spec.snapshot,
+      tier: accepted.spec.tier,
+      children: accepted.spec.children,
+    }),
   )
   if (qualified.length > 1) {
     return {
@@ -199,17 +211,29 @@ function authenticatedAssessmentDecision(
   })
   if (!authenticated.ok) return { status: 'terminal', reason: 'spec-ambiguous', evidence: authenticated.evidence }
   const parsed = specAssessmentSchema.safeParse(authenticated.record.payload.structured)
-  if (!parsed.success || parsed.data.classification === 'unknown') {
+  if (!parsed.success) {
     return {
       status: 'terminal',
       reason: 'spec-ambiguous',
-      evidence: [diagnostic('spec-ambiguous', 'Spec classification is unknown')],
+      evidence: [diagnostic('spec-ambiguous', 'Spec assessment result is malformed')],
     }
   }
-  if (parsed.data.classification === 'material')
+  const exact = authenticated.record.payload.exactInputs
+  const mechanical = mechanicalSpecDelta(exact.accepted, exact.proposed)
+  if (
+    isMechanical(mechanical) ||
+    parsed.data.classification === 'unknown' ||
+    parsed.data.classification === 'material'
+  ) {
     return blocked('spec-decision-required', [
-      diagnostic('spec-decision-required', 'Material spec change has no operator decision'),
+      diagnostic(
+        'spec-decision-required',
+        parsed.data.classification === 'unknown'
+          ? 'Authenticated Spec assessment requires an operator decision'
+          : 'Material spec change has no operator decision',
+      ),
     ])
+  }
   return null
 }
 
@@ -226,12 +250,10 @@ function bindingDecision(
     input.facts.pullRequest === null
   )
     return null
-  if (input.facts.branch === null)
-    return blocked('unknown-binding', [diagnostic('unknown-binding', 'Pull request branch was not supplied')])
   const selected = selectWorkflowBinding({
     pullRequest: input.facts.pullRequest.scope,
     histories: [history, ...externalHistories],
-    native: { branch: input.facts.branch, base: input.facts.pullRequest.base },
+    native: { branch: input.facts.pullRequest.head, base: input.facts.pullRequest.base },
   })
   if (selected.status === 'bound' && selected.mandateRecord.recordId === mandate.recordId) return null
   return blocked(
@@ -255,6 +277,7 @@ export function reconstructWorkflow(input: ReconstructionInput): WorkflowDecisio
   if (!('mandate' in selected)) return selected
   const local = localAuthorityDecision(selected.mandate, history, externalHistories, input.facts)
   if (local !== null) return local
+  if (!sessionReady(input.facts)) return blocked('session-cwd', sessionEvidence(input.facts))
   const histories = [history, ...externalHistories]
   const assessment = assessmentDecision(
     matchingAssessments(history, selected.mandate, input.facts),
@@ -265,5 +288,8 @@ export function reconstructWorkflow(input: ReconstructionInput): WorkflowDecisio
   const graph = executableGraph(selected.mandate)
   if (!graph.ok) return blocked('unsupported-graph', graph.diagnostics)
   const decision = walkWorkflow(graph.value, input.evidence, input.facts, input.decisions, selected.mandate)
+  if (decision.status === 'action' && decision.action === 'assess-spec') return decision
+  const delivery = selectApplicableMandate(history, externalHistories)
+  if (delivery.status !== 'applicable') return refusalDecision(delivery)
   return bindingDecision(decision, input, history, externalHistories, selected.mandate) ?? decision
 }

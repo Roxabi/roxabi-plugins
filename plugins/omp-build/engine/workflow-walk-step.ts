@@ -3,34 +3,16 @@ import { diagnostic } from './record-diagnostics.ts'
 import { actionCompletion } from './workflow-action-completion.ts'
 import { completionBlockReason } from './workflow-action-state.ts'
 import { conditionHolds } from './workflow-condition-evaluation.ts'
-import { type MandateRecord, WORKTREE_ACTIONS } from './workflow-control.ts'
+import type { MandateRecord } from './workflow-control.ts'
 import type { WorkflowGraph } from './workflow-graph.ts'
-import type { ActionCompletion, WorkflowEvidence } from './workflow-plan.ts'
+import type { WorkflowEvidence } from './workflow-plan.ts'
 import type { SpecializedDecisions, WorkflowDecision, WorkflowFacts } from './workflow-reconstruction-types.ts'
-import { sessionEvidence, sessionReady } from './workflow-session.ts'
 
 function blocked(
   reason: Extract<WorkflowDecision, { status: 'blocked' }>['reason'],
   evidence: WorkflowDecision['evidence'],
 ): WorkflowDecision {
   return { status: 'blocked', reason, evidence }
-}
-
-function pendingAction(
-  node: WorkflowGraph['nodes'][number],
-  completion: ActionCompletion,
-  facts: WorkflowFacts,
-  mandate: MandateRecord,
-): WorkflowDecision | null {
-  if (completion.status !== 'not-started' || node.action === 'stop' || node.action === 'done') return null
-  if (WORKTREE_ACTIONS.has(node.action) && !sessionReady(facts)) return blocked('session-cwd', sessionEvidence(facts))
-  return {
-    status: 'action',
-    action: node.action,
-    nodeId: node.id,
-    mandateId: mandate.recordId,
-    evidence: completion.evidence,
-  }
 }
 
 function terminalDecision(
@@ -40,10 +22,12 @@ function terminalDecision(
   decisions: SpecializedDecisions,
   mandate: MandateRecord,
   pullRequest: DecodedHistory | null,
+  externalHistories: readonly DecodedHistory[],
 ): WorkflowDecision | null {
   if (
     node.action === 'stop' &&
-    conditionHolds('ci-attribution-refused', history, facts, decisions, mandate, pullRequest) === true
+    conditionHolds('ci-attribution-refused', history, facts, decisions, mandate, pullRequest, externalHistories) ===
+      true
   ) {
     return {
       status: 'terminal',
@@ -68,10 +52,12 @@ function nextNode(
   decisions: SpecializedDecisions,
   mandate: MandateRecord,
   pullRequest: DecodedHistory | null,
+  externalHistories: readonly DecodedHistory[],
 ): string | WorkflowDecision {
   const matching = graph.edges.filter(
     (edge) =>
-      edge.from === current && conditionHolds(edge.when, history, facts, decisions, mandate, pullRequest) === true,
+      edge.from === current &&
+      conditionHolds(edge.when, history, facts, decisions, mandate, pullRequest, externalHistories) === true,
   )
   const exclusive = [
     ['spec-differs', 'spec-settled'],
@@ -103,6 +89,7 @@ export function walkWorkflowStep(
   graph: WorkflowGraph,
   nodes: ReadonlyMap<string, WorkflowGraph['nodes'][number]>,
   current: string,
+  enteredByTransition: boolean,
   evidence: WorkflowEvidence,
   facts: WorkflowFacts,
   decisions: SpecializedDecisions,
@@ -114,9 +101,41 @@ export function walkWorkflowStep(
   const completion = actionCompletion(node.action, evidence, decisions, mandate, facts)
   if (completion.status === 'uncertain') return blocked('action-uncertain', completion.evidence)
   if (completion.status === 'blocked') return blocked(completionBlockReason(completion), completion.evidence)
-  const pending = pendingAction(node, completion, facts, mandate)
-  if (pending !== null) return pending
-  const terminal = terminalDecision(node, evidence.issue, facts, decisions, mandate, evidence.pullRequest)
+  const externalHistories = [...evidence.parents, ...(evidence.pullRequest === null ? [] : [evidence.pullRequest])]
+  const terminal = terminalDecision(
+    node,
+    evidence.issue,
+    facts,
+    decisions,
+    mandate,
+    evidence.pullRequest,
+    externalHistories,
+  )
   if (terminal !== null) return terminal
-  return nextNode(graph, current, node, evidence.issue, facts, decisions, mandate, evidence.pullRequest)
+  const next = nextNode(
+    graph,
+    current,
+    node,
+    evidence.issue,
+    facts,
+    decisions,
+    mandate,
+    evidence.pullRequest,
+    externalHistories,
+  )
+  if (
+    enteredByTransition &&
+    typeof next !== 'string' &&
+    next.status === 'blocked' &&
+    next.reason === 'unknown-outcome' &&
+    completion.status === 'not-started'
+  )
+    return {
+      status: 'action',
+      action: node.action,
+      nodeId: node.id,
+      mandateId: mandate.recordId,
+      evidence: completion.evidence,
+    }
+  return next
 }

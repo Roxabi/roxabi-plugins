@@ -1,6 +1,6 @@
 import type { NativeBatchResult, NativeTask } from '../omp/review-runtime/contracts.ts'
 import { createTrustedDebtFiling } from './debt-filing-writer.ts'
-import { admitAttributedCiCorrection } from './fix-ci-admission.ts'
+import { type ExpectedAttributedCiCorrectionInput, reAdmitAttributedCiCorrection } from './fix-ci-admission.ts'
 import type { FixActionResult, FixIdentity, FixRecord, PreparedFix, PublishBinding } from './fix-contract.ts'
 import { capturedSubmission, failure } from './fix-contract.ts'
 import {
@@ -58,6 +58,7 @@ async function prepareCiCorrection(
   })
   const savedEvidence = await publish(product.publisher, evidence)
   if (!savedEvidence.ok) return savedEvidence
+  const correctionScope = admitted.uw.ownSpec.snapshot.raw.body
   const request = record(
     product.identity,
     input.target,
@@ -65,7 +66,7 @@ async function prepareCiCorrection(
     {
       requestContributionId: evidence.recordId,
       existingReviewId: null,
-      scope: input.scope,
+      scope: correctionScope,
       landing: false,
     },
     [evidence.recordId],
@@ -122,7 +123,7 @@ async function prepareCiCorrection(
         readHistory: input.readHistory,
         branch: input.branch,
         base: input.base,
-        correctionScope: input.scope,
+        uw: input.uw,
         boundRecordId: admitted.mandateRecordId,
         trustedLiveRequest: request,
       }),
@@ -212,10 +213,10 @@ async function synthesizeCiCorrection(
 }
 
 export async function runAdmittedCiCorrection(
-  input: AttributedCiCorrectionInput,
+  input: ExpectedAttributedCiCorrectionInput,
   product: CiCorrectionProduct,
 ): Promise<FixActionResult<FixRecord>> {
-  const admitted = await admitAttributedCiCorrection(input)
+  const admitted = await reAdmitAttributedCiCorrection(input)
   if (!admitted.ok) return admitted
   if (admitted.value.status !== 'attributed-correction') return failure(`ci-correction-${admitted.value.status}`)
   const preparation = await prepareCiCorrection(input, product, admitted.value)

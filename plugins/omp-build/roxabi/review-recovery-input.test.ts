@@ -55,6 +55,6 @@ describe('review recovery input reconstruction', () => {
     const reconstructed = reconstructHistoricalReviewInput({ root, semantic })
     expect(reconstructed).toBe(digest)
     expect(confirmHistoricalReviewInputMatch(root, reconstructed ?? '')).toMatchObject({ ok: true })
-    expect(association.value.accepted.body).toBe(BODY)
+    expect(association.value.accepted.snapshot.raw.body).toBe(BODY)
   })
 })

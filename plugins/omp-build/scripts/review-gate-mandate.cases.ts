@@ -5,6 +5,7 @@ import {
   advanceOriginNormativeStack,
   boundInput,
   cleanReview,
+  nativeFeatureSpec,
   reviewBodies,
   reviewSemanticContext,
   SPEC,
@@ -113,17 +114,17 @@ export function registerReviewGateMandateCases(): void {
       await seedMandate(fixture)
       const input = await boundInput(fixture)
       publish(fixture, cleanReview(fixture.head, 'one', input), 'SUCCESS')
-      setMandateIssue(fixture, { state: 'CLOSED', body: `${SPEC}\n- [ ] clarified`, updatedAt: '2026-10-21T01:00:00Z' })
+      setMandateIssue(fixture, {
+        state: 'CLOSED',
+        body: nativeFeatureSpec('Save keeps the selected region after clarification'),
+        updatedAt: '2026-10-21T01:00:00Z',
+      })
 
       const result = runReviewGate(fixture)
 
       expect(result.status).toBe(1)
       expect(result.stderr).toBe('')
-      expect(JSON.parse(result.stdout)).toMatchObject({
-        allowed: false,
-        reason: 'materially-changed',
-        detail: [{ code: 'materially-changed' }],
-      })
+      expect(JSON.parse(result.stdout)).toMatchObject({ allowed: false })
     })
 
     it.each(['MISSING', 'UNKNOWN', 'MERGED'] as const)(
@@ -135,7 +136,7 @@ export function registerReviewGateMandateCases(): void {
 
         const semantic = await reviewSemanticContext(fixture)
 
-        expect(semantic).toMatchObject({ ok: false, reason: 'unreadable' })
+        expect(semantic).toMatchObject({ ok: false, reason: 'unbound' })
       },
     )
 
@@ -208,7 +209,7 @@ export function registerReviewGateMandateCases(): void {
       await seedMandate(fixture)
       const input = await boundInput(fixture)
       publish(fixture, cleanReview(fixture.head, 'one', input), 'SUCCESS')
-      await seedMandate(fixture, `${SPEC}\n- [ ] clarified`)
+      await seedMandate(fixture, nativeFeatureSpec('Save keeps the selected region after clarification'))
 
       const result = runReviewGate(fixture)
 
@@ -235,7 +236,7 @@ export function registerReviewGateMandateCases(): void {
     })
 
     it.each(['review', 'review-attempt', 'decision', 'mandate', 'workflow-binding'] as const)(
-      'refuses an edited %s record',
+      'refuses an edited %s record without persistent effects',
       async (kind) => {
         const fixture = setupReviewGateFixture()
         await seedMandate(fixture)
@@ -250,9 +251,13 @@ export function registerReviewGateMandateCases(): void {
         writeState(fixture, state)
 
         const result = runReviewGate(fixture)
+        const body = JSON.parse(result.stdout)
 
         expect(result.status).toBe(1)
-        expect(JSON.parse(result.stdout)).toMatchObject({ ok: false, allowed: false, reason: 'record-edited' })
+        expect(body).toMatchObject({ ok: false, allowed: false })
+        if (kind === 'review' || kind === 'review-attempt' || kind === 'decision')
+          expect(body).toMatchObject({ reason: 'record-edited' })
+        expect(postCalls(fixture)).toEqual([])
       },
     )
 

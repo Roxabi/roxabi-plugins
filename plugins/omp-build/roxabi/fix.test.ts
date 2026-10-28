@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { validateDecisionBindings } from '../dist/contracts.js'
+import type { ExternalRecordRef } from '../engine/record-references.ts'
+import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
+import type { AcceptedChildCommitment } from '../engine/workflow-mandate-schema.ts'
 import { contribution } from '../testing/record-decisions.ts'
 import { reviewGraph } from '../testing/record-graphs.ts'
 import { history } from '../testing/record-history.ts'
+import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
 import { executeCorrection } from './correction-plan-execution.ts'
 import { reconstructFixCheckpoint } from './fix-checkpoint-state.ts'
 import type { FixRecord, FixTarget, PreparedFix } from './fix-contract.ts'
@@ -10,6 +14,7 @@ import { publishFixIntake } from './fix-contributions-native.ts'
 import { admitCorrectionCauses, assessFalsification, type CorrectionCause, type FixFinding } from './fix-domain'
 import { runReviewBoundFixWorkflow } from './fix-execution-runner.ts'
 import { matchesRequiredFeatureMandate } from './fix-mandate-authority.ts'
+import type { FixMandateView } from './fix-mandate-types.ts'
 
 const blocking: FixFinding = { id: 'finding-1', label: 'issue(blocking)', usable: true }
 const optional: FixFinding = { id: 'finding-2', label: 'suggestion', usable: true }
@@ -118,51 +123,55 @@ describe('fix correction safety', () => {
     })
   })
 
-  it('requires the exact applicable feature mandate and accepted correction scope', () => {
-    const mandate = {
-      recordId: 'feature-mandate',
-      role: 'feature' as const,
+  it('requires a matching leaf mandate in the authenticated accepted topology', () => {
+    const scope = { repository: 'Acme/app', target: 'Acme/app#42' }
+    const childScope = { repository: 'Acme/app', target: 'Acme/app#43' }
+    const { featureMandate } = roxabiWorkflowFixtures()
+    const record = featureMandate(scope, { recordId: 'feature-mandate' })
+    const child = featureMandate(childScope, { recordId: 'child-mandate' })
+    const mandate: FixMandateView = {
+      recordId: record.recordId,
+      role: record.payload.role,
       storedLanding: false,
-      repository: 'Acme/app',
-      target: 'Acme/app#42',
-      specBody: 'correct the review findings',
+      repository: record.repository,
+      target: record.target,
+      ownSpec: record.payload.ownSpec,
+      tier: record.payload.tier,
+      children: record.payload.children,
       parent: null,
       antecedent: null,
     }
-    const required = {
-      scope: { repository: 'Acme/app', target: 'Acme/app#42' },
-      recordId: 'feature-mandate',
-      kind: 'mandate' as const,
+    const required = { scope, recordId: mandate.recordId, kind: 'mandate' } satisfies {
+      scope: typeof scope
+      recordId: string
+      kind: 'mandate'
     }
+    const source = { scope, recordId: mandate.recordId, kind: 'mandate' } satisfies ExternalRecordRef
+    const accepted = (children: AcceptedChildCommitment[]): AcceptedOwnSpec => ({
+      ref: { uw: scope, version: record.payload.ownSpec.version, sourceAccepted: source },
+      snapshot: record.payload.ownSpec.snapshot,
+      tier: record.payload.tier,
+      children,
+      chain: [{ kind: 'mandate', source, version: record.payload.ownSpec.version }],
+      sourceRefs: [source],
+    })
+    const parentChildren = [
+      {
+        scope: childScope,
+        specVersion: child.payload.ownSpec.version,
+        snapshot: child.payload.ownSpec.snapshot,
+        tier: child.payload.tier,
+      },
+    ] satisfies AcceptedChildCommitment[]
 
-    expect(
-      matchesRequiredFeatureMandate(required, mandate, 'correct the review findings', 'correct the review findings'),
-    ).toBe(true)
-    expect(
-      matchesRequiredFeatureMandate(
-        required,
-        { ...mandate, role: 'fix-only' },
-        'correct the review findings',
-        'correct the review findings',
-      ),
-    ).toBe(false)
-    expect(matchesRequiredFeatureMandate(required, mandate, 'accepted scope', 'correct the review findings')).toBe(
-      false,
-    )
-    expect(
-      matchesRequiredFeatureMandate(
-        { ...required, recordId: 'other-mandate' },
-        mandate,
-        'correct the review findings',
-        'correct the review findings',
-      ),
-    ).toBe(false)
+    expect(matchesRequiredFeatureMandate(required, { ...mandate, role: 'epic' }, accepted([]))).toBe(true)
+    expect(matchesRequiredFeatureMandate(required, mandate, accepted(parentChildren))).toBe(false)
+    expect(matchesRequiredFeatureMandate(required, { ...mandate, role: 'fix-only' }, accepted([]))).toBe(false)
     expect(
       matchesRequiredFeatureMandate(
         { ...required, scope: { ...required.scope, target: 'Acme/app#99' } },
         mandate,
-        'correct the review findings',
-        'correct the review findings',
+        accepted([]),
       ),
     ).toBe(false)
   })

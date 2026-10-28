@@ -56,10 +56,19 @@ function hasIncompatibleFormat(history: DecodedHistory, operation: DecodedHistor
   )
 }
 
+function isForeignIdentityOnly(operation: DecodedHistory['operations'][number]): boolean {
+  return (
+    operation.authority === 'foreign' &&
+    operation.claimedKinds.includes('spec-identity') &&
+    operation.claimedKinds.every((claim) => claim === 'spec-identity')
+  )
+}
+
 function operationProblem(
   history: DecodedHistory,
   operation: DecodedHistory['operations'][number],
 ): 'ambiguous' | 'incompatible-format' | 'unconfirmed' | null {
+  if (isForeignIdentityOnly(operation)) return null
   const kind = operation.record?.kind ?? operation.kind
   if (!isWorkflowKind(kind ?? '') && !operation.claimedKinds.some((claim) => isWorkflowKind(claim))) return null
   if (operation.status === 'conflict') return 'ambiguous'
@@ -234,27 +243,4 @@ export function successorOf(history: DecodedHistory, mandate: MandateRecord): Ex
     (record) => record.payload.control === 'select-successor' && sameRef(record.payload.predecessor, mandateRef),
   )
   return control?.payload.control === 'select-successor' ? control.payload.successor : null
-}
-
-export function epicFixScopes(histories: readonly DecodedHistory[], run: string): Scope[] {
-  const scopes: Scope[] = []
-  for (const history of histories) {
-    for (const record of recordsOf(history)) {
-      if (record.kind !== 'epic-event' || record.runId !== run) continue
-      if (typeof record.payload !== 'object' || record.payload === null || Array.isArray(record.payload)) continue
-      if (Reflect.get(record.payload, 'event') !== 'epic-fix') continue
-      scopes.push({ repository: record.repository, target: record.target })
-    }
-  }
-  return scopes
-}
-
-export function childPermitted(
-  parent: MandateRecord,
-  childScope: Scope,
-  histories: readonly DecodedHistory[],
-): boolean {
-  if (parent.payload.role !== 'epic') return false
-  if (parent.payload.children.some((child) => equalScope(child.scope, childScope))) return true
-  return epicFixScopes(histories, parent.payload.run).some((scope) => equalScope(scope, childScope))
 }

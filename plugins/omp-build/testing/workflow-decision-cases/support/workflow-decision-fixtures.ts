@@ -1,9 +1,9 @@
 import { decodeHistory } from '../../../adapters/github/history-codec.ts'
 import type { DecodedHistory } from '../../../engine/history-schema.ts'
-import { specDigest } from '../../../engine/record-digests.ts'
 import type { CanonicalRecord } from '../../../engine/record-schema.ts'
 import type { Json, Scope } from '../../../engine/record-values.ts'
 import type { MandateRecord } from '../../../engine/workflow-control.ts'
+import type { WorkflowFacts } from '../../../engine/workflow-reconstruction-types.ts'
 import { workflowConfigDigest } from '../../../roxabi/workflow-config-digest.ts'
 import { roxabiWorkflowFixtures } from '../../roxabi-presets.ts'
 
@@ -13,6 +13,7 @@ export const SCOPE: Scope = { repository: 'acme/widgets', target: 'acme/widgets#
 export const EPIC: Scope = { repository: 'acme/widgets', target: 'acme/widgets#1' }
 export const PR: Scope = { repository: 'acme/widgets', target: 'acme/widgets#20' }
 export const HEAD = '1111111111111111111111111111111111111111'
+export const BRANCH = 'feat/42-save'
 export const BODY = '## Acceptance\n- [ ] Save keeps the selected region'
 
 function fixtureConfig() {
@@ -38,9 +39,12 @@ export function nodeGraph(action: 'implement' | 'stop' | 'fix' | 'review'): Json
     productVersion: config.productVersion,
     configVersion: config.version,
     edgeOrder: 'array',
-    nodes: [{ id: action, action }],
-    edges: [],
-    initial: action,
+    nodes: [
+      { id: 'ready', action: 'stop' },
+      { id: action, action },
+    ],
+    edges: [{ from: 'ready', to: action, when: 'always' }],
+    initial: 'ready',
   }
 }
 
@@ -61,13 +65,22 @@ export function decisions(reviewStep: 'stop' | null = null, ciWatchStatus: 'gree
   }
 }
 
-export function facts(overrides: Partial<{ sessionCwd: string | null }> = {}) {
-  const { config } = fixtureConfig()
+export function facts(
+  mandate: MandateRecord | null,
+  overrides: Partial<Pick<WorkflowFacts, 'sessionCwd'>> = {},
+): WorkflowFacts {
+  const config = mandate?.payload.config ?? fixtureConfig().config
   return {
-    specDigest: specDigest(BODY),
-    specBody: BODY,
-    branch: 'feat/42-save',
-    base: 'main',
+    currentSpec:
+      mandate === null
+        ? null
+        : {
+            snapshot: mandate.payload.ownSpec.snapshot,
+            tier: mandate.payload.tier,
+            children: mandate.payload.children,
+          },
+    identityAllocations: mandate?.payload.ownSpec.identityAllocations ?? null,
+    base: mandate?.payload.base ?? 'main',
     candidateGitSHA: HEAD,
     pullRequest: null,
     merged: false,
@@ -85,8 +98,11 @@ export function facts(overrides: Partial<{ sessionCwd: string | null }> = {}) {
   }
 }
 
-export function factsForMandate(mandate: MandateRecord, overrides: Partial<{ sessionCwd: string | null }> = {}) {
-  return { ...facts(overrides), configDigest: mandate.payload.config.digest }
+export function factsForMandate(
+  mandate: MandateRecord,
+  overrides: Partial<Pick<WorkflowFacts, 'sessionCwd'>> = {},
+): WorkflowFacts {
+  return facts(mandate, overrides)
 }
 
 export function shippedMandate(): MandateRecord {
@@ -94,9 +110,10 @@ export function shippedMandate(): MandateRecord {
 }
 
 export function shippedFacts(
+  mandate: MandateRecord,
   pullRequest: { scope: Scope; head: string; base: string; associatedIssue: Scope | null } | null = null,
-) {
-  return { ...facts(), pullRequest }
+): WorkflowFacts {
+  return { ...factsForMandate(mandate), pullRequest }
 }
 
 export function eligiblePlan(mandate: MandateRecord): CanonicalRecord[] {

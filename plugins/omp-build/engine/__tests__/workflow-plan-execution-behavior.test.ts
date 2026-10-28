@@ -1,20 +1,19 @@
 import { describe, expect, test } from 'vitest'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
-import { buildRecord, parseRecord } from '../record-construction.ts'
+import { buildRecord } from '../record-construction.ts'
 import type { Scope } from '../record-values.ts'
 import { selectApplicableMandate } from '../workflow-mandate-admission.ts'
-import { planDigest } from '../workflow-output-schema.ts'
 import { planMacro } from '../workflow-plan-macro.ts'
 import { reconstructWorkflow } from '../workflow-reconstruction-admission.ts'
 import type { SpecializedDecisions } from '../workflow-reconstruction-types.ts'
 import { implementationResult, implementationStart } from './workflow-implementation-support.ts'
-import { assessFixture } from './workflow-spec-assessment-support.ts'
+import { assessFixture, mandateAssessmentState, proposedAssessmentState } from './workflow-spec-assessment-support.ts'
 import { BODY, binding, facts, history, must, SCOPE } from './workflow-test-support.ts'
 
 describe('workflow plan execution behavior', () => {
-  test('binds planMacro to the accepted Spec after editorial advancement', () => {
-    const { featureMandate: shippedFeatureMandate, fixOnlyMandate: shippedFixOnlyMandate } = roxabiWorkflowFixtures()
-    const mandated = shippedFeatureMandate(SCOPE, {
+  test('binds plan receipts and implementation to the accepted canonical Spec version after editorial advancement', () => {
+    const workflow = roxabiWorkflowFixtures()
+    const mandated = workflow.featureMandate(SCOPE, {
       recordId: 'mandate-1',
       runId: 'run-1',
       operationId: 'op-mandate-1',
@@ -23,156 +22,38 @@ describe('workflow plan execution behavior', () => {
       lineageHead: null,
       body: BODY,
     })
-    if (mandated.kind !== 'mandate') throw new Error('expected a mandate')
-    const originalDigest = mandated.payload.spec.bodySha256
-    const advancedBody = 'editorial body'
-    const editorial = assessFixture(mandated, 'edit', BODY, advancedBody, 'editorial')
-    const advancedDigest = editorial.currentDigest
-    expect(advancedDigest).not.toBe(originalDigest)
-    const planOutput = {
-      steps: [
-        {
-          id: 'step-1',
-          change: 'bind the accepted Spec',
-          doneWhen: 'the plan matches Spec B',
-          criterion: 'exactInputs.specDigest is the accepted digest',
-          evidence: 'planMacro.specDigest',
-          paths: ['plugins/omp-build/engine/workflow-plan-macro.ts'],
-        },
+    const initial = mandateAssessmentState(mandated)
+    const originalVersion = initial.ref.version
+    const editorial = assessFixture(
+      mandated,
+      'edit',
+      initial,
+      proposedAssessmentState(initial, { body: 'editorial body' }),
+      'editorial',
+    )
+    const advancedVersion = editorial.currentVersion
+    expect(advancedVersion).not.toBe(originalVersion)
+    const digest = workflow.publishedPlanDigest()
+
+    const [oldStart, oldResult] = workflow.planDraftRecords(mandated, 'act-plan-a', originalVersion)
+    const oldReviewStart = workflow.planReviewStart(
+      mandated,
+      'act-plan-a',
+      digest,
+      'act-plan-review-a',
+      originalVersion,
+    )
+    const oldReview = workflow.planReviewRecord(
+      mandated,
+      'act-plan-a',
+      digest,
+      [
+        workflow.clearPlanContribution('slot-architect', 'R-workflow-plan-architect'),
+        workflow.clearPlanContribution('slot-adversarial', 'R-workflow-plan-adversarial'),
       ],
-      resolutions: [],
-    }
-    const digest = planDigest(planOutput)
-    const mandateRef = { scope: SCOPE, recordId: mandated.recordId, kind: 'mandate' as const }
-    const slots = [
-      { slotId: 'slot-architect', specialist: 'R-workflow-plan-architect' as const },
-      { slotId: 'slot-adversarial', specialist: 'R-workflow-plan-adversarial' as const },
-    ]
-    const contribution = (slotId: string, specialist: string) => ({
-      content: 'findings' as const,
-      inventoryId: null,
-      host: { origin: 'native' as const, phase: null, role: specialist, slotId, chunk: 0, childId: slotId },
-      rawAttempts: [],
-      native: { completion: 'completed' as const, strict: 'valid' as const, raw: null },
-      structured: { outcome: 'clear', blockers: [] },
-      findings: null,
-    })
-    const planPair = (actionId: string, specSha: string) => {
-      const start = must(
-        buildRecord({
-          version: 1,
-          repository: SCOPE.repository,
-          target: SCOPE.target,
-          recordId: `${actionId}-start`,
-          runId: 'run-1',
-          operationId: `op-${actionId}-start`,
-          kind: 'action-receipt',
-          payload: {
-            phase: 'start',
-            action: 'plan',
-            actionId,
-            mandate: mandateRef,
-            exactInputs: {
-              mandateId: mandated.recordId,
-              specDigest: specSha,
-              amendsReviewActionId: null,
-              requiredBlockers: [],
-            },
-          },
-        }),
-      )
-      const result = must(
-        buildRecord({
-          version: 1,
-          repository: SCOPE.repository,
-          target: SCOPE.target,
-          recordId: `${actionId}-result`,
-          runId: 'run-1',
-          operationId: `op-${actionId}-result`,
-          kind: 'action-receipt',
-          payload: {
-            phase: 'result',
-            action: 'plan',
-            actionId,
-            mandate: mandateRef,
-            start: { scope: SCOPE, recordId: start.recordId, kind: 'action-receipt' },
-            exactInputs: {
-              mandateId: mandated.recordId,
-              specDigest: specSha,
-              amendsReviewActionId: null,
-              requiredBlockers: [],
-            },
-            native: { completion: 'completed', strict: 'valid', raw: null },
-            structured: planOutput,
-            admission: null,
-            diagnostics: [],
-          },
-        }),
-      )
-      return [start, result] as const
-    }
-    const reviewPair = (actionId: string, draftActionId: string, specSha: string) => {
-      const start = must(
-        buildRecord({
-          version: 1,
-          repository: SCOPE.repository,
-          target: SCOPE.target,
-          recordId: `${actionId}-start`,
-          runId: 'run-1',
-          operationId: `op-${actionId}-start`,
-          kind: 'action-receipt',
-          payload: {
-            phase: 'start',
-            action: 'plan-review',
-            actionId,
-            mandate: mandateRef,
-            exactInputs: {
-              mandateId: mandated.recordId,
-              specDigest: specSha,
-              planDigest: digest,
-              draftActionId,
-            },
-            slots,
-          },
-        }),
-      )
-      const result = must(
-        buildRecord({
-          version: 1,
-          repository: SCOPE.repository,
-          target: SCOPE.target,
-          recordId: `${actionId}-result`,
-          runId: 'run-1',
-          operationId: `op-${actionId}-result`,
-          kind: 'action-receipt',
-          payload: {
-            phase: 'result',
-            action: 'plan-review',
-            actionId,
-            mandate: mandateRef,
-            start: { scope: SCOPE, recordId: start.recordId, kind: 'action-receipt' },
-            exactInputs: {
-              mandateId: mandated.recordId,
-              specDigest: specSha,
-              planDigest: digest,
-              draftActionId,
-            },
-            slots,
-            contributions: [
-              contribution('slot-architect', 'R-workflow-plan-architect'),
-              contribution('slot-adversarial', 'R-workflow-plan-adversarial'),
-            ],
-            native: { completion: 'completed', strict: 'valid', raw: null },
-            structured: null,
-            admission: null,
-            diagnostics: [],
-          },
-        }),
-      )
-      return [start, result] as const
-    }
-    const [oldStart, oldResult] = planPair('act-plan-a', originalDigest)
-    const [oldReviewStart, oldReview] = reviewPair('act-plan-review-a', 'act-plan-a', originalDigest)
+      'act-plan-review-a',
+      originalVersion,
+    )
     const advanced = history([
       mandated,
       editorial.start,
@@ -185,38 +66,29 @@ describe('workflow plan execution behavior', () => {
     const stale = planMacro({ issue: advanced, pullRequest: null, parents: [] }, mandated)
     expect(stale).toMatchObject({
       phase: 'needs-draft',
-      specDigest: advancedDigest,
+      specDigest: advancedVersion,
     })
     expect(stale.phase).not.toBe('eligible')
 
-    const [newStart, newResult] = planPair('act-plan-b', advancedDigest)
-    const [newReviewStart, newReview] = reviewPair('act-plan-review-b', 'act-plan-b', advancedDigest)
-    const bound = planMacro(
-      {
-        issue: history([
-          mandated,
-          editorial.start,
-          editorial.result,
-          oldStart,
-          oldResult,
-          oldReviewStart,
-          oldReview,
-          newStart,
-          newResult,
-          newReviewStart,
-          newReview,
-        ]),
-        pullRequest: null,
-        parents: [],
-      },
+    const [newStart, newResult] = workflow.planDraftRecords(mandated, 'act-plan-b', advancedVersion)
+    const newReviewStart = workflow.planReviewStart(
       mandated,
+      'act-plan-b',
+      digest,
+      'act-plan-review-b',
+      advancedVersion,
     )
-    expect(bound).toMatchObject({
-      phase: 'eligible',
-      specDigest: advancedDigest,
-      draftActionId: 'act-plan-b',
-      reviewActionId: 'act-plan-review-b',
-    })
+    const newReview = workflow.planReviewRecord(
+      mandated,
+      'act-plan-b',
+      digest,
+      [
+        workflow.clearPlanContribution('slot-architect', 'R-workflow-plan-architect'),
+        workflow.clearPlanContribution('slot-adversarial', 'R-workflow-plan-adversarial'),
+      ],
+      'act-plan-review-b',
+      advancedVersion,
+    )
     const eligibleRecords = [
       mandated,
       editorial.start,
@@ -230,10 +102,24 @@ describe('workflow plan execution behavior', () => {
       newReviewStart,
       newReview,
     ]
+    const bound = planMacro(
+      {
+        issue: history(eligibleRecords),
+        pullRequest: null,
+        parents: [],
+      },
+      mandated,
+    )
+    expect(bound).toMatchObject({
+      phase: 'eligible',
+      specDigest: advancedVersion,
+      draftActionId: 'act-plan-b',
+      reviewActionId: 'act-plan-review-b',
+    })
     const workflowFacts = facts({
       productVersion: mandated.payload.config.productVersion,
-      specDigest: advancedDigest,
-      specBody: advancedBody,
+      currentSpec: editorial.proposed,
+      identityAllocations: mandated.payload.ownSpec.identityAllocations,
       configVersion: mandated.payload.config.version,
       configDigest: mandated.payload.config.digest,
       supportedConfigVersions: [mandated.payload.config.version],
@@ -343,12 +229,13 @@ describe('workflow plan execution behavior', () => {
       },
       facts: {
         ...workflowFacts,
-        pullRequest: { scope: pull, head: 'abc', base: 'main', associatedIssue: SCOPE },
+        pullRequest: { scope: pull, head: 'feature/bounded', base: 'main', associatedIssue: SCOPE },
       },
-      decisions: workflowDecisions,
+      decisions: { ...workflowDecisions, publish: { status: 'published', evidence: [] } },
     })
     expect(review).toMatchObject({ status: 'action', action: 'review' })
 
+    const mandateRef = { scope: SCOPE, recordId: mandated.recordId, kind: 'mandate' as const }
     const abandoned = must(
       buildRecord({
         version: 1,
@@ -361,7 +248,7 @@ describe('workflow plan execution behavior', () => {
         payload: { control: 'abandon', controlId: 'abandon-mandate-1', mandate: mandateRef, predecessor: null },
       }),
     )
-    const successorBase = shippedFixOnlyMandate(SCOPE, {
+    const successor = workflow.featureMandate(SCOPE, {
       recordId: 'mandate-2',
       runId: 'run-2',
       operationId: 'op-mandate-2',
@@ -374,20 +261,8 @@ describe('workflow plan execution behavior', () => {
         digest: mandated.payload.config.digest,
         effective: mandated.payload.config.effective,
       },
-      parent: null,
       antecedent: mandateRef,
     })
-    const successor = must(
-      parseRecord({
-        ...successorBase,
-        payload: {
-          ...successorBase.payload,
-          role: 'feature',
-          permissions: { landing: true, correct: true },
-        },
-      }),
-    )
-    if (successor.kind !== 'mandate') throw new Error('expected a mandate')
     const successorRef = { scope: SCOPE, recordId: successor.recordId, kind: 'mandate' as const }
     const selectedSuccessor = must(
       buildRecord({
@@ -416,29 +291,7 @@ describe('workflow plan execution behavior', () => {
       phase: 'needs-draft',
       draftActionId: null,
     })
-    const antecedentOpenPlanStart = must(
-      buildRecord({
-        version: 1,
-        repository: SCOPE.repository,
-        target: SCOPE.target,
-        recordId: 'act-plan-open-start',
-        runId: 'run-1',
-        operationId: 'op-act-plan-open-start',
-        kind: 'action-receipt',
-        payload: {
-          phase: 'start',
-          action: 'plan',
-          actionId: 'act-plan-open',
-          mandate: mandateRef,
-          exactInputs: {
-            mandateId: mandated.recordId,
-            specDigest: originalDigest,
-            amendsReviewActionId: null,
-            requiredBlockers: [],
-          },
-        },
-      }),
-    )
+    const [antecedentOpenPlanStart] = workflow.planDraftRecords(mandated, 'act-plan-open', originalVersion)
     const antecedentUncertain = reconstructWorkflow({
       evidence: {
         issue: history([mandated, antecedentOpenPlanStart, abandoned, successor, selectedSuccessor]),
@@ -455,10 +308,16 @@ describe('workflow plan execution behavior', () => {
     })
     expect(antecedentUncertain).toMatchObject({ status: 'blocked', reason: 'action-uncertain' })
 
-    const malformed = assessFixture(mandated, 'broken', BODY, advancedBody, null)
+    const broken = assessFixture(
+      mandated,
+      'broken',
+      initial,
+      proposedAssessmentState(initial, { body: 'editorial body' }),
+      null,
+    )
     const blocked = planMacro(
       {
-        issue: history([mandated, malformed.start, malformed.result, newStart, newResult, newReviewStart, newReview]),
+        issue: history([mandated, broken.start, broken.result, newStart, newResult, newReviewStart, newReview]),
         pullRequest: null,
         parents: [],
       },

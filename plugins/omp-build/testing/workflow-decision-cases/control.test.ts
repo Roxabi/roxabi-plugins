@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { reconstructWorkflow } from '../../engine/workflow-reconstruction-admission.ts'
 import { roxabiWorkflowFixtures } from '../roxabi-presets.ts'
-import { BODY, decisions, facts, factsForMandate, graphConfig, SCOPE } from './support/workflow-decision-fixtures.ts'
+import { BODY, decisions, factsForMandate, graphConfig, SCOPE } from './support/workflow-decision-fixtures.ts'
 
 const { featureMandate, historyFrom, implementStart, pauseConfirmed, pauseRequested } = roxabiWorkflowFixtures()
 
@@ -10,7 +10,7 @@ describe('workflow control decisions', () => {
     const mandate = featureMandate(SCOPE, { body: BODY })
     const decision = reconstructWorkflow({
       evidence: { issue: historyFrom([mandate]), pullRequest: null, parents: [] },
-      facts: facts({ sessionCwd: null }),
+      facts: factsForMandate(mandate, { sessionCwd: null }),
       decisions: decisions(),
     })
     expect(decision).toMatchObject({ status: 'blocked', reason: 'session-cwd' })
@@ -23,7 +23,7 @@ describe('workflow control decisions', () => {
     const confirmed = pauseConfirmed(mandate, request)
     const decision = reconstructWorkflow({
       evidence: { issue: historyFrom([mandate, request, confirmed]), pullRequest: null, parents: [] },
-      facts: facts(),
+      facts: factsForMandate(mandate),
       decisions: decisions(),
     })
     expect(decision).toMatchObject({ status: 'paused', confirmed: true })

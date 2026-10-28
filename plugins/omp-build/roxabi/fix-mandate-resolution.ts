@@ -13,6 +13,9 @@ import {
   resolveAcceptedSpec,
   resolveBoundWork,
 } from '../dist/contracts.js'
+import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
+import type { MandatePayload } from '../engine/workflow-mandate-schema.ts'
+import type { AssessSpecExact } from '../engine/workflow-receipt-schema.ts'
 import type { FixActionResult, FixTarget } from './fix-contract.ts'
 import { failure } from './fix-contract.ts'
 import {
@@ -41,28 +44,25 @@ export function correctionHistories(input: {
 export function acceptedSpecOf(
   mandate: CanonicalRecord,
   histories: readonly DecodedHistory[],
-): FixActionResult<{ body: string; digest: string }> {
+): FixActionResult<AcceptedOwnSpec> {
   if (mandate.kind !== 'mandate') return failure('fix-mandate-unrecognized')
   const resolved = resolveAcceptedSpec(mandate, histories)
   if (!resolved.ok) {
     if (MANDATE_REFUSAL[resolved.reason] !== true) return failure('fix-mandate-unrecognized')
     return failure(`fix-mandate-refused:${resolved.reason}`, ...diagnosticCodes(resolved.evidence))
   }
-  if (resolved.spec.body.length === 0 || !/^[0-9a-f]{64}$/.test(resolved.spec.digest)) {
-    return failure('fix-mandate-unrecognized')
-  }
-  return { ok: true, value: { body: resolved.spec.body, digest: resolved.spec.digest } }
+  return { ok: true, value: resolved.spec }
 }
 
 export function boundCorrection(
   input: { target: FixTarget; branch: string | null; base: string | null },
   histories: readonly DecodedHistory[],
-  currentSpec: { body: string; digest: string } | null,
+  currentSpec: AssessSpecExact['proposed'] | null,
 ): FixActionResult<
-  { status: 'standalone' } | { status: 'applicable'; recordId: string; body: string; digest: string }
+  { status: 'standalone' } | { status: 'applicable'; recordId: string; acceptedSpec: AcceptedOwnSpec }
 > {
   if (input.target.kind !== 'pull-request') return { ok: true, value: { status: 'standalone' } }
-  if (input.branch === null || input.base === null) return failure('fix-mandate-refused:unknown-binding')
+  if (input.branch === null || input.base === null) return failure('fix-own-uw-required')
   const resolved = resolveBoundWork({
     use: 'correction',
     explicitSelection: true,
@@ -71,19 +71,17 @@ export function boundCorrection(
     native: { branch: input.branch, base: input.base },
     currentSpec,
   })
-  if (resolved.status === 'standalone') return { ok: true, value: { status: 'standalone' } }
+  if (resolved.status === 'standalone') return failure('fix-own-uw-required')
   if (resolved.status === 'refused') {
     if (MANDATE_REFUSAL[resolved.reason] !== true) return failure('fix-mandate-unrecognized')
+    if (diagnosticCodes(resolved.evidence).includes('fix-own-uw-required')) return failure('fix-own-uw-required')
     return failure(`fix-mandate-refused:${resolved.reason}`, ...diagnosticCodes(resolved.evidence))
   }
   if (resolved.drift !== 'settled') return failure('fix-bound-spec-unsettled')
-  const spec = resolved.acceptedSpec
-  if (!resolved.permissions.correct || spec.body.length === 0 || !/^[0-9a-f]{64}$/.test(spec.digest)) {
-    return failure('fix-mandate-unrecognized')
-  }
+  if (!resolved.permissions.correct) return failure('fix-mandate-unrecognized')
   return {
     ok: true,
-    value: { status: 'applicable', recordId: resolved.mandate.recordId, body: spec.body, digest: spec.digest },
+    value: { status: 'applicable', recordId: resolved.mandate.recordId, acceptedSpec: resolved.acceptedSpec },
   }
 }
 
@@ -95,13 +93,13 @@ type CorrectionMandateInput = {
   externalHistories?: readonly DecodedHistory[]
   branch: string | null
   base: string | null
-  currentSpec: { body: string; digest: string } | null
+  currentSpec: AssessSpecExact['proposed'] | null
   evidenceDigest?: string | null
 }
 
 type BoundCorrection =
   | { status: 'standalone' }
-  | { status: 'applicable'; recordId: string; body: string; digest: string }
+  | { status: 'applicable'; recordId: string; acceptedSpec: AcceptedOwnSpec }
 
 type SelectedCorrectionMandate = FixMandateAssessment | { status: 'missing' }
 
@@ -110,7 +108,7 @@ type ResolvedCorrectionMandate =
       status: 'applicable'
       mandate: FixMandateView
       execution: CorrectionExecutionRights
-      acceptedSpec: { body: string; digest: string }
+      acceptedSpec: AcceptedOwnSpec
     }
   | { status: 'missing' }
 
@@ -149,11 +147,11 @@ function confirmedMandate(input: CorrectionMandateInput, recordId: string): Cano
 function boundSpecMatchesAcceptedSpec(
   bound: BoundCorrection,
   record: CanonicalRecord,
-  acceptedSpec: { body: string; digest: string },
+  acceptedSpec: AcceptedOwnSpec,
 ): boolean {
   return (
     bound.status !== 'applicable' ||
-    (bound.recordId === record.recordId && bound.body === acceptedSpec.body && bound.digest === acceptedSpec.digest)
+    (bound.recordId === record.recordId && JSON.stringify(bound.acceptedSpec) === JSON.stringify(acceptedSpec))
   )
 }
 
@@ -165,7 +163,10 @@ function resolveSelectedCorrectionMandate(
 ): FixActionResult<ResolvedCorrectionMandate> {
   if (!selected.ok) return failure(...selected.diagnostics)
   if (selected.value.status === 'missing') return { ok: true, value: { status: 'missing' } }
-  if (selected.value.status === 'refused') return failure(`fix-mandate-refused:${selected.value.reason}`)
+  if (selected.value.status === 'refused') {
+    if (diagnosticCodes(selected.value.evidence).includes('fix-own-uw-required')) return failure('fix-own-uw-required')
+    return failure(`fix-mandate-refused:${selected.value.reason}`)
+  }
   const confirmed = confirmedMandate(input, selected.value.mandate.recordId)
   if (confirmed === null || JSON.stringify(confirmed) !== JSON.stringify(selected.value.mandate)) {
     return failure('fix-mandate-unconfirmed')
@@ -232,7 +233,9 @@ export type FixOnlyMandateDraft = {
   base: string
   candidateGitSHA: string | null
   productVersion: string
-  work: { reference: string; body: string; lastEditedAt: string }
+  ownSpec: Extract<MandatePayload, { role: 'fix-only' }>['ownSpec']
+  tier: Extract<MandatePayload, { role: 'fix-only' }>['tier']
+  children: Extract<MandatePayload, { role: 'fix-only' }>['children']
   config: { version: string; digest: string; effective: Json }
   parent: { scope: Scope; recordId: string; kind: string } | null
   antecedent: { scope: Scope; recordId: string; kind: string } | null
@@ -263,7 +266,9 @@ export async function buildConfirmedFixOnlyMandate(
     base: draft.base,
     lineageHead: draft.candidateGitSHA,
     productVersion: draft.productVersion,
-    work: draft.work,
+    ownSpec: draft.ownSpec,
+    tier: draft.tier,
+    children: draft.children,
     config: draft.config,
     parent: parent.value,
     antecedent: antecedent.value,

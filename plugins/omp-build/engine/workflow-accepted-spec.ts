@@ -1,5 +1,4 @@
 import type { DecodedHistory } from './history-schema.ts'
-import { specDigest } from './record-digests.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import { resolveAcceptedSpecChain } from './workflow-accepted-spec-chain.ts'
 import type { AcceptedSpecResult } from './workflow-accepted-spec-types.ts'
@@ -22,8 +21,11 @@ export function resolveAcceptedSpec(mandate: MandateRecord, histories: readonly 
     return specChainFailure('incomplete', 'Mandate is not a confirmed accounted record', 'unconfirmed')
   if (JSON.stringify(confirmed) !== JSON.stringify(mandate))
     return specChainFailure('ambiguous', 'Mandate does not match the authenticated history')
-  if (specDigest(confirmed.payload.spec.body) !== confirmed.payload.spec.bodySha256)
-    return specChainFailure('material-spec', 'Mandate spec digest does not match its body')
+  if (
+    confirmed.payload.ownSpec.uw.repository !== scope.repository ||
+    confirmed.payload.ownSpec.uw.target !== scope.target
+  )
+    return specChainFailure('material-spec', 'Mandate own Spec does not belong to its mandate scope')
   const pairs = confirmedAssessPairs(home, histories, mandateRef)
   if (!pairs.ok) return pairs
   return resolveAcceptedSpecChain({ confirmed, home, histories, mandateRef, scope })

@@ -3,6 +3,7 @@ import { mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { execInherited } from './sim-invocation.ts'
 import { persist } from './sim-state.ts'
 import { type Check, fail, PASSING, type Pull, type State, stamp } from './sim-types.ts'
 
@@ -194,9 +195,9 @@ function mergeIntoOrigin(state: State, pr: Pull): void {
       ],
       { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
     )
-    const oid = execFileSync('git', ['-C', scratch, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
-    const first = execFileSync('git', ['-C', scratch, 'rev-parse', 'HEAD^1'], { encoding: 'utf8' }).trim()
-    const second = execFileSync('git', ['-C', scratch, 'rev-parse', 'HEAD^2'], { encoding: 'utf8' }).trim()
+    const oid = execInherited('git', ['-C', scratch, 'rev-parse', 'HEAD']).trim()
+    const first = execInherited('git', ['-C', scratch, 'rev-parse', 'HEAD^1']).trim()
+    const second = execInherited('git', ['-C', scratch, 'rev-parse', 'HEAD^2']).trim()
     git(state.origin, ['update-ref', `refs/heads/${pr.baseRefName}`, oid])
     pr.state = 'MERGED'
     pr.mergedAt = stamp(state)
@@ -204,7 +205,10 @@ function mergeIntoOrigin(state: State, pr: Pull): void {
     pr.autoMerge = null
     for (const number of pr.closes) {
       const issue = state.issues[String(number)]
-      if (issue && issue.state === 'OPEN') issue.state = 'CLOSED'
+      if (issue && issue.state === 'OPEN') {
+        issue.state = 'CLOSED'
+        issue.stateReason = 'COMPLETED'
+      }
     }
     persist(state)
   } finally {

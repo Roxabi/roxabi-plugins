@@ -1,8 +1,8 @@
-import { hasScope } from '../../roxabi/uw-spec'
 import { ticketOfBranch } from './epic-claims'
 import { epicDiffRange } from './epic-close'
 import { finalizationBlock, hookStatus } from './epic-finalization'
 import { branchFor } from './epic-naming'
+import { hasFramedOwnUw, ownUwRefusal } from './epic-own-uw'
 import { isDone, mergedPr, openBlockers, stopOf, summarize, topological } from './epic-progress'
 import type { ChildFacts, Facts, PrFacts, Report, Step } from './epic-types'
 
@@ -67,12 +67,12 @@ function earlyChildStep(facts: Facts, target: ChildFacts, report: Report): Step 
       report,
     }
   }
-  if (!hasScope(target)) {
+  if (!hasFramedOwnUw(target)) {
     return {
       action: 'stop',
       ticket,
       stop: 'no-scope',
-      reason: `#${ticket} has no size label, no acceptance heading, or a needs-framing heading`,
+      reason: `#${ticket} has unsettled own UW: ${ownUwRefusal(target)}`,
       report,
     }
   }

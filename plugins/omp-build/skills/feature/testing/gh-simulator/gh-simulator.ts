@@ -8,18 +8,14 @@
  * merge/worktree cleanup, GraphQL, REST/form parsing, JQ, and the command
  * transaction order are implemented in the cohesive sibling modules.
  */
-import { handle } from './sim-command.ts'
-import { withState } from './sim-state.ts'
+import { readFileSync } from 'node:fs'
+import { executeSimCommand } from './sim-execution.ts'
 
 const argv = process.argv.slice(2)
-try {
-  withState((state) => handle(state, argv))
-} catch (error) {
-  const message = error instanceof Error ? error.message : String(error)
-  const text =
-    message.startsWith('match-head-commit') || message.startsWith('auto-merge') || message.startsWith('gh:')
-      ? message
-      : `gh: ${message}\n${argv.join(' ')}`
-  process.stderr.write(`${text}\n`)
-  process.exit(1)
-}
+const result = executeSimCommand(argv, {
+  cwd: process.cwd(),
+  readStdin: () => readFileSync(0, 'utf8'),
+})
+process.stdout.write(result.stdout)
+process.stderr.write(result.stderr)
+if (result.status !== 0) process.exit(result.status)

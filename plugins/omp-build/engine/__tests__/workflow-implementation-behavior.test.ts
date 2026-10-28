@@ -10,7 +10,8 @@ import { binding, facts, history, must, SCOPE } from './workflow-test-support.ts
 
 describe('workflow implementation behavior', () => {
   test('does not let an open or rejected implementation bypass confirmation because a pull request exists', () => {
-    const { featureMandate: shippedFeatureMandate } = roxabiWorkflowFixtures()
+    const workflow = roxabiWorkflowFixtures()
+    const { featureMandate: shippedFeatureMandate } = workflow
     const shipped = shippedFeatureMandate(SCOPE, {
       recordId: 'mandate-1',
       runId: 'run-1',
@@ -38,7 +39,7 @@ describe('workflow implementation behavior', () => {
       configVersion: shipped.payload.config.version,
       configDigest: shipped.payload.config.digest,
       supportedConfigVersions: [shipped.payload.config.version],
-      pullRequest: { scope: pull, head: 'abc', base: 'main', associatedIssue: SCOPE },
+      pullRequest: { scope: pull, head: 'feature/bounded', base: 'main', associatedIssue: SCOPE },
     })
     const bound = history([binding(shipped, pull)], pull)
     const open = reconstructWorkflow({
@@ -53,10 +54,22 @@ describe('workflow implementation behavior', () => {
       decisions,
     })
     expect(rejectedDecision).toMatchObject({ status: 'blocked', reason: 'unconfirmed' })
+    const [planStart, planResult] = workflow.planDraftRecords(shipped)
+    const planReviewStart = workflow.planReviewStart(shipped, 'act-plan-1', workflow.publishedPlanDigest())
+    const planReview = workflow.planReviewRecord(shipped, 'act-plan-1', workflow.publishedPlanDigest(), [
+      workflow.clearPlanContribution('slot-architect', 'R-workflow-plan-architect'),
+      workflow.clearPlanContribution('slot-adversarial', 'R-workflow-plan-adversarial'),
+    ])
+    const admittedStart = implementationStart(shipped, 'act-implement-admitted', 'act-plan-1')
+    const admittedResult = implementationResult(shipped, admittedStart, 'act-implement-admitted', 'act-plan-1', true)
     const adopted = reconstructWorkflow({
-      evidence: { issue: history([shipped]), pullRequest: bound, parents: [] },
+      evidence: {
+        issue: history([shipped, planStart, planResult, planReviewStart, planReview, admittedStart, admittedResult]),
+        pullRequest: bound,
+        parents: [],
+      },
       facts: shippedFacts,
-      decisions,
+      decisions: { ...decisions, publish: { status: 'published', evidence: [] } },
     })
     expect(adopted).toMatchObject({ status: 'action', action: 'review' })
     expect(history([shipped]).operations.some((operation) => operation.record?.kind === 'action-receipt')).toBe(false)
@@ -67,6 +80,48 @@ describe('workflow implementation behavior', () => {
     })
     expect(nativeOnly).toMatchObject({ status: 'action', action: 'plan' })
     expect(nativeOnly).not.toMatchObject({ status: 'action', action: 'review' })
+  })
+
+  test('does not dispatch implementation when a pinned graph reaches it without a confirmed plan', () => {
+    const workflow = roxabiWorkflowFixtures()
+    const baseline = workflow.featureMandate(SCOPE, { body: 'ship the bounded workflow' })
+    const graph = {
+      version: 1,
+      productVersion: baseline.payload.config.productVersion,
+      configVersion: baseline.payload.config.version,
+      edgeOrder: 'array' as const,
+      nodes: [{ id: 'implement', action: 'implement' as const }],
+      edges: [],
+      initial: 'implement',
+    }
+    const mandated = workflow.featureMandate(SCOPE, {
+      body: 'ship the bounded workflow',
+      config: {
+        version: baseline.payload.config.version,
+        digest: baseline.payload.config.digest,
+        effective: { graph },
+      },
+    })
+    const decision = reconstructWorkflow({
+      evidence: { issue: history([mandated]), pullRequest: null, parents: [] },
+      facts: facts({
+        productVersion: mandated.payload.config.productVersion,
+        configVersion: mandated.payload.config.version,
+        configDigest: mandated.payload.config.digest,
+        supportedConfigVersions: [mandated.payload.config.version],
+      }),
+      decisions: {
+        reviewStep: null,
+        epicStep: null,
+        epicLand: null,
+        ciWatchStatus: null,
+        publish: { status: 'absent', evidence: [] },
+        landing: { status: 'absent', evidence: [] },
+        watch: { status: 'absent', evidence: [] },
+      },
+    })
+    expect(decision).toMatchObject({ status: 'blocked', reason: 'unknown-outcome' })
+    expect(decision).not.toMatchObject({ status: 'action', action: 'implement' })
   })
   test('retains an unmatched CI attribution when the current candidate changes', () => {
     const { featureMandate: shippedFeatureMandate } = roxabiWorkflowFixtures()

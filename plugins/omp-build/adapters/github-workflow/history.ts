@@ -68,6 +68,34 @@ function collectRecords(histories: readonly DecodedHistory[]): {
   return collection
 }
 
+export function validateComposedWorkflowHistories(
+  histories: readonly DecodedHistory[],
+):
+  | { ok: true; records: CanonicalRecord[] }
+  | { ok: false; reason: 'incomplete' | 'ambiguous'; diagnostics: Diagnostic[] } {
+  const collected = collectRecords(histories)
+  const blocking = collected.diagnostics.filter(
+    (entry) => entry.code === 'incomplete' || entry.code === 'ambiguous' || entry.code === 'conflicting-duplicate',
+  )
+  if (blocking.length === 0) return { ok: true, records: collected.records }
+  return {
+    ok: false,
+    reason: blocking.some((entry) => entry.code === 'ambiguous' || entry.code === 'conflicting-duplicate')
+      ? 'ambiguous'
+      : 'incomplete',
+    diagnostics: collected.diagnostics,
+  }
+}
+
+async function readSources(scopes: readonly Scope[], options: GitHubOptions): Promise<PromiseSettledResult<History>[]> {
+  const outcomes: PromiseSettledResult<History>[] = []
+  for (let index = 0; index < scopes.length; index += 2) {
+    const pair = scopes.slice(index, index + 2)
+    outcomes.push(...(await Promise.allSettled(pair.map((scope) => readGitHubHistory(scope, options)))))
+  }
+  return outcomes
+}
+
 /**
  * Compose only the linked scopes actually required. Scopes stay opaque outside
  * this adapter; callers pass Scope values from githubScope / native association.
@@ -93,9 +121,13 @@ export async function readComposedWorkflowHistory(
     }
   }
   const histories: DecodedHistory[] = []
+  const outcomes = await readSources(scopes, options)
   try {
-    for (const scope of scopes) {
-      const source: History = await readGitHubHistory(scope, options)
+    for (let index = 0; index < scopes.length; index += 1) {
+      const scope = scopes[index]
+      const outcome = outcomes[index]
+      if (outcome.status === 'rejected') throw outcome.reason
+      const source = outcome.value
       if (!source.complete) {
         return {
           ok: false,
@@ -114,19 +146,7 @@ export async function readComposedWorkflowHistory(
         : [diagnostic('github-read-failed', error instanceof Error ? error.message : String(error))]
     return { ok: false, reason: 'unreadable', diagnostics, histories }
   }
-  const collected = collectRecords(histories)
-  const blocking = collected.diagnostics.filter(
-    (entry) => entry.code === 'incomplete' || entry.code === 'ambiguous' || entry.code === 'conflicting-duplicate',
-  )
-  if (blocking.length > 0) {
-    return {
-      ok: false,
-      reason: blocking.some((entry) => entry.code === 'ambiguous' || entry.code === 'conflicting-duplicate')
-        ? 'ambiguous'
-        : 'incomplete',
-      diagnostics: collected.diagnostics,
-      histories,
-    }
-  }
-  return { ok: true, scopes: [...scopes], histories, records: collected.records }
+  const validated = validateComposedWorkflowHistories(histories)
+  if (!validated.ok) return { ok: false, reason: validated.reason, diagnostics: validated.diagnostics, histories }
+  return { ok: true, scopes: [...scopes], histories, records: validated.records }
 }

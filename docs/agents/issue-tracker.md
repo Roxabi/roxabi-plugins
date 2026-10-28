@@ -3,10 +3,11 @@
 Issues and specs for this repo live as GitHub issues in `Roxabi/roxabi-plugins`.
 Infer the repo from `git remote -v`; `gh` does this automatically inside a clone.
 
-**Reads use `gh` directly. Every write that creates an issue, sets a label, or
-creates a relation goes through the `issue-triage` skill** — see
-[Relations and labels](#relations-and-labels). CI workflows are the one exception:
-[Issues filed by CI](#issues-filed-by-ci). Authority: ADR-020 §6.
+**Reads use `gh` directly. Issue creation, labels and native relations are owned
+by issue-triage:** use its skill for ordinary triage, or its injected writer
+library through omp-build's operator-confirmed `uw` commands for strict Specs.
+Do not implement a second writer or call mutations by hand. CI workflows are
+the exception: [Issues filed by CI](#issues-filed-by-ci). Authority: ADR-020 §6.
 
 ## Read conventions
 
@@ -25,10 +26,11 @@ Relations are **native GitHub**: sub-issues for parent/child, issue dependencies
 for blocked-by / blocks. A `Blocked by: #12` line in a body is **not** a relation —
 it is invisible to the frontier query and to `gh issue view`. Never write one.
 
-Invoke the `issue-triage` skill (`/issue-triage`, or `Skill("issue-triage:issue-triage")`)
-rather than calling the API by hand: it owns the GraphQL mutations, accepts
-cross-repo refs (`OWNER/REPO#N`), and is the only place these relations are
-written.
+For ordinary triage, invoke the `issue-triage` skill (`/issue-triage`, or
+`Skill("issue-triage:issue-triage")`). It owns the native mutations and accepts
+cross-repo refs (`OWNER/REPO#N`). Omp-build's `uw` adapter delegates writes to the
+same importable issue-triage library; its additional Spec and confirmation gates
+do not replace that writer or alter the standalone triage contract.
 
 | Need | Flag |
 |---|---|

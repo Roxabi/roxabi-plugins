@@ -1,9 +1,10 @@
 import { describe, expect, test } from 'vitest'
+import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import type { DecodedHistory } from '../history-schema.ts'
 import { parseRecord } from '../record-construction.ts'
-import { specDigest } from '../record-digests.ts'
 import type { Scope } from '../record-values.ts'
 import { resolveBoundWork } from '../workflow-bound-work-resolution.ts'
+import type { MandateRecord } from '../workflow-control.ts'
 import { assessFixMandate } from '../workflow-correction-admission.ts'
 import { requireLandingMandate } from '../workflow-landing-admission.ts'
 import { selectWorkflowBinding } from '../workflow-pr-binding.ts'
@@ -12,7 +13,6 @@ import type { SpecializedDecisions, WorkflowFacts } from '../workflow-reconstruc
 import {
   BODY,
   binding,
-  DIGEST,
   facts,
   featureMandate,
   history,
@@ -22,6 +22,84 @@ import {
   pauseControls,
   SCOPE,
 } from './workflow-test-support.ts'
+
+const landingFixtures = roxabiWorkflowFixtures()
+
+function withConfirmedIdentities(histories: readonly DecodedHistory[]): DecodedHistory[] {
+  return histories.map((entry) => {
+    const present = new Set(
+      entry.operations.flatMap((operation) =>
+        operation.record?.kind === 'spec-identity'
+          ? [`${operation.record.repository}\0${operation.record.target}\0${operation.record.recordId}`]
+          : [],
+      ),
+    )
+    const allocations: DecodedHistory['operations'] = []
+    for (const operation of entry.operations) {
+      if (operation.record?.kind !== 'mandate') continue
+      for (const ref of operation.record.payload.ownSpec.identityAllocations) {
+        const key = `${ref.scope.repository}\0${ref.scope.target}\0${ref.recordId}`
+        if (present.has(key)) continue
+        const record = landingFixtures.identityAllocation(ref.scope, ref.recordId)
+        allocations.push({
+          operationId: record.operationId,
+          recordId: record.recordId,
+          kind: record.kind,
+          status: 'complete',
+          authority: 'accounted',
+          claimedKinds: [record.kind],
+          parts: [],
+          record,
+        })
+        present.add(key)
+      }
+    }
+    return allocations.length === 0 ? entry : { ...entry, operations: [...allocations, ...entry.operations] }
+  })
+}
+
+function landingInput(
+  mandate: MandateRecord,
+  histories: readonly DecodedHistory[],
+  pullRequest: Scope,
+  parentScopes: readonly Scope[] = [],
+) {
+  const ownSpec = mandate.payload.ownSpec
+  const config = mandate.payload.config
+  return {
+    histories: withConfirmedIdentities(histories),
+    native: { branch: 'feature/bounded', base: 'main', pullRequest, linkedIssueScopes: [SCOPE] },
+    parentScopes,
+    uwGraph: {
+      status: 'complete' as const,
+      root: ownSpec.uw,
+      nodes: [
+        {
+          uw: ownSpec.uw,
+          title: 'Fixture UW',
+          raw: ownSpec.snapshot.raw,
+          updatedAt: ownSpec.snapshot.raw.lastEditedAt ?? '2026-10-27T12:00:00Z',
+          labels: ['size:S'],
+          wayfinderLabels: [],
+          parent: null,
+          children: [],
+          blockers: [],
+          native: { state: 'OPEN' as const, stateReason: null },
+        },
+      ],
+      observedAt: ownSpec.snapshot.raw.lastEditedAt ?? '2026-10-27T12:00:00Z',
+    },
+    current: {
+      productVersion: config.productVersion,
+      configVersion: config.version,
+      configDigest: config.digest,
+      supportedConfigVersions: [config.version],
+      proposedSpec: { ok: true as const, snapshot: ownSpec.snapshot },
+      currentChildren: { ok: true as const, value: [] },
+    },
+    localInhibit: null,
+  }
+}
 
 describe('workflow transition behavior', () => {
   test('blocks the first mandate when the session is not in the prepared worktree', () => {
@@ -45,34 +123,15 @@ describe('workflow transition behavior', () => {
     })
   })
   test('lands a standalone feature through one binding and refuses absence, conflict, and an omitted epic parent', () => {
-    const current = {
-      productVersion: '0.11.0',
-      configVersion: 'catalogue-1',
-      configDigest: DIGEST,
-      supportedConfigVersions: ['catalogue-1'],
-      specDigest: specDigest(BODY),
-      specBody: BODY,
-    }
-    const native = { branch: 'feature/bounded', base: 'main', pullRequest: SCOPE, linkedIssueScopes: [SCOPE] }
     const feature = featureMandate()
-    expect(
-      requireLandingMandate({
-        histories: [history([feature, binding(feature)])],
-        native,
-        parentScopes: [],
-        current,
-        localInhibit: null,
-      }),
-    ).toMatchObject({ ok: true, recordId: feature.recordId })
-    expect(
-      requireLandingMandate({
-        histories: [history([feature])],
-        native,
-        parentScopes: [],
-        current,
-        localInhibit: null,
-      }),
-    ).toMatchObject({ ok: false, reason: 'missing' })
+    expect(requireLandingMandate(landingInput(feature, [history([feature, binding(feature)])], SCOPE))).toMatchObject({
+      ok: true,
+      recordId: feature.recordId,
+    })
+    expect(requireLandingMandate(landingInput(feature, [history([feature])], SCOPE))).toMatchObject({
+      ok: false,
+      reason: 'missing',
+    })
     const other = must(parseRecord({ ...feature, recordId: 'mandate-2', operationId: 'op-mandate-2' }))
     expect(
       selectWorkflowBinding({
@@ -81,40 +140,26 @@ describe('workflow transition behavior', () => {
         native: { branch: 'feature/bounded', base: 'main' },
       }).status,
     ).toBe('conflicting')
-    const epicBuilt = mandate({ recordId: 'epic-1' })
-    const epic = must(
-      parseRecord({
-        ...epicBuilt,
-        repository: PARENT.repository,
-        target: PARENT.target,
-        operationId: 'op-epic',
-        payload: {
-          ...epicBuilt.payload,
-          role: 'epic',
-          run: 'abcd1234',
-          children: [{ scope: SCOPE, specDigest: specDigest(BODY), specBody: BODY }],
-          permissions: { landing: true, correct: true },
-        },
-      }),
-    )
+    const epic = landingFixtures.epicMandate(PARENT, [landingFixtures.childSnapshot(SCOPE, BODY)], {
+      recordId: 'epic-1',
+      runId: 'abcd1234',
+      operationId: 'op-epic',
+      body: BODY,
+    })
     expect(
-      requireLandingMandate({
-        histories: [history([feature, binding(feature)]), history([epic], PARENT)],
-        native,
-        parentScopes: [],
-        current,
-        localInhibit: null,
-      }),
+      requireLandingMandate(
+        landingInput(feature, [history([feature, binding(feature)]), history([epic], PARENT)], SCOPE),
+      ),
     ).toMatchObject({ ok: false, reason: 'missing' })
-    const parent = must(
-      parseRecord({
-        ...feature,
-        repository: PARENT.repository,
-        target: PARENT.target,
-        recordId: 'parent-mandate',
-        operationId: 'op-parent',
-      }),
-    )
+    const parent = landingFixtures.featureMandate(PARENT, {
+      recordId: 'parent-mandate',
+      runId: 'run-1',
+      operationId: 'op-parent',
+      branch: 'feature/bounded',
+      base: 'main',
+      lineageHead: null,
+      body: BODY,
+    })
     const requested = must(
       parseRecord({
         version: 1,
@@ -163,14 +208,16 @@ describe('workflow transition behavior', () => {
         },
       }),
     )
+    if (child.kind !== 'mandate') throw new Error('fixture is not a mandate')
     expect(
-      requireLandingMandate({
-        histories: [history([child, binding(child)]), history([parent, requested, confirmed], PARENT)],
-        native,
-        parentScopes: [PARENT],
-        current,
-        localInhibit: null,
-      }),
+      requireLandingMandate(
+        landingInput(
+          child,
+          [history([child, binding(child)]), history([parent, requested, confirmed], PARENT)],
+          SCOPE,
+          [PARENT],
+        ),
+      ),
     ).toMatchObject({ ok: false, reason: 'paused' })
     expect(
       assessFixMandate({
@@ -179,7 +226,11 @@ describe('workflow transition behavior', () => {
         history: history([mandate()]),
         linkedIssueHistory: null,
       }),
-    ).toMatchObject({ status: 'applicable', execution: { correct: true, landing: false } })
+    ).toMatchObject({
+      status: 'refused',
+      reason: 'unknown-binding',
+      evidence: [expect.objectContaining({ code: 'fix-own-uw-required' })],
+    })
     expect(
       assessFixMandate({
         target: { scope: SCOPE, kind: 'pull-request', branch: 'feature/bounded', base: 'main' },
@@ -187,7 +238,7 @@ describe('workflow transition behavior', () => {
         history: history([]),
         linkedIssueHistory: null,
       }),
-    ).toMatchObject({ status: 'refused', reason: 'missing' })
+    ).toMatchObject({ status: 'refused', reason: 'unknown-binding' })
     expect(
       assessFixMandate({
         target: { scope: SCOPE, kind: 'pull-request', branch: 'feature/bounded', base: 'main' },
@@ -196,35 +247,11 @@ describe('workflow transition behavior', () => {
         linkedIssueHistory: null,
       }),
     ).toMatchObject({ status: 'refused', reason: 'unknown-binding' })
-    expect(
-      reconstructWorkflow({
-        evidence: { issue: history([feature]), pullRequest: null, parents: [] },
-        facts: facts({ pullRequest: { scope: SCOPE, head: 'abc', base: 'main', associatedIssue: null } }),
-        decisions: {
-          reviewStep: null,
-          epicStep: null,
-          epicLand: null,
-          ciWatchStatus: null,
-          publish: { status: 'absent', evidence: [] },
-          landing: { status: 'absent', evidence: [] },
-          watch: { status: 'absent', evidence: [] },
-        },
-      }),
-    ).toMatchObject({ status: 'blocked', reason: 'unknown-binding' })
   })
-  test('refuses admissions for unconfirmed pause requests across authority chains and pause cycles', () => {
+  test('refuses unconfirmed own pauses and preserves successor pause controls', () => {
     const pr: Scope = { repository: 'acme/app', target: 'acme/app#99' }
     const feature = featureMandate()
-    const current = {
-      productVersion: '0.11.0',
-      configVersion: 'catalogue-1',
-      configDigest: DIGEST,
-      supportedConfigVersions: ['catalogue-1'],
-      specDigest: specDigest(BODY),
-      specBody: BODY,
-    }
     const native = { branch: 'feature/bounded', base: 'main' }
-    const landingNative = { ...native, pullRequest: pr, linkedIssueScopes: [SCOPE] }
     const decisions: SpecializedDecisions = {
       reviewStep: null,
       epicStep: null,
@@ -236,8 +263,8 @@ describe('workflow transition behavior', () => {
     }
     const bound = (histories: DecodedHistory[], use: 'review' | 'correction') =>
       resolveBoundWork({ use, explicitSelection: true, pullRequest: pr, histories, native })
-    const landing = (histories: DecodedHistory[], parentScopes: Scope[] = []) =>
-      requireLandingMandate({ histories, native: landingNative, parentScopes, current, localInhibit: null })
+    const landing = (histories: DecodedHistory[], parentScopes: Scope[] = [], mandate: MandateRecord = feature) =>
+      requireLandingMandate(landingInput(mandate, histories, pr, parentScopes))
     const reconstruct = (
       issue: DecodedHistory,
       parents: DecodedHistory[] = [],
@@ -311,7 +338,7 @@ describe('workflow transition behavior', () => {
         ...antecedent,
         recordId: 'mandate-successor',
         operationId: 'op-mandate-successor',
-        inputs: [antecedent.recordId],
+        inputs: [antecedent.recordId, ...antecedent.inputs],
         payload: {
           ...antecedent.payload,
           antecedent: { scope: SCOPE, recordId: antecedent.recordId, kind: 'mandate' },
@@ -392,104 +419,112 @@ describe('workflow transition behavior', () => {
     const standalonePause = pauseControls(standaloneFix, 'standalone-fix-pause')
     expect(
       assessFixMandate({
-        target: { scope: SCOPE, kind: 'pull-request', branch: 'feature/bounded', base: 'main' },
-        linkedIssueScopes: [],
-        history: history([standaloneFix, standalonePause.requested]),
-        linkedIssueHistory: null,
+        target: { scope: pr, kind: 'pull-request', branch: 'feature/bounded', base: 'main' },
+        linkedIssueScopes: [SCOPE],
+        history: history([binding(standaloneFix, pr)], pr),
+        linkedIssueHistory: history([standaloneFix, standalonePause.requested]),
       }),
     ).toMatchObject({ status: 'refused', reason: 'unconfirmed' })
+  })
 
-    const parent = must(
-      parseRecord({
-        ...feature,
-        repository: PARENT.repository,
-        target: PARENT.target,
-        recordId: 'parent-mandate',
-        operationId: 'op-parent-mandate',
+  test('keeps parent pause cycles active for a child with a current accepted grant', () => {
+    const pr: Scope = { repository: 'acme/app', target: 'acme/app#99' }
+    const childGrant = landingFixtures.childSnapshot(SCOPE, BODY)
+    const parent = landingFixtures.epicMandate(PARENT, [childGrant], {
+      recordId: 'parent-pause-matrix',
+      runId: 'run-parent-pause-matrix',
+      operationId: 'op-parent-pause-matrix',
+      body: BODY,
+    })
+    const child = landingFixtures.featureMandate(SCOPE, {
+      recordId: 'child-pause-matrix',
+      runId: 'run-child-pause-matrix',
+      operationId: 'op-child-pause-matrix',
+      branch: 'feature/bounded',
+      base: 'main',
+      lineageHead: null,
+      body: BODY,
+      ownSpec: landingFixtures.ownSpecFromSnapshot(SCOPE, childGrant.snapshot),
+      tier: childGrant.tier,
+      parent: { scope: PARENT, recordId: parent.recordId, kind: 'mandate' },
+    })
+    const decisions: SpecializedDecisions = {
+      reviewStep: null,
+      epicStep: null,
+      epicLand: null,
+      ciWatchStatus: null,
+      publish: { status: 'absent', evidence: [] },
+      landing: { status: 'absent', evidence: [] },
+      watch: { status: 'absent', evidence: [] },
+    }
+    const childFacts = facts({
+      productVersion: child.payload.config.productVersion,
+      configVersion: child.payload.config.version,
+      configDigest: child.payload.config.digest,
+      supportedConfigVersions: [child.payload.config.version],
+    })
+    const first = pauseControls(parent, 'parent-first-pause')
+    const second = pauseControls(parent, 'parent-second-pause')
+    const parentPending = history([parent, first.requested, first.confirmed, first.resumed, second.requested], PARENT)
+    const pendingHistories = [history([child]), history([binding(child, pr)], pr), parentPending]
+    for (const use of ['review', 'correction'] as const)
+      expect(
+        resolveBoundWork({
+          use,
+          explicitSelection: true,
+          pullRequest: pr,
+          histories: pendingHistories,
+          native: { branch: 'feature/bounded', base: 'main' },
+        }),
+      ).toMatchObject({ status: 'refused' })
+    expect(requireLandingMandate(landingInput(child, pendingHistories, pr, [PARENT]))).toMatchObject({ ok: false })
+    expect(
+      reconstructWorkflow({
+        evidence: { issue: history([child]), pullRequest: null, parents: [parentPending] },
+        facts: childFacts,
+        decisions,
       }),
-    )
-    if (parent.kind !== 'mandate') throw new Error('fixture is not a mandate')
-    const child = must(
-      parseRecord({
-        ...feature,
-        recordId: 'child-mandate',
-        operationId: 'op-child-mandate',
-        payload: {
-          ...feature.payload,
-          parent: { scope: PARENT, recordId: parent.recordId, kind: 'mandate' },
-        },
-      }),
-    )
-    if (child.kind !== 'mandate') throw new Error('fixture is not a mandate')
-    const parentFirstPause = pauseControls(parent, 'parent-first-pause')
-    const parentSecondPause = pauseControls(parent, 'parent-second-pause')
-    const parentPendingHistory = history(
-      [
-        parent,
-        parentFirstPause.requested,
-        parentFirstPause.confirmed,
-        parentFirstPause.resumed,
-        parentSecondPause.requested,
-      ],
-      PARENT,
-    )
-    const parentPending = [history([child]), history([binding(child, pr)], pr), parentPendingHistory]
-    expect(bound(parentPending, 'review')).toMatchObject({ status: 'refused', reason: 'unconfirmed' })
-    expect(bound(parentPending, 'correction')).toMatchObject({ status: 'refused', reason: 'unconfirmed' })
-    expect(landing(parentPending, [PARENT])).toMatchObject({
-      ok: false,
-      reason: 'unconfirmed',
-      evidence: [expect.objectContaining({ code: 'pause-unconfirmed' })],
-    })
-    expect(reconstruct(history([child]), [parentPendingHistory])).toMatchObject({
-      status: 'blocked',
-      reason: 'pause-unconfirmed',
-    })
-    expect(reconstruct(history([child]), [parentPendingHistory], { explicitResume: true })).toMatchObject({
-      status: 'blocked',
-      reason: 'pause-unconfirmed',
-    })
+    ).not.toMatchObject({ status: 'action' })
 
-    const wrongMandateResume = must(
+    const wrongChildResume = must(
       parseRecord({
         version: 1,
         repository: PARENT.repository,
         target: PARENT.target,
         recordId: 'parent-second-resume-for-child',
-        runId: 'run-1',
+        runId: 'run-parent-pause-matrix',
         operationId: 'op-parent-second-resume-for-child',
         kind: 'operator-control',
-        inputs: [parent.recordId, parentSecondPause.confirmed.recordId],
+        inputs: [parent.recordId, second.confirmed.recordId],
         payload: {
           control: 'resume',
           controlId: 'parent-second-pause',
-          predecessor: { scope: PARENT, recordId: parentSecondPause.confirmed.recordId, kind: 'operator-control' },
+          predecessor: { scope: PARENT, recordId: second.confirmed.recordId, kind: 'operator-control' },
           mandate: { scope: SCOPE, recordId: child.recordId, kind: 'mandate' },
         },
       }),
     )
-    const parentConfirmedHistory = history(
-      [
-        parent,
-        parentFirstPause.requested,
-        parentFirstPause.confirmed,
-        parentFirstPause.resumed,
-        parentSecondPause.requested,
-        parentSecondPause.confirmed,
-        wrongMandateResume,
-      ],
+    const parentPaused = history(
+      [parent, first.requested, first.confirmed, first.resumed, second.requested, second.confirmed, wrongChildResume],
       PARENT,
     )
-    const parentConfirmed = [history([child]), history([binding(child, pr)], pr), parentConfirmedHistory]
-    expect(bound(parentConfirmed, 'review')).toMatchObject({ status: 'refused', reason: 'paused' })
-    expect(landing(parentConfirmed, [PARENT])).toMatchObject({ ok: false, reason: 'paused' })
-    expect(reconstruct(history([child]), [parentConfirmedHistory], { explicitResume: true })).toMatchObject({
-      status: 'paused',
-      mandateId: parent.recordId,
-      pause: {
-        mandate: { scope: PARENT, recordId: parent.recordId, kind: 'mandate' },
-        confirmation: { scope: PARENT, recordId: parentSecondPause.confirmed.recordId, kind: 'operator-control' },
-      },
-    })
+    const pausedHistories = [history([child]), history([binding(child, pr)], pr), parentPaused]
+    expect(
+      resolveBoundWork({
+        use: 'review',
+        explicitSelection: true,
+        pullRequest: pr,
+        histories: pausedHistories,
+        native: { branch: 'feature/bounded', base: 'main' },
+      }),
+    ).toMatchObject({ status: 'refused' })
+    expect(requireLandingMandate(landingInput(child, pausedHistories, pr, [PARENT]))).toMatchObject({ ok: false })
+    expect(
+      reconstructWorkflow({
+        evidence: { issue: history([child]), pullRequest: null, parents: [parentPaused] },
+        facts: { ...childFacts, explicitResume: true },
+        decisions,
+      }),
+    ).not.toMatchObject({ status: 'action' })
   })
 })

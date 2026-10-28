@@ -4,7 +4,12 @@ import type { ExternalRecordRef } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { AcceptedSpecResult } from './workflow-accepted-spec-types.ts'
 import { bindExternalRef, historyFor } from './workflow-control.ts'
-import { type AssessResultRecord, isAssessResult, specChainFailure } from './workflow-spec-assessment.ts'
+import {
+  type AssessResultRecord,
+  isAssessResult,
+  sameAssessInputs,
+  specChainFailure,
+} from './workflow-spec-assessment.ts'
 
 type SpecChainFailure = Extract<AcceptedSpecResult, { ok: false }>
 type Authentication = SpecChainFailure | { ok: true; record: AssessResultRecord }
@@ -38,13 +43,7 @@ function authenticateStart(
   if (startPayload.action !== 'assess-spec' || startPayload.phase !== 'start') return mismatchedStart()
   if (startPayload.actionId !== confirmed.payload.actionId) return mismatchedStart()
   if (!sameRef(startPayload.mandate, mandateRef)) return mismatchedStart()
-  if (
-    startPayload.exactInputs.acceptedDigest !== confirmed.payload.exactInputs.acceptedDigest ||
-    startPayload.exactInputs.currentDigest !== confirmed.payload.exactInputs.currentDigest ||
-    startPayload.exactInputs.acceptedBody !== confirmed.payload.exactInputs.acceptedBody ||
-    startPayload.exactInputs.currentBody !== confirmed.payload.exactInputs.currentBody
-  )
-    return mismatchedStart()
+  if (!sameAssessInputs(startPayload.exactInputs, confirmed.payload.exactInputs)) return mismatchedStart()
   return { ok: true }
 }
 

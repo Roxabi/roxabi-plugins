@@ -1,5 +1,4 @@
-import { viewer } from '../adapters/github/types.ts'
-import type { Result } from '../dist/contracts.js'
+import { type Result, viewer } from '../dist/contracts.js'
 import { resolveReviewPr } from '../skills/feature/workflow-pr.js'
 import { captureReviewInput } from '../skills/feature/workflow-review-input.js'
 import type { Gh, Git, ReviewInputCapture } from './review-input-contract'

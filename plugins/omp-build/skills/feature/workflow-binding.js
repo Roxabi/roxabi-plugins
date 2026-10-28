@@ -21,6 +21,7 @@ const MANDATE_REASONS = new Set([
   'materially-changed',
   'record-edited',
   'record-unreadable',
+  'uw-not-deliverable',
 ])
 
 export function mandateReason(reason) {

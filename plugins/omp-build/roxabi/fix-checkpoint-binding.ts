@@ -1,9 +1,16 @@
 import type { DecodedHistory, GitHubOptions, Scope } from '../dist/contracts.js'
-import { readNativePullRequestFacts, readWorkflowBinding } from '../dist/contracts.js'
-import { liveBoundSpec } from './fix-checkpoint-state.ts'
+import {
+  assessUwAdmission,
+  projectNativeUwChildren,
+  readNativePullRequestFacts,
+  readWorkflowBinding,
+} from '../dist/contracts.js'
+import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
+import type { AssessSpecExact } from '../engine/workflow-receipt-schema.ts'
 import type { FixActionResult, FixTarget } from './fix-contract.ts'
 import { failure } from './fix-contract.ts'
 import { externalRef, objectValue } from './fix-mandate-types.ts'
+import type { UwRead, UwReadPort } from './uw-contract.ts'
 
 export function liveNativeBranch(value: unknown): { branch: string; base: string } | null {
   const native = objectValue(objectValue(value)?.native)
@@ -22,13 +29,19 @@ export function liveNativeBranch(value: unknown): { branch: string; base: string
 export async function linkedIssueBinding(
   target: FixTarget,
   options: GitHubOptions,
+  uw: UwReadPort,
 ): Promise<
   FixActionResult<{
     history: DecodedHistory | null
     externalHistories: DecodedHistory[]
     branch: string | null
     base: string | null
-    currentSpec: { body: string; digest: string } | null
+    currentSpec:
+      | (AssessSpecExact['proposed'] & {
+          ownSpec: AcceptedOwnSpec
+          read: UwRead
+        })
+      | null
   }>
 > {
   if (target.kind !== 'pull-request') {
@@ -58,6 +71,8 @@ export async function linkedIssueBinding(
   if (!confirmed.history.source.complete) return failure('fix-parent-history-incomplete')
   const native = liveNativeBranch(raw.value)
   if (native === null) return failure('fix-binding-unreadable')
+  const currentSpec = await freshBoundOwnSpec(uw, confirmed.mandateScope)
+  if (!currentSpec.ok) return currentSpec
   const pullRequest = { repository: target.repository, target: target.target }
   return {
     ok: true,
@@ -68,7 +83,56 @@ export async function linkedIssueBinding(
       ),
       branch: native.branch,
       base: native.base,
-      currentSpec: liveBoundSpec(raw.value.linkedIssueBodies),
+      currentSpec: currentSpec.value,
+    },
+  }
+}
+
+async function freshBoundOwnSpec(
+  port: UwReadPort,
+  scope: Scope,
+): Promise<
+  FixActionResult<
+    AssessSpecExact['proposed'] & {
+      ownSpec: AcceptedOwnSpec
+      read: UwRead
+    }
+  >
+> {
+  let read: UwRead
+  try {
+    read = await port.readUw(scope)
+  } catch {
+    return failure('fix-own-uw-unreadable')
+  }
+  if (!read.identity.ok) return failure('fix-own-uw-unsettled', ...read.identity.diagnostics.map((item) => item.code))
+  const admission = assessUwAdmission({
+    uw: scope,
+    graph: read.graph,
+    proposed: read.proposed,
+    accepted: read.accepted,
+    identities: read.identity.value,
+    phase: 'delivery-transition',
+    currentChildren: { ok: true, value: [] },
+  })
+  if (!admission.deliverable.ok)
+    return failure('fix-own-uw-unsettled', ...admission.deliverable.diagnostics.map((item) => item.code))
+  if (!read.proposed.ok || read.accepted.status !== 'accepted') return failure('fix-own-uw-unsettled')
+  const root = read.graph.nodes.find((node) => sameScope(node.uw, scope))
+  const children = projectNativeUwChildren({ uw: scope, graph: read.graph, accepted: read.accepted })
+  if (root === undefined || !children.ok || children.value.length !== 0) return failure('fix-own-uw-unsettled')
+  const tiers = root.labels.filter((label) => label === 'size:S' || label === 'size:F-lite' || label === 'size:F-full')
+  const tierLabel = tiers[0]
+  if (tiers.length !== 1 || tierLabel === undefined) return failure('fix-own-uw-unsettled')
+  const tier = tierLabel === 'size:S' ? 'S' : tierLabel === 'size:F-lite' ? 'F-lite' : 'F-full'
+  return {
+    ok: true,
+    value: {
+      snapshot: read.proposed.snapshot,
+      tier,
+      children: [],
+      ownSpec: read.accepted.value,
+      read,
     },
   }
 }

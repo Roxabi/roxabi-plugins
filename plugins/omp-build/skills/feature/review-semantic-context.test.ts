@@ -60,9 +60,12 @@ describe('reviewSemanticCanon', () => {
           chain: [
             {
               kind: 'mandate',
-              recordId: 'm1',
-              scope: { repository: 'acme/app', target: 'acme/app#9' },
-              specDigest: bodyDigest,
+              source: {
+                recordId: 'm1',
+                scope: { repository: 'acme/app', target: 'acme/app#9' },
+                kind: 'mandate',
+              },
+              version: bodyDigest,
             },
           ],
           sourceRefs: [
@@ -91,9 +94,12 @@ describe('reviewSemanticCanon', () => {
         chain: [
           {
             kind: 'mandate',
-            recordId: 'm1',
-            scope: { repository: 'acme/app', target: 'acme/app#9' },
-            specDigest: bodyDigest,
+            source: {
+              recordId: 'm1',
+              scope: { repository: 'acme/app', target: 'acme/app#9' },
+              kind: 'mandate',
+            },
+            version: bodyDigest,
           },
         ],
         sourceRefs: [{ scope: { repository: 'acme/app', target: 'acme/app#9' }, recordId: 'm1', kind: 'mandate' }],
@@ -138,9 +144,12 @@ describe('reviewSemanticCanon', () => {
         chain: [
           {
             kind: 'mandate',
-            recordId: 'm1',
-            scope: { repository: 'acme/app', target: 'acme/app#9' },
-            specDigest: digest('other spec'),
+            source: {
+              recordId: 'm1',
+              scope: { repository: 'acme/app', target: 'acme/app#9' },
+              kind: 'mandate',
+            },
+            version: digest('other spec'),
           },
         ],
         sourceRefs: [{ scope: { repository: 'acme/app', target: 'acme/app#9' }, recordId: 'm1', kind: 'mandate' }],
@@ -172,9 +181,12 @@ describe('no-producer semantic binding', () => {
         chain: [
           {
             kind: 'mandate',
-            recordId: 'm1',
-            scope: { repository, target: `${repository}#42` },
-            specDigest: digest(spec),
+            source: {
+              recordId: 'm1',
+              scope: { repository, target: `${repository}#42` },
+              kind: 'mandate',
+            },
+            version: digest(spec),
           },
         ],
         sourceRefs: [{ scope: { repository, target: `${repository}#42` }, recordId: 'm1', kind: 'mandate' }],

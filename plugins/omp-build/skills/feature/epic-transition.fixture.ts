@@ -17,6 +17,57 @@ export const on = (
   repo?: string,
 ): ChildFacts['blockedBy'][number] => (repo ? { number, state, repo } : { number, state })
 
+const VERSION = 'a'.repeat(64)
+const RAW_DIGEST = 'b'.repeat(64)
+
+export function acceptedOwnUw(number: number): ChildFacts['ownUw'] {
+  const uw = { repository: 'o/r', target: `o/r#${number}` }
+  const source = { scope: uw, recordId: `mandate-${number}`, kind: 'mandate' as const }
+  const allocation = { scope: uw, recordId: `identity-${number}`, kind: 'spec-identity' as const }
+  return {
+    status: 'accepted',
+    graphComplete: true,
+    identityAllocations: [{ id: 'C1', allocationRef: allocation }],
+    accepted: {
+      ref: { uw, version: VERSION, sourceAccepted: source },
+      snapshot: {
+        spec: {
+          format: 'omp-build-spec-content/1',
+          version: VERSION,
+          criteria: [{ id: 'C1', statement: 'it works' }],
+          invariants: [],
+          exclusions: [],
+          openQuestions: [],
+          sections: { origin: '', context: '', change: '' },
+        },
+        raw: { reference: `o/r#${number}`, body: '', bodySha256: RAW_DIGEST, lastEditedAt: null },
+      },
+      tier: 'S',
+      children: [],
+      chain: [{ kind: 'mandate', source, version: VERSION }],
+      sourceRefs: [source],
+    },
+  }
+}
+
+export function refusedOwnUw(
+  reason: Extract<ChildFacts['ownUw'], { status: 'refused' }>['reason'],
+  code = reason === 'incomplete' ? 'graph-incomplete' : 'own-spec-unaccepted',
+): ChildFacts['ownUw'] {
+  return {
+    status: 'refused',
+    reason,
+    diagnostics: [
+      {
+        code,
+        message: code,
+        location: { kind: 'native', uw: { repository: 'o/r', target: 'o/r#0' }, connection: 'state' },
+        related: [],
+      },
+    ],
+  }
+}
+
 /** An open, framed child with no PR, branch, blocker or stop. */
 export function child(number: number, over: Partial<ChildFacts> = {}): ChildFacts {
   return {
@@ -25,6 +76,7 @@ export function child(number: number, over: Partial<ChildFacts> = {}): ChildFact
     state: 'OPEN',
     labels: ['size:S'],
     body: '## Acceptance criteria\n\n- [ ] it works\n',
+    ownUw: acceptedOwnUw(number),
     epicFix: false,
     blockedBy: [],
     stops: [],

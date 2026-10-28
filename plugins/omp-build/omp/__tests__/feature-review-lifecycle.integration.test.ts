@@ -148,8 +148,15 @@ describe('installed /feature review lifecycle through actual Bun and external bo
       decision?.kind === 'decision'
         ? decision.payload.judgment.findings.find((finding) => finding.id === 'selected-region-blocker')
         : undefined
-    expect(finalFinding?.sourceFindingIds).toHaveLength(2)
-    expect(new Set(finalFinding?.sourceFindingIds).size).toBe(2)
+    const panelFindingIds = records.flatMap((record) =>
+      record.kind === 'contribution' && record.payload.host.phase === 'panel'
+        ? (record.payload.findings?.map((finding) => finding.id) ?? [])
+        : [],
+    )
+    const finalFindingIds = finalFinding?.sourceFindingIds ?? []
+    expect(panelFindingIds).toHaveLength(2)
+    expect(new Set(panelFindingIds).size).toBe(panelFindingIds.length)
+    expect([...finalFindingIds].sort()).toEqual([...panelFindingIds].sort())
     expect(
       observed.fixRun,
       `review-to-fix activation observations: ${JSON.stringify({

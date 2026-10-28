@@ -1,3 +1,4 @@
+import { effectiveMandateRole } from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import { nextReviewStep } from '../skills/feature/workflow-review-state.js'
@@ -7,11 +8,11 @@ import type { SelectedFeature } from './feature-continuation-selection.ts'
 import type { ContinueFeatureResult } from './feature-contract.ts'
 import { type Contracts, type History, isRecord } from './feature-engine.ts'
 import type { FeatureObservation } from './feature-observation-contract.ts'
-import { mandateRoleOf } from './feature-selection.ts'
 import { admitAttributedCiCorrection } from './fix-ci-admission.ts'
-import { acceptedSpecOf, boundCorrection } from './fix-mandate-resolution.ts'
+import { boundCorrection } from './fix-mandate-resolution.ts'
 import { classifyCiCorrectionStep } from './fix-mandate-types.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
+import type { UwReadPort } from './uw-contract.ts'
 import type { GitRunner } from './workflow-checkout.ts'
 
 type Gh = (cwd: string, args: string[]) => Promise<string>
@@ -28,13 +29,13 @@ export async function tryAdmittedCiCorrectionContinuation(input: {
   mandateHistory?: History
   parents: readonly History[]
   scope: Scope
+  uw: UwReadPort
   head: string | null
   branch: string | null
   base: string | null
   pr: number
   gh: Gh
   ciFailed: boolean
-  resolveAcceptedSpec: Contracts['resolveAcceptedSpec']
   selectApplicableMandate: Contracts['selectApplicableMandate']
 }): Promise<ContinueFeatureResult | null | { kind: 'blocked'; reason: string }> {
   if (!input.ciFailed || input.head === null || !/^[0-9a-f]{40}$/.test(input.head)) return null
@@ -47,10 +48,6 @@ export async function tryAdmittedCiCorrectionContinuation(input: {
   if (selected.status !== 'applicable' || selected.mandate === null) {
     return { kind: 'blocked', reason: 'mandate-missing' }
   }
-  const accepted = input.resolveAcceptedSpec(selected.mandate, [mandateHistory, ...input.parents])
-  if (!accepted.ok) return { kind: 'blocked', reason: 'mandate-spec-missing' }
-  const correctionScope = accepted.spec.body
-  if (correctionScope.trim().length === 0) return { kind: 'blocked', reason: 'mandate-spec-missing' }
   // The fresh decoded history above is both receipt selection and correction admission evidence.
   const admitted = await admitAttributedCiCorrection({
     cwd: input.cwd,
@@ -62,7 +59,7 @@ export async function tryAdmittedCiCorrectionContinuation(input: {
       state: 'open',
       candidateGitSHA: input.head,
     },
-    scope: correctionScope,
+    uw: input.uw,
     branch: input.branch,
     base: input.base,
     attributionRecordId,
@@ -85,7 +82,7 @@ export async function tryAdmittedCiCorrectionContinuation(input: {
     kind: 'admitted-ci-correction',
     reference: `#${input.pr}`,
     attributionRecordId: admitted.value.attributionRecordId,
-    scope: admitted.value.scope,
+    uw: admitted.value.uw,
   }
 }
 
@@ -98,9 +95,10 @@ export async function continueReviewBoundFix(
   if (observation.reviewId === null) return { kind: 'blocked', reason: 'review-fix-review-missing' }
   if (selected.mandate === null || selected.mandateRef === null)
     return { kind: 'blocked', reason: 'review-fix-mandate-missing' }
-  if (mandateRoleOf(selected.mandate) !== 'feature') return { kind: 'blocked', reason: 'review-fix-mandate-role' }
-  const current = acceptedSpecOf(selected.mandate, [observation.evidence.issue, ...observation.evidence.parents])
-  if (!current.ok) return { kind: 'blocked', reason: current.diagnostics[0] ?? 'review-fix-spec-unreadable' }
+  if (selected.acceptedSpec === null) return { kind: 'blocked', reason: 'review-fix-spec-unreadable' }
+  const storedRole = selected.mandate.payload.role
+  if (effectiveMandateRole(storedRole, selected.acceptedSpec) !== 'feature')
+    return { kind: 'blocked', reason: 'review-fix-mandate-role' }
   const bound = boundCorrection(
     {
       target: {
@@ -115,21 +113,26 @@ export async function continueReviewBoundFix(
       base: delivery.base,
     },
     [delivery.history, observation.evidence.issue, ...observation.evidence.parents],
-    current.value,
+    {
+      snapshot: selected.acceptedSpec.snapshot,
+      tier: selected.acceptedSpec.tier,
+      children: selected.acceptedSpec.children,
+    },
   )
   if (!bound.ok) return { kind: 'blocked', reason: bound.diagnostics[0] ?? 'review-fix-binding-unreadable' }
   if (bound.value.status !== 'applicable') return { kind: 'blocked', reason: 'review-fix-binding-missing' }
+  const correctionScope = bound.value.acceptedSpec.snapshot.raw.body
   if (
     bound.value.recordId !== selected.mandateRef.recordId ||
-    bound.value.body.trim().length === 0 ||
-    bound.value.body.length > 4_000
+    correctionScope.trim().length === 0 ||
+    correctionScope.length > 4_000
   )
     return { kind: 'blocked', reason: 'review-fix-binding-refused' }
   return {
     kind: 'fix',
     reference: `#${delivery.number}`,
     reviewId: observation.reviewId,
-    scope: bound.value.body,
+    scope: correctionScope,
     requiredFeatureMandate: { ...selected.mandateRef, kind: 'mandate' },
   }
 }
@@ -138,7 +141,9 @@ export async function continueReviewBoundFix(
 export async function continueCiCorrection(
   authority: FeatureAuthority,
   observation: FeatureObservation,
+  uw: UwReadPort | undefined,
 ): Promise<ContinueFeatureResult> {
+  if (uw === undefined) return { kind: 'blocked', reason: 'fix-own-uw-unavailable' }
   const { context } = authority
   const delivery = observation.delivery
   if (delivery === null) return { kind: 'blocked', reason: 'ci-attribution-requires-pull-request' }
@@ -154,8 +159,8 @@ export async function continueCiCorrection(
     pr: delivery.number,
     gh: context.gh,
     ciFailed: observation.facts.failedChecks !== null,
-    resolveAcceptedSpec: context.engine.resolveAcceptedSpec,
     selectApplicableMandate: context.engine.selectApplicableMandate,
+    uw,
   })
   if (admitted !== null) return admitted
   return { kind: 'blocked', reason: 'ci-attribution-unconfirmed' }

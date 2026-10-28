@@ -2,6 +2,8 @@ import { z } from 'zod'
 import { specDigest } from './record-digests.ts'
 import { type ExternalRecordRef, externalRecordRefSchema } from './record-references.ts'
 import { identifierSchema, jsonSchema, scopeSchema, sha256Schema, shaSchema } from './record-values.ts'
+import { operatorConfirmationEvidenceSchema } from './uw-identity-schema.ts'
+import { specItemIdSchema, specSnapshotSchema, uwTierSchema } from './uw-spec-schema.ts'
 
 const mandateConfigSchema = z.strictObject({
   productVersion: z.string().min(1),
@@ -9,46 +11,84 @@ const mandateConfigSchema = z.strictObject({
   digest: sha256Schema,
   effective: jsonSchema,
 })
-const mandateSpecSchema = z.strictObject({
-  reference: z.string().min(1),
-  body: z.string(),
-  bodySha256: sha256Schema,
-  lastEditedAt: z.string().min(1),
-})
-const approvedChildSchema = z.strictObject({
-  scope: scopeSchema,
-  specDigest: sha256Schema,
-  specBody: z.string(),
-})
+const mandateOwnSpecSchema = z
+  .strictObject({
+    uw: scopeSchema,
+    version: sha256Schema,
+    snapshot: specSnapshotSchema,
+    identityAllocations: z.array(externalRecordRefSchema),
+  })
+  .superRefine((value, context) => {
+    if (value.snapshot.spec.version !== value.version)
+      context.addIssue({ code: 'custom', path: ['version'], message: 'own Spec version does not match its snapshot' })
+    if (specDigest(value.snapshot.raw.body) !== value.snapshot.raw.bodySha256)
+      context.addIssue({
+        code: 'custom',
+        path: ['snapshot', 'raw', 'bodySha256'],
+        message: 'own Spec raw body digest mismatch',
+      })
+    for (const [index, allocation] of value.identityAllocations.entries()) {
+      if (allocation.kind !== 'spec-identity')
+        context.addIssue({
+          code: 'custom',
+          path: ['identityAllocations', index, 'kind'],
+          message: 'own Spec allocation must name a spec identity record',
+        })
+      if (allocation.scope.repository !== value.uw.repository || allocation.scope.target !== value.uw.target)
+        context.addIssue({
+          code: 'custom',
+          path: ['identityAllocations', index, 'scope'],
+          message: 'own Spec allocation must belong to its UW',
+        })
+    }
+  })
+export const acceptedChildCommitmentSchema = z
+  .strictObject({
+    scope: scopeSchema,
+    specVersion: sha256Schema,
+    snapshot: specSnapshotSchema,
+    tier: uwTierSchema,
+  })
+  .superRefine((value, context) => {
+    if (value.snapshot.spec.version !== value.specVersion)
+      context.addIssue({ code: 'custom', path: ['specVersion'], message: 'child version does not match its snapshot' })
+    if (specDigest(value.snapshot.raw.body) !== value.snapshot.raw.bodySha256)
+      context.addIssue({
+        code: 'custom',
+        path: ['snapshot', 'raw', 'bodySha256'],
+        message: 'child raw body digest mismatch',
+      })
+  })
+export type AcceptedChildCommitment = z.infer<typeof acceptedChildCommitmentSchema>
+
 const mandateShared = {
-  format: z.literal('omp-build-mandate/2'),
+  format: z.literal('omp-build-mandate/3'),
   branch: z.string().min(1).nullable(),
   base: z.string().min(1),
   lineageHead: shaSchema.nullable(),
   config: mandateConfigSchema,
   parent: externalRecordRefSchema.nullable(),
   antecedent: externalRecordRefSchema.nullable(),
-  spec: mandateSpecSchema,
+  ownSpec: mandateOwnSpecSchema,
+  tier: uwTierSchema,
+  children: z.array(acceptedChildCommitmentSchema),
 }
 const featureMandateSchema = z.strictObject({
   role: z.literal('feature'),
   ...mandateShared,
-  run: z.null(),
-  children: z.null(),
+  run: z.string().regex(/^[a-z0-9]{8}$/),
   permissions: z.strictObject({ landing: z.literal(true), correct: z.literal(true) }),
 })
 const epicMandateSchema = z.strictObject({
   role: z.literal('epic'),
   ...mandateShared,
   run: z.string().regex(/^[a-z0-9]{8}$/),
-  children: z.array(approvedChildSchema),
   permissions: z.strictObject({ landing: z.boolean(), correct: z.boolean() }),
 })
 const fixOnlyMandateSchema = z.strictObject({
   role: z.literal('fix-only'),
   ...mandateShared,
   run: z.null(),
-  children: z.null(),
   permissions: z.strictObject({ landing: z.literal(false), correct: z.literal(true) }),
 })
 
@@ -71,30 +111,22 @@ export function sameRefMeaning(refs: Array<ExternalRecordRef | null>, context: z
 export const mandatePayloadSchema = z
   .discriminatedUnion('role', [featureMandateSchema, epicMandateSchema, fixOnlyMandateSchema])
   .superRefine((mandate, context) => {
-    if (specDigest(mandate.spec.body) !== mandate.spec.bodySha256) {
-      context.addIssue({ code: 'custom', path: ['spec', 'bodySha256'], message: 'spec body digest mismatch' })
-    }
-    sameRefMeaning([mandate.parent, mandate.antecedent], context)
-    if (mandate.role !== 'epic') return
-    const seenScopes = new Set<string>()
+    sameRefMeaning([...mandate.ownSpec.identityAllocations, mandate.parent, mandate.antecedent], context)
+    const children = new Set<string>()
     for (const [index, child] of mandate.children.entries()) {
       const key = `${child.scope.repository}\0${child.scope.target}`
-      if (seenScopes.has(key)) {
+      if (children.has(key))
         context.addIssue({ code: 'custom', path: ['children', index, 'scope'], message: 'child scope is repeated' })
-      }
-      seenScopes.add(key)
-      if (specDigest(child.specBody) !== child.specDigest) {
-        context.addIssue({
-          code: 'custom',
-          path: ['children', index, 'specDigest'],
-          message: 'child snapshot digest mismatch',
-        })
-      }
+      children.add(key)
     }
   })
 export type MandatePayload = z.infer<typeof mandatePayloadSchema>
 
 const disarmSchema = z.strictObject({ observed: z.literal(true), evidence: jsonSchema })
+const identityDeltaSchema = z.strictObject({ retired: z.array(specItemIdSchema) }).superRefine((value, context) => {
+  if (new Set(value.retired).size !== value.retired.length)
+    context.addIssue({ code: 'custom', path: ['retired'], message: 'retired identities are repeated' })
+})
 const controlShared = { controlId: identifierSchema, mandate: externalRecordRefSchema }
 export const operatorControlPayloadSchema = z
   .discriminatedUnion('control', [
@@ -115,7 +147,10 @@ export const operatorControlPayloadSchema = z
       control: z.literal('accept-material'),
       predecessor: externalRecordRefSchema,
       assessment: externalRecordRefSchema,
-      specDigest: sha256Schema,
+      specVersion: sha256Schema,
+      proposalDigest: sha256Schema,
+      confirmation: operatorConfirmationEvidenceSchema,
+      identityDelta: identityDeltaSchema,
       ...controlShared,
     }),
     z.strictObject({

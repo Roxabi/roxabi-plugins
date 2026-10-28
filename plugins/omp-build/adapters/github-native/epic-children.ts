@@ -7,31 +7,25 @@ export type NativeEpicPullRequest = {
   mergedAt: string | null
   mergeCommit: { oid: string; parents: { nodes: { oid: string }[] } } | null
   autoMergeRequest: { enabledAt: string } | null
-  labels: { nodes: { name: string }[] }
+  labels: { nodes: { name: string }[]; pageInfo: { hasNextPage: boolean } }
   repository: { nameWithOwner: string }
   isCrossRepository: boolean
 }
 
 type RawChild = {
   number: number
-  title: string
-  state: 'OPEN' | 'CLOSED'
-  body: string | null
   repository: { nameWithOwner: string }
-  labels: { nodes: { name: string }[] }
-  blockedBy: { nodes: { number: number; state: 'OPEN' | 'CLOSED'; repository: { nameWithOwner: string } }[] }
   closedByPullRequestsReferences: { nodes: NativeEpicPullRequest[] }
   timelineItems: { nodes: ({ source?: Partial<NativeEpicPullRequest> | null } | null)[] }
 }
 
+/**
+ * Pull-request enrichment for a native Epic child. It intentionally carries no
+ * membership, UW state, labels, body, or dependency facts.
+ */
 export type NativeEpicChild = {
   number: number
-  title: string
-  state: 'OPEN' | 'CLOSED'
-  body: string | null
   repository: string
-  labels: string[]
-  blockedBy: { number: number; state: 'OPEN' | 'CLOSED'; repository: string }[]
   closedByPullRequests: NativeEpicPullRequest[]
   timelinePullRequestSources: ({ source?: Partial<NativeEpicPullRequest> | null } | null)[]
 }
@@ -48,7 +42,7 @@ export type NativeGraphql = <T>(query: string, variables: Record<string, string 
 
 const PR_FIELDS = `number state baseRefName headRefName headRefOid mergedAt isCrossRepository
   mergeCommit { oid parents(first: 1) { nodes { oid } } }
-  autoMergeRequest { enabledAt } labels(first: 30) { nodes { name } } repository { nameWithOwner }`
+  autoMergeRequest { enabledAt } labels(first: 30) { pageInfo { hasNextPage } nodes { name } } repository { nameWithOwner }`
 
 const EPIC_QUERY = `query($owner: String!, $name: String!, $epic: Int!) {
   repository(owner: $owner, name: $name) {
@@ -56,9 +50,7 @@ const EPIC_QUERY = `query($owner: String!, $name: String!, $epic: Int!) {
       subIssues(first: 100) {
         pageInfo { hasNextPage }
         nodes {
-          number title state body repository { nameWithOwner }
-          labels(first: 50) { nodes { name } }
-          blockedBy(first: 50) { nodes { number state repository { nameWithOwner } } }
+          number repository { nameWithOwner }
           closedByPullRequestsReferences(first: 20, includeClosedPrs: true) { nodes { ${PR_FIELDS} } }
           timelineItems(itemTypes: [CROSS_REFERENCED_EVENT], last: 50) {
             nodes { ... on CrossReferencedEvent { source { ... on PullRequest { ${PR_FIELDS} } } } }
@@ -69,6 +61,11 @@ const EPIC_QUERY = `query($owner: String!, $name: String!, $epic: Int!) {
   }
 }`
 
+/**
+ * Reads PR enrichment only. Callers must obtain every UW graph fact from the
+ * complete canonical reader; a paginated child connection remains an explicit
+ * PR-enrichment refusal rather than a truncated authority projection.
+ */
 export function readNativeEpicChildren(
   owner: string,
   name: string,
@@ -82,16 +79,7 @@ export function readNativeEpicChildren(
   if (issue.subIssues.pageInfo.hasNextPage) return refuse(`#${epic} has more than 100 sub-issues`)
   return issue.subIssues.nodes.map((child) => ({
     number: child.number,
-    title: child.title,
-    state: child.state,
-    body: child.body,
     repository: child.repository.nameWithOwner,
-    labels: child.labels.nodes.map((label) => label.name),
-    blockedBy: child.blockedBy.nodes.map((blocker) => ({
-      number: blocker.number,
-      state: blocker.state,
-      repository: blocker.repository.nameWithOwner,
-    })),
     closedByPullRequests: child.closedByPullRequestsReferences.nodes,
     timelinePullRequestSources: child.timelineItems.nodes,
   }))

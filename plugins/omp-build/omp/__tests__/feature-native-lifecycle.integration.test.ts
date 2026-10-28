@@ -4,6 +4,7 @@ import path from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 import { decodeHistory } from '../../adapters/github/history-codec.ts'
+import { nativeFeatureSpec } from '../../testing/feature-review-fixture.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { git, readSim, sandbox, writeSim } from '../../testing/sandbox/sandbox-repository.ts'
 import type { Box } from '../../testing/sandbox/sandbox-types.ts'
@@ -12,7 +13,8 @@ const RUNNER = path.resolve(import.meta.dirname, '../../testing/feature-recovery
 const BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
 const SCOPE = { repository: 'acme/app', target: 'acme/app#42' }
 const BRANCH = 'feat/42-save'
-const BODY = '## Acceptance criteria\n\n- [ ] preserves the region\n'
+const FEATURE_SPEC = nativeFeatureSpec(SCOPE, 'preserves the region')
+const BODY = FEATURE_SPEC.body
 
 const INCOMPLETE_NATIVE_TERMINAL = {
   index: 0,
@@ -72,13 +74,18 @@ function liveFeatureFixture(): { box: Box; checkout: string } {
   const box = sandbox({
     base: { '.dev/stack.yml': 'package_manager: bun\n', 'README.md': 'base\n' },
     branches: [{ name: BRANCH, from: 'main', commits: [] }],
-    issues: [{ number: 42, title: 'feat: preserve region' }],
+    issues: [{ number: 42, title: 'feat: preserve region', labels: ['size:S'] }],
     prs: [],
   })
   roots.add(box.root)
   const checkout = path.join(box.root, 'feature')
   git(box, box.principal, ['worktree', 'add', '-q', checkout, BRANCH])
-  const mandate = featureMandate(SCOPE, { branch: BRANCH, body: BODY, lineageHead: box.sha.main })
+  const mandate = featureMandate(SCOPE, {
+    branch: BRANCH,
+    body: BODY,
+    ownSpec: FEATURE_SPEC.ownSpec,
+    lineageHead: box.sha.main,
+  })
   const records = [
     mandate,
     ...planDraftRecords(mandate),

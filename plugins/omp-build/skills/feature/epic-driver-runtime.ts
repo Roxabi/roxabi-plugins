@@ -1,5 +1,9 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { execFileSync } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
+import { promisify } from 'node:util'
+import { viewer } from '../../dist/contracts.js'
+import type { UwReadPort } from '../../roxabi/uw-contract.ts'
+import { createInstalledUwReadPort } from '../../roxabi/uw-read-port.ts'
 
 export class Refused extends Error {}
 export class Assisted extends Error {}
@@ -7,14 +11,44 @@ const GIT_REDIRECTS = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_
 export type EpicGit = (repo: string, args: string[]) => string
 export type EpicGh = (repo: string, args: string[], input?: string) => string
 export type ConfigCheck = (repo: string, effective: unknown) => Promise<{ ok: true } | { ok: false; error: string }>
-export type EpicEffects = { git?: EpicGit; gh?: EpicGh; configCompatible?: ConfigCheck }
+export type EpicEffects = {
+  git?: EpicGit
+  gh?: EpicGh
+  configCompatible?: ConfigCheck
+  uw?: UwReadPort
+  uwReadAuthor?: string
+}
 const effects = new AsyncLocalStorage<EpicEffects>()
 export const withEpicEffects = <T>(injected: EpicEffects, fn: () => Promise<T>): Promise<T> => effects.run(injected, fn)
 export const currentEpicEffects = (): EpicEffects | undefined => effects.getStore()
+
+/** Fresh per driver action; a gather may reuse this port only within its own observation. */
+export async function uwReadPort(repo: string): Promise<UwReadPort> {
+  const injected = effects.getStore()
+  if (injected?.uw) return injected.uw
+  const injectedGh = injected?.gh
+  const gh = injectedGh === undefined ? undefined : async (cwd: string, args: string[]) => injectedGh(cwd, args)
+  const readAuthor = injected?.uwReadAuthor ?? (await viewer({ cwd: repo, ...(gh === undefined ? {} : { gh }) }))
+  return createInstalledUwReadPort({ cwd: repo, ...(gh === undefined ? {} : { gh }), readAuthor })
+}
 function childEnv(): NodeJS.ProcessEnv {
   const out = { ...process.env }
   for (const key of GIT_REDIRECTS) delete out[key]
   return out
+}
+const execFileAsync = promisify(execFile)
+
+/** Read-only history transport; injected effects still own their own execution. */
+export async function ghHistory(repo: string, args: string[]): Promise<string> {
+  const injected = effects.getStore()?.gh
+  if (injected) return injected(repo, args).trim()
+  const { stdout } = await execFileAsync('gh', args, {
+    cwd: repo,
+    encoding: 'utf8',
+    env: childEnv(),
+    maxBuffer: 64 * 1024 * 1024,
+  })
+  return stdout.trim()
 }
 
 export function git(repo: string, args: string[]): string {

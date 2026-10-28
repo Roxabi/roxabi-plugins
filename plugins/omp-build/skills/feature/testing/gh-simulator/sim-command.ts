@@ -1,6 +1,7 @@
 import { api } from './sim-api.ts'
 import type { Context, Route } from './sim-command-context.ts'
 import { emit, flags, one } from './sim-graphql.ts'
+import { currentInvocation } from './sim-invocation.ts'
 import { issue } from './sim-issue.ts'
 import { pull } from './sim-pull.ts'
 import { fail, fullName, type State } from './sim-types.ts'
@@ -25,7 +26,7 @@ function run(context: Context): boolean {
     return true
   }
   if (context.sub === 'view') {
-    process.stdout.write('\n')
+    context.writeStdout('\n')
     return true
   }
   return false
@@ -36,6 +37,7 @@ const ROUTES: readonly Route[] = [repoView, api, issue, pull, run]
 export function handle(state: State, argv: string[]): void {
   state.calls.push(argv)
   const parsed = flags(argv)
+  const invocation = currentInvocation()
   const context: Context = {
     ...parsed,
     state,
@@ -43,6 +45,9 @@ export function handle(state: State, argv: string[]): void {
     cmd: parsed.positionals[0],
     sub: parsed.positionals[1],
     expression: one(parsed.flag, '--jq'),
+    cwd: invocation.cwd,
+    readStdin: () => invocation.readStdin(),
+    writeStdout: (text) => invocation.writeStdout(text),
   }
   for (const route of ROUTES) {
     if (route(context)) return

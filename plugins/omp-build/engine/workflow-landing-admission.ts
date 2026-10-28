@@ -1,7 +1,15 @@
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, sameRef } from './record-diagnostics.ts'
-import { specDigest } from './record-digests.ts'
 import type { Diagnostic, Scope } from './record-values.ts'
+import {
+  type AcceptedOwnSpecResult,
+  assessUwAdmission,
+  type CurrentChildrenProjection,
+  type ProposedOwnSpecResult,
+} from './uw-admission.ts'
+import { toDiagnostics } from './uw-diagnostics.ts'
+import type { UwGraphObservation } from './uw-graph.ts'
+import { resolveSpecIdentityLedger } from './uw-identity.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
 import {
   abandoned,
@@ -16,7 +24,7 @@ import {
 } from './workflow-control.ts'
 import type { LandingMandateDecision, LandingRefusal } from './workflow-landing.ts'
 import type { MandateRefusal } from './workflow-mandate.ts'
-import { selectApplicableMandate } from './workflow-mandate-admission.ts'
+import { childCommitmentRefusal, selectApplicableMandate } from './workflow-mandate-admission.ts'
 import { epicParentProblem } from './workflow-parent.ts'
 import { selectWorkflowBinding, type WorkflowBindingSelection } from './workflow-pr-binding.ts'
 
@@ -24,13 +32,14 @@ export type LandingMandateInput = {
   histories: readonly DecodedHistory[]
   native: { branch: string; base: string; pullRequest: Scope; linkedIssueScopes: readonly Scope[] }
   parentScopes: readonly Scope[]
+  uwGraph: UwGraphObservation
   current: {
     productVersion: string
     configVersion: string
     configDigest: string
     supportedConfigVersions: readonly string[]
-    specDigest: string | null
-    specBody: string | null
+    proposedSpec: ProposedOwnSpecResult
+    currentChildren: CurrentChildrenProjection
   }
   localInhibit: 'pause' | 'abandon' | null
 }
@@ -120,6 +129,13 @@ function directAuthority(candidate: LandingCandidate, input: LandingMandateInput
   return null
 }
 
+function acceptedReason(reason: 'incomplete' | 'ambiguous' | 'material-spec' | 'missing-history'): LandingRefusal {
+  if (reason === 'material-spec') return 'material-spec'
+  if (reason === 'ambiguous') return 'ambiguous'
+  if (reason === 'missing-history') return 'missing-history'
+  return 'incomplete'
+}
+
 function parentAuthority(candidate: LandingCandidate, input: LandingMandateInput): LandingMandateDecision | null {
   const { mandate } = candidate
   if (mandate.payload.parent === null) return null
@@ -145,7 +161,20 @@ function parentAuthority(candidate: LandingCandidate, input: LandingMandateInput
   }
   if (mandate.payload.permissions.landing && !parent.value.payload.permissions.landing)
     return landingRefusal('incompatible', [diagnostic('incompatible', 'Child landing exceeds the parent')])
-  return null
+  return parentChildGrantRefusal(mandate, parent.value, input.histories)
+}
+
+function parentChildGrantRefusal(
+  mandate: MandateRecord,
+  parent: MandateRecord,
+  histories: readonly DecodedHistory[],
+): LandingMandateDecision | null {
+  const parentAccepted = resolveAcceptedSpec(parent, histories)
+  if (!parentAccepted.ok) return landingRefusal(acceptedReason(parentAccepted.reason), parentAccepted.evidence)
+  const childAccepted = resolveAcceptedSpec(mandate, histories)
+  if (!childAccepted.ok) return landingRefusal(acceptedReason(childAccepted.reason), childAccepted.evidence)
+  const grant = childCommitmentRefusal(mandate, parentAccepted.spec, childAccepted.spec)
+  return grant === null ? null : landingRefusal(landingReason(grant.reason), grant.evidence)
 }
 
 function currentAuthority(candidate: LandingCandidate, input: LandingMandateInput): LandingMandateDecision | null {
@@ -171,29 +200,40 @@ function currentAuthority(candidate: LandingCandidate, input: LandingMandateInpu
   return null
 }
 
-function acceptedSpecAuthority(candidate: LandingCandidate, input: LandingMandateInput): LandingMandateDecision | null {
-  if (input.current.specDigest === null || input.current.specBody === null)
-    return landingRefusal('material-spec', [diagnostic('material-spec', 'Current spec body was not supplied')])
-  if (specDigest(input.current.specBody) !== input.current.specDigest)
-    return landingRefusal('material-spec', [diagnostic('material-spec', 'Current spec digest does not match its body')])
-  const accepted = resolveAcceptedSpec(candidate.mandate, input.histories)
-  if (!accepted.ok) return landingRefusal(acceptedReason(accepted.reason), accepted.evidence)
-  if (input.current.specDigest !== accepted.spec.digest)
-    return landingRefusal('materially-changed', [
-      diagnostic('materially-changed', 'Live spec differs from the effective approved snapshot'),
+function uwAdmissionAuthority(candidate: LandingCandidate, input: LandingMandateInput): LandingMandateDecision | null {
+  const ownUw = candidate.mandate.payload.ownSpec.uw
+  if (input.uwGraph.root.repository !== ownUw.repository || input.uwGraph.root.target !== ownUw.target)
+    return landingRefusal('uw-not-deliverable', [
+      diagnostic('graph-incomplete', 'Fresh native graph is not rooted at the selected own UW'),
     ])
+  const ownHistory = historyFor(ownUw, input.histories)
+  if (ownHistory === null)
+    return landingRefusal('missing-history', [diagnostic('missing-history', 'Own UW identity history is missing')])
+  const resolved = resolveAcceptedSpec(candidate.mandate, input.histories)
+  if (!resolved.ok) return landingRefusal(acceptedReason(resolved.reason), resolved.evidence)
+  const accepted: AcceptedOwnSpecResult = { status: 'accepted', value: resolved.spec }
+  const identities = resolveSpecIdentityLedger({
+    uw: ownUw,
+    history: ownHistory,
+    histories: input.histories,
+    accepted: resolved.spec,
+  })
+  if (!identities.ok) return landingRefusal('uw-not-deliverable', toDiagnostics(identities.diagnostics))
+  const admission = assessUwAdmission({
+    uw: ownUw,
+    graph: input.uwGraph,
+    proposed: input.current.proposedSpec,
+    accepted,
+    identities: identities.value,
+    phase: 'landing',
+    currentChildren: input.current.currentChildren,
+  })
+  if (!admission.deliverable.ok)
+    return landingRefusal('uw-not-deliverable', toDiagnostics(admission.deliverable.diagnostics))
   return null
 }
 
-function acceptedReason(reason: 'incomplete' | 'ambiguous' | 'material-spec' | 'missing-history'): LandingRefusal {
-  if (reason === 'material-spec') return 'material-spec'
-  if (reason === 'ambiguous') return 'ambiguous'
-  if (reason === 'missing-history') return 'missing-history'
-  return 'incomplete'
-}
-
 export function requireLandingMandate(input: LandingMandateInput): LandingMandateDecision {
-  void input.native.linkedIssueScopes
   const listed = incompleteListedParent(input.parentScopes, input.histories)
   if (listed !== null) return listed
   const selected = selectedCandidate(input)
@@ -204,8 +244,8 @@ export function requireLandingMandate(input: LandingMandateInput): LandingMandat
   if (parent !== null) return parent
   const current = currentAuthority(selected, input)
   if (current !== null) return current
-  const spec = acceptedSpecAuthority(selected, input)
-  if (spec !== null) return spec
+  const uw = uwAdmissionAuthority(selected, input)
+  if (uw !== null) return uw
   return {
     ok: true,
     recordId: selected.mandate.recordId,

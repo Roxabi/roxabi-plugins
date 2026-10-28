@@ -1,4 +1,5 @@
 import type { Diagnostic } from '../engine/record-values.ts'
+import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
 import type { PlanBlockerRef } from '../engine/workflow-output-schema.ts'
 import type { ActionReceiptPayload, WorkflowReceiptAction } from '../engine/workflow-receipt-schema.ts'
 import type { Contracts, History, HistoryRecord, Scope } from './feature-engine.ts'
@@ -22,11 +23,7 @@ export type ApprovedMandateContext =
   | {
       mandate: MandateRecord
       status: 'ready'
-      specBody: string
-      specDigest: string
-      specReference: string
-      chain: readonly unknown[]
-      sourceRefs: readonly unknown[]
+      accepted: AcceptedOwnSpec
       requirements: string[]
       requirementsBlock: string
       specBlock: string
@@ -58,20 +55,18 @@ export function approvedMandateContext(
   return {
     mandate,
     status: 'ready',
-    specBody: accepted.spec.body,
-    specDigest: accepted.spec.digest,
-    specReference: accepted.spec.reference,
-    chain: accepted.spec.chain,
-    sourceRefs: accepted.spec.sourceRefs,
+    accepted: accepted.spec,
     requirements,
     requirementsBlock,
     specBlock: [
-      `Accepted Spec reference=${accepted.spec.reference}`,
-      `Accepted Spec digest=${accepted.spec.digest}`,
+      `Accepted own UW=${accepted.spec.ref.uw.repository}${accepted.spec.ref.uw.target}`,
+      `Accepted Spec version=${accepted.spec.ref.version}`,
+      `Accepted tier=${accepted.spec.tier}`,
+      `Accepted child commitments=${JSON.stringify(accepted.spec.children)}`,
       `Accepted Spec sourceRefs=${JSON.stringify(accepted.spec.sourceRefs)}`,
       `Accepted Spec chain=${JSON.stringify(accepted.spec.chain)}`,
-      'Accepted Spec body:',
-      accepted.spec.body,
+      'Accepted canonical Spec:',
+      JSON.stringify(accepted.spec.snapshot.spec),
       requirementsBlock,
     ].join('\n'),
   }

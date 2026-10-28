@@ -3,15 +3,17 @@
 import type { Gh } from '../adapters/github/types.ts'
 import {
   decodedHistorySchema,
+  effectiveMandateRole,
   type GitHubOptions,
   readNativePullRequestFacts,
   readWorkflowBinding,
 } from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
+import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
 import { explicitParentHistories } from './feature-context.ts'
+import { discoverDeliveryPr } from './feature-delivery-discovery.ts'
 import type { Contracts, History, Scope, WorkflowEvidence } from './feature-engine.ts'
 import { isRecord, payload } from './feature-engine.ts'
-import { mandateRoleOf } from './feature-selection.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
 
 export type Delivery = {
@@ -51,60 +53,6 @@ export function boundEnds(binding: { kind: string; payload: unknown }): { branch
   return { branch, base }
 }
 
-function discoveredPullRequest(data: unknown): { ok: true; number: number | null } | { ok: false; reason: string } {
-  if (!Array.isArray(data)) return { ok: false, reason: 'pr-discovery-unreadable' }
-  if (data.length >= 30) return { ok: false, reason: 'pr-discovery-incomplete' }
-  const same: { number: number; state: string }[] = []
-  for (const entry of data) {
-    if (
-      !isRecord(entry) ||
-      typeof entry.isCrossRepository !== 'boolean' ||
-      typeof entry.number !== 'number' ||
-      !Number.isInteger(entry.number) ||
-      entry.number <= 0 ||
-      (entry.state !== 'OPEN' && entry.state !== 'MERGED' && entry.state !== 'CLOSED')
-    ) {
-      return { ok: false, reason: 'pr-discovery-unreadable' }
-    }
-    if (!entry.isCrossRepository) same.push({ number: entry.number, state: entry.state })
-  }
-  if (same.length > 1) return { ok: false, reason: 'pr-discovery-ambiguous' }
-  if (same[0]?.state === 'CLOSED') return { ok: false, reason: 'pr-discovery-closed' }
-  return { ok: true, number: same[0]?.number ?? null }
-}
-
-export async function discoverDeliveryPr(
-  gh: Gh,
-  cwd: string,
-  head: string,
-  base: string,
-): Promise<{ ok: true; number: number | null } | { ok: false; reason: string }> {
-  let raw: string
-  try {
-    raw = await gh(cwd, [
-      'pr',
-      'list',
-      '--head',
-      head,
-      '--base',
-      base,
-      '--state',
-      'all',
-      '--limit',
-      '30',
-      '--json',
-      'number,isCrossRepository,state',
-    ])
-  } catch (error) {
-    return { ok: false, reason: error instanceof Error ? error.message : 'pr-discovery-failed' }
-  }
-  try {
-    return discoveredPullRequest(JSON.parse(raw))
-  } catch {
-    return { ok: false, reason: 'pr-discovery-unreadable' }
-  }
-}
-
 type Chantier = { ok: true; evidence: WorkflowEvidence; delivery: Delivery | null } | { ok: false; reason: string }
 type BoundFacts = {
   issue: History | null
@@ -116,11 +64,6 @@ type BoundFacts = {
 }
 type BoundRead = { status: 'ok'; value: BoundFacts } | { status: 'absent' } | { status: 'error'; reason: string }
 type GitHubPolicy = GitHubOptions
-type IssueTarget = { status: 'issue'; scope: Scope }
-
-function isIssueTarget(target: { status: 'issue' | 'pull-request'; scope: Scope }): target is IssueTarget {
-  return target.status === 'issue'
-}
 
 function composeChantier(
   loaded: Contracts,
@@ -194,7 +137,7 @@ function appendMissingParents(parents: History[], additions: History[]): void {
 
 async function discoverIssueDelivery(
   loaded: Contracts,
-  target: { status: 'issue'; scope: Scope },
+  targetScope: Scope,
   primary: History,
   mandate: History['operations'][number]['record'] | null,
   options: { cwd: string; gh: Gh },
@@ -210,7 +153,7 @@ async function discoverIssueDelivery(
   const discovered = await discoverDeliveryPr(options.gh, options.cwd, branch, base)
   if (!discovered.ok) return discovered
   if (discovered.number === null) return { ok: true, pullRequest: null, delivery: null }
-  const scope = loaded.githubScope(target.scope.repository, discovered.number)
+  const scope = loaded.githubScope(targetScope.repository, discovered.number)
   const facts = await readBoundFacts(scope, policy, false)
   if (facts.status === 'ok') {
     appendMissingParents(parents, facts.value.parents)
@@ -243,37 +186,64 @@ async function discoverIssueDelivery(
   }
 }
 
+function mandateRole(
+  mandate: History['operations'][number]['record'] | null,
+  acceptedSpec: AcceptedOwnSpec | null,
+): 'feature' | 'epic' | 'fix-only' | null {
+  if (mandate?.kind !== 'mandate' || acceptedSpec === null) return null
+  return effectiveMandateRole(mandate.payload.role, acceptedSpec)
+}
+
+async function epicChantier(
+  loaded: Contracts,
+  primary: History,
+  mandate: History['operations'][number]['record'] | null,
+  options: { cwd: string; gh: Gh },
+): Promise<Chantier> {
+  const granted = await explicitParentHistories(loaded, mandate, options)
+  return granted.ok ? composeChantier(loaded, primary, null, granted.parents, null) : granted
+}
+
+async function pullRequestChantier(loaded: Contracts, targetScope: Scope, policy: GitHubPolicy): Promise<Chantier> {
+  const facts = await readBoundFacts(targetScope, policy, true)
+  if (facts.status === 'absent') return { ok: false, reason: 'binding-missing' }
+  if (facts.status === 'error' || facts.value.issue === null)
+    return { ok: false, reason: facts.status === 'error' ? facts.reason : 'binding-incomplete' }
+  const delivery = deliveryFromBound(scopeNumber(targetScope), targetScope, facts.value.issue.source.scope, facts.value)
+  return delivery.number === 0
+    ? { ok: false, reason: 'binding-incomplete' }
+    : composeChantier(loaded, facts.value.issue, facts.value.pullRequest, facts.value.parents, delivery)
+}
+
+async function issueChantier(
+  loaded: Contracts,
+  targetScope: Scope,
+  primary: History,
+  mandate: History['operations'][number]['record'] | null,
+  options: { cwd: string; gh: Gh },
+  policy: GitHubPolicy,
+): Promise<Chantier> {
+  const granted = await explicitParentHistories(loaded, mandate, options)
+  if (!granted.ok) return granted
+  const delivery = await discoverIssueDelivery(loaded, targetScope, primary, mandate, options, granted.parents, policy)
+  return delivery.ok
+    ? composeChantier(loaded, primary, delivery.pullRequest, granted.parents, delivery.delivery)
+    : delivery
+}
+
 export async function assembleChantier(
   loaded: Contracts,
   target: { status: 'issue' | 'pull-request'; scope: Scope },
   primary: History,
   mandate: History['operations'][number]['record'] | null,
+  acceptedSpec: AcceptedOwnSpec | null,
   options: { cwd: string; gh: Gh },
 ): Promise<Chantier> {
+  const role = mandateRole(mandate, acceptedSpec)
+  if (mandate?.kind === 'mandate' && role === null) return { ok: false, reason: 'mandate-spec-missing' }
+  if (role === 'epic') return epicChantier(loaded, primary, mandate, options)
   const policy = withRoxabiGitHubPolicy({ cwd: options.cwd, gh: options.gh })
-  if (mandateRoleOf(mandate) === 'epic') {
-    const granted = await explicitParentHistories(loaded, mandate, options)
-    if (!granted.ok) return granted
-    return composeChantier(loaded, primary, null, granted.parents, null)
-  }
-  if (target.status === 'pull-request') {
-    const facts = await readBoundFacts(target.scope, policy, true)
-    if (facts.status === 'absent') return { ok: false, reason: 'binding-missing' }
-    if (facts.status === 'error') return { ok: false, reason: facts.reason }
-    if (facts.value.issue === null) return { ok: false, reason: 'binding-incomplete' }
-    const delivery = deliveryFromBound(
-      scopeNumber(target.scope),
-      target.scope,
-      facts.value.issue.source.scope,
-      facts.value,
-    )
-    if (delivery.number === 0) return { ok: false, reason: 'binding-incomplete' }
-    return composeChantier(loaded, facts.value.issue, facts.value.pullRequest, facts.value.parents, delivery)
-  }
-  if (!isIssueTarget(target)) return { ok: false, reason: 'binding-missing' }
-  const granted = await explicitParentHistories(loaded, mandate, options)
-  if (!granted.ok) return granted
-  const delivery = await discoverIssueDelivery(loaded, target, primary, mandate, options, granted.parents, policy)
-  if (!delivery.ok) return delivery
-  return composeChantier(loaded, primary, delivery.pullRequest, granted.parents, delivery.delivery)
+  return target.status === 'pull-request'
+    ? pullRequestChantier(loaded, target.scope, policy)
+    : issueChantier(loaded, target.scope, primary, mandate, options, policy)
 }

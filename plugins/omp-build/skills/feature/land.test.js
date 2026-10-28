@@ -18,8 +18,8 @@ function incompleteApprovalHistory() {
   return history
 }
 
-function incompatibleMandateHistory(variant) {
-  const linked = linkedApproval(HEADS[0])
+async function incompatibleMandateHistory(variant) {
+  const linked = await linkedApproval(HEADS[0])
   const comment = linked.issue.source.comments.find((entry) => entry.body.includes('kind=mandate '))
   if (!comment) throw new Error('missing mandate fixture record')
   const match = /data=([A-Za-z0-9_-]+)/.exec(comment.body)
@@ -64,7 +64,7 @@ describe('landing review authority', () => {
   })
 
   it('refuses landing when the retained review input changes', async () => {
-    const linked = linkedApproval(HEADS[0])
+    const linked = await linkedApproval(HEADS[0])
     const { gh, git, state } = gateGh(linked.pr, { head: HEADS[0], armed: true, issueHistory: linked.issue })
     const changedGh = async (cwd, args) => {
       const output = await gh(cwd, args)
@@ -92,7 +92,7 @@ describe('landing review authority', () => {
   })
 
   it('reports a base refusal as base-blocked', async () => {
-    const linked = linkedApproval(HEADS[0])
+    const linked = await linkedApproval(HEADS[0])
     const { gh, git, state } = gateGh(linked.pr, { head: HEADS[0], armed: true, issueHistory: linked.issue })
     const refusingGit = async (cwd, args) =>
       args[0] === 'fetch' ? { code: 1, stdout: '', stderr: 'base unavailable' } : git(cwd, args)
@@ -109,7 +109,7 @@ describe('landing review authority', () => {
   })
 
   it('disarms a base read refusal without scheduling a review', async () => {
-    const linked = linkedApproval(HEADS[0])
+    const linked = await linkedApproval(HEADS[0])
     const { gh, git, state } = gateGh(linked.pr, { head: HEADS[0], armed: true, issueHistory: linked.issue })
     const refusingGit = async (cwd, args) =>
       args[0] === 'fetch' ? { code: 1, stdout: '', stderr: 'base unavailable' } : git(cwd, args)
@@ -143,7 +143,7 @@ describe('landing review authority', () => {
   })
 
   it.each(['missing format', 'removed proof pins'])('refuses a mandate with %s before arming', async (variant) => {
-    const linked = incompatibleMandateHistory(variant)
+    const linked = await incompatibleMandateHistory(variant)
     const { gh, git, state } = gateGh(linked.pr, { head: HEADS[0], armed: true, issueHistory: linked.issue })
 
     await expect(
@@ -161,31 +161,46 @@ describe('landing review authority', () => {
     expect(state).toEqual({ head: HEADS[0], label: false, auto: false })
   })
 
-  it.each(['review', 'review-attempt', 'decision', 'mandate', 'workflow-binding'])(
-    'refuses an edited %s record before landing',
-    async (kind) => {
-      const linked = linkedApproval(HEADS[0])
-      const comment =
-        kind === 'mandate'
-          ? linked.issue.source.comments.find((entry) => entry.body.includes('kind=mandate '))
-          : linked.pr.source.comments.find((entry) => entry.body.includes(`kind=${kind} `))
-      if (!comment) throw new Error(`missing ${kind} fixture record`)
-      comment.updatedAt = '2026-10-21T12:00:01Z'
-      const { gh, git } = gateGh(linked.pr, { head: HEADS[0], armed: true, issueHistory: linked.issue })
+  it.each(['review', 'review-attempt', 'decision'])('refuses an edited %s record before landing', async (kind) => {
+    const linked = await linkedApproval(HEADS[0])
+    const comment = linked.pr.source.comments.find((entry) => entry.body.includes(`kind=${kind} `))
+    if (!comment) throw new Error(`missing ${kind} fixture record`)
+    comment.updatedAt = '2026-10-21T12:00:01Z'
+    const { gh, git } = gateGh(linked.pr, { head: HEADS[0], armed: true, issueHistory: linked.issue })
 
-      await expect(
-        landPr('/tmp/wt', PR, {
-          gh,
-          git,
-          requiredContexts: ['ci'],
-          landing: { mode: 'native', required_checks: ['ci'] },
-        }),
-      ).resolves.toMatchObject({ reason: 'record-edited' })
-    },
-  )
+    await expect(
+      landPr('/tmp/wt', PR, {
+        gh,
+        git,
+        requiredContexts: ['ci'],
+        landing: { mode: 'native', required_checks: ['ci'] },
+      }),
+    ).resolves.toMatchObject({ reason: 'record-edited' })
+  })
+
+  it.each(['mandate', 'workflow-binding'])('refuses an edited %s record before landing effects', async (kind) => {
+    const linked = await linkedApproval(HEADS[0])
+    const comment =
+      kind === 'mandate'
+        ? linked.issue.source.comments.find((entry) => entry.body.includes('kind=mandate '))
+        : linked.pr.source.comments.find((entry) => entry.body.includes(`kind=${kind} `))
+    if (!comment) throw new Error(`missing ${kind} fixture record`)
+    comment.updatedAt = '2026-10-21T12:00:01Z'
+    const { gh, git, state } = gateGh(linked.pr, { head: HEADS[0], armed: true, issueHistory: linked.issue })
+
+    await expect(
+      landPr('/tmp/wt', PR, {
+        gh,
+        git,
+        requiredContexts: ['ci'],
+        landing: { mode: 'native', required_checks: ['ci'] },
+      }),
+    ).resolves.toMatchObject({ status: 'mandate-refused', disarmed: true })
+    expect(state).toEqual({ head: HEADS[0], label: false, auto: false })
+  })
 
   it('refuses a review with absent native revision metadata before landing', async () => {
-    const linked = linkedApproval(HEADS[0])
+    const linked = await linkedApproval(HEADS[0])
     const review = linked.pr.source.comments.find((entry) => entry.body.includes('kind=review '))
     if (!review) throw new Error('missing review fixture record')
     review.updatedAt = null
@@ -202,7 +217,7 @@ describe('landing review authority', () => {
   })
 
   it.each(['review-attempt', 'decision'])('refuses a foreign-author %s record before landing', async (kind) => {
-    const linked = linkedApproval(HEADS[0])
+    const linked = await linkedApproval(HEADS[0])
     const comment = linked.pr.source.comments.find((entry) => entry.body.includes(`kind=${kind} `))
     if (!comment) throw new Error(`missing ${kind} fixture record`)
     comment.author = 'foreign-automation'
@@ -219,7 +234,7 @@ describe('landing review authority', () => {
   })
 
   it('admits unedited review, mandate, and binding records', async () => {
-    const linked = linkedApproval(HEADS[0])
+    const linked = await linkedApproval(HEADS[0])
     const { gh, git } = gateGh(linked.pr, { head: HEADS[0], armed: true, issueHistory: linked.issue })
 
     await expect(
@@ -232,7 +247,7 @@ describe('landing review authority', () => {
     ).resolves.toMatchObject({ status: 'auto-merge-failed', armed: false })
   })
   it('lands when the head moves after landing admission', async () => {
-    const linked = linkedApproval(HEADS[0])
+    const linked = await linkedApproval(HEADS[0])
     expect(linked.input).not.toBe(noProducerInput(HEADS[0]))
     const { gh, git, state } = gateGh(linked.pr, {
       head: HEADS[0],

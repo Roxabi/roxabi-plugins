@@ -1,6 +1,7 @@
 import type { CanonicalRecord, HistoricalReviewAssociation } from '../dist/contracts.js'
 import { hashReviewInput } from '../skills/feature/review-input.ts'
 import { type ConfirmedReviewSemanticContext, confirmedReviewSemanticContext } from './review-semantic-canon.ts'
+import { reviewAcceptedSpecView } from './review-semantic-context.ts'
 
 type ReviewRoot = Extract<CanonicalRecord, { kind: 'review-attempt' }>
 
@@ -63,13 +64,7 @@ export function boundSemanticFromHistoricalAssociation(
       recordId: association.binding.recordId,
       scope: { repository: association.binding.repository, target: association.binding.target },
     },
-    acceptedSpec: {
-      reference: association.accepted.reference,
-      body: association.accepted.body,
-      digest: association.accepted.digest,
-      chain: association.accepted.chain,
-      sourceRefs: association.accepted.sourceRefs,
-    },
+    acceptedSpec: reviewAcceptedSpecView(association.accepted),
     additionalRequirements: [...config.additionalRequirements],
     effectiveConfig: {
       productVersion: config.productVersion,

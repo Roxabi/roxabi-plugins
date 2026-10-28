@@ -1,9 +1,11 @@
-import { writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { parseIssueSpecBody, rawSource } from '../../contracts.ts'
 import { buildRecord } from '../../engine/record-construction.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
+import { serveBoundEpic } from './testing/epic-driver/epic-driver-bound-fixture.ts'
 import {
   type Comment,
   childNode,
@@ -12,8 +14,10 @@ import {
   framedRecords,
   prNode,
   RUN,
+  serveComments,
   serveEpic,
   servePr,
+  strictSpecBody,
 } from './testing/epic-driver/epic-driver-records'
 import {
   cleanupSandbox,
@@ -33,20 +37,54 @@ function record(draft: Parameters<typeof buildRecord>[0]): CanonicalRecord {
   return built.value
 }
 
+function strictSnapshot(scope: { repository: string; target: string }, body: string) {
+  const parsed = parseIssueSpecBody({
+    uw: scope,
+    raw: rawSource(scope.target, body, '2026-10-21T12:00:00Z'),
+  })
+  if (parsed.status !== 'conformant') throw new Error(`fixture Spec ${scope.target} is ${parsed.status}`)
+  return parsed.snapshot
+}
+
+function setNativeStateReason(issue: number, stateReason: string): void {
+  const fixture = path.join(sandboxOf().state, `uw-${issue}.json`)
+  const graph = JSON.parse(readFileSync(fixture, 'utf8')) as {
+    data: { repository: { issue: { stateReason: string | null } } }
+  }
+  graph.data.repository.issue.stateReason = stateReason
+  writeFileSync(fixture, JSON.stringify(graph))
+}
+
+function setNativePrRefs(number: number, branch: string): void {
+  const file = path.join(sandboxOf().state, 'pr', `${number}.json`)
+  const view = JSON.parse(readFileSync(file, 'utf8'))
+  writeFileSync(file, JSON.stringify({ ...view, headRefName: branch, baseRefName: 'main' }))
+}
+
 function successorRecords(): Comment[] {
   const scope = { repository: 'o/r', target: 'o/r#1' }
   const children = [childNode(2, 'feat(x): first child')]
   const fixtures = roxabiWorkflowFixtures()
-  const first = fixtures.epicMandate(
-    scope,
-    children.map((child) => fixtures.childSnapshot({ repository: 'o/r', target: `o/r#${child.number}` }, child.body)),
-    { recordId: 'epic-m1' },
-  )
-  const second = fixtures.epicMandate(
-    scope,
-    children.map((child) => fixtures.childSnapshot({ repository: 'o/r', target: `o/r#${child.number}` }, child.body)),
-    { recordId: 'epic-m2', runId: 'run00002', operationId: 'op-epic-m2', antecedent: fixtures.mandateRef(first) },
-  )
+  const childScope = { repository: 'o/r', target: `o/r#${children[0].number}` }
+  const childSnapshot = strictSnapshot(childScope, children[0].body)
+  const approvedChildren = [
+    { scope: childScope, specVersion: childSnapshot.spec.version, snapshot: childSnapshot, tier: 'S' as const },
+  ]
+  const epicBody = strictSpecBody('works')
+  const epicSnapshot = strictSnapshot(scope, epicBody)
+  const first = fixtures.epicMandate(scope, approvedChildren, {
+    recordId: 'epic-m1',
+    body: epicBody,
+    ownSpec: fixtures.ownSpecFromSnapshot(scope, epicSnapshot),
+  })
+  const second = fixtures.epicMandate(scope, approvedChildren, {
+    recordId: 'epic-m2',
+    runId: 'run00002',
+    operationId: 'op-epic-m2',
+    antecedent: fixtures.mandateRef(first),
+    body: epicBody,
+    ownSpec: fixtures.ownSpecFromSnapshot(scope, epicSnapshot),
+  })
   const firstRef = fixtures.mandateRef(first)
   const secondRef = fixtures.mandateRef(second)
   return framedRecords(1, [
@@ -82,6 +120,57 @@ function successorRecords(): Comment[] {
 }
 
 describe('epic-driver — the gate', () => {
+  it('does not report an accepted child as changed for its never-accepted wayfinder', () => {
+    sandbox()
+    const fixtures = roxabiWorkflowFixtures()
+    const parentScope = { repository: 'o/r', target: 'o/r#1' }
+    const childScope = { repository: 'o/r', target: 'o/r#2' }
+    const child = childNode(2, 'feat(x): first child')
+    const parentBody = strictSpecBody('works')
+    const childSnapshot = strictSnapshot(childScope, child.body)
+    const parent = fixtures.epicMandate(
+      parentScope,
+      [{ scope: childScope, snapshot: childSnapshot, specVersion: childSnapshot.spec.version, tier: 'S' }],
+      {
+        body: parentBody,
+        ownSpec: fixtures.ownSpecFromSnapshot(parentScope, strictSnapshot(parentScope, parentBody)),
+      },
+    )
+    const childMandate = fixtures.featureMandate(childScope, {
+      body: child.body,
+      ownSpec: fixtures.ownSpecFromSnapshot(childScope, childSnapshot),
+      parent: fixtures.mandateRef(parent),
+    })
+    serveEpic(
+      [
+        {
+          ...child,
+          fixtureComments: fixtures
+            .framedBodies([childMandate], 'operator', [fixtures.historyFrom([parent])])
+            .map((body) => ({ body, author: 'operator' })),
+        },
+      ],
+      framedRecords(1, [parent]),
+      { mandate: false },
+    )
+    const childPath = path.join(sandboxOf().state, 'uw-2.json')
+    const childGraph = JSON.parse(readFileSync(childPath, 'utf8'))
+    childGraph.data.repository.issue.subIssues.nodes = [{ number: 3, repository: { nameWithOwner: 'o/r' } }]
+    writeFileSync(childPath, JSON.stringify(childGraph))
+    const wayfinderGraph = structuredClone(childGraph)
+    const wayfinder = wayfinderGraph.data.repository.issue
+    wayfinder.number = 3
+    wayfinder.title = 'wayfinder map'
+    wayfinder.labels.nodes = [{ name: 'wayfinder:map' }]
+    wayfinder.parent = { number: 2, repository: { nameWithOwner: 'o/r' } }
+    wayfinder.subIssues.nodes = []
+    writeFileSync(path.join(sandboxOf().state, 'uw-3.json'), JSON.stringify(wayfinderGraph))
+
+    const run = drive(['next'])
+    expect(run.code, `stderr: ${run.stderr}\nstdout: ${run.stdout}`).toBe(0)
+    expect(run.json().step).toMatchObject({ action: 'start', ticket: 2 })
+  })
+
   it('acts on nothing without a confirmed mandate', () => {
     sandbox()
     serveEpic([childNode(2, 'feat(x): first child')], [], { mandate: false })
@@ -163,6 +252,38 @@ describe('epic-driver — next', () => {
     expect(git(epic, 'rev-parse', 'HEAD')).toBe(git(epic, 'rev-parse', 'refs/remotes/origin/main'))
   })
 
+  it('does not schedule a child behind a native NOT_PLANNED sibling, but starts behind COMPLETED', () => {
+    const { epic: notPlannedEpic } = sandbox()
+    serveEpic([
+      childNode(2, 'feat(x): prerequisite', { state: 'CLOSED' }),
+      childNode(3, 'fix(y): dependent child', { blockedBy: [[2, 'CLOSED']] }),
+    ])
+    setNativeStateReason(2, 'NOT_PLANNED')
+    const notPlanned = drive(['next'])
+    const notPlannedBranch = git(notPlannedEpic, 'branch', '--show-current')
+    const notPlannedWrites = writes()
+
+    cleanupSandbox()
+
+    const { epic: completedEpic } = sandbox()
+    serveEpic([
+      childNode(2, 'feat(x): prerequisite', { state: 'CLOSED' }),
+      childNode(3, 'fix(y): dependent child', { blockedBy: [[2, 'CLOSED']] }),
+    ])
+    setNativeStateReason(2, 'COMPLETED')
+    const completed = drive(['next'])
+
+    expect(notPlanned.code).toBe(0)
+    expect(notPlanned.json().step).toMatchObject({ action: 'drop', stop: 'no-progress' })
+    expect(notPlanned.json().step.report.skipped).toEqual([{ ticket: 3, blockers: [2] }])
+    expect(notPlannedBranch).toBe('')
+    expect(notPlannedWrites).toEqual([])
+    expect(completed.code).toBe(0)
+    expect(completed.json().step).toMatchObject({ action: 'start', ticket: 3, branch: 'fix/3-dependent-child' })
+    expect(git(completedEpic, 'branch', '--show-current')).toBe('fix/3-dependent-child')
+    expect(writes()).toEqual([])
+  })
+
   it('confirms a merged child, deletes its local branch and starts the next one', () => {
     const { epic, root } = sandbox()
     serveEpic([
@@ -186,10 +307,60 @@ describe('epic-driver — next', () => {
       mergedAt: '2026-09-30T10:00:00Z',
       mergeCommit: { oid: mergeSha, parents: { nodes: [{ oid: base }] } },
     })
-    serveEpic([
+    const children = [
       childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] }),
       childNode(3, 'fix(y): second child', { blockedBy: [[2, 'CLOSED']] }),
-    ])
+    ]
+    const fixtures = roxabiWorkflowFixtures()
+    const parentScope = { repository: 'o/r', target: 'o/r#1' }
+    const parentBody = strictSpecBody('works')
+    const approved = children.map((child) => {
+      const scope = { repository: 'o/r', target: `o/r#${child.number}` }
+      const snapshot = strictSnapshot(scope, child.body)
+      return { scope, snapshot, specVersion: snapshot.spec.version, tier: 'S' as const }
+    })
+    const parent = fixtures.epicMandate(parentScope, approved, {
+      body: parentBody,
+      ownSpec: fixtures.ownSpecFromSnapshot(parentScope, strictSnapshot(parentScope, parentBody)),
+    })
+    const mandate = fixtures.featureMandate(approved[0].scope, {
+      body: children[0].body,
+      ownSpec: fixtures.ownSpecFromSnapshot(approved[0].scope, approved[0].snapshot),
+      parent: fixtures.mandateRef(parent),
+      branch: 'feat/2-first-child',
+      runId: 'run00002',
+      run: 'run00002',
+    })
+    const parentHistory = fixtures.historyFrom([parent])
+    const childHistory = fixtures.historyFrom([mandate], 'operator', 'operator', [parentHistory])
+    const binding = fixtures.workflowBinding(
+      { repository: 'o/r', target: 'o/r#10' },
+      mandate,
+      'feat/2-first-child',
+      'main',
+    )
+    serveEpic(
+      [
+        {
+          ...children[0],
+          fixtureComments: fixtures.framedBodies([mandate], 'operator', [parentHistory]).map((body) => ({
+            body,
+            author: 'operator',
+          })),
+        },
+        children[1],
+      ],
+      framedRecords(1, [parent]),
+      { mandate: false },
+    )
+    serveComments(
+      10,
+      fixtures.framedBodies([binding], 'operator', [childHistory, parentHistory]).map((body) => ({
+        body,
+        author: 'operator',
+      })),
+    )
+    setNativeStateReason(2, 'COMPLETED')
 
     const run = drive(['next'])
     expect(run.code).toBe(0)
@@ -208,9 +379,17 @@ describe('epic-driver — next', () => {
     git(epic, 'push', '-q', 'origin', 'feat/2-first-child')
     const tip = git(epic, 'rev-parse', 'HEAD')
     git(epic, 'switch', '-q', '--detach', 'refs/remotes/origin/main')
-    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
-    serveEpic([childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', tip, armed)] })])
+    const armed = {
+      labels: { nodes: [{ name: 'reviewed' }], pageInfo: { hasNextPage: false } },
+      autoMergeRequest: { enabledAt: 'x' },
+    }
+    serveBoundEpic(
+      childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', tip, armed)] }),
+      11,
+      'feat/2-first-child',
+    )
     servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    setNativePrRefs(11, 'feat/2-first-child')
 
     const run = drive(['next'])
     expect(run.code).toBe(0)
@@ -231,8 +410,13 @@ describe('epic-driver — next', () => {
     git(epic, 'switch', '-q', '-c', 'feat/2-first-child', 'refs/remotes/origin/main')
     git(epic, 'push', '-q', 'origin', 'feat/2-first-child')
     git(epic, 'switch', '-q', '--detach', 'refs/remotes/origin/main')
-    serveEpic([childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', 'f'.repeat(40))] })])
+    serveBoundEpic(
+      childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', 'f'.repeat(40))] }),
+      11,
+      'feat/2-first-child',
+    )
     servePr(11, { state: 'OPEN', labels: [], autoMerge: false })
+    setNativePrRefs(11, 'feat/2-first-child')
     const run = drive(['next'])
     expect(run.json().recorded).toMatchObject([{ ticket: 2, stop: 'branch-mismatch' }])
     expect(git(epic, 'branch', '--show-current')).toBe('')
@@ -245,8 +429,15 @@ describe('epic-driver — stop', () => {
     git(epic, 'switch', '-q', '-c', 'feat/2-first-child', 'refs/remotes/origin/main')
     git(epic, 'push', '-q', 'origin', 'feat/2-first-child')
     const tip = git(epic, 'rev-parse', 'HEAD')
-    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
-    serveEpic([childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', tip, armed)] })])
+    const armed = {
+      labels: { nodes: [{ name: 'reviewed' }], pageInfo: { hasNextPage: false } },
+      autoMergeRequest: { enabledAt: 'x' },
+    }
+    serveBoundEpic(
+      childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', tip, armed)] }),
+      11,
+      'feat/2-first-child',
+    )
     return epic
   }
 
@@ -268,6 +459,7 @@ describe('epic-driver — stop', () => {
   it('disarms, detaches and keeps the branch before recording a canonical stop event', () => {
     const epic = armedChild()
     servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+    setNativePrRefs(11, 'feat/2-first-child')
     const run = drive(['stop', '--ticket', '2', '--reason', 'timeout', ...detail("watch timed out; it's re-run later")])
     expect(run.code).toBe(0)
     expect(writes()).toEqual([
@@ -290,6 +482,7 @@ describe('epic-driver — stop', () => {
   it('writes no event when the PR is still armed after the disarm', () => {
     armedChild()
     servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true }, true)
+    setNativePrRefs(11, 'feat/2-first-child')
     const run = drive(['stop', '--ticket', '2', '--reason', 'timeout'])
     expect(run.code).toBe(1)
     expect(writes().filter((line) => line.startsWith('comment'))).toEqual([])
@@ -298,6 +491,7 @@ describe('epic-driver — stop', () => {
   it('writes no event when the PR merged before the disarm', () => {
     armedChild()
     servePr(11, { state: 'MERGED', labels: ['reviewed'], autoMerge: false })
+    setNativePrRefs(11, 'feat/2-first-child')
     const run = drive(['stop', '--ticket', '2', '--reason', 'timeout'])
     expect(run.code).toBe(0)
     expect(run.json()).toMatchObject({ ticket: 2, merged: 11 })
@@ -323,11 +517,15 @@ describe('epic-driver — review and report', () => {
 
   it('disarms every armed child PR on drop and posts one canonical report event per run', () => {
     sandbox()
-    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
-    const children = [
+    const armed = {
+      labels: { nodes: [{ name: 'reviewed' }], pageInfo: { hasNextPage: false } },
+      autoMergeRequest: { enabledAt: 'x' },
+    }
+    serveBoundEpic(
       childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', 'c'.repeat(40), armed)] }),
-    ]
-    serveEpic(children)
+      11,
+      'feat/2-first-child',
+    )
     servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
 
     const first = drive(['report', '--outcome', 'drop', '--reason', 'base-ci-red'])

@@ -4,7 +4,7 @@ export type Commit = { message: string; files: Files }
 export type BranchSpec = { name: string; from: string; commits: Commit[] }
 /** `base` is the PR's base branch (`main` when omitted). */
 export type PrSpec = { number: number; branch: string; title: string; body: string; closes: number[]; base?: string }
-export type IssueSpec = { number: number; title: string; issueType?: string | null }
+export type IssueSpec = { number: number; title: string; issueType?: string | null; labels?: string[] }
 export type Spec = {
   base: Files
   /** Side refs pushed to origin (`refs/heads/<name>`), e.g. a neutral revision. */

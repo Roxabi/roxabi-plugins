@@ -2,13 +2,13 @@ import { readWorkflowBinding } from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { ScopedRecordRef } from '../engine/record-references.ts'
 import type { MandateSelection } from '../engine/workflow-mandate.ts'
-import { mandateParentHistories, mandatesInHistory } from './feature-context.ts'
+import { mandateParentHistories } from './feature-context.ts'
 import type { ContinueFeatureInput, ContinueFeatureResult } from './feature-contract.ts'
 import { bindsOwnPause, inhibit } from './feature-control.ts'
 import { asHistory } from './feature-delivery-facts.ts'
 import { disarmKnownTarget, disarmUnresolved } from './feature-disarm.ts'
 import { type Contracts, defaultGh, isRecord, loadContracts, type Scope } from './feature-engine.ts'
-import { issueReference, mandateBranch, mandateRoleOf } from './feature-selection.ts'
+import { issueReference } from './feature-selection.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import { defaultGit, type SessionWorktreeIdentity, sessionWorktreeIdentity } from './workflow-checkout.ts'
 
@@ -192,7 +192,7 @@ async function selectHistoryAuthority(
   options: { cwd: string; gh: NonNullable<ContinueFeatureInput['gh']> },
 ): Promise<Pick<FeatureAuthority, 'history' | 'parentHistories' | 'selection'> | ContinueFeatureResult> {
   const parents = await mandateParentHistories(context.engine, history, options)
-  if (!parents.ok) return disarmParents(input, native, context, history, parents.reason)
+  if (!parents.ok) return disarmParents(input, native, context, parents.reason)
   const selection = context.engine.selectApplicableMandate(history, parents.parents)
   if (
     exactMandateRef === undefined &&
@@ -214,13 +214,9 @@ async function disarmParents(
   input: ContinueFeatureInput,
   native: { target: ResolvedTarget; scope: Scope },
   context: FeatureContext,
-  history: DecodedHistory,
   reason: string,
 ): Promise<ContinueFeatureResult> {
   if (input.control !== 'pause' && input.control !== 'abandon') return { kind: 'blocked', reason }
-  for (const mandate of mandatesInHistory(history)) {
-    await disarmKnownTarget(context.gh, context.cwd, native.target, mandateRoleOf(mandate), mandateBranch(mandate))
-  }
   await disarmKnownTarget(context.gh, context.cwd, native.target, null)
   return { kind: 'blocked', reason: input.control === 'pause' ? 'pause-uncertain' : 'abandon-uncertain' }
 }

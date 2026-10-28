@@ -1,21 +1,45 @@
+import { parseIssueSpecBody, rawSource, renderIssueSpecBody } from '../../adapters/github-native/uw-spec.ts'
 import { decodeHistory, buildRecord as frameRecord } from '../../dist/contracts.js'
-import { specDigest } from '../../engine/record-digests.ts'
+import { canonicalSpec } from '../../engine/uw-spec.ts'
+import { SPEC_CONTENT_FORMAT } from '../../engine/uw-spec-schema.ts'
 import { confirmedReviewSemanticContext } from '../../roxabi/review-semantic-canon.ts'
 import { reviewGraph } from '../../testing/record-graphs.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { hashReviewInput } from './review-input.ts'
 import { createGateGit } from './review-record-git-fixture.js'
 import { createGateGh } from './review-record-github-fixture.js'
+import { confirmedReviewSemanticContext as observedReviewSemanticContext } from './workflow-review-input.js'
 
 export const REPOSITORY = 'acme/app'
 export const ISSUE = 42
 export const ISSUE_SCOPE = { repository: REPOSITORY, target: `${REPOSITORY}#${ISSUE}` }
-export const SPEC = '## Acceptance\n- [ ] Save keeps the selected region'
 export const PR = 7
 export const SCOPE = { repository: REPOSITORY, target: `${REPOSITORY}#${PR}` }
 export const AUTHOR = 'omp-bot'
 export const HEADS = ['1'.repeat(40), '2'.repeat(40), '3'.repeat(40), '4'.repeat(40)]
-const { featureMandate, historyFrom, workflowBinding } = roxabiWorkflowFixtures()
+const { featureMandate, historyFrom, ownSpecFromSnapshot, workflowBinding } = roxabiWorkflowFixtures()
+
+function nativeFeatureSpec(criterion) {
+  const canonical = canonicalSpec({
+    format: SPEC_CONTENT_FORMAT,
+    criteria: [{ id: 'C1', statement: criterion }],
+    invariants: [],
+    exclusions: [],
+    openQuestions: [],
+    sections: { origin: '', context: '', change: '' },
+  })
+  if (!canonical.ok) throw new Error(canonical.diagnostics.map((item) => item.code).join(','))
+  const body = renderIssueSpecBody(canonical.value)
+  const parsed = parseIssueSpecBody({
+    uw: ISSUE_SCOPE,
+    raw: rawSource(ISSUE_SCOPE.target, body, '2026-10-21T12:00:00Z'),
+  })
+  if (parsed.status !== 'conformant') throw new Error('review record fixture Spec is not conformant')
+  return { body, ownSpec: ownSpecFromSnapshot(ISSUE_SCOPE, parsed.snapshot) }
+}
+
+const NATIVE_SPEC = nativeFeatureSpec('Save keeps the selected region')
+export const SPEC = NATIVE_SPEC.body
 
 function reviewSet(index, { head, verdict, input = null }) {
   const graph = reviewGraph({
@@ -62,46 +86,24 @@ function mandateRecord(head) {
     branch: 'feat/save',
     base: 'main',
     lineageHead: head,
+    ownSpec: NATIVE_SPEC.ownSpec,
   })
 }
 
-function linkedInput(head, mandate, binding) {
-  const config = mandate.payload.config
-  const digest = specDigest(SPEC)
-  const semantic = confirmedReviewSemanticContext({
-    mode: 'bound',
-    binding: { recordId: binding.recordId, scope: ISSUE_SCOPE },
-    acceptedSpec: {
-      reference: ISSUE_SCOPE.target,
-      body: SPEC,
-      digest,
-      chain: [{ kind: 'mandate', recordId: mandate.recordId, scope: ISSUE_SCOPE, specDigest: digest }],
-      sourceRefs: [{ scope: ISSUE_SCOPE, recordId: mandate.recordId, kind: 'mandate' }],
-    },
-    additionalRequirements: [],
-    effectiveConfig: {
-      productVersion: config.productVersion,
-      version: config.version,
-      digest: config.digest,
-      serialized: JSON.stringify({
-        productVersion: config.productVersion,
-        version: config.version,
-        digest: config.digest,
-        additionalRequirements: [],
-      }),
-    },
-  })
-  if ('ok' in semantic) throw new Error(semantic.error)
+async function linkedInput(head, issue, bindingHistory) {
+  const { gh } = gateGh(bindingHistory, { head, armed: true, issueHistory: issue })
+  const semantic = await observedReviewSemanticContext('/tmp/wt', PR, gh, 'main', AUTHOR)
+  if (semantic.ok === false) throw new Error(semantic.error)
   return hashReviewInput(REPOSITORY, { pr: PR, candidate: head }, { body: '', lastEditedAt: null }, semantic)
 }
 
 /** Approving review bound to issue 42, shipped config, and the empty-PR canon. */
-export function linkedApproval(head = HEADS[0]) {
+export async function linkedApproval(head = HEADS[0]) {
   const mandate = mandateRecord(head)
   const issue = historyFrom([mandate], AUTHOR)
   const binding = workflowBinding(SCOPE, mandate, 'feat/save', 'main')
   const framedBinding = historyFrom([binding], AUTHOR, AUTHOR, [issue])
-  const input = linkedInput(head, mandate, binding)
+  const input = await linkedInput(head, issue, framedBinding)
   const reviews = reviewSet(1, { head, verdict: 'Approve (clean)', input })
   const comments = [
     ...framedBinding.source.comments,

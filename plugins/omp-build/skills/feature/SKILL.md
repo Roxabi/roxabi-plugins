@@ -1,18 +1,18 @@
 ---
 name: feature
 disable-model-invocation: true
-argument-hint: '[#N | <subject> | init | pause #N | abandon #N | resume #N | new #N | material-decision #N accept|reject]'
+argument-hint: '[#N | <subject> | init | pause #N | abandon #N | resume #N | new #N | material-decision #N]'
 description: Reference for the installed /feature command: controls, human decisions, and where records live.
-version: 0.1.11
+version: 0.1.12
 ---
 
 # Feature
 
 The installed `/feature` command owns selection and continuation. `omp/index.ts` registers it and calls `runInstalledFeatureCommand` in `roxabi/feature-entry.ts`. That registered command does not dump this file into the turn. Explicit `skill://feature` or `/skill:feature` access supplies reference material, not another lifecycle or execution authority. A session `/goal` is not authority.
 
-Package `0.11.0` in this tree is not an installed or activated release. This text does not qualify the integration and does not authorize the semantic campaign or hosted activation.
+Package `0.13.0` in this tree is not evidence of installation, activation or runtime qualification. This reference grants no campaign or hosted-activation authority.
 
-One issue, one branch, one worktree, one PR. The issue body is the Spec.
+One issue, one branch, one worktree, one PR. The body carries a proposed own Spec in the sole English-heading grammar documented in the plugin README; author-language statements are preserved. Accepted Spec comes from the applicable `/3` mandate and its authenticated assessment/operator chain, not from a manual body edit. Ancestor Spec is not applicable until the separate inheritance work.
 
 ## Operator controls
 
@@ -20,12 +20,12 @@ One issue, one branch, one worktree, one PR. The issue body is the Spec.
 
 | Command | Boundary |
 |---|---|
-| `/feature <reference>` | Publishes the first valid mandate, or reuses an applicable one. No routine confirmation. |
+| `/feature <reference>` | Publishes the first valid mandate, or reuses an applicable one. No routine confirmation. Legacy normalization requires approval of the exact proposal before the same request can continue. |
 | `/feature resume <reference>` | Resumes an ordinary confirmed pause. A review-bound or safety stop is not a pause. |
 | `/feature pause <reference>` | Inhibits local continuation and publishes the control. Confirmed only after observed disarm. |
 | `/feature abandon <reference>` | Revokes the mandate. No automatic renewal. |
 | `/feature new <reference>` | Successor over an intact abandoned or revoked mandate. `publishSuccessorMandate` names the antecedent and publishes `select-successor`. `preserveSuccessorBinding` rebinds the same open PR when its binding names the antecedent or is absent. A missing antecedent or a foreign binding does not mint. Not renewal of `/feature <reference>`. `new init` is this control, not init. |
-| `/feature material-decision <reference> accept\|reject` | The only material-Spec decision. Editorial continues without a question. Unknown stops. |
+| `/feature material-decision <reference>` | Opens the context-bound operator UI for the exact authenticated material or unknown proposal. `accept`/`reject` argv is not authority and is refused. `/uw accept-material <reference>` uses the same acceptance chain. |
 | `/feature init` | Preview of the invoking checkout. Not a subject, not framing, not a mandate, not a native task. |
 
 From the Principal, or when the session cwd is not the intended worktree, select, resume, and new return `session-cwd` and `/move <path>`. They publish no mandate, branch binding, or native work. When the workflow stops or hands back work instead, the Principal sends one `feature-stopped: principal-dispatch-refused: <reason>` message and starts nothing. The reason is the workflow's stop, for example `operator-decision:needs-scope`, or the refused `workflow-result: <kind>`. `needs-framing` guidance is sent as is: moving would not change it. After `/move`, the same `/feature <reference>` is continuation, not a second approval. Pause and abandon of existing remote authority may still run without native work. There is no `/wt`.
@@ -49,11 +49,11 @@ Explicit apply is the operator's own reply, forwarded verbatim:
 ## Human decisions the command will not invent
 
 - Copy an init approval only from the operator's own reply.
-- Material Spec: wait for `/feature material-decision <reference> accept` or `reject`. The model assessment is the classification; code does not repair it.
+- Material or unknown Spec: wait for the real operator UI on the exact authenticated proposal. The model supplies semantic classification; code still forces mechanical additions, withdrawals, exclusions, tier and accepted-child changes through material control. Editorial continuation requires the authenticated assessment chain.
 - Repeating `/feature <reference>` does not renew an abandoned or revoked mandate. `/feature new <reference>` is the successor command, not automatic renewal.
 - Mid-turn user interrupt (Esc/RPC while an assistant turn is streaming), session switch, and shutdown await the durable pause for a pausable owner. Ordinary idle settle does not. Confirmation is the read-back `pause-confirmed` control. A finished or confirmed-abandoned owner is released and is not paused again. An unconfirmed pause or a spent review bound is not a resumable pause. While only the host-owned CI watch is running with no model turn, Esc/RPC is not a workflow pause — use `/feature pause` or `/feature abandon`.
 - After a confirmed merge, offer `/cleanup`. Offer `/promote` only when `.dev/stack.yml` declares `release.model: staging-train`. Leave both for the operator to invoke.
-- `needs-framing`: use `skill://grilling` until shared understanding, then publish or amend through `skill://issue-triage`. The next checkout, mandate, or native batch waits for `/feature #N` on an actionable issue. `operator-decision:needs-scope` is different: planning requires an `Acceptance Criteria` heading with `-` or `*` bullet criteria. An existing mandate and checkout remain intact. Amend the selected issue's Spec, then resume the same reference; normal Spec-change assessment applies, without renewing the mandate or resetting a bound.
+- `needs-framing` returns the named missing criterion, tier, open-question or native-graph diagnostics. A legacy body can receive a model-assisted, accounted normalization proposal; confirmation writes the same issue, reads it back, then continues the original request. Do not invent criteria or confirmation, create a replacement issue, or turn a body write into acceptance. Planning consumes canonical criteria, never a second heading/bullet extractor.
 
 ## Obligations the announced actions keep
 
@@ -61,7 +61,7 @@ The command dispatches the named actions. This file does not run a second loop. 
 
 | Obligation | Where |
 |---|---|
-| Tracker writes, labels, native relations | `skill://issue-triage` is the advisory path for framing and tracker policy, not the action runtime. Debt filing and the epic fix-ticket spawn the emitted CLI from `triage-runtime.ts`. Feature init imports the emitted planner and still binds the checkout with `defaultInitDeps(repository, checkout)`. Raw `gh issue create` does not write a relation. There is no sibling, home, or project fallback. The generated `dist/issue-triage/` slice is in this tree and is to be committed with the release. |
+| Tracker writes, labels, native relations | UW operations inject the importable issue-triage writer and κ rubric; the thin `/uw` command is not another workflow or an authorization source. Standalone issue-triage remains independent. Existing debt filing and epic fix-ticket paths retain the emitted CLI until their separate migration; init retains the emitted planner and `defaultInitDeps(repository, checkout)`. Native relations are real GitHub mutations, not closing prose. The generated `dist/issue-triage/` slice is committed with the plugin. |
 | Plan | One read-only architect and adversarial round after criterion-to-code mapping. A blocking finding amends the plan before implementation and spends no PR fix round. `agents/R-workflow-plan.md`; `planAction` in `roxabi/workflow.ts`. |
 | Implementation | Changed-path proof, affected docs, browser check or declared `commands.test_e2e`, task-owned Conventional commits ending `(#N)`. `agents/R-workflow-implement.md`. A model's commit list is a claim; the host binds captured commands and Git lineage. |
 | Review input | `hashReviewInput` prefixes `omp-build:review-input/3` and captures the observed PR inputs and semantic context without producer parts. A stored null input is not approval; absent or older input formats refuse with `incompatible-format`. |

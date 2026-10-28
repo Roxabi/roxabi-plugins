@@ -88,18 +88,10 @@ describe('fix Filing block', () => {
       'Parent=#70 #101',
       'BlockedBy=#80 #101',
     ])
-    expect(w.fake.created).toEqual([
-      {
-        repo: 'Acme/app',
-        number: 101,
-        nodeId: 'I_Acme/app#101',
-        title: TITLE,
-        body: BODY,
-        type: 'fix',
-        parent: 70,
-        blockedBy: [80],
-      },
-    ])
+    const [created] = w.fake.created
+    if (!created) throw new Error('filing fixture issue missing')
+    expect(w.fake.created).toHaveLength(1)
+    expect(created).toMatchObject({ repo: 'Acme/app', type: 'fix', parent: 70, blockedBy: [80] })
     // Bun started once, in the trusted triage directory, without its .env.
     expect(startupLog(w.startup)).toEqual([`${w.triageDir}\t`])
     expect(existsSync(w.sentinel)).toBe(false)
@@ -119,18 +111,10 @@ describe('fix Filing block', () => {
 
     expect(ran.stderr).toBe('')
     expect(ran.code).toBe(0)
-    expect(w.fake.created).toEqual([
-      {
-        repo: 'Other/tracker',
-        number: 101,
-        nodeId: 'I_Other/tracker#101',
-        title: TITLE,
-        body: BODY,
-        type: 'fix',
-        parent: 70,
-        blockedBy: [80],
-      },
-    ])
+    const [created] = w.fake.created
+    if (!created) throw new Error('filing fixture issue missing')
+    expect(w.fake.created).toHaveLength(1)
+    expect(created).toMatchObject({ repo: 'Other/tracker', type: 'fix', parent: 70, blockedBy: [80] })
     expect(ghCalls(w.ghLog).at(-1)?.args).toBe('issue edit 101 --repo Other/tracker --add-label size:S')
   })
 

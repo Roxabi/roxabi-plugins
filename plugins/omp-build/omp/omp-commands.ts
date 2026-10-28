@@ -3,6 +3,7 @@ import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import { ompBuildStartReviewParametersJsonSchema, ompBuildStartReviewParametersSchema } from '../dist/contracts.js'
+import { parseFeatureCommand, runTrustedFeatureInit } from '../roxabi/feature-command.ts'
 import type {
   FeatureCommandHost,
   FeatureFixTerminal,
@@ -13,6 +14,7 @@ import { runInstalledFeatureCommand } from '../roxabi/feature-entry.ts'
 import { loadFeatureWorkflow } from '../roxabi/feature-loader.ts'
 import type { FixStart } from '../roxabi/fix-entry-lifecycle.ts'
 import type { prepareReviewInputs } from '../roxabi/review-pr-inputs.ts'
+import { createInstalledUwOperations } from '../roxabi/uw-installed-operations.ts'
 import { INSTALL_ROOT, installRootStatus, replacedInstallRootMessage } from './install-root'
 import {
   type OmpBuildExtensionApi,
@@ -20,50 +22,25 @@ import {
   reportFeatureTerminalStatus,
   reviewControllerFor,
 } from './omp-controller'
+import {
+  beginFeatureUwOperation,
+  cancelFeatureUwOperation,
+  installFeatureUwOperationLifecycle,
+} from './omp-feature-composition.ts'
 import { rootContext } from './omp-feature-session'
 import { dispatchAdmittedCiCorrection, dispatchDefaultFix } from './omp-fix-dispatch'
+import { createOperatorConfirmation } from './omp-operator-confirmation.ts'
 import { dispatchDefaultReview, prepareInstalledEpicRangeReview } from './omp-review-dispatch'
 import { registerOmpReviewRecoveryTools } from './omp-review-recovery-tools'
+import { SKILL_COMMANDS } from './omp-skill-commands.ts'
+import { registerUwCommand, type UwOperationsFactory } from './omp-uw-command.ts'
 import type { NativeBatchController } from './review-runtime/controller.ts'
 import { createNativeReviewPort } from './review-runtime/port.ts'
 
-/** Slash commands with a skill body; native review, correction, and feature have real host pipelines. */
-const SKILL_COMMANDS: readonly { name: string; skill?: string; description: string; requires: readonly string[] }[] = [
-  {
-    name: 'feature',
-    description: 'OMP-only feature cycle — frame, GitHub issue, worktree, implement, bounded review/fix, land.',
-    requires: ['dev-review', 'fix'],
-  },
-  {
-    name: 'dev-review',
-    description: 'Prepare and dispatch a host-authorized native structured review.',
-    requires: ['dev-review'],
-  },
-  {
-    name: 'fix',
-    description: 'Prepare and dispatch a host-authorized native correction from confirmed review records.',
-    requires: ['fix'],
-  },
-  {
-    // The optional tail (#495). Offered after a ticket lands, never chained.
-    name: 'promote',
-    description: 'Promote staging→main — pre-flight, version, changelog, PR, tag',
-    requires: [],
-  },
-  {
-    name: 'cleanup',
-    description: 'Clean merged branches, worktrees and remotes after verification',
-    requires: [],
-  },
-  {
-    name: 'ci-watch',
-    description: 'Watch every check on a PR head, then the merge, until the script deadline',
-    requires: [],
-  },
-]
-
 export type OmpBuildExtensionOptions = {
   exists?: (path: string) => boolean
+  /** Override seam for tests; installed commands default to the concrete UW backend. */
+  uwOperations?: UwOperationsFactory
   installRoot?: string
   featureWorkflow?: FeatureWorkflow
   principalCwd?: (cwd: string) => boolean
@@ -131,6 +108,7 @@ function createFeatureCommandHost(
   workflow: FeatureWorkflow,
   controller: NativeBatchController,
   interruptOwnedFeatureWork: (reason: string) => Promise<void>,
+  uw: FeatureCommandHost['uw'],
 ): FeatureCommandHost {
   return {
     key: pi,
@@ -143,6 +121,7 @@ function createFeatureCommandHost(
     releaseFeatureContinuation: () => controller.releaseFeatureContinuation(),
     featureContinuationInhibited: () => controller.featureContinuationInhibited(),
     markFeatureBatch: (batch) => controller.markFeatureBatch(batch),
+    ...(uw === undefined ? {} : { uw }),
     interruptOwnedWork: interruptOwnedFeatureWork,
     startReview: (args, onComplete) =>
       dispatchDefaultReview(pi, ctx, args, {
@@ -168,14 +147,44 @@ async function runFeatureCommand(
   interruptOwnedFeatureWork: (reason: string) => Promise<void>,
 ): Promise<void> {
   if (!rootContext(ctx)) return
+  const parsed = parseFeatureCommand(args)
+  if (!parsed.ok) {
+    reportFeatureTerminalStatus(pi, `feature-stopped: ${parsed.reason}`)
+    return
+  }
+  if (parsed.control === 'init') {
+    await runTrustedFeatureInit(parsed.args, {
+      cwd: ctx.cwd,
+      send: async (message) => reportFeatureTerminalStatus(pi, message),
+      exec: (command, commandArgs, executionOptions) => pi.exec(command, commandArgs, executionOptions),
+    })
+    return
+  }
   const controller = reviewControllerFor(pi)
   controller.observeRootContext(ctx)
   const workflow = await loadInstalledFeatureWorkflow(pi, options)
   if (workflow === undefined) return
-  await runInstalledFeatureCommand(
-    args,
-    createFeatureCommandHost(pi, ctx, options, workflow, controller, interruptOwnedFeatureWork),
-  )
+  const operator = beginFeatureUwOperation(pi, createOperatorConfirmation(ctx))
+  const factory =
+    options.uwOperations ?? (options.featureWorkflow === undefined ? createInstalledUwOperations : undefined)
+  let uw: FeatureCommandHost['uw']
+  if (factory !== undefined && parsed.control !== 'pause' && parsed.control !== 'abandon') {
+    try {
+      uw = await factory({ cwd: ctx.cwd, operator })
+    } catch (error) {
+      cancelFeatureUwOperation(pi)
+      throw error
+    }
+  }
+  try {
+    await runInstalledFeatureCommand(
+      args,
+      createFeatureCommandHost(pi, ctx, options, workflow, controller, interruptOwnedFeatureWork, uw),
+    )
+  } catch (error) {
+    cancelFeatureUwOperation(pi)
+    throw error
+  }
 }
 
 function readSkillBody(
@@ -237,6 +246,7 @@ export function registerOmpCommandsAndTools(
   const { exists = existsSync } = options
   const installRoot = options.installRoot ?? INSTALL_ROOT
   const skillsDir = join(installRoot, 'skills')
+  installFeatureUwOperationLifecycle(pi)
   pi.registerTool({
     name: 'omp_build_start_review',
     label: 'Start structured review',
@@ -255,6 +265,8 @@ export function registerOmpCommandsAndTools(
     },
   })
   registerOmpReviewRecoveryTools(pi, options)
+
+  registerUwCommand(pi, options.uwOperations ?? createInstalledUwOperations)
 
   for (const { name, skill = name, description, requires } of SKILL_COMMANDS) {
     if (name === 'feature') {

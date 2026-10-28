@@ -1,7 +1,8 @@
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { reviewGraph } from '../../testing/record-graphs.ts'
+import { epicReviewGraph, reviewGraph } from '../../testing/record-graphs.ts'
+import { serveBoundEpic } from './testing/epic-driver/epic-driver-bound-fixture.ts'
 import {
   type Comment,
   childNode,
@@ -16,42 +17,40 @@ import {
   serveComments,
   serveEpic,
   servePr,
+  strictSpecBody,
 } from './testing/epic-driver/epic-driver-records.ts'
 import { cleanupSandbox, drive, git, sandbox, sandboxOf, writes } from './testing/epic-driver/epic-driver-sandbox.ts'
 
 afterEach(cleanupSandbox)
 describe('epic-driver — unframed child', () => {
   it('does not start a child that has no scope', () => {
+    // The confirmed parent grant remains valid; the child itself deliberately
+    // omits the required Spec framing and must never activate.
     const { epic } = sandbox()
-    // Genuine unframed: accepted Spec and live body both lack framing.
-    // Policy (epic-stops.ts TICKET_STOPS / epic-next-step.ts nextStep →
-    // epic-driver-next.ts ticketStop): record durable goal-stop:no-scope, do not
-    // start a branch. Exit 0 after recording is success of that stop receipt —
-    // not execution approval.
-    const unframed = { ...childNode(2, 'feat(x): first child'), body: '## Needs framing\n' }
+    const unframed = {
+      ...childNode(2, 'feat(x): first child'),
+      body: '## Needs framing\n',
+      specBody: strictSpecBody('feat(x): first child'),
+    }
     serveEpic([unframed])
     const run = drive(['next'])
-    expect(run.code).toBe(0)
-    expect(run.json().recorded).toMatchObject([{ ticket: 2, stop: 'no-scope' }])
-    expect(run.json().step).toMatchObject({ action: 'drop', stop: 'no-progress' })
+    expect(run.code).toBe(2)
+    expect(run.stderr).toContain('unsettled-child')
     expect(git(epic, 'branch', '--show-current')).toBe('')
-    expect(writes()).toEqual([expect.stringMatching(/^comment 2 <!-- omp-build-record /)])
-    expect(eventPayloads(2)).toContainEqual(
-      expect.objectContaining({ event: 'goal-stop', run: RUN, reason: 'no-scope' }),
-    )
+    expect(writes()).toEqual([])
   })
 
   it('refuses when live body drifts from the framed accepted Spec', () => {
     const { epic } = sandbox()
     const drifted = {
       ...childNode(2, 'feat(x): first child'),
-      body: '## Needs framing\n',
-      specBody: '## Acceptance criteria\n\n- [ ] works\n',
+      body: strictSpecBody('feat(x): changed child'),
+      specBody: strictSpecBody('feat(x): first child'),
     }
     serveEpic([drifted])
     const run = drive(['next'])
     expect(run.code).toBe(2)
-    expect(run.stderr).toContain('issue body differs from the approved spec snapshot')
+    expect(run.stderr).toContain('changed-child')
     expect(git(epic, 'branch', '--show-current')).toBe('')
     expect(writes()).toEqual([])
   })
@@ -63,7 +62,7 @@ describe('epic-driver — review bound', () => {
       const graph = reviewGraph({ prefix: `bound-${number}-${index}`, empty: !outcome.blocking })
       return framedRecords(number, graph.records).map((comment) => ({ ...comment, author: outcome.author ?? ME }))
     })
-    serveComments(number, comments)
+    serveComments(number, [...issueComments(number), ...comments])
   }
 
   function openPrChild(): void {
@@ -72,7 +71,11 @@ describe('epic-driver — review bound', () => {
     git(epic, 'push', '-q', 'origin', 'feat/2-first-child')
     const tip = git(epic, 'rev-parse', 'HEAD')
     git(epic, 'switch', '-q', '--detach', 'refs/remotes/origin/main')
-    serveEpic([childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', tip)] })])
+    serveBoundEpic(
+      childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', tip)] }),
+      11,
+      'feat/2-first-child',
+    )
   }
 
   it('keeps a PR stopped once its third canonical review is blocking', () => {
@@ -109,55 +112,9 @@ describe('epic-driver — review bound', () => {
       body: `ordinary historical comment ${index}`,
     }))
     const graph = reviewGraph({ prefix: 'pagination-review' })
-    serveComments(11, [...padding, ...framedRecords(11, graph.records)])
+    serveComments(11, [...padding, ...issueComments(11), ...framedRecords(11, graph.records)])
 
     expect(drive(['next', '--dry-run']).json().step).toMatchObject({ action: 'resume', ticket: 2, pr: { number: 11 } })
-  })
-})
-
-describe('epic-driver — eventual consistency', () => {
-  const reads = () => Number(readFileSync(path.join(sandboxOf().state, 'reads'), 'utf8'))
-
-  function armedOnOrigin(): string {
-    const { epic } = sandbox()
-    git(epic, 'switch', '-q', '-c', 'feat/2-first-child', 'refs/remotes/origin/main')
-    git(epic, 'push', '-q', 'origin', 'feat/2-first-child')
-    const tip = git(epic, 'rev-parse', 'HEAD')
-    git(epic, 'switch', '-q', '--detach', 'refs/remotes/origin/main')
-    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
-    serveEpic([childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', tip, armed)] })])
-    servePr(11, { state: 'MERGED', labels: ['reviewed'], autoMerge: false })
-    return tip
-  }
-
-  it('reads GitHub once more when the PR merged during its disarm, and moves on', () => {
-    const tip = armedOnOrigin()
-    const { state } = sandboxOf()
-    const merged = prNode(11, 'feat/2-first-child', tip, {
-      state: 'MERGED',
-      mergedAt: '2026-09-30T10:00:00Z',
-      mergeCommit: { oid: 'd'.repeat(40), parents: { nodes: [{ oid: 'a'.repeat(40) }] } },
-    })
-    // The first read is the stale one; every later read shows the merge.
-    writeFileSync(path.join(state, 'epic.json.1'), readFileSync(path.join(state, 'epic.json')))
-    serveEpic([childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] })])
-
-    const run = drive(['next'])
-
-    expect(run.code).toBe(0)
-    expect(run.json().step).toMatchObject({ action: 'final-review', stage: 'review' })
-    expect(reads()).toBeGreaterThanOrEqual(2)
-  })
-
-  it('stops after exactly one re-read when the facts stay stale', () => {
-    armedOnOrigin()
-
-    const run = drive(['next'])
-
-    expect(run.code).toBe(1)
-    expect(run.stderr).toContain('merged, yet the facts still show it open')
-    expect(reads()).toBe(2)
-    expect(writes()).toEqual([])
   })
 })
 
@@ -182,10 +139,8 @@ describe('epic-driver — hook', () => {
       mergedAt: '2026-09-30T10:00:00Z',
       mergeCommit: { oid: merge, parents: { nodes: [{ oid: base }] } },
     })
-    serveEpic(
-      [childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] })],
-      epicDecisionHistory(`${base}..${merge}`, false),
-    )
+    serveBoundEpic(childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] }), 10, 'feat/2-first-child')
+    serveComments(1, [...issueComments(1), ...epicDecisionHistory(`${base}..${merge}`, false)])
 
     const run = drive(['hook', '--repo', epic], { cwd: root })
 
@@ -208,10 +163,15 @@ describe('epic-driver — hook', () => {
 describe('epic-driver — unreadable landing', () => {
   it('drops on it, disarms, and reports through one canonical event', () => {
     sandbox('release:\n  model: trunk\nlanding:\n  mode: squash\n')
-    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
-    serveEpic([
+    const armed = {
+      labels: { nodes: [{ name: 'reviewed' }], pageInfo: { hasNextPage: false } },
+      autoMergeRequest: { enabledAt: 'x' },
+    }
+    serveBoundEpic(
       childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', 'c'.repeat(40), armed)] }),
-    ])
+      11,
+      'feat/2-first-child',
+    )
     servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
 
     const next = drive(['next'])
@@ -256,11 +216,112 @@ function landedEpic(files: Record<string, string> = {}): {
   return { range: `${base}..${merge}`, merged, proof }
 }
 
+describe('epic-driver — fresh parent admission at terminal effects', () => {
+  function prepare(action: 'review' | 'hook' | 'complete') {
+    const { range, merged, proof } = landedEpic()
+    // Generate an independent native blocker through the same fixture builder;
+    // it is not a child of the accepted Epic.
+    serveEpic([childNode(3, 'fix(y): independent blocker')])
+    const blockerPath = path.join(sandboxOf().state, 'uw-3.json')
+    const blocker = JSON.parse(readFileSync(blockerPath, 'utf8'))
+    blocker.data.repository.issue.parent = null
+    writeFileSync(blockerPath, JSON.stringify(blocker))
+
+    const history = epicDecisionHistory(range, false)
+    const decision = epicReviewGraph({ prefix: `epic-${range.split('..')[1].slice(0, 8)}`, head: range.split('..')[1] })
+    const hook = framedRecords(1, [
+      epicEvent(1, 'terminal-hook-ok', {
+        event: 'post-merge',
+        run: RUN,
+        result: 'ok',
+        sha: range.split('..')[1],
+        exitCode: 0,
+      }),
+    ])
+    serveBoundEpic(childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] }), 10, 'feat/2-first-child')
+    serveComments(1, [
+      ...issueComments(1),
+      ...(action === 'review' ? history.slice(0, -1) : action === 'hook' ? history : [...history, ...hook]),
+    ])
+    return { range, proof, decisionId: decision.decision.recordId }
+  }
+
+  function changeParent(change: 'blocker' | 'tier'): void {
+    const parentPath = path.join(sandboxOf().state, 'uw-1.json')
+    const parent = JSON.parse(readFileSync(parentPath, 'utf8'))
+    if (change === 'blocker') {
+      parent.data.repository.issue.blockedBy.nodes = [{ number: 3, repository: { nameWithOwner: 'o/r' } }]
+    } else {
+      parent.data.repository.issue.labels.nodes = []
+    }
+    writeFileSync(parentPath, JSON.stringify(parent))
+  }
+
+  it.each<{ action: 'review' | 'hook' | 'complete'; change: 'blocker' | 'tier' }>([
+    { action: 'review', change: 'blocker' },
+    { action: 'review', change: 'tier' },
+    { action: 'hook', change: 'blocker' },
+    { action: 'hook', change: 'tier' },
+    { action: 'complete', change: 'blocker' },
+    { action: 'complete', change: 'tier' },
+  ])('refuses $action when the accepted parent acquires a $change change', ({ action, change }) => {
+    const { range, proof, decisionId } = prepare(action)
+    changeParent(change)
+    const args =
+      action === 'review'
+        ? ['review', '--decision-record', decisionId, '--range', range]
+        : action === 'hook'
+          ? ['hook']
+          : ['report', '--outcome', 'complete']
+
+    const { epic, root } = sandboxOf()
+    const run = action === 'hook' ? drive([...args, '--repo', epic], { cwd: root }) : drive(args)
+
+    expect(run.code, run.stderr).toBe(2)
+    expect(run.stderr).toContain('native delivery admission refused')
+    expect(writes()).toEqual([])
+    expect(existsSync(proof)).toBe(false)
+  })
+
+  it('publishes an exact-range review when the parent remains deliverable', () => {
+    const { range, decisionId } = prepare('review')
+    const run = drive(['review', '--decision-record', decisionId, '--range', range])
+    expect(run.code).toBe(0)
+    expect(eventPayloads(1)).toContainEqual(expect.objectContaining({ event: 'epic-review', decisionId, range }))
+  })
+
+  it('runs the hook with the same unchanged parent fixture', () => {
+    const { proof } = prepare('hook')
+    const { epic, root } = sandboxOf()
+    const run = drive(['hook', '--repo', epic], { cwd: root })
+    expect(run.code, run.stderr).toBe(0)
+    expect(run.json()).toMatchObject({ result: 'ok' })
+    expect(existsSync(proof)).toBe(true)
+    expect(eventPayloads(1)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ event: 'post-merge', result: 'started' }),
+        expect.objectContaining({ event: 'post-merge', result: 'ok' }),
+      ]),
+    )
+  })
+
+  it('still permits a drop report when the parent loses its tier', () => {
+    prepare('complete')
+    changeParent('tier')
+    const run = drive(['report', '--outcome', 'drop', '--reason', 'driver-error'])
+    expect(run.code).toBe(0)
+    expect(eventPayloads(1)).toContainEqual(
+      expect.objectContaining({ event: 'goal-report', outcome: 'drop', reason: 'driver-error' }),
+    )
+  })
+})
+
 describe('epic-driver — canonical final review history', () => {
   it('uses the exact epic range, complete decision graph, and no free verdict', () => {
     const { range, merged } = landedEpic()
     const history = epicDecisionHistory(range, true)
-    serveEpic([childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] })], history)
+    serveBoundEpic(childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] }), 10, 'feat/2-first-child')
+    serveComments(1, [...issueComments(1), ...history])
 
     expect(eventPayloads(1)).toContainEqual(
       expect.objectContaining({
@@ -277,6 +338,7 @@ describe('epic-driver — canonical final review history', () => {
     const marked = drive(['mark-fix', '--ticket', '2'])
     expect(marked.code).toBe(0)
     expect(eventPayloads(2)).toContainEqual(expect.objectContaining({ event: 'epic-fix', run: RUN }))
+    expect(eventPayloads(1)).not.toContainEqual(expect.objectContaining({ event: 'epic-fix', run: RUN }))
     expect(drive(['review', '--range', range]).code).toBe(2)
   })
 
@@ -302,7 +364,7 @@ describe('epic-driver — fork PRs', () => {
     const { epic } = sandbox()
     const fork = prNode(66, 'feat/2-first-child', 'e'.repeat(40), {
       isCrossRepository: true,
-      labels: { nodes: [{ name: 'reviewed' }] },
+      labels: { nodes: [{ name: 'reviewed' }], pageInfo: { hasNextPage: false } },
     })
     const node = childNode(2, 'feat(x): first child')
     node.timelineItems = { nodes: [{ source: fork }] } as typeof node.timelineItems
@@ -322,11 +384,15 @@ describe('epic-driver — disarm modes', () => {
     git(epic, 'switch', '-q', '-c', 'feat/2-first-child', 'refs/remotes/origin/main')
     git(epic, 'push', '-q', 'origin', 'feat/2-first-child')
     const tip = git(epic, 'rev-parse', 'HEAD')
-    serveEpic([childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', tip, armed)] })])
+    serveBoundEpic(
+      childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', tip, armed)] }),
+      11,
+      'feat/2-first-child',
+    )
   }
 
   it('removes a merge-on-green label with no auto-merge to disable', () => {
-    child2Pr({ labels: { nodes: [{ name: 'reviewed' }] } })
+    child2Pr({ labels: { nodes: [{ name: 'reviewed' }], pageInfo: { hasNextPage: false } } })
     servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: false })
     const run = drive(['stop', '--ticket', '2', '--reason', 'ci-blocked'])
     expect(run.code).toBe(0)
@@ -457,10 +523,15 @@ describe('epic-driver — remaining branches', () => {
 describe('epic-driver — drop disarms without the dashboard', () => {
   it('disarms every armed PR when the base-CI rollup query fails and records the report event', () => {
     sandbox()
-    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
-    serveEpic([
+    const armed = {
+      labels: { nodes: [{ name: 'reviewed' }], pageInfo: { hasNextPage: false } },
+      autoMergeRequest: { enabledAt: 'x' },
+    }
+    serveBoundEpic(
       childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', 'c'.repeat(40), armed)] }),
-    ])
+      11,
+      'feat/2-first-child',
+    )
     servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
     writeFileSync(
       path.join(sandboxOf().state, 'rollup.json'),

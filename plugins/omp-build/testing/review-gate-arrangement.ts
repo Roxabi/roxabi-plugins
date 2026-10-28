@@ -1,15 +1,31 @@
 import { spawnSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { parseIssueSpecBody, rawSource, renderIssueSpecBody } from '../adapters/github-native/uw-spec.ts'
+import { canonicalSpec } from '../engine/uw-spec.ts'
+import { SPEC_CONTENT_FORMAT } from '../engine/uw-spec-schema.ts'
 import { hashReviewInput } from '../skills/feature/review-input.ts'
 import { confirmedReviewSemanticContext } from '../skills/feature/workflow-review-input.js'
 import { git, type ReviewGateFixture, readState, writeState } from './review-gate-fixture.ts'
 import { AUTOMATION, type IssueState, PR_EDITED, PR_TEXT, SCOPE, type StoredComment } from './review-gate-gh.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from './roxabi-presets.ts'
 
-const SPEC = '## Acceptance\n- [ ] Save keeps the selected region'
+const ISSUE_SCOPE = { repository: 'acme/app', target: 'acme/app#42' }
+export function nativeFeatureSpec(criterion: string): string {
+  const canonical = canonicalSpec({
+    format: SPEC_CONTENT_FORMAT,
+    criteria: [{ id: 'C1', statement: criterion }],
+    invariants: [],
+    exclusions: [],
+    openQuestions: [],
+    sections: { origin: '', context: '', change: '' },
+  })
+  if (!canonical.ok) throw new Error(canonical.diagnostics.map((item) => item.code).join(','))
+  return renderIssueSpecBody(canonical.value)
+}
+const SPEC = nativeFeatureSpec('Save keeps the selected region')
 const { encodedAdmissionReviewGraph } = roxabiRecordFixtures()
-const { framedBodies, historyFrom, workflowBinding } = roxabiWorkflowFixtures()
+const { framedBodies, historyFrom, ownSpecFromSnapshot, workflowBinding } = roxabiWorkflowFixtures()
 
 export { SPEC }
 
@@ -42,25 +58,25 @@ export function capturedCiFailure(reviewId = 'three-final') {
 }
 
 export async function seedMandate(fixture: ReviewGateFixture, spec = SPEC): Promise<void> {
-  const mandate = roxabiWorkflowFixtures().featureMandate(
-    { repository: 'acme/app', target: 'acme/app#42' },
-    {
-      recordId: 'mandate-feature-1',
-      runId: 'run00001',
-      operationId: 'op-mandate-feature-1',
-      branch: 'feat/7-fixture',
-      base: 'main',
-      lineageHead: fixture.head,
-      body: spec,
-    },
-  )
+  const parsed = parseIssueSpecBody({ uw: ISSUE_SCOPE, raw: rawSource(ISSUE_SCOPE.target, spec, PR_EDITED) })
+  if (parsed.status !== 'conformant') throw new Error('review gate fixture Spec is not conformant')
+  const mandate = roxabiWorkflowFixtures().featureMandate(ISSUE_SCOPE, {
+    recordId: 'mandate-feature-1',
+    runId: 'run00001',
+    operationId: 'op-mandate-feature-1',
+    branch: 'feat/7-fixture',
+    base: 'main',
+    lineageHead: fixture.head,
+    body: spec,
+    ownSpec: ownSpecFromSnapshot(ISSUE_SCOPE, parsed.snapshot),
+  })
   const binding = workflowBinding(SCOPE, mandate, 'feat/7-fixture', 'main')
   const state = readState(fixture)
   const issue: IssueState = {
     body: spec,
     updatedAt: PR_EDITED,
     state: 'OPEN',
-    labels: [],
+    labels: [{ name: 'size:S' }],
     comments: historyFrom([mandate], AUTOMATION).source.comments.map((comment, index) =>
       stored(comment.body, 4200 + index),
     ),

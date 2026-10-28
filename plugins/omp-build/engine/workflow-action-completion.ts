@@ -1,6 +1,6 @@
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope, sameRef } from './record-diagnostics.ts'
-import { failedCheckEvidenceDigest, specDigest } from './record-digests.ts'
+import { failedCheckEvidenceDigest } from './record-digests.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
@@ -9,9 +9,15 @@ import type { WorkflowGraphAction } from './workflow-graph.ts'
 import { ciAttributionSchema, implementationOutputSchema } from './workflow-output-schema.ts'
 import type { ActionCompletion, WorkflowEvidence } from './workflow-plan.ts'
 import { planMacro } from './workflow-plan-macro.ts'
+import type { AssessSpecExact } from './workflow-receipt-schema.ts'
 import type { SpecializedDecisions, WorkflowFacts } from './workflow-reconstruction-types.ts'
-import { type AssessResultRecord, isAssessResult } from './workflow-spec-assessment.ts'
-import { sameAssessInputs } from './workflow-spec-authentication.ts'
+import {
+  type AssessResultRecord,
+  isAssessResult,
+  mechanicalSpecDelta,
+  sameAssessedState,
+  sameCurrentAssessedState,
+} from './workflow-spec-assessment.ts'
 import { authenticatedAssessResult } from './workflow-spec-authentication-chain.ts'
 
 type ImplementationReceipt = ReceiptRecord & {
@@ -143,11 +149,8 @@ function assessSpecCompletion(
   facts: WorkflowFacts | null,
   mandate: MandateRecord | null,
 ): ActionCompletion {
-  if (facts === null || mandate === null || facts.specBody === null || facts.specDigest === null) {
+  if (facts === null || mandate === null || facts.currentSpec === null || facts.identityAllocations === null) {
     return { status: 'not-started', evidence: [] }
-  }
-  if (specDigest(facts.specBody) !== facts.specDigest) {
-    return { status: 'blocked', evidence: [diagnostic('material-spec', 'Live spec digest does not match its body')] }
   }
   const histories = [
     evidence.issue,
@@ -157,11 +160,24 @@ function assessSpecCompletion(
   const accepted = resolveAcceptedSpec(mandate, histories)
   if (!accepted.ok) return { status: 'uncertain', evidence: accepted.evidence }
   const mandateRef: ExternalRecordRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: 'mandate' }
-  const exactInputs = {
-    acceptedBody: accepted.spec.body,
-    acceptedDigest: accepted.spec.digest,
-    currentBody: facts.specBody,
-    currentDigest: facts.specDigest,
+  const exactInputs: AssessSpecExact = {
+    format: 'omp-build-spec-assessment/2',
+    accepted: {
+      ref: accepted.spec.ref,
+      snapshot: accepted.spec.snapshot,
+      tier: accepted.spec.tier,
+      children: accepted.spec.children,
+    },
+    proposed: facts.currentSpec,
+    identityAllocations: facts.identityAllocations,
+    mechanical: mechanicalSpecDelta(
+      {
+        snapshot: accepted.spec.snapshot,
+        tier: accepted.spec.tier,
+        children: accepted.spec.children,
+      },
+      facts.currentSpec,
+    ),
   }
   const receipts = recordsOf(evidence.issue).filter((record): record is ReceiptRecord =>
     isMatchingAssessment(record, mandateRef, exactInputs),
@@ -188,13 +204,21 @@ function assessSpecCompletion(
 function isMatchingAssessment(
   record: CanonicalRecord,
   mandateRef: ExternalRecordRef,
-  exactInputs: { acceptedBody: string; acceptedDigest: string; currentBody: string; currentDigest: string },
+  exactInputs: AssessSpecExact,
 ): boolean {
+  if (
+    record.kind !== 'action-receipt' ||
+    record.payload.action !== 'assess-spec' ||
+    !sameRef(record.payload.mandate, mandateRef)
+  )
+    return false
+  const inputs = record.payload.exactInputs
   return (
-    record.kind === 'action-receipt' &&
-    record.payload.action === 'assess-spec' &&
-    sameRef(record.payload.mandate, mandateRef) &&
-    sameAssessInputs(record.payload.exactInputs, exactInputs)
+    inputs.format === exactInputs.format &&
+    sameAssessedState(inputs.accepted, exactInputs.accepted) &&
+    sameCurrentAssessedState(inputs.proposed, exactInputs.proposed) &&
+    JSON.stringify(inputs.identityAllocations) === JSON.stringify(exactInputs.identityAllocations) &&
+    JSON.stringify(inputs.mechanical) === JSON.stringify(exactInputs.mechanical)
   )
 }
 

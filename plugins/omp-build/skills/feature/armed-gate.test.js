@@ -59,7 +59,7 @@ describe('durable review stop', () => {
   })
 
   it('clears the watcher arm when its selected review was edited', async () => {
-    const linked = linkedApproval(HEADS[0])
+    const linked = await linkedApproval(HEADS[0])
     const review = linked.pr.source.comments.find((entry) => entry.body.includes('kind=review '))
     if (!review) throw new Error('missing review fixture record')
     review.updatedAt = '2026-10-21T12:00:01Z'
@@ -73,7 +73,7 @@ describe('durable review stop', () => {
   })
 
   it('leaves the watcher arm unchanged when the head moves after landing admission', async () => {
-    const linked = linkedApproval(HEADS[0])
+    const linked = await linkedApproval(HEADS[0])
     expect(linked.input).not.toBe(noProducerInput(HEADS[0]))
     const { gh, git, state } = gateGh(linked.pr, {
       head: HEADS[0],

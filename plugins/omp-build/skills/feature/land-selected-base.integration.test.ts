@@ -3,6 +3,7 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { nativeFeatureSpec } from '../../testing/feature-review-fixture.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { git, readSim, SIM, sandbox, WORKFLOW, worktree, writeSim } from '../../testing/sandbox/sandbox-repository.ts'
 import type { Box } from '../../testing/sandbox/sandbox-types.ts'
@@ -12,6 +13,8 @@ const PR = 30
 const BRANCH = 'fix/5-plain'
 const NEXT = 'fix/5-next'
 const ISSUE = 5
+const ISSUE_SCOPE = { repository: 'acme/app', target: `acme/app#${ISSUE}` }
+const LANDING_SPEC = nativeFeatureSpec(ISSUE_SCOPE, 'lands')
 const BODY = 'Closes #5\n'
 const { encodedAdmissionReviewGraph } = roxabiRecordFixtures()
 const { linkedLandingAuthority } = roxabiWorkflowFixtures()
@@ -45,7 +48,7 @@ function createBox(mode = 'native'): { box: Box; cwd: string } {
         commits: [{ message: 'chore: staging', files: { 'src/staging.ts': 'export const staging = true\n' } }],
       },
     ],
-    issues: [{ number: ISSUE, title: 'fix: plain', issueType: 'fix' }],
+    issues: [{ number: ISSUE, title: 'fix: plain', issueType: 'fix', labels: ['size:S'] }],
     prs: [{ number: PR, branch: BRANCH, title: 'fix: plain', body: BODY, closes: [ISSUE] }],
   })
   roots.push(box.root)
@@ -59,9 +62,9 @@ function captureInput(box: Box, cwd: string, head: string): string {
     encoding: 'utf8',
   })
   if (run.status !== 0) throw new Error(`captureReviewInput failed: ${run.stderr}`)
-  const captured = JSON.parse(run.stdout) as { ok: boolean; input?: string | null }
+  const captured = JSON.parse(run.stdout) as { ok: boolean; input?: string | null; reason?: string; error?: string }
   if (!captured.ok || captured.input === null || captured.input === undefined)
-    throw new Error('review input unavailable')
+    throw new Error(`captureReviewInput refused: ${JSON.stringify(captured)}`)
   return captured.input
 }
 
@@ -73,7 +76,8 @@ function prepare(box: Box, cwd: string, armed = false): void {
     prNumber: PR,
     branch: BRANCH,
     base: 'main',
-    issueBody: '## Acceptance criteria\n\n- [ ] lands\n',
+    issueBody: LANDING_SPEC.body,
+    ownSpec: LANDING_SPEC.ownSpec,
     lineageHead: head,
     author: 'operator',
   })
@@ -83,6 +87,7 @@ function prepare(box: Box, cwd: string, armed = false): void {
     if (!pull || !issue) throw new Error('landing fixture scope missing')
     issue.comments = authority.issueBodies.map((body) => ({ author: 'operator', body }))
     pull.comments = authority.bindingBodies.map((body) => ({ author: 'operator', body }))
+    issue.body = LANDING_SPEC.body
     pull.labels = armed ? ['reviewed'] : []
     pull.autoMerge = armed ? { enabledAt: '2026-01-01T00:00:00Z', matchHeadCommit: head } : null
     pull.baseRefName = 'main'

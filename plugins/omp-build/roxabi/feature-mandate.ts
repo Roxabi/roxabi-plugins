@@ -1,7 +1,8 @@
 // Source: plugins/omp-build/roxabi/workflow.ts:1999-2007,2158-2225
 import { randomUUID } from 'node:crypto'
+import type { ExternalRecordRef } from '../engine/record-references.ts'
+import type { MandatePayload } from '../engine/workflow-mandate-schema.ts'
 import { baseFromStack } from '../skills/feature/epic-ci.ts'
-import { branchFor } from '../skills/feature/epic-naming.ts'
 import { type Contracts, type History, publishRecord, type Scope } from './feature-engine.ts'
 import type { GitRunner } from './workflow-checkout.ts'
 import { configPinDigest, effectiveWorkflowConfig } from './workflow-config-digest.ts'
@@ -24,11 +25,12 @@ export async function publishFirstMandate(
   contracts: Contracts,
   history: History,
   scope: Scope,
-  issue: { title: string; body: string; labels: string[]; updatedAt: string },
-  number: number,
+  initial: Pick<MandatePayload, 'ownSpec' | 'tier' | 'children'> & { parent: ExternalRecordRef | null },
+  branch: string,
   git: GitRunner,
   gh: Gh,
   cwd: string,
+  parentHistories: readonly History[],
 ): Promise<{ ok: true } | { ok: false; reason: string; diagnostics?: readonly { code: string; message: string }[] }> {
   const productVersion = contracts.shippedProductVersion()
   const head = await git(cwd, ['rev-parse', 'HEAD'])
@@ -53,9 +55,9 @@ export async function publishFirstMandate(
       operationId: randomUUID(),
       kind: 'mandate',
       payload: {
-        role: 'feature',
-        format: 'omp-build-mandate/2',
-        branch: branchFor({ number, title: issue.title, labels: issue.labels }),
+        role: initial.children.length === 0 ? 'feature' : 'epic',
+        format: 'omp-build-mandate/3',
+        branch,
         base,
         lineageHead,
         config: {
@@ -64,20 +66,17 @@ export async function publishFirstMandate(
           digest: configPinDigest(effective),
           effective,
         },
-        parent: null,
+        parent: initial.parent,
         antecedent: null,
-        spec: {
-          reference: scope.target,
-          body: issue.body,
-          bodySha256: contracts.specDigest(issue.body),
-          lastEditedAt: issue.updatedAt,
-        },
+        ownSpec: initial.ownSpec,
+        tier: initial.tier,
+        children: initial.children,
         permissions: { landing: true, correct: true },
-        run: null,
-        children: null,
+        run: randomUUID().slice(0, 8),
       },
     },
     gh,
     cwd,
+    parentHistories,
   )
 }

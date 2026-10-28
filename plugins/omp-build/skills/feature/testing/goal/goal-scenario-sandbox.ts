@@ -24,9 +24,9 @@ import {
   type SimState,
 } from './goal-scenario-domain.ts'
 
-const DRIVER = path.resolve(import.meta.dirname, '..', '..', 'epic-driver.ts')
+const DRIVER = path.resolve(import.meta.dirname, 'goal-scenario-driver-direct.ts')
 const SIM = path.resolve(import.meta.dirname, '..', 'gh-simulator', 'gh-simulator.ts')
-const WORKFLOW = path.resolve(import.meta.dirname, 'goal-scenario-workflow.ts')
+const WORKFLOW = path.resolve(import.meta.dirname, 'goal-scenario-workflow-direct.ts')
 const REAL_BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
 
 let box: Box | undefined
@@ -106,6 +106,7 @@ function child(number: number, title: string, blockedBy: number[] = []) {
     title,
     body: CHILD_BODY,
     state: 'OPEN',
+    updatedAt: '2026-01-01T00:00:00Z',
     author: 'operator',
     labels: ['size:F-lite'],
     comments: [],
@@ -178,6 +179,7 @@ export function sandbox(): Box {
             title: 'epic: goal',
             body: EPIC_BODY,
             state: 'OPEN',
+            updatedAt: '2026-01-01T00:00:00Z',
             author: 'operator',
             labels: ['epic', 'size:F-lite'],
             comments: [],

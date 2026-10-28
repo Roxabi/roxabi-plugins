@@ -1,7 +1,7 @@
 import { withRoxabiGitHubPolicy } from './github-policy'
 import type { Gh } from './review-input-contract'
 import { confirmedReviewSemanticContext, reviewSemanticCanon } from './review-semantic-canon'
-import type { ReviewSemanticContext } from './review-semantic-context'
+import { type ReviewSemanticContext, reviewAcceptedSpecView } from './review-semantic-context'
 import { additionalRequirementsOf } from './workflow-overrides'
 
 export type AcceptedEpicSemantic = {
@@ -89,17 +89,11 @@ export async function acceptedEpicSemantic(
     additionalRequirements: requirements,
   })
   const scope = contracts.githubScope(repository, epic)
+  const acceptedView = reviewAcceptedSpecView(accepted.spec)
   const semanticContext: ReviewSemanticContext = {
     mode: 'bound',
     binding: { recordId: mandate.recordId, scope },
-    acceptedSpec: {
-      reference: accepted.spec.reference,
-      body: accepted.spec.body,
-      digest: accepted.spec.digest,
-      lastEditedAt: accepted.spec.lastEditedAt,
-      chain: accepted.spec.chain,
-      sourceRefs: accepted.spec.sourceRefs,
-    },
+    acceptedSpec: acceptedView,
     currentSpec: {
       reference: live.reference,
       number: live.number,
@@ -121,10 +115,10 @@ export async function acceptedEpicSemantic(
     semanticContext,
     semanticCanon: epicSemanticCanon(semanticContext),
     spec: {
-      reference: accepted.spec.reference,
-      body: accepted.spec.body,
-      digest: accepted.spec.digest,
-      lastEditedAt: accepted.spec.lastEditedAt,
+      reference: acceptedView.reference,
+      body: acceptedView.body,
+      digest: acceptedView.digest,
+      lastEditedAt: acceptedView.lastEditedAt,
     },
   }
 }

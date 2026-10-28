@@ -11,8 +11,8 @@ describe('workflow CI attribution behavior', () => {
     const built = mandate()
     const graph = {
       version: 1,
-      productVersion: '0.11.0',
-      configVersion: 'catalogue-1',
+      productVersion: built.payload.config.productVersion,
+      configVersion: built.payload.config.version,
       edgeOrder: 'array',
       nodes: [
         { id: 'ready', action: 'stop' },

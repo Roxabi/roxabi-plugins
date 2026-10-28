@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto'
+import { mechanicalSpecDelta } from '../dist/contracts.js'
 import type { Scope } from '../engine/record-values.ts'
+import type { AssessSpecExact } from '../engine/workflow-receipt-schema.ts'
 import { modelAction } from './feature-action-prompts.ts'
 import { approvedMandateContext, finalEligiblePlanActionId, planStructuredBlock } from './feature-approved-context.ts'
 import { readNativeCiFailureEvidence } from './feature-ci-evidence.ts'
 import type { ContinueFeatureResult } from './feature-contract.ts'
 import { type Contracts, type History, publishRecord, type WorkflowEvidence } from './feature-engine.ts'
-import { acceptanceCriteria } from './uw-spec'
 import type { GitRunner } from './workflow-checkout.ts'
 
 type Gh = (cwd: string, args: string[]) => Promise<string>
@@ -18,7 +19,8 @@ type ModelReceiptActionInput = {
   mandate: NonNullable<History['operations'][number]['record']>
   evidence: WorkflowEvidence
   scope: Scope
-  issue: { body: string }
+  currentSpec: AssessSpecExact['proposed'] | null
+  identityAllocations: AssessSpecExact['identityAllocations'] | null
   target:
     | { status: 'issue'; scope: Scope; issue: { number: number } }
     | { status: 'pull-request'; scope: Scope; pullRequest: { pr: number; head: string; base: string; branch: string } }
@@ -43,7 +45,7 @@ function receiptStartContext(input: ModelReceiptActionInput): ReceiptStartContex
 async function publishAssessmentReceipt(
   input: ModelReceiptActionInput,
   context: ReceiptStartContext,
-  exactInputs: { acceptedBody: string; acceptedDigest: string; currentBody: string; currentDigest: string },
+  exactInputs: AssessSpecExact,
 ): Promise<ContinueFeatureResult> {
   const startId = randomUUID()
   const started = await publishRecord(
@@ -75,7 +77,7 @@ async function publishAssessmentReceipt(
     scope: input.scope,
     start: { scope: input.scope, recordId: startId, kind: 'action-receipt' },
     operationId: context.operationId,
-    assessPair: exactInputs,
+    assessExact: exactInputs,
   })
 }
 
@@ -83,14 +85,28 @@ async function startAssessmentReceipt(
   input: ModelReceiptActionInput,
   context: ReceiptStartContext,
 ): Promise<ContinueFeatureResult> {
-  if (input.mandate.kind !== 'mandate') return { kind: 'blocked', reason: 'mandate-spec-missing' }
+  if (input.mandate.kind !== 'mandate' || input.currentSpec === null || input.identityAllocations === null)
+    return { kind: 'blocked', reason: 'mandate-spec-missing' }
   const accepted = input.loaded.resolveAcceptedSpec(input.mandate, [context.mandateHistory, ...input.evidence.parents])
   if (!accepted.ok) return { kind: 'blocked', reason: 'mandate-spec-missing' }
   return publishAssessmentReceipt(input, context, {
-    acceptedDigest: accepted.spec.digest,
-    currentDigest: input.loaded.specDigest(input.issue.body),
-    acceptedBody: accepted.spec.body,
-    currentBody: input.issue.body,
+    format: 'omp-build-spec-assessment/2',
+    accepted: {
+      ref: accepted.spec.ref,
+      snapshot: accepted.spec.snapshot,
+      tier: accepted.spec.tier,
+      children: accepted.spec.children,
+    },
+    proposed: input.currentSpec,
+    identityAllocations: input.identityAllocations,
+    mechanical: mechanicalSpecDelta(
+      {
+        snapshot: accepted.spec.snapshot,
+        tier: accepted.spec.tier,
+        children: accepted.spec.children,
+      },
+      input.currentSpec,
+    ),
   })
 }
 
@@ -246,7 +262,9 @@ export async function startImplement(
   const reread = await loaded.readComposedWorkflowHistory([scope], { cwd, gh })
   const seen = reread.ok && reread.histories[0]?.operations.some((operation) => operation.record?.recordId === recordId)
   if (!seen) return { kind: 'blocked', reason: 'implementation-start-unconfirmed' }
-  const criteria = acceptanceCriteria(approved.specBody)
+  const criteria = approved.accepted.snapshot.spec.criteria.map(
+    (criterion) => `${criterion.id}: ${criterion.statement}`,
+  )
   return modelAction({
     action: 'implement',
     scope,

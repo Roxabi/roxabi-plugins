@@ -13,6 +13,7 @@ export const KIND_NAMES = [
   'debt-receipt',
   'stop',
   'epic-event',
+  'spec-identity',
   'mandate',
   'operator-control',
   'action-receipt',
@@ -22,6 +23,7 @@ export const KIND_NAMES = [
 ] as const
 export const kindSchema = z.enum(KIND_NAMES)
 export const WORKFLOW_RECORD_KINDS = [
+  'spec-identity',
   'mandate',
   'operator-control',
   'action-receipt',

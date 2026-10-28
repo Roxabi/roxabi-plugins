@@ -2,6 +2,7 @@ import type { Gh } from '../adapters/github/types.ts'
 import { featureLandOutcome } from '../skills/feature/workflow-outcome.js'
 import { applyCiWatchExit } from '../skills/feature/workflow-watch.js'
 import type { ContinueFeatureResult } from './feature-contract.ts'
+import { createInstalledUwReadPort } from './uw-read-port.ts'
 import { continueFeature } from './workflow.ts'
 import type { GitRunner } from './workflow-checkout.ts'
 
@@ -18,6 +19,7 @@ function reenterFeature(input: {
     principal: false,
     gh: input.gh,
     git: input.git,
+    read: createInstalledUwReadPort({ cwd: input.cwd, gh: input.gh }),
   })
 }
 

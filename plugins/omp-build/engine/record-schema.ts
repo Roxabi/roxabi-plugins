@@ -17,6 +17,7 @@ import {
   inventorySchema,
   stopSchema,
 } from './review-schema.ts'
+import { type SpecIdentityPayload, specIdentityPayloadSchema } from './uw-identity-schema.ts'
 import {
   type MandatePayload,
   mandatePayloadSchema,
@@ -61,6 +62,7 @@ type PayloadByKind = {
   'debt-receipt': z.infer<typeof debtReceiptSchema>
   stop: z.infer<typeof stopSchema>
   'epic-event': Json
+  'spec-identity': SpecIdentityPayload
   mandate: MandatePayload
   'operator-control': OperatorControlPayload
   'action-receipt': ActionReceiptPayload
@@ -82,6 +84,7 @@ export const recordSchema = z.discriminatedUnion('kind', [
   record('debt-receipt', debtReceiptSchema),
   record('stop', stopSchema),
   record('epic-event', jsonSchema),
+  record('spec-identity', specIdentityPayloadSchema),
   record('mandate', mandatePayloadSchema),
   record('operator-control', operatorControlPayloadSchema),
   record('action-receipt', actionReceiptPayloadSchema),

@@ -1,3 +1,7 @@
+import type { ExternalRecordRef } from '../../engine/record-references.ts'
+import type { UwDiagnostic } from '../../engine/uw-diagnostics.ts'
+import type { SpecSnapshot, UwTier } from '../../engine/uw-spec.ts'
+import type { AcceptedOwnSpec } from '../../engine/workflow-accepted-spec-types.ts'
 import type { SharedStop, TicketStop } from './epic-stops'
 
 // ── Facts ─────────────────────────────────────────────────────────────────────
@@ -31,16 +35,45 @@ export type BranchFacts = {
   elsewhere: string | null
 }
 
+export type FramedOwnUw = {
+  status: 'framed'
+  snapshot: SpecSnapshot
+  tier: UwTier
+  graphComplete: true
+  identityAllocations: readonly { id: string; allocationRef: ExternalRecordRef }[]
+}
+
+export type AcceptedOwnUw = {
+  status: 'accepted'
+  accepted: AcceptedOwnSpec
+  /** The complete graph was observed in this gather, not inferred from an issue body. */
+  graphComplete: true
+  identityAllocations: readonly { id: string; allocationRef: ExternalRecordRef }[]
+}
+
+export type RefusedOwnUw = {
+  status: 'refused'
+  /** Stable diagnostic family for child selection and operator-facing refusals. */
+  reason: 'incomplete' | 'unsettled' | 'changed-child'
+  diagnostics: readonly UwDiagnostic[]
+}
+
+export type OwnUwObservation = FramedOwnUw | AcceptedOwnUw | RefusedOwnUw
+
 export type ChildFacts = {
   number: number
   title: string
   state: 'OPEN' | 'CLOSED'
+  /** GitHub's native close reason; only CLOSED/COMPLETED relieves a dependency. */
+  stateReason?: string | null
   labels: string[]
   body: string
+  /** Fresh shared-reader authority for this exact child scope; never body-derived. */
+  ownUw: OwnUwObservation
   /** A complete canonical `epic-fix` event authored on this child issue. */
   epicFix: boolean
-  /** `repo` is set only when the blocker lives in another repository. */
-  blockedBy: { number: number; state: 'OPEN' | 'CLOSED'; repo?: string }[]
+  /** Canonical blocker facts from the parent-rooted UW graph. */
+  blockedBy: { number: number; state: 'OPEN' | 'CLOSED'; stateReason?: string | null; repo?: string }[]
   stops: { run: string; reason: string }[]
   prs: PrFacts[]
   branches: BranchFacts[]

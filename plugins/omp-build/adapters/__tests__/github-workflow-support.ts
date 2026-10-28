@@ -1,8 +1,10 @@
 import type { History } from '../../engine/history-schema.ts'
 import { parseRecord } from '../../engine/record-construction.ts'
+import { specDigest } from '../../engine/record-digests.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import type { Scope } from '../../engine/record-values.ts'
 import type { ObservedComment } from '../../engine/review-schema.ts'
+import { canonicalSpec } from '../../engine/uw-spec.ts'
 import { buildFixOnlyMandate } from '../../engine/workflow-correction-mandate.ts'
 import { githubScope } from '../github/transport.ts'
 import type { Gh } from '../github/types.ts'
@@ -17,7 +19,7 @@ export function comment(body: string, author = 'automation', nativeId = '100'): 
     body,
     author,
     createdAt: '2026-10-21T00:00:00Z',
-    updatedAt: '2026-10-21T00:00:01Z',
+    updatedAt: '2026-10-21T00:00:00Z',
   }
 }
 
@@ -76,6 +78,32 @@ export function wire(record: CanonicalRecord): string {
   return `<!-- omp-build-record v=1 kind=${record.kind} id=${record.recordId} operationId=${record.operationId} part=1/1 data=${Buffer.from(JSON.stringify(record)).toString('base64url')} -->\n# ${record.kind}`
 }
 
+function fixtureOwnSpec(scope: Scope) {
+  const result = canonicalSpec({
+    format: 'omp-build-spec-content/1',
+    criteria: [{ id: 'C1', statement: 'Preserve the fixture contract.' }],
+    invariants: [{ id: 'I1', statement: 'Keep native facts explicit.' }],
+    exclusions: [],
+    openQuestions: [],
+    sections: { origin: 'Fixture', context: 'Test support', change: 'Support old workflow tests.' },
+  })
+  if (!result.ok) throw new Error('fixture Spec must be canonical')
+  const body = 'live linked issue body'
+  return {
+    uw: scope,
+    version: result.value.version,
+    snapshot: {
+      spec: result.value,
+      raw: {
+        reference: scope.target,
+        body,
+        bodySha256: specDigest(body),
+        lastEditedAt: '2026-10-21T00:00:00Z',
+      },
+    },
+    identityAllocations: [],
+  }
+}
 export function issueMandate(
   scope: Scope,
   recordId = 'mandate-1',
@@ -91,7 +119,9 @@ export function issueMandate(
       base: 'main',
       lineageHead: null,
       productVersion: '0.11.0',
-      work: { reference: scope.target, body: 'live linked issue body', lastEditedAt: '2026-10-21T00:00:00Z' },
+      ownSpec: fixtureOwnSpec(scope),
+      tier: 'F-lite',
+      children: [],
       config: {
         version: 'catalogue-1',
         digest: 'a'.repeat(64),
@@ -153,7 +183,7 @@ export function nativeComment(id: number, body: string) {
     body,
     user: { login: 'automation' },
     created_at: '2026-10-21T00:00:00Z',
-    updated_at: '2026-10-21T00:00:01Z',
+    updated_at: '2026-10-21T00:00:00Z',
   }
 }
 

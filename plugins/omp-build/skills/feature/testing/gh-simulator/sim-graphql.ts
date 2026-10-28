@@ -1,7 +1,8 @@
-import { execFileSync } from 'node:child_process'
-
+import { containmentResponse } from './sim-containment.ts'
 import { recordedBase, rollupPage, settleAll } from './sim-git.ts'
+import { execInherited, writeStdout } from './sim-invocation.ts'
 import { type Comment, fail, fullName, type Issue, type Pull, type State } from './sim-types.ts'
+import { graphIssueResponse } from './sim-uw-graph.ts'
 
 export function prNode(state: State, pr: Pull): Record<string, unknown> {
   return {
@@ -16,7 +17,10 @@ export function prNode(state: State, pr: Pull): Record<string, unknown> {
       ? { oid: pr.mergeCommit.oid, parents: { nodes: [{ oid: pr.mergeCommit.parents[0] }] } }
       : null,
     autoMergeRequest: pr.autoMerge ? { enabledAt: pr.autoMerge.enabledAt } : null,
-    labels: { nodes: pr.labels.map((name) => ({ name })) },
+    labels: {
+      nodes: pr.labels.slice(0, 30).map((name) => ({ name })),
+      pageInfo: { hasNextPage: pr.labels.length > 30 },
+    },
     repository: { nameWithOwner: fullName(state) },
   }
 }
@@ -78,6 +82,7 @@ export function flags(argv: string[]): ParsedFlags {
     '--head': true,
     '--base': true,
     '--state': true,
+    '--search': true,
     '--add-label': true,
     '--remove-label': true,
     '--body': true,
@@ -151,16 +156,16 @@ export function fields(flag: Map<string, string[]>, pr: Pull, state: State): Rec
 }
 
 function jq(expression: string, json: string): string {
-  return execFileSync('jq', ['-r', expression], { input: json, encoding: 'utf8' })
+  return execInherited('jq', ['-r', expression], { input: json })
 }
 
 export function emit(value: unknown, expression: string | undefined): void {
   const json = typeof value === 'string' ? value : JSON.stringify(value)
   if (!expression) {
-    process.stdout.write(`${json}\n`)
+    writeStdout(`${json}\n`)
     return
   }
-  process.stdout.write(jq(expression, json))
+  writeStdout(jq(expression, json))
 }
 
 export function varsOf(flag: Map<string, string[]>): Record<string, string> {
@@ -251,6 +256,11 @@ function lastEditedResponse(state: State, query: string, vars: Record<string, st
 }
 
 function specialQueryResponse(state: State, query: string, vars: Record<string, string>): unknown | undefined {
+  const containment = containmentResponse(state, query, vars, prNode)
+  if (containment !== undefined) return containment
+  if (query.includes('stateReason') && query.includes('blockedBy') && query.includes('subIssues')) {
+    return graphIssueResponse(state, vars.number, vars)
+  }
   if (query.includes('subIssues')) return subIssuesResponse(state, state.issues[String(vars.epic)], vars.epic)
   if (query.includes('statusCheckRollup')) return rollupResponse(state, query, vars.sha ?? '', vars.after)
   if (query.includes('closingIssuesReferences')) return closingIssuesResponse(state, vars.number)

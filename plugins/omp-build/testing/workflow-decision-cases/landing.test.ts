@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { DecodedHistory } from '../../engine/history-schema.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import type { Scope } from '../../engine/record-values.ts'
+import type { MandateRecord } from '../../engine/workflow-control.ts'
 import { requireLandingMandate } from '../../engine/workflow-landing-admission.ts'
 import { reconstructWorkflow } from '../../engine/workflow-reconstruction-admission.ts'
 import { roxabiWorkflowFixtures } from '../roxabi-presets.ts'
@@ -33,7 +34,35 @@ function landingInput(
   histories: DecodedHistory[],
   overrides: { digest?: string; inhibit?: 'pause' | 'abandon' | null; parentScopes?: Scope[] } = {},
 ) {
-  const current = facts()
+  const mandate =
+    histories
+      .flatMap((history) => history.operations)
+      .map((operation) => operation.record)
+      .find((record): record is MandateRecord => record?.kind === 'mandate') ?? null
+  const ownSpec = mandate?.payload.ownSpec
+  const current = facts(mandate)
+  const uwGraph =
+    ownSpec === undefined
+      ? { status: 'incomplete' as const, root: SCOPE, nodes: [], observedAt: null, diagnostics: [] }
+      : {
+          status: 'complete' as const,
+          root: ownSpec.uw,
+          nodes: [
+            {
+              uw: ownSpec.uw,
+              title: 'Fixture UW',
+              raw: ownSpec.snapshot.raw,
+              updatedAt: ownSpec.snapshot.raw.lastEditedAt ?? '2026-10-27T12:00:00Z',
+              labels: ['size:S'],
+              wayfinderLabels: [],
+              parent: null,
+              children: [],
+              blockers: [],
+              native: { state: 'OPEN' as const, stateReason: null },
+            },
+          ],
+          observedAt: ownSpec.snapshot.raw.lastEditedAt ?? '2026-10-27T12:00:00Z',
+        }
   return {
     histories,
     native: {
@@ -43,13 +72,17 @@ function landingInput(
       linkedIssueScopes: [SCOPE],
     },
     parentScopes: overrides.parentScopes ?? [],
+    uwGraph,
     current: {
       productVersion: current.productVersion,
       configVersion: current.configVersion,
       configDigest: overrides.digest ?? current.configDigest,
       supportedConfigVersions: current.supportedConfigVersions,
-      specDigest: current.specDigest,
-      specBody: current.specBody,
+      proposedSpec:
+        ownSpec === undefined
+          ? { ok: false as const, diagnostics: [] }
+          : { ok: true as const, snapshot: ownSpec.snapshot },
+      currentChildren: { ok: true as const, value: [] },
     },
     localInhibit: overrides.inhibit ?? null,
   }
@@ -123,7 +156,7 @@ describe('workflow landing decisions', () => {
     expect(requireLandingMandate(input)).toMatchObject({ ok: false, reason: 'config-drift' })
   })
 
-  it('admits one accounted binding and an empty parent list when the mandate has no parent', () => {
+  it('admits one accounted binding with a matching authenticated UW graph and identity ledger', () => {
     const mandate = featureMandate(SCOPE, { body: BODY })
     const input = boundLanding(mandate)
     expect(input.parentScopes).toEqual([])
@@ -132,6 +165,13 @@ describe('workflow landing decisions', () => {
     if (!decision.ok) return
     expect(decision.recordId).toBe(mandate.recordId)
     expect(decision.scope).toEqual(SCOPE)
+  })
+
+  it('refuses an incomplete graph read after the binding and accepted Spec are valid', () => {
+    const mandate = featureMandate(SCOPE, { body: BODY })
+    const input = boundLanding(mandate)
+    input.uwGraph = { status: 'incomplete', root: SCOPE, nodes: [], observedAt: null, diagnostics: [] }
+    expect(requireLandingMandate(input)).toMatchObject({ ok: false, reason: 'uw-not-deliverable' })
   })
 
   it('refuses an omitted epic parent as missing, not as an empty parent list', () => {

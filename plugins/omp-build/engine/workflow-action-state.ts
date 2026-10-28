@@ -31,11 +31,11 @@ export function workflowBound(
   pullRequest: DecodedHistory | null,
   facts: WorkflowFacts,
 ): boolean {
-  if (mandate === null || facts.pullRequest === null || facts.branch === null || pullRequest === null) return false
+  if (mandate === null || facts.pullRequest === null || pullRequest === null) return false
   const selected = selectWorkflowBinding({
     pullRequest: facts.pullRequest.scope,
     histories: [history, pullRequest],
-    native: { branch: facts.branch, base: facts.pullRequest.base },
+    native: { branch: facts.pullRequest.head, base: facts.pullRequest.base },
   })
   return selected.status === 'bound' && selected.mandateRecord.recordId === mandate.recordId
 }

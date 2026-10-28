@@ -1,7 +1,10 @@
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
+import { viewer } from '../dist/contracts.js'
 import type { FeatureReviewFix } from '../roxabi/feature-contract.ts'
 import { startAdmittedCiCorrection } from '../roxabi/fix-entry-ci.ts'
 import { type FixRun, type FixStart, startDefaultFix } from '../roxabi/fix-entry-lifecycle.ts'
+import type { CiCorrectionAdmission } from '../roxabi/fix-mandate-types.ts'
+import { createInstalledUwReadPort } from '../roxabi/uw-read-port.ts'
 import { nextReviewStep } from '../skills/feature/workflow-review-state.js'
 import {
   createOmpFixPort,
@@ -19,6 +22,7 @@ async function dispatchDefaultFix(
   args: string,
   options: Partial<FeatureReviewFix> = {},
 ): Promise<FixStart> {
+  const automationLogin = await viewer({ cwd: ctx.cwd })
   if (hasOwnedFixRun(pi)) throw new Error('fix-run-already-active')
   const run = startDefaultFix({
     cwd: ctx.cwd,
@@ -30,6 +34,7 @@ async function dispatchDefaultFix(
     contextWindow: typeof ctx.model?.contextWindow === 'number' ? ctx.model.contextWindow : undefined,
     native: createOmpFixPort(pi),
     workflow: { nextReviewStep },
+    uw: createInstalledUwReadPort({ cwd: ctx.cwd, readAuthor: automationLogin }),
   })
   const notify = async (text: string): Promise<void> => {
     if (ownedFixRunFor(pi)?.run === run && ownedFixRunFor(pi)?.tearingDown) {
@@ -67,16 +72,18 @@ async function dispatchDefaultFix(
 async function dispatchAdmittedCiCorrection(
   pi: FixHost,
   ctx: ExtensionContext,
-  input: { reference: string; attributionRecordId: string; scope: string },
+  input: { reference: string; attributionRecordId: string; uw: CiCorrectionAdmission['uw'] },
 ): Promise<FixRun> {
   if (hasOwnedFixRun(pi)) throw new Error('fix-run-already-active')
+  const automationLogin = await viewer({ cwd: ctx.cwd })
   const run = startAdmittedCiCorrection({
     cwd: ctx.cwd,
     reference: input.reference,
     attributionRecordId: input.attributionRecordId,
-    scope: input.scope,
+    expectedUw: input.uw,
     native: createOmpFixPort(pi),
     workflow: { nextReviewStep },
+    uw: createInstalledUwReadPort({ cwd: ctx.cwd, readAuthor: automationLogin }),
   })
   const notify = async (text: string): Promise<void> => {
     if (ownedFixRunFor(pi)?.run === run && ownedFixRunFor(pi)?.tearingDown) {

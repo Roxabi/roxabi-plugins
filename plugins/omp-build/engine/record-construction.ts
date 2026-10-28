@@ -79,6 +79,7 @@ function derivedInputs(draft: RecordDraft): string[] {
           .filter((ref) => equalScope(ref.scope, { repository: draft.repository, target: draft.target }))
           .map((ref) => ref.recordId),
       ]
+    case 'spec-identity':
     case 'mandate':
     case 'operator-control':
     case 'action-receipt':

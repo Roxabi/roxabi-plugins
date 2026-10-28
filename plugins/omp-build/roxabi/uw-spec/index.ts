@@ -1,4 +1,3 @@
-export { acceptanceCriteria } from './criteria.ts'
 export {
   type LiveIssueSpec,
   type ReviewIssueSpec,
@@ -8,7 +7,6 @@ export {
   readSelectionIssueSpec,
   type SelectionIssueSpec,
 } from './issue-readers.ts'
-export { hasScope } from './scope.ts'
 export { readScopeIssueBody } from './scope-issue.ts'
 export {
   extractYamlBlocks,

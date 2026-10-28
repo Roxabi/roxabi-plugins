@@ -6,6 +6,7 @@ import { failure } from './fix-contract.ts'
 import { resolveCorrectionMandate } from './fix-mandate-resolution.ts'
 import {
   type AttributedCiCorrectionInput,
+  type CiCorrectionAdmission,
   type CiCorrectionBound,
   classifyCiCorrectionStep,
   completeRecord,
@@ -62,14 +63,31 @@ async function readCiReviewStep(input: AttributedCiCorrectionInput): Promise<CiR
 }
 
 type AttributedCiStep = { readonly reviews?: number; readonly remaining?: number }
+export type ExpectedAttributedCiCorrectionInput = AttributedCiCorrectionInput & {
+  expectedUw: CiCorrectionAdmission['uw']
+}
+
+function sameCorrectionUw(expected: CiCorrectionAdmission['uw'], actual: CiCorrectionAdmission['uw']): boolean {
+  return (
+    JSON.stringify(expected.ownSpec) === JSON.stringify(actual.ownSpec) &&
+    JSON.stringify(expected.children) === JSON.stringify(actual.children)
+  )
+}
 
 async function admitBoundCiCorrection(
   input: AttributedCiCorrectionInput,
   history: DecodedHistory,
   classified: AttributedCiStep,
+  expectedUw: CiCorrectionAdmission['uw'] | null,
 ): Promise<FixActionResult<CiCorrectionBound>> {
-  const linked = await linkedIssueBinding(input.target, input.options)
+  const linked = await linkedIssueBinding(input.target, input.options, input.uw)
   if (!linked.ok) return linked
+  if (linked.value.currentSpec === null) return failure('fix-own-uw-unsettled')
+  const currentUw = {
+    ownSpec: linked.value.currentSpec.ownSpec,
+    children: linked.value.currentSpec.children,
+  }
+  if (expectedUw !== null && !sameCorrectionUw(expectedUw, currentUw)) return failure('fix-own-uw-unsettled')
   if (input.target.candidateGitSHA === null) return failure('ci-correction-not-pull-request')
   const head = input.target.candidateGitSHA
   const live = await readLiveCiEvidence(input, head)
@@ -110,7 +128,7 @@ async function admitBoundCiCorrection(
     linked.value.externalHistories,
     'fix',
     live.value,
-    mandate.value.acceptedSpec,
+    linked.value.currentSpec.read,
   )
   if (!authorized.ok) return authorized
   return {
@@ -123,15 +141,16 @@ async function admitBoundCiCorrection(
       remaining: classified.remaining,
       attributionRecordId: input.attributionRecordId,
       candidateGitSHA: input.target.candidateGitSHA,
-      scope: input.scope,
+      uw: currentUw,
       mandateRecordId: mandate.value.mandate.recordId,
       failedChecks: authorized.value,
     },
   }
 }
 
-export async function admitAttributedCiCorrection(
+async function admitCiCorrection(
   input: AttributedCiCorrectionInput,
+  expectedUw: CiCorrectionAdmission['uw'] | null,
 ): Promise<FixActionResult<CiCorrectionBound>> {
   if (input.signal?.aborted) return failure('fix-run-interrupted-cleanup-unproven')
   if (input.target.kind !== 'pull-request' || input.target.candidateGitSHA === null)
@@ -144,5 +163,17 @@ export async function admitAttributedCiCorrection(
   if (classified.status !== 'attributed-correction') return { ok: true, value: classified }
   const history = await input.readHistory()
   if (!history.source.complete) return failure('fix-history-incomplete')
-  return admitBoundCiCorrection(input, history, classified)
+  return admitBoundCiCorrection(input, history, classified, expectedUw)
+}
+
+export async function admitAttributedCiCorrection(
+  input: AttributedCiCorrectionInput,
+): Promise<FixActionResult<CiCorrectionBound>> {
+  return admitCiCorrection(input, null)
+}
+
+export async function reAdmitAttributedCiCorrection(
+  input: ExpectedAttributedCiCorrectionInput,
+): Promise<FixActionResult<CiCorrectionBound>> {
+  return admitCiCorrection(input, input.expectedUw)
 }

@@ -1,7 +1,6 @@
 import { createWorkflowFixtures } from '../../testing/workflow-fixtures.ts'
 import type { DecodedHistory } from '../history-schema.ts'
 import { buildRecord, parseRecord } from '../record-construction.ts'
-import { specDigest } from '../record-digests.ts'
 import { isWorkflowKind } from '../record-references.ts'
 import type { CanonicalRecord } from '../record-schema.ts'
 import type { Scope } from '../record-values.ts'
@@ -15,8 +14,8 @@ const DIGEST = 'a'.repeat(64)
 const BODY = 'ship the bounded workflow'
 const GRAPH: WorkflowGraph = {
   version: 1,
-  productVersion: '0.11.0',
-  configVersion: 'catalogue-1',
+  productVersion: '0.13.0',
+  configVersion: 'omp-build-workflow/1',
   edgeOrder: 'array',
   nodes: [
     { id: 'frame', action: 'frame' },
@@ -28,7 +27,7 @@ const GRAPH: WorkflowGraph = {
 }
 const WORKFLOW_CONFIG_VERSION = GRAPH.configVersion
 const syntheticWorkflowFixtures = createWorkflowFixtures({
-  productVersion: '0.11.0',
+  productVersion: '0.13.0',
   config: { version: WORKFLOW_CONFIG_VERSION, digest: DIGEST, effective: { graph: GRAPH } },
   head: null,
   editedAt: '2026-10-21T00:00:00Z',
@@ -39,9 +38,10 @@ function must<T>(result: { ok: true; value: T } | { ok: false; diagnostics: { co
   return result.value
 }
 
-function mandate(overrides: { parent?: CanonicalRecord | null; recordId?: string } = {}) {
+function mandate(overrides: { parent?: CanonicalRecord | null; recordId?: string; scope?: Scope } = {}) {
   const parent = overrides.parent
-  return syntheticWorkflowFixtures.fixOnlyMandate(SCOPE, {
+  const scope = overrides.scope ?? SCOPE
+  return syntheticWorkflowFixtures.fixOnlyMandate(scope, {
     recordId: overrides.recordId ?? 'mandate-1',
     runId: 'run-1',
     operationId: 'op-mandate-1',
@@ -75,9 +75,25 @@ function featureMandate(): MandateRecord {
 }
 
 function history(records: CanonicalRecord[], scope = SCOPE): DecodedHistory {
+  const complete = [...records]
+  for (const mandate of records) {
+    if (mandate.kind !== 'mandate') continue
+    for (const ref of mandate.payload.ownSpec.identityAllocations) {
+      if (
+        complete.some(
+          (record) =>
+            record.repository === ref.scope.repository &&
+            record.target === ref.scope.target &&
+            record.recordId === ref.recordId,
+        )
+      )
+        continue
+      complete.unshift(syntheticWorkflowFixtures.identityAllocation(ref.scope, ref.recordId))
+    }
+  }
   return {
     source: { scope, expectedAuthor: 'operator', stopAuthor: null, complete: true, comments: [], diagnostics: [] },
-    operations: records.map((record) => ({
+    operations: complete.map((record) => ({
       operationId: record.operationId,
       recordId: record.recordId,
       kind: record.kind,
@@ -175,19 +191,18 @@ function pauseControls(mandate: MandateRecord, controlId: string) {
 
 function facts(overrides: Partial<WorkflowFacts> = {}): WorkflowFacts {
   return {
-    specDigest: specDigest(BODY),
-    specBody: BODY,
-    branch: 'feature/bounded',
+    currentSpec: null,
+    identityAllocations: null,
     base: 'main',
     candidateGitSHA: null,
     pullRequest: null,
     merged: false,
     sessionCwd: '/work',
     preparedWorktree: '/work',
-    productVersion: '0.11.0',
-    configVersion: 'catalogue-1',
+    productVersion: '0.13.0',
+    configVersion: 'omp-build-workflow/1',
     configDigest: DIGEST,
-    supportedConfigVersions: ['catalogue-1'],
+    supportedConfigVersions: ['omp-build-workflow/1'],
     explicitSelection: false,
     explicitResume: false,
     successorAntecedent: null,

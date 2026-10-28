@@ -38,7 +38,7 @@ function mandateRef(record: MandateRecord): ExternalRecordRef {
 }
 
 function specSha(mandate: MandateRecord): string {
-  return mandate.payload.spec.bodySha256
+  return mandate.payload.ownSpec.version
 }
 
 export function createWorkflowActionFixtures(context: WorkflowActionFixtureContext) {
@@ -66,7 +66,7 @@ export function createWorkflowActionFixtures(context: WorkflowActionFixtureConte
       mandate: mandateRef(mandate),
       exactInputs: { mandateId: mandate.recordId, planActionId: 'act-plan-1' },
     })
-  const planDraftRecords = (mandate: MandateRecord, actionId = 'act-plan-1') => {
+  const planDraftRecords = (mandate: MandateRecord, actionId = 'act-plan-1', specVersion = specSha(mandate)) => {
     const start = receipt(mandate, `${actionId}-start`, `op-${actionId}-start`, {
       phase: 'start',
       action: 'plan',
@@ -74,7 +74,7 @@ export function createWorkflowActionFixtures(context: WorkflowActionFixtureConte
       mandate: mandateRef(mandate),
       exactInputs: {
         mandateId: mandate.recordId,
-        specDigest: specSha(mandate),
+        specDigest: specVersion,
         amendsReviewActionId: null,
         requiredBlockers: [],
       },
@@ -87,7 +87,7 @@ export function createWorkflowActionFixtures(context: WorkflowActionFixtureConte
       start: recordRef(start),
       exactInputs: {
         mandateId: mandate.recordId,
-        specDigest: specSha(mandate),
+        specDigest: specVersion,
         amendsReviewActionId: null,
         requiredBlockers: [],
       },
@@ -103,13 +103,14 @@ export function createWorkflowActionFixtures(context: WorkflowActionFixtureConte
     draftActionId: string,
     digest: string,
     actionId = 'act-plan-review-1',
+    specVersion = specSha(mandate),
   ) =>
     receipt(mandate, `${actionId}-start`, `op-${actionId}-start`, {
       phase: 'start',
       action: 'plan-review',
       actionId,
       mandate: mandateRef(mandate),
-      exactInputs: { mandateId: mandate.recordId, specDigest: specSha(mandate), planDigest: digest, draftActionId },
+      exactInputs: { mandateId: mandate.recordId, specDigest: specVersion, planDigest: digest, draftActionId },
       slots: [...context.planSlots],
     })
   const planReviewRecord = (
@@ -118,15 +119,16 @@ export function createWorkflowActionFixtures(context: WorkflowActionFixtureConte
     digest: string,
     contributions: Contribution[],
     actionId = 'act-plan-review-1',
+    specVersion = specSha(mandate),
   ) => {
-    const start = planReviewStart(mandate, draftActionId, digest, actionId)
+    const start = planReviewStart(mandate, draftActionId, digest, actionId, specVersion)
     return receipt(mandate, `${actionId}-result`, `op-${actionId}-result`, {
       phase: 'result',
       action: 'plan-review',
       actionId,
       mandate: mandateRef(mandate),
       start: recordRef(start),
-      exactInputs: { mandateId: mandate.recordId, specDigest: specSha(mandate), planDigest: digest, draftActionId },
+      exactInputs: { mandateId: mandate.recordId, specDigest: specVersion, planDigest: digest, draftActionId },
       slots: [...context.planSlots],
       contributions,
       native: context.nativeOutcome,

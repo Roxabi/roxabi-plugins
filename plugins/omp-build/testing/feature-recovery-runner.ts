@@ -3,6 +3,9 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import ompBuildExtension from '../omp/index.ts'
 import { createOmpFixPort } from '../omp/omp-controller.ts'
 import { loadFeatureWorkflow } from '../roxabi/feature-loader.ts'
+import type { OperatorPort } from '../roxabi/uw-contract.ts'
+import { createInstalledUwOperations } from '../roxabi/uw-installed-operations.ts'
+import { createInstalledUwReadPort } from '../roxabi/uw-read-port.ts'
 import { createExtensionApiStub } from './extension-api-stub.ts'
 import { invokeOmpIncompleteNative } from './feature-recovery-incomplete-native.ts'
 import { invokeOmpLiveInterleave } from './feature-recovery-live-interleave.ts'
@@ -12,7 +15,7 @@ import { invokeReviewRace } from './feature-review-races.ts'
 
 type Payload = {
   reference: string
-  control: 'continue' | 'resume' | 'pause'
+  control: 'continue' | 'resume' | 'pause' | 'abandon'
   pr: number
   code: number
 }
@@ -25,7 +28,10 @@ function payloadFrom(raw: unknown): Payload {
   const reference = 'reference' in raw ? raw.reference : undefined
   const pr = 'pr' in raw ? raw.pr : undefined
   const code = 'code' in raw ? raw.code : undefined
-  const resolvedControl = control === 'continue' || control === 'resume' || control === 'pause' ? control : 'continue'
+  const resolvedControl =
+    control === 'continue' || control === 'resume' || control === 'pause' || control === 'abandon'
+      ? control
+      : 'continue'
   return {
     reference: typeof reference === 'string' ? reference : '',
     control: resolvedControl,
@@ -81,11 +87,30 @@ const payload = payloadFrom(JSON.parse(payloadText ?? '{}') as unknown)
 const workflow = await loadFeatureWorkflow()
 
 async function continueFeature() {
+  const sessionCwd = cwd ?? ''
   return workflow.continueFeature({
-    cwd: cwd ?? '',
+    cwd: sessionCwd,
     reference: payload.reference,
     control: payload.control,
     principal: false,
+    read: createInstalledUwReadPort({ cwd: sessionCwd }),
+  })
+}
+
+const noWriteOperator: OperatorPort = {
+  async executeConfirmed() {
+    throw new Error('unexpected-uw-write')
+  },
+}
+
+async function continueWithCommandUw() {
+  const sessionCwd = cwd ?? ''
+  return workflow.continueFeature({
+    cwd: sessionCwd,
+    reference: payload.reference,
+    control: payload.control,
+    principal: false,
+    uw: await createInstalledUwOperations({ cwd: sessionCwd, operator: noWriteOperator }),
   })
 }
 
@@ -93,6 +118,8 @@ async function invokeWorkflowOperation(operationName: string): Promise<unknown |
   switch (operationName) {
     case 'continue':
       return continueFeature()
+    case 'cold-publish-uw':
+      return continueWithCommandUw()
     case 'watch':
       return workflow.consumeWatchExit({
         cwd: cwd ?? '',
