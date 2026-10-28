@@ -1,12 +1,10 @@
-import { readFileSync } from 'node:fs'
-import type { Context } from './sim-command-context.ts'
+import { type Context, readBodyFile } from './sim-command-context.ts'
 import { commentThreadForNumber, emit, one } from './sim-graphql.ts'
 import { fail, fullName, GITHUB_COMMENT_LIMIT, stamp } from './sim-types.ts'
 
 function commentBody(context: Context): string {
   const file = one(context.flag, '--body-file')
-  const body =
-    file === '-' ? readFileSync(0, 'utf8') : file ? readFileSync(file, 'utf8') : (one(context.flag, '--body') ?? '')
+  const body = file ? readBodyFile(context, file) : (one(context.flag, '--body') ?? '')
   if (body.length > GITHUB_COMMENT_LIMIT) {
     fail(`GraphQL: Body is too long (maximum is ${GITHUB_COMMENT_LIMIT} characters) (addComment)`)
   }
@@ -49,7 +47,7 @@ function issueComment(context: Context): boolean {
   if (!thread) fail(`gh: issue #${number} not found`)
   const body = commentBody(context)
   thread.comments.push({ author: context.state.viewer, body, createdAt: stamp(context.state) })
-  process.stdout.write(
+  context.writeStdout(
     `https://example.test/${fullName(context.state)}/issues/${number}#issuecomment-${thread.comments.length}\n`,
   )
   return true

@@ -172,7 +172,7 @@ function apiCommentPages(context: Context): boolean {
     created_at: comment.createdAt,
     updated_at: comment.updatedAt,
   }))
-  process.stdout.write(`${JSON.stringify([page])}\n`)
+  context.writeStdout(`${JSON.stringify([page])}\n`)
   return true
 }
 

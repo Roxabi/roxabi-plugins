@@ -1,5 +1,4 @@
-import { readFileSync } from 'node:fs'
-import type { Context, Route } from './sim-command-context.ts'
+import { type Context, type Route, readBodyFile } from './sim-command-context.ts'
 import { refreshHead, settle, settleAll } from './sim-git.ts'
 import { emit, fields, one } from './sim-graphql.ts'
 import { closesOf, fail, fullName, GITHUB_COMMENT_LIMIT, type Pull, stamp } from './sim-types.ts'
@@ -13,8 +12,7 @@ function requirePr(context: Context): Pull {
 
 function commentBody(context: Context): string {
   const file = one(context.flag, '--body-file')
-  const body =
-    file === '-' ? readFileSync(0, 'utf8') : file ? readFileSync(file, 'utf8') : (one(context.flag, '--body') ?? '')
+  const body = file ? readBodyFile(context, file) : (one(context.flag, '--body') ?? '')
   if (body.length > GITHUB_COMMENT_LIMIT) {
     fail(`GraphQL: Body is too long (maximum is ${GITHUB_COMMENT_LIMIT} characters) (addComment)`)
   }
@@ -53,7 +51,7 @@ function prComment(context: Context): boolean {
   const pr = requirePr(context)
   const body = commentBody(context)
   pr.comments.push({ author: context.state.viewer, body, createdAt: stamp(context.state) })
-  process.stdout.write(
+  context.writeStdout(
     `https://example.test/${fullName(context.state)}/pull/${pr.number}#issuecomment-${pr.comments.length}\n`,
   )
   return true
@@ -61,8 +59,7 @@ function prComment(context: Context): boolean {
 
 function editedBody(context: Context): string | undefined {
   const file = one(context.flag, '--body-file')
-  if (file === '-') return readFileSync(0, 'utf8')
-  if (file) return readFileSync(file, 'utf8')
+  if (file) return readBodyFile(context, file)
   return one(context.flag, '--body')
 }
 
@@ -84,7 +81,7 @@ function prEdit(context: Context): boolean {
     pr.closes = closesOf(body)
     pr.lastEditedAt = stamp(context.state)
   }
-  process.stdout.write(`https://example.test/${fullName(context.state)}/pull/${pr.number}\n`)
+  context.writeStdout(`https://example.test/${fullName(context.state)}/pull/${pr.number}\n`)
   return true
 }
 
@@ -93,7 +90,7 @@ function prMerge(context: Context): boolean {
   const pr = requirePr(context)
   if (context.bool.has('--disable-auto')) {
     pr.autoMerge = null
-    process.stdout.write('\n')
+    context.writeStdout('\n')
     return true
   }
   if (!context.bool.has('--auto') || !context.bool.has('--merge')) return false
@@ -104,7 +101,7 @@ function prMerge(context: Context): boolean {
   }
   if (pr.autoMerge) fail('auto-merge already enabled')
   pr.autoMerge = { enabledAt: stamp(context.state), ...(pin ? { matchHeadCommit: pin } : {}) }
-  process.stdout.write('\n')
+  context.writeStdout('\n')
   return true
 }
 

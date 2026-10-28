@@ -24,9 +24,9 @@ import {
   type SimState,
 } from './goal-scenario-domain.ts'
 
-const DRIVER = path.resolve(import.meta.dirname, '..', '..', 'epic-driver.ts')
+const DRIVER = path.resolve(import.meta.dirname, 'goal-scenario-driver-direct.ts')
 const SIM = path.resolve(import.meta.dirname, '..', 'gh-simulator', 'gh-simulator.ts')
-const WORKFLOW = path.resolve(import.meta.dirname, 'goal-scenario-workflow.ts')
+const WORKFLOW = path.resolve(import.meta.dirname, 'goal-scenario-workflow-direct.ts')
 const REAL_BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
 
 let box: Box | undefined

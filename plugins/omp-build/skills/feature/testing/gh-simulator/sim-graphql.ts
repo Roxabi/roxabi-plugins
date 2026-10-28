@@ -1,7 +1,6 @@
-import { execFileSync } from 'node:child_process'
-
 import { containmentResponse } from './sim-containment.ts'
 import { recordedBase, rollupPage, settleAll } from './sim-git.ts'
+import { execInherited, writeStdout } from './sim-invocation.ts'
 import { type Comment, fail, fullName, type Issue, type Pull, type State } from './sim-types.ts'
 import { graphIssueResponse } from './sim-uw-graph.ts'
 
@@ -157,16 +156,16 @@ export function fields(flag: Map<string, string[]>, pr: Pull, state: State): Rec
 }
 
 function jq(expression: string, json: string): string {
-  return execFileSync('jq', ['-r', expression], { input: json, encoding: 'utf8' })
+  return execInherited('jq', ['-r', expression], { input: json })
 }
 
 export function emit(value: unknown, expression: string | undefined): void {
   const json = typeof value === 'string' ? value : JSON.stringify(value)
   if (!expression) {
-    process.stdout.write(`${json}\n`)
+    writeStdout(`${json}\n`)
     return
   }
-  process.stdout.write(jq(expression, json))
+  writeStdout(jq(expression, json))
 }
 
 export function varsOf(flag: Map<string, string[]>): Record<string, string> {
