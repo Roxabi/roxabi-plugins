@@ -89,6 +89,15 @@ function contentTargetDiagnostics(
     return [
       diagnostic(uw, 'normalization-content-moved', 'Named content must remain in its parser-declared destination'),
     ]
+  return coverContentTarget(uw, target, draft, coverage)
+}
+
+function coverContentTarget(
+  uw: Scope,
+  target: ContentTarget,
+  draft: DraftTargets,
+  coverage: Map<string, { start: number; end: number }[]>,
+): UwDiagnostic[] {
   const value = draft.content.get(contentTargetKey(target))
   if (value === undefined)
     return [diagnostic(uw, 'normalization-target-unknown', 'Normalization content target is absent from the draft')]
@@ -189,6 +198,7 @@ function validateDecision(
   coverage: Map<string, { start: number; end: number }[]>,
 ): UwDiagnostic[] {
   if (decision.kind === 'new') {
+    if (decision.target.kind !== 'new') return coverContentTarget(uw, decision.target, draft, coverage)
     const key = obligationTargetKey(decision.target)
     if (!draft.obligations.has(key))
       return [diagnostic(uw, 'normalization-target-unknown', 'Normalization target is absent from the draft')]
@@ -243,11 +253,13 @@ function contentCoverageDiagnostics(
     for (const range of ranges) {
       if (range.start < end) diagnostics.push(diagnostic(uw, 'normalization-content-overlap', 'Content ranges overlap'))
       if (range.start > end)
-        diagnostics.push(diagnostic(uw, 'normalization-content-unaccounted', 'Draft content has no source decision'))
+        diagnostics.push(
+          diagnostic(uw, 'normalization-content-unaccounted', 'Draft content has no accounting decision'),
+        )
       end = Math.max(end, range.end)
     }
     if (end < value.length)
-      diagnostics.push(diagnostic(uw, 'normalization-content-unaccounted', 'Draft content has no source decision'))
+      diagnostics.push(diagnostic(uw, 'normalization-content-unaccounted', 'Draft content has no accounting decision'))
   }
   return diagnostics
 }

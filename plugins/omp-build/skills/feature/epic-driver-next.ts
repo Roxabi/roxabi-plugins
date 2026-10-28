@@ -1,9 +1,9 @@
-import { resolveTicketBranch } from './epic-claims'
-import { revalidateEpicActivation } from './epic-driver-activation'
 import { assertChildGrant, frameEpicChildren } from './epic-driver-authority'
 import { readChildPrInventory } from './epic-driver-containment'
 import { gather } from './epic-driver-gather'
 import { tree } from './epic-driver-github'
+import { activateNextStep } from './epic-driver-next-activation'
+import { inventoryChildren, type KnownMerge } from './epic-driver-next-inventory'
 import { type Disarm, disarm, ticketStop } from './epic-driver-publication'
 import { git, Refused } from './epic-driver-runtime'
 import { nextStep } from './epic-next-step'
@@ -29,20 +29,15 @@ function refusePrincipal(repo: string): void {
   if (isPrincipal(repo)) throw new Refused('epic driver refuses the principal worktree')
 }
 
-async function inventoryChildren(repo: string, authority: Authority, facts: Facts): Promise<Facts> {
-  for (const child of facts.children) {
-    child.prs = await readChildPrInventory(repo, authority, child)
-  }
-  return facts
-}
-
 async function cleanMergedBranches(
   repo: string,
   epic: number,
+  authority: Authority,
   run: string,
   base: string,
   facts: Facts,
   dry: boolean,
+  known?: KnownMerge,
 ): Promise<{ facts: Facts; cleaned: string[] }> {
   const merged = mergedLocalBranches(facts)
   if (dry) return { facts, cleaned: merged.map((entry) => `${entry.branch} (would delete)`) }
@@ -56,7 +51,10 @@ async function cleanMergedBranches(
     git(repo, ['branch', '-D', branch])
     cleaned.push(branch)
   }
-  return { facts: (await gather(repo, epic, run, base)).facts, cleaned }
+  return {
+    facts: await inventoryChildren(repo, authority, (await gather(repo, epic, run, base)).facts, known),
+    cleaned,
+  }
 }
 
 async function reconcileStoppedPrs(
@@ -112,7 +110,15 @@ async function recordStop(
     return facts
   }
   const outcome = await ticketStop(repo, authority, child, step.stop, step.reason)
-  if (outcome.merged !== null) return inventoryChildren(repo, authority, (await gather(repo, epic, run, base)).facts)
+  if (outcome.merged !== null) {
+    const known = {
+      repository: authority.repository,
+      mandateId: authority.mandateId,
+      ticket: child.number,
+      pr: outcome.merged,
+    }
+    return inventoryChildren(repo, authority, (await gather(repo, epic, run, base)).facts, known)
+  }
   recorded.push({ ticket: step.ticket, stop: step.stop, disarmed: outcome.disarmed })
   child.stops.push({ run, reason: step.stop })
   facts.tree = tree(repo)
@@ -141,82 +147,6 @@ async function stopNextTickets(
   return { facts, step }
 }
 
-function switchToChildBranch(
-  repo: string,
-  base: string,
-  facts: Facts,
-  step: Extract<Step, { action: 'start' | 'resume' }>,
-): void {
-  const { ticket, branch } = step
-  if (step.action === 'start') git(repo, ['switch', '-c', branch, `refs/remotes/origin/${base}`])
-  else if (git(repo, ['branch', '--show-current']) !== branch) {
-    const local = facts.children
-      .find((child) => child.number === ticket)
-      ?.branches.find((item) => item.name === branch)?.local
-    git(repo, local ? ['switch', branch] : ['switch', '-c', branch, '--track', `refs/remotes/origin/${branch}`])
-  }
-  const landed = git(repo, ['branch', '--show-current'])
-  const claim = resolveTicketBranch(
-    landed,
-    facts.children.map((child) => child.number),
-  )
-  if (landed !== branch || 'error' in claim || claim.ticket !== ticket) {
-    throw new Error(`after the switch HEAD is ${landed || 'detached'}, not ${branch}`)
-  }
-}
-
-function authenticateResumePr(
-  facts: Facts,
-  step: Extract<Step, { action: 'start' | 'resume' }>,
-  current: Extract<Step, { action: 'start' | 'resume' }>,
-): number | null {
-  if (
-    step.action === 'resume' &&
-    step.pr?.armed &&
-    (current.action !== 'resume' || current.pr?.number !== step.pr.number)
-  ) {
-    throw new Refused(`PR #${step.pr.number} changed before branch activation`)
-  }
-  if (current.action !== 'resume' || !current.pr?.armed) return null
-  const child = facts.children.find((entry) => entry.number === step.ticket)
-  const pr = child?.prs.find((entry) => entry.number === current.pr?.number)
-  if (!child || !pr) throw new Refused(`missing observation for PR #${current.pr.number}`)
-  // The fresh child inventory was authenticated before selecting current.
-  return pr.number
-}
-
-async function activateNextStep(
-  repo: string,
-  base: string,
-  authority: Authority,
-  facts: Facts,
-  step: Step,
-): Promise<{ disarmed: Disarm | null; pr: number | null }> {
-  if (step.action !== 'start' && step.action !== 'resume') return { disarmed: null, pr: null }
-  const { ticket, branch } = step
-  const fresh = await revalidateEpicActivation(repo, authority, facts)
-  const child = fresh.facts.children.find((entry) => entry.number === ticket)
-  if (!child) throw new Refused(`missing observation for child #${ticket}`)
-  child.prs = await readChildPrInventory(repo, fresh.authority, child)
-  const current = nextStep(fresh.facts)
-  if (
-    fresh.authority.base !== base ||
-    current.action !== step.action ||
-    (current.action !== 'start' && current.action !== 'resume') ||
-    current.ticket !== ticket ||
-    current.branch !== branch
-  ) {
-    throw new Refused('epic native state changed before branch activation')
-  }
-  authority = fresh.authority
-  facts = fresh.facts
-  assertChildGrant(authority, facts, ticket)
-  const resumePr = authenticateResumePr(facts, step, current)
-  switchToChildBranch(repo, base, facts, step)
-  if (resumePr === null) return { disarmed: null, pr: null }
-  return { disarmed: await disarm(repo, resumePr), pr: resumePr }
-}
-
 function driverError(
   run: string,
   base: string,
@@ -238,14 +168,24 @@ function driverError(
 }
 
 export async function next(repo: string, epic: number, dry: boolean, reread = 0): Promise<NextOut> {
+  return nextWithKnownMerge(repo, epic, dry, reread)
+}
+
+async function nextWithKnownMerge(
+  repo: string,
+  epic: number,
+  dry: boolean,
+  reread: number,
+  known?: KnownMerge,
+): Promise<NextOut> {
   if (!dry) {
     refusePrincipal(repo)
     git(repo, ['fetch', '--prune', 'origin', '+refs/heads/*:refs/remotes/origin/*'])
   }
   const { authority, facts } = await frameEpicChildren(repo, epic)
   const { run, base } = authority
-  const cleaned = await cleanMergedBranches(repo, epic, run, base, facts, dry)
-  await inventoryChildren(repo, authority, cleaned.facts)
+  await inventoryChildren(repo, authority, facts, known)
+  const cleaned = await cleanMergedBranches(repo, epic, authority, run, base, facts, dry, known)
   const reconciliation = await reconcileStoppedPrs(repo, cleaned.facts, dry)
   const recorded: RecordedStop[] = []
   if (reconciliation.problems.length) {
@@ -265,7 +205,14 @@ export async function next(repo: string, epic: number, dry: boolean, reread = 0)
     : await activateNextStep(repo, base, authority, stopped.facts, stopped.step)
   if (activation.disarmed === 'merged') {
     if (reread > 0) throw new Error(`PR #${activation.pr} merged, yet the facts still show it open`)
-    return next(repo, epic, dry, reread + 1)
+    if (activation.pr === null || (stopped.step.action !== 'resume' && stopped.step.action !== 'start'))
+      throw new Refused('merged PR has no authenticated child coordinate')
+    return nextWithKnownMerge(repo, epic, dry, reread + 1, {
+      repository: authority.repository,
+      mandateId: authority.mandateId,
+      ticket: stopped.step.ticket,
+      pr: activation.pr,
+    })
   }
   return {
     run,

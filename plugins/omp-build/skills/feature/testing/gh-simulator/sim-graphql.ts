@@ -18,7 +18,10 @@ export function prNode(state: State, pr: Pull): Record<string, unknown> {
       ? { oid: pr.mergeCommit.oid, parents: { nodes: [{ oid: pr.mergeCommit.parents[0] }] } }
       : null,
     autoMergeRequest: pr.autoMerge ? { enabledAt: pr.autoMerge.enabledAt } : null,
-    labels: { nodes: pr.labels.map((name) => ({ name })) },
+    labels: {
+      nodes: pr.labels.slice(0, 30).map((name) => ({ name })),
+      pageInfo: { hasNextPage: pr.labels.length > 30 },
+    },
     repository: { nameWithOwner: fullName(state) },
   }
 }

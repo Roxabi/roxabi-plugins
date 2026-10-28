@@ -35,7 +35,7 @@ export function containmentResponse(
     }
   }
   if (query.includes('EpicContainmentBranch')) {
-    const pulls = Object.values(state.prs).filter((pr) => pr.state === 'OPEN' && pr.headRefName === vars.head)
+    const pulls = Object.values(state.prs).filter((pr) => pr.headRefName === vars.head)
     return {
       data: {
         repository: { pullRequests: { pageInfo: { hasNextPage: false }, nodes: pulls.map((pr) => prNode(state, pr)) } },

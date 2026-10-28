@@ -19,11 +19,13 @@ import {
 } from '../../engine/__tests__/workflow-spec-assessment-support.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
+import { serveBoundEpic } from './testing/epic-driver/epic-driver-bound-fixture.ts'
 import {
   childNode,
   epicDecisionHistory,
   eventPayloads,
   framedRecords,
+  issueComments,
   ME,
   prNode,
   RUN,
@@ -51,7 +53,7 @@ function prepareArmedChild(change: Change | 'none', foreignParent = false, histo
   const tip = git(epic, 'rev-parse', 'HEAD')
   git(epic, 'switch', '-q', '--detach', 'refs/remotes/origin/main')
   const armed = prNode(11, 'feat/2-first-child', tip, {
-    labels: { nodes: [{ name: 'reviewed' }] },
+    labels: { nodes: [{ name: 'reviewed' }], pageInfo: { hasNextPage: false } },
     autoMergeRequest: { enabledAt: 'x' },
   })
   const fixtures = roxabiWorkflowFixtures()
@@ -383,7 +385,7 @@ function prepareArmedOwnPr(role: 'leaf' | 'accepted-parent' | 'epic'): void {
     }),
   ).toMatchObject({ status: 'bound', mandate: fixtures.mandateRef(mandate) })
   const armed = prNode(11, branch, tip, {
-    labels: { nodes: [{ name: 'reviewed' }] },
+    labels: { nodes: [{ name: 'reviewed' }], pageInfo: { hasNextPage: false } },
     autoMergeRequest: { enabledAt: 'x' },
   })
   serveEpic(role === 'leaf' ? [] : [child], framedRecords(1, records), { mandate: false })
@@ -467,10 +469,8 @@ function prepareFinalReview(blocking: boolean): string {
   blocker.data.repository.issue.parent = null
   writeFileSync(blockerPath, JSON.stringify(blocker))
   const history = epicDecisionHistory(range, blocking)
-  serveEpic(
-    [childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] })],
-    blocking ? history : history.slice(0, -1),
-  )
+  serveBoundEpic(childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] }), 10, 'feat/2-first-child')
+  serveComments(1, [...issueComments(1), ...(blocking ? history : history.slice(0, -1))])
   return range
 }
 

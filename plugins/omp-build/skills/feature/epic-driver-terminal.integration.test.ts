@@ -139,10 +139,8 @@ describe('epic-driver — hook', () => {
       mergedAt: '2026-09-30T10:00:00Z',
       mergeCommit: { oid: merge, parents: { nodes: [{ oid: base }] } },
     })
-    serveEpic(
-      [childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] })],
-      epicDecisionHistory(`${base}..${merge}`, false),
-    )
+    serveBoundEpic(childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] }), 10, 'feat/2-first-child')
+    serveComments(1, [...issueComments(1), ...epicDecisionHistory(`${base}..${merge}`, false)])
 
     const run = drive(['hook', '--repo', epic], { cwd: root })
 
@@ -165,7 +163,10 @@ describe('epic-driver — hook', () => {
 describe('epic-driver — unreadable landing', () => {
   it('drops on it, disarms, and reports through one canonical event', () => {
     sandbox('release:\n  model: trunk\nlanding:\n  mode: squash\n')
-    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
+    const armed = {
+      labels: { nodes: [{ name: 'reviewed' }], pageInfo: { hasNextPage: false } },
+      autoMergeRequest: { enabledAt: 'x' },
+    }
     serveBoundEpic(
       childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', 'c'.repeat(40), armed)] }),
       11,
@@ -237,10 +238,11 @@ describe('epic-driver — fresh parent admission at terminal effects', () => {
         exitCode: 0,
       }),
     ])
-    serveEpic(
-      [childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] })],
-      action === 'review' ? history.slice(0, -1) : action === 'hook' ? history : [...history, ...hook],
-    )
+    serveBoundEpic(childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] }), 10, 'feat/2-first-child')
+    serveComments(1, [
+      ...issueComments(1),
+      ...(action === 'review' ? history.slice(0, -1) : action === 'hook' ? history : [...history, ...hook]),
+    ])
     return { range, proof, decisionId: decision.decision.recordId }
   }
 
@@ -318,7 +320,8 @@ describe('epic-driver — canonical final review history', () => {
   it('uses the exact epic range, complete decision graph, and no free verdict', () => {
     const { range, merged } = landedEpic()
     const history = epicDecisionHistory(range, true)
-    serveEpic([childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] })], history)
+    serveBoundEpic(childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] }), 10, 'feat/2-first-child')
+    serveComments(1, [...issueComments(1), ...history])
 
     expect(eventPayloads(1)).toContainEqual(
       expect.objectContaining({
@@ -361,7 +364,7 @@ describe('epic-driver — fork PRs', () => {
     const { epic } = sandbox()
     const fork = prNode(66, 'feat/2-first-child', 'e'.repeat(40), {
       isCrossRepository: true,
-      labels: { nodes: [{ name: 'reviewed' }] },
+      labels: { nodes: [{ name: 'reviewed' }], pageInfo: { hasNextPage: false } },
     })
     const node = childNode(2, 'feat(x): first child')
     node.timelineItems = { nodes: [{ source: fork }] } as typeof node.timelineItems
@@ -389,7 +392,7 @@ describe('epic-driver — disarm modes', () => {
   }
 
   it('removes a merge-on-green label with no auto-merge to disable', () => {
-    child2Pr({ labels: { nodes: [{ name: 'reviewed' }] } })
+    child2Pr({ labels: { nodes: [{ name: 'reviewed' }], pageInfo: { hasNextPage: false } } })
     servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: false })
     const run = drive(['stop', '--ticket', '2', '--reason', 'ci-blocked'])
     expect(run.code).toBe(0)
@@ -520,7 +523,10 @@ describe('epic-driver — remaining branches', () => {
 describe('epic-driver — drop disarms without the dashboard', () => {
   it('disarms every armed PR when the base-CI rollup query fails and records the report event', () => {
     sandbox()
-    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
+    const armed = {
+      labels: { nodes: [{ name: 'reviewed' }], pageInfo: { hasNextPage: false } },
+      autoMergeRequest: { enabledAt: 'x' },
+    }
     serveBoundEpic(
       childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', 'c'.repeat(40), armed)] }),
       11,

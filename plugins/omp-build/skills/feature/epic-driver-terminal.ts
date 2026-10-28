@@ -7,7 +7,8 @@ import {
 } from '../../dist/contracts.js'
 import type { UwAdmission } from '../../engine/uw-admission.ts'
 import { loadReviewConfig } from '../../roxabi/review-assets.ts'
-import { assertChildGrant, evidenceText, readEpicAuthority } from './epic-driver-authority'
+import { assertChildGrant, type EpicAuthority, evidenceText, readEpicAuthority } from './epic-driver-authority'
+import { readChildPrInventory } from './epic-driver-containment'
 import { disarmEpicControlTarget } from './epic-driver-control'
 import { gather } from './epic-driver-gather'
 import { diagnosticsText } from './epic-driver-github'
@@ -64,6 +65,7 @@ export async function review(repo: string, epic: number, decisionRecord: string,
   refusePrincipal(repo)
   const { facts, epicHistory, parentAdmission } = await gather(repo, epic, run, base)
   requireDeliveryAdmission(epic, parentAdmission)
+  for (const child of facts.children) child.prs = await readChildPrInventory(repo, authority, child)
   const step = nextStep(facts)
   if (step.action !== 'final-review' || step.stage !== 'review' || step.range !== range) {
     throw new Refused(`the driver expects no final review of ${range} (next: ${step.action})`)
@@ -126,6 +128,7 @@ export async function markFix(repo: string, epic: number, ticket: number): Promi
   refusePrincipal(repo)
   const { facts, parentAdmission } = await gather(repo, epic, run, base)
   requireDeliveryAdmission(epic, parentAdmission)
+  for (const child of facts.children) child.prs = await readChildPrInventory(repo, authority, child)
   const step = nextStep(facts)
   if (step.action !== 'final-review' || step.stage !== 'fix-ticket') {
     throw new Refused(`the driver expects no final-review fix ticket (next: ${step.action})`)
@@ -147,6 +150,7 @@ export async function hook(repo: string, epic: number): Promise<HookResult> {
   refusePrincipal(repo)
   const { facts, parentAdmission } = await gather(repo, epic, run, base)
   requireDeliveryAdmission(epic, parentAdmission)
+  for (const child of facts.children) child.prs = await readChildPrInventory(repo, authority, child)
   const step = nextStep(facts)
   if (step.action !== 'post-merge') throw new Refused(`the driver expects no post-merge hook (next: ${step.action})`)
   const mark = async (
@@ -176,10 +180,12 @@ type ReportData = {
   stillArmed: number[]
 }
 
-async function reportData(repo: string, epic: number, run: string, base: string, outcome: string): Promise<ReportData> {
+async function reportData(repo: string, epic: number, authority: EpicAuthority, outcome: string): Promise<ReportData> {
+  const { run, base } = authority
   if (outcome === 'complete') {
     const { facts, epicHistory, parentAdmission } = await gather(repo, epic, run, base)
     requireDeliveryAdmission(epic, parentAdmission)
+    for (const child of facts.children) child.prs = await readChildPrInventory(repo, authority, child)
     const step = nextStep(facts)
     if (step.action !== 'complete') throw new Refused(`the epic is not complete (next: ${step.action})`)
     return { facts, epicHistory, disarmed: {}, stillArmed: [] }
@@ -215,7 +221,7 @@ export async function report(
   const { run, base } = authority
   if (outcome !== 'complete' && outcome !== 'drop') throw new Refused(`--outcome must be complete or drop: ${outcome}`)
   refusePrincipal(repo)
-  const data = await reportData(repo, epic, run, base, outcome)
+  const data = await reportData(repo, epic, authority, outcome)
   const summary = summarize(data.facts)
   const hook = hookStatus(data.facts).record
   const text = reportText(run, base, outcome, reason, summary, hook, data.disarmed, data.stillArmed)

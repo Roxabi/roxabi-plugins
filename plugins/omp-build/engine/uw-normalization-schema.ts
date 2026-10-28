@@ -6,20 +6,34 @@ export const sourceSpanSchema = z.strictObject({ start: positionSchema, end: pos
 export const draftTextRangeSchema = z
   .strictObject({ start: z.number().int().nonnegative(), end: z.number().int().nonnegative() })
   .refine((range) => range.start < range.end, 'Draft text ranges must be non-empty and half-open')
+const newObligationTargetSchema = z.strictObject({ kind: z.literal('new'), draftKey: z.string().min(1) })
+const sectionTargetSchema = z.strictObject({
+  kind: z.literal('section'),
+  section: z.enum(['origin', 'context', 'change']),
+  range: draftTextRangeSchema,
+})
+const exclusionTargetSchema = z.strictObject({
+  kind: z.literal('exclusion'),
+  index: z.number().int().nonnegative(),
+  range: draftTextRangeSchema,
+})
+const openQuestionTargetSchema = z.strictObject({
+  kind: z.literal('open-question'),
+  index: z.number().int().nonnegative(),
+  range: draftTextRangeSchema,
+})
+const newTargetSchema = z.discriminatedUnion('kind', [
+  newObligationTargetSchema,
+  sectionTargetSchema,
+  exclusionTargetSchema,
+  openQuestionTargetSchema,
+])
 const normalizationTargetSchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('existing'), id: specItemIdSchema }),
-  z.strictObject({ kind: z.literal('new'), draftKey: z.string().min(1) }),
-  z.strictObject({
-    kind: z.literal('section'),
-    section: z.enum(['origin', 'context', 'change']),
-    range: draftTextRangeSchema,
-  }),
-  z.strictObject({ kind: z.literal('exclusion'), index: z.number().int().nonnegative(), range: draftTextRangeSchema }),
-  z.strictObject({
-    kind: z.literal('open-question'),
-    index: z.number().int().nonnegative(),
-    range: draftTextRangeSchema,
-  }),
+  newObligationTargetSchema,
+  sectionTargetSchema,
+  exclusionTargetSchema,
+  openQuestionTargetSchema,
 ])
 export const normalizationDecisionSchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('kept'), source: sourceSpanSchema, target: normalizationTargetSchema }),
@@ -31,7 +45,7 @@ export const normalizationDecisionSchema = z.discriminatedUnion('kind', [
   }),
   z.strictObject({
     kind: z.literal('new'),
-    target: z.strictObject({ kind: z.literal('new'), draftKey: z.string().min(1) }),
+    target: newTargetSchema,
     reason: z.string().min(1),
   }),
   z.strictObject({ kind: z.literal('removed'), source: sourceSpanSchema, reason: z.string().min(1) }),

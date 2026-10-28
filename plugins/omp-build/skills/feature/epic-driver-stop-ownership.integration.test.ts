@@ -36,11 +36,11 @@ function armedChild(ownership: Ownership, stopped = false, second?: 'unbound' | 
   git(epic, 'switch', '-q', '--detach', 'refs/remotes/origin/main')
 
   const armed = prNode(11, 'feat/2-first-child', tip, {
-    labels: { nodes: [{ name: 'reviewed' }] },
+    labels: { nodes: [{ name: 'reviewed' }], pageInfo: { hasNextPage: false } },
     autoMergeRequest: { enabledAt: 'x' },
   })
   const other = prNode(12, 'feat/2-first-child', tip, {
-    labels: { nodes: [{ name: 'reviewed' }] },
+    labels: { nodes: [{ name: 'reviewed' }], pageInfo: { hasNextPage: false } },
     autoMergeRequest: { enabledAt: 'x' },
   })
   const node = childNode(2, 'feat(x): first child', { prs: second ? [armed, other] : [armed] })

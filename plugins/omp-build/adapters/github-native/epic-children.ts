@@ -7,7 +7,7 @@ export type NativeEpicPullRequest = {
   mergedAt: string | null
   mergeCommit: { oid: string; parents: { nodes: { oid: string }[] } } | null
   autoMergeRequest: { enabledAt: string } | null
-  labels: { nodes: { name: string }[] }
+  labels: { nodes: { name: string }[]; pageInfo: { hasNextPage: boolean } }
   repository: { nameWithOwner: string }
   isCrossRepository: boolean
 }
@@ -42,7 +42,7 @@ export type NativeGraphql = <T>(query: string, variables: Record<string, string 
 
 const PR_FIELDS = `number state baseRefName headRefName headRefOid mergedAt isCrossRepository
   mergeCommit { oid parents(first: 1) { nodes { oid } } }
-  autoMergeRequest { enabledAt } labels(first: 30) { nodes { name } } repository { nameWithOwner }`
+  autoMergeRequest { enabledAt } labels(first: 30) { pageInfo { hasNextPage } nodes { name } } repository { nameWithOwner }`
 
 const EPIC_QUERY = `query($owner: String!, $name: String!, $epic: Int!) {
   repository(owner: $owner, name: $name) {

@@ -14,6 +14,7 @@ import {
   framedRecords,
   prNode,
   RUN,
+  serveComments,
   serveEpic,
   servePr,
   strictSpecBody,
@@ -306,10 +307,59 @@ describe('epic-driver — next', () => {
       mergedAt: '2026-09-30T10:00:00Z',
       mergeCommit: { oid: mergeSha, parents: { nodes: [{ oid: base }] } },
     })
-    serveEpic([
+    const children = [
       childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] }),
       childNode(3, 'fix(y): second child', { blockedBy: [[2, 'CLOSED']] }),
-    ])
+    ]
+    const fixtures = roxabiWorkflowFixtures()
+    const parentScope = { repository: 'o/r', target: 'o/r#1' }
+    const parentBody = strictSpecBody('works')
+    const approved = children.map((child) => {
+      const scope = { repository: 'o/r', target: `o/r#${child.number}` }
+      const snapshot = strictSnapshot(scope, child.body)
+      return { scope, snapshot, specVersion: snapshot.spec.version, tier: 'S' as const }
+    })
+    const parent = fixtures.epicMandate(parentScope, approved, {
+      body: parentBody,
+      ownSpec: fixtures.ownSpecFromSnapshot(parentScope, strictSnapshot(parentScope, parentBody)),
+    })
+    const mandate = fixtures.featureMandate(approved[0].scope, {
+      body: children[0].body,
+      ownSpec: fixtures.ownSpecFromSnapshot(approved[0].scope, approved[0].snapshot),
+      parent: fixtures.mandateRef(parent),
+      branch: 'feat/2-first-child',
+      runId: 'run00002',
+      run: 'run00002',
+    })
+    const parentHistory = fixtures.historyFrom([parent])
+    const childHistory = fixtures.historyFrom([mandate], 'operator', 'operator', [parentHistory])
+    const binding = fixtures.workflowBinding(
+      { repository: 'o/r', target: 'o/r#10' },
+      mandate,
+      'feat/2-first-child',
+      'main',
+    )
+    serveEpic(
+      [
+        {
+          ...children[0],
+          fixtureComments: fixtures.framedBodies([mandate], 'operator', [parentHistory]).map((body) => ({
+            body,
+            author: 'operator',
+          })),
+        },
+        children[1],
+      ],
+      framedRecords(1, [parent]),
+      { mandate: false },
+    )
+    serveComments(
+      10,
+      fixtures.framedBodies([binding], 'operator', [childHistory, parentHistory]).map((body) => ({
+        body,
+        author: 'operator',
+      })),
+    )
     setNativeStateReason(2, 'COMPLETED')
 
     const run = drive(['next'])
@@ -329,7 +379,10 @@ describe('epic-driver — next', () => {
     git(epic, 'push', '-q', 'origin', 'feat/2-first-child')
     const tip = git(epic, 'rev-parse', 'HEAD')
     git(epic, 'switch', '-q', '--detach', 'refs/remotes/origin/main')
-    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
+    const armed = {
+      labels: { nodes: [{ name: 'reviewed' }], pageInfo: { hasNextPage: false } },
+      autoMergeRequest: { enabledAt: 'x' },
+    }
     serveBoundEpic(
       childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', tip, armed)] }),
       11,
@@ -376,7 +429,10 @@ describe('epic-driver — stop', () => {
     git(epic, 'switch', '-q', '-c', 'feat/2-first-child', 'refs/remotes/origin/main')
     git(epic, 'push', '-q', 'origin', 'feat/2-first-child')
     const tip = git(epic, 'rev-parse', 'HEAD')
-    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
+    const armed = {
+      labels: { nodes: [{ name: 'reviewed' }], pageInfo: { hasNextPage: false } },
+      autoMergeRequest: { enabledAt: 'x' },
+    }
     serveBoundEpic(
       childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', tip, armed)] }),
       11,
@@ -461,7 +517,10 @@ describe('epic-driver — review and report', () => {
 
   it('disarms every armed child PR on drop and posts one canonical report event per run', () => {
     sandbox()
-    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: { enabledAt: 'x' } }
+    const armed = {
+      labels: { nodes: [{ name: 'reviewed' }], pageInfo: { hasNextPage: false } },
+      autoMergeRequest: { enabledAt: 'x' },
+    }
     serveBoundEpic(
       childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', 'c'.repeat(40), armed)] }),
       11,

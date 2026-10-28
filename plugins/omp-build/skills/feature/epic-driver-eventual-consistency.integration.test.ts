@@ -16,7 +16,10 @@ describe('epic-driver — eventual consistency', () => {
     git(epic, 'push', '-q', 'origin', 'feat/2-first-child')
     const tip = git(epic, 'rev-parse', 'HEAD')
     git(epic, 'switch', '-q', '--detach', 'refs/remotes/origin/main')
-    const armed = { labels: { nodes: [{ name: 'reviewed' }] }, autoMergeRequest: autoMerge ? { enabledAt: 'x' } : null }
+    const armed = {
+      labels: { nodes: [{ name: 'reviewed' }], pageInfo: { hasNextPage: false } },
+      autoMergeRequest: autoMerge ? { enabledAt: 'x' } : null,
+    }
     serveBoundEpic(
       childNode(2, 'feat(x): first child', { prs: [prNode(11, 'feat/2-first-child', tip, armed)] }),
       11,

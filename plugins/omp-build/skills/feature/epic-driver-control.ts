@@ -1,7 +1,7 @@
 import { type DecodedHistory, githubScope, resolveAcceptedSpec, selectApplicableMandate } from '../../dist/contracts.js'
 import type { MandateRecord } from '../../engine/workflow-control.ts'
 import { confirmedEpicMandate, evidenceText, localInhibit, readEpicAuthority } from './epic-driver-authority'
-import { discoverAcceptedChildPrs, discoverOwnPrs } from './epic-driver-containment'
+import { discoverAcceptedChildPrs, discoverOwnPrs, readChildPrInventory } from './epic-driver-containment'
 import { gather } from './epic-driver-gather'
 import { issueHistory, parentMandateHistories, repoName } from './epic-driver-github'
 import { type Disarm, disarm } from './epic-driver-publication'
@@ -153,6 +153,7 @@ export async function epicFinalReviewRequest(repo: string, epic: number): Promis
     throw new Refused(
       `epic #${epic} native delivery admission refused: ${evidenceText(parentAdmission.deliverable.diagnostics)}`,
     )
+  for (const child of facts.children) child.prs = await readChildPrInventory(repo, authority, child)
   const step = nextStep(facts)
   if (step.action !== 'final-review' || step.stage !== 'review' || !step.range) {
     throw new Refused(`the driver expects no final review (next: ${step.action})`)
@@ -185,6 +186,7 @@ export type EpicStepRead = {
 export async function readEpicStep(repo: string, epic: number): Promise<EpicStepRead> {
   const authority = await readEpicAuthority(repo, epic)
   const { facts } = await gather(repo, epic, authority.run, authority.base)
+  for (const child of facts.children) child.prs = await readChildPrInventory(repo, authority, child)
   const step = nextStep(facts)
   return { run: authority.run, base: authority.base, step, name: epicStepName(step), land: null }
 }

@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { execFileSync } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
+import { promisify } from 'node:util'
 import { viewer } from '../../dist/contracts.js'
 import type { UwReadPort } from '../../roxabi/uw-contract.ts'
 import { createInstalledUwReadPort } from '../../roxabi/uw-read-port.ts'
@@ -34,6 +35,20 @@ function childEnv(): NodeJS.ProcessEnv {
   const out = { ...process.env }
   for (const key of GIT_REDIRECTS) delete out[key]
   return out
+}
+const execFileAsync = promisify(execFile)
+
+/** Read-only history transport; injected effects still own their own execution. */
+export async function ghHistory(repo: string, args: string[]): Promise<string> {
+  const injected = effects.getStore()?.gh
+  if (injected) return injected(repo, args).trim()
+  const { stdout } = await execFileAsync('gh', args, {
+    cwd: repo,
+    encoding: 'utf8',
+    env: childEnv(),
+    maxBuffer: 64 * 1024 * 1024,
+  })
+  return stdout.trim()
 }
 
 export function git(repo: string, args: string[]): string {

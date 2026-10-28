@@ -132,11 +132,11 @@ function prepare(depth: 0 | 1 | 2, armed: boolean) {
   ) => f.framedBodies(records, ME, histories).map((entry) => ({ body: entry, author: ME }))
   const tip = git(epic, 'rev-parse', 'HEAD')
   const ownPr = prNode(11, 'feat/1-own-work', tip, {
-    labels: { nodes: [{ name: 'reviewed' }] },
+    labels: { nodes: [{ name: 'reviewed' }], pageInfo: { hasNextPage: false } },
     autoMergeRequest: { enabledAt: 'x' },
   })
   const childPr = prNode(12, 'feat/2-first-child', tip, {
-    labels: { nodes: [{ name: 'reviewed' }] },
+    labels: { nodes: [{ name: 'reviewed' }], pageInfo: { hasNextPage: false } },
     autoMergeRequest: { enabledAt: 'x' },
   })
   function prepareArmedPullRequests() {

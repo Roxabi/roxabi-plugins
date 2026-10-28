@@ -10,7 +10,7 @@ export function prNode(number: number, head: string, headSha: string, over: Reco
     mergedAt: null,
     mergeCommit: null,
     autoMergeRequest: null,
-    labels: { nodes: [] },
+    labels: { nodes: [], pageInfo: { hasNextPage: false } },
     repository: { nameWithOwner: 'o/r' },
     isCrossRepository: false,
     ...over,

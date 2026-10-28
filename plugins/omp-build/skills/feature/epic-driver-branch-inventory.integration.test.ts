@@ -36,7 +36,7 @@ function prepareBranchOnly(stopped = false): void {
   git(epic, 'switch', '-q', '--detach', 'refs/remotes/origin/main')
 
   const candidate = prNode(11, BRANCH, tip, {
-    labels: { nodes: [{ name: 'reviewed' }] },
+    labels: { nodes: [{ name: 'reviewed' }], pageInfo: { hasNextPage: false } },
     autoMergeRequest: { enabledAt: 'x' },
   })
   const node = childNode(2, 'feat(x): first child', { prs: [candidate] })

@@ -13,7 +13,8 @@ import { withRoxabiGitHubPolicy } from '../../roxabi/github-policy.ts'
 import { loadReviewConfig } from '../../roxabi/review-assets.ts'
 import { type CheckNode, classifyBaseCi } from './epic-ci'
 import { refuseForeignCommits, ticketOfBranch, ticketOfSubject } from './epic-claims'
-import { gh, git, graphql, Refused } from './epic-driver-runtime'
+import { readHistoryPairs } from './epic-driver-history-pairs'
+import { gh, ghHistory, git, graphql, Refused } from './epic-driver-runtime'
 import type { BaseCi, BranchFacts, Facts, PrFacts } from './epic-types'
 
 type RollupData = {
@@ -33,7 +34,11 @@ export function isPr(value: Partial<NativeEpicPullRequest> | null | undefined): 
     typeof value.repository.nameWithOwner === 'string' &&
     typeof value.isCrossRepository === 'boolean' &&
     value.labels !== undefined &&
+    value.labels !== null &&
     Array.isArray(value.labels.nodes) &&
+    value.labels.nodes.every(
+      (label) => label !== null && typeof label === 'object' && typeof label.name === 'string',
+    ) &&
     value.mergeCommit !== undefined &&
     value.autoMergeRequest !== undefined &&
     value.mergedAt !== undefined
@@ -88,7 +93,9 @@ export function adapterOptions(repo: string) {
 }
 
 export async function issueHistory(repo: string, repository: string, issue: number): Promise<DecodedHistory> {
-  return decodeHistory(await readGitHubHistory(githubScope(repository, issue), adapterOptions(repo)))
+  return decodeHistory(
+    await readGitHubHistory(githubScope(repository, issue), { ...adapterOptions(repo), gh: ghHistory }),
+  )
 }
 
 export async function parentMandateHistories(repo: string, history: DecodedHistory): Promise<DecodedHistory[]> {
@@ -106,14 +113,12 @@ export function diagnosticsText(diagnostics: readonly { code: string; message: s
 /** The canonical review graph is the only source of review-bound disposition. */
 export async function stoppedReviews(repo: string, repository: string, numbers: number[]): Promise<Set<number>> {
   const taxonomy = loadReviewConfig().canonicalClasses
-  const states = await Promise.all(
-    numbers.map(async (number) => {
-      const summary = summarizeReviews(await issueHistory(repo, repository, number), taxonomy, null)
-      if (!summary.ok)
-        throw new Refused(`PR #${number} review history is not admissible: ${diagnosticsText(summary.diagnostics)}`)
-      return summary.value.spent ? number : null
-    }),
-  )
+  const states = await readHistoryPairs(numbers, async (number) => {
+    const summary = summarizeReviews(await issueHistory(repo, repository, number), taxonomy, null)
+    if (!summary.ok)
+      throw new Refused(`PR #${number} review history is not admissible: ${diagnosticsText(summary.diagnostics)}`)
+    return summary.value.spent ? number : null
+  })
   return new Set(states.filter((number): number is number => number !== null))
 }
 

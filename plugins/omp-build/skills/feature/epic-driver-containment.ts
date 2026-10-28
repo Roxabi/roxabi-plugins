@@ -98,10 +98,61 @@ async function authenticateBatch(
   for (const pr of candidates) await authenticateCandidate(context, history, pr)
 }
 
+function includeHint(context: Owner, observations: Map<number, Candidate>, hint: PrFacts): void {
+  let observed = observations.get(hint.number)
+  if (!observed) {
+    const raw = readCandidate(context, hint.number)
+    if (
+      !candidate(raw) ||
+      raw.number !== hint.number ||
+      raw.isCrossRepository ||
+      raw.repository.nameWithOwner !== context.full
+    )
+      throw new Refused(`containment PR #${hint.number} metadata is unreadable or foreign`)
+    observed = raw
+    observations.set(raw.number, raw)
+  }
+  if (observed.state !== hint.state || observed.headRefName !== hint.head || observed.baseRefName !== hint.base)
+    throw new Refused(`containment PR #${hint.number} has conflicting observations`)
+}
+
+function inventoryCandidates(
+  context: Owner,
+  history: DecodedHistory,
+  candidates: Candidate[],
+  hints: PrFacts[],
+  knownPr?: number,
+): Candidate[] {
+  const branches = ownedBranches(history, context)
+  const observations = new Map(
+    candidates
+      .filter((pr) => pr.state === 'OPEN' || branches.has(pr.headRefName) || pr.number === knownPr)
+      .map((pr) => [pr.number, pr]),
+  )
+  if (knownPr !== undefined && !observations.has(knownPr)) {
+    const raw = readCandidate(context, knownPr)
+    if (
+      !candidate(raw) ||
+      raw.number !== knownPr ||
+      raw.isCrossRepository ||
+      raw.repository.nameWithOwner !== context.full
+    )
+      throw new Refused(`containment known PR #${knownPr} metadata is unreadable or foreign`)
+    observations.set(knownPr, raw)
+  }
+  for (const hint of hints) {
+    if (hint.number === knownPr) continue
+    if (hint.state !== 'OPEN' && !branches.has(hint.head)) continue
+    includeHint(context, observations, hint)
+  }
+  return [...observations.values()]
+}
+
 export async function readChildPrInventory(
   repo: string,
   authority: EpicAuthority,
   child: ChildFacts,
+  knownPr?: number,
 ): Promise<PrFacts[]> {
   const full = authority.repository
   const scope = githubScope(full, child.number)
@@ -110,31 +161,12 @@ export async function readChildPrInventory(
   const number = acceptedNumber(full, scope)
   const context = { repo, full, epic: authority.epic, mandateId: authority.mandateId, child: scope, number }
   const { candidates, history } = await childCandidates(context)
-  const observations = new Map(candidates.map((pr) => [pr.number, pr]))
-  for (const hint of child.prs) {
-    let observed = observations.get(hint.number)
-    if (hint.state === 'OPEN' && !observed) {
-      const raw = readCandidate(context, hint.number)
-      if (
-        !candidate(raw) ||
-        raw.number !== hint.number ||
-        raw.isCrossRepository ||
-        raw.repository.nameWithOwner !== full
-      )
-        throw new Refused(`containment PR #${hint.number} metadata is unreadable or foreign`)
-      observed = raw
-      observations.set(raw.number, raw)
-    }
-    if (
-      observed &&
-      (observed.state !== hint.state || observed.headRefName !== hint.head || observed.baseRefName !== hint.base)
-    )
-      throw new Refused(`containment PR #${hint.number} has conflicting observations`)
-  }
-  const all = [...observations.values()]
+  const all = inventoryCandidates(context, history, candidates, child.prs, knownPr)
   await authenticateBatch(context, history, all)
   const native = all.map((pr) => {
     if (!isPr(pr)) throw new Refused(`containment PR #${pr.number} native metadata is unreadable`)
+    if (pr.state === 'OPEN' && pr.labels.pageInfo?.hasNextPage !== false)
+      throw new Refused(`containment PR #${pr.number} label inventory is incomplete`)
     return pr
   })
   const stopped = await stoppedReviews(
@@ -142,7 +174,7 @@ export async function readChildPrInventory(
     full,
     native.map((pr) => pr.number),
   )
-  return [...child.prs.filter((pr) => pr.state !== 'OPEN'), ...native.map((pr) => prFacts(pr, stopped))]
+  return native.map((pr) => prFacts(pr, stopped))
 }
 
 export async function discoverOwnPrs(
@@ -155,7 +187,11 @@ export async function discoverOwnPrs(
   const context = { repo, full, number: epic }
   const candidates = exactIssueCandidates(context)
   if (mandate.payload.branch) candidates.push(...branchCandidates(context, mandate.payload.branch))
-  const numbers = new Set(uniqueCandidates(candidates, full, scope.target).map((pr) => pr.number))
+  const numbers = new Set(
+    uniqueCandidates(candidates, full, scope.target)
+      .filter((pr) => pr.state === 'OPEN')
+      .map((pr) => pr.number),
+  )
   const loaded = await loadContracts()
   if ('missing' in loaded) throw new Refused(`containment contracts unavailable: ${loaded.missing}`)
   const result = await authenticateOwnPullRequests(async (cwd, args) => gh(cwd, args), repo, full, numbers, {
@@ -178,7 +214,9 @@ export async function discoverAcceptedChildPrs(
   for (const { scope: child } of children) {
     const number = acceptedNumber(full, child)
     const context = { repo, full, epic, mandateId, child, number }
-    const { candidates, history } = await childCandidates(context)
+    const discovered = await childCandidates(context)
+    const history = discovered.history
+    const candidates = discovered.candidates.filter((pr) => pr.state === 'OPEN')
     await authenticateBatch(context, history, candidates)
     for (const pr of candidates) {
       const prior = found.get(pr.number)

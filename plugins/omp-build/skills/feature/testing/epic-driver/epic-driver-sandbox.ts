@@ -32,7 +32,7 @@ case "$1 \${2:-}" in
         [[ "$arg" == head=* ]] && branch="\${arg#head=}"
       done
       [[ ! -f "$S/branch-unavailable" ]] || { echo "stub gh: branch discovery unavailable" >&2; exit 9; }
-      jq -s --arg branch "$branch" '{data:{repository:{pullRequests:{pageInfo:{hasNextPage:false},nodes:[.[][] | select(.headRefName == $branch and .state == "OPEN")]}}}}' "$S"/branch-prs-*.json
+      jq -s --arg branch "$branch" '{data:{repository:{pullRequests:{pageInfo:{hasNextPage:false},nodes:[.[][] | select(.headRefName == $branch and (.state == "OPEN" or .state == "CLOSED" or .state == "MERGED"))]}}}}' "$S"/branch-prs-*.json
     elif [[ "$q" == *EpicContainmentPullRequest* ]]; then
       query containment-pull-request
       number=""

@@ -9160,20 +9160,34 @@ function projectionClosure(record, history, classification) {
 var positionSchema = strictObject({ line: number2().int().positive(), column: number2().int().positive() });
 var sourceSpanSchema = strictObject({ start: positionSchema, end: positionSchema });
 var draftTextRangeSchema = strictObject({ start: number2().int().nonnegative(), end: number2().int().nonnegative() }).refine((range) => range.start < range.end, "Draft text ranges must be non-empty and half-open");
+var newObligationTargetSchema = strictObject({ kind: literal("new"), draftKey: string2().min(1) });
+var sectionTargetSchema = strictObject({
+  kind: literal("section"),
+  section: _enum(["origin", "context", "change"]),
+  range: draftTextRangeSchema
+});
+var exclusionTargetSchema = strictObject({
+  kind: literal("exclusion"),
+  index: number2().int().nonnegative(),
+  range: draftTextRangeSchema
+});
+var openQuestionTargetSchema = strictObject({
+  kind: literal("open-question"),
+  index: number2().int().nonnegative(),
+  range: draftTextRangeSchema
+});
+var newTargetSchema = discriminatedUnion("kind", [
+  newObligationTargetSchema,
+  sectionTargetSchema,
+  exclusionTargetSchema,
+  openQuestionTargetSchema
+]);
 var normalizationTargetSchema = discriminatedUnion("kind", [
   strictObject({ kind: literal("existing"), id: specItemIdSchema }),
-  strictObject({ kind: literal("new"), draftKey: string2().min(1) }),
-  strictObject({
-    kind: literal("section"),
-    section: _enum(["origin", "context", "change"]),
-    range: draftTextRangeSchema
-  }),
-  strictObject({ kind: literal("exclusion"), index: number2().int().nonnegative(), range: draftTextRangeSchema }),
-  strictObject({
-    kind: literal("open-question"),
-    index: number2().int().nonnegative(),
-    range: draftTextRangeSchema
-  })
+  newObligationTargetSchema,
+  sectionTargetSchema,
+  exclusionTargetSchema,
+  openQuestionTargetSchema
 ]);
 var normalizationDecisionSchema = discriminatedUnion("kind", [
   strictObject({ kind: literal("kept"), source: sourceSpanSchema, target: normalizationTargetSchema }),
@@ -9185,7 +9199,7 @@ var normalizationDecisionSchema = discriminatedUnion("kind", [
   }),
   strictObject({
     kind: literal("new"),
-    target: strictObject({ kind: literal("new"), draftKey: string2().min(1) }),
+    target: newTargetSchema,
     reason: string2().min(1)
   }),
   strictObject({ kind: literal("removed"), source: sourceSpanSchema, reason: string2().min(1) })
@@ -12126,6 +12140,53 @@ var UW_GRAPH_QUERY = `query(
   }
 }`;
 
+// plugins/omp-build/adapters/github-native/uw-graph-page.ts
+function asRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function asRepository(value) {
+  const record = asRecord(value);
+  return typeof record?.nameWithOwner === "string" ? record.nameWithOwner : null;
+}
+function isPageInfo(value) {
+  const record = asRecord(value);
+  return typeof record?.hasNextPage === "boolean" && (typeof record.endCursor === "string" || record.endCursor === null);
+}
+function isConnection(value) {
+  const record = asRecord(value);
+  return Array.isArray(record?.nodes) && isPageInfo(record.pageInfo);
+}
+function validRef(value) {
+  const reference = asRecord(value);
+  const repository = reference === null ? null : asRepository(reference.repository);
+  return reference !== null && typeof reference.number === "number" && Number.isSafeInteger(reference.number) && reference.number > 0 && repository !== null && RECORD_REPOSITORY.test(repository);
+}
+function validLabels(value) {
+  return isConnection(value) && value.nodes.every((entry) => typeof asRecord(entry)?.name === "string");
+}
+function validReferences(value) {
+  return isConnection(value) && value.nodes.every(validRef);
+}
+function parseIssue(value) {
+  const issue = asRecord(value);
+  const required = issue !== null && typeof issue.number === "number" && Number.isSafeInteger(issue.number) && issue.number > 0 && typeof issue.title === "string" && typeof issue.body === "string" && typeof issue.updatedAt === "string" && (issue.state === "OPEN" || issue.state === "CLOSED") && (typeof issue.stateReason === "string" || issue.stateReason === null) && asRepository(issue.repository) !== null && (issue.parent === null || validRef(issue.parent)) && validLabels(issue.labels) && validReferences(issue.subIssues) && validReferences(issue.blockedBy);
+  return required ? issue : null;
+}
+async function page(scope, options, cursors) {
+  const { owner, name } = splitRepository(scope.repository);
+  const data = await graphqlVariables(options, UW_GRAPH_QUERY, {
+    owner,
+    name,
+    number: Number(scope.target.slice(scope.target.lastIndexOf("#") + 1)),
+    ...cursors
+  });
+  const repository = asRecord(data)?.repository;
+  const issue = parseIssue(asRecord(repository)?.issue);
+  if (issue === null || issue.repository.nameWithOwner !== scope.repository)
+    throw new Error(`Native graph payload for ${scope.target} is incomplete`);
+  return issue;
+}
+
 // plugins/omp-build/adapters/github-native/uw-spec-parser.ts
 import { createHash as createHash3 } from "node:crypto";
 
@@ -12911,13 +12972,6 @@ function parseIssueSpecBody(input) {
 }
 
 // plugins/omp-build/adapters/github-native/uw-graph-reader.ts
-function asRecord(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
-}
-function asRepository(value) {
-  const record = asRecord(value);
-  return typeof record?.nameWithOwner === "string" ? record.nameWithOwner : null;
-}
 function nativeDiagnostic(uw, code, message, connection, page, cursor) {
   return {
     code,
@@ -12929,14 +12983,6 @@ function nativeDiagnostic(uw, code, message, connection, page, cursor) {
 function incomplete(uw, connection, page, cursor, message) {
   return nativeDiagnostic(uw, "graph-incomplete", message, connection, page, cursor);
 }
-function isPageInfo(value) {
-  const record = asRecord(value);
-  return typeof record?.hasNextPage === "boolean" && (typeof record.endCursor === "string" || record.endCursor === null);
-}
-function isConnection(value) {
-  const record = asRecord(value);
-  return Array.isArray(record?.nodes) && isPageInfo(record.pageInfo);
-}
 function pageConnection(issue, connection) {
   if (connection === "labels")
     return issue.labels;
@@ -12947,38 +12993,8 @@ function pageConnection(issue, connection) {
 function normalizeReason(value) {
   return value?.toLowerCase() === "completed" ? "COMPLETED" : value;
 }
-function validRef(value) {
-  const reference = asRecord(value);
-  const repository = reference === null ? null : asRepository(reference.repository);
-  return reference !== null && typeof reference.number === "number" && Number.isSafeInteger(reference.number) && reference.number > 0 && repository !== null && RECORD_REPOSITORY.test(repository);
-}
-function validLabels(value) {
-  return isConnection(value) && value.nodes.every((entry) => typeof asRecord(entry)?.name === "string");
-}
-function validReferences(value) {
-  return isConnection(value) && value.nodes.every(validRef);
-}
-function parseIssue(value) {
-  const issue = asRecord(value);
-  const required = issue !== null && typeof issue.number === "number" && Number.isSafeInteger(issue.number) && issue.number > 0 && typeof issue.title === "string" && typeof issue.body === "string" && typeof issue.updatedAt === "string" && (issue.state === "OPEN" || issue.state === "CLOSED") && (typeof issue.stateReason === "string" || issue.stateReason === null) && asRepository(issue.repository) !== null && (issue.parent === null || validRef(issue.parent)) && validLabels(issue.labels) && validReferences(issue.subIssues) && validReferences(issue.blockedBy);
-  return required ? issue : null;
-}
 function refScope(ref) {
   return githubScope(ref.repository.nameWithOwner, ref.number);
-}
-async function page(scope, options, cursors) {
-  const { owner, name } = splitRepository(scope.repository);
-  const data = await graphqlVariables(options, UW_GRAPH_QUERY, {
-    owner,
-    name,
-    number: Number(scope.target.slice(scope.target.lastIndexOf("#") + 1)),
-    ...cursors
-  });
-  const repository = asRecord(data)?.repository;
-  const issue = parseIssue(asRecord(repository)?.issue);
-  if (issue === null || issue.repository.nameWithOwner !== scope.repository)
-    throw new Error(`Native graph payload for ${scope.target} is incomplete`);
-  return issue;
 }
 function cursorFor(connection, cursor) {
   if (connection === "labels")
@@ -13012,16 +13028,15 @@ async function collectPages(scope, options, connection, initial) {
   }
   return { nodes, diagnostics };
 }
-async function readNode(scope, options) {
-  let base;
-  try {
-    base = await page(scope, options, { labelsCursor: undefined, childrenCursor: undefined, blockersCursor: undefined });
-  } catch (error) {
+async function readNode(scope, options, firstPage) {
+  if (firstPage.status === "rejected") {
+    const error = firstPage.reason;
     return {
       node: null,
       diagnostics: [incomplete(scope, "state", 1, undefined, error instanceof Error ? error.message : String(error))]
     };
   }
+  const base = firstPage.value;
   const [labelPages, childPages, blockerPages] = await Promise.all([
     collectPages(scope, options, "labels", base.labels),
     collectPages(scope, options, "children", base.subIssues),
@@ -13062,16 +13077,20 @@ async function loadClosure(root, options) {
   const partial = new Map;
   const diagnostics = [];
   while (queue.length > 0) {
-    const scope = queue.shift();
-    const read = await readNode(scope, options);
-    diagnostics.push(...read.diagnostics);
-    if (read.node === null)
-      continue;
-    partial.set(scope.target, read.node);
-    for (const adjacent of [read.node.node.parent, ...read.node.children, ...read.node.blockers]) {
-      if (adjacent !== null && !queued.has(adjacent.target)) {
-        queued.add(adjacent.target);
-        queue.push(adjacent);
+    const scopes = queue.splice(0, 2);
+    const firstPages = await Promise.allSettled(scopes.map((scope) => page(scope, options, { labelsCursor: undefined, childrenCursor: undefined, blockersCursor: undefined })));
+    for (let index = 0;index < scopes.length; index += 1) {
+      const scope = scopes[index];
+      const read = await readNode(scope, options, firstPages[index]);
+      diagnostics.push(...read.diagnostics);
+      if (read.node === null)
+        continue;
+      partial.set(scope.target, read.node);
+      for (const adjacent of [read.node.node.parent, ...read.node.children, ...read.node.blockers]) {
+        if (adjacent !== null && !queued.has(adjacent.target)) {
+          queued.add(adjacent.target);
+          queue.push(adjacent);
+        }
       }
     }
   }
@@ -13274,6 +13293,14 @@ function validateComposedWorkflowHistories(histories) {
     diagnostics: collected.diagnostics
   };
 }
+async function readSources(scopes, options) {
+  const outcomes = [];
+  for (let index = 0;index < scopes.length; index += 2) {
+    const pair = scopes.slice(index, index + 2);
+    outcomes.push(...await Promise.allSettled(pair.map((scope) => readGitHubHistory(scope, options))));
+  }
+  return outcomes;
+}
 async function readComposedWorkflowHistory(scopes, options) {
   if (scopes.length === 0) {
     return {
@@ -13292,9 +13319,14 @@ async function readComposedWorkflowHistory(scopes, options) {
     };
   }
   const histories = [];
+  const outcomes = await readSources(scopes, options);
   try {
-    for (const scope of scopes) {
-      const source = await readGitHubHistory(scope, options);
+    for (let index = 0;index < scopes.length; index += 1) {
+      const scope = scopes[index];
+      const outcome = outcomes[index];
+      if (outcome.status === "rejected")
+        throw outcome.reason;
+      const source = outcome.value;
       if (!source.complete) {
         return {
           ok: false,

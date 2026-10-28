@@ -18,6 +18,7 @@ import {
   reviewsFromEvents,
   stopsFromEvents,
 } from './epic-driver-history'
+import { readHistoryPairs } from './epic-driver-history-pairs'
 import { git, graphql, Refused } from './epic-driver-runtime'
 import type { BranchFacts, ChildFacts, Facts, OwnUwObservation } from './epic-types'
 import { readLanding } from './workflow-readiness.js'
@@ -30,11 +31,10 @@ async function historyEntry(repo: string, full: string, number: number): Promise
 }
 
 async function historiesFor(repo: string, full: string, epic: number, numbers: number[]) {
-  const [epicHistory, childHistories] = await Promise.all([
-    issueHistory(repo, full, epic),
-    Promise.all(numbers.map((number) => historyEntry(repo, full, number))),
-  ])
-  return { epicHistory, histories: new Map(childHistories) }
+  const [epicEntry, ...childHistories] = await readHistoryPairs([epic, ...numbers], (number) =>
+    historyEntry(repo, full, number),
+  )
+  return { epicHistory: epicEntry[1], histories: new Map(childHistories) }
 }
 
 function observedChild(

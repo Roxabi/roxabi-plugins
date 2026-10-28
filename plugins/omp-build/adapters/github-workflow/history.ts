@@ -87,6 +87,15 @@ export function validateComposedWorkflowHistories(
   }
 }
 
+async function readSources(scopes: readonly Scope[], options: GitHubOptions): Promise<PromiseSettledResult<History>[]> {
+  const outcomes: PromiseSettledResult<History>[] = []
+  for (let index = 0; index < scopes.length; index += 2) {
+    const pair = scopes.slice(index, index + 2)
+    outcomes.push(...(await Promise.allSettled(pair.map((scope) => readGitHubHistory(scope, options)))))
+  }
+  return outcomes
+}
+
 /**
  * Compose only the linked scopes actually required. Scopes stay opaque outside
  * this adapter; callers pass Scope values from githubScope / native association.
@@ -112,9 +121,13 @@ export async function readComposedWorkflowHistory(
     }
   }
   const histories: DecodedHistory[] = []
+  const outcomes = await readSources(scopes, options)
   try {
-    for (const scope of scopes) {
-      const source: History = await readGitHubHistory(scope, options)
+    for (let index = 0; index < scopes.length; index += 1) {
+      const scope = scopes[index]
+      const outcome = outcomes[index]
+      if (outcome.status === 'rejected') throw outcome.reason
+      const source = outcome.value
       if (!source.complete) {
         return {
           ok: false,

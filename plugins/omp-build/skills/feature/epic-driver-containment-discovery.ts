@@ -2,7 +2,7 @@ import { graphql, Refused } from './epic-driver-runtime'
 
 const PR_FIELDS = `number state baseRefName headRefName headRefOid mergedAt isCrossRepository
   mergeCommit { oid parents(first: 1) { nodes { oid } } }
-  autoMergeRequest { enabledAt } labels(first: 30) { nodes { name } } repository { nameWithOwner }`
+  autoMergeRequest { enabledAt } labels(first: 30) { pageInfo { hasNextPage } nodes { name } } repository { nameWithOwner }`
 
 // Issue links and mandate branches discover candidates; neither grants authority.
 const QUERY = `query EpicContainmentIssue($owner: String!, $name: String!, $number: Int!) {
@@ -23,7 +23,7 @@ const QUERY = `query EpicContainmentIssue($owner: String!, $name: String!, $numb
 
 const BRANCH_QUERY = `query EpicContainmentBranch($owner: String!, $name: String!, $head: String!) {
   repository(owner: $owner, name: $name) {
-    pullRequests(first: 100, headRefName: $head, states: OPEN) {
+    pullRequests(first: 100, headRefName: $head, states: [OPEN, CLOSED, MERGED]) {
       pageInfo { hasNextPage }
       nodes { ${PR_FIELDS} }
     }
@@ -105,9 +105,14 @@ export function uniqueCandidates(values: readonly unknown[], full: string, targe
   const found = new Map<number, Candidate>()
   for (const value of values) {
     if (!candidate(value)) throw new Refused(`containment PR discovery for ${target} is unreadable`)
-    if (value.isCrossRepository || value.repository.nameWithOwner !== full || value.state !== 'OPEN') continue
+    if (value.isCrossRepository || value.repository.nameWithOwner !== full) continue
     const previous = found.get(value.number)
-    if (previous && (previous.headRefName !== value.headRefName || previous.baseRefName !== value.baseRefName))
+    if (
+      previous &&
+      (previous.state !== value.state ||
+        previous.headRefName !== value.headRefName ||
+        previous.baseRefName !== value.baseRefName)
+    )
       throw new Refused(`containment PR #${value.number} has conflicting observations`)
     found.set(value.number, value)
   }

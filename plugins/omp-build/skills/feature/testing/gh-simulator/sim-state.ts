@@ -12,7 +12,7 @@ export function statePath(): string {
 export function persist(state: State): void {
   const path = statePath()
   const tmp = `${path}.tmp`
-  writeFileSync(tmp, JSON.stringify(state, null, 2))
+  writeFileSync(tmp, JSON.stringify(state))
   renameSync(tmp, path)
 }
 
@@ -24,7 +24,7 @@ function acquireLock(lock: string): void {
       return
     } catch {
       if (Date.now() - start > 10_000) fail(`gh: lock timeout ${lock}`)
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20)
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1)
     }
   }
 }
