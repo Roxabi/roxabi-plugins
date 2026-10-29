@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -18,9 +19,12 @@ export function consultableProtocolOptions(): { getArtifactsDir(): string } {
 /** Main-agent context whose artifact dir is deleted when the calling unit test finishes. */
 export function consultableAgentRoot(): {
   agent: { kind: 'main'; id: 'Main'; name: 'main'; depth: 0 }
+  sessionManager: { getSessionId(): string }
   localProtocolOptions: { getArtifactsDir(): string }
 } {
+  const sessionId = randomUUID()
   return {
+    sessionManager: { getSessionId: () => sessionId },
     agent: { kind: 'main', id: 'Main', name: 'main', depth: 0 },
     localProtocolOptions: { getArtifactsDir: () => consultableProtocolOptions().getArtifactsDir() },
   }

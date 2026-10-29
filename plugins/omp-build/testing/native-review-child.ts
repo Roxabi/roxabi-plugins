@@ -22,20 +22,57 @@ export async function nativeReviewChild(input: { task: NativeTask; sessionFile: 
   const profile = await loadPinnedProfile(input.task)
   if (profile === null) throw new Error(`native-fixture-pinned-profile-missing: ${input.task.agent}`)
   const handlers = new Map<string, Handler>()
-  let active = [...profile.tools, 'yield']
+  // The SDK's registry is independent of its enabled tools. This fixture models
+  // a host without lsp and with ambient extension/MCP tools already enabled.
+  const builtins = [
+    'read',
+    'grep',
+    'glob',
+    'bash',
+    'ast_grep',
+    'web_search',
+    'write',
+    'edit',
+    'yield',
+    'wait',
+    'find',
+    'ask',
+    'todo',
+    'recall',
+    'reflect',
+    'retain',
+    'memory_edit',
+    'checkpoint',
+    'rewind',
+  ]
+  const allTools = [
+    ...builtins.map((name) => ({
+      name,
+      sourceInfo: { source: 'builtin', path: `<builtin:${name}>`, scope: 'temporary', origin: 'top-level' },
+    })),
+    {
+      name: 'fixture_custom',
+      sourceInfo: { source: 'extension', path: '<fixture>', scope: 'temporary', origin: 'top-level' },
+    },
+    {
+      name: 'fixture_mcp',
+      sourceInfo: { source: 'mcp', path: '<fixture-mcp>', scope: 'temporary', origin: 'top-level' },
+    },
+  ]
+  const available = new Set(allTools.map((tool) => tool.name))
+  const initialTools = [
+    ...new Set([...profile.tools.filter((name) => available.has(name)), 'yield', 'fixture_custom', 'fixture_mcp']),
+  ]
+  let active = [...initialTools]
   const pi = {
     events: { on: () => () => undefined },
     on: (name: string, handler: Handler) => {
       handlers.set(name, handler)
     },
-    getActiveTools: () => active,
-    getAllTools: () =>
-      active.map((name) => ({
-        name,
-        sourceInfo: { source: 'builtin', path: `<builtin:${name}>`, scope: 'temporary', origin: 'top-level' },
-      })),
+    getActiveTools: () => [...active],
+    getAllTools: () => allTools.map((tool) => ({ ...tool, sourceInfo: { ...tool.sourceInfo } })),
     setActiveTools: async (names: string[]) => {
-      active = [...names]
+      active = [...new Set(names.filter((name) => available.has(name)))]
     },
   } as unknown as NativeExtension
   installExecutedChildGuard(pi, new NativeBatchController())
@@ -72,7 +109,7 @@ export async function nativeReviewChild(input: { task: NativeTask; sessionFile: 
           agent: input.task.agent,
           task: taskText,
           systemPrompt: [],
-          tools: [...profile.tools, 'yield'],
+          tools: [...initialTools],
           spawns: '',
           modelRole: profile.model,
           resolvedModel: 'fixture-provider/fixture-model',

@@ -6,7 +6,7 @@ import type { PreparedEpicReview } from '../../roxabi/epic-range-finalization.ts
 import type { ContinueFeatureResult, FeatureCommandHost, FeatureWorkflow } from '../../roxabi/feature-contract'
 import { deliverFeatureResult, runInstalledFeatureCommand } from '../../roxabi/feature-entry'
 import { nativeFeatureProfiles } from '../../roxabi/native-feature-profiles'
-import { consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
+import { consultableAgentRoot } from '../../testing/protocol-retention.unit.ts'
 import {
   bridgeHarness,
   cleanupFixtureActions,
@@ -17,11 +17,10 @@ import type { NativeBatch } from '../review-runtime/contracts.ts'
 import { NativeBatchController } from '../review-runtime/controller.ts'
 
 const root = {
+  ...consultableAgentRoot(),
   cwd: '/repo/feature',
-  agent: { kind: 'main' as const, id: 'Main', name: 'main', depth: 0 },
   model: { contextWindow: 128_000 },
   isIdle: () => true,
-  localProtocolOptions: { getArtifactsDir: () => consultableProtocolOptions().getArtifactsDir() },
 }
 
 afterEach(() => {
@@ -156,6 +155,19 @@ function handedWork(): ContinueFeatureResult[] {
 }
 
 describe('feature continuation seam', () => {
+  it('does not capture a session identity before a batch is activated', () => {
+    const controller = new NativeBatchController()
+    const idleRoot = {
+      ...root,
+      sessionManager: {
+        getSessionId: () => {
+          throw new Error('unexpected session identity read')
+        },
+      },
+    }
+    expect(() => controller.observeRootContext(idleRoot as never)).not.toThrow()
+  })
+
   it('drops an undelivered feature follow-up while continuation is inhibited', () => {
     const controller = new NativeBatchController()
     const prepared = batch('held')

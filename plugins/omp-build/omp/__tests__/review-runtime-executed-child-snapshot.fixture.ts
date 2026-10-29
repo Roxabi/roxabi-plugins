@@ -17,11 +17,11 @@ function cleanupDirectories() {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
 }
 
-function preparedBatch() {
+function preparedBatch(profile = agent) {
   const prepared = batch([childId])
   const task = prepared.tasks.tasks[0]
   if (!task) throw new Error('expected one native task')
-  const bytes = readFileSync(new URL('../../agents/R-workflow-plan.md', import.meta.url))
+  const bytes = readFileSync(new URL(`../../agents/${profile}.md`, import.meta.url))
   const inputs = standaloneReviewInputs()
   const plugin = inputs.manifest.plugin
   const manifest = {
@@ -33,7 +33,7 @@ function preparedBatch() {
           source: 'git-file' as const,
           repository: plugin.repository,
           commit: plugin.commit,
-          path: `${plugin.root}/agents/${agent}.md`,
+          path: `${plugin.root}/agents/${profile}.md`,
           digest: createHash('sha256').update(bytes).digest('hex'),
         },
       ],
@@ -42,7 +42,7 @@ function preparedBatch() {
   const fingerprint = actionInputDigest(manifest)
   const directory = mkdtempSync(join(tmpdir(), 'omp-executed-child-'))
   dirs.push(directory)
-  const profilePath = join(directory, 'plugin', 'agents', `${agent}.md`)
+  const profilePath = join(directory, 'plugin', 'agents', `${profile}.md`)
   mkdirSync(dirname(profilePath), { recursive: true })
   writeFileSync(profilePath, bytes)
   const index = Buffer.from('# action\n')
@@ -52,11 +52,11 @@ function preparedBatch() {
     { id: 'fixture-child', actionId: childId, manifestDigest: fingerprint, indexPath, location: 'local' },
     [
       { path: 'index.md', bytes: index },
-      { path: `plugin/agents/${agent}.md`, bytes },
+      { path: `plugin/agents/${profile}.md`, bytes },
     ],
   )
   if (!snapshot.ok) throw new Error('could not seal action fixture')
-  task.agent = agent
+  task.agent = profile
   task.task = assignment
   task.action = { snapshot: snapshot.value, inputs: { ...inputs, manifest, fingerprint } }
   registerHostActionBinding(task.action.snapshot, task.action.inputs)

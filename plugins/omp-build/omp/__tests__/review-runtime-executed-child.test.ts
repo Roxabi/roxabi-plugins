@@ -27,6 +27,116 @@ vi.mock('@oh-my-pi/pi-coding-agent', () => {
 })
 
 describe('native executed-child contract', () => {
+  const sdkTools = [
+    'read',
+    'grep',
+    'glob',
+    'ast_grep',
+    'bash',
+    'write',
+    'task',
+    'edit',
+    'web_search',
+    'browser',
+    'memory',
+    'mcp_search',
+    'mcp_read',
+    'slack',
+    'calendar',
+  ]
+  const sdkRegistry = [
+    ...['read', 'grep', 'glob', 'ast_grep', 'bash', 'write', 'yield'].map((name) => ({
+      name,
+      source: 'builtin',
+    })),
+    ...sdkTools.slice(6).map((name) => ({ name, source: 'extension' })),
+  ]
+
+  it('projects the captured review-spec SDK tool inventory to six pinned builtins and yield', async () => {
+    const capturedTools = [
+      'read',
+      'grep',
+      'glob',
+      'bash',
+      'ast_grep',
+      'web_search',
+      'wait',
+      'yield',
+      'mcp__codegraph_codegraph_codegraph_explore',
+      'mcp__context7_query_docs',
+      'mcp__context7_resolve_library_id',
+      'omp_build_start_review',
+      'omp_build_terminalize_interrupted_review',
+      'omp_build_grant_review_replacement',
+      'omp_build_replace_interrupted_review',
+    ]
+    const registry = capturedTools.map((name, index) => ({
+      name,
+      source: index < 8 ? 'builtin' : 'extension',
+    }))
+    const fixture = await setup({
+      profile: 'R-review-spec',
+      init: { tools: capturedTools },
+      registry,
+      initialTools: capturedTools,
+    })
+    await fixture.start()
+    expect(fixture.abort).not.toHaveBeenCalled()
+    expect(fixture.childEndpoint.activeTools().sort()).toEqual([
+      'ast_grep',
+      'bash',
+      'glob',
+      'grep',
+      'read',
+      'web_search',
+      'yield',
+    ])
+    const result = { findings: [], specRows: [] }
+    expect(await fixture.yieldValue(result)).toBeUndefined()
+    await fixture.terminal(result)
+    expect(fixture.onStop).not.toHaveBeenCalled()
+    expect(fixture.onComplete).toHaveBeenCalledTimes(1)
+  })
+
+  it('projects available pinned builtins from an ambient SDK initialization without granting ambient tools', async () => {
+    const fixture = await setup({ init: { tools: sdkTools }, registry: sdkRegistry, initialTools: sdkTools })
+    await fixture.start()
+    expect(fixture.abort).not.toHaveBeenCalled()
+    expect(fixture.childEndpoint.activeTools().sort()).toEqual(['ast_grep', 'glob', 'grep', 'read', 'yield'])
+    expect(await fixture.yieldValue()).toBeUndefined()
+    await fixture.terminal()
+    expect(fixture.onStop).not.toHaveBeenCalled()
+    expect(fixture.onComplete).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['wrong provenance', sdkRegistry.map((tool) => (tool.name === 'read' ? { ...tool, source: 'extension' } : tool))],
+    ['duplicate builtin', [...sdkRegistry, { name: 'read', source: 'builtin' }]],
+    ['missing builtin yield', sdkRegistry.filter((tool) => tool.name !== 'yield')],
+    ['non-builtin yield', sdkRegistry.map((tool) => (tool.name === 'yield' ? { ...tool, source: 'extension' } : tool))],
+  ])('blocks projection with %s before provider or tools', async (_label, registry) => {
+    const fixture = await setup({ init: { tools: sdkTools }, registry, initialTools: sdkTools })
+    await fixture.start()
+    await fixture.yieldValue()
+    expect(fixture.abort).toHaveBeenCalledTimes(1)
+    expect(fixture.runtime.provider).not.toHaveBeenCalled()
+    expect(fixture.runtime.tool).not.toHaveBeenCalled()
+    await fixture.terminal()
+    expect(fixture.onComplete).not.toHaveBeenCalled()
+    expect(fixture.onStop).toHaveBeenCalledTimes(1)
+  })
+
+  it('blocks a tool injected after the SDK tool projection', async () => {
+    const fixture = await setup({ init: { tools: sdkTools }, registry: sdkRegistry, initialTools: sdkTools })
+    await fixture.start()
+    expect(fixture.childEndpoint.activeTools().sort()).toEqual(['ast_grep', 'glob', 'grep', 'read', 'yield'])
+    fixture.childEndpoint.addTool('ambient_injected')
+    expect(await fixture.yieldValue()).toMatchObject({ block: true })
+    await fixture.terminal()
+    expect(fixture.onComplete).not.toHaveBeenCalled()
+    expect(fixture.onStop).toHaveBeenCalledTimes(1)
+  })
+
   it('accepts an admitted spawn across distinct root and child event buses', async () => {
     const fixture = await setup()
     await fixture.start()
@@ -54,7 +164,7 @@ describe('native executed-child contract', () => {
     ['wrong agent in init', { init: { agent: 'other' } }],
     ['wrong task in init', { init: { task: 'different task' } }],
     ['wrong schema', { init: { outputSchema: { type: 'string' } } }],
-    ['unexpected tools', { init: { tools: [...tools, 'bash'] } }],
+    ['malformed tools', { init: { tools: [...tools, 42] } }],
     ['unexpected spawn grant', { init: { spawns: '*' } }],
     ['unexpected advisor', { init: { advisor: 'on' } }],
     ['wrong spawn identity', { id: 'other-child' }],

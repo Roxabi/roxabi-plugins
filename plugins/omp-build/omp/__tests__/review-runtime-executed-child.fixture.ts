@@ -42,15 +42,19 @@ type Bus = {
   api: { on(name: string, handler: (value: unknown) => void): () => void }
   emit(name: string, value: unknown): void
 }
-function endpoint(bus: Bus, beforeSetTools?: () => Promise<void>) {
+type ToolEntry = { name: string; source: string }
+
+function endpoint(bus: Bus, beforeSetTools?: () => Promise<void>, registry?: ToolEntry[], initialTools?: string[]) {
   const handlers = new Map<string, Handler[]>()
-  let activeTools = [...tools, 'yield']
-  const sources = new Map(activeTools.map((name) => [name, 'builtin']))
+  let activeTools = initialTools ? [...initialTools] : [...tools, 'yield']
+  const registered = registry
+    ? registry.map((tool) => ({ ...tool }))
+    : activeTools.map((name) => ({ name, source: 'builtin' }))
   const native = createExtensionApiStub({
     events: bus.api,
     on: (event, handler) => handlers.set(event, [...(handlers.get(event) ?? []), handler as Handler]),
     getActiveTools: () => activeTools,
-    getAllTools: () => activeTools.map((name) => ({ name, sourceInfo: { source: sources.get(name) } })) as never,
+    getAllTools: () => registered.map(({ name, source }) => ({ name, sourceInfo: { source } })) as never,
     setActiveTools: async (names) => {
       await beforeSetTools?.()
       activeTools = [...names]
@@ -67,12 +71,13 @@ function endpoint(bus: Bus, beforeSetTools?: () => Promise<void>) {
         response = (await handler(event as never, ctx as never)) ?? response
       return response
     },
+    activeTools: () => [...activeTools],
     setSource(name: string, source: string) {
-      sources.set(name, source)
+      for (const tool of registered) if (tool.name === name) tool.source = source
     },
     addTool(name: string) {
       activeTools.push(name)
-      sources.set(name, 'builtin')
+      registered.push({ name, source: 'builtin' })
     },
   }
 }
@@ -94,12 +99,15 @@ function eventBus(): Bus {
 
 async function setup(
   options: {
+    profile?: string
     init?: Record<string, unknown> | null
     id?: string
     parentId?: string
     lifecycle?: Record<string, unknown> | null
     omitDetached?: boolean
     beforeSetTools?: () => Promise<void>
+    registry?: ToolEntry[]
+    initialTools?: string[]
     spawn?: boolean
     cwd?: string
     settings?: unknown
@@ -107,10 +115,11 @@ async function setup(
     childModel?: Model
   } = {},
 ) {
-  const { prepared, outputSchema, directory } = preparedBatch()
+  const agent = options.profile ?? 'R-workflow-plan'
+  const { prepared, outputSchema, directory } = preparedBatch(agent)
   const bus = eventBus()
   const rootEndpoint = endpoint(bus)
-  const childEndpoint = endpoint(eventBus(), options.beforeSetTools)
+  const childEndpoint = endpoint(eventBus(), options.beforeSetTools, options.registry, options.initialTools)
   const sessionFile = join(directory, 'child.jsonl')
   const model = options.childModel ?? { provider: 'fixture', id: 'fixture-model' }
   const cwd = options.cwd ?? '/fixture-root'
@@ -210,7 +219,7 @@ async function setup(
     runtime.provider()
     await childEndpoint.emit('before_provider_request', { type: 'before_provider_request', payload: {} }, child)
   }
-  async function yieldValue(value = data) {
+  async function yieldValue(value: unknown = data) {
     if (aborted) return undefined
     runtime.tool()
     runtime.yield()

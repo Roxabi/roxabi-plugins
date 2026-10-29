@@ -226,9 +226,9 @@ async function invokeOmpBridge(
     cwd: cwd ?? '',
     agent: { kind: 'main' as const, id: 'Main', name: 'main', depth: 0 },
     model: { contextWindow: 128_000 },
+    sessionManager: { getSessionId: () => 'recovery-bridge-root' },
     isIdle: () => true,
   }
-
   ompBuildExtension(api, { principalCwd: () => false })
   const feature = commands.get('feature')
   if (feature === undefined) throw new Error('feature-command-unregistered')
@@ -240,7 +240,6 @@ async function invokeOmpBridge(
   }
   return { messages, pausePr }
 }
-
 async function invokeOmpLifetime(): Promise<{
   activeBeforePause: boolean
   cloneRetained: boolean
@@ -274,6 +273,7 @@ async function invokeOmpLifetime(): Promise<{
     cwd: cwd ?? '',
     agent: { kind: 'main' as const, id: 'Main', name: 'main', depth: 0 },
     model: { contextWindow: 128_000 },
+    sessionManager: { getSessionId: () => 'recovery-lifetime-root' },
     isIdle: () => true,
   }
   ompBuildExtension(api, { principalCwd: () => false })

@@ -17,9 +17,8 @@ import {
   retainOwnedResult,
   unusableOwnedReplacement,
 } from './result-replacement.ts'
-import { isolatedReceivedSettlement, settleStoppedBatch } from './settlement'
+import { isolatedReceivedSettlement, ownsBatchPresentation, settleStoppedBatch } from './settlement'
 import { type ActiveBatch, createActiveBatch, spawnRefusal } from './state'
-
 /**
  * A short-lived native dispatch authority. It has no queue, retry, persistence,
  * or subprocess execution: Roxabi prepares each batch, while the model makes one
@@ -27,7 +26,8 @@ import { type ActiveBatch, createActiveBatch, spawnRefusal } from './state'
  */
 export class NativeBatchController {
   #active: ActiveBatch | null = null
-  #lastActivated: NativeBatch | null = null
+  #lastActivated: ActiveBatch | null = null
+  #lastActivatedSessionId: string | null = null
   #observeHostGit: HostGitObserver = observeHostGit
   #terminalByBatch = new WeakMap<NativeBatch, Promise<void>>()
   #live = new Set<ActiveBatch>()
@@ -62,7 +62,8 @@ export class NativeBatchController {
     )
     this.#active.communication = this.#communication
     this.#live.add(this.#active)
-    this.#lastActivated = batch
+    this.#lastActivated = this.#active
+    this.#lastActivatedSessionId = this.#rootContext?.sessionManager.getSessionId() ?? null
     this.#communication?.status(`omp-build: native batch ${batch.operationId} active`)
   }
   inactive(): void {
@@ -87,6 +88,9 @@ export class NativeBatchController {
   observeRootContext(ctx: ExtensionContext): void {
     if (ctx.agent.kind !== 'main' || ctx.agent.depth !== 0) return
     this.#rootContext = ctx
+    if (this.#active !== null && this.#active === this.#lastActivated && this.#lastActivatedSessionId === null) {
+      this.#lastActivatedSessionId = ctx.sessionManager.getSessionId()
+    }
     const artifacts = ctx.localProtocolOptions?.getArtifactsDir?.()
     if (typeof artifacts === 'string' && artifacts.length > 0) this.#artifactsDir = artifacts
     if (this.#active) {
@@ -217,7 +221,7 @@ export class NativeBatchController {
         active,
         event,
         (current) => this.#detach(current),
-        (batch) => this.#lastActivated === batch,
+        () => ownsBatchPresentation(active, this.#lastActivated, this.#lastActivatedSessionId, this.#rootContext),
       ),
     )
   }
@@ -240,7 +244,12 @@ export class NativeBatchController {
     await this.#stopActive(active, reason)
   }
   #stopActive(active: ActiveBatch, reason: string): Promise<void> {
-    const terminal = settleStoppedBatch(active, reason, (current) => this.#detach(current))
+    const terminal = settleStoppedBatch(
+      active,
+      reason,
+      (current) => this.#detach(current),
+      () => ownsBatchPresentation(active, this.#lastActivated, this.#lastActivatedSessionId, this.#rootContext),
+    )
     this.#rememberTerminal(active.batch, terminal)
     return terminal
   }

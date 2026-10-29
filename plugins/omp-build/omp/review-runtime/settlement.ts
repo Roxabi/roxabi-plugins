@@ -1,4 +1,4 @@
-import type { ToolResultEvent } from '@oh-my-pi/pi-coding-agent'
+import type { ExtensionContext, ToolResultEvent } from '@oh-my-pi/pi-coding-agent'
 import type { ActionMessage } from '../action-communication.ts'
 import { verifyHostAction } from './action-registry.ts'
 import { flushPendingYields } from './capture'
@@ -114,12 +114,6 @@ async function notifyIntegrity(active: ActiveBatch, integrity: string, result: N
   await active.callbacks.onStop(`action-integrity-failed:${integrity}`, result)
 }
 
-async function stopIfClosed(active: ActiveBatch, result: NativeBatchResult): Promise<boolean> {
-  if (active.continuationClosed === null) return false
-  await active.callbacks.onStop(active.continuationClosed ?? 'continuation-closed', result)
-  return true
-}
-
 async function stopIfLate(active: ActiveBatch, result: NativeBatchResult): Promise<boolean> {
   if (active.retentionFailed === null && active.continuationClosed === null) return false
   const reason =
@@ -146,7 +140,10 @@ async function stopAfterPublication(
     await active.callbacks.onStop(`raw-publication-failed:${publicationErrors.join('; ')}`, prepared.result)
     return true
   }
-  if (await stopIfClosed(active, prepared.result)) return true
+  if (active.continuationClosed !== null) {
+    await active.callbacks.onStop(active.continuationClosed, prepared.result)
+    return true
+  }
   if (await stopIfLate(active, prepared.result)) return true
   const negatives = prepared.children.filter((child) => child.contextBlock !== undefined)
   if (negatives.length === 0) {
@@ -160,33 +157,29 @@ async function stopAfterPublication(
   return true
 }
 
-async function publishReceived(
+export function ownsBatchPresentation(
   active: ActiveBatch,
-  event: ToolResultEvent,
-  resolved: ResolvedTaskResult,
-  detach: (active: ActiveBatch) => void,
+  lastActivated: ActiveBatch | null,
+  sessionId: string | null,
+  root: ExtensionContext | null,
+): boolean {
+  return active === lastActivated && sessionId === (root?.sessionManager.getSessionId() ?? null)
+}
+
+function presentTerminal(
+  active: ActiveBatch,
   ownsPresentation: (batch: NativeBatch) => boolean,
-): Promise<void> {
-  const prepared = await preparedReceived(active, event, resolved)
-  if (await stopBeforePublication(active, prepared.result, detach)) return
-  const publicationErrors = await publishRaw(active.callbacks, prepared.children)
-  detach(active)
-  if (await stopAfterPublication(active, event, resolved, prepared, publicationErrors)) return
-  const canContinue = (): boolean => active.continuationClosed === null && active.retentionFailed === null
-  if (await stopIfLate(active, prepared.result)) return
-  await active.callbacks.onComplete(prepared.result, canContinue)
-  if (await stopIfLate(active, prepared.result)) return
-  await active.callbacks.onSettled?.(prepared.result, canContinue)
-  if (await stopIfLate(active, prepared.result)) return
+  status: 'completed' | 'stopped',
+): void {
   if (!ownsPresentation(active.batch)) return
   try {
-    active.communication?.status(`omp-build: native batch ${active.batch.operationId} completed`)
+    active.communication?.status(`omp-build: native batch ${active.batch.operationId} ${status}`)
   } catch {
     // Status presentation cannot change settlement.
   }
 }
 
-export function settleReceivedBatch(
+export async function settleReceivedBatch(
   active: ActiveBatch,
   event: ToolResultEvent,
   detach: (active: ActiveBatch) => void,
@@ -194,20 +187,27 @@ export function settleReceivedBatch(
 ): Promise<void> {
   flushPendingYields(active)
   const resolved = resolveTaskResult(active, event)
-  return publishReceived(active, event, resolved, detach, ownsPresentation)
-}
-
-function isolationFailure(active: ActiveBatch, error: unknown, detach: (active: ActiveBatch) => void): Promise<void> {
-  active.settling = true
-  const message = error instanceof Error ? error.message : String(error)
-  return Promise.resolve().then(async () => {
+  let status: 'completed' | 'stopped' = 'stopped'
+  let failed = false
+  try {
+    const prepared = await preparedReceived(active, event, resolved)
+    if (await stopBeforePublication(active, prepared.result, detach)) return
+    const publicationErrors = await publishRaw(active.callbacks, prepared.children)
     detach(active)
-    try {
-      await active.callbacks.onStop(`settlement-isolation-failed:${message}`, null)
-    } catch {
-      // Observed. The live SDK event is not reused and no substitute event is built.
-    }
-  })
+    if (await stopAfterPublication(active, event, resolved, prepared, publicationErrors)) return
+    const canContinue = (): boolean => active.continuationClosed === null && active.retentionFailed === null
+    if (await stopIfLate(active, prepared.result)) return
+    await active.callbacks.onComplete(prepared.result, canContinue)
+    if (await stopIfLate(active, prepared.result)) return
+    await active.callbacks.onSettled?.(prepared.result, canContinue)
+    if (await stopIfLate(active, prepared.result)) return
+    status = 'completed'
+  } catch (error) {
+    failed = true
+    throw error
+  } finally {
+    if (!failed) presentTerminal(active, ownsPresentation, status)
+  }
 }
 
 export function isolatedReceivedSettlement(
@@ -220,7 +220,18 @@ export function isolatedReceivedSettlement(
   try {
     isolated = structuredClone(event)
   } catch (error) {
-    return isolationFailure(active, error, detach)
+    active.settling = true
+    const message = error instanceof Error ? error.message : String(error)
+    return Promise.resolve().then(async () => {
+      detach(active)
+      try {
+        await active.callbacks.onStop(`settlement-isolation-failed:${message}`, null)
+      } catch {
+        // Observed. The live SDK event is not reused and no substitute event is built.
+      } finally {
+        presentTerminal(active, ownsPresentation, 'stopped')
+      }
+    })
   }
   active.settling = true
   return settleReceivedBatch(active, isolated, detach, ownsPresentation)
@@ -232,6 +243,8 @@ export function isolatedReceivedSettlement(
           await active.callbacks.onStop(`settlement-failed:${message}`, null)
         } catch {
           // The rejection is observed here; a late callback must not renew authority.
+        } finally {
+          presentTerminal(active, ownsPresentation, 'stopped')
         }
       },
     )
@@ -251,25 +264,30 @@ export function settleStoppedBatch(
   active: ActiveBatch,
   reason: string,
   detach: (active: ActiveBatch) => void,
+  ownsPresentation: (batch: NativeBatch) => boolean,
 ): Promise<void> {
   active.settling = true
   active.continuationClosed = reason
   detach(active)
   flushPendingYields(active)
   return (async (): Promise<void> => {
-    const grounded = await groundCapturedChildren(active, stoppedChildren(active))
-    const integrity = await integrityFailure(active)
-    const children = blocked(grounded, integrity ?? reason)
-    const usableBlocked = integrity === null ? children : blocked(children, integrity)
-    const result: NativeBatchResult = { batch: active.batch, children: usableBlocked, raw: null, complete: false }
-    const publicationErrors = await publishRaw(active.callbacks, usableBlocked)
-    const stopReason =
-      integrity !== null
-        ? `action-integrity-failed:${integrity}`
-        : publicationErrors.length === 0
-          ? reason
-          : `raw-publication-failed:${publicationErrors.join('; ')}`
-    await active.callbacks.onStop(stopReason, result)
+    try {
+      const grounded = await groundCapturedChildren(active, stoppedChildren(active))
+      const integrity = await integrityFailure(active)
+      const children = blocked(grounded, integrity ?? reason)
+      const usableBlocked = integrity === null ? children : blocked(children, integrity)
+      const result: NativeBatchResult = { batch: active.batch, children: usableBlocked, raw: null, complete: false }
+      const publicationErrors = await publishRaw(active.callbacks, usableBlocked)
+      const stopReason =
+        integrity !== null
+          ? `action-integrity-failed:${integrity}`
+          : publicationErrors.length === 0
+            ? reason
+            : `raw-publication-failed:${publicationErrors.join('; ')}`
+      await active.callbacks.onStop(stopReason, result)
+    } finally {
+      presentTerminal(active, ownsPresentation, 'stopped')
+    }
   })()
 }
 

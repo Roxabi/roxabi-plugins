@@ -58,6 +58,139 @@ describe('native communication red probes', () => {
     expect(harness.messages).toEqual([])
   })
 
+  it('replaces active status when a consumer receives a failed batch', async () => {
+    const harness = bridgeHarness()
+    const setStatus = vi.fn()
+    const statusRoot = { ...root, ui: { setStatus } }
+    const prepared = batch(['slot-a'])
+    const onStop = vi.fn(async () => undefined)
+    await harness.emitBridge('session_start', { type: 'session_start' }, statusRoot)
+    harness.controller.activate(prepared, { onComplete: async () => undefined, onStop })
+    await harness.emitBridge(
+      'tool_call',
+      { toolName: 'task', toolCallId: 'task-call', input: admittedInput(harness.controller, prepared) },
+      statusRoot,
+    )
+    await harness.emitBridgeAndSettle('tool_result', { ...completingResult('slot-a'), isError: true }, statusRoot)
+    expect(onStop).toHaveBeenCalledWith('root-task-is-error', expect.objectContaining({ complete: false }))
+    expect(setStatus).toHaveBeenLastCalledWith('omp-build', `omp-build: native batch ${prepared.operationId} stopped`)
+  })
+
+  it('replaces active status when the current batch is stopped', async () => {
+    const harness = bridgeHarness()
+    const setStatus = vi.fn()
+    const statusRoot = { ...root, ui: { setStatus } }
+    const prepared = batch(['slot-a'])
+    const onStop = vi.fn(async () => undefined)
+    await harness.emitBridge('session_start', { type: 'session_start' }, statusRoot)
+    harness.controller.activate(prepared, { onComplete: async () => undefined, onStop })
+    await harness.controller.stopOwned(prepared, 'owner-stop')
+    expect(onStop).toHaveBeenCalledWith('owner-stop', expect.objectContaining({ complete: false }))
+    expect(setStatus).toHaveBeenLastCalledWith('omp-build', `omp-build: native batch ${prepared.operationId} stopped`)
+  })
+
+  it('does not let an older stopped generation replace a newer active status', async () => {
+    const harness = bridgeHarness()
+    const setStatus = vi.fn()
+    const statusRoot = { ...root, ui: { setStatus } }
+    const prepared = batch(['slot-a'])
+    const gate = Promise.withResolvers<void>()
+    let entered = false
+    await harness.emitBridge('session_start', { type: 'session_start' }, statusRoot)
+    harness.controller.activate(prepared, {
+      onComplete: async () => undefined,
+      onStop: async () => {
+        entered = true
+        await gate.promise
+      },
+    })
+    const stopping = harness.controller.stopOwned(prepared, 'owner-stop')
+    await vi.waitFor(() => expect(entered).toBe(true))
+    harness.controller.activate(prepared, { onComplete: async () => undefined, onStop: async () => undefined })
+    gate.resolve()
+    await stopping
+    expect(setStatus).toHaveBeenLastCalledWith('omp-build', `omp-build: native batch ${prepared.operationId} active`)
+  })
+
+  it('does not publish an old terminal status after the root session changes', async () => {
+    const harness = bridgeHarness()
+    const setStatus = vi.fn()
+    const statusRoot = { ...root, sessionManager: { getSessionId: () => 'first' }, ui: { setStatus } }
+    const prepared = batch(['slot-a'])
+    const gate = Promise.withResolvers<void>()
+    let entered = false
+    await harness.emitBridge('session_start', { type: 'session_start' }, statusRoot)
+    harness.controller.activate(prepared, {
+      onComplete: async () => undefined,
+      onStop: async () => {
+        entered = true
+        await gate.promise
+      },
+    })
+    const stopping = harness.controller.stopOwned(prepared, 'owner-stop')
+    await vi.waitFor(() => expect(entered).toBe(true))
+    await harness.emitBridge(
+      'session_start',
+      { type: 'session_start' },
+      {
+        ...statusRoot,
+        sessionManager: { getSessionId: () => 'second' },
+      },
+    )
+    gate.resolve()
+    await stopping
+    expect(setStatus).toHaveBeenCalledTimes(1)
+  })
+
+  it('replaces active status even when the stop callback throws', async () => {
+    const harness = bridgeHarness()
+    const setStatus = vi.fn()
+    const statusRoot = { ...root, ui: { setStatus } }
+    const prepared = batch(['slot-a'])
+    await harness.emitBridge('session_start', { type: 'session_start' }, statusRoot)
+    harness.controller.activate(prepared, {
+      onComplete: async () => undefined,
+      onStop: async () => {
+        throw new Error('stop failed')
+      },
+    })
+    await expect(harness.controller.stopOwned(prepared, 'owner-stop')).rejects.toThrow('stop failed')
+    expect(setStatus).toHaveBeenLastCalledWith('omp-build', `omp-build: native batch ${prepared.operationId} stopped`)
+  })
+
+  it('waits for exceptional settlement stop handling before presenting the terminal status', async () => {
+    const harness = bridgeHarness()
+    const setStatus = vi.fn()
+    const statusRoot = { ...root, ui: { setStatus } }
+    const prepared = batch(['slot-a'])
+    const gate = Promise.withResolvers<void>()
+    let stops = 0
+    await harness.emitBridge('session_start', { type: 'session_start' }, statusRoot)
+    harness.controller.activate(prepared, {
+      onComplete: async () => undefined,
+      onStop: async () => {
+        stops++
+        if (stops === 1) throw new Error('first stop failed')
+        await gate.promise
+      },
+    })
+    await harness.emitBridge(
+      'tool_call',
+      { toolName: 'task', toolCallId: 'task-call', input: admittedInput(harness.controller, prepared) },
+      statusRoot,
+    )
+    const pending = harness.emitBridgeAndSettle(
+      'tool_result',
+      { ...completingResult('slot-a'), isError: true },
+      statusRoot,
+    )
+    await vi.waitFor(() => expect(stops).toBe(2))
+    expect(setStatus).toHaveBeenLastCalledWith('omp-build', `omp-build: native batch ${prepared.operationId} active`)
+    gate.resolve()
+    await pending
+    expect(setStatus).toHaveBeenLastCalledWith('omp-build', `omp-build: native batch ${prepared.operationId} stopped`)
+  })
+
   it('fences the exact live batch before awaiting its registered terminal', async () => {
     const harness = bridgeHarness()
     const prepared = batch(['slot-a'])

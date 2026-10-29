@@ -96,10 +96,6 @@ export function validateChildInit(profile: PinnedProfile, task: NativeTask, entr
     return false
   if (entry.task.trimEnd() !== `Complete assignment thoroughly:\n\n${task.task.trim()}`) return false
   if (!Array.isArray(entry.tools) || entry.tools.some((tool) => typeof tool !== 'string')) return false
-  const actual = new Set(
-    entry.tools.filter((tool) => tool !== 'yield' && !(tool === 'wait' && profile.tools.includes('bash'))),
-  )
-  if (actual.size !== profile.tools.length || profile.tools.some((tool) => !actual.has(tool))) return false
   return (
     entry.spawns === '' &&
     entry.advisor === undefined &&
@@ -109,10 +105,28 @@ export function validateChildInit(profile: PinnedProfile, task: NativeTask, entr
   )
 }
 
-export function toolSetValid(pi: NativeExtension, profile: PinnedProfile): boolean {
-  const allowed = new Set([...profile.tools, 'yield'])
+/** Derive only available, unambiguous builtin tools from the pinned allowlist. */
+export function effectiveTools(pi: NativeExtension, profile: PinnedProfile): string[] | null {
+  const all = pi.getAllTools()
+  const result: string[] = []
+  for (const name of [...profile.tools, 'yield']) {
+    const matches = all.filter((tool) => tool.name === name)
+    if (matches.length === 0 && name !== 'yield') continue
+    if (matches.length !== 1 || matches[0]?.sourceInfo?.source !== 'builtin') return null
+    result.push(name)
+  }
+  return result
+}
+
+export function toolSetValid(pi: NativeExtension, tools: readonly string[]): boolean {
+  const allowed = new Set(tools)
   const active = pi.getActiveTools()
-  if (active.length !== allowed.size || active.some((name) => !allowed.has(name))) return false
+  if (
+    active.length !== allowed.size ||
+    new Set(active).size !== active.length ||
+    active.some((name) => !allowed.has(name))
+  )
+    return false
   const all = pi.getAllTools()
   return active.every((name) => {
     const matches = all.filter((tool) => tool.name === name)

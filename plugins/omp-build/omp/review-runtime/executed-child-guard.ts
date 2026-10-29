@@ -6,9 +6,9 @@ import type { NativeBatch, NativeExtension } from './contracts.ts'
 import type { NativeBatchController } from './controller.ts'
 import { bindExecutedChild, childExecutionCurrent, observeChildLifecycle } from './executed-child-lifecycle.ts'
 import {
+  effectiveTools,
   isCanonicalChild,
   loadPinnedProfile,
-  type PinnedProfile,
   toolSetValid,
   validateChildInit,
   validContext,
@@ -21,7 +21,7 @@ type Binding = {
   sessionId: string
   sessionFile: string
   parentId: string
-  profile: PinnedProfile
+  tools: readonly string[]
   model: { provider: string; id: string }
   task: string
   prompt: string[]
@@ -45,7 +45,7 @@ function readyIdentity(binding: Binding, ctx: ExtensionContext, pi: NativeExtens
     sessionId(ctx) === binding.sessionId &&
     ctx.sessionManager.getSessionFile() === binding.sessionFile &&
     matchesAuthorizedModel(ctx, binding.model) &&
-    toolSetValid(pi, binding.profile)
+    toolSetValid(pi, binding.tools)
   )
 }
 
@@ -61,7 +61,7 @@ function invalidate(binding: Binding | null): void {
   binding.providerReady = false
 }
 
-async function prepareBinding(ctx: ExtensionContext): Promise<Binding | null> {
+async function prepareBinding(ctx: ExtensionContext, pi: NativeExtension): Promise<Binding | null> {
   if (ctx.agent.kind !== 'sub' || ctx.agent.depth !== 1 || !ctx.agent.parentId) return null
   const sid = sessionId(ctx)
   const file = ctx.sessionManager.getSessionFile()
@@ -76,6 +76,10 @@ async function prepareBinding(ctx: ExtensionContext): Promise<Binding | null> {
   const entry = entries[0]
   const profile = await loadPinnedProfile(task)
   if (!profile || !validateChildInit(profile, task, entry) || !entry || typeof entry.task !== 'string') return null
+  if (!matchesAuthorizedModel(ctx, bound.model)) return null
+  if (!childExecutionCurrent(controller, bound.batch, ctx.agent.id, file, ctx.agent.parentId)) return null
+  const tools = effectiveTools(pi, profile)
+  if (!tools) return null
   return {
     controller,
     batch: bound.batch,
@@ -83,7 +87,7 @@ async function prepareBinding(ctx: ExtensionContext): Promise<Binding | null> {
     sessionId: sid,
     sessionFile: file,
     parentId: ctx.agent.parentId,
-    profile,
+    tools,
     model: bound.model,
     task: entry.task,
     prompt: [
@@ -98,11 +102,7 @@ async function prepareBinding(ctx: ExtensionContext): Promise<Binding | null> {
 }
 
 function allowedCall(binding: Binding, event: ToolCallEvent, ctx: ExtensionContext, pi: NativeExtension): boolean {
-  return (
-    live(binding, ctx, pi) &&
-    (binding.profile.tools.includes(event.toolName) || event.toolName === 'yield') &&
-    !binding.calls.has(event.toolCallId)
-  )
+  return live(binding, ctx, pi) && binding.tools.includes(event.toolName) && !binding.calls.has(event.toolCallId)
 }
 
 function recordYield(binding: Binding, event: ToolResultEvent, input: unknown): boolean {
@@ -115,7 +115,7 @@ function recordYield(binding: Binding, event: ToolResultEvent, input: unknown): 
 }
 
 function activateBinding(binding: Binding, ctx: ExtensionContext, pi: NativeExtension): void {
-  if (!toolSetValid(pi, binding.profile) || !matchesAuthorizedModel(ctx, binding.model)) return
+  if (!toolSetValid(pi, binding.tools) || !matchesAuthorizedModel(ctx, binding.model)) return
   if (!childExecutionCurrent(binding.controller, binding.batch, binding.id, binding.sessionFile, binding.parentId))
     return
   if (ctx.sessionManager.getSessionFile() !== binding.sessionFile || sessionId(ctx) !== binding.sessionId) return
@@ -132,10 +132,10 @@ export function installExecutedChildGuard(pi: NativeExtension, controller: Nativ
     if (!isCanonicalChild(ctx)) return
     ownedChild = true
     try {
-      const prepared = await prepareBinding(ctx)
+      const prepared = await prepareBinding(ctx, pi)
       if (!prepared) return
       binding = prepared
-      await pi.setActiveTools([...new Set([...binding.profile.tools, 'yield'])])
+      await pi.setActiveTools([...binding.tools])
       activateBinding(binding, ctx, pi)
     } catch {
       invalidate(binding)
@@ -278,7 +278,7 @@ export function installExecutedChildGuard(pi: NativeExtension, controller: Nativ
         ctx.sessionManager.getSessionFile() !== binding.sessionFile ||
         !isDeepStrictEqual(ctx.getSystemPrompt(), binding.prompt) ||
         !matchesAuthorizedModel(ctx, binding.model) ||
-        !toolSetValid(pi, binding.profile)
+        !toolSetValid(pi, binding.tools)
       )
         invalidate(binding)
       binding = null
