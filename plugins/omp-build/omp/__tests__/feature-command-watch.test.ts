@@ -1,9 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import type { FeatureWorkflow } from '../../roxabi/feature-contract'
 import { pauseOwnedFeatureOnSessionEnd } from '../../roxabi/feature-host-lifetime'
 import { rememberFeatureOwner } from '../../roxabi/feature-host-ownership'
 import { createExtensionApiStub } from '../../testing/extension-api-stub'
-import { batch as nativeBatch } from '../../testing/review-runtime-support'
+import { provisionNativeRoot } from '../../testing/native-root-fixture.ts'
+import { consultableAgentRoot } from '../../testing/protocol-retention.unit.ts'
+import { cleanupFixtureActions, batch as nativeBatch } from '../../testing/review-runtime-support'
 import ompBuildExtension from '../index'
 import type { OmpBuildExtensionOptions } from '../omp-commands'
 import { reviewControllerFor } from '../omp-controller'
@@ -14,11 +16,15 @@ type CapturedHandler = {
 }['invoke']
 
 const root = {
+  ...consultableAgentRoot(),
   cwd: '/repo/feature',
-  agent: { kind: 'main' as const, id: 'Main', name: 'main', depth: 0 },
   model: { contextWindow: 128_000 },
   isIdle: () => true,
 }
+
+afterEach(() => {
+  cleanupFixtureActions()
+})
 
 function workflow(impl: Partial<FeatureWorkflow> = {}): FeatureWorkflow & { pauses: string[] } {
   const pauses: string[] = []
@@ -46,6 +52,8 @@ function installed(
   ) => Promise<{ code: number; killed: boolean; stdout: string; stderr: string }>,
 ) {
   const sent: string[] = []
+  const statuses: Array<string | undefined> = []
+  const context = { ...root, ui: { setStatus: (_key: string, text: string | undefined) => statuses.push(text) } }
   const commands = new Map<string, { handler: (args: string, ctx: typeof root) => Promise<void> }>()
   const sessions = new Map<string, CapturedHandler>()
   const registered = new Map<string, CapturedHandler[]>()
@@ -74,8 +82,9 @@ function installed(
     },
     ...(exec === undefined ? {} : { exec }),
   })
+  provisionNativeRoot(root)
   ompBuildExtension(pi, { principalCwd: () => false, ...options })
-  return { pi, sent, commands, sessions }
+  return { pi, sent, statuses, context, commands, sessions }
 }
 
 describe('installed /feature command CI watch', () => {
@@ -98,15 +107,78 @@ describe('installed /feature command CI watch', () => {
       })
       return new Promise<{ code: number; killed: boolean; stdout: string; stderr: string }>(() => undefined)
     })
-    await host.commands.get('feature')?.handler('#12', root)
+    await host.commands.get('feature')?.handler('#12', host.context)
     const stop = host.sessions.get('session_stop')
     expect(stop).toBeTypeOf('function')
-    await stop?.({ signal: new AbortController().signal }, root)
+    await stop?.({ signal: new AbortController().signal }, host.context)
     expect(pauses).toEqual([])
     expect(aborted).toBe(false)
-    expect(host.sent.join('\n')).toContain('ci-watch: running')
+    expect(host.statuses.join('\n')).toContain('ci-watch: running')
+    expect(host.statuses.join('\n')).toContain('/feature pause')
+    expect(host.statuses.join('\n')).toContain('/feature abandon')
+    expect(host.sent).toEqual([])
     expect(host.sent.join('\n')).not.toContain('pause-unconfirmed')
     expect(host.sent.join('\n')).not.toContain('pause-confirmed')
+  })
+
+  it('keeps a watch blocker visible after progress was shown only as status', async () => {
+    const pending = Promise.withResolvers<{ code: number; killed: boolean; stdout: string; stderr: string }>()
+    const observed = Promise.withResolvers<void>()
+    const host = installed(
+      {
+        featureWorkflow: workflow({
+          continueFeature: async () => ({
+            kind: 'watch',
+            command:
+              "bash '/repo/plugins/omp-build/skills/ci-watch/ci-watch.sh' '12' --merge-mode native --base 'main'",
+          }),
+          consumeWatchExit: async () => {
+            expect(host.statuses.at(-1)).toBeUndefined()
+            observed.resolve()
+            return { kind: 'blocked', reason: 'failed-checks' }
+          },
+        }),
+      },
+      () => pending.promise,
+    )
+    await host.commands.get('feature')?.handler('#12', host.context)
+    expect(host.statuses.join('\n')).toContain('/feature pause')
+    expect(host.sent).toEqual([])
+    pending.resolve({ code: 1, killed: false, stdout: '', stderr: '' })
+    await observed.promise
+    await Promise.resolve()
+    expect(host.sent.join('\n')).toContain('failed-checks')
+  })
+
+  it('keeps the replacement watch status when the aborted watch settles late', async () => {
+    const first = Promise.withResolvers<{ code: number; killed: boolean; stdout: string; stderr: string }>()
+    const second = Promise.withResolvers<{ code: number; killed: boolean; stdout: string; stderr: string }>()
+    let starts = 0
+    const host = installed(
+      {
+        featureWorkflow: workflow({
+          continueFeature: async () => ({
+            kind: 'watch',
+            command:
+              "bash '/repo/plugins/omp-build/skills/ci-watch/ci-watch.sh' '12' --merge-mode native --base 'main'",
+          }),
+        }),
+      },
+      () => (starts++ === 0 ? first.promise : second.promise),
+    )
+    await host.commands.get('feature')?.handler('#12', host.context)
+    await host.commands.get('feature')?.handler('#12', host.context)
+    expect(host.statuses.at(-2)).toBeUndefined()
+    const replacementStatus = host.statuses.at(-1)
+    expect(replacementStatus).toContain('/feature pause')
+    first.resolve({ code: 1, killed: false, stdout: '', stderr: '' })
+    await Promise.resolve()
+    expect(host.statuses.at(-1)).toBe(replacementStatus)
+    expect(host.sent).toEqual([])
+    second.resolve({ code: -1, killed: true, stdout: '', stderr: '' })
+    await Promise.resolve()
+    expect(host.statuses.at(-1)).toBeUndefined()
+    expect(host.sent.join('\n')).toContain('watch-exit-unobserved')
   })
 
   it('pauses on mid-turn user-interrupt message_end stamped with Flag.UserInterrupt', async () => {
@@ -248,6 +320,7 @@ describe('installed /feature command CI watch', () => {
       0,
       '12',
     ])
+    expect(host.sent.join('\n')).toContain('merged')
     expect(host.sent.join('\n')).not.toContain('OMP_BUILD_CI_WATCH')
   })
 

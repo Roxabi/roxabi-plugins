@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parseIssueSpecBody, rawSource } from '../../adapters/github-native/uw-spec.ts'
+import { readComposedWorkflowHistory } from '../../dist/contracts.js'
 import type { UwDiagnostic } from '../../engine/uw-diagnostics.ts'
 import type { NormalizationJudgement } from '../../engine/uw-normalization-schema.ts'
 import type { NativeBatch, NativeBatchCallbacks, NativeBatchResult } from '../../omp/review-runtime/contracts.ts'
@@ -11,6 +12,13 @@ import {
   bindSuccessorWriter,
   markSuccessorNormalization,
 } from '../uw-normalization-internal.ts'
+import {
+  isolateViewerToken,
+  observationalGh,
+  observationalGit,
+  preparedNormalization,
+  releaseViewerToken,
+} from './uw-normalization-observation.ts'
 
 const request = {
   uw: { repository: 'acme/widgets', target: 'acme/widgets#42' },
@@ -86,6 +94,19 @@ function fixture(control: 'select' | 'new' = 'select', eligible = false) {
     acceptMaterial: async () => {
       throw new Error('unexpected acceptMaterial')
     },
+    prepareAction: async () => ({ ok: true, value: preparedNormalization(request) }),
+    prepareReviewActions: async () => {
+      throw new Error('unexpected prepareReviewActions')
+    },
+    replayActionInputs: async () => {
+      throw new Error('unexpected replayActionInputs')
+    },
+    verifyAction: async () => {
+      throw new Error('unexpected verifyAction')
+    },
+    readDelivery: async () => {
+      throw new Error('unexpected readDelivery')
+    },
   }
   if (eligible) {
     const read = {} as never
@@ -117,6 +138,7 @@ function fixture(control: 'select' | 'new' = 'select', eligible = false) {
     send: async (text: string) => {
       sent.push(text)
     },
+    status: async () => undefined,
     inhibitFeatureContinuation: () => {
       inhibited = true
     },
@@ -127,11 +149,14 @@ function fixture(control: 'select' | 'new' = 'select', eligible = false) {
     markFeatureBatch: () => undefined,
     exec: async () => ({ code: 0, killed: false }),
   } as FeatureCommandHost
+  isolateViewerToken()
+  const git = observationalGit()
+  const gh = observationalGh()
   const announce = () =>
     announceUwNormalization({
       reference: 'acme/widgets#42',
       request,
-      original: { cwd: '/repo/feature', reference: 'acme/widgets#42', control, principal: false },
+      original: { cwd: '/repo/feature', reference: 'acme/widgets#42', control, principal: false, git, gh },
       host,
       deliver: (result) => deliver(result),
     })
@@ -139,11 +164,12 @@ function fixture(control: 'select' | 'new' = 'select', eligible = false) {
     if (activeBatch === undefined) throw new Error('normalization batch was not activated')
     return activeBatch
   }
-  const complete = () => callbacks?.onComplete(settled(currentBatch()))
-  const settle = () => callbacks?.onSettled?.(settled(currentBatch()))
+  const complete = () => callbacks?.onComplete(settled(currentBatch()), () => true)
+  const settle = () => callbacks?.onSettled?.(settled(currentBatch()), () => true)
   const stop = (reason: string) => callbacks?.onStop(reason, settled(currentBatch()))
   return {
     operations,
+    gh,
     workflow,
     announce,
     complete,
@@ -171,6 +197,34 @@ function diagnostic(code: string): UwDiagnostic {
   }
 }
 
+afterEach(() => releaseViewerToken())
+it('keeps scheduled settlement owned until its deferred delivery finishes', async () => {
+  vi.useFakeTimers()
+  try {
+    const subject = fixture()
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    subject.setDeliver(async () => {
+      entered.resolve()
+      await release.promise
+    })
+    await subject.announce()
+    await subject.complete()
+    let finished = false
+    const settlement = Promise.resolve(subject.settle()).then(() => {
+      finished = true
+    })
+    await vi.runAllTimersAsync()
+    await entered.promise
+    expect(finished).toBe(false)
+    release.resolve()
+    await settlement
+    expect(finished).toBe(true)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
 describe('UW normalization native lifecycle', () => {
   it('retains explicit new only for an eligible live normalization', async () => {
     vi.useFakeTimers()
@@ -178,8 +232,9 @@ describe('UW normalization native lifecycle', () => {
       const subject = fixture('new', true)
       await subject.announce()
       subject.complete()
-      subject.settle()
+      const settlement = subject.settle()
       await vi.runAllTimersAsync()
+      await settlement
       expect(subject.writes).toHaveLength(1)
       expect(subject.continued).toEqual([expect.objectContaining({ control: 'new' })])
     } finally {
@@ -193,8 +248,9 @@ describe('UW normalization native lifecycle', () => {
       const subject = fixture('new')
       await subject.announce()
       subject.complete()
-      subject.settle()
+      const settlement = subject.settle()
       await vi.runAllTimersAsync()
+      await settlement
       expect(subject.writes).toEqual([])
       expect(subject.continued).toEqual([])
       expect(subject.delivered).toContainEqual(expect.objectContaining({ reason: 'uw-normalization-ineligible' }))
@@ -215,14 +271,35 @@ describe('UW normalization native lifecycle', () => {
       expect(subject.continued).toEqual([])
       expect(subject.delivered).toEqual([])
 
-      await subject.settle()
+      const settlement = subject.settle()
       expect(subject.writes).toEqual([])
 
       await vi.runAllTimersAsync()
+      await settlement
 
       expect(subject.writes).toHaveLength(1)
       expect(subject.continued).toHaveLength(1)
       expect(subject.delivered).toEqual([{ kind: 'terminal', reason: 'continued-after-normalization' }])
+      const history = await readComposedWorkflowHistory([request.uw], { cwd: '/repo/feature', gh: subject.gh })
+      expect(history.ok).toBe(true)
+      if (!history.ok) throw new Error('normalization receipts must be readable')
+      const receipts = history.histories[0]?.operations.filter((entry) => entry.kind === 'action-receipt') ?? []
+      expect(receipts).toHaveLength(2)
+      const start = receipts.find(
+        (entry) => entry.record?.kind === 'action-receipt' && entry.record.payload.phase === 'start',
+      )
+      const result = receipts.find(
+        (entry) => entry.record?.kind === 'action-receipt' && entry.record.payload.phase === 'result',
+      )
+      expect(start?.status).toBe('complete')
+      expect(result?.status).toBe('complete')
+      expect(result?.operationId).toBe(`${start?.operationId}:result`)
+      if (start?.record?.kind !== 'action-receipt' || result?.record?.kind !== 'action-receipt') {
+        throw new Error('complete normalization receipts expected')
+      }
+      expect(result.record.payload.actionId).toBe(start.record.payload.actionId)
+      if (result.record.payload.phase !== 'result') throw new Error('normalization result receipt expected')
+      expect(result.record.payload.start).toMatchObject({ recordId: start.recordId })
     } finally {
       vi.useRealTimers()
     }
@@ -234,8 +311,14 @@ describe('UW normalization native lifecycle', () => {
       const subject = fixture()
 
       await subject.announce()
-      await subject.stop('session-switch')
+      const before = await readComposedWorkflowHistory([request.uw], { cwd: '/repo/feature', gh: subject.gh })
+      if (!before.ok) throw new Error('normalization start history must be readable')
+      const stopped = subject.stop('session-switch')
       await vi.runAllTimersAsync()
+      await stopped
+      const after = await readComposedWorkflowHistory([request.uw], { cwd: '/repo/feature', gh: subject.gh })
+      if (!after.ok) throw new Error('normalization history must remain readable')
+      expect(after.histories[0]?.operations).toEqual(before.histories[0]?.operations)
 
       expect(subject.writes).toEqual([])
       expect(subject.continued).toEqual([])
@@ -256,8 +339,9 @@ describe('UW normalization native lifecycle', () => {
       await subject.announce()
       await subject.complete()
       subject.inhibit()
-      await subject.settle()
+      const settlement = subject.settle()
       await vi.runAllTimersAsync()
+      await settlement
 
       expect(subject.writes).toEqual([])
       expect(subject.continued).toEqual([])
@@ -281,8 +365,9 @@ describe('UW normalization native lifecycle', () => {
 
       await subject.announce()
       await subject.complete()
-      await subject.settle()
+      const settlement = subject.settle()
       await vi.runAllTimersAsync()
+      await settlement
 
       expect(subject.writes).toEqual([])
       expect(subject.continued).toEqual([])
@@ -316,8 +401,9 @@ describe('UW normalization native lifecycle', () => {
 
       await subject.announce()
       await subject.complete()
-      await subject.settle()
+      const settlement = subject.settle()
       await vi.runAllTimersAsync()
+      await settlement
 
       expect(subject.continued).toEqual([])
       expect(subject.delivered).toContainEqual(
@@ -346,8 +432,9 @@ describe('UW normalization native lifecycle', () => {
 
       await writeFailure.announce()
       await writeFailure.complete()
-      await writeFailure.settle()
+      const writeSettlement = writeFailure.settle()
       await vi.runAllTimersAsync()
+      await writeSettlement
 
       expect(writeFailure.continued).toEqual([])
       expect(writeFailure.delivered).toContainEqual(
@@ -361,8 +448,9 @@ describe('UW normalization native lifecycle', () => {
 
       await continuationFailure.announce()
       await continuationFailure.complete()
-      await continuationFailure.settle()
+      const continuationSettlement = continuationFailure.settle()
       await vi.runAllTimersAsync()
+      await continuationSettlement
 
       expect(continuationFailure.delivered).toContainEqual(
         expect.objectContaining({ kind: 'blocked', reason: 'feature-continuation-failed' }),
@@ -381,8 +469,9 @@ describe('UW normalization native lifecycle', () => {
 
       await subject.announce()
       await subject.complete()
-      await subject.settle()
+      const settlement = subject.settle()
       await vi.runAllTimersAsync()
+      await settlement
 
       expect(subject.sent).toHaveLength(1)
       expect(subject.sent[0]).toContain('feature-stopped: delivery-rejected')

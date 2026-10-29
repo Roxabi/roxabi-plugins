@@ -3,6 +3,7 @@ import { sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { AcceptedOwnSpec, AcceptedSpecResult } from './workflow-accepted-spec-types.ts'
+import { workflowContextNegative } from './workflow-context-terminal.ts'
 import { specAssessmentSchema } from './workflow-output-schema.ts'
 import {
   type AssessResultRecord,
@@ -54,11 +55,12 @@ export function qualifyEditorialCandidate(
   input: EditorialQualificationInput,
 ): EditorialQualification {
   if (!applicableAssessment(record, input.mandateRef, input.applied, input.accepted)) return { status: 'irrelevant' }
-  const parsed = specAssessmentSchema.safeParse(record.payload.structured)
-  if (!parsed.success)
-    return { status: 'refused', result: specChainFailure('incomplete', 'Applicable spec assessment is malformed') }
   const authenticated = authenticatedAssessResult(record, input.histories, input.mandateRef)
   if (!authenticated.ok) return { status: 'refused', result: authenticated }
+  if (workflowContextNegative(authenticated.record)) return { status: 'irrelevant' }
+  const parsed = specAssessmentSchema.safeParse(authenticated.record.payload.structured)
+  if (!parsed.success)
+    return { status: 'refused', result: specChainFailure('incomplete', 'Applicable spec assessment is malformed') }
   const exact = authenticated.record.payload.exactInputs
   const mechanical = mechanicalSpecDelta(exact.accepted, exact.proposed)
   if (!sameMechanicalDelta(mechanical, exact.mechanical))

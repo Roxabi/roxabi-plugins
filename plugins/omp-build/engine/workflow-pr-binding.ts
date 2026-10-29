@@ -1,8 +1,12 @@
+import { canonicalValueDigest } from './action-input.ts'
+import type { ActionInputs } from './action-input-schema.ts'
 import type { DecodedHistory } from './history-schema.ts'
-import { diagnostic, equalScope } from './record-diagnostics.ts'
+import { diagnostic, equalScope, fail, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { Diagnostic, Scope } from './record-values.ts'
+import type { Result } from './result.ts'
 import {
+  bindExternalRef,
   historyFor,
   type MandateRecord,
   type WorkflowBindingRecord,
@@ -70,4 +74,74 @@ export function selectWorkflowBinding(input: {
     mandate: chained.binding.payload.mandate,
     mandateRecord,
   }
+}
+
+function unboundReviewMandate(inputs: ActionInputs, histories: readonly DecodedHistory[]): Result<MandateRecord> {
+  const { subject, acceptedSources, purpose, code } = inputs.manifest
+  if (subject.kind !== 'uw' || subject.pullRequest !== null || subject.binding !== null || purpose !== 'review')
+    return fail([diagnostic('unconfirmed', 'Unbound mandate is only valid for a UW review')])
+  if (code.repository !== subject.uw.repository)
+    return fail([diagnostic('mismatch', 'UW review code repository does not match its subject')])
+  const pins = acceptedSources.filter(
+    (source) => source.record.kind === 'mandate' && equalScope(source.record.scope, subject.uw),
+  )
+  const pin = pins[0]
+  if (pins.length !== 1 || pin?.selector !== '/payload')
+    return fail([diagnostic('unconfirmed', 'UW review requires exactly one pinned execution mandate')])
+  const home = historyFor(subject.uw, histories)
+  if (home === null) return fail([diagnostic('missing-history', 'Mandate history is absent')])
+  const resolved = bindExternalRef(pin.record, home)
+  if (!resolved.ok) return resolved
+  if (
+    resolved.value.kind !== 'mandate' ||
+    !equalScope(resolved.value.payload.ownSpec.uw, subject.uw) ||
+    canonicalValueDigest(resolved.value.payload) !== pin.digest
+  )
+    return fail([diagnostic('unconfirmed', 'UW review mandate pin does not match its authenticated record')])
+  return { ok: true, value: resolved.value }
+}
+
+/** Authenticate the execution mandate pinned by historical action inputs. */
+export function resolveManifestMandate(
+  inputs: ActionInputs,
+  histories: readonly DecodedHistory[],
+): Result<MandateRecord> {
+  const { subject, spec, acceptedSources } = inputs.manifest
+  if (subject.kind !== 'uw' || spec.kind !== 'accepted' || !equalScope(spec.effective.own.uw, subject.uw))
+    return fail([diagnostic('unconfirmed', 'Action inputs do not identify an accepted UW Spec')])
+  if (subject.pullRequest === null) return unboundReviewMandate(inputs, histories)
+  if (
+    subject.binding === null ||
+    !equalScope(subject.binding.record.scope, subject.pullRequest) ||
+    subject.binding.record.kind !== 'workflow-binding' ||
+    subject.binding.selector !== '/payload'
+  )
+    return fail([diagnostic('unconfirmed', 'Action inputs lack a pinned PR workflow binding')])
+  const bindingHistory = historyFor(subject.binding.record.scope, histories)
+  if (bindingHistory === null) return fail([diagnostic('missing-history', 'Binding history is absent')])
+  const bound = bindExternalRef(subject.binding.record, bindingHistory)
+  if (!bound.ok) return bound
+  if (
+    bound.value.kind !== 'workflow-binding' ||
+    canonicalValueDigest(bound.value.payload) !== subject.binding.digest ||
+    bound.value.payload.mandate.kind !== 'mandate' ||
+    !equalScope(bound.value.payload.mandate.scope, subject.uw)
+  )
+    return fail([diagnostic('unconfirmed', 'Pinned workflow binding does not identify the action mandate')])
+  const mandateRef = bound.value.payload.mandate
+  const mandateHistory = historyFor(mandateRef.scope, histories)
+  if (mandateHistory === null) return fail([diagnostic('missing-history', 'Mandate history is absent')])
+  const resolved = bindExternalRef(mandateRef, mandateHistory)
+  if (!resolved.ok) return resolved
+  if (
+    resolved.value.kind !== 'mandate' ||
+    !acceptedSources.some(
+      (source) =>
+        sameRef(source.record, mandateRef) &&
+        source.selector === '/payload' &&
+        source.digest === canonicalValueDigest(resolved.value.payload),
+    )
+  )
+    return fail([diagnostic('unconfirmed', 'Execution mandate is not pinned in accepted sources')])
+  return { ok: true, value: resolved.value }
 }

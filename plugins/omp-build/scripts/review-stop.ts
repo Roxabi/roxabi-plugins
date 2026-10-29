@@ -16,6 +16,7 @@ import { ROXABI_STOP_AUTHOR, withRoxabiGitHubPolicy } from '../roxabi/github-pol
 import { loadReviewClassCatalogue } from '../roxabi/review-assets.ts'
 import type { ReviewContext } from '../roxabi/review-contract.ts'
 import { persistRequiredReviewStop } from '../roxabi/review-dispatch.ts'
+import { readReviewInputHistories } from '../roxabi/uw-input-readers.ts'
 import type { Gh } from '../skills/feature/review-base.ts'
 
 const SHA = /^[0-9a-f]{40}$/
@@ -107,7 +108,9 @@ async function main(): Promise<void> {
   const history = decodeHistory(
     await readGitHubHistory(scope, withRoxabiGitHubPolicy({ cwd, readAuthor: args.automationLogin, gh: scopedGh })),
   )
-  const summary = summarizeReviews(history, canonicalClasses, null)
+  const cited = await readReviewInputHistories(history, { cwd, gh: scopedGh, readAuthor: args.automationLogin })
+  if (!cited.ok) throw new Error(`cited-history-unreadable:${cited.diagnostics.map((item) => item.code).join(',')}`)
+  const summary = summarizeReviews(history, canonicalClasses, null, cited.value)
   if (!summary.ok) throw new Error('fresh review history refused stop publication')
   const coordinates = JSON.parse(await scopedGh(cwd, ['pr', 'view', String(args.pr), '--json', 'headRefOid'])) as {
     headRefOid?: unknown
@@ -124,6 +127,7 @@ async function main(): Promise<void> {
       acceptedEvidencePolicyRef: null,
     },
     canonicalClasses,
+    cited.value,
   )
   if (!state.ok) throw new Error('fresh review state is invalid')
   const requiredStop = state.requiredStop
@@ -165,6 +169,7 @@ async function main(): Promise<void> {
         history,
         withRoxabiGitHubPolicy({ cwd, gh: scopedGh, readAuthor: args.automationLogin, writerLogin: STOP_AUTHOR }),
         null,
+        cited.value,
       )
       return published.status === 'confirmed' ? { ok: true } : { ok: false, reason: published.status }
     },

@@ -1,5 +1,6 @@
 import { z } from 'zod'
-import { sha256Schema } from './record-values.ts'
+import { externalRecordRefSchema } from './record-references.ts'
+import { scopeSchema, sha256Schema } from './schema-primitives.ts'
 export const SPEC_CONTENT_FORMAT = 'omp-build-spec-content/1' as const
 const ordinalSchema = z.string().regex(/^[1-9][0-9]*$/)
 export const criterionIdSchema = z.templateLiteral(['C', ordinalSchema])
@@ -75,3 +76,14 @@ export const specRawSourceSchema = z.strictObject({
 export type SpecRawSource = z.infer<typeof specRawSourceSchema>
 export const specSnapshotSchema = z.strictObject({ spec: specSchema, raw: specRawSourceSchema })
 export type SpecSnapshot = { spec: Spec; raw: SpecRawSource }
+export const ownSpecRefSchema = z.strictObject({
+  uw: scopeSchema,
+  version: sha256Schema,
+  sourceAccepted: externalRecordRefSchema,
+})
+export type OwnSpecRef = z.infer<typeof ownSpecRefSchema>
+export const exclusionRefSchema = z.strictObject({
+  spec: ownSpecRefSchema,
+  index: z.number().int().nonnegative(),
+})
+export type ExclusionRef = z.infer<typeof exclusionRefSchema>

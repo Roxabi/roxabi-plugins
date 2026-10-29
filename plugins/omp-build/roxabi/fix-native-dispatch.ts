@@ -1,6 +1,7 @@
 import type { NativeBatch, NativeBatchResult, NativeTask } from '../omp/review-runtime/contracts.ts'
 import type { FixActionResult, NativePort } from './fix-contract.ts'
 import { failure } from './fix-contract.ts'
+import type { UwOperations } from './uw-contract.ts'
 
 export function actionTask(
   name: string,
@@ -8,12 +9,13 @@ export function actionTask(
   task: string,
   solutionSpace: string,
   proofEvidence?: NativeTask['proofEvidence'],
-): NativeTask {
+): Omit<NativeTask, 'action'> {
   return { name, agent, task, solutionSpace, ...(proofEvidence === undefined ? {} : { proofEvidence }) }
 }
 
 export type FixWorkflowRuntime = {
   signal: AbortSignal
+  uw: UwOperations
   onBatch(batch: NativeBatch): void
   onStarted(batch: NativeBatch): void
   /** Re-read authority before the next native dispatch. A refusal inhibits that continuation only. */
@@ -100,7 +102,17 @@ async function activateAndAnnounceNativeBatch<T>(
 ): Promise<FixActionResult<T> | null> {
   try {
     native.activate(batch, {
-      onComplete: (result) => conserveNativeResult(conserve, settle, result),
+      onComplete: (result, canContinue) => {
+        if (!canContinue()) return
+        return conserveNativeResult(
+          conserve,
+          settle,
+          result,
+          result.children.some((child) => child.contextBlock !== undefined)
+            ? failure('native-batch-stopped:action-context-missing')
+            : undefined,
+        )
+      },
       onStop: (reason, result) => conserveStoppedResult(conserve, settle, reason, result),
     })
     runtime.onBatch(batch)

@@ -1,33 +1,45 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { specDigest } from '../../engine/record-digests.ts'
 import { canonicalSpec } from '../../engine/uw-spec.ts'
 import type { AcceptedOwnSpec } from '../../engine/workflow-accepted-spec-types.ts'
 import type { PreparedEpicReview } from '../../roxabi/epic-range-finalization.ts'
 import type { ContinueFeatureResult, FeatureCommandHost, FeatureWorkflow } from '../../roxabi/feature-contract'
 import { deliverFeatureResult, runInstalledFeatureCommand } from '../../roxabi/feature-entry'
-import { nativeFeatureProfiles } from '../../roxabi/native-feature-profiles'
-import { createExtensionApiStub } from '../../testing/extension-api-stub'
-import { installNativeBatchBridge } from '../review-runtime/bridge.ts'
-import type { NativeBatch, NativeExtension } from '../review-runtime/contracts.ts'
+import { consultableAgentRoot } from '../../testing/protocol-retention.unit.ts'
+import {
+  bridgeHarness,
+  cleanupFixtureActions,
+  fixtureAction,
+  root as nativeRoot,
+} from '../../testing/review-runtime-support.ts'
+import type { NativeBatch } from '../review-runtime/contracts.ts'
 import { NativeBatchController } from '../review-runtime/controller.ts'
 
 const root = {
+  ...consultableAgentRoot(),
   cwd: '/repo/feature',
-  agent: { kind: 'main' as const, id: 'Main', name: 'main', depth: 0 },
   model: { contextWindow: 128_000 },
   isIdle: () => true,
 }
 
-type CapturedHandler = {
-  invoke(...args: unknown[]): unknown
-}['invoke']
+afterEach(() => {
+  cleanupFixtureActions()
+})
 
 function batch(operationId = 'feature-op'): NativeBatch {
   return {
     operationId,
     tasks: {
       context: 'feature fixture',
-      tasks: [{ name: 'R-workflow-plan', agent: 'R-advisor', task: 'plan', solutionSpace: 'fixed fixture' }],
+      tasks: [
+        {
+          name: 'R-workflow-plan',
+          agent: 'R-advisor',
+          task: 'plan',
+          solutionSpace: 'fixed fixture',
+          action: fixtureAction('R-workflow-plan'),
+        },
+      ],
     },
   }
 }
@@ -142,6 +154,19 @@ function handedWork(): ContinueFeatureResult[] {
 }
 
 describe('feature continuation seam', () => {
+  it('does not capture a session identity before a batch is activated', () => {
+    const controller = new NativeBatchController()
+    const idleRoot = {
+      ...root,
+      sessionManager: {
+        getSessionId: () => {
+          throw new Error('unexpected session identity read')
+        },
+      },
+    }
+    expect(() => controller.observeRootContext(idleRoot as never)).not.toThrow()
+  })
+
   it('drops an undelivered feature follow-up while continuation is inhibited', () => {
     const controller = new NativeBatchController()
     const prepared = batch('held')
@@ -161,26 +186,17 @@ describe('feature continuation seam', () => {
   })
 
   it('calls onSettled once after a confirmed complete result and not from agent_end', async () => {
-    const handlers = new Map<string, CapturedHandler>()
-    let raw: ((value: unknown) => void) | undefined
-    const pi: NativeExtension = createExtensionApiStub({
-      events: {
-        on: (_event, handler) => {
-          raw = handler
-          return () => {
-            raw = undefined
-          }
-        },
-      },
-      on: (event, handler) => handlers.set(event, handler),
-      sendUserMessage: async () => undefined,
-    })
-    const controller = new NativeBatchController()
-    installNativeBatchBridge(pi, controller)
+    const harness = bridgeHarness()
+    const { controller } = harness
+    const retainedRoot = { ...nativeRoot, ...root }
     const prepared = batch('settled')
+    const task = prepared.tasks.tasks[0]
+    if (task === undefined) throw new Error('settlement fixture task is missing')
+    task.agent = 'R-workflow-plan'
+    task.action = fixtureAction('R-workflow-plan', 'R-workflow-plan')
     let completed = 0
     let settled = 0
-    controller.observeRootContext(root as never)
+    controller.observeRootContext(retainedRoot as never)
     controller.activate(prepared, {
       onComplete: async () => {
         completed += 1
@@ -191,56 +207,42 @@ describe('feature continuation seam', () => {
       onStop: async () => undefined,
     })
     controller.announce(prepared)
-    await handlers.get('tool_call')?.(
-      { toolName: 'task', toolCallId: 'task-call', input: controller.wire(prepared) },
-      root,
-    )
-    await handlers.get('before_subagent_spawn')?.(
-      { agent: 'R-advisor', invocationKind: 'task', patterns: [], spawnKey: 'R-workflow-plan' },
-      root,
-    )
-    raw?.({
-      id: 'child-1',
-      event: { type: 'tool_execution_start', toolName: 'yield', toolCallId: 'yield-1', args: { data: { plan: [] } } },
-    })
-    await handlers.get('tool_result')?.(
-      {
-        toolName: 'task',
-        toolCallId: 'task-call',
-        isError: false,
-        content: [],
-        details: {
-          results: [
-            {
-              index: 0,
-              id: 'child-1',
-              agent: 'R-advisor',
-              exitCode: 0,
-              structuredOutput: { status: 'valid', data: { plan: [] } },
-            },
-          ],
+    const data = {
+      steps: [
+        {
+          id: 'step-1',
+          change: 'Preserve the confirmed behavior',
+          doneWhen: 'The behavior is retained',
+          criterionIds: ['C1'],
+          evidence: 'Exercise the behavior',
+          paths: ['src/feature.ts'],
         },
-      },
-      root,
-    )
-    await handlers.get('agent_end')?.({ willContinue: false }, root)
+      ],
+      resolutions: [],
+    }
+    await harness.admitChild(prepared, 'R-workflow-plan', 'task-call:0', {
+      toolCallId: 'task-call',
+      root: retainedRoot,
+    })
+    await harness.yieldChild('task-call:0', data)
+    await harness.settleBatch({
+      toolCallId: 'task-call',
+      errors: [],
+      results: [
+        {
+          index: 0,
+          id: 'task-call:0',
+          agent: 'R-workflow-plan',
+          exitCode: 0,
+          structuredOutput: { status: 'valid', data },
+        },
+      ],
+    })
     expect(completed).toBe(1)
     expect(settled).toBe(1)
-  })
-})
-
-describe('native feature profiles', () => {
-  it('keeps the four missing actions blocking and separate from the specialist plan review', () => {
-    const byName = new Map(nativeFeatureProfiles.map((profile) => [profile.name, profile]))
-    expect(byName.get('R-workflow-assess-spec')?.output).toBe('spec-assessment')
-    expect(byName.get('R-workflow-plan')?.output).toBe('plan')
-    expect(byName.get('R-workflow-implement')?.output).toBe('implementation')
-    expect(byName.get('R-workflow-attribute-ci')?.output).toBe('ci-attribution')
-    expect(byName.get('R-workflow-plan')?.body).toContain('criterion')
-    expect(byName.get('R-workflow-plan')?.body).toContain('paths')
-    expect(byName.get('R-workflow-assess-spec')?.body).toContain('exact accepted Spec snapshot')
-    expect(byName.get('R-workflow-plan-architect')?.tools).not.toContain('write')
-    expect(byName.get('R-workflow-plan-adversarial')?.tools).not.toContain('edit')
+    await harness.emitBridge('agent_end', { willContinue: false }, retainedRoot)
+    expect(completed).toBe(1)
+    expect(settled).toBe(1)
   })
 })
 
@@ -266,6 +268,7 @@ describe('principal refusal stays one message', () => {
       send: async (message) => {
         sent.push(message)
       },
+      status: async () => undefined,
       inhibitFeatureContinuation() {},
       releaseFeatureContinuation() {},
       featureContinuationInhibited: () => false,
@@ -383,6 +386,7 @@ describe('prepared epic final review delivery', () => {
         send: async (message: string) => {
           sent.push(message)
         },
+        status: async () => undefined,
         inhibitFeatureContinuation() {},
         releaseFeatureContinuation() {},
         featureContinuationInhibited: inhibited,
@@ -413,6 +417,7 @@ describe('prepared epic final review delivery', () => {
       send: async (message) => {
         sent.push(message)
       },
+      status: async () => undefined,
       inhibitFeatureContinuation() {},
       releaseFeatureContinuation() {},
       featureContinuationInhibited: () => inhibited,

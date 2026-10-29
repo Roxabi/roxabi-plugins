@@ -147,6 +147,28 @@ it('threads externalHistories through encodeRecord into projection', () => {
   expect(encodeRecord(record, source, null, [foreign]).ok).toBe(true)
 })
 
+it('publishes a binding with an authentic external mandate despite a foreign copy', () => {
+  const mandate = issueMandate(githubScope('acme/app', 7))
+  const binding = bindingRecord(mandate)
+  const source = { ...historyFrom(''), comments: [] }
+  const mandateSource = { ...historyFrom(wire(mandate)), scope: githubScope('acme/app', 7) }
+  const foreignSource = { ...historyFrom(wire(mandate), 'foreign'), scope: githubScope('acme/app', 7) }
+  const authentic = decodeHistory(mandateSource)
+  const foreign = decodeHistory(foreignSource)
+  const noisy = { ...authentic, operations: [...authentic.operations, ...foreign.operations] }
+  expect(foreign.operations).toEqual(expect.arrayContaining([expect.objectContaining({ authority: 'foreign' })]))
+  expect(encodeRecord(binding, source, null, [noisy])).toMatchObject({ ok: true })
+  expect(encodeRecord(binding, source, null, [{ ...authentic, operations: foreign.operations }])).toMatchObject({
+    ok: false,
+  })
+  const editedSource = {
+    ...mandateSource,
+    comments: mandateSource.comments.map((comment) => ({ ...comment, updatedAt: '2026-10-21T00:00:01Z' })),
+  }
+  expect(encodeRecord(binding, source, null, [decodeHistory(editedSource)])).toMatchObject({ ok: false })
+  expect(encodeRecord(binding, source, null, [{ ...authentic, operations: [] }])).toMatchObject({ ok: false })
+})
+
 describe('composed workflow history and landing binding readback', () => {
   it('composes PR and linked issue histories for a cold read', async () => {
     const issueBody = framed('epic-event', 'op-issue', 'event-issue')
@@ -192,6 +214,56 @@ describe('composed workflow history and landing binding readback', () => {
         expect.objectContaining({ operationId: 'op-pr', authority: 'foreign', record: null, status: 'incomplete' }),
       ]),
     )
+  })
+
+  it('selects the authentic binding despite foreign claims and identity collisions', async () => {
+    const mandate = issueMandate(githubScope('acme/app', 7))
+    const binding = bindingRecord(mandate)
+    const foreignCollision = framed('workflow-binding', binding.operationId, binding.recordId)
+    const foreignOther = framed('workflow-binding', 'op-foreign', 'binding-foreign')
+    const result = await readWorkflowBinding(githubScope('acme/app', 42), {
+      cwd: '/fixture',
+      readAuthor: 'automation',
+      gh: fakeGh([
+        (args) => (args[0] === 'pr' && args[1] === 'view' ? prView() : undefined),
+        (args) => {
+          const path = String(args[1] ?? '')
+          if (path.includes('/issues/42/comments'))
+            return JSON.stringify([
+              nativeComment(1, wire(binding)),
+              { ...nativeComment(2, foreignCollision), user: { login: 'foreign' } },
+              { ...nativeComment(3, foreignOther), user: { login: 'foreign' } },
+            ])
+          if (path.includes('/issues/7/comments')) return JSON.stringify([nativeComment(4, wire(mandate))])
+          return undefined
+        },
+      ]),
+    })
+    expect(result).toMatchObject({ ok: true, value: { binding: { recordId: binding.recordId } } })
+    if (!result.ok) throw new Error('expected binding')
+    expect(result.value.histories.flatMap((history) => history.operations)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ authority: 'foreign', operationId: binding.operationId })]),
+    )
+  })
+
+  it('treats foreign-only binding claims as absent while retaining them in history', async () => {
+    const result = await readWorkflowBinding(githubScope('acme/app', 42), {
+      cwd: '/fixture',
+      readAuthor: 'automation',
+      gh: fakeGh([
+        (args) => (args[0] === 'pr' && args[1] === 'view' ? prView() : undefined),
+        (args) =>
+          String(args[1] ?? '').includes('/issues/42/comments')
+            ? JSON.stringify([
+                {
+                  ...nativeComment(1, framed('workflow-binding', 'op-foreign', 'binding-foreign')),
+                  user: { login: 'foreign' },
+                },
+              ])
+            : undefined,
+      ]),
+    })
+    expect(result).toMatchObject({ ok: false, reason: 'absent' })
   })
 
   it('refuses composed history when a scope comment page is unreadable', async () => {
@@ -394,6 +466,52 @@ describe('composed workflow history and landing binding readback', () => {
       ]),
     })
     expect(facts).toMatchObject({ ok: true, uwGraph: { status: 'incomplete' } })
+  })
+
+  it('reuses the authentic published operation despite a foreign incomplete identity copy', async () => {
+    const record = {
+      repository: 'acme/app',
+      target: 'acme/app#42',
+      version: 1 as const,
+      recordId: 'event-retry',
+      runId: 'run-1',
+      operationId: 'op-retry',
+      inputs: [] as string[],
+      kind: 'epic-event' as const,
+      payload: { outcome: 'verified' },
+    }
+    const partial =
+      '<!-- omp-build-record v=1 kind=epic-event id=event-retry operationId=op-retry part=1/2 data=e30 -->'
+    const empty = decodeHistory({ ...historyFrom(''), comments: [] })
+    let posts = 0
+    const publish = (login: string) =>
+      publishConfirmedWorkflowRecord(
+        record,
+        empty,
+        {
+          cwd: '/fixture',
+          readAuthor: 'automation',
+          writerLogin: 'automation',
+          gh: fakeGh([
+            (args) => {
+              if (args.includes('POST')) {
+                posts++
+                throw new Error('unexpected publication')
+              }
+              if (String(args[1] ?? '').includes('/comments'))
+                return JSON.stringify([
+                  nativeComment(1, wire(record)),
+                  { ...nativeComment(2, partial), user: { login } },
+                ])
+              return undefined
+            },
+          ]),
+        },
+        null,
+      )
+    expect(await publish('foreign')).toMatchObject({ status: 'confirmed', operation: { authority: 'accounted' } })
+    expect(await publish('automation')).toMatchObject({ status: 'refused' })
+    expect(posts).toBe(0)
   })
 
   it('never treats uncertain publication as a confirmed workflow checkpoint', async () => {

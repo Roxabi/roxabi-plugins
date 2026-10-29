@@ -1,4 +1,4 @@
-import { projectionConfig, TEST_HEAD, TEST_INPUT, TEST_SCOPE } from '../../testing/record-builders.ts'
+import { projectionConfig, TEST_HEAD, TEST_REVIEW_INPUT, TEST_SCOPE } from '../../testing/record-builders.ts'
 
 export const TAXONOMY = ['race-condition', 'candidate/isolated-hypothesis', 'test-tautology']
 export const PROJECTION_CONFIG = projectionConfig(TAXONOMY)
@@ -16,7 +16,7 @@ export function reviewFacts(head = TEST_HEAD, ci: 'green' | 'red' | 'pending' | 
   return {
     ...TEST_SCOPE,
     candidateGitSHA: head,
-    input: TEST_INPUT,
+    input: TEST_REVIEW_INPUT,
     ci,
     acceptedEvidencePolicyRef: null,
   }

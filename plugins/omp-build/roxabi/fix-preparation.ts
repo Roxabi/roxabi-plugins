@@ -1,4 +1,12 @@
 import { createTrustedDebtFiling } from './debt-filing-writer.ts'
+import {
+  actionRequest,
+  codePin,
+  confirmPreparedAction,
+  correctionSubject,
+  deliveryTask,
+  prepareRefusal,
+} from './delivery-action.ts'
 import type {
   FixActionResult,
   FixRequestInput,
@@ -9,7 +17,6 @@ import type {
   TargetResolver,
 } from './fix-contract.ts'
 import {
-  capturedSubmission,
   failure,
   isRecordId,
   sameScopeAuthorityInputs,
@@ -18,7 +25,7 @@ import {
   validScope,
 } from './fix-contract.ts'
 import type { FixPolicy } from './fix-domain'
-import { publish, record } from './fix-records.ts'
+import { publish, publishOperatorRequest, record } from './fix-records.ts'
 
 type StandalonePreparation = {
   target: FixTarget
@@ -39,6 +46,11 @@ function invalidNativeTasks(tasks: FixRequestInput['nativeTasks']): boolean {
       task.solutionSpace.trim().length === 0
     )
   })
+}
+
+function preparedSubject(input: FixRequestInput, target: FixTarget) {
+  const scope = { repository: target.repository, target: target.target }
+  return correctionSubject(scope, input.uw, target.kind === 'pull-request' ? scope : null)
 }
 
 async function prepareStandaloneInputs(
@@ -100,10 +112,7 @@ export async function admitReviewFix(
   return { ok: true, value: undefined }
 }
 
-/**
- * Starts the correction-only intake. It writes an operator contribution, a
- * landing:false request, and a correction inventory before native dispatch.
- */
+/** Writes the operator contribution, landing:false request, and correction inventory before native dispatch. */
 export async function prepareStandaloneFix(
   input: FixRequestInput,
   resolver: TargetResolver,
@@ -117,57 +126,66 @@ export async function prepareStandaloneFix(
   if (input.nativeTasks.length === 0) return failure('fix-intake-tasks-required')
   if (invalidNativeTasks(input.nativeTasks)) return failure('fix-intake-tasks-invalid')
 
-  const source = record(input.identity, target, 'contribution', {
-    content: 'operator-request',
-    inventoryId: null,
-    host: { origin: 'operator', phase: 'fix', role: 'operator', slotId: null, chunk: null, childId: null },
-    rawAttempts: [
-      capturedSubmission({
-        operatorRequest: input.rawOperatorRequest,
-        publishBinding: input.publishBinding,
-        candidateGitSHA: target.candidateGitSHA,
-      }),
-    ],
-    native: null,
-    structured: null,
-    findings: null,
-  })
-  if (signal?.aborted) return failure('fix-run-interrupted-cleanup-unproven')
-  const savedSource = await publish(publisher, source)
-  if (!savedSource.ok) return savedSource
-  if (signal?.aborted) return failure('fix-run-interrupted-cleanup-unproven')
-
-  const request = record(
+  const published = await publishOperatorRequest(
+    publisher,
     input.identity,
     target,
-    'fix-request',
     {
-      requestContributionId: source.recordId,
-      existingReviewId: input.reviewId ?? null,
+      rawOperatorRequest: input.rawOperatorRequest,
+      publishBinding: input.publishBinding,
       scope: input.scope,
-      landing: false,
+      existingReviewId: input.reviewId ?? null,
+      contextInputs: authorityInputs,
     },
-    [source.recordId, ...authorityInputs],
+    signal,
   )
-  const savedRequest = await publish(publisher, request)
-  if (!savedRequest.ok) return savedRequest
+  if (!published.ok) return published
   if (signal?.aborted) return failure('fix-run-interrupted-cleanup-unproven')
+  const { source, request } = published.value
 
   const inventoryId = input.identity.nextRecordId('review-attempt')
+  const head = target.candidateGitSHA
+  if (head === null) return failure('fix-head-mismatch')
+  const pinned = codePin(target.repository, target.baseGitSHA ?? '', head, head)
+  if (!pinned.ok) return failure('code-unobserved')
+  const subject = preparedSubject(input, target)
+  if (subject === null) return failure('prepare-action-unavailable')
+  const preparedAction = await confirmPreparedAction(
+    input.operations,
+    actionRequest({
+      actionId: inventoryId,
+      purpose: 'correction',
+      subject,
+      code: pinned.code,
+    }),
+  )
+  if (!preparedAction.ok) return failure(prepareRefusal(preparedAction.diagnostics))
+  const fingerprint = preparedAction.value.inputs.fingerprint
+  const tasks = input.nativeTasks.map((task) =>
+    deliveryTask({
+      name: task.name,
+      agent: task.agent,
+      procedure: task.task,
+      solutionSpace: task.solutionSpace,
+      prepared: preparedAction.value,
+      proofEvidence: task.proofEvidence,
+    }),
+  )
   const inventory = record(
     input.identity,
     target,
     'review-attempt',
     {
       rootAttemptId: inventoryId,
-      candidateGitSHA: target.candidateGitSHA,
-      inputFormat: 'omp-build:review-input/3',
-      input: null,
+      candidateGitSHA: head,
+      inputFormat: 'omp-build:review-input/4',
+      input: fingerprint,
+      actionInputDigest: fingerprint,
       stage: 'initial',
       purpose: 'correction',
       requestId: request.recordId,
       policy,
-      slots: input.nativeTasks.map((task) => ({
+      slots: tasks.map((task) => ({
         slotId: task.name,
         phase: 'intake',
         role: task.agent,
@@ -176,6 +194,7 @@ export async function prepareStandaloneFix(
         output: 'findings',
         classId: null,
         sourceFindingIds: [],
+        action: { actionId: task.action.snapshot.actionId, inputs: task.action.inputs },
       })),
     },
     [request.recordId],
@@ -195,11 +214,12 @@ export async function prepareStandaloneFix(
       cwd: input.cwd,
       publishBinding: input.publishBinding,
       debtFiling: input.debtFiling ?? createTrustedDebtFiling(),
+      subject,
       batch: {
         operationId: input.identity.operationId,
         tasks: {
-          context: `Correction intake for ${target.target}; request ${request.recordId}; scope: ${input.scope}`,
-          tasks: input.nativeTasks,
+          context: 'omp-build correction action. Read only the procedure and the index named on the task.',
+          tasks,
         },
       },
     },
@@ -225,39 +245,23 @@ export async function prepareReviewBoundFix(
   if (!validPublishBinding(input.publishBinding, target)) return failure('fix-publish-binding-invalid')
   const authority = await admitReviewFix(target, input.cwd, input.reviewId, workflow)
   if (!authority.ok) return authority
-  const source = record(input.identity, target, 'contribution', {
-    content: 'operator-request',
-    inventoryId: null,
-    host: { origin: 'operator', phase: 'fix', role: 'operator', slotId: null, chunk: null, childId: null },
-    rawAttempts: [
-      capturedSubmission({
-        operatorRequest: input.rawOperatorRequest,
-        publishBinding: input.publishBinding,
-        candidateGitSHA: target.candidateGitSHA,
-      }),
-    ],
-    native: null,
-    structured: null,
-    findings: null,
-  })
-  if (signal?.aborted) return failure('fix-run-interrupted-cleanup-unproven')
-  const savedSource = await publish(publisher, source)
-  if (!savedSource.ok) return savedSource
-  if (signal?.aborted) return failure('fix-run-interrupted-cleanup-unproven')
-  const request = record(
+  const published = await publishOperatorRequest(
+    publisher,
     input.identity,
     target,
-    'fix-request',
     {
-      requestContributionId: source.recordId,
-      existingReviewId: input.reviewId,
+      rawOperatorRequest: input.rawOperatorRequest,
+      publishBinding: input.publishBinding,
       scope: input.scope,
-      landing: false,
+      existingReviewId: input.reviewId,
+      contextInputs: [input.reviewId, ...linkedAuthority.value],
     },
-    [source.recordId, input.reviewId, ...linkedAuthority.value],
+    signal,
   )
-  const savedRequest = await publish(publisher, request)
-  if (!savedRequest.ok) return savedRequest
+  if (!published.ok) return published
+  const { source, request } = published.value
+  const subject = preparedSubject(input, target)
+  if (subject === null) return failure('prepare-action-unavailable')
   return {
     ok: true,
     value: {
@@ -269,6 +273,7 @@ export async function prepareReviewBoundFix(
       cwd: input.cwd,
       publishBinding: input.publishBinding,
       debtFiling: input.debtFiling ?? createTrustedDebtFiling(),
+      subject,
       batch: {
         operationId: input.identity.operationId,
         tasks: { context: 'review-bound correction has no intake batch', tasks: [] },

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { specDigest } from './record-digests.ts'
 import { type ExternalRecordRef, externalRecordRefSchema } from './record-references.ts'
-import { identifierSchema, jsonSchema, scopeSchema, sha256Schema, shaSchema } from './record-values.ts'
+import { identifierSchema, jsonSchema, scopeSchema, sha256Schema, shaSchema } from './schema-primitives.ts'
 import { operatorConfirmationEvidenceSchema } from './uw-identity-schema.ts'
 import { specItemIdSchema, specSnapshotSchema, uwTierSchema } from './uw-spec-schema.ts'
 

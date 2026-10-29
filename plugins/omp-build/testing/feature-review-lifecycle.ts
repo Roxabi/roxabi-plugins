@@ -1,102 +1,25 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, watch, writeFileSync } from 'node:fs'
 import path from 'node:path'
-
-import { settleOwnedCorrectionFalsification } from './feature-review-falsification.ts'
+import type { NativeTask } from '../omp/review-runtime/contracts.ts'
+import { requiredReviewRecords } from '../skills/feature/workflow-records.js'
+import {
+  correctionCriteria,
+  guardCommand,
+  restoredSave,
+  settleOwnedCorrectionFalsification,
+} from './feature-review-falsification.ts'
+import { fixtureSpecRow } from './feature-review-spec-row.ts'
+import { cleanReviewDecision, reviewDecision } from './feature-review-synthesis-sources.ts'
+import { finishFixtureDiagnostic } from './native-review-diagnostics.ts'
 import { createReviewDriver, type NativeData, type ReviewDriver } from './native-review-driver.ts'
 import { finding } from './record-builders.ts'
 
 type Mode = 'fix' | 'fresh-pause' | 'publication-pause'
 type Data = NativeData
 
-type SynthesisSources = { sourceContributionIds: string[]; sourceFindingIds: string[] }
-
-function synthesisPayload(task: string): unknown {
-  const marker =
-    'Confirmed native source contributions (every original ID, provenance, extracted evidence, structured output, and raw attempt is authoritative):\n\n'
-  const markerAt = task.indexOf(marker)
-  if (markerAt === -1) throw new Error('synthesis-sources-missing')
-  return JSON.parse(task.slice(markerAt + marker.length))
-}
-
-function collectSourceIds(source: unknown, result: SynthesisSources): void {
-  if (
-    source === null ||
-    typeof source !== 'object' ||
-    Array.isArray(source) ||
-    !('contributionId' in source) ||
-    !('payload' in source)
-  )
-    throw new Error('synthesis-source-invalid')
-  const contributionId = source.contributionId
-  const payload = source.payload
-  if (typeof contributionId !== 'string' || payload === null || typeof payload !== 'object' || Array.isArray(payload))
-    throw new Error('synthesis-source-invalid')
-  result.sourceContributionIds.push(contributionId)
-  if (!('findings' in payload) || !Array.isArray(payload.findings)) return
-  for (const item of payload.findings) {
-    if (
-      item === null ||
-      typeof item !== 'object' ||
-      Array.isArray(item) ||
-      !('id' in item) ||
-      typeof item.id !== 'string'
-    )
-      throw new Error('synthesis-finding-invalid')
-    result.sourceFindingIds.push(item.id)
-  }
-}
-
-function decodeSynthesisSources(task: string): SynthesisSources {
-  const sources = synthesisPayload(task)
-  if (!Array.isArray(sources)) throw new Error('synthesis-sources-invalid')
-  const result: SynthesisSources = { sourceContributionIds: [], sourceFindingIds: [] }
-  for (const source of sources) collectSourceIds(source, result)
-  if (result.sourceContributionIds.length === 0 || result.sourceFindingIds.length === 0)
-    throw new Error('synthesis-evidence-missing')
-  return result
-}
-export function reviewDecision(task: string): Data {
-  const { sourceContributionIds, sourceFindingIds } = decodeSynthesisSources(task)
-  return {
-    purpose: 'review',
-    policy: { version: 'baseline' },
-    sourceContributionIds,
-    findings: [
-      {
-        id: 'selected-region-blocker',
-        label: 'issue(blocking)',
-        impactReason: 'The saved region can be stale.',
-        state: 'usable',
-        sourceFindingIds,
-        description: 'Persist the selected region.',
-        mergeReason: 'Both panel reports identify the same stale selected-region persistence defect.',
-      },
-    ],
-    causes: [
-      {
-        id: 'selected-region-cause',
-        title: 'Selected region persistence',
-        mechanism: 'The save path retains a stale selected region.',
-        fix: 'Persist the current selected region in the save path.',
-        failure: 'A save after selecting a region stores the previous region.',
-        restored: 'Saving retains the selected region.',
-        paths: ['src/save.ts'],
-        proof: 'Exercise a save after selecting a region.',
-        findingIds: ['selected-region-blocker'],
-        authorization: 'required',
-      },
-    ],
-    standards: {
-      state: 'observed',
-      rows: [{ smell: 'State persistence', assessment: 'The save path must preserve the selected region.' }],
-    },
-  }
-}
-
-export function reviewInitialData(task: { name: string }): Data {
-  if (task.name === 'spec')
-    return { findings: [], specRows: [{ criterionText: 'preserves the region', verdict: 'met' }] }
+export function reviewInitialData(task: NativeTask): Data {
+  if (task.name === 'spec') return { findings: [], specRows: [fixtureSpecRow(task.action)] }
   if (!task.name.startsWith('panel-')) return { findings: [] }
   return {
     findings: [
@@ -159,6 +82,7 @@ async function finishFix(driver: ReviewDriver): Promise<object> {
     return {
       messages: driver.messages,
       active,
+      activeBatchId: active === null ? null : (driver.controller.wire(active)?.batchId ?? null),
       fixRun: fixRun ? { runId: fixRun.runId, operationId: fixRun.operationId } : null,
       comments: readComments(stateFile),
       barrier: false,
@@ -199,15 +123,53 @@ async function pauseDuringPublication(driver: ReviewDriver): Promise<object> {
   }
 }
 
+function driverDiagnostic(driver: ReviewDriver | undefined) {
+  if (driver === undefined) return null
+  const active = driver.controller.active()
+  return {
+    callbacks: driver.diagnostics,
+    messages: driver.messages.map((message) => {
+      if (message.includes('OMP_BUILD_NATIVE_BATCH')) return 'OMP_BUILD_NATIVE_BATCH'
+      return message.split(':', 1)[0]
+    }),
+    active:
+      active === null
+        ? null
+        : {
+            operationId: active.operationId,
+            tasks: active.tasks.tasks.map((task) => ({
+              name: task.name,
+              agent: task.agent,
+              actionId: task.action.snapshot.actionId,
+              fingerprint: task.action.inputs.fingerprint,
+              head: task.action.inputs.manifest.code.head,
+              refs: task.action.inputs.manifest.deliveryData.map((ref) => ({
+                role: ref.role,
+                kind: ref.record.kind,
+                recordId: ref.record.recordId,
+                selector: ref.selector,
+              })),
+            })),
+          },
+  }
+}
+
 export async function invokeOmpReviewApplyFalsify(cwd: string): Promise<object> {
+  const priorHead = execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim()
   const driver = await createReviewDriver(cwd)
-  await driver.settle(reviewInitialData)
-  await driver.settle((task) => reviewDecision(task.task))
-  const transition = driver.fixTransition(driver.messages.length)
-  const stateFile = process.env.GH_SIM_STATE
-  if (stateFile === undefined) throw new Error('gh-state-missing')
-  let commit: string | null = null
+  let primary: unknown
+  let failed = false
+  let outcome: object | undefined
+  let stage = 'initial-review'
   try {
+    await driver.settle(reviewInitialData)
+    stage = 'initial-synthesis'
+    await driver.settle((task) => reviewDecision(task.task))
+    const transition = driver.fixTransition(driver.messages.length)
+    const stateFile = process.env.GH_SIM_STATE
+    if (stateFile === undefined) throw new Error('gh-state-missing')
+    let commit: string | null = null
+    stage = 'correction-apply'
     await driver.settleAction(
       (task) => {
         if (commit === null) throw new Error('correction-commit-missing')
@@ -218,6 +180,7 @@ export async function invokeOmpReviewApplyFalsify(cwd: string): Promise<object> 
           proofToolCallId: `${task.name}-proof`,
           proofUnavailableReason: null,
           proofPaths: [],
+          criteria: correctionCriteria(task, commit),
           guardInventory: [
             {
               guardId: 'selected-region-guard',
@@ -229,10 +192,11 @@ export async function invokeOmpReviewApplyFalsify(cwd: string): Promise<object> 
         }
       },
       {
-        command: 'git status --porcelain',
-        args: ['status', '--porcelain'],
+        command: guardCommand,
+        program: 'bash',
+        args: ['-c', guardCommand],
         prepare: () => {
-          writeFileSync(path.join(cwd, 'src/save.ts'), 'export const save = "selected-region"\n')
+          writeFileSync(path.join(cwd, 'src/save.ts'), restoredSave)
           execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'add', 'src/save.ts'], { cwd })
           execFileSync(
             'git',
@@ -245,21 +209,67 @@ export async function invokeOmpReviewApplyFalsify(cwd: string): Promise<object> 
         },
       },
     )
+    stage = 'correction-transition'
     const transitionOutcome = await transition
     const falsifyActive = driver.controller.active()
-    const terminal = await settleOwnedCorrectionFalsification(driver, cwd)
-    return {
+    const appliedHead = execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim()
+    if (commit !== appliedHead || appliedHead === priorHead) throw new Error('correction-fixture-head-mismatch')
+    stage = 'falsification-and-restoration'
+    const { terminal, snapshots, reviewAfter } = await settleOwnedCorrectionFalsification(
+      driver,
+      cwd,
+      appliedHead,
+      priorHead,
+    )
+    if (terminal.status !== 'complete')
+      throw new Error(`correction-fixture-terminal-refused: ${JSON.stringify(terminal)}`)
+    stage = 'automatic-final-review-start'
+    await driver.nextBatch(reviewAfter)
+    const reviewSnapshots: Array<{ head: string; index: string; fingerprint: string; sourceRecordId: string }> = []
+    stage = 'final-review-initial'
+    await driver.settle((task) => {
+      if (task.name !== 'spec') return { findings: [] }
+      const manifest = task.action.inputs.manifest
+      const source = manifest.deliveryData.find(
+        (ref) => ref.role === 'implementation' && ref.record.kind === 'fix-result',
+      )
+      if (manifest.code.head !== appliedHead || source === undefined)
+        throw new Error('correction-fixture-final-review-source-mismatch')
+      reviewSnapshots.push({
+        head: manifest.code.head,
+        index: task.action.snapshot.indexPath,
+        fingerprint: task.action.inputs.fingerprint,
+        sourceRecordId: source.record.recordId,
+      })
+      return { findings: [], specRows: [fixtureSpecRow(task.action)] }
+    })
+    stage = 'final-review-synthesis'
+    await driver.settle((task) => cleanReviewDecision(task.task))
+    stage = 'remote-review-replay'
+    const replay = await requiredReviewRecords(cwd, 7)
+    if (replay.head !== appliedHead || replay.verdict !== 'Approve (clean)')
+      throw new Error(`correction-fixture-remote-review-refused: ${JSON.stringify(replay)}`)
+    outcome = {
       active: driver.controller.active(),
       comments: readComments(stateFile),
+      snapshots,
+      reviewSnapshots,
+      replay,
+      priorHead,
       commit,
       falsifyActive,
       messages: driver.messages,
       terminal,
       transitionOutcome,
     }
-  } finally {
-    await driver.controller.stop('test-cleanup')
+  } catch (error) {
+    failed = true
+    primary = error
   }
+  const diagnostic = { stage, driver: () => driverDiagnostic(driver) }
+  await finishFixtureDiagnostic(driver.controller, diagnostic, failed, primary)
+  if (outcome === undefined) throw new Error('native-fixture-outcome-missing')
+  return outcome
 }
 export async function invokeOmpReviewLifecycle(cwd: string, mode: Mode): Promise<object> {
   const driver = await createReviewDriver(cwd)

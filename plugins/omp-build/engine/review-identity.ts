@@ -2,6 +2,7 @@ import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
+import { reviewContextLineage } from './review-context-lineage.ts'
 
 export function reviewOperations(history: DecodedHistory) {
   const operations: typeof history.operations = []
@@ -20,6 +21,7 @@ export function reviewOperations(history: DecodedHistory) {
 
 export function latestUnfinishedPullRequestRoot(
   records: ReadonlyMap<string, CanonicalRecord>,
+  superseded: ReadonlySet<string> = new Set(),
 ): Extract<CanonicalRecord, { kind: 'review-attempt' }> | null {
   const completedInventories = new Set<string>()
   const interruptedRoots = new Set<string>()
@@ -37,6 +39,7 @@ export function latestUnfinishedPullRequestRoot(
       record.payload.purpose === 'review' &&
       record.payload.subject.kind === 'pull-request' &&
       !completedInventories.has(record.recordId) &&
+      !superseded.has(record.recordId) &&
       !interruptedRoots.has(record.recordId)
     )
       latest = record
@@ -51,6 +54,7 @@ type ReviewIdentity = {
   transportDiagnostics: Diagnostic[]
   incompleteFinal: boolean
   pendingRoot: Extract<CanonicalRecord, { kind: 'review-attempt' }> | null
+  lineageDiagnostics: Diagnostic[]
 }
 
 export function analyzeReviewIdentity(
@@ -62,6 +66,7 @@ export function analyzeReviewIdentity(
   const latestOperation = incompleteFinal || reviews.length === 0 ? null : reviews[reviews.length - 1]
   const latest = latestOperation?.record?.kind === 'review' ? latestOperation.record : null
   const transportDiagnostics = [...history.diagnostics, ...history.source.diagnostics]
+  const lineage = reviewContextLineage(history, records)
   if (!history.source.complete) transportDiagnostics.push(diagnostic('incomplete', 'Review history is incomplete'))
   return {
     reviews,
@@ -70,6 +75,7 @@ export function analyzeReviewIdentity(
     latestOperation,
     transportDiagnostics,
     incompleteFinal,
-    pendingRoot: latestUnfinishedPullRequestRoot(records),
+    pendingRoot: latestUnfinishedPullRequestRoot(records, lineage.superseded),
+    lineageDiagnostics: lineage.diagnostics,
   }
 }

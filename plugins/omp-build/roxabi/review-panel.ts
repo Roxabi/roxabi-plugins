@@ -29,25 +29,18 @@ export type RecallTaskInput = {
   sourceEvidence: string
 }
 
-export function createRecallTask(input: RecallTaskInput): NativeTask {
+export function createRecallTask(input: RecallTaskInput): Omit<NativeTask, 'action'> {
   if (input.chunks.length < 2 || input.callsites.length < 3) throw new Error('recall threshold was not met')
   if (!input.canonicalClasses.includes(input.classId)) throw new Error('recall class is not canonical')
   return {
     name: `recall-${input.classId}`,
     agent: 'R-review-recall',
     solutionSpace: 'verify one canonical cross-chunk review class from retained reports and callsites',
-    task: [
-      input.context,
-      `Canonical class: ${input.classId}`,
-      `Chunks: ${input.chunks.join(', ')}`,
-      `Callsites: ${input.callsites.map((site) => `${site.file}:${site.line}`).join(', ')}`,
-      `Source findings: ${input.sourceFindingIds.join(', ')}`,
-      `Confirmed source evidence:\n${input.sourceEvidence}`,
-    ].join('\n\n'),
+    task: `Verify canonical class ${input.classId} using only the index. Return structured findings. Do not publish.`,
   }
 }
 
-export type ReviewPanel = { allocation: AllocateReviewResult; tasks: NativeTask[] }
+export type ReviewPanel = { allocation: AllocateReviewResult; tasks: Array<Omit<NativeTask, 'action'>> }
 
 /** Preserves chunk order, full diff/file bytes and roster-owned role selection. */
 export function allocateReviewPanel(input: ReviewPanelInput): ReviewPanel {
@@ -67,14 +60,7 @@ export function allocateReviewPanel(input: ReviewPanelInput): ReviewPanel {
         name: `panel-${chunk.index}-${role}`,
         agent,
         solutionSpace: 'review this assigned chunk and report only structured findings',
-        task: [
-          input.commonContext,
-          `Logical roster role: ${role}`,
-          `Assigned chunk ${chunk.index} full diff from chunker.py:\n${chunk.diff}`,
-          `Candidate file snapshots:\n${chunk.files.map((file) => `${file.deleted ? 'deleted' : file.binary ? 'binary' : 'present'} ${file.path}\n${file.text ?? ''}`).join('\n\n')}`,
-          `All ordered boundary digests from digest.py:\n${input.chunks.map((other) => `Chunk ${other.index}:\n${other.digest}`).join('\n\n')}`,
-          `Canonical classes: ${input.config.canonicalClasses.join(', ')}`,
-        ].join('\n\n'),
+        task: 'Review the assigned chunk named by the index. Return structured findings only. Do not publish.',
       }
     }),
   )

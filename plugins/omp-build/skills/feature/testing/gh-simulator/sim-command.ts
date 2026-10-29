@@ -1,9 +1,10 @@
 import { api } from './sim-api.ts'
 import type { Context, Route } from './sim-command-context.ts'
-import { emit, flags, one } from './sim-graphql.ts'
+import { emit, flags, one, type ParsedFlags } from './sim-graphql.ts'
 import { currentInvocation } from './sim-invocation.ts'
 import { issue } from './sim-issue.ts'
 import { pull } from './sim-pull.ts'
+import { toolingVariable } from './sim-tooling.ts'
 import { fail, fullName, type State } from './sim-types.ts'
 
 function repoView(context: Context): boolean {
@@ -32,11 +33,35 @@ function run(context: Context): boolean {
   return false
 }
 
-const ROUTES: readonly Route[] = [repoView, api, issue, pull, run]
+const ROUTES: readonly Route[] = [toolingVariable, repoView, api, issue, pull, run]
+
+function isCommentPost(parsed: ParsedFlags): boolean {
+  return (
+    parsed.positionals[0] === 'api' &&
+    /^repos\/[^/]+\/[^/]+\/issues\/\d+\/comments(?:\?[^#]*)?$/.test(parsed.positionals[1] ?? '') &&
+    one(parsed.flag, '--method') === 'POST'
+  )
+}
+
+function compactPublicationBody(argv: string[]): string[] {
+  let bodyIndex = -1
+  let typedBodyIndex = -1
+  for (let index = 1; index < argv.length; index++) {
+    if (!argv[index]?.startsWith('body=')) continue
+    if (argv[index - 1] === '-f') bodyIndex = index
+    if (argv[index - 1] === '-F') typedBodyIndex = index
+  }
+  if (typedBodyIndex !== -1) bodyIndex = typedBodyIndex
+  return bodyIndex < 0
+    ? argv
+    : argv.map((arg, index) =>
+        index === bodyIndex ? `body=<persisted-comment; ${Buffer.byteLength(arg.slice(5))} bytes>` : arg,
+      )
+}
 
 export function handle(state: State, argv: string[]): void {
-  state.calls.push(argv)
   const parsed = flags(argv)
+  state.calls.push(isCommentPost(parsed) ? compactPublicationBody(argv) : argv)
   const invocation = currentInvocation()
   const context: Context = {
     ...parsed,

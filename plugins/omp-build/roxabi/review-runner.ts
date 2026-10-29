@@ -1,32 +1,31 @@
+import { isDeepStrictEqual } from 'node:util'
 import type { GitHubOptions } from '../dist/contracts.js'
 import {
   buildRecord,
   type CanonicalRecord,
   decodeHistory,
+  gh as githubClient,
   githubScope,
-  type Policy,
   parseRecord,
   type RecordDraft,
-  type ReviewInputSnapshot,
   readGitHubHistory,
   type Scope,
 } from '../dist/contracts.js'
-import type { NativeBatchResult, NativeChildResult, NativeTask } from '../omp/review-runtime/contracts'
+import type { NativeBatchResult, NativeChildResult } from '../omp/review-runtime/contracts'
+import { deliveryTask } from './delivery-action.ts'
 import { withRoxabiGitHubPolicy } from './github-policy'
 import { createGitHubRecordPublisher } from './github-publisher'
 import { nativeContributionPayload } from './native-contribution'
-import type { ReviewConfig } from './review-assets'
 import type {
   PreparedReviewBatch,
+  PreparedReviewInputs,
   PublishedContribution,
   ReviewContext,
   ReviewPublisher,
   ReviewStage,
 } from './review-contract'
-import type { ObservedEvidence } from './review-input-contract'
-import { allocateReviewPanel, type ReviewChunk } from './review-panel'
+import { allocateReviewPanel } from './review-panel'
 import {
-  candidateSource,
   createInventory,
   createReviewIdentity,
   observedEvidenceContext,
@@ -35,27 +34,11 @@ import {
   requireRecord,
   slotsForInitial,
 } from './review-records'
+import { publishReviewInventory } from './review-runner-inventory'
 import { advanceReviewStage, createSynthesisBatch, finalizeReview } from './review-runner-outcomes'
+import { readReviewInputHistories } from './uw-input-readers.ts'
 
-export type PreparedReviewInputs = {
-  context: ReviewContext & {
-    number: number
-    subject: { kind: 'pull-request' } | { kind: 'epic-range'; range: string }
-  }
-  pr: { base: string; baseGitSHA: string }
-  chunks: readonly ReviewChunk[]
-  roster: Parameters<typeof allocateReviewPanel>[0]['roster']
-  config: ReviewConfig
-  policy: Policy
-  semantic: { spec: string; panel: string; synthesis: string }
-  observedEvidence: ObservedEvidence
-  inputSnapshot: ReviewInputSnapshot
-  canonicalClasses: readonly string[]
-  /** Recovery inventory already passed admission/readback; rebuild allocation locally before activation. */
-  initialInventory?: Extract<CanonicalRecord, { kind: 'review-attempt' }>
-  /** Fresh host revalidation; it must reject a moved, stale, or closed target. */
-  authorize(stage: ReviewStage): Promise<{ ok: true } | { ok: false; reason: string }>
-}
+export type { PreparedReviewInputs }
 
 /** Canonical records retain native evidence before admission interprets it. */
 export class CanonicalReviewRunner implements ReviewPublisher {
@@ -101,44 +84,54 @@ export class CanonicalReviewRunner implements ReviewPublisher {
       config: this.input.config,
       commonContext: this.input.semantic.panel,
     })
-    const specTask: NativeTask = {
+    const actions = this.input.actions
+    const specAction = actions.spec
+    if (specAction === undefined) throw new Error('review-action-unprepared')
+    const fingerprint = specAction.inputs.fingerprint
+    const specTask = deliveryTask({
       name: 'spec',
       agent: 'R-review-spec',
+      procedure:
+        'Judge each accepted criterion in the index. Return one verdict per criterion, with an independent codeLink for every examined run. Missing, unknown, or unsupported executed-version linkage is not satisfied. Do not publish or implement.',
       solutionSpace: 'assess only supplied specification obligations',
-      task: [this.input.semantic.spec, candidateSource(this.input)].join('\n\n'),
+      prepared: specAction,
+    })
+    const slots = slotsForInitial(specTask, panel).map((slot) => {
+      const action = actions[slot.slotId]
+      if (action === undefined) throw new Error('review-action-unprepared')
+      return { ...slot, action: { actionId: action.snapshot.actionId, inputs: action.inputs } }
+    })
+    const panelTasks = panel.tasks.map((task) => {
+      const prepared = actions[task.name]
+      if (prepared === undefined || prepared.inputs.fingerprint !== fingerprint)
+        throw new Error('review-action-unprepared')
+      return deliveryTask({
+        name: task.name,
+        agent: task.agent,
+        solutionSpace: task.solutionSpace,
+        prepared,
+        procedure: 'Review the assigned chunk named by the index. Return structured findings only. Do not publish.',
+      })
+    })
+    const subject = this.input.context.subject
+    const shared = {
+      rootAttemptId: 'pending',
+      candidateGitSHA: this.input.context.candidateGitSHA,
+      inputFormat: 'omp-build:review-input/4' as const,
+      input: specAction.inputs.fingerprint,
+      actionInputDigest: specAction.inputs.fingerprint,
+      slots,
+      stage: 'initial' as const,
+      purpose: 'review' as const,
+      allocation: panel.allocation,
+      policy: this.input.policy,
+      inputSnapshot: specAction.inputs,
     }
-    const slots = slotsForInitial(specTask, panel)
     const payload =
-      this.input.context.subject.kind === 'pull-request'
-        ? {
-            rootAttemptId: 'pending',
-            candidateGitSHA: this.input.context.candidateGitSHA,
-            inputFormat: 'omp-build:review-input/3' as const,
-            input: this.input.context.input,
-            slots,
-            stage: 'initial' as const,
-            purpose: 'review' as const,
-            tier: panel.allocation.global.tier,
-            allocation: panel.allocation,
-            policy: this.input.policy,
-            subject: this.input.context.subject,
-            inputSnapshot: this.input.inputSnapshot,
-          }
-        : {
-            rootAttemptId: 'pending',
-            candidateGitSHA: this.input.context.candidateGitSHA,
-            inputFormat: 'omp-build:review-input/3' as const,
-            input: this.input.context.input,
-            slots,
-            stage: 'initial' as const,
-            purpose: 'review' as const,
-            tier: null,
-            allocation: panel.allocation,
-            policy: this.input.policy,
-            subject: this.input.context.subject,
-            inputSnapshot: null,
-          }
-    const tasks = [specTask, ...panel.tasks]
+      subject.kind === 'epic-range'
+        ? { ...shared, tier: null, subject }
+        : { ...shared, tier: panel.allocation.global.tier, subject }
+    const tasks = [specTask, ...panelTasks]
     if (this.input.initialInventory !== undefined) {
       const inventory = this.input.initialInventory
       if (
@@ -149,11 +142,11 @@ export class CanonicalReviewRunner implements ReviewPublisher {
         inventory.payload.input !== payload.input ||
         inventory.payload.stage !== payload.stage ||
         inventory.payload.purpose !== payload.purpose ||
-        JSON.stringify(inventory.payload.slots) !== JSON.stringify(payload.slots) ||
+        !isDeepStrictEqual(inventory.payload.slots, payload.slots) ||
         JSON.stringify(inventory.payload.allocation) !== JSON.stringify(payload.allocation) ||
         JSON.stringify(inventory.payload.policy) !== JSON.stringify(payload.policy) ||
         JSON.stringify(inventory.payload.subject) !== JSON.stringify(payload.subject) ||
-        JSON.stringify(inventory.payload.inputSnapshot) !== JSON.stringify(payload.inputSnapshot)
+        !isDeepStrictEqual(inventory.payload.inputSnapshot, payload.inputSnapshot)
       ) {
         throw new Error('replacement-inventory-template-mismatch')
       }
@@ -193,27 +186,29 @@ export class CanonicalReviewRunner implements ReviewPublisher {
     }
     return this.input.authorize(stage)
   }
-
-  async publishInventory(prepared: PreparedReviewBatch): Promise<{ ok: true } | { ok: false; reason: string }> {
-    const parsed = parseRecord(prepared.inventory)
-    if (!parsed.ok) return { ok: false, reason: 'inventory-invalid' }
-    if (this.input.initialInventory?.recordId === parsed.value.recordId) {
-      if (!this.#inventories.includes(parsed.value.recordId)) this.#inventories.push(parsed.value.recordId)
-      return { ok: true }
-    }
-    const saved = await this.#publisher.publish(parsed.value)
-    if (!saved.ok) return { ok: false, reason: saved.diagnostics.join(',') }
-    this.#inventories.push(parsed.value.recordId)
-    return { ok: true }
+  async publishInventory(
+    prepared: PreparedReviewBatch,
+    canContinue?: () => boolean,
+  ): Promise<{ ok: true } | { ok: false; reason: string }> {
+    return publishReviewInventory({
+      prepared,
+      initialInventoryId: this.input.initialInventory?.recordId,
+      inventories: this.#inventories,
+      readHistory: () => this.#history(),
+      publish: (record) => this.#publisher.publish(record, [], canContinue),
+    })
   }
-
   async publishRawContribution(
     prepared: PreparedReviewBatch,
     child: NativeChildResult,
   ): Promise<PublishedContribution> {
-    const slot = child.expectedId === null ? null : (this.#slots.get(child.expectedId) ?? null)
     const inventory = parseRecord(prepared.inventory)
-    if (!inventory.ok) throw new Error('inventory-invalid')
+    if (!inventory.ok || inventory.value.kind !== 'review-attempt') throw new Error('inventory-invalid')
+    const slot =
+      child.expectedId !== null &&
+      inventory.value.payload.slots.some((candidate) => candidate.slotId === child.expectedId)
+        ? (this.#slots.get(child.expectedId) ?? null)
+        : null
     const recordId = this.#identity.next('contribution')
     const item = requireRecord(
       buildRecord({
@@ -223,25 +218,28 @@ export class CanonicalReviewRunner implements ReviewPublisher {
       } satisfies Extract<RecordDraft, { kind: 'contribution' }>),
       'contribution',
     )
-    const saved = await this.#publisher.publish(item)
+    const saved = await this.#publisher.publish(item, [], child.canPublishContext)
     if (!saved.ok) throw new Error(`contribution-unconfirmed:${saved.diagnostics.join(',')}`)
-    if (slot !== null && slot.phase !== 'synthesis') {
+    if (slot !== null && slot.phase !== 'synthesis' && child.contextBlock === undefined) {
       this.#sourceContributionIds.add(item.recordId)
       this.#sourceContributions.push({ contributionId: item.recordId, payload: item.payload })
     }
     return { id: item.recordId, child }
   }
-
   async completeStage(
     prepared: PreparedReviewBatch,
     result: NativeBatchResult,
     contributions: readonly PublishedContribution[],
+    canContinue?: () => boolean,
   ): Promise<PreparedReviewBatch | null> {
+    if (canContinue === undefined) throw new Error('review-continuation-unfenced')
+    if (!canContinue()) return null
     if (!result.complete) throw new Error('required-native-result-incomplete')
     if (prepared.stage === 'synthesis') {
-      await this.#finalize(prepared, contributions)
+      await this.#finalize(contributions, canContinue)
       return null
     }
+    if (!canContinue()) return null
     return advanceReviewStage({
       review: this.input,
       prepared,
@@ -253,16 +251,13 @@ export class CanonicalReviewRunner implements ReviewPublisher {
       createSynthesis: (rootAttemptId) => this.#synthesis(rootAttemptId),
     })
   }
-
   async publishRequiredStop(): Promise<{ ok: true } | { ok: false; reason: string }> {
     return { ok: false, reason: 'review-stop-requires-final-review' }
   }
-
   async stop(_context: ReviewContext, reason: string): Promise<void> {
     throw new Error(`review-stopped:${reason}`)
   }
-
-  #synthesis(rootAttemptId: string): PreparedReviewBatch {
+  async #synthesis(rootAttemptId: string): Promise<PreparedReviewBatch> {
     return createSynthesisBatch({
       review: this.input,
       identity: this.#identity,
@@ -274,24 +269,30 @@ export class CanonicalReviewRunner implements ReviewPublisher {
     })
   }
 
-  async #finalize(_prepared: PreparedReviewBatch, contributions: readonly PublishedContribution[]): Promise<void> {
+  async #finalize(contributions: readonly PublishedContribution[], canContinue: () => boolean): Promise<void> {
     await finalizeReview({
       review: this.input,
       identity: this.#identity,
       scope: this.#scope,
       contributions,
       inventories: this.#inventories,
+      canContinue,
       readHistory: () => this.#history(),
-      publish: async (record, failurePrefix) => {
-        const saved = await this.#publisher.publish(record)
+      publish: async (record, failurePrefix, externalHistories = []) => {
+        const saved = await this.#publisher.publish(record, externalHistories, canContinue)
         if (!saved.ok) throw new Error(`${failurePrefix}:${saved.diagnostics.join(',')}`)
       },
+      readExternalHistories: (history) =>
+        readReviewInputHistories(history, {
+          cwd: this.#options.cwd,
+          gh: githubClient(this.#options),
+          readAuthor: this.#options.readAuthor,
+        }),
       onDecisionConfirmed: (decisionId) => {
         this.#confirmedDecisionId = decisionId
       },
     })
   }
-
   async #history() {
     return decodeHistory(await readGitHubHistory(this.#scope, this.#options))
   }

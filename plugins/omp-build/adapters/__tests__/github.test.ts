@@ -20,7 +20,7 @@ function history(body: string, author = 'automation'): History {
         body,
         author,
         createdAt: '2026-10-21T00:00:00Z',
-        updatedAt: null,
+        updatedAt: '2026-10-21T00:00:00Z',
       },
     ],
     diagnostics: [],

@@ -1,6 +1,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { decodeHistory } from '../../contracts.ts'
 import { epicReviewGraph, reviewGraph } from '../../testing/record-graphs.ts'
 import { serveBoundEpic } from './testing/epic-driver/epic-driver-bound-fixture.ts'
 import {
@@ -13,7 +14,9 @@ import {
   issueComments,
   ME,
   prNode,
+  pullReviewInputs,
   RUN,
+  recordHistory,
   serveComments,
   serveEpic,
   servePr,
@@ -59,7 +62,14 @@ describe('epic-driver — unframed child', () => {
 describe('epic-driver — review bound', () => {
   function reviewed(number: number, outcomes: { blocking: boolean; author?: string }[]): void {
     const comments = outcomes.flatMap((outcome, index) => {
-      const graph = reviewGraph({ prefix: `bound-${number}-${index}`, empty: !outcome.blocking })
+      const head = git(sandboxOf().epic, 'rev-parse', 'refs/remotes/origin/feat/2-first-child')
+      const graph = reviewGraph({
+        prefix: `bound-${number}-${index}`,
+        head,
+        scope: { repository: 'o/r', target: `o/r#${number}` },
+        inputs: pullReviewInputs(number, head),
+        empty: !outcome.blocking,
+      })
       return framedRecords(number, graph.records).map((comment) => ({ ...comment, author: outcome.author ?? ME }))
     })
     serveComments(number, [...issueComments(number), ...comments])
@@ -111,7 +121,13 @@ describe('epic-driver — review bound', () => {
       author: ME,
       body: `ordinary historical comment ${index}`,
     }))
-    const graph = reviewGraph({ prefix: 'pagination-review' })
+    const head = git(sandboxOf().epic, 'rev-parse', 'refs/remotes/origin/feat/2-first-child')
+    const graph = reviewGraph({
+      prefix: 'pagination-review',
+      head,
+      inputs: pullReviewInputs(11, head),
+      scope: { repository: 'o/r', target: 'o/r#11' },
+    })
     serveComments(11, [...padding, ...issueComments(11), ...framedRecords(11, graph.records)])
 
     expect(drive(['next', '--dry-run']).json().step).toMatchObject({ action: 'resume', ticket: 2, pr: { number: 11 } })
@@ -140,7 +156,7 @@ describe('epic-driver — hook', () => {
       mergeCommit: { oid: merge, parents: { nodes: [{ oid: base }] } },
     })
     serveBoundEpic(childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] }), 10, 'feat/2-first-child')
-    serveComments(1, [...issueComments(1), ...epicDecisionHistory(`${base}..${merge}`, false)])
+    serveComments(1, [...issueComments(1), ...epicDecisionHistory(`${base}..${merge}`, false, true)])
 
     const run = drive(['hook', '--repo', epic], { cwd: root })
 
@@ -227,7 +243,8 @@ describe('epic-driver — fresh parent admission at terminal effects', () => {
     blocker.data.repository.issue.parent = null
     writeFileSync(blockerPath, JSON.stringify(blocker))
 
-    const history = epicDecisionHistory(range, false)
+    serveBoundEpic(childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] }), 10, 'feat/2-first-child')
+    const history = epicDecisionHistory(range, false, action === 'hook')
     const decision = epicReviewGraph({ prefix: `epic-${range.split('..')[1].slice(0, 8)}`, head: range.split('..')[1] })
     const hook = framedRecords(1, [
       epicEvent(1, 'terminal-hook-ok', {
@@ -238,7 +255,6 @@ describe('epic-driver — fresh parent admission at terminal effects', () => {
         exitCode: 0,
       }),
     ])
-    serveBoundEpic(childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] }), 10, 'feat/2-first-child')
     serveComments(1, [
       ...issueComments(1),
       ...(action === 'review' ? history.slice(0, -1) : action === 'hook' ? history : [...history, ...hook]),
@@ -286,7 +302,7 @@ describe('epic-driver — fresh parent admission at terminal effects', () => {
   it('publishes an exact-range review when the parent remains deliverable', () => {
     const { range, decisionId } = prepare('review')
     const run = drive(['review', '--decision-record', decisionId, '--range', range])
-    expect(run.code).toBe(0)
+    expect(run.code, run.stderr).toBe(0)
     expect(eventPayloads(1)).toContainEqual(expect.objectContaining({ event: 'epic-review', decisionId, range }))
   })
 
@@ -305,6 +321,27 @@ describe('epic-driver — fresh parent admission at terminal effects', () => {
     )
   })
 
+  it('refuses the hook if its selected implementation receipt is absent', () => {
+    const { proof } = prepare('hook')
+    const comments = issueComments(1)
+    const decoded = decodeHistory(recordHistory(1, comments))
+    const implementation = decoded.operations.find(
+      ({ record }) =>
+        record?.kind === 'action-receipt' && record.payload.action === 'implement' && record.payload.phase === 'result',
+    )
+    expect(implementation).toBeDefined()
+    const removed = new Set(implementation?.parts.map((part) => part.nativeId))
+    serveComments(
+      1,
+      comments.filter((_, index) => !removed.has(String(index + 1))),
+    )
+    const { epic, root } = sandboxOf()
+    const run = drive(['hook', '--repo', epic], { cwd: root })
+    expect(run.code, run.stderr).toBe(2)
+    expect(writes()).toEqual([])
+    expect(existsSync(proof)).toBe(false)
+  })
+
   it('still permits a drop report when the parent loses its tier', () => {
     prepare('complete')
     changeParent('tier')
@@ -319,8 +356,8 @@ describe('epic-driver — fresh parent admission at terminal effects', () => {
 describe('epic-driver — canonical final review history', () => {
   it('uses the exact epic range, complete decision graph, and no free verdict', () => {
     const { range, merged } = landedEpic()
-    const history = epicDecisionHistory(range, true)
     serveBoundEpic(childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] }), 10, 'feat/2-first-child')
+    const history = epicDecisionHistory(range, true)
     serveComments(1, [...issueComments(1), ...history])
 
     expect(eventPayloads(1)).toContainEqual(
@@ -432,10 +469,8 @@ describe('epic-driver — report', () => {
         runId: 'run00000',
       },
     ])
-    serveEpic(
-      [childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] })],
-      [...epicDecisionHistory(range, false), ...earlier],
-    )
+    serveEpic([childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] })])
+    serveComments(1, [...issueComments(1), ...epicDecisionHistory(range, false), ...earlier])
 
     const run = drive(['report', '--outcome', 'complete'])
 

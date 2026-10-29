@@ -1,7 +1,36 @@
 import type * as ChildProcess from 'node:child_process'
 import { createRequire } from 'node:module'
 import path from 'node:path'
-import { afterAll, expect } from 'vitest'
+import { afterAll, afterEach, expect, vi } from 'vitest'
+import { unitSdkRoots } from './plugins/omp-build/testing/unit-sdk-scopes.ts'
+
+// Node workers model the SDK boundary. Roots must be explicitly provisioned.
+afterEach(() => unitSdkRoots.clear())
+vi.mock('@oh-my-pi/pi-coding-agent', () => ({
+  SettingsManager: {
+    create: (cwd: string) => {
+      if (!unitSdkRoots.has(cwd)) throw new Error('unit SDK root not provisioned')
+      return { cwd }
+    },
+  },
+}))
+vi.mock('@oh-my-pi/pi-coding-agent/task/settings', () => ({
+  cfgTaskAgentModelOverrides: {
+    get: (settings: { cwd: string }) => unitSdkRoots.get(settings.cwd),
+  },
+}))
+
+// The real registry and event bus are used by fixtures. Their Node host does
+// not provide the Bun runtime required by the SDK's logging and TUI modules;
+// isolate those unrelated dependencies rather than replacing either SDK API.
+vi.mock('@oh-my-pi/pi-utils', () => ({
+  logger: { debug: vi.fn(), error: vi.fn() },
+}))
+vi.mock('@oh-my-pi/pi-tui/tools/task', () => ({
+  oneLineLabel: () => {
+    throw new Error('SDK task activity formatting is unavailable in the Node test host')
+  },
+}))
 
 /**
  * Strips the repository-location env git hands to hooks, before any test runs.

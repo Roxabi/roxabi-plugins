@@ -40,9 +40,11 @@ export const PR_TEXT = 'Ship the selected region\n'
 export const PR_EDITED = '2026-10-21T00:00:00Z'
 
 export function fakeGhProgram(): string {
+  const tooling = JSON.stringify(path.resolve(import.meta.dirname, 'review-gate-tooling-gh.ts'))
   return `#!/usr/bin/env bun
 import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { toolingGh } from ${tooling}
 
 const path = process.env.GATE_STATE
 if (!path) throw new Error('GATE_STATE is required')
@@ -114,6 +116,12 @@ function isNativeGraphQuery(query) {
 }
 
 function main() {
+  const pinned = toolingGh(argv, process.env.GATE_TOOLS)
+  if (pinned !== undefined) {
+    save()
+    process.stdout.write(pinned)
+    return
+  }
   if (argv[0] === 'api' && argv[1] === 'user') {
     if (state.installation) fail('gh: Resource not accessible by integration (HTTP 403)')
     if (argv[2] !== '--jq' || argv[3] !== '.login') fail('unexpected gh api user')
@@ -217,6 +225,7 @@ function main() {
     const source = {
       number: 7,
       state: 'OPEN',
+      mergeCommit: null,
       headRefOid: state.head,
       headRefName: 'feat/7-fixture',
       baseRefName: 'main',
@@ -244,7 +253,8 @@ function main() {
         originMatch = argv[2] === state.origin
       }
     }
-    if (selected || originMatch) {
+    const githubApp = argv[2] === 'https://github.com/acme/app' || argv[2] === 'https://github.com/acme/app.git'
+    if (selected || originMatch || githubApp) {
       output({ nameWithOwner: 'acme/app' })
       return
     }

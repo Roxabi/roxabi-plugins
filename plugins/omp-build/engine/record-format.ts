@@ -1,7 +1,7 @@
 import { incompatibleFormat } from './record-diagnostics.ts'
 import type { Diagnostic } from './record-values.ts'
 
-export const REVIEW_INPUT_FORMAT = 'omp-build:review-input/3'
+export const REVIEW_INPUT_FORMAT = 'omp-build:review-input/4'
 
 export const MANDATE_FORMAT = 'omp-build-mandate/3'
 
@@ -88,6 +88,16 @@ export function recordFormatDiagnostic(value: unknown): Diagnostic | null {
   const record = value as Record<string, unknown>
   if (record.kind === 'proof')
     return incompatible("Record kind 'proof' was removed in #902 and cannot authorize anything")
+  if (record.kind === 'action-receipt') {
+    const payload = record.payload
+    if (
+      payload === null ||
+      typeof payload !== 'object' ||
+      Array.isArray(payload) ||
+      (payload as Record<string, unknown>).format !== 'omp-build-action-receipt/2'
+    )
+      return incompatible('Action receipt format must be omp-build-action-receipt/2')
+  }
   return (
     mandateFormatDiagnostic(record) ??
     materialAcceptanceFormatDiagnostic(record) ??

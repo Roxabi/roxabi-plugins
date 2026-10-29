@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 
 import type { ReviewSemanticAssets } from './review-prompts'
+import type { TrustedHostPluginPin } from './uw-action-contract.ts'
+import { pinnedInstalledRoot } from './uw-plugin-pin.ts'
 
 export type ReviewConfig = {
   canonicalClasses: readonly string[]
@@ -19,7 +20,12 @@ export type ReviewClassCatalogue = {
 
 export type ReviewAssets = ReviewClassCatalogue & ReviewSemanticAssets
 
-const reviewSkillDir = join(dirname(dirname(fileURLToPath(import.meta.url))), 'skills', 'dev-review')
+/** Skill directory under the pinned install, not a separately declared module path. */
+export function installedReviewSkillDir(pluginPin?: TrustedHostPluginPin): string {
+  return join(pinnedInstalledRoot(pluginPin), 'skills', 'dev-review')
+}
+
+const reviewSkillDir = installedReviewSkillDir()
 
 /** Reads the class catalogue only, without requiring unrelated prompt assets. */
 export function loadReviewClassCatalogue(skillDir = reviewSkillDir): ReviewClassCatalogue {

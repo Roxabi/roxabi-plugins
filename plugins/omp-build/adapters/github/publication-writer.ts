@@ -100,6 +100,10 @@ export async function publishMissingBodies(
   )
   for (const body of bodies) {
     if (existingBodies.has(body)) continue
+    if (options.canPublish?.() === false)
+      return publicationFailure('uncertain', current, [
+        diagnostic('publication-ownership-revoked', 'Publication ownership was revoked before the record write'),
+      ])
     let response: string
     try {
       response = await postComment(record, body, options)

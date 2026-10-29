@@ -1,3 +1,4 @@
+import type { ActionInputs } from '../../engine/action-input-schema.ts'
 import type { ConfirmedReviewSemanticContext, ReviewSemanticCanon } from '../../roxabi/review-semantic-canon.ts'
 import type { Gh, Git, Refusal } from './review-base.ts'
 import type { ReviewInputCapture } from './review-input.ts'
@@ -11,6 +12,8 @@ export type ReviewInputDeps = {
   git?: Git
   semantic?: ConfirmedReviewSemanticContext
   automationLogin?: string
+  pluginPin?: import('../../roxabi/uw-action-contract.ts').TrustedHostPluginPin
+  persistedFingerprint?: string
 }
 
 export declare function confirmedReviewSemanticContext(
@@ -27,6 +30,14 @@ export declare function captureReviewInput(
   head: string,
   deps?: ReviewInputDeps,
 ): Promise<ReviewCapture | Refusal>
+/** Validate the sealed host-prepared snapshot before the initial inventory is published. */
+export declare function validatePreparedReviewInput(
+  cwd: string,
+  pr: number | string,
+  head: string,
+  snapshot: ActionInputs,
+  deps?: Omit<ReviewInputDeps, 'semantic' | 'persistedFingerprint'>,
+): Promise<{ ok: true } | Refusal>
 /** Refuse changed inputs before posting, without replacing the retained capture. */
 export declare function validateReviewInput(
   cwd: string,
@@ -42,6 +53,7 @@ export declare function validateLandingReviewInput(
   head: string,
   input: string | null,
   deps?: Omit<ReviewInputDeps, 'semantic'>,
+  mergedBase?: string,
 ): Promise<{ ok: true } | Refusal>
 
 export declare function hasFreshReviewInput(

@@ -1,3 +1,4 @@
+import type { Submission } from '../engine/record-values.ts'
 import type { NativeChildResult, NativeProofBashCall } from '../omp/review-runtime/contracts.ts'
 
 export function emptyChild(): NativeChildResult {
@@ -50,12 +51,25 @@ export function implementNativeOutcome(
   strict: 'valid' | 'invalid' | 'absent'
   raw: NativeChildResult['raw']
   bashCalls?: NativeProofBashCall[]
+  observation?: { actionId: string; childId: string; submissionIndex: number; submission: Submission }
 } {
   const bashCalls = (child.bashCalls ?? []).filter((call) => claimedIds.has(call.toolCallId))
+  const provenance = child.observationProvenance
+  const submission = child.submissions.find((item) => item.attemptIndex === provenance?.submissionIndex)
   return {
     completion: child.usable ? 'completed' : 'incomplete',
     strict: usable ? 'valid' : 'invalid',
     raw: child.raw,
+    ...(provenance !== undefined && submission !== undefined
+      ? {
+          observation: {
+            actionId: provenance.actionId,
+            childId: provenance.childId,
+            submissionIndex: provenance.submissionIndex,
+            submission,
+          },
+        }
+      : {}),
     ...(bashCalls.length > 0 ? { bashCalls } : {}),
   }
 }

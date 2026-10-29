@@ -1,202 +1,26 @@
 import { randomUUID } from 'node:crypto'
-import { mechanicalSpecDelta } from '../dist/contracts.js'
 import type { Scope } from '../engine/record-values.ts'
-import type { AssessSpecExact } from '../engine/workflow-receipt-schema.ts'
-import { modelAction } from './feature-action-prompts.ts'
-import { approvedMandateContext, finalEligiblePlanActionId, planStructuredBlock } from './feature-approved-context.ts'
-import { readNativeCiFailureEvidence } from './feature-ci-evidence.ts'
+import {
+  actionRequest,
+  blocks,
+  observeHeadCode,
+  prepareDeliveryAction,
+  prepareRefusal,
+  uwSubject,
+} from './delivery-action.ts'
+import {
+  type Gh,
+  type ModelReceiptActionInput,
+  receiptStartContext,
+  sealReceipt,
+  startAssessmentReceipt,
+  startCiAttributionReceipt,
+} from './feature-action-receipt.ts'
+import { approvedMandateContext, finalEligiblePlanActionId } from './feature-approved-context.ts'
 import type { ContinueFeatureResult } from './feature-contract.ts'
-import { type Contracts, type History, publishRecord, type WorkflowEvidence } from './feature-engine.ts'
+import type { Contracts, History, WorkflowEvidence } from './feature-engine.ts'
+import type { UwOperations } from './uw-contract.ts'
 import type { GitRunner } from './workflow-checkout.ts'
-
-type Gh = (cwd: string, args: string[]) => Promise<string>
-
-type ModelReceiptActionInput = {
-  action: 'assess-spec' | 'attribute-ci'
-  loaded: Contracts
-  history: History
-  mandateHistory?: History
-  mandate: NonNullable<History['operations'][number]['record']>
-  evidence: WorkflowEvidence
-  scope: Scope
-  currentSpec: AssessSpecExact['proposed'] | null
-  identityAllocations: AssessSpecExact['identityAllocations'] | null
-  target:
-    | { status: 'issue'; scope: Scope; issue: { number: number } }
-    | { status: 'pull-request'; scope: Scope; pullRequest: { pr: number; head: string; base: string; branch: string } }
-  gh: Gh
-  cwd: string
-}
-
-type ReceiptStartContext = {
-  mandateHistory: History
-  mandateScope: Scope
-  operationId: string
-}
-
-function receiptStartContext(input: ModelReceiptActionInput): ReceiptStartContext {
-  return {
-    mandateHistory: input.mandateHistory ?? input.history,
-    mandateScope: { repository: input.mandate.repository, target: input.mandate.target },
-    operationId: randomUUID(),
-  }
-}
-
-async function publishAssessmentReceipt(
-  input: ModelReceiptActionInput,
-  context: ReceiptStartContext,
-  exactInputs: AssessSpecExact,
-): Promise<ContinueFeatureResult> {
-  const startId = randomUUID()
-  const started = await publishRecord(
-    input.loaded,
-    input.history,
-    {
-      repository: input.scope.repository,
-      target: input.scope.target,
-      version: 1,
-      recordId: startId,
-      runId: randomUUID(),
-      operationId: context.operationId,
-      kind: 'action-receipt',
-      payload: {
-        phase: 'start',
-        action: 'assess-spec',
-        actionId: context.operationId,
-        mandate: { scope: context.mandateScope, recordId: input.mandate.recordId, kind: 'mandate' },
-        exactInputs,
-      },
-    },
-    input.gh,
-    input.cwd,
-    input.evidence.parents,
-  )
-  if (!started.ok) return { kind: 'blocked', reason: started.reason, diagnostics: started.diagnostics }
-  return modelAction({
-    action: 'assess-spec',
-    scope: input.scope,
-    start: { scope: input.scope, recordId: startId, kind: 'action-receipt' },
-    operationId: context.operationId,
-    assessExact: exactInputs,
-  })
-}
-
-async function startAssessmentReceipt(
-  input: ModelReceiptActionInput,
-  context: ReceiptStartContext,
-): Promise<ContinueFeatureResult> {
-  if (input.mandate.kind !== 'mandate' || input.currentSpec === null || input.identityAllocations === null)
-    return { kind: 'blocked', reason: 'mandate-spec-missing' }
-  const accepted = input.loaded.resolveAcceptedSpec(input.mandate, [context.mandateHistory, ...input.evidence.parents])
-  if (!accepted.ok) return { kind: 'blocked', reason: 'mandate-spec-missing' }
-  return publishAssessmentReceipt(input, context, {
-    format: 'omp-build-spec-assessment/2',
-    accepted: {
-      ref: accepted.spec.ref,
-      snapshot: accepted.spec.snapshot,
-      tier: accepted.spec.tier,
-      children: accepted.spec.children,
-    },
-    proposed: input.currentSpec,
-    identityAllocations: input.identityAllocations,
-    mechanical: mechanicalSpecDelta(
-      {
-        snapshot: accepted.spec.snapshot,
-        tier: accepted.spec.tier,
-        children: accepted.spec.children,
-      },
-      input.currentSpec,
-    ),
-  })
-}
-
-function ciPublicationParents(input: ModelReceiptActionInput, mandateHistory: History): readonly History[] {
-  const mandateIsPrimary =
-    input.history.source.scope.repository === mandateHistory.source.scope.repository &&
-    input.history.source.scope.target === mandateHistory.source.scope.target
-  const mandateIsParent = input.evidence.parents.some(
-    (history) =>
-      history.source.scope.repository === mandateHistory.source.scope.repository &&
-      history.source.scope.target === mandateHistory.source.scope.target,
-  )
-  // Attribution publishes on the PR while retaining the issue mandate as an
-  // external history for canonical reference validation; it never copies it.
-  return mandateIsPrimary || mandateIsParent ? input.evidence.parents : [mandateHistory, ...input.evidence.parents]
-}
-
-async function startCiAttributionReceipt(
-  input: ModelReceiptActionInput,
-  context: ReceiptStartContext,
-): Promise<ContinueFeatureResult> {
-  if (input.target.status !== 'pull-request') return { kind: 'blocked', reason: 'ci-attribution-requires-pull-request' }
-  const evidence = await readNativeCiFailureEvidence(
-    input.cwd,
-    input.scope.repository,
-    input.target.pullRequest.head,
-    input.scope,
-    { gh: input.gh, failedCheckEvidenceDigest: input.loaded.failedCheckEvidenceDigest },
-  )
-  if (!evidence.ok) return { kind: 'blocked', reason: evidence.reason }
-  const exactInputs = {
-    candidateGitSHA: input.target.pullRequest.head,
-    scope: input.scope,
-    failedChecks: evidence.failedChecks,
-    evidenceDigest: evidence.evidenceDigest,
-    failures: evidence.failures,
-  }
-  const approved = approvedMandateContext(input.loaded, input.mandate, [
-    context.mandateHistory,
-    ...input.evidence.parents,
-  ])
-  // Absent Spec context may stay soft for legitimate no-pre-PR / standalone attribution.
-  // Present-invalid / ambiguous Spec chain must refuse — never collapse to prose absence.
-  if (approved.status === 'invalid') {
-    return { kind: 'blocked', reason: `mandate-spec-${approved.reason}`, diagnostics: approved.diagnostics }
-  }
-  const acceptedSemanticContext =
-    approved.status === 'absent'
-      ? 'Accepted semantic context: (absent — no confirmed accepted Spec for this attribution; do not invent a pre-PR plan or Spec).'
-      : approved.specBlock
-  const startId = randomUUID()
-  const started = await publishRecord(
-    input.loaded,
-    input.history,
-    {
-      repository: input.scope.repository,
-      target: input.scope.target,
-      version: 1,
-      recordId: startId,
-      runId: randomUUID(),
-      operationId: context.operationId,
-      kind: 'action-receipt',
-      payload: {
-        phase: 'start',
-        action: 'attribute-ci',
-        actionId: context.operationId,
-        mandate: { scope: context.mandateScope, recordId: input.mandate.recordId, kind: 'mandate' },
-        exactInputs,
-      },
-    },
-    input.gh,
-    input.cwd,
-    ciPublicationParents(input, context.mandateHistory),
-  )
-  if (!started.ok) return { kind: 'blocked', reason: started.reason, diagnostics: started.diagnostics }
-  return modelAction({
-    action: 'attribute-ci',
-    scope: input.scope,
-    start: { scope: input.scope, recordId: startId, kind: 'action-receipt' },
-    operationId: context.operationId,
-    ciEvidence: {
-      evidenceDigest: evidence.evidenceDigest,
-      failures: evidence.failures,
-      supplied: evidence.supplied,
-      candidateGitSHA: input.target.pullRequest.head,
-      scope: input.scope,
-      acceptedSemanticContext,
-    },
-  })
-}
 
 export async function startModelReceiptAction(input: ModelReceiptActionInput): Promise<ContinueFeatureResult> {
   const context = receiptStartContext(input)
@@ -215,8 +39,8 @@ export async function startImplement(
   gh: Gh,
   cwd: string,
   mandate: NonNullable<History['operations'][number]['record']>,
+  uw: UwOperations | undefined,
 ): Promise<ContinueFeatureResult> {
-  void git
   void issue
   const composed = evidence.parents
   const approved = approvedMandateContext(loaded, mandate, [history, ...composed])
@@ -227,50 +51,31 @@ export async function startImplement(
   const macro = loaded.planMacro(evidence, approved.mandate)
   const planAction = finalEligiblePlanActionId(macro)
   if (planAction === null) return { kind: 'blocked', reason: 'plan-unconfirmed' }
-  const planBlock = planStructuredBlock(history, planAction, 'Confirmed final plan')
-  if (planBlock === null) return { kind: 'blocked', reason: 'plan-unconfirmed' }
   const operationId = randomUUID()
-  const recordId = randomUUID()
-  const published = await publishRecord(
+  const code = await observeHeadCode(git, cwd, scope.repository)
+  if (!code.ok) return blocks(code.reason)
+  if (uw === undefined) return blocks('prepare-action-unavailable')
+  const prepared = await prepareDeliveryAction(
+    uw,
+    actionRequest({
+      actionId: operationId,
+      purpose: 'implement',
+      subject: uwSubject(scope, null),
+      code: code.code,
+    }),
+  )
+  if (!prepared.ok) return blocks(prepareRefusal(prepared.diagnostics), prepared.diagnostics)
+  return sealReceipt({
     loaded,
     history,
-    {
-      repository: scope.repository,
-      target: scope.target,
-      version: 1,
-      recordId,
-      runId: randomUUID(),
-      operationId,
-      kind: 'action-receipt',
-      payload: {
-        phase: 'start',
-        action: 'implement',
-        actionId: operationId,
-        mandate: { scope, recordId: approved.mandate.recordId, kind: 'mandate' },
-        // implementExactSchema refs only; prompt embeds accepted Spec + final plan selected by planMacro.
-        exactInputs: {
-          mandateId: approved.mandate.recordId,
-          planActionId: planAction,
-        },
-      },
-    },
-    gh,
-    cwd,
-    composed,
-  )
-  if (!published.ok) return { kind: 'blocked', reason: published.reason, diagnostics: published.diagnostics }
-  const reread = await loaded.readComposedWorkflowHistory([scope], { cwd, gh })
-  const seen = reread.ok && reread.histories[0]?.operations.some((operation) => operation.record?.recordId === recordId)
-  if (!seen) return { kind: 'blocked', reason: 'implementation-start-unconfirmed' }
-  const criteria = approved.accepted.snapshot.spec.criteria.map(
-    (criterion) => `${criterion.id}: ${criterion.statement}`,
-  )
-  return modelAction({
-    action: 'implement',
     scope,
-    start: { scope, recordId, kind: 'action-receipt' },
+    cwd,
+    gh,
+    parents: composed,
     operationId,
-    approved: { ...approved, acceptanceLine: `Acceptance criteria: ${criteria.join(' | ')}` },
-    planBlock,
+    action: 'implement',
+    mandate: { scope, recordId: approved.mandate.recordId, kind: 'mandate' },
+    exactInputs: { mandateId: approved.mandate.recordId, planActionId: planAction },
+    prepared: prepared.value,
   })
 }

@@ -4,6 +4,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { decodeHistory } from '../adapters/github/history-codec.ts'
+import type { ActionInputs } from '../engine/action-input-schema.ts'
+import { criterionImplementationRecords } from '../testing/criterion-accepted-plan.ts'
+import { criterionPullHistory, criterionReviewGraph } from '../testing/criterion-approval.ts'
 import {
   BRANCH,
   cleanupFeatureRecoveryRoots,
@@ -43,8 +46,8 @@ function plainSpec() {
   }
 }
 
-const { encodedAdmissionReviewGraph } = roxabiRecordFixtures()
-const { linkedLandingAuthority } = roxabiWorkflowFixtures()
+const { projection } = roxabiRecordFixtures()
+const { framedBodies, linkedLandingAuthority } = roxabiWorkflowFixtures()
 
 afterEach(cleanupFeatureRecoveryRoots)
 
@@ -91,6 +94,8 @@ function coldCheckout(box: Box, name: string, branch = BRANCH): string {
   const principal = path.join(box.root, `${name}-principal`)
   const checkout = path.join(box.root, `${name}-checkout`)
   git(box, box.root, ['clone', '-q', box.origin, principal])
+  git(box, principal, ['remote', 'set-url', 'origin', 'https://github.com/acme/app.git'])
+  git(box, principal, ['config', `url.${box.origin}.insteadOf`, 'https://github.com/acme/app.git'])
   git(box, principal, ['worktree', 'add', '-q', '-b', branch, checkout, `origin/${branch}`])
   return checkout
 }
@@ -102,7 +107,7 @@ function workflowRead(box: Box, cwd: string, pr: number, head: string) {
     encoding: 'utf8',
   })
   if (run.status !== 0) throw new Error(`captureReviewInput failed: ${run.stderr}`)
-  return JSON.parse(run.stdout) as { ok: boolean; input?: string | null; reason?: string }
+  return JSON.parse(run.stdout) as { ok: boolean; input?: string | null; inputs?: ActionInputs; reason?: string }
 }
 
 function land(box: Box, cwd: string, pr: number): { status: string } {
@@ -412,25 +417,32 @@ describe('feature recovery terminal and publication witnesses', () => {
       lineageHead: head,
       author: 'operator',
     })
+    const issueRecords = criterionImplementationRecords(authority.mandate, head)
     writeSim(box, (state) => {
       const pull = state.prs[String(pr)]
       const linkedIssue = state.issues[String(issueNumber)]
       if (pull === undefined || linkedIssue === undefined) throw new Error('plain landing authority endpoints missing')
       pull.comments = authority.bindingBodies.map((body) => ({ author: 'operator', body }))
-      linkedIssue.comments = authority.issueBodies.map((body) => ({ author: 'operator', body }))
+      linkedIssue.comments = framedBodies(issueRecords, 'operator').map((body) => ({ author: 'operator', body }))
     })
     const captured = workflowRead(box, checkout, pr, head)
-    if (captured.ok !== true || typeof captured.input !== 'string') {
+    if (captured.ok !== true || typeof captured.input !== 'string' || captured.inputs === undefined) {
       throw new Error(`captureReviewInput refused: ${JSON.stringify(captured)}`)
     }
+    const inputs = captured.inputs
     writeSim(box, (state) => {
       const pull = state.prs[String(pr)]
       if (pull === undefined) throw new Error('plain landing PR missing')
       pull.comments.push(
-        ...encodedAdmissionReviewGraph({
+        ...criterionReviewGraph({
+          mandate: authority.mandate,
+          issueRecords,
+          pullHistory: criterionPullHistory({ repository: 'acme/app', target: `acme/app#${pr}` }, pull.comments),
           scope: { repository: 'acme/app', target: 'acme/app#30' },
           head,
-          input: captured.input,
+          inputs,
+          projection,
+          author: 'operator',
           verdict: 'Approve (clean)',
           prefix: 'feature-recovery-merged',
         }).comments.map(({ body }) => ({ author: 'operator', body })),
@@ -476,10 +488,34 @@ describe('feature recovery terminal and publication witnesses', () => {
     )
 
     const pulls = Object.values(readSim(box).prs)
-    const published = pulls.find((pull) => pull.headRefName === BRANCH && pull.closes.includes(42))
-
+    const published = pulls.find((pull) => pull.headRefName === BRANCH)
     expect(published, JSON.stringify(pulls)).toBeDefined()
-    expect(observed, JSON.stringify(observed)).toMatchObject({ kind: 'review', pr: expect.any(Number) })
+    if (published === undefined) throw new Error('published pull request missing')
+    const pullHistory = decodeHistory({
+      scope: { repository: 'acme/app', target: `acme/app#${published.number}` },
+      expectedAuthor: 'operator',
+      stopAuthor: null,
+      complete: true,
+      diagnostics: [],
+      comments: published.comments.map((comment, index) => ({
+        locator: `acme/app#${published.number}:comment:${index + 1}`,
+        nativeId: String(index + 1),
+        body: comment.body,
+        author: comment.author,
+        createdAt: comment.createdAt ?? null,
+        updatedAt: comment.updatedAt ?? null,
+      })),
+    })
+    expect(
+      pullHistory.operations.some(
+        (operation) =>
+          operation.record?.kind === 'workflow-binding' &&
+          operation.record.payload.mandate.recordId === 'mandate-feature-1' &&
+          operation.record.payload.mandate.scope.target === SCOPE.target &&
+          operation.record.payload.branch === BRANCH,
+      ),
+    ).toBe(true)
+    expect(observed, JSON.stringify(observed)).toMatchObject({ kind: 'review', pr: published.number })
   })
 
   it('publishes a refused observed result against the live continuation batch and original start', () => {

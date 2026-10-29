@@ -4,6 +4,7 @@ import {
   landingBaseBlocked,
   landingExit,
   landingRefused,
+  mergedAuthorized,
   prepareInitialLanding,
   readLandingFields,
 } from './landing-initial-preparation.js'
@@ -24,6 +25,37 @@ function reviewIntegrityRefusal(operations) {
     if (refusal !== null) return refusal
   }
   return null
+}
+
+async function admissionRefusal(cwd, pr, gh, git, error, state, head) {
+  if (!error?.reviewRecords) throw error
+  if (error.citedHistory && isCommitSha(head)) {
+    try {
+      const base = await resolveLandingBase(cwd, pr, gh, git)
+      if (!base.refusal) {
+        const mandate = await currentLandingMandate(cwd, pr, gh, { head, base: base.name, baseTip: base.tip }, git)
+        if (!mandate.admitted) {
+          return {
+            terminal: landingExit(
+              { status: 'mandate-refused', reason: mandate.reason, error: evidenceText(mandate.evidence) },
+              { policy: 'unarmed' },
+            ),
+            state,
+          }
+        }
+      }
+    } catch {
+      // The original cited-history failure remains authoritative when mandate admission cannot be read.
+    }
+  }
+  const diagnostic = error.reviewRecords.diagnostics?.[0]
+  return {
+    terminal: landingExit(
+      { status: 'not-approved', reason: diagnostic?.code ?? 'record-unreadable', error: diagnostic?.message },
+      { policy: 'unarmed' },
+    ),
+    state,
+  }
 }
 
 function refusedReviewIntegrity(records, operations, state) {
@@ -120,7 +152,7 @@ export async function checkBeforeArm(cwd, pr, gh, git, state, armedAuto, armedLa
   return checkLandingCoordinates(cwd, pr, gh, git, state, armedAuto, armedLabel, adapter)
 }
 
-export async function validateLandingCandidate(cwd, pr, gh, git, state) {
+export async function validateLandingCandidate(cwd, pr, gh, git, state, pluginPin) {
   let current
   try {
     current = await resolveLandingBase(cwd, pr, gh, git)
@@ -129,6 +161,14 @@ export async function validateLandingCandidate(cwd, pr, gh, git, state) {
   }
   const changed = await bindLandingBase(cwd, pr, gh, git, state, current)
   if (changed) return { terminal: changed, state }
+  // The base ref advances to the merge commit itself. Recheck the review against
+  // its admitted base only when both merge parents prove that exact landing.
+  const mergedBase =
+    current.tip !== state.landingContext.tip &&
+    state.admitted === state.records.head &&
+    (await mergedAuthorized(cwd, pr, gh, git, state.landingContext.tip, state.admitted))
+      ? state.landingContext.tip
+      : undefined
   const mandate = await currentLandingMandate(
     cwd,
     pr,
@@ -149,7 +189,18 @@ export async function validateLandingCandidate(cwd, pr, gh, git, state) {
       state,
     }
   }
-  const reviewInput = await validateLandingReviewInput(cwd, pr, state.records.head, state.records.input, { gh, git })
+  const reviewInput = await validateLandingReviewInput(
+    cwd,
+    pr,
+    state.records.head,
+    state.records.input,
+    {
+      gh,
+      git,
+      pluginPin,
+    },
+    mergedBase,
+  )
   if (!reviewInput.ok) {
     return {
       terminal: landingExit(
@@ -159,11 +210,16 @@ export async function validateLandingCandidate(cwd, pr, gh, git, state) {
       state,
     }
   }
-  return { state: { ...state, admitted: state.records.head } }
+  return { state: { ...state, admitted: state.records.head, pluginPin } }
 }
 
 export async function refreshLandingAuthorization(cwd, pr, gh, git, state, retaining) {
-  const review = await requiredReviewAdmission(cwd, pr, { gh })
+  let review
+  try {
+    review = await requiredReviewAdmission(cwd, pr, { gh })
+  } catch (error) {
+    return admissionRefusal(cwd, pr, gh, git, error, state, state.records?.head)
+  }
   const { records, operations } = review
   const refreshed = { ...state, records }
   if (reviewBoundStopped(records)) {
@@ -180,7 +236,7 @@ export async function refreshLandingAuthorization(cwd, pr, gh, git, state, retai
   if (retaining && state.admitted !== undefined && records.head !== state.admitted) {
     return { terminal: landingExit(landingRefused(records, 'head-moved'), { policy: 'unarmed' }), state: refreshed }
   }
-  return validateLandingCandidate(cwd, pr, gh, git, refreshed)
+  return validateLandingCandidate(cwd, pr, gh, git, refreshed, refreshed.pluginPin)
 }
 function initialLandingRefusal(pr, records, gate, opening) {
   let reason = null
@@ -201,7 +257,12 @@ function initialLandingRefusal(pr, records, gate, opening) {
 export async function readInitialLanding(cwd, pr, gh, git, landing, requiredContexts, owner) {
   const gate = await readGate(cwd, pr, gh)
   if (owner) owner.gate = gate
-  const review = await requiredReviewAdmission(cwd, pr, { gh })
+  let review
+  try {
+    review = await requiredReviewAdmission(cwd, pr, { gh })
+  } catch (error) {
+    return admissionRefusal(cwd, pr, gh, git, error, { gate }, gate.headRefOid)
+  }
   const { records, operations } = review
   const opening = { records, gate }
   const refused = initialLandingRefusal(pr, records, gate, opening)

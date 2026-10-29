@@ -1,3 +1,10 @@
+import { completeCriterionDeclarations } from '../dist/contracts.js'
+import type { ObservationChild } from '../engine/criterion-declaration-completion.ts'
+import type { CriterionDeclaration } from '../engine/criterion-evidence-schema.ts'
+
+export { completeCriterionDeclarations } from '../dist/contracts.js'
+
+import { implementationOutputSchema } from '../dist/contracts.js'
 import type { NativeChildResult } from '../omp/review-runtime/contracts.ts'
 import { implementNativeOutcome } from './feature-native-outcome.ts'
 
@@ -7,24 +14,32 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 type ClaimedCommand = { toolCallId: string; command: string; exitCode: number }
 
+export function hostCompletedStructured(
+  child: (Pick<NativeChildResult, 'structured'> & ObservationChild) | null,
+): unknown {
+  if (child === null || !isRecord(child.structured)) return child?.structured ?? null
+  return {
+    ...child.structured,
+    commands: strippedCommands(child.structured.commands),
+    criteria: completeCriterionDeclarations(child.structured.criteria, child),
+  }
+}
+
 export function claimedToolCallIds(child: NativeChildResult | undefined): {
   ids: Set<string>
   reason: string | null
-  proofToolCallId: string | null
+  criteria: CriterionDeclaration[]
   commands: ClaimedCommand[]
 } {
-  const claim = child !== undefined && isRecord(child.structured) ? child.structured : null
+  const completed = hostCompletedStructured(child ?? null)
+  const claim = isRecord(completed) ? completed : null
   const ids = claimedCommandIds(claim)
   const commands = claimedCommands(claim)
-  const proofToolCallId =
-    claim !== null && typeof claim.proofToolCallId === 'string' && claim.proofToolCallId.length > 0
-      ? claim.proofToolCallId
-      : null
-  if (proofToolCallId !== null) ids.add(proofToolCallId)
+  const parsed = implementationOutputSchema.safeParse(completed)
   return {
     ids,
     reason: claim !== null && typeof claim.reason === 'string' ? claim.reason : null,
-    proofToolCallId,
+    criteria: parsed.success ? [...parsed.data.criteria] : [],
     commands,
   }
 }
@@ -57,6 +72,18 @@ function claimedCommands(claim: Record<string, unknown> | null): ClaimedCommand[
   }
   return commands
 }
+function strippedCommands(value: unknown): unknown {
+  if (!Array.isArray(value)) return value
+  return value.map((command) =>
+    isRecord(command) &&
+    typeof command.toolCallId === 'string' &&
+    typeof command.command === 'string' &&
+    typeof command.exitCode === 'number' &&
+    Number.isInteger(command.exitCode)
+      ? { toolCallId: command.toolCallId, command: command.command, exitCode: command.exitCode }
+      : command,
+  )
+}
 
 export function refusedImplementationPayload(input: {
   child: NativeChildResult
@@ -84,8 +111,7 @@ export function refusedImplementationPayload(input: {
       outcome: 'blocked' as const,
       commitSHAs: input.commits.map((commit) => commit.sha),
       commands: input.structuredCommands,
-      proofToolCallId: null,
-      proofUnavailableReason: input.reason,
+      criteria: [],
       reason: input.modelReason ?? input.reason,
     },
     diagnostics: [{ code: input.reason, message: input.reason }],

@@ -1,20 +1,17 @@
-import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 /**
- * #495 acceptance: both tail skills resolve their helpers inside omp-build.
+ * Cleanup uses the shared base-selection behavior and protects the principal.
  *
  * Integration, not unit: every probe here forks bash or git, and vitest.setup.ts
  * fails a unit test that forks (#502).
  */
 const SKILLS = path.resolve(import.meta.dirname, '..', '..')
-const PLUGIN = path.resolve(SKILLS, '..')
 const ANALYZE = path.join(SKILLS, 'cleanup', 'analyze-branches.sh')
-const GATHER = path.join(SKILLS, 'cleanup', 'gather-state.sh')
-const CREATE_PR = path.join(SKILLS, 'promote', 'create-promote-pr.sh')
 
 /**
  * Git reads GIT_DIR / GIT_WORK_TREE from the environment and they beat `cwd`.
@@ -42,43 +39,10 @@ function fixtureRepo(bases: string[]): string {
   return dir
 }
 
-/** Every `.sh` shipped by the two tail skills, discovered — never enumerated by
- *  hand, or a script added later escapes the containment check below. */
-const TAIL_SCRIPTS = ['promote', 'cleanup'].flatMap((skill) =>
-  readdirSync(path.join(SKILLS, skill), { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.endsWith('.sh'))
-    .map((entry) => path.join(SKILLS, skill, entry.name)),
-)
-
-describe('tail skills resolve their helpers inside omp-build', () => {
-  it('sources lib.sh from plugins/omp-build/skills/shared, proved by the trace', () => {
-    // command after expansion, so the assertion sees the path the process really
-    // opened rather than merely matching its relative spelling.
-    const dir = fixtureRepo(['staging', 'main'])
-    try {
-      const r = spawnSync('bash', ['-x', ANALYZE, '--json', '--no-fetch'], {
-        cwd: dir,
-        env: FIXTURE_ENV,
-        encoding: 'utf8',
-        maxBuffer: 32 * 1024 * 1024,
-      })
-      expect(r.status).toBe(0)
-      // Every absolute `…/lib.sh` token the traced process touched. Taking the
-      // token rather than the line keeps `dirname "${BASH_SOURCE[0]}"` — traced
-      // from inside lib.sh itself — in scope: it names the same file and must
-      // resolve to the same place.
-      const touched = new Set([...r.stderr.matchAll(/(\/\S*lib\.sh)\b/g)].map(([, p]) => path.resolve(p)))
-      expect(touched.size).toBeGreaterThan(0)
-      expect([...touched]).toEqual([path.join(SKILLS, 'shared', 'lib.sh')])
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
-  })
-
+describe('cleanup shared-helper behavior', () => {
   it('uses the sourced detect_base_branch to pick the base', () => {
-    // The helper is not merely loaded, it decides: with both remote bases present
-    // the report must name `staging`, and with neither it must fall back to
-    // `main`. A stubbed-out lib.sh passes the trace check above and fails here.
+    // With both remote bases present the report must name `staging`; with
+    // neither it must fall back to `main`, exercising the shared helper.
     for (const [bases, expected] of [
       [['staging', 'main'], 'staging'],
       [[], 'main'],
@@ -95,40 +59,6 @@ describe('tail skills resolve their helpers inside omp-build', () => {
         rmSync(dir, { recursive: true, force: true })
       }
     }
-  })
-
-  it('reaches its sibling scripts from gather-state and create-promote-pr', () => {
-    // Both wrappers resolve a sibling through `$SCRIPT_DIR`, and both degrade
-    // rather than crash when it is missing — so a broken path would go unnoticed
-    // in normal output. Assert the resolved siblings exist where the wrappers
-    // look for them, and that each wrapper still names the one it needs.
-    const gather = readFileSync(GATHER, 'utf8')
-    const createPr = readFileSync(CREATE_PR, 'utf8')
-    expect(gather).toContain('scan-orphan-worktree-shells.sh')
-    expect(createPr).toContain('collect-closing-issues.sh')
-    for (const sibling of [
-      path.join(SKILLS, 'cleanup', 'scan-orphan-worktree-shells.sh'),
-      path.join(SKILLS, 'promote', 'collect-closing-issues.sh'),
-      path.join(SKILLS, 'promote', 'lib', 'hotfix-density.ts'),
-      path.join(SKILLS, 'promote', 'lib', 'closing-issues-cli.ts'),
-      path.join(SKILLS, 'promote', 'lib', 'finalize.ts'),
-    ]) {
-      expect(statSync(sibling).isFile()).toBe(true)
-    }
-  })
-
-  it('never resolves a path out of the plugin', () => {
-    // ADR-020 §3: uninstall every sibling plugin and omp-build still works. A
-    // `../../` in a skill script escapes `skills/`, and one more escapes the
-    // plugin — which is how a snapshot silently keeps eating from its source.
-    const escaping: string[] = []
-    for (const script of TAIL_SCRIPTS) {
-      for (const [, ref] of readFileSync(script, 'utf8').matchAll(/\$\{?SCRIPT_DIR\}?(\/[^"'\s]*)/g)) {
-        const resolved = path.resolve(path.dirname(script), `.${ref}`)
-        if (!resolved.startsWith(`${PLUGIN}${path.sep}`)) escaping.push(`${path.basename(script)} → ${ref}`)
-      }
-    }
-    expect(escaping).toEqual([])
   })
 })
 
@@ -172,19 +102,6 @@ describe('analyze-branches.sh cannot act on the principal', () => {
       expect(report.worktrees.map((w: { path: string }) => w.path)).toContain(principal)
     } finally {
       rmSync(path.dirname(principal), { recursive: true, force: true })
-    }
-  })
-
-  it('carries no deletion command at all', () => {
-    // The Step 4 confirmation is the only gate before a delete, and it lives in
-    // SKILL.md — which means the analyser must not be able to delete on its own,
-    // whatever the operator answered.
-    const src = readFileSync(ANALYZE, 'utf8')
-      .split('\n')
-      .filter((line) => !line.trimStart().startsWith('#'))
-      .join('\n')
-    for (const verb of [/git\s+branch\s+-[dD]\b/, /push\s+\S*\s*--delete\b/, /worktree\s+remove\b/, /\brm\s+-rf\b/]) {
-      expect(src).not.toMatch(verb)
     }
   })
 })

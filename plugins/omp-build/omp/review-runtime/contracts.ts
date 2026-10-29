@@ -1,7 +1,10 @@
 import type { ExtensionAPI } from '@oh-my-pi/pi-coding-agent'
 import type { Json, Submission } from '../../contracts'
+import type { ContextActionBinding, MissingContextItem } from '../../engine/action-context.ts'
+import type { CommandRun, EvidenceProvenance } from '../../engine/criterion-evidence-schema.ts'
+import type { PreparedUwAction } from '../../roxabi/uw-action-contract.ts'
 
-export type { Json }
+export type { Json, Submission }
 
 export type NativeProofDirective = {
   purpose: 'fix-apply' | 'fix-revalidate' | 'fix-falsify'
@@ -14,35 +17,31 @@ export type NativeTask = {
   agent: string
   task: string
   solutionSpace: string
-  /** Parent Eval-defined tool names to inject; child built-ins are pinned by the agent profile. */
-  tools?: string[]
   /** Host-only proof contract; stripped from the native task wire input. */
   proofEvidence?: NativeProofDirective
+  /** Host-only registered snapshot. Required on an execution task; never sent on the task wire. */
+  action: PreparedUwAction
 }
-
-/** Exact native `task.batch` request guarded by the extension. */
+/** A host-prepared batch; the model receives only its opaque selector. */
 export type NativeBatch = {
   operationId: string
   tasks: { context: string; tasks: NativeTask[] }
 }
 
-/**
- * Execution-authority `task.batch` args for one authorized native batch.
- * Compared strictly at the native `tool_call` hook after the SDK strips harness intent `i`.
- * Model-facing announce adds `i` only at the announcement boundary — never stored on this object.
- */
-export type NativeTaskWireInput = {
-  context: string
-  tasks: Array<Omit<NativeTask, 'proofEvidence'>>
-}
+export type NativeTaskWireInput = { batchId: string }
 
-export const NATIVE_TASK_INTENT = 'omp-build native batch'
+/** Actual SDK executor outcomes, not an invented SDK tool-result event. */
+export type NativeExecutionObservation = {
+  toolCallId: string
+  results: unknown[]
+  errors: string[]
+}
 
 export type NativeProofBashCall = {
   toolCallId: string
   /** Original public Bash arguments, unchanged. */
   input: Json
-  /** SDK-resolved host cwd, or null when the observed call cannot be resolved. */
+  /** Directory used for host git probes. Adapter-derived from the call arguments and session default, not an SDK-observed execution cwd. */
   effectiveCwd: string | null
   result: Json | null
   exitCode: number | null
@@ -64,11 +63,20 @@ export type NativeChildResult = {
   proofEvidence: NativeProofEvidence | null
   /** Referenced Bash calls only, including conflicting captures of those IDs. Unreferenced calls stay ephemeral. */
   bashCalls?: readonly NativeProofBashCall[]
+  /** Grounded runs only. Unobserved code identity is omitted, never invented. */
+  commandRuns?: readonly CommandRun[]
+  /** Actual matched child/yield identity for non-test observations; not an assertion of their truth. */
+  observationProvenance?: Extract<EvidenceProvenance, { kind: 'native' }>
+  nativeProvenance?: Extract<EvidenceProvenance, { kind: 'native' }>
   /** Exact terminal native child result, or null when no child result arrived. */
   raw: Json
   partialText: string | null
   /** The native final structured value only after strict terminal validation. */
   structured: Json | null
+  /** Host-authenticated missing-context result and its exact sealed action. */
+  contextBlock?: { missing: readonly MissingContextItem[]; action: ContextActionBinding }
+  /** Revocable host-only permission to conserve this negative batch, never model output. */
+  canPublishContext?: () => boolean
   usable: boolean
   reason: string | null
 }
@@ -76,6 +84,8 @@ export type NativeChildResult = {
 export type NativeBatchResult = {
   batch: NativeBatch
   children: NativeChildResult[]
+  /** Revocable host-only permission to conserve this negative batch, never positive continuation. */
+  canPublishContext?: () => boolean
   raw: Json
   complete: boolean
 }
@@ -84,13 +94,21 @@ export type NativeBatchCallbacks = {
   /** Called once for each terminal or missing native child result before product interpretation. */
   onChildResult?: (child: NativeChildResult) => void | Promise<void>
   /** Called only after every required child reaches a strict valid terminal result. */
-  onComplete: (result: NativeBatchResult) => void | Promise<void>
+  onComplete: (result: NativeBatchResult, canContinue: () => boolean) => void | Promise<void>
   /** Called once after onComplete resolves. agent_end does not invoke this. */
-  onSettled?: (result: NativeBatchResult) => void | Promise<void>
+  onSettled?: (result: NativeBatchResult, canContinue: () => boolean) => void | Promise<void>
   onStop: (reason: string, result: NativeBatchResult | null) => void | Promise<void>
 }
 
-/** The public SDK extension surface used by this bridge; no private runner APIs. */
-export type NativeExtension = Pick<ExtensionAPI, 'on' | 'sendUserMessage'> & {
-  events: Pick<ExtensionAPI['events'], 'on'>
-}
+/** The public SDK extension surface used by this bridge. */
+export type NativeExtension = Pick<
+  ExtensionAPI,
+  | 'on'
+  | 'registerTool'
+  | 'sendUserMessage'
+  | 'sendMessage'
+  | 'getActiveTools'
+  | 'getAllTools'
+  | 'setActiveTools'
+  | 'events'
+>

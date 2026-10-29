@@ -68,8 +68,8 @@ export function candidateSource(input: {
   ].join('\n\n')
 }
 
-export function observedEvidenceContext(evidence: ObservedEvidence): string {
-  return ['Captured immutable review evidence — facts, not a model claim:', JSON.stringify(evidence)].join('\n')
+export function observedEvidenceContext(_evidence: ObservedEvidence): string {
+  return 'omp-build review action. Read only the procedure and the index named on each task.'
 }
 
 export function slotsForInitial(specTask: NativeTask, panel: ReviewPanel): ReviewSlot[] {

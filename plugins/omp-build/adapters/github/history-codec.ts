@@ -1,14 +1,13 @@
 import type { DecodedHistory, History } from '../../engine/history-schema.ts'
 import { parseRecord } from '../../engine/record-construction.ts'
+import { recordIntegrity } from '../../engine/record-integrity.ts'
 import { projectRecord } from '../../engine/record-projection.ts'
-import { isWorkflowKind } from '../../engine/record-references.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import type { Diagnostic } from '../../engine/record-values.ts'
 import type { RecordProjectionConfig, Result } from '../../engine/result.ts'
 import { looseHeaderClue, operationAuthority, withClaimedKinds } from './history-authority.ts'
 import { encodeParts } from './history-encoder.ts'
 import { decodeParts, frameFrom, legacyKind, withOperationId } from './history-framing.ts'
-import { recordIntegrity } from './record-integrity.ts'
 import type { ClaimedOperation, Frame, FrameFailure, UnclaimedOperation } from './types.ts'
 import { diagnostic, WIRE_PREFIX } from './types.ts'
 
@@ -128,8 +127,7 @@ function decodedOperations(history: History, groups: FrameGroups) {
 function immutableTrustedWorkflowOperations(decoded: ReturnType<typeof decodedOperations>) {
   const diagnostics: Diagnostic[] = []
   const operations = decoded.operations.map((operation) => {
-    if (operation.status !== 'complete' || operation.record === null || !isWorkflowKind(operation.record.kind))
-      return operation
+    if (operation.status !== 'complete' || operation.record === null) return operation
     const refusal =
       operation.parts.length === 0
         ? {

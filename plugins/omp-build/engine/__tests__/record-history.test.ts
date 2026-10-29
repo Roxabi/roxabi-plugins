@@ -116,9 +116,12 @@ describe('immutable admission facts', () => {
 
     expect(refusalCodes(validateRecordGraph(history(combined)))).toContain('unbound')
     expect(changedInput).toMatchObject({ ok: true, next: 'review' })
-    expect(
-      refusalCodes(projectRecord(substituted, left.history, { taxonomy: TAXONOMY, acceptedPolicy: null })),
-    ).toContain('unbound')
+    expect(projectRecord(left.review, left.history, { taxonomy: TAXONOMY, acceptedPolicy: null })).toMatchObject({
+      ok: true,
+    })
+    expect(projectRecord(substituted, left.history, { taxonomy: TAXONOMY, acceptedPolicy: null })).toMatchObject({
+      ok: false,
+    })
     expect(assessmentCodes(validateDecision(unobservedDecision, left.history, TAXONOMY, null))).toContain('unbound')
   })
 
@@ -201,7 +204,7 @@ describe('native history trust and chronology', () => {
     expect(summarizeReviews(decodeHistory(source), TAXONOMY, null)).toEqual(baseline)
   })
 
-  test('keeps an approving review at its native creation time after a comment edit', () => {
+  test('refuses an approving review whose native comment was edited after creation', () => {
     const graph = encodedAdmissionReviewGraph(PROJECTION_CONFIG, { prefix: 'review-created-at' })
     const revised = {
       ...graph.history,
@@ -219,10 +222,8 @@ describe('native history trust and chronology', () => {
       ),
     }
 
-    expect(summarizeReviews(revised, TAXONOMY, null)).toMatchObject({
-      ok: true,
-      value: { verdict: 'Approve (clean)', at: '2026-10-21T10:00:00Z' },
-    })
+    expect(summarizeReviews(revised, TAXONOMY, null)).toMatchObject({ ok: false })
+    expect(refusalCodes(validateRecordGraph(revised))).toContain('record-edited')
   })
 })
 describe('history authority classification', () => {

@@ -117,3 +117,11 @@ export function validateContributionConservation(
   for (const record of records.values())
     if (record.kind === 'contribution') validateContribution(record, records, diagnostics)
 }
+
+export function validateContributionRecord(
+  record: CanonicalRecord,
+  records: Map<string, CanonicalRecord>,
+  diagnostics: Diagnostic[],
+): void {
+  if (record.kind === 'contribution') validateContribution(record, records, diagnostics)
+}

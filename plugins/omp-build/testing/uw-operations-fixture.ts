@@ -13,6 +13,7 @@ import { prepareSpecAllocation, type SpecIdentityLedger } from '../engine/uw-ide
 import { createOperatorConfirmation } from '../omp/omp-operator-confirmation.ts'
 import type { UwRead } from '../roxabi/uw-contract.ts'
 import { createUwOperations, type IdentityPublicationResult, type UwOperationsPorts } from '../roxabi/uw-operations.ts'
+import { consultableProtocolOptions } from './protocol-retention.unit.ts'
 import { allocationRef, CREATED, CREATED_UW, ISSUE, SOURCE_BODY, UW } from './uw-operations-fixture-input.ts'
 
 export type { MutablePlanWrites } from './uw-operations-fixture-input.ts'
@@ -166,6 +167,7 @@ export function fixture(
         return true
       },
     },
+    localProtocolOptions: consultableProtocolOptions(),
   } as unknown as ExtensionContext)
   const ports: UwOperationsPorts = {
     read: async (uw) => {

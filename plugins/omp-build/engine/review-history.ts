@@ -1,6 +1,7 @@
 import { validateRecordGraph } from './history-graph.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { recordMap } from './result.ts'
+import { reviewContextLineage } from './review-context-lineage.ts'
 import { validateDecision } from './review-decision.ts'
 import { latestUnfinishedPullRequestRoot, reviewOperations } from './review-identity.ts'
 
@@ -8,8 +9,11 @@ export function spentBeforeCurrentPullRequestAttempt(
   history: DecodedHistory,
   taxonomy: readonly string[],
   acceptedPolicyRef: string | null,
+  externalHistories: readonly DecodedHistory[] = [],
+  deliveryHistory: DecodedHistory = history,
 ): boolean | null {
-  const root = latestUnfinishedPullRequestRoot(recordMap(history))
+  const records = recordMap(history)
+  const root = latestUnfinishedPullRequestRoot(records, reviewContextLineage(history, records).superseded)
   if (root === null) return null
   const rootIndex = history.operations.findIndex(
     (operation) => operation.status === 'complete' && operation.record?.recordId === root.recordId,
@@ -21,12 +25,22 @@ export function spentBeforeCurrentPullRequestAttempt(
     operations: history.operations.slice(0, rootIndex),
     diagnostics: [],
   }
-  return spentInCompleteHistory(prefix, taxonomy, acceptedPolicyRef)
+  const deliveryRootIndex = deliveryHistory.operations.findIndex(
+    (operation) => operation.status === 'complete' && operation.record?.recordId === root.recordId,
+  )
+  if (deliveryRootIndex === -1) return null
+  const deliveryPrefix: DecodedHistory = {
+    ...deliveryHistory,
+    operations: deliveryHistory.operations.slice(0, deliveryRootIndex),
+  }
+  return spentInCompleteHistory(prefix, taxonomy, acceptedPolicyRef, externalHistories, deliveryPrefix)
 }
 export function spentInCompleteHistory(
   history: DecodedHistory,
   taxonomy: readonly string[],
   acceptedPolicyRef: string | null,
+  externalHistories: readonly DecodedHistory[] = [],
+  deliveryHistory: DecodedHistory = history,
 ): boolean | null {
   const completedHistory: DecodedHistory = {
     ...history,
@@ -43,7 +57,14 @@ export function spentInCompleteHistory(
     if (index < 2 || operation.record?.kind !== 'review') continue
     const decision = records.get(operation.record.payload.decisionId)
     if (decision?.kind !== 'decision') return null
-    const assessment = validateDecision(decision, completedHistory, taxonomy, acceptedPolicyRef)
+    const assessment = validateDecision(
+      decision,
+      completedHistory,
+      taxonomy,
+      acceptedPolicyRef,
+      externalHistories,
+      deliveryHistory,
+    )
     if (!assessment.admissible) return null
     if (assessment.verdict === 'Request changes') return true
   }

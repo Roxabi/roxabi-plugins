@@ -1,3 +1,5 @@
+import { toolingGh } from './review-record-pin.js'
+
 function commentPage(path) {
   const match = path.match(/^repos\/[^/]+\/[^/]+\/issues\/(\d+)\/comments\?/)
   return match === null ? null : { issue: Number(match[1]), page: path.match(/[?&]page=(\d+)/)?.[1] ?? '1' }
@@ -135,6 +137,8 @@ function disarmCommand(args, state) {
 export function createGateGh({ history, issueHistory, state, calls, fixture, historyPage }) {
   return async (_cwd, args) => {
     calls.push(args)
+    const pinned = toolingGh(args)
+    if (pinned !== null) return pinned.trim()
     if (args[0] === 'repo' && args[1] === 'view') return JSON.stringify({ nameWithOwner: fixture.repository })
     const api = apiCommand(args, history, issueHistory, fixture, historyPage)
     if (api !== null) return api

@@ -1,5 +1,6 @@
 import { buildRecord, deriveReviewState, publishGitHubRecord } from '../../dist/contracts.js'
 import { withRoxabiGitHubPolicy } from '../../roxabi/github-policy'
+import { readReviewInputHistories } from '../../roxabi/uw-input-readers.ts'
 import {
   approves,
   enforceArmedGate,
@@ -54,7 +55,9 @@ export function reviewStep(records, { head, ciFailed = false }) {
 
 export async function persistObservedCiStop(cwd, pr, { gh: ghFn = gh } = {}) {
   const history = await readReviewHistory(cwd, pr, ghFn)
-  const summary = reviewRecords(history)
+  const cited = await readReviewInputHistories(history, { cwd, gh: ghFn })
+  if (!cited.ok) throw new Error(`cited-history-unreadable:${cited.diagnostics.map((item) => item.code).join(',')}`)
+  const summary = reviewRecords(history, { externalHistories: cited.value })
   if (!summary.ok) throw reviewRefusal(summary)
   const gate = await readGate(cwd, pr, ghFn)
   if (!isCommitSha(gate.headRefOid) || summary.value.head !== gate.headRefOid || !approves(summary.value.verdict))
@@ -69,6 +72,7 @@ export async function persistObservedCiStop(cwd, pr, { gh: ghFn = gh } = {}) {
       acceptedEvidencePolicyRef: null,
     },
     reviewTaxonomy(),
+    cited.value,
   )
   if (!state.ok) throw reviewRefusal(state)
   if (state.requiredStop === null || state.requiredStop.reason !== 'ci-failed') return false
@@ -90,7 +94,13 @@ export async function persistObservedCiStop(cwd, pr, { gh: ghFn = gh } = {}) {
     payload: state.requiredStop,
   })
   if (!built.ok) throw reviewRefusal(built)
-  const published = await publishGitHubRecord(built.value, history, withRoxabiGitHubPolicy({ cwd, gh: ghFn }), null)
+  const published = await publishGitHubRecord(
+    built.value,
+    history,
+    withRoxabiGitHubPolicy({ cwd, gh: ghFn }),
+    null,
+    cited.value,
+  )
   if (published.status !== 'confirmed') throw reviewRefusal(published)
   return true
 }

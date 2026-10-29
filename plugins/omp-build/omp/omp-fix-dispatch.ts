@@ -6,6 +6,8 @@ import { type FixRun, type FixStart, startDefaultFix } from '../roxabi/fix-entry
 import type { CiCorrectionAdmission } from '../roxabi/fix-mandate-types.ts'
 import { createInstalledUwReadPort } from '../roxabi/uw-read-port.ts'
 import { nextReviewStep } from '../skills/feature/workflow-review-state.js'
+import { hostPluginPin } from './host-plugin-pin.ts'
+import { createHostUwOperations } from './host-uw-operations.ts'
 import {
   createOmpFixPort,
   type FixHost,
@@ -15,6 +17,7 @@ import {
   releaseOwnedFixRun,
   reportFeatureTerminalStatus,
 } from './omp-controller'
+import { createOperatorConfirmation } from './omp-operator-confirmation.ts'
 
 async function dispatchDefaultFix(
   pi: FixHost,
@@ -24,6 +27,7 @@ async function dispatchDefaultFix(
 ): Promise<FixStart> {
   const automationLogin = await viewer({ cwd: ctx.cwd })
   if (hasOwnedFixRun(pi)) throw new Error('fix-run-already-active')
+  const operations = await createHostUwOperations(ctx, createOperatorConfirmation(ctx))
   const run = startDefaultFix({
     cwd: ctx.cwd,
     args,
@@ -35,6 +39,8 @@ async function dispatchDefaultFix(
     native: createOmpFixPort(pi),
     workflow: { nextReviewStep },
     uw: createInstalledUwReadPort({ cwd: ctx.cwd, readAuthor: automationLogin }),
+    operations,
+    pluginPin: hostPluginPin(),
   })
   const notify = async (text: string): Promise<void> => {
     if (ownedFixRunFor(pi)?.run === run && ownedFixRunFor(pi)?.tearingDown) {
@@ -84,6 +90,7 @@ async function dispatchAdmittedCiCorrection(
     native: createOmpFixPort(pi),
     workflow: { nextReviewStep },
     uw: createInstalledUwReadPort({ cwd: ctx.cwd, readAuthor: automationLogin }),
+    operations: await createHostUwOperations(ctx, createOperatorConfirmation(ctx)),
   })
   const notify = async (text: string): Promise<void> => {
     if (ownedFixRunFor(pi)?.run === run && ownedFixRunFor(pi)?.tearingDown) {

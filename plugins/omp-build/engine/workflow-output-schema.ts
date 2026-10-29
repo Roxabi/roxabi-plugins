@@ -1,12 +1,10 @@
 import { z } from 'zod'
+import { missingContextItemSchema } from './action-context.ts'
+import { criterionDeclarationSchema, producerCriterionDeclarationSchema } from './criterion-evidence-schema.ts'
 import { specDigest } from './record-digests.ts'
-import {
-  identifierSchema,
-  implementationCommandSchema,
-  jsonSchema,
-  repoRelativePathSchema,
-  shaSchema,
-} from './record-values.ts'
+import { gitObjectIdSchema } from './record-references.ts'
+import { identifierSchema, implementationCommandSchema, jsonSchema, repoRelativePathSchema } from './record-values.ts'
+import { criterionIdSchema } from './uw-spec-schema.ts'
 
 export const specAssessmentSchema = z.strictObject({
   classification: z.enum(['editorial', 'material', 'unknown']),
@@ -16,7 +14,7 @@ export const planStepSchema = z.strictObject({
   id: identifierSchema,
   change: z.string().min(1),
   doneWhen: z.string().min(1),
-  criterion: z.string().min(1),
+  criterionIds: z.array(criterionIdSchema).min(1),
   evidence: z.string().min(1),
   paths: z.array(repoRelativePathSchema).min(1),
 })
@@ -44,6 +42,17 @@ export const planOutputSchema = z
         context.addIssue({ code: 'custom', path: ['steps', index, 'id'], message: 'step id is repeated' })
       }
       stepIds.add(step.id)
+      const criterionIds = new Set<string>()
+      step.criterionIds.forEach((id, criterionIndex) => {
+        if (criterionIds.has(id)) {
+          context.addIssue({
+            code: 'custom',
+            path: ['steps', index, 'criterionIds', criterionIndex],
+            message: 'criterion id is repeated',
+          })
+        }
+        criterionIds.add(id)
+      })
     }
     const seen = new Set<string>()
     for (const [index, resolution] of value.resolutions.entries()) {
@@ -74,7 +83,7 @@ export function planDigest(plan: PlanOutput): string {
 }
 const planReviewBlockerSchema = z.strictObject({
   id: identifierSchema,
-  criterion: z.string().min(1),
+  criterionId: criterionIdSchema,
   gap: z.string().min(1),
 })
 export const planReviewSchema = z
@@ -101,21 +110,38 @@ export type PlanReview = z.infer<typeof planReviewSchema>
 export const implementationOutputSchema = z.discriminatedUnion('outcome', [
   z.strictObject({
     outcome: z.literal('implemented'),
-    commitSHAs: z.array(shaSchema).min(1),
-    commands: z.array(implementationCommandSchema).min(1),
-    proofToolCallId: identifierSchema,
-    proofUnavailableReason: z.null(),
+    commitSHAs: z.array(gitObjectIdSchema).min(1),
+    commands: z.array(implementationCommandSchema),
+    criteria: z.array(criterionDeclarationSchema),
     reason: z.string(),
   }),
   z.strictObject({
     outcome: z.literal('blocked'),
-    commitSHAs: z.array(shaSchema),
+    commitSHAs: z.array(gitObjectIdSchema),
     commands: z.array(implementationCommandSchema),
-    proofToolCallId: z.null(),
-    proofUnavailableReason: z.string().min(1),
+    criteria: z.array(criterionDeclarationSchema),
+    missing: z.array(missingContextItemSchema).min(1).optional(),
     reason: z.string().min(1),
   }),
 ])
+export const producerImplementationOutputSchema = z.discriminatedUnion('outcome', [
+  z.strictObject({
+    outcome: z.literal('implemented'),
+    commitSHAs: z.array(gitObjectIdSchema).min(1),
+    commands: z.array(implementationCommandSchema),
+    criteria: z.array(producerCriterionDeclarationSchema),
+    reason: z.string(),
+  }),
+  z.strictObject({
+    outcome: z.literal('blocked'),
+    commitSHAs: z.array(gitObjectIdSchema),
+    commands: z.array(implementationCommandSchema),
+    criteria: z.array(producerCriterionDeclarationSchema),
+    missing: z.array(missingContextItemSchema).min(1).optional(),
+    reason: z.string().min(1),
+  }),
+])
+export type ProducerImplementationOutput = z.infer<typeof producerImplementationOutputSchema>
 export type ImplementationOutput = z.infer<typeof implementationOutputSchema>
 export const ciAttributionSchema = z.strictObject({
   attribution: z.enum(['change', 'pre-existing', 'infra', 'unknown', 'out-of-scope']),

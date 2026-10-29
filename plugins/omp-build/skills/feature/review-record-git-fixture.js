@@ -1,3 +1,41 @@
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+
+function git(cwd, args) {
+  return execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'core.hooksPath=/dev/null', ...args], {
+    cwd,
+    encoding: 'utf8',
+  }).trim()
+}
+
+function createCheckout() {
+  const root = mkdtempSync(path.join(tmpdir(), 'omp-review-record-'))
+  const bare = path.join(root, 'origin.git')
+  const worktree = path.join(root, 'wt')
+  git(root, ['init', '-q', '--bare', '-b', 'main', bare])
+  git(root, ['init', '-q', '-b', 'main', worktree])
+  writeFileSync(path.join(worktree, 'base.txt'), 'base\n')
+  git(worktree, ['add', '.'])
+  git(worktree, ['commit', '-qm', 'base'])
+  const heads = [git(worktree, ['rev-parse', 'HEAD'])]
+  git(worktree, ['remote', 'add', 'origin', 'https://github.com/acme/app.git'])
+  git(worktree, ['config', `url.${bare}.insteadOf`, 'https://github.com/acme/app.git'])
+  git(worktree, ['push', '-q', 'origin', 'HEAD:main'])
+  for (const name of ['two', 'three', 'four']) {
+    writeFileSync(path.join(worktree, `${name}.txt`), `${name}\n`)
+    git(worktree, ['add', '.'])
+    git(worktree, ['commit', '-qm', name])
+    heads.push(git(worktree, ['rev-parse', 'HEAD']))
+  }
+  return { worktree, heads }
+}
+
+const checkout = createCheckout()
+export const WORKTREE = checkout.worktree
+export const CHECKOUT_HEADS = checkout.heads
+
 function success(stdout = '') {
   return { code: 0, stdout, stderr: '' }
 }
@@ -7,7 +45,7 @@ function remoteUrl(args) {
 }
 
 function worktreeRoot(args) {
-  return args[0] === 'rev-parse' && args[1] === '--show-toplevel' ? success('/tmp/wt\n') : null
+  return args[0] === 'rev-parse' && args[1] === '--show-toplevel' ? success(`${WORKTREE}\n`) : null
 }
 
 function missingStackConfig(args) {

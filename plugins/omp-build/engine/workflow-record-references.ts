@@ -32,7 +32,7 @@ export function scopedRefsOf(record: { kind: Kind; payload: unknown }): External
     }
     case 'action-receipt': {
       const payload = record.payload as ActionReceiptPayload
-      const refs: ExternalRecordRef[] = [payload.mandate]
+      const refs: ExternalRecordRef[] = payload.mandate.kind === 'absent' ? [] : [payload.mandate]
       if (payload.phase === 'result') refs.push(payload.start)
       if (payload.action === 'assess-spec') {
         refs.push(payload.exactInputs.accepted.ref.sourceAccepted, ...payload.exactInputs.identityAllocations)

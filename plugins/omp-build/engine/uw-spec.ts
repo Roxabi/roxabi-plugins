@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto'
-import type { ExternalRecordRef } from './record-references.ts'
 import type { Scope } from './record-values.ts'
 import type { Result } from './result.ts'
 import type { UwDiagnostic, UwResult } from './uw-diagnostics.ts'
@@ -14,12 +13,15 @@ import {
   specSchema,
 } from './uw-spec-schema.ts'
 
+export type { ExclusionRef, OwnSpecRef } from './uw-spec-schema.ts'
 export {
   type CriterionId,
   criterionIdSchema,
   type DraftItem,
+  exclusionRefSchema,
   type InvariantId,
   invariantIdSchema,
+  ownSpecRefSchema,
   SPEC_CONTENT_FORMAT,
   type Spec,
   type SpecContent,
@@ -36,8 +38,6 @@ export {
   type UwTier,
   uwTierSchema,
 } from './uw-spec-schema.ts'
-export type OwnSpecRef = { uw: Scope; version: SpecVersion; sourceAccepted: ExternalRecordRef }
-export type ExclusionRef = { spec: OwnSpecRef; index: number }
 export function normalized(value: string): string {
   return value
     .replace(/\r\n?/g, '\n')

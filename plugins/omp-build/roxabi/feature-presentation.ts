@@ -1,3 +1,4 @@
+import { criterionIdSchema } from '../dist/contracts.js'
 import type { Diagnostic } from '../engine/record-values.ts'
 import type { ContinueFeatureResult } from './feature-contract.ts'
 
@@ -87,11 +88,26 @@ function featureStoppedWithDiagnostics(reason: string, diagnostics: readonly Dia
 
 /** Operator lines from already-built Diagnostic fields — no payload dump, reason enum unchanged. */
 function detailPathMessages(detail: Diagnostic['detail']): string[] {
-  if (!Array.isArray(detail)) return []
+  if (!Array.isArray(detail)) return criterionDetailMessages(detail)
   return detail.flatMap((entry) => {
     const line = detailPathMessage(entry)
     return line === null ? [] : [line]
   })
+}
+
+function criterionDetailMessages(detail: Diagnostic['detail']): string[] {
+  if (detail === null || typeof detail !== 'object' || Array.isArray(detail)) return []
+  const lines: string[] = []
+  for (const [key, label] of [
+    ['unknownCriterionIds', 'Unknown criteria'],
+    ['orphanCriterionIds', 'Uncovered criteria'],
+  ] as const) {
+    const ids = key in detail ? detail[key] : undefined
+    if (!Array.isArray(ids)) continue
+    const valid = ids.filter((id): id is string => criterionIdSchema.safeParse(id).success)
+    if (valid.length > 0) lines.push(`${label}: ${valid.join(', ')}`)
+  }
+  return lines
 }
 
 function detailPathMessage(entry: unknown): string | null {

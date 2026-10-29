@@ -60,6 +60,7 @@ export function startDefaultFix(input: DefaultFixEntry): FixRun {
   }
   const runtime: FixWorkflowRuntime = {
     signal: controller.signal,
+    uw: input.operations,
     onBatch(batch) {
       activeBatch = batch
     },

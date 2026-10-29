@@ -1,17 +1,21 @@
-import { execFileSync } from 'node:child_process'
-import { readFileSync, writeFileSync } from 'node:fs'
-import ompBuildExtension from '../omp/index.ts'
-import { createOmpFixPort } from '../omp/omp-controller.ts'
-import { loadFeatureWorkflow } from '../roxabi/feature-loader.ts'
 import type { OperatorPort } from '../roxabi/uw-contract.ts'
-import { createInstalledUwOperations } from '../roxabi/uw-installed-operations.ts'
-import { createInstalledUwReadPort } from '../roxabi/uw-read-port.ts'
-import { createExtensionApiStub } from './extension-api-stub.ts'
-import { invokeOmpIncompleteNative } from './feature-recovery-incomplete-native.ts'
-import { invokeOmpLiveInterleave } from './feature-recovery-live-interleave.ts'
-import { observedIncompleteNativeResult } from './feature-recovery-observed-native.ts'
-import { invokeOmpReviewApplyFalsify, invokeOmpReviewLifecycle } from './feature-review-lifecycle.ts'
-import { invokeReviewRace } from './feature-review-races.ts'
+import { createConcurrentPausePull, makePauseDisarmUnreadable } from './feature-recovery-pause-fixture.ts'
+import { installFixtureSdkSettings } from './native-sdk-settings-fixture.ts'
+
+await installFixtureSdkSettings(process.argv[3] ?? '')
+const { default: ompBuildExtension } = await import('../omp/index.ts')
+const { createOmpFixPort } = await import('../omp/omp-controller.ts')
+const { loadFeatureWorkflow } = await import('../roxabi/feature-loader.ts')
+const { createInstalledUwOperations } = await import('../roxabi/uw-installed-operations.ts')
+const { createInstalledUwReadPort } = await import('../roxabi/uw-read-port.ts')
+const { createExtensionApiStub } = await import('./extension-api-stub.ts')
+// Load the SDK registry only after the fixture's SDK settings are installed.
+const { provisionNativeRoot } = await import('./native-root-fixture.ts')
+const { invokeOmpIncompleteNative } = await import('./feature-recovery-incomplete-native.ts')
+const { invokeOmpLiveInterleave } = await import('./feature-recovery-live-interleave.ts')
+const { observedIncompleteNativeResult } = await import('./feature-recovery-observed-native.ts')
+const { invokeOmpReviewApplyFalsify, invokeOmpReviewLifecycle } = await import('./feature-review-lifecycle.ts')
+const { invokeReviewRace } = await import('./feature-review-races.ts')
 
 type Payload = {
   reference: string
@@ -40,48 +44,6 @@ function payloadFrom(raw: unknown): Payload {
   }
 }
 
-function createConcurrentPausePull(cwd: string): number {
-  const head = execFileSync('git', ['branch', '--show-current'], { cwd, encoding: 'utf8' }).trim()
-  if (head.length === 0) throw new Error('pause branch unavailable')
-  const raw = execFileSync(
-    'gh',
-    [
-      'api',
-      'repos/acme/app/pulls',
-      '--method',
-      'POST',
-      '-f',
-      `head=${head}`,
-      '-f',
-      'base=main',
-      '-f',
-      'title=concurrent pause disarm fixture',
-    ],
-    { cwd, encoding: 'utf8' },
-  )
-  const created: unknown = JSON.parse(raw)
-  if (
-    created === null ||
-    typeof created !== 'object' ||
-    !('number' in created) ||
-    typeof created.number !== 'number' ||
-    !Number.isSafeInteger(created.number)
-  ) {
-    throw new Error('pause pull creation unreadable')
-  }
-  return created.number
-}
-
-function makePauseDisarmUnreadable(pr: number): void {
-  const stateFile = process.env.GH_SIM_STATE
-  if (stateFile === undefined) throw new Error('pause simulator state unavailable')
-  const state = JSON.parse(readFileSync(stateFile, 'utf8')) as { prs?: Record<string, { labels?: unknown }> }
-  const pull = state.prs?.[String(pr)]
-  if (pull === undefined) throw new Error('pause disarm pull request unavailable')
-  pull.labels = [1]
-  writeFileSync(stateFile, JSON.stringify(state, null, 2))
-}
-
 const [operation, cwd, payloadText] = process.argv.slice(2)
 const payload = payloadFrom(JSON.parse(payloadText ?? '{}') as unknown)
 const workflow = await loadFeatureWorkflow()
@@ -94,6 +56,7 @@ async function continueFeature() {
     control: payload.control,
     principal: false,
     read: createInstalledUwReadPort({ cwd: sessionCwd }),
+    uw: await createInstalledUwOperations({ cwd: sessionCwd, operator: noWriteOperator }),
   })
 }
 
@@ -129,8 +92,8 @@ async function invokeWorkflowOperation(operationName: string): Promise<unknown |
       })
     case 'continuation-publish': {
       const continuation = await continueFeature()
-      if (continuation.kind !== 'action') throw new Error(`continuation-not-action:${continuation.kind}`)
-      const result = await observedIncompleteNativeResult(continuation.followUp)
+      if (continuation.kind !== 'action') throw new Error(`continuation-not-action:${JSON.stringify(continuation)}`)
+      const result = await observedIncompleteNativeResult(continuation.followUp, cwd ?? '')
       const published = await workflow.publishFeatureNativeResult({
         cwd: cwd ?? '',
         result,
@@ -162,6 +125,8 @@ async function invokeWorkflowOperation(operationName: string): Promise<unknown |
 
 async function invokeSdkDriver(operationName: string): Promise<unknown> {
   switch (operationName) {
+    case 'omp-feature':
+      return invokeOmpBridge(false, false)
     case 'omp-pause':
       return invokeOmpBridge()
     case 'omp-unconfirmed-pause':
@@ -194,6 +159,7 @@ async function invoke(operationName: string): Promise<unknown> {
 
 async function invokeOmpBridge(
   injectUnconfirmedPause = false,
+  interrupt = true,
 ): Promise<{ messages: string[]; pausePr: number | null }> {
   const commands = new Map<string, Handler>()
   const events = new Map<string, Handler[]>()
@@ -222,13 +188,16 @@ async function invokeOmpBridge(
     cwd: cwd ?? '',
     agent: { kind: 'main' as const, id: 'Main', name: 'main', depth: 0 },
     model: { contextWindow: 128_000 },
+    sessionManager: { getSessionId: () => 'recovery-bridge-root' },
     isIdle: () => true,
   }
-
+  provisionNativeRoot(context)
   ompBuildExtension(api, { principalCwd: () => false })
+  for (const handler of events.get('session_start') ?? []) await handler({ type: 'session_start' }, context)
   const feature = commands.get('feature')
   if (feature === undefined) throw new Error('feature-command-unregistered')
   await feature('#42', context)
+  if (!interrupt) return { messages, pausePr: null }
   const pausePr = injectUnconfirmedPause ? createConcurrentPausePull(cwd ?? '') : null
   if (pausePr !== null) makePauseDisarmUnreadable(pausePr)
   for (const handler of events.get('message_end') ?? []) {
@@ -236,7 +205,6 @@ async function invokeOmpBridge(
   }
   return { messages, pausePr }
 }
-
 async function invokeOmpLifetime(): Promise<{
   activeBeforePause: boolean
   cloneRetained: boolean
@@ -270,15 +238,18 @@ async function invokeOmpLifetime(): Promise<{
     cwd: cwd ?? '',
     agent: { kind: 'main' as const, id: 'Main', name: 'main', depth: 0 },
     model: { contextWindow: 128_000 },
+    sessionManager: { getSessionId: () => 'recovery-lifetime-root' },
     isIdle: () => true,
   }
+  provisionNativeRoot(context)
   ompBuildExtension(api, { principalCwd: () => false })
+  for (const handler of events.get('session_start') ?? []) await handler({ type: 'session_start' }, context)
   const feature = commands.get('feature')
   if (feature === undefined) throw new Error('feature-command-unregistered')
   await feature('#42', context)
   const port = createOmpFixPort(api)
   const original = port.active()
-  if (original === null) throw new Error('feature-batch-not-active')
+  if (original === null) throw new Error(`feature-batch-not-active: ${JSON.stringify(messages)}`)
   const activeBeforePause = port.active() === original
   await port.stopOwned(structuredClone(original), 'clone-must-not-stop')
   const cloneRetained = port.active() === original

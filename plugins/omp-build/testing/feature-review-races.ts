@@ -6,18 +6,16 @@ import { publishGitHubRecord } from '../adapters/github/publish.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import { withRoxabiGitHubPolicy } from '../roxabi/github-policy.ts'
 import { loadReviewConfig } from '../roxabi/review-assets.ts'
-import { readReviewHistory, reviewRecords } from '../skills/feature/workflow-records.js'
+import { reviewRecords } from '../skills/feature/workflow-records.js'
 import { reviewStep } from '../skills/feature/workflow-review-state.js'
-import { reviewDecision, reviewInitialData } from './feature-review-lifecycle.ts'
+import { reviewInitialData } from './feature-review-lifecycle.ts'
+import { citedHistory, history, reviewRecord } from './feature-review-race-history.ts'
+import { reviewDecision } from './feature-review-synthesis-sources.ts'
 import { createReviewDriver, type ReviewDriver } from './native-review-driver.ts'
 
 type Mode = 'latest' | 'pause'
 type ReviewRecord = Extract<CanonicalRecord, { kind: 'review' }>
 type DecisionRecord = Extract<CanonicalRecord, { kind: 'decision' }>
-
-async function history(cwd: string) {
-  return readReviewHistory(cwd, 7)
-}
 
 function waitFor(file: string): Promise<void> {
   const { promise, resolve, reject } = Promise.withResolvers<void>()
@@ -108,7 +106,7 @@ function failNextPost() {
 async function continuationPrerequisites(cwd: string, kind: 'preflight' | 'checkout') {
   const source = await history(cwd)
   const records = source.operations.flatMap((operation) => (operation.record ? [operation.record] : []))
-  const summary = reviewRecords(source)
+  const summary = reviewRecords(source, { externalHistories: await citedHistory(cwd, source) })
   const requests = records.filter((record) => record.kind === 'fix-request')
   if (kind === 'preflight') {
     if (!source.source.complete || requests.length !== 1) throw new Error('fix-request-not-confirmed-before-race')
@@ -116,12 +114,10 @@ async function continuationPrerequisites(cwd: string, kind: 'preflight' | 'check
   }
   const step = summary.ok ? reviewStep(summary.value, { head: summary.value.head }) : null
   if (!source.source.complete || step?.action !== 'fix' || requests.length !== 0)
-    throw new Error('fix-selection-not-confirmed-before-pause')
+    throw new Error(
+      `fix-selection-not-confirmed-before-pause:${JSON.stringify({ complete: source.source.complete, summary, step, requests })}`,
+    )
   return { complete: true, action: step.action, requests: requests.length }
-}
-
-function reviewRecord(record: CanonicalRecord): record is ReviewRecord {
-  return record.kind === 'review'
 }
 
 async function nextReviewRecords(
@@ -154,20 +150,22 @@ async function nextReviewRecords(
     appended.push(newerDecision, newerReview)
   }
   const projection = { taxonomy: loadReviewConfig().canonicalClasses, acceptedPolicy: null }
+  const externalHistories = await citedHistory(cwd, initial)
   for (const record of appended) {
     const publication = await publishGitHubRecord(
       record,
       await history(cwd),
       withRoxabiGitHubPolicy({ cwd }),
       projection,
+      externalHistories,
     )
     if (publication.status !== 'confirmed')
       throw new Error(
-        `third-review-publication-refused:${publication.diagnostics.map((entry) => entry.code).join(',')}`,
+        `third-review-publication-refused:${JSON.stringify({ recordId: record.recordId, kind: record.kind, diagnostics: publication.diagnostics })}`,
       )
   }
   const current = await history(cwd)
-  const summary = reviewRecords(current)
+  const summary = reviewRecords(current, { externalHistories: await citedHistory(cwd, current) })
   if (!current.source.complete || !summary.ok || summary.value.reviews !== 3)
     throw new Error('third-review-history-invalid')
   const step = reviewStep(summary.value, { head: summary.value.head })

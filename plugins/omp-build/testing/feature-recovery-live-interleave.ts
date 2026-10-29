@@ -2,9 +2,15 @@ import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { FINDING_TARGET_FORMAT } from '../engine/finding-target-schema.ts'
 import ompBuildExtension from '../omp/index.ts'
 import { reviewControllerFor } from '../omp/omp-controller.ts'
-import { createExtensionApiStub } from './extension-api-stub.ts'
+import { createExtensionApiStub, fixtureEventBus } from './extension-api-stub.ts'
+import { SCOPE } from './feature-recovery-fixture.ts'
+import { releaseLiveInterleaveBarrier, waitForBarrier } from './feature-recovery-live-barrier.ts'
+import { nativeFeatureSpec } from './feature-review-fixture.ts'
+import { type NativeReviewChild, nativeReviewChild } from './native-review-child.ts'
+import { provisionNativeRoot } from './native-root-fixture.ts'
 
 type Handler = (...args: unknown[]) => unknown
 
@@ -21,24 +27,10 @@ type LiveInterleaveResult = {
 }
 
 async function emit(events: Map<string, Handler[]>, event: string, ...args: unknown[]): Promise<void> {
-  for (const handler of events.get(event) ?? []) await handler(...args)
-}
-
-async function waitForBarrier(ready: () => boolean, completion: Promise<unknown>): Promise<void> {
-  let completionSettled = false
-  void completion.then(
-    () => {
-      completionSettled = true
-    },
-    () => {
-      completionSettled = true
-    },
-  )
-  while (!ready()) {
-    if (completionSettled) throw new Error('authorize-push-barrier-unreached')
-    const timer = Promise.withResolvers<void>()
-    setTimeout(timer.resolve, 5)
-    await timer.promise
+  for (const handler of events.get(event) ?? []) {
+    const result = await handler(...args)
+    if (typeof result === 'object' && result !== null && 'block' in result && result.block === true)
+      throw new Error(`${event} refused: ${'reason' in result ? String(result.reason) : 'unknown'}`)
   }
 }
 
@@ -54,57 +46,21 @@ function gitExitCode(cwd: string, args: string[]): number {
 }
 
 async function captureBash(input: {
-  events: Map<string, Handler[]>
-  taskName: string
+  child: NativeReviewChild
   command: string
   toolCallId: string
   cwd: string
   args: string[]
 }): Promise<CapturedBash> {
-  await emit(input.events, 'task:subagent:event', {
-    id: input.taskName,
-    event: {
-      type: 'tool_execution_start',
-      toolName: 'bash',
-      toolCallId: input.toolCallId,
-      args: { command: input.command },
-    },
-  })
+  const toolInput = { command: input.command }
+  await input.child.call('bash', input.toolCallId, toolInput)
   const exitCode = gitExitCode(input.cwd, input.args)
-  await emit(input.events, 'task:subagent:event', {
-    id: input.taskName,
-    event: {
-      type: 'tool_execution_end',
-      toolName: 'bash',
-      toolCallId: input.toolCallId,
-      isError: exitCode !== 0,
-      result: { content: [], details: { exitCode } },
-    },
+  await input.child.result('bash', input.toolCallId, toolInput, {
+    content: [],
+    details: { exitCode },
+    isError: exitCode !== 0,
   })
   return { toolCallId: input.toolCallId, exitCode }
-}
-
-async function releaseLiveInterleaveBarrier(
-  release: string,
-  completing: Promise<void> | null,
-  originalPath: string | undefined,
-  gate: string,
-): Promise<void> {
-  if (!existsSync(release)) writeFileSync(release, '')
-  if (completing !== null) {
-    try {
-      await completing
-    } catch {
-      // Preserve the original failure while allowing the released Git wrapper to exit.
-    }
-  }
-  if (originalPath === undefined) delete process.env.PATH
-  else process.env.PATH = originalPath
-  delete process.env.OMP_BUILD_AUTHORIZE_READY
-  delete process.env.OMP_BUILD_AUTHORIZE_RELEASE
-  delete process.env.OMP_BUILD_PUSHED
-  delete process.env.OMP_BUILD_REAL_GIT
-  rmSync(gate, { recursive: true, force: true })
 }
 
 export async function invokeOmpLiveInterleave(cwd: string): Promise<LiveInterleaveResult> {
@@ -112,14 +68,12 @@ export async function invokeOmpLiveInterleave(cwd: string): Promise<LiveInterlea
   const events = new Map<string, Handler[]>()
   const messages: string[] = []
   const api = createExtensionApiStub({
-    events: {
-      on(name, handler) {
-        const registered = events.get(name) ?? []
-        registered.push(handler as Handler)
-        events.set(name, registered)
-        return () => undefined
-      },
-    },
+    events: fixtureEventBus((name, handler) => {
+      const registered = events.get(name) ?? []
+      registered.push(handler as Handler)
+      events.set(name, registered)
+      return () => undefined
+    }),
     on(name, handler) {
       const registered = events.get(name) ?? []
       registered.push(handler as Handler)
@@ -139,12 +93,17 @@ export async function invokeOmpLiveInterleave(cwd: string): Promise<LiveInterlea
       throw new Error('unexpected-omp-exec')
     },
   })
+  const artifacts = mkdtempSync(path.join(tmpdir(), 'recovery-live-'))
   const context = {
     cwd,
     agent: { kind: 'main' as const, id: 'Main', name: 'main', depth: 0 },
     model: { contextWindow: 128_000 },
+    models: { resolve: () => ({ id: 'fixture-model', provider: 'fixture-provider' }) },
+    sessionManager: { getSessionId: () => 'recovery-live-root' },
     isIdle: () => true,
+    localProtocolOptions: { getArtifactsDir: () => artifacts },
   }
+  provisionNativeRoot(context)
   const gate = mkdtempSync(path.join(tmpdir(), 'omp-build-authorize-push-'))
   const ready = path.join(gate, 'ready')
   const release = path.join(gate, 'release')
@@ -174,24 +133,32 @@ exec "$OMP_BUILD_REAL_GIT" "$@"
   let completing: Promise<void> | null = null
   try {
     ompBuildExtension(api, { principalCwd: () => false })
+    await emit(events, 'session_start', { type: 'session_start' }, context)
     const feature = commands.get('feature')
     if (feature === undefined) throw new Error('feature-command-unregistered')
     await feature('#42', context)
     const controller = reviewControllerFor(api)
     const active = controller.active()
-    if (active === null) throw new Error('feature-batch-not-active')
+    if (active === null) throw new Error(`feature-batch-not-active: ${JSON.stringify(messages)}`)
     await controller.stopOwned(structuredClone(active), 'clone-must-not-stop')
     const cloneRetained = controller.active() === active
     const task = active.tasks.tasks[0]
     const wire = controller.wire(active)
     if (task === undefined || wire === null) throw new Error('feature-batch-unwired')
-    await emit(events, 'tool_call', { toolName: 'task', toolCallId: active.operationId, input: wire }, context)
-    await emit(
-      events,
-      'before_subagent_spawn',
-      { agent: task.agent, invocationKind: 'task', patterns: [], spawnKey: task.name },
-      context,
-    )
+    if (!controller.admit(active, active.operationId, context as never, () => true))
+      throw new Error('feature-admission-refused')
+    if (!controller.bindChild(task.name, 0, context.models.resolve())) throw new Error('feature-child-binding-refused')
+    const sessionFile = path.join(artifacts, 'child-0.jsonl')
+    await emit(events, 'task:subagent:lifecycle', {
+      status: 'started',
+      id: task.name,
+      agent: task.agent,
+      index: 0,
+      parentToolCallId: active.operationId,
+      sessionFile,
+      detached: false,
+    })
+    const child = await nativeReviewChild({ task, sessionFile })
 
     writeFileSync(path.join(cwd, 'README.md'), 'live interleaving witness\n')
     execFileSync('git', ['add', '--', 'README.md'], { cwd })
@@ -203,8 +170,7 @@ exec "$OMP_BUILD_REAL_GIT" "$@"
     const tip = execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim()
     const redCommand = 'git diff --quiet HEAD^ HEAD -- README.md'
     const red = await captureBash({
-      events,
-      taskName: task.name,
+      child,
       command: redCommand,
       toolCallId: 'implementation-proof-red',
       cwd,
@@ -212,8 +178,7 @@ exec "$OMP_BUILD_REAL_GIT" "$@"
     })
     if (red.exitCode !== 1) throw new Error(`red-proof-exit-code:${red.exitCode}`)
     const green = await captureBash({
-      events,
-      taskName: task.name,
+      child,
       command: 'git diff --quiet HEAD',
       toolCallId: 'implementation-proof-green',
       cwd,
@@ -228,41 +193,43 @@ exec "$OMP_BUILD_REAL_GIT" "$@"
         { toolCallId: red.toolCallId, command: redCommand, exitCode: red.exitCode },
         { toolCallId: green.toolCallId, command: proofCommand, exitCode: green.exitCode },
       ],
-      proofToolCallId: green.toolCallId,
-      proofUnavailableReason: null,
+      criteria: [
+        {
+          target: {
+            format: FINDING_TARGET_FORMAT,
+            kind: 'criterion' as const,
+            spec: {
+              uw: SCOPE,
+              version: nativeFeatureSpec(SCOPE, 'preserves the region').ownSpec.version,
+              sourceAccepted: { scope: SCOPE, recordId: 'mandate-feature-1', kind: 'mandate' as const },
+            },
+            id: 'C1',
+          },
+          verification: 'unverified' as const,
+          reason: 'the captured commands exercise the pause interleaving, not criterion evidence',
+        },
+      ],
       reason: 'the captured command exercises the changed path',
     }
-    await emit(events, 'task:subagent:event', {
-      id: task.name,
-      event: {
-        type: 'tool_execution_start',
-        toolName: 'yield',
-        toolCallId: 'implementation-yield',
-        args: { data: output },
-      },
-    })
-    completing = emit(
-      events,
-      'tool_result',
-      {
-        toolName: 'task',
-        toolCallId: active.operationId,
-        isError: false,
-        content: [],
-        details: {
-          results: [
-            {
-              index: 0,
-              id: task.name,
-              agent: task.agent,
-              exitCode: 0,
-              structuredOutput: { status: 'valid', data: output },
-            },
-          ],
+    await child.call('yield', 'implementation-yield', { data: output })
+    await child.result('yield', 'implementation-yield', { data: output }, { content: [], details: {}, isError: false })
+    const observation = {
+      toolCallId: active.operationId,
+      errors: [],
+      results: [
+        {
+          index: 0,
+          id: task.name,
+          agent: task.agent,
+          exitCode: 0,
+          structuredOutput: { status: 'valid', data: output },
         },
-      },
-      context,
-    )
+      ],
+    }
+    controller.prepareOwnedResult(observation, context as never)
+    controller.queueOwnedSettlement(observation)
+    controller.finishExecution(active)
+    completing = controller.ownedSettlement().then(() => undefined)
     await waitForBarrier(() => existsSync(ready), completing)
     await feature('pause #42', context)
     writeFileSync(release, '')
@@ -282,6 +249,7 @@ exec "$OMP_BUILD_REAL_GIT" "$@"
       captures: { red, green },
     }
   } finally {
+    rmSync(artifacts, { recursive: true, force: true })
     await releaseLiveInterleaveBarrier(release, completing, originalPath, gate)
   }
 }

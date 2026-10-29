@@ -15,6 +15,15 @@ import type { OperatorConfirmationEvidence } from '../engine/uw-identity-schema.
 import type { NormalizationDecision, NormalizationJudgement } from '../engine/uw-normalization-schema.ts'
 import type { SpecDraft, SpecRawSource, UwTier } from '../engine/uw-spec.ts'
 import type { PreparedMaterialAcceptance } from '../engine/workflow-spec-assessment.ts'
+import type {
+  ActionInputs,
+  ActionSnapshot,
+  PreparedUwAction,
+  ReviewActionBatch,
+  ReviewActionProjection,
+  UwActionRequest,
+} from './uw-action-contract.ts'
+import type { UwDeliveryRead } from './uw-delivery-read.ts'
 
 export type TierOverride = { tier: UwTier; reason: string } | null
 
@@ -116,4 +125,9 @@ export interface UwOperations extends UwReadPort {
   write(input: UwProposalInput): Promise<UwOperationResult>
   create(input: UwCreateInput): Promise<UwOperationResult>
   acceptMaterial(uw: Scope): Promise<UwOperationResult>
+  prepareAction(input: UwActionRequest, projection?: ReviewActionProjection): Promise<Result<PreparedUwAction>>
+  prepareReviewActions(input: ReviewActionBatch): Promise<Result<readonly PreparedUwAction[]>>
+  replayActionInputs(input: { reviewed: ActionInputs; request: UwActionRequest }): Promise<Result<ActionInputs>>
+  verifyAction(snapshot: ActionSnapshot): Promise<Result<ActionSnapshot>>
+  readDelivery(uw: Scope): Promise<UwResult<UwDeliveryRead>>
 }

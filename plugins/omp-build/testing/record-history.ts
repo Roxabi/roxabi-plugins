@@ -4,14 +4,15 @@ import type { ObservedComment } from '../engine/review-schema.ts'
 import { NATIVE_AUTHOR, TEST_SCOPE } from './record-builders.ts'
 
 export function observedComment(overrides: Partial<ObservedComment> = {}): ObservedComment {
+  const createdAt = overrides.createdAt ?? '2026-10-21T10:00:00Z'
   return {
     locator: 'comment-101',
     nativeId: '101',
     body: '<!-- omp-build:record v=1 kind=review record=final-review operation=op-final-review part=1 total=1 -->',
     author: NATIVE_AUTHOR,
-    createdAt: '2026-10-21T10:00:00Z',
-    updatedAt: null,
     ...overrides,
+    createdAt,
+    updatedAt: overrides.updatedAt !== undefined ? overrides.updatedAt : createdAt,
   }
 }
 

@@ -31,7 +31,7 @@ const PLAN_OUTPUT: PlanOutput = {
       id: 'step-1',
       change: 'persist the selected region',
       doneWhen: 'the region survives a reload',
-      criterion: 'save',
+      criterionIds: ['C1'],
       evidence: 'the save test passes',
       paths: ['src/save.ts'],
     },
@@ -53,14 +53,48 @@ export function roxabiWorkflowFixtures() {
     head: '1111111111111111111111111111111111111111',
     editedAt: '2026-10-21T12:00:00Z',
   }
+  const workflow = createWorkflowFixtures(context)
+  const actions = createWorkflowActionFixtures({
+    planOutput: PLAN_OUTPUT,
+    planSlots: PLAN_SLOTS,
+    nativeOutcome: { completion: 'completed', strict: 'valid', raw: null },
+    head: context.head,
+  })
   return {
-    ...createWorkflowFixtures(context),
-    ...createWorkflowActionFixtures({
-      planOutput: PLAN_OUTPUT,
-      planSlots: PLAN_SLOTS,
-      nativeOutcome: { completion: 'completed', strict: 'valid', raw: null },
-      head: context.head,
-    }),
+    ...workflow,
+    ...actions,
+    linkedLandingAuthority: (input: Parameters<typeof workflow.linkedLandingAuthority>[0]) => {
+      const authority = workflow.linkedLandingAuthority(input)
+      const digest = actions.publishedPlanDigest()
+      const records = [
+        authority.mandate,
+        ...actions.planDraftRecords(authority.mandate),
+        actions.planReviewStart(authority.mandate, 'act-plan-1', digest),
+        actions.planReviewRecord(authority.mandate, 'act-plan-1', digest, [
+          actions.clearPlanContribution('slot-architect', 'R-workflow-plan-architect'),
+          actions.clearPlanContribution('slot-adversarial', 'R-workflow-plan-adversarial'),
+        ]),
+      ]
+      const author = input.author ?? 'operator'
+      const sameScope =
+        authority.issueScope.target === authority.pullRequest.target &&
+        authority.issueScope.repository === authority.pullRequest.repository
+      if (sameScope) {
+        const combined = [...records, authority.binding]
+        return {
+          ...authority,
+          issueHistory: workflow.historyFrom(combined, author),
+          bindingBodies: workflow.framedBodies(combined, author),
+        }
+      }
+      const issueHistory = workflow.historyFrom(records, author)
+      return {
+        ...authority,
+        issueHistory,
+        issueBodies: workflow.framedBodies(records, author),
+        bindingBodies: workflow.framedBodies([authority.binding], author, [issueHistory]),
+      }
+    },
   }
 }
 

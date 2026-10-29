@@ -1,5 +1,5 @@
 import { classifyHistory } from './history-classification.ts'
-import { validateRecordGraph } from './history-graph.ts'
+import { validateProspectiveRecord, validateRecordGraph } from './history-graph.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope, fail } from './record-diagnostics.ts'
 import { projectionClosure } from './record-projection-closure.ts'
@@ -22,17 +22,16 @@ function externalReferenceDiagnostic(
   if (foreign === undefined)
     return diagnostic('missing-history', `No history was supplied for ${ref.scope.repository} ${ref.scope.target}`)
   if (!foreign.source.complete) return diagnostic('incomplete', 'External history pagination is incomplete')
-  const matches = foreign.operations.filter(
+  const observations = foreign.operations.filter(
     (operation) => operation.record?.recordId === ref.recordId || operation.recordId === ref.recordId,
   )
-  if (matches.length === 0) return diagnostic('unknown', `Record ${ref.recordId} is not in the foreign history`)
+  if (observations.length === 0) return diagnostic('unknown', `Record ${ref.recordId} is not in the foreign history`)
+  const matches = observations.filter((operation) => operation.authority !== 'foreign')
+  if (matches.length === 0)
+    return diagnostic('unconfirmed', `Record ${ref.recordId} is not a complete authenticated record`)
   if (matches.some((operation) => operation.status === 'conflict'))
     return diagnostic('conflict', `Record ${ref.recordId} has conflicting parts`)
-  if (
-    matches.some(
-      (operation) => operation.status !== 'complete' || operation.record === null || operation.authority === 'foreign',
-    )
-  )
+  if (matches.some((operation) => operation.status !== 'complete' || operation.record === null))
     return diagnostic('unconfirmed', `Record ${ref.recordId} is not a complete authenticated record`)
   const bodies = new Set(matches.map((operation) => JSON.stringify(operation.record)))
   if (bodies.size !== 1) return diagnostic('ambiguous', `Record ${ref.recordId} has incompatible duplicates`)
@@ -72,18 +71,15 @@ function projectWorkflowRecord(
     return fail([
       diagnostic('unbound', `Record ${record.recordId} cannot be projected outside a complete bound history`),
     ])
-  const records = recordMap(history)
+  const records = recordMap({
+    ...history,
+    operations: history.operations.filter((operation) => operation.authority !== 'foreign'),
+  })
   const home = records.get(record.recordId)
   if (home !== undefined && JSON.stringify(home) !== JSON.stringify(record))
     return fail([
       diagnostic('conflict', `Record ${record.recordId} conflicts with the complete record already in this history`),
     ])
-  if (
-    history.operations.some(
-      (operation) => operation.record?.recordId === record.recordId && operation.authority === 'foreign',
-    )
-  )
-    return fail([diagnostic('foreign', `Record ${record.recordId} is not from the expected author`)])
   const referenceDiagnostic = workflowReferenceDiagnostic(record, records, externalHistories)
   if (referenceDiagnostic !== null) return fail([referenceDiagnostic])
   return {
@@ -97,6 +93,8 @@ function projectReviewRecord(
   history: DecodedHistory,
   records: ReadonlyMap<string, CanonicalRecord>,
   config: RecordProjectionConfig | null,
+  externalHistories: readonly DecodedHistory[],
+  deliveryHistory: DecodedHistory,
 ): Result<string> {
   const decision = records.get(record.payload.decisionId)
   if (decision?.kind !== 'decision')
@@ -109,7 +107,14 @@ function projectReviewRecord(
     (Reflect.get(config, 'acceptedPolicy') !== null && typeof Reflect.get(config, 'acceptedPolicy') !== 'string')
   )
     return fail([diagnostic('unbound', `Review ${record.recordId} has no valid projection policy context`)])
-  const assessment = validateDecision(decision, history, config.taxonomy, config.acceptedPolicy)
+  const assessment = validateDecision(
+    decision,
+    history,
+    config.taxonomy,
+    config.acceptedPolicy,
+    externalHistories,
+    deliveryHistory,
+  )
   if (!assessment.admissible || assessment.verdict === null)
     return fail(
       assessment.diagnostics.length > 0
@@ -152,6 +157,8 @@ export function projectRecord(
   config: RecordProjectionConfig | null,
   externalHistories: readonly DecodedHistory[] = [],
 ): Result<string> {
+  const prospective = validateProspectiveRecord(record, history)
+  if (prospective.length > 0) return fail(prospective)
   if (isWorkflowKind(record.kind)) return projectWorkflowRecord(record, history, externalHistories)
   const closure = projectionClosure(record, history, classifyHistory(history))
   if (!closure.ok) return fail(closure.diagnostics)
@@ -163,7 +170,8 @@ export function projectRecord(
       diagnostic('unbound', `Record ${record.recordId} cannot be projected outside a complete bound history`),
     ])
   const records = new Map(graph.value.map((entry) => [entry.recordId, entry]))
-  if (record.kind === 'review') return projectReviewRecord(record, projectionHistory, records, config)
+  if (record.kind === 'review')
+    return projectReviewRecord(record, projectionHistory, records, config, externalHistories, history)
   if (record.kind === 'contribution' && record.payload.host.origin === 'operator')
     return projectOperatorContribution(record)
   return {

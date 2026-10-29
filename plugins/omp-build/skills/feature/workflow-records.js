@@ -7,10 +7,10 @@ import {
 } from '../../dist/contracts.js'
 import { withRoxabiGitHubPolicy } from '../../roxabi/github-policy'
 import { loadReviewClassCatalogue } from '../../roxabi/review-assets.ts'
+import { readReviewInputHistories } from '../../roxabi/uw-input-readers.ts'
 import { gh, preview } from './workflow-runtime.js'
 
 let cachedTaxonomy
-
 export function reviewTaxonomy() {
   if (cachedTaxonomy !== undefined) return cachedTaxonomy
   const { classes } = loadReviewClassCatalogue()
@@ -45,8 +45,21 @@ export async function repositoryScope(cwd, pr, ghFn = gh) {
   return githubScope(data.nameWithOwner, number)
 }
 
-export function reviewRecords(history, { taxonomy = reviewTaxonomy(), acceptedEvidencePolicyRef = null } = {}) {
-  return summarizeReviews(history, taxonomy, acceptedEvidencePolicyRef)
+export function reviewRecords(
+  history,
+  { taxonomy = reviewTaxonomy(), acceptedEvidencePolicyRef = null, externalHistories = [] } = {},
+) {
+  return summarizeReviews(history, taxonomy, acceptedEvidencePolicyRef, externalHistories)
+}
+
+async function citedHistories(history, cwd, ghFn) {
+  const cited = await readReviewInputHistories(history, { cwd, gh: ghFn })
+  if (!cited.ok) {
+    const error = reviewRefusal(cited)
+    error.citedHistory = true
+    throw error
+  }
+  return cited.value
 }
 
 export async function readReviewHistory(cwd, pr, ghFn = gh) {
@@ -56,13 +69,23 @@ export async function readReviewHistory(cwd, pr, ghFn = gh) {
 
 export async function readReviewRecords(cwd, pr, { gh: ghFn = gh, taxonomy, acceptedEvidencePolicyRef = null } = {}) {
   const history = await readReviewHistory(cwd, pr, ghFn)
-  return reviewRecords(history, { ...(taxonomy === undefined ? {} : { taxonomy }), acceptedEvidencePolicyRef })
+  const externalHistories = await citedHistories(history, cwd, ghFn)
+  return reviewRecords(history, {
+    ...(taxonomy === undefined ? {} : { taxonomy }),
+    acceptedEvidencePolicyRef,
+    externalHistories,
+  })
 }
 
 export async function requiredReviewAdmission(cwd, pr, options) {
   const { gh: ghFn = gh, taxonomy, acceptedEvidencePolicyRef = null } = options ?? {}
   const history = await readReviewHistory(cwd, pr, ghFn)
-  const result = reviewRecords(history, { ...(taxonomy === undefined ? {} : { taxonomy }), acceptedEvidencePolicyRef })
+  const externalHistories = await citedHistories(history, cwd, ghFn)
+  const result = reviewRecords(history, {
+    ...(taxonomy === undefined ? {} : { taxonomy }),
+    acceptedEvidencePolicyRef,
+    externalHistories,
+  })
   if (!result.ok) throw reviewRefusal(result)
   return { records: result.value, operations: selectedReviewOperations(history, result.value) }
 }

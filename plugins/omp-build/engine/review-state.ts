@@ -9,14 +9,21 @@ import { validateDecision } from './review-decision.ts'
 import { spentBeforeCurrentPullRequestAttempt, spentInCompleteHistory } from './review-history.ts'
 import { analyzeReviewIdentity, reviewOperations } from './review-identity.ts'
 import { readReviewRecovery } from './review-recovery.ts'
-import type { Stop } from './review-schema.ts'
+import { nextReviewState, requiredReviewStop } from './review-state-transition.ts'
 
 export function summarizeReviews(
   history: DecodedHistory,
   taxonomy: readonly string[],
   acceptedPolicyRef: string | null,
+  externalHistories: readonly DecodedHistory[] = [],
 ): Result<ReviewSummary> {
-  return summarizeAuthorityReviews(classifyHistory(history).authorityHistory, taxonomy, acceptedPolicyRef)
+  return summarizeAuthorityReviews(
+    classifyHistory(history).authorityHistory,
+    taxonomy,
+    acceptedPolicyRef,
+    externalHistories,
+    history,
+  )
 }
 
 export { selectedReviewOperations } from './review-attempt-operations.ts'
@@ -44,6 +51,8 @@ function latestReviewSummary(
   acceptedPolicyRef: string | null,
   knownReviews: number,
   spent: boolean,
+  externalHistories: readonly DecodedHistory[],
+  deliveryHistory: DecodedHistory,
 ): Result<ReviewSummary> {
   if (latest === null)
     return {
@@ -58,7 +67,14 @@ function latestReviewSummary(
       true,
       spent,
     )
-  const assessment = validateDecision(decision, history, taxonomy, acceptedPolicyRef)
+  const assessment = validateDecision(
+    decision,
+    history,
+    taxonomy,
+    acceptedPolicyRef,
+    externalHistories,
+    deliveryHistory,
+  )
   if (assessment.verdict === null) return summaryFailure(assessment.diagnostics, knownReviews, true, spent)
   return {
     ok: true,
@@ -81,6 +97,8 @@ function validateAuthorityReviewSpend(
   taxonomy: readonly string[],
   acceptedPolicyRef: string | null,
   initialSpent: boolean,
+  externalHistories: readonly DecodedHistory[],
+  deliveryHistory: DecodedHistory,
 ) {
   let spent = initialSpent
   for (const [index, review] of reviews.entries()) {
@@ -92,7 +110,14 @@ function validateAuthorityReviewSpend(
         diagnostics: [diagnostic('unknown-reference', `Review ${record.recordId} lacks its decision`)],
         spent,
       }
-    const assessment = validateDecision(decision, history, taxonomy, acceptedPolicyRef)
+    const assessment = validateDecision(
+      decision,
+      history,
+      taxonomy,
+      acceptedPolicyRef,
+      externalHistories,
+      deliveryHistory,
+    )
     if (!assessment.admissible) return { diagnostics: assessment.diagnostics, spent }
     if (index >= 2 && assessment.verdict === 'Request changes') spent = true
   }
@@ -103,13 +128,15 @@ function summarizeAuthorityReviews(
   history: DecodedHistory,
   taxonomy: readonly string[],
   acceptedPolicyRef: string | null,
+  externalHistories: readonly DecodedHistory[],
+  deliveryHistory: DecodedHistory,
 ): Result<ReviewSummary> {
   const identity = analyzeReviewIdentity(history, recordMap(history))
   const reviews = identity.reviews
   const knownReviews = identity.knownReviews
   const preservedSpent =
-    spentInCompleteHistory(history, taxonomy, acceptedPolicyRef) ??
-    spentBeforeCurrentPullRequestAttempt(history, taxonomy, acceptedPolicyRef)
+    spentInCompleteHistory(history, taxonomy, acceptedPolicyRef, externalHistories, deliveryHistory) ??
+    spentBeforeCurrentPullRequestAttempt(history, taxonomy, acceptedPolicyRef, externalHistories, deliveryHistory)
   const uncertainSpent: boolean | null = preservedSpent === true ? true : reviews.length >= 3 ? null : false
   const transportDiagnostics = reviewTransportDiagnostics(identity.transportDiagnostics, identity.incompleteFinal)
   if (transportDiagnostics !== null)
@@ -133,9 +160,13 @@ function summarizeAuthorityReviews(
     taxonomy,
     acceptedPolicyRef,
     preservedSpent === true,
+    externalHistories,
+    deliveryHistory,
   )
   if (reviewSpend.diagnostics !== null)
     return summaryFailure(reviewSpend.diagnostics, knownReviews, true, reviewSpend.spent)
+  if (identity.lineageDiagnostics.length > 0)
+    return summaryFailure(identity.lineageDiagnostics, knownReviews, true, reviewSpend.spent)
   if (identity.pendingRoot !== null)
     return summaryFailure(
       [
@@ -159,6 +190,8 @@ function summarizeAuthorityReviews(
     acceptedPolicyRef,
     knownReviews,
     reviewSpend.spent,
+    externalHistories,
+    deliveryHistory,
   )
 }
 
@@ -168,61 +201,27 @@ function spentReviewFor(
   history: DecodedHistory,
   taxonomy: readonly string[],
   acceptedPolicyRef: string | null,
+  externalHistories: readonly DecodedHistory[],
+  deliveryHistory: DecodedHistory,
 ): Result<Extract<CanonicalRecord, { kind: 'review' }> | null> {
   let spentReview: Extract<CanonicalRecord, { kind: 'review' }> | null = null
   for (const [index, review] of reviews.entries()) {
     const decision = records.get(review.payload.decisionId)
     if (decision?.kind !== 'decision')
       return fail([diagnostic('unknown-reference', `Review ${review.recordId} lacks its decision`)])
-    const assessment = validateDecision(decision, history, taxonomy, acceptedPolicyRef)
+    const assessment = validateDecision(
+      decision,
+      history,
+      taxonomy,
+      acceptedPolicyRef,
+      externalHistories,
+      deliveryHistory,
+    )
     if (!assessment.admissible) return fail(assessment.diagnostics)
     if (index >= 2 && assessment.verdict === 'Request changes' && spentReview === null) spentReview = review
   }
   return { ok: true, value: spentReview }
 }
-
-function latestApprovingReview(
-  latestReview: Extract<CanonicalRecord, { kind: 'review' }> | undefined,
-  summary: ReviewSummary,
-): Extract<CanonicalRecord, { kind: 'review' }> | null {
-  return latestReview !== undefined && summary.verdict !== null && summary.verdict !== 'Request changes'
-    ? latestReview
-    : null
-}
-
-function redCiRequiresStop(
-  review: Extract<CanonicalRecord, { kind: 'review' }> | null,
-  reviewCount: number,
-  facts: ReviewFacts,
-): boolean {
-  return (
-    reviewCount > 2 && review !== null && review.payload.candidateGitSHA === facts.candidateGitSHA && facts.ci === 'red'
-  )
-}
-
-function requiredReviewStop(
-  spentReview: Extract<CanonicalRecord, { kind: 'review' }> | null,
-  latestReview: Extract<CanonicalRecord, { kind: 'review' }> | undefined,
-  reviewCount: number,
-  summary: ReviewSummary,
-  facts: ReviewFacts,
-): Stop | null {
-  if (spentReview !== null)
-    return {
-      reason: 'review-bound',
-      reviewId: spentReview.recordId,
-      detail: { reviews: summary.reviews, verdict: 'Request changes' },
-    }
-  const approved = latestApprovingReview(latestReview, summary)
-  if (!redCiRequiresStop(approved, reviewCount, facts)) return null
-  if (approved === null) return null
-  return {
-    reason: 'ci-failed',
-    reviewId: approved.recordId,
-    detail: { reviews: summary.reviews, ci: facts.ci },
-  }
-}
-
 function reviewStateFailure(
   diagnostics: Diagnostic[],
   knownReviews: number,
@@ -232,24 +231,22 @@ function reviewStateFailure(
   return { ok: false, next: 'stop', knownReviews, countExact, spent, diagnostics }
 }
 
-function nextReviewState(summary: ReviewSummary, facts: ReviewFacts): ReviewState {
-  if (summary.head !== null && summary.head !== facts.candidateGitSHA)
-    return { ok: true, summary, next: 'review', requiredStop: null }
-  if (summary.input !== facts.input) return { ok: true, summary, next: 'review', requiredStop: null }
-  if (facts.ci === 'pending' || facts.ci === 'red') return { ok: true, summary, next: 'wait', requiredStop: null }
-  if (summary.verdict === 'Request changes') return { ok: true, summary, next: 'fix', requiredStop: null }
-  return { ok: true, summary, next: summary.verdict === null ? 'review' : 'admit', requiredStop: null }
-}
-
 export function deriveReviewState(
   history: DecodedHistory,
   facts: ReviewFacts,
   taxonomy: readonly string[],
+  externalHistories: readonly DecodedHistory[] = [],
 ): ReviewState {
   if (!equalScope(history.source.scope, facts))
     return reviewStateFailure([diagnostic('unbound', 'Fresh facts have another review scope')], 0, false, null)
   const authorityHistory = classifyHistory(history).authorityHistory
-  const summary = summarizeAuthorityReviews(authorityHistory, taxonomy, facts.acceptedEvidencePolicyRef)
+  const summary = summarizeAuthorityReviews(
+    authorityHistory,
+    taxonomy,
+    facts.acceptedEvidencePolicyRef,
+    externalHistories,
+    history,
+  )
   if (!summary.ok)
     return reviewStateFailure(
       summary.diagnostics,
@@ -272,6 +269,8 @@ export function deriveReviewState(
     authorityHistory,
     taxonomy,
     facts.acceptedEvidencePolicyRef,
+    externalHistories,
+    history,
   )
   if (!reviewSpend.ok) return reviewStateFailure(reviewSpend.diagnostics, summary.value.reviews, true, null)
   const latestReview = orderedReviews.length === 0 ? undefined : orderedReviews[orderedReviews.length - 1]

@@ -115,6 +115,13 @@ function writeProfile(
   recorder: OutputRecorder,
   inputs: Set<string>,
 ): void {
+  const outputSchema = JSON.stringify(producerJsonSchema(profile.output))
+  if (
+    profile.output === 'implementation' &&
+    (outputSchema.includes('proofToolCallId') || outputSchema.includes('proofUnavailableReason'))
+  ) {
+    throw new Error(`implementation producer schema still requires a single proof: ${profile.name}`)
+  }
   const destination = join(agentDirectory, `${profile.name}.md`)
   recorder.claim(destination)
   writeFileSync(
@@ -128,7 +135,7 @@ function writeProfile(
       `maxTurns: ${profile.maxTurns}`,
       'blocking: true',
       'structured: true',
-      `output: ${JSON.stringify(producerJsonSchema(profile.output))}`,
+      `output: ${outputSchema}`,
       '---',
       '',
       profileBody(profile, inputs),

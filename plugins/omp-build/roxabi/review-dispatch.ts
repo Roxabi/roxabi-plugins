@@ -43,7 +43,7 @@ export class ReviewProduct {
 
   async preparePullRequestReview(context: ReviewContext, prepared: PreparedReviewBatch): Promise<void> {
     if (context.subject.kind !== 'pull-request') throw new Error('pull-request review requires a pull-request subject')
-    await this.#dispatch(context, prepared)
+    await this.#dispatch(context, prepared, null)
   }
 
   async prepareEpicRangeReview(context: ReviewContext, prepared: PreparedReviewBatch): Promise<void> {
@@ -52,32 +52,62 @@ export class ReviewProduct {
       throw new Error('epic range must be an exact commit range')
     if (!context.subject.range.endsWith(context.candidateGitSHA))
       throw new Error('epic candidate must be the range tail')
-    await this.#dispatch(context, prepared)
+    await this.#dispatch(context, prepared, null)
   }
 
-  async #dispatch(context: ReviewContext, prepared: PreparedReviewBatch): Promise<void> {
+  async #admitInventory(
+    context: ReviewContext,
+    prepared: PreparedReviewBatch,
+    canContinue: (() => boolean) | null,
+  ): Promise<boolean> {
+    if (canContinue !== null && !canContinue()) return false
     this.#assertDispatchable()
     const authorization = await this.publisher.authorize(context, prepared.stage)
-    if (!authorization.ok) return this.publisher.stop(context, authorization.reason, null)
+    if (!authorization.ok) {
+      await this.publisher.stop(context, authorization.reason, null)
+      return false
+    }
+    if (canContinue !== null && !canContinue()) return false
     this.#assertDispatchable()
-    const publication = await this.publisher.publishInventory(prepared)
-    if (!publication.ok) return this.publisher.stop(context, publication.reason, null)
+    const publication = await this.publisher.publishInventory(prepared, canContinue ?? undefined)
+    if (canContinue !== null && !canContinue()) return false
+    if (!publication.ok) {
+      await this.publisher.stop(context, publication.reason, null)
+      return false
+    }
+    return true
+  }
+
+  async #dispatch(
+    context: ReviewContext,
+    prepared: PreparedReviewBatch,
+    canContinue: (() => boolean) | null,
+  ): Promise<void> {
+    if (!(await this.#admitInventory(context, prepared, canContinue))) return
 
     const contributions: PublishedContribution[] = []
     const callbacks: NativeBatchCallbacks = {
       onChildResult: async (child) => {
         contributions.push(await this.publisher.publishRawContribution(prepared, child))
       },
-      onComplete: async (result) => {
-        const next = await this.publisher.completeStage(prepared, result, contributions)
-        if (next !== null) await this.#dispatch(context, next)
+      onComplete: async (result, canContinue) => {
+        if (!canContinue()) return
+        if (result.children.some((child) => child.contextBlock !== undefined)) {
+          await this.publisher.stop(context, 'action-context-missing', result)
+          return
+        }
+        const next = await this.publisher.completeStage(prepared, result, contributions, canContinue)
+        if (!canContinue() || next === null) return
+        await this.#dispatch(context, next, canContinue)
       },
       onStop: async (reason, result) => {
         await this.publisher.stop(context, reason, result)
       },
     }
+    if (canContinue !== null && !canContinue()) return
     this.#assertDispatchable()
     this.native.activate(prepared.batch, callbacks)
+    if (canContinue !== null && !canContinue()) return
     try {
       await this.native.announce(prepared.batch)
     } catch (error) {

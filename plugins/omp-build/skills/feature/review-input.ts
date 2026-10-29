@@ -1,11 +1,11 @@
-import { createHash } from 'node:crypto'
-import {
-  type ConfirmedReviewSemanticContext,
-  confirmedReviewSemanticContext,
-  reviewSemanticCanon,
-} from '../../roxabi/review-semantic-canon'
+import { actionInputDigest, decodeHistory, readGitHubHistory, validateActionInputs } from '../../dist/contracts.js'
+import type { ActionInputManifest, ActionInputs } from '../../engine/action-input-schema.ts'
+import { type ConfirmedReviewSemanticContext, confirmedReviewSemanticContext } from '../../roxabi/review-semantic-canon'
 import { resolveReviewSemanticContext } from '../../roxabi/review-semantic-context'
-import { type Gh, isMap, jsonField, type Refusal, refuse, repositoryOf } from './review-base'
+import type { TrustedHostPluginPin, UwActionRequest } from '../../roxabi/uw-action-contract.ts'
+import { currentActionFingerprint, storedReviewExpansion } from '../../roxabi/uw-action-inputs.ts'
+import { createProductionActionPorts } from '../../roxabi/uw-input-readers.ts'
+import { type Gh, isMap, jsonField, type Refusal, refuse, repositoryOf } from './review-base.ts'
 
 const PR_BODY = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
@@ -23,25 +23,15 @@ export type ReviewInputDeps = {
   gh: Gh
   automationLogin?: string
   semantic?: ConfirmedReviewSemanticContext
+  pluginPin?: TrustedHostPluginPin
+  persistedFingerprint?: string
+  preparedSnapshot?: ActionInputs
 }
 export type ReviewInputCapture = { ok: true; input: string | null; body: ReviewPrBody | null } | Refusal
 
-/** Exact observed review inputs and the shared semantic canon. */
-export function hashReviewInput(
-  repository: string,
-  target: Pick<ReviewTarget, 'pr' | 'candidate'>,
-  body: ReviewPrBody,
-  semantic: ConfirmedReviewSemanticContext,
-): string {
-  const bytes = JSON.stringify([
-    'omp-build:review-input/3',
-    repository,
-    target.pr,
-    target.candidate,
-    [body.body, body.lastEditedAt],
-    reviewSemanticCanon(semantic),
-  ])
-  return createHash('sha256').update(bytes, 'utf8').digest('hex')
+/** Action-input digest. PR prose and the semantic canon are not part of the fingerprint. */
+export function hashReviewInput(manifest: ActionInputManifest): string {
+  return actionInputDigest(manifest)
 }
 
 /** Current body and native edit metadata from one response, without tightening the existing date policy. */
@@ -118,8 +108,49 @@ async function loadSemantic(
   }
   return confirmedReviewSemanticContext(resolved.value)
 }
+async function reviewExpansion(
+  cwd: string,
+  target: Pick<ReviewTarget, 'pr' | 'candidate' | 'base'>,
+  repository: string,
+  deps: ReviewInputDeps,
+): Promise<
+  { expandedContext: UwActionRequest['expandedContext']; stageSources: UwActionRequest['stageSources'] } | Refusal
+> {
+  if (deps.preparedSnapshot !== undefined) {
+    const parsed = validateActionInputs(deps.preparedSnapshot)
+    const snapshot = parsed.ok ? parsed.value : null
+    const scope = snapshot?.manifest.subject.pullRequest
+    if (
+      deps.persistedFingerprint !== undefined ||
+      snapshot === null ||
+      snapshot.manifest.purpose !== 'review' ||
+      snapshot.manifest.code.repository !== repository ||
+      snapshot.manifest.code.head !== target.candidate ||
+      snapshot.manifest.code.base !== target.base ||
+      scope?.repository !== repository ||
+      scope.target !== `${repository}#${target.pr}` ||
+      actionInputDigest(snapshot.manifest) !== snapshot.fingerprint
+    )
+      return refuse('review-input-changed', 'prepared review snapshot does not match the selected PR and code')
+    return { expandedContext: snapshot.manifest.expandedContext, stageSources: snapshot.stageSources }
+  }
+  if (deps.persistedFingerprint !== undefined) {
+    const pullRequest = { repository, target: `${repository}#${target.pr}` }
+    const history = decodeHistory(
+      await readGitHubHistory(pullRequest, { cwd, gh: deps.gh, readAuthor: deps.automationLogin }),
+    )
+    const stored = storedReviewExpansion(history, deps.persistedFingerprint)
+    if (!stored.ok)
+      return refuse(
+        'review-input-changed',
+        stored.diagnostics.map((item) => item.message).join('; ') || 'reviewed action inputs are absent',
+      )
+    return stored.value
+  }
+  return { expandedContext: [], stageSources: [] }
+}
 
-/** Capture the current review input without reading producer configuration or history. */
+/** Capture the current action-input digest. The PR body is display-only and is not hashed. */
 export async function captureReviewInput(
   cwd: string,
   target: Pick<ReviewTarget, 'pr' | 'candidate' | 'base'>,
@@ -129,5 +160,41 @@ export async function captureReviewInput(
   const body = await readPrBody(cwd, target.pr, deps.gh, repository)
   const semantic = await loadSemantic(cwd, target, deps, repository, body.body)
   if ('ok' in semantic) return semantic
-  return { ok: true, input: hashReviewInput(repository, target, body, semantic), body }
+  let viewed: unknown
+  try {
+    viewed = JSON.parse(
+      await deps.gh(cwd, ['pr', 'view', String(target.pr), '--repo', repository, '--json', 'headRefOid,baseRefName']),
+    )
+  } catch {
+    return refuse('unreadable', `PR #${target.pr} head could not be read`)
+  }
+  if (
+    !isMap(viewed) ||
+    typeof viewed.headRefOid !== 'string' ||
+    viewed.headRefOid !== target.candidate ||
+    target.base === undefined
+  )
+    return refuse('unbound', 'the review head changed; start a fresh review')
+
+  const pullRequest = { repository, target: `${repository}#${target.pr}` }
+  const expansion = await reviewExpansion(cwd, target, repository, deps)
+  if ('ok' in expansion) return expansion
+  const { expandedContext, stageSources } = expansion
+  const request: UwActionRequest = {
+    actionId: `review-${target.pr}`,
+    purpose: 'review',
+    subject:
+      semantic.mode === 'standalone'
+        ? { kind: 'standalone-pr', pullRequest }
+        : { kind: 'uw', uw: semantic.scope, pullRequest, binding: null },
+    code: { repository, base: target.base, head: viewed.headRefOid, referenceCommit: viewed.headRefOid },
+    stageSources,
+    expandedContext,
+  }
+  const fingerprint = await currentActionFingerprint(
+    request,
+    createProductionActionPorts({ cwd, gh: deps.gh, readAuthor: deps.automationLogin, pluginPin: deps.pluginPin }),
+  )
+  if (!fingerprint.ok) return refuse('unreadable', fingerprint.diagnostics.map((item) => item.message).join('; '))
+  return { ok: true, input: fingerprint.value, body }
 }

@@ -18,11 +18,11 @@
   "devDependencies": {
     "@babel/parser": "8.0.8",
     "@babel/types": "8.0.8",
-    "@oh-my-pi/pi-coding-agent": "18.12.6",
-    "@oh-my-pi/pi-ai": "18.12.6",
     "@biomejs/biome": "2.6.2",
     "@commitlint/cli": "^21.2.4",
     "@commitlint/config-conventional": "^21.2.4",
+    "@oh-my-pi/pi-ai": "18.13.3",
+    "@oh-my-pi/pi-coding-agent": "18.13.3",
     "bun-types": "^1.4.3",
     "lefthook": "^2.2.2",
     "typescript": "^7.0.2",

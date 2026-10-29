@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { freshReviewInputs } from '../../testing/action-input-fixtures.ts'
 import { reviewRoot, TEST_INPUT, TEST_SCOPE } from '../../testing/record-builders.ts'
 import { history } from '../../testing/record-history.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
@@ -140,7 +141,7 @@ describe('review recovery', () => {
         rootAttemptId: root.recordId,
         dispositionId: disposition.value.recordId,
         candidateGitSHA: '2222222222222222222222222222222222222222',
-        inputFormat: 'omp-build:review-input/3',
+        inputFormat: 'omp-build:review-input/4',
         input: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
         binding: {
           scope: { repository: freshBinding.value.repository, target: freshBinding.value.target },
@@ -341,6 +342,7 @@ describe('review recovery', () => {
     expect(freshBinding).toMatchObject({ ok: true })
     if (!disposition.ok || !freshBinding.ok) return
 
+    const fresh = freshReviewInputs()
     const grant: Result<CanonicalRecord> = buildRecord({
       version: 1,
       repository: TEST_SCOPE.repository,
@@ -353,8 +355,8 @@ describe('review recovery', () => {
         rootAttemptId: root.recordId,
         dispositionId: disposition.value.recordId,
         candidateGitSHA: '2222222222222222222222222222222222222222',
-        inputFormat: 'omp-build:review-input/3',
-        input: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        inputFormat: 'omp-build:review-input/4',
+        input: fresh.fingerprint,
         binding: {
           scope: { repository: freshBinding.value.repository, target: freshBinding.value.target },
           recordId: freshBinding.value.recordId,
@@ -369,14 +371,16 @@ describe('review recovery', () => {
       ...reviewRoot({
         id: 'review-replacement-inventory-review-replacement-grant-review-interruption-historical-root-for-replacement',
         head: '2222222222222222222222222222222222222222',
-        input: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        input: fresh.fingerprint,
+        inputSnapshot: fresh,
       }),
       inputs: undefined,
       payload: {
         ...reviewRoot({
           id: 'review-replacement-inventory-review-replacement-grant-review-interruption-historical-root-for-replacement',
           head: '2222222222222222222222222222222222222222',
-          input: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          input: fresh.fingerprint,
+          inputSnapshot: fresh,
         }).payload,
         replacement: {
           rootAttemptId: root.recordId,
@@ -436,6 +440,7 @@ describe('review recovery', () => {
     expect(disposition).toMatchObject({ ok: true })
     expect(freshBinding).toMatchObject({ ok: true })
     if (!disposition.ok || !freshBinding.ok) return
+    const fresh = freshReviewInputs()
     const grant: Result<CanonicalRecord> = buildRecord({
       version: 1,
       repository: TEST_SCOPE.repository,
@@ -448,8 +453,8 @@ describe('review recovery', () => {
         rootAttemptId: root.recordId,
         dispositionId: disposition.value.recordId,
         candidateGitSHA: '2222222222222222222222222222222222222222',
-        inputFormat: 'omp-build:review-input/3',
-        input: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        inputFormat: 'omp-build:review-input/4',
+        input: fresh.fingerprint,
         binding: {
           scope: { repository: freshBinding.value.repository, target: freshBinding.value.target },
           recordId: freshBinding.value.recordId,
@@ -463,14 +468,16 @@ describe('review recovery', () => {
       ...reviewRoot({
         id: 'review-replacement-inventory-review-replacement-grant-review-interruption-historical-root-incomplete-replacement',
         head: '2222222222222222222222222222222222222222',
-        input: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        input: fresh.fingerprint,
+        inputSnapshot: fresh,
       }),
       inputs: undefined,
       payload: {
         ...reviewRoot({
           id: 'review-replacement-inventory-review-replacement-grant-review-interruption-historical-root-incomplete-replacement',
           head: '2222222222222222222222222222222222222222',
-          input: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          input: fresh.fingerprint,
+          inputSnapshot: fresh,
         }).payload,
         replacement: {
           rootAttemptId: root.recordId,

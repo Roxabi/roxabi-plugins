@@ -73,6 +73,8 @@ describe('buildRecord', () => {
         state: 'observed' as const,
         rows: [{ smell: 'State persistence', assessment: 'The save path must preserve the selected region.' }],
       },
+      criterionVerdicts: [],
+      exclusionClaims: [],
     }
     const { inputs: _ignored, ...draft } = graph.decision
     const built = buildRecord({ ...draft, payload: { ...draft.payload, judgment: rawJudgment } } as never, [])
@@ -121,8 +123,8 @@ describe('buildRecord', () => {
       verdict: 'Request changes',
     })
     expect(projectRecord(built.value, retained, null)).toMatchObject({ ok: true })
-    expect(refusalCodes(projectRecord(changedLabel, retained, null))).toContain('unbound')
-    expect(refusalCodes(projectRecord(reorderedReferences, retained, null))).toContain('unbound')
+    expect(projectRecord(changedLabel, retained, null)).toMatchObject({ ok: false })
+    expect(projectRecord(reorderedReferences, retained, null)).toMatchObject({ ok: false })
   })
 
   test('projects only the recursive accounted context closure and refuses absent, foreign, or ambiguous antecedents', () => {
@@ -164,7 +166,7 @@ describe('buildRecord', () => {
       } as never,
       [secondResult.value.recordId],
     )
-    if (!targetResult.ok) throw new Error('Expected closure event')
+    if (!targetResult.ok || targetResult.value.kind !== 'epic-event') throw new Error('Expected closure event')
 
     const antecedents = history([firstResult.value, secondResult.value], {
       operations: [
@@ -205,6 +207,30 @@ describe('buildRecord', () => {
       ok: true,
       value: expect.stringContaining('opaque-context-only'),
     })
+    const copiedDependency = history([firstResult.value, secondResult.value], {
+      operations: [
+        operation(firstResult.value, { authority: 'accounted' }),
+        operation(firstResult.value, { authority: 'foreign' }),
+        operation(secondResult.value, { authority: 'accounted' }),
+      ],
+    })
+    expect(projectRecord(targetResult.value, copiedDependency, null)).toMatchObject({ ok: true })
+    const copiedRoot = history([firstResult.value, secondResult.value, targetResult.value], {
+      operations: [
+        operation(firstResult.value, { authority: 'accounted' }),
+        operation(secondResult.value, { authority: 'accounted' }),
+        operation(targetResult.value),
+        operation({ ...targetResult.value, payload: { outcome: 'foreign-copy' } }, { authority: 'foreign' }),
+      ],
+    })
+    expect(projectRecord(targetResult.value, copiedRoot, null)).toMatchObject({ ok: true })
+    const invalidDependency = history([firstResult.value, secondResult.value], {
+      operations: [
+        operation(firstResult.value, { authority: 'accounted', status: 'invalid', record: null }),
+        operation(secondResult.value, { authority: 'accounted' }),
+      ],
+    })
+    expect(projectRecord(targetResult.value, invalidDependency, null)).toMatchObject({ ok: false })
     expect(refusalCodes(projectRecord(targetResult.value, foreign, null))).toContain('unbound')
     expect(refusalCodes(projectRecord(targetResult.value, ambiguous, null))).toContain('unbound')
     expect(refusalCodes(projectRecord(targetResult.value, missing, null))).toContain('unknown-reference')

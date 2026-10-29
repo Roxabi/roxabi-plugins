@@ -1,8 +1,11 @@
+import { readFileSync } from 'node:fs'
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import { describe, expect, it } from 'vitest'
 import type { PreparedMaterialAcceptance } from '../../engine/workflow-spec-assessment.ts'
 import type { UwOperationResult, UwOperations } from '../../roxabi/uw-contract.ts'
+import { fixtureUwOperations } from '../../testing/action-input-fixtures.ts'
 import { createExtensionApiStub } from '../../testing/extension-api-stub.ts'
+import { consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
 import { installFeatureUwOperationLifecycle } from '../omp-feature-composition.ts'
 import { registerUwCommand, type UwOperationsFactory } from '../omp-uw-command.ts'
 
@@ -48,6 +51,7 @@ function lifecycleFixture() {
         return confirmation.promise
       },
     },
+    localProtocolOptions: consultableProtocolOptions(),
   } as unknown as ExtensionContext
   const childContext = {
     ...context,
@@ -77,6 +81,21 @@ function lifecycleFixture() {
           return accepted
         })
         return result.status === 'confirmed' ? result.value : { status: 'refused', diagnostics: result.diagnostics }
+      },
+      prepareAction: async () => {
+        throw new Error('unexpected-prepare-action')
+      },
+      prepareReviewActions: async () => {
+        throw new Error('unexpected-prepare-review-actions')
+      },
+      replayActionInputs: async () => {
+        throw new Error('unexpected-replay')
+      },
+      verifyAction: async () => {
+        throw new Error('unexpected-verify')
+      },
+      readDelivery: async () => {
+        throw new Error('unexpected-delivery')
       },
     } satisfies UwOperations
   }
@@ -114,6 +133,44 @@ function lifecycleFixture() {
 }
 
 describe('registered /uw command root lifecycle', () => {
+  it.each(['evidence', 'verdicts'] as const)(
+    'reports a successful empty %s result and retains the consultable array',
+    async (kind) => {
+      let command: Command | undefined
+      const messages: string[] = []
+      const pi = createExtensionApiStub({
+        registerCommand: (_name, value) => {
+          command = value as Command
+        },
+        sendMessage: (message) => {
+          messages.push(typeof message === 'string' ? message : String(message.content))
+        },
+      })
+      installFeatureUwOperationLifecycle(pi)
+      registerUwCommand(pi, () => ({
+        ...fixtureUwOperations(),
+        readDelivery: async (uw) => ({
+          ok: true,
+          value: { uw, effective: { ok: false, diagnostics: [] }, declarations: [], verdicts: [], diagnostics: [] },
+        }),
+      }))
+      if (command === undefined) throw new Error('uw-command-missing')
+      const context = {
+        cwd: '/repo/feature',
+        agent: { kind: 'main', id: 'Main', name: 'main', depth: 0 },
+        localProtocolOptions: consultableProtocolOptions(),
+      } as unknown as ExtensionContext
+      await command.handler(`${kind} acme/widgets#42`, context)
+      expect(messages).toHaveLength(1)
+      const summary = (messages[0] ?? '').split(' detail=')[0]
+      expect(summary).not.toContain('malformed-result')
+      expect(summary).toMatch(/\b0\b/)
+      const detail = /detail=([^ ]+)/.exec(messages[0] ?? '')?.[1]
+      expect(detail).toBeDefined()
+      expect(JSON.parse(readFileSync(detail as string, 'utf8'))).toEqual([])
+    },
+  )
+
   it.each([
     ['aborted root stop', 'session_stop', true],
     ['root switch', 'session_switch', false],

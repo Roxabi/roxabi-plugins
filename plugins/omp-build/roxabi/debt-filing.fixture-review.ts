@@ -10,7 +10,11 @@ import {
 
 export function canonicalComments(options: { unusable?: boolean } = {}): string[] {
   if (options.unusable) return canonicalUnusableComments()
-  const graph = reviewGraph({ prefix: 'debt', head: TARGET.candidateGitSHA })
+  const graph = reviewGraph({
+    prefix: 'debt',
+    head: TARGET.candidateGitSHA,
+    scope: { repository: TARGET.repository, target: TARGET.target },
+  })
   const sourceJudgment = graph.decision.payload.judgment
   if (sourceJudgment.purpose !== 'review') throw new Error('review-fixture-purpose-missing')
   const findings: ReviewJudgment['findings'] = options.unusable
@@ -121,7 +125,7 @@ export function canonicalComments(options: { unusable?: boolean } = {}): string[
       body,
       author: 'native-bot',
       createdAt: '2026-10-21T10:00:00Z',
-      updatedAt: null,
+      updatedAt: '2026-10-21T10:00:00Z',
     })),
     diagnostics: [],
   })

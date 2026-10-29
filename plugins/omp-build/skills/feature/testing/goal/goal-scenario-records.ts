@@ -1,30 +1,19 @@
-import {
-  type CanonicalRecord,
-  decodeHistory,
-  encodeRecord,
-  parseIssueSpecBody,
-  rawSource,
-} from '../../../../contracts.ts'
-import { reviewRoot } from '../../../../testing/record-builders.ts'
-import { epicReviewGraph } from '../../../../testing/record-graphs.ts'
+import { decodeHistory, encodeRecord, parseIssueSpecBody, rawSource } from '../../../../contracts.ts'
+import { actionInputDigest, canonicalValueDigest } from '../../../../engine/action-input.ts'
+import { acceptedActionInputs } from '../../../../testing/action-input-fixtures.ts'
+import { criterionImplementationRecords } from '../../../../testing/criterion-accepted-plan.ts'
+import { criterionEpicReviewGraph } from '../../../../testing/criterion-range-approval.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../../../../testing/roxabi-presets.ts'
-import { A, B, C, type Comment, type DriverNext, EPIC, RUN_A, RUN_B } from './goal-scenario-domain.ts'
-import { callWorkflow, gh, readSim, runDriver, sandboxEpic, writeSim } from './goal-scenario-sandbox.ts'
+import { createWorkflowActionFixtures } from '../../../../testing/workflow-actions.ts'
+import { nativeComments } from './goal-scenario-approval.ts'
+import { A, B, C, type DriverNext, EPIC, RUN_A, RUN_B } from './goal-scenario-domain.ts'
+import { bindImplementationIdentity } from './goal-scenario-implementation.ts'
+import { git, readSim, runDriver, sandboxEpic, writeSim } from './goal-scenario-sandbox.ts'
 
-const { encodedAdmissionReviewGraph, projection: TEST_PROJECTION_CONFIG } = roxabiRecordFixtures()
+const { projection: TEST_PROJECTION_CONFIG } = roxabiRecordFixtures()
 const { epicMandate, featureMandate, framedBodies, historyFrom, identityAllocation, mandateRef, ownSpecFromSnapshot } =
   roxabiWorkflowFixtures()
 
-function nativeComments(issue: number, comments: Comment[]) {
-  return comments.map((comment, index) => ({
-    locator: `acme/app#${issue}:comment:${index + 1}`,
-    nativeId: String(index + 1),
-    body: comment.body,
-    author: comment.author,
-    createdAt: '2026-01-01T00:00:00Z',
-    updatedAt: '2026-01-01T00:00:00Z',
-  }))
-}
 function currentSpec(number: number) {
   const issue = readSim().issues[String(number)]
   if (!issue) throw new Error(`missing issue #${number}`)
@@ -50,20 +39,40 @@ export function events(issue: number) {
 }
 
 export function seedEpicDecision(range: string): string {
-  const head = range.slice(range.indexOf('..') + 2)
-  const graph = epicReviewGraph({ prefix: `goal-${RUN_B}`, head, empty: true })
-  const subject: { kind: 'epic-range'; range: string } = { kind: 'epic-range', range }
-  const root = {
-    ...reviewRoot({ id: graph.root.recordId, head, subject }),
-    repository: 'acme/app',
-    target: `acme/app#${EPIC}`,
+  ensureMandate()
+  const [baseCommit, head] = range.split('..')
+  if (!baseCommit || !head) throw new Error(`invalid epic range ${range}`)
+  const comments = readSim().issues[String(EPIC)]?.comments
+  if (!comments) throw new Error('missing epic issue')
+  const scope = { repository: 'acme/app', target: `acme/app#${EPIC}` }
+  const mandate = decodeHistory({
+    scope,
+    expectedAuthor: 'operator',
+    stopAuthor: null,
+    complete: true,
+    comments: nativeComments(EPIC, comments),
+    diagnostics: [],
+  })
+    .operations.map((operation) => operation.record)
+    .find((record) => record?.kind === 'mandate')
+  if (mandate?.kind !== 'mandate') throw new Error('goal review fixture needs its accepted parent mandate')
+  const base = acceptedActionInputs(mandate, 'review')
+  const manifest = {
+    ...base.manifest,
+    acceptedSources: [
+      {
+        source: 'record' as const,
+        record: { scope, recordId: mandate.recordId, kind: mandate.kind },
+        selector: '/payload',
+        digest: canonicalValueDigest(mandate.payload),
+      },
+    ],
+    code: { repository: scope.repository, base: baseCommit, head, referenceCommit: head },
+    plugin: { ...base.manifest.plugin, commit: git(import.meta.dirname, ['rev-parse', 'HEAD']) },
   }
-  const records: CanonicalRecord[] = []
-  for (const record of graph.records) {
-    records.push(
-      record.recordId === root.recordId ? root : { ...record, repository: 'acme/app', target: `acme/app#${EPIC}` },
-    )
-  }
+  const inputs = { ...base, manifest, fingerprint: actionInputDigest(manifest) }
+  const graph = criterionEpicReviewGraph({ mandate, prefix: `goal-${RUN_B}`, head, range, inputs })
+  const records = [...graph.issueRecords.filter((record) => record.kind !== 'mandate'), ...graph.records]
   writeSim((state) => {
     const issue = state.issues[String(EPIC)]
     if (!issue) throw new Error('missing epic issue')
@@ -150,27 +159,98 @@ export function ensureChildMandate(number: number, branch: string, id: string): 
     tier: 'F-lite',
   })
   const parentHistory = historyFrom([epic], 'operator')
-  const issue = readSim().issues[String(number)]
-  if (!issue) throw new Error(`missing child issue #${number}`)
-  const encoded = encodeRecord(
-    mandate,
-    {
-      scope: { repository: 'acme/app', target: `acme/app#${number}` },
-      expectedAuthor: 'operator',
-      stopAuthor: null,
-      complete: true,
-      comments: nativeComments(number, issue.comments),
-      diagnostics: [],
+  const cwd = sandboxEpic()
+  if (!cwd) throw new Error('missing epic checkout')
+  const baseCommit = git(cwd, ['rev-parse', 'refs/remotes/origin/main'])
+  const head = git(cwd, ['rev-parse', 'HEAD'])
+  const pluginCommit = git(import.meta.dirname, ['rev-parse', 'HEAD'])
+  const fixtures = createWorkflowActionFixtures({
+    planOutput: {
+      steps: [
+        {
+          id: 'step-1',
+          change: `land child ${number}`,
+          doneWhen: current.snapshot.spec.criteria.map((criterion) => criterion.statement).join('; '),
+          criterionIds: current.snapshot.spec.criteria.map((criterion) => criterion.id),
+          evidence: `child ${number} pull request lands`,
+          paths: [`${id}.txt`],
+        },
+      ],
+      resolutions: [],
     },
-    TEST_PROJECTION_CONFIG,
-    [parentHistory],
-  )
-  if (!encoded.ok) throw new Error(encoded.diagnostics.map((entry) => entry.code).join(', '))
+    planSlots: [
+      { slotId: 'slot-architect', specialist: 'R-workflow-plan-architect' },
+      { slotId: 'slot-adversarial', specialist: 'R-workflow-plan-adversarial' },
+    ],
+    nativeOutcome: { completion: 'completed', strict: 'valid', raw: null },
+    head,
+  })
+  const digest = fixtures.publishedPlanDigest()
+  const planActionId = `act-plan-${number}`
+  const reviewActionId = `act-plan-review-${number}`
+  const planRecords = [
+    ...fixtures.planDraftRecords(mandate, planActionId),
+    fixtures.planReviewStart(mandate, planActionId, digest, reviewActionId),
+    fixtures.planReviewRecord(
+      mandate,
+      planActionId,
+      digest,
+      [
+        fixtures.clearPlanContribution('slot-architect', 'R-workflow-plan-architect'),
+        fixtures.clearPlanContribution('slot-adversarial', 'R-workflow-plan-adversarial'),
+      ],
+      reviewActionId,
+    ),
+  ]
+  const records = [
+    mandate,
+    ...planRecords.map((record) => {
+      const input = record.payload.inputs
+      const manifest = {
+        ...input.manifest,
+        code: { repository: current.scope.repository, base: baseCommit, head, referenceCommit: baseCommit },
+        plugin: { ...input.manifest.plugin, commit: pluginCommit },
+        acceptedSources: [
+          {
+            source: 'record' as const,
+            record: { scope: current.scope, recordId: mandate.recordId, kind: mandate.kind },
+            selector: '/payload',
+            digest: canonicalValueDigest(mandate.payload),
+          },
+        ],
+      }
+      return {
+        ...record,
+        payload: { ...record.payload, inputs: { ...input, manifest, fingerprint: actionInputDigest(manifest) } },
+      }
+    }),
+    ...criterionImplementationRecords(mandate, head)
+      .slice(-2)
+      .map((record) => bindImplementationIdentity(record, number, planActionId)),
+  ]
   writeSim((sim) => {
     const child = sim.issues[String(number)]
     if (!child) throw new Error(`missing child issue #${number}`)
-    if (!child.comments.some((comment) => comment.body.includes('kind=mandate')))
+    for (const record of records) {
+      const encoded = encodeRecord(
+        record,
+        {
+          scope: current.scope,
+          expectedAuthor: 'operator',
+          stopAuthor: null,
+          complete: true,
+          comments: nativeComments(number, child.comments),
+          diagnostics: [],
+        },
+        TEST_PROJECTION_CONFIG,
+        [parentHistory],
+      )
+      if (!encoded.ok)
+        throw new Error(
+          `cannot encode ${record.recordId}: ${encoded.diagnostics.map((entry) => entry.code).join(', ')}`,
+        )
       child.comments.push(...encoded.value.map((body) => ({ author: 'operator', body })))
+    }
   })
 }
 
@@ -183,23 +263,4 @@ export function drive(args: string[], _run: string, cwd = sandboxEpic()) {
 export function jsonOf(run: { code: number | null; stdout: string; stderr: string }): DriverNext {
   if (run.code !== 0) throw new Error(`driver ${run.code}: ${run.stderr}\n${run.stdout}`)
   return JSON.parse(run.stdout)
-}
-
-export function approve(pr: number, sha: string, cwd: string): void {
-  const captured = callWorkflow<{ ok: boolean; input?: string | null; error?: string }>('captureReviewInput', cwd, {
-    pr,
-    head: sha,
-  })
-  if (!captured.ok || typeof captured.input !== 'string' || !/^[0-9a-f]{64}$/.test(captured.input))
-    throw new Error(`approve #${pr}: captureReviewInput failed ${JSON.stringify(captured)}`)
-  const comments = encodedAdmissionReviewGraph({
-    scope: { repository: 'acme/app', target: `acme/app#${pr}` },
-    head: sha,
-    input: captured.input,
-    prefix: `scenario-${pr}-${sha.slice(0, 8)}`,
-  }).comments
-  for (const comment of comments) {
-    const review = gh(['pr', 'comment', String(pr), '--body', comment.body])
-    if (review.status !== 0) throw new Error(`approve #${pr}: ${review.stderr}`)
-  }
 }

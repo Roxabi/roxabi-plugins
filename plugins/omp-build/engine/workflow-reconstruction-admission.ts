@@ -2,6 +2,7 @@ import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope, sameRef } from './record-diagnostics.ts'
 import type { Diagnostic } from './record-values.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
+import { workflowContextNegative, workflowContextTerminal } from './workflow-context-terminal.ts'
 import {
   abandoned,
   confirmedPause,
@@ -167,6 +168,7 @@ function matchingAssessments(
   return recordsOf(history).filter(
     (record): record is AssessResultRecord =>
       isAssessResult(record) &&
+      !(workflowContextNegative(record) && workflowContextTerminal(history, 'assess-spec') === 'clear') &&
       sameRef(record.payload.mandate, { scope: mandateScope(mandate), recordId: mandate.recordId, kind: 'mandate' }) &&
       sameCurrentAssessedState(record.payload.exactInputs.proposed, currentSpec),
   )

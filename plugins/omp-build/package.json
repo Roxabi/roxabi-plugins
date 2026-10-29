@@ -1,9 +1,14 @@
 {
   "name": "omp-build",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "private": true,
   "type": "module",
   "description": "OMP-only feature cycle \u2014 frame, GitHub issue, worktree, implement, bounded review/fix, land.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Roxabi/roxabi-plugins.git",
+    "directory": "plugins/omp-build"
+  },
   "omp": {
     "extensions": [
       "./omp/index.ts"

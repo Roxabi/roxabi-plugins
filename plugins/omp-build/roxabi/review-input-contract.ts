@@ -1,9 +1,11 @@
-import type { Json, Policy, ReviewInputSnapshot, Scope } from '../dist/contracts.js'
+import type { Json, Policy, Scope } from '../dist/contracts.js'
 import type { AllocateReviewInput, ReviewTier } from '../skills/dev-review/roster-contract'
 import type { ReviewConfig } from './review-assets'
 import type { ReviewPrompts, ReviewSemanticAssets, SpecDisplay } from './review-prompts'
 import type { ConfirmedReviewSemanticContext } from './review-semantic-canon'
 import type { ReviewSemanticContext } from './review-semantic-context'
+import type { ActionInputs, PreparedUwAction, TrustedHostPluginPin, UwActionRequest } from './uw-action-contract.ts'
+import type { UwOperations } from './uw-contract.ts'
 import type { ReviewIssueSpec } from './uw-spec'
 export type ReviewInputCapture = {
   ok: true
@@ -36,17 +38,20 @@ export type PreparedReviewInputs = {
   automationLogin: string
   capture: ReviewInputCapture
   observedEvidence: ObservedEvidence
-  inputSnapshot: ReviewInputSnapshot
+  inputSnapshot: ActionInputs
   issueSpec: ReviewIssueSpec | null
   semanticContext: ReviewSemanticContext
   tier: ReviewTier
   warnings: string[]
   chunks: PreparedReviewChunk[]
+  contextWindow: number
   roster: AllocateReviewInput['shared']
   config: ReviewConfig
   policy: Policy
   semantic: { assets: ReviewSemanticAssets; spec: SpecDisplay; prompts: ReviewPrompts }
   rawOperatorRequest: Json
+  actions: Readonly<Record<string, PreparedUwAction>>
+  operations: UwOperations
 }
 export type Gh = (cwd: string, args: string[]) => Promise<string>
 export type GitResult = { code: number; stdout: string; stderr: string }
@@ -57,4 +62,9 @@ export type PrepareReviewInputsOptions = {
   contextWindow: number
   gh?: Gh
   git?: Git
+  operations: UwOperations
+  /** Explicit host-supplied context for a fresh action; never populated by automatic continuation. */
+  expansion?: Pick<UwActionRequest, 'stageSources' | 'expandedContext'>
+  /** Trusted host composition only. Omit for the ordinary published pin. */
+  pluginPin?: TrustedHostPluginPin
 }

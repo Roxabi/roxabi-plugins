@@ -18,7 +18,7 @@ import type { CiCorrectionAdmission } from './fix-mandate-types.ts'
 import type { FixWorkflowRuntime } from './fix-native-dispatch.ts'
 import { withRoxabiGitHubPolicy } from './github-policy'
 import { createGitHubRecordPublisher } from './github-publisher'
-import type { UwReadPort } from './uw-contract.ts'
+import type { UwOperations, UwReadPort } from './uw-contract.ts'
 
 export type AdmittedCiCorrectionEntry = {
   cwd: string
@@ -26,6 +26,7 @@ export type AdmittedCiCorrectionEntry = {
   attributionRecordId: string
   native: NativePort
   workflow: ReviewAuthority
+  operations: UwOperations
   uw: UwReadPort
   expectedUw: CiCorrectionAdmission['uw']
   github?: GitHubOptions
@@ -60,8 +61,8 @@ export async function runAdmittedCiCorrectionEntry(
   const scope = githubScope(target.repository, target.number)
   const rawPublisher = createGitHubRecordPublisher(scope, github, null)
   const publisher: RecordPublisher = {
-    publish: async (record) => {
-      const saved = await rawPublisher.publish(record)
+    publish: async (record, canPublish) => {
+      const saved = await rawPublisher.publish(record, [], canPublish)
       return saved.ok ? { ok: true, value: undefined } : saved
     },
   }
@@ -118,6 +119,7 @@ export function startAdmittedCiCorrection(input: AdmittedCiCorrectionEntry): Fix
   }
   const runtime: FixWorkflowRuntime = {
     signal: controller.signal,
+    uw: input.operations,
     onBatch(batch) {
       activeBatch = batch
     },

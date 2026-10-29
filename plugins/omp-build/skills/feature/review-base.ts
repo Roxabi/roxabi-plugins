@@ -3,7 +3,7 @@ export type GitResult = { code: number; stdout: string; stderr: string }
 export type Git = (cwd: string, args: string[]) => Promise<GitResult>
 export type Gh = (cwd: string, args: string[]) => Promise<string>
 
-export type RefusalReason = 'unreadable' | 'unbound'
+export type RefusalReason = 'unreadable' | 'unbound' | 'review-input-changed'
 /** A review input cannot be captured from the current native PR state. */
 export type Refusal = { ok: false; reason: RefusalReason; error: string }
 

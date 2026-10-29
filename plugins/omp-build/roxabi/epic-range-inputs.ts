@@ -7,11 +7,13 @@ import type { AllocateReviewInput } from '../skills/dev-review/roster-contract'
 import { normalizeTier } from '../skills/dev-review/roster-spec'
 import type { EpicRangeReviewRequest } from '../skills/feature/epic-driver'
 import { acceptedEpicSemantic, epicSemanticCanon } from './epic-range-semantic'
-import { loadReviewAssets, loadReviewClassCatalogue, loadReviewConfig } from './review-assets'
+import { installedReviewSkillDir, loadReviewAssets, loadReviewClassCatalogue } from './review-assets'
 import { candidateText, materializeCandidateChunks } from './review-candidate-material'
+import type { ReviewContext } from './review-contract'
 import type { Gh, Git, ObservedEvidence } from './review-input-contract'
 import { buildReviewPrompts } from './review-prompts'
-import type { PreparedReviewInputs } from './review-runner'
+import type { TrustedHostPluginPin } from './uw-action-contract.ts'
+
 import { type LiveIssueSpec, parsePricedFences, readEpicInputSpec, specIsDraft } from './uw-spec'
 
 const SHA = /^[0-9a-f]{40}$/
@@ -84,27 +86,28 @@ export async function assembleEpicRangeInputs(input: {
   contextWindow?: number
   runId?: string
   operationId?: string
+  pluginPin?: TrustedHostPluginPin
   gh: Gh
   git: Git
-}): Promise<PreparedReviewInputs> {
+}) {
   const { base, candidate } = exactRange(input.request)
   await verifyRangeCommits(input.git, input.cwd, base, candidate)
   const epic = epicNumber(input.request.repository, input.request.target)
   const issue = await readEpicInputSpec(input.cwd, input.request.repository, input.request.target, epic, input.gh)
-  const config = loadReviewConfig()
-  const catalogue = loadReviewClassCatalogue()
-  const { assetDir, canonicalClasses } = catalogue
+  const catalogue = loadReviewClassCatalogue(installedReviewSkillDir(input.pluginPin))
+  const { assetDir, canonicalClasses, config } = catalogue
   if (!canonicalClasses.length) throw new Error('installed class catalogue has no canonical classes')
   const [stack, baseStack] = await Promise.all([
     candidateText(input.git, input.cwd, candidate, '.dev/stack.yml', false),
     candidateText(input.git, input.cwd, base, '.dev/stack.yml', false),
   ])
+  const contextWindow = input.contextWindow ?? 200_000
   const chunks = await materializeCandidateChunks({
     cwd: input.cwd,
     git: input.git,
     base,
     candidate,
-    contextWindow: input.contextWindow ?? 200_000,
+    contextWindow,
     helper: join(assetDir, 'prepare_context.py'),
   })
   if (!chunks.length) throw new Error('epic range has no diff')
@@ -157,32 +160,25 @@ export async function assembleEpicRangeInputs(input: {
     semanticContext,
   }
   const scope = { repository: input.request.repository, target: input.request.target }
+  const context: ReviewContext & { readonly number: number } = {
+    ...scope,
+    number: epic,
+    candidateGitSHA: candidate,
+    input: null,
+    subject: { kind: 'epic-range', range: input.request.range },
+    runId: input.runId ?? input.request.runId,
+    operationId: input.operationId ?? `epic-range-${randomUUID()}`,
+  }
   return {
-    context: {
-      ...scope,
-      number: epic,
-      candidateGitSHA: candidate,
-      input: null,
-      subject: { kind: 'epic-range', range: input.request.range },
-      runId: input.runId ?? input.request.runId,
-      operationId: input.operationId ?? `epic-range-${randomUUID()}`,
-    },
+    context,
     pr: { base: 'epic-range', baseGitSHA: base },
     chunks,
+    contextWindow,
     roster,
     config: { ...config, canonicalClasses },
     policy,
     semantic: { spec: prompts.spec, panel: prompts.panel, synthesis: prompts.synthesis },
     observedEvidence,
-    inputSnapshot: {
-      body: null,
-      spec: {
-        reference: issueSpec.reference,
-        body: issueSpec.body,
-        lastEditedAt: issueSpec.lastEditedAt,
-      },
-    },
     canonicalClasses,
-    authorize: async () => ({ ok: true }),
   }
 }

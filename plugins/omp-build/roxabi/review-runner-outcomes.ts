@@ -1,26 +1,18 @@
 import {
-  buildRecord,
   type CanonicalRecord,
-  decisionSchema,
+  canonicalValueDigest,
   deriveRecallPlan,
   type Policy,
-  type RecordDraft,
   type Scope,
-  validateDecision,
 } from '../dist/contracts.js'
-import type { NativeTask } from '../omp/review-runtime/contracts'
-import { modelContributionPayload } from './native-contribution'
-import type { PreparedReviewBatch, PublishedContribution } from './review-contract'
-import type { ObservedEvidence } from './review-input-contract'
-import { createRecallTask } from './review-panel'
-import {
-  candidateSource,
-  createInventory,
-  type ReviewIdentity,
-  type ReviewSlot,
-  recordBase,
-  requireRecord,
-} from './review-records'
+import { actionRequest, confirmPreparedAction, deliveryTask, prepareRefusal } from './delivery-action.ts'
+import type { PreparedReviewBatch } from './review-contract.ts'
+import type { ObservedEvidence, PreparedReviewChunk } from './review-input-contract'
+import { type candidateSource, createInventory, type ReviewIdentity, type ReviewSlot } from './review-records'
+import type { PreparedUwAction, RecordInputRef } from './uw-action-contract.ts'
+import type { UwOperations } from './uw-contract.ts'
+
+export { finalizeReview } from './review-runner-finalize.ts'
 
 type SourceContribution = {
   contributionId: string
@@ -31,6 +23,10 @@ type SynthesisInput = Parameters<typeof candidateSource>[0] & {
   semantic: { synthesis: string }
   policy: Policy
   observedEvidence: ObservedEvidence
+  actions: Readonly<Record<string, PreparedUwAction>>
+  operations: UwOperations
+  chunks: readonly PreparedReviewChunk[]
+  contextWindow: number
 }
 
 type StageInput = SynthesisInput & {
@@ -38,18 +34,18 @@ type StageInput = SynthesisInput & {
   canonicalClasses: readonly string[]
 }
 
-type FinalizationInput = {
-  context: {
-    subject: { kind: 'pull-request' } | { kind: 'epic-range'; range: string }
-    candidateGitSHA: string
-    input: string | null
-  }
-  policy: Policy
-  canonicalClasses: readonly string[]
-  authorize(stage: 'synthesis'): Promise<{ ok: true } | { ok: false; reason: string }>
+function samePinnedCode(prepared: PreparedUwAction, spec: PreparedUwAction): boolean {
+  const code = prepared.inputs.manifest.code
+  const pinned = spec.inputs.manifest.code
+  return (
+    code.repository === pinned.repository &&
+    code.base === pinned.base &&
+    code.head === pinned.head &&
+    code.referenceCommit === pinned.referenceCommit
+  )
 }
 
-export function createSynthesisBatch(input: {
+export async function createSynthesisBatch(input: {
   review: SynthesisInput
   identity: ReviewIdentity
   scope: Scope
@@ -57,23 +53,49 @@ export function createSynthesisBatch(input: {
   sourceContributionIds: ReadonlySet<string>
   knownSlots: Map<string, ReviewSlot>
   rootAttemptId: string
-}) {
-  const task: NativeTask = {
-    solutionSpace: 'synthesize confirmed review contributions into one strict structured decision',
+}): Promise<PreparedReviewBatch> {
+  const specAction = input.review.actions.spec
+  if (specAction === undefined) throw new Error('review-action-unprepared')
+  if (input.sourceContributions.length === 0) throw new Error('synthesis-sources-unconfirmed')
+  const stageSources: RecordInputRef[] = input.sourceContributions.map((contribution) => ({
+    source: 'record',
+    record: { scope: input.scope, recordId: contribution.contributionId, kind: 'contribution' },
+    selector: '/payload',
+    digest: canonicalValueDigest(contribution.payload),
+  }))
+  const preparedAction = await confirmPreparedAction(
+    input.review.operations,
+    actionRequest({
+      actionId: `${input.rootAttemptId}:synthesis`,
+      purpose: 'review',
+      subject: specAction.inputs.manifest.subject,
+      code: specAction.inputs.manifest.code,
+      stageSources,
+      expandedContext: specAction.inputs.manifest.expandedContext,
+    }),
+    {
+      taskName: 'synthesis',
+      assignedChunk: null,
+      contextWindow: input.review.contextWindow,
+      chunks: input.review.chunks,
+    },
+  )
+  if (!preparedAction.ok) throw new Error(`prepare-action-unavailable:${prepareRefusal(preparedAction.diagnostics)}`)
+  if (
+    preparedAction.value.inputs.fingerprint !== specAction.inputs.fingerprint ||
+    !samePinnedCode(preparedAction.value, specAction)
+  ) {
+    throw new Error('review-input-changed')
+  }
+  const prepared = preparedAction.value
+  const task = deliveryTask({
     name: 'synthesis',
     agent: 'R-review-synthesis',
-    task: [
-      input.review.semantic.synthesis,
-      candidateSource(input.review),
-      'Confirmed native source contributions (every original ID, provenance, extracted evidence, structured output, and raw attempt is authoritative):',
-      JSON.stringify(
-        input.sourceContributions.map(({ contributionId, payload }) => ({
-          contributionId,
-          payload: modelContributionPayload(payload),
-        })),
-      ),
-    ].join('\n\n'),
-  }
+    procedure:
+      'Synthesize only the dossier named by the index. Return criterion verdict references and exclusion claims. Do not read code, run a shell, or publish.',
+    solutionSpace: 'one structured review decision from the dossier',
+    prepared,
+  })
   const slots: ReviewSlot[] = [
     {
       slotId: task.name,
@@ -95,10 +117,11 @@ export function createSynthesisBatch(input: {
     payload: {
       rootAttemptId: input.rootAttemptId,
       candidateGitSHA: input.review.context.candidateGitSHA,
-      input: input.review.context.input,
+      input: prepared.inputs.fingerprint,
       slots,
       stage: 'synthesis',
-      inputFormat: 'omp-build:review-input/3',
+      inputFormat: 'omp-build:review-input/4',
+      actionInputDigest: prepared.inputs.fingerprint,
       purpose: 'review',
       policy: input.review.policy,
     },
@@ -115,7 +138,7 @@ export async function advanceReviewStage(input: {
   sourceContributions: readonly SourceContribution[]
   knownSlots: Map<string, ReviewSlot>
   readHistory: () => Promise<Parameters<typeof deriveRecallPlan>[0]>
-  createSynthesis: (rootAttemptId: string) => PreparedReviewBatch
+  createSynthesis: (rootAttemptId: string) => Promise<PreparedReviewBatch>
 }): Promise<PreparedReviewBatch> {
   if (input.prepared.stage === 'recall') return input.createSynthesis(input.prepared.rootAttemptId)
 
@@ -131,25 +154,59 @@ export async function advanceReviewStage(input: {
     return input.createSynthesis(input.prepared.rootAttemptId)
   }
 
+  const specAction = input.review.actions.spec
+  if (specAction === undefined) throw new Error('review-action-unprepared')
   const recallEntries = recall.value.index.filter((item) => recall.value.triggeredClassIds.includes(item.classId))
-  const tasks = recallEntries.map((item) =>
-    createRecallTask({
-      ...item,
-      canonicalClasses: input.review.canonicalClasses,
-      context: input.review.semantic.panel,
-      sourceEvidence: JSON.stringify(
-        input.sourceContributions
-          .filter(
-            (contribution) =>
-              contribution.payload.findings?.some((finding) => item.sourceFindingIds.includes(finding.id)) ?? false,
-          )
-          .map(({ contributionId, payload }) => ({
-            contributionId,
-            payload: modelContributionPayload(payload),
-          })),
-      ),
-    }),
-  )
+  const tasks = []
+  for (const item of recallEntries) {
+    const stageSources = input.sourceContributions
+      .filter(
+        (contribution) =>
+          contribution.payload.findings?.some((finding) => item.sourceFindingIds.includes(finding.id)) ?? false,
+      )
+      .map(
+        (contribution): RecordInputRef => ({
+          source: 'record',
+          record: { scope: input.scope, recordId: contribution.contributionId, kind: 'contribution' },
+          selector: '/payload',
+          digest: canonicalValueDigest(contribution.payload),
+        }),
+      )
+    const prepared = await confirmPreparedAction(
+      input.review.operations,
+      actionRequest({
+        actionId: `${input.prepared.rootAttemptId}:recall:${item.classId}`,
+        purpose: 'review',
+        subject: specAction.inputs.manifest.subject,
+        code: specAction.inputs.manifest.code,
+        stageSources,
+        expandedContext: specAction.inputs.manifest.expandedContext,
+      }),
+      {
+        taskName: `recall-${item.classId}`,
+        assignedChunk: null,
+        contextWindow: input.review.contextWindow,
+        chunks: input.review.chunks,
+      },
+    )
+    if (!prepared.ok) throw new Error(`prepare-action-unavailable:${prepareRefusal(prepared.diagnostics)}`)
+    if (
+      prepared.value.inputs.fingerprint !== specAction.inputs.fingerprint ||
+      !samePinnedCode(prepared.value, specAction)
+    ) {
+      throw new Error('review-input-changed')
+    }
+    tasks.push(
+      deliveryTask({
+        name: `recall-${item.classId}`,
+        agent: 'R-review-recall',
+        procedure:
+          'Recall only the class named by the index. Return structured findings. Do not read code, run a shell, or publish.',
+        solutionSpace: 'verify one canonical cross-chunk review class from the index',
+        prepared: prepared.value,
+      }),
+    )
+  }
   const slots: ReviewSlot[] = tasks.map((task, index) => ({
     slotId: task.name,
     phase: 'recall',
@@ -169,74 +226,16 @@ export async function advanceReviewStage(input: {
     payload: {
       rootAttemptId: input.prepared.rootAttemptId,
       candidateGitSHA: input.review.context.candidateGitSHA,
-      input: input.review.context.input,
-      inputFormat: 'omp-build:review-input/3',
-      slots,
+      input: specAction.inputs.fingerprint,
+      inputFormat: 'omp-build:review-input/4',
+      actionInputDigest: specAction.inputs.fingerprint,
       stage: 'recall',
       purpose: 'review',
       plan: recall.value,
       policy: input.review.policy,
+      slots,
     },
     observedEvidence: input.review.observedEvidence,
     knownSlots: input.knownSlots,
   })
-}
-
-export async function finalizeReview(input: {
-  review: FinalizationInput
-  identity: ReviewIdentity
-  scope: Scope
-  contributions: readonly PublishedContribution[]
-  inventories: readonly string[]
-  readHistory: () => Promise<Parameters<typeof validateDecision>[1]>
-  publish(record: CanonicalRecord, failurePrefix: string): Promise<void>
-  onDecisionConfirmed(decisionId: string): void
-}): Promise<void> {
-  const authorization = await input.review.authorize('synthesis')
-  if (!authorization.ok) throw new Error(`final-publication-refused:${authorization.reason}`)
-  const contribution = input.contributions.find((item) => item.child.expectedId === 'synthesis')
-  if (!contribution || contribution.child.structured === null) throw new Error('synthesis-contribution-missing')
-  const judgment = decisionSchema.safeParse(contribution.child.structured)
-  if (!judgment.success || judgment.data.purpose !== 'review') throw new Error('synthesis-decision-invalid')
-
-  const decisionRecordId = input.identity.next('decision')
-  const decision = requireRecord(
-    buildRecord({
-      ...recordBase(input.identity, input.scope, decisionRecordId),
-      kind: 'decision',
-      payload: { originalContributionId: contribution.id, judgment: judgment.data },
-    } satisfies Extract<RecordDraft, { kind: 'decision' }>),
-    'decision',
-  )
-  await input.publish(decision, 'decision-unconfirmed')
-
-  const assessment = validateDecision(
-    decision,
-    await input.readHistory(),
-    input.review.canonicalClasses,
-    input.review.policy.version === 'evidence-v1' ? input.review.policy.acceptanceRef : null,
-  )
-  if (!assessment.admissible) {
-    throw new Error(`decision-refused:${assessment.diagnostics.map((item) => item.code).join(',')}`)
-  }
-  input.onDecisionConfirmed(decision.recordId)
-  if (input.review.context.subject.kind === 'epic-range') return
-
-  const reviewRecordId = input.identity.next('review')
-  const review = requireRecord(
-    buildRecord({
-      ...recordBase(input.identity, input.scope, reviewRecordId),
-      kind: 'review',
-      payload: {
-        candidateGitSHA: input.review.context.candidateGitSHA,
-        input: input.review.context.input,
-        inventoryIds: [...input.inventories],
-        inputFormat: 'omp-build:review-input/3',
-        decisionId: decision.recordId,
-      },
-    } satisfies Extract<RecordDraft, { kind: 'review' }>),
-    'review',
-  )
-  await input.publish(review, 'review-unconfirmed')
-  return
 }

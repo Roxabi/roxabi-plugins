@@ -79,7 +79,12 @@ export function startedActionReceipt(
 ): ActionStartReceipt | null {
   for (const operation of history.operations) {
     const record = operation.record
-    if (isActionStartReceipt(record) && record.recordId === start.recordId && record.payload.actionId === operationId) {
+    if (
+      operation.status === 'complete' &&
+      isActionStartReceipt(record) &&
+      record.recordId === start.recordId &&
+      record.payload.actionId === operationId
+    ) {
       return record
     }
   }

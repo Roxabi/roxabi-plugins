@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { GitHubOptions } from '../dist/contracts.js'
 import * as contracts from '../dist/contracts.js'
+import { fixtureUwOperations } from '../testing/action-input-fixtures.ts'
 import { history } from '../testing/record-history.ts'
 import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
 import type { FixTarget, NativePort, PublishBinding, ReviewAuthority } from './fix-contract.ts'
@@ -30,6 +31,7 @@ describe('default fix feature mandate binding', () => {
       native: {} as NativePort,
       workflow: {} as ReviewAuthority,
       uw: unavailableUw,
+      operations: fixtureUwOperations(),
       gh: async () => {
         throw new Error('must not read fix-only mandate inputs')
       },
@@ -41,6 +43,7 @@ describe('default fix feature mandate binding', () => {
       kind: 'issue',
       state: 'open',
       candidateGitSHA: 'a'.repeat(40),
+      baseGitSHA: 'a'.repeat(40),
     }
     const publishBinding: PublishBinding = {
       pushUrl: 'https://github.com/Acme/app.git',
@@ -68,13 +71,19 @@ describe('default fix feature mandate binding', () => {
         native: {} as NativePort,
         workflow: {} as ReviewAuthority,
         uw: unavailableUw,
+        operations: fixtureUwOperations(),
         gh: async () => {
           reads += 1
           throw new Error('target resolution reached')
         },
       },
       { runId: 'run-1', operationId: 'operation-1', nextRecordId: () => 'unused' },
-      { signal: new AbortController().signal, onBatch: () => undefined, onStarted: () => undefined },
+      {
+        signal: new AbortController().signal,
+        uw: fixtureUwOperations(),
+        onBatch: () => undefined,
+        onStarted: () => undefined,
+      },
     )
 
     expect(result).toMatchObject({ ok: false, diagnostics: ['fix-repository-unreadable:target resolution reached'] })

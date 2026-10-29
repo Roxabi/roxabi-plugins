@@ -78,6 +78,7 @@ export function nativeContributionPayload(
       slotId: slot?.slotId ?? null,
       chunk: slot?.chunk ?? null,
       childId: child.id,
+      ...(slot !== null && child.contextBlock !== undefined ? { action: child.contextBlock.action } : {}),
     },
     rawAttempts: child.submissions,
     native: {

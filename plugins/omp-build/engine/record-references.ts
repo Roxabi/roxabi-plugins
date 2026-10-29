@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { identifierSchema, scopeSchema } from './record-values.ts'
+import { identifierSchema, scopeSchema } from './schema-primitives.ts'
 
 export const KIND_NAMES = [
   'review-attempt',

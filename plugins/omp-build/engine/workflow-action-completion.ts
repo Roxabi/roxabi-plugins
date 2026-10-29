@@ -4,11 +4,14 @@ import { failedCheckEvidenceDigest } from './record-digests.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
+import { workflowContextNegative, workflowContextTerminal } from './workflow-context-terminal.ts'
 import { type MandateRecord, mandateScope, type ReceiptRecord, recordsOf } from './workflow-control.ts'
 import type { WorkflowGraphAction } from './workflow-graph.ts'
-import { ciAttributionSchema, implementationOutputSchema } from './workflow-output-schema.ts'
+import { implementationCompletion } from './workflow-implementation-completion.ts'
+import { ciAttributionSchema } from './workflow-output-schema.ts'
 import type { ActionCompletion, WorkflowEvidence } from './workflow-plan.ts'
 import { planMacro } from './workflow-plan-macro.ts'
+
 import type { AssessSpecExact } from './workflow-receipt-schema.ts'
 import type { SpecializedDecisions, WorkflowFacts } from './workflow-reconstruction-types.ts'
 import {
@@ -20,10 +23,6 @@ import {
 } from './workflow-spec-assessment.ts'
 import { authenticatedAssessResult } from './workflow-spec-authentication-chain.ts'
 
-type ImplementationReceipt = ReceiptRecord & {
-  payload: Extract<ReceiptRecord['payload'], { action: 'implement' }>
-}
-
 export function actionCompletion(
   action: WorkflowGraphAction,
   evidence: WorkflowEvidence,
@@ -31,6 +30,8 @@ export function actionCompletion(
   mandate: MandateRecord | null,
   facts: WorkflowFacts | null = null,
 ): ActionCompletion {
+  const context = contextCompletion(action, evidence)
+  if (context !== null) return context
   switch (action) {
     case 'plan':
       return planCompletion(evidence, mandate)
@@ -51,28 +52,28 @@ export function actionCompletion(
   }
 }
 
-export function implementationCompletion(evidence: WorkflowEvidence, mandate: MandateRecord | null): ActionCompletion {
-  const allReceipts = implementationReceipts(evidence.issue)
-  const allStarts = allReceipts.filter((record) => record.payload.phase === 'start')
-  const allResults = allReceipts.filter((record) => record.payload.phase === 'result')
-  if (allStarts.some((start) => !allResults.some((result) => result.payload.actionId === start.payload.actionId))) {
-    return { status: 'uncertain', evidence: [diagnostic('action-uncertain', 'implement start has no result')] }
+function contextCompletion(action: WorkflowGraphAction, evidence: WorkflowEvidence): ActionCompletion | null {
+  if (action !== 'frame' && action !== 'assess-spec' && action !== 'attribute-ci') return null
+  const histories = [evidence.issue, ...(evidence.pullRequest === null ? [] : [evidence.pullRequest])]
+  for (const history of histories) {
+    const terminal = workflowContextTerminal(history, action)
+    if (terminal === 'missing')
+      return {
+        status: 'blocked',
+        evidence: [diagnostic('action-context-missing', `${action} requires expanded context`)],
+      }
+    if (terminal === 'uncertain')
+      return {
+        status: 'uncertain',
+        evidence: [diagnostic('action-uncertain', `${action} context result is not authenticated`)],
+      }
+    if (terminal === 'ambiguous')
+      return {
+        status: 'blocked',
+        evidence: [diagnostic('ambiguous', `${action} context result has competing successors`)],
+      }
   }
-  if (allResults.some(isUnadmittedImplementation)) {
-    return { status: 'blocked', evidence: [diagnostic('unconfirmed', 'implement result was not admitted')] }
-  }
-  const macro = planMacro(evidence, mandate)
-  if (macro.phase === 'blocked') return { status: 'blocked', evidence: macro.evidence }
-  if (macro.phase === 'uncertain') return { status: 'uncertain', evidence: macro.evidence }
-  if (macro.phase !== 'eligible' || mandate === null) return { status: 'not-started', evidence: [] }
-  const planActionId = macro.amendmentActionId ?? macro.draftActionId
-  if (planActionId === null) return { status: 'not-started', evidence: [] }
-  const receipts = implementationForPlan(allReceipts, mandate, planActionId)
-  const starts = receipts.filter((record) => record.payload.phase === 'start')
-  const results = receipts.filter((record) => record.payload.phase === 'result')
-  if (starts.length === 0 && results.length === 0) return { status: 'not-started', evidence: [] }
-  if (results.length > 0) return { status: 'confirmed', evidence: [] }
-  return { status: 'blocked', evidence: [diagnostic('unconfirmed', 'implement result was not admitted')] }
+  return null
 }
 
 export function boundCiAttribution(
@@ -182,8 +183,13 @@ function assessSpecCompletion(
   const receipts = recordsOf(evidence.issue).filter((record): record is ReceiptRecord =>
     isMatchingAssessment(record, mandateRef, exactInputs),
   )
-  const starts = receipts.filter((record) => record.payload.phase === 'start')
-  const results = receipts.filter((record): record is AssessResultRecord => isAssessResult(record))
+  const negativeIds = new Set(receipts.filter(workflowContextNegative).map((record) => record.payload.actionId))
+  const starts = receipts.filter(
+    (record) => record.payload.phase === 'start' && !negativeIds.has(record.payload.actionId),
+  )
+  const results = receipts.filter(
+    (record): record is AssessResultRecord => isAssessResult(record) && !negativeIds.has(record.payload.actionId),
+  )
   if (starts.length === 0 && results.length === 0) return { status: 'not-started', evidence: [] }
   if (starts.length !== 1 || results.length !== 1) {
     return {
@@ -249,33 +255,6 @@ function ciAttributionCompletion(
   }
   const bound = boundCiAttribution(histories, facts, mandate)
   return bound.change || bound.refused ? { status: 'confirmed', evidence: [] } : { status: 'not-started', evidence: [] }
-}
-
-function implementationReceipts(history: WorkflowEvidence['issue']): ImplementationReceipt[] {
-  return recordsOf(history).filter(
-    (record): record is ImplementationReceipt =>
-      record.kind === 'action-receipt' && record.payload.action === 'implement',
-  )
-}
-
-function isUnadmittedImplementation(record: ImplementationReceipt): boolean {
-  if (record.payload.phase !== 'result' || record.payload.admission?.admitted !== true) return true
-  const parsed = implementationOutputSchema.safeParse(record.payload.structured)
-  return !parsed.success || parsed.data.outcome !== 'implemented'
-}
-
-function implementationForPlan(
-  receipts: readonly ImplementationReceipt[],
-  mandate: MandateRecord,
-  planActionId: string,
-): ImplementationReceipt[] {
-  const mandateRef: ExternalRecordRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: 'mandate' }
-  return receipts.filter(
-    (record) =>
-      sameRef(record.payload.mandate, mandateRef) &&
-      record.payload.exactInputs.mandateId === mandate.recordId &&
-      record.payload.exactInputs.planActionId === planActionId,
-  )
 }
 
 function ciAttribution(

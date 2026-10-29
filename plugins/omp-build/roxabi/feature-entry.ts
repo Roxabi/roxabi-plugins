@@ -45,6 +45,7 @@ export async function runInstalledFeatureCommand(args: string, host: FeatureComm
     control: parsed.control,
     principal: host.principal,
     ...(host.uw === undefined ? {} : { uw: host.uw }),
+    ...(host.pluginPin === undefined ? {} : { pluginPin: host.pluginPin }),
   }
   let result: ContinueFeatureResult
   try {
@@ -229,6 +230,7 @@ async function continueAfterReview(reference: string, host: FeatureCommandHost):
     control: 'continue',
     principal: false,
     ...(host.uw === undefined ? {} : { read: host.uw }),
+    ...(host.pluginPin === undefined ? {} : { pluginPin: host.pluginPin }),
   })
   await deliverFeatureResult(reference, next, host)
 }
@@ -247,6 +249,7 @@ function observeFeatureTerminal(
         control: 'continue',
         principal: false,
         ...(host.uw === undefined ? {} : { read: host.uw }),
+        ...(host.pluginPin === undefined ? {} : { pluginPin: host.pluginPin }),
       })
       await deliverFeatureResult(reference, next, host)
     })

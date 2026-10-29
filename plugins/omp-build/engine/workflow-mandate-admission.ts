@@ -19,6 +19,7 @@ import {
 import { executableGraph } from './workflow-graph.ts'
 import type { MandateSelection } from './workflow-mandate.ts'
 import { epicParentProblem } from './workflow-parent.ts'
+import type { AssessmentReplayContext } from './workflow-spec-authentication.ts'
 
 type MandateRefusalSelection = Extract<MandateSelection, { status: 'refused' }>
 
@@ -243,6 +244,7 @@ export function resolveOwnSpecAuthority(
   history: DecodedHistory,
   externalHistories: readonly DecodedHistory[] = [],
   seen: ReadonlySet<string> = new Set(),
+  replayContext?: AssessmentReplayContext,
 ): Result<OwnSpecAuthority> {
   const cycle = cycleRefusal(history, seen)
   if (cycle !== null) return fail(cycle.evidence)
@@ -258,7 +260,7 @@ export function resolveOwnSpecAuthority(
   nextSeen.add(`${history.source.scope.repository}\0${history.source.scope.target}`)
   const parent = controlParentAuthority(selected, externalHistories, nextSeen)
   if (!parent.ok) return parent
-  const accepted = resolveAcceptedSpec(selected, [history, ...externalHistories])
+  const accepted = resolveAcceptedSpec(selected, [history, ...externalHistories], replayContext)
   if (!accepted.ok) return fail(accepted.evidence)
   return { ok: true, value: { mandate: selected, accepted: accepted.spec } }
 }

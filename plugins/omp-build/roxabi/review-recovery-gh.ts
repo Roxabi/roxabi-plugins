@@ -23,6 +23,8 @@ import {
   hostTerminalizeInterruptedReview,
   type RecoveryHostPorts,
 } from './review-recovery-host.ts'
+import type { TrustedHostPluginPin } from './uw-action-contract.ts'
+import type { UwOperations } from './uw-contract.ts'
 
 type ReviewRoot = Extract<CanonicalRecord, { kind: 'review-attempt' }>
 type WorkflowBinding = Extract<CanonicalRecord, { kind: 'workflow-binding' }>
@@ -141,12 +143,21 @@ export async function ghGrantInterruptedReviewReplacement(input: {
   pr: number
   contextWindow: number
   gh?: Gh
+  operations: UwOperations
+  pluginPin?: TrustedHostPluginPin
   prepareReview?: typeof prepareReviewInputs
 }): Promise<Result<{ recordId: string }>> {
   const ports = await recoveryPorts(input)
   if (!ports.ok) return ports
   const prepare = input.prepareReview ?? prepareReviewInputs
-  const prepared = await prepare({ cwd: input.cwd, pr: input.pr, contextWindow: input.contextWindow })
+  const prepared = await prepare({
+    cwd: input.cwd,
+    pr: input.pr,
+    contextWindow: input.contextWindow,
+    gh: input.gh,
+    operations: input.operations,
+    ...(input.pluginPin === undefined ? {} : { pluginPin: input.pluginPin }),
+  })
   if (!prepared.ok) return prepared
   if (prepared.value.capture.input === null) {
     return {
@@ -172,12 +183,21 @@ export async function ghReplaceInterruptedReview(input: {
   pr: number
   contextWindow: number
   gh?: Gh
+  operations: UwOperations
+  pluginPin?: TrustedHostPluginPin
   prepareReview?: typeof prepareReviewInputs
 }): Promise<Result<{ recordId: string; grantId: string; inventory: ReviewRoot; input: PreparedReviewInputs }>> {
   const ports = await recoveryPorts(input)
   if (!ports.ok) return ports
   const prepare = input.prepareReview ?? prepareReviewInputs
-  const prepared = await prepare({ cwd: input.cwd, pr: input.pr, contextWindow: input.contextWindow })
+  const prepared = await prepare({
+    cwd: input.cwd,
+    pr: input.pr,
+    contextWindow: input.contextWindow,
+    gh: input.gh,
+    operations: input.operations,
+    ...(input.pluginPin === undefined ? {} : { pluginPin: input.pluginPin }),
+  })
   if (!prepared.ok) return prepared
   const template = replacementTemplate({ cwd: input.cwd, prepared: prepared.value })
   if (template === null) {

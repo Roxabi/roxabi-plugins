@@ -1,6 +1,6 @@
 import type { DecodedHistory } from './history-schema.ts'
-import { implementationCompletion } from './workflow-action-completion.ts'
 import { type MandateRecord, recordsOf } from './workflow-control.ts'
+import { implementationCompletion } from './workflow-implementation-completion.ts'
 import type { ActionCompletion } from './workflow-plan.ts'
 import { planMacro } from './workflow-plan-macro.ts'
 import { selectWorkflowBinding } from './workflow-pr-binding.ts'

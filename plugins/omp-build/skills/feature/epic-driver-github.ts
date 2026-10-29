@@ -11,6 +11,7 @@ import { mandateParentHistories } from '../../roxabi/feature-context.ts'
 import { loadContracts } from '../../roxabi/feature-engine.ts'
 import { withRoxabiGitHubPolicy } from '../../roxabi/github-policy.ts'
 import { loadReviewConfig } from '../../roxabi/review-assets.ts'
+import { readReviewInputHistories } from '../../roxabi/uw-input-readers.ts'
 import { type CheckNode, classifyBaseCi } from './epic-ci'
 import { refuseForeignCommits, ticketOfBranch, ticketOfSubject } from './epic-claims'
 import { readHistoryPairs } from './epic-driver-history-pairs'
@@ -110,11 +111,25 @@ export function diagnosticsText(diagnostics: readonly { code: string; message: s
   return diagnostics.map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`).join('; ')
 }
 
+/** External histories only. Same-scope identity stays on the caller root. */
+export async function citedReviewHistories(repo: string, history: DecodedHistory): Promise<readonly DecodedHistory[]> {
+  const options = adapterOptions(repo)
+  if (options.gh === undefined) throw new Refused('cited review history is not readable: github transport is absent')
+  const cited = await readReviewInputHistories(history, {
+    cwd: options.cwd,
+    gh: options.gh,
+    readAuthor: options.readAuthor ?? options.automationLogin,
+  })
+  if (!cited.ok) throw new Refused(`cited review history is not readable: ${diagnosticsText(cited.diagnostics)}`)
+  return cited.value
+}
+
 /** The canonical review graph is the only source of review-bound disposition. */
 export async function stoppedReviews(repo: string, repository: string, numbers: number[]): Promise<Set<number>> {
   const taxonomy = loadReviewConfig().canonicalClasses
   const states = await readHistoryPairs(numbers, async (number) => {
-    const summary = summarizeReviews(await issueHistory(repo, repository, number), taxonomy, null)
+    const history = await issueHistory(repo, repository, number)
+    const summary = summarizeReviews(history, taxonomy, null, await citedReviewHistories(repo, history))
     if (!summary.ok)
       throw new Refused(`PR #${number} review history is not admissible: ${diagnosticsText(summary.diagnostics)}`)
     return summary.value.spent ? number : null

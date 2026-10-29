@@ -1,3 +1,4 @@
+import { missingContextOutputSchema } from './action-context.ts'
 import { diagnostic } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import {
@@ -195,6 +196,13 @@ function validateSlotContent(
   if (enforceClosure && entry.payload.content !== expectedContent)
     diagnostics.push(
       diagnostic('unbound', `Contribution ${entry.recordId} content does not satisfy slot ${slot.slotId}`),
+    )
+  if (enforceClosure && missingContextOutputSchema.safeParse(entry.payload.structured).success)
+    diagnostics.push(
+      diagnostic(
+        'incomplete',
+        `Contribution ${entry.recordId} requires expanded context and cannot close slot ${slot.slotId}`,
+      ),
     )
   validateRequiredProvenance(entry, slot, diagnostics, enforceClosure)
   validateRequiredRawAttempts(entry, slot, diagnostics, enforceClosure)

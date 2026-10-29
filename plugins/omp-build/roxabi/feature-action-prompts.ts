@@ -1,119 +1,49 @@
-import type { FailedCheckFailure } from '../engine/record-digests.ts'
 import type { ScopedRecordRef } from '../engine/record-references.ts'
 import type { Scope } from '../engine/record-values.ts'
-import type { AssessSpecExact } from '../engine/workflow-receipt-schema.ts'
 import type { NativeBatch } from '../omp/review-runtime/contracts.ts'
+import { type DeliveryTask, deliveryBatch, deliveryTask } from './delivery-action.ts'
 import type { ContinueFeatureResult } from './feature-contract.ts'
+import type { PreparedUwAction } from './uw-action-contract.ts'
 
-export type ModelActionInput =
-  | {
-      action: 'attribute-ci'
-      scope: Scope
-      start: ScopedRecordRef
-      operationId: string
-      ciEvidence: {
-        evidenceDigest: string
-        failures: FailedCheckFailure[]
-        supplied: unknown
-        candidateGitSHA: string
-        scope: Scope
-        acceptedSemanticContext: string
-      }
-    }
-  | {
-      action: 'assess-spec'
-      scope: Scope
-      start: ScopedRecordRef
-      operationId: string
-      assessExact: AssessSpecExact
-    }
-  | {
-      action: 'implement'
-      scope: Scope
-      start: ScopedRecordRef
-      operationId: string
-      approved: {
-        specBlock: string
-        requirementsBlock: string
-        acceptanceLine?: string
-      }
-      planBlock: string
-    }
+export type PreparedModelAction = {
+  action: 'attribute-ci' | 'assess-spec' | 'implement'
+  scope: Scope
+  start: ScopedRecordRef
+  operationId: string
+  prepared: PreparedUwAction
+}
 
-export function batch(operationId: string, tasks: { name: string; agent: string; task: string }[]): NativeBatch {
+const PROCEDURE = {
+  'assess-spec':
+    'Compare the accepted and proposed Spec files named by the index. Classify the pair as editorial, material, or unknown. Done when classification is exactly one of those three values.',
+  'attribute-ci':
+    'Attribute the failing checks named by the index to change, pre-existing, infra, unknown, or out-of-scope. Done when attribution is one of those values and evidence cites the check plus the scope fact that supports it. Do not implement a repair.',
+  implement:
+    'Implement the confirmed plan named by the index. Return one declaration per accepted criterion: admissible evidence or unverified with a concrete reason. Command claims contain only toolCallId, command, and exitCode. Do not invent captured output or a code SHA. Done when outcome is implemented or blocked and every accepted criterion is declared.',
+} as const
+
+export function preparedModelAction(input: PreparedModelAction): ContinueFeatureResult {
+  const task = deliveryTask({
+    name: actionAgent(input.action),
+    agent: actionAgent(input.action),
+    procedure: PROCEDURE[input.action],
+    solutionSpace: 'one named workflow action; no second review loop',
+    prepared: input.prepared,
+  })
   return {
-    operationId,
-    tasks: {
-      context: 'omp-build workflow action',
-      tasks: tasks.map((item) => ({
-        name: item.name,
-        agent: item.agent,
-        task: item.task,
-        solutionSpace: 'one named workflow action; no second review loop',
-      })),
-    },
+    kind: 'action',
+    node: input.action,
+    start: input.start,
+    followUp: deliveryBatch(input.operationId, [task]),
   }
 }
 
-function actionAgent(action: ModelActionInput['action']): string {
+export function preparedTasks(operationId: string, tasks: readonly DeliveryTask[]): NativeBatch {
+  return deliveryBatch(operationId, tasks)
+}
+
+function actionAgent(action: PreparedModelAction['action']): string {
   if (action === 'assess-spec') return 'R-workflow-assess-spec'
   if (action === 'attribute-ci') return 'R-workflow-attribute-ci'
   return 'R-workflow-implement'
-}
-
-function actionTask(input: ModelActionInput): string {
-  if (input.action === 'implement') {
-    return [
-      `Implement the confirmed plan in this worktree for ${input.scope.target}.`,
-      input.approved.acceptanceLine ?? 'Acceptance criteria: (none).',
-      input.approved.specBlock ?? 'Accepted Spec: (missing).',
-      input.planBlock ?? 'Confirmed plan: (missing).',
-      'Use only the accepted Spec and confirmed plan above with the mandate effective additionalRequirements; do not substitute local or current defaults.',
-      'Run the changed path. Update affected docs. For a frontend or shared UI surface, record browser URL, steps, and observed result, or run the declared test_e2e command. Do not record ui-manual-only when test_e2e is declared. Stage only task-owned files. Commit with a Conventional subject ending (#N). Never use git add -A, git add --all, or the git add . form. If a hook fails because dependencies are missing, run commands.install from .dev/stack.yml, then retry with hooks on. Never pass --no-verify or otherwise skip or disable hooks (including -n, LEFTHOOK=0, or core.hooksPath). If a hook stays red outside approved scope, return blocked naming the hook and failure; do not commit around it.',
-    ].join('\n')
-  }
-  if (input.action === 'attribute-ci') {
-    const { ciEvidence } = input
-    if (ciEvidence !== undefined) {
-      return [
-        `Attribute the current CI failures for ${input.scope.target}.`,
-        `candidateGitSHA=${ciEvidence.candidateGitSHA}`,
-        `scope=${JSON.stringify(ciEvidence.scope)}`,
-        `evidenceDigest=${ciEvidence.evidenceDigest}`,
-        ciEvidence.acceptedSemanticContext,
-        'Use only the retained native failure evidence and the approved change scope facts below. Return structured attribution only. Do not implement a repair.',
-        `failures=${JSON.stringify(ciEvidence.failures)}`,
-        `supplied=${JSON.stringify(ciEvidence.supplied)}`,
-      ].join('\n')
-    }
-  }
-  if (input.action === 'assess-spec') {
-    return [
-      `Assess canonical Spec change for ${input.scope.target}. Return only the structured classification. Do not implement a semantic repair.`,
-      `acceptedVersion=${input.assessExact.accepted.ref.version}`,
-      `proposedVersion=${input.assessExact.proposed.snapshot.spec.version}`,
-      `acceptedTier=${input.assessExact.accepted.tier}`,
-      `proposedTier=${input.assessExact.proposed.tier}`,
-      'acceptedCanonicalSpec:',
-      JSON.stringify(input.assessExact.accepted.snapshot.spec),
-      'proposedCanonicalSpec:',
-      JSON.stringify(input.assessExact.proposed.snapshot.spec),
-      `acceptedChildren=${JSON.stringify(input.assessExact.accepted.children)}`,
-      `proposedChildren=${JSON.stringify(input.assessExact.proposed.children)}`,
-      `mechanical=${JSON.stringify(input.assessExact.mechanical)}`,
-    ].join('\n')
-  }
-  return `Perform the named ${input.action} action for ${input.scope.target}. Return only the structured classification. Do not implement a semantic repair.`
-}
-
-export function modelAction(input: ModelActionInput): ContinueFeatureResult {
-  const { action, start, operationId } = input
-  const agent = actionAgent(action)
-  const task = actionTask(input)
-  return {
-    kind: 'action',
-    node: action,
-    start,
-    followUp: batch(operationId, [{ name: agent, agent, task }]),
-  }
 }

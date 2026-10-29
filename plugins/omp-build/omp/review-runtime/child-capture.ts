@@ -1,6 +1,8 @@
 import { isDeepStrictEqual } from 'node:util'
+import type { CommandRun } from '../../engine/criterion-evidence-schema.ts'
 import { json, nativeSnapshot, object } from './capture'
 import type { Json, NativeChildResult, NativeProofBashCall, NativeProofDirective } from './contracts'
+import { commandRunFromCapture, nativeProvenance, referencedCommandIds } from './criterion-grounding.ts'
 import type { ActiveBatch, ChildCapture } from './state'
 
 type SelectedProofReference = { toolCallId: string; guardId: string | null }
@@ -107,16 +109,83 @@ export function captureChildResult(
   const structured = child === null ? null : terminalStructured(child)
   const proofReference = selectedProofReference(structured, directive)
   const reason = childCompletionReason(child, expectedId, structured, submissions)
+  const commandRuns: CommandRun[] = []
+  const childId = id
+  const actionId = task?.action?.snapshot.actionId
   return {
     id,
     expectedId,
     submissions,
     proofEvidence: proofEvidence(directive, proofReference, capture),
     bashCalls: referencedBashCalls(capture, structured),
+    commandRuns,
+    ...(childId !== null && actionId !== undefined && commandRuns.length > 0
+      ? {
+          nativeProvenance: nativeProvenance(
+            actionId,
+            childId,
+            submissions.length === 0 ? 0 : submissions.length - 1,
+            commandRuns.map((run) => run.toolCallId),
+          ),
+        }
+      : {}),
     raw: nativeSnapshot(value),
     partialText: capture?.partialText ?? null,
     structured,
     usable: reason === null,
     reason,
   }
+}
+
+function capturedCommandRun(capture: ChildCapture | undefined, toolCallId: string): CommandRun | null {
+  const call = capture?.completedBashCalls.get(toolCallId)
+  if (call === undefined) return null
+  const span = capture?.hostGit.get(toolCallId)
+  return commandRunFromCapture(call, {
+    probeCwd: call.effectiveCwd,
+    start: span?.start ?? null,
+    end: span?.end ?? null,
+  })
+}
+
+function commandRunsForChild(active: ActiveBatch, child: NativeChildResult): CommandRun[] {
+  const capture = child.id === null ? undefined : active.captures.get(child.id)
+  const commandRuns: CommandRun[] = []
+  for (const toolCallId of referencedCommandIds(child.structured)) {
+    const run = capturedCommandRun(capture, toolCallId)
+    if (run !== null) commandRuns.push(run)
+  }
+  return commandRuns
+}
+
+function withCapturedProvenance(
+  active: ActiveBatch,
+  child: NativeChildResult,
+  commandRuns: readonly CommandRun[],
+): NativeChildResult {
+  const task =
+    child.expectedId === null
+      ? undefined
+      : active.batch.tasks.tasks.find((candidate) => candidate.name === child.expectedId)
+  const actionId = task?.action?.snapshot.actionId
+  const childId = child.id
+  if (childId === null || childId.length === 0 || actionId === undefined || commandRuns.length === 0)
+    return { ...child, commandRuns }
+  return {
+    ...child,
+    commandRuns,
+    nativeProvenance: nativeProvenance(
+      actionId,
+      childId,
+      child.submissions.length === 0 ? 0 : child.submissions.length - 1,
+      commandRuns.map((run) => run.toolCallId),
+    ),
+  }
+}
+
+export async function groundCapturedChildren(
+  active: ActiveBatch,
+  children: readonly NativeChildResult[],
+): Promise<NativeChildResult[]> {
+  return children.map((child) => withCapturedProvenance(active, child, commandRunsForChild(active, child)))
 }

@@ -49,9 +49,9 @@ Constructive counsel: strengthen the assigned plan, specification, diff, or idea
 
 ## Discovery
 
-1. Read repository instructions first.
-2. Read `.dev/stack.yml` only when it exists and is relevant.
-3. Inspect applicable manifests, CI configuration, and neighboring source.
+1. When the task names an index path, read that index and the files it names. Otherwise read repository instructions first.
+2. When an index is named, read `.dev/stack.yml` only if that index names it. Otherwise read it only when it exists and is relevant.
+3. Inspect the manifests, CI configuration, and neighboring source the index names. Without an index, inspect those in the repository.
 4. Record unsupported facts as unknown; do not supply host defaults or infer commands, paths, frameworks, or flags.
 
 The listed tools remain available to the host: review dispatch does not sandbox them. In review, do not write or run mutating commands. An explicit implementation task may write only the requested change, but this counsel role does not accept implementation tasks. Do not claim that the prompt removes a listed tool.

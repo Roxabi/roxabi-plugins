@@ -4,11 +4,14 @@ import type { PreparedEpicReview } from '../roxabi/epic-range-finalization.ts'
 import type { ReviewPublisher } from '../roxabi/review-contract.ts'
 import { ReviewProduct } from '../roxabi/review-dispatch.ts'
 import { createPreparedReviewRunner } from '../roxabi/review-entry'
-import type { PreparedReviewInputs } from '../roxabi/review-input-contract.ts'
+import type { PreparedReviewInputs, PrepareReviewInputsOptions } from '../roxabi/review-input-contract.ts'
 import { prepareReviewInputs } from '../roxabi/review-pr-inputs.ts'
-import { validateReviewInput } from '../skills/feature/workflow-review-input.js'
+import { validatePreparedReviewInput, validateReviewInput } from '../skills/feature/workflow-review-input.js'
 import { nextReviewStep } from '../skills/feature/workflow-review-state.js'
+import { hostPluginPin } from './host-plugin-pin.ts'
+import { createHostUwOperations } from './host-uw-operations.ts'
 import { createOmpReviewProduct, hasOwnedFixRun, reviewControllerFor } from './omp-controller'
+import { createOperatorConfirmation } from './omp-operator-confirmation.ts'
 import type { NativeExtension } from './review-runtime/contracts.ts'
 import { createNativeReviewPort } from './review-runtime/port.ts'
 
@@ -20,10 +23,12 @@ async function prepareInstalledEpicRangeReview(
   let completionInvoked = false
   const publisher: ReviewPublisher = {
     authorize: (context, stage) => review.publisher.authorize(context, stage),
-    publishInventory: (prepared) => review.publisher.publishInventory(prepared),
+    publishInventory: (prepared, canContinue) => review.publisher.publishInventory(prepared, canContinue),
     publishRawContribution: (prepared, child) => review.publisher.publishRawContribution(prepared, child),
-    completeStage: async (prepared, result, contributions) => {
-      const next = await review.publisher.completeStage(prepared, result, contributions)
+    completeStage: async (prepared, result, contributions, canContinue) => {
+      if (canContinue === undefined) throw new Error('review-continuation-unfenced')
+      const next = await review.publisher.completeStage(prepared, result, contributions, canContinue)
+      if (!canContinue()) return null
       if (next === null && !completionInvoked) {
         completionInvoked = true
         await onComplete()
@@ -39,6 +44,7 @@ async function prepareInstalledEpicRangeReview(
 type DefaultReviewOptions = {
   onComplete?: () => Promise<void>
   prepareReview?: typeof prepareReviewInputs
+  expansion?: PrepareReviewInputsOptions['expansion']
   scopedGuard?: () => boolean
 }
 
@@ -68,6 +74,7 @@ async function dispatchPreparedReplacementReview(
       input.pr.number,
       input.pr.head,
       input.capture.input,
+      { pluginPin: hostPluginPin() },
     )
     if (!validation.ok) return { ok: false, reason: `${stage}:${validation.reason}` }
     return { ok: true }
@@ -93,7 +100,7 @@ async function dispatchDefaultReview(
   args: string,
   options: DefaultReviewOptions = {},
 ): Promise<void> {
-  const { onComplete, prepareReview = prepareReviewInputs, scopedGuard } = options
+  const { onComplete, prepareReview = prepareReviewInputs, scopedGuard, expansion } = options
   if (hasOwnedFixRun(pi)) throw new Error('fix-run-already-active')
   const supplied = args.trim()
   if (supplied !== '' && !/^[1-9]\d*$/.test(supplied))
@@ -105,6 +112,9 @@ async function dispatchDefaultReview(
     cwd: ctx.cwd,
     pr: supplied === '' ? undefined : Number(supplied),
     contextWindow,
+    operations: await createHostUwOperations(ctx, createOperatorConfirmation(ctx)),
+    pluginPin: hostPluginPin(),
+    expansion,
   })
   if (!prepared.ok)
     throw new Error(`review-input-preparation-refused:${prepared.diagnostics.map((item) => item.code).join(',')}`)
@@ -114,7 +124,19 @@ async function dispatchDefaultReview(
   const authorize = async (
     stage: 'initial' | 'recall' | 'synthesis',
   ): Promise<{ ok: true } | { ok: false; reason: string }> => {
-    const validation = await validateReviewInput(ctx.cwd, input.pr.number, input.pr.head, input.capture.input)
+    if (
+      input.context.input !== input.inputSnapshot.fingerprint ||
+      (expansion === undefined && input.inputSnapshot.fingerprint !== input.capture.input)
+    )
+      return { ok: false, reason: `${stage}:review-input-changed` }
+    const validation =
+      stage === 'initial'
+        ? await validatePreparedReviewInput(ctx.cwd, input.pr.number, input.pr.head, input.inputSnapshot, {
+            pluginPin: hostPluginPin(),
+          })
+        : await validateReviewInput(ctx.cwd, input.pr.number, input.pr.head, input.inputSnapshot.fingerprint, {
+            pluginPin: hostPluginPin(),
+          })
     if (!validation.ok) return { ok: false, reason: `${stage}:${validation.reason}` }
     return { ok: true }
   }
@@ -129,10 +151,12 @@ async function dispatchDefaultReview(
       ? runner
       : {
           authorize: (context, stage) => runner.authorize(context, stage),
-          publishInventory: (prepared) => runner.publishInventory(prepared),
+          publishInventory: (prepared, canContinue) => runner.publishInventory(prepared, canContinue),
           publishRawContribution: (prepared, child) => runner.publishRawContribution(prepared, child),
-          completeStage: async (prepared, result, contributions) => {
-            const next = await runner.completeStage(prepared, result, contributions)
+          completeStage: async (prepared, result, contributions, canContinue) => {
+            if (canContinue === undefined) throw new Error('review-continuation-unfenced')
+            const next = await runner.completeStage(prepared, result, contributions, canContinue)
+            if (!canContinue()) return null
             if (next === null && !completionInvoked) {
               completionInvoked = true
               await onComplete()

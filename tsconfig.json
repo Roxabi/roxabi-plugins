@@ -17,6 +17,8 @@
     "vitest.config.ts",
     "vitest.setup.ts",
     "vitest.global-setup.ts",
+    "vitest.integration.global-setup.ts",
+    "vitest.integration.setup.ts",
     "plugins/issue-triage/**/*.ts",
     "plugins/omp-build/**/*.ts",
     "tools/**/*omp-build*.ts",

@@ -11,7 +11,7 @@ import { assertChildGrant, type EpicAuthority, evidenceText, readEpicAuthority }
 import { readChildPrInventory } from './epic-driver-containment'
 import { disarmEpicControlTarget } from './epic-driver-control'
 import { gather } from './epic-driver-gather'
-import { diagnosticsText } from './epic-driver-github'
+import { citedReviewHistories, diagnosticsText } from './epic-driver-github'
 import { epicEvents } from './epic-driver-history'
 import { type Disarm, publishEpicEvent, ticketStop } from './epic-driver-publication'
 import { reportPayload, reportText } from './epic-driver-report'
@@ -58,7 +58,13 @@ export async function stop(
   return { ticket, stop: reason, sticky: STICKY_STOPS.includes(reason), disarmed: outcome.disarmed }
 }
 
-export async function review(repo: string, epic: number, decisionRecord: string, range: string) {
+export async function review(
+  repo: string,
+  epic: number,
+  decisionRecord: string,
+  range: string,
+  canPublish?: () => boolean,
+) {
   const authority = await readEpicAuthority(repo, epic)
   const { run, base } = authority
   if (!decisionRecord) throw new Refused('--decision-record <ID> is required')
@@ -99,7 +105,14 @@ export async function review(repo: string, epic: number, decisionRecord: string,
         record.kind === 'review-attempt' && record.payload.rootAttemptId === root.recordId,
     )
     .map((record) => record.recordId)
-  const assessment = validateDecision(decision, authorityHistory, loadReviewConfig().canonicalClasses, null)
+  const assessment = validateDecision(
+    decision,
+    authorityHistory,
+    loadReviewConfig().canonicalClasses,
+    null,
+    await citedReviewHistories(repo, authorityHistory),
+    epicHistory,
+  )
   if (!assessment.admissible) {
     throw new Refused(
       `--decision-record ${decisionRecord} is not admissible: ${diagnosticsText(assessment.diagnostics)}`,
@@ -113,6 +126,7 @@ export async function review(repo: string, epic: number, decisionRecord: string,
     `${range}:${decisionRecord}`,
     { decisionId: decisionRecord, inventoryIds, range },
     [decisionRecord, ...inventoryIds],
+    canPublish,
   )
   return { decisionRecord, range }
 }

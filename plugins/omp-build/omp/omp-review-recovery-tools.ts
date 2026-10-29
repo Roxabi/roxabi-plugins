@@ -5,13 +5,16 @@ import {
   ompBuildRecoveryReplaceParametersJsonSchema,
   ompBuildRecoveryReplaceParametersSchema,
 } from '../dist/contracts.js'
-import type { prepareReviewInputs } from '../roxabi/review-pr-inputs.ts'
+import { prepareReviewInputs } from '../roxabi/review-pr-inputs.ts'
 import {
   ghGrantInterruptedReviewReplacement,
   ghReplaceInterruptedReview,
   ghTerminalizeInterruptedReview,
 } from '../roxabi/review-recovery-gh.ts'
+import { hostPluginPin } from './host-plugin-pin.ts'
+import { createHostUwOperations } from './host-uw-operations.ts'
 import type { OmpBuildExtensionApi } from './omp-controller'
+import { createOperatorConfirmation } from './omp-operator-confirmation.ts'
 import { dispatchPreparedReplacementReview } from './omp-review-dispatch'
 
 export type OmpReviewRecoveryToolOptions = {
@@ -60,11 +63,18 @@ export function registerOmpReviewRecoveryTools(pi: OmpBuildExtensionApi, options
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const parsed = ompBuildRecoveryPrParametersSchema.safeParse(params)
       if (!parsed.success) throw new Error('invalid-omp-build-grant-review-replacement-parameters')
+      const operations = await createHostUwOperations(ctx, createOperatorConfirmation(ctx))
       const published = await ghGrantInterruptedReviewReplacement({
         cwd: ctx.cwd,
         pr: parsed.data.pr,
         contextWindow: contextWindow(ctx),
-        prepareReview: options.prepareReview,
+        operations,
+        prepareReview: async (request) =>
+          (options.prepareReview ?? prepareReviewInputs)({
+            ...request,
+            operations,
+            pluginPin: hostPluginPin(),
+          }),
       })
       if (!published.ok) throw publicationError(published)
       return {
@@ -82,11 +92,18 @@ export function registerOmpReviewRecoveryTools(pi: OmpBuildExtensionApi, options
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const parsed = ompBuildRecoveryReplaceParametersSchema.safeParse(params)
       if (!parsed.success) throw new Error('invalid-omp-build-replace-interrupted-review-parameters')
+      const operations = await createHostUwOperations(ctx, createOperatorConfirmation(ctx))
       const published = await ghReplaceInterruptedReview({
         cwd: ctx.cwd,
         pr: parsed.data.pr,
         contextWindow: contextWindow(ctx),
-        prepareReview: options.prepareReview,
+        operations,
+        prepareReview: async (request) =>
+          (options.prepareReview ?? prepareReviewInputs)({
+            ...request,
+            operations,
+            pluginPin: hostPluginPin(),
+          }),
       })
       if (!published.ok) throw publicationError(published)
       await dispatchPreparedReplacementReview(

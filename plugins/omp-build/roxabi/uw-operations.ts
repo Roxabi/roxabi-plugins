@@ -13,6 +13,7 @@ import type { UwDiagnostic, UwResult } from '../engine/uw-diagnostics.ts'
 import type { prepareSpecAllocation } from '../engine/uw-identity.ts'
 import type { OperatorConfirmationEvidence } from '../engine/uw-identity-schema.ts'
 import type { NormalizationJudgement } from '../engine/uw-normalization-schema.ts'
+import { type ActionOperationPorts, actionOperationMethods } from './uw-action-operations.ts'
 import type {
   OperatorPort,
   OperatorResult,
@@ -59,6 +60,8 @@ export type UwOperationsPorts = {
   acceptMaterial(uw: Scope): Promise<UwOperationResult>
   /** New issues need an immediate complete UW read after their real identity is known. */
   scopeOf(issue: IssueRef): Scope
+  actions?: ActionOperationPorts['actions']
+  delivery?: ActionOperationPorts['delivery']
 }
 
 function issueRef(uw: Scope): IssueRef | null {
@@ -272,6 +275,7 @@ export function createUwOperations(ports: UwOperationsPorts): UwOperations {
       )
     },
     acceptMaterial: ports.acceptMaterial,
+    ...actionOperationMethods(ports),
   }
   bindSuccessorWriter(operations, async (input, historyDigest) => {
     const request = structuredClone(input)

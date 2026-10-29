@@ -1,8 +1,10 @@
 import { describe, expect, test } from 'vitest'
+import { standaloneReviewInputs } from '../../testing/action-input-fixtures.ts'
 import { reviewRoot, TEST_HEAD, TEST_SCOPE } from '../../testing/record-builders.ts'
 import { finalReview } from '../../testing/record-decisions.ts'
 import { reviewGraph } from '../../testing/record-graphs.ts'
 import { history, operation } from '../../testing/record-history.ts'
+import { actionInputDigest } from '../action-input.ts'
 import { buildRecord } from '../record-construction.ts'
 import type { CanonicalRecord } from '../record-schema.ts'
 import type { Result } from '../result.ts'
@@ -196,6 +198,9 @@ describe('review accounting and stops', () => {
   })
 
   test('treats a completed replacement final as ordinary after interrupting the historical root', () => {
+    const baseInputs = standaloneReviewInputs(TEST_SCOPE, TEST_HEAD)
+    const manifest = { ...baseInputs.manifest, code: { ...baseInputs.manifest.code, base: 'c'.repeat(40) } }
+    const freshInputs = { ...baseInputs, manifest, fingerprint: actionInputDigest(manifest) }
     const historical = reviewRoot({ id: 'historical-interrupted-root', head: TEST_HEAD })
     const historicalMandate = mandate()
     const historicalBinding = binding(historicalMandate, TEST_SCOPE)
@@ -249,8 +254,8 @@ describe('review accounting and stops', () => {
         rootAttemptId: historical.recordId,
         dispositionId: disposition.value.recordId,
         candidateGitSHA: TEST_HEAD,
-        inputFormat: 'omp-build:review-input/3',
-        input: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        inputFormat: 'omp-build:review-input/4',
+        input: freshInputs.fingerprint,
         binding: {
           scope: { repository: freshBinding.value.repository, target: freshBinding.value.target },
           recordId: freshBinding.value.recordId,
@@ -266,14 +271,16 @@ describe('review accounting and stops', () => {
       ...reviewRoot({
         id: replacementId,
         head: TEST_HEAD,
-        input: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        input: freshInputs.fingerprint,
+        inputSnapshot: freshInputs,
       }),
       inputs: undefined,
       payload: {
         ...reviewRoot({
           id: replacementId,
           head: TEST_HEAD,
-          input: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          input: freshInputs.fingerprint,
+          inputSnapshot: freshInputs,
         }).payload,
         replacement: {
           rootAttemptId: historical.recordId,
@@ -288,6 +295,7 @@ describe('review accounting and stops', () => {
     const completed = reviewGraph({
       prefix: 'review-replacement-inventory-review-replacement-grant-review-interruption-historical-interrupted',
       empty: true,
+      inputs: freshInputs,
       head: TEST_HEAD,
     })
     const replacementRecords = completed.records.map((record) => {
@@ -297,7 +305,7 @@ describe('review accounting and stops', () => {
           ...record,
           payload: {
             ...record.payload,
-            input: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+            input: freshInputs.fingerprint,
           },
           inputs: record.inputs,
         }
@@ -306,7 +314,7 @@ describe('review accounting and stops', () => {
           ...record,
           payload: {
             ...record.payload,
-            input: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+            input: freshInputs.fingerprint,
           },
         }
       return record
@@ -330,7 +338,7 @@ describe('review accounting and stops', () => {
         reviews: 1,
         verdict: 'Approve (clean)',
         reviewId: completed.review.recordId,
-        input: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        input: freshInputs.fingerprint,
       },
     })
   })

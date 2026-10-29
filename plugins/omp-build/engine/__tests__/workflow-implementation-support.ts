@@ -1,7 +1,35 @@
+import { acceptedActionInputs } from '../../testing/action-input-fixtures.ts'
+import { FINDING_TARGET_FORMAT } from '../finding-target-schema.ts'
 import { buildRecord } from '../record-construction.ts'
 import type { CanonicalRecord } from '../record-schema.ts'
+import type { AcceptedOwnSpec } from '../workflow-accepted-spec-types.ts'
 import type { MandateRecord } from '../workflow-control.ts'
+import { ACTION_RECEIPT_FORMAT } from '../workflow-receipt-schema.ts'
 import { must } from './workflow-test-support.ts'
+
+function admittedCriteria(mandate: MandateRecord, accepted?: AcceptedOwnSpec) {
+  const fallback = mandate.payload.ownSpec
+  const own = accepted?.ref ?? {
+    uw: fallback.uw,
+    version: fallback.version,
+    sourceAccepted: {
+      scope: { repository: mandate.repository, target: mandate.target },
+      recordId: mandate.recordId,
+      kind: 'mandate' as const,
+    },
+  }
+  const criteria = (accepted?.snapshot ?? fallback.snapshot).spec.criteria
+  return criteria.map((item) => ({
+    target: {
+      format: FINDING_TARGET_FORMAT,
+      kind: 'criterion' as const,
+      spec: own,
+      id: item.id,
+    },
+    verification: 'unverified' as const,
+    reason: 'fixture has no captured criterion evidence',
+  }))
+}
 
 export function implementationStart(mandate: MandateRecord, actionId: string, planActionId: string) {
   return must(
@@ -14,6 +42,8 @@ export function implementationStart(mandate: MandateRecord, actionId: string, pl
       operationId: `op-${actionId}-start`,
       kind: 'action-receipt',
       payload: {
+        format: ACTION_RECEIPT_FORMAT,
+        inputs: acceptedActionInputs(mandate, 'implement'),
         phase: 'start',
         action: 'implement',
         actionId,
@@ -34,6 +64,7 @@ export function implementationResult(
   actionId: string,
   planActionId: string,
   admitted: boolean,
+  accepted?: AcceptedOwnSpec,
 ) {
   const sha = 'a'.repeat(40)
   return must(
@@ -46,6 +77,8 @@ export function implementationResult(
       operationId: `op-${actionId}-result`,
       kind: 'action-receipt',
       payload: {
+        format: ACTION_RECEIPT_FORMAT,
+        inputs: acceptedActionInputs(mandate, 'implement'),
         phase: 'result',
         action: 'implement',
         actionId,
@@ -68,8 +101,7 @@ export function implementationResult(
               outcome: 'implemented',
               commitSHAs: [sha],
               commands: [{ toolCallId: 'call-implement', command: 'bun test', exitCode: 0 }],
-              proofToolCallId: 'call-proof',
-              proofUnavailableReason: null,
+              criteria: admittedCriteria(mandate, accepted),
               reason: 'implemented',
             }
           : null,

@@ -112,6 +112,7 @@ export function createNativeCorrectionExecution(options: NativeCorrectionExecuti
   let expectedHead = options.prepared.target.candidateGitSHA
   const appliedByCause = new Map<string, AppliedCauseContext>()
   const ownedCommits: string[] = []
+  const records = new Map([[options.decision.recordId, options.decision]])
   const git = createCorrectionGitState(options, () => expectedHead)
   const runtime: CorrectionNativeRuntime = {
     options,
@@ -122,8 +123,15 @@ export function createNativeCorrectionExecution(options: NativeCorrectionExecuti
     },
     ownedCommits,
     appliedByCause,
-    abortFence: () => correctionAbortFence(options.signal),
-    dispatch: (binding) => dispatchCorrectionAction(options, binding),
+    records,
+    abortFence: <T>() => correctionAbortFence<T>(options.signal),
+    dispatch: async (binding) => {
+      const result = await dispatchCorrectionAction(options, binding)
+      if (result.ok) {
+        for (const record of result.value.records) records.set(record.recordId, record)
+      }
+      return result
+    },
   }
   return {
     apply: (cause, attempt) => applyCorrectionAction(runtime, cause, attempt),

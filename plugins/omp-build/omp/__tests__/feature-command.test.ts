@@ -1,24 +1,39 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import type { FeatureWorkflow } from '../../roxabi/feature-contract'
 import { runInstalledFeatureCommand } from '../../roxabi/feature-entry'
-import { createExtensionApiStub } from '../../testing/extension-api-stub'
+import { createExtensionApiStub, fixtureEventBus } from '../../testing/extension-api-stub'
+import { provisionNativeRoot } from '../../testing/native-root-fixture.ts'
+import { consultableAgentRoot } from '../../testing/protocol-retention.unit.ts'
+import { cleanupFixtureActions, fixtureAction } from '../../testing/review-runtime-support.ts'
 import ompBuildExtension from '../index'
 import type { OmpBuildExtensionOptions } from '../omp-commands'
 import type { NativeBatch } from '../review-runtime/contracts.ts'
 
 const root = {
+  ...consultableAgentRoot(),
   cwd: '/repo/feature',
-  agent: { kind: 'main' as const, id: 'Main', name: 'main', depth: 0 },
   model: { contextWindow: 128_000 },
   isIdle: () => true,
 }
+
+afterEach(() => {
+  cleanupFixtureActions()
+})
 
 function batch(operationId = 'feature-op'): NativeBatch {
   return {
     operationId,
     tasks: {
       context: 'feature fixture',
-      tasks: [{ name: 'R-workflow-plan', agent: 'R-advisor', task: 'plan', solutionSpace: 'fixed fixture' }],
+      tasks: [
+        {
+          name: 'R-workflow-plan',
+          agent: 'R-advisor',
+          task: 'plan',
+          solutionSpace: 'fixed fixture',
+          action: fixtureAction('R-workflow-plan'),
+        },
+      ],
     },
   }
 }
@@ -72,17 +87,15 @@ function installed(
         await dispatch(session as never, ctx as never)
       })
     },
-    events: {
-      on: (event, handler) => {
-        const listeners = registeredRaw.get(event) ?? []
-        listeners.push(handler as (value: unknown) => void)
-        registeredRaw.set(event, listeners)
-        raw.set(event, (value) => {
-          for (const listener of listeners) listener(value)
-        })
-        return () => undefined
-      },
-    },
+    events: fixtureEventBus((event, handler) => {
+      const listeners = registeredRaw.get(event) ?? []
+      listeners.push(handler)
+      registeredRaw.set(event, listeners)
+      raw.set(event, (value) => {
+        for (const listener of listeners) listener(value)
+      })
+      return () => undefined
+    }),
     registerCommand: (name, command) => {
       commands.set(name, command as { handler: (args: string, ctx: typeof root) => Promise<void> })
     },
@@ -97,6 +110,7 @@ function installed(
     },
     ...(exec === undefined ? {} : { exec }),
   })
+  provisionNativeRoot(root)
   ompBuildExtension(pi, { principalCwd: () => false, ...options })
   return { sent, commands, tools, sessions, handlers, raw, pi }
 }
@@ -142,7 +156,9 @@ describe('installed /feature command', () => {
     await host.commands.get('feature')?.handler('#12', root)
     const announced = host.sent.filter((message) => message.includes('OMP_BUILD_NATIVE_BATCH'))
     expect(announced).toHaveLength(1)
-    expect(announced[0]).toContain('R-workflow-plan')
+    expect(announced[0]).toContain('omp_build_execute_native_batch')
+    expect(announced[0]).toContain('"batchId"')
+    expect(announced[0]).not.toContain('R-workflow-plan')
     expect(host.sent.join('\n')).not.toContain('# Feature')
     expect(host.sent.join('\n')).not.toContain('[Skill directory:')
   })
@@ -232,6 +248,7 @@ describe('installed /feature command', () => {
       send: async (text) => {
         sent.push(text)
       },
+      status: async () => undefined,
       inhibitFeatureContinuation: () => undefined,
       releaseFeatureContinuation: () => undefined,
       featureContinuationInhibited: () => false,
@@ -267,6 +284,7 @@ describe('installed /feature command', () => {
       send: async (message) => {
         sent.push(message)
       },
+      status: async () => undefined,
       inhibitFeatureContinuation: () => undefined,
       releaseFeatureContinuation: () => undefined,
       featureContinuationInhibited: () => false,

@@ -26,9 +26,10 @@ export const BRANCH_C = 'feat/4-child-c'
 export const CHILD_BODY = strictSpecBody('lands')
 export const EPIC_BODY = strictSpecBody('delivered')
 
-export type Comment = { author: string; body: string }
+export type Comment = { author: string; body: string; id?: number; createdAt?: string; updatedAt?: string }
 export type Check = { name: string; status: string; conclusion: string; workflowName: string; startedAt: string }
 export type Pull = {
+  comments: Comment[]
   number: number
   state: string
   headRefName: string

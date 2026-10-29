@@ -31,6 +31,7 @@ export function targetFromPr(repository: string, number: number, details: unknow
     kind: 'pull-request',
     state: 'open',
     candidateGitSHA: item.headRefOid,
+    baseGitSHA: typeof item.baseGitSHA === 'string' && /^[0-9a-f]{40}$/.test(item.baseGitSHA) ? item.baseGitSHA : null,
   }
 }
 
@@ -46,13 +47,33 @@ export async function targetFromIssue(
     const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' })
     const candidateGitSHA = String(stdout).trim()
     if (!/^[0-9a-f]{40}$/.test(candidateGitSHA)) return null
-    return { repository, target: `${repository}#${number}`, number, kind: 'issue', state: 'open', candidateGitSHA }
+    return {
+      repository,
+      target: `${repository}#${number}`,
+      number,
+      kind: 'issue',
+      state: 'open',
+      candidateGitSHA,
+      baseGitSHA: candidateGitSHA,
+    }
   } catch {
     return null
   }
 }
 
 export function createResolver(cwd: string, gh: Gh, repository: string): TargetResolver {
+  const pullTarget = async (number: number, value: unknown): Promise<FixTarget | null> => {
+    const details = object(value)
+    if (details === null || typeof details.baseRefName !== 'string' || details.baseRefName.length === 0) return null
+    const observed = await execFileAsync('git', ['rev-parse', '--verify', `origin/${details.baseRefName}`], {
+      cwd,
+      encoding: 'utf8',
+    }).catch(() => null)
+    if (observed === null) return null
+    const baseGitSHA = String(observed.stdout).trim()
+    if (!/^[0-9a-f]{40}$/.test(baseGitSHA)) return null
+    return targetFromPr(repository, number, { ...details, baseGitSHA })
+  }
   const explicit = async (reference: string): Promise<FixTarget | null> => {
     const trimmed = reference.trim()
     const foreignRepository = /^([^#]+)#/.exec(trimmed)?.[1]
@@ -61,10 +82,9 @@ export function createResolver(cwd: string, gh: Gh, repository: string): TargetR
     if (!match) return null
     const number = Number(match[1])
     try {
-      return targetFromPr(
-        repository,
+      return await pullTarget(
         number,
-        JSON.parse(await gh(cwd, ['pr', 'view', String(number), '--json', 'state,headRefOid'])),
+        JSON.parse(await gh(cwd, ['pr', 'view', String(number), '--json', 'state,headRefOid,baseRefName'])),
       )
     } catch {
       try {
@@ -78,8 +98,8 @@ export function createResolver(cwd: string, gh: Gh, repository: string): TargetR
     resolveExplicit: explicit,
     resolveContext: async () => {
       try {
-        const value = object(JSON.parse(await gh(cwd, ['pr', 'view', '--json', 'number,state,headRefOid'])))
-        return value !== null && typeof value.number === 'number' ? targetFromPr(repository, value.number, value) : null
+        const value = object(JSON.parse(await gh(cwd, ['pr', 'view', '--json', 'number,state,headRefOid,baseRefName'])))
+        return value !== null && typeof value.number === 'number' ? await pullTarget(value.number, value) : null
       } catch {
         return null
       }

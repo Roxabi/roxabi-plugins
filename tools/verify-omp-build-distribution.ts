@@ -3,8 +3,6 @@
 import { execFileSync } from 'node:child_process'
 import {
   copyFileSync,
-  cpSync,
-  existsSync,
   lstatSync,
   mkdtempSync,
   readdirSync,
@@ -15,7 +13,8 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, dirname, join, relative, resolve, sep } from 'node:path'
+import { join, relative, resolve, sep } from 'node:path'
+import { verifyCleanExtension } from './omp-build-clean-extension.ts'
 import { compare, gitBytes, headOutputs, type Snapshot, snapshot } from './omp-build-distribution-files.ts'
 
 type BuildReport = { outputs: string[]; inputs: string[] }
@@ -208,34 +207,6 @@ function collisionProbe(checkout: string, expected: Snapshot, owned: string): vo
   }
 }
 
-function verifyCleanExtension(checkout: string, owned: string): void {
-  for (let directory = realpathSync(owned); ; directory = dirname(directory)) {
-    if (existsSync(join(directory, 'node_modules')))
-      throw new Error(`clean extension import has ambient dependencies: ${join(directory, 'node_modules')}`)
-    if (directory === dirname(directory)) break
-  }
-  const destination = join(owned, 'clean-plugin')
-  cpSync(join(checkout, 'plugins/omp-build'), destination, {
-    recursive: true,
-    filter(path) {
-      if (basename(path) === 'node_modules') return false
-      if (lstatSync(path).isSymbolicLink()) throw new Error(`clean extension contains a symlink: ${path}`)
-      return true
-    },
-  })
-  try {
-    execFileSync(process.execPath, ['--no-install', join(destination, 'omp/index.ts')], {
-      cwd: owned,
-      env: { PATH: process.env.PATH, HOME: owned, TMPDIR: owned, BUN_INSTALL_CACHE_DIR: join(owned, 'cache') },
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-  } catch (error) {
-    const result = error as { stderr?: string; message?: string }
-    throw new Error(`clean installed extension import failed: ${(result.stderr ?? result.message ?? '').trim()}`)
-  }
-}
-
 async function verify(root: string, probes: boolean): Promise<Receipt> {
   if (Bun.version !== requiredBun)
     throw new Error(`distribution verification requires Bun ${requiredBun}; found ${Bun.version}`)
@@ -264,6 +235,7 @@ async function verify(root: string, probes: boolean): Promise<Receipt> {
     compare('B installed surface to HEAD', headOutputs(checkout), installed)
     const b = build(checkout, join(owned, 'b-output'))
     compare('A to B', a.files, b.files)
+    requireOwnedPath(requirePhysicalDependencies(checkout), join(checkout, 'node_modules/@oh-my-pi/pi-coding-agent'))
     verifyCleanExtension(checkout, owned)
     if (probes) {
       negativeProbes(checkout, b.files)

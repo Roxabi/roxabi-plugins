@@ -1,11 +1,68 @@
 import { decodeHistory, encodeRecord } from '../adapters/github/history-codec.ts'
+import type { ActionInputs } from '../engine/action-input-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Label, Scope, Verdict } from '../engine/record-values.ts'
 import type { RecordProjectionConfig } from '../engine/result.ts'
 import type { ObservedComment } from '../engine/review-schema.ts'
-import { NATIVE_AUTHOR, TEST_HEAD, TEST_INPUT, TEST_SCOPE } from './record-builders.ts'
+import { NATIVE_AUTHOR, TEST_HEAD, TEST_SCOPE } from './record-builders.ts'
 import { reviewGraph } from './record-graphs.ts'
 import { history, observedComment, operation } from './record-history.ts'
+
+type AdmissionStamp = {
+  scope: Scope
+  head: string
+  inputOverride: boolean
+  input: string | null
+  boundInputs: ActionInputs | undefined
+}
+type AttemptPayload = Extract<CanonicalRecord, { kind: 'review-attempt' }>['payload']
+type SnapshottedAttempt = Extract<AttemptPayload, { inputSnapshot: ActionInputs | null }>
+
+function isSnapshottedAttempt(payload: AttemptPayload): payload is SnapshottedAttempt {
+  return 'inputSnapshot' in payload
+}
+
+function stampSnapshottedAttempt(
+  payload: SnapshottedAttempt,
+  stamp: AdmissionStamp,
+  boundInputs: ActionInputs,
+): SnapshottedAttempt {
+  return {
+    ...payload,
+    candidateGitSHA: stamp.head,
+    inputSnapshot: boundInputs,
+    actionInputDigest: boundInputs.fingerprint,
+    input: stamp.inputOverride ? stamp.input : boundInputs.fingerprint,
+  }
+}
+
+function stampAttemptPayload(payload: AttemptPayload, stamp: AdmissionStamp): AttemptPayload {
+  if (stamp.boundInputs !== undefined && isSnapshottedAttempt(payload)) {
+    return stampSnapshottedAttempt(payload, stamp, stamp.boundInputs)
+  }
+  return {
+    ...payload,
+    candidateGitSHA: stamp.head,
+    ...(stamp.inputOverride ? { input: stamp.input } : {}),
+  }
+}
+
+function stampAdmissionRecord(record: CanonicalRecord, stamp: AdmissionStamp): CanonicalRecord {
+  if (record.kind === 'review-attempt')
+    return { ...record, ...stamp.scope, payload: stampAttemptPayload(record.payload, stamp) }
+  if (record.kind === 'review') {
+    return {
+      ...record,
+      ...stamp.scope,
+      payload: {
+        ...record.payload,
+        candidateGitSHA: stamp.head,
+        ...(stamp.inputOverride ? { input: stamp.input } : {}),
+      },
+    }
+  }
+  return { ...record, ...stamp.scope }
+}
 
 export function admissionReviewGraph(
   options: {
@@ -13,6 +70,8 @@ export function admissionReviewGraph(
     scope?: Scope
     head?: string
     input?: string | null
+    /** Required when input is not the default snapshot fingerprint. Digest must be inputs.fingerprint. */
+    inputs?: ActionInputs
     verdict?: Verdict
     comments?: ObservedComment[]
   } = {},
@@ -29,19 +88,19 @@ export function admissionReviewGraph(
   const graph = reviewGraph({
     prefix: options.prefix ?? 'admission',
     head: options.head ?? TEST_HEAD,
+    scope: options.scope,
+    inputs: options.inputs,
     empty: verdict === 'Approve (clean)',
     label,
   })
   const scope = options.scope ?? TEST_SCOPE
-  const input = 'input' in options ? (options.input ?? null) : TEST_INPUT
+  const inputOverride = 'input' in options
+  const input = options.input ?? null
+  const boundInputs = options.inputs
   const head = options.head ?? TEST_HEAD
-  const records = graph.records.map((record): CanonicalRecord => {
-    if (record.kind === 'review-attempt')
-      return { ...record, ...scope, payload: { ...record.payload, candidateGitSHA: head, input } }
-    if (record.kind === 'review')
-      return { ...record, ...scope, payload: { ...record.payload, candidateGitSHA: head, input } }
-    return { ...record, ...scope }
-  })
+  const records = graph.records.map((record) =>
+    stampAdmissionRecord(record, { scope, head, inputOverride, input, boundInputs }),
+  )
   const comments =
     options.comments ??
     records.map((record, index) =>
@@ -62,7 +121,7 @@ export function admissionReviewGraph(
 /** Produces adapter-valid native comment bodies for integration simulators. */
 export function encodedAdmissionReviewGraph(
   projection: RecordProjectionConfig,
-  options: { prefix?: string; scope?: Scope; head?: string; input?: string | null; verdict?: Verdict } = {},
+  options: Parameters<typeof admissionReviewGraph>[0] = {},
 ) {
   const graph = admissionReviewGraph(options)
   const comments: ObservedComment[] = []

@@ -1,5 +1,5 @@
 import type { CanonicalRecord, HistoricalReviewAssociation } from '../dist/contracts.js'
-import { hashReviewInput } from '../skills/feature/review-input.ts'
+import { validateActionInputs } from '../dist/contracts.js'
 import { type ConfirmedReviewSemanticContext, confirmedReviewSemanticContext } from './review-semantic-canon.ts'
 import { reviewAcceptedSpecView } from './review-semantic-context.ts'
 
@@ -83,20 +83,17 @@ export function reconstructHistoricalReviewInput(input: {
   semantic: ConfirmedReviewSemanticContext
 }): string | null {
   const payload = input.root.payload
-  if (
-    !('subject' in payload) ||
-    payload.subject.kind !== 'pull-request' ||
-    !('inputSnapshot' in payload) ||
-    payload.inputSnapshot === null ||
-    payload.inputSnapshot.body === null
-  )
-    return null
-  const match = input.root.target.match(/#([1-9]\d*)$/)
-  if (match === null || input.root.target !== `${input.root.repository}#${match[1]}`) return null
-  return hashReviewInput(
-    input.root.repository,
-    { pr: Number(match[1]), candidate: payload.candidateGitSHA },
-    payload.inputSnapshot.body,
-    input.semantic,
-  )
+  if (!('subject' in payload) || payload.subject.kind !== 'pull-request') return null
+  if (!('inputSnapshot' in payload) || !('actionInputDigest' in payload)) return null
+  const validated = validateActionInputs(payload.inputSnapshot)
+  if (!validated.ok) return null
+  const digest = validated.value.fingerprint
+  if (payload.actionInputDigest !== digest) return null
+  if (payload.input !== null && payload.input !== digest) return null
+  const spec = validated.value.manifest.spec
+  const associated =
+    input.semantic.mode === 'standalone'
+      ? spec.kind === 'absent'
+      : spec.kind === 'accepted' && validated.value.manifest.configuration.digest === input.semantic.config.digest
+  return associated ? digest : null
 }

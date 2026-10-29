@@ -74,6 +74,7 @@ function pullRequestTarget(): FixTarget {
     kind: 'pull-request',
     state: 'open',
     candidateGitSHA: SHA,
+    baseGitSHA: SHA,
   }
 }
 

@@ -26,6 +26,8 @@ export async function landFeature(input: {
   gh: Gh
   git: GitRunner
   cwd: string
+  /** Trusted host composition only. Omit for the ordinary published pin. */
+  pluginPin?: import('./uw-action-contract.ts').TrustedHostPluginPin
 }): Promise<ContinueFeatureResult | NativeLanding> {
   if (input.delivery === null) return { kind: 'blocked', reason: 'land-requires-pull-request' }
   const selected = input.loaded.selectApplicableMandate(input.history, input.parents)
@@ -35,5 +37,9 @@ export async function landFeature(input: {
       reason: selected.status === 'refused' ? `mandate-${selected.reason}` : 'mandate-missing',
     }
   }
-  return landPr(input.cwd, input.delivery.number, { gh: input.gh, git: input.git })
+  return landPr(input.cwd, input.delivery.number, {
+    gh: input.gh,
+    git: input.git,
+    ...(input.pluginPin === undefined ? {} : { pluginPin: input.pluginPin }),
+  })
 }

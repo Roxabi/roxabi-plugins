@@ -65,6 +65,21 @@ bun run typecheck         # TypeScript — must pass
 bun run test              # Vitest — must pass
 ```
 
+Vitest's integration project compiles the GitHub simulator once into a
+run-owned temporary directory and removes it at teardown. Sandbox fixtures use
+that executable through an integration-only environment variable; standalone
+Bun fixture runs continue to use the simulator source.
+
+Vitest runs unit and integration files in separate, non-overlapping resource
+groups. Integration uses at most one worker per four available CPUs (minimum
+one) to limit subprocess and I/O contention. `--project integration` selects
+the same integration files and keeps their 30-second per-test budget.
+
+Vitest workers run under Node. The shared setup isolates the SDK's Bun-only
+logging and task-rendering dependencies, while fixture registry and event-bus
+operations use the SDK implementations. Bun subprocess fixtures use the real
+SDK without these Vitest mocks.
+
 Style: single quotes, no semicolons. Markdown: ATX headings, tables for structured data.
 
 ## Project structure
