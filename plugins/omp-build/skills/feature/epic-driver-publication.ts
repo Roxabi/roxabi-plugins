@@ -58,11 +58,13 @@ export async function publishEpicEvent(
   key: string,
   payload: Record<string, Json>,
   inputs: string[] = [],
+  canPublish?: () => boolean,
 ): Promise<void> {
   const repository = repoName(repo).full
   const history = await issueHistory(repo, repository, issue)
+  if (canPublish?.() === false) throw new Error('publication-ownership-revoked')
   const record = newEpicEvent(repository, issue, run, event, key, payload, inputs)
-  const publication = await publishGitHubRecord(record, history, adapterOptions(repo), null)
+  const publication = await publishGitHubRecord(record, history, { ...adapterOptions(repo), canPublish }, null)
   if (publication.status !== 'confirmed') {
     throw new Error(`Epic event ${record.recordId} was not confirmed: ${diagnosticsText(publication.diagnostics)}`)
   }

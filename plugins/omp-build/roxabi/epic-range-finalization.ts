@@ -223,7 +223,7 @@ export async function prepareEpicFinalReviewMaterials(input: {
       if (!bound) {
         if (!canContinue()) return null
         bound = true
-        await epicBindReview(input.cwd, epic, decisionId, input.request.range)
+        await epicBindReview(input.cwd, epic, decisionId, input.request.range, canContinue)
       }
       return null
     },

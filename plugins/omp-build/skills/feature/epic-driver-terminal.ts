@@ -58,7 +58,13 @@ export async function stop(
   return { ticket, stop: reason, sticky: STICKY_STOPS.includes(reason), disarmed: outcome.disarmed }
 }
 
-export async function review(repo: string, epic: number, decisionRecord: string, range: string) {
+export async function review(
+  repo: string,
+  epic: number,
+  decisionRecord: string,
+  range: string,
+  canPublish?: () => boolean,
+) {
   const authority = await readEpicAuthority(repo, epic)
   const { run, base } = authority
   if (!decisionRecord) throw new Refused('--decision-record <ID> is required')
@@ -120,6 +126,7 @@ export async function review(repo: string, epic: number, decisionRecord: string,
     `${range}:${decisionRecord}`,
     { decisionId: decisionRecord, inventoryIds, range },
     [decisionRecord, ...inventoryIds],
+    canPublish,
   )
   return { decisionRecord, range }
 }
