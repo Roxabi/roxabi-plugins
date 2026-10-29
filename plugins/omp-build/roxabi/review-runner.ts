@@ -276,7 +276,7 @@ export class CanonicalReviewRunner implements ReviewPublisher {
       canContinue,
       readHistory: () => this.#history(),
       publish: async (record, failurePrefix, externalHistories = []) => {
-        const saved = await this.#publisher.publish(record, externalHistories)
+        const saved = await this.#publisher.publish(record, externalHistories, canContinue)
         if (!saved.ok) throw new Error(`${failurePrefix}:${saved.diagnostics.join(',')}`)
       },
       readExternalHistories: (history) =>

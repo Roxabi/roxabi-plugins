@@ -46,6 +46,7 @@ describe('Feature native host ownership', () => {
       },
       native: port,
       async send() {},
+      async status() {},
       inhibitFeatureContinuation() {},
       releaseFeatureContinuation() {},
       featureContinuationInhibited: () => false,

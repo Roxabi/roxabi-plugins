@@ -6999,6 +6999,7 @@ function json(params) {
 // plugins/omp-build/engine/schema-primitives.ts
 var jsonSchema = json();
 var identifierSchema = string2().min(1);
+var shaSchema = string2().min(1);
 var sha256Schema = string2().regex(/^[0-9a-f]{64}$/);
 var scopeSchema = strictObject({ repository: string2(), target: string2() });
 var repoRelativePathSchema = string2().min(1).regex(/^(?!\/)(?![A-Za-z]:\/)(?!.*(?:^|\/)\.\.?(?:\/|$))[^\r\n\\]+$/);
@@ -7047,6 +7048,22 @@ var externalRecordRefSchema = strictObject({
 });
 var scopedRecordRefSchema = externalRecordRefSchema;
 var gitObjectIdSchema = string2().regex(/^[0-9a-f]{40}$/);
+
+// plugins/omp-build/engine/action-input-refs.ts
+var jsonPointerSchema = string2().regex(/^(?:\/(?:[^/~]|~0|~1)*)+$/);
+var recordInputRefSchema = strictObject({
+  source: literal("record"),
+  record: externalRecordRefSchema,
+  selector: jsonPointerSchema,
+  digest: sha256Schema
+});
+var pinnedFileRefSchema = strictObject({
+  source: literal("git-file"),
+  repository: string2().min(1),
+  commit: gitObjectIdSchema,
+  path: repoRelativePathSchema,
+  digest: sha256Schema
+});
 
 // plugins/omp-build/engine/uw-spec-schema.ts
 var SPEC_CONTENT_FORMAT = "omp-build-spec-content/1";
@@ -7303,23 +7320,309 @@ function resolveOwnSpecEffective(accepted) {
   return parsed.success ? { ok: true, value: parsed.data } : refused("malformed", "Accepted own Spec is not an own-only effective Spec");
 }
 
+// plugins/omp-build/engine/record-digests.ts
+import { createHash } from "node:crypto";
+function specDigest(body) {
+  return createHash("sha256").update(body, "utf8").digest("hex");
+}
+var failedCheckFailureSchema = strictObject({
+  name: string2().min(1),
+  source: string2().min(1),
+  observationId: string2().min(1),
+  conclusion: string2().min(1)
+});
+function hasFailureContent(failure) {
+  return failure.name.length !== 0 && failure.source.length !== 0 && failure.observationId.length !== 0 && failure.conclusion.length !== 0;
+}
+function normalizedFailure(failure, seen) {
+  if (!hasFailureContent(failure))
+    return null;
+  const key = `${failure.source}\x00${failure.observationId}`;
+  if (seen.has(key))
+    return null;
+  seen.add(key);
+  return {
+    source: failure.source,
+    observationId: failure.observationId,
+    name: failure.name,
+    conclusion: failure.conclusion
+  };
+}
+function hasNoMissingFailures(failures) {
+  return !failures.some((failure) => failure === null);
+}
+function compareStrings(left, right) {
+  if (left < right)
+    return -1;
+  if (left > right)
+    return 1;
+  return 0;
+}
+function compareFailures(left, right) {
+  if (left === null || right === null)
+    return 0;
+  return compareStrings(left.source, right.source) || compareStrings(left.observationId, right.observationId) || compareStrings(left.name, right.name) || compareStrings(left.conclusion, right.conclusion);
+}
+function failedCheckEvidenceDigest(input) {
+  if (input.candidateGitSHA.length === 0 || input.scope.repository.length === 0 || input.scope.target.length === 0)
+    return null;
+  if (input.failures.length === 0)
+    return null;
+  const seen = new Set;
+  const failures = input.failures.map((failure) => normalizedFailure(failure, seen));
+  if (!hasNoMissingFailures(failures))
+    return null;
+  failures.sort(compareFailures);
+  return specDigest(JSON.stringify({
+    candidateGitSHA: input.candidateGitSHA,
+    scope: { repository: input.scope.repository, target: input.scope.target },
+    failures
+  }));
+}
+
+// plugins/omp-build/engine/uw-identity-schema.ts
+var SPEC_IDENTITY_FORMAT = "omp-build-spec-identity/1";
+var operatorConfirmationEvidenceSchema = strictObject({
+  route: literal("omp-native-command"),
+  operationId: string2().min(1),
+  proposalDigest: sha256Schema,
+  confirmedAt: string2().datetime()
+});
+var common = {
+  format: literal(SPEC_IDENTITY_FORMAT),
+  predecessor: externalRecordRefSchema.nullable(),
+  proposalDigest: sha256Schema,
+  confirmation: operatorConfirmationEvidenceSchema
+};
+var specIdentityPayloadSchema = discriminatedUnion("event", [
+  strictObject({
+    ...common,
+    event: literal("allocate"),
+    allocations: array(strictObject({ draftKey: string2().min(1), id: specItemIdSchema })).min(1)
+  }),
+  strictObject({ ...common, event: literal("retire-proposed"), ids: array(specItemIdSchema).min(1) })
+]);
+
+// plugins/omp-build/engine/workflow-mandate-schema.ts
+var mandateConfigSchema = strictObject({
+  productVersion: string2().min(1),
+  version: string2().min(1),
+  digest: sha256Schema,
+  effective: jsonSchema
+});
+var mandateOwnSpecSchema = strictObject({
+  uw: scopeSchema,
+  version: sha256Schema,
+  snapshot: specSnapshotSchema,
+  identityAllocations: array(externalRecordRefSchema)
+}).superRefine((value, context) => {
+  if (value.snapshot.spec.version !== value.version)
+    context.addIssue({ code: "custom", path: ["version"], message: "own Spec version does not match its snapshot" });
+  if (specDigest(value.snapshot.raw.body) !== value.snapshot.raw.bodySha256)
+    context.addIssue({
+      code: "custom",
+      path: ["snapshot", "raw", "bodySha256"],
+      message: "own Spec raw body digest mismatch"
+    });
+  for (const [index, allocation] of value.identityAllocations.entries()) {
+    if (allocation.kind !== "spec-identity")
+      context.addIssue({
+        code: "custom",
+        path: ["identityAllocations", index, "kind"],
+        message: "own Spec allocation must name a spec identity record"
+      });
+    if (allocation.scope.repository !== value.uw.repository || allocation.scope.target !== value.uw.target)
+      context.addIssue({
+        code: "custom",
+        path: ["identityAllocations", index, "scope"],
+        message: "own Spec allocation must belong to its UW"
+      });
+  }
+});
+var acceptedChildCommitmentSchema = strictObject({
+  scope: scopeSchema,
+  specVersion: sha256Schema,
+  snapshot: specSnapshotSchema,
+  tier: uwTierSchema
+}).superRefine((value, context) => {
+  if (value.snapshot.spec.version !== value.specVersion)
+    context.addIssue({ code: "custom", path: ["specVersion"], message: "child version does not match its snapshot" });
+  if (specDigest(value.snapshot.raw.body) !== value.snapshot.raw.bodySha256)
+    context.addIssue({
+      code: "custom",
+      path: ["snapshot", "raw", "bodySha256"],
+      message: "child raw body digest mismatch"
+    });
+});
+var mandateShared = {
+  format: literal("omp-build-mandate/3"),
+  branch: string2().min(1).nullable(),
+  base: string2().min(1),
+  lineageHead: shaSchema.nullable(),
+  config: mandateConfigSchema,
+  parent: externalRecordRefSchema.nullable(),
+  antecedent: externalRecordRefSchema.nullable(),
+  ownSpec: mandateOwnSpecSchema,
+  tier: uwTierSchema,
+  children: array(acceptedChildCommitmentSchema)
+};
+var featureMandateSchema = strictObject({
+  role: literal("feature"),
+  ...mandateShared,
+  run: string2().regex(/^[a-z0-9]{8}$/),
+  permissions: strictObject({ landing: literal(true), correct: literal(true) })
+});
+var epicMandateSchema = strictObject({
+  role: literal("epic"),
+  ...mandateShared,
+  run: string2().regex(/^[a-z0-9]{8}$/),
+  permissions: strictObject({ landing: boolean2(), correct: boolean2() })
+});
+var fixOnlyMandateSchema = strictObject({
+  role: literal("fix-only"),
+  ...mandateShared,
+  run: _null3(),
+  permissions: strictObject({ landing: literal(false), correct: literal(true) })
+});
+function sameRefMeaning(refs, context) {
+  const seen = new Map;
+  for (const ref of refs) {
+    if (ref === null)
+      continue;
+    const key = `${ref.scope.repository}\x00${ref.scope.target}\x00${ref.recordId}`;
+    const prior = seen.get(key);
+    if (prior !== undefined && prior !== ref.kind) {
+      context.addIssue({
+        code: "custom",
+        message: "same scope and recordId must share one kind"
+      });
+    }
+    seen.set(key, ref.kind);
+  }
+}
+var mandatePayloadSchema = discriminatedUnion("role", [featureMandateSchema, epicMandateSchema, fixOnlyMandateSchema]).superRefine((mandate, context) => {
+  sameRefMeaning([...mandate.ownSpec.identityAllocations, mandate.parent, mandate.antecedent], context);
+  const children = new Set;
+  for (const [index, child] of mandate.children.entries()) {
+    const key = `${child.scope.repository}\x00${child.scope.target}`;
+    if (children.has(key))
+      context.addIssue({ code: "custom", path: ["children", index, "scope"], message: "child scope is repeated" });
+    children.add(key);
+  }
+});
+var disarmSchema = strictObject({ observed: literal(true), evidence: jsonSchema });
+var identityDeltaSchema = strictObject({ retired: array(specItemIdSchema) }).superRefine((value, context) => {
+  if (new Set(value.retired).size !== value.retired.length)
+    context.addIssue({ code: "custom", path: ["retired"], message: "retired identities are repeated" });
+});
+var controlShared = { controlId: identifierSchema, mandate: externalRecordRefSchema };
+var operatorControlPayloadSchema = discriminatedUnion("control", [
+  strictObject({ control: literal("pause-requested"), predecessor: _null3(), ...controlShared }),
+  strictObject({
+    control: literal("pause-confirmed"),
+    predecessor: externalRecordRefSchema,
+    disarm: disarmSchema,
+    ...controlShared
+  }),
+  strictObject({ control: literal("resume"), predecessor: externalRecordRefSchema, ...controlShared }),
+  strictObject({
+    control: literal("abandon"),
+    predecessor: externalRecordRefSchema.nullable(),
+    ...controlShared
+  }),
+  strictObject({
+    control: literal("accept-material"),
+    predecessor: externalRecordRefSchema,
+    assessment: externalRecordRefSchema,
+    specVersion: sha256Schema,
+    proposalDigest: sha256Schema,
+    confirmation: operatorConfirmationEvidenceSchema,
+    identityDelta: identityDeltaSchema,
+    ...controlShared
+  }),
+  strictObject({
+    control: literal("select-successor"),
+    predecessor: externalRecordRefSchema,
+    successor: externalRecordRefSchema,
+    ...controlShared
+  })
+]).superRefine((control, context) => {
+  const refs = [control.mandate, control.predecessor];
+  if (control.control === "accept-material")
+    refs.push(control.assessment);
+  if (control.control === "select-successor")
+    refs.push(control.successor);
+  sameRefMeaning(refs, context);
+});
+var workflowBindingPayloadSchema = strictObject({
+  mandate: externalRecordRefSchema,
+  branch: string2().min(1),
+  base: string2().min(1)
+}).superRefine((payload, context) => {
+  if (payload.mandate.kind !== "mandate") {
+    context.addIssue({
+      code: "custom",
+      path: ["mandate", "kind"],
+      message: "workflow binding must name a mandate"
+    });
+  }
+});
+
+// plugins/omp-build/engine/workflow-action-operands.ts
+var assessedOwnStateSchema = strictObject({
+  snapshot: specSnapshotSchema,
+  tier: uwTierSchema,
+  children: array(acceptedChildCommitmentSchema)
+});
+var mechanicalSpecDeltaSchema = strictObject({
+  added: array(specItemIdSchema),
+  removed: array(specItemIdSchema),
+  changedStatements: array(specItemIdSchema),
+  exclusionsChanged: boolean2(),
+  tierChanged: boolean2(),
+  childrenChanged: boolean2(),
+  sectionsOrOrderChanged: boolean2()
+});
+var assessSpecExactSchema = strictObject({
+  format: literal("omp-build-spec-assessment/2"),
+  accepted: assessedOwnStateSchema.extend({ ref: ownSpecRefSchema }),
+  proposed: assessedOwnStateSchema,
+  identityAllocations: array(externalRecordRefSchema),
+  mechanical: mechanicalSpecDeltaSchema
+});
+var ciExactSchema = strictObject({
+  candidateGitSHA: shaSchema,
+  scope: scopeSchema,
+  failedChecks: array(string2().min(1)),
+  evidenceDigest: sha256Schema,
+  failures: array(failedCheckFailureSchema).min(1)
+}).superRefine((value, context) => {
+  const digest = failedCheckEvidenceDigest(value);
+  if (digest === null || digest !== value.evidenceDigest) {
+    context.addIssue({
+      code: "custom",
+      path: ["evidenceDigest"],
+      message: "evidence digest does not match the native check identity"
+    });
+  }
+});
+var actionOperandsSchema = discriminatedUnion("action", [
+  strictObject({ action: literal("assess-spec"), exactInputs: assessSpecExactSchema }),
+  strictObject({ action: literal("attribute-ci"), exactInputs: ciExactSchema })
+]);
+function refineActionOperands(value, context) {
+  if (value.purpose === "assess-spec" || value.purpose === "attribute-ci") {
+    if (value.operands?.action !== value.purpose) {
+      context.addIssue({ code: "custom", path: ["operands"], message: "purpose requires matching action operands" });
+    }
+  } else if (value.operands !== undefined) {
+    context.addIssue({ code: "custom", path: ["operands"], message: "operands are not allowed for this purpose" });
+  }
+}
+
 // plugins/omp-build/engine/action-input-schema.ts
 var ACTION_INPUT_FORMAT = "omp-build-action-input/1";
 var ACTION_BINDING_FORMAT = "omp-build-action-input-binding/1";
-var jsonPointerSchema = string2().regex(/^(?:\/(?:[^/~]|~0|~1)*)+$/);
-var recordInputRefSchema = strictObject({
-  source: literal("record"),
-  record: externalRecordRefSchema,
-  selector: jsonPointerSchema,
-  digest: sha256Schema
-});
-var pinnedFileRefSchema = strictObject({
-  source: literal("git-file"),
-  repository: string2().min(1),
-  commit: gitObjectIdSchema,
-  path: repoRelativePathSchema,
-  digest: sha256Schema
-});
 var deliveryDataRefSchema = recordInputRefSchema.extend({
   role: _enum([
     "plan",
@@ -7383,6 +7686,7 @@ var actionInputManifestObject = strictObject({
   purpose: actionPurposeSchema,
   subject: actionSubjectSchema,
   spec: actionSpecInputSchema,
+  operands: actionOperandsSchema.optional(),
   code: codeRefSchema,
   acceptedSources: array(recordInputRefSchema),
   deliveryData: array(deliveryDataRefSchema),
@@ -7432,10 +7736,21 @@ function refinePluginPins(value, context) {
     }
   });
 }
+function refineAssessmentRef(value, context) {
+  if (value.operands?.action !== "assess-spec" || value.spec.kind !== "accepted")
+    return;
+  const ref = value.operands.exactInputs.accepted.ref;
+  const own = value.spec.effective.own;
+  if (!sameScope(ref.uw, own.uw) || ref.version !== own.version || !sameScope(ref.sourceAccepted.scope, own.sourceAccepted.scope) || ref.sourceAccepted.kind !== own.sourceAccepted.kind || ref.sourceAccepted.recordId !== own.sourceAccepted.recordId) {
+    manifestIssue(context, ["operands", "exactInputs", "accepted", "ref"], "assessment accepted reference must match the effective own Spec");
+  }
+}
 var actionInputManifestSchema = actionInputManifestObject.superRefine((value, context) => {
+  refineActionOperands(value, context);
   refineSourcePurpose(value, context);
   refineSubjectScope(value, context);
   refinePluginPins(value, context);
+  refineAssessmentRef(value, context);
 });
 var actionInputsSchema = strictObject({
   format: literal(ACTION_BINDING_FORMAT),
@@ -7700,7 +8015,6 @@ var exclusionClaimSchema = strictObject({
 });
 
 // plugins/omp-build/engine/record-values.ts
-var shaSchema = string2().min(1);
 var diagnosticSchema = strictObject({
   code: string2().min(1),
   message: string2(),
@@ -7913,7 +8227,7 @@ var reviewReplacementGrantPayloadSchema = strictObject({
 });
 
 // plugins/omp-build/engine/action-input.ts
-import { createHash } from "node:crypto";
+import { createHash as createHash2 } from "node:crypto";
 function ordered(value) {
   if (Array.isArray(value))
     return value.map(ordered);
@@ -7966,6 +8280,29 @@ function durableSpec(spec) {
   }
   return spec;
 }
+function durableOperands(operands) {
+  if (operands.action !== "assess-spec")
+    return operands;
+  const durableState = (state) => ({
+    ...state,
+    snapshot: { ...state.snapshot, raw: durableSource(state.snapshot.raw) },
+    children: state.children.map((child) => ({
+      ...child,
+      snapshot: { ...child.snapshot, raw: durableSource(child.snapshot.raw) }
+    }))
+  });
+  return {
+    ...operands,
+    exactInputs: {
+      ...operands.exactInputs,
+      accepted: durableState(operands.exactInputs.accepted),
+      proposed: durableState(operands.exactInputs.proposed)
+    }
+  };
+}
+function canonicalActionOperands(operands) {
+  return JSON.stringify(ordered(durableOperands(operands)));
+}
 function sortedManifest(manifest) {
   return {
     ...manifest,
@@ -7978,13 +8315,17 @@ function sortedManifest(manifest) {
 }
 function canonicalActionInput(manifest) {
   const sorted = sortedManifest(manifest);
-  return JSON.stringify(ordered({ ...sorted, spec: durableSpec(sorted.spec) }));
+  return JSON.stringify(ordered({
+    ...sorted,
+    spec: durableSpec(sorted.spec),
+    ...sorted.operands === undefined ? {} : { operands: durableOperands(sorted.operands) }
+  }));
 }
 function actionInputDigest(manifest) {
-  return createHash("sha256").update(canonicalActionInput(manifest), "utf8").digest("hex");
+  return createHash2("sha256").update(canonicalActionInput(manifest), "utf8").digest("hex");
 }
 function canonicalValueDigest(value) {
-  return createHash("sha256").update(JSON.stringify(ordered(value)), "utf8").digest("hex");
+  return createHash2("sha256").update(JSON.stringify(ordered(value)), "utf8").digest("hex");
 }
 function duplicate(refs, label, diagnostics) {
   const seen = new Map;
@@ -8314,254 +8655,6 @@ var stopSchema = strictObject({
   detail: jsonSchema
 });
 
-// plugins/omp-build/engine/uw-identity-schema.ts
-var SPEC_IDENTITY_FORMAT = "omp-build-spec-identity/1";
-var operatorConfirmationEvidenceSchema = strictObject({
-  route: literal("omp-native-command"),
-  operationId: string2().min(1),
-  proposalDigest: sha256Schema,
-  confirmedAt: string2().datetime()
-});
-var common = {
-  format: literal(SPEC_IDENTITY_FORMAT),
-  predecessor: externalRecordRefSchema.nullable(),
-  proposalDigest: sha256Schema,
-  confirmation: operatorConfirmationEvidenceSchema
-};
-var specIdentityPayloadSchema = discriminatedUnion("event", [
-  strictObject({
-    ...common,
-    event: literal("allocate"),
-    allocations: array(strictObject({ draftKey: string2().min(1), id: specItemIdSchema })).min(1)
-  }),
-  strictObject({ ...common, event: literal("retire-proposed"), ids: array(specItemIdSchema).min(1) })
-]);
-
-// plugins/omp-build/engine/record-digests.ts
-import { createHash as createHash2 } from "node:crypto";
-function specDigest(body) {
-  return createHash2("sha256").update(body, "utf8").digest("hex");
-}
-var failedCheckFailureSchema = strictObject({
-  name: string2().min(1),
-  source: string2().min(1),
-  observationId: string2().min(1),
-  conclusion: string2().min(1)
-});
-function hasFailureContent(failure) {
-  return failure.name.length !== 0 && failure.source.length !== 0 && failure.observationId.length !== 0 && failure.conclusion.length !== 0;
-}
-function normalizedFailure(failure, seen) {
-  if (!hasFailureContent(failure))
-    return null;
-  const key = `${failure.source}\x00${failure.observationId}`;
-  if (seen.has(key))
-    return null;
-  seen.add(key);
-  return {
-    source: failure.source,
-    observationId: failure.observationId,
-    name: failure.name,
-    conclusion: failure.conclusion
-  };
-}
-function hasNoMissingFailures(failures) {
-  return !failures.some((failure) => failure === null);
-}
-function compareStrings(left, right) {
-  if (left < right)
-    return -1;
-  if (left > right)
-    return 1;
-  return 0;
-}
-function compareFailures(left, right) {
-  if (left === null || right === null)
-    return 0;
-  return compareStrings(left.source, right.source) || compareStrings(left.observationId, right.observationId) || compareStrings(left.name, right.name) || compareStrings(left.conclusion, right.conclusion);
-}
-function failedCheckEvidenceDigest(input) {
-  if (input.candidateGitSHA.length === 0 || input.scope.repository.length === 0 || input.scope.target.length === 0)
-    return null;
-  if (input.failures.length === 0)
-    return null;
-  const seen = new Set;
-  const failures = input.failures.map((failure) => normalizedFailure(failure, seen));
-  if (!hasNoMissingFailures(failures))
-    return null;
-  failures.sort(compareFailures);
-  return specDigest(JSON.stringify({
-    candidateGitSHA: input.candidateGitSHA,
-    scope: { repository: input.scope.repository, target: input.scope.target },
-    failures
-  }));
-}
-
-// plugins/omp-build/engine/workflow-mandate-schema.ts
-var mandateConfigSchema = strictObject({
-  productVersion: string2().min(1),
-  version: string2().min(1),
-  digest: sha256Schema,
-  effective: jsonSchema
-});
-var mandateOwnSpecSchema = strictObject({
-  uw: scopeSchema,
-  version: sha256Schema,
-  snapshot: specSnapshotSchema,
-  identityAllocations: array(externalRecordRefSchema)
-}).superRefine((value, context) => {
-  if (value.snapshot.spec.version !== value.version)
-    context.addIssue({ code: "custom", path: ["version"], message: "own Spec version does not match its snapshot" });
-  if (specDigest(value.snapshot.raw.body) !== value.snapshot.raw.bodySha256)
-    context.addIssue({
-      code: "custom",
-      path: ["snapshot", "raw", "bodySha256"],
-      message: "own Spec raw body digest mismatch"
-    });
-  for (const [index, allocation] of value.identityAllocations.entries()) {
-    if (allocation.kind !== "spec-identity")
-      context.addIssue({
-        code: "custom",
-        path: ["identityAllocations", index, "kind"],
-        message: "own Spec allocation must name a spec identity record"
-      });
-    if (allocation.scope.repository !== value.uw.repository || allocation.scope.target !== value.uw.target)
-      context.addIssue({
-        code: "custom",
-        path: ["identityAllocations", index, "scope"],
-        message: "own Spec allocation must belong to its UW"
-      });
-  }
-});
-var acceptedChildCommitmentSchema = strictObject({
-  scope: scopeSchema,
-  specVersion: sha256Schema,
-  snapshot: specSnapshotSchema,
-  tier: uwTierSchema
-}).superRefine((value, context) => {
-  if (value.snapshot.spec.version !== value.specVersion)
-    context.addIssue({ code: "custom", path: ["specVersion"], message: "child version does not match its snapshot" });
-  if (specDigest(value.snapshot.raw.body) !== value.snapshot.raw.bodySha256)
-    context.addIssue({
-      code: "custom",
-      path: ["snapshot", "raw", "bodySha256"],
-      message: "child raw body digest mismatch"
-    });
-});
-var mandateShared = {
-  format: literal("omp-build-mandate/3"),
-  branch: string2().min(1).nullable(),
-  base: string2().min(1),
-  lineageHead: shaSchema.nullable(),
-  config: mandateConfigSchema,
-  parent: externalRecordRefSchema.nullable(),
-  antecedent: externalRecordRefSchema.nullable(),
-  ownSpec: mandateOwnSpecSchema,
-  tier: uwTierSchema,
-  children: array(acceptedChildCommitmentSchema)
-};
-var featureMandateSchema = strictObject({
-  role: literal("feature"),
-  ...mandateShared,
-  run: string2().regex(/^[a-z0-9]{8}$/),
-  permissions: strictObject({ landing: literal(true), correct: literal(true) })
-});
-var epicMandateSchema = strictObject({
-  role: literal("epic"),
-  ...mandateShared,
-  run: string2().regex(/^[a-z0-9]{8}$/),
-  permissions: strictObject({ landing: boolean2(), correct: boolean2() })
-});
-var fixOnlyMandateSchema = strictObject({
-  role: literal("fix-only"),
-  ...mandateShared,
-  run: _null3(),
-  permissions: strictObject({ landing: literal(false), correct: literal(true) })
-});
-function sameRefMeaning(refs, context) {
-  const seen = new Map;
-  for (const ref of refs) {
-    if (ref === null)
-      continue;
-    const key = `${ref.scope.repository}\x00${ref.scope.target}\x00${ref.recordId}`;
-    const prior = seen.get(key);
-    if (prior !== undefined && prior !== ref.kind) {
-      context.addIssue({
-        code: "custom",
-        message: "same scope and recordId must share one kind"
-      });
-    }
-    seen.set(key, ref.kind);
-  }
-}
-var mandatePayloadSchema = discriminatedUnion("role", [featureMandateSchema, epicMandateSchema, fixOnlyMandateSchema]).superRefine((mandate, context) => {
-  sameRefMeaning([...mandate.ownSpec.identityAllocations, mandate.parent, mandate.antecedent], context);
-  const children = new Set;
-  for (const [index, child] of mandate.children.entries()) {
-    const key = `${child.scope.repository}\x00${child.scope.target}`;
-    if (children.has(key))
-      context.addIssue({ code: "custom", path: ["children", index, "scope"], message: "child scope is repeated" });
-    children.add(key);
-  }
-});
-var disarmSchema = strictObject({ observed: literal(true), evidence: jsonSchema });
-var identityDeltaSchema = strictObject({ retired: array(specItemIdSchema) }).superRefine((value, context) => {
-  if (new Set(value.retired).size !== value.retired.length)
-    context.addIssue({ code: "custom", path: ["retired"], message: "retired identities are repeated" });
-});
-var controlShared = { controlId: identifierSchema, mandate: externalRecordRefSchema };
-var operatorControlPayloadSchema = discriminatedUnion("control", [
-  strictObject({ control: literal("pause-requested"), predecessor: _null3(), ...controlShared }),
-  strictObject({
-    control: literal("pause-confirmed"),
-    predecessor: externalRecordRefSchema,
-    disarm: disarmSchema,
-    ...controlShared
-  }),
-  strictObject({ control: literal("resume"), predecessor: externalRecordRefSchema, ...controlShared }),
-  strictObject({
-    control: literal("abandon"),
-    predecessor: externalRecordRefSchema.nullable(),
-    ...controlShared
-  }),
-  strictObject({
-    control: literal("accept-material"),
-    predecessor: externalRecordRefSchema,
-    assessment: externalRecordRefSchema,
-    specVersion: sha256Schema,
-    proposalDigest: sha256Schema,
-    confirmation: operatorConfirmationEvidenceSchema,
-    identityDelta: identityDeltaSchema,
-    ...controlShared
-  }),
-  strictObject({
-    control: literal("select-successor"),
-    predecessor: externalRecordRefSchema,
-    successor: externalRecordRefSchema,
-    ...controlShared
-  })
-]).superRefine((control, context) => {
-  const refs = [control.mandate, control.predecessor];
-  if (control.control === "accept-material")
-    refs.push(control.assessment);
-  if (control.control === "select-successor")
-    refs.push(control.successor);
-  sameRefMeaning(refs, context);
-});
-var workflowBindingPayloadSchema = strictObject({
-  mandate: externalRecordRefSchema,
-  branch: string2().min(1),
-  base: string2().min(1)
-}).superRefine((payload, context) => {
-  if (payload.mandate.kind !== "mandate") {
-    context.addIssue({
-      code: "custom",
-      path: ["mandate", "kind"],
-      message: "workflow binding must name a mandate"
-    });
-  }
-});
-
 // plugins/omp-build/engine/uw-normalization-schema.ts
 var positionSchema2 = strictObject({ line: number2().int().positive(), column: number2().int().positive() });
 var sourceSpanSchema2 = strictObject({ start: positionSchema2, end: positionSchema2 });
@@ -8755,29 +8848,7 @@ var ciAttributionSchema = strictObject({
   attribution: _enum(["change", "pre-existing", "infra", "unknown", "out-of-scope"]),
   evidence: jsonSchema
 });
-
 // plugins/omp-build/engine/workflow-receipt-exact.ts
-var assessedOwnStateSchema = strictObject({
-  snapshot: specSnapshotSchema,
-  tier: uwTierSchema,
-  children: array(acceptedChildCommitmentSchema)
-});
-var mechanicalSpecDeltaSchema = strictObject({
-  added: array(specItemIdSchema),
-  removed: array(specItemIdSchema),
-  changedStatements: array(specItemIdSchema),
-  exclusionsChanged: boolean2(),
-  tierChanged: boolean2(),
-  childrenChanged: boolean2(),
-  sectionsOrOrderChanged: boolean2()
-});
-var assessSpecExactSchema = strictObject({
-  format: literal("omp-build-spec-assessment/2"),
-  accepted: assessedOwnStateSchema.extend({ ref: ownSpecRefSchema }),
-  proposed: assessedOwnStateSchema,
-  identityAllocations: array(externalRecordRefSchema),
-  mechanical: mechanicalSpecDeltaSchema
-});
 var frameExactSchema = strictObject({
   specDigest: sha256Schema,
   branch: string2().min(1),
@@ -8831,22 +8902,6 @@ var planReviewExactSchema = strictObject({
   draftActionId: identifierSchema
 });
 var implementExactSchema = strictObject({ mandateId: identifierSchema, planActionId: identifierSchema });
-var ciExactSchema = strictObject({
-  candidateGitSHA: shaSchema,
-  scope: scopeSchema,
-  failedChecks: array(string2().min(1)),
-  evidenceDigest: sha256Schema,
-  failures: array(failedCheckFailureSchema).min(1)
-}).superRefine((value, context) => {
-  const digest = failedCheckEvidenceDigest(value);
-  if (digest === null || digest !== value.evidenceDigest) {
-    context.addIssue({
-      code: "custom",
-      path: ["evidenceDigest"],
-      message: "evidence digest does not match the native check identity"
-    });
-  }
-});
 var implementationAdmissionCommandSchema = strictObject({
   toolCallId: identifierSchema,
   command: string2(),
@@ -8957,6 +9012,12 @@ function refineMandatedReceipt(receipt, context) {
 }
 function refineActionReceipt(receipt, context) {
   const checked = validateActionInputs(receipt.inputs);
+  if (receipt.action === "assess-spec" || receipt.action === "attribute-ci") {
+    const operands = receipt.inputs.manifest.operands;
+    if (operands?.action !== receipt.action || canonicalValueDigest(operands.exactInputs) !== canonicalValueDigest(receipt.exactInputs)) {
+      issue2(context, ["exactInputs"], "exact inputs must match the sealed action operands");
+    }
+  }
   if (!checked.ok)
     issue2(context, ["inputs"], checked.diagnostics[0]?.message ?? "action inputs are not binding/1");
   if (absentMandate(receipt)) {
@@ -12697,6 +12758,251 @@ function trustedRecoveryRecords(history) {
   return { ok: true, value: [...new Map(records.map((record) => [record.recordId, record])).values()] };
 }
 
+// plugins/omp-build/engine/workflow-context-lineage.ts
+function succeeds(history, old, candidate, replayStart = false) {
+  if (old.payload.phase !== "result" || candidate.payload.phase !== "result" && !(replayStart && candidate.payload.phase === "start" && candidate.payload.action === "assess-spec") || old.payload.action !== candidate.payload.action || old.payload.actionId === candidate.payload.actionId)
+    return false;
+  let oldInputs = old.payload.inputs;
+  let newInputs = candidate.payload.inputs;
+  if (old.payload.action === "plan-review" && candidate.payload.action === "plan-review" && candidate.payload.phase === "result") {
+    const contribution = old.payload.contributions.find((item) => producerOutputValid("plan-review", item.structured) && missingContextOf(item.structured) !== null);
+    const oldSlot = old.payload.slots.find((slot) => slot.slotId === contribution?.host.slotId);
+    const newSlot = candidate.payload.slots.find((slot) => slot.slotId === oldSlot?.slotId && slot.specialist === oldSlot?.specialist);
+    if (oldSlot?.action == null || newSlot?.action == null || oldSlot.action.actionId === newSlot.action.actionId)
+      return false;
+    oldInputs = oldSlot.action.inputs;
+    newInputs = newSlot.action.inputs;
+  }
+  if (oldInputs.fingerprint === newInputs.fingerprint || !validateActionInputs(newInputs).ok)
+    return false;
+  if (canonicalValueDigest(old.payload.exactInputs) !== canonicalValueDigest(candidate.payload.exactInputs) || canonicalValueDigest(old.payload.mandate) !== canonicalValueDigest(candidate.payload.mandate))
+    return false;
+  return hasNewLineageContext(history, old, oldInputs, newInputs);
+}
+function hasNewLineageContext(history, old, oldInputs, newInputs) {
+  const previous = oldInputs.manifest;
+  const next = newInputs.manifest;
+  const { expandedContext: oldRefs, ...oldAuthority } = previous;
+  const { expandedContext: newRefs, ...newAuthority } = next;
+  if (canonicalValueDigest(oldAuthority) !== canonicalValueDigest(newAuthority) || canonicalValueDigest(oldInputs.stageSources) !== canonicalValueDigest(newInputs.stageSources))
+    return false;
+  if (!oldRefs.every((ref) => newRefs.some((nextRef) => canonicalValueDigest(ref) === canonicalValueDigest(nextRef))))
+    return false;
+  const lineage = newRefs.filter((ref) => ref.source === "record" && ref.selector === "/payload" && ref.record.kind === "action-receipt" && ref.record.recordId === old.recordId && equalScope(ref.record.scope, history.source.scope) && ref.digest === canonicalValueDigest(old.payload));
+  if (lineage.length !== 1)
+    return false;
+  const priorRefs = [
+    ...oldRefs,
+    ...previous.acceptedSources,
+    ...previous.deliveryData.map(({ role: _role, ...ref }) => ref),
+    ...previous.repositoryReferences,
+    ...oldInputs.stageSources
+  ];
+  return newRefs.some((ref) => canonicalValueDigest(ref) !== canonicalValueDigest(lineage[0]) && !priorRefs.some((oldRef) => canonicalValueDigest(oldRef) === canonicalValueDigest(ref)));
+}
+
+// plugins/omp-build/engine/workflow-context-replay.ts
+function authenticatedContextReplayStart(history, start) {
+  if (start.payload.action !== "assess-spec" || start.payload.phase !== "start" || !validateActionInputs(start.payload.inputs).ok)
+    return false;
+  const matches = history.operations.filter((operation) => operation.authority !== "foreign" && operation.record?.kind === "action-receipt" && operation.record.payload.action === "assess-spec" && operation.record.payload.actionId === start.payload.actionId);
+  if (matches.length !== 1 || matches[0]?.authority !== "accounted" || matches[0].record !== start || history.operations.filter((operation) => operation.authority !== "foreign" && operation.operationId === start.operationId).length !== 1)
+    return false;
+  const bound = bindExternalRef({
+    scope: { repository: start.repository, target: start.target },
+    recordId: start.recordId,
+    kind: start.kind
+  }, history);
+  return bound.ok && bound.value === start;
+}
+function hasUnpairedStart(receipts, replayStart) {
+  return receipts.some((record) => record.payload.phase === "start" && record !== replayStart && !receipts.some((result) => result.payload.phase === "result" && result.payload.actionId === record.payload.actionId));
+}
+
+// plugins/omp-build/engine/workflow-context-review.ts
+function reviewContextPairValid(start, result, negative) {
+  const payload = result.payload;
+  if (payload.action !== "plan-review" || payload.phase !== "result")
+    return true;
+  if (start.payload.action !== "plan-review" || start.payload.phase !== "start")
+    return false;
+  if (canonicalValueDigest(start.payload.slots) !== canonicalValueDigest(payload.slots))
+    return false;
+  if (!negative)
+    return true;
+  const negatives = payload.contributions.filter((contribution) => producerOutputValid("plan-review", contribution.structured) && missingContextOf(contribution.structured) !== null);
+  const contribution = negatives[0];
+  if (negatives.length !== 1 || contribution === undefined)
+    return false;
+  if (!reviewChildValid(payload.slots.find((item) => item.slotId === contribution.host.slotId), contribution))
+    return false;
+  return payload.structured === null || canonicalValueDigest(contribution.structured) === canonicalValueDigest(payload.structured);
+}
+function reviewChildValid(slot, contribution) {
+  if (slot?.action == null || contribution.host.action == null)
+    return false;
+  if (contribution.host.origin !== "native" || contribution.host.role !== slot.specialist)
+    return false;
+  if (contribution.native?.completion !== "completed" || contribution.native.strict !== "valid")
+    return false;
+  return validateActionInputs(slot.action.inputs).ok && canonicalValueDigest(slot.action) === canonicalValueDigest(contribution.host.action);
+}
+
+// plugins/omp-build/engine/workflow-context-terminal.ts
+var outputFor = {
+  frame: "spec",
+  plan: "plan",
+  "assess-spec": "spec-assessment",
+  "attribute-ci": "ci-attribution",
+  implement: "implementation",
+  normalize: "uw-normalization"
+};
+function workflowContextNegative(result) {
+  const payload = result.payload;
+  if (payload.phase !== "result")
+    return false;
+  if (payload.action === "plan-review") {
+    return producerOutputValid("plan-review", payload.structured) && missingContextOf(payload.structured) !== null || payload.contributions.some((contribution) => producerOutputValid("plan-review", contribution.structured) && missingContextOf(contribution.structured) !== null);
+  }
+  if (!(payload.action in outputFor))
+    return false;
+  const output = outputFor[payload.action];
+  return (producerOutputValid(output, payload.structured) || payload.action === "implement" && implementationOutputSchema.safeParse(payload.structured).success) && missingContextOf(payload.structured) !== null;
+}
+function paired(history, result, receipts) {
+  const payload = result.payload;
+  if (payload.phase !== "result" || !nativeResultValid(result) || citedOperationIntegrity(history, result.recordId) !== null)
+    return false;
+  if (workflowContextNegative(result) && payload.admission !== null)
+    return false;
+  const starts = matchingReceipts(receipts, result, "start");
+  if (starts.length !== 1 || matchingReceipts(receipts, result, "result").length !== 1)
+    return false;
+  const start = starts[0];
+  if (start === undefined || start.payload.phase !== "start")
+    return false;
+  if (!reviewContextPairValid(start, result, workflowContextNegative(result)))
+    return false;
+  return payload.start.kind === "action-receipt" && payload.start.recordId === start.recordId && equalScope(payload.start.scope, history.source.scope) && citedOperationIntegrity(history, start.recordId) === null && validateActionInputs(payload.inputs).ok && canonicalValueDigest(start.payload.inputs) === canonicalValueDigest(payload.inputs) && canonicalValueDigest(start.payload.exactInputs) === canonicalValueDigest(payload.exactInputs) && canonicalValueDigest(start.payload.mandate) === canonicalValueDigest(payload.mandate);
+}
+function matchingReceipts(receipts, result, phase) {
+  return receipts.filter((record) => record.payload.phase === phase && record.payload.action === result.payload.action && record.payload.actionId === result.payload.actionId);
+}
+function workflowContextTerminal(history, action, contextLeaf) {
+  return contextTerminal(history, action, contextLeaf);
+}
+function observeAssessmentContextReplay(history, replayStart) {
+  if (!authenticatedContextReplayStart(history, replayStart))
+    return "uncertain";
+  const result = contextTerminal(history, "assess-spec", undefined, replayStart);
+  return result === "clear" ? "observed" : result;
+}
+function contextTerminal(history, action, contextLeaf, replayStart) {
+  const receipts = recordsOf(history).filter((record) => record.kind === "action-receipt" && record.payload.action === action);
+  if (replayStart !== undefined && (action !== "assess-spec" || replayStart.payload.action !== "assess-spec" || replayStart.payload.phase !== "start" || !receipts.includes(replayStart)))
+    return "uncertain";
+  const negatives = receipts.filter(workflowContextNegative);
+  for (const item of negatives) {
+    const resolution = resolveContextNegative(history, item, receipts, new Set, replayStart);
+    if (resolution === "missing" && contextLeaf !== undefined) {
+      const chain = workflowContextChain(history, item);
+      if (chain.status === "missing" && chain.leaf.recordId === contextLeaf.recordId && canonicalValueDigest(chain.leaf) === canonicalValueDigest(contextLeaf))
+        continue;
+    }
+    if (resolution !== "clear")
+      return resolution;
+  }
+  return "clear";
+}
+function workflowContextResolution(history, negative) {
+  const receipts = recordsOf(history).filter((record) => record.kind === "action-receipt" && record.payload.action === negative.payload.action);
+  const matches = receipts.filter((record) => record.recordId === negative.recordId);
+  if (matches.length !== 1 || canonicalValueDigest(matches[0]) !== canonicalValueDigest(negative))
+    return "uncertain";
+  return resolveContextNegative(history, negative, receipts, new Set);
+}
+function workflowContextDirectSuccessor(history, negative) {
+  const receipts = recordsOf(history).filter((record) => record.kind === "action-receipt" && record.payload.action === negative.payload.action);
+  const matches = receipts.filter((record) => record.recordId === negative.recordId);
+  if (matches.length !== 1 || canonicalValueDigest(matches[0]) !== canonicalValueDigest(negative))
+    return { status: "uncertain" };
+  if (!workflowContextNegative(negative) || !paired(history, negative, receipts))
+    return { status: "uncertain" };
+  const successors = receipts.filter((candidate) => succeeds(history, negative, candidate));
+  if (successors.length > 1)
+    return { status: "ambiguous" };
+  if (hasUnpairedStart(receipts))
+    return { status: "uncertain" };
+  const successor = successors[0];
+  if (successor === undefined)
+    return { status: "missing" };
+  if (!paired(history, successor, receipts))
+    return { status: "uncertain" };
+  if (!workflowContextNegative(successor) && !validPositiveSuccessor(successor))
+    return { status: "uncertain" };
+  return { status: "successor", record: successor };
+}
+function workflowContextChain(history, negative) {
+  const negatives = [];
+  const seen = new Set;
+  let current = negative;
+  while (true) {
+    if (seen.has(current.recordId))
+      return { status: "uncertain", negatives, leaf: current };
+    seen.add(current.recordId);
+    negatives.push(current);
+    const direct = workflowContextDirectSuccessor(history, current);
+    if (direct.status !== "successor")
+      return { status: direct.status, negatives, leaf: current };
+    if (!workflowContextNegative(direct.record))
+      return { status: "clear", negatives, leaf: current };
+    current = direct.record;
+  }
+}
+function resolveContextNegative(history, negative, receipts, seen, replayStart) {
+  if (!workflowContextNegative(negative) || seen.has(negative.recordId) || !paired(history, negative, receipts))
+    return "uncertain";
+  seen.add(negative.recordId);
+  const successors = receipts.filter((candidate) => succeeds(history, negative, candidate));
+  const pendingSuccessor = replayStart !== undefined && succeeds(history, negative, replayStart, true);
+  if (successors.length > 1 || successors.length > 0 && pendingSuccessor)
+    return "ambiguous";
+  if (hasUnpairedStart(receipts, replayStart))
+    return "uncertain";
+  const successor = successors[0];
+  if (successor === undefined)
+    return pendingSuccessor ? "clear" : "missing";
+  if (!paired(history, successor, receipts))
+    return "uncertain";
+  if (workflowContextNegative(successor))
+    return resolveContextNegative(history, successor, receipts, seen, replayStart);
+  return validPositiveSuccessor(successor) ? "clear" : "uncertain";
+}
+function validPositiveSuccessor(successor) {
+  const payload = successor.payload;
+  if (payload.phase !== "result")
+    return false;
+  if (payload.action === "plan-review")
+    return positiveReviewSuccessor(payload);
+  if (payload.action === "implement") {
+    const parsed = implementationOutputSchema.safeParse(payload.structured);
+    return parsed.success && parsed.data.outcome === "implemented" && payload.admission?.admitted === true && payload.admission.remoteTip !== null;
+  }
+  if (payload.action === "frame" && payload.structured === null)
+    return true;
+  if (!(payload.action in outputFor))
+    return true;
+  const output = outputFor[payload.action];
+  return producerOutputValid(output, payload.structured);
+}
+function positiveReviewSuccessor(payload) {
+  return payload.slots.every((slot) => {
+    const contributions = payload.contributions.filter((contribution) => contribution.host.slotId === slot.slotId);
+    const contribution = contributions[0];
+    return contributions.length === 1 && contribution !== undefined && producerOutputValid("plan-review", contribution.structured) && missingContextOf(contribution.structured) === null;
+  }) && payload.contributions.length === payload.slots.length;
+}
+
 // plugins/omp-build/engine/workflow-spec-assessment.ts
 function isAssessResult(record) {
   return record.kind === "action-receipt" && record.payload.action === "assess-spec" && record.payload.phase === "result";
@@ -12951,12 +13257,14 @@ function applicableAssessment(record, mandateRef, applied, accepted) {
 function qualifyEditorialCandidate(record, input) {
   if (!applicableAssessment(record, input.mandateRef, input.applied, input.accepted))
     return { status: "irrelevant" };
-  const parsed = specAssessmentSchema.safeParse(record.payload.structured);
-  if (!parsed.success)
-    return { status: "refused", result: specChainFailure("incomplete", "Applicable spec assessment is malformed") };
   const authenticated = authenticatedAssessResult(record, input.histories, input.mandateRef);
   if (!authenticated.ok)
     return { status: "refused", result: authenticated };
+  if (workflowContextNegative(authenticated.record))
+    return { status: "irrelevant" };
+  const parsed = specAssessmentSchema.safeParse(authenticated.record.payload.structured);
+  if (!parsed.success)
+    return { status: "refused", result: specChainFailure("incomplete", "Applicable spec assessment is malformed") };
   const exact = authenticated.record.payload.exactInputs;
   const mechanical = mechanicalSpecDelta(exact.accepted, exact.proposed);
   if (!sameMechanicalDelta(mechanical, exact.mechanical))
@@ -12968,220 +13276,21 @@ function qualifyEditorialCandidate(record, input) {
     return { status: "material" };
   return { status: "editorial", record: authenticated.record };
 }
-// plugins/omp-build/engine/workflow-context-review.ts
-function reviewContextPairValid(start, result, negative) {
-  const payload = result.payload;
-  if (payload.action !== "plan-review" || payload.phase !== "result")
-    return true;
-  if (start.payload.action !== "plan-review" || start.payload.phase !== "start")
-    return false;
-  if (canonicalValueDigest(start.payload.slots) !== canonicalValueDigest(payload.slots))
-    return false;
-  if (!negative)
-    return true;
-  const negatives = payload.contributions.filter((contribution) => producerOutputValid("plan-review", contribution.structured) && missingContextOf(contribution.structured) !== null);
-  const contribution = negatives[0];
-  if (negatives.length !== 1 || contribution === undefined)
-    return false;
-  if (!reviewChildValid(payload.slots.find((item) => item.slotId === contribution.host.slotId), contribution))
-    return false;
-  return payload.structured === null || canonicalValueDigest(contribution.structured) === canonicalValueDigest(payload.structured);
-}
-function reviewChildValid(slot, contribution) {
-  if (slot?.action == null || contribution.host.action == null)
-    return false;
-  if (contribution.host.origin !== "native" || contribution.host.role !== slot.specialist)
-    return false;
-  if (contribution.native?.completion !== "completed" || contribution.native.strict !== "valid")
-    return false;
-  return validateActionInputs(slot.action.inputs).ok && canonicalValueDigest(slot.action) === canonicalValueDigest(contribution.host.action);
-}
-
-// plugins/omp-build/engine/workflow-context-terminal.ts
-var outputFor = {
-  frame: "spec",
-  plan: "plan",
-  "assess-spec": "spec-assessment",
-  "attribute-ci": "ci-attribution",
-  implement: "implementation",
-  normalize: "uw-normalization"
-};
-function workflowContextNegative(result) {
-  const payload = result.payload;
-  if (payload.phase !== "result")
-    return false;
-  if (payload.action === "plan-review") {
-    return producerOutputValid("plan-review", payload.structured) && missingContextOf(payload.structured) !== null || payload.contributions.some((contribution) => producerOutputValid("plan-review", contribution.structured) && missingContextOf(contribution.structured) !== null);
-  }
-  if (!(payload.action in outputFor))
-    return false;
-  const output = outputFor[payload.action];
-  return (producerOutputValid(output, payload.structured) || payload.action === "implement" && implementationOutputSchema.safeParse(payload.structured).success) && missingContextOf(payload.structured) !== null;
-}
-function paired(history, result, receipts) {
-  const payload = result.payload;
-  if (payload.phase !== "result" || !nativeResultValid(result) || citedOperationIntegrity(history, result.recordId) !== null)
-    return false;
-  if (workflowContextNegative(result) && payload.admission !== null)
-    return false;
-  const starts = matchingReceipts(receipts, result, "start");
-  if (starts.length !== 1 || matchingReceipts(receipts, result, "result").length !== 1)
-    return false;
-  const start = starts[0];
-  if (start === undefined || start.payload.phase !== "start")
-    return false;
-  if (!reviewContextPairValid(start, result, workflowContextNegative(result)))
-    return false;
-  return payload.start.kind === "action-receipt" && payload.start.recordId === start.recordId && equalScope(payload.start.scope, history.source.scope) && citedOperationIntegrity(history, start.recordId) === null && validateActionInputs(payload.inputs).ok && canonicalValueDigest(start.payload.inputs) === canonicalValueDigest(payload.inputs) && canonicalValueDigest(start.payload.exactInputs) === canonicalValueDigest(payload.exactInputs) && canonicalValueDigest(start.payload.mandate) === canonicalValueDigest(payload.mandate);
-}
-function matchingReceipts(receipts, result, phase) {
-  return receipts.filter((record) => record.payload.phase === phase && record.payload.action === result.payload.action && record.payload.actionId === result.payload.actionId);
-}
-function succeeds(history, old, candidate) {
-  if (old.payload.phase !== "result" || candidate.payload.phase !== "result" || old.payload.action !== candidate.payload.action || old.payload.actionId === candidate.payload.actionId)
-    return false;
-  let oldInputs = old.payload.inputs;
-  let newInputs = candidate.payload.inputs;
-  if (old.payload.action === "plan-review" && candidate.payload.action === "plan-review") {
-    const contribution = old.payload.contributions.find((item) => producerOutputValid("plan-review", item.structured) && missingContextOf(item.structured) !== null);
-    const oldSlot = old.payload.slots.find((slot) => slot.slotId === contribution?.host.slotId);
-    const newSlot = candidate.payload.slots.find((slot) => slot.slotId === oldSlot?.slotId && slot.specialist === oldSlot?.specialist);
-    if (oldSlot?.action == null || newSlot?.action == null || oldSlot.action.actionId === newSlot.action.actionId)
-      return false;
-    oldInputs = oldSlot.action.inputs;
-    newInputs = newSlot.action.inputs;
-  }
-  if (oldInputs.fingerprint === newInputs.fingerprint || !validateActionInputs(newInputs).ok)
-    return false;
-  if (canonicalValueDigest(old.payload.exactInputs) !== canonicalValueDigest(candidate.payload.exactInputs) || canonicalValueDigest(old.payload.mandate) !== canonicalValueDigest(candidate.payload.mandate))
-    return false;
-  const previous = oldInputs.manifest;
-  const next = newInputs.manifest;
-  const { expandedContext: oldRefs, ...oldAuthority } = previous;
-  const { expandedContext: newRefs, ...newAuthority } = next;
-  if (canonicalValueDigest(oldAuthority) !== canonicalValueDigest(newAuthority) || canonicalValueDigest(oldInputs.stageSources) !== canonicalValueDigest(newInputs.stageSources))
-    return false;
-  if (!oldRefs.every((ref) => newRefs.some((nextRef) => canonicalValueDigest(ref) === canonicalValueDigest(nextRef))))
-    return false;
-  const lineage = newRefs.filter((ref) => ref.source === "record" && ref.selector === "/payload" && ref.record.kind === "action-receipt" && ref.record.recordId === old.recordId && equalScope(ref.record.scope, history.source.scope) && ref.digest === canonicalValueDigest(old.payload));
-  if (lineage.length !== 1)
-    return false;
-  const priorRefs = [
-    ...oldRefs,
-    ...previous.acceptedSources,
-    ...previous.deliveryData.map(({ role: _role, ...ref }) => ref),
-    ...previous.repositoryReferences,
-    ...oldInputs.stageSources
-  ];
-  return newRefs.some((ref) => canonicalValueDigest(ref) !== canonicalValueDigest(lineage[0]) && !priorRefs.some((oldRef) => canonicalValueDigest(oldRef) === canonicalValueDigest(ref)));
-}
-function workflowContextTerminal(history, action, contextLeaf) {
-  const receipts = recordsOf(history).filter((record) => record.kind === "action-receipt" && record.payload.action === action);
-  const negatives = receipts.filter(workflowContextNegative);
-  for (const item of negatives) {
-    const resolution = resolveContextNegative(history, item, receipts, new Set);
-    if (resolution === "missing" && contextLeaf !== undefined) {
-      const chain = workflowContextChain(history, item);
-      if (chain.status === "missing" && chain.leaf.recordId === contextLeaf.recordId && canonicalValueDigest(chain.leaf) === canonicalValueDigest(contextLeaf))
-        continue;
-    }
-    if (resolution !== "clear")
-      return resolution;
-  }
-  return "clear";
-}
-function workflowContextResolution(history, negative) {
-  const receipts = recordsOf(history).filter((record) => record.kind === "action-receipt" && record.payload.action === negative.payload.action);
-  const matches = receipts.filter((record) => record.recordId === negative.recordId);
-  if (matches.length !== 1 || canonicalValueDigest(matches[0]) !== canonicalValueDigest(negative))
-    return "uncertain";
-  return resolveContextNegative(history, negative, receipts, new Set);
-}
-function workflowContextDirectSuccessor(history, negative) {
-  const receipts = recordsOf(history).filter((record) => record.kind === "action-receipt" && record.payload.action === negative.payload.action);
-  const matches = receipts.filter((record) => record.recordId === negative.recordId);
-  if (matches.length !== 1 || canonicalValueDigest(matches[0]) !== canonicalValueDigest(negative))
-    return { status: "uncertain" };
-  if (!workflowContextNegative(negative) || !paired(history, negative, receipts))
-    return { status: "uncertain" };
-  const successors = receipts.filter((candidate) => succeeds(history, negative, candidate));
-  if (successors.length > 1)
-    return { status: "ambiguous" };
-  if (hasUnpairedStart(receipts))
-    return { status: "uncertain" };
-  const successor = successors[0];
-  if (successor === undefined)
-    return { status: "missing" };
-  if (!paired(history, successor, receipts))
-    return { status: "uncertain" };
-  if (!workflowContextNegative(successor) && !validPositiveSuccessor(successor))
-    return { status: "uncertain" };
-  return { status: "successor", record: successor };
-}
-function workflowContextChain(history, negative) {
-  const negatives = [];
-  const seen = new Set;
-  let current = negative;
-  while (true) {
-    if (seen.has(current.recordId))
-      return { status: "uncertain", negatives, leaf: current };
-    seen.add(current.recordId);
-    negatives.push(current);
-    const direct = workflowContextDirectSuccessor(history, current);
-    if (direct.status !== "successor")
-      return { status: direct.status, negatives, leaf: current };
-    if (!workflowContextNegative(direct.record))
-      return { status: "clear", negatives, leaf: current };
-    current = direct.record;
-  }
-}
-function resolveContextNegative(history, negative, receipts, seen) {
-  if (!workflowContextNegative(negative) || seen.has(negative.recordId) || !paired(history, negative, receipts))
-    return "uncertain";
-  seen.add(negative.recordId);
-  const successors = receipts.filter((candidate) => succeeds(history, negative, candidate));
-  if (successors.length > 1)
-    return "ambiguous";
-  if (hasUnpairedStart(receipts))
-    return "uncertain";
-  const successor = successors[0];
-  if (successor === undefined)
-    return "missing";
-  if (!paired(history, successor, receipts))
-    return "uncertain";
-  if (workflowContextNegative(successor))
-    return resolveContextNegative(history, successor, receipts, seen);
-  return validPositiveSuccessor(successor) ? "clear" : "uncertain";
-}
-function hasUnpairedStart(receipts) {
-  return receipts.some((record) => record.payload.phase === "start" && !receipts.some((result) => result.payload.phase === "result" && result.payload.actionId === record.payload.actionId));
-}
-function validPositiveSuccessor(successor) {
-  const payload = successor.payload;
-  if (payload.phase !== "result")
-    return false;
-  if (payload.action === "plan-review")
-    return positiveReviewSuccessor(payload);
-  if (payload.action === "implement") {
-    const parsed = implementationOutputSchema.safeParse(payload.structured);
-    return parsed.success && parsed.data.outcome === "implemented" && payload.admission?.admitted === true && payload.admission.remoteTip !== null;
-  }
-  if (payload.action === "frame" && payload.structured === null)
-    return true;
-  if (!(payload.action in outputFor))
-    return true;
-  const output = outputFor[payload.action];
-  return producerOutputValid(output, payload.structured);
-}
-function positiveReviewSuccessor(payload) {
-  return payload.slots.every((slot) => {
-    const contributions = payload.contributions.filter((contribution) => contribution.host.slotId === slot.slotId);
-    const contribution = contributions[0];
-    return contributions.length === 1 && contribution !== undefined && producerOutputValid("plan-review", contribution.structured) && missingContextOf(contribution.structured) === null;
-  }) && payload.contributions.length === payload.slots.length;
-}
-
 // plugins/omp-build/engine/workflow-spec-authentication.ts
+function authenticatedReplayStart(record, home, mandateRef, context) {
+  if (context === undefined || record.kind !== "action-receipt" || record.payload.action !== "assess-spec" || record.payload.phase !== "start" || record.payload.actionId !== context.actionId || !sameRef2(record.payload.mandate, mandateRef) || record.payload.inputs.fingerprint !== context.fingerprint || !validateActionInputs(record.payload.inputs).ok)
+    return false;
+  const matchingActions = home.operations.filter((operation) => operation.authority !== "foreign" && operation.record?.kind === "action-receipt" && operation.record.payload.action === "assess-spec" && operation.record.payload.actionId === context.actionId);
+  if (matchingActions.length !== 1)
+    return false;
+  if (home.operations.filter((operation) => operation.authority !== "foreign" && operation.operationId === record.operationId).length !== 1)
+    return false;
+  const operation = matchingActions[0];
+  if (operation === undefined || operation.authority !== "accounted" || operation.status !== "complete" || operation.recordId !== record.recordId || operation.operationId !== record.operationId || operation.kind !== record.kind || operation.record !== record || record.repository !== home.source.scope.repository || record.target !== home.source.scope.target)
+    return false;
+  const bound = bindExternalRef(receiptRef(record), home);
+  return bound.ok && bound.value === record;
+}
 function receiptRef(record) {
   return {
     scope: { repository: record.repository, target: record.target },
@@ -13189,34 +13298,40 @@ function receiptRef(record) {
     kind: record.kind
   };
 }
-function confirmedAssessPairs(home, histories, mandateRef) {
+function confirmedAssessPairs(home, histories, mandateRef, replayContext) {
+  if (replayContext !== undefined && !recordsOf(home).some((record) => authenticatedReplayStart(record, home, mandateRef, replayContext)))
+    return specChainFailure("incomplete", "Spec assessment replay start is not authenticated", "action-uncertain");
   for (const record of recordsOf(home)) {
-    const checked = confirmedAssessStart(record, home, histories, mandateRef);
+    const checked = confirmedAssessStart(record, home, histories, mandateRef, replayContext);
     if (!checked.ok)
       return checked;
   }
   return { ok: true };
 }
-function confirmedAssessStart(record, home, histories, mandateRef) {
+function confirmedAssessStart(record, home, histories, mandateRef, replayContext) {
   if (record.kind !== "action-receipt" || record.payload.action !== "assess-spec" || record.payload.phase !== "start")
     return { ok: true };
   if (!sameRef2(record.payload.mandate, mandateRef))
     return { ok: true };
   const startRef = receiptRef(record);
   const results = recordsOf(home).filter((candidate) => candidate.kind === "action-receipt" && candidate.payload.action === "assess-spec" && candidate.payload.phase === "result" && candidate.payload.actionId === record.payload.actionId && sameRef2(candidate.payload.start, startRef) && sameRef2(candidate.payload.mandate, mandateRef));
-  if (results.length === 0)
+  if (results.length === 0) {
+    if (authenticatedReplayStart(record, home, mandateRef, replayContext))
+      return { ok: true };
     return specChainFailure("incomplete", "Spec assessment start has no confirmed result", "action-uncertain");
+  }
   if (results.length > 1)
     return specChainFailure("ambiguous", "Spec assessment start has competing results");
   const result = results[0];
   if (result !== undefined && result.kind === "action-receipt" && workflowContextNegative(result))
-    return contextAssessment(home);
+    return contextAssessment(home, mandateRef, replayContext);
   const authenticated = authenticatedAssessResult(result ?? record, histories, mandateRef);
   return authenticated.ok ? { ok: true } : authenticated;
 }
-function contextAssessment(home) {
-  const terminal = workflowContextTerminal(home, "assess-spec");
-  if (terminal === "clear")
+function contextAssessment(home, mandateRef, replayContext) {
+  const replayStart = recordsOf(home).find((record) => record.kind === "action-receipt" && authenticatedReplayStart(record, home, mandateRef, replayContext));
+  const terminal = replayStart === undefined ? workflowContextTerminal(home, "assess-spec") : observeAssessmentContextReplay(home, replayStart);
+  if (terminal === "clear" || terminal === "observed")
     return { ok: true };
   if (terminal === "ambiguous")
     return specChainFailure("ambiguous", "Spec assessment context has competing successors");
@@ -13403,7 +13518,7 @@ function resolveAcceptedSpecChain(input) {
 }
 
 // plugins/omp-build/engine/workflow-accepted-spec.ts
-function resolveAcceptedSpec(mandate, histories) {
+function resolveAcceptedSpec(mandate, histories, replayContext) {
   const scope = mandateScope(mandate);
   const home = historyFor(scope, histories);
   if (home === null || !home.source.complete)
@@ -13421,7 +13536,7 @@ function resolveAcceptedSpec(mandate, histories) {
     return specChainFailure("ambiguous", "Mandate does not match the authenticated history");
   if (confirmed.payload.ownSpec.uw.repository !== scope.repository || confirmed.payload.ownSpec.uw.target !== scope.target)
     return specChainFailure("material-spec", "Mandate own Spec does not belong to its mandate scope");
-  const pairs = confirmedAssessPairs(home, histories, mandateRef);
+  const pairs = confirmedAssessPairs(home, histories, mandateRef, replayContext);
   if (!pairs.ok)
     return pairs;
   return resolveAcceptedSpecChain({ confirmed, home, histories, mandateRef, scope });
@@ -16653,6 +16768,7 @@ var actionRequestSchema = strictObject({
   actionId: string2().min(1),
   purpose: actionPurposeSchema,
   subject: actionSubjectSchema,
+  operands: actionOperandsSchema.optional(),
   code: strictObject({
     repository: string2().min(1),
     base: gitObjectIdSchema,
@@ -16661,7 +16777,7 @@ var actionRequestSchema = strictObject({
   }),
   stageSources: array(recordInputRefSchema),
   expandedContext: array(union([recordInputRefSchema, pinnedFileRefSchema]))
-});
+}).superRefine(refineActionOperands);
 var actionEnvelopeSchema = strictObject({
   request: actionRequestSchema,
   reviewed: actionInputsSchema.optional()
@@ -17522,6 +17638,13 @@ function buildSpecAllocationPlan(draft, ledger) {
 }
 
 // plugins/omp-build/engine/uw-identity-replay.ts
+function replayForMandate(history, mandate, assessmentReplay) {
+  return assessmentReplay !== undefined && recordsOf(history).some((record) => record.kind === "action-receipt" && record.payload.action === "assess-spec" && record.payload.phase === "start" && record.payload.actionId === assessmentReplay.actionId && sameRef2(record.payload.mandate, {
+    scope: { repository: mandate.repository, target: mandate.target },
+    recordId: mandate.recordId,
+    kind: "mandate"
+  }));
+}
 function diagnostic5(uw, code, message) {
   return { code, message, location: { kind: "native", uw, connection: "state" }, related: [] };
 }
@@ -17623,12 +17746,15 @@ function replayAcceptedSteps(spec, controls, seen, replay, uw, diagnostics) {
     }
   }
 }
-function replayAcceptedRetirements(history, histories, replay, uw, diagnostics) {
+function replayAcceptedRetirements(history, histories, replay, uw, diagnostics, assessmentReplay) {
   const authenticated = [];
   const seen = [];
   const controls = controlsOf(history).filter((record) => record.payload.control === "accept-material");
+  let replayMandateFound = false;
   for (const mandate of mandatesOf(history)) {
-    const result = resolveAcceptedSpec(mandate, histories);
+    const isReplayMandate = replayForMandate(history, mandate, assessmentReplay);
+    replayMandateFound ||= isReplayMandate;
+    const result = resolveAcceptedSpec(mandate, histories, isReplayMandate ? assessmentReplay : undefined);
     if (!result.ok) {
       diagnostics.push(diag4(uw, "spec-ledger-incomplete", `Historical mandate ${mandate.recordId} cannot be authenticated: ${result.reason}`));
       continue;
@@ -17636,6 +17762,8 @@ function replayAcceptedRetirements(history, histories, replay, uw, diagnostics) 
     authenticated.push(result.spec);
     replayAcceptedSteps(result.spec, controls, seen, replay, uw, diagnostics);
   }
+  if (assessmentReplay !== undefined && !replayMandateFound)
+    diagnostics.push(diag4(uw, "spec-ledger-incomplete", "Assessment replay mandate is missing"));
   return authenticated;
 }
 function validateAcceptedIds(active, replay, uw, diagnostics) {
@@ -17681,7 +17809,7 @@ function resolveSpecIdentityLedger(input) {
     diagnostics.push(diag4(input.uw, "spec-ledger-incomplete", "Identity history is incomplete"));
   const replay = replaySpecIdentityHistory(input.history, input.uw, diagnostics);
   const active = acceptedIds(input.accepted);
-  const authenticated = replayAcceptedRetirements(input.history, input.histories, replay, input.uw, diagnostics);
+  const authenticated = replayAcceptedRetirements(input.history, input.histories, replay, input.uw, diagnostics, input.assessmentReplay);
   validateReferencedHistories(input.uw, input.histories, authenticated, diagnostics);
   if (input.accepted !== null && !authenticated.some((spec) => JSON.stringify(spec) === JSON.stringify(input.accepted)))
     diagnostics.push(diag4(input.uw, "spec-ledger-conflict", "Current accepted Spec is not authenticated by history"));
@@ -17757,11 +17885,7 @@ function planMacro(evidence, mandate, options) {
   const empty = emptyMacro(mandate, null);
   if (mandate === null)
     return empty("blocked", [diagnostic2("mandate-absent", "plan macro has no mandate")]);
-  const accepted = resolveAcceptedSpec(mandate, [
-    evidence.issue,
-    ...evidence.pullRequest === null ? [] : [evidence.pullRequest],
-    ...evidence.parents
-  ]);
+  const accepted = resolveAcceptedSpec(mandate, [evidence.issue, ...evidence.pullRequest === null ? [] : [evidence.pullRequest], ...evidence.parents], options?.assessmentReplay);
   if (!accepted.ok)
     return empty("blocked", accepted.evidence);
   const effective = resolveOwnSpecEffective(accepted.spec);
@@ -18554,7 +18678,7 @@ function controlParentAuthority(mandate, externalHistories, seen) {
     return fail([diagnostic2("incompatible", "Child correction exceeds the parent")]);
   return { ok: true, value: undefined };
 }
-function resolveOwnSpecAuthority(history, externalHistories = [], seen = new Set) {
+function resolveOwnSpecAuthority(history, externalHistories = [], seen = new Set, replayContext) {
   const cycle = cycleRefusal(history, seen);
   if (cycle !== null)
     return fail(cycle.evidence);
@@ -18575,7 +18699,7 @@ function resolveOwnSpecAuthority(history, externalHistories = [], seen = new Set
   const parent = controlParentAuthority(selected, externalHistories, nextSeen);
   if (!parent.ok)
     return parent;
-  const accepted = resolveAcceptedSpec(selected, [history, ...externalHistories]);
+  const accepted = resolveAcceptedSpec(selected, [history, ...externalHistories], replayContext);
   if (!accepted.ok)
     return fail(accepted.evidence);
   return { ok: true, value: { mandate: selected, accepted: accepted.spec } };
@@ -19870,6 +19994,7 @@ export {
   actionInputDigest,
   actionInputManifestSchema,
   actionInputsSchema,
+  actionOperandsSchema,
   actionPurposeSchema,
   actionReceiptPayloadSchema,
   actionRequestSchema,
@@ -19899,6 +20024,7 @@ export {
   buildSpecIdentityProposedRetirement,
   calculateTier,
   canonicalActionInput,
+  canonicalActionOperands,
   canonicalSpec,
   canonicalValueDigest,
   causeSchema,

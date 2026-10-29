@@ -248,6 +248,7 @@ describe('installed /feature command', () => {
       send: async (text) => {
         sent.push(text)
       },
+      status: async () => undefined,
       inhibitFeatureContinuation: () => undefined,
       releaseFeatureContinuation: () => undefined,
       featureContinuationInhibited: () => false,
@@ -283,6 +284,7 @@ describe('installed /feature command', () => {
       send: async (message) => {
         sent.push(message)
       },
+      status: async () => undefined,
       inhibitFeatureContinuation: () => undefined,
       releaseFeatureContinuation: () => undefined,
       featureContinuationInhibited: () => false,

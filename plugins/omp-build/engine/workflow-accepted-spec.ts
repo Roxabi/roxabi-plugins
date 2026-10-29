@@ -5,9 +5,13 @@ import type { AcceptedSpecResult } from './workflow-accepted-spec-types.ts'
 import { historyFor, type MandateRecord, mandateScope, workflowOperationProblem } from './workflow-control.ts'
 import { confirmedAccountedMandate } from './workflow-pr-binding.ts'
 import { specChainFailure } from './workflow-spec-assessment.ts'
-import { confirmedAssessPairs } from './workflow-spec-authentication.ts'
+import { type AssessmentReplayContext, confirmedAssessPairs } from './workflow-spec-authentication.ts'
 
-export function resolveAcceptedSpec(mandate: MandateRecord, histories: readonly DecodedHistory[]): AcceptedSpecResult {
+export function resolveAcceptedSpec(
+  mandate: MandateRecord,
+  histories: readonly DecodedHistory[],
+  replayContext?: AssessmentReplayContext,
+): AcceptedSpecResult {
   const scope = mandateScope(mandate)
   const home = historyFor(scope, histories)
   if (home === null || !home.source.complete) return specChainFailure('missing-history', 'Mandate history is missing')
@@ -26,7 +30,7 @@ export function resolveAcceptedSpec(mandate: MandateRecord, histories: readonly 
     confirmed.payload.ownSpec.uw.target !== scope.target
   )
     return specChainFailure('material-spec', 'Mandate own Spec does not belong to its mandate scope')
-  const pairs = confirmedAssessPairs(home, histories, mandateRef)
+  const pairs = confirmedAssessPairs(home, histories, mandateRef, replayContext)
   if (!pairs.ok) return pairs
   return resolveAcceptedSpecChain({ confirmed, home, histories, mandateRef, scope })
 }

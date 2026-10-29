@@ -6,11 +6,17 @@ import {
   producerCriterionDeclarationSchema,
 } from './criterion-evidence-schema.ts'
 import { type CriterionVerdict, criterionVerdictSchema } from './criterion-verdict-schema.ts'
-import { identifierSchema, jsonSchema, repoRelativePathSchema, scopeSchema, sha256Schema } from './schema-primitives.ts'
+import {
+  identifierSchema,
+  jsonSchema,
+  repoRelativePathSchema,
+  scopeSchema,
+  sha256Schema,
+  shaSchema,
+} from './schema-primitives.ts'
 
 export type { Json, Scope } from './schema-primitives.ts'
-export { identifierSchema, jsonSchema, repoRelativePathSchema, scopeSchema, sha256Schema }
-export const shaSchema = z.string().min(1)
+export { identifierSchema, jsonSchema, repoRelativePathSchema, scopeSchema, sha256Schema, shaSchema }
 
 export const diagnosticSchema = z.strictObject({
   code: z.string().min(1),

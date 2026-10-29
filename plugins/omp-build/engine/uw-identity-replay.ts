@@ -1,10 +1,35 @@
 import type { DecodedHistory } from './history-schema.ts'
+import { sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { Scope } from './record-values.ts'
 import type { UwDiagnostic } from './uw-diagnostics.ts'
 import { nextCriterionId, nextInvariantId, nextSpecItemId } from './uw-identity-allocation.ts'
 import { type SpecIdentityPayload, specIdentityPayloadSchema } from './uw-identity-schema.ts'
 import type { SpecItemId } from './uw-spec.ts'
+import { type MandateRecord, recordsOf } from './workflow-control.ts'
+import type { AssessmentReplayContext } from './workflow-spec-authentication.ts'
+
+export function replayForMandate(
+  history: DecodedHistory,
+  mandate: MandateRecord,
+  assessmentReplay?: AssessmentReplayContext,
+): boolean {
+  return (
+    assessmentReplay !== undefined &&
+    recordsOf(history).some(
+      (record) =>
+        record.kind === 'action-receipt' &&
+        record.payload.action === 'assess-spec' &&
+        record.payload.phase === 'start' &&
+        record.payload.actionId === assessmentReplay.actionId &&
+        sameRef(record.payload.mandate, {
+          scope: { repository: mandate.repository, target: mandate.target },
+          recordId: mandate.recordId,
+          kind: 'mandate',
+        }),
+    )
+  )
+}
 
 export type SpecIdentityReplay = {
   allocations: Map<SpecItemId, ExternalRecordRef>

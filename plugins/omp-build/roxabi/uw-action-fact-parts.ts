@@ -10,6 +10,7 @@ import {
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { Result } from '../engine/result.ts'
+import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
 import { type EvidenceObservation, resolveEvidenceBasis, seedEvidenceObservation } from './uw-action-basis.ts'
 import type {
   ActionInputManifest,
@@ -27,6 +28,7 @@ import {
   readHistories,
   sourceRef,
 } from './uw-action-observe.ts'
+import { observeActionOperands } from './uw-action-operands.ts'
 import { actionFailure } from './uw-action-result.ts'
 import {
   assertCurrentOutputClosure,
@@ -92,16 +94,20 @@ function acceptedChain(
   histories: readonly DecodedHistory[],
   mandate: Result<import('../engine/workflow-control.ts').MandateRecord>,
   config: ActionInputManifest['configuration'],
+  replay?: { actionId: string; fingerprint: string },
 ): Result<{
   spec: ActionInputManifest['spec']
   acceptedSources: RecordInputRef[]
   configuration: ActionInputManifest['configuration']
+  acceptedSpec: AcceptedOwnSpec | null
 }> {
   const spec: ActionInputManifest['spec'] = { kind: 'absent', reason: 'standalone-review' }
   const acceptedSources: RecordInputRef[] = []
-  if (!mandate.ok || !ACCEPTED_PURPOSE[request.purpose])
-    return { ok: true, value: { spec, acceptedSources, configuration: config } }
-  const accepted = resolveAcceptedSpec(mandate.value, histories)
+  if (!mandate.ok || (!ACCEPTED_PURPOSE[request.purpose] && request.purpose !== 'assess-spec'))
+    return request.purpose === 'assess-spec'
+      ? actionFailure('action-input-missing', 'Assessment requires the current accounted mandate')
+      : { ok: true, value: { spec, acceptedSources, configuration: config, acceptedSpec: null } }
+  const accepted = resolveAcceptedSpec(mandate.value, histories, replay)
   if (!accepted.ok) return { ok: false, diagnostics: accepted.evidence }
   const effective = resolveOwnSpecEffective(accepted.spec)
   if (!effective.ok) return { ok: false, diagnostics: effective.diagnostics }
@@ -112,6 +118,7 @@ function acceptedChain(
     value: {
       spec: { kind: 'accepted', effective: effective.value },
       acceptedSources: pinned.value,
+      acceptedSpec: accepted.spec,
       configuration: {
         version: mandate.value.payload.config.version,
         digest: mandate.value.payload.config.digest,
@@ -140,7 +147,7 @@ async function proposedSpec(
   source: ActionFactSource,
   current: ActionInputManifest['spec'],
 ): Promise<Result<ActionInputManifest['spec']>> {
-  if (ACCEPTED_PURPOSE[request.purpose]) return { ok: true, value: current }
+  if (ACCEPTED_PURPOSE[request.purpose] || request.purpose === 'assess-spec') return { ok: true, value: current }
   const uw = subject.uw
   const body = await source.gh(source.cwd, [
     'issue',
@@ -154,8 +161,6 @@ async function proposedSpec(
   const issue = JSON.parse(body) as { body?: string; updatedAt?: string }
   const parsed = parseIssueSpecBody({ uw, raw: rawSource(uw.target, issue.body ?? '', issue.updatedAt ?? null) })
   if (parsed.status === 'conformant') return { ok: true, value: { kind: 'proposed', uw, snapshot: parsed.snapshot } }
-  if (request.purpose === 'assess-spec')
-    return actionFailure('action-input-missing', 'Assessable proposed Spec is absent')
   const analysis = issueSpecAnalysisSchema.safeParse(parsed.analysis)
   if (!analysis.success) return actionFailure('action-input-missing', 'Unframed parser facts are not readable')
   return {
@@ -182,6 +187,7 @@ async function finishFacts(
   spec: ActionInputManifest['spec'],
   acceptedSources: RecordInputRef[],
   mandate: Result<import('../engine/workflow-control.ts').MandateRecord>,
+  operands: CurrentActionFacts['operands'],
   config: ActionInputManifest['configuration'],
   reviewedFingerprint?: string,
   observation?: EvidenceObservation,
@@ -200,15 +206,16 @@ async function finishFacts(
         (record) => authenticate(record, histories),
         expansion.value?.planner,
         spec,
+        reviewedFingerprint,
       )
-    : { ok: true as const, value: [] }
+    : { ok: true as const, value: { refs: [], plannedPaths: [] } }
   if (!delivery.ok) return delivery
-  const basis = await resolveEvidenceBasis(delivery.value, source, observation)
+  const basis = await resolveEvidenceBasis(delivery.value.refs, source, observation)
   if (!basis.ok) return basis
   const closed = assertCurrentOutputClosure(
     request,
     histories,
-    [...acceptedSources, ...delivery.value],
+    [...acceptedSources, ...delivery.value.refs],
     reviewedFingerprint,
     expansion.value?.root,
   )
@@ -219,7 +226,9 @@ async function finishFacts(
       spec,
       subject,
       acceptedSources,
-      deliveryData: delivery.value,
+      deliveryData: delivery.value.refs,
+      plannedPaths: delivery.value.plannedPaths,
+      ...(operands === undefined ? {} : { operands }),
       currentOutputs: currentRootOutputRefs(request, histories, reviewedFingerprint, expansion.value?.root),
       configuration: config,
       ...(expansion.value?.previous === undefined ? {} : { expansionPrevious: expansion.value.previous }),
@@ -246,18 +255,27 @@ export async function uwFacts(
   if (!read.ok) return read
   const bound = bindSubject(request, subject, read.value, observed)
   if (!bound.ok) return bound
-  const accepted = acceptedChain(request, read.value, bound.value.mandate, config)
+  const replay =
+    request.purpose === 'assess-spec' && reviewedFingerprint !== undefined
+      ? { actionId: request.actionId, fingerprint: reviewedFingerprint }
+      : undefined
+  const accepted = acceptedChain(request, read.value, bound.value.mandate, config, replay)
   if (!accepted.ok) return accepted
   const spec = await proposedSpec(request, subject, source, accepted.value.spec)
   if (!spec.ok) return spec
+  const operands = await observeActionOperands(request, source, read.value, accepted.value.acceptedSpec, replay)
+  if (!operands.ok) return operands
+  const sources = [...accepted.value.acceptedSources, ...operands.value.identitySources]
+  const uniqueSources = [...new Map(sources.map((ref) => [JSON.stringify([ref.record, ref.selector]), ref])).values()]
   return finishFacts(
     request,
     source,
     read.value,
     bound.value.subject,
     spec.value,
-    accepted.value.acceptedSources,
+    uniqueSources,
     bound.value.mandate,
+    operands.value.operands,
     accepted.value.configuration,
     reviewedFingerprint,
     observation ?? seedEvidenceObservation(read.value),

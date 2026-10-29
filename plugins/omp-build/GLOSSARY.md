@@ -161,11 +161,11 @@ The code that assembles action inputs, dispatches agents, submits their returned
 _Avoid_: a LLM, an agent with publication authority, a permission inferred from an agent's credentials
 
 **Instantané**:
-A read-only dossier of pinned inputs for one action, providing its UW data, references and an index of obligations and files. Its local byte integrity is distinct from the durable identity of the action's inputs.
-_Avoid_: a dev-core snapshot, a mutable cache, the durable review fingerprint
+A read-only dossier of pinned inputs for one action, providing its UW data, references and an index of obligations and files. It exposes the action's exact assessment or CI-attribution operands when applicable, and relevant pinned repository instructions and glossaries. Its local byte integrity is distinct from the durable identity of the action's inputs.
+_Avoid_: a dev-core snapshot, a mutable cache, an independent operand authority, the durable review fingerprint
 
 **Manifeste d'entrées**:
-The durable, portable identities and versions of the inputs actually supplied to an action, including its code, effective Spec, delivery data and pinned references. Its canonical digest identifies those inputs independently of the local Instantané and excludes the action's own outputs.
+The durable, portable identities and versions of the inputs actually supplied to an action, including its code, effective Spec, delivery data, pinned references and applicable exact assessment or CI-attribution operands. Its canonical digest identifies those inputs independently of the local Instantané and excludes the action's own outputs.
 _Avoid_: the local dossier's byte digest, a PR description, a list that silently omits supplied context
 
 **Contexte élargi**:

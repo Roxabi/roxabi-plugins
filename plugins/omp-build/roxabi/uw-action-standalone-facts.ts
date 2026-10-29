@@ -43,6 +43,7 @@ export async function standaloneFacts(
       subject: request.subject,
       acceptedSources: [],
       deliveryData: [],
+      plannedPaths: [],
       currentOutputs: currentRootOutputRefs(request, read.value, reviewedFingerprint, root),
       configuration: config,
       ...(expansion.value?.previous === undefined ? {} : { expansionPrevious: expansion.value.previous }),

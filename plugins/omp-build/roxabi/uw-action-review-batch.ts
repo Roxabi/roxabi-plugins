@@ -32,7 +32,7 @@ function capturedPorts(ports: UwActionPorts, facts: ReadonlyMap<string, CurrentA
   const pinnedFiles = ports.readPinnedFiles === undefined ? undefined : capture(ports.readPinnedFiles)
   const diff = capture(ports.readCodeDiff)
   const installed = capture(ports.plugin.readInstalledFile)
-  let references: ReturnType<UwActionPorts['repositoryReferences']> | undefined
+  const references = new Map<string, ReturnType<UwActionPorts['repositoryReferences']>>()
   return {
     ...ports,
     readCurrentActionFacts: async (request) => {
@@ -47,9 +47,14 @@ function capturedPorts(ports: UwActionPorts, facts: ReadonlyMap<string, CurrentA
     readPinnedFile: pinned,
     ...(pinnedFiles === undefined ? {} : { readPinnedFiles: pinnedFiles }),
     readCodeDiff: diff,
-    repositoryReferences: (request) => {
-      references ??= ports.repositoryReferences(request)
-      return references
+    repositoryReferences: (request, plannedPaths) => {
+      const key = canonicalValueDigest({ code: request.code, purpose: request.purpose, plannedPaths })
+      let value = references.get(key)
+      if (value === undefined) {
+        value = ports.repositoryReferences(request, plannedPaths)
+        references.set(key, value)
+      }
+      return value
     },
     plugin: {
       resolveInstalledPluginPin: () => (pin ??= ports.plugin.resolveInstalledPluginPin()),

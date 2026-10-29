@@ -17,8 +17,8 @@ import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
 import type { UwGraphObservation } from '../engine/uw-graph.ts'
 import { successionAntecedent } from './feature-succession.ts'
 import type { UwRead, UwReadPort } from './uw-contract.ts'
-import { readCurrentChildrenProjection } from './uw-current-facts.ts'
-import { bindHistoricalProjection, historicalProjection } from './uw-normalization-internal.ts'
+import { bindHistoricalProjection } from './uw-normalization-internal.ts'
+import { withTransitionAdmission } from './uw-read-transition.ts'
 
 type InstalledUwContracts = Pick<
   typeof import('../dist/contracts.js'),
@@ -39,6 +39,7 @@ export type InstalledUwReadOptions = {
   gh?: Gh
   /** Observed authenticated viewer identity, resolved by host composition and used for history attribution. */
   readAuthor?: string
+  assessmentReplay?: { uw: Scope; actionId: string; fingerprint: string }
 }
 
 export class UwGraphUnavailableError extends Error {
@@ -75,6 +76,7 @@ function coldAccepted(
   contracts: InstalledUwContracts,
   uw: Scope,
   histories: readonly DecodedHistory[],
+  assessmentReplay?: { actionId: string; fingerprint: string },
 ): AcceptedOwnSpecResult {
   const own = histories.find(
     (history) => history.source.scope.repository === uw.repository && history.source.scope.target === uw.target,
@@ -84,6 +86,8 @@ function coldAccepted(
   const resolved = contracts.resolveOwnSpecAuthority(
     own,
     histories.filter((history) => history !== own),
+    undefined,
+    assessmentReplay,
   )
   if (!resolved.ok) {
     const hasOwnMandateClaim = own.operations.some(
@@ -130,7 +134,13 @@ function bindEligibleHistoricalProjection(
 
 function assembleUwRead(
   contracts: InstalledUwContracts,
-  input: { uw: Scope; graph: UwGraphObservation; history: HistoryObservation; observedReader?: UwReadPort },
+  input: {
+    uw: Scope
+    graph: UwGraphObservation
+    history: HistoryObservation
+    observedReader?: UwReadPort
+    assessmentReplay?: InstalledUwReadOptions['assessmentReplay']
+  },
 ): UwRead {
   const { uw, graph, history } = input
   const root = graph.nodes.find((node) => node.uw.repository === uw.repository && node.uw.target === uw.target)
@@ -153,7 +163,11 @@ function assembleUwRead(
       admission: admissionUnavailable(diagnostics),
     }
   }
-  const accepted = coldAccepted(contracts, uw, history.histories)
+  const replay =
+    input.assessmentReplay?.uw.repository === uw.repository && input.assessmentReplay.uw.target === uw.target
+      ? input.assessmentReplay
+      : undefined
+  const accepted = coldAccepted(contracts, uw, history.histories, replay)
   const own = history.histories.find(
     (entry) => entry.source.scope.repository === uw.repository && entry.source.scope.target === uw.target,
   )
@@ -174,6 +188,7 @@ function assembleUwRead(
     history: own,
     histories: history.histories,
     accepted: accepted.status === 'accepted' ? accepted.value : null,
+    ...(replay === undefined ? {} : { assessmentReplay: replay }),
   })
   const result: UwRead = {
     uw,
@@ -195,30 +210,6 @@ function assembleUwRead(
       : admissionUnavailable(identity.diagnostics),
   }
   bindEligibleHistoricalProjection(contracts, result, own, history.histories)
-  return result
-}
-
-async function withTransitionAdmission(
-  contracts: InstalledUwContracts,
-  read: UwRead,
-  reader: UwReadPort,
-): Promise<UwRead> {
-  if (!read.identity.ok) return read
-  const currentChildren = await readCurrentChildrenProjection({ uw: read.uw, read, reader })
-  const result: UwRead = {
-    ...read,
-    admission: contracts.assessUwAdmission({
-      uw: read.uw,
-      graph: read.graph,
-      proposed: read.proposed,
-      accepted: read.accepted,
-      identities: read.identity.value,
-      phase: 'delivery-transition',
-      currentChildren,
-    }),
-  }
-  const historical = historicalProjection(read)
-  if (historical !== undefined) bindHistoricalProjection(result, historical.accepted, historical.historyDigest)
   return result
 }
 
@@ -247,7 +238,11 @@ export function createUwReadPort(contracts: InstalledUwContracts, options: Insta
           history: { ok: false, reason: composed.reason },
         })
       }
-      const reader = createObservedUwReadPort(contracts, { graph, histories: composed.histories })
+      const reader = createObservedUwReadPort(contracts, {
+        graph,
+        histories: composed.histories,
+        assessmentReplay: options.assessmentReplay,
+      })
       return withTransitionAdmission(contracts, await reader.readUw(uw), reader)
     },
   }
@@ -256,7 +251,12 @@ export function createUwReadPort(contracts: InstalledUwContracts, options: Insta
 /** Test seam for an already-observed graph and its composed histories. */
 export function createObservedUwReadPort(
   contracts: InstalledUwContracts,
-  input: { graph: UwGraphObservation; histories: readonly DecodedHistory[]; history?: HistoryObservation },
+  input: {
+    graph: UwGraphObservation
+    histories: readonly DecodedHistory[]
+    history?: HistoryObservation
+    assessmentReplay?: InstalledUwReadOptions['assessmentReplay']
+  },
 ): UwReadPort {
   let reader: UwReadPort
   reader = {
@@ -266,6 +266,7 @@ export function createObservedUwReadPort(
         graph: input.graph,
         history: input.history ?? { ok: true, histories: input.histories },
         observedReader: reader,
+        assessmentReplay: input.assessmentReplay,
       })
     },
   }

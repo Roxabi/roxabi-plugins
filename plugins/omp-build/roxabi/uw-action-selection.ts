@@ -5,6 +5,7 @@ import {
   type MandateRecord,
   mandateScope,
   planMacro,
+  planOutputSchema,
   recordOperation,
   recordsOf,
   successorOf,
@@ -159,21 +160,49 @@ function gatherHistoryReceipts(
   return { ok: true, value: true }
 }
 
-export function selectDeliveryData(
+function selectedPlanPaths(gathered: { refs: DeliveryDataRef[]; selected: CanonicalRecord[] }): Result<string[]> {
+  const planRef = gathered.refs.find((ref) => ref.role === 'plan')
+  const planRecord = gathered.selected.find(
+    (record) =>
+      planRef !== undefined &&
+      record.recordId === planRef.record.recordId &&
+      record.kind === planRef.record.kind &&
+      record.repository === planRef.record.scope.repository &&
+      record.target === planRef.record.scope.target,
+  )
+  const plannedPaths: string[] = []
+  if (planRef !== undefined) {
+    if (
+      planRecord?.kind !== 'action-receipt' ||
+      planRecord.payload.phase !== 'result' ||
+      planRecord.payload.action !== 'plan'
+    )
+      return actionFailure('record-unreadable', 'Selected plan is absent')
+    const plan = planOutputSchema.safeParse(planRecord.payload.structured)
+    if (!plan.success) return actionFailure('action-input-missing', 'Current plan result is not a plan')
+    plannedPaths.push(...new Set(plan.data.steps.flatMap((step) => step.paths)))
+  }
+  return { ok: true, value: plannedPaths }
+}
+
+function selectPlanActionId(
   request: UwActionRequest,
   mandate: MandateRecord,
   histories: readonly DecodedHistory[],
-  authenticate: (record: CanonicalRecord) => Result<CanonicalRecord>,
   expansion?: PlannerExpansion,
-  spec?: ActionSpecInput,
-): Result<DeliveryDataRef[]> {
+  reviewedFingerprint?: string,
+): Result<string | null> {
   const issue = historyFor(mandateScope(mandate), histories)
   if (issue === null) return actionFailure('record-unreadable', 'Mandate history is absent')
   const pullRequest = request.subject.kind === 'uw' ? request.subject.pullRequest : null
   const evidence = { issue, pullRequest: pullRequest === null ? null : historyFor(pullRequest, histories), parents: [] }
+  const replay =
+    request.purpose === 'assess-spec' && reviewedFingerprint !== undefined
+      ? { actionId: request.actionId, fingerprint: reviewedFingerprint }
+      : undefined
   const selected =
     expansion === undefined
-      ? { ok: true as const, value: planMacro(evidence, mandate) }
+      ? { ok: true as const, value: planMacro(evidence, mandate, { assessmentReplay: replay }) }
       : expandedPlannerMacro(evidence, mandate, expansion)
   if (!selected.ok) return selected
   const macro = selected.value
@@ -182,6 +211,21 @@ export function selectDeliveryData(
   if (NEEDS_PLAN[request.purpose] && (macro.phase !== 'eligible' || planActionId === null)) {
     return actionFailure('action-input-missing', 'No current eligible plan')
   }
+  return { ok: true, value: planActionId }
+}
+
+export function selectDeliveryData(
+  request: UwActionRequest,
+  mandate: MandateRecord,
+  histories: readonly DecodedHistory[],
+  authenticate: (record: CanonicalRecord) => Result<CanonicalRecord>,
+  expansion?: PlannerExpansion,
+  spec?: ActionSpecInput,
+  reviewedFingerprint?: string,
+): Result<{ refs: DeliveryDataRef[]; plannedPaths: readonly string[] }> {
+  const plan = selectPlanActionId(request, mandate, histories, expansion, reviewedFingerprint)
+  if (!plan.ok) return plan
+  const planActionId = plan.value
   const gathered = gatherReceipts(request, mandate, histories, authenticate, planActionId)
   if (!gathered.ok) return gathered
   const corrections = gatherCorrectionRefs(
@@ -195,5 +239,7 @@ export function selectDeliveryData(
   )
   if (!corrections.ok) return corrections
   if (cycle(gathered.value.selected)) return actionFailure('action-input-cycle', 'Delivery references cycle')
-  return { ok: true, value: gathered.value.refs }
+  const plannedPaths = selectedPlanPaths(gathered.value)
+  if (!plannedPaths.ok) return plannedPaths
+  return { ok: true, value: { refs: gathered.value.refs, plannedPaths: plannedPaths.value } }
 }

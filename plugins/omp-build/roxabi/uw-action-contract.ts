@@ -9,6 +9,7 @@ import type {
 } from '../engine/action-input-schema.ts'
 import type { Json } from '../engine/record-values.ts'
 import type { Result } from '../engine/result.ts'
+import type { ActionOperands } from '../engine/workflow-action-operands.ts'
 import type { PreparedReviewChunk } from './review-input-contract.ts'
 
 export type {
@@ -52,6 +53,7 @@ export type UwActionRequest = {
   code: ActionInputManifest['code']
   stageSources: readonly RecordInputRef[]
   expandedContext: readonly (RecordInputRef | PinnedFileRef)[]
+  operands?: ActionOperands
 }
 
 /** Host-only local view. Excluded from the canonical manifest hash; included in the seal. */
@@ -71,6 +73,9 @@ export type CurrentActionFacts = {
   subject: ActionSubject
   acceptedSources: RecordInputRef[]
   deliveryData: DeliveryDataRef[]
+  /** Host-only discovery seeds derived from the selected authenticated plan. */
+  plannedPaths: readonly string[]
+  operands?: ActionOperands
   currentOutputs: RecordInputRef[]
   configuration: ActionInputManifest['configuration']
   /** Authenticated prior action for explicit fresh planner expansion. */
@@ -90,7 +95,7 @@ export type UwInputReadPorts = {
   readPinnedFile(ref: PinnedFileRef): Promise<Result<Uint8Array>>
   readPinnedFiles?(refs: readonly PinnedFileRef[]): Promise<Result<readonly Uint8Array[]>>
   readCodeDiff(code: { repository: string; base: string; head: string }): Promise<Result<Uint8Array>>
-  repositoryReferences(request: UwActionRequest): Promise<Result<PinnedFileRef[]>>
+  repositoryReferences(request: UwActionRequest, plannedPaths: readonly string[]): Promise<Result<PinnedFileRef[]>>
   plugin: PluginPinPort
 }
 

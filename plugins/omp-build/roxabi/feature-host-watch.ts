@@ -14,6 +14,7 @@ export async function startInstalledFeatureWatch(
     return
   }
   const controller = startOwnedFeatureWatch(host.key)
+  controller.signal.addEventListener('abort', () => host.status(undefined), { once: true })
   rememberFeatureOwner(host.key, { reference, cwd: host.cwd, pausable: true })
   settleInstalledWatch(
     reference,
@@ -25,7 +26,7 @@ export async function startInstalledFeatureWatch(
     deliver,
   )
   // Idle Esc/RPC while only this host watch runs is not a workflow pause (D2-B).
-  await host.send(
+  host.status(
     'ci-watch: running. Idle Esc/RPC does not pause or disarm this watch — use /feature pause or /feature abandon; session switch/shutdown still pause.',
   )
 }
@@ -41,8 +42,8 @@ function settleInstalledWatch(
 ): void {
   void pending.then(
     async (result) => {
-      settleOwnedFeatureWatch(host.key, controller)
-      if (controller.signal.aborted) return
+      if (!settleOwnedFeatureWatch(host.key, controller)) return
+      host.status(undefined)
       if (result.killed || result.code < 0) {
         await host.send('feature-stopped: watch-exit-unobserved')
         return
@@ -59,8 +60,8 @@ function settleInstalledWatch(
       }
     },
     async (error: unknown) => {
-      settleOwnedFeatureWatch(host.key, controller)
-      if (controller.signal.aborted) return
+      if (!settleOwnedFeatureWatch(host.key, controller)) return
+      host.status(undefined)
       await host.send(`feature-stopped: ${error instanceof Error ? error.message : String(error)}`)
     },
   )

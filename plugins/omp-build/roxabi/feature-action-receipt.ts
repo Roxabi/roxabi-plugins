@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { mechanicalSpecDelta } from '../dist/contracts.js'
-import type { FailedCheckFailure } from '../engine/record-digests.ts'
+import { canonicalActionOperands } from '../engine/action-input.ts'
 import type { Scope } from '../engine/record-values.ts'
-import type { AssessSpecExact } from '../engine/workflow-receipt-schema.ts'
+import type { CiExact } from '../engine/workflow-action-operands.ts'
+import type { ActionReceiptPayload, AssessSpecExact } from '../engine/workflow-receipt-schema.ts'
 import {
   actionRequest,
   blocks,
@@ -58,6 +59,25 @@ export function receiptStartContext(input: ModelReceiptActionInput): ReceiptStar
   }
 }
 
+function receiptOperandsMatch(input: Parameters<typeof sealReceipt>[0]): boolean {
+  const operands = input.prepared.inputs.manifest.operands
+  if (input.action === 'assess-spec') {
+    return (
+      operands?.action === input.action &&
+      canonicalActionOperands(operands) ===
+        canonicalActionOperands({ action: input.action, exactInputs: input.exactInputs })
+    )
+  }
+  if (input.action === 'attribute-ci') {
+    return (
+      operands?.action === input.action &&
+      canonicalActionOperands(operands) ===
+        canonicalActionOperands({ action: input.action, exactInputs: input.exactInputs })
+    )
+  }
+  return true
+}
+
 export async function sealReceipt(
   input: {
     loaded: Contracts
@@ -71,19 +91,12 @@ export async function sealReceipt(
     prepared: PreparedUwAction
   } & (
     | { action: 'assess-spec'; exactInputs: AssessSpecExact }
-    | {
-        action: 'attribute-ci'
-        exactInputs: {
-          candidateGitSHA: string
-          scope: Scope
-          failedChecks: string[]
-          evidenceDigest: string
-          failures: FailedCheckFailure[]
-        }
-      }
+    | { action: 'attribute-ci'; exactInputs: CiExact }
     | { action: 'implement'; exactInputs: { mandateId: string; planActionId: string } }
   ),
 ): Promise<ContinueFeatureResult> {
+  const operands = input.prepared.inputs.manifest.operands
+  if (!receiptOperandsMatch(input)) return blocks('action-input-changed')
   const startId = randomUUID()
   const base = {
     format: 'omp-build-action-receipt/2' as const,
@@ -92,12 +105,16 @@ export async function sealReceipt(
     mandate: input.mandate,
     inputs: input.prepared.inputs,
   }
-  const payload =
-    input.action === 'assess-spec'
-      ? { ...base, action: input.action, exactInputs: input.exactInputs }
-      : input.action === 'attribute-ci'
-        ? { ...base, action: input.action, exactInputs: input.exactInputs }
-        : { ...base, action: input.action, exactInputs: input.exactInputs }
+  let payload: Extract<ActionReceiptPayload, { phase: 'start' }>
+  if (input.action === 'implement') {
+    payload = { ...base, action: input.action, exactInputs: input.exactInputs }
+  } else if (input.action === 'assess-spec' && operands?.action === 'assess-spec') {
+    payload = { ...base, action: input.action, exactInputs: operands.exactInputs }
+  } else if (input.action === 'attribute-ci' && operands?.action === 'attribute-ci') {
+    payload = { ...base, action: input.action, exactInputs: operands.exactInputs }
+  } else {
+    return blocks('action-input-changed')
+  }
   const started = await publishRecord(
     input.loaded,
     input.history,
@@ -147,6 +164,7 @@ async function publishAssessmentReceipt(
       purpose: 'assess-spec',
       subject: uwSubject(context.mandateScope, input.target.status === 'pull-request' ? input.target.scope : null),
       code: code.code,
+      operands: { action: 'assess-spec', exactInputs },
     }),
   )
   if (!prepared.ok) return blocks(prepareRefusal(prepared.diagnostics), prepared.diagnostics)
@@ -253,6 +271,7 @@ export async function startCiAttributionReceipt(
       purpose: 'attribute-ci',
       subject: uwSubject(context.mandateScope, input.scope),
       code: pinned.code,
+      operands: { action: 'attribute-ci', exactInputs },
     }),
   )
   if (!prepared.ok) return blocks(prepareRefusal(prepared.diagnostics), prepared.diagnostics)

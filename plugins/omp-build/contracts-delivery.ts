@@ -12,12 +12,19 @@ export {
 export {
   actionInputDigest,
   canonicalActionInput,
+  canonicalActionOperands,
   canonicalValueDigest,
   citesCurrentRootOutput,
   recordScopeIdentity,
   selectorAdmitted,
   validateActionInputs,
 } from './engine/action-input.ts'
+export {
+  type PinnedFileRef,
+  pinnedFileRefSchema,
+  type RecordInputRef,
+  recordInputRefSchema,
+} from './engine/action-input-refs.ts'
 export {
   ACTION_BINDING_FORMAT,
   ACTION_INPUT_FORMAT,
@@ -33,10 +40,6 @@ export {
   actionSubjectSchema,
   type DeliveryDataRef,
   deliveryDataRefSchema,
-  type PinnedFileRef,
-  pinnedFileRefSchema,
-  type RecordInputRef,
-  recordInputRefSchema,
 } from './engine/action-input-schema.ts'
 export { resolveAdmittedCorrectionCriterionSource } from './engine/correction-criterion-source.ts'
 export { resolveCorrectionRequestBasis } from './engine/correction-request-basis.ts'
@@ -124,6 +127,7 @@ export {
   specEffectiveSchema,
 } from './engine/spec-effective.ts'
 export { actionEnvelopeSchema, actionRequestSchema } from './engine/uw-action-command-schema.ts'
+export { type ActionOperands, actionOperandsSchema, type CiExact } from './engine/workflow-action-operands.ts'
 export {
   workflowContextDirectSuccessor,
   workflowContextResolution,

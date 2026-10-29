@@ -40,7 +40,7 @@ function isAmendmentPlanMacro(macro: PlanMacro): macro is AmendmentPlanMacro {
   return macro.phase === 'needs-amendment' && macro.draftActionId !== null && macro.reviewActionId !== null
 }
 
-function stageRef(
+function reviewRef(
   record: { repository: string; target: string; recordId: string },
   selector: string,
   value: unknown,
@@ -76,12 +76,11 @@ async function startPlanAmendment(
   if (draft?.payload.structured == null) return { kind: 'blocked', reason: 'plan-draft-unreadable' }
   const review = actionReceiptResult(history, 'plan-review', macro.reviewActionId)
   if (review === null) return { kind: 'blocked', reason: 'plan-review-unbound' }
-  const stageSources = [
-    stageRef(draft, '/payload/structured', draft.payload.structured),
-    stageRef(review, '/payload/slots', review.payload.slots),
-    stageRef(review, '/payload/contributions', review.payload.contributions),
+  const reviewRefs = [
+    reviewRef(review, '/payload/slots', review.payload.slots),
+    reviewRef(review, '/payload/contributions', review.payload.contributions),
   ].filter((ref): ref is RecordInputRef => ref !== null)
-  if (stageSources.length !== 3) return blocks('prepare-action-unavailable')
+  if (reviewRefs.length !== 2) return blocks('prepare-action-unavailable')
   const operationId = randomUUID()
   const startId = randomUUID()
   const code = await observeHeadCode(git, cwd, scope.repository)
@@ -93,7 +92,8 @@ async function startPlanAmendment(
       purpose: 'plan',
       subject: uwSubject(scope, null),
       code: code.code,
-      stageSources,
+      stageSources: [],
+      expandedContext: reviewRefs,
     }),
   )
   if (!prepared.ok) return blocks(prepareRefusal(prepared.diagnostics), prepared.diagnostics)

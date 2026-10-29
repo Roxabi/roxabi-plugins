@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import {
   actionInputDigest,
   canonicalActionInput,
@@ -12,21 +13,13 @@ import {
   type RecordInputRef,
 } from '../action-input-schema.ts'
 import type { UnframedParser } from '../issue-spec-analysis-schema.ts'
-import type { Spec, SpecRawSource } from '../uw-spec-schema.ts'
+import type { SpecRawSource } from '../uw-spec-schema.ts'
+import { assessFixture, mandateAssessmentState, proposedAssessmentState } from './workflow-spec-assessment-support.ts'
+import { SCOPE } from './workflow-test-support.ts'
 
 const SHA = 'a'.repeat(64)
 const GIT = 'b'.repeat(40)
 const UW = { repository: 'acme/app', target: 'acme/app#42' }
-
-const spec: Spec = {
-  format: 'omp-build-spec-content/1',
-  version: SHA,
-  criteria: [{ id: 'C1', statement: 'persist the region' }],
-  invariants: [],
-  exclusions: [],
-  openQuestions: [],
-  sections: { origin: 'origin', context: 'context', change: 'change' },
-}
 
 const parser: UnframedParser = {
   status: 'malformed',
@@ -85,8 +78,36 @@ function bound(manifestValue: ActionInputManifest, stageSources: RecordInputRef[
 
 describe('action input fingerprint', () => {
   test('ignores observed edit time and keeps source body and parser order', () => {
-    const proposed = (lastEditedAt: string | null) =>
-      manifest({ kind: 'proposed', uw: UW, snapshot: { spec, raw: source(lastEditedAt) } }, 'assess-spec')
+    const mandate = roxabiWorkflowFixtures().featureMandate(SCOPE, {
+      recordId: 'digest-mandate',
+      runId: 'run-1',
+      operationId: 'op-digest-mandate',
+      branch: 'feature/digest',
+      base: 'main',
+      lineageHead: null,
+      body: 'ship the bounded workflow',
+    })
+    const accepted = mandateAssessmentState(mandate)
+    const assessment = assessFixture(
+      mandate,
+      'digest-assessment',
+      accepted,
+      proposedAssessmentState(accepted, { body: 'new proposal' }),
+      'material',
+    )
+    if (assessment.start.kind !== 'action-receipt' || assessment.start.payload.action !== 'assess-spec')
+      throw new Error('expected assessment start')
+    const assessmentManifest = assessment.start.payload.inputs.manifest
+    const proposed = (lastEditedAt: string | null) => {
+      return {
+        ...assessmentManifest,
+        spec: {
+          kind: 'proposed' as const,
+          uw: SCOPE,
+          snapshot: { ...assessment.proposed.snapshot, raw: { ...assessment.proposed.snapshot.raw, lastEditedAt } },
+        },
+      }
+    }
     const unframed = (lastEditedAt: string | null, sources = parser.analysis.criterionSources) =>
       manifest(
         {

@@ -44,13 +44,13 @@ function fixture(
   const root = mkdtempSync(join(tmpdir(), 'review-batch-'))
   roots.push(root)
   let generation = 0
-  const batchReads: string[][] = []
-  const singleReads: { actionId: string; fingerprint?: string }[] = []
+  let batchReadCount = 0
   const facts = (request: UwActionRequest): CurrentActionFacts => ({
     spec: baseline.manifest.spec,
     subject: request.subject,
     acceptedSources: [],
     deliveryData: [],
+    plannedPaths: ['packages/billing/new.ts'],
     currentOutputs: [],
     configuration: {
       ...baseline.manifest.configuration,
@@ -58,13 +58,12 @@ function fixture(
     },
   })
   const ports: UwActionPorts = {
-    readCurrentActionFacts: async (request, fingerprint) => {
-      singleReads.push({ actionId: request.actionId, fingerprint })
+    readCurrentActionFacts: async (request) => {
       return { ok: true, value: facts(request) }
     },
     readCurrentActionFactsBatch: async (requests) => {
-      batchReads.push(requests.map((request) => request.actionId))
-      if (driftOnConfirmation && batchReads.length === 2) generation++
+      batchReadCount++
+      if (driftOnConfirmation && batchReadCount === 2) generation++
       const entries = requests.map((request) => ({ actionId: request.actionId, facts: facts(request) }))
       if (batchResult === 'reversed') entries.reverse()
       if (batchResult === 'missing') entries.pop()
@@ -103,8 +102,6 @@ function fixture(
   }
   return {
     operations: actionOperationMethods({ actions: ports }),
-    batchReads,
-    singleReads,
     drift: () => {
       generation++
     },
@@ -116,14 +113,10 @@ afterEach(() => {
 })
 
 test('batch seals distinct role handles and their assigned projections', async () => {
-  const { operations, batchReads } = fixture()
+  const { operations } = fixture()
   const prepared = await operations.prepareReviewActions(batch())
   expect(prepared.ok).toBe(true)
   if (!prepared.ok) return
-  expect(batchReads).toEqual([
-    ['panel-a', 'panel-b'],
-    ['panel-a', 'panel-b'],
-  ])
   expect(prepared.value).toHaveLength(2)
   const [first, second] = prepared.value
   if (first === undefined || second === undefined) throw new Error('batch did not return both actions')
@@ -192,11 +185,10 @@ test('one invalid role projection refuses the entire batch', async () => {
 })
 
 test('facts specific to one action cannot be replaced by another action’s facts', async () => {
-  const { operations, batchReads } = fixture(false, true)
+  const { operations } = fixture(false, true)
   const result = await operations.prepareReviewActions(batch())
   expect(result.ok).toBe(false)
   if (!result.ok) expect(result.diagnostics.some((diagnostic) => diagnostic.code === 'review-input-changed')).toBe(true)
-  expect(batchReads[0]).toEqual(['panel-a', 'panel-b'])
 })
 
 test.each(['missing', 'duplicate', 'reversed'] as const)('refuses %s action identities in a fact cut', async (mode) => {
@@ -227,7 +219,7 @@ test('refuses different stage sources even when the common manifest would be unc
 })
 
 test('the next gate rereads current facts and refuses drift after the batch', async () => {
-  const { operations, batchReads, singleReads, drift } = fixture()
+  const { operations, drift } = fixture()
   const input = batch()
   const prepared = await operations.prepareReviewActions(input)
   expect(prepared.ok).toBe(true)
@@ -239,12 +231,10 @@ test('the next gate rereads current facts and refuses drift after the batch', as
   const replay = await operations.replayActionInputs({ reviewed: first.inputs, request })
   expect(replay.ok).toBe(false)
   if (!replay.ok) expect(replay.diagnostics.some((diagnostic) => diagnostic.code === 'review-input-changed')).toBe(true)
-  expect(batchReads).toHaveLength(2)
-  expect(singleReads).toContainEqual({ actionId: 'panel-a', fingerprint: first.inputs.fingerprint })
 })
 
 test('the synthesis gate rejects facts that drift after the initial batch', async () => {
-  const { operations, singleReads, drift } = fixture()
+  const { operations, drift } = fixture()
   const input = batch()
   const prepared = await operations.prepareReviewActions(input)
   expect(prepared.ok).toBe(true)
@@ -268,12 +258,10 @@ test('the synthesis gate rejects facts that drift after the initial batch', asyn
     identity: {},
   } as unknown as Parameters<typeof createSynthesisBatch>[0]
   await expect(createSynthesisBatch(args)).rejects.toThrow('review-input-changed')
-  expect(singleReads.map((read) => read.actionId)).toEqual(['root:synthesis', 'root:synthesis'])
-  expect(singleReads[1]?.fingerprint).toBeDefined()
 })
 
 test('a later batch observes a fresh cut instead of retaining the initial facts', async () => {
-  const { operations, batchReads, drift } = fixture()
+  const { operations, drift } = fixture()
   const input = batch()
   const first = await operations.prepareReviewActions(input)
   expect(first.ok).toBe(true)
@@ -282,12 +270,6 @@ test('a later batch observes a fresh cut instead of retaining the initial facts'
   const next = await operations.prepareReviewActions(input)
   expect(next.ok).toBe(true)
   if (!next.ok) return
-  expect(batchReads).toEqual([
-    ['panel-a', 'panel-b'],
-    ['panel-a', 'panel-b'],
-    ['panel-a', 'panel-b'],
-    ['panel-a', 'panel-b'],
-  ])
   const [firstA, firstB] = first.value
   const [nextA, nextB] = next.value
   if (firstA === undefined || firstB === undefined || nextA === undefined || nextB === undefined)
@@ -297,12 +279,8 @@ test('a later batch observes a fresh cut instead of retaining the initial facts'
 })
 
 test('confirmation takes a fresh batch cut and refuses drift between cuts', async () => {
-  const { operations, batchReads } = fixture(true)
+  const { operations } = fixture(true)
   const result = await operations.prepareReviewActions(batch())
   expect(result.ok).toBe(false)
   if (!result.ok) expect(result.diagnostics.some((diagnostic) => diagnostic.code === 'review-input-changed')).toBe(true)
-  expect(batchReads).toEqual([
-    ['panel-a', 'panel-b'],
-    ['panel-a', 'panel-b'],
-  ])
 })

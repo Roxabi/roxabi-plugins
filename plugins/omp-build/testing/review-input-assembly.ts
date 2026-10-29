@@ -28,7 +28,7 @@ export async function assembleActionInputs(request: UwActionRequest, ports: UwAc
   if (!pin.ok) throw new Error(refused(pin.diagnostics))
   const facts = await ports.readCurrentActionFacts(request)
   if (!facts.ok) throw new Error(refused(facts.diagnostics))
-  const references = await ports.repositoryReferences(request)
+  const references = await ports.repositoryReferences(request, facts.value.plannedPaths)
   if (!references.ok) throw new Error(refused(references.diagnostics))
   const pluginFiles = []
   for (const path of [...REQUIRED_PLUGIN, ...suppliedProcedurePaths(request.purpose)]) {

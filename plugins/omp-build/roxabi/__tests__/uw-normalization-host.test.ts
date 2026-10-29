@@ -138,6 +138,7 @@ function fixture(control: 'select' | 'new' = 'select', eligible = false) {
     send: async (text: string) => {
       sent.push(text)
     },
+    status: async () => undefined,
     inhibitFeatureContinuation: () => {
       inhibited = true
     },

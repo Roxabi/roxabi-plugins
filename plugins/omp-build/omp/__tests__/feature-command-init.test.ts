@@ -77,6 +77,7 @@ describe('feature init route', () => {
       send: async (text: string) => {
         sent.push(text)
       },
+      status: async () => undefined,
       inhibitFeatureContinuation: () => undefined,
       releaseFeatureContinuation: () => undefined,
       featureContinuationInhibited: () => false,
@@ -143,6 +144,7 @@ describe('feature init route', () => {
       send: async (text: string) => {
         sent.push(text)
       },
+      status: async () => undefined,
       inhibitFeatureContinuation: () => undefined,
       releaseFeatureContinuation: () => undefined,
       featureContinuationInhibited: () => false,

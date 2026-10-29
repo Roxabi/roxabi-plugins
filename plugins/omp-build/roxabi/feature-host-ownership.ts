@@ -34,6 +34,8 @@ export function abortOwnedFeatureWatch(key: object): void {
   controller.abort()
 }
 
-export function settleOwnedFeatureWatch(key: object, controller: AbortController): void {
-  if (ownedWatches.get(key) === controller) ownedWatches.delete(key)
+export function settleOwnedFeatureWatch(key: object, controller: AbortController): boolean {
+  if (ownedWatches.get(key) !== controller) return false
+  ownedWatches.delete(key)
+  return true
 }

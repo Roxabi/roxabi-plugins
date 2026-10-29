@@ -129,6 +129,7 @@ it.each([
         },
       },
       send: async () => undefined,
+      status: async () => undefined,
       inhibitFeatureContinuation: () => controller.inhibitFeatureContinuation(),
       releaseFeatureContinuation: () => controller.releaseFeatureContinuation(),
       featureContinuationInhibited: () => controller.featureContinuationInhibited(),

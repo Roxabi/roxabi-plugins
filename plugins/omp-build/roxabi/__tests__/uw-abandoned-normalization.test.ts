@@ -68,6 +68,7 @@ async function normalizeExplicitSuccessor(
         announce: async () => undefined,
       },
       send: async () => undefined,
+      status: async () => undefined,
     } as unknown as FeatureCommandHost
     await announceUwNormalization({
       reference: uw.target,

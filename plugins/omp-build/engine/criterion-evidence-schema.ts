@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { pinnedFileRefSchema, recordInputRefSchema } from './action-input-schema.ts'
+import { pinnedFileRefSchema, recordInputRefSchema } from './action-input-refs.ts'
 import { criterionTargetSchema } from './finding-target-schema.ts'
 import { externalRecordRefSchema, gitObjectIdSchema } from './record-references.ts'
 import { identifierSchema, sha256Schema } from './schema-primitives.ts'

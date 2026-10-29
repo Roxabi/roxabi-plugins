@@ -66,6 +66,7 @@ export function actionRequest(input: {
   code: DeliveryCode
   stageSources?: readonly RecordInputRef[]
   expandedContext?: readonly (RecordInputRef | PinnedFileRef)[]
+  operands?: UwActionRequest['operands']
 }): UwActionRequest {
   return {
     actionId: input.actionId,
@@ -73,6 +74,7 @@ export function actionRequest(input: {
     subject: input.subject,
     code: input.code,
     stageSources: input.stageSources ?? [],
+    ...(input.operands === undefined ? {} : { operands: input.operands }),
     expandedContext: input.expandedContext ?? [],
   }
 }

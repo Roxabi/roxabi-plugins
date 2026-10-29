@@ -4,6 +4,8 @@ import { citedOperationIntegrity, nativeResultValid } from './delivery-eligibili
 import type { DecodedHistory } from './history-schema.ts'
 import { producerOutputValid } from './producer-schema.ts'
 import { equalScope } from './record-diagnostics.ts'
+import { succeeds } from './workflow-context-lineage.ts'
+import { authenticatedContextReplayStart, hasUnpairedStart } from './workflow-context-replay.ts'
 import { reviewContextPairValid } from './workflow-context-review.ts'
 import { type ReceiptRecord, recordsOf } from './workflow-control.ts'
 import { implementationOutputSchema } from './workflow-output-schema.ts'
@@ -78,82 +80,45 @@ function matchingReceipts(
   )
 }
 
-function succeeds(history: DecodedHistory, old: ReceiptRecord, candidate: ReceiptRecord): boolean {
-  if (
-    old.payload.phase !== 'result' ||
-    candidate.payload.phase !== 'result' ||
-    old.payload.action !== candidate.payload.action ||
-    old.payload.actionId === candidate.payload.actionId
-  )
-    return false
-  let oldInputs = old.payload.inputs
-  let newInputs = candidate.payload.inputs
-  if (old.payload.action === 'plan-review' && candidate.payload.action === 'plan-review') {
-    const contribution = old.payload.contributions.find(
-      (item) => producerOutputValid('plan-review', item.structured) && missingContextOf(item.structured) !== null,
-    )
-    const oldSlot = old.payload.slots.find((slot) => slot.slotId === contribution?.host.slotId)
-    const newSlot = candidate.payload.slots.find(
-      (slot) => slot.slotId === oldSlot?.slotId && slot.specialist === oldSlot?.specialist,
-    )
-    if (oldSlot?.action == null || newSlot?.action == null || oldSlot.action.actionId === newSlot.action.actionId)
-      return false
-    oldInputs = oldSlot.action.inputs
-    newInputs = newSlot.action.inputs
-  }
-  if (oldInputs.fingerprint === newInputs.fingerprint || !validateActionInputs(newInputs).ok) return false
-  if (
-    canonicalValueDigest(old.payload.exactInputs) !== canonicalValueDigest(candidate.payload.exactInputs) ||
-    canonicalValueDigest(old.payload.mandate) !== canonicalValueDigest(candidate.payload.mandate)
-  )
-    return false
-  const previous = oldInputs.manifest
-  const next = newInputs.manifest
-  const { expandedContext: oldRefs, ...oldAuthority } = previous
-  const { expandedContext: newRefs, ...newAuthority } = next
-  if (
-    canonicalValueDigest(oldAuthority) !== canonicalValueDigest(newAuthority) ||
-    canonicalValueDigest(oldInputs.stageSources) !== canonicalValueDigest(newInputs.stageSources)
-  )
-    return false
-  if (!oldRefs.every((ref) => newRefs.some((nextRef) => canonicalValueDigest(ref) === canonicalValueDigest(nextRef))))
-    return false
-  const lineage = newRefs.filter(
-    (ref) =>
-      ref.source === 'record' &&
-      ref.selector === '/payload' &&
-      ref.record.kind === 'action-receipt' &&
-      ref.record.recordId === old.recordId &&
-      equalScope(ref.record.scope, history.source.scope) &&
-      ref.digest === canonicalValueDigest(old.payload),
-  )
-  if (lineage.length !== 1) return false
-  const priorRefs = [
-    ...oldRefs,
-    ...previous.acceptedSources,
-    ...previous.deliveryData.map(({ role: _role, ...ref }) => ref),
-    ...previous.repositoryReferences,
-    ...oldInputs.stageSources,
-  ]
-  return newRefs.some(
-    (ref) =>
-      canonicalValueDigest(ref) !== canonicalValueDigest(lineage[0]) &&
-      !priorRefs.some((oldRef) => canonicalValueDigest(oldRef) === canonicalValueDigest(ref)),
-  )
-}
-
 /** Negative results terminalize their start, but only a unique, explicitly linked result supersedes them. */
 export function workflowContextTerminal(
   history: DecodedHistory,
   action: string,
   contextLeaf?: ReceiptRecord,
 ): 'clear' | 'missing' | 'uncertain' | 'ambiguous' {
+  return contextTerminal(history, action, contextLeaf)
+}
+
+/** Observes a pending assessment only for replay; it does not terminalize the negative. */
+export function observeAssessmentContextReplay(
+  history: DecodedHistory,
+  replayStart: ReceiptRecord,
+): 'observed' | 'missing' | 'uncertain' | 'ambiguous' {
+  if (!authenticatedContextReplayStart(history, replayStart)) return 'uncertain'
+  const result = contextTerminal(history, 'assess-spec', undefined, replayStart)
+  return result === 'clear' ? 'observed' : result
+}
+
+function contextTerminal(
+  history: DecodedHistory,
+  action: string,
+  contextLeaf?: ReceiptRecord,
+  replayStart?: ReceiptRecord,
+): 'clear' | 'missing' | 'uncertain' | 'ambiguous' {
   const receipts = recordsOf(history).filter(
     (record): record is ReceiptRecord => record.kind === 'action-receipt' && record.payload.action === action,
   )
+  if (
+    replayStart !== undefined &&
+    (action !== 'assess-spec' ||
+      replayStart.payload.action !== 'assess-spec' ||
+      replayStart.payload.phase !== 'start' ||
+      !receipts.includes(replayStart))
+  )
+    return 'uncertain'
   const negatives = receipts.filter(workflowContextNegative)
   for (const item of negatives) {
-    const resolution = resolveContextNegative(history, item, receipts, new Set())
+    const resolution = resolveContextNegative(history, item, receipts, new Set(), replayStart)
     if (resolution === 'missing' && contextLeaf !== undefined) {
       const chain = workflowContextChain(history, item)
       if (
@@ -228,28 +193,20 @@ function resolveContextNegative(
   negative: ReceiptRecord,
   receipts: readonly ReceiptRecord[],
   seen: Set<string>,
+  replayStart?: ReceiptRecord,
 ): ContextResolution {
   if (!workflowContextNegative(negative) || seen.has(negative.recordId) || !paired(history, negative, receipts))
     return 'uncertain'
   seen.add(negative.recordId)
   const successors = receipts.filter((candidate) => succeeds(history, negative, candidate))
-  if (successors.length > 1) return 'ambiguous'
-  if (hasUnpairedStart(receipts)) return 'uncertain'
+  const pendingSuccessor = replayStart !== undefined && succeeds(history, negative, replayStart, true)
+  if (successors.length > 1 || (successors.length > 0 && pendingSuccessor)) return 'ambiguous'
+  if (hasUnpairedStart(receipts, replayStart)) return 'uncertain'
   const successor = successors[0]
-  if (successor === undefined) return 'missing'
+  if (successor === undefined) return pendingSuccessor ? 'clear' : 'missing'
   if (!paired(history, successor, receipts)) return 'uncertain'
-  if (workflowContextNegative(successor)) return resolveContextNegative(history, successor, receipts, seen)
+  if (workflowContextNegative(successor)) return resolveContextNegative(history, successor, receipts, seen, replayStart)
   return validPositiveSuccessor(successor) ? 'clear' : 'uncertain'
-}
-
-function hasUnpairedStart(receipts: readonly ReceiptRecord[]): boolean {
-  return receipts.some(
-    (record) =>
-      record.payload.phase === 'start' &&
-      !receipts.some(
-        (result) => result.payload.phase === 'result' && result.payload.actionId === record.payload.actionId,
-      ),
-  )
 }
 
 function validPositiveSuccessor(successor: ReceiptRecord): boolean {

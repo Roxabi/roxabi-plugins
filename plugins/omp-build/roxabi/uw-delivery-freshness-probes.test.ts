@@ -120,6 +120,7 @@ it('refuses an unreadable or changed expanded source after a readable fingerprin
         subject: input.subject,
         acceptedSources: [],
         deliveryData: [],
+        plannedPaths: [],
         currentOutputs: [],
         configuration: baseline.manifest.configuration,
       },

@@ -121,6 +121,7 @@ function createFeatureCommandHost(
     workflow,
     native: createNativeReviewPort(pi, controller),
     send: async (message) => reportFeatureTerminalStatus(pi, message),
+    status: (message) => ctx.ui?.setStatus?.('omp-build-watch', message),
     inhibitFeatureContinuation: () => controller.inhibitFeatureContinuation(),
     releaseFeatureContinuation: () => controller.releaseFeatureContinuation(),
     featureContinuationInhibited: () => controller.featureContinuationInhibited(),

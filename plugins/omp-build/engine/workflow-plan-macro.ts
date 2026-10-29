@@ -14,6 +14,7 @@ import { type MandateRecord, mandateScope, type ReceiptRecord, recordsOf } from 
 import { type PlanBlockerRef, planDigest, planOutputSchema, planReviewSchema } from './workflow-output-schema.ts'
 import type { PlanMacro, PlanMacroPhase, WorkflowEvidence } from './workflow-plan.ts'
 import { PLAN_REVIEW_SPECIALISTS } from './workflow-receipt-schema.ts'
+import type { AssessmentReplayContext } from './workflow-spec-authentication.ts'
 
 type EmptyMacro = (phase: PlanMacroPhase, evidence: Diagnostic[], extra?: Partial<PlanMacro>) => PlanMacro
 type PlanResultReceipt = ReceiptRecord & {
@@ -32,15 +33,15 @@ type ReviewContext = {
 export function planMacro(
   evidence: WorkflowEvidence,
   mandate: MandateRecord | null,
-  options?: { contextLeaf: ReceiptRecord },
+  options?: { contextLeaf?: ReceiptRecord; assessmentReplay?: AssessmentReplayContext },
 ): PlanMacro {
   const empty = emptyMacro(mandate, null)
   if (mandate === null) return empty('blocked', [diagnostic('mandate-absent', 'plan macro has no mandate')])
-  const accepted = resolveAcceptedSpec(mandate, [
-    evidence.issue,
-    ...(evidence.pullRequest === null ? [] : [evidence.pullRequest]),
-    ...evidence.parents,
-  ])
+  const accepted = resolveAcceptedSpec(
+    mandate,
+    [evidence.issue, ...(evidence.pullRequest === null ? [] : [evidence.pullRequest]), ...evidence.parents],
+    options?.assessmentReplay,
+  )
   if (!accepted.ok) return empty('blocked', accepted.evidence)
   const effective = resolveOwnSpecEffective(accepted.spec)
   if (!effective.ok) return empty('blocked', effective.diagnostics)

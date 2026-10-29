@@ -9,6 +9,7 @@ import {
 } from './action-input-schema.ts'
 import type { Diagnostic } from './record-values.ts'
 import type { Result } from './result.ts'
+import type { ActionOperands } from './workflow-action-operands.ts'
 
 type RefLike = RecordInputRef | PinnedFileRef
 
@@ -70,6 +71,30 @@ function durableSpec(spec: ActionInputManifest['spec']) {
   }
   return spec
 }
+function durableOperands(operands: ActionOperands): unknown {
+  if (operands.action !== 'assess-spec') return operands
+  const durableState = <T extends typeof operands.exactInputs.proposed>(state: T) => ({
+    ...state,
+    snapshot: { ...state.snapshot, raw: durableSource(state.snapshot.raw) },
+    children: state.children.map((child) => ({
+      ...child,
+      snapshot: { ...child.snapshot, raw: durableSource(child.snapshot.raw) },
+    })),
+  })
+  return {
+    ...operands,
+    exactInputs: {
+      ...operands.exactInputs,
+      accepted: durableState(operands.exactInputs.accepted),
+      proposed: durableState(operands.exactInputs.proposed),
+    },
+  }
+}
+
+/** Stable semantic comparison of action operands, excluding observational timestamps. */
+export function canonicalActionOperands(operands: ActionOperands): string {
+  return JSON.stringify(ordered(durableOperands(operands)))
+}
 
 function sortedManifest(manifest: ActionInputManifest): ActionInputManifest {
   return {
@@ -85,7 +110,13 @@ function sortedManifest(manifest: ActionInputManifest): ActionInputManifest {
 /** Lexical UTF-8 JSON of the durable manifest. Set-valued refs are identity-sorted. Spec order is preserved. Observed lastEditedAt stays on the wire snapshot and is omitted here. */
 export function canonicalActionInput(manifest: ActionInputManifest): string {
   const sorted = sortedManifest(manifest)
-  return JSON.stringify(ordered({ ...sorted, spec: durableSpec(sorted.spec) }))
+  return JSON.stringify(
+    ordered({
+      ...sorted,
+      spec: durableSpec(sorted.spec),
+      ...(sorted.operands === undefined ? {} : { operands: durableOperands(sorted.operands) }),
+    }),
+  )
 }
 
 export function actionInputDigest(manifest: ActionInputManifest): string {

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { acceptedActionInputs } from '../../testing/action-input-fixtures.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
+import { actionInputDigest } from '../action-input.ts'
 import { buildRecord } from '../record-construction.ts'
 import { failedCheckEvidenceDigest } from '../record-digests.ts'
 import type { Scope } from '../record-values.ts'
@@ -163,6 +164,16 @@ describe('workflow implementation behavior', () => {
       failures: [currentFailure],
     })
     if (oldDigest === null || currentDigest === null) throw new Error('expected CI evidence digests')
+    const exactInputs = {
+      candidateGitSHA: oldCandidate,
+      scope: pull,
+      failedChecks: [oldFailure.name],
+      evidenceDigest: oldDigest,
+      failures: [oldFailure],
+    }
+    const baseInputs = acceptedActionInputs(shipped, 'attribute-ci')
+    const manifest = { ...baseInputs.manifest, operands: { action: 'attribute-ci' as const, exactInputs } }
+    const inputs = { ...baseInputs, manifest, fingerprint: actionInputDigest(manifest) }
     const staleStart = must(
       buildRecord({
         version: 1,
@@ -174,18 +185,12 @@ describe('workflow implementation behavior', () => {
         kind: 'action-receipt',
         payload: {
           format: ACTION_RECEIPT_FORMAT,
-          inputs: acceptedActionInputs(shipped, 'attribute-ci'),
+          inputs,
           phase: 'start',
           action: 'attribute-ci',
           actionId: 'act-attribute-ci-old',
           mandate: { scope: SCOPE, recordId: shipped.recordId, kind: 'mandate' },
-          exactInputs: {
-            candidateGitSHA: oldCandidate,
-            scope: pull,
-            failedChecks: [oldFailure.name],
-            evidenceDigest: oldDigest,
-            failures: [oldFailure],
-          },
+          exactInputs,
         },
       }),
     )

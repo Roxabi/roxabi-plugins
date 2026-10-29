@@ -85,9 +85,10 @@ export function createProductionInputPorts(options: ProductionReaderOptions): Uw
         head: code.head,
         gh: options.gh,
       }),
-    repositoryReferences: (request) =>
+    repositoryReferences: (request, plannedPaths) =>
       discoverRepositoryReferences({
         request,
+        plannedPaths,
         cwd: correctionObservation(request)?.cwd ?? options.cwd,
         gh: options.gh,
       }),

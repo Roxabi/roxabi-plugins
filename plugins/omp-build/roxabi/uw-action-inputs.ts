@@ -72,7 +72,7 @@ async function buildManifest(
   if (!pin.ok) return pin
   const facts = await ports.readCurrentActionFacts(request)
   if (!facts.ok) return facts
-  const references = await ports.repositoryReferences(request)
+  const references = await ports.repositoryReferences(request, facts.value.plannedPaths)
   if (!references.ok) return references
   const plugin = await verifiedPluginFiles(request, ports, pin.value)
   if (!plugin.ok) return plugin
@@ -87,11 +87,12 @@ async function buildManifest(
     repositoryReferences: references.value,
     plugin: { ...pin.value, files: plugin.value.refs },
     configuration: facts.value.configuration,
+    ...(facts.value.operands === undefined ? {} : { operands: facts.value.operands }),
     expandedContext: [...request.expandedContext],
   }
   if (facts.value.expansionPrevious !== undefined) {
     const old = facts.value.expansionPrevious.manifest
-    if (canonicalValueDigest({ ...draft, expandedContext: old.expandedContext }) !== canonicalValueDigest(old))
+    if (actionInputDigest({ ...draft, expandedContext: old.expandedContext }) !== actionInputDigest(old))
       return actionFailure('review-input-changed', 'Expanded action changes the original manifest authority or sources')
   }
   const inputs: ActionInputs = {
@@ -173,6 +174,7 @@ export async function replayUwActionInputs(
       spec: facts.value.spec,
       acceptedSources: facts.value.acceptedSources,
       deliveryData: facts.value.deliveryData,
+      ...(facts.value.operands === undefined ? { operands: undefined } : { operands: facts.value.operands }),
       configuration: facts.value.configuration,
     },
     fingerprint: '',

@@ -268,6 +268,7 @@ describe('principal refusal stays one message', () => {
       send: async (message) => {
         sent.push(message)
       },
+      status: async () => undefined,
       inhibitFeatureContinuation() {},
       releaseFeatureContinuation() {},
       featureContinuationInhibited: () => false,
@@ -385,6 +386,7 @@ describe('prepared epic final review delivery', () => {
         send: async (message: string) => {
           sent.push(message)
         },
+        status: async () => undefined,
         inhibitFeatureContinuation() {},
         releaseFeatureContinuation() {},
         featureContinuationInhibited: inhibited,
@@ -415,6 +417,7 @@ describe('prepared epic final review delivery', () => {
       send: async (message) => {
         sent.push(message)
       },
+      status: async () => undefined,
       inhibitFeatureContinuation() {},
       releaseFeatureContinuation() {},
       featureContinuationInhibited: () => inhibited,

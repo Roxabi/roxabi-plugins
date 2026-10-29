@@ -1,98 +1,144 @@
 import { describe, expect, test } from 'vitest'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
+import { actionInputDigest } from '../action-input.ts'
 import { buildRecord, parseRecord } from '../record-construction.ts'
+import { resolveSpecIdentityLedger } from '../uw-identity.ts'
 import { resolveAcceptedSpec } from '../workflow-accepted-spec.ts'
-import type { MandateRecord } from '../workflow-control.ts'
-import { selectApplicableMandate } from '../workflow-mandate-admission.ts'
-import { prepareMaterialAcceptance } from '../workflow-material-acceptance.ts'
+import { resolveOwnSpecAuthority, selectApplicableMandate } from '../workflow-mandate-admission.ts'
 import { reconstructWorkflow } from '../workflow-reconstruction-admission.ts'
 import {
   acceptedAssessmentState,
-  acceptedMaterialState,
-  acceptMaterialFixture,
   assessFixture,
+  currentFacts,
+  decisions,
   mandateAssessmentState,
-  type ProposedAssessmentState,
   proposedAssessmentState,
+  shippedFeatureMandate,
 } from './workflow-spec-assessment-support.ts'
 import { facts, history, must, SCOPE } from './workflow-test-support.ts'
 
 const workflowFixtures = roxabiWorkflowFixtures()
 
-function shippedFeatureMandate(): MandateRecord {
-  return workflowFixtures.featureMandate(SCOPE, {
-    recordId: 'mandate-1',
-    runId: 'run-1',
-    operationId: 'op-mandate-1',
-    branch: 'feature/bounded',
-    base: 'main',
-    lineageHead: null,
-    body: 'ship the bounded workflow',
-  })
-}
-
-function decisions() {
-  return {
-    reviewStep: null,
-    epicStep: null,
-    epicLand: null,
-    ciWatchStatus: null,
-    publish: { status: 'absent' as const, evidence: [] },
-    landing: { status: 'absent' as const, evidence: [] },
-    watch: { status: 'absent' as const, evidence: [] },
-  }
-}
-
-function currentFacts(mandated: MandateRecord, currentSpec: ProposedAssessmentState) {
-  return facts({
-    productVersion: mandated.payload.config.productVersion,
-    configVersion: mandated.payload.config.version,
-    configDigest: mandated.payload.config.digest,
-    supportedConfigVersions: [mandated.payload.config.version],
-    currentSpec,
-    identityAllocations: mandated.payload.ownSpec.identityAllocations,
-  })
-}
-
 describe('workflow Spec assessment behavior', () => {
-  test('requires a fresh authenticated assessment when the live Spec changes after an accepted material decision', () => {
+  test('allows only an authenticated current assessment replay without weakening other starts', () => {
     const mandated = shippedFeatureMandate()
     const initial = mandateAssessmentState(mandated)
-    const historical = assessFixture(
-      mandated,
-      'material-a-b',
-      initial,
-      proposedAssessmentState(initial, { body: 'material body B' }),
-      'material',
+    const proposed = { snapshot: initial.snapshot, tier: initial.tier, children: initial.children }
+    const assessment = assessFixture(mandated, 'replay', initial, proposed, 'editorial')
+    const start = assessment.start
+    if (start.kind !== 'action-receipt' || start.payload.action !== 'assess-spec' || start.payload.phase !== 'start')
+      throw new Error('expected assessment start')
+    const context = { actionId: start.payload.actionId, fingerprint: start.payload.inputs.fingerprint }
+    const issue = history([mandated, start])
+    expect(resolveAcceptedSpec(mandated, [issue])).toMatchObject({ ok: false, reason: 'incomplete' })
+    expect(resolveAcceptedSpec(mandated, [issue], context)).toMatchObject({ ok: true })
+    const resolved = resolveAcceptedSpec(mandated, [issue], context)
+    if (!resolved.ok) throw new Error('expected authenticated replay')
+    const ledger = { uw: SCOPE, history: issue, histories: [issue], accepted: resolved.spec }
+    expect(resolveSpecIdentityLedger(ledger)).toMatchObject({ ok: false })
+    expect(resolveSpecIdentityLedger({ ...ledger, assessmentReplay: context })).toMatchObject({ ok: true })
+    expect(resolveSpecIdentityLedger({ ...ledger, assessmentReplay: { ...context, actionId: 'other' } })).toMatchObject(
+      { ok: false },
     )
-    const accepted = acceptMaterialFixture(mandated, 'accept-material-a-b', historical)
-    const afterHistorical = acceptedMaterialState(historical, accepted)
-    const live = assessFixture(
-      mandated,
-      'material-b-c',
-      afterHistorical,
-      proposedAssessmentState(afterHistorical, { body: 'material body C' }),
-      'material',
-    )
-    const staleRecords = [mandated, historical.start, historical.result, accepted]
-    const staleEvidence = {
-      issue: history(staleRecords),
-      pullRequest: null,
-      parents: [],
+    const historical = must(parseRecord({ ...mandated, recordId: 'historical-mandate', operationId: 'historical-op' }))
+    const foreignStart = {
+      ...start,
+      recordId: 'foreign-start',
+      operationId: 'foreign-op',
+      payload: { ...start.payload, mandate: { ...start.payload.mandate, recordId: historical.recordId } },
     }
-    const liveFacts = currentFacts(mandated, live.proposed)
-    expect(reconstructWorkflow({ evidence: staleEvidence, facts: liveFacts, decisions: decisions() })).toMatchObject({
-      status: 'action',
-      action: 'assess-spec',
-      mandateId: mandated.recordId,
-    })
+    const combined = history([mandated, historical, start, foreignStart])
+    const withForeign = {
+      ...combined,
+      operations: combined.operations.map((entry) =>
+        entry.recordId === foreignStart.recordId ? { ...entry, authority: 'foreign' as const } : entry,
+      ),
+    }
     expect(
-      reconstructWorkflow({
-        evidence: { ...staleEvidence, issue: history([...staleRecords, live.start]) },
-        facts: liveFacts,
-        decisions: decisions(),
+      resolveSpecIdentityLedger({
+        uw: SCOPE,
+        history: withForeign,
+        histories: [withForeign],
+        accepted: resolved.spec,
+        assessmentReplay: context,
       }),
-    ).toMatchObject({ status: 'blocked', reason: 'action-uncertain' })
+    ).toMatchObject({ ok: true })
+    expect(resolveOwnSpecAuthority(issue)).toMatchObject({ ok: false })
+    expect(resolveOwnSpecAuthority(issue, [], new Set(), context)).toMatchObject({ ok: true })
+    expect(resolveAcceptedSpec(mandated, [issue], { ...context, actionId: 'other' })).toMatchObject({ ok: false })
+    expect(resolveAcceptedSpec(mandated, [issue], { ...context, fingerprint: '0'.repeat(64) })).toMatchObject({
+      ok: false,
+    })
+
+    const duplicate = must(parseRecord({ ...start, recordId: 'duplicate-start', operationId: 'duplicate-start-op' }))
+    expect(resolveAcceptedSpec(mandated, [history([mandated, start, duplicate])], context)).toMatchObject({ ok: false })
+    const other = assessFixture(mandated, 'another-pending', initial, proposed, 'editorial')
+    expect(resolveAcceptedSpec(mandated, [history([mandated, start, other.start])], context)).toMatchObject({
+      ok: false,
+    })
+    const conflicting = must(
+      buildRecord({
+        ...assessment.result,
+        payload: {
+          ...assessment.result.payload,
+          start: { ...assessment.result.payload.start, recordId: 'other-start' },
+        },
+      }),
+    )
+    expect(resolveAcceptedSpec(mandated, [history([mandated, start, conflicting])], context)).toMatchObject({
+      ok: false,
+    })
+
+    const operation = issue.operations.find((entry) => entry.recordId === start.recordId)
+    if (operation === undefined) throw new Error('missing start operation')
+    const altered = (changes: Partial<typeof operation>) => ({
+      ...issue,
+      operations: issue.operations.map((entry) => (entry === operation ? { ...entry, ...changes } : entry)),
+    })
+    expect(resolveAcceptedSpec(mandated, [altered({ authority: 'authority' })], context)).toMatchObject({ ok: false })
+    expect(resolveAcceptedSpec(mandated, [altered({ authority: 'foreign' })], context)).toMatchObject({ ok: false })
+    expect(
+      resolveAcceptedSpec(
+        mandated,
+        [
+          altered({
+            parts: operation.parts.map((part) => ({ ...part, author: 'other' })),
+          }),
+        ],
+        context,
+      ),
+    ).toMatchObject({ ok: false })
+    expect(resolveAcceptedSpec(mandated, [altered({ parts: [] })], context)).toMatchObject({ ok: false })
+    expect(
+      resolveAcceptedSpec(
+        mandated,
+        [
+          altered({
+            parts: operation.parts.map((part) => ({ ...part, nativeId: null })),
+          }),
+        ],
+        context,
+      ),
+    ).toMatchObject({ ok: false })
+    expect(
+      resolveAcceptedSpec(
+        mandated,
+        [
+          altered({
+            parts: operation.parts.map((part) => ({ ...part, updatedAt: '2025-01-01T00:00:01Z' })),
+          }),
+        ],
+        context,
+      ),
+    ).toMatchObject({ ok: false })
+    const invalidInputs = { ...start.payload.inputs, fingerprint: '0'.repeat(64) }
+    const invalidStart = { ...start, payload: { ...start.payload, inputs: invalidInputs } }
+    expect(
+      resolveAcceptedSpec(mandated, [history([mandated, invalidStart])], {
+        ...context,
+        fingerprint: invalidInputs.fingerprint,
+      }),
+    ).toMatchObject({ ok: false })
   })
 
   test('does not dispatch assessment when a pinned graph reaches it without current Spec facts', () => {
@@ -126,44 +172,6 @@ describe('workflow Spec assessment behavior', () => {
     })
     expect(decision).toMatchObject({ status: 'blocked', reason: 'unknown-outcome' })
     expect(decision).not.toMatchObject({ status: 'action', action: 'assess-spec' })
-  })
-
-  test('keeps a pending authenticated material assessment through date-only current metadata drift', () => {
-    const mandated = shippedFeatureMandate()
-    const initial = mandateAssessmentState(mandated)
-    const pending = assessFixture(
-      mandated,
-      'date-only-material',
-      initial,
-      proposedAssessmentState(initial, { body: 'material body with unchanged canonical content' }),
-      'material',
-    )
-    const dateOnlyCurrent = {
-      ...pending.proposed,
-      snapshot: {
-        ...pending.proposed.snapshot,
-        raw: { ...pending.proposed.snapshot.raw, lastEditedAt: '2026-10-22T00:00:00Z' },
-      },
-    }
-    const issueHistory = history([mandated, pending.start, pending.result])
-    const histories = [issueHistory]
-    expect(
-      reconstructWorkflow({
-        evidence: { issue: issueHistory, pullRequest: null, parents: [] },
-        facts: currentFacts(mandated, dateOnlyCurrent),
-        decisions: decisions(),
-      }),
-    ).toMatchObject({ status: 'blocked', reason: 'spec-decision-required' })
-    expect(
-      prepareMaterialAcceptance({
-        uw: SCOPE,
-        operationId: 'op-date-only-accept',
-        histories,
-        mandate: mandated,
-        currentProposed: dateOnlyCurrent,
-        identityAllocations: mandated.payload.ownSpec.identityAllocations,
-      }),
-    ).toMatchObject({ ok: true })
   })
 
   test('requires a material decision for an editorial assessment of a tier change', () => {
@@ -205,8 +213,12 @@ describe('workflow Spec assessment behavior', () => {
       ...assessment.result.payload.exactInputs,
       mechanical: { ...assessment.result.payload.exactInputs.mechanical, tierChanged: false },
     }
-    const start = must(buildRecord({ ...assessment.start, payload: { ...startPayload, exactInputs } }))
-    const result = must(buildRecord({ ...assessment.result, payload: { ...assessment.result.payload, exactInputs } }))
+    const manifest = { ...startPayload.inputs.manifest, operands: { action: 'assess-spec' as const, exactInputs } }
+    const inputs = { ...startPayload.inputs, manifest, fingerprint: actionInputDigest(manifest) }
+    const start = must(buildRecord({ ...assessment.start, payload: { ...startPayload, inputs, exactInputs } }))
+    const result = must(
+      buildRecord({ ...assessment.result, payload: { ...assessment.result.payload, inputs, exactInputs } }),
+    )
     const issue = history([mandated, start, result])
 
     expect(accepted.tier).toBe('S')

@@ -243,6 +243,7 @@ export {
   mechanicalSpecDelta,
   sameCurrentAssessedState,
 } from './engine/workflow-spec-assessment.ts'
+export type { AssessmentReplayContext } from './engine/workflow-spec-authentication.ts'
 export {
   type OmpBuildRecoveryPrParameters,
   type OmpBuildRecoveryReplaceParameters,

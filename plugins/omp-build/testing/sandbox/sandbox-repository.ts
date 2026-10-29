@@ -223,6 +223,28 @@ export function writeSim(box: Box, mutate: (state: SimState) => void): void {
   writeFileSync(box.stateFile, JSON.stringify(state, null, 2))
 }
 
+export function appendSimIssueComments(
+  box: Box,
+  number: string,
+  bodies: string[],
+  author: string,
+  createdAt: string,
+): void {
+  writeSim(box, (state) => {
+    const issue = state.issues[number]
+    if (issue === undefined) throw new Error('feature-issue-missing')
+    let nextId = state.nextCommentId ?? 0
+    for (const thread of [...Object.values(state.issues), ...Object.values(state.prs)]) {
+      for (const comment of thread.comments) nextId = Math.max(nextId, comment.id ?? 0)
+    }
+    for (const body of bodies) {
+      nextId += 1
+      issue.comments.push({ id: nextId, author, body, createdAt, updatedAt: createdAt })
+    }
+    state.nextCommentId = nextId
+  })
+}
+
 /** A linked worktree of the principal, detached at `sha`. */
 export function worktree(box: Box, name: string, sha: string): string {
   const dir = path.join(box.root, name)

@@ -1,18 +1,19 @@
-import { acceptedActionInputs } from '../../testing/action-input-fixtures.ts'
+import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { buildRecord } from '../record-construction.ts'
 import { specDigest } from '../record-digests.ts'
 import type { CanonicalRecord } from '../record-schema.ts'
 import { canonicalSpec, type SpecContent, type SpecSnapshot, type UwTier } from '../uw-spec.ts'
 import { SPEC_CONTENT_FORMAT } from '../uw-spec-schema.ts'
+import type { MandateRecord } from '../workflow-control.ts'
 import { ACTION_RECEIPT_FORMAT, type AssessSpecExact } from '../workflow-receipt-schema.ts'
 import {
   type AssessResultRecord,
   isAssessResult,
   type MaterialAcceptanceProposal,
   materialAcceptanceDigest,
-  mechanicalSpecDelta,
 } from '../workflow-spec-assessment.ts'
-import { must } from './workflow-test-support.ts'
+import { assessmentActionInputs } from './workflow-spec-assessment-input-fixtures.ts'
+import { facts, must, SCOPE } from './workflow-test-support.ts'
 
 export type AssessmentState = AssessSpecExact['accepted']
 export type ProposedAssessmentState = AssessSpecExact['proposed']
@@ -82,20 +83,6 @@ export function proposedAssessmentState(accepted: AssessmentState, input: Propos
   }
 }
 
-function assessmentInputs(
-  mandated: Extract<CanonicalRecord, { kind: 'mandate' }>,
-  accepted: AssessmentState,
-  proposed: ProposedAssessmentState,
-) {
-  return {
-    format: 'omp-build-spec-assessment/2' as const,
-    accepted,
-    proposed,
-    identityAllocations: mandated.payload.ownSpec.identityAllocations,
-    mechanical: mechanicalSpecDelta(accepted, proposed),
-  }
-}
-
 export function assessFixture(
   mandated: CanonicalRecord,
   id: string,
@@ -114,7 +101,7 @@ export function assessFixture(
   if (mandated.kind !== 'mandate') throw new Error('Assessment fixture requires a mandate')
   const scope = { repository: mandated.repository, target: mandated.target }
   const mandateRef = { scope, recordId: mandateId, kind: 'mandate' as const }
-  const exactInputs = assessmentInputs(mandated, accepted, proposed)
+  const { inputs, exactInputs } = assessmentActionInputs(mandated, accepted, proposed)
   const start = must(
     buildRecord({
       version: 1,
@@ -126,7 +113,7 @@ export function assessFixture(
       kind: 'action-receipt',
       payload: {
         format: ACTION_RECEIPT_FORMAT,
-        inputs: acceptedActionInputs(mandated, 'assess-spec'),
+        inputs,
         phase: 'start',
         action: 'assess-spec',
         actionId: `act-${id}`,
@@ -146,7 +133,7 @@ export function assessFixture(
       kind: 'action-receipt',
       payload: {
         format: ACTION_RECEIPT_FORMAT,
-        inputs: acceptedActionInputs(mandated, 'assess-spec'),
+        inputs,
         phase: 'result',
         action: 'assess-spec',
         actionId: `act-${id}`,
@@ -248,4 +235,41 @@ export function acceptedMaterialState(assessment: FixtureAssessment, control: Ca
     tier: assessment.proposed.tier,
     children: assessment.proposed.children,
   }
+}
+
+const workflowFixtures = roxabiWorkflowFixtures()
+
+export function shippedFeatureMandate(): MandateRecord {
+  return workflowFixtures.featureMandate(SCOPE, {
+    recordId: 'mandate-1',
+    runId: 'run-1',
+    operationId: 'op-mandate-1',
+    branch: 'feature/bounded',
+    base: 'main',
+    lineageHead: null,
+    body: 'ship the bounded workflow',
+  })
+}
+
+export function decisions() {
+  return {
+    reviewStep: null,
+    epicStep: null,
+    epicLand: null,
+    ciWatchStatus: null,
+    publish: { status: 'absent' as const, evidence: [] },
+    landing: { status: 'absent' as const, evidence: [] },
+    watch: { status: 'absent' as const, evidence: [] },
+  }
+}
+
+export function currentFacts(mandated: MandateRecord, currentSpec: ProposedAssessmentState) {
+  return facts({
+    productVersion: mandated.payload.config.productVersion,
+    configVersion: mandated.payload.config.version,
+    configDigest: mandated.payload.config.digest,
+    supportedConfigVersions: [mandated.payload.config.version],
+    currentSpec,
+    identityAllocations: mandated.payload.ownSpec.identityAllocations,
+  })
 }

@@ -1,29 +1,21 @@
 import { z } from 'zod'
+import { pinnedFileRefSchema, recordInputRefSchema } from './action-input-refs.ts'
 import { unframedParserSchema } from './issue-spec-analysis-schema.ts'
-import { externalRecordRefSchema, gitObjectIdSchema } from './record-references.ts'
+import { gitObjectIdSchema } from './record-references.ts'
 import { repoRelativePathSchema, scopeSchema, sha256Schema } from './schema-primitives.ts'
 import { specEffectiveSchema } from './spec-effective.ts'
 import { specRawSourceSchema, specSnapshotSchema } from './uw-spec-schema.ts'
+import { actionOperandsSchema, refineActionOperands } from './workflow-action-operands.ts'
 
 export const ACTION_INPUT_FORMAT = 'omp-build-action-input/1' as const
 export const ACTION_BINDING_FORMAT = 'omp-build-action-input-binding/1' as const
 
-const jsonPointerSchema = z.string().regex(/^(?:\/(?:[^/~]|~0|~1)*)+$/)
-export const recordInputRefSchema = z.strictObject({
-  source: z.literal('record'),
-  record: externalRecordRefSchema,
-  selector: jsonPointerSchema,
-  digest: sha256Schema,
-})
-export type RecordInputRef = z.infer<typeof recordInputRefSchema>
-export const pinnedFileRefSchema = z.strictObject({
-  source: z.literal('git-file'),
-  repository: z.string().min(1),
-  commit: gitObjectIdSchema,
-  path: repoRelativePathSchema,
-  digest: sha256Schema,
-})
-export type PinnedFileRef = z.infer<typeof pinnedFileRefSchema>
+export {
+  type PinnedFileRef,
+  pinnedFileRefSchema,
+  type RecordInputRef,
+  recordInputRefSchema,
+} from './action-input-refs.ts'
 export const deliveryDataRefSchema = recordInputRefSchema.extend({
   role: z.enum([
     'plan',
@@ -97,6 +89,7 @@ const actionInputManifestObject = z.strictObject({
   purpose: actionPurposeSchema,
   subject: actionSubjectSchema,
   spec: actionSpecInputSchema,
+  operands: actionOperandsSchema.optional(),
   code: codeRefSchema,
   acceptedSources: z.array(recordInputRefSchema),
   deliveryData: z.array(deliveryDataRefSchema),
@@ -158,11 +151,31 @@ function refinePluginPins(value: ActionInputManifestValue, context: z.Refinement
     }
   })
 }
+function refineAssessmentRef(value: ActionInputManifestValue, context: z.RefinementCtx): void {
+  if (value.operands?.action !== 'assess-spec' || value.spec.kind !== 'accepted') return
+  const ref = value.operands.exactInputs.accepted.ref
+  const own = value.spec.effective.own
+  if (
+    !sameScope(ref.uw, own.uw) ||
+    ref.version !== own.version ||
+    !sameScope(ref.sourceAccepted.scope, own.sourceAccepted.scope) ||
+    ref.sourceAccepted.kind !== own.sourceAccepted.kind ||
+    ref.sourceAccepted.recordId !== own.sourceAccepted.recordId
+  ) {
+    manifestIssue(
+      context,
+      ['operands', 'exactInputs', 'accepted', 'ref'],
+      'assessment accepted reference must match the effective own Spec',
+    )
+  }
+}
 
 export const actionInputManifestSchema = actionInputManifestObject.superRefine((value, context) => {
+  refineActionOperands(value, context)
   refineSourcePurpose(value, context)
   refineSubjectScope(value, context)
   refinePluginPins(value, context)
+  refineAssessmentRef(value, context)
 })
 export type ActionInputManifest = z.infer<typeof actionInputManifestSchema>
 export const actionInputsSchema = z.strictObject({

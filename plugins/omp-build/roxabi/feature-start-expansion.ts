@@ -74,6 +74,7 @@ function validateExpandedBinding(
     code: inputs.manifest.code,
     stageSources: inputs.stageSources,
     expandedContext: inputs.manifest.expandedContext,
+    ...(inputs.manifest.operands === undefined ? {} : { operands: inputs.manifest.operands }),
   }
   const origin =
     start.action === 'plan' || start.action === 'plan-review'
@@ -162,6 +163,7 @@ export async function validateExpandedStartLive(
     code: inputs.manifest.code,
     stageSources: inputs.stageSources,
     expandedContext: inputs.manifest.expandedContext,
+    ...(inputs.manifest.operands === undefined ? {} : { operands: inputs.manifest.operands }),
   }
   const origin = nonPlanExpansion(request, histories)
   if (!origin.ok) return { ok: false, reason: origin.diagnostics[0]?.code ?? 'action-input-missing' }

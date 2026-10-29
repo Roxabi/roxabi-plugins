@@ -173,8 +173,25 @@ async function collectHeadBlobs(
   return { ok: true, value: extra }
 }
 
+async function collectPlanInventory(
+  cwd: string,
+  commit: string,
+  names: Set<string>,
+  trees: Map<string, ReadonlySet<string> | null>,
+): Promise<Result<true>> {
+  const inventory = await gitTreePaths(cwd, commit)
+  if (!inventory.ok)
+    return actionFailure('action-input-missing', 'Required repository reference inventory is unreadable')
+  trees.set(commit, new Set(inventory.value))
+  for (const path of inventory.value) {
+    if (ENTRY.some((name) => path === name || path.endsWith(`/${name}`))) names.add(path)
+  }
+  return { ok: true, value: true }
+}
+
 export async function discoverRepositoryReferences(input: {
   request: UwActionRequest
+  plannedPaths?: readonly string[]
   cwd: string
   gh: Gh
 }): Promise<Result<PinnedFileRef[]>> {
@@ -188,8 +205,13 @@ export async function discoverRepositoryReferences(input: {
   const names = new Set<string>([...ENTRY, ...PROJECT_CONTRACT_FILES])
   const changed = await changedPaths(input.cwd, code.base, code.head)
   if (!changed.ok) return changed
-  addTouchedEntries(names, changed.value)
+  const plannedPaths = input.plannedPaths ?? []
+  addTouchedEntries(names, [...new Set([...changed.value, ...plannedPaths])])
   const trees = new Map<string, ReadonlySet<string> | null>()
+  if (input.request.purpose === 'plan' && plannedPaths.length === 0) {
+    const inventory = await collectPlanInventory(input.cwd, code.referenceCommit, names, trees)
+    if (!inventory.ok) return inventory
+  }
   const seeds = await collectSeeds(input, code, names, trees)
   if (!seeds.ok) return seeds
   const stored = await collectRequired(input, code, seeds.value.bytesOf, seeds.value.required)

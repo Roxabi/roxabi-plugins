@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { acceptedActionInputs } from '../../testing/action-input-fixtures.ts'
+import { actionInputDigest } from '../action-input.ts'
 import { buildRecord, parseRecord } from '../record-construction.ts'
 import { failedCheckEvidenceDigest } from '../record-digests.ts'
 import { planOutputSchema, planReviewSchema } from '../workflow-output-schema.ts'
@@ -71,6 +72,25 @@ describe('workflow CI attribution behavior', () => {
     const evidenceDigest = failedCheckEvidenceDigest({ candidateGitSHA: 'abc', scope: pr, failures: [failure] })
     if (evidenceDigest === null) throw new Error('expected a check evidence digest')
     expect(failedCheckEvidenceDigest({ candidateGitSHA: 'abc', scope: pr, failures: [rerun] })).not.toBe(evidenceDigest)
+    const exactInputs = {
+      candidateGitSHA: 'abc',
+      scope: pr,
+      failedChecks: ['test'],
+      evidenceDigest,
+      failures: [failure],
+    }
+    const rerunDigest = failedCheckEvidenceDigest({ candidateGitSHA: 'abc', scope: pr, failures: [rerun] })
+    if (rerunDigest === null) throw new Error('expected a rerun check evidence digest')
+    const rerunInputs = {
+      ...exactInputs,
+      evidenceDigest: rerunDigest,
+      failures: [rerun],
+    }
+    const bind = (exact: typeof exactInputs) => {
+      const inputs = acceptedActionInputs(mandated, 'attribute-ci')
+      const manifest = { ...inputs.manifest, operands: { action: 'attribute-ci' as const, exactInputs: exact } }
+      return { ...inputs, manifest, fingerprint: actionInputDigest(manifest) }
+    }
     expect(
       parseRecord({
         version: 1,
@@ -83,7 +103,7 @@ describe('workflow CI attribution behavior', () => {
         kind: 'action-receipt',
         payload: {
           format: ACTION_RECEIPT_FORMAT,
-          inputs: acceptedActionInputs(mandated, 'attribute-ci'),
+          inputs: bind(exactInputs),
           phase: 'result',
           action: 'attribute-ci',
           actionId: 'act-ci-names',
@@ -108,19 +128,13 @@ describe('workflow CI attribution behavior', () => {
         kind: 'action-receipt',
         payload: {
           format: ACTION_RECEIPT_FORMAT,
-          inputs: acceptedActionInputs(mandated, 'attribute-ci'),
+          inputs: bind(exactInputs),
           phase: 'result',
           action: 'attribute-ci',
           actionId: 'act-ci-1',
           mandate: { scope: SCOPE, recordId: mandated.recordId, kind: 'mandate' },
           start: { scope: pr, recordId: 'ci-start', kind: 'action-receipt' },
-          exactInputs: {
-            candidateGitSHA: 'abc',
-            scope: pr,
-            failedChecks: ['test'],
-            evidenceDigest,
-            failures: [failure],
-          },
+          exactInputs,
           native: { completion: 'completed', strict: 'valid', raw: null },
           structured: { attribution: 'change', evidence: null },
           admission: null,
@@ -128,6 +142,7 @@ describe('workflow CI attribution behavior', () => {
         },
       }),
     )
+    expect(parseRecord({ ...receipt, payload: { ...receipt.payload, exactInputs: rerunInputs } }).ok).toBe(false)
     const decisions = {
       reviewStep: 'fix' as const,
       epicStep: null,
@@ -162,12 +177,16 @@ describe('workflow CI attribution behavior', () => {
         decisions,
       }),
     ).toMatchObject({ status: 'terminal', reason: 'ci-attribution-refused' })
-    const rerunDigest = failedCheckEvidenceDigest({ candidateGitSHA: 'abc', scope: pr, failures: [rerun] })
-    if (rerunDigest === null) throw new Error('expected CI evidence digest')
+    const currentRerunDigest: string | null = failedCheckEvidenceDigest({
+      candidateGitSHA: 'abc',
+      scope: pr,
+      failures: [rerun],
+    })
+    if (currentRerunDigest === null) throw new Error('expected CI evidence digest')
     expect(
       reconstructWorkflow({
         ...shared,
-        facts: facts({ ...shared.facts, failedChecks: ['test'], evidenceDigest: rerunDigest }),
+        facts: facts({ ...shared.facts, failedChecks: ['test'], evidenceDigest: currentRerunDigest }),
         decisions,
       }),
     ).toMatchObject({ status: 'action', action: 'attribute-ci' })
@@ -182,18 +201,12 @@ describe('workflow CI attribution behavior', () => {
         kind: 'action-receipt',
         payload: {
           format: ACTION_RECEIPT_FORMAT,
-          inputs: acceptedActionInputs(mandated, 'attribute-ci'),
+          inputs: bind(rerunInputs),
           phase: 'start',
           action: 'attribute-ci',
           actionId: 'act-ci-rerun',
           mandate: { scope: SCOPE, recordId: mandated.recordId, kind: 'mandate' },
-          exactInputs: {
-            candidateGitSHA: 'abc',
-            scope: pr,
-            failedChecks: ['test'],
-            evidenceDigest: rerunDigest,
-            failures: [rerun],
-          },
+          exactInputs: rerunInputs,
         },
       }),
     )

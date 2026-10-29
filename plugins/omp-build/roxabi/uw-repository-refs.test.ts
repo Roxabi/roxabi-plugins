@@ -130,4 +130,59 @@ describe('discoverRepositoryReferences tree discovery', () => {
       ['/repo', head],
     ])
   })
+  it('discovers planned ancestors and citations without inventing planned blobs', async () => {
+    git.changedPaths.mockResolvedValue({ ok: true, value: [] })
+    git.gitTreePaths.mockResolvedValue({
+      ok: true,
+      value: ['packages/AGENTS.md', 'packages/billing/GLOSSARY.md', 'docs/billing.md'],
+    })
+    git.readGitFileBytes.mockImplementation(async ({ path }: { path: string }) => ({
+      ok: true,
+      value: bytes(path === 'packages/AGENTS.md' ? 'Glossary: docs/billing.md' : path),
+    }))
+    const result = await discoverRepositoryReferences({
+      request,
+      plannedPaths: ['packages/billing/new.ts', 'packages/billing/deleted.ts'],
+      cwd: '/repo',
+      gh,
+    })
+    expect(result).toMatchObject({
+      ok: true,
+      value: [
+        { commit: reference, path: 'docs/billing.md' },
+        { commit: reference, path: 'packages/AGENTS.md' },
+        { commit: reference, path: 'packages/billing/GLOSSARY.md' },
+      ],
+    })
+    expect(git.gitTreePaths).toHaveBeenCalledTimes(1)
+    expect(git.readGitFileBytes.mock.calls.some(([input]) => input.path.endsWith('.ts'))).toBe(false)
+  })
+
+  it('inventories all pinned entries for a first draft and refuses an unreadable inventory', async () => {
+    const first = { ...request, purpose: 'plan' as const }
+    git.changedPaths.mockResolvedValue({ ok: true, value: [] })
+    git.gitTreePaths.mockResolvedValue({
+      ok: true,
+      value: ['packages/billing/CLAUDE.md', 'packages/billing/GLOSSARY.md', 'docs/domain.md'],
+    })
+    git.readGitFileBytes.mockImplementation(async ({ path }: { path: string }) => ({
+      ok: true,
+      value: bytes(path.endsWith('CLAUDE.md') ? 'Glossary: docs/domain.md' : path),
+    }))
+    const result = await discoverRepositoryReferences({ request: first, cwd: '/repo', gh })
+    expect(result).toMatchObject({
+      ok: true,
+      value: [
+        { commit: reference, path: 'docs/domain.md' },
+        { commit: reference, path: 'packages/billing/CLAUDE.md' },
+        { commit: reference, path: 'packages/billing/GLOSSARY.md' },
+      ],
+    })
+    expect(git.gitTreePaths).toHaveBeenCalledTimes(1)
+    git.gitTreePaths.mockResolvedValue(actionFailure('pinned-file-unreadable', 'tree unavailable'))
+    expect(await discoverRepositoryReferences({ request: first, cwd: '/repo', gh })).toMatchObject({
+      ok: false,
+      diagnostics: [{ code: 'action-input-missing', message: expect.stringContaining('inventory') }],
+    })
+  })
 })

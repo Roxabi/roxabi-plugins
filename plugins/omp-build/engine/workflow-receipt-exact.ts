@@ -1,43 +1,22 @@
 import { z } from 'zod'
 import { contextNegativeBindingSchema } from './action-context.ts'
-import { validateActionInputs } from './action-input.ts'
-import { failedCheckEvidenceDigest, failedCheckFailureSchema } from './record-digests.ts'
-import { type ExternalRecordRef, externalRecordRefSchema, gitObjectIdSchema } from './record-references.ts'
+import { canonicalValueDigest, validateActionInputs } from './action-input.ts'
+import { type ExternalRecordRef, gitObjectIdSchema } from './record-references.ts'
 import {
   contributionSchema,
   identifierSchema,
   repoRelativePathSchema,
   scopeSchema,
   sha256Schema,
-  shaSchema,
 } from './record-values.ts'
-import { ownSpecRefSchema, specItemIdSchema, specSnapshotSchema, uwTierSchema } from './uw-spec-schema.ts'
-import { acceptedChildCommitmentSchema, sameRefMeaning } from './workflow-mandate-schema.ts'
+import { sameRefMeaning } from './workflow-mandate-schema.ts'
+
+export type { AssessSpecExact, CiExact } from './workflow-action-operands.ts'
+export { assessSpecExactSchema, ciExactSchema } from './workflow-action-operands.ts'
+
 import { planBlockerRefSchema } from './workflow-output-schema.ts'
 import type { ActionReceiptPayload } from './workflow-receipt-schema.ts'
 
-const assessedOwnStateSchema = z.strictObject({
-  snapshot: specSnapshotSchema,
-  tier: uwTierSchema,
-  children: z.array(acceptedChildCommitmentSchema),
-})
-const mechanicalSpecDeltaSchema = z.strictObject({
-  added: z.array(specItemIdSchema),
-  removed: z.array(specItemIdSchema),
-  changedStatements: z.array(specItemIdSchema),
-  exclusionsChanged: z.boolean(),
-  tierChanged: z.boolean(),
-  childrenChanged: z.boolean(),
-  sectionsOrOrderChanged: z.boolean(),
-})
-export const assessSpecExactSchema = z.strictObject({
-  format: z.literal('omp-build-spec-assessment/2'),
-  accepted: assessedOwnStateSchema.extend({ ref: ownSpecRefSchema }),
-  proposed: assessedOwnStateSchema,
-  identityAllocations: z.array(externalRecordRefSchema),
-  mechanical: mechanicalSpecDeltaSchema,
-})
-export type AssessSpecExact = z.infer<typeof assessSpecExactSchema>
 export const frameExactSchema = z.strictObject({
   specDigest: sha256Schema,
   branch: z.string().min(1),
@@ -94,24 +73,6 @@ export const planReviewExactSchema = z.strictObject({
   draftActionId: identifierSchema,
 })
 export const implementExactSchema = z.strictObject({ mandateId: identifierSchema, planActionId: identifierSchema })
-export const ciExactSchema = z
-  .strictObject({
-    candidateGitSHA: shaSchema,
-    scope: scopeSchema,
-    failedChecks: z.array(z.string().min(1)),
-    evidenceDigest: sha256Schema,
-    failures: z.array(failedCheckFailureSchema).min(1),
-  })
-  .superRefine((value, context) => {
-    const digest = failedCheckEvidenceDigest(value)
-    if (digest === null || digest !== value.evidenceDigest) {
-      context.addIssue({
-        code: 'custom',
-        path: ['evidenceDigest'],
-        message: 'evidence digest does not match the native check identity',
-      })
-    }
-  })
 export const implementationAdmissionCommandSchema = z.strictObject({
   toolCallId: identifierSchema,
   command: z.string(),
@@ -233,6 +194,15 @@ function refineMandatedReceipt(receipt: MandatedReceipt, context: z.RefinementCt
 
 export function refineActionReceipt(receipt: ActionReceiptPayload, context: z.RefinementCtx): void {
   const checked = validateActionInputs(receipt.inputs)
+  if (receipt.action === 'assess-spec' || receipt.action === 'attribute-ci') {
+    const operands = receipt.inputs.manifest.operands
+    if (
+      operands?.action !== receipt.action ||
+      canonicalValueDigest(operands.exactInputs) !== canonicalValueDigest(receipt.exactInputs)
+    ) {
+      issue(context, ['exactInputs'], 'exact inputs must match the sealed action operands')
+    }
+  }
   if (!checked.ok) issue(context, ['inputs'], checked.diagnostics[0]?.message ?? 'action inputs are not binding/1')
   if (absentMandate(receipt)) {
     refineAbsentMandate(receipt, context)

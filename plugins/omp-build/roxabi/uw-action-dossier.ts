@@ -63,12 +63,17 @@ function place(files: { path: string; bytes: Uint8Array }[], path: string, bytes
 }
 
 export async function materializeActionFiles(
-  ports: UwActionPorts,
+  ports: Pick<UwActionPorts, 'readCodeDiff' | 'readRecords' | 'readPinnedFile'>,
   manifest: ActionInputManifest,
   stageSources: readonly RecordInputRef[],
 ): Promise<Result<readonly { path: string; bytes: Uint8Array }[]>> {
   const files: { path: string; bytes: Uint8Array }[] = []
   files.push({ path: 'spec.json', bytes: Buffer.from(JSON.stringify(manifest.spec), 'utf8') })
+  if (manifest.operands !== undefined)
+    files.push({
+      path: 'action/exact-inputs.json',
+      bytes: Buffer.from(JSON.stringify(manifest.operands.exactInputs), 'utf8'),
+    })
   files.push({ path: 'fingerprint.txt', bytes: Buffer.from(`${actionInputDigest(manifest)}\n`, 'utf8') })
   const diff = await ports.readCodeDiff(manifest.code)
   if (!diff.ok) return diff
@@ -116,6 +121,11 @@ export function dossierIndex(manifest: ActionInputManifest, files: readonly { pa
     'Stage annex: stage/annex.json',
     'Spec version: ' + (spec.version ?? 'absent'),
     '',
+    ...(manifest.operands === undefined
+      ? []
+      : manifest.operands.action === 'assess-spec'
+        ? ['## Exact inputs', 'Accepted state and proposed state: action/exact-inputs.json', '']
+        : ['## Exact inputs', 'CI failures: action/exact-inputs.json', '']),
     '## Criteria',
     ...(spec.criteria.length === 0 ? ['- none'] : spec.criteria.map((item) => '- ' + item.id + ': ' + item.statement)),
     '',

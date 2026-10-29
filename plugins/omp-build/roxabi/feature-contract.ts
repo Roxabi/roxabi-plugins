@@ -109,6 +109,7 @@ export type FeatureCommandHost = {
   workflow: FeatureWorkflow
   native: FeatureNativePort
   send: (text: string) => Promise<void>
+  status: (text: string | undefined) => void
   inhibitFeatureContinuation: () => void
   releaseFeatureContinuation: () => void
   featureContinuationInhibited: () => boolean

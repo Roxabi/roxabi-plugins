@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { externalRecordRefSchema } from './record-references.ts'
-import { sha256Schema } from './record-values.ts'
+import { sha256Schema } from './schema-primitives.ts'
 import { specItemIdSchema } from './uw-spec-schema.ts'
 export const SPEC_IDENTITY_FORMAT = 'omp-build-spec-identity/1' as const
 export const operatorConfirmationEvidenceSchema = z.strictObject({
