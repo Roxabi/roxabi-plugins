@@ -11,6 +11,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { diagnostic } from '../../../../testing/ci-diagnostic.ts'
 import {
   A,
   B,
@@ -53,11 +54,16 @@ export function dispose(): void {
 
 export function git(cwd: string, args: string[]): string {
   const active = activeBox()
-  return execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t', '-c', 'core.hooksPath=/dev/null', ...args], {
-    cwd,
-    env: active.env,
-    encoding: 'utf8',
-  }).trim()
+  const started = Date.now()
+  try {
+    return execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t', '-c', 'core.hooksPath=/dev/null', ...args], {
+      cwd,
+      env: active.env,
+      encoding: 'utf8',
+    }).trim()
+  } finally {
+    diagnostic('process', 'goal-git', started)
+  }
 }
 
 export function readSim(): SimState {
@@ -72,33 +78,43 @@ export function writeSim(mutate: (state: SimState) => void): void {
 
 export function gh(args: string[], input?: string) {
   const active = activeBox()
+  const started = Date.now()
   const out = spawnSync(path.join(active.root, 'bin', 'gh'), args, {
     cwd: active.epic,
     env: active.env,
     encoding: 'utf8',
     input,
   })
+  diagnostic('process', 'goal-gh', started)
   return { status: out.status, stdout: out.stdout, stderr: out.stderr }
 }
 
 export function callWorkflow<T>(fn: string, cwd: string, payload: object): T {
   const active = activeBox()
-  const out = spawnSync(REAL_BUN, [WORKFLOW, fn, cwd, JSON.stringify(payload)], {
+  const started = Date.now()
+  const preload = path.resolve(import.meta.dirname, '../../../../testing/ci-diagnostic-preload.js')
+  const flags = process.env.Q904_CI_DIAGNOSTIC ? [`--preload=${preload}`] : []
+  const out = spawnSync(REAL_BUN, [...flags, WORKFLOW, fn, cwd, JSON.stringify(payload)], {
     cwd,
     env: active.env,
     encoding: 'utf8',
   })
+  diagnostic('process', 'goal-workflow-bun', started)
   if (out.status !== 0) throw new Error(`${fn} failed (${out.status}): ${out.stderr}\n${out.stdout}`)
   return JSON.parse(out.stdout)
 }
 
 export function runDriver(args: string[], cwd: string): { code: number | null; stdout: string; stderr: string } {
   const active = activeBox()
-  const out = spawnSync(REAL_BUN, [DRIVER, ...args, '--epic', String(EPIC)], {
+  const started = Date.now()
+  const preload = path.resolve(import.meta.dirname, '../../../../testing/ci-diagnostic-preload.js')
+  const flags = process.env.Q904_CI_DIAGNOSTIC ? [`--preload=${preload}`] : []
+  const out = spawnSync(REAL_BUN, [...flags, DRIVER, ...args, '--epic', String(EPIC)], {
     cwd,
     env: active.env,
     encoding: 'utf8',
   })
+  diagnostic('process', 'goal-driver-bun', started)
   return { code: out.status, stdout: out.stdout, stderr: out.stderr }
 }
 

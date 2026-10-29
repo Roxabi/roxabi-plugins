@@ -3,6 +3,7 @@ import { existsSync, readFileSync, watch, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import type { NativeTask } from '../omp/review-runtime/contracts.ts'
 import { requiredReviewRecords } from '../skills/feature/workflow-records.js'
+import { diagnostic as ciDiagnostic } from './ci-diagnostic.ts'
 import {
   correctionCriteria,
   guardCommand,
@@ -154,16 +155,20 @@ function driverDiagnostic(driver: ReviewDriver | undefined) {
 }
 
 export async function invokeOmpReviewApplyFalsify(cwd: string): Promise<object> {
+  ciDiagnostic('phase', 'child-review-entry')
   const priorHead = execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim()
   const driver = await createReviewDriver(cwd)
+  ciDiagnostic('phase', 'child-driver-created')
   let primary: unknown
   let failed = false
   let outcome: object | undefined
   let stage = 'initial-review'
   try {
     await driver.settle(reviewInitialData)
+    ciDiagnostic('phase', 'child-initial-review-complete')
     stage = 'initial-synthesis'
     await driver.settle((task) => reviewDecision(task.task))
+    ciDiagnostic('phase', 'child-initial-synthesis-complete')
     const transition = driver.fixTransition(driver.messages.length)
     const stateFile = process.env.GH_SIM_STATE
     if (stateFile === undefined) throw new Error('gh-state-missing')
@@ -208,8 +213,10 @@ export async function invokeOmpReviewApplyFalsify(cwd: string): Promise<object> 
         },
       },
     )
+    ciDiagnostic('phase', 'child-correction-apply-complete')
     stage = 'correction-transition'
     const transitionOutcome = await transition
+    ciDiagnostic('phase', 'child-correction-transition-complete')
     const falsifyActive = driver.controller.active()
     const appliedHead = execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim()
     if (commit !== appliedHead || appliedHead === priorHead) throw new Error('correction-fixture-head-mismatch')
@@ -220,10 +227,12 @@ export async function invokeOmpReviewApplyFalsify(cwd: string): Promise<object> 
       appliedHead,
       priorHead,
     )
+    ciDiagnostic('phase', 'child-falsification-complete')
     if (terminal.status !== 'complete')
       throw new Error(`correction-fixture-terminal-refused: ${JSON.stringify(terminal)}`)
     stage = 'automatic-final-review-start'
     await driver.nextBatch(reviewAfter)
+    ciDiagnostic('phase', 'child-final-review-started')
     const reviewSnapshots: Array<{ head: string; index: string; fingerprint: string; sourceRecordId: string }> = []
     stage = 'final-review-initial'
     await driver.settle((task) => {
@@ -242,10 +251,13 @@ export async function invokeOmpReviewApplyFalsify(cwd: string): Promise<object> 
       })
       return { findings: [], specRows: [fixtureSpecRow(task.action)] }
     })
+    ciDiagnostic('phase', 'child-final-review-initial-complete')
     stage = 'final-review-synthesis'
     await driver.settle((task) => cleanReviewDecision(task.task))
+    ciDiagnostic('phase', 'child-final-review-synthesis-complete')
     stage = 'remote-review-replay'
     const replay = await requiredReviewRecords(cwd, 7)
+    ciDiagnostic('phase', 'child-remote-replay-complete')
     if (replay.head !== appliedHead || replay.verdict !== 'Approve (clean)')
       throw new Error(`correction-fixture-remote-review-refused: ${JSON.stringify(replay)}`)
     outcome = {
@@ -267,6 +279,7 @@ export async function invokeOmpReviewApplyFalsify(cwd: string): Promise<object> 
   }
   const diagnostic = { stage, driver: () => driverDiagnostic(driver) }
   await finishFixtureDiagnostic(driver.controller, diagnostic, failed, primary)
+  ciDiagnostic('phase', 'child-cleanup-complete')
   if (outcome === undefined) throw new Error('native-fixture-outcome-missing')
   return outcome
 }

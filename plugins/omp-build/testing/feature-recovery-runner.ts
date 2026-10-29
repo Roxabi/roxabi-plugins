@@ -1,10 +1,9 @@
 import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import type { OperatorPort } from '../roxabi/uw-contract.ts'
-import { installFixtureSdkSettings } from './native-sdk-settings-fixture.ts'
+import { diagnostic, loadDiagnosticExtension } from './ci-diagnostic-runner.ts'
 
-await installFixtureSdkSettings(process.argv[3] ?? '')
-const { default: ompBuildExtension } = await import('../omp/index.ts')
+const ompBuildExtension = await loadDiagnosticExtension()
 const { createOmpFixPort } = await import('../omp/omp-controller.ts')
 const { loadFeatureWorkflow } = await import('../roxabi/feature-loader.ts')
 const { createInstalledUwOperations } = await import('../roxabi/uw-installed-operations.ts')
@@ -88,6 +87,7 @@ function makePauseDisarmUnreadable(pr: number): void {
 const [operation, cwd, payloadText] = process.argv.slice(2)
 const payload = payloadFrom(JSON.parse(payloadText ?? '{}') as unknown)
 const workflow = await loadFeatureWorkflow()
+diagnostic('phase', 'child-workflow-loaded')
 
 async function continueFeature() {
   const sessionCwd = cwd ?? ''

@@ -9,6 +9,7 @@ import { assessCriterionDeclarations } from '../../engine/criterion-admission.ts
 import { criterionDeclarationSchema } from '../../engine/criterion-evidence-schema.ts'
 import type { DecodedHistory } from '../../engine/history-schema.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
+import { diagnostic } from '../../testing/ci-diagnostic.ts'
 import {
   arrangeReviewFixture,
   REVIEW_BRANCH as BRANCH,
@@ -34,7 +35,10 @@ function arrange() {
 }
 
 function invoke(box: Box, cwd: string, control: 'continue' | 'pause' | 'resume', operation = 'omp-review-lifecycle') {
-  const run = spawnSync(BUN, [RUNNER, operation, cwd, JSON.stringify({ control })], {
+  const preload = path.resolve(import.meta.dirname, '../../testing/ci-diagnostic-preload.js')
+  const flags =
+    process.env.Q904_CI_DIAGNOSTIC && operation === 'omp-review-apply-falsify' ? [`--preload=${preload}`] : []
+  const run = spawnSync(BUN, [...flags, RUNNER, operation, cwd, JSON.stringify({ control })], {
     cwd,
     env: box.env,
     encoding: 'utf8',
@@ -330,9 +334,13 @@ describe('installed /feature review lifecycle through actual Bun and external bo
   })
 
   it('pushes the owned correction only after native falsification', async () => {
+    diagnostic('phase', 'review-start')
     const { box, cwd } = arrange()
+    diagnostic('phase', 'review-arranged')
     await seedReviewFixture(box, cwd)
+    diagnostic('phase', 'review-seeded')
     const observed = invoke(box, cwd, 'continue', 'omp-review-apply-falsify')
+    diagnostic('phase', 'review-invoked')
     const state = readSim(box)
     const review = reviewHistory(box, state)
     const issue = issueDecodedHistory(box, state)
@@ -366,6 +374,7 @@ describe('installed /feature review lifecycle through actual Bun and external bo
     expect(observed.commit).not.toBe(observed.priorHead)
     assertCorrectionSnapshots(observed, records, observations)
     assertCorrectionReceipt(review, issue, issueRecords, observed, records, result)
+    diagnostic('phase', 'review-receipt')
     expect(observed.reviewSnapshots).toEqual([
       expect.objectContaining({ head: observed.commit, sourceRecordId: result?.recordId }),
     ])
@@ -375,6 +384,7 @@ describe('installed /feature review lifecycle through actual Bun and external bo
       'mandate-feature-1',
     ])
     expect(issueRecords.some((record) => record.kind === 'operator-control')).toBe(false)
+    diagnostic('phase', 'review-end')
   })
 
   it('persists confirmed local pause for a fresh review without another dispatch', async () => {

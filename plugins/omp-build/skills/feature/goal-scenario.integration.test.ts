@@ -1,6 +1,7 @@
 import { rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { diagnostic } from '../../testing/ci-diagnostic.ts'
 import { approve } from './testing/goal/goal-scenario-approval.ts'
 import { A, B, BRANCH_A, BRANCH_B, BRANCH_C, C, EPIC, RUN_A, RUN_B } from './testing/goal/goal-scenario-domain.ts'
 import { drive, ensureChildMandate, events, jsonOf, seedEpicDecision } from './testing/goal/goal-scenario-records.ts'
@@ -22,7 +23,9 @@ afterEach(dispose)
 
 describe('stateful gh — one continuous goal', () => {
   it('lands, crashes, merges, stops, and completes without an armed stopped PR', () => {
+    diagnostic('phase', 'goal-start')
     const { epic, origin, root } = sandbox()
+    diagnostic('phase', 'goal-sandbox')
     const started = jsonOf(drive(['next'], RUN_A))
     expect(started.step).toMatchObject({ action: 'start', ticket: A, branch: BRANCH_A })
     expect(git(epic, ['branch', '--show-current'])).toBe(BRANCH_A)
@@ -37,6 +40,7 @@ describe('stateful gh — one continuous goal', () => {
     })
     expect(openedA.status).toBe('created')
     approve(openedA.number, shaA, epic)
+    diagnostic('phase', 'goal-approved-a')
 
     const wrong = 'a'.repeat(40)
     const pin = gh(['pr', 'merge', String(openedA.number), '--auto', '--merge', '--match-head-commit', wrong])
@@ -142,6 +146,7 @@ describe('stateful gh — one continuous goal', () => {
     writeSim((state) => {
       delete state.checks[shaA]
     })
+    diagnostic('phase', 'goal-checks-a')
 
     git(epic, ['switch', '-q', '-c', BRANCH_C])
     const shaC = commitAndPush(BRANCH_C, 'feat(c): abandoned (#4)', 'c.txt')
@@ -296,6 +301,7 @@ describe('stateful gh — one continuous goal', () => {
     expect(stoppedArms()).toEqual([])
     expect(done.step.action).toBe('complete')
     expect(drive(['report', '--outcome', 'complete'], RUN_B).code).toBe(0)
+    diagnostic('phase', 'goal-reported')
     expect(events(EPIC)).toContainEqual(
       expect.objectContaining({ event: 'goal-report', run: RUN_A, outcome: 'complete' }),
     )
@@ -307,5 +313,6 @@ describe('stateful gh — one continuous goal', () => {
     )
     expect(readSim().prs[String(openedA.number)]?.state).toBe('MERGED')
     expect(readSim().prs[String(openedB.number)]?.state).toBe('MERGED')
+    diagnostic('phase', 'goal-end')
   })
 })
