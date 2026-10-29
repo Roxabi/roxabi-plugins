@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { mechanicalSpecDelta } from '../dist/contracts.js'
-import { canonicalActionOperands } from '../engine/action-input.ts'
+import { canonicalActionOperands, mechanicalSpecDelta } from '../dist/contracts.js'
 import type { Scope } from '../engine/record-values.ts'
 import type { CiExact } from '../engine/workflow-action-operands.ts'
 import type { ActionReceiptPayload, AssessSpecExact } from '../engine/workflow-receipt-schema.ts'
