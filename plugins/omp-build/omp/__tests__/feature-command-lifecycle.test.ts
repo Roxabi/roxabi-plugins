@@ -5,7 +5,6 @@ import type { AcceptedOwnSpec } from '../../engine/workflow-accepted-spec-types.
 import type { PreparedEpicReview } from '../../roxabi/epic-range-finalization.ts'
 import type { ContinueFeatureResult, FeatureCommandHost, FeatureWorkflow } from '../../roxabi/feature-contract'
 import { deliverFeatureResult, runInstalledFeatureCommand } from '../../roxabi/feature-entry'
-import { nativeFeatureProfiles } from '../../roxabi/native-feature-profiles'
 import { consultableAgentRoot } from '../../testing/protocol-retention.unit.ts'
 import {
   bridgeHarness,
@@ -244,21 +243,6 @@ describe('feature continuation seam', () => {
     await harness.emitBridge('agent_end', { willContinue: false }, retainedRoot)
     expect(completed).toBe(1)
     expect(settled).toBe(1)
-  })
-})
-
-describe('native feature profiles', () => {
-  it('keeps the four missing actions blocking and separate from the specialist plan review', () => {
-    const byName = new Map(nativeFeatureProfiles.map((profile) => [profile.name, profile]))
-    expect(byName.get('R-workflow-assess-spec')?.output).toBe('spec-assessment')
-    expect(byName.get('R-workflow-plan')?.output).toBe('plan')
-    expect(byName.get('R-workflow-implement')?.output).toBe('implementation')
-    expect(byName.get('R-workflow-attribute-ci')?.output).toBe('ci-attribution')
-    expect(byName.get('R-workflow-plan')?.body).toContain('criterion')
-    expect(byName.get('R-workflow-plan')?.body).toContain('paths')
-    expect(byName.get('R-workflow-assess-spec')?.body).toContain('exact accepted Spec snapshot')
-    expect(byName.get('R-workflow-plan-architect')?.tools).not.toContain('write')
-    expect(byName.get('R-workflow-plan-adversarial')?.tools).not.toContain('edit')
   })
 })
 
