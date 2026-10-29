@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import {
+  appendFileSync,
   chmodSync,
   mkdirSync,
   mkdtempSync,
@@ -9,7 +10,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { availableParallelism, cpus, freemem, loadavg, tmpdir, totalmem } from 'node:os'
 import path from 'node:path'
 import {
   A,
@@ -33,6 +34,29 @@ const REPOSITORY_URL = 'https://github.com/acme/app.git'
 
 let box: Box | undefined
 
+// Temporary CI diagnosis: record only operation names and resource readings, never command arguments.
+function timing(event: Record<string, unknown>): void {
+  const file = process.env.OMP_GOAL_TIMING_FILE
+  if (!file) return
+  try {
+    appendFileSync(file, `${JSON.stringify({ pid: process.pid, at: Date.now(), ...event })}\n`)
+  } catch {
+    // Diagnostics must not alter the test result.
+  }
+}
+
+function timed<T>(kind: string, operation: string | undefined, run: () => T): T {
+  if (!process.env.OMP_GOAL_TIMING_FILE) return run()
+  const name = operation && /^[a-zA-Z-]+$/.test(operation) ? operation : 'other'
+  const started = performance.now()
+  timing({ event: 'start', kind, operation: name, load: loadavg(), freeMemory: freemem() })
+  try {
+    return run()
+  } finally {
+    timing({ event: 'end', kind, operation: name, elapsedMs: performance.now() - started })
+  }
+}
+
 function activeBox(): Box {
   if (!box) throw new Error('no sandbox')
   return box
@@ -53,11 +77,13 @@ export function dispose(): void {
 
 export function git(cwd: string, args: string[]): string {
   const active = activeBox()
-  return execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t', '-c', 'core.hooksPath=/dev/null', ...args], {
-    cwd,
-    env: active.env,
-    encoding: 'utf8',
-  }).trim()
+  return timed('git', args[0], () =>
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t', '-c', 'core.hooksPath=/dev/null', ...args], {
+      cwd,
+      env: active.env,
+      encoding: 'utf8',
+    }).trim(),
+  )
 }
 
 export function readSim(): SimState {
@@ -72,33 +98,39 @@ export function writeSim(mutate: (state: SimState) => void): void {
 
 export function gh(args: string[], input?: string) {
   const active = activeBox()
-  const out = spawnSync(path.join(active.root, 'bin', 'gh'), args, {
-    cwd: active.epic,
-    env: active.env,
-    encoding: 'utf8',
-    input,
-  })
+  const out = timed('gh', args[0], () =>
+    spawnSync(path.join(active.root, 'bin', 'gh'), args, {
+      cwd: active.epic,
+      env: active.env,
+      encoding: 'utf8',
+      input,
+    }),
+  )
   return { status: out.status, stdout: out.stdout, stderr: out.stderr }
 }
 
 export function callWorkflow<T>(fn: string, cwd: string, payload: object): T {
   const active = activeBox()
-  const out = spawnSync(REAL_BUN, [WORKFLOW, fn, cwd, JSON.stringify(payload)], {
-    cwd,
-    env: active.env,
-    encoding: 'utf8',
-  })
+  const out = timed('workflow', fn, () =>
+    spawnSync(REAL_BUN, [WORKFLOW, fn, cwd, JSON.stringify(payload)], {
+      cwd,
+      env: active.env,
+      encoding: 'utf8',
+    }),
+  )
   if (out.status !== 0) throw new Error(`${fn} failed (${out.status}): ${out.stderr}\n${out.stdout}`)
   return JSON.parse(out.stdout)
 }
 
 export function runDriver(args: string[], cwd: string): { code: number | null; stdout: string; stderr: string } {
   const active = activeBox()
-  const out = spawnSync(REAL_BUN, [DRIVER, ...args, '--epic', String(EPIC)], {
-    cwd,
-    env: active.env,
-    encoding: 'utf8',
-  })
+  const out = timed('driver', args[0], () =>
+    spawnSync(REAL_BUN, [DRIVER, ...args, '--epic', String(EPIC)], {
+      cwd,
+      env: active.env,
+      encoding: 'utf8',
+    }),
+  )
   return { code: out.status, stdout: out.stdout, stderr: out.stderr }
 }
 
@@ -118,6 +150,15 @@ function child(number: number, title: string, blockedBy: number[] = []) {
 }
 
 export function sandbox(): Box {
+  if (process.env.OMP_GOAL_TIMING_FILE)
+    timing({
+      event: 'sandbox',
+      availableParallelism: availableParallelism(),
+      cpus: cpus().length,
+      totalMemory: totalmem(),
+      freeMemory: freemem(),
+      load: loadavg(),
+    })
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'omp-goal-scenario-')))
   const origin = path.join(root, 'origin.git')
   const principal = path.join(root, 'principal')

@@ -48,7 +48,10 @@ jobs:
       - name: Lint workflows (actionlint)
         run: actionlint
       - name: Test (vitest)
-        run: bun run test
+        run: |
+          export OMP_GOAL_TIMING_FILE="${RUNNER_TEMP}/omp-goal-timing.jsonl"
+          trap 'status=$?; if [ -f "$OMP_GOAL_TIMING_FILE" ]; then echo "Goal scenario diagnostic timings:"; cat "$OMP_GOAL_TIMING_FILE" || true; fi; exit "$status"' EXIT
+          bun run test
       - name: Verify action pins resolve
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
