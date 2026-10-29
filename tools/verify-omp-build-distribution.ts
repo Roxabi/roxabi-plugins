@@ -223,9 +223,19 @@ function verifyCleanExtension(checkout: string, owned: string): void {
       return true
     },
   })
+  // OMP loads extensions through its SDK graph loader, which supplies host
+  // package imports even when the installed plugin has no node_modules.
+  // Resolve the loader from B's frozen installation, not from the plugin.
+  requireOwnedPath(requirePhysicalDependencies(checkout), join(checkout, 'node_modules/@oh-my-pi/pi-coding-agent'))
+  const smoke = `
+    import { installLegacyPiSpecifierShim, loadLegacyPiModule } from '@oh-my-pi/pi-coding-agent/extensibility/plugins/legacy-pi-compat'
+    installLegacyPiSpecifierShim()
+    const extension = await loadLegacyPiModule(${JSON.stringify(join(destination, 'omp/index.ts'))})
+    if (typeof extension?.default !== 'function') throw new Error('extension has no default factory')
+  `
   try {
-    execFileSync(process.execPath, ['--no-install', join(destination, 'omp/index.ts')], {
-      cwd: owned,
+    execFileSync(process.execPath, ['--no-install', '--eval', smoke], {
+      cwd: checkout,
       env: { PATH: process.env.PATH, HOME: owned, TMPDIR: owned, BUN_INSTALL_CACHE_DIR: join(owned, 'cache') },
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
