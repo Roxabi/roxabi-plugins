@@ -24,8 +24,8 @@ const INTEGRATION = '**/*.integration.test.?(c|m)[jt]s?(x)'
 
 export default defineConfig({
   test: {
-    // Inline projects share the default group, so their process and I/O load
-    // needs one global bound. Keep Vitest's non-watch default on small runners.
+    // Unit files share a bounded worker pool; integration files run in a
+    // separate, sequential group to bound subprocess contention.
     maxWorkers: Math.min(8, Math.max(1, availableParallelism() - 1)),
     exclude,
     setupFiles: ['./vitest.setup.ts'],
@@ -54,6 +54,8 @@ export default defineConfig({
         test: {
           name: 'integration',
           include: [INTEGRATION],
+          fileParallelism: false,
+          sequence: { groupOrder: 1 },
           globalSetup: ['./vitest.integration.global-setup.ts'],
           setupFiles: ['./vitest.integration.setup.ts'],
           // 26x the slowest fork measured locally, 1155ms. Wide enough to absorb

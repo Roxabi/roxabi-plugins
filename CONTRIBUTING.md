@@ -70,6 +70,11 @@ run-owned temporary directory and removes it at teardown. Sandbox fixtures use
 that executable through an integration-only environment variable; standalone
 Bun fixture runs continue to use the simulator source.
 
+Vitest runs unit files in a bounded parallel group, then integration files one
+at a time to limit concurrent subprocess and I/O load. This trades suite wall
+time for a lower contention bound; `--project integration` selects the same
+integration files and keeps their 30-second per-test budget.
+
 Vitest workers run under Node. The shared setup isolates the SDK's Bun-only
 logging and task-rendering dependencies, while fixture registry and event-bus
 operations use the SDK implementations. Bun subprocess fixtures use the real
