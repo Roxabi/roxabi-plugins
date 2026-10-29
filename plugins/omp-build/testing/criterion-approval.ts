@@ -2,105 +2,46 @@ import { decodeHistory, encodeRecord } from '../adapters/github/history-codec.ts
 import { canonicalValueDigest } from '../engine/action-input.ts'
 import type { ActionInputs } from '../engine/action-input-schema.ts'
 import { evidenceDigest } from '../engine/criterion-admission.ts'
-import {
-  CRITERION_EVIDENCE_FORMAT,
-  criterionDeclarationSchema,
-  criterionEvidenceSchema,
-} from '../engine/criterion-evidence-schema.ts'
+import { criterionEvidenceSchema } from '../engine/criterion-evidence-schema.ts'
 import { criterionVerdictSchema } from '../engine/criterion-verdict-schema.ts'
-import { FINDING_TARGET_FORMAT } from '../engine/finding-target-schema.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Scope, Verdict } from '../engine/record-values.ts'
 import type { RecordProjectionConfig } from '../engine/result.ts'
 import type { ObservedComment } from '../engine/review-schema.ts'
-import { type MandateRecord, mandateScope, type ReceiptRecord } from '../engine/workflow-control.ts'
+import type { MandateRecord } from '../engine/workflow-control.ts'
 import { NATIVE_AUTHOR, submission } from './record-builders.ts'
 import { contribution } from './record-decisions.ts'
 import { reviewGraph } from './record-graphs.ts'
 import { observedComment } from './record-history.ts'
 import { roxabiWorkflowFixtures } from './roxabi-presets.ts'
-import { admittedImplement, eligiblePlan } from './workflow-decision-cases/support/workflow-decision-fixtures.ts'
 
-/** Fictional captured execution, exclusively for exercising the real admission path in tests. */
-export function criterionImplementationRecords(mandate: MandateRecord, head: string): CanonicalRecord[] {
-  const criterion = mandate.payload.ownSpec.snapshot.spec.criteria.find(({ id }) => id === 'C1')
-  if (criterion === undefined) throw new Error('Fixture mandate has no C1 criterion')
-  const result = admittedImplement(mandate)
-  if (
-    result.kind !== 'action-receipt' ||
-    result.payload.action !== 'implement' ||
-    result.payload.phase !== 'result' ||
-    result.payload.structured === null ||
-    result.payload.admission === null
-  ) {
-    throw new Error('Fixture implementation result is incomplete')
-  }
-  const code = { repository: mandate.repository, commit: head }
-  const target = {
-    format: FINDING_TARGET_FORMAT,
-    kind: 'criterion',
-    spec: {
-      uw: mandate.payload.ownSpec.uw,
-      version: mandate.payload.ownSpec.version,
-      sourceAccepted: { scope: mandateScope(mandate), recordId: mandate.recordId, kind: 'mandate' },
-    },
-    id: criterion.id,
-  }
-  const toolCallId = 'fixture-c1-test'
-  const command = 'bun test fixture-c1.test.ts'
-  const text = 'PASS C1 fixture scenario'
-  const evidence = criterionEvidenceSchema.parse({
-    format: CRITERION_EVIDENCE_FORMAT,
-    id: 'fixture-c1-evidence',
-    target,
-    code,
-    provenance: {
-      kind: 'native',
-      actionId: result.payload.actionId,
-      childId: 'fixture-c1-child',
-      submissionIndex: 0,
-      toolCallIds: [toolCallId],
-    },
-    method: 'test',
-    scenario: criterion.statement,
-    before: null,
-    after: {
-      run: {
-        toolCallId,
-        command,
-        exitCode: 0,
-        output: { kind: 'combined', text },
-        context: { probeCwd: '.', start: null, end: null },
-      },
-      versionClaim: { code, reason: 'fixture run at candidate head', references: [] },
-    },
+/** Preserve the existing simulator comments while constructing a review fixture. */
+export function criterionPullHistory(
+  scope: Scope,
+  comments: readonly {
+    id?: number
+    author: string
+    body: string
+    createdAt?: string | null
+    updatedAt?: string | null
+  }[],
+) {
+  return decodeHistory({
+    scope,
+    expectedAuthor: 'operator',
+    stopAuthor: null,
+    complete: true,
+    diagnostics: [],
+    comments: comments.map((comment, index) => ({
+      locator: `${scope.target}:comment:${comment.id ?? index + 1}`,
+      nativeId: comment.id === undefined ? null : String(comment.id),
+      body: comment.body,
+      author: comment.author,
+      createdAt: comment.createdAt ?? null,
+      updatedAt: comment.updatedAt ?? null,
+    })),
   })
-  const implementation: ReceiptRecord = {
-    ...result,
-    payload: {
-      ...result.payload,
-      structured: {
-        ...result.payload.structured,
-        commitSHAs: [head],
-        criteria: [criterionDeclarationSchema.parse({ target, verification: 'evidence', evidence: [evidence] })],
-      },
-      native: {
-        ...result.payload.native,
-        bashCalls: [{ toolCallId, input: { command }, effectiveCwd: '.', result: { output: text }, exitCode: 0 }],
-      },
-      admission: {
-        ...result.payload.admission,
-        admitted: true,
-        commits: [head],
-        remoteBranch: mandate.payload.branch,
-        remoteTip: head,
-        reason: 'admitted',
-      },
-    },
-  }
-  const start = roxabiWorkflowFixtures().implementStart(mandate, result.payload.actionId)
-  return [...eligiblePlan(mandate), start, implementation]
 }
 
 /** Encode records as authenticated native comments, preserving operation order and multipart records. */
@@ -110,10 +51,14 @@ export function encodeCriterionRecords(
   projection: RecordProjectionConfig,
   author = NATIVE_AUTHOR,
   externalHistories: readonly DecodedHistory[] = [],
+  priorHistory?: DecodedHistory,
 ) {
-  const comments: ObservedComment[] = []
+  const comments: ObservedComment[] = [...(priorHistory?.source.comments ?? [])]
+  const priorCount = comments.length
   for (const record of records) {
-    const source = { scope, expectedAuthor: author, stopAuthor: null, complete: true, comments, diagnostics: [] }
+    const source = priorHistory
+      ? { ...priorHistory.source, comments }
+      : { scope, expectedAuthor: author, stopAuthor: null, complete: true, comments, diagnostics: [] }
     const encoded = encodeRecord(record, source, projection, externalHistories)
     if (!encoded.ok)
       throw new Error(
@@ -124,8 +69,10 @@ export function encodeCriterionRecords(
       comments.push(observedComment({ locator: `comment-${id}`, nativeId: id, body, author }))
     }
   }
-  const source = { scope, expectedAuthor: author, stopAuthor: null, complete: true, comments, diagnostics: [] }
-  return { comments, history: decodeHistory(source) }
+  const source = priorHistory
+    ? { ...priorHistory.source, comments }
+    : { scope, expectedAuthor: author, stopAuthor: null, complete: true, comments, diagnostics: [] }
+  return { comments: comments.slice(priorCount), history: decodeHistory(source) }
 }
 
 function capturedCriterionEvidence(options: {
@@ -207,6 +154,7 @@ export function criterionReviewGraph(options: {
   inputs: ActionInputs
   head: string
   issueRecords: readonly CanonicalRecord[]
+  pullHistory: DecodedHistory
   issueHistory?: DecodedHistory
   scope: Scope
   projection: RecordProjectionConfig
@@ -292,6 +240,6 @@ export function criterionReviewGraph(options: {
     decision,
     synthesisContribution,
     records,
-    ...encodeCriterionRecords(records, scope, projection, options.author, [issueHistory]),
+    ...encodeCriterionRecords(records, scope, projection, options.author, [issueHistory], options.pullHistory),
   }
 }

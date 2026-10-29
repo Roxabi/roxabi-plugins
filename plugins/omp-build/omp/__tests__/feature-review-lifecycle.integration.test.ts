@@ -198,12 +198,13 @@ function assertCorrectionReceipt(
     (record) => record.kind === 'action-receipt' && record.recordId === planRef?.record.recordId,
   )
   if (plan?.kind !== 'action-receipt') throw new Error('fixture-plan-source-missing')
+  if (plan.payload.mandate.kind !== 'mandate') throw new Error('fixture-plan-mandate-missing')
   const histories = [review, issue]
   const context = {
     head: observed.commit,
     planActionId: plan.payload.actionId,
-    mandateId: manifest.spec.effective.own.sourceAccepted.recordId,
-    specVersion: manifest.spec.effective.own.version,
+    mandate: plan.payload.mandate,
+    ownSpec: manifest.spec.effective.own,
   }
   const admitted = resolveAdmittedCorrectionCriterionSource(result, histories, context)
   expect(admitted?.contribution.recordId).toBe(receipt.sourceContributionId)
@@ -211,6 +212,21 @@ function assertCorrectionReceipt(
     resolveAdmittedCorrectionCriterionSource(result, histories, { ...context, head: observed.priorHead }),
   ).toBeNull()
   expect(resolveAdmittedCorrectionCriterionSource(result, [issue], context)).toBeNull()
+  expect(
+    resolveAdmittedCorrectionCriterionSource(result, histories, {
+      ...context,
+      ownSpec: {
+        ...context.ownSpec,
+        sourceAccepted: { ...context.ownSpec.sourceAccepted, recordId: 'wrong-acceptance-source' },
+      },
+    }),
+  ).toBeNull()
+  expect(
+    resolveAdmittedCorrectionCriterionSource(result, histories, {
+      ...context,
+      mandate: { ...context.mandate, scope: { ...context.mandate.scope, target: 'wrong-owner-scope' } },
+    }),
+  ).toBeNull()
   const implementation = issueRecords.find(
     (record) =>
       record.kind === 'action-receipt' && record.payload.action === 'implement' && record.payload.phase === 'result',

@@ -101,6 +101,8 @@ function appendApprovedReview(box: Box, cwd: string): void {
   const review = criterionReviewGraph({
     mandate,
     issueRecords,
+    pullHistory: pullHistory(box),
+    issueHistory: history,
     scope: PULL_SCOPE,
     head,
     inputs,

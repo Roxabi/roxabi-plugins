@@ -11,8 +11,10 @@ import {
 } from './criterion-evidence-schema.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic } from './record-diagnostics.ts'
+import type { ExternalRecordRef } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
+import type { OwnSpecRef } from './uw-spec-schema.ts'
 import { bindExternalRef, historyFor } from './workflow-control.ts'
 
 type Ref = ActionInputs['manifest']['deliveryData'][number]
@@ -50,8 +52,8 @@ export function appendCorrectionSelection(
   histories: readonly DecodedHistory[],
   inputs: ActionInputs,
   planActionId: string,
-  mandateId: string,
-  specVersion: string,
+  mandate: ExternalRecordRef,
+  ownSpec: OwnSpecRef,
   pins: readonly PinnedFileRef[],
   diagnostics: Diagnostic[],
   selected: Selection,
@@ -65,8 +67,8 @@ export function appendCorrectionSelection(
       : resolveAdmittedCorrectionCriterionSource(fix, histories, {
           head: inputs.manifest.code.head,
           planActionId,
-          mandateId,
-          specVersion,
+          mandate,
+          ownSpec,
         })
   const value = fix === null ? undefined : pointer(fix, ref.selector)
   if (source === null || value === undefined || canonicalValueDigest(value) !== ref.digest) {

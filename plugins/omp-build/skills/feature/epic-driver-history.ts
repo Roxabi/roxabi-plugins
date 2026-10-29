@@ -3,9 +3,9 @@ import {
   classifyHistory,
   type DecodedHistory,
   type Json,
+  validateDecision,
   validateRecordGraph,
 } from '../../dist/contracts.js'
-import { validateDecision } from '../../engine/review-decision.ts'
 import type { UwAdmission } from '../../engine/uw-admission.ts'
 import { loadReviewConfig } from '../../roxabi/review-assets.ts'
 import { citedReviewHistories, diagnosticsText } from './epic-driver-github'

@@ -1,9 +1,12 @@
+import { actionInputDigest, canonicalValueDigest } from '../engine/action-input.ts'
 import type { ActionInputs } from '../engine/action-input-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Label, Scope } from '../engine/record-values.ts'
-import { finding, reviewRoot, submission, synthesisInventory, TEST_HEAD } from './record-builders.ts'
+import { acceptedActionInputs } from './action-input-fixtures.ts'
+import { finding, reviewRoot, submission, synthesisInventory, TEST_HEAD, TEST_SCOPE } from './record-builders.ts'
 import { contribution, decision, finalReview } from './record-decisions.ts'
 import { history } from './record-history.ts'
+import { createWorkflowFixtures } from './workflow-fixtures.ts'
 
 export function reviewGraph(
   options: {
@@ -48,9 +51,8 @@ export function reviewGraph(
     rootId,
     head,
     scope: options.scope,
-    ...(options.inputs === undefined
-      ? {}
-      : { input: options.inputs.fingerprint, actionInputDigest: options.inputs.fingerprint }),
+    input: root.payload.input,
+    actionInputDigest: root.payload.actionInputDigest,
   })
   const reviewDecision = decision({
     id: decisionId,
@@ -93,7 +95,7 @@ export function reviewGraph(
     inventoryIds: [rootId, synthesisId],
     decisionId,
     scope: options.scope,
-    ...(options.inputs === undefined ? {} : { input: options.inputs.fingerprint }),
+    input: root.payload.input,
   })
   const records = [root, spec, panel, synthesis, synthesisContribution, reviewDecision, review] as CanonicalRecord[]
   const observed = history(records)
@@ -110,6 +112,45 @@ export function reviewGraph(
   }
 }
 
+function defaultEpicInputs(scope: Scope, range: string): ActionInputs {
+  const fixtures = createWorkflowFixtures({
+    productVersion: '0.13.0',
+    config: {
+      version: 'omp-build-workflow/1',
+      digest: 'a'.repeat(64),
+      effective: {
+        graph: {
+          version: 1,
+          productVersion: '0.13.0',
+          configVersion: 'omp-build-workflow/1',
+          edgeOrder: 'array',
+          nodes: [{ id: 'stop', action: 'stop' }],
+          edges: [],
+          initial: 'stop',
+        },
+      },
+    },
+    head: null,
+    editedAt: '2026-10-21T00:00:00Z',
+  })
+  const mandate = fixtures.epicMandate(scope, [])
+  const inputs = acceptedActionInputs(mandate, 'review')
+  const [base, head] = range.split('..')
+  const manifest = {
+    ...inputs.manifest,
+    code: { ...inputs.manifest.code, repository: scope.repository, base, head },
+    acceptedSources: [
+      {
+        source: 'record' as const,
+        record: { scope, recordId: mandate.recordId, kind: mandate.kind },
+        selector: '/payload',
+        digest: canonicalValueDigest(mandate.payload),
+      },
+    ],
+  }
+  return { ...inputs, manifest, fingerprint: actionInputDigest(manifest) }
+}
+
 export function epicReviewGraph(
   options: {
     prefix?: string
@@ -120,21 +161,24 @@ export function epicReviewGraph(
     scope?: Scope
   } = {},
 ) {
+  const scope = options.scope ?? TEST_SCOPE
+  const range = options.range ?? `0000000000000000000000000000000000000000..${options.head ?? TEST_HEAD}`
+  const inputs = options.inputs ?? defaultEpicInputs(scope, range)
   const graph = reviewGraph({
     prefix: options.prefix ?? 'epic',
     head: options.head,
     empty: options.empty,
-    inputs: options.inputs,
-    scope: options.scope,
+    inputs,
+    scope,
   })
   const root = reviewRoot({
     id: graph.root.recordId,
-    scope: options.scope,
+    scope,
     head: options.head,
-    inputSnapshot: options.inputs,
+    inputSnapshot: inputs,
     subject: {
       kind: 'epic-range',
-      range: options.range ?? `0000000000000000000000000000000000000000..${options.head ?? TEST_HEAD}`,
+      range,
     },
   })
   const reviewDecision = {

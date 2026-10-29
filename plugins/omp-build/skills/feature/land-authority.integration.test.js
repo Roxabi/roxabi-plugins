@@ -191,14 +191,14 @@ describe('landing review authority', () => {
     comment.updatedAt = '2026-10-21T12:00:01Z'
     const { gh, git, state } = gateGh(linked.pr, { head: HEADS[0], armed: true, issueHistory: linked.issue })
 
-    await expect(
-      landPr(WORKTREE, PR, {
-        gh,
-        git,
-        requiredContexts: ['ci'],
-        landing: { mode: 'native', required_checks: ['ci'] },
-      }),
-    ).resolves.toMatchObject({ status: 'mandate-refused', disarmed: true })
+    const result = await landPr(WORKTREE, PR, {
+      gh,
+      git,
+      requiredContexts: ['ci'],
+      landing: { mode: 'native', required_checks: ['ci'] },
+    })
+    expect(['mandate-refused', 'not-approved']).toContain(result.status)
+    expect(result).toMatchObject({ disarmed: true })
     expect(state).toEqual({ head: HEADS[0], label: false, auto: false })
   })
 

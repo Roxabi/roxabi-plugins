@@ -302,7 +302,7 @@ describe('epic-driver — fresh parent admission at terminal effects', () => {
   it('publishes an exact-range review when the parent remains deliverable', () => {
     const { range, decisionId } = prepare('review')
     const run = drive(['review', '--decision-record', decisionId, '--range', range])
-    expect(run.code).toBe(0)
+    expect(run.code, run.stderr).toBe(0)
     expect(eventPayloads(1)).toContainEqual(expect.objectContaining({ event: 'epic-review', decisionId, range }))
   })
 

@@ -1,6 +1,7 @@
 import { nativeResultValid } from './delivery-observation-authentication.ts'
 import type { DecodedHistory } from './history-schema.ts'
-import { diagnostic, fail } from './record-diagnostics.ts'
+import { diagnostic, fail, sameRef } from './record-diagnostics.ts'
+import type { ExternalRecordRef } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Result } from './result.ts'
 import { recordsOf } from './workflow-control.ts'
@@ -32,16 +33,23 @@ export function planReceiptEligible(record: Receipt): boolean {
   )
 }
 
-export function currentPlanReceipt(histories: readonly DecodedHistory[], specDigest: string): Result<Receipt | null> {
+function currentPlanCandidate(record: CanonicalRecord, specDigest: string, mandate: ExternalRecordRef) {
+  if (record.kind !== 'action-receipt' || !planReceiptEligible(record)) return []
+  if (record.payload.action !== 'plan' || record.payload.phase !== 'result') return []
+  if (!sameRef(record.payload.mandate, mandate)) return []
+  if (!('amendsReviewActionId' in record.payload.exactInputs) || !('specDigest' in record.payload.exactInputs))
+    return []
+  if (record.payload.exactInputs.specDigest !== specDigest) return []
+  return [{ record, exact: record.payload.exactInputs }]
+}
+
+export function currentPlanReceipt(
+  histories: readonly DecodedHistory[],
+  specDigest: string,
+  mandate: ExternalRecordRef,
+): Result<Receipt | null> {
   const plans = histories.flatMap((history) =>
-    recordsOf(history).flatMap((record) => {
-      if (record.kind !== 'action-receipt' || !planReceiptEligible(record)) return []
-      if (record.payload.action !== 'plan' || record.payload.phase !== 'result') return []
-      if (!('amendsReviewActionId' in record.payload.exactInputs) || !('specDigest' in record.payload.exactInputs))
-        return []
-      if (record.payload.exactInputs.specDigest !== specDigest) return []
-      return [{ record, exact: record.payload.exactInputs }]
-    }),
+    recordsOf(history).flatMap((record) => currentPlanCandidate(record, specDigest, mandate)),
   )
   const drafts = uniqueAccounted(
     plans.filter((row) => row.exact.amendsReviewActionId === null),
@@ -61,6 +69,7 @@ export function currentPlanReceipt(histories: readonly DecodedHistory[], specDig
             review.payload.phase !== 'result'
           )
             return false
+          if (!sameRef(review.payload.mandate, mandate)) return false
           if (!('draftActionId' in review.payload.exactInputs)) return false
           return (
             review.payload.actionId === row.exact.amendsReviewActionId &&

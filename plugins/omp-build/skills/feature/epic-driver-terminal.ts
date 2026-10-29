@@ -2,9 +2,9 @@ import {
   type CanonicalRecord,
   classifyHistory,
   type DecodedHistory,
+  validateDecision,
   validateRecordGraph,
 } from '../../dist/contracts.js'
-import { validateDecision } from '../../engine/review-decision.ts'
 import type { UwAdmission } from '../../engine/uw-admission.ts'
 import { loadReviewConfig } from '../../roxabi/review-assets.ts'
 import { assertChildGrant, type EpicAuthority, evidenceText, readEpicAuthority } from './epic-driver-authority'

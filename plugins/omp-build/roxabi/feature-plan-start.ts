@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { canonicalValueDigest } from '../engine/action-input.ts'
+import { canonicalValueDigest } from '../dist/contracts.js'
 import type { RecordInputRef } from '../engine/action-input-schema.ts'
 import type { PlanMacro } from '../engine/workflow-plan.ts'
 import {

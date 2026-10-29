@@ -141,6 +141,7 @@ function readSummary(value: object): string {
 }
 
 function resultSummary(value: unknown): string {
+  if (Array.isArray(value)) return `uw-result: success count=${value.length}`
   const record = object(value)
   if (record === null) return 'uw-result: malformed-result'
   if (Object.hasOwn(record, 'uw') && Object.hasOwn(record, 'parsed')) return readSummary(record)

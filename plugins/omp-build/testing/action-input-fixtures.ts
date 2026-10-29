@@ -41,13 +41,16 @@ function pin() {
   }
 }
 
-export function standaloneReviewInputs(): ActionInputs {
+export function standaloneReviewInputs(
+  scope: { repository: string; target: string } = SCOPE,
+  head = '1'.repeat(40),
+): ActionInputs {
   const base = pin()
   const manifest = {
     ...base,
-    code: { ...base.code, head: '1'.repeat(40) },
+    code: { ...base.code, repository: scope.repository, head },
     purpose: 'review' as const,
-    subject: { kind: 'standalone-pr' as const, pullRequest: SCOPE },
+    subject: { kind: 'standalone-pr' as const, pullRequest: scope },
     spec: { kind: 'absent' as const, reason: 'standalone-review' as const },
   }
   return {

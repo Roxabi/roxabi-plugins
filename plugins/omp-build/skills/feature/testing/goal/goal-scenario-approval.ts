@@ -1,18 +1,18 @@
 import { decodeHistory } from '../../../../contracts.ts'
 import type { ActionInputs } from '../../../../engine/action-input-schema.ts'
-import { criterionReviewGraph } from '../../../../testing/criterion-approval.ts'
+import { criterionPullHistory, criterionReviewGraph } from '../../../../testing/criterion-approval.ts'
 import { roxabiRecordFixtures } from '../../../../testing/roxabi-presets.ts'
 import type { Comment } from './goal-scenario-domain.ts'
 import { callWorkflow, gh, readSim } from './goal-scenario-sandbox.ts'
 
 export function nativeComments(issue: number, comments: Comment[]) {
   return comments.map((comment, index) => ({
-    locator: `acme/app#${issue}:comment:${index + 1}`,
-    nativeId: String(index + 1),
+    locator: `acme/app#${issue}:comment:${comment.id ?? index + 1}`,
+    nativeId: String(comment.id ?? index + 1),
     body: comment.body,
     author: comment.author,
-    createdAt: '2026-01-01T00:00:00Z',
-    updatedAt: '2026-01-01T00:00:00Z',
+    createdAt: comment.createdAt ?? '2026-01-01T00:00:00Z',
+    updatedAt: comment.updatedAt ?? comment.createdAt ?? '2026-01-01T00:00:00Z',
   }))
 }
 
@@ -55,10 +55,14 @@ export function approve(pr: number, sha: string, cwd: string): void {
       record.recordId === accepted.effective.own.sourceAccepted.recordId,
   )
   if (mandate?.kind !== 'mandate') throw new Error(`approve #${pr}: missing accepted mandate`)
+  const pull = readSim().prs[String(pr)]
+  if (!pull) throw new Error(`approve #${pr}: missing PR`)
+  const pullHistory = criterionPullHistory({ repository: 'acme/app', target: `acme/app#${pr}` }, pull.comments)
   const comments = criterionReviewGraph({
     mandate,
     issueRecords,
     issueHistory: history,
+    pullHistory,
     scope: { repository: 'acme/app', target: `acme/app#${pr}` },
     head: sha,
     inputs,

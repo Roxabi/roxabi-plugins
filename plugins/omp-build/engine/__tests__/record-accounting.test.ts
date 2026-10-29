@@ -198,7 +198,7 @@ describe('review accounting and stops', () => {
   })
 
   test('treats a completed replacement final as ordinary after interrupting the historical root', () => {
-    const baseInputs = standaloneReviewInputs()
+    const baseInputs = standaloneReviewInputs(TEST_SCOPE, TEST_HEAD)
     const manifest = { ...baseInputs.manifest, code: { ...baseInputs.manifest.code, base: 'c'.repeat(40) } }
     const freshInputs = { ...baseInputs, manifest, fingerprint: actionInputDigest(manifest) }
     const historical = reviewRoot({ id: 'historical-interrupted-root', head: TEST_HEAD })

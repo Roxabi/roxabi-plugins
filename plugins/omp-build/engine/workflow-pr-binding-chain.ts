@@ -40,6 +40,7 @@ function successorClaim(
 ): { status: 'none' } | BindingRefusal | { status: 'next'; ref: ExternalRecordRef } {
   const controls = history.operations.filter(
     (operation) =>
+      operation.authority !== 'foreign' &&
       operation.record?.kind === 'operator-control' &&
       operation.record.payload.control === 'select-successor' &&
       sameRef(operation.record.payload.predecessor, mandate),

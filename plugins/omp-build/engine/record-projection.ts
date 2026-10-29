@@ -22,17 +22,16 @@ function externalReferenceDiagnostic(
   if (foreign === undefined)
     return diagnostic('missing-history', `No history was supplied for ${ref.scope.repository} ${ref.scope.target}`)
   if (!foreign.source.complete) return diagnostic('incomplete', 'External history pagination is incomplete')
-  const matches = foreign.operations.filter(
+  const observations = foreign.operations.filter(
     (operation) => operation.record?.recordId === ref.recordId || operation.recordId === ref.recordId,
   )
-  if (matches.length === 0) return diagnostic('unknown', `Record ${ref.recordId} is not in the foreign history`)
+  if (observations.length === 0) return diagnostic('unknown', `Record ${ref.recordId} is not in the foreign history`)
+  const matches = observations.filter((operation) => operation.authority !== 'foreign')
+  if (matches.length === 0)
+    return diagnostic('unconfirmed', `Record ${ref.recordId} is not a complete authenticated record`)
   if (matches.some((operation) => operation.status === 'conflict'))
     return diagnostic('conflict', `Record ${ref.recordId} has conflicting parts`)
-  if (
-    matches.some(
-      (operation) => operation.status !== 'complete' || operation.record === null || operation.authority === 'foreign',
-    )
-  )
+  if (matches.some((operation) => operation.status !== 'complete' || operation.record === null))
     return diagnostic('unconfirmed', `Record ${ref.recordId} is not a complete authenticated record`)
   const bodies = new Set(matches.map((operation) => JSON.stringify(operation.record)))
   if (bodies.size !== 1) return diagnostic('ambiguous', `Record ${ref.recordId} has incompatible duplicates`)

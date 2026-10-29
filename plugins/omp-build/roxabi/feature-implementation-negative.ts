@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { producerImplementationOutputSchema } from '../engine/workflow-output-schema.ts'
+import { producerImplementationOutputSchema } from '../dist/contracts.js'
 import type { NativeBatchResult } from '../omp/review-runtime/contracts.ts'
 import { matchesContextNegative } from './feature-context-negative.ts'
 import type { FeatureNativePublication } from './feature-contract.ts'

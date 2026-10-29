@@ -17,12 +17,13 @@ import {
   planReceiptEligible,
 } from './delivery-eligibility.ts'
 import type { DecodedHistory } from './history-schema.ts'
-import { diagnostic } from './record-diagnostics.ts'
+import { diagnostic, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
 import { bindExternalRef, historyFor } from './workflow-control.ts'
 import { implementationOutputSchema } from './workflow-output-schema.ts'
+import { resolveManifestMandate } from './workflow-pr-binding.ts'
 
 type Receipt = Extract<CanonicalRecord, { kind: 'action-receipt' }>
 type DeliveryRef = ActionInputs['manifest']['deliveryData'][number]
@@ -83,12 +84,17 @@ function admittedImplementation(
   history: DecodedHistory,
   head: string,
   planActionId: string,
-  mandateId: string,
+  mandate: ExternalRecordRef,
 ): boolean {
   const payload = receipt.payload
   if (payload.action !== 'implement' || payload.phase !== 'result' || !('planActionId' in payload.exactInputs))
     return false
-  if (!('mandateId' in payload.exactInputs) || payload.exactInputs.mandateId !== mandateId) return false
+  if (
+    !sameRef(payload.mandate, mandate) ||
+    !('mandateId' in payload.exactInputs) ||
+    payload.exactInputs.mandateId !== mandate.recordId
+  )
+    return false
   if (!implementationReceiptEligible(receipt) || !implementationStartPaired(history, receipt)) return false
   if (payload.admission?.remoteTip !== head) return false
   return payload.exactInputs.planActionId === planActionId
@@ -136,14 +142,14 @@ function appendImplementation(
   history: DecodedHistory,
   head: string,
   planActionId: string,
-  mandateId: string,
+  mandate: ExternalRecordRef,
   histories: readonly DecodedHistory[],
   pins: readonly PinnedFileRef[],
   diagnostics: Diagnostic[],
   declarations: CriterionDeclaration[],
   evidence: SelectedEvidence,
 ): void {
-  if (!admittedImplementation(receipt, history, head, planActionId, mandateId)) {
+  if (!admittedImplementation(receipt, history, head, planActionId, mandate)) {
     diagnostics.push(
       diagnostic('unconfirmed', `Delivery record ${ref.record.recordId} is not the admitted current head`),
     )
@@ -172,7 +178,7 @@ function appendDelivery(
   currentRecordId: string,
   head: string,
   planActionId: string,
-  mandateId: string,
+  mandate: ExternalRecordRef,
   pins: readonly PinnedFileRef[],
   diagnostics: Diagnostic[],
   declarations: CriterionDeclaration[],
@@ -197,7 +203,7 @@ function appendDelivery(
     history,
     head,
     planActionId,
-    mandateId,
+    mandate,
     histories,
     pins,
     diagnostics,
@@ -206,8 +212,13 @@ function appendDelivery(
   )
 }
 
-function currentPlan(histories: readonly DecodedHistory[], version: string, diagnostics: Diagnostic[]): Receipt | null {
-  const current = currentPlanReceipt(histories, version)
+function currentPlan(
+  histories: readonly DecodedHistory[],
+  version: string,
+  mandate: ExternalRecordRef,
+  diagnostics: Diagnostic[],
+): Receipt | null {
+  const current = currentPlanReceipt(histories, version, mandate)
   if (!current.ok || current.value === null) {
     diagnostics.push(diagnostic('ambiguous', 'No unique current plan is bound to the accepted Spec'))
     return null
@@ -224,25 +235,27 @@ export function selectedDeclarations(
   const declarations: CriterionDeclaration[] = []
   const evidence: SelectedEvidence = []
   if (inputs.manifest.spec.kind !== 'accepted') return { declarations, evidence }
-  const mandateId = inputs.manifest.spec.effective.own.sourceAccepted.recordId
-  const current = currentPlan(histories, inputs.manifest.spec.effective.own.version, diagnostics)
+  const owner = resolveManifestMandate(inputs, histories)
+  if (!owner.ok) {
+    diagnostics.push(...owner.diagnostics)
+    return { declarations, evidence }
+  }
+  const mandate: ExternalRecordRef = {
+    scope: { repository: owner.value.repository, target: owner.value.target },
+    recordId: owner.value.recordId,
+    kind: 'mandate',
+  }
+  const current = currentPlan(histories, inputs.manifest.spec.effective.own.version, mandate, diagnostics)
   if (current === null || current.payload.action !== 'plan') return { declarations, evidence }
   const pins = manifestPins(inputs)
-  const specVersion = inputs.manifest.spec.effective.own.version
+  const ownSpec = inputs.manifest.spec.effective.own
   for (const ref of inputs.manifest.deliveryData) {
     if (ref.role === 'correction-lineage') continue
     if (ref.record.kind === 'fix-result') {
-      appendCorrectionSelection(
-        ref,
-        histories,
-        inputs,
-        current.payload.actionId,
-        mandateId,
-        specVersion,
-        pins,
-        diagnostics,
-        { declarations, evidence },
-      )
+      appendCorrectionSelection(ref, histories, inputs, current.payload.actionId, mandate, ownSpec, pins, diagnostics, {
+        declarations,
+        evidence,
+      })
       continue
     }
     appendDelivery(
@@ -251,7 +264,7 @@ export function selectedDeclarations(
       current.recordId,
       inputs.manifest.code.head,
       current.payload.actionId,
-      mandateId,
+      mandate,
       pins,
       diagnostics,
       declarations,

@@ -16,6 +16,29 @@ function refusal(proposal: PreparedOperatorProposal, code: string, message: stri
   return [{ code, message, location: { kind: 'native', uw, connection: 'state' }, related: [] }]
 }
 
+function decisionFacts(prepared: PreparedOperatorProposal): string[] {
+  const proposal = prepared.proposal
+  if (!('target' in proposal)) {
+    return [
+      `operation: accept-material`,
+      `repository: ${JSON.stringify(proposal.uw.repository)}`,
+      `UW: ${JSON.stringify(proposal.uw.target)}`,
+      `classification: ${JSON.stringify(proposal.classification)}`,
+      `assessment: ${JSON.stringify(proposal.assessment)}`,
+    ]
+  }
+  const target = proposal.target
+  const repository = target.kind === 'existing' ? target.uw.repository : target.repository
+  const uw = target.kind === 'existing' ? target.uw.target : 'new'
+  return [
+    `operation: ${proposal.operation}`,
+    `repository: ${JSON.stringify(repository)}`,
+    `UW: ${JSON.stringify(uw)}`,
+    `title: ${JSON.stringify(proposal.title)}`,
+    ...(proposal.normalization ?? []).map((decision) => `change: ${JSON.stringify(decision)}`),
+  ]
+}
+
 /** Captures the actual root command context; argv and child output cannot mint its confirmation. */
 export function createOperatorConfirmation(ctx: ExtensionContext): CommandOperatorPort {
   let live = true
@@ -40,11 +63,10 @@ export function createOperatorConfirmation(ctx: ExtensionContext): CommandOperat
       const displayedDigest = proposal.digest
       const displayedProposal = JSON.stringify(proposal.proposal, null, 2)
       const detail = retainActionRecordSync(ctx, 'proposal', proposal.proposal)
-      const target = 'target' in proposal.proposal ? proposal.proposal.target.kind : proposal.proposal.uw.target
       const facts = [
         `digest: ${displayedDigest}`,
-        `operation: ${proposal.proposal.operationId}`,
-        `target: ${target}`,
+        `operationId: ${JSON.stringify(proposal.proposal.operationId)}`,
+        ...decisionFacts(proposal),
         'credentialMode: procedural-fallback',
         `detail: ${detail}`,
         'options: confirm the exact proposal, or decline',

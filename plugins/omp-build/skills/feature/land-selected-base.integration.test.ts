@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { ActionInputs } from '../../engine/action-input-schema.ts'
-import { criterionImplementationRecords, criterionReviewGraph } from '../../testing/criterion-approval.ts'
+import { criterionImplementationRecords } from '../../testing/criterion-accepted-plan.ts'
+import { criterionPullHistory, criterionReviewGraph } from '../../testing/criterion-approval.ts'
 import { nativeFeatureSpec } from '../../testing/feature-review-fixture.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { git, readSim, sandbox, WORKFLOW, worktree, writeSim } from '../../testing/sandbox/sandbox-repository.ts'
@@ -114,9 +115,12 @@ function prepare(box: Box, cwd: string, armed = false): void {
     pull.mergedAt = null
   })
   const captured = captureInput(box, cwd, head)
+  const pull = readSim(box).prs[String(PR)]
+  if (!pull) throw new Error('landing fixture PR missing')
   const review = criterionReviewGraph({
     mandate: authority.mandate,
     issueRecords,
+    pullHistory: criterionPullHistory({ repository: 'acme/app', target: `acme/app#${PR}` }, pull.comments),
     scope: { repository: 'acme/app', target: `acme/app#${PR}` },
     head,
     inputs: captured.inputs,

@@ -24,6 +24,7 @@ function trustedCollisionIndexes(history: DecodedHistory, classification: Histor
   const byOperationId = new Map<string, number[]>()
   const byRecordId = new Map<string, number[]>()
   for (const [index, operation] of history.operations.entries()) {
+    if (authorities.get(index) === 'foreign') continue
     addCollisionIndex(byOperationId, operation.operationId, index)
     addCollisionIndex(byRecordId, operation.recordId, index)
     if ((operation.status === 'conflict' || operation.status === 'invalid') && trusted(index)) collisions.add(index)
@@ -53,13 +54,14 @@ function completeProjectionRecord(
     return fail([
       diagnostic('unknown-reference', `Projection record ${record.recordId} requires absent record ${recordId}`),
     ])
-  if (candidates.some(({ index }) => authorities.get(index) === 'foreign'))
+  const trusted = candidates.filter(({ index }) => authorities.get(index) !== 'foreign')
+  if (trusted.length === 0)
     return fail([diagnostic('unbound', `Projection record ${record.recordId} requires foreign record ${recordId}`)])
-  const complete = candidates.filter(
+  const complete = trusted.filter(
     ({ operation }) =>
       operation.status === 'complete' && operation.record !== null && operation.record.recordId === recordId,
   )
-  if (complete.length !== candidates.length)
+  if (complete.length !== trusted.length)
     return fail([diagnostic('unbound', `Projection record ${record.recordId} has an ambiguous record ${recordId}`)])
   const first = complete[0]
   if (first === undefined || first.operation.record === null)
@@ -102,8 +104,12 @@ function observedProjectionRoot(
   history: DecodedHistory,
   authorities: ReadonlyMap<number, string>,
 ): Result<IndexedOperation[]> {
-  const candidates = projectionCandidates(history, record.recordId)
-  if (candidates.some(({ index }) => authorities.get(index) !== 'authority'))
+  const observations = projectionCandidates(history, record.recordId)
+  const candidates = observations.filter(({ index }) => authorities.get(index) !== 'foreign')
+  if (
+    (observations.length > 0 && candidates.length === 0) ||
+    candidates.some(({ index }) => authorities.get(index) !== 'authority')
+  )
     return fail([diagnostic('unbound', `Record ${record.recordId} collides with a non-authority operation`)])
   const complete = candidates.filter(
     ({ operation }) =>

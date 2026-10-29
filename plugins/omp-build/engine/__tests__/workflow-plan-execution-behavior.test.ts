@@ -1,17 +1,222 @@
 import { describe, expect, test } from 'vitest'
+import { acceptedActionInputs } from '../../testing/action-input-fixtures.ts'
+import { criterionImplementationRecords } from '../../testing/criterion-accepted-plan.ts'
+import { TEST_HEAD } from '../../testing/record-builders.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
+import { actionInputDigest, canonicalValueDigest } from '../action-input.ts'
+import type { DeliveryDataRef } from '../action-input-schema.ts'
+import { selectedDeclarations } from '../criterion-decision-selection.ts'
+import type { DecodedHistory } from '../history-schema.ts'
 import { buildRecord } from '../record-construction.ts'
-import type { Scope } from '../record-values.ts'
+import type { CanonicalRecord } from '../record-schema.ts'
+import type { Diagnostic, Scope } from '../record-values.ts'
+import { resolveOwnSpecEffective } from '../spec-effective.ts'
 import { resolveAcceptedSpec } from '../workflow-accepted-spec.ts'
 import { selectApplicableMandate } from '../workflow-mandate-admission.ts'
 import { planMacro } from '../workflow-plan-macro.ts'
 import { reconstructWorkflow } from '../workflow-reconstruction-admission.ts'
 import type { SpecializedDecisions } from '../workflow-reconstruction-types.ts'
 import { implementationResult, implementationStart } from './workflow-implementation-support.ts'
-import { assessFixture, mandateAssessmentState, proposedAssessmentState } from './workflow-spec-assessment-support.ts'
+import {
+  acceptMaterialFixture,
+  assessFixture,
+  mandateAssessmentState,
+  proposedAssessmentState,
+} from './workflow-spec-assessment-support.ts'
 import { BODY, binding, facts, history, must, SCOPE } from './workflow-test-support.ts'
 
+function recordPin(record: CanonicalRecord, selector: string, value: unknown) {
+  return {
+    source: 'record' as const,
+    record: {
+      scope: { repository: record.repository, target: record.target },
+      recordId: record.recordId,
+      kind: record.kind,
+    },
+    selector,
+    digest: canonicalValueDigest(value),
+  }
+}
+
+function fixturePlan(records: CanonicalRecord[]) {
+  const plan = records.find(
+    (record) =>
+      record.kind === 'action-receipt' && record.payload.action === 'plan' && record.payload.phase === 'result',
+  )
+  if (plan?.kind !== 'action-receipt' || plan.payload.action !== 'plan' || plan.payload.phase !== 'result')
+    throw new Error('Expected a current plan')
+  return { ...plan, payload: plan.payload }
+}
+
+function fixtureImplementation(records: CanonicalRecord[]) {
+  const implementation = records.find(
+    (record) =>
+      record.kind === 'action-receipt' && record.payload.action === 'implement' && record.payload.phase === 'result',
+  )
+  if (
+    implementation?.kind !== 'action-receipt' ||
+    implementation.payload.action !== 'implement' ||
+    implementation.payload.phase !== 'result' ||
+    implementation.payload.structured === null
+  )
+    throw new Error('Expected an admitted implementation')
+  return { ...implementation, payload: implementation.payload }
+}
+
+function successorFixture(classification: 'editorial' | 'material') {
+  const workflow = roxabiWorkflowFixtures()
+  const mandate = workflow.featureMandate(SCOPE, {
+    recordId: 'mandate-editorial-owner',
+    runId: 'run-editorial-owner',
+    operationId: 'op-mandate-editorial-owner',
+    branch: 'feature/bounded',
+    base: 'main',
+    lineageHead: null,
+    body: BODY,
+  })
+  const initial = mandateAssessmentState(mandate)
+  const editorial = assessFixture(
+    mandate,
+    'accepted-editorial',
+    initial,
+    proposedAssessmentState(initial, { body: 'An editorial clarification of the accepted criterion' }),
+    classification,
+  )
+  const control =
+    classification === 'material' ? acceptMaterialFixture(mandate, 'accept-material-owner', editorial) : null
+  const acceptedRecords = [mandate, editorial.start, editorial.result, ...(control === null ? [] : [control])]
+  const accepted = resolveAcceptedSpec(mandate, [history(acceptedRecords)])
+  if (!accepted.ok) throw new Error('Spec successor must be accepted')
+  expect(accepted.spec.ref.sourceAccepted.recordId).toBe(control?.recordId ?? editorial.result.recordId)
+  const effective = must(resolveOwnSpecEffective(accepted.spec))
+  const produced = criterionImplementationRecords(mandate, TEST_HEAD, accepted.spec)
+  const plan = fixturePlan(produced)
+  const implementation = fixtureImplementation(produced)
+  const declaration = implementation.payload.structured?.criteria[0]
+  if (declaration?.verification !== 'evidence') throw new Error('Expected captured criterion evidence')
+  expect(declaration.target.spec).toEqual(accepted.spec.ref)
+  expect('mandateId' in implementation.payload.exactInputs && implementation.payload.exactInputs.mandateId).toBe(
+    mandate.recordId,
+  )
+  const pull: Scope = { repository: SCOPE.repository, target: 'acme/app#99' }
+  const prBinding = binding(mandate, pull)
+  const base = acceptedActionInputs(mandate, 'review')
+  const deliveryData: DeliveryDataRef[] = [
+    { ...recordPin(plan, '/payload/structured', plan.payload.structured), role: 'plan' },
+    { ...recordPin(implementation, '/payload/structured/criteria/0', declaration), role: 'implementation' },
+  ]
+  const manifest = {
+    ...base.manifest,
+    code: { ...base.manifest.code, repository: SCOPE.repository, head: TEST_HEAD },
+    subject: {
+      kind: 'uw' as const,
+      uw: SCOPE,
+      pullRequest: pull,
+      binding: recordPin(prBinding, '/payload', prBinding.payload),
+    },
+    spec: { kind: 'accepted' as const, effective },
+    acceptedSources: [
+      recordPin(mandate, '/payload', mandate.payload),
+      recordPin(editorial.result, '/payload', editorial.result.payload),
+      ...(control === null ? [] : [recordPin(control, '/payload', control.payload)]),
+    ],
+    deliveryData,
+  }
+  return { mandate, acceptedRecords, produced, plan, implementation, declaration, pull, prBinding, base, manifest }
+}
+
+type SuccessorFixture = ReturnType<typeof successorFixture>
+
+function selectSuccessor(
+  fixture: SuccessorFixture,
+  manifest = fixture.manifest,
+  histories = [history([...fixture.acceptedRecords, ...fixture.produced]), history([fixture.prBinding], fixture.pull)],
+) {
+  const problems: Diagnostic[] = []
+  const result = selectedDeclarations(
+    histories,
+    { ...fixture.base, manifest, fingerprint: actionInputDigest(manifest) },
+    problems,
+  )
+  return { result, problems }
+}
+
+function alteredAuthority(source: DecodedHistory, id: string, mode: 'foreign' | 'edited') {
+  return {
+    ...source,
+    operations: source.operations.map((operation) => {
+      if (operation.recordId !== id) return operation
+      if (mode === 'foreign') return { ...operation, authority: 'foreign' as const }
+      return { ...operation, parts: operation.parts.map((part) => ({ ...part, updatedAt: '2026-10-22T00:00:00Z' })) }
+    }),
+  }
+}
+
+function assertPinnedAuthority(fixture: SuccessorFixture) {
+  const { manifest, mandate, acceptedRecords, produced, prBinding, pull } = fixture
+  const noPin = {
+    ...manifest,
+    acceptedSources: manifest.acceptedSources.filter((pin) => pin.record.kind !== 'mandate'),
+  }
+  expect(selectSuccessor(fixture, noPin).result.declarations).toEqual([])
+  const issue = history([...acceptedRecords, ...produced])
+  const bindingHistory = history([prBinding], pull)
+  for (const mode of ['foreign', 'edited'] as const) {
+    expect(
+      selectSuccessor(fixture, manifest, [issue, alteredAuthority(bindingHistory, prBinding.recordId, mode)]).result
+        .declarations,
+    ).toEqual([])
+    expect(
+      selectSuccessor(fixture, manifest, [alteredAuthority(issue, mandate.recordId, mode), bindingHistory]).result
+        .declarations,
+    ).toEqual([])
+  }
+}
+
+function assertOwnerIsolation(fixture: SuccessorFixture) {
+  const { implementation, plan, manifest, acceptedRecords, produced, prBinding, pull, declaration } = fixture
+  const bindingHistory = history([prBinding], pull)
+  const foreignPlan = {
+    ...plan,
+    recordId: 'plan-other-owner',
+    operationId: 'op-plan-other-owner',
+    payload: { ...plan.payload, mandate: { ...plan.payload.mandate, recordId: 'mandate-other-owner' } },
+  }
+  const competing = selectSuccessor(fixture, manifest, [
+    history([...acceptedRecords, ...produced, foreignPlan]),
+    bindingHistory,
+  ])
+  expect(competing.problems).toEqual([])
+  expect(competing.result.declarations).toEqual([declaration])
+  for (const owner of [
+    { ...implementation.payload.mandate, recordId: 'mandate-wrong-owner' },
+    { ...implementation.payload.mandate, scope: { ...implementation.payload.mandate.scope, target: 'acme/app#other' } },
+  ]) {
+    const other = { ...implementation, payload: { ...implementation.payload, mandate: owner } }
+    const wrongHistory = history([
+      ...acceptedRecords,
+      ...produced.filter((record) => record.recordId !== implementation.recordId),
+      other,
+    ])
+    const outcome = selectSuccessor(fixture, manifest, [wrongHistory, bindingHistory])
+    expect(outcome.result.declarations).toEqual([])
+    expect(outcome.problems.map((item) => item.code)).toContain('unconfirmed')
+  }
+}
+
 describe('workflow plan execution behavior', () => {
+  test.each(['editorial', 'material'] as const)(
+    'keeps implementation proof owned by the mandate after an accepted %s Spec successor',
+    (classification) => {
+      const fixture = successorFixture(classification)
+      const selected = selectSuccessor(fixture)
+      expect(selected.problems).toEqual([])
+      expect(selected.result.declarations).toEqual([fixture.declaration])
+      expect(selected.result.evidence.map(({ value }) => value.id)).toEqual(['fixture-c1-evidence'])
+      assertPinnedAuthority(fixture)
+      assertOwnerIsolation(fixture)
+    },
+  )
   test('binds plan receipts and implementation to the accepted canonical Spec version after editorial advancement', () => {
     const workflow = roxabiWorkflowFixtures()
     const mandated = workflow.featureMandate(SCOPE, {

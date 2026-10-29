@@ -15,7 +15,7 @@ export function projectionConfig(taxonomy: readonly string[]): RecordProjectionC
   return { taxonomy, acceptedPolicy: null }
 }
 
-export const TEST_INPUT_SNAPSHOT: ReviewInputSnapshot = standaloneReviewInputs()
+export const TEST_INPUT_SNAPSHOT: ReviewInputSnapshot = standaloneReviewInputs(TEST_SCOPE, TEST_HEAD)
 /** Canonical review input for the default snapshot. Not the unrelated TEST_INPUT literal. */
 export const TEST_REVIEW_INPUT = TEST_INPUT_SNAPSHOT.fingerprint
 export const TEST_STANDARDS: ReviewStandards = {
@@ -151,7 +151,8 @@ export function reviewRoot(
 ): ReviewAttempt {
   const id = options.id ?? 'root-review'
   const subject = options.subject ?? { kind: 'pull-request' as const }
-  const snapshot = options.inputSnapshot ?? TEST_INPUT_SNAPSHOT
+  const snapshot =
+    options.inputSnapshot ?? standaloneReviewInputs(options.scope ?? TEST_SCOPE, options.head ?? TEST_HEAD)
   return {
     ...(options.scope ?? TEST_SCOPE),
     ...envelope(id, options.operationId ?? `op-${id}`, options.inputs ?? []),

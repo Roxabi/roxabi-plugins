@@ -147,6 +147,28 @@ it('threads externalHistories through encodeRecord into projection', () => {
   expect(encodeRecord(record, source, null, [foreign]).ok).toBe(true)
 })
 
+it('publishes a binding with an authentic external mandate despite a foreign copy', () => {
+  const mandate = issueMandate(githubScope('acme/app', 7))
+  const binding = bindingRecord(mandate)
+  const source = { ...historyFrom(''), comments: [] }
+  const mandateSource = { ...historyFrom(wire(mandate)), scope: githubScope('acme/app', 7) }
+  const foreignSource = { ...historyFrom(wire(mandate), 'foreign'), scope: githubScope('acme/app', 7) }
+  const authentic = decodeHistory(mandateSource)
+  const foreign = decodeHistory(foreignSource)
+  const noisy = { ...authentic, operations: [...authentic.operations, ...foreign.operations] }
+  expect(foreign.operations).toEqual(expect.arrayContaining([expect.objectContaining({ authority: 'foreign' })]))
+  expect(encodeRecord(binding, source, null, [noisy])).toMatchObject({ ok: true })
+  expect(encodeRecord(binding, source, null, [{ ...authentic, operations: foreign.operations }])).toMatchObject({
+    ok: false,
+  })
+  const editedSource = {
+    ...mandateSource,
+    comments: mandateSource.comments.map((comment) => ({ ...comment, updatedAt: '2026-10-21T00:00:01Z' })),
+  }
+  expect(encodeRecord(binding, source, null, [decodeHistory(editedSource)])).toMatchObject({ ok: false })
+  expect(encodeRecord(binding, source, null, [{ ...authentic, operations: [] }])).toMatchObject({ ok: false })
+})
+
 describe('composed workflow history and landing binding readback', () => {
   it('composes PR and linked issue histories for a cold read', async () => {
     const issueBody = framed('epic-event', 'op-issue', 'event-issue')

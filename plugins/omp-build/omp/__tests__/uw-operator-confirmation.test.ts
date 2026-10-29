@@ -56,6 +56,56 @@ function interactiveContext(confirm: () => Promise<boolean>): ExtensionContext {
 }
 
 describe('native operator confirmation capability', () => {
+  it('presents the semantic decision and UW identity before an operator declines', async () => {
+    const prepared = structuredClone(proposal)
+    prepared.proposal.title = 'Preserve payment audit'
+    prepared.proposal.normalization = [
+      {
+        kind: 'kept',
+        source: { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } },
+        target: { kind: 'existing', id: 'C1' },
+      },
+      {
+        kind: 'reworded',
+        source: { start: { line: 2, column: 1 }, end: { line: 2, column: 2 } },
+        target: { kind: 'existing', id: 'C2' },
+        reason: 'Clarify',
+      },
+      { kind: 'removed', source: { start: { line: 3, column: 1 }, end: { line: 3, column: 2 } }, reason: 'Obsolete' },
+    ]
+    let displayed = ''
+    const context = {
+      ...interactiveContext(async () => false),
+      ui: {
+        confirm: async (_title: string, message: string) => {
+          displayed = message
+          return false
+        },
+      },
+    } as unknown as ExtensionContext
+    const result = await createOperatorConfirmation(context).executeConfirmed(prepared, async () => 'unexpected')
+    expect(result.status).toBe('refused')
+    for (const fact of [
+      'acme/widgets',
+      'acme/widgets#42',
+      'normalize',
+      'Preserve payment audit',
+      'kept',
+      'reworded',
+      'removed',
+    ]) {
+      expect(displayed).toContain(fact)
+    }
+    expect(displayed).toContain(prepared.digest)
+    expect(displayed).toMatch(/detail: .+/)
+    displayed = ''
+    const material = materialProposal()
+    await createOperatorConfirmation(context).executeConfirmed(material, async () => 'unexpected')
+    expect(displayed).toContain('acme/widgets#42')
+    expect(displayed).toContain('material')
+    expect(displayed).toContain('assessment-42')
+  })
+
   it('prevents publication when the command becomes stale after the UI confirms', async () => {
     const confirmation = Promise.withResolvers<boolean>()
     const operator = createOperatorConfirmation(interactiveContext(async () => confirmation.promise))

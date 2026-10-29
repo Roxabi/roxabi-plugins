@@ -1,9 +1,4 @@
-import {
-  authenticatedCriterionFacts,
-  criterionAssessmentForDecision,
-  reviewCandidateCode,
-  reviewInputsFromInventory,
-} from './criterion-decision.ts'
+import { authenticatedCriterionFacts, criterionAssessmentForDecision } from './criterion-decision.ts'
 import { classifyHistory } from './history-classification.ts'
 import { validateRecordGraph } from './history-graph.ts'
 import type { DecodedHistory } from './history-schema.ts'
@@ -15,6 +10,7 @@ import { type DecisionAssessment, type FindingInspection, type Result, recordMap
 import { collectOriginals } from './review-decision-sources.ts'
 import { groupFor } from './review-groups.ts'
 import { analyzeReviewIdentity } from './review-identity.ts'
+import { reviewCandidateCode, reviewInputsFromInventory } from './review-inventory-input.ts'
 import { readReviewRecovery } from './review-recovery.ts'
 import { causeSchema } from './review-schema.ts'
 

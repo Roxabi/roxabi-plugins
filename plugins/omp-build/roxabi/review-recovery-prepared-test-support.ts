@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { TAXONOMY } from '../engine/__tests__/record-test-support.ts'
 import { SCOPE } from '../engine/__tests__/workflow-test-support.ts'
+import { actionInputDigest } from '../engine/action-input.ts'
 import { fixtureUwOperations, freshReviewInputs } from '../testing/action-input-fixtures.ts'
 import { TEST_HEAD } from '../testing/record-builders.ts'
 import type { PreparedReviewInputs } from './review-input-contract.ts'
@@ -10,7 +11,9 @@ import { allocateReviewPanel } from './review-panel.ts'
 import { sealedIndex } from './uw-action-projection.ts'
 import { sealActionSnapshot } from './uw-action-snapshot.ts'
 
-const fresh = freshReviewInputs()
+const base = freshReviewInputs()
+const manifest = { ...base.manifest, code: { ...base.manifest.code, base: 'c'.repeat(40), head: TEST_HEAD } }
+const fresh = { ...base, manifest, fingerprint: actionInputDigest(manifest) }
 export const recoveryFreshInput = fresh.fingerprint
 
 function freshPreparedAction(taskName: string, prepared: PreparedReviewInputs) {

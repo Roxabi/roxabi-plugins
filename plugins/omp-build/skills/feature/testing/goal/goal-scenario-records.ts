@@ -1,7 +1,7 @@
 import { decodeHistory, encodeRecord, parseIssueSpecBody, rawSource } from '../../../../contracts.ts'
 import { actionInputDigest, canonicalValueDigest } from '../../../../engine/action-input.ts'
 import { acceptedActionInputs } from '../../../../testing/action-input-fixtures.ts'
-import { criterionImplementationRecords } from '../../../../testing/criterion-approval.ts'
+import { criterionImplementationRecords } from '../../../../testing/criterion-accepted-plan.ts'
 import { criterionEpicReviewGraph } from '../../../../testing/criterion-range-approval.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../../../../testing/roxabi-presets.ts'
 import { createWorkflowActionFixtures } from '../../../../testing/workflow-actions.ts'

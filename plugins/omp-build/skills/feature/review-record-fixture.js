@@ -6,7 +6,8 @@ import { SPEC_CONTENT_FORMAT } from '../../engine/uw-spec-schema.ts'
 import { confirmedReviewSemanticContext } from '../../roxabi/review-semantic-canon.ts'
 import { createProductionActionPorts } from '../../roxabi/uw-input-readers.ts'
 import { freshReviewInputs, standaloneReviewInputs } from '../../testing/action-input-fixtures.ts'
-import { criterionImplementationRecords, criterionReviewGraph } from '../../testing/criterion-approval.ts'
+import { criterionImplementationRecords } from '../../testing/criterion-accepted-plan.ts'
+import { criterionReviewGraph } from '../../testing/criterion-approval.ts'
 import { reviewGraph } from '../../testing/record-graphs.ts'
 import { assembleActionInputs } from '../../testing/review-input-assembly.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
@@ -162,6 +163,7 @@ export async function linkedApproval(head = HEADS[0]) {
     mandate,
     inputs,
     head,
+    pullHistory: framedBinding,
     issueRecords,
     scope: SCOPE,
     projection: roxabiRecordFixtures().projection,

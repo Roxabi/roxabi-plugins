@@ -65,8 +65,8 @@ export function admitCorrectionSourceBinding(
   if (!native || !observation || !action || !genuineCorrectionSource(contribution)) return null
   const manifest = action.inputs.manifest
   if (
-    !currentCorrectionContext(manifest, fix, context) ||
-    !correctionCurrentPlan(manifest, histories, context.planActionId)
+    !currentCorrectionContext(action.inputs, fix, histories, context) ||
+    !correctionCurrentPlan(manifest, histories, context)
   )
     return null
   const inventory =

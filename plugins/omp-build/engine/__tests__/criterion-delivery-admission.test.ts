@@ -11,7 +11,7 @@ import {
 import { actionInputDigest, canonicalValueDigest } from '../action-input.ts'
 import type { DeliveryDataRef } from '../action-input-schema.ts'
 import { recordInputRefSchema } from '../action-input-schema.ts'
-import { criterionAssessmentForDecision, reviewCandidateCode } from '../criterion-decision.ts'
+import { criterionAssessmentForDecision } from '../criterion-decision.ts'
 import { selectedDeclarations } from '../criterion-decision-selection.ts'
 import { criterionEvidenceSchema } from '../criterion-evidence-schema.ts'
 import { criterionVerdictSchema } from '../criterion-verdict-schema.ts'
@@ -20,9 +20,11 @@ import type { DecodedHistory } from '../history-schema.ts'
 import type { CanonicalRecord } from '../record-schema.ts'
 import type { Diagnostic } from '../record-values.ts'
 import { validateDecision } from '../review-decision.ts'
+import { reviewCandidateCode } from '../review-inventory-input.ts'
 import { bindExternalRef, type MandateRecord, mandateScope, type ReceiptRecord } from '../workflow-control.ts'
 import type { ActionReceiptPayload } from '../workflow-receipt-schema.ts'
 import { evidenceDeclaration, passingTest } from './criterion-admission-fixture.ts'
+import { binding } from './workflow-test-support.ts'
 
 type PlanResult = ReceiptRecord & {
   payload: Extract<ActionReceiptPayload, { action: 'plan'; phase: 'result' }>
@@ -46,6 +48,30 @@ function isImplementResult(record: CanonicalRecord): record is ImplementResult {
 function scoped(records: readonly CanonicalRecord[], mandate: MandateRecord): DecodedHistory {
   const observed = history([...records])
   return { ...observed, source: { ...observed.source, scope: mandateScope(mandate), expectedAuthor: NATIVE_AUTHOR } }
+}
+
+function boundReview(mandate: MandateRecord) {
+  const inputs = acceptedActionInputs(mandate, 'review')
+  const uw = mandateScope(mandate)
+  const pullRequest = { repository: uw.repository, target: `${uw.repository}#999` }
+  const record = binding(mandate, pullRequest)
+  const pin = (item: CanonicalRecord) => ({
+    source: 'record' as const,
+    record: { scope: { repository: item.repository, target: item.target }, kind: item.kind, recordId: item.recordId },
+    selector: '/payload',
+    digest: canonicalValueDigest(item.payload),
+  })
+  const manifest = {
+    ...inputs.manifest,
+    subject: { kind: 'uw' as const, uw, pullRequest, binding: pin(record) },
+    acceptedSources: [pin(mandate)],
+  }
+  const bound = { ...inputs, manifest, fingerprint: actionInputDigest(manifest) }
+  const observed = history([record])
+  return {
+    inputs: bound,
+    bindingHistory: { ...observed, source: { ...observed.source, scope: pullRequest } },
+  }
 }
 
 function planResult(mandate: MandateRecord): PlanResult {
@@ -105,14 +131,15 @@ describe('authorized criterion delivery admission', () => {
   test('keeps a produced plan with a null admission eligible', () => {
     const mandate = shippedMandate()
     const plan = planResult(mandate)
+    const bound = boundReview(mandate)
     expect(plan.payload.admission).toBeNull()
     const diagnostics: Diagnostic[] = []
     selectedDeclarations(
-      [scoped(eligiblePlan(mandate), mandate)],
+      [scoped([mandate, ...eligiblePlan(mandate)], mandate), bound.bindingHistory],
       {
-        ...acceptedActionInputs(mandate, 'review'),
+        ...bound.inputs,
         manifest: {
-          ...acceptedActionInputs(mandate, 'review').manifest,
+          ...bound.inputs.manifest,
           deliveryData: [refFor(plan, 'plan', '/payload/structured', plan.payload.structured)],
         },
       },
@@ -143,14 +170,15 @@ describe('authorized criterion delivery admission', () => {
     const current = shippedMandate()
     const old = { ...current, recordId: 'mandate-old' }
     const plan = planResult(current)
-    const inputs = acceptedActionInputs(current, 'review')
+    const bound = boundReview(current)
+    const inputs = bound.inputs
     const receipt = admittedImplement(old)
     if (!isImplementResult(receipt)) throw new Error('implement shape')
     const headed = headedImplement(receipt, inputs.manifest.code.head)
     const start = implementStart(headed)
     const diagnostics: Diagnostic[] = []
     selectedDeclarations(
-      [scoped([plan, start, headed], current)],
+      [scoped([current, plan, start, headed], current), bound.bindingHistory],
       {
         ...inputs,
         manifest: {
@@ -221,7 +249,8 @@ describe('authorized criterion delivery admission', () => {
 
   test('refuses unresolved version-claim and code-link references before admission', () => {
     const mandate = shippedMandate()
-    const inputs = acceptedActionInputs(mandate, 'review')
+    const bound = boundReview(mandate)
+    const inputs = bound.inputs
     if (inputs.manifest.spec.kind !== 'accepted') throw new Error('expected accepted spec')
     const head = inputs.manifest.code.head
     const plan = planResult(mandate)
@@ -278,7 +307,7 @@ describe('authorized criterion delivery admission', () => {
     const clearReceipt = withCriteria(aligned)
     const clearDiagnostics: Diagnostic[] = []
     selectedDeclarations(
-      [scoped([plan, implementStart(clearReceipt), clearReceipt], mandate)],
+      [scoped([mandate, plan, implementStart(clearReceipt), clearReceipt], mandate), bound.bindingHistory],
       {
         ...inputs,
         manifest: {
@@ -298,7 +327,7 @@ describe('authorized criterion delivery admission', () => {
     const refusedReceipt = withCriteria(unresolved)
     const refusedDiagnostics: Diagnostic[] = []
     selectedDeclarations(
-      [scoped([plan, implementStart(refusedReceipt), refusedReceipt], mandate)],
+      [scoped([mandate, plan, implementStart(refusedReceipt), refusedReceipt], mandate), bound.bindingHistory],
       {
         ...inputs,
         manifest: {

@@ -1,7 +1,7 @@
 import { rmSync } from 'node:fs'
 import path from 'node:path'
 import type { MandateRecord } from '../engine/workflow-control.ts'
-import { criterionImplementationRecords } from './criterion-approval.ts'
+import { criterionImplementationRecords } from './criterion-accepted-plan.ts'
 import { nativeFeatureSpec } from './feature-review-fixture.ts'
 import { roxabiWorkflowFixtures } from './roxabi-presets.ts'
 import { git, sandbox, writeSim } from './sandbox/sandbox-repository.ts'

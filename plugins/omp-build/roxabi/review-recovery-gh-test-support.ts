@@ -1,7 +1,7 @@
 import { decodeHistory, encodeRecord } from '../adapters/github/history-codec.ts'
 import { githubScope, readGitHubHistory } from '../adapters/github/transport.ts'
 import { binding, SCOPE } from '../engine/__tests__/workflow-test-support.ts'
-import { actionInputDigest, validateActionInputs } from '../engine/action-input.ts'
+import { actionInputDigest, canonicalValueDigest, validateActionInputs } from '../engine/action-input.ts'
 import type { DecodedHistory, History } from '../engine/history-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import { resolveAcceptedSpec } from '../engine/workflow-accepted-spec.ts'
@@ -114,8 +114,17 @@ export function recoveryFixture(
   if ('ok' in semantic) throw new Error(semantic.reason)
   if (semantic.mode !== 'bound') throw new Error('historical association is not bound')
   const acceptedInputs = acceptedActionInputs(mandate, 'review')
+  const pin = (item: CanonicalRecord) => ({
+    source: 'record' as const,
+    record: { scope: { repository: item.repository, target: item.target }, kind: item.kind, recordId: item.recordId },
+    selector: '/payload',
+    digest: canonicalValueDigest(item.payload),
+  })
   const manifest = {
     ...acceptedInputs.manifest,
+    subject: { kind: 'uw' as const, uw: ISSUE_SCOPE, pullRequest: SCOPE, binding: pin(historicalBinding) },
+    code: { ...acceptedInputs.manifest.code, repository: SCOPE.repository, head: '1'.repeat(40) },
+    acceptedSources: [pin(mandate)],
     configuration: {
       ...acceptedInputs.manifest.configuration,
       digest: options.associations === 'none' ? 'e'.repeat(64) : semantic.config.digest,

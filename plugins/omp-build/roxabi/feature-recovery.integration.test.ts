@@ -5,7 +5,8 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { decodeHistory } from '../adapters/github/history-codec.ts'
 import type { ActionInputs } from '../engine/action-input-schema.ts'
-import { criterionImplementationRecords, criterionReviewGraph } from '../testing/criterion-approval.ts'
+import { criterionImplementationRecords } from '../testing/criterion-accepted-plan.ts'
+import { criterionPullHistory, criterionReviewGraph } from '../testing/criterion-approval.ts'
 import {
   BRANCH,
   cleanupFeatureRecoveryRoots,
@@ -436,6 +437,7 @@ describe('feature recovery terminal and publication witnesses', () => {
         ...criterionReviewGraph({
           mandate: authority.mandate,
           issueRecords,
+          pullHistory: criterionPullHistory({ repository: 'acme/app', target: `acme/app#${pr}` }, pull.comments),
           scope: { repository: 'acme/app', target: 'acme/app#30' },
           head,
           inputs,

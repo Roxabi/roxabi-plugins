@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { planOutputSchema } from '../engine/workflow-output-schema.ts'
+import { planOutputSchema } from '../dist/contracts.js'
 import type { PlanReviewSlot } from '../engine/workflow-receipt-schema.ts'
 import {
   actionRequest,

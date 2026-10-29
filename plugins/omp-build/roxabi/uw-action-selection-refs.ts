@@ -9,6 +9,7 @@ import type { ActionSpecInput } from '../engine/action-input-schema.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Result } from '../engine/result.ts'
+import type { MandateRecord } from '../engine/workflow-control.ts'
 
 import type { DeliveryDataRef, UwActionRequest } from './uw-action-contract.ts'
 import { actionFailure } from './uw-action-result.ts'
@@ -125,7 +126,7 @@ function appendLineage(refs: DeliveryDataRef[], lineage: readonly CanonicalRecor
 
 export function gatherCorrectionRefs(
   request: UwActionRequest,
-  mandateId: string,
+  mandate: MandateRecord,
   histories: readonly DecodedHistory[],
   authenticate: (record: CanonicalRecord) => Result<CanonicalRecord>,
   planActionId: string | null,
@@ -146,8 +147,12 @@ export function gatherCorrectionRefs(
       const source = resolveAdmittedCorrectionCriterionSource(record, histories, {
         head: request.code.head,
         planActionId,
-        mandateId,
-        specVersion: spec.effective.own.version,
+        mandate: {
+          scope: { repository: mandate.repository, target: mandate.target },
+          kind: 'mandate',
+          recordId: mandate.recordId,
+        },
+        ownSpec: spec.effective.own,
       })
       if (source === null) continue
       gathered.selected.push(record)

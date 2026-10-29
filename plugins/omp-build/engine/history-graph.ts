@@ -16,6 +16,7 @@ import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
 import { type Result, recordMap, unique } from './result.ts'
 import { type InitialPullRequestReviewInventory, isInitialPullRequestReviewInventory } from './review-schema.ts'
+import { reviewSubjectBound } from './review-subject-binding.ts'
 
 type InitialReviewInventory = Extract<
   Extract<CanonicalRecord, { kind: 'review-attempt' }>['payload'],
@@ -123,13 +124,9 @@ function validateInitialInventory(
     diagnostics.push(diagnostic('unbound', `Initial inventory ${record.recordId} does not root itself`))
   if (isInitialPullRequestReviewInventory(inventory))
     validateReplacementInventory(record, inventory, records, diagnostics)
-  if (
-    inventory.purpose === 'review' &&
-    inventory.subject.kind === 'epic-range' &&
-    inventory.subject.range.slice(-40) !== inventory.candidateGitSHA
-  )
+  if (inventory.purpose === 'review' && !reviewSubjectBound(record, inventory))
     diagnostics.push(
-      diagnostic('unbound', `Epic range subject for ${record.recordId} does not end at the candidate SHA`),
+      diagnostic('unbound', `Review inventory ${record.recordId} does not match its action subject and code`),
     )
 }
 
@@ -203,7 +200,15 @@ export function validateProspectiveRecord(record: CanonicalRecord, history: Deco
     }
   }
   records.set(record.recordId, record)
-  if (record.kind === 'review-attempt') validateReviewAttempt(record, records, diagnostics)
+  if (record.kind === 'review-attempt') {
+    if (
+      record.payload.stage === 'initial' &&
+      record.payload.purpose === 'review' &&
+      !equalScope(record, history.source.scope)
+    )
+      diagnostics.push(diagnostic('unbound', `Review inventory ${record.recordId} has another history scope`))
+    validateReviewAttempt(record, records, diagnostics)
+  }
   validateContributionRecord(record, records, diagnostics)
   validateProspectiveLinks(record, records, diagnostics)
   return diagnostics

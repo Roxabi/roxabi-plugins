@@ -207,6 +207,30 @@ describe('buildRecord', () => {
       ok: true,
       value: expect.stringContaining('opaque-context-only'),
     })
+    const copiedDependency = history([firstResult.value, secondResult.value], {
+      operations: [
+        operation(firstResult.value, { authority: 'accounted' }),
+        operation(firstResult.value, { authority: 'foreign' }),
+        operation(secondResult.value, { authority: 'accounted' }),
+      ],
+    })
+    expect(projectRecord(targetResult.value, copiedDependency, null)).toMatchObject({ ok: true })
+    const copiedRoot = history([firstResult.value, secondResult.value, targetResult.value], {
+      operations: [
+        operation(firstResult.value, { authority: 'accounted' }),
+        operation(secondResult.value, { authority: 'accounted' }),
+        operation(targetResult.value),
+        operation(targetResult.value, { authority: 'foreign' }),
+      ],
+    })
+    expect(projectRecord(targetResult.value, copiedRoot, null)).toMatchObject({ ok: true })
+    const invalidDependency = history([firstResult.value, secondResult.value], {
+      operations: [
+        operation(firstResult.value, { authority: 'accounted', status: 'invalid', record: null }),
+        operation(secondResult.value, { authority: 'accounted' }),
+      ],
+    })
+    expect(projectRecord(targetResult.value, invalidDependency, null)).toMatchObject({ ok: false })
     expect(refusalCodes(projectRecord(targetResult.value, foreign, null))).toContain('unbound')
     expect(refusalCodes(projectRecord(targetResult.value, ambiguous, null))).toContain('unbound')
     expect(refusalCodes(projectRecord(targetResult.value, missing, null))).toContain('unknown-reference')

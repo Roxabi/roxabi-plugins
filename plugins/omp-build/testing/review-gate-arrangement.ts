@@ -1,9 +1,11 @@
 import { spawnSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { decodeHistory } from '../adapters/github/history-codec.ts'
 import { parseIssueSpecBody, rawSource, renderIssueSpecBody } from '../adapters/github-native/uw-spec.ts'
 import { actionInputDigest } from '../engine/action-input.ts'
 import type { ActionInputs } from '../engine/action-input-schema.ts'
+import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import { canonicalSpec } from '../engine/uw-spec.ts'
 import { SPEC_CONTENT_FORMAT } from '../engine/uw-spec-schema.ts'
@@ -11,7 +13,8 @@ import type { MandateRecord } from '../engine/workflow-control.ts'
 import { createProductionActionPorts } from '../roxabi/uw-input-readers.ts'
 import { confirmedReviewSemanticContext } from '../skills/feature/workflow-review-input.js'
 import { freshReviewInputs, standaloneReviewInputs } from './action-input-fixtures.ts'
-import { criterionImplementationRecords, criterionReviewGraph } from './criterion-approval.ts'
+import { criterionImplementationRecords } from './criterion-accepted-plan.ts'
+import { criterionReviewGraph } from './criterion-approval.ts'
 import { git, type ReviewGateFixture, readState, writeState } from './review-gate-fixture.ts'
 import { AUTOMATION, type IssueState, PR_EDITED, PR_TEXT, SCOPE, type StoredComment } from './review-gate-gh.ts'
 import { assembleActionInputs } from './review-input-assembly.ts'
@@ -35,7 +38,7 @@ const { encodedAdmissionReviewGraph, projection } = roxabiRecordFixtures()
 const { framedBodies, historyFrom, ownSpecFromSnapshot, workflowBinding } = roxabiWorkflowFixtures()
 type CriterionFixture = { mandate: MandateRecord; issueRecords: CanonicalRecord[] }
 const fixtureCriteria = new WeakMap<ReviewGateFixture, CriterionFixture>()
-const inputCriteria = new WeakMap<ActionInputs, CriterionFixture>()
+const inputCriteria = new WeakMap<ActionInputs, CriterionFixture & { pullHistory: DecodedHistory }>()
 
 export { SPEC }
 
@@ -191,7 +194,22 @@ export async function boundInput(fixture: ReviewGateFixture): Promise<ActionInpu
   )
   const criterion = fixtureCriteria.get(fixture)
   if (criterion === undefined) throw new Error('review gate fixture has no criterion history')
-  inputCriteria.set(inputs, criterion)
+  const pullHistory = decodeHistory({
+    scope: SCOPE,
+    expectedAuthor: AUTOMATION,
+    stopAuthor: null,
+    complete: true,
+    diagnostics: [],
+    comments: readState(fixture).comments.map((comment) => ({
+      locator: `${SCOPE.target}:comment:${comment.id}`,
+      nativeId: String(comment.id),
+      body: comment.body,
+      author: comment.user.login,
+      createdAt: comment.created_at,
+      updatedAt: comment.updated_at,
+    })),
+  })
+  inputCriteria.set(inputs, { ...criterion, pullHistory })
   return inputs
 }
 

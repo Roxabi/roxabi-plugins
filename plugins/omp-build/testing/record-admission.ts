@@ -88,6 +88,8 @@ export function admissionReviewGraph(
   const graph = reviewGraph({
     prefix: options.prefix ?? 'admission',
     head: options.head ?? TEST_HEAD,
+    scope: options.scope,
+    inputs: options.inputs,
     empty: verdict === 'Approve (clean)',
     label,
   })

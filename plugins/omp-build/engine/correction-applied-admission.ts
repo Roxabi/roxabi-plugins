@@ -58,7 +58,7 @@ function validApplied(
   )
     return false
   if (
-    !currentCorrectionContext(action.inputs.manifest, input.fix, input.context) ||
+    !currentCorrectionContext(action.inputs, input.fix, input.histories, input.context) ||
     inventory.payload.candidateGitSHA !== action.inputs.manifest.code.head ||
     !samePlan(basis, input.historical)
   )

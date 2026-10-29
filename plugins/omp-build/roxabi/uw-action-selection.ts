@@ -186,7 +186,7 @@ export function selectDeliveryData(
   if (!gathered.ok) return gathered
   const corrections = gatherCorrectionRefs(
     request,
-    mandate.recordId,
+    mandate,
     histories,
     authenticate,
     planActionId,
