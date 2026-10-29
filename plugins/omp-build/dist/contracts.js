@@ -11065,6 +11065,20 @@ function negativeFor(history, root, entry) {
   const slot = root.payload.slots.find((candidate) => candidate.slotId === payload.host.slotId);
   return payload.inventoryId === root.recordId && entry.inputs.includes(root.recordId) && slot !== undefined && payload.host.origin === "native" && payload.host.childId !== null && payload.host.phase === slot.phase && payload.host.role === slot.role && payload.host.chunk === slot.chunk && binding !== undefined && slot.action !== undefined && same(slot.action, binding) && validateActionInputs(binding.inputs).ok && binding.inputs.fingerprint === root.payload.actionInputDigest && binding.inputs.manifest.code.head === root.payload.candidateGitSHA && (!isInitialPullRequestReviewInventory(root.payload) || same(binding.inputs, root.payload.inputSnapshot)) && payload.native?.completion === "completed" && payload.native.strict === "valid" && missingContextOutputSchema.safeParse(payload.structured).success && payload.rawAttempts.some((attempt) => same(attempt.data, payload.structured));
 }
+function unresolvedStepValid(history, current, entry, contributions, records, seen) {
+  if (seen.has(current.recordId) || records.some((record) => record.kind === "review" && record.payload.inventoryIds.includes(current.recordId)))
+    return false;
+  seen.add(current.recordId);
+  return contributions.filter((candidate) => negativeFor(history, current, candidate)).length === 1 && contributions.filter((candidate) => candidate.payload.inventoryId === current.recordId && candidate.payload.host.slotId === entry.payload.host.slotId).length === 1;
+}
+function successorSlotEntry(history, root, contributions, slotId) {
+  const entries = contributions.filter((candidate) => candidate.payload.inventoryId === root.recordId && candidate.payload.host.slotId === slotId);
+  const next = entries[0];
+  const slot = root.payload.slots.find((candidate) => candidate.slotId === slotId);
+  if (entries.length !== 1 || next === undefined || slot === undefined || !accounted(history, next))
+    return;
+  return { next, slot };
+}
 function resolvedOutputValid(next, slot, rootId, snapshot) {
   const binding = slot.action;
   return next.inputs.includes(rootId) && next.payload.host.origin === "native" && next.payload.host.childId !== null && next.payload.host.phase === slot.phase && next.payload.host.role === slot.role && next.payload.host.chunk === slot.chunk && binding !== undefined && (next.payload.host.action === undefined || same(binding, next.payload.host.action)) && validateActionInputs(binding.inputs).ok && same(binding.inputs, snapshot) && next.payload.native?.completion === "completed" && next.payload.native.strict === "valid" && producerOutputValid(slot.output, next.payload.structured) && next.payload.rawAttempts.some((attempt) => same(attempt.data, next.payload.structured));
@@ -12100,6 +12114,11 @@ function groupFor(label) {
 }
 
 // plugins/omp-build/engine/review-context-lineage.ts
+function reviewActionId(candidate, slot, expanded) {
+  if (expanded.length === 0)
+    return `${candidate}:${slot}`;
+  return `${candidate}:${slot}:context:${canonicalValueDigest(expanded.map(canonicalValueDigest).sort())}`;
+}
 function successorOf2(root, successor, negative) {
   if (!isInitialPullRequestReviewInventory(root.payload) || !isInitialPullRequestReviewInventory(successor.payload))
     return false;
@@ -12134,6 +12153,100 @@ function directReviewContextSuccessors(history, roots, contributions, root, nega
     return edges(from).some((next) => next.recordId === target.recordId || reaches(next, target, seen));
   };
   return candidates.filter((candidate) => !candidates.some((other) => other.recordId !== candidate.recordId && reaches(other, candidate, new Set([root.recordId]))));
+}
+function resolvedSuccessor(history, roots, contributions, root, entry, slotId) {
+  if (slotId === null)
+    return null;
+  const successors = directReviewContextSuccessors(history, roots, contributions, root, entry);
+  if (successors.length !== 1)
+    return null;
+  const nextRoot = successors[0];
+  if (nextRoot === undefined || !isInitialPullRequestReviewInventory(nextRoot.payload))
+    return null;
+  const slotEntry = successorSlotEntry(history, nextRoot, contributions, slotId);
+  if (slotEntry === undefined)
+    return null;
+  return { root: nextRoot, inputSnapshot: nextRoot.payload.inputSnapshot, ...slotEntry };
+}
+function resolvedNegative(history, roots, contributions, records, negative) {
+  let root = roots.find((candidate) => negativeFor(history, candidate, negative));
+  if (root === undefined)
+    return false;
+  let entry = negative;
+  const slotId = negative.payload.host.slotId;
+  const seen = new Set;
+  while (true) {
+    const current = root;
+    if (!unresolvedStepValid(history, current, entry, contributions, records, seen))
+      return false;
+    const successor = resolvedSuccessor(history, roots, contributions, current, entry, slotId);
+    if (successor === null)
+      return false;
+    root = successor.root;
+    const { next, slot, inputSnapshot } = successor;
+    if (missingContextOutputSchema.safeParse(next.payload.structured).success) {
+      if (!negativeFor(history, root, next))
+        return false;
+      entry = next;
+      continue;
+    }
+    return resolvedOutputValid(next, slot, root.recordId, inputSnapshot);
+  }
+}
+function authorizeReviewContextSuccessor(history, proposed) {
+  if (!isInitialPullRequestReviewInventory(proposed.payload))
+    return true;
+  const refs = proposed.payload.inputSnapshot.manifest.expandedContext;
+  if (refs.length === 0)
+    return true;
+  if (!history.source.complete || history.diagnostics.length !== 0)
+    return false;
+  const records = history.operations.flatMap((operation) => operation.record === null ? [] : [operation.record]);
+  const roots = records.filter((record) => record.kind === "review-attempt" && isInitialPullRequestReviewInventory(record.payload));
+  const contributions = records.filter((record) => record.kind === "contribution");
+  const cited = refs.flatMap((ref) => {
+    if (ref.source !== "record" || ref.record.kind !== "contribution" || ref.selector !== "/payload")
+      return [];
+    return contributions.filter((entry) => entry.recordId === ref.record.recordId && equalScope(entry, ref.record.scope) && missingContextOutputSchema.safeParse(entry.payload.structured).success).map((entry) => ({ entry, ref }));
+  });
+  if (cited.length === 0)
+    return true;
+  if (cited.some(({ entry, ref }) => !accounted(history, entry) || ref.digest !== canonicalValueDigest(entry.payload)))
+    return false;
+  const allRoots = [...roots.filter((root) => root.recordId !== proposed.recordId), proposed];
+  const matches = roots.flatMap((root) => contributions.filter((entry) => negativeFor(history, root, entry)).flatMap((entry) => {
+    const successors = directReviewContextSuccessors(history, allRoots, contributions, root, entry, proposed);
+    if (successors.length > 1 && successorOf2(root, proposed, entry))
+      return [{ root, entry, fork: true }];
+    return successors.some((candidate) => candidate.recordId === proposed.recordId) ? [{ root, entry, fork: false }] : [];
+  }));
+  const match = matches[0];
+  if (matches.length === 0)
+    return cited.every(({ entry }) => {
+      const inventory = records.find((candidate) => candidate.kind === "review-attempt" && candidate.recordId === entry.payload.inventoryId && equalScope(candidate, entry));
+      if (inventory?.kind !== "review-attempt" || !accounted(history, inventory))
+        return false;
+      if (inventory.payload.purpose !== "review")
+        return true;
+      const root = roots.find((candidate) => candidate.recordId === inventory.recordId);
+      return root !== undefined && resolvedNegative(history, roots, contributions, records, entry);
+    });
+  if (matches.length !== 1 || match === undefined || match.fork)
+    return false;
+  const { root, entry } = match;
+  if (contributions.filter((candidate) => candidate.payload.inventoryId === root.recordId && candidate.payload.host.slotId === entry.payload.host.slotId).length !== 1)
+    return false;
+  if (contributions.filter((candidate) => negativeFor(history, root, candidate)).length !== 1)
+    return false;
+  if (records.some((record) => record.kind === "review" && record.payload.inventoryIds.includes(root.recordId)))
+    return false;
+  return true;
+}
+function reviewInventoryHasContextNegative(history, inventoryIds) {
+  const records = history.operations.flatMap((operation) => operation.record === null ? [] : [operation.record]);
+  const roots = records.filter((record) => record.kind === "review-attempt" && inventoryIds.includes(record.recordId));
+  const contributions = records.filter((record) => record.kind === "contribution");
+  return roots.some((root) => contributions.some((entry) => negativeFor(history, root, entry)));
 }
 function reviewContextLineage(history, records) {
   const roots = [...records.values()].filter((record) => record.kind === "review-attempt" && isInitialPullRequestReviewInventory(record.payload));
@@ -12654,6 +12767,13 @@ function workflowContextTerminal(history, action, contextLeaf) {
       return resolution;
   }
   return "clear";
+}
+function workflowContextResolution(history, negative) {
+  const receipts = recordsOf(history).filter((record) => record.kind === "action-receipt" && record.payload.action === negative.payload.action);
+  const matches = receipts.filter((record) => record.recordId === negative.recordId);
+  if (matches.length !== 1 || canonicalValueDigest(matches[0]) !== canonicalValueDigest(negative))
+    return "uncertain";
+  return resolveContextNegative(history, negative, receipts, new Set);
 }
 function workflowContextDirectSuccessor(history, negative) {
   const receipts = recordsOf(history).filter((record) => record.kind === "action-receipt" && record.payload.action === negative.payload.action);
@@ -16430,6 +16550,24 @@ function is(id, flag) {
 function hasNativeUserInterruptFlag(errorId) {
   return is(errorId, Flag.UserInterrupt);
 }
+// plugins/omp-build/engine/uw-action-command-schema.ts
+var actionRequestSchema = strictObject({
+  actionId: string2().min(1),
+  purpose: actionPurposeSchema,
+  subject: actionSubjectSchema,
+  code: strictObject({
+    repository: string2().min(1),
+    base: gitObjectIdSchema,
+    head: gitObjectIdSchema,
+    referenceCommit: gitObjectIdSchema
+  }),
+  stageSources: array(recordInputRefSchema),
+  expandedContext: array(union([recordInputRefSchema, pinnedFileRefSchema]))
+});
+var actionEnvelopeSchema = strictObject({
+  request: actionRequestSchema,
+  reviewed: actionInputsSchema.optional()
+});
 // plugins/omp-build/engine/review-conservation.ts
 function originalEntriesForRoot(records, rootAttemptId) {
   const entries = [];
@@ -19626,13 +19764,17 @@ export {
   SPEC_IDENTITY_FORMAT,
   WAYFINDER_LABELS,
   WORKFLOW_RECORD_KINDS,
+  abandoned,
   acceptedChildCommitmentSchema,
+  accounted,
   actionCompletion,
+  actionEnvelopeSchema,
   actionInputDigest,
   actionInputManifestSchema,
   actionInputsSchema,
   actionPurposeSchema,
   actionReceiptPayloadSchema,
+  actionRequestSchema,
   actionResultSchema,
   actionSpecInputSchema,
   actionSubjectSchema,
@@ -19646,6 +19788,7 @@ export {
   assessFixMandate,
   assessPlanCoverage,
   assessUwAdmission,
+  authorizeReviewContextSuccessor,
   bindExternalRef,
   bindImplementationCommand,
   buildFixOnlyMandate,
@@ -19659,8 +19802,10 @@ export {
   calculateTier,
   canonicalActionInput,
   canonicalSpec,
+  canonicalValueDigest,
   causeSchema,
   ciAttributionSchema,
+  ciExactSchema,
   citesCurrentRootOutput,
   classifyHistory,
   codeLinkJudgmentSchema,
@@ -19668,8 +19813,10 @@ export {
   commandOutputSchema,
   commandResultSchema,
   commandRunSchema,
+  completeCriterionDeclarations,
   composeChantier,
   confirmHistoricalReviewInputMatch,
+  confirmedAccountedMandate,
   contextNegativeBindingSchema,
   contributionSchema,
   correctionResultSchema,
@@ -19690,6 +19837,7 @@ export {
   deriveRecallPlan,
   deriveReviewState,
   diagnosticSchema,
+  directReviewContextSuccessors,
   effectiveMandateRole,
   encodeRecord,
   equalScope,
@@ -19714,10 +19862,13 @@ export {
   fixResultSchema,
   gh,
   gitBoundaryObservationSchema,
+  gitObjectIdSchema,
   githubScope,
+  graphqlVariables,
   groupSchema,
   hasNativeUserInterruptFlag,
   historicalReviewAssociations,
+  historyFor,
   historySchema,
   hostEffectAdmissionSchema,
   implementationAdmissionCommandSchema,
@@ -19737,6 +19888,7 @@ export {
   labelSchema,
   locationSchema,
   mandatePayloadSchema,
+  mandateScope,
   materialAcceptanceDigest,
   mechanicalSpecDelta,
   missingContextItemSchema,
@@ -19758,6 +19910,7 @@ export {
   operatorConfirmationEvidenceSchema,
   operatorControlPayloadSchema,
   originalFindingSchema,
+  outstandingPauseRequest,
   parseIssueSpecBody,
   parseRecord,
   partitionScopedRefs,
@@ -19779,7 +19932,9 @@ export {
   prepareReviewReplacementInventoryPublication,
   prepareSpecAllocation,
   producerCriterionDeclarationSchema,
+  producerImplementationOutputSchema,
   producerJsonSchema,
+  producerOutputValid,
   producerTestCitationSchema,
   producerTestExecutionSchema,
   projectNativeUwChildren,
@@ -19809,19 +19964,26 @@ export {
   recordOperation,
   recordSchema,
   recordScopeIdentity,
+  recordsOf,
   renderIssueSpecBody,
+  repoRelativePathSchema,
   requestedSourceLocatorSchema,
   requireLandingMandate,
   resolveAcceptedSpec,
+  resolveAdmittedCorrectionCriterionSource,
   resolveBoundWork,
+  resolveCorrectionRequestBasis,
   resolveNativeScope,
   resolveNativeTarget,
   resolveOwnSpecAuthority,
   resolveOwnSpecEffective,
   resolveSpecIdentityLedger,
+  resolvedOutputValid,
+  reviewActionId,
   reviewInputSnapshotSchema,
   reviewInterruptionPayloadSchema,
   reviewInterruptionRecordId,
+  reviewInventoryHasContextNegative,
   reviewReplacementGrantPayloadSchema,
   reviewReplacementGrantRecordId,
   reviewReplacementInventoryRecordId,
@@ -19856,12 +20018,14 @@ export {
   stopBotMayAuthor,
   stopSchema,
   submissionSchema,
+  successorOf,
   summarizeReviews,
   testExecutionSchema,
   toDiagnostic,
   toDiagnostics,
   unframedParserSchema,
   unknownWayfinderLabels,
+  unliftedPause,
   uwCreateInputSchema,
   uwDiagnosticSchema,
   uwLocationSchema,
@@ -19880,7 +20044,11 @@ export {
   viewer,
   workflowBindingPayloadSchema,
   workflowConditionSchema,
+  workflowContextDirectSuccessor,
+  workflowContextResolution,
+  workflowContextTerminal,
   workflowGraphActionSchema,
   workflowGraphSchema,
+  workflowOperationProblem,
   workflowReceiptActionSchema
 };

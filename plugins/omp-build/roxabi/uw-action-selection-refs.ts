@@ -1,11 +1,14 @@
-import { canonicalValueDigest } from '../engine/action-input.ts'
+import {
+  canonicalValueDigest,
+  implementationOutputSchema,
+  planOutputSchema,
+  recordsOf,
+  resolveAdmittedCorrectionCriterionSource,
+} from '../dist/contracts.js'
 import type { ActionSpecInput } from '../engine/action-input-schema.ts'
-import { resolveAdmittedCorrectionCriterionSource } from '../engine/correction-criterion-source.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Result } from '../engine/result.ts'
-import { recordsOf } from '../engine/workflow-control.ts'
-import { implementationOutputSchema, planOutputSchema } from '../engine/workflow-output-schema.ts'
 
 import type { DeliveryDataRef, UwActionRequest } from './uw-action-contract.ts'
 import { actionFailure } from './uw-action-result.ts'

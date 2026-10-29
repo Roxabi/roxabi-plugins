@@ -1,9 +1,14 @@
-import { missingContextOf } from '../engine/action-context.ts'
-import { canonicalValueDigest } from '../engine/action-input.ts'
+import {
+  accounted,
+  canonicalValueDigest,
+  historyFor,
+  missingContextOf,
+  recordsOf,
+  resolvedOutputValid,
+  workflowOperationProblem,
+} from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
-import { accounted, resolvedOutputValid } from '../engine/review-context-authentication.ts'
-import { historyFor, recordsOf, workflowOperationProblem } from '../engine/workflow-control.ts'
 import type { RecordInputRef, UwActionRequest } from './uw-action-contract.ts'
 import { matchesRequestedSubject } from './uw-action-subject.ts'
 import { priorCorrectionDecision } from './uw-correction-stage-decision.ts'

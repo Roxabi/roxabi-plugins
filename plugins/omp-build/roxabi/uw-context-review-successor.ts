@@ -1,14 +1,18 @@
-import { recordOperation } from '../adapters/github/record-integrity.ts'
-import { missingContextOutputSchema } from '../engine/action-context.ts'
-import { canonicalValueDigest, validateActionInputs } from '../engine/action-input.ts'
+import {
+  bindExternalRef,
+  canonicalValueDigest,
+  directReviewContextSuccessors,
+  historyFor,
+  missingContextOutputSchema,
+  producerOutputValid,
+  recordOperation,
+  validateActionInputs,
+} from '../dist/contracts.js'
 import type { ActionInputs, RecordInputRef } from '../engine/action-input-schema.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
-import { producerOutputValid } from '../engine/producer-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Slot } from '../engine/record-values.ts'
 import type { Result } from '../engine/result.ts'
-import { directReviewContextSuccessors } from '../engine/review-context-lineage.ts'
-import { bindExternalRef, historyFor } from '../engine/workflow-control.ts'
 import type { UwActionRequest } from './uw-action-contract.ts'
 import { authenticate } from './uw-action-observe.ts'
 import { actionFailure } from './uw-action-result.ts'

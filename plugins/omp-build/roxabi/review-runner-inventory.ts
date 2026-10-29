@@ -1,6 +1,11 @@
 import { isDeepStrictEqual } from 'node:util'
-import { type CanonicalRecord, type DecodedHistory, parseRecord } from '../dist/contracts.js'
-import { authorizeReviewContextSuccessor, reviewActionId } from '../engine/review-context-lineage.ts'
+import {
+  authorizeReviewContextSuccessor,
+  type CanonicalRecord,
+  type DecodedHistory,
+  parseRecord,
+  reviewActionId,
+} from '../dist/contracts.js'
 import type { PublishedRecord } from './github-publisher'
 import type { PreparedReviewBatch } from './review-contract'
 

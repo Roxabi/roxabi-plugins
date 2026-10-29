@@ -1,33 +1,8 @@
 import { readFileSync } from 'node:fs'
-import { z } from 'zod'
-import {
-  actionInputsSchema,
-  actionPurposeSchema,
-  actionSubjectSchema,
-  pinnedFileRefSchema,
-  recordInputRefSchema,
-} from '../engine/action-input-schema.ts'
-import { gitObjectIdSchema } from '../engine/record-references.ts'
+import { actionEnvelopeSchema } from '../dist/contracts.js'
 import type { Scope } from '../engine/record-values.ts'
 import type { UwOperations } from './uw-contract.ts'
 
-const actionRequestSchema = z.strictObject({
-  actionId: z.string().min(1),
-  purpose: actionPurposeSchema,
-  subject: actionSubjectSchema,
-  code: z.strictObject({
-    repository: z.string().min(1),
-    base: gitObjectIdSchema,
-    head: gitObjectIdSchema,
-    referenceCommit: gitObjectIdSchema,
-  }),
-  stageSources: z.array(recordInputRefSchema),
-  expandedContext: z.array(z.union([recordInputRefSchema, pinnedFileRefSchema])),
-})
-const actionEnvelopeSchema = z.strictObject({
-  request: actionRequestSchema,
-  reviewed: actionInputsSchema.optional(),
-})
 export type DurableUwCommand =
   | { kind: 'action'; requestFile: string }
   | { kind: 'evidence'; repository: string; number: number }

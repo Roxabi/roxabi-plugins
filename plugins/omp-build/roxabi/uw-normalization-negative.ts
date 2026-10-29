@@ -1,4 +1,4 @@
-import { missingContextOutputSchema } from '../engine/action-context.ts'
+import { missingContextOutputSchema } from '../dist/contracts.js'
 import type { Diagnostic } from '../engine/record-values.ts'
 import type { NativeBatchResult } from '../omp/review-runtime/contracts.ts'
 import type { ContinueFeatureInput } from './feature-contract.ts'

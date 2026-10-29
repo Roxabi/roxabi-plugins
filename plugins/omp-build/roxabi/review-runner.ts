@@ -1,10 +1,10 @@
 import { isDeepStrictEqual } from 'node:util'
-import { gh as githubClient } from '../adapters/github/types.ts'
 import type { GitHubOptions } from '../dist/contracts.js'
 import {
   buildRecord,
   type CanonicalRecord,
   decodeHistory,
+  gh as githubClient,
   githubScope,
   parseRecord,
   type RecordDraft,

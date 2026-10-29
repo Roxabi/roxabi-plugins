@@ -1,17 +1,19 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { decodeHistory } from '../adapters/github/history-codec.ts'
-import { recordOperation } from '../adapters/github/record-integrity.ts'
-import { readGitHubHistory } from '../adapters/github/transport.ts'
 import type { Gh, GitHubOptions } from '../adapters/github/types.ts'
-import { canonicalValueDigest } from '../engine/action-input.ts'
+import {
+  canonicalValueDigest,
+  decodeHistory,
+  readGitHubHistory,
+  recordIntegrity,
+  recordOperation,
+  recordsOf,
+} from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
-import { recordIntegrity } from '../engine/record-integrity.ts'
 import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { Result } from '../engine/result.ts'
-import { recordsOf } from '../engine/workflow-control.ts'
 import type { ActionInputManifest, RecordInputRef, UwActionRequest } from './uw-action-contract.ts'
 import { actionFailure, isGitSha, jsonPointer } from './uw-action-result.ts'
 import { type CorrectionActionCode, correctionObservation } from './uw-correction-observation.ts'

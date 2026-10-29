@@ -1,4 +1,4 @@
-import { canonicalValueDigest, citesCurrentRootOutput } from '../engine/action-input.ts'
+import { canonicalValueDigest, citesCurrentRootOutput } from '../dist/contracts.js'
 import type { ActionInputManifest } from '../engine/action-input-schema.ts'
 import type { Result } from '../engine/result.ts'
 import type { RecordInputRef, UwActionPorts, UwActionRequest } from './uw-action-contract.ts'

@@ -1,13 +1,15 @@
 import {
+  ACTION_BINDING_FORMAT,
+  ACTION_INPUT_FORMAT,
   actionInputDigest,
+  actionInputsSchema,
   canonicalValueDigest,
   citesCurrentRootOutput,
+  recordsOf,
   validateActionInputs,
-} from '../engine/action-input.ts'
-import { ACTION_BINDING_FORMAT, ACTION_INPUT_FORMAT, actionInputsSchema } from '../engine/action-input-schema.ts'
+} from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Result } from '../engine/result.ts'
-import { recordsOf } from '../engine/workflow-control.ts'
 import { registerHostActionBinding } from '../omp/review-runtime/action-registry.ts'
 import type {
   ActionInputManifest,

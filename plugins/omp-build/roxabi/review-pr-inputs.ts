@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { Policy, Result, Scope } from '../dist/contracts.js'
-import { reviewActionId } from '../engine/review-context-lineage.ts'
+import { reviewActionId } from '../dist/contracts.js'
 import { parseRosterConfig, parseStackPaths } from '../skills/dev-review/roster-config'
 import type { AllocateReviewInput } from '../skills/dev-review/roster-contract'
 import { normalizeTier } from '../skills/dev-review/roster-spec'

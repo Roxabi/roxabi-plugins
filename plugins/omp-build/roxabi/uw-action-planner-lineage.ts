@@ -1,9 +1,14 @@
-import { canonicalValueDigest } from '../engine/action-input.ts'
+import {
+  canonicalValueDigest,
+  historyFor,
+  planDigest,
+  planOutputSchema,
+  recordsOf,
+  workflowContextDirectSuccessor,
+} from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Result } from '../engine/result.ts'
-import { workflowContextDirectSuccessor } from '../engine/workflow-context-terminal.ts'
-import { historyFor, type ReceiptRecord, recordsOf } from '../engine/workflow-control.ts'
-import { planDigest, planOutputSchema } from '../engine/workflow-output-schema.ts'
+import type { ReceiptRecord } from '../engine/workflow-control.ts'
 import type { PlanMacro } from '../engine/workflow-plan.ts'
 import type { PlannerExpansion } from './uw-action-negative-expansion.ts'
 import { actionFailure } from './uw-action-result.ts'

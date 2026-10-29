@@ -1,18 +1,18 @@
-import { recordOperation } from '../adapters/github/record-integrity.ts'
+import {
+  abandoned,
+  confirmedAccountedMandate,
+  historyFor,
+  type MandateRecord,
+  mandateScope,
+  planMacro,
+  recordOperation,
+  recordsOf,
+  successorOf,
+} from '../dist/contracts.js'
 import type { ActionSpecInput } from '../engine/action-input-schema.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Result } from '../engine/result.ts'
-import {
-  abandoned,
-  historyFor,
-  type MandateRecord,
-  mandateScope,
-  recordsOf,
-  successorOf,
-} from '../engine/workflow-control.ts'
-import { planMacro } from '../engine/workflow-plan-macro.ts'
-import { confirmedAccountedMandate } from '../engine/workflow-pr-binding.ts'
 
 import type { DeliveryDataRef, UwActionRequest } from './uw-action-contract.ts'
 import { expandedPlannerMacro, type PlannerExpansion } from './uw-action-negative-expansion.ts'

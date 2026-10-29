@@ -1,12 +1,15 @@
-import { decodeHistory } from '../adapters/github/history-codec.ts'
-import { githubScope, readGitHubHistory } from '../adapters/github/transport.ts'
 import type { GitHubOptions } from '../adapters/github/types.ts'
-import { graphqlVariables } from '../adapters/github-workflow/client.ts'
+import {
+  decodeHistory,
+  equalScope,
+  githubScope,
+  graphqlVariables,
+  readGitHubHistory,
+  selectWorkflowBinding,
+} from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
-import { equalScope } from '../engine/record-diagnostics.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { Result } from '../engine/result.ts'
-import { selectWorkflowBinding } from '../engine/workflow-pr-binding.ts'
 import { actionFailure } from './uw-action-result.ts'
 
 /**

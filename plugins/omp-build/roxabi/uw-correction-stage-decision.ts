@@ -1,8 +1,12 @@
-import { canonicalValueDigest } from '../engine/action-input.ts'
+import {
+  canonicalValueDigest,
+  historyFor,
+  recordsOf,
+  validateDecisionBindings,
+  workflowOperationProblem,
+} from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
-import { validateDecisionBindings } from '../engine/review-decision.ts'
-import { historyFor, recordsOf, workflowOperationProblem } from '../engine/workflow-control.ts'
 import type { RecordInputRef, UwActionRequest } from './uw-action-contract.ts'
 import { authenticate } from './uw-action-observe.ts'
 

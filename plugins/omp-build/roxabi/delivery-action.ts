@@ -1,5 +1,4 @@
-import { canonicalValueDigest } from '../engine/action-input.ts'
-import { actionInputsSchema } from '../engine/action-input-schema.ts'
+import { actionInputsSchema, canonicalValueDigest } from '../dist/contracts.js'
 import type { Diagnostic, Scope } from '../engine/record-values.ts'
 import type { Result } from '../engine/result.ts'
 import type { NativeBatch, NativeProofDirective, NativeTask } from '../omp/review-runtime/contracts.ts'

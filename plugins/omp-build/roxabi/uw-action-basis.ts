@@ -1,11 +1,15 @@
-import { recordOperation } from '../adapters/github/record-integrity.ts'
-import { canonicalValueDigest } from '../engine/action-input.ts'
-import { actionInputsSchema } from '../engine/action-input-schema.ts'
-import { criterionEvidenceSchema, type ObservationRef } from '../engine/criterion-evidence-schema.ts'
+import {
+  actionInputsSchema,
+  bindExternalRef,
+  canonicalValueDigest,
+  criterionEvidenceSchema,
+  recordOperation,
+  recordsOf,
+} from '../dist/contracts.js'
+import type { ObservationRef } from '../engine/criterion-evidence-schema.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Json, Scope } from '../engine/record-values.ts'
 import type { Result } from '../engine/result.ts'
-import { bindExternalRef, recordsOf } from '../engine/workflow-control.ts'
 import type { ActionSubject, DeliveryDataRef, RecordInputRef } from './uw-action-contract.ts'
 import { type ActionFactSource, authenticate, readHistories } from './uw-action-observe.ts'
 import { actionFailure, jsonPointer, sha256Bytes } from './uw-action-result.ts'

@@ -1,13 +1,15 @@
-import { parseIssueSpecBody } from '../adapters/github-native/uw-spec.ts'
-import { rawSource } from '../adapters/github-native/uw-spec-parser.ts'
+import {
+  historyFor,
+  issueSpecAnalysisSchema,
+  parseIssueSpecBody,
+  rawSource,
+  resolveAcceptedSpec,
+  resolveOwnSpecEffective,
+  selectWorkflowBinding,
+} from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
-import { issueSpecAnalysisSchema } from '../engine/issue-spec-analysis-schema.ts'
 import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { Result } from '../engine/result.ts'
-import { resolveOwnSpecEffective } from '../engine/spec-effective.ts'
-import { resolveAcceptedSpec } from '../engine/workflow-accepted-spec.ts'
-import { historyFor } from '../engine/workflow-control.ts'
-import { selectWorkflowBinding } from '../engine/workflow-pr-binding.ts'
 import { type EvidenceObservation, resolveEvidenceBasis, seedEvidenceObservation } from './uw-action-basis.ts'
 import type {
   ActionInputManifest,

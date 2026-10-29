@@ -1,6 +1,6 @@
 import type { Gh } from '../adapters/github/types.ts'
+import { repoRelativePathSchema } from '../dist/contracts.js'
 import type { Result } from '../engine/result.ts'
-import { repoRelativePathSchema } from '../engine/schema-primitives.ts'
 import { PROJECT_CONTRACT_FILES } from '../hooks/lib/contract-paths.cjs'
 import type { PinnedFileRef, UwActionRequest } from './uw-action-contract.ts'
 import { actionFailure, sha256Bytes } from './uw-action-result.ts'

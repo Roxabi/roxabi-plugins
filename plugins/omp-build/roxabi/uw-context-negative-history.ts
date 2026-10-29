@@ -1,7 +1,7 @@
+import { workflowOperationProblem } from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Result } from '../engine/result.ts'
-import { workflowOperationProblem } from '../engine/workflow-control.ts'
 import type { UwActionRequest } from './uw-action-contract.ts'
 import { actionFailure } from './uw-action-result.ts'
 

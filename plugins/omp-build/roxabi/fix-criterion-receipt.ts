@@ -1,4 +1,4 @@
-import { criterionDeclarationSchema } from '../engine/criterion-evidence-schema.ts'
+import { criterionDeclarationSchema } from '../dist/contracts.js'
 import type { NativeCorrectionExecutionOptions } from './correction-execution-contract.ts'
 import type { CorrectionOutcome } from './correction-policy-contract.ts'
 import { completeCriterionDeclarations } from './feature-implementation-receipt.ts'

@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { Gh } from '../adapters/github/types.ts'
+import { repoRelativePathSchema } from '../dist/contracts.js'
 import type { Result } from '../engine/result.ts'
-import { repoRelativePathSchema } from '../engine/schema-primitives.ts'
 import { actionFailure, isGitSha } from './uw-action-result.ts'
 import { readGitHubBlob, readGitHubBlobs } from './uw-github-blobs.ts'
 

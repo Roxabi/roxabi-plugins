@@ -1,4 +1,4 @@
-import { canonicalValueDigest } from '../engine/action-input.ts'
+import { canonicalValueDigest } from '../dist/contracts.js'
 import type { UwActionRequest } from './uw-action-contract.ts'
 
 /** A null request binding asks the host to resolve authority; it is not a resolved binding. */

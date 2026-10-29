@@ -1,4 +1,4 @@
-import { actionInputDigest } from '../engine/action-input.ts'
+import { actionInputDigest } from '../dist/contracts.js'
 import type { Result } from '../engine/result.ts'
 import { nativeFeatureProfiles } from './native-feature-profiles.ts'
 import { nativeReviewProfiles } from './native-review-profiles.ts'

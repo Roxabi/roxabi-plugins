@@ -1,23 +1,23 @@
-import { recordOperation } from '../adapters/github/record-integrity.ts'
-import { missingContextOf, missingContextOutputSchema } from '../engine/action-context.ts'
-import { canonicalValueDigest, validateActionInputs } from '../engine/action-input.ts'
+import {
+  bindExternalRef,
+  canonicalValueDigest,
+  historyFor,
+  missingContextOf,
+  missingContextOutputSchema,
+  outstandingPauseRequest,
+  producerImplementationOutputSchema,
+  recordOperation,
+  recordsOf,
+  unliftedPause,
+  validateActionInputs,
+  workflowContextDirectSuccessor,
+  workflowContextResolution,
+  workflowContextTerminal,
+} from '../dist/contracts.js'
 import type { ActionInputs } from '../engine/action-input-schema.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Result } from '../engine/result.ts'
-import {
-  workflowContextDirectSuccessor,
-  workflowContextResolution,
-  workflowContextTerminal,
-} from '../engine/workflow-context-terminal.ts'
-import {
-  bindExternalRef,
-  historyFor,
-  outstandingPauseRequest,
-  recordsOf,
-  unliftedPause,
-} from '../engine/workflow-control.ts'
-import { producerImplementationOutputSchema } from '../engine/workflow-output-schema.ts'
 import type { UwActionRequest } from './uw-action-contract.ts'
 import { authenticate } from './uw-action-observe.ts'
 import { actionFailure } from './uw-action-result.ts'

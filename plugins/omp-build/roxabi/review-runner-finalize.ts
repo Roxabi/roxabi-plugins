@@ -5,11 +5,11 @@ import {
   decisionSchema,
   type Policy,
   type RecordDraft,
+  reviewInventoryHasContextNegative,
   type Scope,
   validateDecision,
 } from '../dist/contracts.js'
 import type { Result } from '../engine/result.ts'
-import { reviewInventoryHasContextNegative } from '../engine/review-context-lineage.ts'
 import type { PublishedContribution } from './review-contract.ts'
 import { type ReviewIdentity, recordBase, requireRecord } from './review-records'
 

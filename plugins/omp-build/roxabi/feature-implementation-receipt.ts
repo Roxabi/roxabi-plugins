@@ -1,9 +1,10 @@
-import { completeCriterionDeclarations, type ObservationChild } from '../engine/criterion-declaration-completion.ts'
+import { completeCriterionDeclarations } from '../dist/contracts.js'
+import type { ObservationChild } from '../engine/criterion-declaration-completion.ts'
 import type { CriterionDeclaration } from '../engine/criterion-evidence-schema.ts'
 
-export { completeCriterionDeclarations } from '../engine/criterion-declaration-completion.ts'
+export { completeCriterionDeclarations } from '../dist/contracts.js'
 
-import { implementationOutputSchema } from '../engine/workflow-output-schema.ts'
+import { implementationOutputSchema } from '../dist/contracts.js'
 import type { NativeChildResult } from '../omp/review-runtime/contracts.ts'
 import { implementNativeOutcome } from './feature-native-outcome.ts'
 

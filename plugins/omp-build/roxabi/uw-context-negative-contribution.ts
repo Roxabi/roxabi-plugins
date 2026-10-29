@@ -1,11 +1,14 @@
-import { missingContextOutputSchema } from '../engine/action-context.ts'
-import { canonicalValueDigest } from '../engine/action-input.ts'
+import {
+  canonicalValueDigest,
+  missingContextOutputSchema,
+  recordsOf,
+  workflowOperationProblem,
+} from '../dist/contracts.js'
 import type { ActionInputs, RecordInputRef } from '../engine/action-input-schema.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Slot } from '../engine/record-values.ts'
 import type { Result } from '../engine/result.ts'
-import { recordsOf, workflowOperationProblem } from '../engine/workflow-control.ts'
 import type { UwActionRequest } from './uw-action-contract.ts'
 import { actionFailure } from './uw-action-result.ts'
 import { matchesRequestedSubject } from './uw-action-subject.ts'

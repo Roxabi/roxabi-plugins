@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { repoRelativePathSchema } from '../dist/contracts.js'
 import type { Result } from '../engine/result.ts'
-import { repoRelativePathSchema } from '../engine/schema-primitives.ts'
 import type { PinnedFileRef, UwActionPorts, UwActionRequest } from './uw-action-contract.ts'
 import { actionFailure, sha256Bytes } from './uw-action-result.ts'
 import { correctionObservation } from './uw-correction-observation.ts'

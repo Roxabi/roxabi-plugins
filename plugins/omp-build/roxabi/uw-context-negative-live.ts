@@ -1,7 +1,5 @@
-import { canonicalValueDigest } from '../engine/action-input.ts'
-import { failedCheckEvidenceDigest } from '../engine/record-digests.ts'
+import { canonicalValueDigest, ciExactSchema, failedCheckEvidenceDigest } from '../dist/contracts.js'
 import type { Result } from '../engine/result.ts'
-import { ciExactSchema } from '../engine/workflow-receipt-exact.ts'
 import { readNativeCiFailureEvidence } from './feature-ci-evidence.ts'
 import type { UwActionRequest } from './uw-action-contract.ts'
 import type { ActionFactSource } from './uw-action-observe.ts'

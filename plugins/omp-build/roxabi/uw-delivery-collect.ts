@@ -1,13 +1,15 @@
-import { canonicalValueDigest } from '../engine/action-input.ts'
+import {
+  canonicalValueDigest,
+  criterionDeclarationSchema,
+  criterionVerdictSchema,
+  recordsOf,
+  specReportSchema,
+} from '../dist/contracts.js'
 import type { CodeVersion, CriterionDeclaration } from '../engine/criterion-evidence-schema.ts'
-import { criterionDeclarationSchema } from '../engine/criterion-evidence-schema.ts'
 import type { CriterionVerdict } from '../engine/criterion-verdict-schema.ts'
-import { criterionVerdictSchema } from '../engine/criterion-verdict-schema.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Diagnostic, Scope } from '../engine/record-values.ts'
-import { specReportSchema } from '../engine/record-values.ts'
-import { recordsOf } from '../engine/workflow-control.ts'
 import { isGitSha } from './uw-action-result.ts'
 import type { UwDeliveryDeclaration, UwDeliveryVerdict } from './uw-delivery-read.ts'
 

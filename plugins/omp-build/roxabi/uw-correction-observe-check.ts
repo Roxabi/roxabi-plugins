@@ -1,10 +1,14 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { canonicalValueDigest } from '../engine/action-input.ts'
-import { resolveCorrectionRequestBasis } from '../engine/correction-request-basis.ts'
+import {
+  accounted,
+  canonicalValueDigest,
+  historyFor,
+  recordsOf,
+  resolveCorrectionRequestBasis,
+  workflowOperationProblem,
+} from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
-import { accounted } from '../engine/review-context-authentication.ts'
-import { historyFor, recordsOf, workflowOperationProblem } from '../engine/workflow-control.ts'
 import type { UwActionRequest } from './uw-action-contract.ts'
 import type { CorrectionActionCode } from './uw-correction-observation.ts'
 

@@ -1,6 +1,6 @@
+import { selectWorkflowBinding } from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Result } from '../engine/result.ts'
-import { selectWorkflowBinding } from '../engine/workflow-pr-binding.ts'
 import { assertCurrentOutputClosure, currentRootOutputRefs } from './uw-action-closure.ts'
 import type { ActionInputManifest, CurrentActionFacts, UwActionRequest } from './uw-action-contract.ts'
 import { expansionOrigin } from './uw-action-expansion-origin.ts'

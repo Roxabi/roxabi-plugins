@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from 'node:util'
 import type { ToolResultEvent } from '@oh-my-pi/pi-coding-agent'
-import { producerOutputValid } from '../../engine/producer-schema.ts'
+import { producerOutputValid } from '../../dist/contracts.js'
 import { nativeFeatureProfiles } from '../../roxabi/native-feature-profiles.ts'
 import { nativeReviewProfiles } from '../../roxabi/native-review-profiles.ts'
 import { nativeSnapshot, object } from './capture'

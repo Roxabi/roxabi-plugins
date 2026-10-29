@@ -1,5 +1,5 @@
 import type { CanonicalRecord, HistoricalReviewAssociation } from '../dist/contracts.js'
-import { validateActionInputs } from '../engine/action-input.ts'
+import { validateActionInputs } from '../dist/contracts.js'
 import { type ConfirmedReviewSemanticContext, confirmedReviewSemanticContext } from './review-semantic-canon.ts'
 import { reviewAcceptedSpecView } from './review-semantic-context.ts'
 

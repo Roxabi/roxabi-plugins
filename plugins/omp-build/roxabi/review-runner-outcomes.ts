@@ -1,5 +1,10 @@
-import { type CanonicalRecord, deriveRecallPlan, type Policy, type Scope } from '../dist/contracts.js'
-import { canonicalValueDigest } from '../engine/action-input.ts'
+import {
+  type CanonicalRecord,
+  canonicalValueDigest,
+  deriveRecallPlan,
+  type Policy,
+  type Scope,
+} from '../dist/contracts.js'
 import { actionRequest, confirmPreparedAction, deliveryTask, prepareRefusal } from './delivery-action.ts'
 import type { PreparedReviewBatch } from './review-contract.ts'
 import type { ObservedEvidence, PreparedReviewChunk } from './review-input-contract'

@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from 'node:util'
+import { validateActionInputs } from '../../dist/contracts.js'
 import type { ContextActionBinding } from '../../engine/action-context.ts'
-import { validateActionInputs } from '../../engine/action-input.ts'
 import type { ActionInputs } from '../../engine/action-input-schema.ts'
 import type { Result } from '../../engine/result.ts'
 import type { ActionSnapshot } from '../../roxabi/uw-action-contract.ts'

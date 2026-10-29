@@ -1,3 +1,4 @@
+export { graphqlVariables } from './adapters/github-workflow/client.ts'
 export {
   type ContextActionBinding,
   contextNegativeBindingSchema,
@@ -11,6 +12,7 @@ export {
 export {
   actionInputDigest,
   canonicalActionInput,
+  canonicalValueDigest,
   citesCurrentRootOutput,
   recordScopeIdentity,
   selectorAdmitted,
@@ -36,6 +38,8 @@ export {
   type RecordInputRef,
   recordInputRefSchema,
 } from './engine/action-input-schema.ts'
+export { resolveAdmittedCorrectionCriterionSource } from './engine/correction-criterion-source.ts'
+export { resolveCorrectionRequestBasis } from './engine/correction-request-basis.ts'
 export {
   assessCriterionDeclarations,
   assessCriterionReview,
@@ -45,6 +49,7 @@ export {
   type CriterionReviewInput,
   evidenceDigest,
 } from './engine/criterion-admission.ts'
+export { completeCriterionDeclarations } from './engine/criterion-declaration-completion.ts'
 export {
   type CodeVersion,
   type CommandOutput,
@@ -102,9 +107,38 @@ export {
   type UnframedParser,
   unframedParserSchema,
 } from './engine/issue-spec-analysis-schema.ts'
+export { producerOutputValid } from './engine/producer-schema.ts'
+export { gitObjectIdSchema } from './engine/record-references.ts'
+export { accounted, resolvedOutputValid } from './engine/review-context-authentication.ts'
+export {
+  authorizeReviewContextSuccessor,
+  directReviewContextSuccessors,
+  reviewActionId,
+  reviewInventoryHasContextNegative,
+} from './engine/review-context-lineage.ts'
+export { repoRelativePathSchema } from './engine/schema-primitives.ts'
 export {
   resolveOwnSpecEffective,
   SPEC_EFFECTIVE_FORMAT,
   type SpecEffective,
   specEffectiveSchema,
 } from './engine/spec-effective.ts'
+export { actionEnvelopeSchema, actionRequestSchema } from './engine/uw-action-command-schema.ts'
+export {
+  workflowContextDirectSuccessor,
+  workflowContextResolution,
+  workflowContextTerminal,
+} from './engine/workflow-context-terminal.ts'
+export {
+  abandoned,
+  historyFor,
+  mandateScope,
+  outstandingPauseRequest,
+  recordsOf,
+  successorOf,
+  unliftedPause,
+  workflowOperationProblem,
+} from './engine/workflow-control.ts'
+export { producerImplementationOutputSchema } from './engine/workflow-output-schema.ts'
+export { confirmedAccountedMandate } from './engine/workflow-pr-binding.ts'
+export { ciExactSchema } from './engine/workflow-receipt-exact.ts'

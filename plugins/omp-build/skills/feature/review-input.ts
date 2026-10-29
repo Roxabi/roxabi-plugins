@@ -1,6 +1,4 @@
-import { decodeHistory } from '../../adapters/github/history-codec.ts'
-import { readGitHubHistory } from '../../adapters/github/transport.ts'
-import { actionInputDigest, validateActionInputs } from '../../engine/action-input.ts'
+import { actionInputDigest, decodeHistory, readGitHubHistory, validateActionInputs } from '../../dist/contracts.js'
 import type { ActionInputManifest, ActionInputs } from '../../engine/action-input-schema.ts'
 import { type ConfirmedReviewSemanticContext, confirmedReviewSemanticContext } from '../../roxabi/review-semantic-canon'
 import { resolveReviewSemanticContext } from '../../roxabi/review-semantic-context'

@@ -1,4 +1,4 @@
-import { canonicalValueDigest } from '../engine/action-input.ts'
+import { canonicalValueDigest } from '../dist/contracts.js'
 import type { Result } from '../engine/result.ts'
 import type {
   CurrentActionFacts,

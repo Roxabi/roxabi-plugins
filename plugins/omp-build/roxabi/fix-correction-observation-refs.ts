@@ -1,6 +1,5 @@
 import { isDeepStrictEqual } from 'node:util'
-import { canonicalValueDigest } from '../engine/action-input.ts'
-import { recordsOf } from '../engine/workflow-control.ts'
+import { canonicalValueDigest, recordsOf } from '../dist/contracts.js'
 import type { CorrectionEffectResult } from './correction-execution-contract.ts'
 import type { FixRecord, PreparedFix } from './fix-contract.ts'
 import { admitDecisionExecution, type DefaultFixWorkflow } from './fix-execution-policy.ts'

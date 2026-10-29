@@ -1,23 +1,24 @@
-import { recordOperation } from '../adapters/github/record-integrity.ts'
-import { missingContextOutputSchema } from '../engine/action-context.ts'
-import { canonicalValueDigest, validateActionInputs } from '../engine/action-input.ts'
+import {
+  bindExternalRef,
+  canonicalValueDigest,
+  historyFor,
+  type MandateRecord,
+  mandateScope,
+  missingContextOutputSchema,
+  outstandingPauseRequest,
+  planMacro,
+  recordOperation,
+  recordsOf,
+  unliftedPause,
+  validateActionInputs,
+  workflowContextResolution,
+  workflowOperationProblem,
+} from '../dist/contracts.js'
 import type { ActionInputs } from '../engine/action-input-schema.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Result } from '../engine/result.ts'
-import { workflowContextResolution } from '../engine/workflow-context-terminal.ts'
-import {
-  bindExternalRef,
-  historyFor,
-  type MandateRecord,
-  mandateScope,
-  outstandingPauseRequest,
-  recordsOf,
-  unliftedPause,
-  workflowOperationProblem,
-} from '../engine/workflow-control.ts'
 import type { PlanMacro, WorkflowEvidence } from '../engine/workflow-plan.ts'
-import { planMacro } from '../engine/workflow-plan-macro.ts'
 import type { UwActionRequest } from './uw-action-contract.ts'
 import { authenticate } from './uw-action-observe.ts'
 import { matchesReviewedDraft, plannerLineage } from './uw-action-planner-lineage.ts'

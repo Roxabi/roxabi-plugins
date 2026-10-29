@@ -1,13 +1,16 @@
-import { recordOperation } from '../adapters/github/record-integrity.ts'
 import type { Gh } from '../adapters/github/types.ts'
-import { readComposedWorkflowHistory } from '../adapters/github-workflow/history.ts'
-import { type ActionInputs, actionInputsSchema, type RecordInputRef } from '../engine/action-input-schema.ts'
+import {
+  actionInputsSchema,
+  readComposedWorkflowHistory,
+  recordIntegrity,
+  recordOperation,
+  recordsOf,
+} from '../dist/contracts.js'
+import type { ActionInputs, RecordInputRef } from '../engine/action-input-schema.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
-import { recordIntegrity } from '../engine/record-integrity.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { Result } from '../engine/result.ts'
-import { recordsOf } from '../engine/workflow-control.ts'
 import { readProductionActionFactsBatch } from './uw-action-batch-facts.ts'
 import type { PinnedFileRef, TrustedHostPluginPin, UwActionPorts, UwInputReadPorts } from './uw-action-contract.ts'
 import { readProductionActionFacts, readSelectedRecord } from './uw-action-facts.ts'
