@@ -137,7 +137,9 @@ export async function nativeReviewChild(input: { task: NativeTask; sessionFile: 
   if (aborted || start?.systemPrompt === undefined)
     throw new Error(`native-fixture-child-start-refused: agent=${input.task.agent}, child=${input.task.name}`)
   systemPrompt = start.systemPrompt
-  const messages: Array<{ role: string; content: unknown }> = [{ role: 'user', content: taskText }]
+  const messages: Array<{ role: string; content: unknown; attribution?: string }> = [
+    { role: 'user', content: taskText, attribution: 'agent' },
+  ]
   return {
     hook,
     message: (event) => hook(event.type, event),

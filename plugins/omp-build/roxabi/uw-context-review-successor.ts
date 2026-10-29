@@ -35,7 +35,7 @@ export function accounted(record: CanonicalRecord, histories: readonly DecodedHi
   const history = historyFor(record, histories)
   if (history === null) return false
   const matches = history.operations.filter(
-    (op) => op.recordId === record.recordId || op.operationId === record.operationId,
+    (op) => op.authority !== 'foreign' && (op.recordId === record.recordId || op.operationId === record.operationId),
   )
   const operation = matches[0]
   return (

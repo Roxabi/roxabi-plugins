@@ -1,11 +1,8 @@
 import { join } from 'node:path'
 import { afterEach, expect, vi } from 'vitest'
-import { createExtensionApiStub } from '../../testing/extension-api-stub.ts'
 import { consultableAgentRoot } from '../../testing/protocol-retention.unit.ts'
 import { cleanupFixtureActions } from '../../testing/review-runtime-support.ts'
 import { unitSdkRoots } from '../../testing/unit-sdk-scopes.ts'
-import { installNativeBatchBridge } from '../review-runtime/bridge.ts'
-import { NativeBatchController } from '../review-runtime/controller.ts'
 import {
   agent,
   assignment,
@@ -13,11 +10,11 @@ import {
   cleanupDirectories,
   preparedBatch,
 } from './review-runtime-executed-child-snapshot.fixture.ts'
+import { endpoint, eventBus, type ToolEntry, tools } from './review-runtime-sdk-events.fixture.ts'
 
 type Model = { provider: string; id: string }
 
 const taskText = `Complete assignment thoroughly:\n\n${assignment}`
-const tools = ['read', 'grep', 'glob', 'lsp', 'ast_grep']
 const data = {
   steps: [
     {
@@ -36,66 +33,6 @@ afterEach(() => {
   cleanupFixtureActions()
   cleanupDirectories()
 })
-
-type Handler = (...args: never[]) => unknown
-type Bus = {
-  api: { on(name: string, handler: (value: unknown) => void): () => void }
-  emit(name: string, value: unknown): void
-}
-type ToolEntry = { name: string; source: string }
-
-function endpoint(bus: Bus, beforeSetTools?: () => Promise<void>, registry?: ToolEntry[], initialTools?: string[]) {
-  const handlers = new Map<string, Handler[]>()
-  let activeTools = initialTools ? [...initialTools] : [...tools, 'yield']
-  const registered = registry
-    ? registry.map((tool) => ({ ...tool }))
-    : activeTools.map((name) => ({ name, source: 'builtin' }))
-  const native = createExtensionApiStub({
-    events: bus.api,
-    on: (event, handler) => handlers.set(event, [...(handlers.get(event) ?? []), handler as Handler]),
-    getActiveTools: () => activeTools,
-    getAllTools: () => registered.map(({ name, source }) => ({ name, sourceInfo: { source } })) as never,
-    setActiveTools: async (names) => {
-      await beforeSetTools?.()
-      activeTools = [...names]
-    },
-  })
-  const controller = new NativeBatchController()
-  controller.bindHostGit(() => null)
-  installNativeBatchBridge(native, controller)
-  return {
-    controller,
-    async emit(name: string, event: unknown, ctx: unknown) {
-      let response: unknown
-      for (const handler of handlers.get(name) ?? [])
-        response = (await handler(event as never, ctx as never)) ?? response
-      return response
-    },
-    activeTools: () => [...activeTools],
-    setSource(name: string, source: string) {
-      for (const tool of registered) if (tool.name === name) tool.source = source
-    },
-    addTool(name: string) {
-      activeTools.push(name)
-      registered.push({ name, source: 'builtin' })
-    },
-  }
-}
-
-function eventBus(): Bus {
-  const listeners = new Map<string, ((value: unknown) => void)[]>()
-  return {
-    api: {
-      on: (name: string, handler: (value: unknown) => void) => {
-        listeners.set(name, [...(listeners.get(name) ?? []), handler])
-        return () => undefined
-      },
-    },
-    emit(name: string, value: unknown) {
-      for (const listener of listeners.get(name) ?? []) listener(value)
-    },
-  }
-}
 
 async function setup(
   options: {
@@ -204,20 +141,41 @@ async function setup(
     return result
   }
   if (options.spawn !== false) expect(await spawn()).toBeUndefined()
-  async function start() {
-    await childEndpoint.emit('session_start', { type: 'session_start' }, child)
-    expect(abort).not.toHaveBeenCalled()
+  const initialMessage = {
+    role: 'user',
+    content: [{ type: 'text', text: taskText }],
+    attribution: 'agent',
+    timestamp: 1,
+  }
+  async function preflight(text: string) {
     const result = (await childEndpoint.emit(
       'before_agent_start',
-      { type: 'before_agent_start', prompt: taskText, systemPrompt: prompt },
+      { type: 'before_agent_start', prompt: text, systemPrompt: prompt },
       child,
     )) as { systemPrompt?: string[] } | undefined
+    if (!aborted && result?.systemPrompt) prompt = result.systemPrompt
+  }
+  async function context(messages: unknown[]) {
+    if (!aborted) await childEndpoint.emit('context', { type: 'context', messages }, child)
+  }
+  async function provider() {
     if (aborted) return
-    if (result?.systemPrompt) prompt = result.systemPrompt
-    await childEndpoint.emit('context', { type: 'context', messages: [{ role: 'user', content: taskText }] }, child)
-    if (aborted) return
-    runtime.provider()
     await childEndpoint.emit('before_provider_request', { type: 'before_provider_request', payload: {} }, child)
+    if (!aborted) runtime.provider()
+  }
+  async function start(options: { retries?: number; messages?: unknown[]; prompt?: string } = {}) {
+    await childEndpoint.emit('session_start', { type: 'session_start' }, child)
+    expect(abort).not.toHaveBeenCalled()
+    for (let attempt = 0; attempt <= (options.retries ?? 0) && !aborted; attempt++)
+      await preflight(options.prompt ?? taskText)
+    await context(options.messages ?? [initialMessage])
+    await provider()
+  }
+  async function continueTurn(text: string, messages: unknown[]) {
+    if (aborted) return
+    await preflight(text)
+    await context(messages)
+    await provider()
   }
   async function yieldValue(value: unknown = data) {
     if (aborted) return undefined
@@ -272,6 +230,11 @@ async function setup(
     runtime,
     bus,
     start,
+    initialMessage,
+    preflight,
+    context,
+    provider,
+    continueTurn,
     yieldValue,
     terminal,
     onComplete,

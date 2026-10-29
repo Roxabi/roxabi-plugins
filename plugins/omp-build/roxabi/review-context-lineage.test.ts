@@ -245,6 +245,44 @@ describe('authenticated review context lineage', () => {
     expect(reviewInventoryHasContextNegative(beforeC, [a.root.recordId])).toBe(true)
   })
 
+  it('continues authenticated context expansion despite a foreign copied contribution identity', async () => {
+    const inputs = standaloneReviewInputs()
+    const a = await nativeRoot(inputs, 'collision-a', negative)
+    const bInputs = expanded(inputs, a.entry, 'region.txt')
+    const b = await nativeRoot(bInputs, 'collision-b', negative)
+    const authentic = history([a.root, a.entry])
+    const foreign = observedComment({
+      locator: 'foreign-collision',
+      nativeId: 'foreign-collision',
+      author: 'stranger',
+      body: `<!-- omp-build-record v=1 kind=contribution id=${a.entry.recordId} operationId=${a.entry.operationId} part=1/2 data=e30 -->`,
+    })
+    const noisy = decodeHistory({ ...authentic.source, comments: [...authentic.source.comments, foreign] })
+    expect(noisy.operations).toEqual(
+      expect.arrayContaining([expect.objectContaining({ authority: 'foreign', operationId: a.entry.operationId })]),
+    )
+    expect(authorizeReviewContextSuccessor(noisy, b.root)).toBe(true)
+    const request = {
+      actionId: 'expanded-review',
+      purpose: 'review' as const,
+      subject: bInputs.manifest.subject,
+      code: bInputs.manifest.code,
+      stageSources: bInputs.stageSources,
+      expandedContext: bInputs.manifest.expandedContext,
+    }
+    expect(resolveNegativeContribution(request, [noisy])).toMatchObject({
+      ok: true,
+      value: { inventoryId: a.root.recordId, negativeRef: { record: { recordId: a.entry.recordId } } },
+    })
+    const edited = decodeHistory({
+      ...authentic.source,
+      comments: authentic.source.comments.map((comment) =>
+        comment.locator === `comment-${a.entry.recordId}` ? { ...comment, updatedAt: '2026-10-21T10:00:01Z' } : comment,
+      ),
+    })
+    expect(authorizeReviewContextSuccessor(edited, b.root)).toBe(false)
+  })
+
   it('treats an authenticated review negative as ordinary context for correction', async () => {
     const inputs = standaloneReviewInputs()
     const a = await nativeRoot(inputs, 'cross-purpose', negative)

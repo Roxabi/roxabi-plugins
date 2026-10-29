@@ -16,6 +16,7 @@ export function sameOperation(record: CanonicalRecord, operation: OperationRead)
   const parsed = parseRecord(record)
   return (
     parsed.ok &&
+    operation.authority !== 'foreign' &&
     operation.operationId === parsed.value.operationId &&
     operation.status === 'complete' &&
     operation.record !== null &&

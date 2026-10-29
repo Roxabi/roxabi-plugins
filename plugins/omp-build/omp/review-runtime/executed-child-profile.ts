@@ -134,23 +134,27 @@ export function toolSetValid(pi: NativeExtension, tools: readonly string[]): boo
   })
 }
 
-function validContextMessage(message: ContextEvent['messages'][number], task: string): boolean {
-  if (message.role !== 'user') return message.role === 'assistant' || message.role === 'toolResult'
+function controlText(message: ContextEvent['messages'][number]): string | null {
+  if (message.role !== 'user' && message.role !== 'developer') return null
+  if (message.attribution !== 'agent') return null
   const content = message.content
-  const text =
-    typeof content === 'string'
-      ? content
-      : Array.isArray(content) && content.every((part) => part.type === 'text')
-        ? content.map((part) => part.text).join('')
-        : null
-  return text === task
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content) || !content.every((part) => part.type === 'text')) return null
+  return content.map((part) => part.text).join('')
 }
 
-export function validContext(messages: ContextEvent['messages'], task: string): boolean {
-  let users = 0
+export function validContext(messages: ContextEvent['messages'], task: string, admitted: boolean): boolean {
+  let anchored = false
   for (const message of messages) {
-    if (message.role === 'user') users++
-    if (!validContextMessage(message, task)) return false
+    if (message.role === 'assistant' || message.role === 'toolResult') continue
+    const text = controlText(message)
+    if (text === null) return false
+    if (!anchored) {
+      if (message.role !== 'user' || text !== task) return false
+      anchored = true
+    } else if (!admitted) {
+      return false
+    }
   }
-  return users === 1
+  return anchored
 }

@@ -25,6 +25,7 @@ type Binding = {
   model: { provider: string; id: string }
   task: string
   prompt: string[]
+  admitted: boolean
   contextReady: boolean
   providerReady: boolean
   calls: Map<string, { name: string; input: unknown }>
@@ -95,6 +96,7 @@ async function prepareBinding(ctx: ExtensionContext, pi: NativeExtension): Promi
       `Shared task context:\n${bound.batch.tasks.context}`,
       `Submit the result by calling yield with a data value conforming to this JSON schema:\n${JSON.stringify(profile.outputSchema)}`,
     ],
+    admitted: false,
     contextReady: false,
     providerReady: false,
     calls: new Map(),
@@ -144,7 +146,7 @@ export function installExecutedChildGuard(pi: NativeExtension, controller: Nativ
   pi.on('before_agent_start', (event, ctx) => {
     if (!isCanonicalChild(ctx)) return
     try {
-      if (binding && readyIdentity(binding, ctx, pi) && event.prompt === binding.task) {
+      if (binding && readyIdentity(binding, ctx, pi) && (binding.admitted || event.prompt === binding.task)) {
         binding.contextReady = false
         binding.providerReady = false
         return { systemPrompt: binding.prompt }
@@ -161,7 +163,7 @@ export function installExecutedChildGuard(pi: NativeExtension, controller: Nativ
     binding.contextReady = false
     binding.providerReady = false
     try {
-      if (!live(binding, ctx, pi) || !validContext(event.messages, binding.task)) {
+      if (!live(binding, ctx, pi) || !validContext(event.messages, binding.task, binding.admitted)) {
         invalidate(binding)
         return ctx.abort()
       }
@@ -181,6 +183,7 @@ export function installExecutedChildGuard(pi: NativeExtension, controller: Nativ
         return ctx.abort()
       }
       binding.contextReady = false
+      binding.admitted = true
       binding.providerReady = true
     } catch {
       invalidate(binding)

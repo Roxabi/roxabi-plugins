@@ -71,18 +71,15 @@ function projectWorkflowRecord(
     return fail([
       diagnostic('unbound', `Record ${record.recordId} cannot be projected outside a complete bound history`),
     ])
-  const records = recordMap(history)
+  const records = recordMap({
+    ...history,
+    operations: history.operations.filter((operation) => operation.authority !== 'foreign'),
+  })
   const home = records.get(record.recordId)
   if (home !== undefined && JSON.stringify(home) !== JSON.stringify(record))
     return fail([
       diagnostic('conflict', `Record ${record.recordId} conflicts with the complete record already in this history`),
     ])
-  if (
-    history.operations.some(
-      (operation) => operation.record?.recordId === record.recordId && operation.authority === 'foreign',
-    )
-  )
-    return fail([diagnostic('foreign', `Record ${record.recordId} is not from the expected author`)])
   const referenceDiagnostic = workflowReferenceDiagnostic(record, records, externalHistories)
   if (referenceDiagnostic !== null) return fail([referenceDiagnostic])
   return {

@@ -468,6 +468,52 @@ describe('composed workflow history and landing binding readback', () => {
     expect(facts).toMatchObject({ ok: true, uwGraph: { status: 'incomplete' } })
   })
 
+  it('reuses the authentic published operation despite a foreign incomplete identity copy', async () => {
+    const record = {
+      repository: 'acme/app',
+      target: 'acme/app#42',
+      version: 1 as const,
+      recordId: 'event-retry',
+      runId: 'run-1',
+      operationId: 'op-retry',
+      inputs: [] as string[],
+      kind: 'epic-event' as const,
+      payload: { outcome: 'verified' },
+    }
+    const partial =
+      '<!-- omp-build-record v=1 kind=epic-event id=event-retry operationId=op-retry part=1/2 data=e30 -->'
+    const empty = decodeHistory({ ...historyFrom(''), comments: [] })
+    let posts = 0
+    const publish = (login: string) =>
+      publishConfirmedWorkflowRecord(
+        record,
+        empty,
+        {
+          cwd: '/fixture',
+          readAuthor: 'automation',
+          writerLogin: 'automation',
+          gh: fakeGh([
+            (args) => {
+              if (args.includes('POST')) {
+                posts++
+                throw new Error('unexpected publication')
+              }
+              if (String(args[1] ?? '').includes('/comments'))
+                return JSON.stringify([
+                  nativeComment(1, wire(record)),
+                  { ...nativeComment(2, partial), user: { login } },
+                ])
+              return undefined
+            },
+          ]),
+        },
+        null,
+      )
+    expect(await publish('foreign')).toMatchObject({ status: 'confirmed', operation: { authority: 'accounted' } })
+    expect(await publish('automation')).toMatchObject({ status: 'refused' })
+    expect(posts).toBe(0)
+  })
+
   it('never treats uncertain publication as a confirmed workflow checkpoint', async () => {
     const record = {
       repository: 'acme/app',

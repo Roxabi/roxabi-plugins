@@ -166,7 +166,7 @@ describe('buildRecord', () => {
       } as never,
       [secondResult.value.recordId],
     )
-    if (!targetResult.ok) throw new Error('Expected closure event')
+    if (!targetResult.ok || targetResult.value.kind !== 'epic-event') throw new Error('Expected closure event')
 
     const antecedents = history([firstResult.value, secondResult.value], {
       operations: [
@@ -220,7 +220,7 @@ describe('buildRecord', () => {
         operation(firstResult.value, { authority: 'accounted' }),
         operation(secondResult.value, { authority: 'accounted' }),
         operation(targetResult.value),
-        operation(targetResult.value, { authority: 'foreign' }),
+        operation({ ...targetResult.value, payload: { outcome: 'foreign-copy' } }, { authority: 'foreign' }),
       ],
     })
     expect(projectRecord(targetResult.value, copiedRoot, null)).toMatchObject({ ok: true })

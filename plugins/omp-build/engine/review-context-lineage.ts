@@ -151,7 +151,9 @@ export function authorizeReviewContextSuccessor(history: DecodedHistory, propose
   const refs = proposed.payload.inputSnapshot.manifest.expandedContext
   if (refs.length === 0) return true
   if (!history.source.complete || history.diagnostics.length !== 0) return false
-  const records = history.operations.flatMap((operation) => (operation.record === null ? [] : [operation.record]))
+  const records = history.operations.flatMap((operation) =>
+    operation.authority === 'foreign' || operation.record === null ? [] : [operation.record],
+  )
   const roots = records.filter(
     (record): record is Root => record.kind === 'review-attempt' && isInitialPullRequestReviewInventory(record.payload),
   )
@@ -213,7 +215,9 @@ export function authorizeReviewContextSuccessor(history: DecodedHistory, propose
 
 /** A negative inventory cannot authorize a late final after a successor exists. */
 export function reviewInventoryHasContextNegative(history: DecodedHistory, inventoryIds: readonly string[]): boolean {
-  const records = history.operations.flatMap((operation) => (operation.record === null ? [] : [operation.record]))
+  const records = history.operations.flatMap((operation) =>
+    operation.authority === 'foreign' || operation.record === null ? [] : [operation.record],
+  )
   const roots = records.filter(
     (record): record is Root => record.kind === 'review-attempt' && inventoryIds.includes(record.recordId),
   )

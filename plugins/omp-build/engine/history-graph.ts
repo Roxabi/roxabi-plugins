@@ -178,6 +178,7 @@ export function validateRecordGraph(history: DecodedHistory, enforceAdmission = 
 /** A prospective record is absent from observed history. It is validated structurally, never inserted as a fake read-back. */
 export function validateProspectiveRecord(record: CanonicalRecord, history: DecodedHistory): Diagnostic[] {
   const observed = history.operations.flatMap((operation) =>
+    operation.authority !== 'foreign' &&
     operation.record !== null &&
     (operation.recordId === record.recordId || operation.record.recordId === record.recordId)
       ? [operation.record]
@@ -191,7 +192,7 @@ export function validateProspectiveRecord(record: CanonicalRecord, history: Deco
   const diagnostics: Diagnostic[] = []
   const records = new Map<string, CanonicalRecord>()
   for (const operation of history.operations) {
-    if (operation.status === 'complete' && operation.record !== null)
+    if (operation.authority !== 'foreign' && operation.status === 'complete' && operation.record !== null)
       records.set(operation.record.recordId, operation.record)
   }
   for (const input of record.inputs) {

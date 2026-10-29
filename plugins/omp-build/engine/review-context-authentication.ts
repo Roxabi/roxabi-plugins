@@ -16,7 +16,9 @@ export const same = (left: unknown, right: unknown): boolean =>
 
 export function accounted(history: DecodedHistory, record: CanonicalRecord): boolean {
   const matches = history.operations.filter(
-    (operation) => operation.recordId === record.recordId || operation.operationId === record.operationId,
+    (operation) =>
+      operation.authority !== 'foreign' &&
+      (operation.recordId === record.recordId || operation.operationId === record.operationId),
   )
   if (matches.length !== 1) return false
   const operation = matches[0]

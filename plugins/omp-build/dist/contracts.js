@@ -10143,14 +10143,14 @@ function validateRecordGraph(history, enforceAdmission = true) {
   return diagnostics.length === 0 ? { ok: true, value: [...records.values()] } : fail(diagnostics);
 }
 function validateProspectiveRecord(record, history) {
-  const observed = history.operations.flatMap((operation) => operation.record !== null && (operation.recordId === record.recordId || operation.record.recordId === record.recordId) ? [operation.record] : []);
+  const observed = history.operations.flatMap((operation) => operation.authority !== "foreign" && operation.record !== null && (operation.recordId === record.recordId || operation.record.recordId === record.recordId) ? [operation.record] : []);
   if (observed.length > 0) {
     return observed.some((item) => sameJson(item, record)) ? [] : [diagnostic2("duplicate-reference", `Record ${record.recordId} conflicts with its observed record`)];
   }
   const diagnostics = [];
   const records = new Map;
   for (const operation of history.operations) {
-    if (operation.status === "complete" && operation.record !== null)
+    if (operation.authority !== "foreign" && operation.status === "complete" && operation.record !== null)
       records.set(operation.record.recordId, operation.record);
   }
   for (const input of record.inputs) {
@@ -11358,7 +11358,7 @@ function labelIsKnown(value) {
 // plugins/omp-build/engine/review-context-authentication.ts
 var same = (left, right) => canonicalValueDigest(left) === canonicalValueDigest(right);
 function accounted(history, record) {
-  const matches = history.operations.filter((operation) => operation.recordId === record.recordId || operation.operationId === record.operationId);
+  const matches = history.operations.filter((operation) => operation.authority !== "foreign" && (operation.recordId === record.recordId || operation.operationId === record.operationId));
   if (matches.length !== 1)
     return false;
   const operation = matches[0];
@@ -12524,7 +12524,7 @@ function authorizeReviewContextSuccessor(history, proposed) {
     return true;
   if (!history.source.complete || history.diagnostics.length !== 0)
     return false;
-  const records = history.operations.flatMap((operation) => operation.record === null ? [] : [operation.record]);
+  const records = history.operations.flatMap((operation) => operation.authority === "foreign" || operation.record === null ? [] : [operation.record]);
   const roots = records.filter((record) => record.kind === "review-attempt" && isInitialPullRequestReviewInventory(record.payload));
   const contributions = records.filter((record) => record.kind === "contribution");
   const cited = refs.flatMap((ref) => {
@@ -12566,7 +12566,7 @@ function authorizeReviewContextSuccessor(history, proposed) {
   return true;
 }
 function reviewInventoryHasContextNegative(history, inventoryIds) {
-  const records = history.operations.flatMap((operation) => operation.record === null ? [] : [operation.record]);
+  const records = history.operations.flatMap((operation) => operation.authority === "foreign" || operation.record === null ? [] : [operation.record]);
   const roots = records.filter((record) => record.kind === "review-attempt" && inventoryIds.includes(record.recordId));
   const contributions = records.filter((record) => record.kind === "contribution");
   return roots.some((root) => contributions.some((entry) => negativeFor(history, root, entry)));
@@ -13856,14 +13856,15 @@ function projectWorkflowRecord(record, history, externalHistories) {
     return fail([
       diagnostic2("unbound", `Record ${record.recordId} cannot be projected outside a complete bound history`)
     ]);
-  const records = recordMap(history);
+  const records = recordMap({
+    ...history,
+    operations: history.operations.filter((operation) => operation.authority !== "foreign")
+  });
   const home = records.get(record.recordId);
   if (home !== undefined && JSON.stringify(home) !== JSON.stringify(record))
     return fail([
       diagnostic2("conflict", `Record ${record.recordId} conflicts with the complete record already in this history`)
     ]);
-  if (history.operations.some((operation) => operation.record?.recordId === record.recordId && operation.authority === "foreign"))
-    return fail([diagnostic2("foreign", `Record ${record.recordId} is not from the expected author`)]);
   const referenceDiagnostic = workflowReferenceDiagnostic(record, records, externalHistories);
   if (referenceDiagnostic !== null)
     return fail([referenceDiagnostic]);
@@ -14544,7 +14545,7 @@ function encodeRecord(record, history, config, externalHistories = [], maxCommen
 // plugins/omp-build/adapters/github/publisher-validation.ts
 function sameOperation(record, operation) {
   const parsed = parseRecord(record);
-  return parsed.ok && operation.operationId === parsed.value.operationId && operation.status === "complete" && operation.record !== null && JSON.stringify(parsed.value) === JSON.stringify(operation.record);
+  return parsed.ok && operation.authority !== "foreign" && operation.operationId === parsed.value.operationId && operation.status === "complete" && operation.record !== null && JSON.stringify(parsed.value) === JSON.stringify(operation.record);
 }
 function publicationReadDiagnostics(error) {
   return error instanceof GitHubHistoryReadError ? error.diagnostics : [diagnostic3("github-read-failed", error instanceof Error ? error.message : String(error))];
@@ -14732,7 +14733,7 @@ async function publishGitHubRecord(record, history, options, config, externalHis
   } catch (error) {
     return publicationFailure("uncertain", history, publicationReadDiagnostics(error));
   }
-  const sameId = current.operations.filter((operation) => operation.operationId === record.operationId);
+  const sameId = current.operations.filter((operation) => operation.authority !== "foreign" && operation.operationId === record.operationId);
   const confirmed = sameId.find((operation) => sameOperation(record, operation));
   const incomplete = sameId.filter((operation) => operation.status === "incomplete");
   if (confirmed !== undefined && sameId.length === 1)

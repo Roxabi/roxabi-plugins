@@ -51,7 +51,9 @@ export async function publishGitHubRecord(
     return publicationFailure('uncertain', history, publicationReadDiagnostics(error))
   }
 
-  const sameId = current.operations.filter((operation) => operation.operationId === record.operationId)
+  const sameId = current.operations.filter(
+    (operation) => operation.authority !== 'foreign' && operation.operationId === record.operationId,
+  )
   const confirmed = sameId.find((operation) => sameOperation(record, operation))
   const incomplete = sameId.filter((operation) => operation.status === 'incomplete')
   if (confirmed !== undefined && sameId.length === 1) return { status: 'confirmed', operation: confirmed }

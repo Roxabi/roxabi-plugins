@@ -371,10 +371,7 @@ describe('native executed-child contract', () => {
           'context',
           {
             type: 'context',
-            messages: [
-              { role: 'user', content: taskText },
-              { role: 'custom', content: 'injected instructions' },
-            ],
+            messages: [fixture.initialMessage, { role: 'custom', content: 'injected instructions' }],
           },
           fixture.child,
         )
