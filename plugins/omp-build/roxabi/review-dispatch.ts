@@ -55,20 +55,35 @@ export class ReviewProduct {
     await this.#dispatch(context, prepared, null)
   }
 
+  async #admitInventory(
+    context: ReviewContext,
+    prepared: PreparedReviewBatch,
+    canContinue: (() => boolean) | null,
+  ): Promise<boolean> {
+    if (canContinue !== null && !canContinue()) return false
+    this.#assertDispatchable()
+    const authorization = await this.publisher.authorize(context, prepared.stage)
+    if (!authorization.ok) {
+      await this.publisher.stop(context, authorization.reason, null)
+      return false
+    }
+    if (canContinue !== null && !canContinue()) return false
+    this.#assertDispatchable()
+    const publication = await this.publisher.publishInventory(prepared, canContinue ?? undefined)
+    if (canContinue !== null && !canContinue()) return false
+    if (!publication.ok) {
+      await this.publisher.stop(context, publication.reason, null)
+      return false
+    }
+    return true
+  }
+
   async #dispatch(
     context: ReviewContext,
     prepared: PreparedReviewBatch,
     canContinue: (() => boolean) | null,
   ): Promise<void> {
-    if (canContinue !== null && !canContinue()) return
-    this.#assertDispatchable()
-    const authorization = await this.publisher.authorize(context, prepared.stage)
-    if (!authorization.ok) return this.publisher.stop(context, authorization.reason, null)
-    if (canContinue !== null && !canContinue()) return
-    this.#assertDispatchable()
-    const publication = await this.publisher.publishInventory(prepared)
-    if (!publication.ok) return this.publisher.stop(context, publication.reason, null)
-    if (canContinue !== null && !canContinue()) return
+    if (!(await this.#admitInventory(context, prepared, canContinue))) return
 
     const contributions: PublishedContribution[] = []
     const callbacks: NativeBatchCallbacks = {

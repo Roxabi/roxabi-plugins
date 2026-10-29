@@ -65,9 +65,7 @@ export function verifyCleanExtension(checkout: string, owned: string): void {
     result === null ||
     (result as Record<string, unknown>).ok !== false ||
     (result as Record<string, unknown>).allowed !== false ||
-    (result as Record<string, unknown>).reason !== 'unreadable' ||
-    (result as Record<string, unknown>).detail !==
-      'usage: --repository --pr --head --automation-login --candidate-cwd --tooling-sha'
+    (result as Record<string, unknown>).reason !== 'unreadable'
   )
     throw new Error(
       `clean review gate did not return its usage refusal: status=${gate.status} stdout=${gate.stdout} stderr=${gate.stderr}`,

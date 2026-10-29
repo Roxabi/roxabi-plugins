@@ -125,6 +125,8 @@ async function invokeWorkflowOperation(operationName: string): Promise<unknown |
 
 async function invokeSdkDriver(operationName: string): Promise<unknown> {
   switch (operationName) {
+    case 'omp-feature':
+      return invokeOmpBridge(false, false)
     case 'omp-pause':
       return invokeOmpBridge()
     case 'omp-unconfirmed-pause':
@@ -157,6 +159,7 @@ async function invoke(operationName: string): Promise<unknown> {
 
 async function invokeOmpBridge(
   injectUnconfirmedPause = false,
+  interrupt = true,
 ): Promise<{ messages: string[]; pausePr: number | null }> {
   const commands = new Map<string, Handler>()
   const events = new Map<string, Handler[]>()
@@ -194,6 +197,7 @@ async function invokeOmpBridge(
   const feature = commands.get('feature')
   if (feature === undefined) throw new Error('feature-command-unregistered')
   await feature('#42', context)
+  if (!interrupt) return { messages, pausePr: null }
   const pausePr = injectUnconfirmedPause ? createConcurrentPausePull(cwd ?? '') : null
   if (pausePr !== null) makePauseDisarmUnreadable(pausePr)
   for (const handler of events.get('message_end') ?? []) {

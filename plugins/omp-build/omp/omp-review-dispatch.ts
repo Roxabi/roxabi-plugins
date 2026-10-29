@@ -23,7 +23,7 @@ async function prepareInstalledEpicRangeReview(
   let completionInvoked = false
   const publisher: ReviewPublisher = {
     authorize: (context, stage) => review.publisher.authorize(context, stage),
-    publishInventory: (prepared) => review.publisher.publishInventory(prepared),
+    publishInventory: (prepared, canContinue) => review.publisher.publishInventory(prepared, canContinue),
     publishRawContribution: (prepared, child) => review.publisher.publishRawContribution(prepared, child),
     completeStage: async (prepared, result, contributions, canContinue) => {
       if (canContinue === undefined) throw new Error('review-continuation-unfenced')
@@ -151,7 +151,7 @@ async function dispatchDefaultReview(
       ? runner
       : {
           authorize: (context, stage) => runner.authorize(context, stage),
-          publishInventory: (prepared) => runner.publishInventory(prepared),
+          publishInventory: (prepared, canContinue) => runner.publishInventory(prepared, canContinue),
           publishRawContribution: (prepared, child) => runner.publishRawContribution(prepared, child),
           completeStage: async (prepared, result, contributions, canContinue) => {
             if (canContinue === undefined) throw new Error('review-continuation-unfenced')

@@ -56,7 +56,10 @@ export type PublishedContribution = { id: string; child: NativeChildResult }
  */
 export type ReviewPublisher = {
   authorize(context: ReviewContext, stage: ReviewStage): Promise<{ ok: true } | { ok: false; reason: string }>
-  publishInventory(prepared: PreparedReviewBatch): Promise<{ ok: true } | { ok: false; reason: string }>
+  publishInventory(
+    prepared: PreparedReviewBatch,
+    canContinue?: () => boolean,
+  ): Promise<{ ok: true } | { ok: false; reason: string }>
   publishRawContribution(prepared: PreparedReviewBatch, child: NativeChildResult): Promise<PublishedContribution>
   completeStage(
     prepared: PreparedReviewBatch,

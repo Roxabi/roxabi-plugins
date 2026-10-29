@@ -3,9 +3,11 @@ import { githubScope } from '../adapters/github/transport.ts'
 import type { Gh } from '../adapters/github/types.ts'
 import { TAXONOMY } from '../engine/__tests__/record-test-support.ts'
 import { SCOPE } from '../engine/__tests__/workflow-test-support.ts'
-import type { NativeChildResult } from '../omp/review-runtime/contracts.ts'
+import type { NativeBatchCallbacks, NativeChildResult } from '../omp/review-runtime/contracts.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import { createGitHubRecordPublisher } from './github-publisher.ts'
+import type { ReviewPublisher } from './review-contract.ts'
+import { ReviewProduct } from './review-dispatch.ts'
 import { createPreparedReviewRunner } from './review-entry.ts'
 import {
   ghGrantInterruptedReviewReplacement,
@@ -143,4 +145,113 @@ describe('review finalization publication ownership', () => {
   it('revokes the decision while its publisher history read is suspended', () => exercise('decision'))
   it('revokes the final review while its publisher history read is suspended', () => exercise('review'))
   it('confirms the real decision and final review with valid ownership', () => exercise('none'))
+})
+
+async function exerciseFollowingInventory(revoke: boolean) {
+  const fixture = recoveryFixture()
+  const prepareReview = async () => preparedReview()
+  const options = {
+    cwd: recoverySmokeCwd,
+    pr: 42,
+    contextWindow: 128_000,
+    gh: fixture.gh,
+    prepareReview,
+    operations: preparedReview().value.operations,
+  }
+  expect(await ghTerminalizeInterruptedReview({ cwd: recoverySmokeCwd, pr: 42, gh: fixture.gh })).toMatchObject({
+    ok: true,
+  })
+  expect(await ghGrantInterruptedReviewReplacement(options)).toMatchObject({ ok: true })
+  const replacement = await ghReplaceInterruptedReview(options)
+  if (!replacement.ok) throw new Error('replacement inventory was not published')
+  const [spec, panel, synthesis] = completedReplacementRecords(replacement.value.inventory)
+  if (synthesis.kind !== 'review-attempt') throw new Error('invalid synthesis fixture')
+  const publisher = createGitHubRecordPublisher(
+    githubScope(SCOPE.repository, 42),
+    withRoxabiGitHubPolicy({ cwd: recoverySmokeCwd, gh: fixture.gh }),
+    { taxonomy: TAXONOMY, acceptedPolicy: null },
+  )
+  for (const record of [spec, panel]) expect(await publisher.publish(record)).toMatchObject({ ok: true })
+
+  const suspended = Promise.withResolvers<void>()
+  const release = Promise.withResolvers<void>()
+  let following = false
+  const gh: Gh = async (cwd, args) => {
+    if (revoke && following && args.includes('repos/acme/app/issues/42/comments?per_page=100&page=1')) {
+      following = false
+      suspended.resolve()
+      await release.promise
+    }
+    return fixture.gh(cwd, args)
+  }
+  const runner = createPreparedReviewRunner(
+    preparedReview().value,
+    { cwd: recoverySmokeCwd, gh },
+    async () => ({ ok: true }),
+    { initialInventory: replacement.value.inventory },
+  )
+  const initial = runner.initialBatch()
+  const next = { ...initial, stage: 'synthesis' as const, inventory: synthesis }
+  const bridge: ReviewPublisher = {
+    authorize: (context, stage) => runner.authorize(context, stage),
+    publishInventory: (batch, canContinue) => runner.publishInventory(batch, canContinue),
+    publishRawContribution: (batch, child) => runner.publishRawContribution(batch, child),
+    completeStage: async () => {
+      following = true
+      return next
+    },
+    publishRequiredStop: () => runner.publishRequiredStop(),
+    stop: (context, reason) => runner.stop(context, reason),
+  }
+  const activations: NativeBatchCallbacks[] = []
+  let announcements = 0
+  const product = new ReviewProduct(
+    {
+      activate: (_batch, callbacks) => {
+        activations.push(callbacks)
+      },
+      inactive: () => {},
+      announce: async () => {
+        announcements++
+      },
+    },
+    bridge,
+  )
+  await product.preparePullRequestReview(runner.context, initial)
+  expect(activations).toHaveLength(1)
+  expect(announcements).toBe(1)
+  const before = fixture.commentCount()
+  let owned = true
+  const completion = Promise.resolve(
+    activations[0].onComplete({ batch: initial.batch, children: [], raw: null, complete: true }, () => owned),
+  )
+  if (revoke) {
+    await Promise.race([
+      suspended.promise,
+      completion.then(() => {
+        throw new Error('dispatch completed before inventory history barrier')
+      }),
+    ])
+    owned = false
+    release.resolve()
+  }
+  await expect(completion).resolves.toBeUndefined()
+  const history = await fixture.history()
+  const found = history.operations.find((operation) => operation.recordId === synthesis.recordId)?.record
+  if (revoke) {
+    expect(fixture.commentCount()).toBe(before)
+    expect(found).toBeUndefined()
+    expect(activations).toHaveLength(1)
+    expect(announcements).toBe(1)
+  } else {
+    expect(found).toEqual(synthesis)
+    expect(activations).toHaveLength(2)
+    expect(announcements).toBe(2)
+  }
+}
+
+describe('following review inventory ownership', () => {
+  it('does not publish or activate after revocation during the publisher history read', () =>
+    exerciseFollowingInventory(true))
+  it('publishes and activates the following stage with live ownership', () => exerciseFollowingInventory(false))
 })

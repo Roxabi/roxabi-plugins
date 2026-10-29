@@ -210,7 +210,7 @@ export async function prepareEpicFinalReviewMaterials(input: {
   let bound = false
   const publisher: ReviewPublisher = {
     authorize: (reviewContext, stage) => runner.authorize(reviewContext, stage),
-    publishInventory: (batch) => runner.publishInventory(batch),
+    publishInventory: (batch, canContinue) => runner.publishInventory(batch, canContinue),
     publishRawContribution: (batch, child) => runner.publishRawContribution(batch, child),
     async completeStage(batch, result, contributions, canContinue) {
       if (canContinue === undefined) throw new Error('review-continuation-unfenced')

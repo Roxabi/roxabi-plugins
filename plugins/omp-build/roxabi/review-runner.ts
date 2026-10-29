@@ -186,13 +186,16 @@ export class CanonicalReviewRunner implements ReviewPublisher {
     }
     return this.input.authorize(stage)
   }
-  async publishInventory(prepared: PreparedReviewBatch): Promise<{ ok: true } | { ok: false; reason: string }> {
+  async publishInventory(
+    prepared: PreparedReviewBatch,
+    canContinue?: () => boolean,
+  ): Promise<{ ok: true } | { ok: false; reason: string }> {
     return publishReviewInventory({
       prepared,
       initialInventoryId: this.input.initialInventory?.recordId,
       inventories: this.#inventories,
       readHistory: () => this.#history(),
-      publish: (record) => this.#publisher.publish(record),
+      publish: (record) => this.#publisher.publish(record, [], canContinue),
     })
   }
   async publishRawContribution(
