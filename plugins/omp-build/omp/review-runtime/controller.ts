@@ -18,7 +18,14 @@ import {
   unusableOwnedReplacement,
 } from './result-replacement.ts'
 import { isolatedReceivedSettlement, ownsBatchPresentation, settleStoppedBatch } from './settlement'
-import { type ActiveBatch, createActiveBatch, spawnRefusal } from './state'
+import {
+  type ActiveBatch,
+  clearBatchSettleAbort,
+  createActiveBatch,
+  rememberBatchTerminal,
+  spawnRefusal,
+  watchBatchSettleAbort,
+} from './state'
 /**
  * A short-lived native dispatch authority. It has no queue, retry, persistence,
  * or subprocess execution: Roxabi prepares each batch, while the model makes one
@@ -215,7 +222,9 @@ export class NativeBatchController {
     const active = this.#active
     if (!active || event.toolName !== 'task' || active.admittedToolCallId !== event.toolCallId) return
     if (this.#terminalByBatch.has(active.batch) || active.settling) return
-    this.#rememberTerminal(
+    rememberBatchTerminal(
+      this.#terminalByBatch,
+      this.#live,
       active.batch,
       isolatedReceivedSettlement(
         active,
@@ -250,31 +259,23 @@ export class NativeBatchController {
       (current) => this.#detach(current),
       () => ownsBatchPresentation(active, this.#lastActivated, this.#lastActivatedSessionId, this.#rootContext),
     )
-    this.#rememberTerminal(active.batch, terminal)
+    rememberBatchTerminal(this.#terminalByBatch, this.#live, active.batch, terminal)
     return terminal
-  }
-  #rememberTerminal(batch: NativeBatch, terminal: Promise<void>): void {
-    this.#terminalByBatch.set(batch, terminal)
-    const forget = (): void => {
-      if (this.#terminalByBatch.get(batch) === terminal) this.#terminalByBatch.delete(batch)
-      for (const active of this.#live) if (active.batch === batch) this.#live.delete(active)
-    }
-    void terminal.then(forget, forget)
   }
   async settle(): Promise<void> {
     const active = this.#active
+    // A received result owns its asynchronous settlement independently of this
+    // SDK stop hook. Joining it here can deadlock its callbacks.
+    if (active === null || active.settling) return
     if (active?.announced && !active.announcementDispatched && active.admittedToolCallId === null) return
     await this.stop('native-task-diverged-before-dispatch')
   }
   watchSettleAbort(signal: AbortSignal): void {
-    const active = this.#active
-    if (!active || active.settling) return
-    active.abortCleanup?.()
-    const onAbort = (): void => {
-      void this.stop('session-settle-aborted').catch(() => undefined)
+    for (const active of this.#live) {
+      watchBatchSettleAbort(active, signal, () => {
+        void this.stopOwned(active.batch, 'session-settle-aborted').catch(() => undefined)
+      })
     }
-    active.abortCleanup = () => signal.removeEventListener('abort', onAbort)
-    signal.addEventListener('abort', onAbort, { once: true })
   }
   consumeFollowUp(): NativeBatch | null {
     const active = this.#active
@@ -292,8 +293,7 @@ export class NativeBatchController {
     return active.batch
   }
   #detach(active: ActiveBatch): void {
-    active.abortCleanup?.()
-    active.abortCleanup = null
+    if (!active.settling) clearBatchSettleAbort(active)
     unindexAdmittedChildBatch(this, active)
     if (this.#active === active) this.#active = null
   }

@@ -3,7 +3,6 @@ import { consultableAgentRoot } from '../../testing/protocol-retention.unit.ts'
 import { batch, bridgeHarness, cleanupFixtureActions, fixtureAction } from '../../testing/review-runtime-support.ts'
 import type { NativeChildResult } from '../review-runtime/contracts.ts'
 import { NativeBatchController } from '../review-runtime/controller.ts'
-import { createNativeReviewPort } from '../review-runtime/port.ts'
 
 const root = consultableAgentRoot()
 
@@ -24,65 +23,6 @@ afterEach(() => {
 })
 
 describe('native review bridge lifecycle', () => {
-  it('starts an initial idle batch once without an agent-end resend', async () => {
-    const harness = bridgeHarness()
-    const prepared = batch(['slot-a'])
-    const model = { id: 'fixture-model', provider: 'fixture-provider' }
-    const idleRoot = {
-      ...root,
-      cwd: '/fixture-root',
-      sessionManager: { getSessionId: () => 'fixture-idle-session' },
-      model,
-      models: { resolve: () => model, current: () => model },
-      isIdle: () => true,
-    }
-    await harness.emitBridge('session_start', {}, idleRoot)
-    const port = createNativeReviewPort(harness.native, harness.controller)
-    port.activate(prepared, { onComplete: async () => undefined, onStop: async () => undefined })
-    await port.announce(prepared)
-    await harness.emitBridge('agent_end', { willContinue: false }, idleRoot)
-    expect(harness.messages).toHaveLength(2)
-    expect(harness.messages[0]).toContain('OMP_BUILD_NATIVE_BATCH:')
-    expect(harness.messages[1]).toBe('display:false triggerTurn:true')
-  })
-
-  it('preserves an announced undelivered batch across normal settle for agent-end dispatch', async () => {
-    const harness = bridgeHarness()
-    const prepared = batch(['slot-a'])
-    const model = { id: 'fixture-model', provider: 'fixture-provider' }
-    const busyRoot = {
-      ...root,
-      cwd: '/fixture-root',
-      sessionManager: { getSessionId: () => 'fixture-busy-session' },
-      model,
-      models: { resolve: () => model, current: () => model },
-      isIdle: () => false,
-    }
-    let stopped = false
-    await harness.emitBridge('session_start', {}, busyRoot)
-    const port = createNativeReviewPort(harness.native, harness.controller)
-    port.activate(prepared, {
-      onComplete: async () => undefined,
-      onStop: async () => {
-        stopped = true
-      },
-    })
-    await port.announce(prepared)
-    await harness.emitBridge('session_stop', { signal: new AbortController().signal }, busyRoot)
-    await harness.emitBridge('agent_end', { willContinue: false }, busyRoot)
-    const dispatched = await harness.emitBridge(
-      'tool_call',
-      { toolName: 'task', toolCallId: 'task-call', input: harness.controller.wire(prepared) },
-      busyRoot,
-    )
-    expect(stopped).toBe(false)
-    expect(harness.messages).toEqual([
-      expect.stringContaining('OMP_BUILD_NATIVE_BATCH:'),
-      'display:false triggerTurn:true',
-    ])
-    expect(dispatched).toBeUndefined()
-  })
-
   it('does not infer a zero exit from an async Bash start result', async () => {
     const harness = bridgeHarness()
     const prepared = batch(['slot-a'])

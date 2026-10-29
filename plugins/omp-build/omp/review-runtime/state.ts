@@ -153,3 +153,34 @@ export function spawnRefusal(
   active.childSlots.set(spawnKey, index)
   return null
 }
+
+/** Retain a stop-signal watcher until the batch's terminal work finishes. */
+export function watchBatchSettleAbort(active: ActiveBatch, signal: AbortSignal, onAbort: () => void): void {
+  active.abortCleanup?.()
+  active.abortCleanup = () => signal.removeEventListener('abort', onAbort)
+  signal.addEventListener('abort', onAbort, { once: true })
+}
+
+export function clearBatchSettleAbort(active: ActiveBatch): void {
+  active.abortCleanup?.()
+  active.abortCleanup = null
+}
+
+/** Track terminal work and release only the matching batch when it settles. */
+export function rememberBatchTerminal(
+  terminals: WeakMap<NativeBatch, Promise<void>>,
+  live: Set<ActiveBatch>,
+  batch: NativeBatch,
+  terminal: Promise<void>,
+): void {
+  terminals.set(batch, terminal)
+  const forget = (): void => {
+    if (terminals.get(batch) === terminal) terminals.delete(batch)
+    for (const active of live) {
+      if (active.batch !== batch) continue
+      clearBatchSettleAbort(active)
+      live.delete(active)
+    }
+  }
+  void terminal.then(forget, forget)
+}

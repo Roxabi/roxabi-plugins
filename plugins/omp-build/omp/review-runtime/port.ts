@@ -2,6 +2,16 @@ import type { NativeBatch, NativeExtension, NativeTaskWireInput } from './contra
 import { NATIVE_TASK_INTENT } from './contracts'
 import type { NativeBatchController } from './controller'
 
+const endedTurns = new WeakSet<NativeBatchController>()
+
+export function resetNativeTurn(controller: NativeBatchController): void {
+  endedTurns.delete(controller)
+}
+
+export function markNativeTurnEnded(controller: NativeBatchController): void {
+  endedTurns.add(controller)
+}
+
 export type HiddenControlMessage = {
   customType: 'omp-build-native-batch'
   display: false
@@ -38,8 +48,17 @@ export function createNativeReviewPort(
         throw new Error('native batch is not the active batch ready for announcement')
       }
       const immediate = controller.takeIdleAnnouncement(batch)
-      const input = immediate === null ? null : controller.wire(immediate)
-      if (input !== null) await pi.sendMessage(hiddenControlMessage(input), { triggerTurn: true })
+      const late =
+        immediate === null && endedTurns.has(controller) && controller.active() === batch
+          ? controller.consumeFollowUp()
+          : null
+      const input = controller.wire(immediate ?? late ?? batch)
+      if (input !== null && (immediate !== null || late !== null)) {
+        await pi.sendMessage(
+          hiddenControlMessage(input),
+          late === null ? { triggerTurn: true } : { triggerTurn: true, deliverAs: 'nextTurn' },
+        )
+      }
     },
   }
 }

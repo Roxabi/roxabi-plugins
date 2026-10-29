@@ -13,7 +13,7 @@ import { createActionCommunication } from '../action-communication.ts'
 import type { NativeExtension } from './contracts'
 import type { NativeBatchController } from './controller'
 import { installExecutedChildGuard } from './executed-child-guard.ts'
-import { followUpAnnouncement } from './port'
+import { followUpAnnouncement, markNativeTurnEnded, resetNativeTurn } from './port'
 import { type OwnedResultReplacement, unusableOwnedReplacement } from './result-replacement.ts'
 
 function root(ctx: ExtensionContext): boolean {
@@ -25,7 +25,14 @@ export function installNativeBatchBridge(pi: NativeExtension, controller: Native
   installExecutedChildGuard(pi, controller)
   pi.on('session_start', (_event, ctx) => {
     controller.observeRootContext(ctx)
-    if (root(ctx)) controller.bindCommunication(createActionCommunication(pi, ctx))
+    if (root(ctx)) {
+      resetNativeTurn(controller)
+      controller.bindCommunication(createActionCommunication(pi, ctx))
+    }
+  })
+
+  pi.on('agent_start', (_event, ctx) => {
+    if (root(ctx)) resetNativeTurn(controller)
   })
 
   pi.on('tool_call', (event: ToolCallEvent, ctx: ExtensionContext) => {
@@ -86,17 +93,24 @@ export function installNativeBatchBridge(pi: NativeExtension, controller: Native
 
   pi.on('session_switch', async (_event: SessionSwitchEvent, ctx: ExtensionContext) => {
     controller.observeRootContext(ctx)
-    if (root(ctx)) await controller.stop('session-switched')
+    if (root(ctx)) {
+      resetNativeTurn(controller)
+      await controller.stop('session-switched')
+    }
   })
 
   pi.on('session_shutdown', async (_event: SessionShutdownEvent, ctx: ExtensionContext) => {
     controller.observeRootContext(ctx)
-    if (root(ctx)) await controller.stop('session-shutdown')
+    if (root(ctx)) {
+      resetNativeTurn(controller)
+      await controller.stop('session-shutdown')
+    }
   })
 
   pi.on('agent_end', async (event: AgentEndEvent, ctx: ExtensionContext) => {
     controller.observeRootContext(ctx)
     if (!root(ctx) || event.willContinue) return
+    markNativeTurnEnded(controller)
 
     const message = followUpAnnouncement(controller)
     if (message !== null) await pi.sendMessage(message, { triggerTurn: true })

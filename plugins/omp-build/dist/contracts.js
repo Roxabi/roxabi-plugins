@@ -10246,13 +10246,12 @@ function includeProjectionDependencies(record, history, authorities, selected, r
   return null;
 }
 function observedProjectionRoot(record, history, authorities) {
-  const observations = projectionCandidates(history, record.recordId);
-  const candidates = observations.filter(({ index }) => authorities.get(index) !== "foreign");
-  if (observations.length > 0 && candidates.length === 0 || candidates.some(({ index }) => authorities.get(index) !== "authority"))
+  const candidates = projectionCandidates(history, record.recordId).filter(({ index }) => authorities.get(index) !== "foreign");
+  if (candidates.some(({ index }) => authorities.get(index) !== "authority"))
     return fail([diagnostic2("unbound", `Record ${record.recordId} collides with a non-authority operation`)]);
   const complete = candidates.filter(({ operation }) => operation.status === "complete" && operation.record !== null && operation.record.recordId === record.recordId);
-  if (complete.length === 0)
-    return { ok: true, value: [] };
+  if (complete.length !== candidates.length)
+    return fail([diagnostic2("unconfirmed", `Record ${record.recordId} has an incomplete observed operation`)]);
   if (complete.some((entry) => recordIntegrity(entry.operation.parts, record) !== null))
     return fail([diagnostic2("unconfirmed", `Record ${record.recordId} has no observed immutable native read-back`)]);
   if (complete.some(({ operation }) => operation.record === null || !sameJson(operation.record, record)))
