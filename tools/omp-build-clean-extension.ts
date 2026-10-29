@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { cpSync, existsSync, lstatSync, realpathSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 
@@ -45,4 +45,31 @@ export function verifyCleanExtension(checkout: string, owned: string): void {
     const result = error as { stderr?: string; message?: string }
     throw new Error(`clean installed extension import failed: ${(result.stderr ?? result.message ?? '').trim()}`)
   }
+  // Invoke the distributed CLI itself without arguments: its usage refusal
+  // exercises the complete static import graph without reaching GitHub.
+  const gate = spawnSync(process.execPath, ['--no-install', join(destination, 'scripts/review-gate.ts')], {
+    cwd: owned,
+    env: { PATH: process.env.PATH, HOME: owned, TMPDIR: owned, BUN_INSTALL_CACHE_DIR: join(owned, 'cache') },
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  let result: unknown
+  try {
+    result = JSON.parse(gate.stdout)
+  } catch {
+    throw new Error(`clean review gate returned invalid JSON: ${gate.error?.message ?? gate.stderr}`)
+  }
+  if (
+    gate.status !== 1 ||
+    typeof result !== 'object' ||
+    result === null ||
+    (result as Record<string, unknown>).ok !== false ||
+    (result as Record<string, unknown>).allowed !== false ||
+    (result as Record<string, unknown>).reason !== 'unreadable' ||
+    (result as Record<string, unknown>).detail !==
+      'usage: --repository --pr --head --automation-login --candidate-cwd --tooling-sha'
+  )
+    throw new Error(
+      `clean review gate did not return its usage refusal: status=${gate.status} stdout=${gate.stdout} stderr=${gate.stderr}`,
+    )
 }
