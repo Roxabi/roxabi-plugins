@@ -72,6 +72,7 @@ function fixture(
       return { ok: true, value: entries }
     },
     readRecord: async () => ({ ok: true, value: {} }),
+    readRecords: async (refs) => ({ ok: true, value: refs.map(() => ({})) }),
     readPinnedFile: async () => ({ ok: true, value: bytes }),
     readCodeDiff: async () => ({ ok: true, value: Buffer.from('whole diff') }),
     repositoryReferences: async () => ({ ok: true, value: [] }),

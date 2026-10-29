@@ -84,6 +84,8 @@ export type UwInputReadPorts = {
     reviewedFingerprint?: string,
   ): Promise<Result<readonly { actionId: string; facts: CurrentActionFacts }[]>>
   readRecord(ref: RecordInputRef): Promise<Result<Json>>
+  /** One fresh history observation per invocation; every reference is independently validated. */
+  readRecords(refs: readonly RecordInputRef[]): Promise<Result<readonly Json[]>>
   readAccountedRecord?(ref: RecordInputRef): Promise<Result<Json>>
   readPinnedFile(ref: PinnedFileRef): Promise<Result<Uint8Array>>
   readPinnedFiles?(refs: readonly PinnedFileRef[]): Promise<Result<readonly Uint8Array[]>>

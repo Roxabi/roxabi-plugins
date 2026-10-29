@@ -26,6 +26,7 @@ function capturedPorts(ports: UwActionPorts, facts: ReadonlyMap<string, CurrentA
   }
   let pin: ReturnType<UwActionPorts['plugin']['resolveInstalledPluginPin']> | undefined
   const record = capture(ports.readRecord)
+  const records = capture(ports.readRecords)
   const accounted = ports.readAccountedRecord === undefined ? undefined : capture(ports.readAccountedRecord)
   const pinned = capture(ports.readPinnedFile)
   const pinnedFiles = ports.readPinnedFiles === undefined ? undefined : capture(ports.readPinnedFiles)
@@ -41,6 +42,7 @@ function capturedPorts(ports: UwActionPorts, facts: ReadonlyMap<string, CurrentA
         : { ok: true, value }
     },
     readRecord: record,
+    readRecords: records,
     ...(accounted === undefined ? {} : { readAccountedRecord: accounted }),
     readPinnedFile: pinned,
     ...(pinnedFiles === undefined ? {} : { readPinnedFiles: pinnedFiles }),

@@ -329,6 +329,50 @@ describe('authenticated review context lineage', () => {
   })
 })
 
+it('bulk selected records validate each sibling and observe later history changes', async () => {
+  const inputs = standaloneReviewInputs()
+  const a = await nativeRoot(inputs, 'bulk-a', negative)
+  const b = await nativeRoot(inputs, 'bulk-b', negative)
+  let records: CanonicalRecord[] = [a.root, a.entry, b.entry]
+  let foreign = true
+  const gh = async () => {
+    const comments = records.flatMap((record) => {
+      const encoded = encodeParts(record, '', 65536)
+      if (!encoded.ok) throw new Error(JSON.stringify(encoded.diagnostics))
+      return encoded.value.map((body, index) => ({
+        id: `${record.recordId}-${index}`,
+        user: { login: record.recordId === b.entry.recordId && foreign ? 'foreign-user' : NATIVE_AUTHOR },
+        body,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: record.recordId === b.entry.recordId && !foreign ? '2026-01-02T00:00:00Z' : '2026-01-01T00:00:00Z',
+      }))
+    })
+    return JSON.stringify(comments)
+  }
+  const ports = createProductionInputPorts({ cwd: '/fixture', gh, readAuthor: NATIVE_AUTHOR })
+  const ref = {
+    source: 'record' as const,
+    record: { scope: TEST_SCOPE, kind: 'contribution' as const, recordId: a.entry.recordId },
+    selector: '/payload',
+    digest: canonicalValueDigest(a.entry.payload),
+  }
+  expect(await ports.readRecords([ref, ref])).toEqual({ ok: true, value: [a.entry.payload, a.entry.payload] })
+  expect((await ports.readRecords([ref, { ...ref, selector: '/unknown' }])).ok).toBe(false)
+  expect((await ports.readRecords([ref, { ...ref, digest: '0'.repeat(64) }])).ok).toBe(false)
+  const unauthenticated = {
+    ...ref,
+    record: { ...ref.record, recordId: b.entry.recordId },
+    digest: canonicalValueDigest(b.entry.payload),
+  }
+  expect((await ports.readRecords([ref, unauthenticated])).ok).toBe(false)
+  expect((await ports.readAccountedRecord?.(unauthenticated))?.ok).toBe(false)
+  foreign = false
+  expect((await ports.readRecords([ref, unauthenticated])).ok).toBe(false)
+  expect((await ports.readAccountedRecord?.(unauthenticated))?.ok).toBe(false)
+  records = []
+  expect((await ports.readRecords([ref])).ok).toBe(false)
+})
+
 it('production batch fact selection refuses a second action colliding with an authenticated slot', async () => {
   const inputs = standaloneReviewInputs()
   const initial = await nativeRoot(inputs, 'batch-collision', negative)

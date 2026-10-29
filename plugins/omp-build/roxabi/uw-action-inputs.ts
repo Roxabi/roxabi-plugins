@@ -178,14 +178,15 @@ export async function replayUwActionInputs(
     fingerprint: '',
     stageSources: [...input.request.stageSources],
   }
-  for (const ref of [
-    ...rebuilt.manifest.repositoryReferences,
-    ...rebuilt.manifest.acceptedSources,
-    ...rebuilt.manifest.deliveryData,
-  ]) {
-    const read = ref.source === 'record' ? await scoped.readRecord(ref) : await scoped.readPinnedFile(ref)
+  for (const ref of rebuilt.manifest.repositoryReferences) {
+    const read = await scoped.readPinnedFile(ref)
     if (!read.ok) return read
   }
+  const records = [...rebuilt.manifest.acceptedSources, ...rebuilt.manifest.deliveryData]
+  const selected = await scoped.readRecords(records)
+  if (!selected.ok) return selected
+  if (selected.value.length !== records.length)
+    return actionFailure('record-unreadable', 'Selected record batch returned an unexpected number of values')
   rebuilt.fingerprint = actionInputDigest(rebuilt.manifest)
   const validated = validateActionInputs(rebuilt)
   if (!validated.ok) return { ok: false, diagnostics: validated.diagnostics }

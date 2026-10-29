@@ -125,6 +125,15 @@ it('refuses an unreadable or changed expanded source after a readable fingerprin
       },
     }),
     readRecord: read,
+    readRecords: async (refs) => {
+      const values = []
+      for (const ref of refs) {
+        const result = await read(ref)
+        if (!result.ok) return result
+        values.push(result.value)
+      }
+      return { ok: true, value: values }
+    },
     readAccountedRecord: read,
     readPinnedFile: async () => ({ ok: true, value: bytes }),
     readCodeDiff: async () => ({ ok: true, value: bytes }),

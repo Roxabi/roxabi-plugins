@@ -77,6 +77,21 @@ export async function readSelectedRecord(
   return selected
 }
 
+/** Read a selected-record list within one fresh observation, validating every reference. */
+export async function readSelectedRecords(
+  refs: readonly RecordInputRef[],
+  source: ActionFactSource,
+): Promise<Result<readonly Json[]>> {
+  const observation = createEvidenceObservation()
+  const values: Json[] = []
+  for (const ref of refs) {
+    const result = await readSelectedRecord(ref, source, false, observation)
+    if (!result.ok) return result
+    values.push(result.value)
+  }
+  return { ok: true, value: values }
+}
+
 async function confirmBasisItem(
   item: ObservationRef,
   source: ActionFactSource,

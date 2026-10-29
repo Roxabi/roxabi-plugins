@@ -11,6 +11,7 @@ import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { Result } from '../engine/result.ts'
+import { readSelectedRecords } from './uw-action-basis.ts'
 import { readProductionActionFactsBatch } from './uw-action-batch-facts.ts'
 import type { PinnedFileRef, TrustedHostPluginPin, UwActionPorts, UwInputReadPorts } from './uw-action-contract.ts'
 import { readProductionActionFacts, readSelectedRecord } from './uw-action-facts.ts'
@@ -41,6 +42,7 @@ export function createProductionInputPorts(options: ProductionReaderOptions): Uw
         reviewedFingerprint,
       ),
     readRecord: (ref) => readSelectedRecord(ref, source),
+    readRecords: (refs) => readSelectedRecords(refs, source),
     readAccountedRecord: (ref) => readSelectedRecord(ref, source, true),
     readPinnedFile: async (ref: PinnedFileRef) => {
       const bytes = await readGitFileBytes({
