@@ -1,8 +1,10 @@
 import { describe, expect, test } from 'vitest'
+import { acceptedActionInputs } from '../../testing/action-input-fixtures.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { buildRecord } from '../record-construction.ts'
 import { failedCheckEvidenceDigest } from '../record-digests.ts'
 import type { Scope } from '../record-values.ts'
+import { ACTION_RECEIPT_FORMAT } from '../workflow-receipt-schema.ts'
 import { reconstructWorkflow } from '../workflow-reconstruction-admission.ts'
 import type { SpecializedDecisions } from '../workflow-reconstruction-types.ts'
 import { implementationResult, implementationStart } from './workflow-implementation-support.ts'
@@ -171,6 +173,8 @@ describe('workflow implementation behavior', () => {
         operationId: 'op-attribute-ci-old-start',
         kind: 'action-receipt',
         payload: {
+          format: ACTION_RECEIPT_FORMAT,
+          inputs: acceptedActionInputs(shipped, 'attribute-ci'),
           phase: 'start',
           action: 'attribute-ci',
           actionId: 'act-attribute-ci-old',

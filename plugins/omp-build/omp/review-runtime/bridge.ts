@@ -9,10 +9,12 @@ import type {
   ToolCallEvent,
   ToolResultEvent,
 } from '@oh-my-pi/pi-coding-agent'
-import { relevantSubagentPayload } from './capture'
+import { createActionCommunication } from '../action-communication.ts'
 import type { NativeExtension } from './contracts'
 import type { NativeBatchController } from './controller'
+import { installExecutedChildGuard } from './executed-child-guard.ts'
 import { followUpAnnouncement } from './port'
+import { type OwnedResultReplacement, unusableOwnedReplacement } from './result-replacement.ts'
 
 function root(ctx: ExtensionContext): boolean {
   return ctx.agent.kind === 'main' && ctx.agent.depth === 0
@@ -20,13 +22,10 @@ function root(ctx: ExtensionContext): boolean {
 
 /** Install the public-SDK native task bridge and raw-yield capture. */
 export function installNativeBatchBridge(pi: NativeExtension, controller: NativeBatchController): void {
+  installExecutedChildGuard(pi, controller)
   pi.on('session_start', (_event, ctx) => {
     controller.observeRootContext(ctx)
-  })
-
-  pi.events.on('task:subagent:event', (value: unknown) => {
-    if (!relevantSubagentPayload(value)) return
-    controller.captureSubagentEvent(value)
+    if (root(ctx)) controller.bindCommunication(createActionCommunication(pi, ctx))
   })
 
   pi.on('tool_call', (event: ToolCallEvent, ctx: ExtensionContext) => {
@@ -55,9 +54,22 @@ export function installNativeBatchBridge(pi: NativeExtension, controller: Native
     return reason === null ? undefined : { block: true, reason }
   })
 
-  pi.on('tool_result', async (event: ToolResultEvent, ctx: ExtensionContext) => {
+  pi.on('tool_result', (event: ToolResultEvent, ctx: ExtensionContext) => {
     controller.observeRootContext(ctx)
-    if (event.toolName === 'task' && root(ctx)) await controller.receiveResult(event)
+    if (root(ctx)) controller.bindCommunication(createActionCommunication(pi, ctx))
+    if (event.toolName !== 'task' || !root(ctx) || !controller.ownsTaskResult(event.toolCallId)) return
+    let replacement: OwnedResultReplacement
+    try {
+      replacement =
+        controller.prepareOwnedResultReplacement(event, ctx) ?? unusableOwnedReplacement('result-replacement-failed')
+    } catch {
+      replacement = unusableOwnedReplacement('result-replacement-failed')
+    }
+    if (replacement.details.detailRef === 'retention-unavailable') {
+      controller.noteRetentionFailure(event.toolCallId, replacement.details.summary)
+    }
+    controller.queueOwnedSettlement(event)
+    return replacement
   })
 
   pi.on('session_stop', async (event: SessionStopEvent, ctx: ExtensionContext) => {
@@ -87,6 +99,6 @@ export function installNativeBatchBridge(pi: NativeExtension, controller: Native
     if (!root(ctx) || event.willContinue) return
 
     const message = followUpAnnouncement(controller)
-    if (message !== null) await pi.sendUserMessage(message, { deliverAs: 'followUp' })
+    if (message !== null) await pi.sendMessage(message, { triggerTurn: true })
   })
 }

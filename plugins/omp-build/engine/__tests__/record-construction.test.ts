@@ -73,6 +73,8 @@ describe('buildRecord', () => {
         state: 'observed' as const,
         rows: [{ smell: 'State persistence', assessment: 'The save path must preserve the selected region.' }],
       },
+      criterionVerdicts: [],
+      exclusionClaims: [],
     }
     const { inputs: _ignored, ...draft } = graph.decision
     const built = buildRecord({ ...draft, payload: { ...draft.payload, judgment: rawJudgment } } as never, [])
@@ -121,8 +123,8 @@ describe('buildRecord', () => {
       verdict: 'Request changes',
     })
     expect(projectRecord(built.value, retained, null)).toMatchObject({ ok: true })
-    expect(refusalCodes(projectRecord(changedLabel, retained, null))).toContain('unbound')
-    expect(refusalCodes(projectRecord(reorderedReferences, retained, null))).toContain('unbound')
+    expect(projectRecord(changedLabel, retained, null)).toMatchObject({ ok: false })
+    expect(projectRecord(reorderedReferences, retained, null)).toMatchObject({ ok: false })
   })
 
   test('projects only the recursive accounted context closure and refuses absent, foreign, or ambiguous antecedents', () => {

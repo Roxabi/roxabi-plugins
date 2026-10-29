@@ -17,7 +17,7 @@ import type { UwReadPort } from './uw-contract.ts'
 import { readEffectiveFixConfig } from './workflow-config.ts'
 
 export type FixAuthorityDecision =
-  | { status: 'reuse'; mandate: FixMandateView; execution: CorrectionExecutionRights; sameScope: boolean }
+  | { status: 'reuse'; mandate: FixMandateView; execution: CorrectionExecutionRights; sameScope: boolean; uw: Scope }
   | { status: 'successor'; antecedent: FixMandateView }
   | { status: 'missing' }
 export function matchesRequiredFeatureMandate(
@@ -79,6 +79,7 @@ export async function decideFixAuthority(input: {
       mandate,
       execution: selected.value.execution,
       sameScope: mandate.repository === input.target.repository && mandate.target === input.target.target,
+      uw: selected.value.acceptedSpec.ref.uw,
     },
   }
 }

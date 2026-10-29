@@ -19,6 +19,7 @@ import {
   recoveryFreshInput,
   recoverySmokeCwd,
 } from './review-recovery-gh-test-support.ts'
+import { readReviewInputHistories } from './uw-input-readers.ts'
 
 describe('GitHub interrupted-review recovery publication', () => {
   test('runs D→G→R2 through the native GitHub reader, codec and confirmed publisher', async () => {
@@ -40,6 +41,7 @@ describe('GitHub interrupted-review recovery publication', () => {
       contextWindow: 128_000,
       gh: fixture.gh,
       prepareReview,
+      operations: preparedReview().value.operations,
     })
     expect(grant).toMatchObject({ ok: true })
     if (!grant.ok) return
@@ -55,6 +57,7 @@ describe('GitHub interrupted-review recovery publication', () => {
       contextWindow: 128_000,
       gh: fixture.gh,
       prepareReview,
+      operations: preparedReview().value.operations,
     })
     expect(replacement).toMatchObject({ ok: true, value: { grantId: grant.value.recordId } })
     if (!replacement.ok) return
@@ -80,6 +83,7 @@ describe('GitHub interrupted-review recovery publication', () => {
       contextWindow: 128_000,
       gh: fixture.gh,
       prepareReview,
+      operations: preparedReview().value.operations,
     })
     expect(retry).toMatchObject({
       ok: false,
@@ -100,11 +104,14 @@ describe('GitHub interrupted-review recovery publication', () => {
     for (const record of completedReplacementRecords(inventory))
       expect(await publisher.publish(record)).toMatchObject({ ok: true })
     const completed = await fixture.history()
+    const cited = await readReviewInputHistories(completed, { cwd: recoverySmokeCwd, gh: fixture.gh })
+    expect(cited.ok).toBe(true)
+    if (!cited.ok) throw new Error('cited histories unavailable')
     expect(readReviewRecovery(completed)).toMatchObject({
       ok: true,
       value: { normalProgression: 'eligible', replacementGrant: null },
     })
-    expect(summarizeReviews(completed, TAXONOMY, null)).toMatchObject({
+    expect(summarizeReviews(completed, TAXONOMY, null, cited.value)).toMatchObject({
       ok: true,
       value: { reviews: 1, verdict: 'Request changes' },
     })
@@ -119,6 +126,7 @@ describe('GitHub interrupted-review recovery publication', () => {
           acceptedEvidencePolicyRef: null,
         },
         TAXONOMY,
+        cited.value,
       ),
     ).toMatchObject({ ok: true, next: 'fix' })
   })
@@ -155,7 +163,7 @@ describe('GitHub interrupted-review recovery publication', () => {
 
     expect(fixture.duplicateBindingEncoding()).toMatchObject({
       ok: false,
-      diagnostics: expect.arrayContaining([expect.objectContaining({ code: 'conflict' })]),
+      diagnostics: expect.arrayContaining([expect.objectContaining({ code: 'duplicate-reference' })]),
     })
     expect(fixture.commentCount()).toBe(before)
   })

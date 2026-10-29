@@ -41,7 +41,9 @@ export async function coordinateContinuationEffects(
     case 'epic-next':
       return continueEpicNext(input, context.cwd, context.git, context.gh, number, continueAtTarget)
     case 'epic-final':
-      return prepareEpicFinal(context.cwd, context.git, context.gh, number, mandateRef)
+      return input.uw === undefined
+        ? { kind: 'blocked', reason: 'prepare-action-unavailable' }
+        : prepareEpicFinal(context.cwd, context.git, context.gh, number, mandateRef, input.uw, input.pluginPin)
     case 'mark-fix':
       return fileEpicFix(input, exactMandateRef, authority, number, observation, continueAtTarget)
     case 'hook':
@@ -96,6 +98,7 @@ async function coordinateLanding(
     gh: context.gh,
     git: context.git,
     cwd: context.cwd,
+    ...(input.pluginPin === undefined ? {} : { pluginPin: input.pluginPin }),
   })
   if ('kind' in landed) return landed
   const outcome = featureLandOutcome(landed)
@@ -155,13 +158,15 @@ async function prepareEpicFinal(
   gh: FeatureAuthority['context']['gh'],
   epic: number,
   mandateRef: ScopedRecordRef | null,
+  operations: NonNullable<ContinueFeatureInput['uw']>,
+  pluginPin?: ContinueFeatureInput['pluginPin'],
 ): Promise<ContinueFeatureResult> {
   if (mandateRef === null) return { kind: 'blocked', reason: 'epic-final-mandate-missing' }
   try {
     const request = await epicFinalReviewRequest(cwd, epic)
     return {
       kind: 'epic-final-review',
-      review: await prepareEpicFinalReviewMaterials({ cwd, request, mandateRef, git, gh }),
+      review: await prepareEpicFinalReviewMaterials({ cwd, request, mandateRef, git, gh, operations, pluginPin }),
     }
   } catch (error) {
     return { kind: 'blocked', reason: error instanceof Error ? error.message : 'epic-final-unprepared' }

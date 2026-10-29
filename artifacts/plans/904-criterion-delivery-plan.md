@@ -1,0 +1,56 @@
+# #904 — criterion delivery, durable inputs and action snapshots
+
+## Authority and base
+
+- Manual Q79 delivery of [#904](https://github.com/Roxabi/roxabi-plugins/issues/904), under [#901](https://github.com/Roxabi/roxabi-plugins/issues/901) D10, D23–D34, D43, D44 and D46. Current bodies and comments were read, including Q79/Q80. This plan does not replace their criteria.
+- Dedicated branch `feat/904-criterion-delivery`, based on `85638e88f6851d71c971a807830609b827011bde`, after #897 / PR #931. #897 is CLOSED/COMPLETED after pin, installation and renewed-host loading checks. #903 and #902 are CLOSED/COMPLETED.
+- One integration owner. No principal-checkout edits, `/feature`-driven delivery, fabricated mandate/binding/native verdict, migration, automatic renewal, CHANGELOG edit, tag or release. Existing stopped #934 QA authority is not reused. #910 remains a separate qualification after this delivery.
+- Published baseline: omp-build 0.14.0, issue-triage 0.3.0; 216 runtime exports retained. Existing installed SDK source is 18.12.6, while the renewed operator host is 18.13.3; native behavior must be observed, not inferred from typings.
+
+## Implementation sequence and ownership
+
+1. Resolve the shared engine, manifest/replay and snapshot interfaces from the current source. R-architect owns the cross-cutting design recommendation; the integrator fixes the interfaces before dependent editors start. The independently settled prohibition on generated closing directives can proceed without these schema decisions.
+2. Engine owner: common `FindingTarget` and own-only `SpecEffective`, criterion evidence/verdict forms, coverage and approval rules, receipt/review version cuts, authenticated references. Migrate affected engine consumers and behavior fixtures together; no old-format defaults.
+3. After interface agreement, parallel coherent owners: durable manifest/replay + snapshot IO + `uw`/hosted gate; workflow prompts/receipts + agent profiles; OMP native transport/status/detail references/permissions; PR-body and promotion non-closing behavior. Disjoint writes and explicit handoffs at shared interfaces. Agents do not publish in GitHub and skip checks while editing.
+4. Integrate all consumers, public exports, documentation, matching package/catalog versions and distribution. Run checks once source is frozen. A missing criterion, observation or native permission remains blocking, not deferred.
+5. Independent final-head manual Q79 review, with R-adversarial minimum and pertinent specialists; fix, exercise and re-review findings. Green exact-head hosted CI and live protections precede a pinned manual merge-commit. Align tooling pin, marketplace, installed versions and loaded runtime before stopping with a factual #910 handoff.
+
+### Missing-context integration correction
+
+- Source review found that retaining a failed planner/native result did not terminalize its original start; a fresh expanded `/uw action` could remain blocked by that unresolved start. The implementation-only blocked path is not evidence for every action.
+- Complete AC13 with a shared strict missing-context producer result, preserving implementation criterion declarations; authenticated terminal negatives must never count as successful work. Requested source descriptors carry no observed-reference authority.
+- Conserve each negative against its original sealed inputs in existing receipts/contributions. Prepare an explicitly expanded action through the registered root command only after authenticating that negative, unchanged authority/code/semantic slot, preserved supplied context and actual additional references. Preserve unique lineage, review counts, correction attempts, stops and bounds; no automatic redispatch, renewed mandate, fake plan or final review.
+- Observe the planner path end-to-end and cover plan-review, normalization and review/fix negatives. A prepared expanded snapshot is not dispatch authority or criterion satisfaction.
+
+## Criterion-to-work-and-proof map
+
+Numbers refer to the eighteen current acceptance bullets, not newly allocated UW criterion identities.
+
+| AC | Implementation obligation | Required proof |
+|---|---|---|
+| 1 | Plan steps name criterion ids; known criterion coverage is mechanical | Known/unknown ids, uncovered criterion named, fully covered plan admitted |
+| 2 | Implementation receipt declares admissible evidence or explicit unverified reason for every criterion, tied to code version | Missing receipt/evidence cannot satisfy; exact authenticated evidence and independently supported actual-execution version claims; complete positive and explicitly unverified cases |
+| 3 | Closed admissible-evidence forms: command+output, prompt scenario+observed result, manual UI steps+address+result, or content-only reading references+finding | Actual captured command/output with labeled Git probe context, not endpoint-based execution attestation; explicit independent truth/applicability/code-link judgments; unavailable infrastructure stays unverified |
+| 4 | Every criterion has a proof-citing verdict; missing/unverified/absent/proofless forces changes requested independently of model findings and tier | No-finding wrong-green counterexamples across tiers; fully evidenced verdict can approve |
+| 5 | Exclusions cite their version and only cover excluded additional work | Accepted criterion cannot be dismissed as out of scope; introduced regression/security/invariant failures remain blocking |
+| 6 | Bug-restoration evidence carries observed before/after or an admissible restored-behavior observation | Distinct actual runs with independently supported before/after version assertions, or admissible observed restored behavior; missing/unknown linkage remains unverified; no automatic replay |
+| 7 | One common target schema and explicit own-only effective-Spec/version-vector schema | Unambiguous criterion/invariant/outside-Spec targets; required ancestor is not silently empty; no runtime inheritance added |
+| 8 | Portable canonical manifest contains effective Spec, delivery-data ids/digests, head/base and actual pinned repository/plugin/context references | Hosted replay without local dossier; changed normative evidence stales; unreadable/private/incomplete inputs refuse |
+| 9 | `uw` builds a read-only action snapshot with pinned inputs, diff, records, repository/plugin references, touched glossaries and searchable id/title/path index | Inspect actual snapshot bytes and task inputs; plan uses base, review uses candidate, plugin bytes come from installed source |
+| 10 | Ordinary progress goes to the existing status surface; principal conversation has actionable decisions/blocks/final with detail references | Observe status and actual emitted messages, including successful native results; no automatic full-copy reinjection |
+| 11 | Real multi-step native communication execution, not a mocked port or text assertion | Capture actual native task inputs, detailed result, status, actionable stop/decision, final output and readable detail references on a real host; do not claim #910 qualification |
+| 12 | Snapshot-byte integrity hash is distinct from durable review fingerprint and checked after action | Tampering invalidates action; unchanged bytes pass; observe local protocol sharing or worktree-own gitdir fallback |
+| 13 | Missing snapshot information causes explicit stop and a new expanded manifested action, or an admissible report | Necessary missing context remains blocking; expanded context changes manifest and snapshot |
+| 14 | Authenticated immutable verdict outputs stay in existing records and outside their own inputs | Edited/non-authentic output refused; publishing own outputs does not stale review; changed normative input does |
+| 15 | PR→UW authority is only approved binding; generated PR/promotion prose does not close unbound issues | Prose-only PR edit leaves fingerprint unchanged; absent/wrong binding refuses admission; neutral generated references cannot request keyword closure |
+| 16 | Agents return forms, orchestrator validates and publishes; actual credential controls and weaker fallback are explicit | Role/tool and publisher ownership exercise; no unsupported claim of credential isolation |
+| 17 | Last admission read reconstructs manifest and re-evaluates blockers, with explicit hosted-reader freshness and cross-repo rights | Blocker/input change at final seam refuses; no local fallback, CAS or zero-race claim |
+| 18 | Glossary defines Instantané, Manifeste d’entrées, Données de livraison and Orchestrateur according to actual behavior | Targeted content review against implementation; plugin README and root index updated |
+
+## Verification and evidence discipline
+
+- Use declared commands: `bun run build`, `typecheck`, `lint`, `quality:omp-build`, `test`, `verify:omp-build-distribution` and `verify:pins`; inspect exact-head CI. Permanent tests protect behavior and failure boundaries, not prompt wording, wiring or copied defaults. Forking tests are integration tests.
+- Run real behavior smokes after integration, including the native multi-step communication scenario. Native task inputs and visible message transport must be captured at actual host seams. Preserve complete detailed artifacts by reference.
+- The existing authenticated binding/history, strict Spec parser/identity allocation, reference loader, graph acquisition and native task gateway are reused rather than replaced with parallel authorities. Explicitly incompatible old mandate/receipt/review formats refuse.
+- No inheritance execution, parent coverage/computed completion, cause/report-loop expansion or assistant-led framing project is added ahead of #905–#908. New contracts establish only the interfaces assigned to this tranche.
+- Any exact new real Spec acceptance or additional issue creation needs its own operator confirmation. For the communication-only recipe, the integrator selects a non-publishing exercise of the actual candidate extension, SDK, model, native task transport and production guards against an explicitly fictional, isolated GitHub corpus. Its seeded records are test inputs, never observed evidence or real workflow authority. This is an implementation-verification choice under the existing goal, not operator acceptance of a new Spec or approval of an authenticated review. Launch requires an immutable candidate, its legitimate open-PR provenance and matching clean distribution. Preserve the stopped #934 state; neither this diagnostic nor a refusal qualifies #910. Only actual emitted task inputs, status, native results, actionable blocker/final and accessible detail references can establish the communication criteria; wrapper-only observations or simulated transport cannot.

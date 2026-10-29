@@ -1,123 +1,72 @@
-import { toDiagnostic, toDiagnostics } from '../dist/contracts.js'
 import type { Diagnostic } from '../engine/record-values.ts'
-import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
-import type { NormalizationJudgement } from '../engine/uw-normalization-schema.ts'
 import type { NativeBatchResult } from '../omp/review-runtime/contracts.ts'
+import { observeHeadCode } from './delivery-action.ts'
 import type { ContinueFeatureInput, ContinueFeatureResult, FeatureCommandHost } from './feature-contract.ts'
 import { featureErrorMessage } from './feature-presentation.ts'
-import type { NormalizationProposalRequest, UwOperationResult, UwOperations } from './uw-contract.ts'
-import { writeSuccessorNormalization } from './uw-normalization-internal.ts'
-import { normalizationBatch, normalizationInput } from './uw-normalization-proposal.ts'
+import type { PreparedUwAction } from './uw-action-contract.ts'
+import type { NormalizationProposalRequest, UwOperations } from './uw-contract.ts'
+import { settleNormalizationNegative } from './uw-normalization-negative.ts'
+import {
+  normalizationDeliveryBatch,
+  normalizationOperationId,
+  prepareNormalizationAction,
+} from './uw-normalization-proposal.ts'
+import {
+  type NormalizationSettlement,
+  nativeReferenceText,
+  nativeResultDiagnostic,
+  nativeResultReference,
+  resultOf,
+  sealNormalizationResult,
+  sealNormalizationStart,
+  writeNormalization,
+} from './uw-normalization-settlement.ts'
+import { defaultGit } from './workflow-checkout.ts'
 
-type NormalizationSettlement =
-  | { ok: true; judgement: NormalizationJudgement; result: NativeBatchResult }
-  | { ok: false; reason: string; diagnostics: readonly Diagnostic[]; result: NativeBatchResult }
+type OpenedNormalization =
+  | { kind: 'deliver'; reason: string }
+  | { kind: 'stopped' }
+  | { kind: 'ready'; operations: UwOperations; operationId: string; prepared: PreparedUwAction; startId: string }
 
-function nativeResultReference(result: NativeBatchResult | null) {
-  return {
-    complete: result?.complete ?? false,
-    childIds: result?.children.flatMap((child) => (child.id === null ? [] : [child.id])) ?? [],
-  }
+function normalizationReady(
+  canContinue: () => boolean,
+  scheduled: boolean,
+  cancelled: boolean,
+  settlement: NormalizationSettlement | null,
+  host: FeatureCommandHost,
+): settlement is Extract<NormalizationSettlement, { ok: true }> {
+  return canContinue() && !scheduled && !cancelled && settlement?.ok === true && !host.featureContinuationInhibited()
 }
 
-function nativeReferenceText(result: NativeBatchResult | null): string {
-  const reference = nativeResultReference(result)
-  return [
-    `operationId=${result?.batch.operationId ?? 'absent'}`,
-    `childIds=${reference.childIds.length === 0 ? 'none' : reference.childIds.join(',')}`,
-  ].join(' ')
-}
-
-function nativeResultDiagnostic(result: NativeBatchResult | null, message: string): Diagnostic {
-  return {
-    code: 'normalization-native-result',
-    message,
-    ...(result === null ? {} : { operationId: result.batch.operationId }),
-    detail: { native: nativeResultReference(result) },
-  }
-}
-
-function operationDiagnostics(
-  diagnostics: readonly (UwDiagnostic | { code: string; message: string })[],
-): Diagnostic[] {
-  return diagnostics.map((diagnostic) =>
-    'location' in diagnostic ? toDiagnostic(diagnostic) : { code: diagnostic.code, message: diagnostic.message },
-  )
-}
-
-function resultOf(
-  request: NormalizationProposalRequest,
-  settled: NativeBatchResult,
-  operations: UwOperations,
-): NormalizationSettlement {
-  if (!settled.complete || settled.children.length !== 1)
-    return {
-      ok: false,
-      reason: 'normalization-native-incomplete',
-      diagnostics: [nativeResultDiagnostic(settled, 'Native normalization result was incomplete')],
-      result: settled,
-    }
-  const child = settled.children[0]
-  if (child === undefined || !child.usable || child.structured === null)
-    return {
-      ok: false,
-      reason: child?.reason ?? 'normalization-native-unusable',
-      diagnostics: [
-        nativeResultDiagnostic(settled, `Native normalization result is unusable: ${child?.reason ?? 'unknown'}`),
-      ],
-      result: settled,
-    }
-  const parsed = operations.validateNormalization(request, child.structured)
-  return parsed.ok
-    ? { ok: true, judgement: parsed.value, result: settled }
-    : {
-        ok: false,
-        reason: parsed.diagnostics[0]?.code ?? 'normalization-native-invalid',
-        diagnostics: [
-          ...toDiagnostics(parsed.diagnostics),
-          nativeResultDiagnostic(settled, 'Native normalization result failed validation'),
-        ],
-        result: settled,
-      }
-}
-
-function normalizationWriteDiagnostics(written: Exclude<UwOperationResult, { status: 'written' }>): Diagnostic[] {
-  return 'diagnostics' in written
-    ? operationDiagnostics(written.diagnostics)
-    : [
-        {
-          code: 'uw-normalization-write-status-invalid',
-          message: `Normalization write returned unexpected status: ${written.status}`,
-        },
-      ]
-}
-
-async function writeNormalization(input: {
+async function openNormalization(input: {
   request: NormalizationProposalRequest
   original: ContinueFeatureInput
-  operations: UwOperations
-  accepted: Extract<NormalizationSettlement, { ok: true }>
-  stopped: (reason: string, diagnostics?: readonly Diagnostic[], result?: NativeBatchResult | null) => Promise<void>
-}): Promise<boolean> {
-  const { request, original, operations, accepted, stopped } = input
-  const proposal = normalizationInput(request, accepted.judgement)
-  const pending =
-    original.control === 'new' ? writeSuccessorNormalization(operations, request, proposal) : operations.write(proposal)
-  if (pending === null) {
-    await stopped('uw-normalization-ineligible')
-    return false
+  host: FeatureCommandHost
+}): Promise<OpenedNormalization> {
+  const { host, request } = input
+  if (host.uw === undefined) return { kind: 'deliver', reason: 'prepare-action-unavailable' }
+  if (host.featureContinuationInhibited() || host.principal) {
+    await host.send('feature-stopped: continuation-inhibited')
+    return { kind: 'stopped' }
   }
-  const written = await pending
-  if (written.status === 'written') return true
-  await stopped(
-    `uw-normalization-${written.status}`,
-    [
-      ...normalizationWriteDiagnostics(written),
-      nativeResultDiagnostic(accepted.result, 'Native normalization result could not be written'),
-    ],
-    accepted.result,
-  )
-  return false
+  const observed = await observeHeadCode(input.original.git ?? defaultGit(), input.original.cwd, request.uw.repository)
+  if (!observed.ok) return { kind: 'deliver', reason: observed.reason }
+  const operationId = normalizationOperationId(request)
+  const prepared = await prepareNormalizationAction({
+    operations: host.uw,
+    request,
+    operationId,
+    code: observed.code,
+  })
+  if (!prepared.ok) return { kind: 'deliver', reason: prepared.reason }
+  const sealed = await sealNormalizationStart({
+    request,
+    original: input.original,
+    prepared: prepared.value,
+    operationId,
+  })
+  if (!sealed.ok) return { kind: 'deliver', reason: sealed.reason }
+  return { kind: 'ready', operations: host.uw, operationId, prepared: prepared.value, startId: sealed.startId }
 }
 
 /**
@@ -132,16 +81,14 @@ export async function announceUwNormalization(input: {
   deliver: (result: ContinueFeatureResult) => Promise<void>
 }): Promise<void> {
   const { host, request } = input
-  if (host.uw === undefined) {
-    await host.send('feature-stopped: uw-unavailable')
+  const opened = await openNormalization(input)
+  if (opened.kind === 'deliver') {
+    await input.deliver({ kind: 'blocked', reason: opened.reason })
     return
   }
-  if (host.featureContinuationInhibited() || host.principal) {
-    await host.send('feature-stopped: continuation-inhibited')
-    return
-  }
-  const batch = normalizationBatch(request)
-  const operations = host.uw
+  if (opened.kind === 'stopped') return
+  const { operations, operationId, prepared, startId } = opened
+  const batch = normalizationDeliveryBatch(operationId, prepared)
   let settlement: NormalizationSettlement | null = null
   let scheduled = false
   let cancelled = false
@@ -185,25 +132,45 @@ export async function announceUwNormalization(input: {
       result,
     )
   }
-  const finish = async (): Promise<void> => {
-    if (scheduled || cancelled || settlement === null || !settlement.ok || host.featureContinuationInhibited()) return
+  const continueAfterNormalization = async (
+    accepted: Extract<NormalizationSettlement, { ok: true }>,
+    canContinue: () => boolean,
+  ): Promise<void> => {
+    if (!(await writeNormalization({ request, original: input.original, operations, accepted, stopped }))) return
+    if (!canContinue() || host.featureContinuationInhibited()) return
+    const next = await host.workflow.continueFeature({
+      ...input.original,
+      control: input.original.control === 'new' ? 'new' : 'continue',
+      principal: false,
+      uw: operations,
+    })
+    if (!canContinue()) return
+    try {
+      await input.deliver(next)
+      outcome = true
+    } catch (error) {
+      await stopForError(error, accepted.result)
+    }
+  }
+  const finish = async (canContinue: () => boolean): Promise<void> => {
+    if (!normalizationReady(canContinue, scheduled, cancelled, settlement, host)) return
     const accepted = settlement
     scheduled = true
     try {
-      if (!(await writeNormalization({ request, original: input.original, operations, accepted, stopped }))) return
-      if (host.featureContinuationInhibited()) return
-      const next = await host.workflow.continueFeature({
-        ...input.original,
-        control: input.original.control === 'new' ? 'new' : 'continue',
-        principal: false,
-        uw: operations,
+      const resultReceipt = await sealNormalizationResult({
+        request,
+        original: input.original,
+        prepared,
+        operationId,
+        startId,
+        judgement: accepted.judgement,
+        result: accepted.result,
       })
-      try {
-        await input.deliver(next)
-        outcome = true
-      } catch (error) {
-        await stopForError(error, accepted.result)
+      if (!canContinue() || !resultReceipt.ok) {
+        if (!resultReceipt.ok) await stopped(resultReceipt.reason, [], accepted.result)
+        return
       }
+      await continueAfterNormalization(accepted, canContinue)
     } catch (error) {
       await stopForError(error, accepted.result)
     }
@@ -215,38 +182,52 @@ export async function announceUwNormalization(input: {
       console.error(featureErrorMessage(reportError))
     }
   }
-  const schedule = (run: () => Promise<void>): void => {
-    setTimeout(() => {
-      void run().catch((error) => void reportDeferredFailure(error))
-    }, 0)
-  }
+  const schedule = (run: () => Promise<void>): Promise<void> =>
+    new Promise((resolve) => {
+      setTimeout(() => {
+        void run().catch(reportDeferredFailure).finally(resolve)
+      }, 0)
+    })
   try {
     host.native.activate(batch, {
-      onComplete: (result) => {
+      onComplete: (result, canContinue) => {
+        if (!canContinue()) return
         settlement = resultOf(request, result, operations)
       },
-      onSettled: (result) => {
-        if (cancelled) return
+      onSettled: (result, canContinue) => {
+        if (!canContinue() || cancelled) return
         if (settlement === null) {
-          schedule(() =>
+          return schedule(() =>
             stopped(
               'normalization-native-unsettled',
               [nativeResultDiagnostic(result, 'Native normalization result settled before completion')],
               result,
             ),
           )
-          return
         }
         if (!settlement.ok) {
           const blocked = settlement
-          schedule(() => stopped(blocked.reason, blocked.diagnostics, blocked.result))
-          return
+          return schedule(() => stopped(blocked.reason, blocked.diagnostics, blocked.result))
         }
-        schedule(finish)
+        return schedule(async () => {
+          if (!canContinue()) return
+          await finish(canContinue)
+        })
       },
-      onStop: (reason, result) => {
+      onStop: async (reason, result) => {
         cancelled = true
-        schedule(() =>
+        if (reason === 'action-context-missing' && result !== null)
+          return settleNormalizationNegative({
+            request,
+            original: input.original,
+            prepared,
+            operationId,
+            startId,
+            result,
+            stopped,
+            stopForError,
+          })
+        await schedule(() =>
           stopped(
             `normalization-${reason}`,
             [nativeResultDiagnostic(result, `Native normalization stopped: ${reason}`)],

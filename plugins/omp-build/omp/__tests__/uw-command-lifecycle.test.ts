@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { PreparedMaterialAcceptance } from '../../engine/workflow-spec-assessment.ts'
 import type { UwOperationResult, UwOperations } from '../../roxabi/uw-contract.ts'
 import { createExtensionApiStub } from '../../testing/extension-api-stub.ts'
+import { consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
 import { installFeatureUwOperationLifecycle } from '../omp-feature-composition.ts'
 import { registerUwCommand, type UwOperationsFactory } from '../omp-uw-command.ts'
 
@@ -48,6 +49,7 @@ function lifecycleFixture() {
         return confirmation.promise
       },
     },
+    localProtocolOptions: consultableProtocolOptions(),
   } as unknown as ExtensionContext
   const childContext = {
     ...context,
@@ -77,6 +79,21 @@ function lifecycleFixture() {
           return accepted
         })
         return result.status === 'confirmed' ? result.value : { status: 'refused', diagnostics: result.diagnostics }
+      },
+      prepareAction: async () => {
+        throw new Error('unexpected-prepare-action')
+      },
+      prepareReviewActions: async () => {
+        throw new Error('unexpected-prepare-review-actions')
+      },
+      replayActionInputs: async () => {
+        throw new Error('unexpected-replay')
+      },
+      verifyAction: async () => {
+        throw new Error('unexpected-verify')
+      },
+      readDelivery: async () => {
+        throw new Error('unexpected-delivery')
       },
     } satisfies UwOperations
   }

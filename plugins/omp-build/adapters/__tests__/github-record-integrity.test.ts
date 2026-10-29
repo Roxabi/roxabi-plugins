@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { nativeInstant, recordIntegrity } from '../github/record-integrity.ts'
+import { nativeInstant, recordIntegrity } from '../../engine/record-integrity.ts'
 
 const record = { kind: 'review', recordId: 'review-1' }
 

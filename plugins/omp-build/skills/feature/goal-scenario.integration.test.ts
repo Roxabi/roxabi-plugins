@@ -1,15 +1,9 @@
 import { rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { approve } from './testing/goal/goal-scenario-approval.ts'
 import { A, B, BRANCH_A, BRANCH_B, BRANCH_C, C, EPIC, RUN_A, RUN_B } from './testing/goal/goal-scenario-domain.ts'
-import {
-  approve,
-  drive,
-  ensureChildMandate,
-  events,
-  jsonOf,
-  seedEpicDecision,
-} from './testing/goal/goal-scenario-records.ts'
+import { drive, ensureChildMandate, events, jsonOf, seedEpicDecision } from './testing/goal/goal-scenario-records.ts'
 import {
   callWorkflow,
   commitAndPush,
@@ -50,11 +44,14 @@ describe('stateful gh — one continuous goal', () => {
     expect(pin.stderr).toContain(wrong)
     expect(prOf(BRANCH_A).autoMerge).toBeNull()
     expect(prOf(BRANCH_A).state).toBe('OPEN')
-    expect(gh(['pr', 'merge', String(openedA.number), '--auto', '--merge', '--match-head-commit', shaA]).status).toBe(0)
+    const baseline = callWorkflow<{ status: string; mode?: string }>('landPr', epic, { pr: openedA.number })
+    expect(baseline).toMatchObject({ status: 'watching', mode: 'native' })
+    expect(prOf(BRANCH_A).autoMerge).toMatchObject({ matchHeadCommit: shaA })
     const moved = commitAndPush(BRANCH_A, 'feat(a): move head (#2)', 'a-moved.txt')
     const refused = callWorkflow<{ status: string; reason?: string }>('landPr', epic, { pr: openedA.number })
-    expect(refused).toMatchObject({ status: 'not-approved', reason: 'head-moved' })
+    expect(refused).toMatchObject({ status: 'not-approved' })
     expect(prOf(BRANCH_A).labels).not.toContain('reviewed')
+    expect(prOf(BRANCH_A).autoMerge).toBeNull()
 
     markGreen(moved)
     const originBefore = git(origin, ['rev-parse', 'refs/heads/main'])
@@ -165,7 +162,8 @@ describe('stateful gh — one continuous goal', () => {
 
     expect(gh(['pr', 'edit', String(openedC.number), '--add-label', 'reviewed']).status).toBe(0)
     git(epic, ['switch', '-q', BRANCH_A])
-    expect(drive(['stop', '--ticket', String(C), '--reason', 'review-bound'], RUN_A).code).toBe(0)
+    const stoppedC = drive(['stop', '--ticket', String(C), '--reason', 'review-bound'], RUN_A)
+    expect(stoppedC.code, stoppedC.stderr).toBe(0)
     expect(gh(['pr', 'edit', String(openedC.number), '--add-label', 'reviewed']).status).toBe(0)
     expect(prOf(BRANCH_C).labels).toContain('reviewed')
 
@@ -191,13 +189,23 @@ describe('stateful gh — one continuous goal', () => {
     const resumed = jsonOf(drive(['next'], RUN_B))
     expect(resumed.reconciled).toEqual([{ ticket: C, pr: openedC.number, disarmed: 'disarmed' }])
     expect(stoppedArms()).toEqual([])
-    expect(resumed.step).toMatchObject({ action: 'start', ticket: B, branch: BRANCH_B })
+    expect(resumed.step).toMatchObject({ action: 'drop', stop: 'no-progress' })
+    expect(readSim().issues[String(A)]?.state).toBe('OPEN')
     const mergedA = prOf(BRANCH_A)
     expect(mergedA.state).toBe('MERGED')
     expect(mergedA.mergeCommit?.parents).toHaveLength(2)
     const originMain = git(origin, ['rev-parse', 'refs/heads/main'])
     expect(originMain).toBe(mergedA.mergeCommit?.oid)
     expect(git(origin, ['rev-parse', `${originMain}^2`])).toBe(shaA)
+    writeSim((state) => {
+      const issue = state.issues[String(A)]
+      if (!issue) throw new Error('missing child A')
+      issue.state = 'CLOSED'
+      issue.stateReason = 'COMPLETED'
+    })
+    const afterACompleted = jsonOf(drive(['next'], RUN_B))
+    expect(afterACompleted.step).toMatchObject({ action: 'start', ticket: B, branch: BRANCH_B })
+    expect(stoppedArms()).toEqual([])
 
     const rollupA = gh([
       'api',
@@ -241,7 +249,12 @@ describe('stateful gh — one continuous goal', () => {
     expect(prOf(BRANCH_B).state).toBe('MERGED')
     expect(prOf(BRANCH_B).autoMerge).toBeNull()
     expect(prOf(BRANCH_B).mergeCommit?.parents[1]).toBe(shaB)
+    expect(readSim().issues[String(B)]?.state).toBe('OPEN')
     writeSim((state) => {
+      const issueB = state.issues[String(B)]
+      if (!issueB) throw new Error('missing child B')
+      issueB.state = 'CLOSED'
+      issueB.stateReason = 'COMPLETED'
       const issue = state.issues[String(C)]
       if (issue) {
         issue.state = 'CLOSED'
@@ -254,6 +267,7 @@ describe('stateful gh — one continuous goal', () => {
     expect(afterStop.step.stage).toBe('review')
     const range = afterStop.step.range ?? ''
     expect(range).toMatch(/^[0-9a-f]{40}\.\.[0-9a-f]{40}$/)
+    expect(range.split('..')[1]).toBe(prOf(BRANCH_B).mergeCommit?.oid)
 
     const decisionId = seedEpicDecision(range)
     const reviewed = drive(['review', '--decision-record', decisionId, '--range', range], RUN_B)
@@ -262,6 +276,9 @@ describe('stateful gh — one continuous goal', () => {
     expect(events(EPIC)).toContainEqual(
       expect.objectContaining({ event: 'epic-review', run: RUN_A, decisionId, range }),
     )
+    const readyForHook = jsonOf(drive(['next', '--dry-run'], RUN_B))
+    expect(readyForHook.step.action).toBe('post-merge')
+    expect(stoppedArms()).toEqual([])
     writeFileSync(path.join(epic, 'dirty.txt'), 'no\n')
     const dirty = jsonOf(drive(['next'], RUN_B))
     expect(dirty.step).toMatchObject({ action: 'drop', stop: 'dirty-tree' })

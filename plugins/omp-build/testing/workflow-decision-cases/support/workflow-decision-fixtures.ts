@@ -1,4 +1,5 @@
 import { decodeHistory } from '../../../adapters/github/history-codec.ts'
+import { FINDING_TARGET_FORMAT } from '../../../engine/finding-target-schema.ts'
 import type { DecodedHistory } from '../../../engine/history-schema.ts'
 import type { CanonicalRecord } from '../../../engine/record-schema.ts'
 import type { Json, Scope } from '../../../engine/record-values.ts'
@@ -131,10 +132,39 @@ export function eligiblePlan(mandate: MandateRecord): CanonicalRecord[] {
 
 export function admittedImplement(mandate: MandateRecord): CanonicalRecord {
   const result = WORKFLOW_FIXTURES.rejectedImplementResult(mandate)
-  if (result.kind !== 'action-receipt' || result.payload.phase !== 'result' || result.payload.admission === null) {
+  if (
+    result.kind !== 'action-receipt' ||
+    result.payload.action !== 'implement' ||
+    result.payload.phase !== 'result' ||
+    result.payload.admission === null ||
+    result.payload.structured === null
+  ) {
     throw new Error('expected a rejected implement result')
   }
-  return { ...result, payload: { ...result.payload, admission: { ...result.payload.admission, admitted: true } } }
+  const own = {
+    uw: mandate.payload.ownSpec.uw,
+    version: mandate.payload.ownSpec.version,
+    sourceAccepted: {
+      scope: { repository: mandate.repository, target: mandate.target },
+      recordId: mandate.recordId,
+      kind: 'mandate' as const,
+    },
+  }
+  return {
+    ...result,
+    payload: {
+      ...result.payload,
+      structured: {
+        ...result.payload.structured,
+        criteria: mandate.payload.ownSpec.snapshot.spec.criteria.map(({ id }) => ({
+          target: { format: FINDING_TARGET_FORMAT, kind: 'criterion' as const, spec: own, id },
+          verification: 'unverified' as const,
+          reason: 'Synthetic fixture has no independent criterion evidence',
+        })),
+      },
+      admission: { ...result.payload.admission, admitted: true, remoteTip: HEAD },
+    },
+  }
 }
 
 export function hasAction(history: DecodedHistory, action: string): boolean {

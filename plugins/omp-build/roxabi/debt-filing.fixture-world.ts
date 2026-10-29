@@ -162,7 +162,7 @@ function graphResponse(
           body,
           user: { login: 'native-bot' },
           created_at: '2026-10-21T10:00:00Z',
-          updated_at: null,
+          updated_at: '2026-10-21T10:00:00Z',
         })),
       ),
       stderr: '',

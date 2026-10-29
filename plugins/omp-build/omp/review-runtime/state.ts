@@ -1,6 +1,13 @@
-import type { Submission } from '../../contracts'
-import type { Json, NativeBatch, NativeBatchCallbacks, NativeProofBashCall, NativeTaskWireInput } from './contracts'
-
+import type { ActionCommunication } from '../action-communication.ts'
+import type {
+  Json,
+  NativeBatch,
+  NativeBatchCallbacks,
+  NativeProofBashCall,
+  NativeTaskWireInput,
+  Submission,
+} from './contracts'
+import type { HostGitObserver } from './host-git-observation.ts'
 export type YieldRaw = {
   toolCallId: string
   contentIndex: number | null
@@ -10,6 +17,8 @@ export type YieldRaw = {
   toolCallArguments: Json | null
   executionArguments: Json | null
 }
+export type HostGitBoundary = { repository: string; commit: string; tree: string } | null
+export type HostGitSpan = { start: HostGitBoundary; end: HostGitBoundary }
 
 export type ChildCapture = {
   deltasByContentIndex: Map<number, string[]>
@@ -24,6 +33,7 @@ export type ChildCapture = {
   ambiguousBashCallIds: Set<string>
   submissions: Submission[]
   partialText: string | null
+  hostGit: Map<string, HostGitSpan>
 }
 
 export type ActiveBatch = {
@@ -31,19 +41,41 @@ export type ActiveBatch = {
   wire: NativeTaskWireInput
   callbacks: NativeBatchCallbacks
   defaultCwd: string | null
+  artifactsDir: string | null
   admittedToolCallId: string | null
   spawnedIndexes: Set<number>
+  models: Array<{ provider: string; id: string }>
   announced: boolean
   announcementDispatched: boolean
   settling: boolean
+  continuationClosed: string | null
+  contextPublicationOwned: boolean
+  retentionFailed: string | null
+  childSlots: Map<string, number>
+  /** Actual child callbacks, never public observability frames, establish these bindings. */
+  guardedChildren: Map<string, { sessionId: string; valid: boolean; yieldData: Json | null }>
+  starts: Map<
+    string,
+    {
+      index: number
+      sessionFile: string
+      task: NativeBatch['tasks']['tasks'][number]
+      action: NativeBatch['tasks']['tasks'][number]['action']
+      snapshot: NativeBatch['tasks']['tasks'][number]['action']['snapshot']
+      inputs: NativeBatch['tasks']['tasks'][number]['action']['inputs']
+      closed: boolean
+    } | null
+  >
+  communication: ActionCommunication | null
+  retainedResultRef: string | null
   abortCleanup: (() => void) | null
   captures: Map<string, ChildCapture>
+  observeHostGit: HostGitObserver
 }
-
 function nativeTaskInput(batch: NativeBatch): NativeTaskWireInput {
   return {
     context: batch.tasks.context,
-    tasks: batch.tasks.tasks.map(({ proofEvidence: _proofEvidence, ...task }) => task),
+    tasks: batch.tasks.tasks.map(({ proofEvidence: _proofEvidence, action: _action, ...task }) => task),
   }
 }
 
@@ -51,18 +83,73 @@ export function createActiveBatch(
   batch: NativeBatch,
   callbacks: NativeBatchCallbacks,
   defaultCwd: string | null,
+  artifactsDir: string | null,
+  observeHostGit: HostGitObserver,
 ): ActiveBatch {
   return {
     batch,
     wire: nativeTaskInput(batch),
     callbacks,
     defaultCwd,
+    artifactsDir,
     admittedToolCallId: null,
+    models: [],
     spawnedIndexes: new Set(),
     announced: false,
     announcementDispatched: false,
     settling: false,
+    continuationClosed: null,
+    contextPublicationOwned: false,
+    retentionFailed: null,
+    childSlots: new Map(),
+    communication: null,
+    guardedChildren: new Map(),
+    starts: new Map(),
+    retainedResultRef: null,
     abortCleanup: null,
     captures: new Map(),
+    observeHostGit,
   }
+}
+
+function taskIndexForSpawn(active: ActiveBatch, spawnKey: string): number {
+  const tasks = active.batch.tasks.tasks
+  const exact = tasks.findIndex((task) => task.name === spawnKey)
+  if (exact !== -1) return exact
+  const admitted = active.admittedToolCallId
+  if (admitted !== null && spawnKey.startsWith(`${admitted}:`)) {
+    const suffix = spawnKey.slice(admitted.length + 1)
+    const index = Number(suffix)
+    if (Number.isInteger(index) && String(index) === suffix && tasks[index] !== undefined) return index
+  }
+  const suffixMatches = tasks.flatMap((task, index) => {
+    if (!spawnKey.startsWith(`${task.name}-`)) return []
+    const suffix = spawnKey.slice(task.name.length + 1)
+    return /^(?:[2-9]|[1-9]\d+)$/.test(suffix) ? [index] : []
+  })
+  return suffixMatches.length === 1 ? (suffixMatches[0] ?? -1) : -1
+}
+
+export function spawnRefusal(
+  active: ActiveBatch,
+  spawn: { invocationKind: string; agent: string; spawnKey?: string },
+): string | null {
+  if (active.settling) return 'native batch is settling'
+  if (active.admittedToolCallId === null) {
+    return 'native subagent spawn occurred before the host-authorized task call'
+  }
+  if (spawn.invocationKind !== 'task') {
+    return 'native subagent spawn is outside the host-authorized task invocation'
+  }
+  const spawnKey = spawn.spawnKey
+  if (spawnKey === undefined) return 'native subagent spawn lacks its native task identity'
+  const index = taskIndexForSpawn(active, spawnKey)
+  if (index === -1) return 'native subagent spawn does not match one authorized native task identity'
+  const expected = active.batch.tasks.tasks[index]
+  if (expected === undefined || expected.agent !== spawn.agent || active.spawnedIndexes.has(index)) {
+    return 'native subagent spawn does not match an authorized native task identity'
+  }
+  active.spawnedIndexes.add(index)
+  active.childSlots.set(spawnKey, index)
+  return null
 }

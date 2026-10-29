@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { calculateTier } from '../../../issue-triage/skills/shared/domain/complexity.ts'
 import { parseIssueSpecBody, rawSource, renderIssueSpecBody } from '../../adapters/github-native/uw-spec.ts'
 import type { DecodedHistory } from '../../engine/history-schema.ts'
@@ -16,6 +16,13 @@ import {
 } from '../uw-normalization-internal.ts'
 import { prepareExistingProposal, staleWrite } from '../uw-proposal-preparation.ts'
 import { setup, statement, time, uw } from './uw-abandoned-normalization-support.ts'
+import {
+  isolateViewerToken,
+  observationalGh,
+  observationalGit,
+  preparedNormalization,
+  releaseViewerToken,
+} from './uw-normalization-observation.ts'
 
 async function normalizeExplicitSuccessor(
   subject: { operations: UwOperations; request: UwProposalInput; history: DecodedHistory },
@@ -38,9 +45,14 @@ async function normalizeExplicitSuccessor(
     let batch: NativeBatch | undefined
     const continued: unknown[] = []
     const delivered: unknown[] = []
+    isolateViewerToken()
+    const git = observationalGit()
+    const gh = observationalGh()
     const host = {
       principal: false,
-      uw: subject.operations,
+      uw: Object.assign(subject.operations, {
+        prepareAction: async () => ({ ok: true, value: preparedNormalization(selected.request) }),
+      }),
       featureContinuationInhibited: () => false,
       workflow: {
         continueFeature: async (input: unknown) => {
@@ -60,7 +72,7 @@ async function normalizeExplicitSuccessor(
     await announceUwNormalization({
       reference: uw.target,
       request: selected.request,
-      original: { cwd: '/repo', reference: uw.target, control: 'new', principal: false },
+      original: { cwd: '/repo', reference: uw.target, control: 'new', principal: false, git, gh },
       host,
       deliver: async (result) => {
         delivered.push(result)
@@ -75,15 +87,18 @@ async function normalizeExplicitSuccessor(
       complete: true,
       children: [{ id: 'normalizer', usable: true, structured: {} }],
     } as unknown as NativeBatchResult
-    activeCallbacks.onComplete(result)
-    activeCallbacks.onSettled?.(result)
+    activeCallbacks.onComplete(result, () => true)
+    const settlement = activeCallbacks.onSettled?.(result, () => true)
     await vi.runAllTimersAsync()
+    await settlement
     expect(continued).toEqual([expect.objectContaining({ control: 'new' })])
     expect(delivered).toEqual([expect.objectContaining({ kind: 'terminal' })])
   } finally {
     vi.useRealTimers()
   }
 }
+
+afterEach(() => releaseViewerToken())
 
 describe('normalization after an authenticated abandoned mandate', () => {
   it('rejects changed or missing authenticated predecessor history after confirmation', async () => {

@@ -4,7 +4,9 @@ import path from 'node:path'
 
 import { afterEach, expect, it } from 'vitest'
 import { decodeHistory, encodeRecord } from '../../adapters/github/history-codec.ts'
+import type { ActionInputs } from '../../engine/action-input-schema.ts'
 import { buildRecord } from '../../engine/record-construction.ts'
+import { criterionReviewGraph } from '../../testing/criterion-approval.ts'
 import {
   arrangeReviewFixture,
   REVIEW_BRANCH as BRANCH,
@@ -16,10 +18,11 @@ import { readSim, WORKFLOW, writeSim } from '../../testing/sandbox/sandbox-repos
 import type { Box } from '../../testing/sandbox/sandbox-types.ts'
 
 const RUNNER = path.resolve(import.meta.dirname, '../../testing/feature-recovery-runner.ts')
+const VALIDATION_RUNNER = path.resolve(import.meta.dirname, '../../testing/feature-review-validation-runner.ts')
 const BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
 const roots = new Set<string>()
 const PULL_SCOPE = { repository: 'acme/app', target: 'acme/app#7' }
-const { encodedAdmissionReviewGraph } = roxabiRecordFixtures()
+const { projection } = roxabiRecordFixtures()
 
 afterEach(() => {
   for (const root of roots) rmSync(root, { recursive: true, force: true })
@@ -77,26 +80,32 @@ function continueFeature(box: Box, cwd: string): unknown {
   return JSON.parse(run.stdout) as unknown
 }
 
-function captureReviewInput(box: Box, cwd: string, head: string): string {
+function captureReviewInput(box: Box, cwd: string, head: string): ActionInputs {
   const run = spawnSync(BUN, [WORKFLOW, 'captureReviewInput', cwd, JSON.stringify({ pr: 7, head })], {
     cwd,
     env: box.env,
     encoding: 'utf8',
   })
   if (run.status !== 0) throw new Error(`capture review input failed: ${run.stderr}`)
-  const captured = JSON.parse(run.stdout) as { ok?: unknown; input?: unknown }
-  if (captured.ok !== true || typeof captured.input !== 'string') throw new Error('review input unavailable')
-  return captured.input
+  const captured = JSON.parse(run.stdout) as { ok?: unknown; inputs?: ActionInputs }
+  if (captured.ok !== true || captured.inputs === undefined) throw new Error(`review input unavailable: ${run.stdout}`)
+  return captured.inputs
 }
 
 function appendApprovedReview(box: Box, cwd: string): void {
   const head = box.sha[BRANCH]
   if (head === undefined) throw new Error('feature-head-missing')
-  const input = captureReviewInput(box, cwd, head)
-  const review = encodedAdmissionReviewGraph({
+  const inputs = captureReviewInput(box, cwd, head)
+  const { record: mandate, history } = featureMandate(box)
+  const issueRecords = history.operations.flatMap((operation) => (operation.record ? [operation.record] : []))
+  const review = criterionReviewGraph({
+    mandate,
+    issueRecords,
     scope: PULL_SCOPE,
     head,
-    input,
+    inputs,
+    projection,
+    author: 'operator',
     verdict: 'Approve (clean)',
     prefix: 'feature-ci-handoff',
   })
@@ -149,6 +158,8 @@ function appendAttributedCiResult(box: Box): void {
     operationId: 'ci-result-operation',
     kind: 'action-receipt',
     payload: {
+      format: started.payload.format,
+      inputs: started.payload.inputs,
       phase: 'result',
       action: 'attribute-ci',
       actionId: started.payload.actionId,
@@ -178,6 +189,28 @@ function appendAttributedCiResult(box: Box): void {
     )
   })
 }
+
+it('authorizes only the current sealed initial snapshot before inventory publication', async () => {
+  const { box, cwd } = arrangeReviewFixture()
+  roots.add(box.root)
+  await seedReviewFixture(box, cwd)
+  const head = box.sha[BRANCH]
+  if (head === undefined) throw new Error('feature-head-missing')
+  const snapshot = captureReviewInput(box, cwd, head)
+  const validate = (input: ActionInputs) => {
+    const run = spawnSync(BUN, [VALIDATION_RUNNER, cwd, head, JSON.stringify(input)], {
+      cwd,
+      env: box.env,
+      encoding: 'utf8',
+    })
+    if (run.status !== 0) throw new Error(`validate review failed: ${run.stderr}`)
+    return JSON.parse(run.stdout) as { prepared: { ok: boolean }; persisted: { ok: boolean } }
+  }
+  expect(validate(snapshot)).toMatchObject({ prepared: { ok: true }, persisted: { ok: false } })
+  const altered = structuredClone(snapshot)
+  altered.manifest.code.head = 'a'.repeat(40)
+  expect(validate(altered)).toMatchObject({ prepared: { ok: false }, persisted: { ok: false } })
+})
 
 it('preserves the installed readonly UW reader through public continuation to attributed CI correction', async () => {
   const { box, cwd } = arrangeReviewFixture()

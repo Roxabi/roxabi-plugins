@@ -105,12 +105,11 @@ describe('tail skills resolve their helpers inside omp-build', () => {
     const gather = readFileSync(GATHER, 'utf8')
     const createPr = readFileSync(CREATE_PR, 'utf8')
     expect(gather).toContain('scan-orphan-worktree-shells.sh')
-    expect(createPr).toContain('collect-closing-issues.sh')
+    expect(createPr).toContain('generated-pr-body.js')
     for (const sibling of [
       path.join(SKILLS, 'cleanup', 'scan-orphan-worktree-shells.sh'),
-      path.join(SKILLS, 'promote', 'collect-closing-issues.sh'),
+      path.join(SKILLS, 'feature', 'generated-pr-body.js'),
       path.join(SKILLS, 'promote', 'lib', 'hotfix-density.ts'),
-      path.join(SKILLS, 'promote', 'lib', 'closing-issues-cli.ts'),
       path.join(SKILLS, 'promote', 'lib', 'finalize.ts'),
     ]) {
       expect(statSync(sibling).isFile()).toBe(true)

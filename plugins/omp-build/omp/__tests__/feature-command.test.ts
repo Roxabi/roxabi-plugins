@@ -1,24 +1,38 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import type { FeatureWorkflow } from '../../roxabi/feature-contract'
 import { runInstalledFeatureCommand } from '../../roxabi/feature-entry'
 import { createExtensionApiStub } from '../../testing/extension-api-stub'
+import { consultableAgentRoot } from '../../testing/protocol-retention.unit.ts'
+import { cleanupFixtureActions, fixtureAction } from '../../testing/review-runtime-support.ts'
 import ompBuildExtension from '../index'
 import type { OmpBuildExtensionOptions } from '../omp-commands'
 import type { NativeBatch } from '../review-runtime/contracts.ts'
 
 const root = {
+  ...consultableAgentRoot(),
   cwd: '/repo/feature',
-  agent: { kind: 'main' as const, id: 'Main', name: 'main', depth: 0 },
   model: { contextWindow: 128_000 },
   isIdle: () => true,
 }
+
+afterEach(() => {
+  cleanupFixtureActions()
+})
 
 function batch(operationId = 'feature-op'): NativeBatch {
   return {
     operationId,
     tasks: {
       context: 'feature fixture',
-      tasks: [{ name: 'R-workflow-plan', agent: 'R-advisor', task: 'plan', solutionSpace: 'fixed fixture' }],
+      tasks: [
+        {
+          name: 'R-workflow-plan',
+          agent: 'R-advisor',
+          task: 'plan',
+          solutionSpace: 'fixed fixture',
+          action: fixtureAction('R-workflow-plan'),
+        },
+      ],
     },
   }
 }

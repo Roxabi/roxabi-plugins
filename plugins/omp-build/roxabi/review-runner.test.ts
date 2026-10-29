@@ -1,7 +1,11 @@
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CanonicalRecord } from '../dist/contracts.js'
 import type { NativeChildResult } from '../omp/review-runtime/contracts'
-import { TEST_HEAD, TEST_INPUT_SNAPSHOT } from '../testing/record-builders.ts'
+import { fixtureUwOperations, standaloneReviewInputs } from '../testing/action-input-fixtures.ts'
+import { TEST_HEAD } from '../testing/record-builders.ts'
 
 const published = vi.hoisted((): CanonicalRecord[] => [])
 
@@ -15,11 +19,27 @@ vi.mock('./github-publisher', () => ({
 }))
 
 import { CanonicalReviewRunner, type PreparedReviewInputs } from './review-runner'
+import { sealActionSnapshot } from './uw-action-snapshot.ts'
 
 describe('CanonicalReviewRunner native contribution publication', () => {
   beforeEach(() => published.splice(0))
 
   it('binds an allocated native child ID to its logical slot in one complete contribution', async () => {
+    const snapshotDir = mkdtempSync(join(tmpdir(), 'review-runner-'))
+    const snapshotFiles = [{ path: 'index.md', bytes: new Uint8Array() }]
+    writeFileSync(join(snapshotDir, 'index.md'), snapshotFiles[0].bytes)
+    const sealed = sealActionSnapshot(
+      {
+        id: 'snap',
+        actionId: 'action',
+        manifestDigest: standaloneReviewInputs().fingerprint,
+        indexPath: join(snapshotDir, 'index.md'),
+        location: 'local',
+      },
+      snapshotFiles,
+    )
+    if (!sealed.ok) throw new Error(sealed.diagnostics.map((item) => item.message).join('; '))
+
     const input: PreparedReviewInputs = {
       context: {
         repository: 'acme/widgets',
@@ -37,10 +57,11 @@ describe('CanonicalReviewRunner native contribution publication', () => {
           index: 0,
           delta: ['src/widget.ts'],
           diff: '@@ -1 +1 @@\n-old\n+new',
-          files: [{ path: 'src/widget.ts', text: 'export const widget = true\n', deleted: false }],
+          files: [{ path: 'src/widget.ts', text: 'export const widget = true\n', deleted: false, binary: false }],
           digest: 'widget change',
         },
       ],
+      contextWindow: 200_000,
       roster: {
         delta: ['src/widget.ts'],
         tier: 'F-lite',
@@ -62,8 +83,18 @@ describe('CanonicalReviewRunner native contribution publication', () => {
         stack: { candidate: null, base: null },
         resolvedSpec: null,
       },
-      inputSnapshot: TEST_INPUT_SNAPSHOT,
+      inputSnapshot: standaloneReviewInputs(),
       canonicalClasses: ['missing-input-validation'],
+      actions: new Proxy(
+        {},
+        {
+          get: () => ({
+            inputs: standaloneReviewInputs(),
+            snapshot: sealed.value,
+          }),
+        },
+      ),
+      operations: fixtureUwOperations(),
       authorize: async () => ({ ok: true }),
     }
     const runner = new CanonicalReviewRunner(input, {

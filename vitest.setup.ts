@@ -1,7 +1,24 @@
 import type * as ChildProcess from 'node:child_process'
 import { createRequire } from 'node:module'
 import path from 'node:path'
-import { afterAll, expect } from 'vitest'
+import { afterAll, afterEach, expect, vi } from 'vitest'
+import { unitSdkRoots } from './plugins/omp-build/testing/unit-sdk-scopes.ts'
+
+// Node workers model the SDK boundary. Roots must be explicitly provisioned.
+afterEach(() => unitSdkRoots.clear())
+vi.mock('@oh-my-pi/pi-coding-agent', () => ({
+  SettingsManager: {
+    create: (cwd: string) => {
+      if (!unitSdkRoots.has(cwd)) throw new Error('unit SDK root not provisioned')
+      return { cwd }
+    },
+  },
+}))
+vi.mock('@oh-my-pi/pi-coding-agent/task/settings', () => ({
+  cfgTaskAgentModelOverrides: {
+    get: (settings: { cwd: string }) => unitSdkRoots.get(settings.cwd),
+  },
+}))
 
 /**
  * Strips the repository-location env git hands to hooks, before any test runs.

@@ -89,6 +89,29 @@ describe('workflow bound work behavior', () => {
       }),
     ).toMatchObject({ status: 'refused', reason: 'fix-only' })
   })
+  test('foreign binding observations cannot compete with bound or standalone review', () => {
+    const mandated = featureMandate()
+    const pr: Scope = { repository: 'acme/app', target: 'acme/app#99' }
+    const native = { branch: 'feature/bounded', base: 'main' }
+    const boundHistory = history([binding(mandated, pr)], pr)
+    const authentic = boundHistory.operations[0]
+    if (authentic === undefined) throw new Error('fixture requires binding')
+    const foreign = { ...authentic, authority: 'foreign' as const, status: 'incomplete' as const, record: null }
+    const noisy = { ...boundHistory, operations: [authentic, foreign] }
+    const input = { explicitSelection: true, pullRequest: pr, native }
+    expect(resolveBoundWork({ ...input, use: 'review', histories: [history([mandated]), noisy] })).toMatchObject({
+      status: 'applicable',
+    })
+    const foreignOnly = { ...boundHistory, operations: [foreign] }
+    expect(resolveBoundWork({ ...input, use: 'review', histories: [foreignOnly] })).toEqual({
+      status: 'standalone',
+      binding: 'absent',
+    })
+    expect(resolveBoundWork({ ...input, use: 'landing', histories: [foreignOnly] })).toMatchObject({
+      status: 'refused',
+      reason: 'missing',
+    })
+  })
   test('ignores child read-date drift while preserving canonical child drift detection', () => {
     const fixtures = roxabiWorkflowFixtures()
     const child: Scope = { repository: SCOPE.repository, target: 'acme/app#43' }

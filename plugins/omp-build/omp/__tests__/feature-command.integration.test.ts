@@ -4,8 +4,19 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
-import { implementationOutputSchema } from '../../engine/workflow-output-schema.ts'
+import {
+  claimedRun,
+  contentReading,
+  criterionTarget,
+  evidenceRef,
+  passingTest,
+  satisfied,
+  solo,
+} from '../../engine/__tests__/criterion-admission-fixture.ts'
+import { assessCriterionReview } from '../../engine/criterion-admission.ts'
+import { implementationOutputSchema, producerImplementationOutputSchema } from '../../engine/workflow-output-schema.ts'
 import { admitImplementationEvidence } from '../../roxabi/feature-implementation-admission.ts'
+import { hostCompletedStructured } from '../../roxabi/feature-implementation-receipt.ts'
 import type { Json, NativeProofBashCall } from '../review-runtime/contracts.ts'
 
 const fixtureRoots = new Set<string>()
@@ -95,8 +106,13 @@ function implementationClaim(tip: string, red: NativeProofBashCall, green: Nativ
       { toolCallId: red.toolCallId, command: proofCommand, exitCode: observedExit(red) },
       { toolCallId: green.toolCallId, command: proofCommand, exitCode: observedExit(green) },
     ],
-    proofToolCallId: green.toolCallId,
-    proofUnavailableReason: null,
+    criteria: [
+      {
+        target: criterionTarget('C1'),
+        verification: 'unverified',
+        reason: 'command admission is under test; this declaration is not evidence',
+      },
+    ],
     reason: 'the captured command exercises the changed path',
   })
 }
@@ -107,22 +123,27 @@ afterEach(() => {
 })
 
 describe('implementation admission', () => {
-  it('does not admit implemented commits when the command list is empty', async () => {
+  it('admits an owned commit when content evidence cites no command', async () => {
     const fixture = admissionFixture()
-    const { red, green } = capturedProofs(fixture.cwd)
-    const claim = implementationClaim(fixture.tip, red, green)
+    const claim = implementationOutputSchema.parse({
+      outcome: 'implemented',
+      commitSHAs: [fixture.tip],
+      commands: [],
+      criteria: [{ target: criterionTarget('C1'), verification: 'evidence', evidence: [contentReading()] }],
+      reason: 'the owned commit is admitted from source-grounded content evidence',
+    })
 
     const admission = await admitImplementationEvidence({
       cwd: fixture.cwd,
       startHead: fixture.start,
       ticket: 42,
-      children: [{ structured: { ...claim, commands: [] }, bashCalls: [green] }],
+      children: [{ structured: claim }],
     })
 
     expect(admission).toEqual({
-      admitted: false,
-      commits: [],
-      paths: [],
+      admitted: true,
+      commits: [fixture.tip],
+      paths: ['src/guard.txt'],
       commands: [],
       remoteBranch: null,
       remoteTip: null,
@@ -131,11 +152,71 @@ describe('implementation admission', () => {
     })
   })
 
-  it('does not confirm a deferred or nonzero proof, even when the same command text later exits zero', async () => {
+  it('does not admit printed test evidence that has no captured command', async () => {
+    const fixture = admissionFixture()
+    const code = { repository: 'acme/app', commit: fixture.tip }
+    const target = criterionTarget('C1')
+    const claim = producerImplementationOutputSchema.parse({
+      outcome: 'implemented',
+      commitSHAs: [fixture.tip],
+      commands: [],
+      criteria: [
+        {
+          target,
+          verification: 'evidence',
+          evidence: [
+            {
+              id: 'printed-test',
+              target,
+              method: 'test',
+              scenario: 'reload keeps the selected region',
+              after: {
+                toolCallId: 'uncaptured-test',
+                versionClaim: { code, reason: 'the producer claims the candidate was exercised', references: [] },
+              },
+              before: null,
+            },
+          ],
+        },
+      ],
+      reason: 'printed test evidence is not a captured command',
+    })
+    const completed = implementationOutputSchema.parse(hostCompletedStructured({ structured: claim }))
+    expect(completed.criteria).toEqual([
+      { target, verification: 'unverified', reason: 'host capture absent for uncaptured-test' },
+    ])
+    expect(
+      producerImplementationOutputSchema.safeParse({
+        ...claim,
+        criteria: [{ target, verification: 'evidence', evidence: [passingTest('C1')] }],
+      }).success,
+    ).toBe(false)
+
+    const admission = await admitImplementationEvidence({
+      cwd: fixture.cwd,
+      startHead: fixture.start,
+      ticket: 42,
+      children: [{ structured: claim }],
+    })
+
+    expect(admission.admitted).toBe(true)
+    expect(admission.commits).toEqual([fixture.tip])
+    const printed = passingTest('C1', { code, after: claimedRun(code, 0, 'printed PASS', 'uncaptured-test') })
+    const assessment = assessCriterionReview({
+      spec: solo,
+      code,
+      declarations: completed.criteria,
+      verdicts: [satisfied(printed)],
+      evidence: [{ ref: evidenceRef(printed), value: printed }],
+    })
+    expect(assessment.complete && !assessment.requiresChanges).toBe(false)
+    expect(assessment.requiresChanges).toBe(true)
+  })
+
+  it('does not confirm a deferred proof, even when the same command text later exits zero', async () => {
     const fixture = admissionFixture()
     const { red, green: deferredGreen } = capturedProofs(fixture.cwd, { async: { state: 'running' } })
-    const settledGreen = captured(fixture.cwd, 'green-1', proofCommand)
-    const claim = implementationClaim(fixture.tip, red, settledGreen)
+    const claim = implementationClaim(fixture.tip, red, deferredGreen)
 
     const deferred = await admitImplementationEvidence({
       cwd: fixture.cwd,
@@ -143,23 +224,9 @@ describe('implementation admission', () => {
       ticket: 42,
       children: [{ structured: claim, bashCalls: [red, deferredGreen] }],
     })
-    const nonzero = await admitImplementationEvidence({
-      cwd: fixture.cwd,
-      startHead: fixture.start,
-      ticket: 42,
-      children: [
-        {
-          structured: { ...claim, proofToolCallId: red.toolCallId },
-          bashCalls: [red, settledGreen],
-        },
-      ],
-    })
 
     expect(deferred.admitted).toBe(false)
     expect(deferred.reason).toBe(claim.reason)
-    expect(nonzero.admitted).toBe(false)
-    expect(nonzero.reason).toBe(claim.reason)
-    expect(nonzero.commands.map((command) => command.toolCallId)).toEqual(['red-1', 'green-1'])
   })
 
   it('binds the chosen foreground capture across red and green runs of the same command', async () => {

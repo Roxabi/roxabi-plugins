@@ -38,7 +38,7 @@ describe('goal transport recovery', () => {
         '-f',
         'title=feat(a): child a',
         '-f',
-        'body=Closes #2',
+        'body=UW #2',
       ]
       let created = false
       const raced = async (cwd: string, args: string[]) => {

@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { buildRecord } from '../record-construction.ts'
 import type { Scope } from '../record-values.ts'
+import { resolveAcceptedSpec } from '../workflow-accepted-spec.ts'
 import { selectApplicableMandate } from '../workflow-mandate-admission.ts'
 import { planMacro } from '../workflow-plan-macro.ts'
 import { reconstructWorkflow } from '../workflow-reconstruction-admission.ts'
@@ -190,12 +191,15 @@ describe('workflow plan execution behavior', () => {
     })
     expect(currentUncertain).toMatchObject({ status: 'blocked', reason: 'action-uncertain' })
 
+    const accepted = resolveAcceptedSpec(mandated, [history(eligibleRecords)])
+    if (!accepted.ok) throw new Error('expected the advanced Spec to be accepted')
     const currentImplementationResult = implementationResult(
       mandated,
       currentImplementationStart,
       'act-implement-b',
       'act-plan-b',
       true,
+      accepted.spec,
     )
     const published = reconstructWorkflow({
       evidence: {

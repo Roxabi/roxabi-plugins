@@ -1,5 +1,5 @@
 import type { CanonicalRecord } from '../engine/record-schema.ts'
-import type { Contribution, Json, NativeOutcome, Policy, Submission } from '../engine/record-values.ts'
+import type { Contribution, Json, NativeOutcome, Policy, Scope, Submission } from '../engine/record-values.ts'
 import type { Decision, ReviewStandards } from '../engine/review-schema.ts'
 import {
   BASELINE_POLICY,
@@ -7,7 +7,7 @@ import {
   nativeOutcome,
   submission,
   TEST_HEAD,
-  TEST_INPUT,
+  TEST_REVIEW_INPUT,
   TEST_SCOPE,
   TEST_STANDARDS,
 } from './record-builders.ts'
@@ -18,6 +18,7 @@ type ReviewRecord = Extract<CanonicalRecord, { kind: 'review' }>
 type Envelope = Pick<CanonicalRecord, 'version' | 'recordId' | 'runId' | 'operationId' | 'inputs'>
 type ContributionOptions = {
   id?: string
+  scope?: Scope
   operationId?: string
   inputs?: string[]
   inventoryId?: string | null
@@ -82,7 +83,7 @@ export function contribution(options: ContributionOptions = {}): ContributionRec
   const findings = contributionFindings(id, content, options.findings)
   const inventoryId = defaulted(options.inventoryId, 'root-review')
   return {
-    ...TEST_SCOPE,
+    ...(options.scope ?? TEST_SCOPE),
     ...envelope(id, options.operationId ?? `op-${id}`, options.inputs ?? (inventoryId === null ? [] : [inventoryId])),
     kind: 'contribution',
     payload: {
@@ -100,6 +101,7 @@ export function contribution(options: ContributionOptions = {}): ContributionRec
 export function decision(
   options: {
     id?: string
+    scope?: Scope
     operationId?: string
     inputs?: string[]
     purpose?: Decision['purpose']
@@ -131,7 +133,7 @@ export function decision(
     causes: options.causes ?? [],
   }
   return {
-    ...TEST_SCOPE,
+    ...(options.scope ?? TEST_SCOPE),
     ...envelope(
       id,
       options.operationId ?? `op-${id}`,
@@ -143,7 +145,13 @@ export function decision(
       // purpose first: matches decisionSchema parse order used by graph sameJson checks
       judgment:
         purpose === 'review'
-          ? { purpose, ...common, standards: options.standards === undefined ? TEST_STANDARDS : options.standards }
+          ? {
+              purpose,
+              ...common,
+              standards: options.standards === undefined ? TEST_STANDARDS : options.standards,
+              criterionVerdicts: [],
+              exclusionClaims: [],
+            }
           : { purpose, ...common },
     },
   }
@@ -152,6 +160,7 @@ export function decision(
 export function finalReview(
   options: {
     id?: string
+    scope?: Scope
     operationId?: string
     inputs?: string[]
     head?: string
@@ -164,13 +173,13 @@ export function finalReview(
   const inventoryIds = options.inventoryIds ?? ['root-review', 'review-synthesis']
   const decisionId = options.decisionId ?? 'review-decision'
   return {
-    ...TEST_SCOPE,
+    ...(options.scope ?? TEST_SCOPE),
     ...envelope(id, options.operationId ?? `op-${id}`, options.inputs ?? [...inventoryIds, decisionId]),
     kind: 'review',
     payload: {
       candidateGitSHA: options.head ?? TEST_HEAD,
-      inputFormat: 'omp-build:review-input/3',
-      input: 'input' in options ? (options.input ?? null) : TEST_INPUT,
+      inputFormat: 'omp-build:review-input/4',
+      input: 'input' in options ? (options.input ?? null) : TEST_REVIEW_INPUT,
       inventoryIds,
       decisionId,
     },

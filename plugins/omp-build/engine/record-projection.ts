@@ -1,5 +1,5 @@
 import { classifyHistory } from './history-classification.ts'
-import { validateRecordGraph } from './history-graph.ts'
+import { validateProspectiveRecord, validateRecordGraph } from './history-graph.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope, fail } from './record-diagnostics.ts'
 import { projectionClosure } from './record-projection-closure.ts'
@@ -97,6 +97,8 @@ function projectReviewRecord(
   history: DecodedHistory,
   records: ReadonlyMap<string, CanonicalRecord>,
   config: RecordProjectionConfig | null,
+  externalHistories: readonly DecodedHistory[],
+  deliveryHistory: DecodedHistory,
 ): Result<string> {
   const decision = records.get(record.payload.decisionId)
   if (decision?.kind !== 'decision')
@@ -109,7 +111,14 @@ function projectReviewRecord(
     (Reflect.get(config, 'acceptedPolicy') !== null && typeof Reflect.get(config, 'acceptedPolicy') !== 'string')
   )
     return fail([diagnostic('unbound', `Review ${record.recordId} has no valid projection policy context`)])
-  const assessment = validateDecision(decision, history, config.taxonomy, config.acceptedPolicy)
+  const assessment = validateDecision(
+    decision,
+    history,
+    config.taxonomy,
+    config.acceptedPolicy,
+    externalHistories,
+    deliveryHistory,
+  )
   if (!assessment.admissible || assessment.verdict === null)
     return fail(
       assessment.diagnostics.length > 0
@@ -152,6 +161,8 @@ export function projectRecord(
   config: RecordProjectionConfig | null,
   externalHistories: readonly DecodedHistory[] = [],
 ): Result<string> {
+  const prospective = validateProspectiveRecord(record, history)
+  if (prospective.length > 0) return fail(prospective)
   if (isWorkflowKind(record.kind)) return projectWorkflowRecord(record, history, externalHistories)
   const closure = projectionClosure(record, history, classifyHistory(history))
   if (!closure.ok) return fail(closure.diagnostics)
@@ -163,7 +174,8 @@ export function projectRecord(
       diagnostic('unbound', `Record ${record.recordId} cannot be projected outside a complete bound history`),
     ])
   const records = new Map(graph.value.map((entry) => [entry.recordId, entry]))
-  if (record.kind === 'review') return projectReviewRecord(record, projectionHistory, records, config)
+  if (record.kind === 'review')
+    return projectReviewRecord(record, projectionHistory, records, config, externalHistories, history)
   if (record.kind === 'contribution' && record.payload.host.origin === 'operator')
     return projectOperatorContribution(record)
   return {

@@ -9,7 +9,15 @@ import { createNativeReviewPort } from './review-runtime/port.ts'
 
 export type OmpBuildExtensionApi = Pick<
   ExtensionAPI,
-  'on' | 'registerCommand' | 'registerTool' | 'sendUserMessage' | 'sendMessage' | 'exec'
+  | 'on'
+  | 'registerCommand'
+  | 'registerTool'
+  | 'sendUserMessage'
+  | 'sendMessage'
+  | 'exec'
+  | 'getActiveTools'
+  | 'getAllTools'
+  | 'setActiveTools'
 > & {
   events: Pick<ExtensionAPI['events'], 'on'>
 }

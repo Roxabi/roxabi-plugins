@@ -121,7 +121,7 @@ export function canonicalComments(options: { unusable?: boolean } = {}): string[
       body,
       author: 'native-bot',
       createdAt: '2026-10-21T10:00:00Z',
-      updatedAt: null,
+      updatedAt: '2026-10-21T10:00:00Z',
     })),
     diagnostics: [],
   })

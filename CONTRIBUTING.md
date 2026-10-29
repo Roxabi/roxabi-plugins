@@ -65,6 +65,11 @@ bun run typecheck         # TypeScript — must pass
 bun run test              # Vitest — must pass
 ```
 
+Vitest's integration project compiles the GitHub simulator once into a
+run-owned temporary directory and removes it at teardown. Sandbox fixtures use
+that executable through an integration-only environment variable; standalone
+Bun fixture runs continue to use the simulator source.
+
 Style: single quotes, no semicolons. Markdown: ATX headings, tables for structured data.
 
 ## Project structure

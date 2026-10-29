@@ -2,12 +2,19 @@ import { spawnSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { parseIssueSpecBody, rawSource, renderIssueSpecBody } from '../adapters/github-native/uw-spec.ts'
+import { actionInputDigest } from '../engine/action-input.ts'
+import type { ActionInputs } from '../engine/action-input-schema.ts'
+import type { CanonicalRecord } from '../engine/record-schema.ts'
 import { canonicalSpec } from '../engine/uw-spec.ts'
 import { SPEC_CONTENT_FORMAT } from '../engine/uw-spec-schema.ts'
-import { hashReviewInput } from '../skills/feature/review-input.ts'
+import type { MandateRecord } from '../engine/workflow-control.ts'
+import { createProductionActionPorts } from '../roxabi/uw-input-readers.ts'
 import { confirmedReviewSemanticContext } from '../skills/feature/workflow-review-input.js'
+import { freshReviewInputs, standaloneReviewInputs } from './action-input-fixtures.ts'
+import { criterionImplementationRecords, criterionReviewGraph } from './criterion-approval.ts'
 import { git, type ReviewGateFixture, readState, writeState } from './review-gate-fixture.ts'
 import { AUTOMATION, type IssueState, PR_EDITED, PR_TEXT, SCOPE, type StoredComment } from './review-gate-gh.ts'
+import { assembleActionInputs } from './review-input-assembly.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from './roxabi-presets.ts'
 
 const ISSUE_SCOPE = { repository: 'acme/app', target: 'acme/app#42' }
@@ -24,27 +31,71 @@ export function nativeFeatureSpec(criterion: string): string {
   return renderIssueSpecBody(canonical.value)
 }
 const SPEC = nativeFeatureSpec('Save keeps the selected region')
-const { encodedAdmissionReviewGraph } = roxabiRecordFixtures()
+const { encodedAdmissionReviewGraph, projection } = roxabiRecordFixtures()
 const { framedBodies, historyFrom, ownSpecFromSnapshot, workflowBinding } = roxabiWorkflowFixtures()
+type CriterionFixture = { mandate: MandateRecord; issueRecords: CanonicalRecord[] }
+const fixtureCriteria = new WeakMap<ReviewGateFixture, CriterionFixture>()
+const inputCriteria = new WeakMap<ActionInputs, CriterionFixture>()
 
 export { SPEC }
+
+function standaloneForHead(inputs: ActionInputs, head: string): ActionInputs {
+  const manifest = {
+    ...inputs.manifest,
+    code: { ...inputs.manifest.code, head, referenceCommit: head },
+    subject: { kind: 'standalone-pr' as const, pullRequest: SCOPE },
+  }
+  return { ...inputs, manifest, fingerprint: actionInputDigest(manifest) }
+}
+
+export function freshStandaloneReviewInputs(head: string): ActionInputs {
+  return standaloneForHead(freshReviewInputs(), head)
+}
+
+type PublishedInput = string | ActionInputs | null
 
 export function reviewBodies(
   head: string,
   prefix: string,
-  input: string | null = null,
+  input: PublishedInput = null,
   verdict: 'Approve' | 'Request changes' = 'Approve',
 ): string[] {
-  return encodedAdmissionReviewGraph({ scope: SCOPE, head, input, prefix, verdict }).comments.map(
-    (comment) => comment.body,
-  )
+  if (input !== null && typeof input !== 'string') {
+    const criterion = inputCriteria.get(input)
+    if (criterion !== undefined) {
+      return criterionReviewGraph({
+        ...criterion,
+        inputs: input,
+        head,
+        scope: SCOPE,
+        prefix,
+        verdict,
+        author: AUTOMATION,
+        projection,
+      }).comments.map((comment) => comment.body)
+    }
+  }
+  const bound =
+    input === null
+      ? { digest: null, inputs: standaloneForHead(standaloneReviewInputs(), head) }
+      : typeof input === 'string'
+        ? { digest: input, inputs: undefined }
+        : { digest: input.fingerprint, inputs: input }
+  return encodedAdmissionReviewGraph({
+    scope: SCOPE,
+    head,
+    input: bound.digest,
+    inputs: bound.inputs,
+    prefix,
+    verdict,
+  }).comments.map((comment) => comment.body)
 }
 
-export function cleanReview(head: string, prefix: string, input: string | null = null): string[] {
+export function cleanReview(head: string, prefix: string, input: PublishedInput = null): string[] {
   return reviewBodies(head, prefix, input)
 }
 
-export function approvals(head: string, input: string | null = null): string[] {
+export function approvals(head: string, input: PublishedInput = null): string[] {
   return ['one', 'two', 'three'].flatMap((prefix) => cleanReview(head, prefix, input))
 }
 
@@ -70,6 +121,8 @@ export async function seedMandate(fixture: ReviewGateFixture, spec = SPEC): Prom
     body: spec,
     ownSpec: ownSpecFromSnapshot(ISSUE_SCOPE, parsed.snapshot),
   })
+  const issueRecords = criterionImplementationRecords(mandate, fixture.head)
+  fixtureCriteria.set(fixture, { mandate, issueRecords })
   const binding = workflowBinding(SCOPE, mandate, 'feat/7-fixture', 'main')
   const state = readState(fixture)
   const issue: IssueState = {
@@ -77,14 +130,14 @@ export async function seedMandate(fixture: ReviewGateFixture, spec = SPEC): Prom
     updatedAt: PR_EDITED,
     state: 'OPEN',
     labels: [{ name: 'size:S' }],
-    comments: historyFrom([mandate], AUTOMATION).source.comments.map((comment, index) =>
+    comments: historyFrom(issueRecords, AUTOMATION).source.comments.map((comment, index) =>
       stored(comment.body, 4200 + index),
     ),
   }
   state.prBody = PR_TEXT
   state.prEditedAt = PR_EDITED
   state.issues['42'] = issue
-  const mandateHistory = historyFrom([mandate], AUTOMATION)
+  const mandateHistory = historyFrom(issueRecords, AUTOMATION)
   const bindingBodies = framedBodies([binding], AUTOMATION, [mandateHistory])
   state.comments = [
     ...state.comments.filter((comment) => recordKind(comment.body) !== 'workflow-binding'),
@@ -111,18 +164,38 @@ export async function reviewSemanticContext(fixture: ReviewGateFixture) {
   return confirmedReviewSemanticContext(fixture.tools, 7, gateGh(fixture), 'main', AUTOMATION)
 }
 
-export async function boundInput(fixture: ReviewGateFixture): Promise<string> {
-  const semantic = await reviewSemanticContext(fixture)
-  if ('ok' in semantic) throw new Error(semantic.error)
-  return hashReviewInput(
-    'acme/app',
-    { pr: 7, candidate: fixture.head },
-    { body: PR_TEXT, lastEditedAt: PR_EDITED },
-    semantic,
+export async function boundInput(fixture: ReviewGateFixture): Promise<ActionInputs> {
+  const inputs = await assembleActionInputs(
+    {
+      actionId: 'review-7',
+      purpose: 'review',
+      subject: {
+        kind: 'uw',
+        uw: { repository: 'acme/app', target: 'acme/app#42' },
+        pullRequest: { repository: 'acme/app', target: 'acme/app#7' },
+        binding: null,
+      },
+      code: { repository: 'acme/app', base: fixture.base, head: fixture.head, referenceCommit: fixture.head },
+      stageSources: [],
+      expandedContext: [],
+    },
+    createProductionActionPorts({
+      cwd: fixture.candidate,
+      gh: gateGh(fixture),
+      pluginPin: {
+        repository: 'Roxabi/roxabi-plugins',
+        commit: fixture.pin,
+        installedRoot: path.join(fixture.tools, 'plugins/omp-build'),
+      },
+    }),
   )
+  const criterion = fixtureCriteria.get(fixture)
+  if (criterion === undefined) throw new Error('review gate fixture has no criterion history')
+  inputCriteria.set(inputs, criterion)
+  return inputs
 }
 
-export async function standaloneNoProducerInput(fixture: ReviewGateFixture): Promise<string> {
+export async function standaloneNoProducerInput(fixture: ReviewGateFixture): Promise<ActionInputs> {
   const state = readState(fixture)
   state.comments = state.comments.filter((comment) => recordKind(comment.body) !== 'workflow-binding')
   for (const issue of Object.values(state.issues))
@@ -132,11 +205,24 @@ export async function standaloneNoProducerInput(fixture: ReviewGateFixture): Pro
   if ('ok' in semantic) throw new Error(semantic.error)
   if (semantic.mode !== 'standalone')
     throw new Error('standalone no-producer input requires an absent workflow-binding')
-  return hashReviewInput(
-    'acme/app',
-    { pr: 7, candidate: fixture.head },
-    { body: state.prBody, lastEditedAt: state.prEditedAt },
-    semantic,
+  return assembleActionInputs(
+    {
+      actionId: 'review-7',
+      purpose: 'review',
+      subject: { kind: 'standalone-pr', pullRequest: { repository: 'acme/app', target: 'acme/app#7' } },
+      code: { repository: 'acme/app', base: fixture.base, head: fixture.head, referenceCommit: fixture.head },
+      stageSources: [],
+      expandedContext: [],
+    },
+    createProductionActionPorts({
+      cwd: fixture.candidate,
+      gh: gateGh(fixture),
+      pluginPin: {
+        repository: 'Roxabi/roxabi-plugins',
+        commit: fixture.pin,
+        installedRoot: path.join(fixture.tools, 'plugins/omp-build'),
+      },
+    }),
   )
 }
 

@@ -12,7 +12,7 @@ import {
 import { withRoxabiGitHubPolicy } from './github-policy'
 import { readCurrentOwnSpecFacts } from './uw-current-facts.ts'
 import { createInstalledObservedUwReadPort } from './uw-read-port.ts'
-import { type ReviewIssueSpec, readReviewIssueSpec } from './uw-spec'
+import type { ReviewIssueSpec } from './uw-spec'
 
 export type Gh = (cwd: string, args: string[]) => Promise<string>
 
@@ -54,9 +54,6 @@ export type ResolveReviewSemanticContextInput = {
 
 function failed<T>(code: string, message: string): Result<T> {
   return { ok: false, diagnostics: [{ code, message }] }
-}
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 function issueNumber(scope: Scope): number | null {
   const match = scope.target.match(/#([1-9]\d*)$/)
@@ -102,33 +99,10 @@ export function trackerReference(body: string, branch: string): number | null {
   return match?.[1] === undefined ? null : Number(match[1])
 }
 
-async function readPullRequestBody(input: ResolveReviewSemanticContextInput): Promise<Result<string>> {
-  if (input.body !== undefined) return { ok: true, value: input.body }
-  try {
-    const raw: unknown = JSON.parse(await input.gh(input.cwd, ['pr', 'view', String(input.pr), '--json', 'body']))
-    if (!isObject(raw) || typeof raw.body !== 'string') {
-      return failed('review-target-unreadable', 'PR body is unreadable')
-    }
-    return { ok: true, value: raw.body }
-  } catch (error) {
-    return failed('review-target-unreadable', error instanceof Error ? error.message : String(error))
-  }
-}
-
 async function resolveStandaloneContext(
-  input: ResolveReviewSemanticContextInput,
+  _input: ResolveReviewSemanticContextInput,
 ): Promise<Result<ReviewSemanticContext>> {
-  const body = await readPullRequestBody(input)
-  if (!body.ok) return body
-  let number: number | null
-  try {
-    number = trackerReference(body.value, input.branch)
-  } catch (error) {
-    return failed('tracker-reference-ambiguous', error instanceof Error ? error.message : String(error))
-  }
-  if (number === null) return standaloneContext(null)
-  const current = await readReviewIssueSpec(input.cwd, input.repository, number, input.gh)
-  return current.ok ? standaloneContext(current.value) : current
+  return standaloneContext(null)
 }
 
 /** PR body/branch discovery is only available when confirmed workflow binding is absent. */

@@ -2,16 +2,16 @@ import {
   type CanonicalRecord,
   classifyHistory,
   type DecodedHistory,
-  validateDecision,
   validateRecordGraph,
 } from '../../dist/contracts.js'
+import { validateDecision } from '../../engine/review-decision.ts'
 import type { UwAdmission } from '../../engine/uw-admission.ts'
 import { loadReviewConfig } from '../../roxabi/review-assets.ts'
 import { assertChildGrant, type EpicAuthority, evidenceText, readEpicAuthority } from './epic-driver-authority'
 import { readChildPrInventory } from './epic-driver-containment'
 import { disarmEpicControlTarget } from './epic-driver-control'
 import { gather } from './epic-driver-gather'
-import { diagnosticsText } from './epic-driver-github'
+import { citedReviewHistories, diagnosticsText } from './epic-driver-github'
 import { epicEvents } from './epic-driver-history'
 import { type Disarm, publishEpicEvent, ticketStop } from './epic-driver-publication'
 import { reportPayload, reportText } from './epic-driver-report'
@@ -99,7 +99,14 @@ export async function review(repo: string, epic: number, decisionRecord: string,
         record.kind === 'review-attempt' && record.payload.rootAttemptId === root.recordId,
     )
     .map((record) => record.recordId)
-  const assessment = validateDecision(decision, authorityHistory, loadReviewConfig().canonicalClasses, null)
+  const assessment = validateDecision(
+    decision,
+    authorityHistory,
+    loadReviewConfig().canonicalClasses,
+    null,
+    await citedReviewHistories(repo, authorityHistory),
+    epicHistory,
+  )
   if (!assessment.admissible) {
     throw new Refused(
       `--decision-record ${decisionRecord} is not admissible: ${diagnosticsText(assessment.diagnostics)}`,

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
-import { reviewRoot, TEST_INPUT, TEST_SCOPE } from '../../testing/record-builders.ts'
+import { freshReviewInputs } from '../../testing/action-input-fixtures.ts'
+import { reviewRoot, TEST_SCOPE } from '../../testing/record-builders.ts'
 import { history, operation } from '../../testing/record-history.ts'
 import { buildRecord, type RecordDraft } from '../record-construction.ts'
 import type { CanonicalRecord } from '../record-schema.ts'
@@ -37,7 +38,8 @@ function freshBinding(id: string, mandated: Extract<CanonicalRecord, { kind: 'ma
 }
 
 function recoveredChain() {
-  const root = reviewRoot({ id: 'recovery-root', input: TEST_INPUT })
+  const fresh = freshReviewInputs()
+  const root = reviewRoot({ id: 'recovery-root' })
   const mandated = mandate()
   const historicalBinding = binding(mandated, TEST_SCOPE)
   if (historicalBinding.kind !== 'workflow-binding') throw new Error('test historical binding must be valid')
@@ -49,7 +51,7 @@ function recoveredChain() {
     disposition: interruption.value,
     binding: currentBinding,
     candidateGitSHA: '2222222222222222222222222222222222222222',
-    digest: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+    digest: fresh.fingerprint,
     runId: 'recovery-run',
   })
   if (!grant.ok) throw new Error('test grant must be valid')
@@ -114,6 +116,7 @@ describe('review recovery admission', () => {
       id: 'caller-chosen-id-is-not-used',
       head: chain.grant.payload.candidateGitSHA,
       input: chain.grant.payload.input,
+      inputSnapshot: freshReviewInputs(),
     })
     expect(
       admitReviewReplacementInventory({

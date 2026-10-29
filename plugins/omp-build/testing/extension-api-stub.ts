@@ -9,12 +9,18 @@ export type ExtensionApiStub = OmpBuildExtensionApi
  */
 export function createExtensionApiStub(overrides: Partial<ExtensionApiStub> = {}): ExtensionApiStub {
   const { events, ...rest } = overrides
+  let activeTools: string[] = []
   return {
     on: () => undefined,
     registerCommand: () => undefined,
     registerTool: () => undefined,
     sendUserMessage: () => undefined,
     sendMessage: () => undefined,
+    getActiveTools: () => activeTools,
+    getAllTools: () => [],
+    setActiveTools: async (names) => {
+      activeTools = [...names]
+    },
     exec: async () => {
       throw new Error('exec-unavailable')
     },

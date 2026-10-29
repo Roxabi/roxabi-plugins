@@ -5,6 +5,7 @@ import type {
   NativeBatchResult,
   NativeTask,
 } from '../omp/review-runtime/contracts.js'
+import { fixturePreparedAction } from '../testing/action-input-fixtures.ts'
 import type {
   CorrectionActionBinding,
   CorrectionEffectResult,
@@ -12,7 +13,13 @@ import type {
 } from './correction-execution-contract'
 import { dispatchCorrectionAction } from './correction-native-dispatch'
 
-const task: NativeTask = { name: 'fix-apply-RC-1-1', agent: 'fixer', task: 'apply', solutionSpace: 'one cause' }
+const task: NativeTask = {
+  name: 'fix-apply-RC-1-1',
+  agent: 'fixer',
+  task: 'apply',
+  solutionSpace: 'one cause',
+  action: fixturePreparedAction('fix-apply-RC-1-1'),
+}
 const binding: CorrectionActionBinding = {
   phase: 'apply',
   causeId: 'RC-1',
@@ -45,7 +52,7 @@ describe('correction native dispatch', () => {
       async announce(batch) {
         events.push('announce')
         active = null
-        await callbacks?.onComplete(result(batch))
+        await callbacks?.onComplete(result(batch), () => true)
       },
       async stopOwned() {
         events.push('stop')

@@ -1,26 +1,54 @@
 import { z } from 'zod'
-import { failedCheckEvidenceDigest, failedCheckFailureSchema } from './record-digests.ts'
-import { type ExternalRecordRef, externalRecordRefSchema, gitObjectIdSchema } from './record-references.ts'
-import {
-  contributionSchema,
-  diagnosticSchema,
-  identifierSchema,
-  nativeOutcomeSchema,
-  repoRelativePathSchema,
-  scopeSchema,
-  sha256Schema,
-  shaSchema,
-} from './record-values.ts'
-import { specItemIdSchema, specSnapshotSchema, uwTierSchema } from './uw-spec-schema.ts'
-import { acceptedChildCommitmentSchema, sameRefMeaning } from './workflow-mandate-schema.ts'
+import { missingContextOutputSchema } from './action-context.ts'
+import { actionInputsSchema } from './action-input-schema.ts'
+import { externalRecordRefSchema } from './record-references.ts'
+import { diagnosticSchema, identifierSchema, nativeOutcomeSchema } from './record-values.ts'
+import { normalizationJudgementSchema } from './uw-normalization-schema.ts'
+
 import {
   ciAttributionSchema,
   implementationOutputSchema,
-  planBlockerRefSchema,
   planOutputSchema,
+  producerImplementationOutputSchema,
   specAssessmentSchema,
 } from './workflow-output-schema.ts'
+import {
+  type AssessSpecExact,
+  assessSpecExactSchema,
+  ciExactSchema,
+  declaredPlanSlots,
+  frameExactSchema,
+  type HostEffectAdmission,
+  hostEffectAdmissionSchema,
+  type ImplementationAdmissionCommand,
+  implementationAdmissionCommandSchema,
+  implementExactSchema,
+  nestedPlanContributionSchema,
+  normalizeExactSchema,
+  PLAN_REVIEW_SPECIALISTS,
+  type PlanReviewSlot,
+  planExactSchema,
+  planReviewExactSchema,
+  planReviewSlotSchema,
+  planReviewSpecialistSchema,
+  preMandateFrameExactSchema,
+  refineActionReceipt,
+} from './workflow-receipt-exact.ts'
 
+export {
+  type AssessSpecExact,
+  assessSpecExactSchema,
+  type HostEffectAdmission,
+  hostEffectAdmissionSchema,
+  type ImplementationAdmissionCommand,
+  implementationAdmissionCommandSchema,
+  PLAN_REVIEW_SPECIALISTS,
+  type PlanReviewSlot,
+  planReviewSlotSchema,
+  planReviewSpecialistSchema,
+}
+
+export const ACTION_RECEIPT_FORMAT = 'omp-build-action-receipt/2' as const
 export const workflowReceiptActionSchema = z.enum([
   'frame',
   'assess-spec',
@@ -28,154 +56,38 @@ export const workflowReceiptActionSchema = z.enum([
   'plan-review',
   'implement',
   'attribute-ci',
+  'normalize',
 ])
 export type WorkflowReceiptAction = z.infer<typeof workflowReceiptActionSchema>
-const ownSpecRefSchema = z.strictObject({
-  uw: scopeSchema,
-  version: sha256Schema,
-  sourceAccepted: externalRecordRefSchema,
+export const preMandateRefSchema = z.strictObject({
+  kind: z.literal('absent'),
+  reason: z.literal('pre-mandate'),
 })
-const assessedOwnStateSchema = z.strictObject({
-  snapshot: specSnapshotSchema,
-  tier: uwTierSchema,
-  children: z.array(acceptedChildCommitmentSchema),
-})
-const mechanicalSpecDeltaSchema = z.strictObject({
-  added: z.array(specItemIdSchema),
-  removed: z.array(specItemIdSchema),
-  changedStatements: z.array(specItemIdSchema),
-  exclusionsChanged: z.boolean(),
-  tierChanged: z.boolean(),
-  childrenChanged: z.boolean(),
-  sectionsOrOrderChanged: z.boolean(),
-})
-export const assessSpecExactSchema = z.strictObject({
-  format: z.literal('omp-build-spec-assessment/2'),
-  accepted: assessedOwnStateSchema.extend({ ref: ownSpecRefSchema }),
-  proposed: assessedOwnStateSchema,
-  identityAllocations: z.array(externalRecordRefSchema),
-  mechanical: mechanicalSpecDeltaSchema,
-})
-export type AssessSpecExact = z.infer<typeof assessSpecExactSchema>
-const frameExactSchema = z.strictObject({
-  specDigest: sha256Schema,
-  branch: z.string().min(1),
-  base: z.string().min(1),
-})
-export const PLAN_REVIEW_SPECIALISTS = ['R-workflow-plan-architect', 'R-workflow-plan-adversarial'] as const
-export const planReviewSpecialistSchema = z.enum(PLAN_REVIEW_SPECIALISTS)
-export const planReviewSlotSchema = z.strictObject({
-  slotId: identifierSchema,
-  specialist: planReviewSpecialistSchema,
-})
-export type PlanReviewSlot = z.infer<typeof planReviewSlotSchema>
+export type PreMandateRef = z.infer<typeof preMandateRefSchema>
 
-const planExactSchema = z
-  .strictObject({
-    mandateId: identifierSchema,
-    specDigest: sha256Schema,
-    amendsReviewActionId: identifierSchema.nullable(),
-    requiredBlockers: z.array(planBlockerRefSchema),
-  })
-  .superRefine((value, context) => {
-    if (value.amendsReviewActionId === null && value.requiredBlockers.length !== 0) {
-      context.addIssue({
-        code: 'custom',
-        path: ['requiredBlockers'],
-        message: 'a draft does not require review blockers',
-      })
-    }
-    const seen = new Set<string>()
-    for (const [index, ref] of value.requiredBlockers.entries()) {
-      const key = `${ref.sourceId}\0${ref.slotId}\0${ref.blockerId}`
-      if (seen.has(key)) {
-        context.addIssue({
-          code: 'custom',
-          path: ['requiredBlockers', index],
-          message: 'blocker reference is repeated',
-        })
-      }
-      seen.add(key)
-    }
-  })
-const planReviewExactSchema = z.strictObject({
-  mandateId: identifierSchema,
-  specDigest: sha256Schema,
-  planDigest: sha256Schema,
-  draftActionId: identifierSchema,
-})
-const implementExactSchema = z.strictObject({ mandateId: identifierSchema, planActionId: identifierSchema })
-const ciExactSchema = z
-  .strictObject({
-    candidateGitSHA: shaSchema,
-    scope: scopeSchema,
-    failedChecks: z.array(z.string().min(1)),
-    evidenceDigest: sha256Schema,
-    failures: z.array(failedCheckFailureSchema).min(1),
-  })
-  .superRefine((value, context) => {
-    const digest = failedCheckEvidenceDigest(value)
-    if (digest === null || digest !== value.evidenceDigest) {
-      context.addIssue({
-        code: 'custom',
-        path: ['evidenceDigest'],
-        message: 'evidence digest does not match the native check identity',
-      })
-    }
-  })
-export const implementationAdmissionCommandSchema = z.strictObject({
-  toolCallId: identifierSchema,
-  command: z.string(),
-  exitCode: z.number().int(),
-  cwd: z.string().min(1),
-})
-export type ImplementationAdmissionCommand = z.infer<typeof implementationAdmissionCommandSchema>
-export const hostEffectAdmissionSchema = z.strictObject({
-  admitted: z.boolean(),
-  commits: z.array(gitObjectIdSchema),
-  paths: z.array(repoRelativePathSchema),
-  commands: z.array(implementationAdmissionCommandSchema),
-  remoteBranch: z.string().min(1).nullable(),
-  remoteTip: gitObjectIdSchema.nullable(),
-  published: z.boolean(),
-  reason: z.string(),
-})
-export type HostEffectAdmission = z.infer<typeof hostEffectAdmissionSchema>
-const nestedPlanContributionSchema = contributionSchema.superRefine((value, context) => {
-  if (value.inventoryId !== null) {
-    context.addIssue({
-      code: 'custom',
-      path: ['inventoryId'],
-      message: 'plan-review contribution inventoryId must be null',
-    })
-  }
-  if (value.host.slotId === null) {
-    context.addIssue({
-      code: 'custom',
-      path: ['host', 'slotId'],
-      message: 'plan-review contribution names its declared slot',
-    })
-  }
-})
-
-function actionReceipt<A extends WorkflowReceiptAction, E extends z.ZodType, S extends z.ZodType>(
+function actionReceipt<A extends WorkflowReceiptAction, E extends z.ZodType, S extends z.ZodType, M extends z.ZodType>(
   action: A,
   exact: E,
   structured: S,
+  mandate: M,
 ) {
   return [
     z.strictObject({
+      format: z.literal(ACTION_RECEIPT_FORMAT),
       phase: z.literal('start'),
       action: z.literal(action),
       actionId: identifierSchema,
-      mandate: externalRecordRefSchema,
+      mandate,
+      inputs: actionInputsSchema,
       exactInputs: exact,
     }),
     z.strictObject({
+      format: z.literal(ACTION_RECEIPT_FORMAT),
       phase: z.literal('result'),
       action: z.literal(action),
       actionId: identifierSchema,
-      mandate: externalRecordRefSchema,
+      mandate,
+      inputs: actionInputsSchema,
       start: externalRecordRefSchema,
       exactInputs: exact,
       native: nativeOutcomeSchema,
@@ -186,63 +98,81 @@ function actionReceipt<A extends WorkflowReceiptAction, E extends z.ZodType, S e
   ] as const
 }
 
-const declaredPlanSlots = (slots: readonly PlanReviewSlot[], context: z.RefinementCtx): void => {
-  const ids = new Set<string>()
-  const specialists = new Set<string>()
-  for (const [index, slot] of slots.entries()) {
-    if (ids.has(slot.slotId)) {
-      context.addIssue({ code: 'custom', path: ['slots', index, 'slotId'], message: `slot ${slot.slotId} is repeated` })
-    }
-    ids.add(slot.slotId)
-    if (specialists.has(slot.specialist)) {
-      context.addIssue({
-        code: 'custom',
-        path: ['slots', index, 'specialist'],
-        message: `specialist ${slot.specialist} is repeated`,
-      })
-    }
-    specialists.add(slot.specialist)
-  }
-  for (const name of PLAN_REVIEW_SPECIALISTS) {
-    if (!specialists.has(name)) {
-      context.addIssue({ code: 'custom', path: ['slots'], message: `missing specialist ${name}` })
-    }
-  }
-}
-const [frameStart, frameResult] = actionReceipt('frame', frameExactSchema, z.null())
-const [assessStart, assessResult] = actionReceipt('assess-spec', assessSpecExactSchema, specAssessmentSchema)
-const [planStart, planResult] = actionReceipt('plan', planExactSchema, planOutputSchema)
+const mandated = externalRecordRefSchema
+const [frameStart, frameResult] = actionReceipt('frame', frameExactSchema, missingContextOutputSchema, mandated)
+const [frameUnmandatedStart, frameUnmandatedResult] = actionReceipt(
+  'frame',
+  preMandateFrameExactSchema,
+  missingContextOutputSchema,
+  preMandateRefSchema,
+)
+const [assessStart, assessResult] = actionReceipt(
+  'assess-spec',
+  assessSpecExactSchema,
+  z.union([specAssessmentSchema, missingContextOutputSchema]),
+  mandated,
+)
+const [planStart, planResult] = actionReceipt(
+  'plan',
+  planExactSchema,
+  z.union([planOutputSchema, missingContextOutputSchema]),
+  mandated,
+)
 const planReviewStart = z
   .strictObject({
+    format: z.literal(ACTION_RECEIPT_FORMAT),
     phase: z.literal('start'),
     action: z.literal('plan-review'),
     actionId: identifierSchema,
-    mandate: externalRecordRefSchema,
+    mandate: mandated,
+    inputs: actionInputsSchema,
     exactInputs: planReviewExactSchema,
     slots: z.array(planReviewSlotSchema).length(PLAN_REVIEW_SPECIALISTS.length),
   })
   .superRefine((value, context) => declaredPlanSlots(value.slots, context))
 const planReviewResult = z.strictObject({
+  format: z.literal(ACTION_RECEIPT_FORMAT),
   phase: z.literal('result'),
   action: z.literal('plan-review'),
   actionId: identifierSchema,
-  mandate: externalRecordRefSchema,
+  mandate: mandated,
+  inputs: actionInputsSchema,
   start: externalRecordRefSchema,
   exactInputs: planReviewExactSchema,
   slots: z.array(planReviewSlotSchema).length(PLAN_REVIEW_SPECIALISTS.length),
   contributions: z.array(nestedPlanContributionSchema),
   native: nativeOutcomeSchema,
-  structured: z.null(),
+  structured: missingContextOutputSchema.nullable(),
   admission: hostEffectAdmissionSchema.nullable(),
   diagnostics: z.array(diagnosticSchema),
 })
-const [implementStart, implementResult] = actionReceipt('implement', implementExactSchema, implementationOutputSchema)
-const [ciStart, ciResult] = actionReceipt('attribute-ci', ciExactSchema, ciAttributionSchema)
-// z.infer of the combined union drops action/phase pairing. The explicit union is the type.
+const [implementStart, implementResult] = actionReceipt(
+  'implement',
+  implementExactSchema,
+  z.union([
+    implementationOutputSchema,
+    producerImplementationOutputSchema.refine((value) => value.outcome === 'blocked' && value.missing !== undefined),
+  ]),
+  mandated,
+)
+const [ciStart, ciResult] = actionReceipt(
+  'attribute-ci',
+  ciExactSchema,
+  z.union([ciAttributionSchema, missingContextOutputSchema]),
+  mandated,
+)
+const [normalizeStart, normalizeResult] = actionReceipt(
+  'normalize',
+  normalizeExactSchema,
+  z.union([normalizationJudgementSchema, missingContextOutputSchema]),
+  preMandateRefSchema,
+)
 export type AssessSpecResultPayload = z.infer<typeof assessResult>
 export type ActionReceiptPayload =
   | z.infer<typeof frameStart>
   | z.infer<typeof frameResult>
+  | z.infer<typeof frameUnmandatedStart>
+  | z.infer<typeof frameUnmandatedResult>
   | z.infer<typeof assessStart>
   | z.infer<typeof assessResult>
   | z.infer<typeof planStart>
@@ -253,10 +183,14 @@ export type ActionReceiptPayload =
   | z.infer<typeof implementResult>
   | z.infer<typeof ciStart>
   | z.infer<typeof ciResult>
+  | z.infer<typeof normalizeStart>
+  | z.infer<typeof normalizeResult>
 export const actionReceiptPayloadSchema = z
   .union([
     frameStart,
     frameResult,
+    frameUnmandatedStart,
+    frameUnmandatedResult,
     assessStart,
     assessResult,
     planStart,
@@ -267,25 +201,7 @@ export const actionReceiptPayloadSchema = z
     implementResult,
     ciStart,
     ciResult,
+    normalizeStart,
+    normalizeResult,
   ])
-  .superRefine((receipt, context) => {
-    const refs: ExternalRecordRef[] = [receipt.mandate]
-    if (receipt.phase === 'result') refs.push(receipt.start)
-    if (receipt.action === 'assess-spec') {
-      refs.push(receipt.exactInputs.accepted.ref.sourceAccepted, ...receipt.exactInputs.identityAllocations)
-    }
-    sameRefMeaning(refs, context)
-    if (receipt.action !== 'plan-review') return
-    declaredPlanSlots(receipt.slots, context)
-    if (receipt.phase !== 'result') return
-    const ids = new Set(receipt.slots.map((slot) => slot.slotId))
-    for (const [index, contribution] of receipt.contributions.entries()) {
-      if (contribution.host.slotId === null || !ids.has(contribution.host.slotId)) {
-        context.addIssue({
-          code: 'custom',
-          path: ['contributions', index, 'host', 'slotId'],
-          message: 'contribution slot is not declared',
-        })
-      }
-    }
-  }) as z.ZodType<ActionReceiptPayload>
+  .superRefine(refineActionReceipt) as z.ZodType<ActionReceiptPayload>

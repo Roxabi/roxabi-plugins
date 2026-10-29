@@ -157,12 +157,24 @@ A formalized, untreated cause retained on its UW of origin.
 _Avoid_: an automatically created follow-up issue, a satisfied criterion
 
 **Orchestrateur**:
-The omp-build code that runs `/feature`, dispatches agents, submits their forms to the engine for verification, and publishes confirmed results.
-_Avoid_: a LLM, an agent with publication authority
+The code that assembles action inputs, dispatches agents, submits their returned forms to the engine for verification, and publishes confirmed results.
+_Avoid_: a LLM, an agent with publication authority, a permission inferred from an agent's credentials
 
 **Instantané**:
-A read-only dossier of pinned inputs for one action, providing the agent's UW data and references.
+A read-only dossier of pinned inputs for one action, providing its UW data, references and an index of obligations and files. Its local byte integrity is distinct from the durable identity of the action's inputs.
 _Avoid_: a dev-core snapshot, a mutable cache, the durable review fingerprint
+
+**Manifeste d'entrées**:
+The durable, portable identities and versions of the inputs actually supplied to an action, including its code, effective Spec, delivery data and pinned references. Its canonical digest identifies those inputs independently of the local Instantané and excludes the action's own outputs.
+_Avoid_: the local dossier's byte digest, a PR description, a list that silently omits supplied context
+
+**Contexte élargi**:
+Additional pinned inputs supplied to a newly prepared action after necessary information was reported missing. They do not change accepted obligations or grant execution or publication authority.
+_Avoid_: silently modified inputs, a renewed mandate, a satisfied criterion
+
+**Données de livraison**:
+Versioned declarations, evidence and verdicts associated with obligations and the code examined. An action explicitly identifies the data it consumes; its resulting verdict is not its own input.
+_Avoid_: an unobserved claim, a successful command without its result, conversation history copied as proof
 
 **Canonical record**:
 A versioned common record whose payload is the authority for that operation. The Markdown beside it is a deterministic projection, not a second contract.
@@ -173,7 +185,7 @@ A canonical `epic-event` record on a UW parente or child UW. Its historical payl
 _Avoid_: a /goal, a body marker, a `goal-stop` comment prefix, session memory
 
 **Landing admission**:
-The read-only check before `landPr` writes its arms. It admits only when the latest review approves the current head inside an unspent review bound, required CI is not red or unreadable, normative inputs are unchanged, and the selected outputs are authentic. Pending CI may be armed; the merge waits until the required checks pass. Normative inputs are the mandate configuration version and digest, the accepted Spec, and a fresh `omp-build:review-input/3` capture equal to the review binding. Authentic outputs have the expected author and readable, unedited native dates on every record that establishes the selected review's verdict and findings: its review, inventories, decision, synthesis and finding contributions, and their bound inputs; and on every mandate-chain and workflow-binding part.
+The read-only check before `landPr` writes its arms. It admits only when the latest review approves the current head inside an unspent review bound, required CI is not red or unreadable, normative inputs are unchanged, and the selected outputs are authentic. Pending CI may be armed; the merge waits until the required checks pass. Normative inputs are the mandate configuration version and digest, the accepted Spec, and a fresh `omp-build:review-input/4` capture equal to the review binding. Authentic outputs have the expected author and readable, unedited native dates on every record that establishes the selected review's verdict and findings: its review, inventories, decision, synthesis and finding contributions, and their bound inputs; and on every mandate-chain and workflow-binding part.
 
 Admission also requires the selected UW to remain deliverable on a fresh, complete native graph with its accepted own Spec applicable. Missing or incompatible authority is a refusal, not permission to infer acceptance, migrate a record or renew a mandate.
 

@@ -3,8 +3,7 @@ export { calculateTier } from '../issue-triage/skills/shared/domain/complexity.t
 export { createIssueWriter } from '../issue-triage/skills/shared/domain/issue-write.ts'
 export { decodeHistory, encodeRecord } from './adapters/github/history-codec.ts'
 export { publishGitHubRecord } from './adapters/github/publish.ts'
-export type { RecordIntegrityRefusal } from './adapters/github/record-integrity.ts'
-export { nativeInstant, recordIntegrity, recordOperation } from './adapters/github/record-integrity.ts'
+export { recordOperation } from './adapters/github/record-integrity.ts'
 export { githubScope, readGitHubHistory } from './adapters/github/transport.ts'
 export { type Gh, GitHubHistoryReadError, type GitHubOptions, gh, viewer } from './adapters/github/types.ts'
 export { readNativeIssueFacts } from './adapters/github-native/issue-facts.ts'
@@ -34,6 +33,7 @@ export type {
   WorkflowPublication,
 } from './adapters/github-workflow/types.ts'
 export { hasNativeUserInterruptFlag } from './adapters/omp-native/user-interrupt.ts'
+export * from './contracts-delivery.ts'
 export * from './contracts-review.ts'
 export {
   classifyHistory,
@@ -53,6 +53,8 @@ export { buildRecord, parseRecord, type RecordDraft } from './engine/record-cons
 export { equalScope } from './engine/record-diagnostics.ts'
 export type { FailedCheckFailure } from './engine/record-digests.ts'
 export { failedCheckEvidenceDigest, failedCheckFailureSchema, specDigest } from './engine/record-digests.ts'
+export type { RecordIntegrityRefusal } from './engine/record-integrity.ts'
+export { nativeInstant, recordIntegrity } from './engine/record-integrity.ts'
 export { projectRecord } from './engine/record-projection.ts'
 export type { ExternalRecordRef, ScopedRecordRef, WorkflowRecordKind } from './engine/record-references.ts'
 export {

@@ -1,12 +1,15 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import type { NativeBatchResult } from '../omp/review-runtime/contracts.ts'
 import { createNativeReviewPort } from '../omp/review-runtime/port.ts'
-import { batch, bridgeHarness, root } from '../testing/review-runtime-support.ts'
+import { consultableProtocolOptions } from '../testing/protocol-retention.unit.ts'
+import { batch, bridgeHarness, cleanupFixtureActions, root } from '../testing/review-runtime-support.ts'
 import type { FeatureCommandHost } from './feature-contract.ts'
 import { announceFeatureBatch } from './feature-host-native.ts'
 
+afterEach(() => cleanupFixtureActions())
 describe('Feature native host ownership', () => {
   it('retains an incumbent batch when a distinct Feature activation is rejected', async () => {
+    const retainedRoot = { ...root, localProtocolOptions: consultableProtocolOptions() }
     const harness = bridgeHarness()
     const port = createNativeReviewPort(harness.native, harness.controller)
     const incumbent = batch(['incumbent'])
@@ -70,21 +73,16 @@ describe('Feature native host ownership', () => {
       expect(harness.controller.active()).toBe(incumbent)
       const wire = harness.controller.wire(incumbent)
       expect(wire).not.toBeNull()
-      await harness.emitBridge('tool_call', { toolName: 'task', toolCallId: 'incumbent-call', input: wire }, root)
-      harness.emitRaw({
-        id: 'incumbent',
-        event: { type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'incumbent raw output' } },
+      const child = await harness.admitChild(incumbent, 'incumbent', 'incumbent', {
+        toolCallId: 'incumbent-call',
+        root: retainedRoot,
       })
-      harness.emitRaw({
-        id: 'incumbent',
-        event: {
-          type: 'tool_execution_start',
-          toolName: 'yield',
-          toolCallId: 'incumbent-yield',
-          args: { data: { findings: [] } },
-        },
+      await child.message({
+        type: 'message_update',
+        assistantMessageEvent: { type: 'text_delta', delta: 'incumbent raw output' },
       })
-      await harness.emitBridge(
+      await harness.yieldChild('incumbent', { findings: [] }, { toolCallId: 'incumbent-yield' })
+      await harness.emitBridgeAndSettle(
         'tool_result',
         {
           toolName: 'task',
@@ -96,14 +94,14 @@ describe('Feature native host ownership', () => {
               {
                 index: 0,
                 id: 'incumbent',
-                agent: 'reviewer',
+                agent: 'R-review-adversarial',
                 exitCode: 0,
                 structuredOutput: { status: 'valid', data: { findings: [] } },
               },
             ],
           },
         },
-        root,
+        retainedRoot,
       )
 
       expect(stopped).toBe(0)

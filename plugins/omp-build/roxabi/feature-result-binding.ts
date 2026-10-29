@@ -68,7 +68,10 @@ async function findImplementationStart(
   if (!history) return { reason: 'incomplete' }
   for (const operation of history.operations) {
     const record = operation.record
-    if (isImplementationStartReceipt(record, input.start, input.result.batch.operationId)) {
+    if (
+      operation.status === 'complete' &&
+      isImplementationStartReceipt(record, input.start, input.result.batch.operationId)
+    ) {
       return { history, start: record }
     }
   }

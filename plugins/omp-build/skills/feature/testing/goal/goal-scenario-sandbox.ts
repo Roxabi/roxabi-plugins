@@ -28,6 +28,8 @@ const DRIVER = path.resolve(import.meta.dirname, 'goal-scenario-driver-direct.ts
 const SIM = path.resolve(import.meta.dirname, '..', 'gh-simulator', 'gh-simulator.ts')
 const WORKFLOW = path.resolve(import.meta.dirname, 'goal-scenario-workflow-direct.ts')
 const REAL_BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
+const REAL_GIT = execFileSync('which', ['git'], { encoding: 'utf8' }).trim()
+const REPOSITORY_URL = 'https://github.com/acme/app.git'
 
 let box: Box | undefined
 
@@ -125,11 +127,25 @@ export function sandbox(): Box {
   mkdirSync(bin)
   symlinkSync(SIM, path.join(bin, 'gh'))
   chmodSync(SIM, 0o755)
+  const gitWrapper = path.join(bin, 'git')
+  writeFileSync(
+    gitWrapper,
+    `#!/bin/sh
+for arg in "$@"; do
+  case "$arg" in
+    fetch|push) exec "${REAL_GIT}" -c "url.\${GH_SIM_ORIGIN}.insteadOf=${REPOSITORY_URL}" "$@" ;;
+  esac
+done
+exec "${REAL_GIT}" "$@"
+`,
+  )
+  chmodSync(gitWrapper, 0o755)
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     PATH: `${bin}:${process.env.PATH}`,
     HOME: root,
     GH_SIM_STATE: stateFile,
+    GH_SIM_ORIGIN: origin,
     GIT_CONFIG_NOSYSTEM: '1',
   }
   for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY'])
@@ -158,7 +174,7 @@ export function sandbox(): Box {
   writeFileSync(path.join(principal, 'README.md'), 'base\n')
   git(principal, ['add', '.'])
   git(principal, ['commit', '-qm', 'chore: base'])
-  git(principal, ['remote', 'add', 'origin', origin])
+  git(principal, ['remote', 'add', 'origin', REPOSITORY_URL])
   git(principal, ['push', '-q', '-u', 'origin', 'main'])
   git(principal, ['worktree', 'add', '-q', '--detach', epic, 'refs/remotes/origin/main'])
   writeFileSync(
@@ -170,6 +186,7 @@ export function sandbox(): Box {
         name: 'app',
         defaultBranch: 'main',
         origin,
+        repositoryUrls: { [REPOSITORY_URL]: 'acme/app' },
         requiredChecks: ['ci'],
         nextPr: 10,
         clock: 0,

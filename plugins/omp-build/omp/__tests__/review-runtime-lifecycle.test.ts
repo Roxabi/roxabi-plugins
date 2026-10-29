@@ -1,27 +1,63 @@
-import { describe, expect, it } from 'vitest'
-import { batch, bridgeHarness, root } from '../../testing/review-runtime-support.ts'
+import { afterEach, describe, expect, it } from 'vitest'
+import { consultableAgentRoot } from '../../testing/protocol-retention.unit.ts'
+import { batch, bridgeHarness, cleanupFixtureActions, fixtureAction } from '../../testing/review-runtime-support.ts'
 import type { NativeChildResult } from '../review-runtime/contracts.ts'
 import { NativeBatchController } from '../review-runtime/controller.ts'
 import { createNativeReviewPort } from '../review-runtime/port.ts'
+
+const root = consultableAgentRoot()
+
+function proofData(proofToolCallId: string) {
+  return {
+    outcome: 'applied',
+    commitSHAs: [],
+    commands: [],
+    proofPaths: [],
+    guardInventory: [],
+    proofToolCallId,
+    proofUnavailableReason: null,
+  }
+}
+
+afterEach(() => {
+  cleanupFixtureActions()
+})
 
 describe('native review bridge lifecycle', () => {
   it('starts an initial idle batch once without an agent-end resend', async () => {
     const harness = bridgeHarness()
     const prepared = batch(['slot-a'])
-    const idleRoot = { ...root, isIdle: () => true }
+    const model = { id: 'fixture-model', provider: 'fixture-provider' }
+    const idleRoot = {
+      ...root,
+      cwd: '/fixture-root',
+      sessionManager: { getSessionId: () => 'fixture-idle-session' },
+      model,
+      models: { resolve: () => model, current: () => model },
+      isIdle: () => true,
+    }
     await harness.emitBridge('session_start', {}, idleRoot)
     const port = createNativeReviewPort(harness.native, harness.controller)
     port.activate(prepared, { onComplete: async () => undefined, onStop: async () => undefined })
     await port.announce(prepared)
     await harness.emitBridge('agent_end', { willContinue: false }, idleRoot)
-    expect(harness.messages).toHaveLength(1)
+    expect(harness.messages).toHaveLength(2)
     expect(harness.messages[0]).toContain('OMP_BUILD_NATIVE_BATCH:')
+    expect(harness.messages[1]).toBe('display:false triggerTurn:true')
   })
 
   it('preserves an announced undelivered batch across normal settle for agent-end dispatch', async () => {
     const harness = bridgeHarness()
     const prepared = batch(['slot-a'])
-    const busyRoot = { ...root, isIdle: () => false }
+    const model = { id: 'fixture-model', provider: 'fixture-provider' }
+    const busyRoot = {
+      ...root,
+      cwd: '/fixture-root',
+      sessionManager: { getSessionId: () => 'fixture-busy-session' },
+      model,
+      models: { resolve: () => model, current: () => model },
+      isIdle: () => false,
+    }
     let stopped = false
     await harness.emitBridge('session_start', {}, busyRoot)
     const port = createNativeReviewPort(harness.native, harness.controller)
@@ -36,17 +72,22 @@ describe('native review bridge lifecycle', () => {
     await harness.emitBridge('agent_end', { willContinue: false }, busyRoot)
     const dispatched = await harness.emitBridge(
       'tool_call',
-      { toolName: 'task', toolCallId: 'task-call', input: prepared.tasks },
+      { toolName: 'task', toolCallId: 'task-call', input: harness.controller.wire(prepared) },
       busyRoot,
     )
     expect(stopped).toBe(false)
-    expect(harness.messages).toHaveLength(1)
+    expect(harness.messages).toEqual([
+      expect.stringContaining('OMP_BUILD_NATIVE_BATCH:'),
+      'display:false triggerTurn:true',
+    ])
     expect(dispatched).toBeUndefined()
   })
 
   it('does not infer a zero exit from an async Bash start result', async () => {
     const harness = bridgeHarness()
     const prepared = batch(['slot-a'])
+    prepared.tasks.tasks[0].agent = 'R-review-fix-apply'
+    prepared.tasks.tasks[0].action = fixtureAction('slot-a', 'R-review-fix-apply')
     prepared.tasks.tasks[0].proofEvidence = {
       purpose: 'fix-revalidate',
       occurrence: 'restored',
@@ -65,35 +106,16 @@ describe('native review bridge lifecycle', () => {
       { toolName: 'task', toolCallId: 'task-call', input: harness.controller.wire(prepared) },
       root,
     )
-    harness.emitRaw({
-      id: 'slot-a',
-      event: {
-        type: 'tool_execution_start',
-        toolName: 'bash',
-        toolCallId: 'async-proof',
-        args: { command: 'bun test' },
-      },
+    const child = await harness.admitChild(prepared, 'slot-a', 'slot-a', { root, skipRootCall: true })
+    const input = { command: 'bun test' }
+    await child.call('bash', 'async-proof', input)
+    await child.result('bash', 'async-proof', input, {
+      content: [],
+      details: { async: { state: 'running', jobId: 'job-1', type: 'bash' } },
+      isError: false,
     })
-    harness.emitRaw({
-      id: 'slot-a',
-      event: {
-        type: 'tool_execution_end',
-        toolName: 'bash',
-        toolCallId: 'async-proof',
-        isError: false,
-        result: { details: { async: { state: 'running', jobId: 'job-1', type: 'bash' } } },
-      },
-    })
-    harness.emitRaw({
-      id: 'slot-a',
-      event: {
-        type: 'tool_execution_start',
-        toolName: 'yield',
-        toolCallId: 'yield-1',
-        args: { data: { proofToolCallId: 'async-proof' } },
-      },
-    })
-    await harness.emitBridge(
+    await harness.yieldChild('slot-a', proofData('async-proof'))
+    await harness.emitBridgeAndSettle(
       'tool_result',
       {
         toolName: 'task',
@@ -105,8 +127,9 @@ describe('native review bridge lifecycle', () => {
             {
               id: 'slot-a',
               index: 0,
+              agent: 'R-review-fix-apply',
               exitCode: 0,
-              structuredOutput: { status: 'valid', data: { proofToolCallId: 'async-proof' } },
+              structuredOutput: { status: 'valid', data: proofData('async-proof') },
             },
           ],
         },
@@ -119,6 +142,8 @@ describe('native review bridge lifecycle', () => {
   it('retains only the structured-result-selected native proof Bash invocation and strips host metadata from the wire batch', async () => {
     const harness = bridgeHarness()
     const prepared = batch(['slot-a'])
+    prepared.tasks.tasks[0].agent = 'R-review-fix-apply'
+    prepared.tasks.tasks[0].action = fixtureAction('slot-a', 'R-review-fix-apply')
     const cwdRoot = { ...root, cwd: '/workspace' }
     prepared.tasks.tasks[0].proofEvidence = {
       purpose: 'fix-revalidate',
@@ -143,6 +168,7 @@ describe('native review bridge lifecycle', () => {
     expect(wire).not.toBeNull()
     expect(wire).not.toHaveProperty('tasks.0.proofEvidence')
     await harness.emitBridge('tool_call', { toolName: 'task', toolCallId: 'task-call', input: wire }, cwdRoot)
+    const child = await harness.admitChild(prepared, 'slot-a', 'slot-a', { root: cwdRoot, skipRootCall: true })
     for (const [toolCallId, args, result] of [
       ['setup-call', { command: 'pnpm install', cwd: '/workspace' }, { details: { exitCode: 0 } }],
       [
@@ -151,22 +177,15 @@ describe('native review bridge lifecycle', () => {
         { content: [{ type: 'text', text: 'proof output' }], details: { wallTimeMs: undefined } },
       ],
     ] as const) {
-      harness.emitRaw({ id: 'slot-a', event: { type: 'tool_execution_start', toolName: 'bash', toolCallId, args } })
-      harness.emitRaw({
-        id: 'slot-a',
-        event: { type: 'tool_execution_end', toolName: 'bash', toolCallId, isError: false, result },
+      await child.call('bash', toolCallId, args)
+      await child.result('bash', toolCallId, args, {
+        content: 'content' in result ? [...result.content] : [],
+        details: result.details,
+        isError: false,
       })
     }
-    harness.emitRaw({
-      id: 'slot-a',
-      event: {
-        type: 'tool_execution_start',
-        toolName: 'yield',
-        toolCallId: 'yield-1',
-        args: { data: { proofToolCallId: 'proof-call' } },
-      },
-    })
-    await harness.emitBridge(
+    await harness.yieldChild('slot-a', proofData('proof-call'))
+    await harness.emitBridgeAndSettle(
       'tool_result',
       {
         toolName: 'task',
@@ -178,8 +197,9 @@ describe('native review bridge lifecycle', () => {
             {
               id: 'slot-a',
               index: 0,
+              agent: 'R-review-fix-apply',
               exitCode: 0,
-              structuredOutput: { status: 'valid', data: { proofToolCallId: 'proof-call' } },
+              structuredOutput: { status: 'valid', data: proofData('proof-call') },
             },
           ],
         },
@@ -215,7 +235,11 @@ describe('native review bridge lifecycle', () => {
     ] as const
     for (const [name] of cases) {
       const task = prepared.tasks.tasks.find((candidate) => candidate.name === name)
-      if (task) task.proofEvidence = { purpose: 'fix-revalidate', occurrence: 'restored', causeId: name }
+      if (task) {
+        task.agent = 'R-review-fix-apply'
+        task.action = fixtureAction(name, task.agent)
+        task.proofEvidence = { purpose: 'fix-revalidate', occurrence: 'restored', causeId: name }
+      }
     }
     const children: NativeChildResult[] = []
     harness.controller.activate(prepared, {
@@ -232,31 +256,12 @@ describe('native review bridge lifecycle', () => {
       sessionRoot,
     )
     for (const [name, args] of cases) {
-      harness.emitRaw({
-        id: name,
-        event: { type: 'tool_execution_start', toolName: 'bash', toolCallId: `${name}-proof`, args },
-      })
-      harness.emitRaw({
-        id: name,
-        event: {
-          type: 'tool_execution_end',
-          toolName: 'bash',
-          toolCallId: `${name}-proof`,
-          isError: false,
-          result: { details: { exitCode: 0 } },
-        },
-      })
-      harness.emitRaw({
-        id: name,
-        event: {
-          type: 'tool_execution_start',
-          toolName: 'yield',
-          toolCallId: `${name}-yield`,
-          args: { data: { proofToolCallId: `${name}-proof` } },
-        },
-      })
+      const child = await harness.admitChild(prepared, name, name, { root: sessionRoot, skipRootCall: true })
+      await child.call('bash', `${name}-proof`, args)
+      await child.result('bash', `${name}-proof`, args, { content: [], details: { exitCode: 0 }, isError: false })
+      await harness.yieldChild(name, proofData(`${name}-proof`))
     }
-    await harness.emitBridge(
+    await harness.emitBridgeAndSettle(
       'tool_result',
       {
         toolName: 'task',
@@ -267,8 +272,9 @@ describe('native review bridge lifecycle', () => {
           results: cases.map(([name], index) => ({
             index,
             id: name,
+            agent: 'R-review-fix-apply',
             exitCode: 0,
-            structuredOutput: { status: 'valid', data: { proofToolCallId: `${name}-proof` } },
+            structuredOutput: { status: 'valid', data: proofData(`${name}-proof`) },
           })),
         },
       },
@@ -279,7 +285,7 @@ describe('native review bridge lifecycle', () => {
         toolCallId: `${name}-proof`,
         input: args,
         effectiveCwd,
-        result: { details: { exitCode: 0 } },
+        result: { content: [], details: { exitCode: 0 } },
         exitCode: 0,
       })),
     )
@@ -288,6 +294,8 @@ describe('native review bridge lifecycle', () => {
   it('does not publish an unknown or duplicate structured proof reference', async () => {
     const harness = bridgeHarness()
     const prepared = batch(['slot-a'])
+    prepared.tasks.tasks[0].agent = 'R-review-fix-falsify'
+    prepared.tasks.tasks[0].action = fixtureAction('slot-a', 'R-review-fix-falsify')
     prepared.tasks.tasks[0].proofEvidence = {
       purpose: 'fix-falsify',
       occurrence: 'perturbed',
@@ -321,26 +329,14 @@ describe('native review bridge lifecycle', () => {
       { toolName: 'task', toolCallId: 'task-call', input: harness.controller.wire(prepared) },
       cwdRoot,
     )
+    const child = await harness.admitChild(prepared, 'slot-a', 'slot-a', { root: cwdRoot, skipRootCall: true })
     for (const result of [{ details: { exitCode: 1 } }, { details: { exitCode: 1 } }]) {
-      harness.emitRaw({
-        id: 'slot-a',
-        event: {
-          type: 'tool_execution_start',
-          toolName: 'bash',
-          toolCallId: 'duplicate-proof',
-          args: { command: 'pnpm test' },
-        },
-      })
-      harness.emitRaw({
-        id: 'slot-a',
-        event: { type: 'tool_execution_end', toolName: 'bash', toolCallId: 'duplicate-proof', isError: false, result },
-      })
+      const input = { command: 'pnpm test' }
+      await child.call('bash', 'duplicate-proof', input)
+      await child.result('bash', 'duplicate-proof', input, { content: [], details: result.details, isError: false })
     }
-    harness.emitRaw({
-      id: 'slot-a',
-      event: { type: 'tool_execution_start', toolName: 'yield', toolCallId: 'yield-1', args: { data: factData } },
-    })
-    await harness.emitBridge(
+    await harness.yieldChild('slot-a', factData)
+    await harness.emitBridgeAndSettle(
       'tool_result',
       {
         toolName: 'task',
@@ -348,7 +344,15 @@ describe('native review bridge lifecycle', () => {
         isError: false,
         content: [],
         details: {
-          results: [{ index: 0, id: 'slot-a', exitCode: 0, structuredOutput: { status: 'valid', data: factData } }],
+          results: [
+            {
+              index: 0,
+              id: 'slot-a',
+              agent: 'R-review-fix-falsify',
+              exitCode: 0,
+              structuredOutput: { status: 'valid', data: factData },
+            },
+          ],
         },
       },
       cwdRoot,
@@ -366,17 +370,14 @@ describe('native review bridge lifecycle', () => {
       },
       onStop: async () => undefined,
     })
-    await harness.emitBridge('tool_call', { toolName: 'task', toolCallId: 'task-call', input: prepared.tasks }, root)
-    harness.emitRaw({
-      id: 'slot-a',
-      event: {
-        type: 'tool_execution_start',
-        toolName: 'yield',
-        toolCallId: 'yield-1',
-        args: { data: { findings: [] } },
-      },
-    })
     await harness.emitBridge(
+      'tool_call',
+      { toolName: 'task', toolCallId: 'task-call', input: harness.controller.wire(prepared) },
+      root,
+    )
+    await harness.admitChild(prepared, 'slot-a', 'slot-a', { root, skipRootCall: true })
+    await harness.yieldChild('slot-a', { findings: [] })
+    await harness.emitBridgeAndSettle(
       'tool_result',
       {
         toolName: 'task',
@@ -388,7 +389,7 @@ describe('native review bridge lifecycle', () => {
             {
               index: 0,
               id: 'slot-a',
-              agent: 'reviewer',
+              agent: 'R-review-adversarial',
               exitCode: 0,
               structuredOutput: { status: 'valid', data: { findings: [] } },
             },
@@ -400,6 +401,60 @@ describe('native review bridge lifecycle', () => {
     expect(completed).toBe(true)
   })
 
+  it('rejects a terminal structured value that differs from the guarded yield', async () => {
+    const harness = bridgeHarness()
+    const prepared = batch(['slot-a'])
+    const children: NativeChildResult[] = []
+    let completed = false
+    let stopped = false
+    harness.controller.activate(prepared, {
+      onChildResult: (child) => {
+        children.push(child)
+      },
+      onComplete: async () => {
+        completed = true
+      },
+      onStop: async () => {
+        stopped = true
+      },
+    })
+    await harness.admitChild(prepared, 'slot-a', 'slot-a', { root })
+    await harness.yieldChild('slot-a', { findings: [] })
+    await harness.emitBridgeAndSettle(
+      'tool_result',
+      {
+        toolName: 'task',
+        toolCallId: 'task-call',
+        isError: false,
+        content: [],
+        details: {
+          results: [
+            {
+              index: 0,
+              id: 'slot-a',
+              agent: 'R-review-adversarial',
+              exitCode: 0,
+              structuredOutput: {
+                status: 'valid',
+                data: {
+                  outcome: 'missing-context',
+                  missing: [
+                    { locator: { kind: 'information-request', description: 'policy' }, reason: 'needed', targets: [] },
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      },
+      root,
+    )
+    expect(completed).toBe(false)
+    expect(stopped).toBe(true)
+    expect(children[0]?.usable).toBe(false)
+    expect(children[0]?.submissions).toMatchObject([{ data: { findings: [] } }])
+  })
+
   it('joins an in-flight terminal archive when the owner stops the same batch', async () => {
     const harness = bridgeHarness()
     const prepared = batch(['slot-a'])
@@ -409,7 +464,11 @@ describe('native review bridge lifecycle', () => {
       onComplete: async () => undefined,
       onStop: async () => undefined,
     })
-    await harness.emitBridge('tool_call', { toolName: 'task', toolCallId: 'task-call', input: prepared.tasks }, root)
+    await harness.emitBridge(
+      'tool_call',
+      { toolName: 'task', toolCallId: 'task-call', input: harness.controller.wire(prepared) },
+      root,
+    )
     const signalStop = harness.controller.stop('session-settle-aborted')
     let ownerStopSettled = false
     const ownerStop = harness.controller.stopOwned(prepared, 'owner-stop').then(() => {
@@ -434,20 +493,22 @@ describe('native review bridge lifecycle', () => {
       onComplete: async () => undefined,
       onStop: async () => undefined,
     })
-    await harness.emitBridge('tool_call', { toolName: 'task', toolCallId: 'task-call', input: prepared.tasks }, root)
-    harness.emitRaw({
-      id: 'unlisted-child',
-      event: { type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'unlisted partial' } },
+    await harness.emitBridge(
+      'tool_call',
+      { toolName: 'task', toolCallId: 'task-call', input: harness.controller.wire(prepared) },
+      root,
+    )
+    const child = await harness.admitChild(prepared, 'slot-a', 'slot-a', { root, skipRootCall: true })
+    await child.message({
+      type: 'message_update',
+      assistantMessageEvent: { type: 'text_delta', delta: 'unlisted partial' },
     })
-    harness.emitRaw({
-      id: 'unlisted-child',
-      event: {
-        type: 'message_update',
-        assistantMessageEvent: {
-          type: 'toolcall_end',
-          contentIndex: 0,
-          toolCall: { id: 'unlisted-yield', name: 'yield', arguments: { data: { findings: [] } } },
-        },
+    await child.message({
+      type: 'message_update',
+      assistantMessageEvent: {
+        type: 'toolcall_end',
+        contentIndex: 0,
+        toolCall: { id: 'unlisted-yield', name: 'yield', arguments: { data: { findings: [] } } },
       },
     })
     await harness.controller.stopOwned(prepared, 'owner-stopped')

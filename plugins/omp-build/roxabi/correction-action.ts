@@ -2,7 +2,24 @@ import { createHash } from 'node:crypto'
 
 import { type ActionResult, actionResultSchema, type Json } from '../dist/contracts.js'
 import type { NativeChildResult, NativeProofDirective, NativeTask } from '../omp/review-runtime/contracts.js'
-import type { CorrectionEffectResult, NativeDispatchResult } from './correction-execution-contract'
+import { prepareObservedCorrection } from './correction-action-observation.ts'
+import type {
+  CorrectionEffectResult,
+  ManifestedStageRecord,
+  NativeDispatchResult,
+} from './correction-execution-contract'
+import type { CorrectionNativeRuntime } from './correction-native-runtime'
+import {
+  actionRequest,
+  codePin,
+  confirmPreparedAction,
+  deliveryTask,
+  prepareRefusal,
+  recordStageRef,
+} from './delivery-action.ts'
+import type { FixTarget } from './fix-contract.ts'
+import type { ActionSubject, PreparedUwAction } from './uw-action-contract.ts'
+import type { UwOperations } from './uw-contract.ts'
 
 type Guard = Extract<ActionResult, { outcome: 'applied' }>['guardInventory'][number]
 export type ObservedProof = { toolCallId: string; input: Json; result: Json; exitCode: number }
@@ -97,8 +114,68 @@ export function actionTask(
   task: string,
   solutionSpace: string,
   proofEvidence: NativeProofDirective,
-): NativeTask {
+): Omit<NativeTask, 'action'> {
   return { name, agent, task, solutionSpace, proofEvidence }
+}
+
+export function citedStageRecords(
+  records: ReadonlyMap<string, ManifestedStageRecord>,
+  ids: readonly string[],
+): ManifestedStageRecord[] | null {
+  const selected: ManifestedStageRecord[] = []
+  for (const id of ids) {
+    const record = records.get(id)
+    if (record === undefined) return null
+    selected.push(record)
+  }
+  return selected
+}
+
+/** Canonical prepare plus deliveryTask. The returned task carries the registered action. */
+export async function registeredCorrectionTask(
+  operations: UwOperations,
+  target: FixTarget,
+  actionStartHead: string,
+  draft: Omit<NativeTask, 'action'>,
+  stageRecords: readonly ManifestedStageRecord[],
+  subject: ActionSubject,
+  runtime?: CorrectionNativeRuntime,
+): Promise<CorrectionEffectResult<NativeTask>> {
+  if (target.baseGitSHA === null) return failed('terminal', 'prepare-action-unavailable')
+  const pinned = codePin(target.repository, target.baseGitSHA, actionStartHead, actionStartHead)
+  if (!pinned.ok) return failed('terminal', pinned.reason)
+  const request = actionRequest({
+    actionId: draft.name,
+    purpose: 'correction',
+    subject,
+    code: pinned.code,
+    stageSources: stageRecords.map(recordStageRef),
+  })
+  let prepared: PreparedUwAction
+  if (actionStartHead !== target.candidateGitSHA && runtime?.options.correctionObservationRefs !== undefined) {
+    const observed = await prepareObservedCorrection(operations, request, target, runtime)
+    if (!observed.ok) return observed
+    prepared = observed.value
+  } else {
+    const result = await confirmPreparedAction(operations, request)
+    if (!result.ok) {
+      const reason = prepareRefusal(result.diagnostics)
+      return { ok: false, kind: 'terminal', diagnostics: [reason], preEffectRefusal: [reason] }
+    }
+    prepared = result.value
+  }
+  return {
+    ok: true,
+    value: deliveryTask({
+      name: draft.name,
+      agent: draft.agent,
+      procedure: draft.task,
+      solutionSpace: draft.solutionSpace,
+      prepared,
+      ...(draft.tools === undefined ? {} : { tools: draft.tools }),
+      ...(draft.proofEvidence === undefined ? {} : { proofEvidence: draft.proofEvidence }),
+    }),
+  }
 }
 
 export function taskName(phase: string, causeId: string, suffix = ''): string {
@@ -108,24 +185,8 @@ export function taskName(phase: string, causeId: string, suffix = ''): string {
     : `${base.slice(0, 115)}-${createHash('sha256').update(base).digest('hex').slice(0, 12)}`
 }
 
-export function correctionActionContext(
-  causeJSON: string,
-  proofPaths: readonly string[],
-  priorApplyProof: ObservedProof | null,
-): Json {
-  return {
-    causeJSON,
-    proofPaths: [...proofPaths],
-    priorApplyProof:
-      priorApplyProof === null
-        ? null
-        : {
-            toolCallId: priorApplyProof.toolCallId,
-            input: priorApplyProof.input,
-            result: priorApplyProof.result,
-            exitCode: priorApplyProof.exitCode,
-          },
-  }
+export function indexContext(recordIds: readonly string[]): Json {
+  return { recordIds: [...recordIds] }
 }
 
 export function actionOutput(

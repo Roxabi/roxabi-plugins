@@ -3,6 +3,7 @@ import { existsSync, writeFileSync } from 'node:fs'
 import type { Context, Route } from './sim-command-context.ts'
 import { recordedBase, tip } from './sim-git.ts'
 import { commentsForNumber, commentThreadForNumber, emit, graphql, one, varsOf } from './sim-graphql.ts'
+import { toolingBlobRoute } from './sim-tooling.ts'
 import { closesOf, fail, fullName, type Pull, stamp } from './sim-types.ts'
 
 function duplicatePullRequestFailure(context: Context, head: string): never {
@@ -201,6 +202,7 @@ function apiEmptyResponses(context: Context): boolean {
 }
 
 const API_ROUTES: readonly Route[] = [
+  toolingBlobRoute,
   apiUser,
   apiGraphql,
   apiCreatePull,

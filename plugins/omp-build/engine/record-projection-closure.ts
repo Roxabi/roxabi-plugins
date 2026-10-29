@@ -2,6 +2,7 @@ import { claimsReviewOrStop, type HistoryClassification } from './history-classi
 import { sameJson } from './history-conservation.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, fail } from './record-diagnostics.ts'
+import { recordIntegrity } from './record-integrity.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
 import type { Result } from './result.ts'
@@ -108,19 +109,18 @@ function observedProjectionRoot(
     ({ operation }) =>
       operation.status === 'complete' && operation.record !== null && operation.record.recordId === record.recordId,
   )
-  if (candidates.length !== complete.length)
-    return fail([diagnostic('unbound', `Record ${record.recordId} has an ambiguous observed operation`)])
+  if (complete.length === 0) return { ok: true, value: [] }
+  if (complete.some((entry) => recordIntegrity(entry.operation.parts, record) !== null))
+    return fail([diagnostic('unconfirmed', `Record ${record.recordId} has no observed immutable native read-back`)])
   if (complete.some(({ operation }) => operation.record === null || !sameJson(operation.record, record)))
     return fail([diagnostic('unbound', `Record ${record.recordId} conflicts with its observed immutable record`)])
   return { ok: true, value: complete }
 }
 
 function projectionHistory(
-  record: CanonicalRecord,
   history: DecodedHistory,
   classification: HistoryClassification,
   selected: ReadonlySet<number>,
-  rootComplete: readonly IndexedOperation[],
 ): DecodedHistory {
   const operations = [...selected].sort((left, right) => left - right).map((index) => history.operations[index])
   const operationIds = new Set(
@@ -129,22 +129,7 @@ function projectionHistory(
   return {
     ...history,
     source: history.source,
-    operations:
-      rootComplete.length === 0
-        ? [
-            ...operations,
-            {
-              operationId: record.operationId,
-              recordId: record.recordId,
-              kind: record.kind,
-              claimedKinds: [record.kind],
-              status: 'complete',
-              parts: [],
-              record,
-              authority: 'authority',
-            },
-          ]
-        : operations,
+    operations,
     diagnostics: [
       ...history.diagnostics.filter(
         (diagnostic) => diagnostic.operationId === undefined || operationIds.has(diagnostic.operationId),
@@ -169,5 +154,5 @@ export function projectionClosure(
     const diagnostics = includeProjectionDependencies(record, history, authorities, selected, resolving, input)
     if (diagnostics !== null) return fail(diagnostics)
   }
-  return { ok: true, value: projectionHistory(record, history, classification, selected, root.value) }
+  return { ok: true, value: projectionHistory(history, classification, selected) }
 }

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { observedComment } from '../../testing/record-history.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { classifyHistory } from '../history-classification.ts'
 import type { DecodedHistory } from '../history-schema.ts'
@@ -59,7 +60,7 @@ function withConfirmedIdentities(histories: readonly DecodedHistory[]): DecodedH
           status: 'complete',
           authority: 'accounted',
           claimedKinds: [record.kind],
-          parts: [],
+          parts: [observedComment({ locator: `comment-${record.recordId}`, nativeId: record.recordId })],
           record,
         })
         present.add(key)

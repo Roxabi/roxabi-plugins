@@ -1,6 +1,7 @@
 import { rmSync } from 'node:fs'
 import path from 'node:path'
 import type { MandateRecord } from '../engine/workflow-control.ts'
+import { criterionImplementationRecords } from './criterion-approval.ts'
 import { nativeFeatureSpec } from './feature-review-fixture.ts'
 import { roxabiWorkflowFixtures } from './roxabi-presets.ts'
 import { git, sandbox, writeSim } from './sandbox/sandbox-repository.ts'
@@ -27,7 +28,6 @@ const {
   planReviewRecord,
   planReviewStart,
   publishedPlanDigest,
-  rejectedImplementResult,
 } = roxabiWorkflowFixtures()
 
 let roots: string[] = []
@@ -104,39 +104,5 @@ export function featureFixture(
 function confirmedImplementationRecords(mandate: MandateRecord, box: Box) {
   const head = box.sha[BRANCH]
   if (head === undefined) throw new Error('confirmed implementation fixture missing branch head')
-  const rejected = rejectedImplementResult(mandate)
-  if (
-    rejected.kind !== 'action-receipt' ||
-    rejected.payload.action !== 'implement' ||
-    rejected.payload.phase !== 'result' ||
-    rejected.payload.structured === null ||
-    rejected.payload.admission === null
-  ) {
-    throw new Error('confirmed implementation fixture missing payload')
-  }
-  return [
-    mandate,
-    ...planDraftRecords(mandate),
-    planReviewStart(mandate, 'act-plan-1', publishedPlanDigest()),
-    planReviewRecord(mandate, 'act-plan-1', publishedPlanDigest(), [
-      clearPlanContribution('slot-architect', 'R-workflow-plan-architect'),
-      clearPlanContribution('slot-adversarial', 'R-workflow-plan-adversarial'),
-    ]),
-    implementStart(mandate),
-    {
-      ...rejected,
-      payload: {
-        ...rejected.payload,
-        structured: { ...rejected.payload.structured, commitSHAs: [head] },
-        admission: {
-          ...rejected.payload.admission,
-          admitted: true,
-          commits: [head],
-          remoteBranch: BRANCH,
-          remoteTip: head,
-          reason: 'admitted',
-        },
-      },
-    },
-  ]
+  return criterionImplementationRecords(mandate, head)
 }

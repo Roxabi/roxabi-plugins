@@ -123,6 +123,7 @@ export function setupReviewGateFixture(): ReviewGateFixture {
       GIT_CONFIG_VALUE_0: 'false',
       GATE_STATE: statePath,
       GATE_STATE_DIR: stateDir,
+      GATE_TOOLS: tools,
     }
     env[GITHUB_ENV] = AUTOMATION
     env[STOP_ENV] = 'stop'
@@ -200,7 +201,17 @@ export function runReviewStop(
 }
 
 export function postCalls(fixture: ReviewGateFixture): string[][] {
-  return readState(fixture).calls.filter((argv) => argv[0] === 'api' && argv.includes('--method'))
+  return readState(fixture).calls.filter((argv) => {
+    if (argv[0] !== 'api') return false
+    const index = argv.findIndex((arg) => arg === '--method' || arg === '-X')
+    if (index !== -1) return argv[index + 1]?.toUpperCase() !== 'GET'
+    const method = argv.find((arg) => arg.startsWith('--method='))
+    if (method !== undefined) return method.slice('--method='.length).toUpperCase() !== 'GET'
+    if (argv.includes('graphql')) return argv.some((arg) => /^query=\s*mutation\b/.test(arg))
+    return argv.some(
+      (arg) => arg === '-f' || arg === '-F' || arg === '--field' || arg === '--raw-field' || arg === '--input',
+    )
+  })
 }
 
 export async function readExternalHistory(fixture: ReviewGateFixture) {
@@ -225,7 +236,9 @@ export function attachBareOriginAtBase(fixture: ReviewGateFixture): string {
   git(fixture.root, ['clone', '-q', '--bare', fixture.candidate, origin])
   git(origin, ['update-ref', 'refs/heads/main', fixture.base])
   const resolved = path.resolve(origin)
-  git(fixture.candidate, ['remote', 'add', 'origin', resolved])
+  git(fixture.candidate, ['remote', 'add', 'origin', 'https://github.com/acme/app.git'])
+  git(fixture.candidate, ['config', `url.${resolved}.insteadOf`, 'https://github.com/acme/app.git'])
+  git(fixture.candidate, ['update-ref', 'refs/remotes/origin/main', fixture.base])
   state.origin = resolved
   writeState(fixture, state)
   return resolved

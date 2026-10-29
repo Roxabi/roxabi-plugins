@@ -1,8 +1,9 @@
 import { type CanonicalRecord, encodeRecord } from '../dist/contracts.js'
+import { validateActionInputs } from '../engine/action-input.ts'
+import { TEST_REVIEW_INPUT } from '../testing/record-builders.ts'
 import { contribution } from '../testing/record-decisions.ts'
 import { reviewGraph } from '../testing/record-graphs.ts'
 import { roxabiRecordFixtures } from '../testing/roxabi-presets.ts'
-
 export const RECEIPT = 'receipt-1'
 export const TARGET = {
   repository: 'Acme/app',
@@ -19,6 +20,22 @@ export type ReviewJudgment = Extract<
   { purpose: 'review' }
 >
 type ReviewAttemptRecord = Extract<CanonicalRecord, { kind: 'review-attempt' }>
+
+function boundInventory(record: CanonicalRecord): CanonicalRecord {
+  if (record.kind !== 'review-attempt' || !('inputSnapshot' in record.payload)) return record
+  const validated = validateActionInputs(record.payload.inputSnapshot)
+  if (!validated.ok) return record
+  const digest = validated.value.fingerprint
+  return {
+    ...record,
+    payload: {
+      ...record.payload,
+      actionInputDigest: digest,
+      input: record.payload.input === null ? null : digest,
+      inputSnapshot: validated.value,
+    },
+  }
+}
 
 export function canonicalUnusableComments(): string[] {
   const graph = reviewGraph({ prefix: 'debt', head: TARGET.candidateGitSHA })
@@ -102,8 +119,9 @@ export function canonicalUnusableComments(): string[] {
     payload: {
       rootAttemptId: 'debt-root',
       candidateGitSHA: TARGET.candidateGitSHA,
-      inputFormat: 'omp-build:review-input/3',
-      input: graph.root.payload.input,
+      inputFormat: 'omp-build:review-input/4',
+      input: TEST_REVIEW_INPUT,
+      actionInputDigest: TEST_REVIEW_INPUT,
       slots: graph.root.payload.slots,
       stage: 'initial',
       purpose: 'correction',
@@ -123,8 +141,9 @@ export function canonicalUnusableComments(): string[] {
     payload: {
       rootAttemptId: root.recordId,
       candidateGitSHA: TARGET.candidateGitSHA,
-      inputFormat: 'omp-build:review-input/3',
-      input: graph.synthesis.payload.input,
+      inputFormat: 'omp-build:review-input/4',
+      input: TEST_REVIEW_INPUT,
+      actionInputDigest: TEST_REVIEW_INPUT,
       slots: graph.synthesis.payload.slots,
       stage: 'synthesis',
       purpose: 'correction',
@@ -156,13 +175,13 @@ export function encodeCanonicalComments(records: readonly CanonicalRecord[]): st
       body,
       author: 'native-bot',
       createdAt: '2026-10-21T10:00:00Z',
-      updatedAt: null,
+      updatedAt: '2026-10-21T10:00:00Z',
     })),
     diagnostics: [],
   })
   const bodies: string[] = []
   for (const record of records) {
-    const encoded = encodeRecord(record, history(bodies), TEST_PROJECTION_CONFIG)
+    const encoded = encodeRecord(boundInventory(record), history(bodies), TEST_PROJECTION_CONFIG)
     if (!encoded.ok) throw new Error(encoded.diagnostics.map((item) => item.code).join(','))
     bodies.push(...encoded.value)
   }

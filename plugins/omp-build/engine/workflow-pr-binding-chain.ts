@@ -178,9 +178,6 @@ function resolveBindingChain(
 }
 
 function invalidClaims(claims: readonly DecodedHistory['operations'][number][]): BindingCandidate | null {
-  if (claims.some((operation) => operation.authority === 'foreign')) {
-    return bindingRefusal('conflicting', [diagnostic('foreign', 'A foreign workflow-binding is not an absent mandate')])
-  }
   if (claims.some((operation) => operation.status === 'conflict')) {
     return bindingRefusal('conflicting', [diagnostic('conflicting', 'Workflow-binding parts conflict')])
   }
@@ -247,7 +244,7 @@ export function selectWorkflowBindingCandidate(input: BindingInput): BindingCand
     return bindingRefusal('incomplete', [diagnostic('missing-history', 'Pull request history is missing')])
   if (!history.source.complete)
     return bindingRefusal('incomplete', [diagnostic('incomplete', 'Pull request history is incomplete')])
-  const claims = history.operations.filter(claimsBinding)
+  const claims = history.operations.filter((operation) => operation.authority !== 'foreign' && claimsBinding(operation))
   if (claims.length === 0) return { status: 'absent' }
   const invalid = invalidClaims(claims)
   if (invalid !== null) return invalid

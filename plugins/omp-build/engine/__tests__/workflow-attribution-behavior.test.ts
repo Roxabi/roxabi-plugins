@@ -1,8 +1,10 @@
 import { describe, expect, test } from 'vitest'
+import { acceptedActionInputs } from '../../testing/action-input-fixtures.ts'
 import { buildRecord, parseRecord } from '../record-construction.ts'
 import { failedCheckEvidenceDigest } from '../record-digests.ts'
 import { planOutputSchema, planReviewSchema } from '../workflow-output-schema.ts'
 import { planMacro } from '../workflow-plan-macro.ts'
+import { ACTION_RECEIPT_FORMAT } from '../workflow-receipt-schema.ts'
 import { reconstructWorkflow } from '../workflow-reconstruction-admission.ts'
 import { binding, facts, history, mandate, must, SCOPE } from './workflow-test-support.ts'
 
@@ -41,7 +43,7 @@ describe('workflow CI attribution behavior', () => {
       id: 'step-1',
       change: 'bind the check',
       doneWhen: 'the check is green',
-      criterion: 'the named check passes',
+      criterionIds: ['C1'],
       evidence: 'the captured command',
       paths: ['plugins/omp-build/engine/workflow-plan-macro.ts'],
     }
@@ -51,8 +53,8 @@ describe('workflow CI attribution behavior', () => {
       planReviewSchema.safeParse({
         outcome: 'blocking',
         blockers: [
-          { id: 'same', criterion: 'cover it', gap: 'missing' },
-          { id: 'same', criterion: 'cover it', gap: 'missing' },
+          { id: 'same', criterionId: 'C1', gap: 'missing' },
+          { id: 'same', criterionId: 'C1', gap: 'missing' },
         ],
       }).success,
     ).toBe(false)
@@ -80,6 +82,8 @@ describe('workflow CI attribution behavior', () => {
         inputs: [],
         kind: 'action-receipt',
         payload: {
+          format: ACTION_RECEIPT_FORMAT,
+          inputs: acceptedActionInputs(mandated, 'attribute-ci'),
           phase: 'result',
           action: 'attribute-ci',
           actionId: 'act-ci-names',
@@ -103,6 +107,8 @@ describe('workflow CI attribution behavior', () => {
         operationId: 'op-ci-1',
         kind: 'action-receipt',
         payload: {
+          format: ACTION_RECEIPT_FORMAT,
+          inputs: acceptedActionInputs(mandated, 'attribute-ci'),
           phase: 'result',
           action: 'attribute-ci',
           actionId: 'act-ci-1',
@@ -175,6 +181,8 @@ describe('workflow CI attribution behavior', () => {
         operationId: 'op-ci-rerun-start',
         kind: 'action-receipt',
         payload: {
+          format: ACTION_RECEIPT_FORMAT,
+          inputs: acceptedActionInputs(mandated, 'attribute-ci'),
           phase: 'start',
           action: 'attribute-ci',
           actionId: 'act-ci-rerun',

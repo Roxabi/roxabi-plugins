@@ -468,8 +468,8 @@ function prepareFinalReview(blocking: boolean): string {
   const blocker = JSON.parse(readFileSync(blockerPath, 'utf8'))
   blocker.data.repository.issue.parent = null
   writeFileSync(blockerPath, JSON.stringify(blocker))
-  const history = epicDecisionHistory(range, blocking)
   serveBoundEpic(childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] }), 10, 'feat/2-first-child')
+  const history = epicDecisionHistory(range, blocking)
   serveComments(1, [...issueComments(1), ...(blocking ? history : history.slice(0, -1))])
   return range
 }

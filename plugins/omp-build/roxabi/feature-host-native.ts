@@ -21,7 +21,8 @@ async function publishNativeResult(host: FeatureCommandHost, settled: NativeBatc
       ...(startHead === undefined ? {} : { startHead }),
     })
   } catch (error) {
-    await host.send(`feature-stopped: ${error instanceof Error ? error.message : String(error)}`)
+    if (settled.canPublishContext?.() !== false)
+      await host.send(`feature-stopped: ${error instanceof Error ? error.message : String(error)}`)
     throw error
   }
 }
@@ -70,10 +71,13 @@ export async function announceFeatureBatch(
   }
   let admittedBatch: NativeBatch | null = null
   const callbacks: NativeBatchCallbacks = {
-    onComplete: async (result) => {
+    onComplete: async (result, canContinue) => {
+      if (!canContinue()) return
       admittedBatch = await publishCompletedResult(host, result)
+      if (!canContinue()) admittedBatch = null
     },
-    onSettled: async () => {
+    onSettled: async (_result, canContinue) => {
+      if (!canContinue()) return
       if (admittedBatch !== followUp) return
       admittedBatch = null
       if (host.featureContinuationInhibited()) return
@@ -82,12 +86,35 @@ export async function announceFeatureBatch(
         reference,
         control: 'continue',
         principal: false,
-        ...(host.uw === undefined ? {} : { read: host.uw }),
+        ...(host.uw === undefined ? {} : { uw: host.uw, read: host.uw }),
+        ...(host.pluginPin === undefined ? {} : { pluginPin: host.pluginPin }),
       })
+      if (!canContinue()) return
       await deliver(next)
     },
-    onStop: async (_reason, result) => {
-      if (result !== null) await publishStoppedResult(host, result)
+    onStop: async (reason, result) => {
+      if (result === null) return
+      if (reason !== 'action-context-missing') return publishStoppedResult(host, result)
+      if (result.canPublishContext?.() !== true) return
+      const publication = await publishNativeResult(host, result)
+      if (result.canPublishContext?.() !== true) return
+      if (!publication.retained || !('receipt' in publication) || publication.receipt === undefined) {
+        await host.send(`feature-stopped: ${publication.published ? 'action-context-unconfirmed' : publication.reason}`)
+        return
+      }
+      const receipt = publication.receipt
+      await deliver({
+        kind: 'blocked',
+        reason: 'action-context-missing',
+        diagnostics: result.children.flatMap((child) =>
+          (child.contextBlock?.missing ?? []).map((item) => ({
+            code: 'action-context-missing',
+            message: item.reason,
+            operationId: result.batch.operationId,
+            detail: { locator: item.locator, targets: item.targets, receipt: { ...receipt, selector: '/payload' } },
+          })),
+        ),
+      })
     },
   }
   let acquired = false
@@ -110,7 +137,11 @@ function isNativeBatch(value: NativeBatch): boolean {
     Array.isArray(value.tasks?.tasks) &&
     value.tasks.tasks.length > 0 &&
     value.tasks.tasks.every(
-      (task) => typeof task.name === 'string' && task.name.length > 0 && typeof task.agent === 'string',
+      (task) =>
+        typeof task.name === 'string' &&
+        task.name.length > 0 &&
+        typeof task.agent === 'string' &&
+        typeof task.action?.snapshot.indexPath === 'string',
     )
   )
 }

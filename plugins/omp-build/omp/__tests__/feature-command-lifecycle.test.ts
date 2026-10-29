@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { specDigest } from '../../engine/record-digests.ts'
 import { canonicalSpec } from '../../engine/uw-spec.ts'
 import type { AcceptedOwnSpec } from '../../engine/workflow-accepted-spec-types.ts'
@@ -6,9 +6,14 @@ import type { PreparedEpicReview } from '../../roxabi/epic-range-finalization.ts
 import type { ContinueFeatureResult, FeatureCommandHost, FeatureWorkflow } from '../../roxabi/feature-contract'
 import { deliverFeatureResult, runInstalledFeatureCommand } from '../../roxabi/feature-entry'
 import { nativeFeatureProfiles } from '../../roxabi/native-feature-profiles'
-import { createExtensionApiStub } from '../../testing/extension-api-stub'
-import { installNativeBatchBridge } from '../review-runtime/bridge.ts'
-import type { NativeBatch, NativeExtension } from '../review-runtime/contracts.ts'
+import { consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
+import {
+  bridgeHarness,
+  cleanupFixtureActions,
+  fixtureAction,
+  root as nativeRoot,
+} from '../../testing/review-runtime-support.ts'
+import type { NativeBatch } from '../review-runtime/contracts.ts'
 import { NativeBatchController } from '../review-runtime/controller.ts'
 
 const root = {
@@ -16,18 +21,27 @@ const root = {
   agent: { kind: 'main' as const, id: 'Main', name: 'main', depth: 0 },
   model: { contextWindow: 128_000 },
   isIdle: () => true,
+  localProtocolOptions: { getArtifactsDir: () => consultableProtocolOptions().getArtifactsDir() },
 }
 
-type CapturedHandler = {
-  invoke(...args: unknown[]): unknown
-}['invoke']
+afterEach(() => {
+  cleanupFixtureActions()
+})
 
 function batch(operationId = 'feature-op'): NativeBatch {
   return {
     operationId,
     tasks: {
       context: 'feature fixture',
-      tasks: [{ name: 'R-workflow-plan', agent: 'R-advisor', task: 'plan', solutionSpace: 'fixed fixture' }],
+      tasks: [
+        {
+          name: 'R-workflow-plan',
+          agent: 'R-advisor',
+          task: 'plan',
+          solutionSpace: 'fixed fixture',
+          action: fixtureAction('R-workflow-plan'),
+        },
+      ],
     },
   }
 }
@@ -161,26 +175,17 @@ describe('feature continuation seam', () => {
   })
 
   it('calls onSettled once after a confirmed complete result and not from agent_end', async () => {
-    const handlers = new Map<string, CapturedHandler>()
-    let raw: ((value: unknown) => void) | undefined
-    const pi: NativeExtension = createExtensionApiStub({
-      events: {
-        on: (_event, handler) => {
-          raw = handler
-          return () => {
-            raw = undefined
-          }
-        },
-      },
-      on: (event, handler) => handlers.set(event, handler),
-      sendUserMessage: async () => undefined,
-    })
-    const controller = new NativeBatchController()
-    installNativeBatchBridge(pi, controller)
+    const harness = bridgeHarness()
+    const { controller } = harness
+    const retainedRoot = { ...nativeRoot, ...root }
     const prepared = batch('settled')
+    const task = prepared.tasks.tasks[0]
+    if (task === undefined) throw new Error('settlement fixture task is missing')
+    task.agent = 'R-workflow-plan'
+    task.action = fixtureAction('R-workflow-plan', 'R-workflow-plan')
     let completed = 0
     let settled = 0
-    controller.observeRootContext(root as never)
+    controller.observeRootContext(retainedRoot as never)
     controller.activate(prepared, {
       onComplete: async () => {
         completed += 1
@@ -191,19 +196,26 @@ describe('feature continuation seam', () => {
       onStop: async () => undefined,
     })
     controller.announce(prepared)
-    await handlers.get('tool_call')?.(
-      { toolName: 'task', toolCallId: 'task-call', input: controller.wire(prepared) },
-      root,
-    )
-    await handlers.get('before_subagent_spawn')?.(
-      { agent: 'R-advisor', invocationKind: 'task', patterns: [], spawnKey: 'R-workflow-plan' },
-      root,
-    )
-    raw?.({
-      id: 'child-1',
-      event: { type: 'tool_execution_start', toolName: 'yield', toolCallId: 'yield-1', args: { data: { plan: [] } } },
+    const data = {
+      steps: [
+        {
+          id: 'step-1',
+          change: 'Preserve the confirmed behavior',
+          doneWhen: 'The behavior is retained',
+          criterionIds: ['C1'],
+          evidence: 'Exercise the behavior',
+          paths: ['src/feature.ts'],
+        },
+      ],
+      resolutions: [],
+    }
+    await harness.admitChild(prepared, 'R-workflow-plan', 'task-call:0', {
+      toolCallId: 'task-call',
+      root: retainedRoot,
     })
-    await handlers.get('tool_result')?.(
+    await harness.yieldChild('task-call:0', data)
+    await harness.emitBridgeAndSettle(
+      'tool_result',
       {
         toolName: 'task',
         toolCallId: 'task-call',
@@ -213,17 +225,19 @@ describe('feature continuation seam', () => {
           results: [
             {
               index: 0,
-              id: 'child-1',
-              agent: 'R-advisor',
+              id: 'task-call:0',
+              agent: 'R-workflow-plan',
               exitCode: 0,
-              structuredOutput: { status: 'valid', data: { plan: [] } },
+              structuredOutput: { status: 'valid', data },
             },
           ],
         },
       },
-      root,
+      retainedRoot,
     )
-    await handlers.get('agent_end')?.({ willContinue: false }, root)
+    expect(completed).toBe(1)
+    expect(settled).toBe(1)
+    await harness.emitBridge('agent_end', { willContinue: false }, retainedRoot)
     expect(completed).toBe(1)
     expect(settled).toBe(1)
   })

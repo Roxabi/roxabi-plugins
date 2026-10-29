@@ -1,3 +1,4 @@
+import { featurePullBody } from './generated-pr-body.js'
 import { confirmSelectedBinding } from './workflow-binding.js'
 import { gh, git, preview } from './workflow-runtime.js'
 
@@ -51,10 +52,7 @@ function requireField(value, label) {
 }
 
 function bodyFor(body, issue) {
-  const text = typeof body === 'string' ? body.trim() : ''
-  if (new RegExp(String.raw`\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s*#${issue}\b`, 'i').test(text))
-    return text
-  return text ? `${text}\n\nCloses #${issue}` : `Closes #${issue}`
+  return featurePullBody(body, issue)
 }
 
 function sameRepositoryPrs(entries, caller) {

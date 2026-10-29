@@ -1,14 +1,16 @@
 import { z } from 'zod'
+import { contextNegativeBindingSchema, missingContextOutputSchema } from './action-context.ts'
+import {
+  commandRunSchema,
+  evidenceProvenanceSchema,
+  producerCriterionDeclarationSchema,
+} from './criterion-evidence-schema.ts'
+import { type CriterionVerdict, criterionVerdictSchema } from './criterion-verdict-schema.ts'
+import { identifierSchema, jsonSchema, repoRelativePathSchema, scopeSchema, sha256Schema } from './schema-primitives.ts'
 
-export const jsonSchema = z.json()
-export type Json = z.infer<typeof jsonSchema>
-
-export const identifierSchema = z.string().min(1)
-export const sha256Schema = z.string().regex(/^[0-9a-f]{64}$/)
+export type { Json, Scope } from './schema-primitives.ts'
+export { identifierSchema, jsonSchema, repoRelativePathSchema, scopeSchema, sha256Schema }
 export const shaSchema = z.string().min(1)
-
-export const scopeSchema = z.strictObject({ repository: z.string(), target: z.string() })
-export type Scope = z.infer<typeof scopeSchema>
 
 export const diagnosticSchema = z.strictObject({
   code: z.string().min(1),
@@ -65,8 +67,8 @@ export type FindingData = z.infer<typeof findingSchema>
 
 export const findingReportSchema = z.strictObject({ findings: z.array(findingSchema) })
 export type FindingReport = z.infer<typeof findingReportSchema>
-export const specRowSchema = z.strictObject({ criterionText: z.string().min(1), verdict: z.enum(['met', 'missing']) })
-export type SpecRow = z.infer<typeof specRowSchema>
+export const specRowSchema = criterionVerdictSchema
+export type SpecRow = CriterionVerdict
 export const specReportSchema = findingReportSchema.extend({ specRows: z.array(specRowSchema) }).strict()
 export type SpecReport = z.infer<typeof specReportSchema>
 
@@ -84,13 +86,6 @@ export const nativeProofBashCallSchema = z.strictObject({
   exitCode: z.number().int().nullable(),
 })
 export type NativeProofBashCallRecord = z.infer<typeof nativeProofBashCallSchema>
-export const nativeOutcomeSchema = z.strictObject({
-  completion: z.enum(['completed', 'error', 'cancelled', 'incomplete']),
-  strict: z.enum(['valid', 'invalid', 'absent']),
-  raw: jsonSchema,
-  bashCalls: z.array(nativeProofBashCallSchema).optional(),
-})
-export type NativeOutcome = z.infer<typeof nativeOutcomeSchema>
 export const submissionSchema = z.strictObject({
   attemptIndex: z.number().int().nonnegative(),
   data: jsonSchema.nullable(),
@@ -98,22 +93,54 @@ export const submissionSchema = z.strictObject({
   partialText: z.string().nullable(),
 })
 export type Submission = z.infer<typeof submissionSchema>
-export const contributionSchema = z.strictObject({
-  content: z.enum(['operator-request', 'findings', 'decision', 'action-result']),
-  inventoryId: identifierSchema.nullable(),
-  host: z.strictObject({
-    origin: z.enum(['native', 'operator']),
-    phase: phaseSchema.nullable(),
-    role: identifierSchema.nullable(),
-    slotId: identifierSchema.nullable(),
-    chunk: z.number().int().nonnegative().nullable(),
-    childId: identifierSchema.nullable(),
-  }),
-  rawAttempts: z.array(submissionSchema),
-  native: nativeOutcomeSchema.nullable(),
-  structured: jsonSchema.nullable(),
-  findings: z.array(originalFindingSchema).nullable(),
+export const nativeOutcomeSchema = z.strictObject({
+  completion: z.enum(['completed', 'error', 'cancelled', 'incomplete']),
+  strict: z.enum(['valid', 'invalid', 'absent']),
+  raw: jsonSchema,
+  observation: z
+    .strictObject({
+      actionId: identifierSchema,
+      childId: identifierSchema,
+      submissionIndex: z.number().int().nonnegative(),
+      submission: submissionSchema,
+    })
+    .optional(),
+  commandRuns: z.array(commandRunSchema).optional(),
+  commandProvenance: evidenceProvenanceSchema.optional(),
+  bashCalls: z.array(nativeProofBashCallSchema).optional(),
 })
+export type NativeOutcome = z.infer<typeof nativeOutcomeSchema>
+export const contributionSchema = z
+  .strictObject({
+    content: z.enum(['operator-request', 'findings', 'decision', 'action-result']),
+    inventoryId: identifierSchema.nullable(),
+    host: z.strictObject({
+      origin: z.enum(['native', 'operator']),
+      phase: phaseSchema.nullable(),
+      role: identifierSchema.nullable(),
+      slotId: identifierSchema.nullable(),
+      chunk: z.number().int().nonnegative().nullable(),
+      childId: identifierSchema.nullable(),
+      action: contextNegativeBindingSchema.optional(),
+    }),
+    rawAttempts: z.array(submissionSchema),
+    native: nativeOutcomeSchema.nullable(),
+    structured: jsonSchema.nullable(),
+    findings: z.array(originalFindingSchema).nullable(),
+  })
+  .superRefine((value, context) => {
+    if (
+      value.host.slotId !== null &&
+      missingContextOutputSchema.safeParse(value.structured).success &&
+      (value.host.origin !== 'native' || !value.host.action)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['host', 'action'],
+        message: 'missing-context contributions require their native action binding',
+      })
+    }
+  })
 export type Contribution = z.infer<typeof contributionSchema>
 export const commandResultSchema = z.strictObject({
   command: z.string(),
@@ -130,10 +157,6 @@ export const implementationCommandSchema = z.strictObject({
 export type ImplementationCommand = z.infer<typeof implementationCommandSchema>
 const selectedProofEvidence = { proofToolCallId: identifierSchema, proofUnavailableReason: z.null() }
 const unavailableProofEvidence = { proofToolCallId: z.null(), proofUnavailableReason: z.string().min(1) }
-export const repoRelativePathSchema = z
-  .string()
-  .min(1)
-  .regex(/^(?!\/)(?![A-Za-z]:\/)(?!.*(?:^|\/)\.\.?(?:\/|$))[^\r\n\\]+$/)
 const guardInventoryEntrySchema = z.strictObject({
   guardId: identifierSchema,
   productionGuard: z.string().min(1),
@@ -155,6 +178,7 @@ const appliedActionResultFields = {
   commands: z.array(commandResultSchema),
   proofPaths: z.array(repoRelativePathSchema),
   guardInventory: guardInventorySchema,
+  criteria: z.array(producerCriterionDeclarationSchema).optional(),
 }
 const failedActionResultFields = {
   outcome: z.literal('failed'),
@@ -162,6 +186,7 @@ const failedActionResultFields = {
   commands: z.array(commandResultSchema),
   proofPaths: z.array(repoRelativePathSchema),
   guardInventory: z.null(),
+  criteria: z.array(producerCriterionDeclarationSchema).optional(),
 }
 export const applyActionResultSchema = z.union([
   z.strictObject({ ...appliedActionResultFields, ...selectedProofEvidence }),
@@ -184,6 +209,7 @@ export const falsifyActionResultSchema = z.strictObject({
   facts: guardFactsSchema,
   skippedReason: z.string().nullable(),
   commands: z.array(commandResultSchema),
+  criteria: z.array(producerCriterionDeclarationSchema).optional(),
 })
 export const actionResultSchema = z.union([applyActionResultSchema, falsifyActionResultSchema])
 export type ActionResult = z.infer<typeof actionResultSchema>
@@ -210,5 +236,13 @@ export const slotSchema = z.strictObject({
   output: z.enum(['spec', 'findings', 'decision', 'action-result']),
   classId: identifierSchema.nullable(),
   sourceFindingIds: z.array(identifierSchema),
+  action: contextNegativeBindingSchema.optional(),
+  correction: z
+    .strictObject({
+      phase: z.enum(['apply', 'falsify', 'restore-proof', 'revalidate']),
+      causeId: identifierSchema,
+      context: jsonSchema,
+    })
+    .optional(),
 })
 export type Slot = z.infer<typeof slotSchema>

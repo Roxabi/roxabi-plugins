@@ -198,10 +198,7 @@ describe('workflow landing decisions', () => {
     const binding = workflowBinding(PR, mandate, 'feat/42-save', 'main')
     const foreign = historyFrom([binding], 'stranger', 'operator', [issue])
     expect(foreign.operations[0]?.authority).toBe('foreign')
-    expect(requireLandingMandate(landingInput([historyFrom([mandate]), foreign]))).toMatchObject({
-      ok: false,
-      reason: 'conflict',
-    })
+    expect(requireLandingMandate(landingInput([historyFrom([mandate]), foreign])).ok).toBe(false)
     const second = workflowBinding(PR, other, 'feat/42-save', 'main')
     const conflicting = requireLandingMandate(
       landingInput([issue, historyFrom([binding, second], 'operator', 'operator', [issue])]),

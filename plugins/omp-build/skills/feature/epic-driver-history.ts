@@ -3,12 +3,12 @@ import {
   classifyHistory,
   type DecodedHistory,
   type Json,
-  validateDecision,
   validateRecordGraph,
 } from '../../dist/contracts.js'
+import { validateDecision } from '../../engine/review-decision.ts'
 import type { UwAdmission } from '../../engine/uw-admission.ts'
 import { loadReviewConfig } from '../../roxabi/review-assets.ts'
-import { diagnosticsText } from './epic-driver-github'
+import { citedReviewHistories, diagnosticsText } from './epic-driver-github'
 import { Refused } from './epic-driver-runtime'
 import { parseEpicEvent } from './epic-events'
 import type { ChildFacts, Facts } from './epic-types'
@@ -153,10 +153,11 @@ function assertExactInventories(
  * is derived only after the exact range, synthesis root and full inventory set
  * are independently bound through the common record core.
  */
-export function reviewsFromEvents(history: DecodedHistory): Facts['reviews'] {
+export async function reviewsFromEvents(repo: string, history: DecodedHistory): Promise<Facts['reviews']> {
   const events = epicEvents(history).filter(({ payload }) => payload.event === 'epic-review')
   if (events.length === 0) return []
   const authorityHistory = classifyHistory(history).authorityHistory
+  const externalHistories = await citedReviewHistories(repo, authorityHistory)
   const graph = validateRecordGraph(authorityHistory)
   if (!graph.ok) throw new Refused(`Epic review history is not admissible: ${diagnosticsText(graph.diagnostics)}`)
   const records = new Map(graph.value.map((record) => [record.recordId, record]))
@@ -167,7 +168,9 @@ export function reviewsFromEvents(history: DecodedHistory): Facts['reviews'] {
     const decision = reviewDecision(records, event, decisionId)
     const root = reviewRoot(records, event, decision, range)
     assertExactInventories(records, event, decisionId, inventoryIds, root)
-    const assessment = validateDecision(decision, authorityHistory, taxonomy, null)
+    // Workflow receipts are accounted separately from review authority, but delivery
+    // selection still needs the authenticated, complete same-scope history.
+    const assessment = validateDecision(decision, authorityHistory, taxonomy, null, externalHistories, history)
     if (!assessment.admissible || assessment.verdict === null) {
       throw new Refused(
         `Epic review event ${event.record.recordId} decision is not admissible: ${diagnosticsText(assessment.diagnostics)}`,

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { missingContextOutputSchema } from './action-context.ts'
 import { diagnostic } from './record-diagnostics.ts'
 import {
   actionResultSchema,
@@ -14,9 +15,9 @@ import { decisionSchema } from './review-schema.ts'
 import { normalizationJudgementSchema } from './uw-normalization-schema.ts'
 import {
   ciAttributionSchema,
-  implementationOutputSchema,
   planOutputSchema,
   planReviewSchema,
+  producerImplementationOutputSchema,
   specAssessmentSchema,
 } from './workflow-output-schema.ts'
 
@@ -35,17 +36,21 @@ export const PRODUCER_OUTPUTS = [
 export type ProducerOutput = (typeof PRODUCER_OUTPUTS)[number]
 
 const producerSchemas = {
-  spec: specReportSchema,
-  findings: findingReportSchema,
-  decision: decisionSchema,
-  'action-result': actionResultSchema,
-  'spec-assessment': specAssessmentSchema,
-  plan: planOutputSchema,
-  'plan-review': planReviewSchema,
-  implementation: implementationOutputSchema,
-  'ci-attribution': ciAttributionSchema,
-  'uw-normalization': normalizationJudgementSchema,
+  spec: z.union([specReportSchema, missingContextOutputSchema]),
+  findings: z.union([findingReportSchema, missingContextOutputSchema]),
+  decision: z.union([decisionSchema, missingContextOutputSchema]),
+  'action-result': z.union([actionResultSchema, missingContextOutputSchema]),
+  'spec-assessment': z.union([specAssessmentSchema, missingContextOutputSchema]),
+  plan: z.union([planOutputSchema, missingContextOutputSchema]),
+  'plan-review': z.union([planReviewSchema, missingContextOutputSchema]),
+  implementation: producerImplementationOutputSchema,
+  'ci-attribution': z.union([ciAttributionSchema, missingContextOutputSchema]),
+  'uw-normalization': z.union([normalizationJudgementSchema, missingContextOutputSchema]),
 } as const satisfies Record<ProducerOutput, z.ZodType>
+
+export function producerOutputValid(output: string, value: unknown): boolean {
+  return Object.hasOwn(producerSchemas, output) && producerSchemas[output as ProducerOutput].safeParse(value).success
+}
 
 export function producerJsonSchema(output: string): Json {
   if (!Object.hasOwn(producerSchemas, output)) {

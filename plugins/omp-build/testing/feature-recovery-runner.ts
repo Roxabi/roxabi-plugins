@@ -1,17 +1,20 @@
 import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
-import ompBuildExtension from '../omp/index.ts'
-import { createOmpFixPort } from '../omp/omp-controller.ts'
-import { loadFeatureWorkflow } from '../roxabi/feature-loader.ts'
 import type { OperatorPort } from '../roxabi/uw-contract.ts'
-import { createInstalledUwOperations } from '../roxabi/uw-installed-operations.ts'
-import { createInstalledUwReadPort } from '../roxabi/uw-read-port.ts'
-import { createExtensionApiStub } from './extension-api-stub.ts'
-import { invokeOmpIncompleteNative } from './feature-recovery-incomplete-native.ts'
-import { invokeOmpLiveInterleave } from './feature-recovery-live-interleave.ts'
-import { observedIncompleteNativeResult } from './feature-recovery-observed-native.ts'
-import { invokeOmpReviewApplyFalsify, invokeOmpReviewLifecycle } from './feature-review-lifecycle.ts'
-import { invokeReviewRace } from './feature-review-races.ts'
+import { installFixtureSdkSettings } from './native-sdk-settings-fixture.ts'
+
+await installFixtureSdkSettings(process.argv[3] ?? '')
+const { default: ompBuildExtension } = await import('../omp/index.ts')
+const { createOmpFixPort } = await import('../omp/omp-controller.ts')
+const { loadFeatureWorkflow } = await import('../roxabi/feature-loader.ts')
+const { createInstalledUwOperations } = await import('../roxabi/uw-installed-operations.ts')
+const { createInstalledUwReadPort } = await import('../roxabi/uw-read-port.ts')
+const { createExtensionApiStub } = await import('./extension-api-stub.ts')
+const { invokeOmpIncompleteNative } = await import('./feature-recovery-incomplete-native.ts')
+const { invokeOmpLiveInterleave } = await import('./feature-recovery-live-interleave.ts')
+const { observedIncompleteNativeResult } = await import('./feature-recovery-observed-native.ts')
+const { invokeOmpReviewApplyFalsify, invokeOmpReviewLifecycle } = await import('./feature-review-lifecycle.ts')
+const { invokeReviewRace } = await import('./feature-review-races.ts')
 
 type Payload = {
   reference: string
@@ -94,6 +97,7 @@ async function continueFeature() {
     control: payload.control,
     principal: false,
     read: createInstalledUwReadPort({ cwd: sessionCwd }),
+    uw: await createInstalledUwOperations({ cwd: sessionCwd, operator: noWriteOperator }),
   })
 }
 
@@ -129,8 +133,8 @@ async function invokeWorkflowOperation(operationName: string): Promise<unknown |
       })
     case 'continuation-publish': {
       const continuation = await continueFeature()
-      if (continuation.kind !== 'action') throw new Error(`continuation-not-action:${continuation.kind}`)
-      const result = await observedIncompleteNativeResult(continuation.followUp)
+      if (continuation.kind !== 'action') throw new Error(`continuation-not-action:${JSON.stringify(continuation)}`)
+      const result = await observedIncompleteNativeResult(continuation.followUp, cwd ?? '')
       const published = await workflow.publishFeatureNativeResult({
         cwd: cwd ?? '',
         result,
@@ -278,7 +282,7 @@ async function invokeOmpLifetime(): Promise<{
   await feature('#42', context)
   const port = createOmpFixPort(api)
   const original = port.active()
-  if (original === null) throw new Error('feature-batch-not-active')
+  if (original === null) throw new Error(`feature-batch-not-active: ${JSON.stringify(messages)}`)
   const activeBeforePause = port.active() === original
   await port.stopOwned(structuredClone(original), 'clone-must-not-stop')
   const cloneRetained = port.active() === original

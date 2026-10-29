@@ -1,4 +1,5 @@
 import { effectiveMandateRole } from '../dist/contracts.js'
+import { missingContextOutputSchema } from '../engine/action-context.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import { nextReviewStep } from '../skills/feature/workflow-review-state.js'
@@ -58,6 +59,7 @@ export async function tryAdmittedCiCorrectionContinuation(input: {
       kind: 'pull-request',
       state: 'open',
       candidateGitSHA: input.head,
+      baseGitSHA: null,
     },
     uw: input.uw,
     branch: input.branch,
@@ -108,6 +110,7 @@ export async function continueReviewBoundFix(
         kind: 'pull-request',
         state: 'open',
         candidateGitSHA: delivery.head,
+        baseGitSHA: null,
       },
       branch: delivery.branch,
       base: delivery.base,
@@ -176,7 +179,13 @@ function matchingAttributeCiChangeReceiptId(
   if (!isRecord(receipt) || receipt.phase !== 'result' || receipt.action !== 'attribute-ci') return null
   const structured = isRecord(receipt.structured) ? receipt.structured : null
   const exact = isRecord(receipt.exactInputs) ? receipt.exactInputs : null
-  if (structured?.attribution !== 'change' || exact?.candidateGitSHA !== head) return null
+  if (
+    structured === null ||
+    !('attribution' in structured) ||
+    structured.attribution !== 'change' ||
+    exact?.candidateGitSHA !== head
+  )
+    return null
   const inputScope = isRecord(exact.scope) ? exact.scope : null
   if (inputScope?.repository !== scope.repository || inputScope.target !== scope.target) return null
   return record.recordId
@@ -184,6 +193,18 @@ function matchingAttributeCiChangeReceiptId(
 
 export function latestAttributeCiChangeReceiptId(history: DecodedHistory, head: string, scope: Scope): string | null {
   for (let index = history.operations.length - 1; index >= 0; index -= 1) {
+    const operation = history.operations[index]
+    const receipt = operation?.record?.kind === 'action-receipt' ? operation.record.payload : null
+    if (
+      operation?.status === 'complete' &&
+      receipt?.phase === 'result' &&
+      receipt.action === 'attribute-ci' &&
+      receipt.exactInputs.candidateGitSHA === head &&
+      receipt.exactInputs.scope.repository === scope.repository &&
+      receipt.exactInputs.scope.target === scope.target &&
+      missingContextOutputSchema.safeParse(receipt.structured).success
+    )
+      return null
     const recordId = matchingAttributeCiChangeReceiptId(history.operations[index], head, scope)
     if (recordId !== null) return recordId
   }

@@ -29,6 +29,7 @@ export const WORKFLOW = path.resolve(
 )
 
 const DATE = '2026-01-01T00:00:00Z'
+const REPOSITORY_URL = 'https://github.com/acme/app.git'
 const DEFAULT_ISSUE_BODY = (() => {
   const canonical = canonicalSpec({
     format: SPEC_CONTENT_FORMAT,
@@ -86,7 +87,7 @@ function sandboxBox(allocated: string, spec: Spec): Box {
   const bin = path.join(root, 'bin')
   const stateFile = path.join(root, 'gh-state.json')
   mkdirSync(bin)
-  symlinkSync(SIM, path.join(bin, 'gh'))
+  symlinkSync(process.env.OMP_TEST_GH_SIMULATOR_PATH ?? SIM, path.join(bin, 'gh'))
   return { root, origin, principal, stateFile, env: sandboxEnvironment(root, bin, stateFile, spec), sha: {} }
 }
 
@@ -96,7 +97,8 @@ function initializeRepository(box: Box, spec: Spec): void {
   write(box.principal, spec.base, box)
   git(box, box.principal, ['add', '-A'])
   git(box, box.principal, ['commit', '-qm', 'chore: base'])
-  git(box, box.principal, ['remote', 'add', 'origin', box.origin])
+  git(box, box.principal, ['remote', 'add', 'origin', REPOSITORY_URL])
+  git(box, box.principal, ['config', `url.${box.origin}.insteadOf`, REPOSITORY_URL])
   git(box, box.principal, ['push', '-q', '-u', 'origin', 'main'])
   box.sha.main = git(box, box.principal, ['rev-parse', 'HEAD'])
 }

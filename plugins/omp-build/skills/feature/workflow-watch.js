@@ -158,7 +158,7 @@ async function readWatchExit(cwd, pr, code, ghFn, gitFn) {
       if (continuation) result = resolved.result
     }
   } catch (error) {
-    failure = error
+    if (!error?.reviewRecords) failure = error
     policy = 'unarmed'
   }
   return { gate, records, failure, policy, result }

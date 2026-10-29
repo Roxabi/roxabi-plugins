@@ -8,10 +8,12 @@ import {
   type Json,
   renderIssueSpecBody,
 } from '../../../../contracts.ts'
-import { submission } from '../../../../testing/record-builders.ts'
+import { actionInputDigest, canonicalValueDigest } from '../../../../engine/action-input.ts'
+import { acceptedActionInputs } from '../../../../testing/action-input-fixtures.ts'
+import { criterionEpicReviewGraph } from '../../../../testing/criterion-range-approval.ts'
 import { epicReviewGraph } from '../../../../testing/record-graphs.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../../../../testing/roxabi-presets.ts'
-import { sandboxOf } from './epic-driver-sandbox.ts'
+import { git, sandboxOf } from './epic-driver-sandbox.ts'
 
 const { projection: TEST_PROJECTION_CONFIG } = roxabiRecordFixtures()
 const { framedBodies } = roxabiWorkflowFixtures()
@@ -51,12 +53,9 @@ export function recordHistory(issue: number, comments: Comment[] = []): History 
   }
 }
 export function framedRecords(issue: number, records: CanonicalRecord[]): Comment[] {
-  return framedBodies(
-    records.map((record) => ({ ...record, repository: 'o/r', target: `o/r#${issue}` })),
-    ME,
-    [],
-    TEST_PROJECTION_CONFIG,
-  ).map((body) => ({ body, author: ME }))
+  if (records.some((record) => record.repository !== 'o/r' || record.target !== `o/r#${issue}`))
+    throw new Error(`fixture record does not belong to o/r#${issue}`)
+  return framedBodies(records, ME, [], TEST_PROJECTION_CONFIG).map((body) => ({ body, author: ME }))
 }
 
 export function epicEvent(
@@ -91,73 +90,118 @@ export function eventPayloads(issue: number): Record<string, unknown>[] {
     operation.record?.kind === 'epic-event' ? [operation.record.payload as Record<string, unknown>] : [],
   )
 }
-
-export function epicDecisionHistory(range: string, blocking: boolean): Comment[] {
-  const head = range.slice(range.indexOf('..') + 2)
-  const graph = epicReviewGraph({ prefix: `epic-${head.slice(0, 8)}`, head })
-  const root = {
-    ...graph.root,
-    payload: { ...graph.root.payload, subject: { kind: 'epic-range' as const, range } },
+export function pullReviewInputs(number: number, head: string) {
+  const mandate = decodeHistory(recordHistory(2, issueComments(2)))
+    .operations.map((operation) => operation.record)
+    .find((record) => record?.kind === 'mandate')
+  const binding = decodeHistory(recordHistory(number, issueComments(number)))
+    .operations.map((operation) => operation.record)
+    .find((record) => record?.kind === 'workflow-binding')
+  if (mandate?.kind !== 'mandate' || binding?.kind !== 'workflow-binding')
+    throw new Error('bound PR review fixture needs its accepted mandate and binding')
+  const base = acceptedActionInputs(mandate, 'review')
+  const reference = (record: typeof mandate | typeof binding) => ({
+    source: 'record' as const,
+    record: {
+      scope: { repository: record.repository, target: record.target },
+      recordId: record.recordId,
+      kind: record.kind,
+    },
+    selector: '/payload',
+    digest: canonicalValueDigest(record.payload),
+  })
+  const baseCommit = git(sandboxOf().epic, 'rev-parse', 'refs/remotes/origin/main')
+  const manifest = {
+    ...base.manifest,
+    subject: {
+      kind: 'uw' as const,
+      uw: { repository: mandate.repository, target: mandate.target },
+      pullRequest: { repository: binding.repository, target: binding.target },
+      binding: reference(binding),
+    },
+    acceptedSources: [reference(mandate)],
+    code: { repository: 'o/r', base: baseCommit, head, referenceCommit: head },
+    plugin: { ...base.manifest.plugin, commit: git(import.meta.dirname, 'rev-parse', 'HEAD') },
   }
-  const panel = blocking
-    ? graph.panel
-    : {
-        ...graph.panel,
-        payload: {
-          ...graph.panel.payload,
-          rawAttempts: [
-            submission({
-              id: `child-${graph.panel.recordId}`,
-              structuredOutput: { status: 'valid', data: { findings: [] } },
-            }),
-          ],
-          structured: { findings: [] },
-          findings: [],
-        },
-      }
-  const decision = blocking
-    ? graph.decision
-    : {
-        ...graph.decision,
-        payload: { ...graph.decision.payload, judgment: { ...graph.decision.payload.judgment, findings: [] } },
-      }
-  const synthesisContribution = blocking
-    ? graph.synthesisContribution
-    : {
-        ...graph.synthesisContribution,
-        payload: {
-          ...graph.synthesisContribution.payload,
-          rawAttempts: [
-            submission({
-              id: `child-${graph.synthesisContribution.recordId}`,
-              structuredOutput: { status: 'valid', data: decision.payload.judgment },
-            }),
-          ],
-          structured: decision.payload.judgment,
-        },
-      }
-  const records = graph.records.map((record) => {
-    if (record.recordId === root.recordId) return root
-    if (record.recordId === panel.recordId) return panel
-    if (record.recordId === synthesisContribution.recordId) return synthesisContribution
-    if (record.recordId === decision.recordId) return decision
-    return record
-  }) as CanonicalRecord[]
-  return framedRecords(1, [
-    ...records,
-    epicEvent(
-      1,
-      `${root.recordId}-event`,
+  return { ...base, manifest, fingerprint: actionInputDigest(manifest) }
+}
+
+export function epicDecisionHistory(range: string, blocking: boolean, criteriaSatisfied = false): Comment[] {
+  const [baseCommit, head] = range.split('..')
+  if (!baseCommit || !head) throw new Error(`invalid epic range ${range}`)
+  const mandate = decodeHistory(recordHistory(1, issueComments(1)))
+    .operations.map((operation) => operation.record)
+    .find((record) => record?.kind === 'mandate')
+  if (mandate?.kind !== 'mandate') throw new Error('epic review fixture needs its accepted parent mandate')
+  const base = acceptedActionInputs(mandate, 'review')
+  const manifest = {
+    ...base.manifest,
+    acceptedSources: [
       {
-        event: 'epic-review',
-        run: RUN,
-        decisionId: decision.recordId,
-        inventoryIds: [root.recordId, graph.synthesis.recordId],
-        range,
+        source: 'record' as const,
+        record: {
+          scope: { repository: mandate.repository, target: mandate.target },
+          recordId: mandate.recordId,
+          kind: mandate.kind,
+        },
+        selector: '/payload',
+        digest: canonicalValueDigest(mandate.payload),
       },
-      [decision.recordId, root.recordId, graph.synthesis.recordId],
-    ),
-  ])
+    ],
+    code: { repository: mandate.repository, base: baseCommit, head, referenceCommit: head },
+    plugin: { ...base.manifest.plugin, commit: git(import.meta.dirname, 'rev-parse', 'HEAD') },
+  }
+  const inputs = { ...base, manifest, fingerprint: actionInputDigest(manifest) }
+  const options = {
+    mandate,
+    inputs,
+    head,
+    range,
+    prefix: `epic-${head.slice(0, 8)}`,
+    blocking,
+  }
+  const graph = criteriaSatisfied
+    ? criterionEpicReviewGraph(options)
+    : epicReviewGraph({
+        prefix: options.prefix,
+        head,
+        range,
+        inputs,
+        scope: { repository: 'o/r', target: 'o/r#1' },
+        empty: !blocking,
+      })
+  const root = graph.root
+  const records = graph.records
+  const implementation =
+    criteriaSatisfied && 'issueRecords' in graph ? graph.issueRecords.filter((record) => record.kind !== 'mandate') : []
+  const parentHistory = decodeHistory(recordHistory(1, issueComments(1)))
+  // Same-scope inputs must be in the encoded history, not just external histories.
+  // The parent already contains these canonical frames; return only new frames.
+  const seed = framedBodies([mandate], ME, [], TEST_PROJECTION_CONFIG)
+  return framedBodies(
+    [
+      mandate,
+      ...implementation,
+      ...records,
+      epicEvent(
+        1,
+        `${root.recordId}-event`,
+        {
+          event: 'epic-review',
+          run: RUN,
+          decisionId: graph.decision.recordId,
+          inventoryIds: [root.recordId, graph.synthesis.recordId],
+          range,
+        },
+        [graph.decision.recordId, root.recordId, graph.synthesis.recordId],
+      ),
+    ],
+    ME,
+    [parentHistory],
+    TEST_PROJECTION_CONFIG,
+  )
+    .slice(seed.length)
+    .map((body) => ({ body, author: ME }))
 }
 
 export { childNode, prNode } from './epic-driver-nodes.ts'

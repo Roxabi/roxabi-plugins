@@ -2,6 +2,7 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import { githubScope, uwCreateInputSchema, uwProposalInputSchema } from '../dist/contracts.js'
+import { type DurableUwCommand, executeDurableUwCommand, parseDurableUwCommand } from '../roxabi/uw-command-read.ts'
 import type { UwCreateInput, UwOperations, UwProposalInput } from '../roxabi/uw-contract.ts'
 import { UwGraphUnavailableError } from '../roxabi/uw-read-port.ts'
 import type { OmpBuildExtensionApi } from './omp-controller.ts'
@@ -11,6 +12,7 @@ import { type CommandOperatorPort, createOperatorConfirmation } from './omp-oper
 export type UwOperationsFactory = (input: {
   cwd: string
   operator: CommandOperatorPort
+  artifactsDir: string | null
 }) => Promise<UwOperations> | UwOperations
 
 type ParsedUwCommand =
@@ -19,6 +21,7 @@ type ParsedUwCommand =
   | { kind: 'create'; repository: string; proposalFile: string }
   | { kind: 'accept-material'; repository: string; number: number }
   | { kind: 'invalid'; reason: string }
+  | DurableUwCommand
 
 function issueReference(value: string): { repository: string; number: number } | null {
   const match = /^([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)#([1-9][0-9]*)$/.exec(value)
@@ -56,6 +59,8 @@ function parseCreateCommand(tokens: readonly string[]): ParsedUwCommand {
 
 export function parseUwCommand(args: string): ParsedUwCommand {
   const [command, ...tokens] = args.trim().split(/\s+/).filter(Boolean)
+  const durable = parseDurableUwCommand(command, tokens)
+  if (durable !== null) return durable
   switch (command) {
     case 'read':
     case 'accept-material':
@@ -220,6 +225,9 @@ async function executeUwCommand(
   parsed: Exclude<ParsedUwCommand, { kind: 'invalid' }>,
   operations: UwOperations,
 ): Promise<CommandOutcome> {
+  if (parsed.kind === 'action' || parsed.kind === 'evidence' || parsed.kind === 'verdicts') {
+    return executeDurableUwCommand(parsed, operations)
+  }
   switch (parsed.kind) {
     case 'read':
       try {
@@ -261,7 +269,18 @@ export function registerUwCommand(pi: OmpBuildExtensionApi, factory: UwOperation
       const ownsRootCapability = rootContext(ctx)
       const operator = ownsRootCapability ? beginFeatureUwOperation(pi, privateOperator) : privateOperator
       try {
-        reportOutcome(pi, ctx, await executeUwCommand(parsed, await factory({ cwd: ctx.cwd, operator })))
+        reportOutcome(
+          pi,
+          ctx,
+          await executeUwCommand(
+            parsed,
+            await factory({
+              cwd: ctx.cwd,
+              operator,
+              artifactsDir: ctx.localProtocolOptions?.getArtifactsDir?.() ?? null,
+            }),
+          ),
+        )
       } finally {
         if (ownsRootCapability) cancelFeatureUwOperation(pi, operator)
         else operator.cancel()

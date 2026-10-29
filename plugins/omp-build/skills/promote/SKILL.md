@@ -309,10 +309,10 @@ Promotion Summary
 
 ## Step 7 — Create Promotion PR
 
-**Forced path (no free-form `gh pr create`).** Use `create-promote-pr.sh` — it always runs `collect-closing-issues.sh` and injects the Closes section. Skipping harvest is impossible without editing the wrapper.
+**Forced path (no free-form `gh pr create`).** Use `create-promote-pr.sh`. It publishes the summary after replacing a closing keyword that is followed by an issue or pull reference with `References`. It does not harvest issues and does not add a closing keyword. A remaining `#N` is text, not a workflow binding.
 
 ```bash
-# 1) Write body WITHOUT Closes (wrapper appends harvest)
+# 1) Write the promotion summary. The wrapper replaces a copied closing keyword with `References` and keeps every other byte.
 BODY_FILE="$(mktemp)"
 cat >"$BODY_FILE" <<EOF
 ## Promotion: staging → main ($VERSION)
@@ -329,8 +329,7 @@ cat >"$BODY_FILE" <<EOF
 Generated with [Roxabi omp-build](https://github.com/Roxabi/roxabi-plugins) via \`/promote\`
 EOF
 
-# 2) Create or update staging→main PR (harvest + inject mandatory)
-# Exit 1 if harvest degraded (exit 3 from collect) unless --allow-degraded after human review.
+# 2) Create or update the staging→main PR. The wrapper renders the summary; it does not append a closing keyword.
 T=$(realpath skill://promote/create-promote-pr.sh) || {
   printf 'REFUSE: cannot resolve skill://promote/create-promote-pr.sh\n'
   exit 1
@@ -340,12 +339,11 @@ PR_URL=$(bash "$T" \
   --title "chore: promote staging to main ($VERSION)" \
   --body-file "$BODY_FILE")
 PR_RC=$?
-# Optional after reviewing WARNs: add --allow-degraded
 rm -f "$BODY_FILE"
 [ "$PR_RC" -eq 0 ] || exit "$PR_RC"
 ```
 
-**Does this auto-close?** For every `Closes #N` **listed in the promote body** after harvest: yes, when the promote PR **merges into `main`**. Harvest is **best-effort** (same-repo keyword adjacency only; open issues at harvest). Degraded harvest **REFUSE**s the PR create unless `--allow-degraded`. Cross-repo `owner/repo#N` is not re-emitted. Eyeball the Closes section before merge.
+The published summary does not request keyword closure. A commit message copied into the summary has that keyword replaced by `References`; the reference and every other byte stay. The git commit itself is left unchanged. A closing keyword a person later types in GitHub is that person's text, not this wrapper's effect.
 
 Display PR URL (`$PR_URL`).
 
@@ -572,10 +570,8 @@ split brain (N10) — two release writers, one repo. Switch modes by flipping th
 | Open PRs on σ | Warn, list, Q |
 | CI failing | Warn, show failures, Q |
 | Preview fails | Show error, Q |
-| PR already exists | `create-promote-pr.sh` updates open staging→main PR (title + body + Closes) |
-| No closing keywords in range | Omit Closes section (ok) |
-| Closing keywords only on feature→staging PRs | Re-emitted via forced collect in `create-promote-pr.sh` |
-| Harvest degraded (collect exit 3) | REFUSE create-pr unless `--allow-degraded` after human review |
+| PR already exists | `create-promote-pr.sh` updates the open staging→main PR title and rendered summary |
+| Summary contains a closing keyword | Replaced by `References` before create or update. The reference stays text and is not a binding |
 | Free-form `gh pr create` for promote | **Forbidden** — use `create-promote-pr.sh` only |
 | `--dry-run` | Summary only, ¬create PR/commit |
 | ¬merged (`--finalize`) | REFUSE: merge first — before Step 9c, so nothing was written |

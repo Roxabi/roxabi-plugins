@@ -1,4 +1,6 @@
+import type { ContextActionBinding } from '../engine/action-context.ts'
 import type { NativeBatchResult, NativeTask } from '../omp/review-runtime/contracts.ts'
+import { implementNativeOutcome } from './feature-native-outcome.ts'
 import type { FixActionResult, FixIdentity, FixRecord, PreparedFix, RecordPublisher } from './fix-contract.ts'
 import { failure } from './fix-contract.ts'
 import { publish, record } from './fix-records.ts'
@@ -19,10 +21,11 @@ export type NativeTaskSlot = {
   output: 'findings' | 'decision' | 'action-result'
   classId: null
   sourceFindingIds: string[]
+  action?: ContextActionBinding
 }
 
 export function taskSlot(
-  task: NativeTask,
+  task: { name: string; agent: string; action?: NativeTask['action'] },
   phase: 'intake' | 'synthesis' | 'fix' | 'falsification',
   output: 'findings' | 'decision' | 'action-result',
 ): NativeTaskSlot {
@@ -35,6 +38,9 @@ export function taskSlot(
     output,
     classId: null,
     sourceFindingIds: [],
+    ...(task.action === undefined
+      ? {}
+      : { action: { actionId: task.action.snapshot.actionId, inputs: task.action.inputs } }),
   }
 }
 
@@ -69,15 +75,20 @@ async function publishNativeContribution(
   child: NativeBatchResult['children'][number],
 ): Promise<FixActionResult<FixRecord>> {
   const contributionId = identity.nextRecordId('contribution')
-  const contribution = record(
-    identity,
-    prepared.target,
-    'contribution',
-    nativeContributionPayload(slot, child, inventoryId, contributionId, output),
-    contextInputs,
-    contributionId,
-  )
-  return publish(publisher, contribution)
+  const payload = nativeContributionPayload(slot, child, inventoryId, contributionId, output)
+  if (output === 'action-result' && slot !== null && payload.native !== null) {
+    if (slot.action !== undefined) payload.host = { ...payload.host, action: slot.action }
+    const capture = implementNativeOutcome(child, child.usable, new Set())
+    payload.native = {
+      ...payload.native,
+      ...(capture.observation === undefined ? {} : { observation: capture.observation }),
+      ...(child.nativeProvenance === undefined ? {} : { commandProvenance: child.nativeProvenance }),
+      ...(child.commandRuns === undefined ? {} : { commandRuns: [...child.commandRuns] }),
+      ...(child.bashCalls === undefined ? {} : { bashCalls: [...child.bashCalls] }),
+    }
+  }
+  const contribution = record(identity, prepared.target, 'contribution', payload, contextInputs, contributionId)
+  return publish(publisher, contribution, child.canPublishContext)
 }
 
 export async function publishNativeContributions(
@@ -85,7 +96,7 @@ export async function publishNativeContributions(
   identity: FixIdentity,
   publisher: RecordPublisher,
   inventoryId: string,
-  tasks: readonly NativeTask[],
+  tasks: readonly { name: string; agent: string }[],
   phase: 'intake' | 'synthesis' | 'fix' | 'falsification',
   output: 'findings' | 'decision' | 'action-result',
   contextInputs: readonly string[],

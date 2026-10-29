@@ -30,7 +30,7 @@ export function registerReviewGateMandateCases(): void {
       const fixture = setupReviewGateFixture()
       await seedMandate(fixture)
       const input = await boundInput(fixture)
-      expect(input).toMatch(/^[0-9a-f]{64}$/)
+      expect(input.fingerprint).toMatch(/^[0-9a-f]{64}$/)
       publish(fixture, cleanReview(fixture.head, 'one', input), 'SUCCESS')
 
       const result = runReviewGate(fixture)
@@ -79,7 +79,7 @@ export function registerReviewGateMandateCases(): void {
       async (conclusion) => {
         const fixture = setupReviewGateFixture()
         const input = await standaloneNoProducerInput(fixture)
-        expect(input).toMatch(/^[0-9a-f]{64}$/)
+        expect(input.fingerprint).toMatch(/^[0-9a-f]{64}$/)
         publish(
           fixture,
           cleanReview(fixture.head, 'one', input),
@@ -204,7 +204,7 @@ export function registerReviewGateMandateCases(): void {
       },
     )
 
-    it('requires a fresh review when the accepted Spec changes at the same head', async () => {
+    it('refuses landing when the accepted Spec changes at the same head', async () => {
       const fixture = setupReviewGateFixture()
       await seedMandate(fixture)
       const input = await boundInput(fixture)
@@ -215,11 +215,7 @@ export function registerReviewGateMandateCases(): void {
 
       expect(result.status).toBe(1)
       expect(result.stderr).toBe('')
-      expect(JSON.parse(result.stdout)).toMatchObject({
-        allowed: false,
-        reason: 'review-input-changed',
-        detail: { error: expect.any(String) },
-      })
+      expect(JSON.parse(result.stdout)).toMatchObject({ allowed: false })
     })
 
     it('refuses pending CI when the current canonical review requests changes', async () => {

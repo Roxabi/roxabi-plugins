@@ -1,22 +1,28 @@
 import { parseIssueSpecBody, rawSource, renderIssueSpecBody } from '../../adapters/github-native/uw-spec.ts'
 import { decodeHistory, buildRecord as frameRecord } from '../../dist/contracts.js'
+import { actionInputDigest } from '../../engine/action-input.ts'
 import { canonicalSpec } from '../../engine/uw-spec.ts'
 import { SPEC_CONTENT_FORMAT } from '../../engine/uw-spec-schema.ts'
 import { confirmedReviewSemanticContext } from '../../roxabi/review-semantic-canon.ts'
+import { createProductionActionPorts } from '../../roxabi/uw-input-readers.ts'
+import { freshReviewInputs, standaloneReviewInputs } from '../../testing/action-input-fixtures.ts'
+import { criterionImplementationRecords, criterionReviewGraph } from '../../testing/criterion-approval.ts'
 import { reviewGraph } from '../../testing/record-graphs.ts'
-import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
-import { hashReviewInput } from './review-input.ts'
-import { createGateGit } from './review-record-git-fixture.js'
+import { assembleActionInputs } from '../../testing/review-input-assembly.ts'
+import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
+import { CHECKOUT_HEADS, createGateGit, WORKTREE } from './review-record-git-fixture.js'
 import { createGateGh } from './review-record-github-fixture.js'
+import { INSTALLED_PLUGIN, TOOLING_COMMIT } from './review-record-pin.js'
 import { confirmedReviewSemanticContext as observedReviewSemanticContext } from './workflow-review-input.js'
-
 export const REPOSITORY = 'acme/app'
 export const ISSUE = 42
 export const ISSUE_SCOPE = { repository: REPOSITORY, target: `${REPOSITORY}#${ISSUE}` }
 export const PR = 7
 export const SCOPE = { repository: REPOSITORY, target: `${REPOSITORY}#${PR}` }
 export const AUTHOR = 'omp-bot'
-export const HEADS = ['1'.repeat(40), '2'.repeat(40), '3'.repeat(40), '4'.repeat(40)]
+export const HEADS = CHECKOUT_HEADS
+export { WORKTREE }
+
 const { featureMandate, historyFrom, ownSpecFromSnapshot, workflowBinding } = roxabiWorkflowFixtures()
 
 function nativeFeatureSpec(criterion) {
@@ -41,7 +47,39 @@ function nativeFeatureSpec(criterion) {
 const NATIVE_SPEC = nativeFeatureSpec('Save keeps the selected region')
 export const SPEC = NATIVE_SPEC.body
 
-function reviewSet(index, { head, verdict, input = null }) {
+function reviewInputsForPullRequest(inputs, head = HEADS[0]) {
+  const manifest = {
+    ...inputs.manifest,
+    code: { ...inputs.manifest.code, head, referenceCommit: head },
+    subject: { kind: 'standalone-pr', pullRequest: SCOPE },
+  }
+  return { ...inputs, manifest, fingerprint: actionInputDigest(manifest) }
+}
+
+const STANDALONE_INPUTS = reviewInputsForPullRequest(standaloneReviewInputs())
+const DISTINCT_INPUTS = reviewInputsForPullRequest(freshReviewInputs())
+
+function boundInputs(input, inputs) {
+  if (inputs) return inputs
+  if (input === null) return null
+  if (input === STANDALONE_INPUTS.fingerprint) return STANDALONE_INPUTS
+  if (input === DISTINCT_INPUTS.fingerprint) return DISTINCT_INPUTS
+  throw new Error('review fixture input is not a bound action-input fingerprint')
+}
+
+function reviewPayload(record, input, inputs) {
+  if (record.kind !== 'review-attempt' && record.kind !== 'review') return record.payload
+  const payload = { ...record.payload, input: inputs ? inputs.fingerprint : input }
+  if (record.kind === 'review-attempt' && 'inputSnapshot' in record.payload) {
+    const snapshot = inputs ?? reviewInputsForPullRequest(STANDALONE_INPUTS, record.payload.candidateGitSHA)
+    payload.inputSnapshot = snapshot
+    payload.actionInputDigest = snapshot.fingerprint
+  }
+  return payload
+}
+
+function reviewSet(index, { head, verdict, input = null, inputs = null }) {
+  const bound = boundInputs(input, inputs)
   const graph = reviewGraph({
     prefix: `review-${index}`,
     head,
@@ -49,10 +87,8 @@ function reviewSet(index, { head, verdict, input = null }) {
     label: verdict === 'Request changes' ? 'issue(blocking)' : 'praise',
   })
   return graph.records.map((record) => {
-    const payload =
-      record.kind === 'review-attempt' || record.kind === 'review' ? { ...record.payload, input } : record.payload
-    const built = frameRecord({ ...record, ...SCOPE, payload })
-    if (!built.ok) throw new Error(built.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
+    const built = frameRecord({ ...record, ...SCOPE, payload: reviewPayload(record, input, bound) })
+    if (!built.ok) throw new Error(built.diagnostics.map((diagnostic) => `${diagnostic.message}`).join('; '))
     return built.value
   })
 }
@@ -64,8 +100,7 @@ function framed(record) {
   return `<!-- omp-build-record v=1 kind=${record.kind} id=${record.recordId} operationId=${record.operationId} part=1/1 data=${data} -->\n`
 }
 
-/** No-producer canon: empty PR body, no tracker, null producer parts. */
-export function noProducerInput(head, pr = PR) {
+export function noProducerInput(_head, _pr = PR) {
   const semantic = confirmedReviewSemanticContext({
     mode: 'standalone',
     binding: null,
@@ -75,7 +110,11 @@ export function noProducerInput(head, pr = PR) {
     additionalRequirements: [],
   })
   if ('ok' in semantic) throw new Error(semantic.error)
-  return hashReviewInput(REPOSITORY, { pr, candidate: head }, { body: '', lastEditedAt: null }, semantic)
+  return STANDALONE_INPUTS.fingerprint
+}
+
+export function distinctReviewInput() {
+  return DISTINCT_INPUTS.fingerprint
 }
 
 function mandateRecord(head) {
@@ -92,30 +131,44 @@ function mandateRecord(head) {
 
 async function linkedInput(head, issue, bindingHistory) {
   const { gh } = gateGh(bindingHistory, { head, armed: true, issueHistory: issue })
-  const semantic = await observedReviewSemanticContext('/tmp/wt', PR, gh, 'main', AUTHOR)
+  const semantic = await observedReviewSemanticContext(WORKTREE, PR, gh, 'main', AUTHOR)
   if (semantic.ok === false) throw new Error(semantic.error)
-  return hashReviewInput(REPOSITORY, { pr: PR, candidate: head }, { body: '', lastEditedAt: null }, semantic)
+  return assembleActionInputs(
+    {
+      actionId: `review-${PR}`,
+      purpose: 'review',
+      subject: { kind: 'uw', uw: ISSUE_SCOPE, pullRequest: SCOPE, binding: null },
+      code: { repository: REPOSITORY, base: HEADS[0], head, referenceCommit: head },
+      stageSources: [],
+      expandedContext: [],
+    },
+    createProductionActionPorts({
+      cwd: WORKTREE,
+      gh,
+      pluginPin: { repository: 'Roxabi/roxabi-plugins', commit: TOOLING_COMMIT, installedRoot: INSTALLED_PLUGIN },
+    }),
+  )
 }
 
 /** Approving review bound to issue 42, shipped config, and the empty-PR canon. */
 export async function linkedApproval(head = HEADS[0]) {
   const mandate = mandateRecord(head)
-  const issue = historyFrom([mandate], AUTHOR)
+  const issueRecords = criterionImplementationRecords(mandate, head)
+  const issue = historyFrom(issueRecords, AUTHOR)
   const binding = workflowBinding(SCOPE, mandate, 'feat/save', 'main')
   const framedBinding = historyFrom([binding], AUTHOR, AUTHOR, [issue])
-  const input = await linkedInput(head, issue, framedBinding)
-  const reviews = reviewSet(1, { head, verdict: 'Approve (clean)', input })
-  const comments = [
-    ...framedBinding.source.comments,
-    ...reviews.map((record, index) => ({
-      locator: `${SCOPE.target}:comment:${index + 2}`,
-      nativeId: String(index + 2),
-      body: framed(record),
-      author: AUTHOR,
-      createdAt: `2026-01-01T00:00:${String(index + 1).padStart(2, '0')}Z`,
-      updatedAt: `2026-01-01T00:00:${String(index + 1).padStart(2, '0')}Z`,
-    })),
-  ].map((comment, index) => ({
+  const inputs = await linkedInput(head, issue, framedBinding)
+  const reviews = criterionReviewGraph({
+    mandate,
+    inputs,
+    head,
+    issueRecords,
+    scope: SCOPE,
+    projection: roxabiRecordFixtures().projection,
+    prefix: 'review-1',
+    author: AUTHOR,
+  })
+  const comments = [...framedBinding.source.comments, ...reviews.comments].map((comment, index) => ({
     ...comment,
     locator: `${SCOPE.target}:comment:${index + 1}`,
     nativeId: String(index + 1),
@@ -129,7 +182,7 @@ export async function linkedApproval(head = HEADS[0]) {
       comments,
     }),
     issue,
-    input,
+    input: inputs.fingerprint,
   }
 }
 

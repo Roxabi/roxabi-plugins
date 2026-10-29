@@ -160,7 +160,7 @@ export async function gather(
         : { state: 'none', failed: [], pending: [] },
     landingError,
     children: observedChildren(nodes, full, native, histories, rawPrs, stopped, refs, ownUws),
-    reviews: reviewsFromEvents(epicHistory),
+    reviews: await reviewsFromEvents(repo, epicHistory),
     hooks: hooksFromEvents(epicHistory),
   }
   return { facts, epicHistory, parentAdmission }

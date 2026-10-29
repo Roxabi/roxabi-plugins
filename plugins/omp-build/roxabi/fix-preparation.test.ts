@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { confirmingUwOperations } from '../testing/action-input-fixtures.ts'
 import type { FixRecord, FixTarget } from './fix-contract.ts'
 import { prepareStandaloneFix } from './fix-preparation.ts'
 
@@ -10,6 +11,7 @@ function openTarget(): FixTarget {
     kind: 'pull-request',
     state: 'open',
     candidateGitSHA: 'a'.repeat(40),
+    baseGitSHA: 'b'.repeat(40),
   }
 }
 
@@ -46,6 +48,7 @@ describe('standalone fix preparation', () => {
             solutionSpace: 'correction evidence only',
           },
         ],
+        operations: confirmingUwOperations(),
       },
       {
         resolveExplicit: async () => ({ ...openTarget(), state: 'closed' }),
@@ -66,6 +69,13 @@ describe('standalone fix preparation', () => {
   it('uses baseline policy by default for a bounded standalone correction', async () => {
     const records: FixRecord[] = []
     let sequence = 0
+    const operations = confirmingUwOperations()
+    const prepareAction = operations.prepareAction
+    let observedCode: unknown
+    operations.prepareAction = async (request) => {
+      observedCode = request.code
+      return prepareAction(request)
+    }
     const result = await prepareStandaloneFix(
       {
         cwd: '/worktree',
@@ -95,6 +105,7 @@ describe('standalone fix preparation', () => {
             solutionSpace: 'correction evidence only',
           },
         ],
+        operations,
       },
       {
         resolveExplicit: async () => openTarget(),
@@ -112,6 +123,12 @@ describe('standalone fix preparation', () => {
     )
 
     expect(result.ok).toBe(true)
+    expect(observedCode).toEqual({
+      repository: 'Acme/app',
+      base: 'b'.repeat(40),
+      head: 'a'.repeat(40),
+      referenceCommit: 'a'.repeat(40),
+    })
     const inventory = records.find((record) => record.kind === 'review-attempt')
     if (inventory?.kind !== 'review-attempt') throw new Error('expected correction inventory')
     expect(inventory.payload).toMatchObject({ purpose: 'correction', policy: { version: 'baseline' } })
@@ -158,6 +175,7 @@ describe('standalone fix preparation', () => {
             solutionSpace: 'correction evidence only',
           },
         ],
+        operations: confirmingUwOperations(),
       },
       {
         resolveExplicit: async () => openTarget(),

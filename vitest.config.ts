@@ -54,6 +54,8 @@ export default defineConfig({
         test: {
           name: 'integration',
           include: [INTEGRATION],
+          globalSetup: ['./vitest.integration.global-setup.ts'],
+          setupFiles: ['./vitest.integration.setup.ts'],
           // 26x the slowest fork measured locally, 1155ms. Wide enough to absorb
           // a loaded runner, tight enough that a genuinely hung child still
           // fails the job instead of hanging it.

@@ -27,6 +27,7 @@ export const cause: CorrectionCause = {
 
 export type Workspace = {
   cwd: string
+  base: string
   head: string
   binding: {
     pushUrl: string
@@ -87,7 +88,9 @@ export function workspace(): Workspace {
   git(cwd, ['add', '--', 'src/guard.txt'])
   git(cwd, ['commit', '-m', 'initial'])
   const defaultBranch = git(cwd, ['branch', '--show-current'])
+  const base = git(cwd, ['rev-parse', 'HEAD'])
   git(cwd, ['checkout', '-b', 'fix-smoke'])
+  git(cwd, ['commit', '--allow-empty', '-m', 'pull request candidate'])
   const head = git(cwd, ['rev-parse', 'HEAD'])
   const pushUrl = allocate('omp-correction-remote-')
   git(pushUrl, ['init', '--bare'])
@@ -96,6 +99,7 @@ export function workspace(): Workspace {
 
   return {
     cwd,
+    base,
     head,
     binding: {
       pushUrl,

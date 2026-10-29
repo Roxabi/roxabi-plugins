@@ -2,14 +2,24 @@ import type { NativeBatch, NativeExtension, NativeTaskWireInput } from './contra
 import { NATIVE_TASK_INTENT } from './contracts'
 import type { NativeBatchController } from './controller'
 
-function announceMessage(input: NativeTaskWireInput): string {
-  // Model-facing wire only: SDK requires harness intent `i`; execution-authority admit keeps `input` without it.
+export type HiddenControlMessage = {
+  customType: 'omp-build-native-batch'
+  display: false
+  content: string
+}
+
+export function hiddenControlMessage(input: NativeTaskWireInput): HiddenControlMessage {
   const modelFacing = { i: NATIVE_TASK_INTENT, ...input }
-  return [
-    'OMP_BUILD_NATIVE_BATCH:',
-    JSON.stringify(modelFacing),
-    'Invoke exactly this one prepared native task batch now. Do not alter its context, tasks, roles, names, or schema fields. If it cannot be invoked exactly, stop and report the divergence.',
-  ].join('\n')
+  return {
+    customType: 'omp-build-native-batch',
+    display: false,
+    content: [
+      'OMP_BUILD_NATIVE_BATCH:',
+      JSON.stringify(modelFacing),
+      'Invoke exactly this one prepared native task batch now. Do not alter its context, tasks, roles, names, or schema fields. If it cannot be invoked exactly, stop and report the divergence.',
+      'This control is not model-hidden: display is false and triggerTurn is true, so it enters model context without a visible main-conversation turn.',
+    ].join('\n'),
+  }
 }
 
 /** Port injected into Roxabi products; dispatch remains a model continuation, never direct task execution. */
@@ -29,14 +39,14 @@ export function createNativeReviewPort(
       }
       const immediate = controller.takeIdleAnnouncement(batch)
       const input = immediate === null ? null : controller.wire(immediate)
-      if (input !== null) await pi.sendUserMessage(announceMessage(input))
+      if (input !== null) await pi.sendMessage(hiddenControlMessage(input), { triggerTurn: true })
     },
   }
 }
 
 /** Consume and serialize the one valid agent-end follow-up, if any. */
-export function followUpAnnouncement(controller: NativeBatchController): string | null {
+export function followUpAnnouncement(controller: NativeBatchController): HiddenControlMessage | null {
   const batch = controller.consumeFollowUp()
   const input = batch === null ? null : controller.wire(batch)
-  return input === null ? null : announceMessage(input)
+  return input === null ? null : hiddenControlMessage(input)
 }

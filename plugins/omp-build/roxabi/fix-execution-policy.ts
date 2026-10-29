@@ -61,7 +61,7 @@ export function admitDecisionExecution(
   return { ok: true, value: undefined }
 }
 
-export function defaultIntakeTask(input: DefaultFixRequest): NativeTask {
+export function defaultIntakeTask(input: DefaultFixRequest): Omit<NativeTask, 'action'> {
   return actionTask(
     'fix-intake',
     nativeFixProfileByAction.intake,
@@ -70,11 +70,11 @@ export function defaultIntakeTask(input: DefaultFixRequest): NativeTask {
   )
 }
 
-export function defaultSynthesisTask(): NativeTask {
+export function defaultSynthesisTask(): Omit<NativeTask, 'action'> {
   return actionTask(
     'fix-synthesis',
     nativeFixProfileByAction.synthesis,
-    'Synthesize one correction-purpose decision from the supplied complete contribution payloads. Preserve source IDs, original raw associations, exact policy and seven-field causes; do not edit, commit, push, arm, or land.',
+    'Synthesize one correction-purpose decision from the confirmed contribution records named by the index. Preserve source IDs, original raw associations, exact policy and seven-field causes; do not edit, commit, push, arm, or land.',
     'one correction decision from admitted intake records',
   )
 }

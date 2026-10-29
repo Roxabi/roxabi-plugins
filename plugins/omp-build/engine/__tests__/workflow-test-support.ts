@@ -1,3 +1,4 @@
+import { observedComment } from '../../testing/record-history.ts'
 import { createWorkflowFixtures } from '../../testing/workflow-fixtures.ts'
 import type { DecodedHistory } from '../history-schema.ts'
 import { buildRecord, parseRecord } from '../record-construction.ts'
@@ -100,7 +101,9 @@ function history(records: CanonicalRecord[], scope = SCOPE): DecodedHistory {
       status: 'complete',
       authority: isWorkflowKind(record.kind) ? 'accounted' : 'authority',
       claimedKinds: [record.kind],
-      parts: [],
+      parts: [
+        observedComment({ locator: `comment-${record.recordId}`, nativeId: record.recordId, author: 'operator' }),
+      ],
       record,
     })),
     diagnostics: [],

@@ -14,7 +14,9 @@ import { runInstalledFeatureCommand } from '../roxabi/feature-entry.ts'
 import { loadFeatureWorkflow } from '../roxabi/feature-loader.ts'
 import type { FixStart } from '../roxabi/fix-entry-lifecycle.ts'
 import type { prepareReviewInputs } from '../roxabi/review-pr-inputs.ts'
-import { createInstalledUwOperations } from '../roxabi/uw-installed-operations.ts'
+import type { TrustedHostPluginPin } from '../roxabi/uw-action-contract.ts'
+import { bindHostPluginPin } from './host-plugin-pin.ts'
+import { hostUwFactory, resolveFeatureUw } from './host-uw-operations.ts'
 import { INSTALL_ROOT, installRootStatus, replacedInstallRootMessage } from './install-root'
 import {
   type OmpBuildExtensionApi,
@@ -41,6 +43,8 @@ export type OmpBuildExtensionOptions = {
   exists?: (path: string) => boolean
   /** Override seam for tests; installed commands default to the concrete UW backend. */
   uwOperations?: UwOperationsFactory
+  /** Trusted host composition only. Not argv, env, or tool JSON. */
+  pluginPin?: TrustedHostPluginPin
   installRoot?: string
   featureWorkflow?: FeatureWorkflow
   principalCwd?: (cwd: string) => boolean
@@ -122,6 +126,7 @@ function createFeatureCommandHost(
     featureContinuationInhibited: () => controller.featureContinuationInhibited(),
     markFeatureBatch: (batch) => controller.markFeatureBatch(batch),
     ...(uw === undefined ? {} : { uw }),
+    ...(options.pluginPin === undefined ? {} : { pluginPin: options.pluginPin }),
     interruptOwnedWork: interruptOwnedFeatureWork,
     startReview: (args, onComplete) =>
       dispatchDefaultReview(pi, ctx, args, {
@@ -165,12 +170,10 @@ async function runFeatureCommand(
   const workflow = await loadInstalledFeatureWorkflow(pi, options)
   if (workflow === undefined) return
   const operator = beginFeatureUwOperation(pi, createOperatorConfirmation(ctx))
-  const factory =
-    options.uwOperations ?? (options.featureWorkflow === undefined ? createInstalledUwOperations : undefined)
   let uw: FeatureCommandHost['uw']
-  if (factory !== undefined && parsed.control !== 'pause' && parsed.control !== 'abandon') {
+  if (parsed.control !== 'pause' && parsed.control !== 'abandon' && options.featureWorkflow === undefined) {
     try {
-      uw = await factory({ cwd: ctx.cwd, operator })
+      uw = await resolveFeatureUw(ctx, operator, options.uwOperations, options.pluginPin)
     } catch (error) {
       cancelFeatureUwOperation(pi)
       throw error
@@ -243,9 +246,10 @@ export function registerOmpCommandsAndTools(
   options: OmpBuildExtensionOptions,
   interruptOwnedFeatureWork: (reason: string) => Promise<void>,
 ): void {
-  const { exists = existsSync } = options
+  bindHostPluginPin(options.pluginPin)
   const installRoot = options.installRoot ?? INSTALL_ROOT
   const skillsDir = join(installRoot, 'skills')
+  const exists = options.exists ?? existsSync
   installFeatureUwOperationLifecycle(pi)
   pi.registerTool({
     name: 'omp_build_start_review',
@@ -266,7 +270,7 @@ export function registerOmpCommandsAndTools(
   })
   registerOmpReviewRecoveryTools(pi, options)
 
-  registerUwCommand(pi, options.uwOperations ?? createInstalledUwOperations)
+  registerUwCommand(pi, options.uwOperations ?? hostUwFactory(options.pluginPin))
 
   for (const { name, skill = name, description, requires } of SKILL_COMMANDS) {
     if (name === 'feature') {

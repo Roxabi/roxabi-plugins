@@ -1,9 +1,17 @@
-import { inventoryRoot, requiredSlotsComplete } from './history-conservation.ts'
-import { validateContributionConservation } from './history-graph-conservation.ts'
+import { inventoryRoot, requiredSlotsComplete, sameJson } from './history-conservation.ts'
+import { validateContributionConservation, validateContributionRecord } from './history-graph-conservation.ts'
 import { validateFixLinks } from './history-graph-fixes.ts'
-import { validateDecisionAndReviewLinks } from './history-graph-links.ts'
+import { validateDecisionAndReviewLinks, validateProspectiveLinks } from './history-graph-links.ts'
+import {
+  incompleteOperation,
+  refuseDuplicateOperation,
+  refuseMissingNativeIdentity,
+  refuseOperationIdentity,
+  refuseUnauthorizedAuthor,
+} from './history-graph-operation.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope, fail } from './record-diagnostics.ts'
+import { recordIntegrity } from './record-integrity.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
 import { type Result, recordMap, unique } from './result.ts'
@@ -21,45 +29,17 @@ function validateOperation(
   recordsById: Map<string, CanonicalRecord>,
   diagnostics: Diagnostic[],
 ): void {
-  if (operation.status !== 'complete' || operation.record === null) {
-    diagnostics.push(
-      diagnostic(
-        operation.status === 'legacy' ? 'legacy-format' : operation.status,
-        `Operation ${operation.operationId ?? 'unknown'} is not a complete canonical record`,
-      ),
-    )
-    return
-  }
-  if (
-    operation.operationId !== operation.record.operationId ||
-    operation.recordId !== operation.record.recordId ||
-    operation.kind !== operation.record.kind
-  )
-    diagnostics.push(
-      diagnostic('unbound', `Observed operation metadata does not identify record ${operation.record.recordId}`),
-    )
-  const authorized =
-    operation.record.kind === 'stop'
-      ? (author: string | null) =>
-          author === history.source.expectedAuthor ||
-          (history.source.stopAuthor !== null && author === history.source.stopAuthor)
-      : (author: string | null) => author === history.source.expectedAuthor
-  if (operation.parts.some((part) => !authorized(part.author)))
-    diagnostics.push(diagnostic('unbound', `Operation ${operation.operationId} has an unauthorized native author`))
-  const priorOperation = operationsById.get(operation.record.operationId)
-  const priorRecord = recordsById.get(operation.record.recordId)
-  if (
-    (priorOperation !== undefined && JSON.stringify(priorOperation) !== JSON.stringify(operation.record)) ||
-    (priorRecord !== undefined && JSON.stringify(priorRecord) !== JSON.stringify(operation.record))
-  )
-    diagnostics.push(
-      diagnostic(
-        'duplicate-reference',
-        `Operation ${operation.record.operationId} or record ${operation.record.recordId} appears more than once with different content`,
-      ),
-    )
-  operationsById.set(operation.record.operationId, operation.record)
-  recordsById.set(operation.record.recordId, operation.record)
+  if (incompleteOperation(operation, diagnostics)) return
+  if (operation.record === null) return
+  const record = operation.record
+  refuseOperationIdentity(operation, diagnostics)
+  refuseMissingNativeIdentity(operation, diagnostics)
+  refuseUnauthorizedAuthor(operation, history, diagnostics)
+  const integrity = recordIntegrity(operation.parts, record)
+  if (integrity !== null) diagnostics.push(diagnostic(integrity.reason, integrity.detail))
+  refuseDuplicateOperation(operation, operationsById, recordsById, diagnostics)
+  operationsById.set(record.operationId, record)
+  recordsById.set(record.recordId, record)
 }
 
 function validateRecordReferences(
@@ -196,4 +176,35 @@ export function validateRecordGraph(history: DecodedHistory, enforceAdmission = 
   validateDecisionAndReviewLinks(records, diagnostics, enforceAdmission)
   validateFixLinks(records, diagnostics)
   return diagnostics.length === 0 ? { ok: true, value: [...records.values()] } : fail(diagnostics)
+}
+
+/** A prospective record is absent from observed history. It is validated structurally, never inserted as a fake read-back. */
+export function validateProspectiveRecord(record: CanonicalRecord, history: DecodedHistory): Diagnostic[] {
+  const observed = history.operations.flatMap((operation) =>
+    operation.record !== null &&
+    (operation.recordId === record.recordId || operation.record.recordId === record.recordId)
+      ? [operation.record]
+      : [],
+  )
+  if (observed.length > 0) {
+    return observed.some((item) => sameJson(item, record))
+      ? []
+      : [diagnostic('duplicate-reference', `Record ${record.recordId} conflicts with its observed record`)]
+  }
+  const diagnostics: Diagnostic[] = []
+  const records = new Map<string, CanonicalRecord>()
+  for (const operation of history.operations) {
+    if (operation.status === 'complete' && operation.record !== null)
+      records.set(operation.record.recordId, operation.record)
+  }
+  for (const input of record.inputs) {
+    if (input !== record.recordId && !records.has(input)) {
+      diagnostics.push(diagnostic('unknown-reference', `Record ${record.recordId} references missing input ${input}`))
+    }
+  }
+  records.set(record.recordId, record)
+  if (record.kind === 'review-attempt') validateReviewAttempt(record, records, diagnostics)
+  validateContributionRecord(record, records, diagnostics)
+  validateProspectiveLinks(record, records, diagnostics)
+  return diagnostics
 }

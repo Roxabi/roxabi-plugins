@@ -1,6 +1,6 @@
 import type { NativeBatch, NativeBatchResult } from '../omp/review-runtime/contracts.ts'
 import { groupCorrectionDebt } from './correction-debt.ts'
-import type { CorrectionEffectResult } from './correction-execution-contract.ts'
+import type { CorrectionEffectResult, NativeCorrectionExecutionOptions } from './correction-execution-contract.ts'
 import { createNativeCorrectionExecution } from './correction-native-execution.ts'
 import { executeCorrectionPlan } from './correction-plan.ts'
 import { bindCorrectionAction } from './fix-action-binding.ts'
@@ -13,6 +13,8 @@ import {
   type PreservedSynthesis,
   prepareCorrectionSynthesis,
 } from './fix-contributions-synthesis.ts'
+import { correctionObservationRefs } from './fix-correction-observation-refs.ts'
+import { correctionCriterionReceipt } from './fix-criterion-receipt.ts'
 import type { DebtEvidence, FixFinding } from './fix-domain'
 import {
   admitDecisionExecution,
@@ -61,7 +63,7 @@ async function admitStoredDecision(
 export async function executeDecision(
   prepared: PreparedFix,
   decision: Extract<FixRecord, { kind: 'decision' }>,
-  product: Pick<DefaultFixWorkflow, 'native' | 'publisher' | 'runtime'>,
+  product: Pick<DefaultFixWorkflow, 'native' | 'publisher' | 'runtime' | 'readHistory'>,
   identity: FixIdentity,
   debtEvidence: DebtEvidence,
 ): Promise<FixActionResult<FixRecord>> {
@@ -73,18 +75,48 @@ export async function executeDecision(
     usable: finding.state === 'usable',
   }))
   const admissions = selectedCorrectionOrder(prepared.policy, judgment.causes, findings)
+  const criterionSources: Parameters<NonNullable<NativeCorrectionExecutionOptions['onCriterionSource']>>[0][] = []
   const executor = createNativeCorrectionExecution({
     native: product.native,
     prepared,
     operationId: identity.operationId,
     decisionId: decision.recordId,
-    authorizeContinuation: () => authorizeCorrectionContinuation(product.runtime),
+    decision: {
+      repository: decision.repository,
+      target: decision.target,
+      kind: 'decision',
+      recordId: decision.recordId,
+      payload: decision.payload,
+    },
+    correctionObservationRefs: () => correctionObservationRefs(prepared, decision, product),
+    operations: product.runtime.uw,
+    authorizeContinuation: async () => {
+      const authorized = await authorizeCorrectionContinuation(product.runtime)
+      if (!authorized.ok) return authorized
+      const admitted = await admitStoredDecision(
+        decision,
+        product,
+        'correction-decision-history-incomplete',
+        'correction-decision-history-unreadable',
+      )
+      return admitted.ok ? { ok: true, value: undefined } : admitted
+    },
     signal: product.runtime.signal,
     bindAction: (binding) =>
-      bindCorrectionAction(prepared, identity, product.publisher, decision.recordId, product.runtime, binding),
+      bindCorrectionAction(
+        prepared,
+        identity,
+        product.publisher,
+        decision.recordId,
+        product.runtime,
+        binding,
+        product.readHistory,
+      ),
+    onCriterionSource: (source) => criterionSources.push(source),
     onStarted: (batch) => correctionStarted(product.runtime, batch),
   })
   const plan = await executeCorrectionPlan(admissions, executor)
+  if (!plan.ok && plan.terminalDiagnostics !== null) return failure(...plan.terminalDiagnostics)
   const debt = groupCorrectionDebt({
     policy: prepared.policy,
     findings,
@@ -103,6 +135,7 @@ export async function executeDecision(
     plan.outcomes,
     debt,
     product.runtime.signal,
+    criterionSources,
   )
   if (!artifacts.ok) return artifacts
   if (!plan.ok) return failure(...(plan.terminalDiagnostics ?? ['correction-terminal-cleanup-unproven']))
@@ -116,7 +149,15 @@ export async function executeDecision(
   const head = await executor.head()
   if (!head.ok) return failure(...head.diagnostics)
   if (product.runtime.signal.aborted) return failure('fix-run-interrupted-cleanup-unproven')
-  return publishFinalFixResult(prepared, identity, product.publisher, decision.recordId, artifacts.value, head.value)
+  return publishFinalFixResult(
+    prepared,
+    identity,
+    product.publisher,
+    decision.recordId,
+    artifacts.value,
+    head.value,
+    correctionCriterionReceipt(criterionSources, plan.outcomes, head.value),
+  )
 }
 
 /** Product default: dispatch sequential native intake and synthesis outside SDK callbacks, then apply policy. */
@@ -162,6 +203,7 @@ export async function runDefaultFixWorkflow(
     product.publisher,
     intake.records,
     defaultSynthesisTask(),
+    product.runtime.uw,
   )
   if (!synthesis.ok) return synthesis
   const preservedSynthesis = await dispatchNativeBatch<PreservedSynthesis>(

@@ -5,6 +5,7 @@ import { specDigest } from '../engine/record-digests.ts'
 import type { Scope } from '../engine/record-values.ts'
 import { canonicalSpec } from '../engine/uw-spec.ts'
 import { SPEC_CONTENT_FORMAT } from '../engine/uw-spec-schema.ts'
+import { criterionImplementationRecords } from './criterion-approval.ts'
 import { roxabiWorkflowFixtures } from './roxabi-presets.ts'
 import { git, sandbox, writeSim } from './sandbox/sandbox-repository.ts'
 import type { Box } from './sandbox/sandbox-types.ts'
@@ -35,18 +36,7 @@ export function nativeFeatureSpec(scope: Scope, criterion: string) {
 const REVIEW_TIER = 'F-lite' as const
 const REVIEW_SPEC = nativeFeatureSpec(REVIEW_SCOPE, 'preserves the region')
 export const REVIEW_BODY = REVIEW_SPEC.body
-const {
-  clearPlanContribution,
-  featureMandate,
-  framedBodies,
-  historyFrom,
-  implementStart,
-  planDraftRecords,
-  planReviewRecord,
-  planReviewStart,
-  publishedPlanDigest,
-  workflowBinding,
-} = roxabiWorkflowFixtures()
+const { featureMandate, framedBodies, historyFrom, workflowBinding } = roxabiWorkflowFixtures()
 
 export function arrangeReviewFixture(): { box: Box; cwd: string } {
   const box = sandbox({
@@ -76,32 +66,7 @@ export async function seedReviewFixture(box: Box, _cwd: string): Promise<void> {
     lineageHead: head,
     tier: REVIEW_TIER,
   })
-  const rejected = roxabiWorkflowFixtures().rejectedImplementResult(mandate)
-  if (
-    rejected.payload.action !== 'implement' ||
-    rejected.payload.phase !== 'result' ||
-    rejected.payload.structured == null ||
-    rejected.payload.admission == null
-  )
-    throw new Error('review-fixture-implementation-invalid')
-  const records = [
-    mandate,
-    ...planDraftRecords(mandate),
-    planReviewStart(mandate, 'act-plan-1', publishedPlanDigest()),
-    planReviewRecord(mandate, 'act-plan-1', publishedPlanDigest(), [
-      clearPlanContribution('slot-architect', 'R-workflow-plan-architect'),
-      clearPlanContribution('slot-adversarial', 'R-workflow-plan-adversarial'),
-    ]),
-    implementStart(mandate),
-    {
-      ...rejected,
-      payload: {
-        ...rejected.payload,
-        structured: { ...rejected.payload.structured, commitSHAs: [head] },
-        admission: { ...rejected.payload.admission, admitted: true, remoteBranch: REVIEW_BRANCH, remoteTip: head },
-      },
-    },
-  ]
+  const records = criterionImplementationRecords(mandate, head)
   const binding = workflowBinding({ repository: 'acme/app', target: 'acme/app#7' }, mandate, REVIEW_BRANCH, 'main')
   writeSim(box, (state) => {
     const issue = state.issues['42']

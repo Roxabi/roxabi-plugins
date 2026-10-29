@@ -194,6 +194,56 @@ describe('composed workflow history and landing binding readback', () => {
     )
   })
 
+  it('selects the authentic binding despite foreign claims and identity collisions', async () => {
+    const mandate = issueMandate(githubScope('acme/app', 7))
+    const binding = bindingRecord(mandate)
+    const foreignCollision = framed('workflow-binding', binding.operationId, binding.recordId)
+    const foreignOther = framed('workflow-binding', 'op-foreign', 'binding-foreign')
+    const result = await readWorkflowBinding(githubScope('acme/app', 42), {
+      cwd: '/fixture',
+      readAuthor: 'automation',
+      gh: fakeGh([
+        (args) => (args[0] === 'pr' && args[1] === 'view' ? prView() : undefined),
+        (args) => {
+          const path = String(args[1] ?? '')
+          if (path.includes('/issues/42/comments'))
+            return JSON.stringify([
+              nativeComment(1, wire(binding)),
+              { ...nativeComment(2, foreignCollision), user: { login: 'foreign' } },
+              { ...nativeComment(3, foreignOther), user: { login: 'foreign' } },
+            ])
+          if (path.includes('/issues/7/comments')) return JSON.stringify([nativeComment(4, wire(mandate))])
+          return undefined
+        },
+      ]),
+    })
+    expect(result).toMatchObject({ ok: true, value: { binding: { recordId: binding.recordId } } })
+    if (!result.ok) throw new Error('expected binding')
+    expect(result.value.histories.flatMap((history) => history.operations)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ authority: 'foreign', operationId: binding.operationId })]),
+    )
+  })
+
+  it('treats foreign-only binding claims as absent while retaining them in history', async () => {
+    const result = await readWorkflowBinding(githubScope('acme/app', 42), {
+      cwd: '/fixture',
+      readAuthor: 'automation',
+      gh: fakeGh([
+        (args) => (args[0] === 'pr' && args[1] === 'view' ? prView() : undefined),
+        (args) =>
+          String(args[1] ?? '').includes('/issues/42/comments')
+            ? JSON.stringify([
+                {
+                  ...nativeComment(1, framed('workflow-binding', 'op-foreign', 'binding-foreign')),
+                  user: { login: 'foreign' },
+                },
+              ])
+            : undefined,
+      ]),
+    })
+    expect(result).toMatchObject({ ok: false, reason: 'absent' })
+  })
+
   it('refuses composed history when a scope comment page is unreadable', async () => {
     const refused = await readComposedWorkflowHistory([githubScope('acme/app', 42)], {
       cwd: '/fixture',

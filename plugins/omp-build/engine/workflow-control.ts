@@ -1,5 +1,7 @@
+import { refuseOperationIdentity, refuseUnauthorizedAuthor } from './history-graph-operation.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope, fail, incompatibleFormat, sameRef } from './record-diagnostics.ts'
+import { recordIntegrity } from './record-integrity.ts'
 import { type ExternalRecordRef, isWorkflowKind } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic, Scope } from './record-values.ts'
@@ -56,26 +58,18 @@ function hasIncompatibleFormat(history: DecodedHistory, operation: DecodedHistor
   )
 }
 
-function isForeignIdentityOnly(operation: DecodedHistory['operations'][number]): boolean {
-  return (
-    operation.authority === 'foreign' &&
-    operation.claimedKinds.includes('spec-identity') &&
-    operation.claimedKinds.every((claim) => claim === 'spec-identity')
-  )
-}
-
 function operationProblem(
   history: DecodedHistory,
   operation: DecodedHistory['operations'][number],
 ): 'ambiguous' | 'incompatible-format' | 'unconfirmed' | null {
-  if (isForeignIdentityOnly(operation)) return null
+  if (operation.authority === 'foreign') return null
   const kind = operation.record?.kind ?? operation.kind
   if (!isWorkflowKind(kind ?? '') && !operation.claimedKinds.some((claim) => isWorkflowKind(claim))) return null
   if (operation.status === 'conflict') return 'ambiguous'
   if (hasIncompatibleFormat(history, operation)) return incompatibleFormat
   if (operation.status === 'incomplete' || operation.status === 'invalid' || operation.status === 'legacy')
     return 'unconfirmed'
-  return operation.authority === 'foreign' ? 'unconfirmed' : null
+  return null
 }
 
 export function workflowOperationProblem(
@@ -96,16 +90,19 @@ export function bindExternalRef(ref: ExternalRecordRef, foreignHistory: DecodedH
     ])
   if (!foreignHistory.source.complete)
     return fail([diagnostic('incomplete', 'External history pagination is incomplete')])
-  const matches = foreignHistory.operations.filter(
+  const matchingObservations = foreignHistory.operations.filter(
     (operation) => operation.recordId === ref.recordId || operation.record?.recordId === ref.recordId,
   )
-  if (matches.length === 0) return fail([diagnostic('unknown', `Record ${ref.recordId} is not in the foreign history`)])
+  const matches = matchingObservations.filter((operation) => operation.authority !== 'foreign')
+  if (matches.length === 0) {
+    if (matchingObservations.length > 0)
+      return fail([diagnostic('foreign', `Record ${ref.recordId} is not from the expected author`)])
+    return fail([diagnostic('unknown', `Record ${ref.recordId} is not in the foreign history`)])
+  }
   if (matches.some((operation) => operation.status === 'conflict'))
     return fail([diagnostic('conflict', `Record ${ref.recordId} has conflicting parts`)])
   if (matches.some((operation) => operation.status !== 'complete' || operation.record === null))
     return fail([diagnostic('unconfirmed', `Record ${ref.recordId} is not a complete authenticated record`)])
-  if (matches.some((operation) => operation.authority === 'foreign'))
-    return fail([diagnostic('foreign', `Record ${ref.recordId} is not from the expected author`)])
   const bodies = matches.map((operation) => JSON.stringify(operation.record))
   if (new Set(bodies).size !== 1)
     return fail([diagnostic('ambiguous', `Record ${ref.recordId} has incompatible duplicates`)])
@@ -114,6 +111,21 @@ export function bindExternalRef(ref: ExternalRecordRef, foreignHistory: DecodedH
     return fail([diagnostic('unconfirmed', `Record ${ref.recordId} has no body`)])
   if (record.kind !== ref.kind)
     return fail([diagnostic('kind-mismatch', `Record ${ref.recordId} is ${record.kind}, not ${ref.kind}`)])
+  const identity: Diagnostic[] = []
+  for (const operation of matches) {
+    refuseOperationIdentity(operation, identity)
+    refuseUnauthorizedAuthor(operation, foreignHistory, identity)
+  }
+  if (identity.length > 0) return fail(identity)
+  const integrity = matches.flatMap((operation) => {
+    if (operation.record === null) return []
+    if (operation.parts.some((part) => part.nativeId === null || part.nativeId === '')) {
+      return [diagnostic('unconfirmed', `Record ${ref.recordId} has no native part identity`)]
+    }
+    const checked = recordIntegrity(operation.parts, operation.record)
+    return checked === null ? [] : [diagnostic(checked.reason, checked.detail)]
+  })
+  if (integrity.length > 0) return fail(integrity)
   return { ok: true, value: record }
 }
 

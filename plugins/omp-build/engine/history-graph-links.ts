@@ -224,6 +224,15 @@ function validateStop(
     diagnostics.push(diagnostic('unbound', `Stop ${record.recordId} does not bind its final review`))
 }
 
+export function validateProspectiveLinks(
+  record: CanonicalRecord,
+  records: Map<string, CanonicalRecord>,
+  diagnostics: Diagnostic[],
+): void {
+  if (record.kind === 'decision') validateDecision(record, records, diagnostics, true)
+  if (record.kind === 'review') validateReviewLinks(record, records, diagnostics, true)
+}
+
 export function validateDecisionAndReviewLinks(
   records: Map<string, CanonicalRecord>,
   diagnostics: Diagnostic[],

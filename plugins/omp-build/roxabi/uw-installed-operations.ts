@@ -22,8 +22,11 @@ import type { SpecIdentityDraft } from '../engine/uw-identity.ts'
 import type { OperatorConfirmationEvidence } from '../engine/uw-identity-schema.ts'
 import { defaultGh } from './feature-engine.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
-import type { OperatorPort, PreparedUwProposal, UwOperations, UwRead, UwReadPort } from './uw-contract.ts'
+import type { TrustedHostPluginPin } from './uw-action-contract.ts'
+import type { OperatorPort, PreparedUwProposal, UwOperations, UwReadPort } from './uw-contract.ts'
+import { createProductionActionPorts, createProductionDeliveryPorts } from './uw-input-readers.ts'
 import { createInstalledMaterialOperations } from './uw-installed-material-operations.ts'
+import { rootObservation } from './uw-installed-observation.ts'
 import { createUwOperations } from './uw-operations.ts'
 import { createInstalledUwReadPort, UwGraphUnavailableError } from './uw-read-port.ts'
 
@@ -33,6 +36,8 @@ export type InstalledUwOperationsOptions = {
   gh?: Gh
   /** Test-only expected publisher assertion; production derives it from the authenticated viewer. */
   readAuthor?: string
+  pluginPin?: TrustedHostPluginPin
+  artifactsDir?: string | null
 }
 
 function diagnostic(uw: Scope, code: string, message: string): UwDiagnostic {
@@ -61,15 +66,6 @@ function postEffectDiagnostics(uw: Scope, error: unknown): readonly UwDiagnostic
 
 function scopeOf(issue: IssueRef): Scope {
   return githubScope(issue.repository, issue.number)
-}
-
-function issueOf(scope: Scope): IssueRef {
-  const prefix = `${scope.repository}#`
-  if (!scope.target.startsWith(prefix)) throw new Error(`UW scope target is not an issue reference: ${scope.target}`)
-  const number = Number(scope.target.slice(prefix.length))
-  if (!Number.isSafeInteger(number) || number < 1)
-    throw new Error(`UW scope target is not an issue number: ${scope.target}`)
-  return { repository: scope.repository, number }
 }
 
 function sameScope(left: Scope, right: Scope): boolean {
@@ -204,22 +200,6 @@ async function confirmIdentityReadback(
   }
 }
 
-function rootObservation(uw: Scope, read: UwRead): IssueWriteObservation {
-  if (read.graph.status !== 'complete') throw new Error(`UW native graph is incomplete: ${uw.target}`)
-  const root = read.graph.nodes.find((node) => sameScope(node.uw, uw))
-  if (root === undefined) throw new Error(`UW graph root is missing: ${uw.target}`)
-  return {
-    issue: issueOf(root.uw),
-    title: root.title,
-    body: root.raw.body,
-    updatedAt: root.updatedAt,
-    labels: root.labels,
-    parent: root.parent === null ? null : issueOf(root.parent),
-    children: root.children.map(issueOf),
-    blockers: root.blockers.map(issueOf),
-  }
-}
-
 /** Compose the installed reader, writer, authenticated publisher, and one-command UI capability. */
 export async function createInstalledUwOperations(input: InstalledUwOperationsOptions): Promise<UwOperations> {
   const gh = input.gh ?? defaultGh()
@@ -258,6 +238,13 @@ export async function createInstalledUwOperations(input: InstalledUwOperationsOp
     if (retired.status !== 'confirmed') return retired
     return retired.knownEffect ? confirmIdentityReadback(uw, retired.predecessor, reader) : { status: 'confirmed' }
   }
+  const actionOptions = {
+    cwd: input.cwd,
+    gh,
+    readAuthor: authenticatedAuthor,
+    pluginPin: input.pluginPin,
+    artifactsDir: input.artifactsDir,
+  }
   const acceptMaterial = createInstalledMaterialOperations({ operator: input.operator, reader, github })
   return createUwOperations({
     read: reader.readUw,
@@ -284,5 +271,7 @@ export async function createInstalledUwOperations(input: InstalledUwOperationsOp
     publishIdentity,
     acceptMaterial,
     scopeOf,
+    actions: createProductionActionPorts(actionOptions),
+    delivery: createProductionDeliveryPorts(actionOptions, reader.readUw),
   })
 }

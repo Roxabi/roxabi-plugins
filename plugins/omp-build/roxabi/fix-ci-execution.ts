@@ -1,5 +1,13 @@
 import type { NativeBatchResult, NativeTask } from '../omp/review-runtime/contracts.ts'
 import { createTrustedDebtFiling } from './debt-filing-writer.ts'
+import {
+  actionRequest,
+  codePin,
+  confirmPreparedAction,
+  deliveryTask,
+  recordStageRef,
+  uwSubject,
+} from './delivery-action.ts'
 import { type ExpectedAttributedCiCorrectionInput, reAdmitAttributedCiCorrection } from './fix-ci-admission.ts'
 import type { FixActionResult, FixIdentity, FixRecord, PreparedFix, PublishBinding } from './fix-contract.ts'
 import { capturedSubmission, failure } from './fix-contract.ts'
@@ -73,26 +81,55 @@ async function prepareCiCorrection(
   )
   const savedRequest = await publish(product.publisher, request)
   if (!savedRequest.ok) return savedRequest
-  const attributionContext = `attributed-ci ${admitted.attributionRecordId} ${admitted.candidateGitSHA} checks=${admitted.failedChecks.join(',')}`
-  const intakeTask = actionTask(
+  const intakeDraft = actionTask(
     'ci-correction-intake',
     nativeFixProfileByAction.intake,
-    `Inspect only confirmed CI attribution ${admitted.attributionRecordId} on ${admitted.candidateGitSHA}. Failed checks: ${admitted.failedChecks.join(', ')}. Return structured findings from that attributed failure only. Do not replay review findings. Do not edit, commit, push, arm, or land.`,
+    'Inspect only the attributed CI failure named by the index. Return structured findings. Do not edit, commit, push, arm, or land.',
     'bounded attributed CI evidence intake',
   )
   const policy: FixPolicy = { version: 'baseline' }
+  const inventoryId = product.identity.nextRecordId('review-attempt')
+  const head = admitted.candidateGitSHA
+  if (head === null || input.target.baseGitSHA === null) return failure('prepare-action-unavailable')
+  const pinned = codePin(input.target.repository, input.target.baseGitSHA, head, head)
+  if (!pinned.ok) return failure('code-unobserved')
+  const pullRequest =
+    input.target.kind === 'pull-request' ? { repository: input.target.repository, target: input.target.target } : null
+  const preparedAction = await confirmPreparedAction(
+    product.runtime.uw,
+    actionRequest({
+      actionId: inventoryId,
+      purpose: 'correction',
+      subject: uwSubject(admitted.uw.ownSpec.ref.uw, pullRequest),
+      code: pinned.code,
+      stageSources: evidence.kind === 'contribution' || evidence.kind === 'decision' ? [recordStageRef(evidence)] : [],
+    }),
+  )
+  if (!preparedAction.ok) return failure('prepare-action-unavailable')
+  const intakeTask = deliveryTask({
+    name: intakeDraft.name,
+    agent: intakeDraft.agent,
+    procedure: intakeDraft.task,
+    solutionSpace: intakeDraft.solutionSpace,
+    prepared: preparedAction.value,
+    proofEvidence: intakeDraft.proofEvidence,
+  })
   const prepared: PreparedFix = {
     target: input.target,
     requestId: request.recordId,
-    inventoryId: product.identity.nextRecordId('review-attempt'),
+    inventoryId,
     sourceContributionId: evidence.recordId,
     policy,
     cwd: input.cwd,
     publishBinding: product.publishBinding,
     debtFiling: createTrustedDebtFiling(),
+    subject: uwSubject(admitted.uw.ownSpec.ref.uw, pullRequest),
     batch: {
       operationId: product.identity.operationId,
-      tasks: { context: attributionContext, tasks: [intakeTask] },
+      tasks: {
+        context: 'omp-build correction action. Read only the procedure and the index named on the task.',
+        tasks: [intakeTask],
+      },
     },
   }
   const inventory = record(
@@ -102,8 +139,9 @@ async function prepareCiCorrection(
     {
       rootAttemptId: prepared.inventoryId,
       candidateGitSHA: input.target.candidateGitSHA,
-      inputFormat: 'omp-build:review-input/3',
-      input: null,
+      inputFormat: 'omp-build:review-input/4',
+      input: preparedAction.value.inputs.fingerprint,
+      actionInputDigest: preparedAction.value.inputs.fingerprint,
       stage: 'initial',
       purpose: 'correction',
       requestId: request.recordId,
@@ -163,21 +201,22 @@ async function dispatchCiCorrectionIntake(
 async function synthesizeCiCorrection(
   prepared: PreparedFix,
   product: CiCorrectionProduct,
-  admitted: AttributedCorrection,
+  evidence: FixRecord,
   intake: FixIntakePublication,
 ): Promise<FixActionResult<FixRecord>> {
   const synthesisTask = actionTask(
     'ci-correction-synthesis',
     nativeFixProfileByAction.synthesis,
-    `Synthesize one correction-purpose decision only from confirmed CI attribution ${admitted.attributionRecordId} on ${admitted.candidateGitSHA} and the supplied intake records. Failed checks: ${admitted.failedChecks.join(', ')}. Do not replay review findings. Do not edit, commit, push, arm, or land.`,
+    'Synthesize one correction-purpose decision only from the confirmed CI attribution and intake records named by the index. Do not replay review findings. Do not edit, commit, push, arm, or land.',
     'one correction decision from attributed CI evidence',
   )
   const synthesis = await prepareCorrectionSynthesis(
     prepared,
     product.identity,
     product.publisher,
-    intake.records,
+    [evidence, ...intake.records],
     synthesisTask,
+    product.runtime.uw,
   )
   if (!synthesis.ok) return synthesis
   const preservedSynthesis = await dispatchNativeBatch<PreservedSynthesis>(
@@ -235,7 +274,7 @@ export async function runAdmittedCiCorrection(
   )
   if (!intake.complete) return failure(`native-intake-incomplete:${intake.diagnostics.join(';')}`)
   if (product.runtime.signal.aborted) return failure('fix-run-interrupted-cleanup-unproven')
-  const decision = await synthesizeCiCorrection(preparation.value.prepared, product, admitted.value, intake)
+  const decision = await synthesizeCiCorrection(preparation.value.prepared, product, preparation.value.evidence, intake)
   if (!decision.ok) return decision
   if (decision.value.kind !== 'decision') return failure('ci-correction-decision-invalid')
   try {

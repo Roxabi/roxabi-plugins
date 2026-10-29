@@ -48,6 +48,7 @@ export async function landPr(
     git: gitFn = gitResult,
     requiredContexts,
     landing,
+    pluginPin,
     sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   } = {},
 ) {
@@ -62,7 +63,7 @@ export async function landPr(
     terminal = initial.terminal
     state = initial.state
     if (!terminal && state) {
-      const admitted = await validateLandingCandidate(cwd, pr, ghFn, gitFn, state)
+      const admitted = await validateLandingCandidate(cwd, pr, ghFn, gitFn, state, pluginPin)
       terminal = admitted.terminal
       state = admitted.state ?? state
     }

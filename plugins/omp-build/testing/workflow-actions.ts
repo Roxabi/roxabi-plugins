@@ -4,7 +4,13 @@ import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Contribution, Json, NativeOutcome } from '../engine/record-values.ts'
 import type { MandateRecord, ReceiptRecord } from '../engine/workflow-control.ts'
 import { type PlanOutput, planDigest } from '../engine/workflow-output-schema.ts'
-import type { ActionReceiptPayload, PlanReviewSlot } from '../engine/workflow-receipt-schema.ts'
+import {
+  ACTION_RECEIPT_FORMAT,
+  type ActionReceiptPayload,
+  actionReceiptPayloadSchema,
+  type PlanReviewSlot,
+} from '../engine/workflow-receipt-schema.ts'
+import { acceptedActionInputs } from './action-input-fixtures.ts'
 
 export type WorkflowActionFixtureContext = {
   planOutput: PlanOutput
@@ -41,12 +47,18 @@ function specSha(mandate: MandateRecord): string {
   return mandate.payload.ownSpec.version
 }
 
+type ReceiptDraft = ActionReceiptPayload extends infer Payload
+  ? Payload extends ActionReceiptPayload
+    ? Omit<Payload, 'format' | 'inputs'>
+    : never
+  : never
+
 export function createWorkflowActionFixtures(context: WorkflowActionFixtureContext) {
   const receipt = (
     mandate: MandateRecord,
     recordId: string,
     operationId: string,
-    payload: ActionReceiptPayload,
+    payload: ReceiptDraft,
   ): ReceiptRecord =>
     mustReceipt({
       version: 1,
@@ -56,7 +68,11 @@ export function createWorkflowActionFixtures(context: WorkflowActionFixtureConte
       repository: mandate.repository,
       target: mandate.target,
       kind: 'action-receipt',
-      payload,
+      payload: actionReceiptPayloadSchema.parse({
+        format: ACTION_RECEIPT_FORMAT,
+        inputs: acceptedActionInputs(mandate, payload.action),
+        ...payload,
+      }),
     })
   const implementStart = (mandate: MandateRecord, actionId = 'act-implement-1') =>
     receipt(mandate, `${actionId}-start`, `op-${actionId}-start`, {
@@ -151,7 +167,7 @@ export function createWorkflowActionFixtures(context: WorkflowActionFixtureConte
   const blockingPlanContribution = (slotId: string, specialist: string, blockerId: string) =>
     planContribution(slotId, specialist, {
       outcome: 'blocking',
-      blockers: [{ id: blockerId, criterion: 'save', gap: 'the mapping omits the stale-region path' }],
+      blockers: [{ id: blockerId, criterionId: 'C1', gap: 'the mapping omits the stale-region path' }],
     })
   const planAmendmentRecords = (
     mandate: MandateRecord,
@@ -202,8 +218,7 @@ export function createWorkflowActionFixtures(context: WorkflowActionFixtureConte
         outcome: 'implemented',
         commitSHAs: [context.head],
         commands: [{ toolCallId: 'call-1', command: 'git status', exitCode: 0 }],
-        proofToolCallId: 'proof-1',
-        proofUnavailableReason: null,
+        criteria: [],
         reason: 'model claims implemented',
       },
       admission: {

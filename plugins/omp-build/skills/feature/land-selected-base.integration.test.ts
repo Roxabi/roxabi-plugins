@@ -3,9 +3,11 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import type { ActionInputs } from '../../engine/action-input-schema.ts'
+import { criterionImplementationRecords, criterionReviewGraph } from '../../testing/criterion-approval.ts'
 import { nativeFeatureSpec } from '../../testing/feature-review-fixture.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
-import { git, readSim, SIM, sandbox, WORKFLOW, worktree, writeSim } from '../../testing/sandbox/sandbox-repository.ts'
+import { git, readSim, sandbox, WORKFLOW, worktree, writeSim } from '../../testing/sandbox/sandbox-repository.ts'
 import type { Box } from '../../testing/sandbox/sandbox-types.ts'
 
 const BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
@@ -16,7 +18,7 @@ const ISSUE = 5
 const ISSUE_SCOPE = { repository: 'acme/app', target: `acme/app#${ISSUE}` }
 const LANDING_SPEC = nativeFeatureSpec(ISSUE_SCOPE, 'lands')
 const BODY = 'Closes #5\n'
-const { encodedAdmissionReviewGraph } = roxabiRecordFixtures()
+const { projection } = roxabiRecordFixtures()
 const { linkedLandingAuthority } = roxabiWorkflowFixtures()
 
 let roots: string[] = []
@@ -55,17 +57,29 @@ function createBox(mode = 'native'): { box: Box; cwd: string } {
   return { box, cwd: worktree(box, 'landing', box.sha[BRANCH] as string) }
 }
 
-function captureInput(box: Box, cwd: string, head: string): string {
+function captureInput(box: Box, cwd: string, head: string): { input: string; inputs: ActionInputs } {
   const run = spawnSync(BUN, [WORKFLOW, 'captureReviewInput', cwd, JSON.stringify({ pr: PR, head })], {
     cwd,
     env: box.env,
     encoding: 'utf8',
   })
   if (run.status !== 0) throw new Error(`captureReviewInput failed: ${run.stderr}`)
-  const captured = JSON.parse(run.stdout) as { ok: boolean; input?: string | null; reason?: string; error?: string }
-  if (!captured.ok || captured.input === null || captured.input === undefined)
+  const captured = JSON.parse(run.stdout) as {
+    ok: boolean
+    input?: string | null
+    inputs?: ActionInputs
+    reason?: string
+    error?: string
+  }
+  const inputs = captured.inputs
+  if (
+    !captured.ok ||
+    typeof captured.input !== 'string' ||
+    inputs === undefined ||
+    inputs.fingerprint !== captured.input
+  )
     throw new Error(`captureReviewInput refused: ${JSON.stringify(captured)}`)
-  return captured.input
+  return { input: captured.input, inputs }
 }
 
 function prepare(box: Box, cwd: string, armed = false): void {
@@ -81,11 +95,13 @@ function prepare(box: Box, cwd: string, armed = false): void {
     lineageHead: head,
     author: 'operator',
   })
+  const issueRecords = criterionImplementationRecords(authority.mandate, head)
+  const issueBodies = roxabiWorkflowFixtures().framedBodies(issueRecords, 'operator')
   writeSim(box, (state) => {
     const pull = state.prs[String(PR)]
     const issue = state.issues[String(ISSUE)]
     if (!pull || !issue) throw new Error('landing fixture scope missing')
-    issue.comments = authority.issueBodies.map((body) => ({ author: 'operator', body }))
+    issue.comments = issueBodies.map((body) => ({ author: 'operator', body }))
     pull.comments = authority.bindingBodies.map((body) => ({ author: 'operator', body }))
     issue.body = LANDING_SPEC.body
     pull.labels = armed ? ['reviewed'] : []
@@ -97,11 +113,15 @@ function prepare(box: Box, cwd: string, armed = false): void {
     pull.mergeCommit = null
     pull.mergedAt = null
   })
-  const input = captureInput(box, cwd, head)
-  const review = encodedAdmissionReviewGraph({
+  const captured = captureInput(box, cwd, head)
+  const review = criterionReviewGraph({
+    mandate: authority.mandate,
+    issueRecords,
     scope: { repository: 'acme/app', target: `acme/app#${PR}` },
     head,
-    input,
+    inputs: captured.inputs,
+    projection,
+    author: 'operator',
     verdict: 'Approve (clean)',
     prefix: 'selected-base',
   })
@@ -142,7 +162,7 @@ function green(box: Box, head = box.sha[BRANCH] as string): void {
   })
 }
 
-function mutateAfter(box: Box, when: 'label' | 'pin' | 'admission-comments', change: string): () => void {
+function mutateAfter(box: Box, when: 'label' | 'pin' | 'review-input', change: string): () => void {
   const dir = mkdtempSync(path.join(tmpdir(), 'omp-selected-base-'))
   const shim = path.join(dir, 'gh')
   const originalPath = box.env.PATH
@@ -152,25 +172,20 @@ function mutateAfter(box: Box, when: 'label' | 'pin' | 'admission-comments', cha
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 const args = process.argv.slice(2)
-const comments = args.some((arg) => arg.includes('/comments?') || arg.endsWith('/comments'))
-const countFile = ${JSON.stringify(path.join(dir, 'comment-reads'))}
-const count = comments ? (existsSync(countFile) ? Number(readFileSync(countFile, 'utf8')) : 0) + 1 : 0
-if (comments) writeFileSync(countFile, String(count))
-const output = spawnSync(${JSON.stringify(BUN)}, [${JSON.stringify(SIM)}, ...args], { env: process.env, encoding: 'utf8' })
+const reviewInput = args[0] === 'pr' && args[1] === 'view' && args.includes('headRefOid,baseRefName')
+const output = spawnSync('gh', args, { env: { ...process.env, PATH: ${JSON.stringify(originalPath)} }, stdio: 'inherit' })
 const marker = ${JSON.stringify(path.join(dir, 'mutated'))}
 const match = ${JSON.stringify(when)} === 'label'
   ? args[0] === 'pr' && args[1] === 'edit' && args.includes('--add-label')
   : ${JSON.stringify(when)} === 'pin'
     ? args[0] === 'pr' && args[1] === 'merge' && args.includes('--auto')
-    : comments && count === 2
+    : reviewInput
 if (output.status === 0 && match && !existsSync(marker)) {
   const state = JSON.parse(readFileSync(process.env.GH_SIM_STATE, 'utf8'))
   ${change}
   writeFileSync(process.env.GH_SIM_STATE, JSON.stringify(state))
   writeFileSync(marker, 'done')
 }
-process.stdout.write(output.stdout)
-process.stderr.write(output.stderr)
 process.exit(output.status ?? 1)
 `,
   )
@@ -283,7 +298,7 @@ describe('landPr retains the selected base name and tip', () => {
     const { box, cwd } = createBox()
     prepare(box, cwd, true)
     green(box)
-    const restore = mutateAfter(box, 'admission-comments', `state.prs[${PR}].baseRefName = 'staging'`)
+    const restore = mutateAfter(box, 'review-input', `state.prs[${PR}].baseRefName = 'staging'`)
     try {
       let result: { status: string } | undefined
       let thrown: unknown

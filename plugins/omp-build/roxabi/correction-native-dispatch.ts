@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util'
 import type { NativeBatchCallbacks } from '../omp/review-runtime/contracts.js'
 import { failed } from './correction-action'
 import type {
@@ -35,12 +36,12 @@ export async function dispatchCorrectionAction(
   const stillFenced = abortFence<NativeDispatchResult>()
   if (stillFenced) return stillFenced
   const bound = await options.bindAction(binding)
-  if (!bound.ok) return failed(bound.kind, ...bound.diagnostics)
+  if (!bound.ok) return bound
   const { batch } = bound.value
   if (
     batch.operationId !== options.operationId ||
     batch.tasks.tasks.length !== 1 ||
-    batch.tasks.tasks[0]?.name !== binding.task.name ||
+    !isDeepStrictEqual(batch.tasks.tasks[0], binding.task) ||
     options.native.active() !== null
   )
     return failed('terminal', 'native-action-binding-invalid')
@@ -75,7 +76,14 @@ export async function dispatchCorrectionAction(
       }
       settle(
         terminal.ok
-          ? { ok: true, value: { native: result, contributionIds: preserved.value.contributionIds } }
+          ? {
+              ok: true,
+              value: {
+                native: result,
+                contributionIds: preserved.value.contributionIds,
+                records: preserved.value.records ?? [],
+              },
+            }
           : terminal,
       )
     } catch (error) {
@@ -89,7 +97,15 @@ export async function dispatchCorrectionAction(
     }
   }
   const callbacks: NativeBatchCallbacks = {
-    onComplete: async (result) => conserve(result, { ok: true, value: { native: result, contributionIds: [] } }),
+    onComplete: async (result, canContinue) => {
+      if (!canContinue()) return
+      await conserve(
+        result,
+        result.children.some((child) => child.contextBlock !== undefined)
+          ? failed('terminal', 'native-action-incomplete:action-context-missing')
+          : { ok: true, value: { native: result, contributionIds: [], records: [] } },
+      )
+    },
     onStop: async (reason, result) => {
       if (result === null) settle(failed('terminal', `native-action-stopped:${reason}`))
       else await conserve(result, failed('terminal', `native-action-incomplete:${reason}`))

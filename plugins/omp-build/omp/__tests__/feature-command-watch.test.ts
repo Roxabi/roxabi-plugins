@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import type { FeatureWorkflow } from '../../roxabi/feature-contract'
 import { pauseOwnedFeatureOnSessionEnd } from '../../roxabi/feature-host-lifetime'
 import { rememberFeatureOwner } from '../../roxabi/feature-host-ownership'
 import { createExtensionApiStub } from '../../testing/extension-api-stub'
-import { batch as nativeBatch } from '../../testing/review-runtime-support'
+import { consultableAgentRoot } from '../../testing/protocol-retention.unit.ts'
+import { cleanupFixtureActions, batch as nativeBatch } from '../../testing/review-runtime-support'
 import ompBuildExtension from '../index'
 import type { OmpBuildExtensionOptions } from '../omp-commands'
 import { reviewControllerFor } from '../omp-controller'
@@ -14,11 +15,15 @@ type CapturedHandler = {
 }['invoke']
 
 const root = {
+  ...consultableAgentRoot(),
   cwd: '/repo/feature',
-  agent: { kind: 'main' as const, id: 'Main', name: 'main', depth: 0 },
   model: { contextWindow: 128_000 },
   isIdle: () => true,
 }
+
+afterEach(() => {
+  cleanupFixtureActions()
+})
 
 function workflow(impl: Partial<FeatureWorkflow> = {}): FeatureWorkflow & { pauses: string[] } {
   const pauses: string[] = []

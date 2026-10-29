@@ -1,6 +1,7 @@
 import { containmentResponse } from './sim-containment.ts'
 import { recordedBase, rollupPage, settleAll } from './sim-git.ts'
 import { execInherited, writeStdout } from './sim-invocation.ts'
+import { toolingGraphql } from './sim-tooling.ts'
 import { type Comment, fail, fullName, type Issue, type Pull, type State } from './sim-types.ts'
 import { graphIssueResponse } from './sim-uw-graph.ts'
 
@@ -281,6 +282,8 @@ function aliasedPullsResponse(state: State, query: string): unknown | undefined 
 }
 
 export function graphql(state: State, query: string, vars: Record<string, string>): unknown {
+  const tooling = toolingGraphql(query, vars)
+  if (tooling !== undefined) return tooling
   if (vars.owner !== state.owner || vars.name !== state.name) {
     return { data: { repository: null, viewer: { login: state.viewer } } }
   }

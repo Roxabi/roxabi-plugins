@@ -5,6 +5,7 @@ import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
 import type { AcceptedChildCommitment } from '../engine/workflow-mandate-schema.ts'
 import type { NativeBatch, NativeBatchCallbacks, NativeBatchResult } from '../omp/review-runtime/contracts.ts'
 import type { PreparedEpicReview } from './epic-range-finalization.ts'
+import type { TrustedHostPluginPin } from './uw-action-contract.ts'
 import type { NormalizationProposalRequest, UwOperations, UwReadPort } from './uw-contract.ts'
 import type { GitRunner } from './workflow-checkout.ts'
 
@@ -58,6 +59,8 @@ export type ContinueFeatureInput = {
   gh?: Gh
   uw?: UwOperations
   read?: UwReadPort
+  /** Trusted host composition only. Omit for the ordinary published pin. */
+  pluginPin?: TrustedHostPluginPin
 }
 
 export type FeatureSessionPauseInput = {
@@ -69,8 +72,8 @@ export type FeatureSessionPauseInput = {
 }
 
 export type FeatureNativePublication =
-  | { published: true; retained: true }
-  | { published: false; retained: true; reason: string }
+  | { published: true; retained: true; receipt?: ScopedRecordRef }
+  | { published: false; retained: true; reason: string; receipt?: ScopedRecordRef }
   | { published: false; retained: false; reason: string }
 
 export type FeatureWorkflow = {
@@ -114,6 +117,8 @@ export type FeatureCommandHost = {
   startFix?: (input: FeatureReviewFix) => Promise<{ terminal: Promise<FeatureFixTerminal> }>
   /** Command-context UW capability: absent only when the installed UW composition is unavailable. */
   uw?: UwOperations
+  /** Trusted host composition only. Omit for the ordinary published pin. */
+  pluginPin?: TrustedHostPluginPin
   startAdmittedCiCorrection?: (input: {
     reference: string
     attributionRecordId: string

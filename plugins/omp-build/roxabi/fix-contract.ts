@@ -3,7 +3,8 @@ import type { NativeBatch, NativeTask } from '../omp/review-runtime/contracts.ts
 import type { NativeBatchController } from '../omp/review-runtime/controller.ts'
 import type { DebtFiling } from './debt-filing-port.ts'
 import type { FixPolicy } from './fix-domain'
-
+import type { ActionSubject } from './uw-action-contract.ts'
+import type { UwOperations } from './uw-contract.ts'
 export type FixActionResult<T> = { ok: true; value: T } | { ok: false; diagnostics: string[] }
 
 export type FixScope = Scope
@@ -13,6 +14,7 @@ export type FixTarget = FixScope & {
   kind: 'issue' | 'pull-request'
   state: 'open' | 'closed'
   candidateGitSHA: string | null
+  baseGitSHA: string | null
 }
 export type PublishBinding = {
   pushUrl: string
@@ -61,7 +63,7 @@ export type FixRecordKind =
   | 'fix-result'
 export type FixRecord = Extract<CanonicalRecord, { kind: FixRecordKind }>
 
-export type RecordPublisher = { publish(record: FixRecord): Promise<FixActionResult<void>> }
+export type RecordPublisher = { publish(record: FixRecord, canPublish?: () => boolean): Promise<FixActionResult<void>> }
 
 export type FixIdentity = {
   runId: string
@@ -80,7 +82,10 @@ export type FixRequestInput = {
   policy?: FixPolicy
   identity: FixIdentity
   publishBinding: PublishBinding
-  nativeTasks: NativeTask[]
+  nativeTasks: Array<Omit<NativeTask, 'action'>>
+  operations: UwOperations
+  /** Approved mandate scope when it is distinct from the correction target. Never a pull-request scope. */
+  uw?: Scope
   /** Same-scope confirmed mandate ids only. Cross-scope ids stay external refs, never inputs. */
   authorityInputs?: readonly string[]
   /** Production defaults to the trusted issue-triage boundary; tests may inject it. */
@@ -97,6 +102,7 @@ export type PreparedFix = {
   cwd: string
   debtFiling: DebtFiling
   publishBinding: PublishBinding
+  subject: ActionSubject
 }
 
 export function sameScopeAuthorityInputs(input: FixRequestInput): FixActionResult<readonly string[]> {

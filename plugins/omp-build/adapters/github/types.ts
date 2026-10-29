@@ -20,6 +20,8 @@ export type GitHubOptions = {
   writerLogin?: string
   /** Isolated-test seam. Production uses node:child_process execFile. */
   gh?: Gh
+  /** Revocable host publication ownership; checked immediately before each record write. */
+  canPublish?: () => boolean
 }
 
 export class GitHubHistoryReadError extends Error {

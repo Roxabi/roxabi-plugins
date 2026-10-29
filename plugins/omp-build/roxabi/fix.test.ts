@@ -3,6 +3,7 @@ import { validateDecisionBindings } from '../dist/contracts.js'
 import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
 import type { AcceptedChildCommitment } from '../engine/workflow-mandate-schema.ts'
+import { fixturePreparedAction, fixtureUwOperations } from '../testing/action-input-fixtures.ts'
 import { contribution } from '../testing/record-decisions.ts'
 import { reviewGraph } from '../testing/record-graphs.ts'
 import { history } from '../testing/record-history.ts'
@@ -40,6 +41,7 @@ function openTarget(): FixTarget {
     kind: 'pull-request',
     state: 'open',
     candidateGitSHA: 'a'.repeat(40),
+    baseGitSHA: 'a'.repeat(40),
   }
 }
 
@@ -194,7 +196,15 @@ describe('fix correction safety', () => {
       operationId: 'operation-1',
       tasks: {
         context: 'correction intake',
-        tasks: [{ name: 'slot-1', agent: 'R-adversarial', task: 'inspect', solutionSpace: 'bounded finding intake' }],
+        tasks: [
+          {
+            name: 'slot-1',
+            agent: 'R-adversarial',
+            task: 'inspect',
+            solutionSpace: 'bounded finding intake',
+            action: fixturePreparedAction('slot-1'),
+          },
+        ],
       },
     }
     const intake = await publishFixIntake(
@@ -216,6 +226,7 @@ describe('fix correction safety', () => {
           observed: {},
         },
         debtFiling: { file: async () => ({ ok: false, diagnostics: ['not-used'] }) },
+        subject: { kind: 'standalone-pr', pullRequest: { repository: 'Acme/app', target: 'Acme/app#42' } },
         batch,
       },
       {
@@ -270,7 +281,15 @@ describe('fix correction safety', () => {
       operationId: 'operation-1',
       tasks: {
         context: 'correction intake',
-        tasks: [{ name: 'slot-1', agent: 'R-adversarial', task: 'inspect', solutionSpace: 'bounded finding intake' }],
+        tasks: [
+          {
+            name: 'slot-1',
+            agent: 'R-adversarial',
+            task: 'inspect',
+            solutionSpace: 'bounded finding intake',
+            action: fixturePreparedAction('slot-1'),
+          },
+        ],
       },
     }
     const result = await publishFixIntake(
@@ -292,6 +311,7 @@ describe('fix correction safety', () => {
           observed: {},
         },
         debtFiling: { file: async () => ({ ok: false, diagnostics: ['not-used'] }) },
+        subject: { kind: 'standalone-pr', pullRequest: { repository: 'Acme/app', target: 'Acme/app#42' } },
         batch,
       },
       {
@@ -419,6 +439,7 @@ describe('fix correction safety', () => {
         },
         runtime: {
           signal: new AbortController().signal,
+          uw: fixtureUwOperations(),
           onBatch: () => {},
           onStarted: () => {},
         },

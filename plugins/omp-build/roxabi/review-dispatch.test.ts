@@ -71,12 +71,15 @@ describe('ReviewProduct', () => {
     expect(order).toEqual(['inventory', 'activate'])
     if (callbacks === undefined) throw new Error('review dispatch did not activate callbacks')
     await callbacks.onChildResult?.(child)
-    await callbacks.onComplete({
-      batch: prepared.batch,
-      children: [child],
-      raw: {},
-      complete: true,
-    } as NativeBatchResult)
+    await callbacks.onComplete(
+      {
+        batch: prepared.batch,
+        children: [child],
+        raw: {},
+        complete: true,
+      } as NativeBatchResult,
+      () => true,
+    )
     expect(order).toEqual(['inventory', 'activate', 'raw', 'complete'])
   })
 

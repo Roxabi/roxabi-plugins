@@ -1,8 +1,8 @@
 import { z } from 'zod'
 import { externalRecordRefSchema } from './record-references.ts'
 import type { Diagnostic, Json } from './record-values.ts'
-import { scopeSchema } from './record-values.ts'
 import type { Result } from './result.ts'
+import { scopeSchema } from './schema-primitives.ts'
 import { specItemIdSchema } from './uw-spec-schema.ts'
 
 const position = z.strictObject({ line: z.number().int().positive(), column: z.number().int().positive() })

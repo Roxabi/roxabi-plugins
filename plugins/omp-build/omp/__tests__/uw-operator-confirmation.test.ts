@@ -2,6 +2,7 @@ import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import { describe, expect, it } from 'vitest'
 import type { PreparedMaterialAcceptance } from '../../engine/workflow-spec-assessment.ts'
 import type { PreparedUwProposal } from '../../roxabi/uw-contract.ts'
+import { consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
 import { createOperatorConfirmation } from '../omp-operator-confirmation.ts'
 
 const proposal = {
@@ -50,6 +51,7 @@ function interactiveContext(confirm: () => Promise<boolean>): ExtensionContext {
     hasUI: true,
     mode: 'tui',
     ui: { confirm },
+    localProtocolOptions: consultableProtocolOptions(),
   } as unknown as ExtensionContext
 }
 

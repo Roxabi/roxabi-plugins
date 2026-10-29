@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { NativeBatch, NativeBatchCallbacks, NativeBatchResult } from '../omp/review-runtime/contracts.ts'
+import { fixturePreparedAction, fixtureUwOperations } from '../testing/action-input-fixtures.ts'
 import type { NativePort } from './fix-contract.ts'
 import { dispatchNativeBatch } from './fix-native-dispatch.ts'
 
@@ -13,6 +14,7 @@ const batch: NativeBatch = {
         agent: 'R-adversarial',
         task: 'inspect correction scope',
         solutionSpace: 'correction evidence only',
+        action: fixturePreparedAction('slot-1'),
       },
     ],
   },
@@ -45,6 +47,7 @@ describe('fix native dispatch', () => {
       batch,
       {
         signal: new AbortController().signal,
+        uw: fixtureUwOperations(),
         onBatch: () => {},
         onStarted: () => {},
       },

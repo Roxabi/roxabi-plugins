@@ -1,7 +1,9 @@
+import type { CriterionDeclaration } from '../engine/criterion-evidence-schema.ts'
 import type { DebtObligation } from './correction-debt.ts'
 import type { CorrectionOutcome } from './correction-policy-contract.ts'
 import type { FixActionResult, FixIdentity, FixRecord, PreparedFix, RecordPublisher } from './fix-contract.ts'
 import { failure, isRecordId } from './fix-contract.ts'
+import type { CorrectionCriterionSource } from './fix-criterion-receipt.ts'
 import { publish, record } from './fix-records.ts'
 
 export type PublishedFixArtifacts = {
@@ -20,8 +22,34 @@ async function publishCorrectionArtifact(
   outcome: CorrectionOutcome,
   state: ArtifactState,
   signal: AbortSignal | undefined,
+  criterionSources: readonly CorrectionCriterionSource[],
 ): Promise<boolean> {
-  const receiptInputs = [...new Set([decisionId, prepared.requestId, ...outcome.sourceContributionIds])]
+  const attempt =
+    outcome.outcome === 'applied'
+      ? [...outcome.applyAttempts].reverse().find((item) => item.round === outcome.attempt && item.result === 'applied')
+      : undefined
+  const appliedContributionId =
+    attempt?.sourceContributionIds.length === 1 ? (attempt.sourceContributionIds[0] ?? null) : null
+  const criterionObservations =
+    outcome.outcome === 'applied'
+      ? criterionSources.flatMap((source) => {
+          const sourceContributionId = source.contributionIds[0]
+          return source.causeId === outcome.cause.id &&
+            source.phase !== 'apply' &&
+            source.contributionIds.length === 1 &&
+            sourceContributionId !== undefined
+            ? [{ sourceContributionId, head: source.head }]
+            : []
+        })
+      : []
+  const receiptInputs = [
+    ...new Set([
+      decisionId,
+      prepared.requestId,
+      ...outcome.sourceContributionIds,
+      ...criterionObservations.map((item) => item.sourceContributionId),
+    ]),
+  ]
   const correction = record(
     identity,
     prepared.target,
@@ -32,6 +60,8 @@ async function publishCorrectionArtifact(
       attempt: outcome.attempt,
       outcome: outcome.outcome,
       commitSHAs: [...outcome.commitSHAs],
+      appliedContributionId,
+      criterionObservations,
       raw: {
         execution: outcome.execution,
         terminalFailure: outcome.terminalFailure,
@@ -141,13 +171,23 @@ export async function publishFixArtifacts(
   outcomes: readonly CorrectionOutcome[],
   debt: readonly DebtObligation[],
   signal?: AbortSignal,
+  criterionSources: readonly CorrectionCriterionSource[] = [],
 ): Promise<FixActionResult<PublishedFixArtifacts>> {
   const state: ArtifactState = { correctionIds: [], falsificationIds: [], debtIds: [], diagnostics: [] }
   if (signal?.aborted) return failure('fix-run-interrupted-cleanup-unproven')
   for (const outcome of outcomes) {
     if (
       signal?.aborted ||
-      !(await publishCorrectionArtifact(prepared, identity, publisher, decisionId, outcome, state, signal))
+      !(await publishCorrectionArtifact(
+        prepared,
+        identity,
+        publisher,
+        decisionId,
+        outcome,
+        state,
+        signal,
+        criterionSources,
+      ))
     )
       return failure('fix-run-interrupted-cleanup-unproven')
   }
@@ -177,6 +217,7 @@ export function publishFinalFixResult(
   decisionId: string,
   artifacts: PublishedFixArtifacts,
   candidateGitSHA: string,
+  criterionReceipt?: { sourceContributionId: string; criteria: CriterionDeclaration[] },
 ): Promise<FixActionResult<FixRecord>> {
   if (!isRecordId(decisionId) || !/^[0-9a-f]{40}$/.test(candidateGitSHA))
     return Promise.resolve(failure('fix-result-binding-invalid'))
@@ -193,8 +234,16 @@ export function publishFinalFixResult(
         correctionResultIds: artifacts.correctionIds,
         falsificationResultIds: artifacts.falsificationIds,
         debtReceiptIds: artifacts.debtIds,
+        ...(criterionReceipt === undefined ? {} : { criterionReceipt }),
       },
-      [prepared.requestId, decisionId, ...artifacts.correctionIds, ...artifacts.falsificationIds, ...artifacts.debtIds],
+      [
+        prepared.requestId,
+        decisionId,
+        ...artifacts.correctionIds,
+        ...artifacts.falsificationIds,
+        ...artifacts.debtIds,
+        ...(criterionReceipt === undefined ? [] : [criterionReceipt.sourceContributionId]),
+      ],
     ),
   )
 }

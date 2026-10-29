@@ -1,6 +1,7 @@
 import type { AppliedCauseContext } from './correction-action'
 import type {
   CorrectionEffectResult,
+  ManifestedStageRecord,
   NativeCorrectionExecutionOptions,
   NativeDispatchResult,
 } from './correction-execution-contract'
@@ -13,6 +14,7 @@ export type CorrectionNativeRuntime = {
   setExpectedHead(head: string): void
   ownedCommits: string[]
   appliedByCause: Map<string, AppliedCauseContext>
+  records: Map<string, ManifestedStageRecord>
   abortFence<T>(): CorrectionEffectResult<T> | null
   dispatch(
     binding: Parameters<NativeCorrectionExecutionOptions['bindAction']>[0],

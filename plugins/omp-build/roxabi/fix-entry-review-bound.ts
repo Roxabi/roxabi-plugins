@@ -105,6 +105,7 @@ export async function runReviewBoundDefaultFix(
       target.number,
       target.candidateGitSHA,
       reviewRecord.payload.input,
+      input.pluginPin === undefined ? {} : { pluginPin: input.pluginPin },
     )
     if (!freshInput.ok) return fail(`review-input-stale:${freshInput.reason}`)
     let trustedLiveRequest: Extract<FixRecord, { kind: 'fix-request' }> | undefined

@@ -14,7 +14,7 @@ import { bash, cause, git } from './correction-native-execution.fixture-world'
 function child(
   task: NativeTask,
   structured: Json,
-  proof: { id: string; exitCode: number; result: Json; guardId: string | null },
+  proof: { id: string; command: string; exitCode: number; result: Json; guardId: string | null },
   cwd: string,
 ): NativeChildResult {
   return {
@@ -29,7 +29,7 @@ function child(
             guardId: proof.guardId,
             call: {
               toolCallId: proof.id,
-              input: { command: 'bash -lc repository-proof', cwd: '.' },
+              input: { command: proof.command, cwd: '.' },
               effectiveCwd: cwd,
               result: proof.result,
               exitCode: proof.exitCode,
@@ -66,7 +66,7 @@ export function native(
       if (!task || callbacks === null) throw new Error('test native batch unavailable')
 
       let structured: Json
-      let proof: { id: string; exitCode: number; result: Json; guardId: string | null }
+      let proof: { id: string; command: string; exitCode: number; result: Json; guardId: string | null }
       if (task.proofEvidence?.purpose === 'fix-apply') {
         if (options.proofOnlyPath) {
           const path = join(cwd, options.proofOnlyPath)
@@ -79,7 +79,8 @@ export function native(
           git(cwd, ['add', '--', 'src/guard.txt'])
           git(cwd, ['commit', '-m', 'fix guard'])
         }
-        const run = bash(cwd, 'test -f src/guard.txt')
+        const command = 'test -f src/guard.txt'
+        const run = bash(cwd, command)
         structured = {
           outcome: 'applied',
           commitSHAs: [git(cwd, ['rev-parse', 'HEAD'])],
@@ -102,11 +103,12 @@ export function native(
           proofToolCallId: 'apply-proof',
           proofUnavailableReason: null,
         }
-        proof = { id: 'apply-proof', guardId: null, ...run }
+        proof = { id: 'apply-proof', command, guardId: null, ...run }
       } else if (task.proofEvidence?.purpose === 'fix-falsify') {
         const guardId = task.task.includes('persist-guard-b') ? 'persist-guard-b' : 'persist-guard-a'
         writeFileSync(join(cwd, 'src', 'guard.txt'), 'guard: removed\n')
-        const run = bash(cwd, 'test "$(cat src/guard.txt)" = "guard: restored"')
+        const command = 'test "$(cat src/guard.txt)" = "guard: restored"'
+        const run = bash(cwd, command)
         writeFileSync(join(cwd, 'src', 'guard.txt'), 'guard: restored\n')
         structured = {
           facts: [
@@ -122,9 +124,10 @@ export function native(
           skippedReason: null,
           commands: [],
         }
-        proof = { id: `perturbed-proof-${guardId}`, guardId, ...run }
+        proof = { id: `perturbed-proof-${guardId}`, command, guardId, ...run }
       } else {
-        const run = bash(cwd, 'test "$(cat src/guard.txt)" = "guard: restored"')
+        const command = 'test "$(cat src/guard.txt)" = "guard: restored"'
+        const run = bash(cwd, command)
         structured = {
           outcome: 'applied',
           commitSHAs: [],
@@ -134,16 +137,19 @@ export function native(
           proofToolCallId: 'restored-proof',
           proofUnavailableReason: null,
         }
-        proof = { id: 'restored-proof', guardId: null, ...run }
+        proof = { id: 'restored-proof', command, guardId: null, ...run }
       }
 
       active = null
-      await callbacks.onComplete({
-        batch,
-        children: [child(task, structured, proof, cwd)],
-        raw: { native: task.name },
-        complete: true,
-      })
+      await callbacks.onComplete(
+        {
+          batch,
+          children: [child(task, structured, proof, cwd)],
+          raw: { native: task.name },
+          complete: true,
+        },
+        () => true,
+      )
     },
   }
 }

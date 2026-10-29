@@ -1,9 +1,10 @@
+import { acceptedActionInputs } from '../../testing/action-input-fixtures.ts'
 import { buildRecord } from '../record-construction.ts'
 import { specDigest } from '../record-digests.ts'
 import type { CanonicalRecord } from '../record-schema.ts'
 import { canonicalSpec, type SpecContent, type SpecSnapshot, type UwTier } from '../uw-spec.ts'
 import { SPEC_CONTENT_FORMAT } from '../uw-spec-schema.ts'
-import type { AssessSpecExact } from '../workflow-receipt-schema.ts'
+import { ACTION_RECEIPT_FORMAT, type AssessSpecExact } from '../workflow-receipt-schema.ts'
 import {
   type AssessResultRecord,
   isAssessResult,
@@ -123,7 +124,15 @@ export function assessFixture(
       runId: 'run-1',
       operationId: `op-${id}-start`,
       kind: 'action-receipt',
-      payload: { phase: 'start', action: 'assess-spec', actionId: `act-${id}`, mandate: mandateRef, exactInputs },
+      payload: {
+        format: ACTION_RECEIPT_FORMAT,
+        inputs: acceptedActionInputs(mandated, 'assess-spec'),
+        phase: 'start',
+        action: 'assess-spec',
+        actionId: `act-${id}`,
+        mandate: mandateRef,
+        exactInputs,
+      },
     }),
   )
   const result = must(
@@ -136,6 +145,8 @@ export function assessFixture(
       operationId: `op-${id}`,
       kind: 'action-receipt',
       payload: {
+        format: ACTION_RECEIPT_FORMAT,
+        inputs: acceptedActionInputs(mandated, 'assess-spec'),
         phase: 'result',
         action: 'assess-spec',
         actionId: `act-${id}`,

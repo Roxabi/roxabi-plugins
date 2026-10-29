@@ -1,6 +1,7 @@
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
 import type { OperatorPort, PreparedOperatorProposal } from '../roxabi/uw-contract.ts'
+import { retainActionRecordSync } from './action-communication.ts'
 
 /** Per-command capability. Composition cancels it on command/session liveness loss. */
 export type CommandOperatorPort = OperatorPort & { cancel(): void }
@@ -38,8 +39,18 @@ export function createOperatorConfirmation(ctx: ExtensionContext): CommandOperat
       let confirmed = false
       const displayedDigest = proposal.digest
       const displayedProposal = JSON.stringify(proposal.proposal, null, 2)
+      const detail = retainActionRecordSync(ctx, 'proposal', proposal.proposal)
+      const target = 'target' in proposal.proposal ? proposal.proposal.target.kind : proposal.proposal.uw.target
+      const facts = [
+        `digest: ${displayedDigest}`,
+        `operation: ${proposal.proposal.operationId}`,
+        `target: ${target}`,
+        'credentialMode: procedural-fallback',
+        `detail: ${detail}`,
+        'options: confirm the exact proposal, or decline',
+      ]
       try {
-        confirmed = await ctx.ui.confirm('Confirm UW proposal', `${displayedDigest}\n\n${displayedProposal}`)
+        confirmed = await ctx.ui.confirm('Confirm UW proposal', facts.join('\n'))
       } catch {
         live = false
         return {

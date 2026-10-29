@@ -1,7 +1,6 @@
-import { homedir } from 'node:os'
-import { isAbsolute, join, resolve } from 'node:path'
-import type { BashToolDetails, BashToolInput, SubagentEventPayload } from '@oh-my-pi/pi-coding-agent'
-import type { Json, NativeProofBashCall, NativeProofDirective } from './contracts'
+import type { SubagentEventPayload } from '@oh-my-pi/pi-coding-agent'
+import { bashInput, effectiveBashCwd, rememberBashCall } from './bash-call.ts'
+import type { Json, NativeProofDirective } from './contracts'
 import type { ActiveBatch, ChildCapture, YieldRaw } from './state'
 
 type ToolExecutionStart = Extract<SubagentEventPayload['event'], { type: 'tool_execution_start' }>
@@ -51,68 +50,6 @@ export function relevantSubagentPayload(value: unknown): value is SubagentEventP
     typeof assistant.toolCall.name === 'string'
   )
 }
-function bashInput(value: unknown): value is BashToolInput {
-  return object(value) && typeof value.command === 'string'
-}
-function bashDetails(value: unknown): value is BashToolDetails {
-  return object(value) && (value.exitCode === undefined || typeof value.exitCode === 'number')
-}
-
-function bashExitCode(value: unknown, isError: unknown): number | null {
-  if (!object(value) || !bashDetails(value.details)) return null
-  const details = value.details
-  if (typeof details.exitCode === 'number') return details.exitCode
-  if (isError !== false || details.async !== undefined || details.service !== undefined) return null
-  if (details.timedOut === true || details.terminalId !== undefined) return null
-  return 0
-}
-function rememberBashCall(
-  completed: Map<string, NativeProofBashCall>,
-  ambiguous: Set<string>,
-  toolCallId: string,
-  pending: { input: Json; effectiveCwd: string | null },
-  event: { result: unknown; isError?: unknown },
-  conflicts?: NativeProofBashCall[],
-): void {
-  const call: NativeProofBashCall = {
-    toolCallId,
-    input: pending.input,
-    effectiveCwd: pending.effectiveCwd,
-    result: nativeSnapshot(event.result),
-    exitCode: bashExitCode(event.result, event.isError),
-  }
-  const existing = completed.get(toolCallId)
-  if (existing === undefined && !ambiguous.has(toolCallId)) {
-    completed.set(toolCallId, call)
-    return
-  }
-  if (conflicts !== undefined) {
-    if (existing !== undefined) conflicts.push(existing)
-    conflicts.push(call)
-  }
-  completed.delete(toolCallId)
-  ambiguous.add(toolCallId)
-}
-/** Mirrors the installed public Bash resolver's supported host-path cases without importing it at runtime. */
-function effectiveBashCwd(value: unknown, sessionCwd: string | null): string | null {
-  if (!bashInput(value) || typeof sessionCwd !== 'string') return null
-  if (value.cwd !== undefined && typeof value.cwd !== 'string') return null
-
-  const requested = value.cwd ?? sessionCwd
-  if (/^[a-z][a-z\d+.-]*:\/\//i.test(requested)) return null
-
-  const home = homedir()
-  const expanded =
-    requested === '~'
-      ? home
-      : requested.startsWith('~/') || requested.startsWith('~\\')
-        ? home + requested.slice(1)
-        : requested.startsWith('~')
-          ? join(home, requested.slice(1))
-          : requested
-  if (/^\/+$/.test(expanded)) return sessionCwd
-  return isAbsolute(expanded) ? expanded : resolve(sessionCwd, expanded)
-}
 function captureFor(active: ActiveBatch, childId: string): ChildCapture {
   let capture = active.captures.get(childId)
   if (capture) return capture
@@ -130,8 +67,12 @@ function captureFor(active: ActiveBatch, childId: string): ChildCapture {
     ambiguousBashCallIds: new Set(),
     submissions: [],
     partialText: null,
+    hostGit: new Map(),
   }
   active.captures.set(childId, capture)
+  const slot = active.childSlots.get(childId)
+  const name = slot === undefined ? undefined : active.batch.tasks.tasks[slot]?.name
+  if (name !== undefined && name !== childId) active.captures.set(name, capture)
   return capture
 }
 function assistantText(value: unknown): string | null {
@@ -164,8 +105,14 @@ function rawYieldCall(
 function yieldedData(args: unknown): Json | null {
   return object(args) && 'data' in args && json(args.data) ? args.data : null
 }
+function taskForChild(active: ActiveBatch, childId: string) {
+  return (
+    active.batch.tasks.tasks.find((task) => task.name === childId) ??
+    active.batch.tasks.tasks[active.childSlots.get(childId) ?? -1]
+  )
+}
 function proofDirective(active: ActiveBatch, childId: string): NativeProofDirective | null {
-  return active.batch.tasks.tasks.find((task) => task.name === childId)?.proofEvidence ?? null
+  return taskForChild(active, childId)?.proofEvidence ?? null
 }
 function captureMessageUpdate(
   capture: ChildCapture,
@@ -206,7 +153,7 @@ function captureStartedToolExecution(
   active: ActiveBatch,
   capture: ChildCapture,
   childId: string,
-  featureBatch: boolean,
+  _featureBatch: boolean,
   event: Extract<SubagentEventPayload['event'], { type: 'tool_execution_start' }>,
 ): void {
   if (event.toolName === 'yield') {
@@ -217,10 +164,15 @@ function captureStartedToolExecution(
   const input = nativeSnapshot(event.args)
   if (input === null) return
   const pending = { input, effectiveCwd: effectiveBashCwd(event.args, active.defaultCwd) }
+  capture.hostGit.set(event.toolCallId, {
+    start: pending.effectiveCwd === null ? null : active.observeHostGit(pending.effectiveCwd),
+    end: null,
+  })
   if (proofDirective(active, childId) !== null) capture.pendingProofCalls.set(event.toolCallId, pending)
-  if (featureBatch) capture.pendingBashCalls.set(event.toolCallId, pending)
+  capture.pendingBashCalls.set(event.toolCallId, pending)
 }
 function captureCompletedBashExecution(
+  active: ActiveBatch,
   capture: ChildCapture,
   event: Extract<SubagentEventPayload['event'], { type: 'tool_execution_end' }>,
 ): void {
@@ -232,6 +184,9 @@ function captureCompletedBashExecution(
   const bashPending = capture.pendingBashCalls.get(event.toolCallId)
   if (bashPending !== undefined) {
     capture.pendingBashCalls.delete(event.toolCallId)
+    const span = capture.hostGit.get(event.toolCallId) ?? { start: null, end: null }
+    span.end = bashPending.effectiveCwd === null ? null : active.observeHostGit(bashPending.effectiveCwd)
+    capture.hostGit.set(event.toolCallId, span)
     rememberBashCall(
       capture.completedBashCalls,
       capture.ambiguousBashCallIds,
@@ -253,7 +208,8 @@ function captureToolExecution(
     captureStartedToolExecution(active, capture, childId, featureBatch, event)
     return
   }
-  if (event.type === 'tool_execution_end' && event.toolName === 'bash') captureCompletedBashExecution(capture, event)
+  if (event.type === 'tool_execution_end' && event.toolName === 'bash')
+    captureCompletedBashExecution(active, capture, event)
 }
 function captureMessageEnd(capture: ChildCapture, message: unknown): void {
   const text = assistantText(message)

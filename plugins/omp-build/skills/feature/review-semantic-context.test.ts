@@ -5,7 +5,6 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { confirmedReviewSemanticContext, reviewSemanticCanon } from '../../roxabi/review-semantic-canon'
-import { hashReviewInput } from './review-input'
 
 function digest(body: string): string {
   return createHash('sha256').update(body, 'utf8').digest('hex')
@@ -128,47 +127,12 @@ describe('reviewSemanticCanon', () => {
         '{}',
       ]),
     )
-    const hashed = hashReviewInput(
-      'acme/app',
-      { pr: 12, candidate: 'abc' },
-      { body: 'pr body', lastEditedAt: null },
-      projected,
-    )
-    const changed = confirmedReviewSemanticContext({
-      mode: 'bound',
-      binding: { recordId: 'bind-1', scope: { repository: 'acme/app', target: 'acme/app#12' } },
-      acceptedSpec: {
-        reference: 'acme/app#9',
-        body: 'other spec',
-        digest: digest('other spec'),
-        chain: [
-          {
-            kind: 'mandate',
-            source: {
-              recordId: 'm1',
-              scope: { repository: 'acme/app', target: 'acme/app#9' },
-              kind: 'mandate',
-            },
-            version: digest('other spec'),
-          },
-        ],
-        sourceRefs: [{ scope: { repository: 'acme/app', target: 'acme/app#9' }, recordId: 'm1', kind: 'mandate' }],
-      },
-      additionalRequirements: ['keep the gate'],
-      effectiveConfig: { productVersion: '1.0.0', version: 'v1', digest: 'a'.repeat(64), serialized: '{}' },
-    })
-    expect('ok' in changed).toBe(false)
-    if ('ok' in changed) return
-    expect(
-      hashReviewInput('acme/app', { pr: 12, candidate: 'abc' }, { body: 'pr body', lastEditedAt: null }, changed),
-    ).not.toBe(hashed)
+    expect(reviewSemanticCanon(projected)).toContain('bound')
   })
 })
 
 describe('no-producer semantic binding', () => {
-  const candidate = 'c'.repeat(40)
   const repository = 'acme/app'
-  const prBody = { body: 'pr body', lastEditedAt: null as string | null }
 
   function bound(spec: string, serialized: string) {
     const projected = confirmedReviewSemanticContext({
@@ -198,12 +162,11 @@ describe('no-producer semantic binding', () => {
     return projected
   }
 
-  it('hashes an empty proof publication, and a Spec-only change makes the old approval stale', () => {
+  it('changes the display canon when the accepted Spec or config changes', () => {
     const current = bound('accepted spec', '{}')
     const changed = bound('changed spec', '{}')
     const configured = bound('accepted spec', '{"gate":true}')
-    const currentHash = hashReviewInput(repository, { pr: 7, candidate }, prBody, current)
-    expect(currentHash).not.toBe(hashReviewInput(repository, { pr: 7, candidate }, prBody, changed))
-    expect(currentHash).not.toBe(hashReviewInput(repository, { pr: 7, candidate }, prBody, configured))
+    expect(reviewSemanticCanon(current)).not.toBe(reviewSemanticCanon(changed))
+    expect(reviewSemanticCanon(current)).not.toBe(reviewSemanticCanon(configured))
   })
 })

@@ -3,6 +3,8 @@ import type { NativeBatch, NativeBatchResult, NativeTask } from '../omp/review-r
 import type { NativeBatchController } from '../omp/review-runtime/controller.js'
 import type { PreparedFix } from './fix-contract'
 import type { CorrectionCause } from './fix-domain'
+import type { RecordInputRef } from './uw-action-contract.ts'
+import type { UwOperations } from './uw-contract.ts'
 
 type EffectFailureKind = 'retryable' | 'terminal'
 export type CorrectionEffectResult<T> =
@@ -60,7 +62,9 @@ export type BoundCorrectionAction = {
   /** The action inventory is already published and bound when this batch is returned. */
   batch: NativeBatch
   /** Persists every known and unknown child before any executor interpretation. */
-  conserve(result: NativeBatchResult): Promise<CorrectionEffectResult<{ contributionIds: string[] }>>
+  conserve(
+    result: NativeBatchResult,
+  ): Promise<CorrectionEffectResult<{ contributionIds: string[]; records?: readonly ManifestedStageRecord[] }>>
 }
 
 export type CorrectionActionBinding = {
@@ -69,22 +73,46 @@ export type CorrectionActionBinding = {
   task: NativeTask
   /** Exact persisted record references; later actions append confirmed native contribution IDs. */
   contextRefs: readonly string[]
-  /** Transient immutable semantic view included in the native task; durable links are contextRefs. */
+  /** Index selectors only. Cause and proof bodies travel as stage records, never as copies here. */
   context: Json
 }
 
 export type NativeCorrectionExecutionOptions = {
   native: NativeCorrectionPort
-  prepared: Pick<PreparedFix, 'cwd' | 'target' | 'publishBinding'>
+  prepared: Pick<PreparedFix, 'cwd' | 'target' | 'publishBinding' | 'subject'>
   operationId: string
   /** Re-check the already bound authority before any correction action or push. */
   authorizeContinuation?(): Promise<{ ok: true; value: undefined } | { ok: false; diagnostics: string[] }>
   decisionId: string
+  /** Published decision payload cited by every correction action. */
+  decision: ManifestedStageRecord
+  operations: UwOperations
+  /** Host-read canonical correction records for scoped local-head observation. */
+  correctionObservationRefs?(): Promise<CorrectionEffectResult<{ request: RecordInputRef; decision: RecordInputRef }>>
   signal: AbortSignal
   /** Creates and confirms one action-specific inventory before dispatch. */
   bindAction(input: CorrectionActionBinding): Promise<CorrectionEffectResult<BoundCorrectionAction>>
   /** FixRun records the first review-bound action only after its exact batch is armed. */
   onStarted(batch: NativeBatch, binding: CorrectionActionBinding): Promise<CorrectionEffectResult<void>>
+  onCriterionSource?(source: {
+    phase: 'apply' | 'revalidate' | 'restore-proof'
+    causeId: string
+    head: string
+    contributionIds: readonly string[]
+    child: NativeBatchResult['children'][number]
+  }): void
 }
 
-export type NativeDispatchResult = { native: NativeBatchResult; contributionIds: string[] }
+export type ManifestedStageRecord = {
+  repository: string
+  target: string
+  kind: 'decision' | 'contribution'
+  recordId: string
+  payload: Json
+}
+
+export type NativeDispatchResult = {
+  native: NativeBatchResult
+  contributionIds: string[]
+  records: readonly ManifestedStageRecord[]
+}

@@ -24,18 +24,22 @@ export type RecordDraft = {
   [K in CanonicalRecord['kind']]: Omit<Extract<CanonicalRecord, { kind: K }>, 'inputs'>
 }[CanonicalRecord['kind']]
 
+function reviewAttemptInputs(draft: Extract<RecordDraft, { kind: 'review-attempt' }>): string[] {
+  if (draft.payload.stage !== 'initial') return [draft.payload.rootAttemptId]
+  if (draft.payload.purpose === 'correction') return [draft.payload.requestId]
+  if (isInitialPullRequestReviewInventory(draft.payload) && draft.payload.replacement !== undefined)
+    return [
+      draft.payload.replacement.rootAttemptId,
+      draft.payload.replacement.dispositionId,
+      draft.payload.replacement.grantId,
+    ]
+  return []
+}
+
 function derivedInputs(draft: RecordDraft): string[] {
   switch (draft.kind) {
     case 'review-attempt':
-      if (draft.payload.stage !== 'initial') return [draft.payload.rootAttemptId]
-      if (draft.payload.purpose === 'correction') return [draft.payload.requestId]
-      if (isInitialPullRequestReviewInventory(draft.payload) && draft.payload.replacement !== undefined)
-        return [
-          draft.payload.replacement.rootAttemptId,
-          draft.payload.replacement.dispositionId,
-          draft.payload.replacement.grantId,
-        ]
-      return []
+      return reviewAttemptInputs(draft)
     case 'contribution':
       return draft.payload.inventoryId === null ? [] : [draft.payload.inventoryId]
     case 'decision':
@@ -47,7 +51,11 @@ function derivedInputs(draft: RecordDraft): string[] {
         ? [draft.payload.requestContributionId]
         : [draft.payload.requestContributionId, draft.payload.existingReviewId]
     case 'correction-result':
-      return [draft.payload.decisionId]
+      return [
+        draft.payload.decisionId,
+        ...(draft.payload.appliedContributionId == null ? [] : [draft.payload.appliedContributionId]),
+        ...(draft.payload.criterionObservations ?? []).map((item) => item.sourceContributionId),
+      ]
     case 'falsification-result':
       return [draft.payload.correctionResultId]
     case 'debt-receipt':
@@ -59,6 +67,7 @@ function derivedInputs(draft: RecordDraft): string[] {
         ...draft.payload.correctionResultIds,
         ...draft.payload.falsificationResultIds,
         ...draft.payload.debtReceiptIds,
+        ...(draft.payload.criterionReceipt === undefined ? [] : [draft.payload.criterionReceipt.sourceContributionId]),
       ]
     case 'stop':
       return [draft.payload.reviewId]

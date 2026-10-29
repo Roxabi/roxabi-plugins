@@ -1,3 +1,9 @@
+import {
+  authenticatedCriterionFacts,
+  criterionAssessmentForDecision,
+  reviewCandidateCode,
+  reviewInputsFromInventory,
+} from './criterion-decision.ts'
 import { classifyHistory } from './history-classification.ts'
 import { validateRecordGraph } from './history-graph.ts'
 import type { DecodedHistory } from './history-schema.ts'
@@ -6,6 +12,7 @@ import { diagnostic, fail } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic, Group, Json, Verdict } from './record-values.ts'
 import { type DecisionAssessment, type FindingInspection, type Result, recordMap, unique } from './result.ts'
+import { collectOriginals } from './review-decision-sources.ts'
 import { groupFor } from './review-groups.ts'
 import { analyzeReviewIdentity } from './review-identity.ts'
 import { readReviewRecovery } from './review-recovery.ts'
@@ -16,29 +23,6 @@ export type DecisionBindings = {
   diagnostics: Diagnostic[]
   records: ReadonlyMap<string, CanonicalRecord>
   originals: ReadonlyMap<string, Json>
-}
-
-function collectOriginals(
-  record: Extract<CanonicalRecord, { kind: 'decision' }>,
-  records: ReadonlyMap<string, CanonicalRecord>,
-  diagnostics: Diagnostic[],
-): Map<string, Json> {
-  const originals = new Map<string, Json>()
-  for (const sourceId of record.payload.judgment.sourceContributionIds) {
-    const source = records.get(sourceId)
-    if (source?.kind !== 'contribution' || source.payload.content !== 'findings' || source.payload.findings === null) {
-      diagnostics.push(diagnostic('missing-contribution', `Decision source ${sourceId} is unavailable`))
-      continue
-    }
-    for (const original of source.payload.findings) {
-      if (originals.has(original.id))
-        diagnostics.push(
-          diagnostic('duplicate-reference', `Original finding ${original.id} occurs in multiple sources`),
-        )
-      originals.set(original.id, original.data)
-    }
-  }
-  return originals
 }
 
 function validateFinalFindingReferences(
@@ -248,11 +232,15 @@ function decisionVerdict(
   return findingsCount > 0 ? 'Approve' : 'Approve (clean)'
 }
 
+// A caller that filters review authority must retain the original same-scope
+// observation for separately authenticated delivery receipts and evidence.
 export function validateDecision(
   record: Extract<CanonicalRecord, { kind: 'decision' }>,
   history: DecodedHistory,
   taxonomy: readonly string[],
   acceptedPolicyRef: string | null,
+  externalHistories: readonly DecodedHistory[] = [],
+  deliveryHistory: DecodedHistory = history,
 ): DecisionAssessment {
   const bindings = validateDecisionBindingsFromGraph(record, history, validateRecordGraph(history))
   const diagnostics = [...bindings.diagnostics]
@@ -261,7 +249,45 @@ export function validateDecision(
   const hasUnusable =
     record.payload.judgment.findings.some((finding) => finding.state === 'unusable') ||
     inspected.findings.some(({ inspection }) => !inspection.usable)
-  const verdict = decisionVerdict(inspected.groups, hasUnusable, diagnostics, record.payload.judgment.findings.length)
+  const findingVerdict = decisionVerdict(
+    inspected.groups,
+    hasUnusable,
+    diagnostics,
+    record.payload.judgment.findings.length,
+  )
+  const review = record.payload.judgment.purpose === 'review' ? record.payload.judgment : null
+  const inputs = review === null ? null : reviewInputsFromInventory(review, history)
+  const facts =
+    review === null
+      ? { declarations: [], evidence: [], verdicts: [], diagnostics: [] }
+      : authenticatedCriterionFacts(
+          review,
+          history,
+          record.payload.originalContributionId,
+          externalHistories,
+          deliveryHistory,
+        )
+  const criterion = criterionAssessmentForDecision(
+    record.payload.judgment,
+    inputs,
+    facts,
+    review === null ? null : reviewCandidateCode(review, history),
+    [deliveryHistory, ...externalHistories],
+  )
+  diagnostics.push(...criterion.diagnostics)
+  const structural = criterion.diagnostics.some(
+    (item) =>
+      item.code === 'malformed' ||
+      item.code === 'spec-not-accepted' ||
+      item.code === 'duplicate-reference' ||
+      item.code === 'missing-history' ||
+      item.code === 'incomplete' ||
+      item.code === 'foreign' ||
+      item.code === 'conflict' ||
+      item.code === 'unconfirmed',
+  )
+  const verdict =
+    findingVerdict === null || structural ? null : criterion.forceRequestChanges ? 'Request changes' : findingVerdict
   return {
     admissible: verdict !== null,
     groups: inspected.groups,

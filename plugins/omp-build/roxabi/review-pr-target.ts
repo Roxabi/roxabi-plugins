@@ -1,9 +1,19 @@
+import { join } from 'node:path'
 import { type Result, viewer } from '../dist/contracts.js'
+import { refreshReviewBase } from '../skills/feature/review-base'
 import { resolveReviewPr } from '../skills/feature/workflow-pr.js'
 import { captureReviewInput } from '../skills/feature/workflow-review-input.js'
-import type { Gh, Git, ReviewInputCapture } from './review-input-contract'
+import { candidateText, materializeCandidateChunks } from './review-candidate-material'
+import type {
+  Gh,
+  Git,
+  PreparedReviewInputs,
+  PrepareReviewInputsOptions,
+  ReviewInputCapture,
+} from './review-input-contract'
 import { confirmedReviewSemanticContext } from './review-semantic-canon'
 import { type ReviewSemanticContext, resolveReviewSemanticContext } from './review-semantic-context'
+import type { TrustedHostPluginPin } from './uw-action-contract.ts'
 
 const SHA = /^[0-9a-f]{40}$/
 
@@ -32,6 +42,7 @@ export async function prepareReviewTarget(
   requested: number | string | undefined,
   gh: Gh,
   git: Git,
+  pluginPin?: TrustedHostPluginPin,
 ): Promise<Result<PreparedReviewTarget>> {
   const number = await resolveReviewPr(cwd, requested, {
     gh,
@@ -86,7 +97,13 @@ export async function prepareReviewTarget(
   }
   const confirmed = confirmedReviewSemanticContext(semantic.value)
   if ('ok' in confirmed) return failed('review-semantic-context-refused', `${confirmed.reason}: ${confirmed.error}`)
-  const capture = await captureReviewInput(cwd, number, pr.headRefOid, { gh, git, semantic: confirmed })
+  const capture = await captureReviewInput(cwd, number, pr.headRefOid, {
+    gh,
+    git,
+    semantic: confirmed,
+    automationLogin,
+    pluginPin,
+  })
   if (!capture.ok) return failed('review-input-refused', `${capture.reason}: ${capture.error}`)
 
   return {
@@ -101,4 +118,45 @@ export async function prepareReviewTarget(
       capture,
     },
   }
+}
+
+type ReviewMaterial = {
+  refreshed: { ok: true; tip: string }
+  stack: string | null
+  baseStack: string | null
+  chunks: PreparedReviewInputs['chunks']
+}
+
+export async function reviewMaterial(
+  options: PrepareReviewInputsOptions,
+  git: Git,
+  gh: (cwd: string, args: string[]) => Promise<string>,
+  candidate: string,
+  base: string,
+  assetDir: string,
+): Promise<Result<ReviewMaterial>> {
+  const refreshed = await refreshReviewBase(options.cwd, base, git, gh)
+  if (!refreshed.ok || !SHA.test(refreshed.tip)) {
+    return failed<ReviewMaterial>(
+      'base-unreadable',
+      !refreshed.ok ? `${refreshed.reason}: ${refreshed.error}` : 'selected base did not resolve to a commit',
+    )
+  }
+  const stack = await candidateText(git, options.cwd, candidate, '.dev/stack.yml', false)
+  const baseStack = await candidateText(git, options.cwd, refreshed.tip, '.dev/stack.yml', false)
+  const chunks = await materializeCandidateChunks({
+    cwd: options.cwd,
+    git,
+    base: refreshed.tip,
+    candidate,
+    contextWindow: options.contextWindow,
+    helper: join(assetDir, 'prepare_context.py'),
+  })
+  if (!chunks.length) {
+    return failed<ReviewMaterial>('review-diff-empty', 'candidate has no diff against selected base')
+  }
+  return {
+    ok: true,
+    value: { refreshed, stack, baseStack, chunks },
+  } satisfies Result<ReviewMaterial>
 }

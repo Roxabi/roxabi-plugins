@@ -6,6 +6,7 @@ import {
   boundInput,
   capturedCiFailure,
   cleanReview,
+  freshStandaloneReviewInputs,
   seedMandate,
 } from '../testing/review-gate-arrangement.ts'
 import {
@@ -45,7 +46,7 @@ export function registerReviewGateRefusalCases(): void {
       expect(result.stderr).toBe('')
     })
 
-    it('requires a fresh review when the review input changes before landing', async () => {
+    it('keeps the review usable when display-only PR prose changes', async () => {
       const fixture = setupReviewGateFixture()
       await seedMandate(fixture)
       publish(fixture, cleanReview(fixture.head, 'one', await boundInput(fixture)), 'SUCCESS')
@@ -56,12 +57,8 @@ export function registerReviewGateRefusalCases(): void {
 
       const result = runReviewGate(fixture)
 
-      expect(result.status).toBe(1)
-      expect(JSON.parse(result.stdout)).toMatchObject({
-        ok: false,
-        allowed: false,
-        reason: 'review-input-changed',
-      })
+      expect(result.status).toBe(0)
+      expect(JSON.parse(result.stdout)).toMatchObject({ ok: true, allowed: true })
       expect(result.stderr).toBe('')
     })
 
@@ -78,7 +75,7 @@ export function registerReviewGateRefusalCases(): void {
 
     it('surfaces the third-review CI stop before refusing unbound positive admission', () => {
       const fixture = setupReviewGateFixture()
-      publish(fixture, approvals(fixture.head, 'a'.repeat(64)), 'FAILURE')
+      publish(fixture, approvals(fixture.head, freshStandaloneReviewInputs(fixture.head)), 'FAILURE')
 
       const result = runReviewGate(fixture)
 
