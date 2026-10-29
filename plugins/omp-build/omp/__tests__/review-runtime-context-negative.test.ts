@@ -48,34 +48,22 @@ function preparedBatch(actionId: string): NativeBatch {
 }
 
 async function admit(harness: BridgeHarness, prepared: NativeBatch, callId: string): Promise<void> {
-  await harness.emitBridge(
-    'tool_call',
-    {
-      toolName: 'task',
-      toolCallId: callId,
-      input: harness.controller.wire(prepared),
-    },
-    root,
-  )
+  expect(await harness.admitBatch(prepared, callId, root)).toBe(true)
 }
 
 function terminal(callId: string, childId: string) {
   return {
-    toolName: 'task',
     toolCallId: callId,
-    isError: false,
-    content: [],
-    details: {
-      results: [
-        {
-          index: 0,
-          id: childId,
-          agent: 'R-workflow-plan',
-          exitCode: 0,
-          structuredOutput: { status: 'valid', data: negative },
-        },
-      ],
-    },
+    errors: [],
+    results: [
+      {
+        index: 0,
+        id: childId,
+        agent: 'R-workflow-plan',
+        exitCode: 0,
+        structuredOutput: { status: 'valid', data: negative },
+      },
+    ],
   }
 }
 
@@ -109,8 +97,8 @@ describe('native runtime missing-context settlement', () => {
     await admit(harness, prepared, 'negative-call')
     await capture(harness, prepared, 'negative-action', 'negative-action-2', 'negative-call')
     const event = terminal('negative-call', 'negative-action-2')
-    await harness.emitBridgeAndSettle('tool_result', event, root)
-    await harness.emitBridgeAndSettle('tool_result', event, root)
+    await harness.settleBatch(event)
+    await harness.settleBatch(event)
 
     expect(onStop).toHaveBeenCalledTimes(1)
     expect(onComplete).not.toHaveBeenCalled()
@@ -165,34 +153,26 @@ describe('native runtime missing-context settlement', () => {
       root,
       skipRootCall: true,
     })
-    await harness.emitBridgeAndSettle(
-      'tool_result',
-      {
-        toolName: 'task',
-        toolCallId: 'review-call',
-        isError: false,
-        content: [],
-        details: {
-          results: [
-            {
-              index: 0,
-              id: 'review-first-2',
-              agent: 'R-workflow-plan-architect',
-              exitCode: 0,
-              structuredOutput: { status: 'valid', data: negative },
-            },
-            {
-              index: 1,
-              id: 'review-second-2',
-              agent: 'R-workflow-plan-adversarial',
-              exitCode: 0,
-              structuredOutput: { status: 'invalid' },
-            },
-          ],
+    await harness.settleBatch({
+      toolCallId: 'review-call',
+      errors: [],
+      results: [
+        {
+          index: 0,
+          id: 'review-first-2',
+          agent: 'R-workflow-plan-architect',
+          exitCode: 0,
+          structuredOutput: { status: 'valid', data: negative },
         },
-      },
-      root,
-    )
+        {
+          index: 1,
+          id: 'review-second-2',
+          agent: 'R-workflow-plan-adversarial',
+          exitCode: 0,
+          structuredOutput: { status: 'invalid' },
+        },
+      ],
+    })
 
     expect(onStop).toHaveBeenCalledTimes(1)
     const [reason, result] = onStop.mock.calls[0] as [string, NativeBatchResult]
@@ -235,7 +215,7 @@ describe('native runtime missing-context settlement', () => {
       await admit(harness, prepared, 'guard-call')
       const childId = `guard-${interruption}-2`
       await capture(harness, prepared, `guard-${interruption}`, childId, 'guard-call')
-      const settlement = harness.emitBridgeAndSettle('tool_result', terminal('guard-call', childId), root)
+      const settlement = harness.settleBatch(terminal('guard-call', childId))
       const result = await entered.promise
       const child = result.children[0]
       if (child === undefined) throw new Error('expected negative child')
@@ -271,7 +251,7 @@ describe('native runtime missing-context settlement', () => {
     await admit(harness, old, 'old-call')
     await capture(harness, old, 'old-action', 'old-action-2', 'old-call')
     const oldResult = terminal('old-call', 'old-action-2')
-    await harness.emitBridgeAndSettle('tool_result', oldResult, root)
+    await harness.settleBatch(oldResult)
     expect(oldStop).toHaveBeenCalledTimes(1)
 
     const fresh = preparedBatch('fresh-action')
@@ -288,13 +268,13 @@ describe('native runtime missing-context settlement', () => {
       onStop: freshStop,
     })
     await admit(harness, fresh, 'fresh-call')
-    await harness.emitBridgeAndSettle('tool_result', oldResult, root)
+    await harness.settleBatch(oldResult)
     expect(freshStop).not.toHaveBeenCalled()
     expect(freshComplete).not.toHaveBeenCalled()
     expect(freshSettled).not.toHaveBeenCalled()
     expect(retained).toEqual([])
     await capture(harness, fresh, 'fresh-action', 'fresh-action-2', 'fresh-call')
-    await harness.emitBridgeAndSettle('tool_result', terminal('fresh-call', 'fresh-action-2'), root)
+    await harness.settleBatch(terminal('fresh-call', 'fresh-action-2'))
     expect(freshStop).toHaveBeenCalledTimes(1)
     expect(freshStop.mock.calls[0]?.[0]).toBe('action-context-missing')
     expect(retained[0]?.contextBlock?.action).toEqual({
@@ -323,7 +303,7 @@ describe('native runtime missing-context settlement', () => {
     await admit(harness, prepared, 'mutated-call')
     await capture(harness, prepared, 'mutated-action', 'mutated-action-2', 'mutated-call')
     writeFileSync(firstTask(prepared).action.snapshot.indexPath, 'changed after sealing')
-    await harness.emitBridgeAndSettle('tool_result', terminal('mutated-call', 'mutated-action-2'), root)
+    await harness.settleBatch(terminal('mutated-call', 'mutated-action-2'))
 
     expect(onStop).toHaveBeenCalledTimes(1)
     const [reason, result] = onStop.mock.calls[0] as [string, NativeBatchResult]

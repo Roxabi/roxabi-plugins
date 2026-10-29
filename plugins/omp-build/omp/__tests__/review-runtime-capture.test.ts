@@ -14,29 +14,33 @@ describe('native review bridge capture', () => {
     const harness = bridgeHarness()
     const prepared = batch(['chunk-1', 'chunk-2'])
     harness.controller.activate(prepared, { onComplete: async () => undefined, onStop: async () => undefined })
-    await harness.emitBridge(
-      'tool_call',
-      { toolName: 'task', toolCallId: 'task-call', input: harness.controller.wire(prepared) },
-      root,
-    )
+    await harness.admitBatch(prepared, 'task-call', root)
 
-    for (const spawnKey of ['chunk-1', 'chunk-2']) {
-      await harness.admitChild(prepared, spawnKey, spawnKey, { root, skipRootCall: true })
+    for (const name of ['chunk-1', 'chunk-2']) {
+      await harness.admitChild(prepared, name, `${name}-allocated`, { root, skipRootCall: true })
     }
+    const spawn = {
+      agent: 'R-review-adversarial',
+      invocationKind: 'task',
+      patterns: [],
+      spawnKey: 'chunk-2-allocated',
+    }
+    expect(await harness.emitBridge('before_subagent_spawn', { ...spawn, agent: 'wrong-agent' }, root)).toMatchObject({
+      block: true,
+    })
+    expect(await harness.emitBridge('before_subagent_spawn', spawn, root)).toBeUndefined()
+    expect(await harness.emitBridge('before_subagent_spawn', spawn, root)).toMatchObject({ block: true })
     expect(
-      await harness.emitBridge(
-        'before_subagent_spawn',
-        { agent: 'R-review-adversarial', invocationKind: 'task', patterns: [], spawnKey: 'chunk-2' },
-        root,
-      ),
-    ).toMatchObject({ block: true })
+      await harness.emitBridge('before_subagent_spawn', { ...spawn, spawnKey: 'chunk-1-allocated' }, root),
+    ).toBeUndefined()
     expect(
-      await harness.emitBridge(
-        'before_subagent_spawn',
-        { agent: 'R-review-adversarial', invocationKind: 'task', patterns: [], spawnKey: 'unprepared' },
-        root,
-      ),
+      await harness.emitBridge('before_subagent_spawn', { ...spawn, spawnKey: 'chunk-1-allocated' }, root),
     ).toMatchObject({ block: true })
+    // Logical names and unrelated spawns are not owned SDK allocation IDs.
+    expect(await harness.emitBridge('before_subagent_spawn', { ...spawn, spawnKey: 'chunk-2' }, root)).toBeUndefined()
+    expect(
+      await harness.emitBridge('before_subagent_spawn', { ...spawn, spawnKey: 'unprepared' }, root),
+    ).toBeUndefined()
   })
 
   it('associates a logical spawn hook with its allocated terminal child ID', async () => {
@@ -49,34 +53,22 @@ describe('native review bridge capture', () => {
       },
       onStop: async () => undefined,
     })
-    await harness.emitBridge(
-      'tool_call',
-      { toolName: 'task', toolCallId: 'task-call', input: harness.controller.wire(prepared) },
-      root,
-    )
+    await harness.admitBatch(prepared, 'task-call', root)
     await harness.admitChild(prepared, 'slot-a', 'slot-a-2', { root, skipRootCall: true })
     await harness.yieldChild('slot-a-2', { findings: [] })
-    await harness.emitBridgeAndSettle(
-      'tool_result',
-      {
-        toolName: 'task',
-        toolCallId: 'task-call',
-        isError: false,
-        content: [],
-        details: {
-          results: [
-            {
-              index: 0,
-              id: 'slot-a-2',
-              agent: 'R-review-adversarial',
-              exitCode: 0,
-              structuredOutput: { status: 'valid', data: { findings: [] } },
-            },
-          ],
+    await harness.settleBatch({
+      toolCallId: 'task-call',
+      errors: [],
+      results: [
+        {
+          index: 0,
+          id: 'slot-a-2',
+          agent: 'R-review-adversarial',
+          exitCode: 0,
+          structuredOutput: { status: 'valid', data: { findings: [] } },
         },
-      },
-      root,
-    )
+      ],
+    })
     expect(completed).toBe(true)
   })
 
@@ -94,44 +86,32 @@ describe('native review bridge capture', () => {
       },
       onStop: async () => undefined,
     })
-    await harness.emitBridge(
-      'tool_call',
-      { toolName: 'task', toolCallId: 'task-call', input: harness.controller.wire(prepared) },
-      root,
-    )
+    await harness.admitBatch(prepared, 'task-call', root)
     for (const name of ['slot-a', 'slot-b']) {
       const id = `${name}-2`
       await harness.admitChild(prepared, name, id, { root, skipRootCall: true })
       await harness.yieldChild(id, { findings: [] })
     }
-    await harness.emitBridgeAndSettle(
-      'tool_result',
-      {
-        toolName: 'task',
-        toolCallId: 'task-call',
-        isError: false,
-        content: [],
-        details: {
-          results: [
-            {
-              index: 1,
-              id: 'slot-b-2',
-              agent: 'R-review-adversarial',
-              exitCode: 0,
-              structuredOutput: { status: 'valid', data: { findings: [] } },
-            },
-            {
-              index: 0,
-              id: 'slot-a-2',
-              agent: 'R-review-adversarial',
-              exitCode: 0,
-              structuredOutput: { status: 'valid', data: { findings: [] } },
-            },
-          ],
+    await harness.settleBatch({
+      toolCallId: 'task-call',
+      errors: [],
+      results: [
+        {
+          index: 1,
+          id: 'slot-b-2',
+          agent: 'R-review-adversarial',
+          exitCode: 0,
+          structuredOutput: { status: 'valid', data: { findings: [] } },
         },
-      },
-      root,
-    )
+        {
+          index: 0,
+          id: 'slot-a-2',
+          agent: 'R-review-adversarial',
+          exitCode: 0,
+          structuredOutput: { status: 'valid', data: { findings: [] } },
+        },
+      ],
+    })
     expect(completed).toBe(true)
     expect(children.map(({ expectedId, id }) => ({ expectedId, id }))).toEqual([
       { expectedId: 'slot-a', id: 'slot-a-2' },
@@ -153,36 +133,18 @@ describe('native review bridge capture', () => {
         stopReason = reason
       },
     })
-    await harness.emitBridge(
-      'tool_call',
-      { toolName: 'task', toolCallId: 'task-call', input: harness.controller.wire(prepared) },
-      root,
-    )
+    await harness.admitBatch(prepared, 'task-call', root)
     const child = await harness.admitChild(prepared, 'slot-a', 'slot-a', { root, skipRootCall: true })
     const input = { data: { findings: [{ description: 'extractable despite schema rejection' }] } }
     await child.call('yield', 'yield-1', input)
     await child.result('yield', 'yield-1', input, { content: [], details: {}, isError: true })
-    await harness.emitBridgeAndSettle(
-      'tool_result',
-      {
-        toolName: 'task',
-        toolCallId: 'task-call',
-        isError: false,
-        content: [],
-        details: {
-          results: [
-            {
-              index: 0,
-              id: 'slot-a',
-              agent: 'R-review-adversarial',
-              exitCode: 0,
-              structuredOutput: { status: 'invalid' },
-            },
-          ],
-        },
-      },
-      root,
-    )
+    await harness.settleBatch({
+      toolCallId: 'task-call',
+      errors: [],
+      results: [
+        { index: 0, id: 'slot-a', agent: 'R-review-adversarial', exitCode: 0, structuredOutput: { status: 'invalid' } },
+      ],
+    })
     expect(stopReason).toBe('executed-child-guard-failed')
     expect(attempts).toMatchObject([
       { submissions: [{ data: { findings: [{ description: 'extractable despite schema rejection' }] } }] },
@@ -200,11 +162,7 @@ describe('native review bridge capture', () => {
       onComplete: async () => undefined,
       onStop: async () => undefined,
     })
-    await harness.emitBridge(
-      'tool_call',
-      { toolName: 'task', toolCallId: 'task-call', input: harness.controller.wire(prepared) },
-      root,
-    )
+    await harness.admitBatch(prepared, 'task-call', root)
     const child = await harness.admitChild(prepared, 'slot-a', 'slot-a', { root, skipRootCall: true })
     await child.message({ type: 'message_start', message: { role: 'assistant' } })
     await child.message({
@@ -229,17 +187,11 @@ describe('native review bridge capture', () => {
         },
       },
     })
-    await harness.emitBridgeAndSettle(
-      'tool_result',
-      {
-        toolName: 'task',
-        toolCallId: 'task-call',
-        isError: false,
-        content: [],
-        details: { results: [{ index: 0, id: 'slot-a', exitCode: 0, structuredOutput: { status: 'invalid' } }] },
-      },
-      root,
-    )
+    await harness.settleBatch({
+      toolCallId: 'task-call',
+      errors: [],
+      results: [{ index: 0, id: 'slot-a', exitCode: 0, structuredOutput: { status: 'invalid' } }],
+    })
     expect(attempts).toMatchObject([
       {
         submissions: [
@@ -263,11 +215,7 @@ describe('native review bridge capture', () => {
         stoppedIncomplete = result?.complete === false
       },
     })
-    await harness.emitBridge(
-      'tool_call',
-      { toolName: 'task', toolCallId: 'task-call', input: harness.controller.wire(prepared) },
-      root,
-    )
+    await harness.admitBatch(prepared, 'task-call', root)
     const child = await harness.admitChild(prepared, 'slot-a', 'slot-a', { root, skipRootCall: true })
     await child.message({
       type: 'message_update',
@@ -285,6 +233,7 @@ describe('native review bridge capture', () => {
         },
       },
     })
+    harness.controller.finishExecution(prepared)
     await harness.emitBridge('session_stop', { signal: new AbortController().signal }, root)
     const placeholder = attempts.find((child) => child.expectedId === 'slot-a')
     const captured = attempts.find((child) => child.expectedId === null)
@@ -310,11 +259,7 @@ describe('native review bridge capture', () => {
       onComplete: async () => undefined,
       onStop: async () => undefined,
     })
-    await harness.emitBridge(
-      'tool_call',
-      { toolName: 'task', toolCallId: 'task-call', input: harness.controller.wire(prepared) },
-      root,
-    )
+    await harness.admitBatch(prepared, 'task-call', root)
     await harness.admitChild(prepared, 'slot-a', 'slot-a', { root, skipRootCall: true })
     await harness.yieldChild('slot-a', { findings: [] })
     harness.emitRaw({
@@ -326,35 +271,27 @@ describe('native review bridge capture', () => {
         args: { data: { findings: [{ description: 'unknown child evidence' }] } },
       },
     })
-    await harness.emitBridgeAndSettle(
-      'tool_result',
-      {
-        toolName: 'task',
-        toolCallId: 'task-call',
-        isError: false,
-        content: [],
-        details: {
-          results: [
-            {
-              index: 0,
-              id: 'slot-a',
-              agent: 'R-review-adversarial',
-              exitCode: 0,
-              structuredOutput: { status: 'valid', data: { findings: [] } },
-            },
-            {
-              index: 1,
-              id: 'slot-a',
-              agent: 'R-review-adversarial',
-              exitCode: 0,
-              structuredOutput: { status: 'valid', data: { findings: [] } },
-            },
-            { index: 1, id: 'unexpected', exitCode: 0, structuredOutput: { status: 'invalid' } },
-          ],
+    await harness.settleBatch({
+      toolCallId: 'task-call',
+      errors: [],
+      results: [
+        {
+          index: 0,
+          id: 'slot-a',
+          agent: 'R-review-adversarial',
+          exitCode: 0,
+          structuredOutput: { status: 'valid', data: { findings: [] } },
         },
-      },
-      root,
-    )
+        {
+          index: 1,
+          id: 'slot-a',
+          agent: 'R-review-adversarial',
+          exitCode: 0,
+          structuredOutput: { status: 'valid', data: { findings: [] } },
+        },
+        { index: 1, id: 'unexpected', exitCode: 0, structuredOutput: { status: 'invalid' } },
+      ],
+    })
     expect(children).toHaveLength(3)
     expect(children.map((child) => child.id)).toEqual(['slot-a', 'slot-a', 'unexpected'])
     expect(children[0]?.submissions).toMatchObject([{ data: { findings: [] } }])
@@ -377,27 +314,15 @@ describe('native review bridge capture', () => {
         stopReason = reason
       },
     })
-    await harness.emitBridge(
-      'tool_call',
-      { toolName: 'task', toolCallId: 'task-call', input: harness.controller.wire(prepared) },
-      root,
-    )
-    await harness.emitBridgeAndSettle(
-      'tool_result',
-      {
-        toolName: 'task',
-        toolCallId: 'task-call',
-        isError: false,
-        content: [],
-        details: {
-          results: [
-            { index: 0, id: 'slot-a', exitCode: 0, structuredOutput: { status: 'invalid' } },
-            { index: 1, id: 'slot-b', exitCode: 0, structuredOutput: { status: 'invalid' } },
-          ],
-        },
-      },
-      root,
-    )
+    await harness.admitBatch(prepared, 'task-call', root)
+    await harness.settleBatch({
+      toolCallId: 'task-call',
+      errors: [],
+      results: [
+        { index: 0, id: 'slot-a', exitCode: 0, structuredOutput: { status: 'invalid' } },
+        { index: 1, id: 'slot-b', exitCode: 0, structuredOutput: { status: 'invalid' } },
+      ],
+    })
     expect(published).toEqual(['slot-a', 'slot-b'])
     expect(stopReason).toBe('raw-publication-failed:publisher-a-failed')
   })
@@ -416,11 +341,7 @@ describe('native review bridge capture', () => {
         stoppedIncomplete = result?.complete === false
       },
     })
-    await harness.emitBridge(
-      'tool_call',
-      { toolName: 'task', toolCallId: 'task-call', input: harness.controller.wire(prepared) },
-      root,
-    )
+    await harness.admitBatch(prepared, 'task-call', root)
     const child = await harness.admitChild(prepared, 'slot-a', 'slot-a', { root, skipRootCall: true })
     const rawArgumentText = 'x'.repeat(600)
     await child.message({
@@ -439,6 +360,7 @@ describe('native review bridge capture', () => {
         toolCall: { id: 'malformed-yield', name: 'yield', arguments: 'not-a-yield-wrapper' },
       },
     })
+    harness.controller.finishExecution(prepared)
     await harness.emitBridge('session_stop', { signal: new AbortController().signal }, root)
     const captured = children.find((child) => child.expectedId === null)
     expect(children).toHaveLength(2)

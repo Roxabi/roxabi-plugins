@@ -168,7 +168,6 @@ export async function prepareStandaloneFix(
       procedure: task.task,
       solutionSpace: task.solutionSpace,
       prepared: preparedAction.value,
-      tools: task.tools,
       proofEvidence: task.proofEvidence,
     }),
   )

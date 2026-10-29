@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { consultableAgentRoot } from '../../testing/protocol-retention.unit.ts'
 import { batch, bridgeHarness, cleanupFixtureActions } from '../../testing/review-runtime-support.ts'
 import { groundCapturedChildren } from '../review-runtime/child-capture.ts'
-import type { NativeBatch } from '../review-runtime/contracts.ts'
 import { createActiveBatch } from '../review-runtime/state.ts'
 
 const root = consultableAgentRoot()
@@ -13,29 +12,19 @@ afterEach(() => {
 
 const tip = 'a'.repeat(40)
 
-function admittedInput(controller: { wire: (prepared: NativeBatch) => unknown }, prepared: NativeBatch) {
-  const input = controller.wire(prepared)
-  if (input === null) throw new Error('active wire missing')
-  return input
-}
-
 function completingResult(id: string) {
   return {
-    toolName: 'task',
     toolCallId: 'task-call',
-    isError: false,
-    content: [],
-    details: {
-      results: [
-        {
-          index: 0,
-          id,
-          agent: 'R-review-adversarial',
-          exitCode: 0,
-          structuredOutput: { status: 'valid', data: { findings: [] } },
-        },
-      ],
-    },
+    errors: [],
+    results: [
+      {
+        index: 0,
+        id,
+        agent: 'R-review-adversarial',
+        exitCode: 0,
+        structuredOutput: { status: 'valid', data: { findings: [] } },
+      },
+    ],
   }
 }
 
@@ -66,13 +55,12 @@ describe('native communication red probes', () => {
     const onStop = vi.fn(async () => undefined)
     await harness.emitBridge('session_start', { type: 'session_start' }, statusRoot)
     harness.controller.activate(prepared, { onComplete: async () => undefined, onStop })
-    await harness.emitBridge(
-      'tool_call',
-      { toolName: 'task', toolCallId: 'task-call', input: admittedInput(harness.controller, prepared) },
-      statusRoot,
+    await harness.admitBatch(prepared, 'task-call', statusRoot)
+    await harness.settleBatch({ ...completingResult('slot-a'), errors: ['execution failed'] })
+    expect(onStop).toHaveBeenCalledWith(
+      'native-execution-failed:execution failed',
+      expect.objectContaining({ complete: false }),
     )
-    await harness.emitBridgeAndSettle('tool_result', { ...completingResult('slot-a'), isError: true }, statusRoot)
-    expect(onStop).toHaveBeenCalledWith('root-task-is-error', expect.objectContaining({ complete: false }))
     expect(setStatus).toHaveBeenLastCalledWith('omp-build', `omp-build: native batch ${prepared.operationId} stopped`)
   })
 
@@ -174,16 +162,8 @@ describe('native communication red probes', () => {
         await gate.promise
       },
     })
-    await harness.emitBridge(
-      'tool_call',
-      { toolName: 'task', toolCallId: 'task-call', input: admittedInput(harness.controller, prepared) },
-      statusRoot,
-    )
-    const pending = harness.emitBridgeAndSettle(
-      'tool_result',
-      { ...completingResult('slot-a'), isError: true },
-      statusRoot,
-    )
+    await harness.admitBatch(prepared, 'task-call', statusRoot)
+    const pending = harness.settleBatch({ ...completingResult('slot-a'), errors: ['execution failed'] })
     await vi.waitFor(() => expect(stops).toBe(2))
     expect(setStatus).toHaveBeenLastCalledWith('omp-build', `omp-build: native batch ${prepared.operationId} active`)
     gate.resolve()
@@ -212,15 +192,11 @@ describe('native communication red probes', () => {
         reasons.push(reason)
       },
     })
-    await harness.emitBridge(
-      'tool_call',
-      { toolName: 'task', toolCallId: 'task-call', input: admittedInput(harness.controller, prepared) },
-      root,
-    )
+    await harness.admitBatch(prepared, 'task-call', root)
     await harness.admitChild(prepared, 'slot-a', 'slot-a', { root, skipRootCall: true })
     await harness.yieldChild('slot-a', { findings: [] })
     const baseline = harness.messages.length
-    const pending = harness.emitBridgeAndSettle('tool_result', completingResult('slot-a'), root)
+    const pending = harness.settleBatch(completingResult('slot-a'))
     await vi.waitFor(() => expect(entered).toBe(true))
     const stop = harness.controller.stopOwned(prepared, 'owner-stop')
     gate.resolve()
@@ -256,15 +232,11 @@ describe('native communication red probes', () => {
         order.push('onStop')
       },
     })
-    await harness.emitBridge(
-      'tool_call',
-      { toolName: 'task', toolCallId: 'task-call', input: admittedInput(harness.controller, prepared) },
-      statusRoot,
-    )
+    await harness.admitBatch(prepared, 'task-call', statusRoot)
     await harness.admitChild(prepared, 'slot-a', 'slot-a', { root: statusRoot, skipRootCall: true })
     await harness.yieldChild('slot-a', { findings: [] })
     const baseline = harness.messages.length
-    const pending = harness.emitBridgeAndSettle('tool_result', completingResult('slot-a'), statusRoot)
+    const pending = harness.settleBatch(completingResult('slot-a'))
     await vi.waitFor(() => expect(order).toContain('onComplete'))
     expect(harness.messages).toHaveLength(baseline)
     expect(setStatus).not.toHaveBeenCalledWith('omp-build', 'omp-build: native batch native-op completed')
@@ -359,22 +331,17 @@ describe('native communication red probes', () => {
     expect(grounded?.usable).toBe(true)
   })
 
-  it('accepts a pinned single-digit SDK allocation and refuses a wrong prefix', async () => {
+  it('guards the bound SDK allocation without claiming an unrelated spawn', async () => {
     const harness = bridgeHarness()
     const prepared = batch(['slot-a'])
     harness.controller.activate(prepared, { onComplete: async () => undefined, onStop: async () => undefined })
-    await harness.emitBridge(
-      'tool_call',
-      { toolName: 'task', toolCallId: 'task-call', input: harness.controller.wire(prepared) },
-      root,
-    )
+    await harness.admitBatch(prepared, 'task-call', root)
     await harness.admitChild(prepared, 'slot-a', 'slot-a-2', { root, skipRootCall: true })
-    expect(
-      await harness.emitBridge(
-        'before_subagent_spawn',
-        { agent: 'R-review-adversarial', invocationKind: 'task', patterns: [], spawnKey: 'nope-2' },
-        root,
-      ),
-    ).toMatchObject({ block: true })
+    const spawn = { agent: 'R-review-adversarial', invocationKind: 'task', patterns: [], spawnKey: 'slot-a-2' }
+    expect(await harness.emitBridge('before_subagent_spawn', { ...spawn, agent: 'wrong-agent' }, root)).toMatchObject({
+      block: true,
+    })
+    expect(await harness.emitBridge('before_subagent_spawn', spawn, root)).toBeUndefined()
+    expect(await harness.emitBridge('before_subagent_spawn', { ...spawn, spawnKey: 'nope-2' }, root)).toBeUndefined()
   })
 })

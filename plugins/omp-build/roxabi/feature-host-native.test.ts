@@ -82,27 +82,19 @@ describe('Feature native host ownership', () => {
         assistantMessageEvent: { type: 'text_delta', delta: 'incumbent raw output' },
       })
       await harness.yieldChild('incumbent', { findings: [] }, { toolCallId: 'incumbent-yield' })
-      await harness.emitBridgeAndSettle(
-        'tool_result',
-        {
-          toolName: 'task',
-          toolCallId: 'incumbent-call',
-          isError: false,
-          content: [],
-          details: {
-            results: [
-              {
-                index: 0,
-                id: 'incumbent',
-                agent: 'R-review-adversarial',
-                exitCode: 0,
-                structuredOutput: { status: 'valid', data: { findings: [] } },
-              },
-            ],
+      await harness.settleBatch({
+        toolCallId: 'incumbent-call',
+        errors: [],
+        results: [
+          {
+            index: 0,
+            id: 'incumbent',
+            agent: 'R-review-adversarial',
+            exitCode: 0,
+            structuredOutput: { status: 'valid', data: { findings: [] } },
           },
-        },
-        retainedRoot,
-      )
+        ],
+      })
 
       expect(stopped).toBe(0)
       expect(completed).toMatchObject({

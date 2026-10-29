@@ -1,27 +1,15 @@
-import type { ExtensionContext, ToolResultEvent } from '@oh-my-pi/pi-coding-agent'
+import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import type { ActionMessage } from '../action-communication.ts'
-import { verifyHostAction } from './action-registry.ts'
 import { flushPendingYields } from './capture'
 import { groundCapturedChildren } from './child-capture.ts'
 import { contextNegativeChildren } from './context-negative.ts'
 import { stopForMissingContext } from './context-negative-stop.ts'
-import type { NativeBatch, NativeBatchCallbacks, NativeBatchResult, NativeChildResult } from './contracts'
+import type { NativeBatch, NativeBatchResult, NativeChildResult, NativeExecutionObservation } from './contracts'
+import { rootCurrent } from './executed-child-lifecycle.ts'
 import { bindNativeObservations } from './observation-capture.ts'
+import { blocked, integrityFailure, publishRaw } from './settlement-evidence'
 import type { ActiveBatch } from './state'
 import { capturedChild, type ResolvedTaskResult, resolveTaskResult } from './task-result-resolution'
-
-async function publishRaw(callbacks: NativeBatchCallbacks, children: readonly NativeChildResult[]): Promise<string[]> {
-  const errors: string[] = []
-  for (const child of children) {
-    if (child.canPublishContext && !child.canPublishContext()) break
-    try {
-      await callbacks.onChildResult?.(child)
-    } catch (error) {
-      errors.push(error instanceof Error ? error.message : String(error))
-    }
-  }
-  return errors
-}
 
 async function notify(active: ActiveBatch, message: ActionMessage): Promise<void> {
   try {
@@ -29,23 +17,6 @@ async function notify(active: ActiveBatch, message: ActionMessage): Promise<void
   } catch {
     // A visible-message failure must not change admission or reopen the result hook.
   }
-}
-async function integrityFailure(active: ActiveBatch): Promise<string | null> {
-  const codes: string[] = []
-  for (const task of active.batch.tasks.tasks) {
-    const snapshot = task.action?.snapshot
-    if (snapshot === undefined) {
-      codes.push('action-handle-missing')
-      continue
-    }
-    const verified = await verifyHostAction(snapshot)
-    if (!verified.ok) codes.push(...verified.diagnostics.map((item) => item.code))
-  }
-  return codes.length === 0 ? null : [...new Set(codes)].join(',')
-}
-
-function blocked(children: readonly NativeChildResult[], reason: string): NativeChildResult[] {
-  return children.map((child) => ({ ...child, usable: false, reason }))
 }
 
 type ReceivedSettlement = {
@@ -56,22 +27,23 @@ type ReceivedSettlement = {
 
 async function preparedReceived(
   active: ActiveBatch,
-  event: ToolResultEvent,
+  event: NativeExecutionObservation,
   resolved: ResolvedTaskResult,
 ): Promise<ReceivedSettlement> {
   const grounded = await groundCapturedChildren(active, resolved.result.children)
   let integrity = await integrityFailure(active)
   const negatives =
-    integrity === null && event.isError !== true && resolved.identitiesMatch
+    integrity === null && event.errors.length === 0 && resolved.identitiesMatch
       ? contextNegativeChildren(active.batch, grounded)
       : null
   if (negatives?.invalidBinding) integrity = 'action-binding-unregistered-or-mismatched'
   let children = integrity === null ? (negatives?.children ?? grounded) : blocked(grounded, integrity)
-  if (integrity === null && event.isError !== true && resolved.identitiesMatch) {
+  if (integrity === null && event.errors.length === 0 && resolved.identitiesMatch) {
     children = bindNativeObservations(active.batch, children)
   }
   const hasNegative = children.some((child) => child.contextBlock !== undefined)
-  const canPublishContext = (): boolean => active.contextPublicationOwned && active.retentionFailed === null
+  const canPublishContext = (): boolean =>
+    active.contextPublicationOwned && active.retentionFailed === null && rootCurrent(active)
   if (hasNegative) {
     active.contextPublicationOwned = active.continuationClosed === null && active.retentionFailed === null
     children = children.map((child) => ({ ...child, canPublishContext }))
@@ -97,7 +69,8 @@ async function stopBeforePublication(
   result: NativeBatchResult,
   detach: (active: ActiveBatch) => void,
 ): Promise<boolean> {
-  if (active.retentionFailed === null) return false
+  if (active.retentionFailed === null && rootCurrent(active)) return false
+  if (active.retentionFailed === null) active.retentionFailed = 'native-root-generation-changed'
   detach(active)
   await active.callbacks.onStop(`retention-failed:${active.retentionFailed}`, { ...result, complete: false })
   return true
@@ -115,18 +88,18 @@ async function notifyIntegrity(active: ActiveBatch, integrity: string, result: N
 }
 
 async function stopIfLate(active: ActiveBatch, result: NativeBatchResult): Promise<boolean> {
-  if (active.retentionFailed === null && active.continuationClosed === null) return false
+  if (active.retentionFailed === null && active.continuationClosed === null && rootCurrent(active)) return false
   const reason =
     active.retentionFailed !== null
       ? `retention-failed:${active.retentionFailed}`
-      : (active.continuationClosed ?? 'continuation-closed')
+      : (active.continuationClosed ?? 'native-root-generation-changed')
   await active.callbacks.onStop(reason, result)
   return true
 }
 
 async function stopAfterPublication(
   active: ActiveBatch,
-  event: ToolResultEvent,
+  event: NativeExecutionObservation,
   resolved: ResolvedTaskResult,
   prepared: ReceivedSettlement,
   publicationErrors: readonly string[],
@@ -181,7 +154,7 @@ function presentTerminal(
 
 export async function settleReceivedBatch(
   active: ActiveBatch,
-  event: ToolResultEvent,
+  event: NativeExecutionObservation,
   detach: (active: ActiveBatch) => void,
   ownsPresentation: (batch: NativeBatch) => boolean = () => true,
 ): Promise<void> {
@@ -192,10 +165,11 @@ export async function settleReceivedBatch(
   try {
     const prepared = await preparedReceived(active, event, resolved)
     if (await stopBeforePublication(active, prepared.result, detach)) return
-    const publicationErrors = await publishRaw(active.callbacks, prepared.children)
+    const publicationErrors = await publishRaw(active.callbacks, prepared.children, () => rootCurrent(active))
     detach(active)
     if (await stopAfterPublication(active, event, resolved, prepared, publicationErrors)) return
-    const canContinue = (): boolean => active.continuationClosed === null && active.retentionFailed === null
+    const canContinue = (): boolean =>
+      active.continuationClosed === null && active.retentionFailed === null && rootCurrent(active)
     if (await stopIfLate(active, prepared.result)) return
     await active.callbacks.onComplete(prepared.result, canContinue)
     if (await stopIfLate(active, prepared.result)) return
@@ -212,11 +186,11 @@ export async function settleReceivedBatch(
 
 export function isolatedReceivedSettlement(
   active: ActiveBatch,
-  event: ToolResultEvent,
+  event: NativeExecutionObservation,
   detach: (active: ActiveBatch) => void,
   ownsPresentation: (batch: NativeBatch) => boolean,
 ): Promise<void> {
-  let isolated: ToolResultEvent
+  let isolated: NativeExecutionObservation
   try {
     isolated = structuredClone(event)
   } catch (error) {
@@ -253,8 +227,8 @@ export function isolatedReceivedSettlement(
     })
 }
 
-function incompleteReason(event: ToolResultEvent, resolved: ResolvedTaskResult): string {
-  if (event.isError) return 'root-task-is-error'
+function incompleteReason(event: NativeExecutionObservation, resolved: ResolvedTaskResult): string {
+  if (event.errors.length > 0) return `native-execution-failed:${event.errors.join('; ')}`
   if (!resolved.exactCount) return 'unexpected-required-child-count'
   if (!resolved.identitiesMatch) return 'unexpected-required-child-id'
   return resolved.result.children.find((child) => !child.usable)?.reason ?? 'required-child-invalid'

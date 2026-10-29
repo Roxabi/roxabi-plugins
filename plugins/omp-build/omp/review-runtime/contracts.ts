@@ -17,30 +17,25 @@ export type NativeTask = {
   agent: string
   task: string
   solutionSpace: string
-  /** Parent Eval-defined tool names to inject; child built-ins are pinned by the agent profile. */
-  tools?: string[]
   /** Host-only proof contract; stripped from the native task wire input. */
   proofEvidence?: NativeProofDirective
   /** Host-only registered snapshot. Required on an execution task; never sent on the task wire. */
   action: PreparedUwAction
 }
-/** Exact native `task.batch` request guarded by the extension. */
+/** A host-prepared batch; the model receives only its opaque selector. */
 export type NativeBatch = {
   operationId: string
   tasks: { context: string; tasks: NativeTask[] }
 }
 
-/**
- * Execution-authority `task.batch` args for one authorized native batch.
- * Compared strictly at the native `tool_call` hook after the SDK strips harness intent `i`.
- * Model-facing announce adds `i` only at the announcement boundary — never stored on this object.
- */
-export type NativeTaskWireInput = {
-  context: string
-  tasks: Array<Omit<NativeTask, 'proofEvidence' | 'action'>>
-}
+export type NativeTaskWireInput = { batchId: string }
 
-export const NATIVE_TASK_INTENT = 'omp-build native batch'
+/** Actual SDK executor outcomes, not an invented SDK tool-result event. */
+export type NativeExecutionObservation = {
+  toolCallId: string
+  results: unknown[]
+  errors: string[]
+}
 
 export type NativeProofBashCall = {
   toolCallId: string
@@ -105,8 +100,15 @@ export type NativeBatchCallbacks = {
   onStop: (reason: string, result: NativeBatchResult | null) => void | Promise<void>
 }
 
-/** The public SDK extension surface used by this bridge; no private runner APIs. */
+/** The public SDK extension surface used by this bridge. */
 export type NativeExtension = Pick<
   ExtensionAPI,
-  'on' | 'sendUserMessage' | 'sendMessage' | 'getActiveTools' | 'getAllTools' | 'setActiveTools'
-> & { events: Pick<ExtensionAPI['events'], 'on'> }
+  | 'on'
+  | 'registerTool'
+  | 'sendUserMessage'
+  | 'sendMessage'
+  | 'getActiveTools'
+  | 'getAllTools'
+  | 'setActiveTools'
+  | 'events'
+>

@@ -19,7 +19,7 @@ export type OmpBuildExtensionApi = Pick<
   | 'getAllTools'
   | 'setActiveTools'
 > & {
-  events: Pick<ExtensionAPI['events'], 'on'>
+  events: ExtensionAPI['events']
 }
 
 /** Terminal/control reports need only non-steering sendMessage. */

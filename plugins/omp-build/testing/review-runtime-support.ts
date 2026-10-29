@@ -5,13 +5,14 @@ import { join } from 'node:path'
 import { actionInputDigest } from '../engine/action-input.ts'
 import { registerHostActionBinding } from '../omp/review-runtime/action-registry.ts'
 import { installNativeBatchBridge } from '../omp/review-runtime/bridge.ts'
-import type { NativeBatch, NativeExtension } from '../omp/review-runtime/contracts.ts'
+import type { NativeBatch, NativeExecutionObservation, NativeExtension } from '../omp/review-runtime/contracts.ts'
 import { NativeBatchController } from '../omp/review-runtime/controller.ts'
 import type { PreparedUwAction } from '../roxabi/uw-action-contract.ts'
 import { sealActionSnapshot } from '../roxabi/uw-action-snapshot.ts'
 import { standaloneReviewInputs } from './action-input-fixtures.ts'
-import { createExtensionApiStub, type ExtensionApiStub } from './extension-api-stub.ts'
+import { createExtensionApiStub, type ExtensionApiStub, fixtureEventBus } from './extension-api-stub.ts'
 import { type NativeReviewChild, nativeReviewChild } from './native-review-child.ts'
+import { cleanupNativeRoots, provisionNativeRoot } from './native-root-fixture.ts'
 import { provisionUnitSdkRoot } from './unit-sdk-scopes.ts'
 
 function userMessageText(content: Parameters<ExtensionApiStub['sendUserMessage']>[0]): string {
@@ -28,6 +29,8 @@ export type BridgeHarness = {
   emitBridge(event: string, ...args: unknown[]): Promise<unknown>
   emitBridgeAndSettle(event: string, ...args: unknown[]): Promise<unknown>
   emitRaw(value: unknown): void
+  admitBatch(prepared: NativeBatch, toolCallId: string, context?: Record<string, unknown>): Promise<boolean>
+  settleBatch(observation: NativeExecutionObservation): Promise<void>
   admitChild(
     prepared: NativeBatch,
     logicalName: string,
@@ -44,6 +47,7 @@ export function bridgeHarness(): BridgeHarness {
   const children = new Map<string, NativeReviewChild>()
   let admittedCall: string | null = null
   let admittedBatch: NativeBatch | null = null
+  let admittedContext: Record<string, unknown> | null = null
   const startedRoots = new WeakSet<object>()
   const messages: string[] = []
   const rawHandlers = new Map<string, Array<(value: unknown) => void>>()
@@ -51,17 +55,15 @@ export function bridgeHarness(): BridgeHarness {
     for (const handler of rawHandlers.get(channel) ?? []) handler(value)
   }
   const native: NativeExtension = createExtensionApiStub({
-    events: {
-      on: (channel, handler) => {
-        rawHandlers.set(channel, [...(rawHandlers.get(channel) ?? []), handler])
-        return () => {
-          rawHandlers.set(
-            channel,
-            (rawHandlers.get(channel) ?? []).filter((registered) => registered !== handler),
-          )
-        }
-      },
-    },
+    events: fixtureEventBus((channel, handler) => {
+      rawHandlers.set(channel, [...(rawHandlers.get(channel) ?? []), handler])
+      return () => {
+        rawHandlers.set(
+          channel,
+          (rawHandlers.get(channel) ?? []).filter((registered) => registered !== handler),
+        )
+      }
+    }),
     on: (event, handler) => {
       handlers.set(event, [...(handlers.get(event) ?? []), handler])
     },
@@ -84,8 +86,10 @@ export function bridgeHarness(): BridgeHarness {
     const model = { id: 'fixture-model', provider: 'fixture-provider' }
     context.cwd ??= '/fixture-root'
     context.sessionManager ??= { getSessionId: () => 'fixture-root-session' }
+    context.isIdle ??= () => true
     context.models ??= { resolve: () => model, current: () => model }
     context.model ??= model
+    provisionNativeRoot(context)
     provisionUnitSdkRoot(String(context.cwd))
   }
   function startRootIfNeeded(event: string, context: unknown): Promise<unknown> | undefined {
@@ -105,20 +109,53 @@ export function bridgeHarness(): BridgeHarness {
     const pending = (handlers.get(event) ?? []).map((handler) => handler(...(args as never[])))
     let result: unknown
     for (const value of await Promise.all(pending)) result = value ?? result
-    if (event === 'tool_call') {
-      const value = args[0] as { toolName?: string; toolCallId?: string } | undefined
-      if (value?.toolName === 'task' && typeof value.toolCallId === 'string' && result === undefined) {
-        admittedCall = value.toolCallId
-        admittedBatch = controller.active()
-      }
-    }
     return result
+  }
+  async function admitChildRoot(
+    prepared: NativeBatch,
+    context: Record<string, unknown>,
+    callId: string,
+  ): Promise<void> {
+    if (!startedRoots.has(context)) {
+      startedRoots.add(context)
+      await emitBridge('session_start', { type: 'session_start' }, context)
+    }
+    controller.announce(prepared)
+    if (controller.takeIdleAnnouncement(prepared) === null) controller.consumeFollowUp()
+    if (!controller.admit(prepared, callId, context as never, () => true))
+      throw new Error('fixture batch admission refused')
+    admittedCall = callId
+    admittedBatch = prepared
+    admittedContext = context
   }
   return {
     controller,
     native,
     messages,
     emitBridge,
+    async admitBatch(prepared, toolCallId, context = { ...root }) {
+      prepareRoot(context)
+      if (!startedRoots.has(context)) {
+        startedRoots.add(context)
+        await emitBridge('session_start', { type: 'session_start' }, context)
+      }
+      controller.announce(prepared)
+      if (controller.takeIdleAnnouncement(prepared) === null) controller.consumeFollowUp()
+      const admitted = controller.admit(prepared, toolCallId, context as never, () => true)
+      if (admitted) {
+        admittedCall = toolCallId
+        admittedBatch = prepared
+        admittedContext = context
+      }
+      return admitted
+    },
+    async settleBatch(observation) {
+      if (admittedContext && admittedCall === observation.toolCallId)
+        controller.prepareOwnedResult(observation, admittedContext as never)
+      controller.queueOwnedSettlement(observation)
+      if (admittedCall === observation.toolCallId && admittedBatch) controller.finishExecution(admittedBatch)
+      await controller.ownedSettlement()
+    },
     async emitBridgeAndSettle(event, ...args) {
       const result = emitBridge(event, ...args)
       const terminal = event === 'tool_result' ? controller.ownedSettlement() : undefined
@@ -135,30 +172,12 @@ export function bridgeHarness(): BridgeHarness {
       const context = options.root ?? { ...root }
       prepareRoot(context)
       if (admittedBatch !== prepared) admittedCall = null
-      if (admittedCall === null && !options.skipRootCall) {
-        await emitBridge(
-          'tool_call',
-          {
-            type: 'tool_call',
-            toolName: 'task',
-            toolCallId: options.toolCallId ?? 'task-call',
-            input: controller.wire(prepared),
-          },
-          context,
-        )
+      if (admittedCall === null && !options.skipRootCall)
+        await admitChildRoot(prepared, context, options.toolCallId ?? 'task-call')
+      const index = prepared.tasks.tasks.indexOf(task)
+      if (!controller.bindChild(allocatedId, index, { id: 'fixture-model', provider: 'fixture-provider' })) {
+        throw new Error(`fixture child binding refused: ${allocatedId}`)
       }
-      const refusal = await emitBridge(
-        'before_subagent_spawn',
-        {
-          type: 'before_subagent_spawn',
-          invocationKind: 'task',
-          agent: task.agent,
-          patterns: [],
-          spawnKey: allocatedId,
-        },
-        context,
-      )
-      if (refusal !== undefined) throw new Error(`fixture child spawn refused: ${JSON.stringify(refusal)}`)
       const sessionFile = join(tmpdir(), `fixture-child-${randomUUID()}.jsonl`)
       emitRawChannel('task:subagent:lifecycle', {
         status: 'started',
@@ -189,6 +208,7 @@ const fixtureActionDirs = new Set<string>()
 export function cleanupFixtureActions(): void {
   for (const directory of fixtureActionDirs) rmSync(directory, { recursive: true, force: true })
   fixtureActionDirs.clear()
+  cleanupNativeRoots()
 }
 
 export function fixtureAction(

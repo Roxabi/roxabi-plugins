@@ -48,7 +48,7 @@ jobs:
       - name: Lint workflows (actionlint)
         run: actionlint
       - name: Test (vitest)
-        run: node scripts/ci-diagnostic.cjs
+        run: bun run test
       - name: Verify action pins resolve
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

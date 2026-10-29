@@ -5,14 +5,18 @@ import type { ActiveBatch } from './state.ts'
 
 // This index contains only controller-owned, admitted active batches.
 const admitted = new Map<NativeBatchController, ActiveBatch>()
-const roots = new WeakMap<ActiveBatch, { ctx: ExtensionContext; id: string; sessionId: string }>()
+const roots = new WeakMap<
+  ActiveBatch,
+  { ctx: ExtensionContext; id: string; sessionId: string; current: () => boolean }
+>()
 
 export function indexAdmittedChildBatch(
   controller: NativeBatchController,
   active: ActiveBatch,
   ctx: ExtensionContext,
+  current: () => boolean,
 ): void {
-  roots.set(active, { ctx, id: ctx.agent.id, sessionId: ctx.sessionManager.getSessionId() })
+  roots.set(active, { ctx, id: ctx.agent.id, sessionId: ctx.sessionManager.getSessionId(), current })
   admitted.set(controller, active)
 }
 
@@ -22,7 +26,12 @@ export function unindexAdmittedChildBatch(controller: NativeBatchController, act
 
 export function rootCurrent(active: ActiveBatch): boolean {
   const root = roots.get(active)
-  return !!root && root.ctx.agent.id === root.id && root.ctx.sessionManager.getSessionId() === root.sessionId
+  return (
+    !!root &&
+    root.ctx.agent.id === root.id &&
+    root.ctx.sessionManager.getSessionId() === root.sessionId &&
+    root.current()
+  )
 }
 
 export function observeChildLifecycle(controller: NativeBatchController, value: unknown): void {

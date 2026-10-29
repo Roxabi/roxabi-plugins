@@ -3,6 +3,7 @@ import type { NativeExtension, NativeTask } from '../omp/review-runtime/contract
 import { NativeBatchController } from '../omp/review-runtime/controller.ts'
 import { installExecutedChildGuard } from '../omp/review-runtime/executed-child-guard.ts'
 import { loadPinnedProfile } from '../omp/review-runtime/executed-child-profile.ts'
+import { fixtureEventBus } from './extension-api-stub.ts'
 
 type Handler = (...args: unknown[]) => unknown
 export type NativeReviewChild = {
@@ -65,7 +66,7 @@ export async function nativeReviewChild(input: { task: NativeTask; sessionFile: 
   ]
   let active = [...initialTools]
   const pi = {
-    events: { on: () => () => undefined },
+    events: fixtureEventBus(),
     on: (name: string, handler: Handler) => {
       handlers.set(name, handler)
     },

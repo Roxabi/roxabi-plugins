@@ -1,67 +1,46 @@
-import type { ToolResultEvent } from '@oh-my-pi/pi-coding-agent'
 import { CREDENTIAL_DISCLOSURE, CREDENTIAL_MODE, retainActionRecordSync } from '../action-communication.ts'
-import type { NativeBatch } from './contracts'
+import type { NativeBatch, NativeExecutionObservation } from './contracts'
 
 export type OwnedResultReplacement = {
   content: [{ type: 'text'; text: string }]
-  details: {
-    summary: string
-    detailRef: string
-    credentialMode: typeof CREDENTIAL_MODE
-    childIds: string[]
-    replacedAutomaticPreview: true
-  }
+  details: { summary: string; detailRef: string; credentialMode: typeof CREDENTIAL_MODE; childIds: string[] }
   isError: boolean
 }
 
 export function unusableOwnedReplacement(reason: string): OwnedResultReplacement {
-  const summary = `native task result unusable: ${reason}`
+  const summary = `native batch result unusable: ${reason}`
   return {
     content: [
       {
         type: 'text',
-        text: `${summary}\ndetail: retention-unavailable\n${CREDENTIAL_DISCLOSURE}\nnext: restore artifact storage and rerun the owned task`,
+        text: `${summary}\ndetail: retention-unavailable\n${CREDENTIAL_DISCLOSURE}\nnext: restore artifact storage and prepare a new action`,
       },
     ],
-    details: {
-      summary,
-      detailRef: 'retention-unavailable',
-      credentialMode: CREDENTIAL_MODE,
-      childIds: [],
-      replacedAutomaticPreview: true,
-    },
+    details: { summary, detailRef: 'retention-unavailable', credentialMode: CREDENTIAL_MODE, childIds: [] },
     isError: true,
   }
 }
 
-export function replaceOwnedTaskResult(
-  event: ToolResultEvent,
+export function retainNativeObservation(
+  observation: NativeExecutionObservation,
   batch: NativeBatch,
   retain: (value: unknown) => string,
 ): OwnedResultReplacement {
   let detailRef: string
   try {
-    detailRef = retain({
-      toolCallId: event.toolCallId,
-      content: event.content,
-      details: event.details,
-      isError: event.isError === true,
-    })
+    detailRef = retain(observation)
   } catch {
     return unusableOwnedReplacement('retention-failed')
   }
   if (!detailRef.startsWith('local://')) return unusableOwnedReplacement('retention-failed')
-  const summary = `native batch ${batch.operationId} retained; automatic preview replaced`
+  const summary = `native batch ${batch.operationId} retained`
+  const childIds = observation.results.flatMap((result) =>
+    result !== null && typeof result === 'object' && 'id' in result && typeof result.id === 'string' ? [result.id] : [],
+  )
   return {
     content: [{ type: 'text', text: `${summary}\ndetail: ${detailRef}\n${CREDENTIAL_DISCLOSURE}` }],
-    details: {
-      summary,
-      detailRef,
-      credentialMode: CREDENTIAL_MODE,
-      childIds: batch.tasks.tasks.map((task) => task.name),
-      replacedAutomaticPreview: true,
-    },
-    isError: event.isError === true,
+    details: { summary, detailRef, credentialMode: CREDENTIAL_MODE, childIds },
+    isError: observation.errors.length > 0,
   }
 }
 

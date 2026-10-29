@@ -20,6 +20,18 @@ vi.mock('@oh-my-pi/pi-coding-agent/task/settings', () => ({
   },
 }))
 
+// The real registry and event bus are used by fixtures. Their Node host does
+// not provide the Bun runtime required by the SDK's logging and TUI modules;
+// isolate those unrelated dependencies rather than replacing either SDK API.
+vi.mock('@oh-my-pi/pi-utils', () => ({
+  logger: { debug: vi.fn(), error: vi.fn() },
+}))
+vi.mock('@oh-my-pi/pi-tui/tools/task', () => ({
+  oneLineLabel: () => {
+    throw new Error('SDK task activity formatting is unavailable in the Node test host')
+  },
+}))
+
 /**
  * Strips the repository-location env git hands to hooks, before any test runs.
  *

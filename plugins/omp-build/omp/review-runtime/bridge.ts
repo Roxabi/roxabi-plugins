@@ -1,4 +1,3 @@
-import { isDeepStrictEqual } from 'node:util'
 import type {
   AgentEndEvent,
   BeforeSubagentSpawnEvent,
@@ -6,22 +5,36 @@ import type {
   SessionShutdownEvent,
   SessionStopEvent,
   SessionSwitchEvent,
-  ToolCallEvent,
-  ToolResultEvent,
 } from '@oh-my-pi/pi-coding-agent'
 import { createActionCommunication } from '../action-communication.ts'
+import { executeOwnedBatch } from './batch-execution.ts'
 import type { NativeExtension } from './contracts'
 import type { NativeBatchController } from './controller'
 import { installExecutedChildGuard } from './executed-child-guard.ts'
 import { followUpAnnouncement, markNativeTurnEnded, resetNativeTurn } from './port'
-import { type OwnedResultReplacement, unusableOwnedReplacement } from './result-replacement.ts'
+import { releaseTaskMask, taskMaskCurrent, taskMaskOwnsActiveBatch } from './task-mask-lease'
 
 function root(ctx: ExtensionContext): boolean {
   return ctx.agent.kind === 'main' && ctx.agent.depth === 0
 }
 
-/** Install the public-SDK native task bridge and raw-yield capture. */
+/** Install the owned native dispatch and real child guard. */
 export function installNativeBatchBridge(pi: NativeExtension, controller: NativeBatchController): void {
+  pi.registerTool({
+    name: 'omp_build_execute_native_batch',
+    loadMode: 'essential',
+    label: 'Execute authorized native batch',
+    description: 'Execute the single announced, host-authorized native batch.',
+    parameters: {
+      type: 'object',
+      properties: { batchId: { type: 'string' } },
+      required: ['batchId'],
+      additionalProperties: false,
+    },
+    async execute(toolCallId, params, signal, _onUpdate, ctx) {
+      return executeOwnedBatch(pi, controller, toolCallId, params, signal, ctx)
+    },
+  })
   installExecutedChildGuard(pi, controller)
   pi.on('session_start', (_event, ctx) => {
     controller.observeRootContext(ctx)
@@ -35,21 +48,18 @@ export function installNativeBatchBridge(pi: NativeExtension, controller: Native
     if (root(ctx)) resetNativeTurn(controller)
   })
 
-  pi.on('tool_call', (event: ToolCallEvent, ctx: ExtensionContext) => {
+  pi.on('tool_call', async (event, ctx) => {
     controller.observeRootContext(ctx)
-    if (event.toolName !== 'task' || !root(ctx)) return
-
     const batch = controller.active()
-    if (batch === null) return
-
-    const input = controller.wire(batch)
-    if (input === null) return
-
-    if (!isDeepStrictEqual(event.input, input)) {
-      return { block: true, reason: 'omp-build has a different host-authorized native task batch' }
-    }
-    if (!controller.admit(batch, event.toolCallId)) {
-      return { block: true, reason: 'native batch became inactive before dispatch' }
+    if (!root(ctx) || !batch || !taskMaskOwnsActiveBatch(controller)) return
+    if (!(await taskMaskCurrent(controller, batch))) {
+      controller.status('native task mask drifted; stopping owned batch')
+      void controller.stopOwned(batch, 'native-task-mask-drifted').catch((error) => {
+        controller.status(`native task mask stop failed: ${error instanceof Error ? error.message : String(error)}`)
+      })
+      if (event.toolName === 'task' || event.toolName === 'omp_build_execute_native_batch') {
+        return { block: true, reason: 'native task mask drifted; owned batch stopped' }
+      }
     }
   })
 
@@ -61,22 +71,9 @@ export function installNativeBatchBridge(pi: NativeExtension, controller: Native
     return reason === null ? undefined : { block: true, reason }
   })
 
-  pi.on('tool_result', (event: ToolResultEvent, ctx: ExtensionContext) => {
+  pi.on('tool_result', (_event, ctx) => {
     controller.observeRootContext(ctx)
     if (root(ctx)) controller.bindCommunication(createActionCommunication(pi, ctx))
-    if (event.toolName !== 'task' || !root(ctx) || !controller.ownsTaskResult(event.toolCallId)) return
-    let replacement: OwnedResultReplacement
-    try {
-      replacement =
-        controller.prepareOwnedResultReplacement(event, ctx) ?? unusableOwnedReplacement('result-replacement-failed')
-    } catch {
-      replacement = unusableOwnedReplacement('result-replacement-failed')
-    }
-    if (replacement.details.detailRef === 'retention-unavailable') {
-      controller.noteRetentionFailure(event.toolCallId, replacement.details.summary)
-    }
-    controller.queueOwnedSettlement(event)
-    return replacement
   })
 
   pi.on('session_stop', async (event: SessionStopEvent, ctx: ExtensionContext) => {
@@ -89,6 +86,19 @@ export function installNativeBatchBridge(pi: NativeExtension, controller: Native
     }
     controller.watchSettleAbort(event.signal)
     await controller.settle()
+  })
+
+  pi.on('session_before_switch', async (_event, ctx) => {
+    controller.observeRootContext(ctx)
+    if (!root(ctx)) return
+    try {
+      await releaseTaskMask(controller, true)
+    } catch (error) {
+      controller.status(
+        `native task mask restoration failed: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+    await controller.stop('session-switching')
   })
 
   pi.on('session_switch', async (_event: SessionSwitchEvent, ctx: ExtensionContext) => {
@@ -109,10 +119,18 @@ export function installNativeBatchBridge(pi: NativeExtension, controller: Native
 
   pi.on('agent_end', async (event: AgentEndEvent, ctx: ExtensionContext) => {
     controller.observeRootContext(ctx)
-    if (!root(ctx) || event.willContinue) return
-    markNativeTurnEnded(controller)
+    if (!root(ctx) || (event.willContinue && taskMaskOwnsActiveBatch(controller))) return
 
-    const message = followUpAnnouncement(controller)
-    if (message !== null) await pi.sendMessage(message, { triggerTurn: true })
+    try {
+      await releaseTaskMask(controller)
+    } catch (error) {
+      const reason = `native task mask restoration failed: ${error instanceof Error ? error.message : String(error)}`
+      controller.status(reason)
+      await controller.stop(reason)
+      return
+    }
+    if (event.willContinue) return
+    markNativeTurnEnded(controller)
+    await followUpAnnouncement(pi, controller)
   })
 }

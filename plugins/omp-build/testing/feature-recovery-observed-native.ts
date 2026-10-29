@@ -33,7 +33,8 @@ export async function observedIncompleteNativeResult(batch: NativeBatch, cwd: st
     const task = batch.tasks.tasks[0]
     const wire = harness.controller.wire(batch)
     if (task === undefined || wire === null) throw new Error('observed-native-batch-unwired')
-    await harness.emitBridge('tool_call', { toolName: 'task', toolCallId: batch.operationId, input: wire }, scenario)
+    if (!(await harness.admitBatch(batch, batch.operationId, scenario)))
+      throw new Error('observed-native-admission-refused')
     const child = await harness.admitChild(batch, task.name, task.name, {
       root: scenario,
       toolCallId: batch.operationId,
@@ -44,17 +45,11 @@ export async function observedIncompleteNativeResult(batch: NativeBatch, cwd: st
       assistantMessageEvent: { type: 'text_delta', delta: 'incomplete native child output' },
     })
     await child.call('yield', 'incomplete-yield', { data: { outcome: 'incomplete', provenance: 'native' } })
-    await harness.emitBridgeAndSettle(
-      'tool_result',
-      {
-        toolName: 'task',
-        toolCallId: batch.operationId,
-        isError: true,
-        content: [],
-        details: { results: [{ ...INCOMPLETE_NATIVE_TERMINAL, id: task.name, agent: task.agent }] },
-      },
-      scenario,
-    )
+    await harness.settleBatch({
+      toolCallId: batch.operationId,
+      errors: ['incomplete-native'],
+      results: [{ ...INCOMPLETE_NATIVE_TERMINAL, id: task.name, agent: task.agent }],
+    })
     if (settled === null) throw new Error('observed-native-result-missing')
     return settled
   } finally {

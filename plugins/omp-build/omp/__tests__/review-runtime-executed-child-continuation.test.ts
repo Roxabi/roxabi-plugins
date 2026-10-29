@@ -121,7 +121,7 @@ describe('native executed-child continuation guard', () => {
       const fixture = await setup()
       await fixture.start()
       if (drift === 'unbound') fixture.setSession('different-child-session')
-      if (drift === 'root') await fixture.rootEndpoint.emit('session_switch', { type: 'session_switch' }, fixture.root)
+      if (drift === 'root') await fixture.switchRoot()
       if (drift === 'model') fixture.child.model.id = 'different-model'
       if (drift === 'tools') fixture.childEndpoint.addTool('bash')
       const first =

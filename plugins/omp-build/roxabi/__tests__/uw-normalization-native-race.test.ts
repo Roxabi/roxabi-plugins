@@ -1,9 +1,15 @@
-import type { ToolResultEvent } from '@oh-my-pi/pi-coding-agent'
+import { readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import type { Gh } from '../../adapters/github/types.ts'
 import { parseIssueSpecBody, rawSource } from '../../adapters/github-native/uw-spec.ts'
 import type { NormalizationJudgement } from '../../engine/uw-normalization-schema.ts'
-import type { NativeBatch, NativeBatchCallbacks } from '../../omp/review-runtime/contracts.ts'
+import type {
+  NativeBatch,
+  NativeBatchCallbacks,
+  NativeExecutionObservation,
+} from '../../omp/review-runtime/contracts.ts'
+import { consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
 import { bridgeHarness, root as nativeRoot } from '../../testing/review-runtime-support.ts'
 import type { ContinueFeatureResult, FeatureCommandHost, FeatureWorkflow } from '../feature-contract.ts'
 import type { NormalizationProposalRequest, UwOperations } from '../uw-contract.ts'
@@ -52,10 +58,12 @@ it.each([
     isolateViewerToken()
     const harness = bridgeHarness()
     const { controller, emitBridge } = harness
+    const localProtocolOptions = consultableProtocolOptions()
     const root = {
       ...nativeRoot,
       cwd: '/repo/feature',
       sessionManager: { getSessionId: () => 'normalization-root' },
+      localProtocolOptions,
     }
     await emitBridge('session_start', { type: 'session_start' }, root)
     const writes: unknown[] = []
@@ -65,6 +73,7 @@ it.each([
     const sealEntered = Promise.withResolvers<void>()
     const releaseSeal = Promise.withResolvers<void>()
     const inner = observationalGh()
+    let switchingSession = false
     let posts = 0
     const gh: Gh = async (cwd, args) => {
       if (args.includes('--method') && args.includes('POST') && args.join(' ').includes('/comments')) {
@@ -139,7 +148,7 @@ it.each([
       },
       host,
       deliver: async (result: ContinueFeatureResult) => {
-        if (result.kind === 'blocked' && mode !== 'session switch')
+        if (result.kind === 'blocked' && !switchingSession)
           failure.reject(new Error(`normalization blocked: ${result.reason}`))
       },
     })
@@ -150,26 +159,20 @@ it.each([
     if (task === undefined) throw new Error('normalization task was not available')
     await harness.admitChild(batch, task.name, 'R-uw-normalize', { toolCallId: 'task-call', root })
     await harness.yieldChild('R-uw-normalize', judgement, { toolCallId: 'yield-1' })
-    const result: ToolResultEvent = {
-      type: 'tool_result',
-      toolName: 'task',
-      input,
+    const observation: NativeExecutionObservation = {
       toolCallId: 'task-call',
-      isError: false,
-      content: [],
-      details: {
-        results: [
-          {
-            id: 'R-uw-normalize',
-            index: 0,
-            agent: 'R-uw-normalize',
-            exitCode: 0,
-            structuredOutput: { status: 'valid', data: judgement },
-          },
-        ],
-      },
+      errors: [],
+      results: [
+        {
+          id: 'R-uw-normalize',
+          index: 0,
+          agent: 'R-uw-normalize',
+          exitCode: 0,
+          structuredOutput: { status: 'valid', data: judgement },
+        },
+      ],
     }
-    const settled = controller.receiveResult(result)
+    const settled = harness.settleBatch(observation)
     let settlementFinished = false
     void settled.then(
       () => {
@@ -181,10 +184,29 @@ it.each([
     )
     void settled.catch(failure.reject)
     try {
-      await Promise.race([sealEntered.promise, failure.promise])
+      await Promise.race([
+        sealEntered.promise,
+        failure.promise,
+        settled.then(() => {
+          throw new Error('normalization settled before entering result sealing')
+        }),
+      ])
+      const retainedDirectory = join(
+        localProtocolOptions.getArtifactsDir(),
+        'local',
+        'omp-build',
+        'communication',
+        'native-result',
+      )
+      const retainedFiles = readdirSync(retainedDirectory)
+      expect(retainedFiles).toHaveLength(1)
+      const retainedFile = retainedFiles[0]
+      if (!retainedFile) throw new Error('native observation file missing')
+      expect(JSON.parse(readFileSync(join(retainedDirectory, retainedFile), 'utf8'))).toEqual(observation)
       expect(settlementFinished).toBe(false)
       if (mode !== 'baseline') controller.inhibitFeatureContinuation()
-      const switching = mode === 'session switch' ? emitBridge('session_switch', {}, root) : Promise.resolve()
+      switchingSession = mode === 'session switch'
+      const switching = switchingSession ? emitBridge('session_switch', {}, root) : Promise.resolve()
       releaseSeal.resolve()
       await Promise.race([Promise.all([settled, switching]), failure.promise])
       expect(writes).toHaveLength(expectedWrites)

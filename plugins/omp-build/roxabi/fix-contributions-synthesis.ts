@@ -64,7 +64,6 @@ export async function prepareCorrectionSynthesis(
     procedure: task.task,
     solutionSpace: task.solutionSpace,
     prepared: preparedAction.value,
-    tools: task.tools,
     proofEvidence: task.proofEvidence,
   })
   const inventory = record(

@@ -172,7 +172,6 @@ export async function registeredCorrectionTask(
       procedure: draft.task,
       solutionSpace: draft.solutionSpace,
       prepared,
-      ...(draft.tools === undefined ? {} : { tools: draft.tools }),
       ...(draft.proofEvidence === undefined ? {} : { proofEvidence: draft.proofEvidence }),
     }),
   }

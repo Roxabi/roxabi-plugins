@@ -39,7 +39,6 @@ export function deliveryTask(input: {
   procedure: string
   solutionSpace: string
   prepared: PreparedUwAction
-  tools?: readonly string[]
   proofEvidence?: NativeProofDirective
 }): DeliveryTask {
   return {
@@ -48,7 +47,6 @@ export function deliveryTask(input: {
     solutionSpace: input.solutionSpace,
     task: procedureIndexTask(input.procedure, input.prepared.snapshot.indexPath),
     action: input.prepared,
-    ...(input.tools === undefined ? {} : { tools: [...input.tools] }),
     ...(input.proofEvidence === undefined ? {} : { proofEvidence: input.proofEvidence }),
   }
 }

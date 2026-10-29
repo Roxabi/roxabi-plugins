@@ -1,10 +1,11 @@
-import { createExtensionApiStub } from '../../testing/extension-api-stub.ts'
+import type { EventBus } from '@oh-my-pi/pi-coding-agent/utils/event-bus'
+import { createExtensionApiStub, fixtureEventBus } from '../../testing/extension-api-stub.ts'
 import { installNativeBatchBridge } from '../review-runtime/bridge.ts'
 import { NativeBatchController } from '../review-runtime/controller.ts'
 
 type Handler = (...args: never[]) => unknown
 type Bus = {
-  api: { on(name: string, handler: (value: unknown) => void): () => void }
+  api: EventBus
   emit(name: string, value: unknown): void
 }
 export type ToolEntry = { name: string; source: string }
@@ -55,16 +56,6 @@ export function endpoint(
 }
 
 export function eventBus(): Bus {
-  const listeners = new Map<string, ((value: unknown) => void)[]>()
-  return {
-    api: {
-      on: (name: string, handler: (value: unknown) => void) => {
-        listeners.set(name, [...(listeners.get(name) ?? []), handler])
-        return () => undefined
-      },
-    },
-    emit(name: string, value: unknown) {
-      for (const listener of listeners.get(name) ?? []) listener(value)
-    },
-  }
+  const api = fixtureEventBus()
+  return { api, emit: (name, value) => api.emit(name, value) }
 }

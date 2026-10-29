@@ -70,6 +70,11 @@ run-owned temporary directory and removes it at teardown. Sandbox fixtures use
 that executable through an integration-only environment variable; standalone
 Bun fixture runs continue to use the simulator source.
 
+Vitest workers run under Node. The shared setup isolates the SDK's Bun-only
+logging and task-rendering dependencies, while fixture registry and event-bus
+operations use the SDK implementations. Bun subprocess fixtures use the real
+SDK without these Vitest mocks.
+
 Style: single quotes, no semicolons. Markdown: ATX headings, tables for structured data.
 
 ## Project structure

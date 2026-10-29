@@ -111,7 +111,9 @@ test('activates and announces the exact confirmed replacement inventory', async 
   const batchMessage = harness.messages.find((message) => message.includes('OMP_BUILD_NATIVE_BATCH:'))
   expect(batchMessage).toContain('OMP_BUILD_NATIVE_BATCH:')
   expect(controller.active()?.operationId).toBe(replacement.value.inventory.operationId)
-  expect(batchMessage).toContain('"name":"spec"')
+  expect(batchMessage).toContain('omp_build_execute_native_batch')
+  expect(batchMessage).toContain('"batchId"')
+  expect(batchMessage).not.toContain('"name":"spec"')
 
   const mismatchMessages: string[] = []
   const mismatched = {

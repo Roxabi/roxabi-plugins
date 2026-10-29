@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { ActionCommunication } from '../action-communication.ts'
 import type {
   Json,
@@ -43,6 +44,9 @@ export type ActiveBatch = {
   defaultCwd: string | null
   artifactsDir: string | null
   admittedToolCallId: string | null
+  executionAbort: AbortController | null
+  executionDone: Promise<void> | null
+  finishExecution: (() => void) | null
   spawnedIndexes: Set<number>
   models: Array<{ provider: string; id: string }>
   announced: boolean
@@ -72,11 +76,8 @@ export type ActiveBatch = {
   captures: Map<string, ChildCapture>
   observeHostGit: HostGitObserver
 }
-function nativeTaskInput(batch: NativeBatch): NativeTaskWireInput {
-  return {
-    context: batch.tasks.context,
-    tasks: batch.tasks.tasks.map(({ proofEvidence: _proofEvidence, action: _action, ...task }) => task),
-  }
+function nativeTaskInput(): NativeTaskWireInput {
+  return { batchId: randomUUID() }
 }
 
 export function createActiveBatch(
@@ -88,11 +89,14 @@ export function createActiveBatch(
 ): ActiveBatch {
   return {
     batch,
-    wire: nativeTaskInput(batch),
+    wire: nativeTaskInput(),
     callbacks,
     defaultCwd,
     artifactsDir,
     admittedToolCallId: null,
+    executionAbort: null,
+    executionDone: null,
+    finishExecution: null,
     models: [],
     spawnedIndexes: new Set(),
     announced: false,
@@ -112,24 +116,6 @@ export function createActiveBatch(
   }
 }
 
-function taskIndexForSpawn(active: ActiveBatch, spawnKey: string): number {
-  const tasks = active.batch.tasks.tasks
-  const exact = tasks.findIndex((task) => task.name === spawnKey)
-  if (exact !== -1) return exact
-  const admitted = active.admittedToolCallId
-  if (admitted !== null && spawnKey.startsWith(`${admitted}:`)) {
-    const suffix = spawnKey.slice(admitted.length + 1)
-    const index = Number(suffix)
-    if (Number.isInteger(index) && String(index) === suffix && tasks[index] !== undefined) return index
-  }
-  const suffixMatches = tasks.flatMap((task, index) => {
-    if (!spawnKey.startsWith(`${task.name}-`)) return []
-    const suffix = spawnKey.slice(task.name.length + 1)
-    return /^(?:[2-9]|[1-9]\d+)$/.test(suffix) ? [index] : []
-  })
-  return suffixMatches.length === 1 ? (suffixMatches[0] ?? -1) : -1
-}
-
 export function spawnRefusal(
   active: ActiveBatch,
   spawn: { invocationKind: string; agent: string; spawnKey?: string },
@@ -143,14 +129,13 @@ export function spawnRefusal(
   }
   const spawnKey = spawn.spawnKey
   if (spawnKey === undefined) return 'native subagent spawn lacks its native task identity'
-  const index = taskIndexForSpawn(active, spawnKey)
-  if (index === -1) return 'native subagent spawn does not match one authorized native task identity'
+  const index = active.childSlots.get(spawnKey)
+  if (index === undefined) return 'native subagent spawn does not match one authorized native task identity'
   const expected = active.batch.tasks.tasks[index]
   if (expected === undefined || expected.agent !== spawn.agent || active.spawnedIndexes.has(index)) {
     return 'native subagent spawn does not match an authorized native task identity'
   }
   active.spawnedIndexes.add(index)
-  active.childSlots.set(spawnKey, index)
   return null
 }
 

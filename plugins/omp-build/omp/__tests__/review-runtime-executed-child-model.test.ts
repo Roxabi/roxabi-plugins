@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { unitSdkRoots } from '../../testing/unit-sdk-scopes.ts'
-import { agent, setup } from './review-runtime-executed-child.fixture.ts'
+import { setup } from './review-runtime-executed-child.fixture.ts'
 
 vi.mock('@oh-my-pi/pi-coding-agent', () => {
   return {
@@ -17,14 +17,9 @@ vi.mock('@oh-my-pi/pi-coding-agent', () => {
 
 describe('root scoped authorized model route', () => {
   const authorized = { provider: 'trusted', id: 'selected-model' }
-  const overrides = { [agent]: [' unavailable/model ', ' trusted/selected-model '] }
 
-  it('resolves the ordered override at the root and accepts an equivalent child model', async () => {
-    const fixture = await setup({
-      settings: overrides,
-      resolve: (selector) => (selector === 'unavailable/model,trusted/selected-model' ? authorized : undefined),
-      childModel: { ...authorized },
-    })
+  it('accepts a child model matching the host-bound model', async () => {
+    const fixture = await setup({ authorizedModel: authorized, childModel: { ...authorized } })
     await fixture.start()
     expect(await fixture.yieldValue()).toBeUndefined()
     await fixture.terminal()
@@ -34,8 +29,7 @@ describe('root scoped authorized model route', () => {
 
   it('blocks a child whose model shadows the root authorized model', async () => {
     const fixture = await setup({
-      settings: overrides,
-      resolve: () => authorized,
+      authorizedModel: authorized,
       childModel: { provider: 'shadow', id: authorized.id },
     })
     await fixture.start()
@@ -48,42 +42,33 @@ describe('root scoped authorized model route', () => {
     expect(fixture.onStop).toHaveBeenCalledTimes(1)
   })
 
-  it.each([[], ['', '  '], '  '])('uses the pinned role for empty override %j', async (override) => {
-    const fixture = await setup({ settings: { [agent]: override } })
+  it('blocks a child whose model ID differs from the host-bound model', async () => {
+    const fixture = await setup({
+      authorizedModel: authorized,
+      childModel: { provider: authorized.provider, id: 'different-model' },
+    })
     await fixture.start()
-    expect(await fixture.yieldValue()).toBeUndefined()
+    await fixture.yieldValue()
+    expect(fixture.abort).toHaveBeenCalledTimes(1)
+    expect(fixture.runtime.provider).not.toHaveBeenCalled()
+    expect(fixture.runtime.tool).not.toHaveBeenCalled()
     await fixture.terminal()
-    expect(fixture.onStop).not.toHaveBeenCalled()
-    expect(fixture.onComplete).toHaveBeenCalledTimes(1)
+    expect(fixture.onComplete).not.toHaveBeenCalled()
+    expect(fixture.onStop).toHaveBeenCalledTimes(1)
   })
 
-  it.each([
-    ['unavailable settings', undefined],
-    ['settings read failure', new Error('settings unavailable')],
-    ['malformed override', { [agent]: ['valid/model', 42] }],
-  ])('fails closed for %s', async (_label, settings) => {
-    const fixture = await setup({ settings, spawn: false })
-    expect(await fixture.spawn()).toEqual({ block: true, reason: 'native child model route unavailable' })
-  })
-
-  it('fails closed when the root model facade cannot resolve the override', async () => {
-    const fixture = await setup({ settings: overrides, resolve: () => undefined, spawn: false })
-    expect(await fixture.spawn()).toEqual({ block: true, reason: 'native child model route unavailable' })
-  })
-
-  it('uses each root’s scoped settings rather than another root’s override', async () => {
+  it('uses each root’s own bound model rather than another root’s model', async () => {
+    const secondModel = { provider: 'other', id: 'other-model' }
     const first = await setup({
       cwd: '/first-root',
-      settings: { [agent]: ['first/model'] },
-      resolve: (selector) => (selector === 'first/model' ? authorized : undefined),
+      authorizedModel: authorized,
       childModel: { ...authorized },
       spawn: false,
     })
     const second = await setup({
       cwd: '/second-root',
-      settings: { [agent]: ['second/model'] },
-      resolve: (selector) => (selector === 'second/model' ? authorized : undefined),
-      childModel: { ...authorized },
+      authorizedModel: secondModel,
+      childModel: { ...secondModel },
       spawn: false,
     })
     expect(await first.spawn()).toBeUndefined()

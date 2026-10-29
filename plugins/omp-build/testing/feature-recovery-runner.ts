@@ -1,14 +1,16 @@
-import { execFileSync } from 'node:child_process'
-import { readFileSync, writeFileSync } from 'node:fs'
 import type { OperatorPort } from '../roxabi/uw-contract.ts'
-import { diagnostic, loadDiagnosticExtension } from './ci-diagnostic-runner.ts'
+import { createConcurrentPausePull, makePauseDisarmUnreadable } from './feature-recovery-pause-fixture.ts'
+import { installFixtureSdkSettings } from './native-sdk-settings-fixture.ts'
 
-const ompBuildExtension = await loadDiagnosticExtension()
+await installFixtureSdkSettings(process.argv[3] ?? '')
+const { default: ompBuildExtension } = await import('../omp/index.ts')
 const { createOmpFixPort } = await import('../omp/omp-controller.ts')
 const { loadFeatureWorkflow } = await import('../roxabi/feature-loader.ts')
 const { createInstalledUwOperations } = await import('../roxabi/uw-installed-operations.ts')
 const { createInstalledUwReadPort } = await import('../roxabi/uw-read-port.ts')
 const { createExtensionApiStub } = await import('./extension-api-stub.ts')
+// Load the SDK registry only after the fixture's SDK settings are installed.
+const { provisionNativeRoot } = await import('./native-root-fixture.ts')
 const { invokeOmpIncompleteNative } = await import('./feature-recovery-incomplete-native.ts')
 const { invokeOmpLiveInterleave } = await import('./feature-recovery-live-interleave.ts')
 const { observedIncompleteNativeResult } = await import('./feature-recovery-observed-native.ts')
@@ -42,52 +44,9 @@ function payloadFrom(raw: unknown): Payload {
   }
 }
 
-function createConcurrentPausePull(cwd: string): number {
-  const head = execFileSync('git', ['branch', '--show-current'], { cwd, encoding: 'utf8' }).trim()
-  if (head.length === 0) throw new Error('pause branch unavailable')
-  const raw = execFileSync(
-    'gh',
-    [
-      'api',
-      'repos/acme/app/pulls',
-      '--method',
-      'POST',
-      '-f',
-      `head=${head}`,
-      '-f',
-      'base=main',
-      '-f',
-      'title=concurrent pause disarm fixture',
-    ],
-    { cwd, encoding: 'utf8' },
-  )
-  const created: unknown = JSON.parse(raw)
-  if (
-    created === null ||
-    typeof created !== 'object' ||
-    !('number' in created) ||
-    typeof created.number !== 'number' ||
-    !Number.isSafeInteger(created.number)
-  ) {
-    throw new Error('pause pull creation unreadable')
-  }
-  return created.number
-}
-
-function makePauseDisarmUnreadable(pr: number): void {
-  const stateFile = process.env.GH_SIM_STATE
-  if (stateFile === undefined) throw new Error('pause simulator state unavailable')
-  const state = JSON.parse(readFileSync(stateFile, 'utf8')) as { prs?: Record<string, { labels?: unknown }> }
-  const pull = state.prs?.[String(pr)]
-  if (pull === undefined) throw new Error('pause disarm pull request unavailable')
-  pull.labels = [1]
-  writeFileSync(stateFile, JSON.stringify(state, null, 2))
-}
-
 const [operation, cwd, payloadText] = process.argv.slice(2)
 const payload = payloadFrom(JSON.parse(payloadText ?? '{}') as unknown)
 const workflow = await loadFeatureWorkflow()
-diagnostic('phase', 'child-workflow-loaded')
 
 async function continueFeature() {
   const sessionCwd = cwd ?? ''
@@ -229,7 +188,9 @@ async function invokeOmpBridge(
     sessionManager: { getSessionId: () => 'recovery-bridge-root' },
     isIdle: () => true,
   }
+  provisionNativeRoot(context)
   ompBuildExtension(api, { principalCwd: () => false })
+  for (const handler of events.get('session_start') ?? []) await handler({ type: 'session_start' }, context)
   const feature = commands.get('feature')
   if (feature === undefined) throw new Error('feature-command-unregistered')
   await feature('#42', context)
@@ -276,7 +237,9 @@ async function invokeOmpLifetime(): Promise<{
     sessionManager: { getSessionId: () => 'recovery-lifetime-root' },
     isIdle: () => true,
   }
+  provisionNativeRoot(context)
   ompBuildExtension(api, { principalCwd: () => false })
+  for (const handler of events.get('session_start') ?? []) await handler({ type: 'session_start' }, context)
   const feature = commands.get('feature')
   if (feature === undefined) throw new Error('feature-command-unregistered')
   await feature('#42', context)

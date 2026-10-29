@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { FeatureWorkflow } from '../../roxabi/feature-contract'
 import { runInstalledFeatureCommand } from '../../roxabi/feature-entry'
-import { createExtensionApiStub } from '../../testing/extension-api-stub'
+import { createExtensionApiStub, fixtureEventBus } from '../../testing/extension-api-stub'
+import { provisionNativeRoot } from '../../testing/native-root-fixture.ts'
 import { consultableAgentRoot } from '../../testing/protocol-retention.unit.ts'
 import { cleanupFixtureActions, fixtureAction } from '../../testing/review-runtime-support.ts'
 import ompBuildExtension from '../index'
@@ -86,17 +87,15 @@ function installed(
         await dispatch(session as never, ctx as never)
       })
     },
-    events: {
-      on: (event, handler) => {
-        const listeners = registeredRaw.get(event) ?? []
-        listeners.push(handler as (value: unknown) => void)
-        registeredRaw.set(event, listeners)
-        raw.set(event, (value) => {
-          for (const listener of listeners) listener(value)
-        })
-        return () => undefined
-      },
-    },
+    events: fixtureEventBus((event, handler) => {
+      const listeners = registeredRaw.get(event) ?? []
+      listeners.push(handler)
+      registeredRaw.set(event, listeners)
+      raw.set(event, (value) => {
+        for (const listener of listeners) listener(value)
+      })
+      return () => undefined
+    }),
     registerCommand: (name, command) => {
       commands.set(name, command as { handler: (args: string, ctx: typeof root) => Promise<void> })
     },
@@ -111,6 +110,7 @@ function installed(
     },
     ...(exec === undefined ? {} : { exec }),
   })
+  provisionNativeRoot(root)
   ompBuildExtension(pi, { principalCwd: () => false, ...options })
   return { sent, commands, tools, sessions, handlers, raw, pi }
 }
@@ -156,7 +156,9 @@ describe('installed /feature command', () => {
     await host.commands.get('feature')?.handler('#12', root)
     const announced = host.sent.filter((message) => message.includes('OMP_BUILD_NATIVE_BATCH'))
     expect(announced).toHaveLength(1)
-    expect(announced[0]).toContain('R-workflow-plan')
+    expect(announced[0]).toContain('omp_build_execute_native_batch')
+    expect(announced[0]).toContain('"batchId"')
+    expect(announced[0]).not.toContain('R-workflow-plan')
     expect(host.sent.join('\n')).not.toContain('# Feature')
     expect(host.sent.join('\n')).not.toContain('[Skill directory:')
   })

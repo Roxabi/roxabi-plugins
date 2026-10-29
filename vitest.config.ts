@@ -1,6 +1,5 @@
 import { availableParallelism } from 'node:os'
 import { defineConfig } from 'vitest/config'
-import { diagnostic } from './plugins/omp-build/testing/ci-diagnostic.ts'
 
 const exclude = [
   '**/node_modules/**',
@@ -22,8 +21,6 @@ const exclude = [
 // land in the tight budget by accident — including when it forks only through an
 // imported helper, which its own source does not reveal.
 const INTEGRATION = '**/*.integration.test.?(c|m)[jt]s?(x)'
-diagnostic('capacity', 'vitest-available-parallelism', undefined, availableParallelism())
-diagnostic('capacity', 'vitest-max-workers', undefined, Math.min(8, Math.max(1, availableParallelism() - 1)))
 
 export default defineConfig({
   test: {

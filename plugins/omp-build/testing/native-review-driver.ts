@@ -8,9 +8,10 @@ import { ownedFixRunFor, reviewControllerFor } from '../omp/omp-controller.ts'
 import type { NativeTask } from '../omp/review-runtime/contracts.ts'
 import type { NativeBatchController } from '../omp/review-runtime/controller.ts'
 import type { FixRun } from '../roxabi/fix-entry-lifecycle.ts'
-import { createExtensionApiStub } from './extension-api-stub.ts'
+import { createExtensionApiStub, fixtureEventBus } from './extension-api-stub.ts'
 import { type NativeReviewChild, nativeReviewChild } from './native-review-child.ts'
 import { observeDriverCallbacks } from './native-review-diagnostics.ts'
+import { provisionNativeRoot } from './native-root-fixture.ts'
 
 type Handler = (...args: unknown[]) => unknown
 export type NativeData = { findings: unknown[] } | Record<string, unknown>
@@ -139,6 +140,9 @@ async function settleChild(
   operationId: string,
   index: number,
 ): Promise<NativeData> {
+  if (!input.controller.bindChild(task.name, index, input.context.models.resolve(task.agent))) {
+    throw new Error(`native-fixture-child-binding-refused: ${task.name}`)
+  }
   await emit(
     input.events,
     'before_subagent_spawn',
@@ -176,35 +180,32 @@ async function settleChild(
 async function settleDriver(input: DriverSettlement): Promise<void> {
   const batch = input.controller.active()
   if (batch === null) throw new Error(`review-batch-missing: ${JSON.stringify(input.messages)}`)
-  const wire = input.controller.wire(batch)
-  if (wire === null) throw new Error('review-batch-unwired')
-  await emit(input.events, 'tool_call', { toolName: 'task', toolCallId: batch.operationId, input: wire }, input.context)
+  if (input.controller.wire(batch) === null) throw new Error('review-batch-unwired')
+  if (!input.controller.admit(batch, batch.operationId, input.context as never, () => true)) {
+    throw new Error('review-batch-admission-refused')
+  }
   const results: NativeData[] = []
   for (const [index, task] of batch.tasks.tasks.entries())
     results.push(await settleChild(input, task, batch.operationId, index))
-  const handlers = input.events.get('tool_result') ?? []
-  const event = {
-    toolName: 'task',
+  const observation = {
     toolCallId: batch.operationId,
-    isError: false,
-    content: [],
-    details: {
-      results: batch.tasks.tasks.map((task, index) => ({
-        index,
-        id: task.name,
-        agent: task.agent,
-        exitCode: 0,
-        structuredOutput: { status: 'valid', data: results[index] },
-      })),
-    },
+    errors: [],
+    results: batch.tasks.tasks.map((task, index) => ({
+      index,
+      id: task.name,
+      agent: task.agent,
+      exitCode: 0,
+      structuredOutput: { status: 'valid', data: results[index] },
+    })),
   }
-  for (const handler of handlers) {
-    const result = handler(event, input.context)
-    const terminal = input.controller.ownedSettlement()
-    await result
-    await terminal
-    await input.controller.ownedSettlement()
-  }
+  input.controller.prepareOwnedResult(observation, input.context as never)
+  input.controller.queueOwnedSettlement(observation)
+  const settlement = input.controller.ownedSettlement()
+  input.controller.finishExecution(batch)
+  // The host ends the tool's turn independently of asynchronous settlement.
+  // This releases the old task-mask lease before a successor is announced.
+  await emit(input.events, 'agent_end', { willContinue: false }, input.context)
+  await settlement
 }
 
 type BatchWaiter = { after: number; resolve: () => void }
@@ -238,17 +239,16 @@ export async function createReviewDriver(cwd: string): Promise<ReviewDriver> {
   }
   const api = createExtensionApiStub({
     on: (name, handler) => addHandler(events, name, handler as Handler),
-    events: {
-      on: (name, handler) => {
-        addHandler(events, name, handler as Handler)
-        return () => undefined
-      },
-    },
+    events: fixtureEventBus((name, handler) => {
+      addHandler(events, name, handler as Handler)
+      return () => undefined
+    }),
     registerCommand: (name, command) => commands.set(name, command.handler as Handler),
     sendUserMessage: recordMessage,
     sendMessage: recordMessage,
   })
   const context = rootContext(cwd)
+  provisionNativeRoot(context)
   ompBuildExtension(api)
   const controller = reviewControllerFor(api)
   const diagnostics = observeDriverCallbacks(controller)

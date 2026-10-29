@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 import { afterEach, expect, vi } from 'vitest'
+import { provisionNativeRoot } from '../../testing/native-root-fixture.ts'
 import { consultableAgentRoot } from '../../testing/protocol-retention.unit.ts'
 import { cleanupFixtureActions } from '../../testing/review-runtime-support.ts'
 import { unitSdkRoots } from '../../testing/unit-sdk-scopes.ts'
@@ -50,6 +51,7 @@ async function setup(
     settings?: unknown
     resolve?: (selector: string) => Model | undefined
     childModel?: Model
+    authorizedModel?: Model
   } = {},
 ) {
   const agent = options.profile ?? 'R-workflow-plan'
@@ -108,13 +110,12 @@ async function setup(
   }
   const onComplete = vi.fn()
   const onStop = vi.fn()
+  provisionNativeRoot(root)
   await rootEndpoint.emit('session_start', { type: 'session_start' }, root)
   rootEndpoint.controller.activate(prepared, { onComplete, onStop })
-  await rootEndpoint.emit(
-    'tool_call',
-    { type: 'tool_call', toolName: 'task', toolCallId: 'root-call', input: rootEndpoint.controller.wire(prepared) },
-    root,
-  )
+  rootEndpoint.controller.announce(prepared)
+  rootEndpoint.controller.consumeFollowUp()
+  expect(rootEndpoint.controller.admit(prepared, 'root-call', root as never, () => true)).toBe(true)
   function lifecycle(overrides: Record<string, unknown> = {}) {
     if (options.lifecycle === null) return
     const announcement: Record<string, unknown> = {
@@ -132,6 +133,11 @@ async function setup(
     bus.emit('task:subagent:lifecycle', announcement)
   }
   async function spawn() {
+    const selected = options.authorizedModel ?? model
+    const authorized = { provider: selected.provider, id: selected.id }
+    if (!rootEndpoint.controller.bindChild(childId, 0, authorized)) {
+      return { block: true, reason: 'native child model route unavailable' }
+    }
     const result = await rootEndpoint.emit(
       'before_subagent_spawn',
       { type: 'before_subagent_spawn', invocationKind: 'task', agent, patterns: [], spawnKey: childId },
@@ -203,27 +209,24 @@ async function setup(
     return call
   }
   async function terminal(value: unknown = data, id = childId) {
-    await rootEndpoint.emit(
-      'tool_result',
-      {
-        type: 'tool_result',
-        toolName: 'task',
-        toolCallId: 'root-call',
-        isError: false,
-        content: [],
-        details: {
-          results: [{ index: 0, id, agent, exitCode: 0, structuredOutput: { status: 'valid', data: value } }],
-        },
-      },
-      root,
-    )
+    rootEndpoint.controller.queueOwnedSettlement({
+      toolCallId: 'root-call',
+      errors: [],
+      results: [{ index: 0, id, agent, exitCode: 0, structuredOutput: { status: 'valid', data: value } }],
+    })
+    rootEndpoint.controller.finishExecution(prepared)
     await rootEndpoint.controller.ownedSettlement()
+  }
+  async function switchRoot() {
+    rootEndpoint.controller.finishExecution(prepared)
+    await rootEndpoint.emit('session_switch', { type: 'session_switch' }, root)
   }
   return {
     root,
     child,
     childEndpoint,
     rootEndpoint,
+    switchRoot,
     spawn,
     lifecycle,
     abort,

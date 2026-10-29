@@ -5,11 +5,12 @@ import path from 'node:path'
 import { FINDING_TARGET_FORMAT } from '../engine/finding-target-schema.ts'
 import ompBuildExtension from '../omp/index.ts'
 import { reviewControllerFor } from '../omp/omp-controller.ts'
-import { createExtensionApiStub } from './extension-api-stub.ts'
+import { createExtensionApiStub, fixtureEventBus } from './extension-api-stub.ts'
 import { SCOPE } from './feature-recovery-fixture.ts'
 import { releaseLiveInterleaveBarrier, waitForBarrier } from './feature-recovery-live-barrier.ts'
 import { nativeFeatureSpec } from './feature-review-fixture.ts'
 import { type NativeReviewChild, nativeReviewChild } from './native-review-child.ts'
+import { provisionNativeRoot } from './native-root-fixture.ts'
 
 type Handler = (...args: unknown[]) => unknown
 
@@ -67,14 +68,12 @@ export async function invokeOmpLiveInterleave(cwd: string): Promise<LiveInterlea
   const events = new Map<string, Handler[]>()
   const messages: string[] = []
   const api = createExtensionApiStub({
-    events: {
-      on(name, handler) {
-        const registered = events.get(name) ?? []
-        registered.push(handler as Handler)
-        events.set(name, registered)
-        return () => undefined
-      },
-    },
+    events: fixtureEventBus((name, handler) => {
+      const registered = events.get(name) ?? []
+      registered.push(handler as Handler)
+      events.set(name, registered)
+      return () => undefined
+    }),
     on(name, handler) {
       const registered = events.get(name) ?? []
       registered.push(handler as Handler)
@@ -104,6 +103,7 @@ export async function invokeOmpLiveInterleave(cwd: string): Promise<LiveInterlea
     isIdle: () => true,
     localProtocolOptions: { getArtifactsDir: () => artifacts },
   }
+  provisionNativeRoot(context)
   const gate = mkdtempSync(path.join(tmpdir(), 'omp-build-authorize-push-'))
   const ready = path.join(gate, 'ready')
   const release = path.join(gate, 'release')
@@ -145,13 +145,9 @@ exec "$OMP_BUILD_REAL_GIT" "$@"
     const task = active.tasks.tasks[0]
     const wire = controller.wire(active)
     if (task === undefined || wire === null) throw new Error('feature-batch-unwired')
-    await emit(events, 'tool_call', { toolName: 'task', toolCallId: active.operationId, input: wire }, context)
-    await emit(
-      events,
-      'before_subagent_spawn',
-      { agent: task.agent, invocationKind: 'task', patterns: [], spawnKey: task.name },
-      context,
-    )
+    if (!controller.admit(active, active.operationId, context as never, () => true))
+      throw new Error('feature-admission-refused')
+    if (!controller.bindChild(task.name, 0, context.models.resolve())) throw new Error('feature-child-binding-refused')
     const sessionFile = path.join(artifacts, 'child-0.jsonl')
     await emit(events, 'task:subagent:lifecycle', {
       status: 'started',
@@ -217,29 +213,23 @@ exec "$OMP_BUILD_REAL_GIT" "$@"
     }
     await child.call('yield', 'implementation-yield', { data: output })
     await child.result('yield', 'implementation-yield', { data: output }, { content: [], details: {}, isError: false })
-    const resultEvent = emit(
-      events,
-      'tool_result',
-      {
-        toolName: 'task',
-        toolCallId: active.operationId,
-        isError: false,
-        content: [],
-        details: {
-          results: [
-            {
-              index: 0,
-              id: task.name,
-              agent: task.agent,
-              exitCode: 0,
-              structuredOutput: { status: 'valid', data: output },
-            },
-          ],
+    const observation = {
+      toolCallId: active.operationId,
+      errors: [],
+      results: [
+        {
+          index: 0,
+          id: task.name,
+          agent: task.agent,
+          exitCode: 0,
+          structuredOutput: { status: 'valid', data: output },
         },
-      },
-      context,
-    )
-    completing = resultEvent.then(() => controller.ownedSettlement()).then(() => undefined)
+      ],
+    }
+    controller.prepareOwnedResult(observation, context as never)
+    controller.queueOwnedSettlement(observation)
+    controller.finishExecution(active)
+    completing = controller.ownedSettlement().then(() => undefined)
     await waitForBarrier(() => existsSync(ready), completing)
     await feature('pause #42', context)
     writeFileSync(release, '')

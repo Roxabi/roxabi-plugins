@@ -226,27 +226,19 @@ describe('feature continuation seam', () => {
       root: retainedRoot,
     })
     await harness.yieldChild('task-call:0', data)
-    await harness.emitBridgeAndSettle(
-      'tool_result',
-      {
-        toolName: 'task',
-        toolCallId: 'task-call',
-        isError: false,
-        content: [],
-        details: {
-          results: [
-            {
-              index: 0,
-              id: 'task-call:0',
-              agent: 'R-workflow-plan',
-              exitCode: 0,
-              structuredOutput: { status: 'valid', data },
-            },
-          ],
+    await harness.settleBatch({
+      toolCallId: 'task-call',
+      errors: [],
+      results: [
+        {
+          index: 0,
+          id: 'task-call:0',
+          agent: 'R-workflow-plan',
+          exitCode: 0,
+          structuredOutput: { status: 'valid', data },
         },
-      },
-      retainedRoot,
-    )
+      ],
+    })
     expect(completed).toBe(1)
     expect(settled).toBe(1)
     await harness.emitBridge('agent_end', { willContinue: false }, retainedRoot)

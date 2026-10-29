@@ -3,8 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import ompBuildExtension from '../omp/index.ts'
 import { reviewControllerFor } from '../omp/omp-controller.ts'
-import { createExtensionApiStub } from './extension-api-stub.ts'
+import { createExtensionApiStub, fixtureEventBus } from './extension-api-stub.ts'
 import { nativeReviewChild } from './native-review-child.ts'
+import { provisionNativeRoot } from './native-root-fixture.ts'
 
 type Handler = (...args: unknown[]) => unknown
 
@@ -18,12 +19,10 @@ export async function invokeOmpIncompleteNative(cwd: string): Promise<{
   const events = new Map<string, Handler[]>()
   const messages: string[] = []
   const api = createExtensionApiStub({
-    events: {
-      on(name, handler) {
-        events.set(name, [...(events.get(name) ?? []), handler as Handler])
-        return () => undefined
-      },
-    },
+    events: fixtureEventBus((name, handler) => {
+      events.set(name, [...(events.get(name) ?? []), handler as Handler])
+      return () => undefined
+    }),
     on(name, handler) {
       events.set(name, [...(events.get(name) ?? []), handler as Handler])
     },
@@ -50,6 +49,7 @@ export async function invokeOmpIncompleteNative(cwd: string): Promise<{
     isIdle: () => true,
     localProtocolOptions: { getArtifactsDir: () => artifacts },
   }
+  provisionNativeRoot(context)
   try {
     const emit = async (event: string, ...args: unknown[]) => {
       for (const handler of events.get(event) ?? []) {
@@ -69,12 +69,9 @@ export async function invokeOmpIncompleteNative(cwd: string): Promise<{
     const task = active.tasks.tasks[0]
     const wire = controller.wire(active)
     if (task === undefined || wire === null) throw new Error('feature-batch-unwired')
-    await emit('tool_call', { toolName: 'task', toolCallId: active.operationId, input: wire }, context)
-    await emit(
-      'before_subagent_spawn',
-      { agent: task.agent, invocationKind: 'task', patterns: [], spawnKey: task.name },
-      context,
-    )
+    if (!controller.admit(active, active.operationId, context as never, () => true))
+      throw new Error('feature-admission-refused')
+    if (!controller.bindChild(task.name, 0, context.models.resolve())) throw new Error('feature-child-binding-refused')
     const sessionFile = join(artifacts, 'child-0.jsonl')
     await emit('task:subagent:lifecycle', {
       status: 'started',
@@ -93,28 +90,22 @@ export async function invokeOmpIncompleteNative(cwd: string): Promise<{
     await child.call('yield', 'incomplete-yield', { data: { outcome: 'incomplete', provenance: 'native' } })
     let completionError: string | null = null
     try {
-      const resultEvent = emit(
-        'tool_result',
-        {
-          toolName: 'task',
-          toolCallId: active.operationId,
-          isError: true,
-          content: [],
-          details: {
-            results: [
-              {
-                index: 0,
-                id: task.name,
-                agent: task.agent,
-                exitCode: 1,
-                structuredOutput: { status: 'invalid', data: { refusal: 'incomplete-native' } },
-              },
-            ],
+      const observation = {
+        toolCallId: active.operationId,
+        errors: ['incomplete-native'],
+        results: [
+          {
+            index: 0,
+            id: task.name,
+            agent: task.agent,
+            exitCode: 1,
+            structuredOutput: { status: 'invalid', data: { refusal: 'incomplete-native' } },
           },
-        },
-        context,
-      )
-      await resultEvent
+        ],
+      }
+      controller.prepareOwnedResult(observation, context as never)
+      controller.queueOwnedSettlement(observation)
+      controller.finishExecution(active)
       await controller.ownedSettlement()
     } catch (error) {
       completionError = error instanceof Error ? error.message : String(error)

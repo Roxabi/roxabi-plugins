@@ -3,6 +3,7 @@ import type { FeatureWorkflow } from '../../roxabi/feature-contract'
 import { pauseOwnedFeatureOnSessionEnd } from '../../roxabi/feature-host-lifetime'
 import { rememberFeatureOwner } from '../../roxabi/feature-host-ownership'
 import { createExtensionApiStub } from '../../testing/extension-api-stub'
+import { provisionNativeRoot } from '../../testing/native-root-fixture.ts'
 import { consultableAgentRoot } from '../../testing/protocol-retention.unit.ts'
 import { cleanupFixtureActions, batch as nativeBatch } from '../../testing/review-runtime-support'
 import ompBuildExtension from '../index'
@@ -79,6 +80,7 @@ function installed(
     },
     ...(exec === undefined ? {} : { exec }),
   })
+  provisionNativeRoot(root)
   ompBuildExtension(pi, { principalCwd: () => false, ...options })
   return { pi, sent, commands, sessions }
 }

@@ -9,7 +9,6 @@ import { assessCriterionDeclarations } from '../../engine/criterion-admission.ts
 import { criterionDeclarationSchema } from '../../engine/criterion-evidence-schema.ts'
 import type { DecodedHistory } from '../../engine/history-schema.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
-import { diagnostic } from '../../testing/ci-diagnostic.ts'
 import {
   arrangeReviewFixture,
   REVIEW_BRANCH as BRANCH,
@@ -35,10 +34,7 @@ function arrange() {
 }
 
 function invoke(box: Box, cwd: string, control: 'continue' | 'pause' | 'resume', operation = 'omp-review-lifecycle') {
-  const preload = path.resolve(import.meta.dirname, '../../testing/ci-diagnostic-preload.js')
-  const flags =
-    process.env.Q904_CI_DIAGNOSTIC && operation === 'omp-review-apply-falsify' ? [`--preload=${preload}`] : []
-  const run = spawnSync(BUN, [...flags, RUNNER, operation, cwd, JSON.stringify({ control })], {
+  const run = spawnSync(BUN, [RUNNER, operation, cwd, JSON.stringify({ control })], {
     cwd,
     env: box.env,
     encoding: 'utf8',
@@ -47,6 +43,7 @@ function invoke(box: Box, cwd: string, control: 'continue' | 'pause' | 'resume',
   return JSON.parse(run.stdout) as {
     messages: string[]
     active: { operationId: string; tasks?: { tasks: Array<{ agent: string }> } } | null
+    activeBatchId?: string | null
     falsifyActive?: { operationId: string; tasks?: { tasks: Array<{ agent: string }> } } | null
     fixRun: { runId: string; operationId: string } | null
     comments: unknown[]
@@ -136,6 +133,21 @@ function pauseConfirmed(box: Box): boolean {
 function assertPauseConfirmed(box: Box, messages: readonly string[]): void {
   if (pauseConfirmed(box)) return
   throw new Error(`confirmed pause missing; child messages: ${JSON.stringify(messages)}`)
+}
+
+function announcedBatchIds(messages: readonly string[]): string[] {
+  const announcements = messages.filter((message) => message.includes('OMP_BUILD_NATIVE_BATCH:'))
+  const ids = announcements.map((message) => {
+    expect(message).toContain('Invoke omp_build_execute_native_batch with exactly this batchId')
+    const line = message.split('\n')[1]
+    const selector: unknown = JSON.parse(line)
+    expect(selector).toEqual({ batchId: expect.any(String) })
+    const { batchId } = selector as { batchId: string }
+    expect(batchId).not.toBe('')
+    return batchId
+  })
+  expect(new Set(ids).size).toBe(ids.length)
+  return ids
 }
 
 function assertCorrectionSnapshots(
@@ -330,17 +342,15 @@ describe('installed /feature review lifecycle through actual Bun and external bo
     ).toMatchObject({ runId: expect.any(String), operationId: expect.any(String) })
     expect(request?.runId).toBe(observed.fixRun?.runId)
     expect(observed.active?.operationId).toBe(observed.fixRun?.operationId)
-    expect(observed.messages.filter((message) => message.includes('OMP_BUILD_NATIVE_BATCH'))).toHaveLength(3)
+    const batches = announcedBatchIds(observed.messages)
+    expect(batches).toHaveLength(3)
+    expect(batches[2]).toBe(observed.activeBatchId)
   })
 
   it('pushes the owned correction only after native falsification', async () => {
-    diagnostic('phase', 'review-start')
     const { box, cwd } = arrange()
-    diagnostic('phase', 'review-arranged')
     await seedReviewFixture(box, cwd)
-    diagnostic('phase', 'review-seeded')
     const observed = invoke(box, cwd, 'continue', 'omp-review-apply-falsify')
-    diagnostic('phase', 'review-invoked')
     const state = readSim(box)
     const review = reviewHistory(box, state)
     const issue = issueDecodedHistory(box, state)
@@ -358,6 +368,7 @@ describe('installed /feature review lifecycle through actual Bun and external bo
       comments: observed.comments,
       records,
     })
+    expect(announcedBatchIds(observed.messages).length).toBeGreaterThan(2)
     expect(observed.commit).toMatch(/^[0-9a-f]{40}$/)
     expect(observed.transitionOutcome, observations).toBe('next-batch')
     expect(observed.falsifyActive, observations).toMatchObject({
@@ -374,7 +385,6 @@ describe('installed /feature review lifecycle through actual Bun and external bo
     expect(observed.commit).not.toBe(observed.priorHead)
     assertCorrectionSnapshots(observed, records, observations)
     assertCorrectionReceipt(review, issue, issueRecords, observed, records, result)
-    diagnostic('phase', 'review-receipt')
     expect(observed.reviewSnapshots).toEqual([
       expect.objectContaining({ head: observed.commit, sourceRecordId: result?.recordId }),
     ])
@@ -384,7 +394,6 @@ describe('installed /feature review lifecycle through actual Bun and external bo
       'mandate-feature-1',
     ])
     expect(issueRecords.some((record) => record.kind === 'operator-control')).toBe(false)
-    diagnostic('phase', 'review-end')
   })
 
   it('persists confirmed local pause for a fresh review without another dispatch', async () => {
@@ -392,7 +401,7 @@ describe('installed /feature review lifecycle through actual Bun and external bo
     await seedReviewFixture(box, cwd)
     const observed = invoke(box, cwd, 'pause')
     expect(observed.active).toBeNull()
-    expect(observed.messages.filter((message) => message.includes('OMP_BUILD_NATIVE_BATCH'))).toHaveLength(1)
+    expect(announcedBatchIds(observed.messages)).toHaveLength(1)
     assertPauseConfirmed(box, observed.messages)
   })
 
@@ -402,7 +411,7 @@ describe('installed /feature review lifecycle through actual Bun and external bo
     const observed = invoke(box, cwd, 'resume')
     expect(observed.barrier).toBe(true)
     expect(observed.beforeRelease).toBe(2)
-    expect(observed.messages.filter((message) => message.includes('OMP_BUILD_NATIVE_BATCH'))).toHaveLength(2)
+    expect(announcedBatchIds(observed.messages)).toHaveLength(2)
     expect(observed.active).toBeNull()
     assertPauseConfirmed(box, observed.messages)
   })

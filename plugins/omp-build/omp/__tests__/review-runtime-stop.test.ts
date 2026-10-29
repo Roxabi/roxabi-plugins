@@ -83,17 +83,13 @@ describe('native review bridge stop and dispatch', () => {
     await port.announce(prepared)
     await harness.emitBridge('session_stop', { signal: new AbortController().signal }, busyRoot)
     await harness.emitBridge('agent_end', { willContinue: false }, busyRoot)
-    const dispatched = await harness.emitBridge(
-      'tool_call',
-      { toolName: 'task', toolCallId: 'task-call', input: harness.controller.wire(prepared) },
-      busyRoot,
-    )
+    const dispatched = await harness.admitBatch(prepared, 'task-call', busyRoot)
     expect(stopped).toBe(false)
     expect(harness.messages).toEqual([
       expect.stringContaining('OMP_BUILD_NATIVE_BATCH:'),
       'display:false triggerTurn:true',
     ])
-    expect(dispatched).toBeUndefined()
+    expect(dispatched).toBe(true)
   })
 
   it('resets the late-wake marker for a new turn and preserves an undelivered announcement', async () => {
@@ -153,27 +149,20 @@ describe('native review bridge stop and dispatch', () => {
       })
       await harness.admitChild(prepared, 'slot-a', 'slot-a', { root: busyRoot })
       await harness.yieldChild('slot-a', { findings: [] })
-      await harness.emitBridge(
-        'tool_result',
-        {
-          toolName: 'task',
-          toolCallId: 'task-call',
-          isError: false,
-          content: [],
-          details: {
-            results: [
-              {
-                index: 0,
-                id: 'slot-a',
-                agent: 'R-review-adversarial',
-                exitCode: 0,
-                structuredOutput: { status: 'valid', data: { findings: [] } },
-              },
-            ],
+      harness.controller.queueOwnedSettlement({
+        toolCallId: 'task-call',
+        errors: [],
+        results: [
+          {
+            index: 0,
+            id: 'slot-a',
+            agent: 'R-review-adversarial',
+            exitCode: 0,
+            structuredOutput: { status: 'valid', data: { findings: [] } },
           },
-        },
-        busyRoot,
-      )
+        ],
+      })
+      harness.controller.finishExecution(prepared)
       await entered.promise
       await stopDuringPublication(mode, harness, busyRoot, release.resolve)
       if (mode === 'normal') {
@@ -225,27 +214,20 @@ describe('native review bridge stop and dispatch', () => {
     })
     await harness.admitChild(prepared, 'slot-a', 'slot-a', { root: busyRoot })
     await harness.yieldChild('slot-a', { findings: [] })
-    await harness.emitBridge(
-      'tool_result',
-      {
-        toolName: 'task',
-        toolCallId: 'task-call',
-        isError: false,
-        content: [],
-        details: {
-          results: [
-            {
-              index: 0,
-              id: 'slot-a',
-              agent: 'R-review-adversarial',
-              exitCode: 0,
-              structuredOutput: { status: 'valid', data: { findings: [] } },
-            },
-          ],
+    harness.controller.queueOwnedSettlement({
+      toolCallId: 'task-call',
+      errors: [],
+      results: [
+        {
+          index: 0,
+          id: 'slot-a',
+          agent: 'R-review-adversarial',
+          exitCode: 0,
+          structuredOutput: { status: 'valid', data: { findings: [] } },
         },
-      },
-      busyRoot,
-    )
+      ],
+    })
+    harness.controller.finishExecution(prepared)
     await publicationEntered.promise
     const signal = new AbortController()
     await harness.emitBridge('session_stop', { signal: signal.signal }, busyRoot)

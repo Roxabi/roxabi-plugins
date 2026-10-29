@@ -1,11 +1,10 @@
 import { isDeepStrictEqual } from 'node:util'
-import type { ToolResultEvent } from '@oh-my-pi/pi-coding-agent'
 import { producerOutputValid } from '../../dist/contracts.js'
 import { nativeFeatureProfiles } from '../../roxabi/native-feature-profiles.ts'
 import { nativeReviewProfiles } from '../../roxabi/native-review-profiles.ts'
 import { nativeSnapshot, object } from './capture'
 import { captureChildResult } from './child-capture'
-import type { NativeBatchResult, NativeChildResult } from './contracts'
+import type { NativeBatchResult, NativeChildResult, NativeExecutionObservation } from './contracts'
 import type { ActiveBatch } from './state'
 
 export type ResolvedTaskResult = {
@@ -115,8 +114,8 @@ function captureAssociatedChildren(
   return { children, exactAssociation }
 }
 
-export function resolveTaskResult(active: ActiveBatch, event: ToolResultEvent): ResolvedTaskResult {
-  const values = object(event.details) && Array.isArray(event.details.results) ? event.details.results : []
+export function resolveTaskResult(active: ActiveBatch, observation: NativeExecutionObservation): ResolvedTaskResult {
+  const values = observation.results
   const { terminalByTaskIndex, exactAssociation: associatedExactly } = terminalAssociations(
     values,
     active.batch.tasks.tasks.length,
@@ -130,7 +129,7 @@ export function resolveTaskResult(active: ActiveBatch, event: ToolResultEvent): 
   const exactCount = values.length === active.batch.tasks.tasks.length
   const identitiesMatch = exactCount && exactAssociation && terminalByTaskIndex.size === active.batch.tasks.tasks.length
   const complete =
-    event.isError !== true &&
+    observation.errors.length === 0 &&
     exactCount &&
     identitiesMatch &&
     children.length === active.batch.tasks.tasks.length &&
@@ -139,12 +138,7 @@ export function resolveTaskResult(active: ActiveBatch, event: ToolResultEvent): 
     result: {
       batch: active.batch,
       children,
-      raw: nativeSnapshot({
-        toolCallId: event.toolCallId,
-        isError: event.isError,
-        details: event.details,
-        content: event.content,
-      }),
+      raw: nativeSnapshot(observation),
       complete,
     },
     complete,

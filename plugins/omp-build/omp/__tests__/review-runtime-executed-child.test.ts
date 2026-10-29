@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
+import { provisionNativeRoot } from '../../testing/native-root-fixture.ts'
 import { unitSdkRoots } from '../../testing/unit-sdk-scopes.ts'
 import {
   agent,
@@ -259,7 +260,7 @@ describe('native executed-child contract', () => {
     })
     const start = fixture.start()
     await settingUp.promise
-    await fixture.rootEndpoint.emit('session_switch', { type: 'session_switch' }, fixture.root)
+    await fixture.switchRoot()
     pending.resolve()
     await start
     await fixture.yieldValue()
@@ -273,7 +274,7 @@ describe('native executed-child contract', () => {
 
   it('cancels a stale batch before starting the child', async () => {
     const fixture = await setup()
-    await fixture.rootEndpoint.emit('session_switch', { type: 'session_switch' }, fixture.root)
+    await fixture.switchRoot()
     await fixture.start()
     await fixture.yieldValue()
     expect(fixture.abort).toHaveBeenCalledTimes(1)
@@ -286,21 +287,16 @@ describe('native executed-child contract', () => {
 
   it('does not rebind a stale child when the switched root admits a new batch', async () => {
     const fixture = await setup()
-    await fixture.rootEndpoint.emit('session_switch', { type: 'session_switch' }, fixture.root)
+    await fixture.switchRoot()
     const { prepared, directory } = preparedBatch()
     const root = { ...fixture.root, sessionManager: { getSessionId: () => 'new-root-session' } }
+    provisionNativeRoot(root)
     await fixture.rootEndpoint.emit('session_start', { type: 'session_start' }, root)
     fixture.rootEndpoint.controller.activate(prepared, { onComplete: vi.fn(), onStop: vi.fn() })
-    await fixture.rootEndpoint.emit(
-      'tool_call',
-      {
-        type: 'tool_call',
-        toolName: 'task',
-        toolCallId: 'new-call',
-        input: fixture.rootEndpoint.controller.wire(prepared),
-      },
-      root,
-    )
+    fixture.rootEndpoint.controller.announce(prepared)
+    fixture.rootEndpoint.controller.consumeFollowUp()
+    expect(fixture.rootEndpoint.controller.admit(prepared, 'new-call', root as never, () => true)).toBe(true)
+    expect(fixture.rootEndpoint.controller.bindChild(childId, 0, fixture.child.model)).toBe(true)
     expect(
       await fixture.rootEndpoint.emit(
         'before_subagent_spawn',
@@ -430,7 +426,7 @@ describe('native executed-child contract', () => {
     const fixture = await setup()
     await fixture.start()
     await fixture.yieldValue()
-    await fixture.rootEndpoint.emit('session_switch', { type: 'session_switch' }, fixture.root)
+    await fixture.switchRoot()
     await fixture.terminal()
     expect(fixture.onComplete).not.toHaveBeenCalled()
     expect(fixture.onStop).toHaveBeenCalledTimes(1)

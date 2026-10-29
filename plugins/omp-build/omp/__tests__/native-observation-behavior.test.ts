@@ -54,16 +54,11 @@ async function capture(options: {
     },
     onStop: async () => undefined,
   })
-  await harness.emitBridge(
-    'tool_call',
-    {
-      toolName: 'task',
-      toolCallId: 'task-call',
-      input: harness.controller.wire(prepared),
-    },
+  await harness.admitBatch(prepared, 'task-call', root)
+  const child = await harness.admitChild(prepared, 'observation-action', 'observation-action-2', {
     root,
-  )
-  const child = await harness.admitChild(prepared, 'observation-action', 'observation-action-2', { root })
+    skipRootCall: true,
+  })
   if (options.pendingYieldOnly) {
     await child.message({
       type: 'message_update',
@@ -89,27 +84,19 @@ async function capture(options: {
     task.action = fixtureAction('observation-action', 'R-workflow-implement', action.inputs, false)
   }
   if (options.corruptSnapshot) writeFileSync(action.snapshot.indexPath, 'changed after preparation')
-  await harness.emitBridgeAndSettle(
-    'tool_result',
-    {
-      toolName: 'task',
-      toolCallId: 'task-call',
-      isError: false,
-      content: [],
-      details: {
-        results: [
-          {
-            index: 0,
-            id: options.terminalChild ?? 'observation-action-2',
-            agent: 'R-workflow-implement',
-            exitCode: 0,
-            structuredOutput: { status: 'valid', data: options.data },
-          },
-        ],
+  await harness.settleBatch({
+    toolCallId: 'task-call',
+    errors: [],
+    results: [
+      {
+        index: 0,
+        id: options.terminalChild ?? 'observation-action-2',
+        agent: 'R-workflow-implement',
+        exitCode: 0,
+        structuredOutput: { status: 'valid', data: options.data },
       },
-    },
-    root,
-  )
+    ],
+  })
   const resultChild = children[0]
   if (resultChild === undefined) throw new Error('expected retained child')
   return { child: resultChild, complete }
