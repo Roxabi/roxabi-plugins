@@ -179,7 +179,8 @@ export async function prepareFeatureCheckout(input: {
   if (!principal) return { status: 'blocked', reason: 'principal-unreadable' }
   const wanted = `refs/heads/${input.branch}`
   const existing = trees.find((tree) => tree.branch === wanted)
-  if (existing && sessionTop === existing.path) return { status: 'ready', cwd: existing.path, principal: false }
+  if (existing?.path === principal) return { status: 'blocked', reason: 'checkout-refused-principal' }
+  if (existing?.path === sessionTop) return { status: 'ready', cwd: sessionTop, principal: false }
   if (existing) return { status: 'move', path: existing.path, instruction: moveInstruction(existing.path) }
 
   const fetched = await input.git(principal, [

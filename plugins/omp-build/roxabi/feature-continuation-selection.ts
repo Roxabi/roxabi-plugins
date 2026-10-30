@@ -42,10 +42,14 @@ export async function selectFeatureMandate(
   const issue = await readSelectionIssueSpec(context.cwd, scope.repository, number, context.gh)
   if (issue === null) return { kind: 'blocked', reason: 'issue-unreadable' }
   const uwRead = reader === undefined ? null : await reader.readUw(scope)
+  const branch = branchFor({ number, title: issue.title, labels: issue.labels })
   const normalization = selectionNormalization(control, authority, uwRead)
+  if (normalization?.kind === 'normalization') {
+    const prepared = await prepareRequestedSession(authority, branch)
+    return prepared ?? normalization
+  }
   if (normalization !== null) return normalization
   const sessionCwd = identity.ok ? identity.sessionTop : null
-  const branch = branchFor({ number, title: issue.title, labels: issue.labels })
   const updated = await updateMandateSelection(control, authority, issue, uwRead, uw, number, branch, sessionCwd)
   if ('kind' in updated) return updated
   const prepared = await prepareSelectionSession(control, authority, branch, sessionCwd, updated)
