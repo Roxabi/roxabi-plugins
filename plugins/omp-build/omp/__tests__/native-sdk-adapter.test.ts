@@ -276,6 +276,67 @@ describe('native SDK adapter policy and authorization', () => {
     expect(sdk.run).not.toHaveBeenCalled()
   })
 
+  it('captures a moved root despite stale registry file metadata and an equivalent context wrapper', async () => {
+    const f = await fixture()
+    f.ctx.cwd = join(dir, 'moved')
+    f.root.sessionManager.getCwd = () => join(dir, 'moved')
+    f.root.sessionManager.getSessionFile = () => join(dir, 'moved', 'session.jsonl')
+    const captured = await captureNativeRoot({ ...f.options.ctx })
+    expect(captured).not.toBeNull()
+    expect(captured?.current()).toBe(true)
+  })
+
+  it.each(['file', 'journal', 'cwd', 'provider', 'ref', 'session', 'modelRegistry', 'metadata', 'costGate'] as const)(
+    'revokes a moved root after %s changes',
+    async (identity) => {
+      const f = await fixture()
+      f.ctx.cwd = join(dir, 'moved')
+      f.root.sessionManager.getCwd = () => join(dir, 'moved')
+      f.root.sessionManager.getSessionFile = () => join(dir, 'moved', 'session.jsonl')
+      const captured = await captureNativeRoot(f.options.ctx)
+      expect(captured?.current()).toBe(true)
+      const changes = {
+        file: () => {
+          f.root.sessionManager.getSessionFile = () => join(dir, 'other.jsonl')
+        },
+        journal: () => {
+          f.root.sessionManager.getSessionId = () => 'other'
+        },
+        cwd: () => {
+          f.root.sessionManager.getCwd = () => join(dir, 'other')
+        },
+        provider: () => {
+          f.root.agent.sessionId = 'other'
+        },
+        ref: () => {
+          sdk.registry.get.mockReturnValue({ ...f.ref })
+        },
+        session: () => {
+          f.ref.session = { ...f.root }
+        },
+        modelRegistry: () => {
+          f.ctx.modelRegistry = f.root.modelRegistry = { authStorage: {} }
+        },
+        metadata: () => {
+          f.ref.sessionFile = join(dir, 'other-metadata.jsonl')
+        },
+        costGate: () => {
+          f.root.costGate = { generation: 2 }
+        },
+      }
+      changes[identity]()
+      expect(captured?.current()).toBe(false)
+    },
+  )
+
+  it.each(['isDisposed', 'isSessionTransitioning'] as const)('rejects a root with %s set', async (state) => {
+    const f = await fixture()
+    Reflect.set(f.root, state, true)
+    expect(await captureNativeRoot(f.options.ctx)).toBeNull()
+    expect(await executeNativeBatch(f.options)).toEqual({ results: [], errors: ['native root session unavailable'] })
+    expect(sdk.run).not.toHaveBeenCalled()
+  })
+
   it('revokes a captured root when the registry generation changes', async () => {
     const f = await fixture()
     const captured = await captureNativeRoot(f.options.ctx)
