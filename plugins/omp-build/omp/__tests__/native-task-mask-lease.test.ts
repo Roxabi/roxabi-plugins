@@ -133,6 +133,30 @@ describe('scoped native dispatch tool mask', () => {
     },
   )
 
+  it('masks and restores the moved root with stale registry file metadata', async () => {
+    const f = fixture(true, true)
+    f.ctx.cwd = '/moved-root'
+    f.ctx.sessionManager.getCwd = () => '/moved-root'
+    f.ctx.sessionManager.getSessionFile = () => '/moved-root/session.jsonl'
+    await f.start()
+    await f.port.announce(f.prepared)
+    expect(f.sends).toEqual([{ active: ['read', owned], mounted: ['search'] }])
+    expect(f.surface()).toEqual({ active: ['read', owned], mounted: ['search'] })
+    await f.harness.emitBridge('session_stop', { signal: AbortSignal.abort() }, { ...f.ctx })
+    expect(f.surface()).toEqual({ active: ['read', owned], mounted: ['task', 'search'] })
+  })
+
+  it('does not restore when cached registry file metadata changes after capture', async () => {
+    const f = fixture(true)
+    f.ctx.sessionManager.getSessionFile = () => '/moved-root/session.jsonl'
+    await f.start()
+    await f.port.announce(f.prepared)
+    f.ref.sessionFile = '/another/session.jsonl'
+    await f.harness.emitBridge('session_stop', { signal: AbortSignal.abort() }, f.ctx).catch(() => undefined)
+    expect(f.surface()).toEqual({ active: ['read', owned], mounted: ['search'] })
+    expect(f.harness.controller.active()).toBeNull()
+  })
+
   it('refuses to send instead of enabling a user-disabled owned tool', async () => {
     const f = fixture(true)
     f.replaceSurface(['read', 'task'], ['search'])
@@ -230,20 +254,55 @@ describe('scoped native dispatch tool mask', () => {
     },
   )
 
-  it.each(['journal', 'provider', 'cwd', 'ref'] as const)(
+  it.each(['journal', 'file', 'provider', 'cwd', 'ref', 'session', 'modelRegistry', 'costGate'] as const)(
     'does not restore into a changed %s identity',
     async (identity) => {
       const f = fixture(true)
+      Reflect.set(f.session, 'costGate', { generation: 1 })
       await f.start()
       await f.port.announce(f.prepared)
-      if (identity === 'journal') f.ctx.sessionManager.getSessionId = () => 'other'
-      if (identity === 'provider') f.session.agent.sessionId = 'other'
-      if (identity === 'cwd') f.ctx.cwd = '/elsewhere'
-      if (identity === 'ref') sdk.get.mockReturnValue({ ...f.ref })
+      const changes = {
+        journal: () => {
+          f.ctx.sessionManager.getSessionId = () => 'other'
+        },
+        file: () => {
+          f.ctx.sessionManager.getSessionFile = () => '/elsewhere/session.jsonl'
+        },
+        provider: () => {
+          f.session.agent.sessionId = 'other'
+        },
+        cwd: () => {
+          f.ctx.cwd = '/elsewhere'
+        },
+        ref: () => {
+          sdk.get.mockReturnValue({ ...f.ref })
+        },
+        session: () => {
+          f.ref.session = { ...f.session }
+        },
+        modelRegistry: () => {
+          f.ctx.modelRegistry = f.session.modelRegistry = {}
+        },
+        costGate: () => {
+          Reflect.set(f.session, 'costGate', { generation: 2 })
+        },
+      }
+      changes[identity]()
       await f.harness.emitBridge('session_stop', { signal: AbortSignal.abort() }, f.ctx).catch(() => undefined)
       expect(f.surface()).toEqual({ active: ['read', owned], mounted: ['search'] })
     },
   )
+
+  it('restores when the captured cost gate changes internally without replacement', async () => {
+    const f = fixture(true)
+    const gate = { generation: 1 }
+    Reflect.set(f.session, 'costGate', gate)
+    await f.start()
+    await f.port.announce(f.prepared)
+    gate.generation = 2
+    await f.harness.emitBridge('session_stop', { signal: AbortSignal.abort() }, f.ctx)
+    expect(f.surface()).toEqual({ active: ['read', 'task', owned], mounted: ['search'] })
+  })
 
   it('restores and stops when the control send throws synchronously', async () => {
     const f = fixture(true)

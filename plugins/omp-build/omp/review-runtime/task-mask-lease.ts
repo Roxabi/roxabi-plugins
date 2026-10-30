@@ -55,6 +55,9 @@ async function capture(ctx: ExtensionContext): Promise<CapturedRoot> {
   const root = ref?.session
   if (!ref || !root || ref.kind !== 'main' || root.modelRegistry !== ctx.modelRegistry)
     throw new Error('native task mask root unavailable')
+  const modelRegistry = ctx.modelRegistry
+  const registrySessionFile = ref.sessionFile
+  const costGate = root.costGate
   const journal = ctx.sessionManager.getSessionId()
   const file = ctx.sessionManager.getSessionFile()
   const cwd = ctx.cwd
@@ -64,15 +67,17 @@ async function capture(ctx: ExtensionContext): Promise<CapturedRoot> {
     ref.session === root &&
     !root.isDisposed &&
     (allowTransition || !root.isSessionTransitioning) &&
-    root.modelRegistry === ctx.modelRegistry &&
+    ctx.modelRegistry === modelRegistry &&
+    root.modelRegistry === modelRegistry &&
     ctx.sessionManager.getSessionId() === journal &&
     root.sessionManager.getSessionId() === journal &&
     ctx.sessionManager.getSessionFile() === file &&
     root.sessionManager.getSessionFile() === file &&
-    ref.sessionFile === file &&
+    ref.sessionFile === registrySessionFile &&
     ctx.cwd === cwd &&
     root.sessionManager.getCwd() === cwd &&
-    root.agent.sessionId === provider
+    root.agent.sessionId === provider &&
+    root.costGate === costGate
   if (!current(false)) throw new Error('native task mask root changed')
   return { root, current, registry }
 }

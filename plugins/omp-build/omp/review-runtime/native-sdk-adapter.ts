@@ -28,6 +28,8 @@ async function capture(ctx: ExtensionContext): Promise<CapturedRoot | null> {
   const ref = registry.get(ctx.agent.id)
   const root = ref?.session
   if (!ref || !root || ref.kind !== 'main' || root.modelRegistry !== ctx.modelRegistry) return null
+  const modelRegistry = ctx.modelRegistry
+  const registrySessionFile = ref.sessionFile
   const sessionId = ctx.sessionManager.getSessionId()
   const providerSessionId = root.agent.sessionId
   if (typeof providerSessionId !== 'string' || providerSessionId.length === 0) return null
@@ -41,12 +43,13 @@ async function capture(ctx: ExtensionContext): Promise<CapturedRoot | null> {
     !root.isSessionTransitioning &&
     ctx.agent.kind === 'main' &&
     ctx.agent.depth === 0 &&
-    ctx.modelRegistry === root.modelRegistry &&
+    ctx.modelRegistry === modelRegistry &&
+    root.modelRegistry === modelRegistry &&
     ctx.sessionManager.getSessionId() === sessionId &&
     root.sessionManager.getSessionId() === sessionId &&
     ctx.sessionManager.getSessionFile() === sessionFile &&
     root.sessionManager.getSessionFile() === sessionFile &&
-    ref.sessionFile === sessionFile &&
+    ref.sessionFile === registrySessionFile &&
     ctx.cwd === cwd &&
     root.sessionManager.getCwd() === cwd &&
     root.agent.sessionId === providerSessionId &&

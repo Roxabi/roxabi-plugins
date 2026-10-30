@@ -22,7 +22,7 @@ Restart OMP after installing or upgrading a plugin; do not use `/reload-plugins`
 | Plugin | Host | Description |
 |--------|------|-------------|
 | [issue-triage](plugins/issue-triage/README.md) | Claude Code, OMP | Autonomous GitHub triage CLI plus an importable injected writer and κ tier calculator; labels and native relations, no Projects V2. |
-| [omp-build](plugins/omp-build/README.md) | OMP | Criterion-id delivery with evidence-backed verdicts, portable input manifests and read-only action snapshots; strict own-Spec grammar and genuine operator-confirmed `/uw` writes. Initial legacy normalization follows the intended worktree handoff. GitHub records and Git retain confirmed authority, not local artifacts or PR prose. |
+| [omp-build](plugins/omp-build/README.md) | OMP | Criterion-id delivery with evidence-backed verdicts, portable input manifests and read-only action snapshots; strict own-Spec grammar and genuine operator-confirmed `/uw` writes. Initial legacy normalization follows the intended worktree handoff; native root capture follows the live session after a move. GitHub records and Git retain confirmed authority, not local artifacts or PR prose. |
 
 `issue-triage` is in both host catalogs. `omp-build` is OMP-only and appears only in [`.omp-plugin/marketplace.json`](.omp-plugin/marketplace.json).
 
