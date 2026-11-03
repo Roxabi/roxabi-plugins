@@ -19782,12 +19782,16 @@ function reconstructWorkflow(input) {
 var ompBuildStartReviewParametersSchema = strictObject({ pr: number2().int().positive().optional() });
 var ompBuildRecoveryPrParametersSchema = strictObject({ pr: number2().int().positive() });
 var ompBuildRecoveryReplaceParametersSchema = strictObject({ pr: number2().int().positive() });
+var ompBuildPrepareCheckoutParametersSchema = strictObject({
+  reference: string2().trim().min(1)
+});
 function jsonSchema2(schema) {
   return Object.fromEntries(Object.entries(toJSONSchema(schema)));
 }
 var ompBuildStartReviewParametersJsonSchema = jsonSchema2(ompBuildStartReviewParametersSchema);
 var ompBuildRecoveryPrParametersJsonSchema = jsonSchema2(ompBuildRecoveryPrParametersSchema);
 var ompBuildRecoveryReplaceParametersJsonSchema = jsonSchema2(ompBuildRecoveryReplaceParametersSchema);
+var ompBuildPrepareCheckoutParametersJsonSchema = jsonSchema2(ompBuildPrepareCheckoutParametersSchema);
 // plugins/omp-build/roxabi/uw-spec/scope-issue.ts
 async function readScopeIssueBody(scope, options) {
   const facts = await readNativeIssueFacts(scope.repository, scopeNumber(scope), options);
