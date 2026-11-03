@@ -19,6 +19,17 @@ case "$*" in
   "issue view 13 --repo Acme/app --json title,body,labels,updatedAt")
     echo missing >&2
     exit 1 ;;
+  "api repos/Acme/app/issues/11")
+    printf '%s' '{"number":11,"state":"open","body":"not authority"}' ;;
+  "api repos/Acme/app/issues/12")
+    printf '%s' '{"number":12,"state":"open","body":"not authority"}' ;;
+  "api repos/Acme/app/issues/13")
+    echo missing >&2
+    exit 1 ;;
+  "api repos/Acme/app/issues/7")
+    printf '%s' '{"number":7,"state":"open","body":"not authority","pull_request":{"url":"https://example.invalid/7"}}' ;;
+  "pr view 7 --repo Acme/app --json number,state,headRefOid,headRefName,baseRefName,baseRefOid,author")
+    printf '%s' '{"number":7,"state":"OPEN","headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","headRefName":"feat/7-existing","baseRefName":"main","baseRefOid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","author":{"login":"operator"}}' ;;
   *)
     echo "unexpected gh: $*" >&2
     exit 1 ;;
@@ -181,7 +192,8 @@ describe('installed prepare-checkout entry', () => {
     expect(git(box.repo, ['symbolic-ref', '--short', 'HEAD'])).toBe('main')
     expect(existsSync(join(git(path, ['rev-parse', '--git-dir']), 'omp-build-bootstrapped'))).toBe(false)
     expect(messages).toEqual([])
-    expect(ghLog(box.log).some((line) => /comment|pr |api /.test(line))).toBe(false)
+    expect(ghLog(box.log).some((line) => /comment|pr /.test(line))).toBe(false)
+    expect(ghLog(box.log).filter((line) => line.startsWith('api '))).toEqual(['api repos/Acme/app/issues/11'])
   })
 
   it('reuses the same checkout and reports ready only from that checkout', async () => {
@@ -210,13 +222,32 @@ describe('installed prepare-checkout entry', () => {
     const box = principal()
     const results = await Promise.all([prepare(tool, box.repo, '#11'), prepare(tool, box.repo, '#11')])
     const path = join(box.checkouts, 'app', 'feat-11-first-child')
-    expect(results.every((item) => item.status !== 'ready')).toBe(true)
-    expect(results.filter((item) => item.status === 'move').every((item) => item.path === path)).toBe(true)
-    expect(results.some((item) => item.status === 'move')).toBe(true)
+    expect(results.every((item) => item.status === 'move' && item.path === path)).toBe(true)
     expect(existsSync(path)).toBe(true)
     expect(git(box.repo, ['worktree', 'list', '--porcelain']).match(/feat\/11-first-child/g)).toEqual([
       'feat/11-first-child',
     ])
+  })
+
+  it('checks out a pull request on its existing head instead of minting an issue branch', async () => {
+    const box = principal()
+    git(box.repo, ['checkout', '-q', '-b', 'feat/7-existing'])
+    writeFileSync(join(box.repo, 'head.txt'), 'existing head\n')
+    git(box.repo, ['add', '--', 'head.txt'])
+    git(box.repo, ['commit', '-qm', 'feat: existing head'])
+    const head = git(box.repo, ['rev-parse', 'HEAD'])
+    git(box.repo, ['push', '-q', 'origin', 'feat/7-existing'])
+    git(box.repo, ['checkout', '-q', 'main'])
+    git(box.repo, ['branch', '-D', 'feat/7-existing'])
+    const prepared = await prepare(tool, box.repo, '#7')
+    const path = join(box.checkouts, 'app', 'feat-7-existing')
+    expect(prepared).toEqual({ status: 'move', path, instruction: `/move ${path}` })
+    expect(branchOf(path)).toBe('feat/7-existing')
+    expect(git(path, ['rev-parse', 'HEAD'])).toBe(head)
+    expect(head).not.toBe(box.head)
+    expect(git(box.repo, ['branch', '--list', 'feat/7-land-it'])).toBe('')
+    expect(ghLog(box.log).some((line) => line.includes('issue view 7'))).toBe(false)
+    expect(ghLog(box.log).some((line) => line.startsWith('pr view 7'))).toBe(true)
   })
 
   it('refuses an ambiguous reference, a foreign repository, a missing issue, and a non-checkout', async () => {

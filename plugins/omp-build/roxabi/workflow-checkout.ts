@@ -157,9 +157,86 @@ function worktreeRoot(principal: string, stackText: string | null): string | { r
   return stackWorktreeRoot(principal, stackText) ?? join(homedir(), '.omp/wt')
 }
 
+function existingCheckout(
+  trees: Worktree[],
+  wanted: string,
+  principal: string,
+  sessionTop: string,
+): CheckoutPreparation | null {
+  const existing = trees.find((tree) => tree.branch === wanted)
+  if (existing === undefined) return null
+  if (existing.path === principal) return { status: 'blocked', reason: 'checkout-refused-principal' }
+  if (existing.path === sessionTop) return { status: 'ready', cwd: sessionTop, principal: false }
+  return { status: 'move', path: existing.path, instruction: moveInstruction(existing.path) }
+}
+
+async function adoptedCheckout(
+  git: GitRunner,
+  sessionTop: string,
+  wanted: string,
+  principal: string,
+): Promise<CheckoutPreparation | null> {
+  const listed = await git(sessionTop, ['worktree', 'list', '--porcelain'])
+  if (listed.code !== 0) return { status: 'blocked', reason: 'worktree-list-unreadable' }
+  return existingCheckout(parseWorktrees(listed.stdout), wanted, principal, sessionTop)
+}
+
+async function checkoutPath(
+  git: GitRunner,
+  principal: string,
+  repository: string,
+  branch: string,
+): Promise<string | CheckoutPreparation> {
+  const stack = await git(principal, ['show', 'HEAD:.dev/stack.yml'])
+  const root = worktreeRoot(principal, stack.code === 0 ? stack.stdout : null)
+  if (typeof root !== 'string') return { status: 'blocked', reason: root.reason }
+  const repo = repository.split('/')[1]
+  if (!repo) return { status: 'blocked', reason: 'repository-unreadable' }
+  const path = join(root, repo, branch.replaceAll('/', '-'))
+  return refusedBase(path) ? { status: 'blocked', reason: 'worktree-base-refused' } : path
+}
+
+async function addBranchFromBase(
+  git: GitRunner,
+  principal: string,
+  input: { branch: string; base: string; detached: boolean },
+  path: string,
+): Promise<string | CheckoutPreparation> {
+  const fetched = await git(principal, [
+    'fetch',
+    'origin',
+    `+refs/heads/${input.base}:refs/remotes/origin/${input.base}`,
+  ])
+  if (fetched.code !== 0) return { status: 'blocked', reason: 'base-not-current' }
+  const tip = await git(principal, ['rev-parse', '--verify', `refs/remotes/origin/${input.base}`])
+  if (tip.code !== 0 || !SHA.test(tip.stdout.trim())) return { status: 'blocked', reason: 'base-not-current' }
+  const args = input.detached
+    ? ['worktree', 'add', '--detach', path, tip.stdout.trim()]
+    : ['worktree', 'add', '-b', input.branch, path, tip.stdout.trim()]
+  return String((await git(principal, args)).code)
+}
+
+async function addExistingBranch(
+  git: GitRunner,
+  principal: string,
+  branch: string,
+  path: string,
+): Promise<string | CheckoutPreparation> {
+  const fetched = await git(principal, ['fetch', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`])
+  if (fetched.code !== 0) return { status: 'blocked', reason: 'branch-not-current' }
+  const tip = await git(principal, ['rev-parse', '--verify', `refs/remotes/origin/${branch}`])
+  const remoteTip = tip.stdout.trim()
+  if (tip.code !== 0 || !SHA.test(remoteTip)) return { status: 'blocked', reason: 'branch-not-current' }
+  const local = await git(principal, ['rev-parse', '--verify', `refs/heads/${branch}`])
+  if (local.code === 0 && local.stdout.trim() !== remoteTip) return { status: 'blocked', reason: 'branch-not-current' }
+  const args = local.code === 0 ? ['worktree', 'add', path, branch] : ['worktree', 'add', '-b', branch, path, remoteTip]
+  return String((await git(principal, args)).code)
+}
+
 /**
  * Prepare a linked checkout. Never publishes a mandate, binding, or start,
- * and never relocates the session. `/wt` is refused.
+ * and never relocates the session. `/wt` is refused. A failed add is re-read:
+ * the branch another caller just created is that checkout, not a fresh failure.
  */
 export async function prepareFeatureCheckout(input: {
   git: GitRunner
@@ -168,6 +245,8 @@ export async function prepareFeatureCheckout(input: {
   base: string
   repository: string
   detached: boolean
+  /** Attach the named branch at its fetched tip. Never create it from `base`. */
+  attachExisting?: boolean
 }): Promise<CheckoutPreparation> {
   const top = await input.git(input.sessionCwd, ['rev-parse', '--show-toplevel'])
   if (top.code !== 0) return { status: 'blocked', reason: 'session-not-a-worktree' }
@@ -178,31 +257,17 @@ export async function prepareFeatureCheckout(input: {
   const principal = trees[0]?.path
   if (!principal) return { status: 'blocked', reason: 'principal-unreadable' }
   const wanted = `refs/heads/${input.branch}`
-  const existing = trees.find((tree) => tree.branch === wanted)
-  if (existing?.path === principal) return { status: 'blocked', reason: 'checkout-refused-principal' }
-  if (existing?.path === sessionTop) return { status: 'ready', cwd: sessionTop, principal: false }
-  if (existing) return { status: 'move', path: existing.path, instruction: moveInstruction(existing.path) }
-
-  const fetched = await input.git(principal, [
-    'fetch',
-    'origin',
-    `+refs/heads/${input.base}:refs/remotes/origin/${input.base}`,
-  ])
-  if (fetched.code !== 0) return { status: 'blocked', reason: 'base-not-current' }
-  const tip = await input.git(principal, ['rev-parse', '--verify', `refs/remotes/origin/${input.base}`])
-  if (tip.code !== 0 || !SHA.test(tip.stdout.trim())) return { status: 'blocked', reason: 'base-not-current' }
-
-  const stack = await input.git(principal, ['show', 'HEAD:.dev/stack.yml'])
-  const root = worktreeRoot(principal, stack.code === 0 ? stack.stdout : null)
-  if (typeof root !== 'string') return { status: 'blocked', reason: root.reason }
-  const repo = input.repository.split('/')[1]
-  if (!repo) return { status: 'blocked', reason: 'repository-unreadable' }
-  const path = join(root, repo, input.branch.replaceAll('/', '-'))
-  if (refusedBase(path)) return { status: 'blocked', reason: 'worktree-base-refused' }
-  const args = input.detached
-    ? ['worktree', 'add', '--detach', path, tip.stdout.trim()]
-    : ['worktree', 'add', '-b', input.branch, path, tip.stdout.trim()]
-  const added = await input.git(principal, args)
-  if (added.code !== 0) return { status: 'blocked', reason: 'worktree-add-failed' }
+  const existing = existingCheckout(trees, wanted, principal, sessionTop)
+  if (existing) return existing
+  const path = await checkoutPath(input.git, principal, input.repository, input.branch)
+  if (typeof path !== 'string') return path
+  const added = input.attachExisting
+    ? await addExistingBranch(input.git, principal, input.branch, path)
+    : await addBranchFromBase(input.git, principal, input, path)
+  if (typeof added !== 'string') return added
+  if (added !== '0') {
+    const adopted = await adoptedCheckout(input.git, sessionTop, wanted, principal)
+    return adopted ?? { status: 'blocked', reason: 'worktree-add-failed' }
+  }
   return { status: 'move', path, instruction: moveInstruction(path) }
 }

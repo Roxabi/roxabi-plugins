@@ -1,5 +1,6 @@
 import type { Gh } from '../adapters/github/types.ts'
 import { readSelectionIssueView } from '../adapters/github-native/issue-views.ts'
+import { resolveNativeTarget } from '../adapters/github-workflow/native-facts.ts'
 import { branchFor } from '../skills/feature/epic-naming.ts'
 import { defaultGh } from './feature-engine.ts'
 import { resolveBase } from './feature-mandate.ts'
@@ -65,10 +66,19 @@ async function prepareBranch(input: {
   branch: string
   base: string
   repository: string
+  attachExisting?: boolean
 }): Promise<CheckoutPreparation> {
   let prepared: CheckoutPreparation = { status: 'blocked', reason: 'worktree-add-failed' }
   for (let attempt = 0; attempt < ADD_ATTEMPTS; attempt++) {
-    prepared = await prepareFeatureCheckout({ ...input, detached: false })
+    prepared = await prepareFeatureCheckout({
+      git: input.git,
+      sessionCwd: input.sessionCwd,
+      branch: input.branch,
+      base: input.base,
+      repository: input.repository,
+      detached: false,
+      attachExisting: input.attachExisting === true,
+    })
     if (prepared.status !== 'blocked' || prepared.reason !== 'worktree-add-failed') return prepared
     if (attempt < ADD_ATTEMPTS - 1) {
       const { promise, resolve } = Promise.withResolvers<void>()
@@ -80,8 +90,9 @@ async function prepareBranch(input: {
 }
 
 /**
- * Resolve one unambiguous issue to its canonical checkout. Reads the title and
- * labels only to name the branch. Does not publish, bootstrap, resume, or move.
+ * Resolve one unambiguous issue to its canonical checkout. A pull request uses
+ * its existing head, never a title-derived issue branch. Does not publish,
+ * bootstrap, resume, or move.
  */
 export async function prepareCanonicalCheckout(input: {
   reference: string
@@ -100,6 +111,18 @@ export async function prepareCanonicalCheckout(input: {
   if (classified.repository !== null && classified.repository !== repository.repository) {
     return { status: 'blocked', reason: 'repository-mismatch' }
   }
+  const target = await resolveNativeTarget(classified.number, { cwd: identity.principalTop, gh }, repository.repository)
+  if (target.status === 'pull-request') {
+    return prepareBranch({
+      git,
+      sessionCwd: input.sessionCwd,
+      branch: target.pullRequest.branch,
+      base: target.pullRequest.base,
+      repository: repository.repository,
+      attachExisting: true,
+    })
+  }
+  if (target.status !== 'issue') return { status: 'blocked', reason: 'issue-unreadable' }
   const issue = await readIssue(gh, identity.principalTop, repository.repository, classified.number)
   if ('reason' in issue) return { status: 'blocked', reason: issue.reason }
   const base = await resolveBase(git, identity.principalTop)
