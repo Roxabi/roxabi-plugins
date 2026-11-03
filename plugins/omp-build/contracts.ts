@@ -245,9 +245,12 @@ export {
 } from './engine/workflow-spec-assessment.ts'
 export type { AssessmentReplayContext } from './engine/workflow-spec-authentication.ts'
 export {
+  type OmpBuildPrepareCheckoutParameters,
   type OmpBuildRecoveryPrParameters,
   type OmpBuildRecoveryReplaceParameters,
   type OmpBuildStartReviewParameters,
+  ompBuildPrepareCheckoutParametersJsonSchema,
+  ompBuildPrepareCheckoutParametersSchema,
   ompBuildRecoveryPrParametersJsonSchema,
   ompBuildRecoveryPrParametersSchema,
   ompBuildRecoveryReplaceParametersJsonSchema,

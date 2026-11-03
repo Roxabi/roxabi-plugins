@@ -1,6 +1,9 @@
+import {
+  ompBuildPrepareCheckoutParametersJsonSchema,
+  ompBuildPrepareCheckoutParametersSchema,
+} from '../dist/contracts.js'
 import { prepareCanonicalCheckout } from '../roxabi/prepare-canonical-checkout.ts'
 import type { OmpBuildExtensionApi } from './omp-controller'
-import { ompBuildPrepareCheckoutParametersJsonSchema, ompBuildPrepareCheckoutParametersSchema } from './tool-schemas.ts'
 
 export function registerPrepareCheckoutTool(pi: Pick<OmpBuildExtensionApi, 'registerTool'>): void {
   pi.registerTool({
