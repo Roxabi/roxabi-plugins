@@ -165,7 +165,7 @@ describe('installed prepare-checkout entry', () => {
       version: string
       omp: { extensions: string[] }
     }
-    expect(pkg.version).toBe('0.15.2')
+    expect(pkg.version).toBe('0.15.3')
     expect(pkg.omp.extensions).toContain('./omp/index.ts')
     expect(tool).toMatchObject({ name: 'omp_build_prepare_checkout', approval: 'write' })
   })
