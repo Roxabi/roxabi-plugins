@@ -36,6 +36,7 @@ import { dispatchDefaultReview, prepareInstalledEpicRangeReview } from './omp-re
 import { registerOmpReviewRecoveryTools } from './omp-review-recovery-tools'
 import { SKILL_COMMANDS } from './omp-skill-commands.ts'
 import { registerUwCommand, type UwOperationsFactory } from './omp-uw-command.ts'
+import { registerPrepareCheckoutTool } from './prepare-checkout-tool.ts'
 import type { NativeBatchController } from './review-runtime/controller.ts'
 import { createNativeReviewPort } from './review-runtime/port.ts'
 
@@ -270,7 +271,7 @@ export function registerOmpCommandsAndTools(
     },
   })
   registerOmpReviewRecoveryTools(pi, options)
-
+  registerPrepareCheckoutTool(pi)
   registerUwCommand(pi, options.uwOperations ?? hostUwFactory(options.pluginPin))
 
   for (const { name, skill = name, description, requires } of SKILL_COMMANDS) {
