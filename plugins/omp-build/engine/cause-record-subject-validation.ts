@@ -1,4 +1,5 @@
 import { canonicalValueDigest } from './action-input.ts'
+import { assessAdjudicationSuccessor } from './cause-adjudication-successor.ts'
 import { assessCauseDispositions, blockingLabels } from './cause-assessment.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { inspectFinding } from './producer-schema.ts'
@@ -99,12 +100,65 @@ function validateCause(
     )
 }
 
+function validateSuccessor(
+  record: Disposition,
+  operations: readonly Operation[],
+  histories: readonly DecodedHistory[],
+  diagnostics: Diagnostic[],
+): void {
+  const previousRef = record.payload.previous
+  const operationRef = record.payload.adjudication
+  if (previousRef === null || operationRef === null) return
+  const home = histories.find((history) => equalScope(history.source.scope, previousRef.scope))
+  const previous = home && bindExternalRef(previousRef, home)
+  const operation = operations.find(
+    (item) => item.recordId === operationRef.recordId && equalScope(item, operationRef.scope),
+  )
+  if (!home || !previous?.ok || previous.value.kind !== 'cause-disposition' || !operation) {
+    diagnostics.push(
+      diagnostic('cause-chain-invalid', `Disposition ${record.recordId} lacks its exact predecessor or adjudication`),
+    )
+    return
+  }
+  const projections = recordsOf(home).flatMap((candidate) => {
+    if (candidate.kind !== 'mandate') return []
+    const accepted = resolveAcceptedSpec(candidate, histories)
+    if (!accepted.ok || !sameOwnSpecRef(accepted.spec.ref, record.payload.origin)) return []
+    const effective = resolveOwnSpecEffective(accepted.spec)
+    return effective.ok ? [effective.value] : []
+  })
+  if (projections.length !== 1 || projections[0] === undefined) {
+    diagnostics.push(
+      diagnostic('cause-origin-unconfirmed', `Disposition ${record.recordId} lacks a unique accepted Spec`),
+    )
+    return
+  }
+  const assessed = assessAdjudicationSuccessor({
+    pending: previous.value,
+    operation,
+    histories,
+    context: { original: record.payload.origin.uw, effective: projections[0] },
+  })
+  if (!assessed.ok) diagnostics.push(...assessed.diagnostics)
+  else if (canonicalValueDigest(assessed.value) !== canonicalValueDigest(record.payload))
+    diagnostics.push(
+      diagnostic(
+        'cause-outcome-mismatch',
+        `Disposition ${record.recordId} differs from its authenticated adjudication`,
+      ),
+    )
+}
+
 export function validateCauseSubject(
   record: Disposition,
   operations: readonly Operation[],
   histories: readonly DecodedHistory[],
   diagnostics: Diagnostic[],
 ): void {
+  if (record.payload.previous !== null) {
+    validateSuccessor(record, operations, histories, diagnostics)
+    return
+  }
   validateRetained(record, histories, diagnostics)
   validateCause(record, operations, histories, diagnostics)
 }

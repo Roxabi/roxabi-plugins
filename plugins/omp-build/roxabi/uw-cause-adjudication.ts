@@ -10,8 +10,8 @@ import type { CauseAdjudicationInput, CauseAdjudicationProposal } from '../engin
 import type { ObservationRef } from '../engine/criterion-evidence-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
+import { type AdjudicationRead, readAdjudicationPending } from './uw-cause-adjudication-read.ts'
 import { publishAdjudicationSuccessor } from './uw-cause-adjudication-successor.ts'
-import { type CauseRead, readAuthenticatedCause } from './uw-cause-read.ts'
 import type { CauseOperationResult, OperatorPort, UwReadPort } from './uw-contract.ts'
 
 const digest = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex')
@@ -36,9 +36,9 @@ async function refreshAdjudication(
   proposal: CauseAdjudicationProposal,
 ) {
   const uw = request.pending.scope
-  let fresh: CauseRead
+  let fresh: AdjudicationRead
   try {
-    fresh = await readAuthenticatedCause(request.pending, input.reader, input.github, references)
+    fresh = await readAdjudicationPending(request.pending, input.reader, input.github, references)
   } catch (error) {
     return { ok: false as const, diagnostics: caught(uw, error) }
   }
@@ -76,7 +76,7 @@ export function createCauseAdjudication(input: {
     const uw = request.pending.scope
     let effectMayExist = false
     try {
-      const current = await readAuthenticatedCause(request.pending, input.reader, input.github, references)
+      const current = await readAdjudicationPending(request.pending, input.reader, input.github, references)
       if (current.disposition.payload.outcome.state !== 'pending-blocking')
         return { status: 'refused', diagnostics: diagnostics(uw, [{ code: 'cause-not-pending' }]) }
       const parsed = causeAdjudicationProposalSchema.safeParse({

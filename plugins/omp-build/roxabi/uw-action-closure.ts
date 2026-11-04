@@ -2,7 +2,8 @@ import { canonicalValueDigest, recordsOf, selectorAdmitted } from '../dist/contr
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Result } from '../engine/result.ts'
-import type { RecordInputRef, UwActionRequest } from './uw-action-contract.ts'
+import type { RecordInputRef, ReviewRootRef, UwActionRequest } from './uw-action-contract.ts'
+import { field, inventoryIdsOf } from './uw-action-record-fields.ts'
 import { actionFailure } from './uw-action-result.ts'
 import { priorCorrectionContribution } from './uw-correction-stage-contribution.ts'
 import { priorCorrectionDecision } from './uw-correction-stage-decision.ts'
@@ -13,12 +14,6 @@ export type VerifiedExpansionRoot = { rootAttemptId: string; negativeRef?: Recor
 
 function identityKey(repository: string, target: string, kind: string, recordId: string): string {
   return [repository, target, kind, recordId].join('\0')
-}
-
-function field(value: unknown, key: string): string | null {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
-  const item = (value as Record<string, unknown>)[key]
-  return typeof item === 'string' ? item : null
 }
 
 function actionResultSelector(kind: string, selector: string): boolean {
@@ -60,27 +55,6 @@ export function knownRoleSelector(kind: string, selector: string): boolean {
   }
 }
 
-function reviewRoot(record: CanonicalRecord, request: UwActionRequest, reviewedFingerprint?: string): string | null {
-  if (record.kind !== 'review-attempt') return null
-  const root = field(record.payload, 'rootAttemptId')
-  if (root === null) return null
-  if (
-    request.actionId === root ||
-    request.actionId.startsWith(`${root}:`) ||
-    (reviewedFingerprint !== undefined && field(record.payload, 'input') === reviewedFingerprint)
-  )
-    return root
-  return null
-}
-
-function inventoryIdsOf(record: CanonicalRecord): string[] {
-  return Array.isArray((record.payload as { inventoryIds?: unknown }).inventoryIds)
-    ? (record.payload as { inventoryIds: unknown[] }).inventoryIds.filter(
-        (item): item is string => typeof item === 'string',
-      )
-    : []
-}
-
 function linkedToOwned(
   record: CanonicalRecord,
   roots: ReadonlySet<string>,
@@ -115,6 +89,7 @@ function ownedOutputs(
   records: readonly CanonicalRecord[],
   roots: ReadonlySet<string>,
   inventories: ReadonlySet<string>,
+  scope: ReviewRootRef['scope'] | undefined,
 ): Set<string> {
   const outputs = new Set<string>()
   const owned: CanonicalRecord[] = []
@@ -123,7 +98,14 @@ function ownedOutputs(
     grew = false
     for (const record of records) {
       const key = identityKey(record.repository, record.target, record.kind, record.recordId)
-      if (outputs.has(key) || !outputKind(record.kind)) continue
+      if (
+        outputs.has(key) ||
+        !outputKind(record.kind) ||
+        scope === undefined ||
+        record.repository !== scope.repository ||
+        record.target !== scope.target
+      )
+        continue
       if (!linkedToOwned(record, roots, inventories, owned)) continue
       owned.push(record)
       outputs.add(key)
@@ -217,33 +199,49 @@ function walkCitations(
 function rootedAttempts(
   records: readonly CanonicalRecord[],
   request: UwActionRequest,
-  reviewedFingerprint?: string,
+  reviewedRoot?: ReviewRootRef,
   expansionRoot?: VerifiedExpansionRoot,
-): { roots: Set<string>; inventories: Set<string> } {
+): { roots: Set<string>; inventories: Set<string>; scope: ReviewRootRef['scope'] | undefined } {
   const roots = new Set<string>()
+  const scope = reviewedRoot?.scope ?? request.subject.pullRequest ?? undefined
   if (expansionRoot !== undefined) roots.add(expansionRoot.rootAttemptId)
-  for (const record of records) {
-    const root = reviewRoot(record, request, reviewedFingerprint)
-    if (root !== null) roots.add(root)
-  }
+  if (reviewedRoot !== undefined) roots.add(reviewedRoot.recordId)
+  if (
+    request.purpose === 'correction' &&
+    records.some(
+      (record) =>
+        record.kind === 'review-attempt' &&
+        record.repository === scope?.repository &&
+        record.target === scope?.target &&
+        record.recordId === request.actionId &&
+        record.payload.rootAttemptId === record.recordId,
+    )
+  )
+    roots.add(request.actionId)
   const inventories = new Set(
     records
-      .filter((record) => record.kind === 'review-attempt' && roots.has(field(record.payload, 'rootAttemptId') ?? ''))
+      .filter(
+        (record) =>
+          record.kind === 'review-attempt' &&
+          record.repository === scope?.repository &&
+          record.target === scope?.target &&
+          roots.has(field(record.payload, 'rootAttemptId') ?? ''),
+      )
       .map((record) => record.recordId),
   )
-  return { roots, inventories }
+  return { roots, inventories, scope }
 }
 
 export function assertCurrentOutputClosure(
   request: UwActionRequest,
   histories: readonly DecodedHistory[],
   normative: readonly RecordInputRef[],
-  reviewedFingerprint?: string,
+  reviewedRoot?: ReviewRootRef,
   expansionRoot?: VerifiedExpansionRoot,
 ): Result<true> {
   const records = histories.flatMap((history) => recordsOf(history))
-  const { roots, inventories } = rootedAttempts(records, request, reviewedFingerprint, expansionRoot)
-  const outputs = ownedOutputs(records, roots, inventories)
+  const { roots, inventories, scope } = rootedAttempts(records, request, reviewedRoot, expansionRoot)
+  const outputs = ownedOutputs(records, roots, inventories, scope)
   const stage = refuseOutsideStage(request, outputs, histories)
   if (!stage.ok) return stage
   const checkedRequest =
@@ -266,12 +264,12 @@ export function assertCurrentOutputClosure(
 export function currentRootOutputRefs(
   request: UwActionRequest,
   histories: readonly DecodedHistory[],
-  reviewedFingerprint?: string,
+  reviewedRoot?: ReviewRootRef,
   expansionRoot?: VerifiedExpansionRoot,
 ): RecordInputRef[] {
   const records = histories.flatMap((history) => recordsOf(history))
-  const { roots, inventories } = rootedAttempts(records, request, reviewedFingerprint, expansionRoot)
-  const outputKeys = ownedOutputs(records, roots, inventories)
+  const { roots, inventories, scope } = rootedAttempts(records, request, reviewedRoot, expansionRoot)
+  const outputKeys = ownedOutputs(records, roots, inventories, scope)
   const refs: RecordInputRef[] = []
   for (const record of records) {
     if (!outputKeys.has(identityKey(record.repository, record.target, record.kind, record.recordId))) continue

@@ -2,10 +2,11 @@ import { selectWorkflowBinding } from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Result } from '../engine/result.ts'
 import { assertCurrentOutputClosure, currentRootOutputRefs } from './uw-action-closure.ts'
-import type { ActionInputManifest, CurrentActionFacts, UwActionRequest } from './uw-action-contract.ts'
+import type { ActionInputManifest, CurrentActionFacts, ReviewRootRef, UwActionRequest } from './uw-action-contract.ts'
 import { expansionOrigin } from './uw-action-expansion-origin.ts'
 import { type ActionFactSource, readHistories } from './uw-action-observe.ts'
 import { actionFailure } from './uw-action-result.ts'
+import { authenticateReviewRoot } from './uw-action-review-root.ts'
 
 export async function standaloneFacts(
   request: UwActionRequest,
@@ -14,6 +15,7 @@ export async function standaloneFacts(
   config: ActionInputManifest['configuration'],
   reviewedFingerprint?: string,
   histories?: readonly DecodedHistory[],
+  reviewedRoot?: ReviewRootRef,
 ): Promise<Result<CurrentActionFacts>> {
   if (request.subject.kind !== 'standalone-pr')
     return actionFailure('action-input-missing', 'Standalone subject is absent')
@@ -22,6 +24,8 @@ export async function standaloneFacts(
       ? await readHistories([request.subject.pullRequest], source)
       : { ok: true as const, value: histories }
   if (!read.ok) return read
+  const authenticated = authenticateReviewRoot(request, read.value, reviewedFingerprint, reviewedRoot)
+  if (!authenticated.ok) return authenticated
   const selected = selectWorkflowBinding({
     pullRequest: request.subject.pullRequest,
     histories: read.value,
@@ -32,8 +36,8 @@ export async function standaloneFacts(
   const expansion = expansionOrigin(request, read.value, reviewedFingerprint)
   if (!expansion.ok) return expansion
   const root = expansion.value?.root
-  if (root !== undefined) {
-    const closed = assertCurrentOutputClosure(request, read.value, [], reviewedFingerprint, root)
+  if (root !== undefined || reviewedRoot !== undefined) {
+    const closed = assertCurrentOutputClosure(request, read.value, [], reviewedRoot, root)
     if (!closed.ok) return closed
   }
   return {
@@ -44,7 +48,7 @@ export async function standaloneFacts(
       acceptedSources: [],
       deliveryData: [],
       plannedPaths: [],
-      currentOutputs: currentRootOutputRefs(request, read.value, reviewedFingerprint, root),
+      currentOutputs: currentRootOutputRefs(request, read.value, reviewedRoot, root),
       configuration: config,
       ...(expansion.value?.previous === undefined ? {} : { expansionPrevious: expansion.value.previous }),
     },

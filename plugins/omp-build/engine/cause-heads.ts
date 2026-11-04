@@ -23,15 +23,17 @@ function validateMotivation(record: Disposition, operation: Operation, diagnosti
   const proposal = operation.payload.proposal
   if (proposal.operation !== 'adjudicate-cause') return
   const subject = record.payload.subject
-  if (
-    subject.kind !== 'cause' ||
-    proposal.reason.trim() === '' ||
-    proposal.references.length === 0 ||
-    (proposal.rejectedFindingIds.length === 0 && proposal.judgment === null) ||
-    new Set(proposal.rejectedFindingIds).size !== proposal.rejectedFindingIds.length ||
-    (subject.kind === 'cause' &&
-      proposal.rejectedFindingIds.some((id) => !subject.findings.some((finding) => finding.id === id)))
-  )
+  const invalidMembers =
+    subject.kind === 'rule-error'
+      ? proposal.rejectedFindingIds.length !== 0 || proposal.judgment !== null
+      : subject.kind === 'retained-finding'
+        ? proposal.rejectedFindingIds.length !== 1 ||
+          proposal.rejectedFindingIds[0] !== subject.finding.id ||
+          proposal.judgment !== null
+        : (proposal.rejectedFindingIds.length === 0 && proposal.judgment === null) ||
+          new Set(proposal.rejectedFindingIds).size !== proposal.rejectedFindingIds.length ||
+          proposal.rejectedFindingIds.some((id) => !subject.findings.some((finding) => finding.id === id))
+  if (proposal.reason.trim() === '' || proposal.references.length === 0 || invalidMembers)
     diagnostics.push(
       diagnostic(
         'cause-adjudication-motivation',

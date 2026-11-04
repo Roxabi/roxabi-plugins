@@ -9,7 +9,7 @@ import {
   type GitHubOptions,
   publishConfirmedWorkflowRecord,
   readComposedWorkflowHistory,
-  validateCauseDispositionRecords,
+  validateCausePublication,
 } from '../dist/contracts.js'
 import type { CauseCreationProposal, CauseSisterInput } from '../engine/cause-disposition-schema.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
@@ -139,14 +139,11 @@ export async function publishCauseReceipt(args: ReceiptArgs): Promise<CauseOpera
       uw: known,
       diagnostics: receipt.diagnostics.map((item) => diagnostic(known as Scope, item.code, item.message)),
     }
-  const records = reread.histories.flatMap((history) =>
-    history.operations.flatMap((entry) =>
-      entry.status === 'complete' && entry.authority !== 'foreign' && entry.record !== null ? [entry.record] : [],
-    ),
-  )
-  const invalid = validateCauseDispositionRecords({
-    records: [...records, receipt.value],
-    histories: reread.histories,
+  const receiptHome = home(reread.histories, uw)
+  const invalid = validateCausePublication({
+    record: receipt.value,
+    history: receiptHome,
+    externalHistories: reread.histories.filter((entry) => entry !== receiptHome),
   })
   if (invalid.length)
     return {
@@ -154,7 +151,6 @@ export async function publishCauseReceipt(args: ReceiptArgs): Promise<CauseOpera
       uw: known,
       diagnostics: invalid.map((item) => diagnostic(known as Scope, item.code, item.message)),
     }
-  const receiptHome = home(reread.histories, uw)
   const written = await publishConfirmedWorkflowRecord(
     receipt.value,
     receiptHome,

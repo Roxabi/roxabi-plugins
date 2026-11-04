@@ -13,6 +13,7 @@ import {
   uniqueHistories,
 } from './binding-resolution.ts'
 import { readCauseHistoryClosure } from './cause-history-closure.ts'
+import { observeCauseSisters } from './cause-sister-graph.ts'
 import { readComposedWorkflowHistory } from './history.ts'
 import type { LandingFactsRead, WorkflowBindingRead, WorkflowPublication } from './types.ts'
 
@@ -159,12 +160,15 @@ export async function readLandingFacts(prScope: Scope, options: GitHubOptions): 
 
   const complete = await completeLandingHistories(bound.value, options)
   if (!complete.ok) return complete
+  const uwGraph = await observeCauseSisters(bound.value.uwGraph, complete.histories, (scope) =>
+    readUwGraph(scope, options),
+  )
   return {
     ok: true,
     histories: complete.histories,
     native: bound.value.native,
     observed: bound.value.observed,
-    uwGraph: bound.value.uwGraph,
+    uwGraph,
     parentScopes: bound.value.parentScopes,
     binding: bound.value.binding,
   }

@@ -173,6 +173,7 @@ export function fixture(
     localProtocolOptions: consultableProtocolOptions(),
   } as unknown as ExtensionContext)
   const ports: UwOperationsPorts = {
+    readCreated: (uw) => ports.read(uw),
     read: async (uw) => {
       state.readScopes.push(structuredClone(uw))
       await options.readBarrier

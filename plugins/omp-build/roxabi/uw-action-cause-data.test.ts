@@ -11,6 +11,7 @@ import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
 import { causeActionData } from './uw-action-cause-data.ts'
 import { assertCurrentOutputClosure, currentRootOutputRefs } from './uw-action-closure.ts'
 import type { DeliveryDataRef, UwActionRequest } from './uw-action-contract.ts'
+import { selectedReviewInputs, selectedReviewRoot } from './uw-selected-review.ts'
 
 const uw = { repository: 'acme/app', target: 'acme/app#42' }
 const pr = { repository: 'acme/app', target: 'acme/app#44' }
@@ -219,14 +220,120 @@ describe('cause state as action data', () => {
     const { graph, inputs, pending, request } = actionFixture()
     const before = [originalHistory(), graph.history]
     const after = [originalHistory([pending]), graph.history]
-    const beforeData = must(causeActionData(request, before, currentRootOutputRefs(request, before)))
-    const outputs = currentRootOutputRefs(request, after)
+    const root = ref(graph.root)
+    const beforeData = must(causeActionData(request, before, currentRootOutputRefs(request, before, root)))
+    const outputs = currentRootOutputRefs(request, after, root)
     expect(
       outputs.some((item) => item.record.kind === 'decision' && item.record.recordId === graph.decision.recordId),
     ).toBe(true)
     const afterData = must(causeActionData(request, after, outputs))
     expect(withData(inputs, afterData).fingerprint).toBe(withData(inputs, beforeData).fingerprint)
-    expect(assertCurrentOutputClosure(request, after, afterData)).toEqual({ ok: true, value: true })
+    expect(assertCurrentOutputClosure(request, after, afterData, root)).toEqual({ ok: true, value: true })
+  })
+
+  it('refuses the selected review after a later adjudication and preserves its lineage for a new review', () => {
+    const { graph, pending, firstOperation, middle, operation, head, request } = actionFixture()
+    const histories = [originalHistory([pending, firstOperation, middle, operation, head]), graph.history]
+    const selected = causeActionData(request, histories, currentRootOutputRefs(request, histories, ref(graph.root)))
+    expect(selected.ok).toBe(false)
+    if (!selected.ok) expect(selected.diagnostics.map((item) => item.code)).toContain('review-input-changed')
+    const next = { ...request, actionId: 'new-review' }
+    const refs = must(causeActionData(next, histories, currentRootOutputRefs(next, histories)))
+    expect(refs.map((item) => item.record.recordId)).toEqual(
+      expect.arrayContaining([
+        pending.recordId,
+        firstOperation.recordId,
+        middle.recordId,
+        operation.recordId,
+        head.recordId,
+      ]),
+    )
+  })
+
+  it('does not attribute a same-fingerprint independent review to the selected root', () => {
+    const { graph, inputs, pending, request } = actionFixture()
+    const other = acceptedPullRequestReviewGraph({ mandate, binding, prefix: 'other-root', label: 'issue', inputs })
+    if (pending.payload.subject.kind !== 'cause') throw new Error('Expected cause subject')
+    const independent = must(
+      parseRecord({
+        ...pending,
+        recordId: 'other-cause',
+        operationId: 'other-cause-op',
+        payload: { ...pending.payload, subject: { ...pending.payload.subject, decision: ref(other.decision) } },
+      }),
+    )
+    const pull = { ...graph.history, operations: [...graph.history.operations, ...other.history.operations] }
+    const histories = [originalHistory([pending, independent]), pull]
+    expect(must(selectedReviewRoot(pull, graph.review.recordId)).recordId).toBe(graph.root.recordId)
+    expect(must(selectedReviewRoot(pull, other.review.recordId)).recordId).toBe(other.root.recordId)
+    const outputs = currentRootOutputRefs(request, histories, ref(graph.root))
+    expect(outputs.some((item) => item.record.recordId === graph.decision.recordId)).toBe(true)
+    expect(outputs.some((item) => item.record.recordId === other.decision.recordId)).toBe(false)
+    const refs = must(causeActionData(request, histories, outputs))
+    expect(refs.map((item) => item.record.recordId)).toContain(independent.recordId)
+    expect(refs.map((item) => item.record.recordId)).not.toContain(pending.recordId)
+    const withoutOther = withData(
+      inputs,
+      refs.filter((item) => item.record.recordId !== independent.recordId),
+    )
+    expect(withData(inputs, refs).fingerprint).not.toBe(withoutOther.fingerprint)
+  })
+
+  it('selects the authenticated root and prior cause lineage for each of three review epochs', () => {
+    const { graph, inputs, pending, firstOperation, middle, operation, head, request } = actionFixture()
+    const prior = [pending, firstOperation, middle, operation, head]
+    const firstHistories = [originalHistory([pending]), graph.history]
+    const secondRefs = must(causeActionData(request, firstHistories, []))
+    const secondManifest = {
+      ...inputs.manifest,
+      code: { ...inputs.manifest.code, head: '2'.repeat(40), referenceCommit: '2'.repeat(40) },
+      deliveryData: secondRefs,
+    }
+    const secondInputs = { ...inputs, manifest: secondManifest, fingerprint: actionInputDigest(secondManifest) }
+    const second = acceptedPullRequestReviewGraph({
+      mandate,
+      binding,
+      prefix: 'second-epoch',
+      label: 'issue',
+      inputs: secondInputs,
+    })
+    const histories = [originalHistory(prior), graph.history]
+    const thirdRefs = must(causeActionData(request, histories, []))
+    const thirdManifest = {
+      ...inputs.manifest,
+      code: { ...inputs.manifest.code, head: '3'.repeat(40), referenceCommit: '3'.repeat(40) },
+      deliveryData: thirdRefs,
+    }
+    const thirdInputs = { ...inputs, manifest: thirdManifest, fingerprint: actionInputDigest(thirdManifest) }
+    const third = acceptedPullRequestReviewGraph({
+      mandate,
+      binding,
+      prefix: 'third-epoch',
+      label: 'issue',
+      inputs: thirdInputs,
+    })
+    const graphs = [graph, second, third]
+    const pull = {
+      ...graph.history,
+      operations: [
+        ...graph.history.operations,
+        ...second.history.operations.filter((entry) => entry.record?.kind !== 'workflow-binding'),
+        ...third.history.operations.filter((entry) => entry.record?.kind !== 'workflow-binding'),
+      ],
+    }
+    expect(new Set(graphs.map((item) => item.inputs.fingerprint)).size).toBe(3)
+    expect(thirdRefs.map((item) => item.record.recordId)).toEqual(
+      expect.arrayContaining(prior.map((item) => item.recordId)),
+    )
+    expect(secondRefs.map((item) => item.record.recordId)).toContain(pending.recordId)
+    for (const item of graphs) {
+      const root = must(selectedReviewRoot(pull, item.review.recordId))
+      expect(root.recordId).toBe(item.root.recordId)
+      expect(must(selectedReviewInputs(pull, root, item.inputs.fingerprint)).manifest.code.head).toBe(
+        item.inputs.manifest.code.head,
+      )
+    }
+    expect(must(selectedReviewRoot(pull, third.review.recordId)).recordId).not.toBe(graph.root.recordId)
   })
 
   it('pins the complete prior adjudication lineage and makes it causal input to a new review', () => {

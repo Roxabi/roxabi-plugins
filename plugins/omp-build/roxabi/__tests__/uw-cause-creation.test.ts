@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { NativeIssueWritePlan } from '../../../issue-triage/skills/shared/domain/issue-write.ts'
 import { decodeHistory } from '../../adapters/github/history-codec.ts'
+import type * as Contracts from '../../dist/contracts.js'
 import { causeCreationProposalSchema, parseRecord } from '../../dist/contracts.js'
 import type { RecordDraft } from '../../engine/record-construction.ts'
 import { createInput, fixture } from '../../testing/uw-operations-fixture.ts'
@@ -30,7 +31,7 @@ vi.mock('../uw-cause-parent.ts', () => ({
   assertCauseParentUnchanged: boundary.checkParent,
 }))
 vi.mock('../../dist/contracts.js', async (load) => {
-  const actual = await load<typeof import('../../dist/contracts.js')>()
+  const actual = await load<typeof Contracts>()
   return {
     ...actual,
     buildRecord: (record: RecordDraft) =>
@@ -39,6 +40,7 @@ vi.mock('../../dist/contracts.js', async (load) => {
     readComposedWorkflowHistory: boundary.histories,
     bindExternalRef: boundary.bind,
     validateCauseDispositionRecords: boundary.validate,
+    validateCausePublication: boundary.validate,
   }
 })
 
@@ -70,6 +72,7 @@ function setup(
     intentMissing?: boolean
     parentChangesAfterCreate?: boolean
     incompletePriorIntent?: boolean
+    foreignParent?: boolean
   } = {},
 ) {
   const source = {
@@ -115,7 +118,11 @@ function setup(
     histories: [own],
   }))
   boundary.readReport.mockResolvedValue({ record: report, histories: [own] })
-  boundary.observeParent.mockResolvedValue({ ...parentObservation, state: options.parentState ?? 'inactive' })
+  boundary.observeParent.mockImplementation(async (observedParent) => ({
+    ...parentObservation,
+    parent: observedParent,
+    state: options.parentState ?? 'inactive',
+  }))
   boundary.checkParent.mockImplementation(async (_parent, _reader, _github, created) => {
     if (options.parentChangesAfterCreate && created !== null) throw new Error('cause-parent-active')
   })
@@ -162,7 +169,12 @@ function setup(
           raw: { body: 'Body' },
           updatedAt: 'now',
           labels: [],
-          parent: scope.target === sister.target ? sisterParent : parent,
+          parent:
+            scope.target === sister.target
+              ? sisterParent
+              : options.foreignParent
+                ? { repository: 'other/repo', target: 'other/repo#1' }
+                : parent,
           children: [],
           blockers:
             scope.target === sister.target ? sisterBlockers.map(() => original) : originalBlockers.map(() => sister),
@@ -171,7 +183,13 @@ function setup(
     },
     identity: { ok: true, value: { head: { scope: sister, recordId: 'identity-1', kind: 'spec-identity' } } },
   }))
-  const base = fixture({ confirm: options.confirm })
+  let confirmations = 0
+  const base = fixture({
+    confirm: options.confirm,
+    onConfirm: () => {
+      confirmations += 1
+    },
+  })
   const nativeCreate = vi.fn(async (plan: NativeIssueWritePlan, guard: CauseEffectGuard) => {
     await guard({ primitive: 'create', created: null })
     events.push('create')
@@ -187,7 +205,13 @@ function setup(
         diagnostics: [{ code: 'create-uncertain', message: 'No trustworthy issue reference' }],
       }
     if (options.partial) return { status: 'partial', issue: sisterIssue, completed: ['create'], diagnostics: [] }
-    sisterParent = options.mismatch ? null : plan.relations.parent == null ? null : parent
+    sisterParent =
+      options.mismatch || plan.relations.parent == null
+        ? null
+        : {
+            repository: plan.relations.parent.repository,
+            target: `${plan.relations.parent.repository}#${plan.relations.parent.number}`,
+          }
     sisterBlockers = [...plan.relations.addBlockers]
     return { status: 'written', observed: { issue: sisterIssue } }
   })
@@ -203,6 +227,7 @@ function setup(
   const service = createUwOperations({
     ...base.ports,
     read: readUw as never,
+    readCreated: readUw as never,
     guardedWriter: guardedWriter as never,
     scopeOf: () => sister,
     publishIdentity: async ({ proposal }) => {
@@ -214,6 +239,7 @@ function setup(
       ...base.ports.causeOperations(backend),
       ...createCauseCreation({
         reader: { readUw } as never,
+        nativeReader: { readUw } as never,
         github: {} as never,
         operator: base.ports.operator,
         ...backend,
@@ -227,12 +253,71 @@ function setup(
     tierOverride: null,
     labels: { add: [], remove: [] },
   }
-  return { service, sisterRequest, nativeCreate, events, readUw }
+  return { service, sisterRequest, nativeCreate, events, readUw, confirmations: () => confirmations }
 }
 
 beforeEach(() => vi.clearAllMocks())
 
 describe('cause creation orchestration (simulated boundaries)', () => {
+  it('rejects promotion to a foreign parent while creating the otherwise identical local-parent request', async () => {
+    const initial = createInput()
+    const create = {
+      ...initial,
+      repository: original.repository,
+      normalization: [],
+      draft: {
+        ...initial.draft,
+        criteria: [{ kind: 'new' as const, draftKey: 'promotion', statement: 'Resolve the promoted report' }],
+      },
+      writes: {
+        labels: { add: [], remove: [] },
+        relations: {
+          parent: { repository: original.repository, number: 1 },
+          addChildren: [],
+          removeChildren: [],
+          addBlockers: [],
+          removeBlockers: [],
+        },
+      },
+    }
+    const local = setup()
+    const localResult = await local.service.promoteReport({ report: ref, create, reason: 'Create separate work' })
+    expect(localResult.status).toBe('created')
+    expect(local.confirmations()).toBe(1)
+    expect(local.nativeCreate).toHaveBeenCalledTimes(1)
+
+    const foreign = setup()
+    const foreignResult = await foreign.service.promoteReport({
+      report: ref,
+      create: {
+        ...create,
+        writes: {
+          ...create.writes,
+          relations: {
+            ...create.writes.relations,
+            parent: { repository: 'other/repo', number: 1 },
+          },
+        },
+      },
+      reason: 'Create separate work',
+    })
+    expect(foreignResult.status).toBe('refused')
+    if (foreignResult.status === 'refused')
+      expect(foreignResult.diagnostics.map((item) => item.code)).toContain('cross-repository-parent')
+    expect(foreign.confirmations()).toBe(0)
+    expect(foreign.nativeCreate).not.toHaveBeenCalled()
+    expect(foreign.events).toEqual([])
+  })
+
+  it('rejects a foreign-repository parent before confirmation or any write', async () => {
+    const test = setup({ foreignParent: true })
+    const result = await test.service.createSister(test.sisterRequest)
+    expect(result.status).toBe('refused')
+    expect(test.confirmations()).toBe(0)
+    expect(test.nativeCreate).not.toHaveBeenCalled()
+    expect(test.events).toEqual([])
+  })
+
   it('cancellation and stale source never create or publish intent', async () => {
     const cancelled = setup({ confirm: false })
     expect((await cancelled.service.createSister(cancelled.sisterRequest)).status).toBe('refused')

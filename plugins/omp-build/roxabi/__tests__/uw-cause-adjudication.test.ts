@@ -17,13 +17,13 @@ const boundary = vi.hoisted(() => ({
   histories: vi.fn(),
   bind: vi.fn(),
 }))
-vi.mock('../uw-cause-read.ts', () => ({ readAuthenticatedCause: boundary.read }))
+vi.mock('../uw-cause-adjudication-read.ts', () => ({ readAdjudicationPending: boundary.read }))
 vi.mock('../../dist/contracts.js', async (load) => {
   const actual = await load<typeof import('../../dist/contracts.js')>()
   return {
     ...actual,
     validateCauseAdjudication: boundary.validate,
-    assessCauseDispositions: boundary.assess,
+    assessAdjudicationSuccessor: boundary.assess,
     buildRecord: (record: RecordDraft) =>
       record.kind === 'cause-operation' ? actual.buildRecord(record) : { ok: true, value: record },
     publishConfirmedWorkflowRecord: boundary.publish,
@@ -93,7 +93,7 @@ function setup(options: { confirm?: boolean; changed?: boolean; invalid?: boolea
   )
   boundary.assess.mockImplementation(() => ({
     ok: true,
-    value: { outcomes: [{ previous: pending, adjudication: { recordId: intent?.recordId }, state: 'test-outcome' }] },
+    value: { previous: pending, adjudication: { recordId: intent?.recordId }, state: 'test-outcome' },
   }))
   const base = fixture({ confirm: options.confirm })
   const adjudicate = createUwOperations({
@@ -141,7 +141,11 @@ describe('adjudication orchestration (simulated authenticated boundary)', () => 
     const test = setup()
     expect((await test.adjudicate(request)).status).toBe('adjudicated')
     expect(boundary.assess).toHaveBeenCalledWith(
-      expect.objectContaining({ context, source: expect.objectContaining({ kind: 'decision' }) }),
+      expect.objectContaining({
+        context,
+        pending: source,
+        operation: expect.objectContaining({ kind: 'cause-operation' }),
+      }),
     )
     expect(test.kinds).toEqual(['cause-operation', 'cause-disposition'])
     const intent = boundary.publish.mock.calls[0]?.[0]

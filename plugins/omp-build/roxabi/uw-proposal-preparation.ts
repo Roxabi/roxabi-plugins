@@ -216,6 +216,8 @@ export function prepareCreateProposal(
   ports: UwProposalPreparationPorts,
   creation: CreationContext,
 ): PreparedProposal {
+  const parentDiagnostics = parentRepositoryDiagnostics(input)
+  if (parentDiagnostics.length > 0) return { diagnostics: parentDiagnostics }
   const provisional: ProposalAssemblyInput = {
     ...input,
     uw: { repository: input.repository, target: `${input.repository}#0` },

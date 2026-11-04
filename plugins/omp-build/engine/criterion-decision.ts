@@ -1,11 +1,12 @@
 import { z } from 'zod'
 import type { ActionInputs, PinnedFileRef } from './action-input-schema.ts'
-import { assessCriterionReview, assessExclusion } from './criterion-admission.ts'
+import { assessCriterionReview } from './criterion-admission.ts'
 import { selectedDeclarations } from './criterion-decision-selection.ts'
 import type { CriterionDeclaration, CriterionEvidence, EvidenceRef } from './criterion-evidence-schema.ts'
 import type { CriterionVerdict } from './criterion-verdict-schema.ts'
 import { criterionVerdictSchema } from './criterion-verdict-schema.ts'
 import { observationRefDiagnostics } from './delivery-eligibility.ts'
+import { validateExclusionClaims } from './exclusion-claims.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
@@ -112,14 +113,13 @@ function retainExclusions(
   diagnostics: Diagnostic[],
 ): void {
   if (inputs.manifest.spec.kind !== 'accepted') return
-  const retained = retainedFindingIds(records, bound)
-  for (const claim of decision.exclusionClaims) {
-    if (!retained.has(claim.sourceFindingId)) {
-      diagnostics.push(diagnostic('unknown-reference', `Exclusion ${claim.sourceFindingId} is not a retained original`))
-    }
-    const assessed = assessExclusion({ spec: inputs.manifest.spec.effective, claim })
-    if (!assessed.ok) diagnostics.push(...assessed.diagnostics)
-  }
+  const claims = validateExclusionClaims({
+    spec: inputs.manifest.spec.effective,
+    claims: decision.exclusionClaims,
+    findings: decision.findings,
+    retained: retainedFindingIds(records, bound),
+  })
+  for (const errors of claims.values()) diagnostics.push(...errors)
 }
 
 export function authenticatedCriterionFacts(

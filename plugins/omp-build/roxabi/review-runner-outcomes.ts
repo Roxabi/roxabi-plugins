@@ -79,6 +79,10 @@ export async function createSynthesisBatch(input: {
       contextWindow: input.review.contextWindow,
       chunks: input.review.chunks,
     },
+    {
+      root: { scope: input.scope, kind: 'review-attempt', recordId: input.rootAttemptId },
+      fingerprint: specAction.inputs.fingerprint,
+    },
   )
   if (!preparedAction.ok) throw new Error(`prepare-action-unavailable:${prepareRefusal(preparedAction.diagnostics)}`)
   if (
@@ -188,6 +192,10 @@ export async function advanceReviewStage(input: {
         assignedChunk: null,
         contextWindow: input.review.contextWindow,
         chunks: input.review.chunks,
+      },
+      {
+        root: { scope: input.scope, kind: 'review-attempt', recordId: input.prepared.rootAttemptId },
+        fingerprint: specAction.inputs.fingerprint,
       },
     )
     if (!prepared.ok) throw new Error(`prepare-action-unavailable:${prepareRefusal(prepared.diagnostics)}`)

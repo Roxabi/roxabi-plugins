@@ -1,4 +1,4 @@
-import { validateCauseDispositionRecords } from './cause-disposition.ts'
+import { validateCausePublication } from './cause-publication-validation.ts'
 import { classifyHistory } from './history-classification.ts'
 import { validateProspectiveRecord, validateRecordGraph } from './history-graph.ts'
 import type { DecodedHistory } from './history-schema.ts'
@@ -9,7 +9,7 @@ import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
 import { type RecordProjectionConfig, type Result, recordMap } from './result.ts'
 import { validateFreshDecision } from './review-decision.ts'
-import { bindExternalRef, recordsOf } from './workflow-control.ts'
+import { bindExternalRef } from './workflow-control.ts'
 import { scopedRefsOf, workflowInputMeaning } from './workflow-record-references.ts'
 
 function stringified(value: unknown): string {
@@ -85,11 +85,7 @@ function projectWorkflowRecord(
   const referenceDiagnostic = workflowReferenceDiagnostic(record, records, externalHistories)
   if (referenceDiagnostic !== null) return fail([referenceDiagnostic])
   if (record.kind === 'cause-disposition' || record.kind === 'cause-operation' || record.kind === 'report-promotion') {
-    const candidates = [...records.values()].filter((item) => item.recordId !== record.recordId)
-    const diagnostics = validateCauseDispositionRecords({
-      records: [...candidates, record],
-      histories: [history, ...externalHistories],
-    })
+    const diagnostics = validateCausePublication({ record, history, externalHistories })
     if (diagnostics.length) return fail(diagnostics)
   }
   return {
@@ -203,11 +199,7 @@ function projectionReferenceDiagnostics(
   externalHistories: readonly DecodedHistory[],
 ): Diagnostic[] | null {
   if (record.kind === 'debt-receipt') {
-    const candidates = recordsOf(history).filter((item) => item.recordId !== record.recordId)
-    const diagnostics = validateCauseDispositionRecords({
-      records: [...candidates, record],
-      histories: [history, ...externalHistories],
-    })
+    const diagnostics = validateCausePublication({ record, history, externalHistories })
     if (diagnostics.length) return diagnostics
   }
   if (record.kind === 'fix-request' || record.kind === 'correction-result' || record.kind === 'fix-result')

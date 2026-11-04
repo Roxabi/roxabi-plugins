@@ -4,7 +4,7 @@ import {
   type GitHubOptions,
   publishConfirmedWorkflowRecord,
   readComposedWorkflowHistory,
-  validateCauseDispositionRecords,
+  validateCausePublication,
 } from '../dist/contracts.js'
 import type { CauseCreationProposal, CauseSisterInput, CreationContext } from '../engine/cause-disposition-schema.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
@@ -20,7 +20,7 @@ import { nativeIssueObservationDigest } from './uw-proposal-preparation.ts'
 type Parent = NonNullable<Extract<CreationContext, { kind: 'sister' }>['parentObservation']>
 type Intent = Extract<CanonicalRecord, { kind: 'cause-operation' }>
 type Args = {
-  input: { reader: UwReadPort; github: GitHubOptions }
+  input: { reader: UwReadPort; nativeReader: UwReadPort; github: GitHubOptions }
   mode: 'sister' | 'report-promotion'
   ref: CauseSisterInput['disposition']
   source: Extract<CanonicalRecord, { kind: 'cause-disposition' }>
@@ -42,9 +42,12 @@ async function readFresh(args: Args) {
   if (hash(checkedSource) !== hash(source)) throw new Error('cause-disposition-stale')
   const own = home(checked.histories, ref.scope)
   checkDuplicate(own, ref)
-  if (nativeIssueObservationDigest(rootObservation(ref.scope, await input.reader.readUw(ref.scope))) !== originalDigest)
+  if (
+    nativeIssueObservationDigest(rootObservation(ref.scope, await input.nativeReader.readUw(ref.scope))) !==
+    originalDigest
+  )
     throw new Error('cause-original-stale')
-  if (parent !== null) await assertCauseParentUnchanged(parent, input.reader, input.github, null)
+  if (parent !== null) await assertCauseParentUnchanged(parent, input.nativeReader, input.github, null)
   return { checked, own }
 }
 
@@ -65,12 +68,12 @@ function buildIntent(args: Args, histories: readonly DecodedHistory[]) {
       ok: false as const,
       diagnostics: intent.diagnostics.map((item) => diagnostic(uw, item.code, item.message)),
     }
-  const existing = histories.flatMap((history) =>
-    history.operations.flatMap((entry) =>
-      entry.status === 'complete' && entry.authority !== 'foreign' && entry.record !== null ? [entry.record] : [],
-    ),
-  )
-  const errors = validateCauseDispositionRecords({ records: [...existing, intent.value], histories })
+  const own = home(histories, uw)
+  const errors = validateCausePublication({
+    record: intent.value,
+    history: own,
+    externalHistories: histories.filter((history) => history !== own),
+  })
   if (errors.length)
     return { ok: false as const, diagnostics: errors.map((item) => diagnostic(uw, item.code, item.message)) }
   return { ok: true as const, value: intent.value }
@@ -118,7 +121,7 @@ export async function confirmCauseIntent(args: Args) {
   if (failure !== null) return { ok: false as const, result: failure }
   let parent = args.parent
   if (parent !== null && same(parent.parent, args.ref.scope)) {
-    const afterIntent = await observeCauseParent(args.ref.scope, args.input.reader, args.input.github)
+    const afterIntent = await observeCauseParent(args.ref.scope, args.input.nativeReader, args.input.github)
     if (afterIntent.state !== 'inactive' || afterIntent.nativeDigest !== parent.nativeDigest)
       throw new Error('cause-parent-stale')
     parent = afterIntent

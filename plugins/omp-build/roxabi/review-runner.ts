@@ -181,7 +181,12 @@ export class CanonicalReviewRunner implements ReviewPublisher {
     ) {
       return { ok: false, reason: 'review-context-mismatch' }
     }
-    return this.input.authorize(stage)
+    const id = this.#inventories[0]
+    if (stage !== 'initial' && id === undefined) return { ok: false, reason: 'review-root-unconfirmed' }
+    return this.input.authorize(
+      stage,
+      id === undefined ? undefined : { scope: this.#scope, kind: 'review-attempt', recordId: id },
+    )
   }
   async publishInventory(
     prepared: PreparedReviewBatch,

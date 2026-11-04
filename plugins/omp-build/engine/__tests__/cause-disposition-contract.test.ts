@@ -172,11 +172,7 @@ describe('cause disposition contract', () => {
       context: { original: scope, effective: solo },
     })
     expect(diagnostics.map((item) => item.code)).toEqual(
-      expect.arrayContaining([
-        'cause-adjudication-subject',
-        'cause-adjudication-motivation',
-        'cause-adjudication-pending-mismatch',
-      ]),
+      expect.arrayContaining(['cause-adjudication-motivation', 'cause-adjudication-pending-mismatch']),
     )
   })
 })

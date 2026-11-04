@@ -13,6 +13,7 @@ import type { CauseOperationResult, OperatorPort, PreparedUwProposal, UwReadPort
 /** Compose the private #897 prepare/commit once; the operator sees the final creation proposal. */
 export function createCauseCreation(input: {
   reader: UwReadPort
+  nativeReader: UwReadPort
   github: GitHubOptions
   operator: OperatorPort
   prepare: Prepare

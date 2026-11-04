@@ -4,7 +4,7 @@ import type { NativeBatchController } from '../omp/review-runtime/controller'
 import type { AllocateReviewInput } from '../skills/dev-review/roster-contract'
 import type { ReviewConfig } from './review-assets'
 import type { ObservedEvidence, PreparedReviewChunk } from './review-input-contract'
-import type { ActionInputs, PreparedUwAction } from './uw-action-contract.ts'
+import type { ActionInputs, PreparedUwAction, ReviewRootRef } from './uw-action-contract.ts'
 import type { UwOperations } from './uw-contract.ts'
 
 export type ReviewSubject = { kind: 'pull-request' } | { kind: 'epic-range'; range: string }
@@ -38,7 +38,7 @@ export type PreparedReviewInputs = {
   initialInventory?: Extract<CanonicalRecord, { kind: 'review-attempt' }>
   actions: Readonly<Record<string, PreparedUwAction>>
   operations: UwOperations
-  authorize(stage: ReviewStage): Promise<{ ok: true } | { ok: false; reason: string }>
+  authorize(stage: ReviewStage, root?: ReviewRootRef): Promise<{ ok: true } | { ok: false; reason: string }>
 }
 
 export type PreparedReviewBatch = {

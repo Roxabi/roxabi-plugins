@@ -186,7 +186,7 @@ async function postAdmissionRefusal(
   if (!freshBase.ok) return baseRefusal(freshBase)
   const refusal = reviewStateRefusal(state, refreshed, args, ci, mandateRead)
   if (refusal !== null) return refusal
-  if (refreshed.value.input === null)
+  if (refreshed.value.input === null || refreshed.value.reviewId === null)
     return {
       ok: false,
       allowed: false,
@@ -196,6 +196,7 @@ async function postAdmissionRefusal(
   const replay = await replayStoredReviewAttempt(
     {
       history: refreshedDecoded,
+      reviewId: refreshed.value.reviewId,
       head: fresh.head,
       fingerprint: refreshed.value.input,
       repository: args.repository,
@@ -255,6 +256,7 @@ export async function admitReviewGate(args: Arguments, toolingRoot: string): Pro
         gh: initial.gh,
         git: initial.git,
         automationLogin: args.automationLogin,
+        selectedReviewId: initial.summary.value.reviewId,
       },
     )
     if (!reviewInput.ok)

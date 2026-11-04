@@ -8,7 +8,7 @@ import { rootObservation } from './uw-installed-observation.ts'
 import { nativeIssueObservationDigest } from './uw-proposal-preparation.ts'
 
 export async function loadCauseCreationSource(
-  input: { reader: UwReadPort; github: GitHubOptions },
+  input: { reader: UwReadPort; nativeReader: UwReadPort; github: GitHubOptions },
   request: CauseSisterInput | ReportPromotionInput,
   mode: 'sister' | 'report-promotion',
 ) {
@@ -19,12 +19,12 @@ export async function loadCauseCreationSource(
       : await readAuthenticatedReport(ref, input.github)
   const source = 'disposition' in sourceRead ? sourceRead.disposition : sourceRead.record
   checkDuplicate(home(sourceRead.histories, ref.scope), ref)
-  const originalObserved = rootObservation(ref.scope, await input.reader.readUw(ref.scope))
+  const originalObserved = rootObservation(ref.scope, await input.nativeReader.readUw(ref.scope))
   const originalDigest = nativeIssueObservationDigest(originalObserved)
   const parentIssue =
     mode === 'sister' ? originalObserved.parent : (request as ReportPromotionInput).create.writes.relations.parent
   const parentScope = parentIssue == null ? null : githubScope(parentIssue.repository, parentIssue.number)
-  const parent = parentScope === null ? null : await observeCauseParent(parentScope, input.reader, input.github)
+  const parent = parentScope === null ? null : await observeCauseParent(parentScope, input.nativeReader, input.github)
   if (parent !== null && parent.state !== 'inactive') throw new Error(`cause-parent-${parent.state}`)
   return { source, originalDigest, parentScope, parent }
 }

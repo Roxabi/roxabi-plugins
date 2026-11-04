@@ -198,6 +198,7 @@ export async function validateLandingCandidate(cwd, pr, gh, git, state, pluginPi
       gh,
       git,
       pluginPin,
+      selectedReviewId: state.records.reviewId,
     },
     mergedBase,
   )

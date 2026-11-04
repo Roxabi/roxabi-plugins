@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { canonicalValueDigest, validateActionInputs } from './action-input.ts'
 import type { ActionInputs } from './action-input-schema.ts'
+import { resolveAdjudicationSources } from './cause-adjudication-sources.ts'
 import type { CauseAdjudicationProposal } from './cause-disposition-schema.ts'
 import { observationRefDiagnostics } from './delivery-observation-authentication.ts'
 import type { CauseContext } from './finding-target.ts'
@@ -29,6 +30,16 @@ function validatePriorSuccessors(input: AdjudicationInput): Diagnostic[] {
     diagnostics.push(diagnostic('cause-adjudication-unconfirmed', 'Pending disposition is not authenticated'))
   if (!originHistory) return diagnostics
   const records = recordsOf(originHistory)
+  const competing = records.filter(
+    (record) =>
+      record.kind === 'cause-operation' &&
+      record.payload.proposal.operation === 'adjudicate-cause' &&
+      sameRef(record.payload.proposal.pending, proposal.pending) &&
+      (record.payload.proposal.operationId !== proposal.operationId ||
+        canonicalValueDigest(record.payload.proposal) !== canonicalValueDigest(proposal)),
+  )
+  if (competing.length)
+    diagnostics.push(diagnostic('cause-adjudication-ambiguous', 'Pending disposition has competing intents'))
   const successors = records.filter(
     (record) =>
       record.kind === 'cause-disposition' &&
@@ -52,20 +63,6 @@ function validatePriorSuccessors(input: AdjudicationInput): Diagnostic[] {
   return diagnostics
 }
 
-function adjudicationActionInputs(input: AdjudicationInput): Result<readonly ActionInputs[]> {
-  const { pending, histories, context } = input
-  if (pending.payload.subject.kind !== 'cause') return { ok: true, value: [] }
-  const ref = pending.payload.subject.decision
-  const sourceHistory = histories.find((history) => equalScope(history.source.scope, ref.scope))
-  const source = sourceHistory && bindExternalRef(ref, sourceHistory)
-  if (!sourceHistory || !source?.ok || source.value.kind !== 'decision')
-    return {
-      ok: false,
-      diagnostics: [diagnostic('cause-adjudication-unconfirmed', 'Decision source is not authenticated')],
-    }
-  return resolveCauseActionInputs({ decision: source.value, history: sourceHistory, context })
-}
-
 function validatePendingMembers(input: AdjudicationInput): Diagnostic[] {
   const { proposal, pending } = input
   const diagnostics: Diagnostic[] = []
@@ -79,10 +76,26 @@ function validatePendingMembers(input: AdjudicationInput): Diagnostic[] {
     )
   if (proposal.pendingDigest !== createHash('sha256').update(JSON.stringify(pending)).digest('hex'))
     diagnostics.push(diagnostic('cause-adjudication-pending-mismatch', 'Pending disposition digest changed'))
-  if (pending.payload.subject.kind !== 'cause') {
-    diagnostics.push(diagnostic('cause-adjudication-subject', 'Adjudication requires an identified cause'))
+  const subject = pending.payload.subject
+  if (subject.kind === 'rule-error') {
+    if (proposal.rejectedFindingIds.length !== 0 || proposal.judgment !== null)
+      diagnostics.push(
+        diagnostic('cause-adjudication-membership', 'Rule error resolution cannot reject findings or replace judgment'),
+      )
+  } else if (subject.kind === 'retained-finding') {
+    if (
+      proposal.rejectedFindingIds.length !== 1 ||
+      proposal.rejectedFindingIds[0] !== subject.finding.id ||
+      proposal.judgment !== null
+    )
+      diagnostics.push(
+        diagnostic(
+          'cause-adjudication-membership',
+          'Retained finding resolution must reject exactly its original finding',
+        ),
+      )
   } else {
-    const members = new Set(pending.payload.subject.findings.map((item) => item.id))
+    const members = new Set(subject.findings.map((item) => item.id))
     if (
       proposal.rejectedFindingIds.some((id) => !members.has(id)) ||
       new Set(proposal.rejectedFindingIds).size !== proposal.rejectedFindingIds.length
@@ -99,7 +112,9 @@ function validateAdjudicationCitations(input: AdjudicationInput, actionInputs: r
   const diagnostics: Diagnostic[] = []
   if (
     proposal.reason.trim() === '' ||
-    (proposal.rejectedFindingIds.length === 0 && proposal.judgment === null) ||
+    (input.pending.payload.subject.kind === 'cause' &&
+      proposal.rejectedFindingIds.length === 0 &&
+      proposal.judgment === null) ||
     proposal.references.length === 0
   )
     diagnostics.push(
@@ -116,7 +131,10 @@ function validateAdjudicationCitations(input: AdjudicationInput, actionInputs: r
     ...entry.manifest.expandedContext.filter((item) => item.source === 'git-file'),
   ])
   for (const ref of proposal.references) {
-    if (!actionInputs.some((entry) => producerSourceDiagnostics('adjudication', [ref], entry).length === 0))
+    if (
+      input.pending.payload.subject.kind === 'cause' &&
+      !actionInputs.some((entry) => producerSourceDiagnostics('adjudication', [ref], entry).length === 0)
+    )
       diagnostics.push(
         diagnostic('unknown-reference', 'Adjudication cites evidence outside its producing action inputs'),
       )
@@ -126,7 +144,7 @@ function validateAdjudicationCitations(input: AdjudicationInput, actionInputs: r
 }
 
 export function validateCauseAdjudication(input: AdjudicationInput): Diagnostic[] {
-  const source = adjudicationActionInputs(input)
+  const source = resolveAdjudicationSources(input)
   return [
     ...validatePriorSuccessors(input),
     ...(source.ok ? [] : source.diagnostics),

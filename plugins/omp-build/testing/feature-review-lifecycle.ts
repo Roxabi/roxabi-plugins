@@ -9,6 +9,7 @@ import {
   restoredSave,
   settleOwnedCorrectionFalsification,
 } from './feature-review-falsification.ts'
+import { mixedReviewDecision, mixedReviewInitialData } from './feature-review-mixed-fixture.ts'
 import { fixtureSpecRow } from './feature-review-spec-row.ts'
 import { cleanReviewDecision, reviewDecision } from './feature-review-synthesis-sources.ts'
 import { finishFixtureDiagnostic } from './native-review-diagnostics.ts'
@@ -164,17 +165,18 @@ function driverDiagnostic(driver: ReviewDriver | undefined) {
   }
 }
 
-export async function invokeOmpReviewApplyFalsify(cwd: string): Promise<object> {
+export async function invokeOmpReviewApplyFalsify(cwd: string, mixed = false): Promise<object> {
   const priorHead = execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim()
   const driver = await createReviewDriver(cwd)
   let primary: unknown
   let failed = false
   let outcome: object | undefined
   let stage = 'initial-review'
+  const applyTasks: Array<{ agent: string; proof: NativeTask['proofEvidence'] }> = []
   try {
-    await driver.settle(reviewInitialData)
+    await driver.settle(mixed ? mixedReviewInitialData : reviewInitialData)
     stage = 'initial-synthesis'
-    await driver.settle((task) => reviewDecision(task.task))
+    await driver.settle((task) => (mixed ? mixedReviewDecision(task.task) : reviewDecision(task.task)))
     const transition = driver.fixTransition(driver.messages.length)
     const stateFile = process.env.GH_SIM_STATE
     if (stateFile === undefined) throw new Error('gh-state-missing')
@@ -182,6 +184,7 @@ export async function invokeOmpReviewApplyFalsify(cwd: string): Promise<object> 
     stage = 'correction-apply'
     await driver.settleAction(
       (task) => {
+        applyTasks.push({ agent: task.agent, proof: task.proofEvidence })
         if (commit === null) throw new Error('correction-commit-missing')
         return {
           outcome: 'applied',
@@ -262,6 +265,7 @@ export async function invokeOmpReviewApplyFalsify(cwd: string): Promise<object> 
     outcome = {
       active: driver.controller.active(),
       comments: readComments(stateFile),
+      applyTasks,
       snapshots,
       reviewSnapshots,
       replay,

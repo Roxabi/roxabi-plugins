@@ -74,7 +74,10 @@ export function causeActionData(
   const own = historyFor(request.subject.uw, histories)
   if (own === null) return actionFailure('record-unreadable', 'Cause state has no original UW history')
   for (const head of heads.value) {
-    if (currentOutput(sourceOfDisposition(head), currentOutputs)) continue
+    if (currentOutput(sourceOfDisposition(head), currentOutputs)) {
+      if (head.payload.previous === null && head.payload.adjudication === null) continue
+      return actionFailure('review-input-changed', 'Selected review cause has later adjudication state')
+    }
     const lineage = appendLineage(head, own, histories, refs)
     if (!lineage.ok) return lineage
   }

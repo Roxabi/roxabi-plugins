@@ -16,6 +16,7 @@ type ConfirmedIntent = Extract<Awaited<ReturnType<typeof confirmCauseIntent>>, {
 type CommitArgs = {
   input: {
     reader: UwReadPort
+    nativeReader: UwReadPort
     github: GitHubOptions
     commit: Commit
     guardedWriter: (guard: CauseEffectGuard) => IssueWriter
@@ -53,7 +54,13 @@ export async function commitConfirmedCause(args: CommitArgs): Promise<CauseOpera
   } = args
   const uw = ref.scope
   const { checked, intent, parent } = confirmedIntent
-  const guard = causeEffectGuard(input, parent, parentScope, uw, originalDigest)
+  const guard = causeEffectGuard(
+    { reader: input.nativeReader, github: input.github },
+    parent,
+    parentScope,
+    uw,
+    originalDigest,
+  )
   const writer = input.guardedWriter(guard)
   const result = await input.commit(createInput, prepared, confirmation, writer)
   if (result.status === 'uncertain' || result.status === 'partial') return result
@@ -67,11 +74,11 @@ export async function commitConfirmedCause(args: CommitArgs): Promise<CauseOpera
   markKnown(known)
   const createdIssue = issue(known)
   if (mode === 'sister' && relation === 'original-blocked-by-sister') {
-    const partial = await attachBlockingSister(input.reader, writer, uw, known, createdIssue)
+    const partial = await attachBlockingSister(input.nativeReader, writer, uw, known, createdIssue)
     if (partial !== null) return partial
   }
   return publishCauseReceipt({
-    input,
+    input: { reader: input.nativeReader, github: input.github },
     uw,
     known,
     mode,

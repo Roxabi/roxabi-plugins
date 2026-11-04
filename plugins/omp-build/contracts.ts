@@ -17,6 +17,7 @@ export {
   readWorkflowBinding,
 } from './adapters/github-workflow/binding.ts'
 export { readCauseHistoryClosure } from './adapters/github-workflow/cause-history-closure.ts'
+export { observeCauseSisters } from './adapters/github-workflow/cause-sister-graph.ts'
 export { readComposedWorkflowHistory } from './adapters/github-workflow/history.ts'
 export {
   readNativePullRequestFacts,

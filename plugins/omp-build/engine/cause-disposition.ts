@@ -26,10 +26,13 @@ export type ReportListing = {
 }
 
 export { resolveCauseActionInputs, validateCauseAdjudication } from './cause-adjudication.ts'
+export { resolveAdjudicationSources } from './cause-adjudication-sources.ts'
+export { assessAdjudicationSuccessor } from './cause-adjudication-successor.ts'
 export { assessCauseDispositions } from './cause-assessment.ts'
 export { effectiveRejectedFindingIds } from './cause-effective-findings.ts'
 export { readCauseDispositionHeads } from './cause-heads.ts'
 export { causeHistoryReferences } from './cause-history-references.ts'
 export { causeDispositionLineage } from './cause-lineage.ts'
+export { validateCausePublication } from './cause-publication-validation.ts'
 export { validateCauseDispositionRecords } from './cause-record-validation.ts'
 export { readCauseReports, resolveCauseSisterReceipt } from './cause-reports.ts'

@@ -45,6 +45,7 @@ export type IdentityPublicationResult =
 
 export type UwOperationsPorts = {
   read(uw: Scope): Promise<UwRead>
+  readCreated(uw: Scope): Promise<UwRead>
   listReports: UwOperations['listReports']
   writer: IssueWriter
   guardedWriter(beforeEffect: CauseEffectGuard): IssueWriter
@@ -187,7 +188,7 @@ async function commitCreate(
     const published = await ports.publishIdentity({ uw, proposal: prepared, confirmation })
     if (published.status !== 'confirmed') return { status: 'partial', uw, diagnostics: published.diagnostics }
   }
-  return readAfterEffect('created', uw, () => ports.read(uw))
+  return readAfterEffect('created', uw, () => ports.readCreated(uw))
 }
 
 function preparedResult(

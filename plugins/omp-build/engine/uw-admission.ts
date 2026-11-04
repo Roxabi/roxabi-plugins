@@ -4,6 +4,7 @@ import type { Scope } from './record-values.ts'
 import { projectNativeUwChildren } from './uw-child-admission.ts'
 import type { UwDiagnostic } from './uw-diagnostics.ts'
 import {
+  isCompletedUw,
   isWayfinder,
   sameScope,
   scopeKey,
@@ -118,7 +119,7 @@ function blockerDiagnostics(root: UwNativeNode, nodes: ReadonlyMap<string, UwNat
           connection: 'labels',
         }),
       )
-    else if (blocker.native.state !== 'CLOSED' || blocker.native.stateReason !== 'COMPLETED')
+    else if (!isCompletedUw(blocker))
       diagnostics.push(
         diag(
           root.uw,
@@ -237,7 +238,7 @@ export function assessUwAdmission(input: UwAdmissionInput): UwAdmission {
     deliverable.push(...blockerDiagnostics(root, nodes), ...transitionDiagnostics(input, root, nodes))
   }
   if (input.accepted.status === 'accepted') {
-    for (const hold of assessCauseHolds({ uw: input.uw, histories: input.histories })) {
+    for (const hold of assessCauseHolds({ uw: input.uw, histories: input.histories, graph: input.graph })) {
       deliverable.push(
         diag(input.uw, hold.code, hold.recordId === undefined ? hold.message : `${hold.message} (${hold.recordId})`),
       )

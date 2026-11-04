@@ -1,6 +1,10 @@
 import {
+  assessAdjudicationSuccessor,
   assessCauseDispositions,
   bindExternalRef,
+  canonicalValueDigest,
+  causeDispositionLineage,
+  causeHistoryReferences,
   type GitHubOptions,
   readCauseReports,
   readComposedWorkflowHistory,
@@ -51,9 +55,10 @@ function referencedScopes(refs: readonly ObservationRef[]): Scope[] {
 }
 
 function addActionScopes(scopes: Scope[], actions: readonly ActionInputs[]): void {
-  for (const { manifest } of actions) {
+  for (const { manifest, stageSources } of actions) {
     scopes.push(...manifest.acceptedSources.map((item) => item.record.scope))
     scopes.push(...manifest.deliveryData.map((item) => item.record.scope))
+    scopes.push(...stageSources.map((item) => item.record.scope))
     scopes.push(...referencedScopes(manifest.expandedContext))
     if (manifest.subject.kind === 'uw' && manifest.subject.binding !== null)
       scopes.push(manifest.subject.binding.record.scope)
@@ -63,6 +68,57 @@ function addActionScopes(scopes: Scope[], actions: readonly ActionInputs[]): voi
 function assertDispositionRebound(ref: ExternalRecordRef, history: DecodedHistory, disposition: CanonicalRecord): void {
   const rebound = bindExternalRef(ref, history)
   if (!rebound.ok || JSON.stringify(rebound.value) !== JSON.stringify(disposition))
+    throw new Error('cause-disposition-stale')
+}
+
+function assertAdjudicatedDisposition(
+  disposition: Extract<CanonicalRecord, { kind: 'cause-disposition' }>,
+  previousRef: ExternalRecordRef,
+  adjudicationRef: ExternalRecordRef,
+  loaded: readonly DecodedHistory[],
+  context: CauseContext,
+): void {
+  const previous = bindExternalRef(previousRef, home(loaded, previousRef.scope))
+  const operation = bindExternalRef(adjudicationRef, home(loaded, adjudicationRef.scope))
+  if (!previous.ok) fail(previous.diagnostics)
+  if (!operation.ok) fail(operation.diagnostics)
+  if (previous.value.kind !== 'cause-disposition' || operation.value.kind !== 'cause-operation')
+    throw new Error('cause-disposition-stale')
+  const assessed = assessAdjudicationSuccessor({
+    pending: previous.value,
+    operation: operation.value,
+    histories: loaded,
+    context,
+  })
+  if (!assessed.ok) fail(assessed.diagnostics)
+  if (canonicalValueDigest(assessed.value) !== canonicalValueDigest(disposition.payload))
+    throw new Error('cause-disposition-stale')
+}
+
+function assertDispositionAssessment(
+  disposition: Extract<CanonicalRecord, { kind: 'cause-disposition' }>,
+  decision: Extract<CanonicalRecord, { kind: 'decision' }>,
+  loaded: readonly DecodedHistory[],
+  context: CauseContext,
+): void {
+  const previousRef = disposition.payload.previous
+  const adjudicationRef = disposition.payload.adjudication
+  if (previousRef !== null && adjudicationRef !== null) {
+    assertAdjudicatedDisposition(disposition, previousRef, adjudicationRef, loaded, context)
+    return
+  }
+  if (previousRef !== null || adjudicationRef !== null) throw new Error('cause-disposition-stale')
+  const assessed = assessCauseDispositions({
+    context,
+    source: { kind: 'decision', decision },
+    histories: loaded,
+    adjudications: [],
+  })
+  if (!assessed.ok) fail(assessed.diagnostics)
+  const matching = assessed.value.outcomes.filter(
+    (outcome) => canonicalValueDigest(outcome.subject) === canonicalValueDigest(disposition.payload.subject),
+  )
+  if (matching.length !== 1 || canonicalValueDigest(matching[0]) !== canonicalValueDigest(disposition.payload))
     throw new Error('cause-disposition-stale')
 }
 
@@ -85,6 +141,8 @@ export async function readAuthenticatedCause(
   if (bound.value.kind !== 'cause-disposition') throw new Error('cause-kind-mismatch')
   const disposition = bound.value
   if (disposition.payload.subject.kind !== 'cause') throw new Error('cause-subject-not-runnable')
+  const lineage = causeDispositionLineage({ head: disposition, history: home(loaded, ref.scope) })
+  if (!lineage.ok) fail(lineage.diagnostics)
   const original = await reader.readUw(ref.scope)
   if (original.accepted.status !== 'accepted') throw new Error('correction-spec-not-accepted')
   const effective = resolveOwnSpecEffective(original.accepted.value)
@@ -103,6 +161,13 @@ export async function readAuthenticatedCause(
   })
   if (!inputs.ok) fail(inputs.diagnostics)
   addActionScopes(scopes, inputs.value)
+  scopes.push(
+    ...causeHistoryReferences(
+      lineage.value.flatMap((step) =>
+        step.adjudication === null ? [step.disposition] : [step.disposition, step.adjudication],
+      ),
+    ).map((reference) => reference.scope),
+  )
   const judgments = subject.cause.judgment
   scopes.push(
     ...referencedScopes([
@@ -132,24 +197,7 @@ export async function readAuthenticatedCause(
     )
   )
     throw new Error('cause-disposition-stale')
-  const adjudications = records.filter(
-    (record): record is Extract<CanonicalRecord, { kind: 'cause-operation' }> =>
-      record.kind === 'cause-operation' &&
-      same(record, ref.scope) &&
-      record.payload.proposal.operation === 'adjudicate-cause',
-  )
-  const assessed = assessCauseDispositions({
-    context,
-    source: { kind: 'decision', decision: source.value },
-    histories: loaded,
-    adjudications,
-  })
-  if (!assessed.ok) fail(assessed.diagnostics)
-  const matching = assessed.value.outcomes.filter(
-    (outcome) => JSON.stringify(outcome.subject) === JSON.stringify(disposition.payload.subject),
-  )
-  if (matching.length !== 1 || JSON.stringify(matching[0]) !== JSON.stringify(disposition.payload))
-    throw new Error('cause-disposition-stale')
+  assertDispositionAssessment(disposition, source.value, loaded, context)
   assertDispositionRebound(ref, own, disposition)
   return { disposition, histories: loaded, context }
 }

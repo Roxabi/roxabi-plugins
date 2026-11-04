@@ -35,11 +35,12 @@ export type ProductionReaderOptions = {
 export function createProductionInputPorts(options: ProductionReaderOptions): UwInputReadPorts {
   const source = { cwd: options.cwd, gh: options.gh, readAuthor: options.readAuthor }
   return {
-    readCurrentActionFacts: (request, reviewedFingerprint) =>
+    readCurrentActionFacts: (request, reviewedFingerprint, reviewedRoot) =>
       readProductionActionFacts(
         request,
         { ...source, cwd: correctionObservation(request)?.cwd ?? source.cwd },
         reviewedFingerprint,
+        reviewedRoot,
       ),
     readRecord: (ref) => readSelectedRecord(ref, source),
     readRecords: (refs) => readSelectedRecords(refs, source),
@@ -99,11 +100,12 @@ export function createProductionInputPorts(options: ProductionReaderOptions): Uw
 export function createProductionActionPorts(options: ProductionReaderOptions): UwActionPorts {
   return {
     ...createProductionInputPorts(options),
-    readCurrentActionFactsBatch: (requests, reviewedFingerprint) =>
+    readCurrentActionFactsBatch: (requests, reviewedFingerprint, reviewedRoot) =>
       readProductionActionFactsBatch(
         requests,
         { cwd: options.cwd, gh: options.gh, readAuthor: options.readAuthor },
         reviewedFingerprint,
+        reviewedRoot,
       ),
     snapshots: createActionSnapshotStore({ artifactsDir: options.artifactsDir, cwd: options.cwd }),
   }

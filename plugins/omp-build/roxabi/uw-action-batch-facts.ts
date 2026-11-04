@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from 'node:util'
 import type { Result } from '../engine/result.ts'
 import { seedEvidenceObservation } from './uw-action-basis.ts'
-import type { CurrentActionFacts, UwActionRequest } from './uw-action-contract.ts'
+import type { CurrentActionFacts, ReviewRootRef, UwActionRequest } from './uw-action-contract.ts'
 import { uwFacts } from './uw-action-fact-parts.ts'
 import { type ActionFactSource, configuration, observeCode, readHistories } from './uw-action-observe.ts'
 import { actionFailure } from './uw-action-result.ts'
@@ -12,6 +12,7 @@ export async function readProductionActionFactsBatch(
   requests: readonly UwActionRequest[],
   source: ActionFactSource,
   reviewedFingerprint?: string,
+  reviewedRoot?: ReviewRootRef,
 ): Promise<Result<readonly { actionId: string; facts: CurrentActionFacts }[]>> {
   const first = requests[0]
   if (first === undefined) return { ok: true, value: [] }
@@ -43,8 +44,25 @@ export async function readProductionActionFactsBatch(
   for (const request of requests) {
     const result =
       request.subject.kind === 'standalone-pr'
-        ? await standaloneFacts(request, source, observed.value, config.value, reviewedFingerprint, histories.value)
-        : await uwFacts(request, source, observed.value, config.value, reviewedFingerprint, histories.value, evidence)
+        ? await standaloneFacts(
+            request,
+            source,
+            observed.value,
+            config.value,
+            reviewedFingerprint,
+            histories.value,
+            reviewedRoot,
+          )
+        : await uwFacts(
+            request,
+            source,
+            observed.value,
+            config.value,
+            reviewedFingerprint,
+            histories.value,
+            evidence,
+            reviewedRoot,
+          )
     if (!result.ok) return result
     facts.push({ actionId: request.actionId, facts: result.value })
   }

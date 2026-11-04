@@ -1,6 +1,7 @@
 import type { Gh, GitHubOptions } from '../adapters/github/types.ts'
 import {
   assessUwAdmission,
+  observeCauseSisters,
   parseIssueSpecBody,
   readCauseHistoryClosure,
   readComposedWorkflowHistory,
@@ -75,8 +76,11 @@ export function createUwReadPort(contracts: InstalledUwContracts, options: Insta
           history: { ok: false, reason: closure.reason, diagnostics: closure.diagnostics },
         })
       }
+      const observedGraph = await observeCauseSisters(graph, closure.histories, (scope) =>
+        contracts.readUwGraph(scope, github),
+      )
       const reader = createObservedUwReadPort(contracts, {
-        graph,
+        graph: observedGraph,
         histories: closure.histories,
         assessmentReplay: options.assessmentReplay,
       })
@@ -124,6 +128,34 @@ const installedUwContracts: InstalledUwContracts = {
 /** Production factory: statically binds the installed contracts bundle, never repository engine source. */
 export function createInstalledUwReadPort(options: InstalledUwReadOptions): UwReadPort {
   return createUwReadPort(installedUwContracts, options)
+}
+/** Creation readback proves only native framing and the created issue's own identity ledger. */
+export async function readCreatedUw(uw: Scope, options: InstalledUwReadOptions): Promise<UwRead> {
+  const github = readOptions(options)
+  const graph = await installedUwContracts.readUwGraph(uw, github)
+  if (
+    graph.status !== 'complete' ||
+    !graph.nodes.some((node) => node.uw.repository === uw.repository && node.uw.target === uw.target)
+  )
+    throw new UwGraphUnavailableError(refused(uw, 'graph-incomplete', 'Created UW native graph is incomplete'))
+  const composed = await installedUwContracts.readComposedWorkflowHistory([uw], github)
+  if (!composed.ok)
+    throw new UwGraphUnavailableError(refused(uw, 'history-incomplete', 'Created UW identity history is incomplete'))
+  const result = assembleUwRead(installedUwContracts, {
+    uw,
+    graph,
+    history: { ok: true, histories: composed.histories },
+  })
+  const diagnostics = refused(uw, 'creation-read-only', 'Creation readback does not assess delivery admission')
+  return {
+    ...result,
+    accepted: { status: 'refused', diagnostics },
+    admission: {
+      framed: { ok: false, diagnostics },
+      deliverable: { ok: false, diagnostics },
+      applicability: 'own-only',
+    },
+  }
 }
 
 export function createInstalledObservedUwReadPort(input: {

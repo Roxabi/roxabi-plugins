@@ -9,12 +9,14 @@ import type {
   ActionSubject,
   CurrentActionFacts,
   RecordInputRef,
+  ReviewRootRef,
   UwActionRequest,
 } from './uw-action-contract.ts'
 import { expansionOrigin } from './uw-action-expansion-origin.ts'
 import { type ActionFactSource, authenticate, configuration, observeCode, readHistories } from './uw-action-observe.ts'
 import { observeActionOperands } from './uw-action-operands.ts'
 import { actionFailure } from './uw-action-result.ts'
+import { authenticateReviewRoot } from './uw-action-review-root.ts'
 import { assertCurrentOutputClosure, currentRootOutputRefs, selectDeliveryData } from './uw-action-selection.ts'
 import { standaloneFacts } from './uw-action-standalone-facts.ts'
 import { validateExpandedWorkflowLive } from './uw-context-negative-live.ts'
@@ -71,7 +73,10 @@ async function finishFacts(
   config: ActionInputManifest['configuration'],
   reviewedFingerprint?: string,
   observation?: EvidenceObservation,
+  reviewedRoot?: ReviewRootRef,
 ): Promise<Result<CurrentActionFacts>> {
+  const authenticated = authenticateReviewRoot(request, histories, reviewedFingerprint, reviewedRoot)
+  if (!authenticated.ok) return authenticated
   const expansion = expansionOrigin(request, histories, reviewedFingerprint)
   if (!expansion.ok) return expansion
   if (expansion.value?.workflow !== undefined) {
@@ -90,7 +95,7 @@ async function finishFacts(
       )
     : { ok: true as const, value: { refs: [], plannedPaths: [] } }
   if (!delivery.ok) return delivery
-  const currentOutputs = currentRootOutputRefs(request, histories, reviewedFingerprint, expansion.value?.root)
+  const currentOutputs = currentRootOutputRefs(request, histories, reviewedRoot, expansion.value?.root)
   const causes = causeActionData(request, histories, currentOutputs)
   if (!causes.ok) return causes
   const deliveryData = [...delivery.value.refs, ...causes.value]
@@ -100,7 +105,7 @@ async function finishFacts(
     request,
     histories,
     [...acceptedSources, ...deliveryData],
-    reviewedFingerprint,
+    reviewedRoot,
     expansion.value?.root,
   )
   if (!closed.ok) return closed
@@ -128,6 +133,7 @@ export async function uwFacts(
   reviewedFingerprint?: string,
   histories?: readonly DecodedHistory[],
   observation?: EvidenceObservation,
+  reviewedRoot?: ReviewRootRef,
 ): Promise<Result<CurrentActionFacts>> {
   if (request.subject.kind !== 'uw') return actionFailure('action-input-missing', 'UW subject is absent')
   const subject = request.subject
@@ -163,6 +169,7 @@ export async function uwFacts(
     accepted.value.configuration,
     reviewedFingerprint,
     observation ?? seedEvidenceObservation(read.value),
+    reviewedRoot,
   )
 }
 
@@ -170,6 +177,7 @@ export async function readProductionActionFacts(
   request: UwActionRequest,
   source: ActionFactSource,
   reviewedFingerprint?: string,
+  reviewedRoot?: ReviewRootRef,
 ): Promise<Result<CurrentActionFacts>> {
   const observed = await observeCode(request, source).catch((error: unknown) =>
     actionFailure('action-code-moved', error instanceof Error ? error.message : 'code observation failed'),
@@ -178,6 +186,6 @@ export async function readProductionActionFacts(
   const config = await configuration(source.cwd, request.code.referenceCommit)
   if (!config.ok) return config
   if (request.subject.kind === 'standalone-pr')
-    return standaloneFacts(request, source, observed.value, config.value, reviewedFingerprint)
-  return uwFacts(request, source, observed.value, config.value, reviewedFingerprint)
+    return standaloneFacts(request, source, observed.value, config.value, reviewedFingerprint, undefined, reviewedRoot)
+  return uwFacts(request, source, observed.value, config.value, reviewedFingerprint, undefined, undefined, reviewedRoot)
 }

@@ -6,6 +6,7 @@ import type { AssessmentState } from './cause-assessment-state.ts'
 import type { CauseAssessment, DispositionSource } from './cause-disposition.ts'
 import type { CauseDispositionPayload } from './cause-disposition-schema.ts'
 import { appendUnassignedOutcomes } from './cause-retained-findings.ts'
+import { validateExclusionClaims } from './exclusion-claims.ts'
 import type { CauseContext } from './finding-target.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope } from './record-diagnostics.ts'
@@ -49,6 +50,21 @@ export function assessCauseDispositions(input: {
   if (!resolvedInputs.ok) return resolvedInputs
   const selectedInputs = resolvedInputs.value
   const records = bindings.records
+  const claimDiagnostics = validateExclusionClaims({
+    spec: context.effective,
+    claims: decision.payload.judgment.exclusionClaims,
+    findings: decision.payload.judgment.findings,
+    retained: new Set(bindings.originals.keys()),
+  })
+  const assignedSources = new Set(
+    decision.payload.judgment.causes.flatMap((cause) =>
+      decision.payload.judgment.findings
+        .filter((finding) => cause.findingIds.includes(finding.id))
+        .flatMap((finding) => finding.sourceFindingIds),
+    ),
+  )
+  for (const [source, errors] of claimDiagnostics)
+    if (!bindings.admissible || !assignedSources.has(source)) diagnostics.push(...errors)
   const state: AssessmentState = {
     context,
     histories,
@@ -58,6 +74,7 @@ export function assessCauseDispositions(input: {
     decisionRef,
     selectedInputs,
     records,
+    claimDiagnostics,
     bindings,
     base,
     outcomes,

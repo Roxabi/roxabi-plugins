@@ -51,6 +51,7 @@ function invoke(box: Box, cwd: string, control: 'continue' | 'pause' | 'resume',
     beforeRelease?: number
     commit?: string
     priorHead?: string
+    applyTasks?: Array<{ agent: string; proof?: { purpose: string; causeId: string; occurrence: string } }>
     snapshots?: Array<{
       agent: string
       actionId: string
@@ -394,6 +395,74 @@ describe('installed /feature review lifecycle through actual Bun and external bo
       'mandate-feature-1',
     ])
     expect(issueRecords.some((record) => record.kind === 'operator-control')).toBe(false)
+  })
+
+  it('executes only fix-original while retaining sister-after and report without filing', async () => {
+    const { box, cwd } = arrange()
+    await seedReviewFixture(box, cwd)
+    const before = readSim(box)
+    const observed = invoke(box, cwd, 'continue', 'omp-review-mixed-dispositions')
+    const state = readSim(box)
+    const review = reviewHistory(box, state)
+    const issue = issueDecodedHistory(box, state)
+    const records = review.operations.flatMap((operation) => (operation.record ? [operation.record] : []))
+    const retained = issue.operations.flatMap((operation) =>
+      operation.record?.kind === 'cause-disposition' && operation.record.payload.subject.kind === 'cause'
+        ? [operation.record]
+        : [],
+    )
+    const outcomes = new Map(
+      retained.map((record) => [
+        record.payload.subject.kind === 'cause' ? record.payload.subject.cause.id : '',
+        record.payload.outcome,
+      ]),
+    )
+    expect(outcomes.get('selected-region-cause')).toMatchObject({ state: 'final', disposition: 'fix-original' })
+    expect(outcomes.get('broad-audit-cause')).toMatchObject({ state: 'final', disposition: 'sister-after' })
+    expect(outcomes.get('save-observation-cause')).toMatchObject({ state: 'final', disposition: 'report' })
+    expect(observed.applyTasks).toEqual([
+      {
+        agent: 'R-review-fix-apply',
+        proof: { purpose: 'fix-apply', causeId: 'selected-region-cause', occurrence: 'apply' },
+      },
+    ])
+    const corrections = records.filter((record) => record.kind === 'correction-result')
+    expect(corrections.map((record) => record.payload.causeId)).toEqual(['selected-region-cause'])
+    expect(corrections[0]?.payload).toMatchObject({
+      outcome: 'applied',
+      causeDisposition: {
+        scope: SCOPE,
+        kind: 'cause-disposition',
+        recordId: retained.find(
+          (record) =>
+            record.payload.subject.kind === 'cause' && record.payload.subject.cause.id === 'selected-region-cause',
+        )?.recordId,
+      },
+    })
+    if (corrections[0]?.kind !== 'correction-result') throw new Error('fixture-correction-result-missing')
+    expect(corrections[0].payload.commitSHAs).toEqual([observed.commit])
+    const appliedSource = records.find((record) => record.recordId === corrections[0]?.payload.appliedContributionId)
+    expect(appliedSource).toMatchObject({ kind: 'contribution', payload: { host: { role: 'R-review-fix-apply' } } })
+    expect(corrections[0].inputs).toContain(appliedSource?.recordId)
+    const result = records.find((record) => record.kind === 'fix-result')
+    expect(result?.target).toBe('acme/app#7')
+    expect(result?.payload.correctionResultIds).toEqual(corrections.map((record) => record.recordId))
+    expect(result?.payload.causeDispositionRefs).toEqual(
+      expect.arrayContaining(
+        retained.map((record) => ({ scope: SCOPE, kind: 'cause-disposition', recordId: record.recordId })),
+      ),
+    )
+    expect(Object.keys(state.issues).sort()).toEqual(Object.keys(before.issues).sort())
+    expect(
+      state.calls.filter(
+        (call) =>
+          (call[0] === 'issue' && call[1] === 'create') ||
+          (call[0] === 'api' &&
+            call.includes('POST') &&
+            call.some((arg) => arg.startsWith('repos/') && arg.endsWith('/issues'))),
+      ),
+    ).toEqual([])
+    expect(observed.terminal).toMatchObject({ status: 'complete', kind: 'fix-result' })
   })
 
   it('persists confirmed local pause for a fresh review without another dispatch', async () => {

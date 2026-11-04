@@ -120,13 +120,10 @@ async function loadBoundReview(
   const reviewRecord = confirmedRecord(history, reviewId, 'review')
   if (reviewRecord?.kind !== 'review') return fail('review-decision-unconfirmed-or-stale')
   if (!validateReviewDecisionBindings(reviewRecord, history).ok) return fail('review-decision-bindings-invalid')
-  const freshInput = await validateReviewInput(
-    input.cwd,
-    target.number,
-    candidate,
-    reviewRecord.payload.input,
-    input.pluginPin === undefined ? {} : { pluginPin: input.pluginPin },
-  )
+  const freshInput = await validateReviewInput(input.cwd, target.number, candidate, reviewRecord.payload.input, {
+    ...(input.pluginPin === undefined ? {} : { pluginPin: input.pluginPin }),
+    selectedReviewId: reviewRecord.recordId,
+  })
   if (!freshInput.ok) return fail(`review-input-stale:${freshInput.reason}`)
   return { ok: true, value: { history, decision, reviewRecord, candidate } }
 }

@@ -12,7 +12,11 @@ type Operation = Extract<CanonicalRecord, { kind: 'cause-operation' }>
 type Disposition = Extract<CanonicalRecord, { kind: 'cause-disposition' }>
 type Proposal = Operation['payload']['proposal']
 
-function validateConfirmation(operation: Operation, confirmations: Set<string>, diagnostics: Diagnostic[]): void {
+export function validateConfirmation(
+  operation: Operation,
+  confirmations: Set<string>,
+  diagnostics: Diagnostic[],
+): void {
   const payload = operation.payload
   const digest = createHash('sha256').update(JSON.stringify(payload.proposal)).digest('hex')
   if (
@@ -73,7 +77,7 @@ function sisterMatches(
   )
 }
 
-function validateCreation(
+export function validateCreation(
   operation: Operation,
   proposal: Exclude<Proposal, { operation: 'adjudicate-cause' }>,
   disposition: Disposition,

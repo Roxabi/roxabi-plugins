@@ -1,9 +1,13 @@
 import {
   assessCauseDispositions,
+  type CanonicalRecord,
+  canonicalValueDigest,
   type DecodedHistory,
   type DispositionSource,
   type Ref,
+  readCauseDispositionHeads,
   type Scope,
+  validateCauseDispositionRecords,
 } from '../dist/contracts.js'
 import type { FixActionResult, FixIdentity, PreparedFix } from './fix-contract.ts'
 import { failure } from './fix-contract.ts'
@@ -33,6 +37,23 @@ async function loadDispositionHistories(
   return { ok: true, value: loaded.value }
 }
 
+function reuseDispositionHead(
+  head: Extract<CanonicalRecord, { kind: 'cause-disposition' }>,
+  original: Scope,
+  refs: Ref<'cause-disposition'>[],
+  executable: Map<string, Ref<'cause-disposition'>>,
+): boolean {
+  const ref: Ref<'cause-disposition'> = { scope: original, kind: 'cause-disposition', recordId: head.recordId }
+  refs.push(ref)
+  if (
+    head.payload.subject.kind === 'cause' &&
+    head.payload.outcome.state === 'final' &&
+    head.payload.outcome.disposition === 'fix-original'
+  )
+    executable.set(head.payload.subject.cause.id, ref)
+  return head.payload.outcome.state === 'pending-blocking'
+}
+
 export async function persistCauseDispositions(
   prepared: Pick<PreparedFix, 'causeContext'>,
   source: DispositionSource,
@@ -51,22 +72,38 @@ export async function persistCauseDispositions(
   const loaded = await loadDispositionHistories(store, scopeMap, addScope)
   if (!loaded.ok) return loaded
   const operations = loaded.value.flatMap((history) => history.operations)
-  const adjudications = operations.flatMap((operation) =>
-    operation.status === 'complete' && operation.authority !== 'foreign' && operation.record?.kind === 'cause-operation'
+  const heads = readCauseDispositionHeads({ uw: prepared.causeContext.original, histories: loaded.value })
+  if (!heads.ok) return failure(...heads.diagnostics.map((item) => item.code))
+  const records = operations.flatMap((operation) =>
+    operation.status === 'complete' && operation.authority !== 'foreign' && operation.record !== null
       ? [operation.record]
       : [],
   )
+  const invalid = validateCauseDispositionRecords({ records, histories: loaded.value })
+  if (invalid.length) return failure(...invalid.map((item) => item.code))
   const assessment = assessCauseDispositions({
     context: prepared.causeContext,
     source,
     histories: loaded.value,
-    adjudications,
+    adjudications: [],
   })
   if (!assessment.ok) return failure(...assessment.diagnostics.map((item) => item.code))
   const refs: Ref<'cause-disposition'>[] = []
   const executable = new Map<string, Ref<'cause-disposition'>>()
   const errors: string[] = []
+  let pending = false
   for (const outcome of assessment.value.outcomes) {
+    const head = heads.value.find(
+      (item) =>
+        canonicalValueDigest([item.payload.origin, item.payload.subject]) ===
+        canonicalValueDigest([outcome.origin, outcome.subject]),
+    )
+    if (head !== undefined) {
+      const headPending = reuseDispositionHead(head, prepared.causeContext.original, refs, executable)
+      pending ||= headPending
+      continue
+    }
+    pending ||= outcome.outcome.state === 'pending-blocking'
     const saved = await saveDisposition(
       outcome,
       prepared.causeContext.original,
@@ -94,7 +131,7 @@ export async function persistCauseDispositions(
     value: {
       refs,
       executable,
-      pending: assessment.value.outcomes.some((outcome) => outcome.outcome.state === 'pending-blocking'),
+      pending,
     },
   }
 }

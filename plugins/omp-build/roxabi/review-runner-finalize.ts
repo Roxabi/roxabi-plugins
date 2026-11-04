@@ -13,6 +13,7 @@ import {
 import type { Result } from '../engine/result.ts'
 import type { PublishedContribution } from './review-contract.ts'
 import { type ReviewIdentity, recordBase, requireRecord } from './review-records'
+import type { ReviewRootRef } from './uw-action-contract.ts'
 
 type FinalizationInput = {
   context: {
@@ -22,7 +23,7 @@ type FinalizationInput = {
   }
   policy: Policy
   canonicalClasses: readonly string[]
-  authorize(stage: 'synthesis'): Promise<{ ok: true } | { ok: false; reason: string }>
+  authorize(stage: 'synthesis', root?: ReviewRootRef): Promise<{ ok: true } | { ok: false; reason: string }>
 }
 
 function requireFinalContext(history: DecodedHistory, inventories: readonly string[]): void {
@@ -45,7 +46,13 @@ export async function finalizeReview(input: {
   onDecisionConfirmed(decisionId: string): void
 }): Promise<void> {
   if (!input.canContinue()) return
-  const authorization = await input.review.authorize('synthesis')
+  const rootId = input.inventories[0]
+  if (rootId === undefined) throw new Error('final-publication-refused:review-root-unconfirmed')
+  const authorization = await input.review.authorize('synthesis', {
+    scope: input.scope,
+    kind: 'review-attempt',
+    recordId: rootId,
+  })
   if (!authorization.ok) throw new Error(`final-publication-refused:${authorization.reason}`)
   const beforeFinal = await input.readHistory()
   requireFinalContext(beforeFinal, input.inventories)

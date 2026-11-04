@@ -64,14 +64,22 @@ it('walks a schema-valid expanded wrapper citing a current output', () => {
     }),
   )
   const history = fixtures.historyFrom([root, output, wrapper])
-  const closed = assertCurrentOutputClosure(request([ref(wrapper)]), [history], [])
+  const closed = assertCurrentOutputClosure(request([ref(wrapper)]), [history], [], {
+    scope: TEST_SCOPE,
+    kind: 'review-attempt',
+    recordId: root.recordId,
+  })
   expect(closed.ok).toBe(false)
   if (!closed.ok) expect(closed.diagnostics.some((item) => item.code === 'self-output')).toBe(true)
 })
 
 it('includes a decision and review owned through the current contribution', () => {
   const graph = encodedAdmissionReviewGraph(projectionConfig(SYNTHETIC_TAXONOMY), { prefix: 'owned' })
-  const refs = currentRootOutputRefs({ ...request(), actionId: graph.root.recordId }, [graph.history])
+  const refs = currentRootOutputRefs({ ...request(), actionId: graph.root.recordId }, [graph.history], {
+    scope: TEST_SCOPE,
+    kind: 'review-attempt',
+    recordId: graph.root.recordId,
+  })
   expect(refs.map((item) => item.record.recordId)).toEqual(
     expect.arrayContaining([graph.synthesisContribution.recordId, graph.decision.recordId, graph.review.recordId]),
   )

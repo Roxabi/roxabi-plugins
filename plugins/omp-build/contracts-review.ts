@@ -23,6 +23,7 @@ export {
   reviewInterruptionPayloadSchema,
   reviewReplacementGrantPayloadSchema,
 } from './engine/review-interruption-schema.ts'
+export { reviewRootFromDecision } from './engine/review-inventory-input.ts'
 export {
   confirmHistoricalReviewInputMatch,
   type HistoricalReviewAssociation,
@@ -92,3 +93,4 @@ export {
   stopSchema,
 } from './engine/review-schema.ts'
 export { deriveReviewState, selectedReviewOperations, summarizeReviews } from './engine/review-state.ts'
+export { reviewSubjectBound } from './engine/review-subject-binding.ts'

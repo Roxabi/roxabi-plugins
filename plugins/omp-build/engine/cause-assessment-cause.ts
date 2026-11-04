@@ -2,9 +2,9 @@ import { assessCauseAdjudication } from './cause-adjudication-assessment.ts'
 import { blockingLabels } from './cause-assessment.ts'
 import type { AssessmentState } from './cause-assessment-state.ts'
 import { hasSupportedJudgments } from './cause-assessment-support.ts'
-import { assessExclusion } from './criterion-admission.ts'
 import { validateLocalFindingTarget } from './finding-target.ts'
 import { diagnostic } from './record-diagnostics.ts'
+import type { Diagnostic } from './record-values.ts'
 import type { Cause, FinalFinding } from './review-schema.ts'
 
 type Disposition = 'fix-original' | 'sister-blocking' | 'sister-after' | 'report' | null
@@ -49,6 +49,19 @@ function selectDisposition(input: DispositionInput): Disposition {
   return disposition
 }
 
+function excludedSources(input: AssessmentState, findings: FinalFinding[], diagnostics: Diagnostic[]): Set<string> {
+  const excluded = new Set<string>()
+  for (const finding of findings) {
+    for (const source of finding.sourceFindingIds) {
+      const claims = input.decision.payload.judgment.exclusionClaims.filter((claim) => claim.sourceFindingId === source)
+      const errors = input.claimDiagnostics.get(source) ?? []
+      diagnostics.push(...errors)
+      if (claims.length > 0 && errors.length === 0) excluded.add(source)
+    }
+  }
+  return excluded
+}
+
 export function assessCause(input: AssessmentState, cause: Cause): void {
   const {
     context,
@@ -87,15 +100,9 @@ export function assessCause(input: AssessmentState, cause: Cause): void {
     cause,
     findings,
   })
+  const excludedIds = excludedSources(input, findings, localDiagnostics)
   const excluded = effectiveFindings.map((finding) =>
-    finding.sourceFindingIds.every((sourceId) =>
-      decision.payload.judgment.exclusionClaims.some(
-        (claim) =>
-          claim.sourceFindingId === sourceId &&
-          JSON.stringify(claim.target) === JSON.stringify(finding.target) &&
-          assessExclusion({ spec: context.effective, claim }).ok,
-      ),
-    ),
+    finding.sourceFindingIds.every((sourceId) => excludedIds.has(sourceId)),
   )
   const mixed = excluded.some(Boolean) && !excluded.every(Boolean)
   if (mixed)

@@ -30,6 +30,7 @@ import type {
   PreparedUwAction,
   ReviewActionBatch,
   ReviewActionProjection,
+  SelectedReview,
   UwActionRequest,
 } from './uw-action-contract.ts'
 import type { UwDeliveryRead } from './uw-delivery-read.ts'
@@ -149,9 +150,17 @@ export interface UwOperations extends UwReadPort {
   write(input: UwProposalInput): Promise<UwOperationResult>
   create(input: UwCreateInput): Promise<UwOperationResult>
   acceptMaterial(uw: Scope): Promise<UwOperationResult>
-  prepareAction(input: UwActionRequest, projection?: ReviewActionProjection): Promise<Result<PreparedUwAction>>
+  prepareAction(
+    input: UwActionRequest,
+    projection?: ReviewActionProjection,
+    review?: SelectedReview,
+  ): Promise<Result<PreparedUwAction>>
   prepareReviewActions(input: ReviewActionBatch): Promise<Result<readonly PreparedUwAction[]>>
-  replayActionInputs(input: { reviewed: ActionInputs; request: UwActionRequest }): Promise<Result<ActionInputs>>
+  replayActionInputs(input: {
+    reviewed: ActionInputs
+    request: UwActionRequest
+    reviewedRoot?: SelectedReview['root']
+  }): Promise<Result<ActionInputs>>
   verifyAction(snapshot: ActionSnapshot): Promise<Result<ActionSnapshot>>
   readDelivery(uw: Scope): Promise<UwResult<UwDeliveryRead>>
 }

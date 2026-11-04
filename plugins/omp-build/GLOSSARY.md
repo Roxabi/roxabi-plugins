@@ -153,7 +153,7 @@ The GitHub support for a proposed Spec, native graph facts, records, and the dis
 _Avoid_: the UW itself, proof of delivery from native closure
 
 **Report**:
-A formalized, untreated cause retained as an immutable record on its UW of origin, with its reason and code version. Reports can be read for that UW and its descendants; promotion to a UW requires an authenticated operator decision.
+An immutable record retaining an untreated cause, or a finding or rule error resolved by an explicit adjudication without fabricating a root cause, on its UW of origin with its reason and code version. Reports can be read for that UW and its descendants; promotion to a UW requires an authenticated operator decision and fresh creation admission. Historical report retention is not criterion satisfaction or current delivery authority.
 _Avoid_: an automatically created follow-up issue, global search without an index, a satisfied criterion
 
 **Orchestrateur**:

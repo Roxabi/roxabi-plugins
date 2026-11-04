@@ -12,6 +12,7 @@ import {
   prepareSpecAllocation,
   publishConfirmedWorkflowRecord,
   readComposedWorkflowHistory,
+  readUwGraph,
   renderIssueSpecBody,
   viewer,
 } from '../dist/contracts.js'
@@ -32,7 +33,7 @@ import { createInstalledMaterialOperations } from './uw-installed-material-opera
 import { rootObservation } from './uw-installed-observation.ts'
 import { diagnostic, diagnostics, listInstalledReports, postEffectDiagnostics } from './uw-installed-reports.ts'
 import { createUwOperations } from './uw-operations.ts'
-import { createInstalledUwReadPort } from './uw-read-port.ts'
+import { createInstalledUwReadPort, readCreatedUw } from './uw-read-port.ts'
 
 export type InstalledUwOperationsOptions = {
   cwd: string
@@ -193,9 +194,12 @@ export async function createInstalledUwOperations(input: InstalledUwOperationsOp
     writerLogin: authenticatedAuthor,
   })
   const reader = createInstalledUwReadPort({ cwd: input.cwd, gh, readAuthor: authenticatedAuthor })
+  const createdReader: UwReadPort = {
+    readUw: (uw) => readCreatedUw(uw, { cwd: input.cwd, gh, readAuthor: authenticatedAuthor }),
+  }
   const completeReader = async (issue: IssueRef): Promise<IssueWriteObservation> => {
     const uw = scopeOf(issue)
-    return rootObservation(uw, await reader.readUw(uw))
+    return rootObservation(uw, { graph: await readUwGraph(uw, github) })
   }
   const issuePorts = createGhIssueWritePorts({
     gh: (args) => gh(input.cwd, [...args]),
@@ -215,7 +219,13 @@ export async function createInstalledUwOperations(input: InstalledUwOperationsOp
     if (allocated.status !== 'confirmed') return allocated
     const retired = await publishIdentityRetirement(uw, proposal, confirmation, github, allocated)
     if (retired.status !== 'confirmed') return retired
-    return retired.knownEffect ? confirmIdentityReadback(uw, retired.predecessor, reader) : { status: 'confirmed' }
+    return retired.knownEffect
+      ? confirmIdentityReadback(
+          uw,
+          retired.predecessor,
+          proposal.proposal.operation === 'create' ? createdReader : reader,
+        )
+      : { status: 'confirmed' }
   }
   const actionOptions = {
     cwd: input.cwd,
@@ -227,6 +237,7 @@ export async function createInstalledUwOperations(input: InstalledUwOperationsOp
   const acceptMaterial = createInstalledMaterialOperations({ operator: input.operator, reader, github })
   return createUwOperations({
     read: reader.readUw,
+    readCreated: createdReader.readUw,
     listReports: (uw) => listInstalledReports(uw, github),
     writer,
     guardedWriter: (beforeEffect) => guardedCauseWriter(issuePorts, createIssueWriter, beforeEffect),
@@ -235,6 +246,7 @@ export async function createInstalledUwOperations(input: InstalledUwOperationsOp
         adjudicateCause: createCauseAdjudication({ reader, github, operator: input.operator }),
         ...createCauseCreation({
           reader,
+          nativeReader: createdReader,
           github,
           operator: input.operator,
           prepare: backend.prepare,

@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { authenticatedReview, sisterRecords } from '../../testing/cause-input-fixture.ts'
-import { observedComment, operation as observedOperation } from '../../testing/record-history.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
-import { assessCauseDispositions } from '../cause-disposition.ts'
+import { canonicalValueDigest } from '../action-input.ts'
+import { assessAdjudicationSuccessor } from '../cause-adjudication-successor.ts'
+import { assessCauseDispositions, validateCauseAdjudication } from '../cause-disposition.ts'
 import { causeAdjudicationProposalSchema } from '../cause-disposition-schema.ts'
 import { assessCauseHolds } from '../cause-hold.ts'
 import { buildRecord } from '../record-construction.ts'
@@ -14,6 +15,7 @@ import { assessUwAdmission } from '../uw-admission.ts'
 import type { UwNativeNode } from '../uw-graph.ts'
 import type { SpecIdentityLedger } from '../uw-identity.ts'
 import type { AcceptedOwnSpec } from '../workflow-accepted-spec-types.ts'
+import { appendAccountedRecords, ref } from './cause-hold-fixture.ts'
 import { history, must } from './workflow-test-support.ts'
 
 const uw: Scope = { repository: 'acme/app', target: 'acme/app#42' }
@@ -119,13 +121,6 @@ function disposition(id: string, outcome: 'pending' | 'sister', changedSubject =
     }),
   )
 }
-function ref<K extends CanonicalRecord>(record: K): { scope: Scope; recordId: string; kind: K['kind'] } {
-  return {
-    scope: { repository: record.repository, target: record.target },
-    recordId: record.recordId,
-    kind: record.kind,
-  }
-}
 function node(scope: Scope, blockers: Scope[] = [], completed = false): UwNativeNode {
   return {
     uw: scope,
@@ -140,35 +135,23 @@ function node(scope: Scope, blockers: Scope[] = [], completed = false): UwNative
     native: { state: completed ? 'CLOSED' : 'OPEN', stateReason: completed ? 'COMPLETED' : null },
   }
 }
-function originalHistory(records: CanonicalRecord[] = []) {
-  const baseline = fixtures.historyFrom([mandate])
-  return {
-    ...baseline,
-    operations: [
-      ...baseline.operations,
-      ...records.map((record) =>
-        observedOperation(record, {
-          authority: 'accounted',
-          parts: [
-            observedComment({ author: 'operator', locator: `comment-${record.recordId}`, nativeId: record.recordId }),
-          ],
-        }),
-      ),
-    ],
-  }
-}
+const originalHistory = (records: CanonicalRecord[] = []) =>
+  appendAccountedRecords(fixtures.historyFrom([mandate]), records)
 function admission(
   records: CanonicalRecord[],
   options: {
     sisterHistory?: ReturnType<typeof history>
     sourceHistory?: ReturnType<typeof history>
     blocker?: 'open' | 'completed'
+    detached?: boolean
     proposedChanged?: boolean
     originHistory?: ReturnType<typeof history>
   } = {},
 ) {
   const original = options.originHistory ?? originalHistory(records)
-  const nodes = options.blocker ? [node(uw, [sister]), node(sister, [], options.blocker === 'completed')] : [node(uw)]
+  const nodes = options.blocker
+    ? [node(uw, options.detached ? [] : [sister]), node(sister, [], options.blocker === 'completed')]
+    : [node(uw)]
   return assessUwAdmission({
     uw,
     graph: { status: 'complete', root: uw, nodes, observedAt: now },
@@ -334,6 +317,96 @@ function authenticatedSuccessor() {
   return { graph, pending, operation, resolved }
 }
 
+it.each(['retained-finding', 'rule-error'] as const)('accepts motivated exact %s adjudication', (kind) => {
+  const { graph, context } = authenticatedReview()
+  const assessed = must(
+    assessCauseDispositions({
+      context,
+      source: {
+        kind: 'retained-output',
+        contributions: [graph.panel],
+        diagnostics: [{ code: 'raw-error', message: 'Incomplete output' }],
+      },
+      histories: [originalHistory(), graph.history],
+      adjudications: [],
+    }),
+  )
+  const payload = assessed.outcomes.find((item) => item.subject.kind === kind)
+  if (!payload) throw new Error('Expected retained pending')
+  const pending = must(
+    buildRecord({
+      version: 1,
+      ...uw,
+      recordId: `pending-${kind}`,
+      runId: 'run',
+      operationId: `op-${kind}`,
+      kind: 'cause-disposition',
+      payload,
+    }),
+  )
+  const references = [
+    {
+      source: 'record' as const,
+      record: ref(pending),
+      selector: '/payload',
+      digest: canonicalValueDigest(pending.payload),
+    },
+  ]
+  const proposal = causeAdjudicationProposalSchema.parse({
+    format: 'omp-build-cause-adjudication-proposal/1',
+    operationId: `resolve-${kind}`,
+    operation: 'adjudicate-cause',
+    uw,
+    pending: ref(pending),
+    pendingDigest: digest(pending),
+    rejectedFindingIds: payload.subject.kind === 'retained-finding' ? [payload.subject.finding.id] : [],
+    judgment: null,
+    reason: 'The authenticated source was reviewed',
+    references,
+  })
+  expect(
+    validateCauseAdjudication({
+      proposal,
+      pending,
+      context,
+      histories: [originalHistory([pending]), graph.history],
+    }),
+  ).toEqual([])
+  const proposalDigest = digest(proposal)
+  const operation = must(
+    buildRecord({
+      version: 1,
+      ...uw,
+      recordId: `intent-${kind}`,
+      runId: 'run',
+      operationId: `intent-op-${kind}`,
+      kind: 'cause-operation',
+      payload: {
+        format: 'omp-build-cause-operation/1',
+        proposal,
+        proposalDigest,
+        confirmation: {
+          route: 'omp-native-command',
+          operationId: proposal.operationId,
+          proposalDigest,
+          confirmedAt: now,
+        },
+      },
+    }),
+  )
+  const successor = must(
+    assessAdjudicationSuccessor({
+      pending,
+      operation,
+      context,
+      histories: [originalHistory([pending, operation]), graph.history],
+    }),
+  )
+  expect(successor.subject).toEqual(pending.payload.subject)
+  expect(successor.origin).toEqual(pending.payload.origin)
+  expect(successor.outcome).toEqual({ state: 'final', disposition: 'report', blocking: false, reason: proposal.reason })
+})
+
 describe('cause holds at UW admission', () => {
   it('holds a framed, accepted UW for a pending blocking cause', () => {
     const { graph, pending } = authenticatedSuccessor()
@@ -382,6 +455,7 @@ describe('cause holds at UW admission', () => {
     expect(
       assessCauseHolds({
         uw,
+        graph: { status: 'complete', root: uw, nodes: [node(uw)], observedAt: now },
         histories: [
           history([mandate, ...original], uw),
           sourceHistory,
@@ -402,6 +476,15 @@ describe('cause holds at UW admission', () => {
     expect(codes(open)).not.toContain('cause-sister-confirmation-required')
     const completed = admission(records, { sourceHistory: graph.history, sisterHistory, blocker: 'completed' })
     expect(completed.deliverable).toEqual({ ok: true, diagnostics: [] })
+  })
+
+  it('keeps the confirmed sister obligation after the native edge disappears', () => {
+    const { graph, held, operation, identity, receipt } = sisterRecords()
+    const records = [held, operation, receipt]
+    const options = { sourceHistory: graph.history, sisterHistory: history([identity], sister) }
+    expect(admission(records, options).deliverable.ok).toBe(false)
+    expect(admission(records, { ...options, detached: true, blocker: 'open' }).deliverable.ok).toBe(false)
+    expect(admission(records, { ...options, detached: true, blocker: 'completed' }).deliverable.ok).toBe(true)
   })
 
   it('admits the authenticated adjudicated successor without bypassing native or Spec obligations', () => {

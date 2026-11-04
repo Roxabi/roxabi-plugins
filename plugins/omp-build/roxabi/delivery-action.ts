@@ -12,6 +12,7 @@ import type {
   PreparedUwAction,
   RecordInputRef,
   ReviewActionProjection,
+  SelectedReview,
   UwActionRequest,
 } from './uw-action-contract.ts'
 import type { UwOperations } from './uw-contract.ts'
@@ -115,8 +116,9 @@ export async function prepareDeliveryAction(
   operations: UwOperations,
   request: UwActionRequest,
   projection?: ReviewActionProjection,
+  review?: SelectedReview,
 ): Promise<Result<PreparedUwAction, Diagnostic>> {
-  return operations.prepareAction(request, projection)
+  return operations.prepareAction(request, projection, review)
 }
 
 export function prepareRefusal(diagnostics: readonly Diagnostic[]): string {
@@ -203,10 +205,15 @@ export async function confirmPreparedAction(
   operations: UwOperations,
   request: UwActionRequest,
   projection?: ReviewActionProjection,
+  review?: SelectedReview,
 ): Promise<Result<PreparedUwAction, Diagnostic>> {
-  const prepared = await prepareDeliveryAction(operations, request, projection)
+  const prepared = await prepareDeliveryAction(operations, request, projection, review)
   if (!prepared.ok) return prepared
-  const replay = await operations.replayActionInputs({ reviewed: prepared.value.inputs, request })
+  const replay = await operations.replayActionInputs({
+    reviewed: prepared.value.inputs,
+    request,
+    reviewedRoot: review?.root,
+  })
   if (!replay.ok) return replay
   if (replay.value.fingerprint !== prepared.value.inputs.fingerprint) {
     return {

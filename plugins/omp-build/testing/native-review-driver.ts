@@ -11,6 +11,7 @@ import type { FixRun } from '../roxabi/fix-entry-lifecycle.ts'
 import { createExtensionApiStub, fixtureEventBus } from './extension-api-stub.ts'
 import { type NativeReviewChild, nativeReviewChild } from './native-review-child.ts'
 import { observeDriverCallbacks } from './native-review-diagnostics.ts'
+import { type BatchWaiter, type ContinuationWaiter, messageText, notifyWaiters } from './native-review-notifications.ts'
 import { provisionNativeRoot } from './native-root-fixture.ts'
 
 type Handler = (...args: unknown[]) => unknown
@@ -34,6 +35,7 @@ export type ReviewDriver = {
   nextBatch(after: number): Promise<void>
   fixTerminal(): FixRun['terminal']
   pause(): Promise<unknown[]>
+  continueFeature(): Promise<void>
   settle(data: (task: NativeTask) => NativeData): Promise<void>
   settleAction(data: (task: NativeTask) => NativeData, proof: ActionProof): Promise<void>
 }
@@ -208,24 +210,6 @@ async function settleDriver(input: DriverSettlement): Promise<void> {
   await settlement
 }
 
-type BatchWaiter = { after: number; resolve: () => void }
-type ContinuationWaiter = { resolve: () => void; reject: (error: Error) => void }
-
-function messageText(message: unknown): string {
-  if (typeof message === 'string') return message
-  if (typeof message === 'object' && message !== null && 'content' in message) return String(message.content)
-  return String(message)
-}
-
-function notifyWaiters(text: string, count: number, batches: BatchWaiter[], continuations: ContinuationWaiter[]): void {
-  if (text.includes('OMP_BUILD_NATIVE_BATCH')) {
-    for (const waiter of continuations.splice(0)) waiter.resolve()
-    for (const waiter of batches.splice(0)) if (count > waiter.after) waiter.resolve()
-  } else if (text.startsWith('feature-stopped:')) {
-    for (const waiter of continuations.splice(0)) waiter.reject(new Error(text))
-  }
-}
-
 export async function createReviewDriver(cwd: string): Promise<ReviewDriver> {
   const events = new Map<string, Handler[]>()
   const commands = new Map<string, Handler>()
@@ -292,6 +276,9 @@ export async function createReviewDriver(cwd: string): Promise<ReviewDriver> {
       const run = ownedFixRunFor(api)?.run
       if (run === undefined) throw new Error('fix-run-missing')
       return run.terminal
+    },
+    continueFeature: async () => {
+      await feature('#42', context)
     },
     pause: () => pause(events, context),
     settle: (data) => settleDriver({ controller, context, events, messages, data }),

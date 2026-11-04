@@ -164,6 +164,7 @@ export function setup(abandoned: boolean) {
   } as unknown as ExtensionContext)
   const operations = createUwOperations({
     read,
+    readCreated: read,
     listReports: async (root) => ({ ok: true, value: { root, reports: [] } }),
     writer: createIssueWriter(issuePorts),
     guardedWriter: (beforeEffect) => guardedCauseWriter(issuePorts, createIssueWriter, beforeEffect),
