@@ -67,15 +67,31 @@ async function dispatchPreparedReplacementReview(
   options: ReplacementDispatchOptions = {},
 ): Promise<void> {
   if (hasOwnedFixRun(pi)) throw new Error('fix-run-already-active')
+  if (
+    !('replacement' in inventory.payload) ||
+    inventory.payload.replacement?.grantId !== grantId ||
+    inventory.recordId !== `review-replacement-inventory-${grantId}`
+  )
+    throw new Error('replacement-inventory-grant-mismatch')
+  const replacementRoot: ReviewRootRef = { scope: input.scope, kind: 'review-attempt', recordId: inventory.recordId }
   const authorize = async (
     stage: 'initial' | 'recall' | 'synthesis',
+    root?: ReviewRootRef,
   ): Promise<{ ok: true } | { ok: false; reason: string }> => {
+    const reviewedRoot = root ?? (stage === 'initial' ? replacementRoot : undefined)
+    if (
+      reviewedRoot === undefined ||
+      reviewedRoot.recordId !== replacementRoot.recordId ||
+      reviewedRoot.scope.repository !== replacementRoot.scope.repository ||
+      reviewedRoot.scope.target !== replacementRoot.scope.target
+    )
+      return { ok: false, reason: `${stage}:review-root-mismatch` }
     const validation = await (options.validateReview ?? validateReviewInput)(
       ctx.cwd,
       input.pr.number,
       input.pr.head,
       input.capture.input,
-      { pluginPin: hostPluginPin() },
+      { pluginPin: hostPluginPin(), reviewedRoot },
     )
     if (!validation.ok) return { ok: false, reason: `${stage}:${validation.reason}` }
     return { ok: true }

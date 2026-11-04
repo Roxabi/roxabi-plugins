@@ -4,6 +4,7 @@ import { validateCauseAdjudication } from './cause-adjudication.ts'
 import type { Ref } from './cause-disposition.ts'
 import type { CauseAdjudicationProposal } from './cause-disposition-schema.ts'
 import { causeDispositionLineage } from './cause-lineage.ts'
+import type { CauseValidationFrame } from './cause-validation-frame.ts'
 import type { CauseContext } from './finding-target.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope, sameRef } from './record-diagnostics.ts'
@@ -23,6 +24,8 @@ type Input = {
   cause: Cause
   findings: FinalFinding[]
   decisionRef: Ref<'decision'>
+  validatedPrefix?: readonly CauseAdjudicationProposal[]
+  validationFrame?: CauseValidationFrame
 }
 type Assessment = {
   effectiveJudgment: CauseJudgment
@@ -58,8 +61,14 @@ function authenticateOperation(input: Input, operation: Operation, history: Deco
     recordId: operation.recordId,
     kind: 'cause-operation',
   }
-  const authenticated = bindExternalRef(opRef, history)
   const pending = bindExternalRef(proposal.pending, history)
+  if (
+    pending.ok &&
+    pending.value.kind === 'cause-disposition' &&
+    input.validationFrame?.confirmations.has(canonicalValueDigest([pending.value, operation, input.context]))
+  )
+    return { ok: true, value: { pending: pending.value, proposal, opRef } }
+  const authenticated = bindExternalRef(opRef, history)
   const digest = createHash('sha256').update(JSON.stringify(proposal)).digest('hex')
   if (
     !authenticated.ok ||
@@ -81,7 +90,12 @@ function authenticateOperation(input: Input, operation: Operation, history: Deco
 
 function validateSnapshot(input: Input, current: Confirmed, records: readonly CanonicalRecord[]): Diagnostic[] {
   const { pending, proposal, opRef } = current
-  const errors = validateCauseAdjudication({ proposal, pending, histories: input.histories, context: input.context })
+  const evidenceKey = canonicalValueDigest([proposal, pending, input.context])
+  const existing = input.validationFrame?.adjudications.get(evidenceKey)
+  const errors = existing
+    ? [...existing]
+    : validateCauseAdjudication({ proposal, pending, histories: input.histories, context: input.context })
+  if (!existing) input.validationFrame?.adjudications.set(evidenceKey, [...errors])
   if (
     pending.payload.subject.kind !== 'cause' ||
     canonicalValueDigest(pending.payload.subject.cause) !== canonicalValueDigest(input.cause) ||
@@ -107,6 +121,7 @@ function validatedChain(
   current: Confirmed,
   history: DecodedHistory,
 ): Result<CauseAdjudicationProposal[]> {
+  if (input.validatedPrefix !== undefined) return { ok: true, value: [...input.validatedPrefix, current.proposal] }
   const lineage = causeDispositionLineage({ head: current.pending, history })
   if (!lineage.ok) return lineage
   const chain: CauseAdjudicationProposal[] = []

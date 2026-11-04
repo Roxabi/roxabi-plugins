@@ -68,11 +68,11 @@ async function emit(events: Map<string, Handler[]>, name: string, ...args: unkno
   }
 }
 
-function rootContext(cwd: string): RootContext {
+function rootContext(cwd: string, contextWindow: number): RootContext {
   return {
     cwd,
     agent: { kind: 'main' as const, id: 'Main', name: 'main', depth: 0 },
-    model: { contextWindow: 128000 },
+    model: { contextWindow },
     models: { resolve: () => ({ id: 'fixture-model', provider: 'fixture-provider' }) },
     isIdle: () => true,
     localProtocolOptions: { getArtifactsDir: () => join(dirname(cwd), 'native-review-artifacts') },
@@ -210,7 +210,7 @@ async function settleDriver(input: DriverSettlement): Promise<void> {
   await settlement
 }
 
-export async function createReviewDriver(cwd: string): Promise<ReviewDriver> {
+export async function createReviewDriver(cwd: string, contextWindow = 128_000): Promise<ReviewDriver> {
   const events = new Map<string, Handler[]>()
   const commands = new Map<string, Handler>()
   const messages: string[] = []
@@ -231,7 +231,7 @@ export async function createReviewDriver(cwd: string): Promise<ReviewDriver> {
     sendUserMessage: recordMessage,
     sendMessage: recordMessage,
   })
-  const context = rootContext(cwd)
+  const context = rootContext(cwd, contextWindow)
   provisionNativeRoot(context)
   ompBuildExtension(api)
   const controller = reviewControllerFor(api)

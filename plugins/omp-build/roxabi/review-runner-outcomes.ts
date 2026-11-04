@@ -225,6 +225,7 @@ export async function advanceReviewStage(input: {
     output: 'findings',
     classId: recallEntries[index].classId,
     sourceFindingIds: recallEntries[index].sourceFindingIds,
+    action: { actionId: task.action.snapshot.actionId, inputs: task.action.inputs },
   }))
   return createInventory({
     identity: input.identity,

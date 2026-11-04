@@ -1,12 +1,12 @@
 import { createHash } from 'node:crypto'
+import { canonicalValueDigest } from './action-input.ts'
 import { validateCauseAdjudication } from './cause-adjudication.ts'
+import { type CauseValidationFrame, historicalCauseContext } from './cause-validation-frame.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
-import { resolveOwnSpecEffective, sameOwnSpecRef } from './spec-effective.ts'
-import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
-import { bindExternalRef, recordsOf } from './workflow-control.ts'
+import { bindExternalRef } from './workflow-control.ts'
 
 type Operation = Extract<CanonicalRecord, { kind: 'cause-operation' }>
 type Disposition = Extract<CanonicalRecord, { kind: 'cause-disposition' }>
@@ -40,27 +40,36 @@ function validateAdjudication(
   proposal: Extract<Proposal, { operation: 'adjudicate-cause' }>,
   disposition: Disposition,
   sourceHistory: DecodedHistory,
-  histories: readonly DecodedHistory[],
+  confirmationValid: boolean,
+  frame: CauseValidationFrame,
   diagnostics: Diagnostic[],
 ): void {
-  const effective = recordsOf(sourceHistory).flatMap((candidate) => {
-    if (candidate.kind !== 'mandate') return []
-    const accepted = resolveAcceptedSpec(candidate, histories)
-    if (!accepted.ok || !sameOwnSpecRef(accepted.spec.ref, disposition.payload.origin)) return []
-    const projected = resolveOwnSpecEffective(accepted.spec)
-    return projected.ok ? [projected.value] : []
-  })
-  if (effective.length !== 1 || effective[0] === undefined)
+  const resolved = historicalCauseContext(frame, disposition.payload.origin)
+  if (!resolved.ok) {
     diagnostics.push(diagnostic('cause-origin-unconfirmed', `Operation ${operation.recordId} lacks its accepted Spec`))
-  else
-    diagnostics.push(
-      ...validateCauseAdjudication({
-        proposal,
-        pending: disposition,
-        histories,
-        context: { original: disposition.payload.origin.uw, effective: effective[0] },
-      }),
+    return
+  }
+  const context = resolved.value
+  const key = canonicalValueDigest([proposal, disposition, context])
+  const errors =
+    frame.adjudications.get(key) ??
+    validateCauseAdjudication({ proposal, pending: disposition, histories: frame.histories, context })
+  frame.adjudications.set(key, errors)
+  diagnostics.push(...errors)
+  if (errors.length === 0) {
+    const bound = bindExternalRef(
+      { scope: proposal.uw, kind: 'cause-operation', recordId: operation.recordId },
+      sourceHistory,
     )
+    if (
+      confirmationValid &&
+      equalScope(disposition, context.original) &&
+      equalScope(operation, context.original) &&
+      bound.ok &&
+      canonicalValueDigest(bound.value) === canonicalValueDigest(operation)
+    )
+      frame.confirmations.add(canonicalValueDigest([disposition, operation, context]))
+  }
 }
 
 function sisterMatches(
@@ -104,9 +113,11 @@ export function validateCauseOperations(
   operations: readonly Operation[],
   histories: readonly DecodedHistory[],
   diagnostics: Diagnostic[],
+  frame: CauseValidationFrame,
 ): void {
   const confirmations = new Set<string>()
   for (const operation of operations) {
+    const beforeConfirmation = diagnostics.length
     validateConfirmation(operation, confirmations, diagnostics)
     const proposal = operation.payload.proposal
     const sourceRef =
@@ -132,7 +143,15 @@ export function validateCauseOperations(
       continue
     }
     if (proposal.operation === 'adjudicate-cause')
-      validateAdjudication(operation, proposal, source.value, sourceHistory, histories, diagnostics)
+      validateAdjudication(
+        operation,
+        proposal,
+        source.value,
+        sourceHistory,
+        diagnostics.length === beforeConfirmation,
+        frame,
+        diagnostics,
+      )
     else validateCreation(operation, proposal, source.value, diagnostics)
   }
 }

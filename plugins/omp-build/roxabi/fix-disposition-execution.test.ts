@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { CanonicalRecord, DecodedHistory } from '../dist/contracts.js'
-import { acceptedPullRequestReviewGraph } from '../testing/record-graphs.ts'
-import { operation } from '../testing/record-history.ts'
+import { assessCauseHolds, buildRecord, parseRecord } from '../dist/contracts.js'
+import { submission } from '../testing/record-builders.ts'
+import { acceptedPullRequestReviewGraph, reviewGraph } from '../testing/record-graphs.ts'
+import { observedComment, operation } from '../testing/record-history.ts'
 import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
 import type { FixIdentity, FixRecord, PreparedFix } from './fix-contract.ts'
 import { persistCauseDispositions } from './fix-disposition-execution.ts'
@@ -49,7 +51,10 @@ function consumer(origin: DecodedHistory, target: DecodedHistory) {
     read: vi.fn(async () => ({ ok: true as const, value: [current, target] })),
     publish: vi.fn(async (item: Extract<CanonicalRecord, { kind: 'cause-disposition' }>) => {
       saved.push(item)
-      const observed = operation(item, { authority: 'accounted' })
+      const observed = operation(item, {
+        authority: 'accounted',
+        parts: [observedComment({ author: current.source.expectedAuthor })],
+      })
       current = { ...current, operations: [...current.operations, observed] }
       return { status: 'confirmed' as const, operation: observed }
     }),
@@ -113,6 +118,244 @@ describe('correction disposition ingress', () => {
     ])
     expect(product.activate).not.toHaveBeenCalled()
     expect(product.publish).not.toHaveBeenCalled()
+  })
+  it('persists and holds an unassigned exclusion rule error alongside an otherwise valid cause', async () => {
+    const { graph, origin, prepared } = acceptedReview()
+    const finding = graph.decision.payload.judgment.findings[0]
+    if (!finding?.target) throw new Error('authenticated finding target required')
+    const judgment = {
+      ...graph.decision.payload.judgment,
+      exclusionClaims: [
+        {
+          sourceFindingId: 'unknown-source',
+          target: finding.target,
+          exclusion: { spec: prepared.causeContext.effective.own, index: 0 },
+          concern: 'additional-work' as const,
+          reason: 'This claim must remain visible even without an assigned finding',
+        },
+      ],
+    }
+    const parsedDecision = parseRecord({ ...graph.decision, payload: { ...graph.decision.payload, judgment } })
+    const parsedSynthesis = parseRecord({
+      ...graph.synthesisContribution,
+      payload: {
+        ...graph.synthesisContribution.payload,
+        structured: judgment,
+        rawAttempts: graph.synthesisContribution.payload.rawAttempts.map((attempt) => ({ ...attempt, data: judgment })),
+      },
+    })
+    if (
+      !parsedDecision.ok ||
+      parsedDecision.value.kind !== 'decision' ||
+      !parsedSynthesis.ok ||
+      parsedSynthesis.value.kind !== 'contribution'
+    )
+      throw new Error('authenticated decision fixture invalid')
+    const decision = parsedDecision.value
+    const synthesis = parsedSynthesis.value
+    const target = {
+      ...graph.history,
+      operations: graph.history.operations.map((item) =>
+        item.recordId === decision.recordId
+          ? operation(decision)
+          : item.recordId === synthesis.recordId
+            ? operation(synthesis)
+            : item,
+      ),
+    }
+    const product = consumer(origin, target)
+    let sequence = 0
+    const result = await persistCauseDispositions(
+      prepared,
+      { kind: 'decision', decision },
+      { ...identity, nextRecordId: () => `disposition-${++sequence}` },
+      product.workflow.dispositionStore,
+    )
+    expect(result.ok, JSON.stringify(result)).toBe(true)
+    if (!result.ok) throw new Error('disposition persistence refused')
+    expect(result.value.pending).toBe(true)
+    expect(product.saved).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            subject: expect.objectContaining({
+              kind: 'rule-error',
+              diagnostic: expect.objectContaining({ code: 'unknown-reference' }),
+            }),
+            outcome: expect.objectContaining({ state: 'pending-blocking' }),
+          }),
+        }),
+      ]),
+    )
+    const readback = await product.dispositionStore.read()
+    if (!readback.ok) throw new Error('readback unavailable')
+    const holds = assessCauseHolds({
+      uw: original,
+      histories: readback.value,
+      graph: { status: 'complete', root: original, nodes: [], observedAt: '2026-10-27T12:00:00.000Z' },
+    })
+    expect(holds).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'cause-adjudication-required' })]))
+  })
+  it('persists a hold for an unknown exclusion in an otherwise empty authenticated correction', async () => {
+    const base = acceptedReview()
+    const scope = { repository: base.graph.decision.repository, target: base.graph.decision.target }
+    const graph = reviewGraph({
+      prefix: 'empty-exclusion',
+      empty: true,
+      inputs: base.graph.inputs,
+      scope,
+      head: base.graph.inputs.manifest.code.head,
+    })
+    const existingTarget = base.graph.decision.payload.judgment.findings[0]?.target
+    if (!existingTarget || graph.root.payload.stage !== 'initial') throw new Error('fixture target or root missing')
+    const old = graph.decision.payload.judgment
+    const judgment = {
+      format: old.format,
+      policy: old.policy,
+      sourceContributionIds: old.sourceContributionIds,
+      findings: [],
+      causes: [],
+      unassignedFindings: [],
+      purpose: 'correction' as const,
+      exclusionClaims: [
+        {
+          sourceFindingId: 'unknown-empty-source',
+          target: existingTarget,
+          exclusion: { spec: base.prepared.causeContext.effective.own, index: 0 },
+          concern: 'additional-work' as const,
+          reason: 'Unknown source must not disappear',
+        },
+      ],
+    }
+    const required = <T>(result: { ok: true; value: T } | { ok: false; diagnostics: readonly unknown[] }): T => {
+      if (!result.ok) throw new Error(`fixture invalid: ${JSON.stringify(result.diagnostics)}`)
+      return result.value
+    }
+    const requestContribution = required(
+      parseRecord({
+        version: 1,
+        ...scope,
+        recordId: 'empty-request-source',
+        runId: 'run',
+        operationId: 'empty-source-op',
+        inputs: [],
+        kind: 'contribution',
+        payload: {
+          content: 'operator-request',
+          inventoryId: null,
+          host: { origin: 'operator', phase: 'fix', role: 'operator', slotId: null, chunk: null, childId: null },
+          rawAttempts: [
+            { attemptIndex: 0, data: null, raw: { operatorRequest: { request: 'Repair' } }, partialText: null },
+          ],
+          native: null,
+          structured: null,
+          findings: null,
+        },
+      }),
+    )
+    const request = required(
+      buildRecord({
+        version: 1,
+        ...scope,
+        recordId: 'empty-request',
+        runId: 'run',
+        operationId: 'empty-request-op',
+        kind: 'fix-request',
+        payload: {
+          requestContributionId: requestContribution.recordId,
+          originalSpec: base.prepared.causeContext.effective.own,
+          existingReviewId: null,
+          scope: 'all findings',
+          landing: false,
+        },
+      }),
+    )
+    const rootPayload = graph.root.payload
+    const root = required(
+      buildRecord({
+        ...graph.root,
+        payload: {
+          rootAttemptId: rootPayload.rootAttemptId,
+          candidateGitSHA: rootPayload.candidateGitSHA,
+          inputFormat: rootPayload.inputFormat,
+          input: rootPayload.input,
+          actionInputDigest: rootPayload.actionInputDigest,
+          slots: rootPayload.slots,
+          stage: 'initial',
+          purpose: 'correction',
+          requestId: request.recordId,
+          policy: rootPayload.policy,
+        },
+      }),
+    )
+    const synthesis = required(
+      parseRecord({ ...graph.synthesis, payload: { ...graph.synthesis.payload, purpose: 'correction' } }),
+    )
+    const decision = required(parseRecord({ ...graph.decision, payload: { ...graph.decision.payload, judgment } }))
+    const contribution = required(
+      parseRecord({
+        ...graph.synthesisContribution,
+        payload: {
+          ...graph.synthesisContribution.payload,
+          structured: judgment,
+          rawAttempts: [
+            submission({
+              id: `child-${graph.synthesisContribution.recordId}`,
+              structuredOutput: { status: 'valid', data: judgment },
+            }),
+          ],
+        },
+      }),
+    )
+    if (decision.kind !== 'decision') throw new Error('expected correction decision')
+    const binding = base.graph.history.operations.find((item) => item.record?.kind === 'workflow-binding')
+    if (!binding) throw new Error('authenticated binding missing')
+    const replacements = new Map([root, synthesis, decision, contribution].map((record) => [record.recordId, record]))
+    const target = {
+      ...graph.history,
+      operations: [
+        binding,
+        operation(requestContribution),
+        operation(request),
+        ...graph.history.operations.flatMap((item) => {
+          if (item.recordId === graph.review.recordId) return []
+          const replacement = item.recordId === null ? undefined : replacements.get(item.recordId)
+          return [replacement ? operation(replacement) : item]
+        }),
+      ],
+    }
+    const product = consumer(base.origin, target)
+    const result = await persistCauseDispositions(
+      base.prepared,
+      { kind: 'decision', decision },
+      identity,
+      product.workflow.dispositionStore,
+    )
+    expect(result.ok, JSON.stringify(result)).toBe(true)
+    if (!result.ok) throw new Error('empty correction persistence refused')
+    expect(result.value.pending).toBe(true)
+    expect(product.saved).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            subject: expect.objectContaining({
+              kind: 'rule-error',
+              diagnostic: expect.objectContaining({ code: 'unknown-reference' }),
+            }),
+            outcome: expect.objectContaining({ state: 'pending-blocking' }),
+          }),
+        }),
+      ]),
+    )
+    const readback = await product.dispositionStore.read()
+    if (!readback.ok) throw new Error('readback unavailable')
+    expect(
+      assessCauseHolds({
+        uw: original,
+        histories: readback.value,
+        graph: { status: 'complete', root: original, nodes: [], observedAt: '2026-10-27T12:00:00.000Z' },
+      }),
+    ).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'cause-adjudication-required' })]))
   })
 
   it('refuses an unauthenticated synthesis slot without filing or applying the raw finding', async () => {

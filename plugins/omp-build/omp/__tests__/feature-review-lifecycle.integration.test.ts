@@ -15,6 +15,7 @@ import {
   REVIEW_SCOPE as SCOPE,
   seedReviewFixture,
 } from '../../testing/feature-review-fixture.ts'
+import { arrangeRecallReviewFixture } from '../../testing/feature-review-recall-fixture.ts'
 import { git, readSim } from '../../testing/sandbox/sandbox-repository.ts'
 import type { Box } from '../../testing/sandbox/sandbox-types.ts'
 
@@ -63,6 +64,16 @@ function invoke(box: Box, cwd: string, control: 'continue' | 'pause' | 'resume',
     reviewSnapshots?: Array<{ head: string; index: string; fingerprint: string; sourceRecordId: string }>
     replay?: { head: string; verdict: string }
     terminal?: { status: 'complete' | 'stopped'; recordId?: string; kind?: string }
+    published?: boolean
+    reviewReferencesRecall?: boolean
+    fixActive?: boolean
+    diagnostics?: unknown[]
+    exact?: { ok: boolean; reason?: string }
+    wrongActive?: string | null
+    wrongAnnounced?: boolean
+    replacementId?: string
+    interruptedId?: string
+    expectedOperation?: string
     transitionOutcome?: 'next-batch' | 'terminal'
   }
 }
@@ -291,6 +302,29 @@ function assertCorrectionReceipt(
 }
 
 describe('installed /feature review lifecycle through actual Bun and external boundaries', () => {
+  it('continues to review-bound fix after an actually published recall inventory', async () => {
+    const { box, cwd } = arrangeRecallReviewFixture()
+    roots.add(box.root)
+    await seedReviewFixture(box, cwd)
+    const observed = invoke(box, cwd, 'continue', 'omp-review-recall-fix')
+    expect(observed.published).toBe(true)
+    expect(observed.reviewReferencesRecall).toBe(true)
+    expect(observed.fixActive, JSON.stringify({ messages: observed.messages, diagnostics: observed.diagnostics })).toBe(
+      true,
+    )
+  })
+  it('authorizes the confirmed replacement root with genuine review-input validation', async () => {
+    const { box, cwd } = arrange()
+    await seedReviewFixture(box, cwd)
+    const observed = invoke(box, cwd, 'continue', 'omp-review-replacement-real')
+    expect(observed.exact?.ok).toBe(true)
+    expect(observed.replacementId).not.toBe(observed.interruptedId)
+    expect(observed.wrongActive).toBeNull()
+    expect(observed.wrongAnnounced).toBe(false)
+    expect(observed.active?.operationId).toBe(observed.expectedOperation)
+    expect(observed.messages.some((message) => message.includes('OMP_BUILD_NATIVE_BATCH:'))).toBe(true)
+  })
+
   it('keeps the activated fix after the preceding review terminal', async () => {
     const { box, cwd } = arrange()
     await seedReviewFixture(box, cwd)

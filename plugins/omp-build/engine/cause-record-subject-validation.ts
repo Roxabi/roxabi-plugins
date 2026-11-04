@@ -1,14 +1,13 @@
 import { canonicalValueDigest } from './action-input.ts'
-import { assessAdjudicationSuccessor } from './cause-adjudication-successor.ts'
-import { assessCauseDispositions, blockingLabels } from './cause-assessment.ts'
+import { assessHistoricalAdjudicationSuccessor } from './cause-adjudication-successor.ts'
+import { assessHistoricalCauseDispositions, blockingLabels } from './cause-assessment.ts'
+import { type CauseValidationFrame, historicalCauseContext } from './cause-validation-frame.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { inspectFinding } from './producer-schema.ts'
 import { diagnostic, equalScope } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
-import { resolveOwnSpecEffective, sameOwnSpecRef } from './spec-effective.ts'
-import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
-import { bindExternalRef, recordsOf } from './workflow-control.ts'
+import { bindExternalRef } from './workflow-control.ts'
 
 type Disposition = Extract<CanonicalRecord, { kind: 'cause-disposition' }>
 type Operation = Extract<CanonicalRecord, { kind: 'cause-operation' }>
@@ -51,6 +50,7 @@ function validateCause(
   operations: readonly Operation[],
   histories: readonly DecodedHistory[],
   diagnostics: Diagnostic[],
+  frame: CauseValidationFrame,
 ): void {
   const payload = record.payload
   if (payload.subject.kind !== 'cause') return
@@ -64,14 +64,8 @@ function validateCause(
     )
     return
   }
-  const effective = recordsOf(originHistory).flatMap((candidate) => {
-    if (candidate.kind !== 'mandate') return []
-    const accepted = resolveAcceptedSpec(candidate, histories)
-    if (!accepted.ok || !sameOwnSpecRef(accepted.spec.ref, payload.origin)) return []
-    const projection = resolveOwnSpecEffective(accepted.spec)
-    return projection.ok ? [projection.value] : []
-  })
-  if (effective.length !== 1 || effective[0] === undefined) {
+  const context = historicalCauseContext(frame, payload.origin)
+  if (!context.ok) {
     diagnostics.push(
       diagnostic('cause-origin-unconfirmed', `Disposition ${record.recordId} lacks a unique accepted Spec`),
     )
@@ -84,12 +78,15 @@ function validateCause(
       : operations.filter(
           (item) => item.recordId === adjudicationRef.recordId && equalScope(item, adjudicationRef.scope),
         )
-  const assessed = assessCauseDispositions({
-    context: { original: payload.origin.uw, effective: effective[0] },
-    source: { kind: 'decision', decision: source.value },
-    histories,
-    adjudications,
-  })
+  const assessed = assessHistoricalCauseDispositions(
+    {
+      context: context.value,
+      source: { kind: 'decision', decision: source.value },
+      histories,
+      adjudications,
+    },
+    frame,
+  )
   if (!assessed.ok) diagnostics.push(...assessed.diagnostics)
   else if (!assessed.value.outcomes.some((outcome) => canonicalValueDigest(outcome) === canonicalValueDigest(payload)))
     diagnostics.push(
@@ -105,6 +102,7 @@ function validateSuccessor(
   operations: readonly Operation[],
   histories: readonly DecodedHistory[],
   diagnostics: Diagnostic[],
+  frame: CauseValidationFrame,
 ): void {
   const previousRef = record.payload.previous
   const operationRef = record.payload.adjudication
@@ -120,25 +118,22 @@ function validateSuccessor(
     )
     return
   }
-  const projections = recordsOf(home).flatMap((candidate) => {
-    if (candidate.kind !== 'mandate') return []
-    const accepted = resolveAcceptedSpec(candidate, histories)
-    if (!accepted.ok || !sameOwnSpecRef(accepted.spec.ref, record.payload.origin)) return []
-    const effective = resolveOwnSpecEffective(accepted.spec)
-    return effective.ok ? [effective.value] : []
-  })
-  if (projections.length !== 1 || projections[0] === undefined) {
+  const context = historicalCauseContext(frame, record.payload.origin)
+  if (!context.ok) {
     diagnostics.push(
       diagnostic('cause-origin-unconfirmed', `Disposition ${record.recordId} lacks a unique accepted Spec`),
     )
     return
   }
-  const assessed = assessAdjudicationSuccessor({
-    pending: previous.value,
-    operation,
-    histories,
-    context: { original: record.payload.origin.uw, effective: projections[0] },
-  })
+  const assessed = assessHistoricalAdjudicationSuccessor(
+    {
+      pending: previous.value,
+      operation,
+      histories,
+      context: context.value,
+    },
+    frame,
+  )
   if (!assessed.ok) diagnostics.push(...assessed.diagnostics)
   else if (canonicalValueDigest(assessed.value) !== canonicalValueDigest(record.payload))
     diagnostics.push(
@@ -154,11 +149,12 @@ export function validateCauseSubject(
   operations: readonly Operation[],
   histories: readonly DecodedHistory[],
   diagnostics: Diagnostic[],
+  frame: CauseValidationFrame,
 ): void {
   if (record.payload.previous !== null) {
-    validateSuccessor(record, operations, histories, diagnostics)
+    validateSuccessor(record, operations, histories, diagnostics, frame)
     return
   }
   validateRetained(record, histories, diagnostics)
-  validateCause(record, operations, histories, diagnostics)
+  validateCause(record, operations, histories, diagnostics, frame)
 }

@@ -1,4 +1,5 @@
 import { blockingLabels } from './cause-assessment.ts'
+import type { AssessmentState } from './cause-assessment-state.ts'
 import type { Ref } from './cause-disposition.ts'
 import type { CauseDispositionPayload } from './cause-disposition-schema.ts'
 import { inspectFinding } from './producer-schema.ts'
@@ -49,6 +50,28 @@ function appendSourceFindings(
           },
       diagnostics: sourceDiagnostics,
     })
+  }
+}
+export function appendUnassignedClaimErrors(state: AssessmentState): void {
+  const { decision, bindings, claimDiagnostics, diagnostics, outcomes, base, decisionRef } = state
+  const assigned = new Set(
+    decision.payload.judgment.causes.flatMap((cause) =>
+      decision.payload.judgment.findings
+        .filter((finding) => cause.findingIds.includes(finding.id))
+        .flatMap((finding) => finding.sourceFindingIds),
+    ),
+  )
+  for (const [source, errors] of claimDiagnostics) {
+    if (bindings.admissible && assigned.has(source)) continue
+    for (const item of errors) {
+      diagnostics.push(item)
+      outcomes.push({
+        ...base,
+        subject: { kind: 'rule-error', source: decisionRef, diagnostic: item },
+        outcome: { state: 'pending-blocking', reason: 'Exclusion claim requires adjudication' },
+        diagnostics: [item],
+      })
+    }
   }
 }
 

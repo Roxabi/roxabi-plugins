@@ -1,6 +1,7 @@
 import type { Gh } from '../adapters/github/types.ts'
 import {
   actionInputsSchema,
+  readCauseHistoryClosure,
   readComposedWorkflowHistory,
   recordIntegrity,
   recordOperation,
@@ -8,7 +9,6 @@ import {
 } from '../dist/contracts.js'
 import type { ActionInputs, RecordInputRef } from '../engine/action-input-schema.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
-import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { Result } from '../engine/result.ts'
 import { readSelectedRecords } from './uw-action-basis.ts'
@@ -21,6 +21,7 @@ import type { UwRead } from './uw-contract.ts'
 import { correctionObservation } from './uw-correction-observation.ts'
 import type { UwDeliveryReadPorts } from './uw-delivery-read.ts'
 import { readGitFileBytes, readGitFileBytesBatch, readPinnedDiff } from './uw-git-bytes.ts'
+import { confirmCitedRefs } from './uw-input-citations.ts'
 import { readDeliveryHistories } from './uw-input-linked.ts'
 import { pluginPinPort } from './uw-plugin-pin.ts'
 import { discoverRepositoryReferences } from './uw-repository-refs.ts'
@@ -146,7 +147,7 @@ function citedRefs(inputs: ActionInputs): RecordInputRef[] {
   return refs
 }
 
-/** Root history stays observed. Extra scopes are only manifest-cited records. `.records` is not authority. */
+/** Root and manifest citations stay authoritative; typed causal references extend their histories. */
 export async function readManifestCitedHistories(input: {
   history: DecodedHistory
   inputs: ActionInputs
@@ -161,7 +162,11 @@ export async function readManifestCitedHistories(input: {
       ? { ok: true as const, histories: [] as DecodedHistory[] }
       : await readComposedWorkflowHistory(scopes, { cwd: input.cwd, gh: input.gh, readAuthor: input.readAuthor })
   if (!fetched.ok) return { ok: false, diagnostics: fetched.diagnostics }
-  const histories = [input.history, ...fetched.histories]
+  const closure = await readCauseHistoryClosure([input.history, ...fetched.histories], (required) =>
+    readComposedWorkflowHistory(required, { cwd: input.cwd, gh: input.gh, readAuthor: input.readAuthor }),
+  )
+  if (!closure.ok) return { ok: false, diagnostics: closure.diagnostics }
+  const histories = closure.histories
   for (const ref of citedRefs(input.inputs)) {
     const record = histories
       .flatMap((history) => recordsOf(history))
@@ -231,70 +236,29 @@ function confirmFetchedScopes(scopes: readonly Scope[], histories: readonly Deco
   return { ok: true, value: true }
 }
 
-function confirmCitedRef(
-  ref: RecordInputRef,
-  history: DecodedHistory,
-  histories: readonly DecodedHistory[],
-): Result<true> {
-  if (
-    ref.record.scope.repository === history.source.scope.repository &&
-    ref.record.scope.target === history.source.scope.target
-  )
-    return { ok: true, value: true }
-  const matched = histories.find(
-    (item) =>
-      item.source.scope.repository === ref.record.scope.repository &&
-      item.source.scope.target === ref.record.scope.target,
-  )
-  if (matched === undefined)
-    return actionFailure('record-unreadable', `Cited ${ref.record.kind} ${ref.record.recordId} has no external history`)
-  const record = recordsOf(matched).find(
-    (candidate) => candidate.recordId === ref.record.recordId && candidate.kind === ref.record.kind,
-  )
-  if (record === undefined)
-    return actionFailure(
-      'record-unreadable',
-      `Cited ${ref.record.kind} ${ref.record.recordId} is absent from ${ref.record.scope.repository} ${ref.record.scope.target}`,
-    )
-  return confirmAccounted(matched, record)
-}
-
-function confirmAccounted(matched: DecodedHistory, record: CanonicalRecord): Result<true> {
-  const operation = recordOperation([matched], record)
-  if (operation === null || operation.authority !== 'accounted')
-    return actionFailure(
-      'record-unreadable',
-      `Cited ${record.kind} ${record.recordId} is not an accounted native operation`,
-    )
-  const refusal = recordIntegrity(operation.parts, record)
-  if (refusal !== null) return actionFailure(refusal.reason, refusal.detail)
-  return { ok: true, value: true }
-}
-
-function confirmCitedRefs(
-  refs: readonly RecordInputRef[],
-  history: DecodedHistory,
-  histories: readonly DecodedHistory[],
-): Result<true> {
-  for (const ref of refs) {
-    const confirmed = confirmCitedRef(ref, history, histories)
-    if (!confirmed.ok) return confirmed
-  }
-  return { ok: true, value: true }
-}
-
 export async function readReviewInputHistories(
   history: DecodedHistory,
   options: ProductionReaderOptions,
 ): Promise<Result<readonly DecodedHistory[]>> {
   if (!history.source.complete) return actionFailure('record-unreadable', 'Root review history is incomplete')
   const cited = gatherCited(history, assessedInputs(history))
-  if (cited.scopes.length === 0) return { ok: true, value: [] }
-  const fetched = await readComposedWorkflowHistory(cited.scopes, options)
+  const fetched =
+    cited.scopes.length === 0
+      ? { ok: true as const, histories: [] as DecodedHistory[] }
+      : await readComposedWorkflowHistory(cited.scopes, options)
   if (!fetched.ok) return { ok: false, diagnostics: fetched.diagnostics }
   const scopes = confirmFetchedScopes(cited.scopes, fetched.histories)
   if (!scopes.ok) return scopes
-  const refs = confirmCitedRefs(cited.refs, history, fetched.histories)
+  const closure = await readCauseHistoryClosure([history, ...fetched.histories], (required) =>
+    readComposedWorkflowHistory(required, options),
+  )
+  if (!closure.ok) return { ok: false, diagnostics: closure.diagnostics }
+  const external = closure.histories.filter(
+    (entry) =>
+      entry.source.scope.repository !== history.source.scope.repository ||
+      entry.source.scope.target !== history.source.scope.target,
+  )
+  const refs = confirmCitedRefs(cited.refs, history, external)
   if (!refs.ok) return refs
-  return { ok: true, value: fetched.histories }
+  return { ok: true, value: external }
 }

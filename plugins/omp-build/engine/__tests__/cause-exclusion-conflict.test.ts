@@ -46,15 +46,25 @@ const claim = {
 function assess(
   concerns: readonly ('security' | 'introduced-regression')[],
   purpose: 'review' | 'correction' = 'review',
+  unknownSource = false,
+  unusableOriginal = false,
+  downgradeUsable = false,
 ) {
   const original = graph.decision.payload.judgment
   const common = {
     format: original.format,
     policy: original.policy,
     sourceContributionIds: original.sourceContributionIds,
-    findings: original.findings,
+    findings:
+      unusableOriginal || downgradeUsable
+        ? original.findings.map((item) => ({ ...item, label: 'suggestion' as const }))
+        : original.findings,
     causes: [{ ...cause, proposedDisposition: 'report' as const }],
-    exclusionClaims: [claim, ...concerns.map((concern) => ({ ...claim, concern }))],
+    exclusionClaims: [
+      claim,
+      ...concerns.map((concern) => ({ ...claim, concern })),
+      ...(unknownSource ? [{ ...claim, sourceFindingId: 'missing-original' }] : []),
+    ],
     unassignedFindings: original.unassignedFindings,
   }
   const judgment = purpose === 'review' ? { ...original, ...common } : { ...common, purpose: 'correction' as const }
@@ -75,6 +85,41 @@ function assess(
     }),
   )
   if (decision.kind !== 'decision' || synthesis.kind !== 'contribution') throw new Error('expected decision records')
+  const originalFinding = graph.panel.payload.findings?.[0]
+  if (
+    !originalFinding ||
+    originalFinding.data === null ||
+    typeof originalFinding.data !== 'object' ||
+    Array.isArray(originalFinding.data)
+  )
+    throw new Error('expected original finding')
+  const panelData = {
+    ...originalFinding.data,
+    ...(unusableOriginal
+      ? {
+          label: 'issue(blocking)',
+          classes: ['candidate/alpha', 'candidate/beta'],
+          rawCallsites: [{ file: 'src/widget.ts', line: 41 }],
+        }
+      : {}),
+  }
+  const panelOutput = { findings: [panelData] }
+  const panel = must(
+    parseRecord({
+      ...graph.panel,
+      payload: {
+        ...graph.panel.payload,
+        findings: [{ ...originalFinding, data: panelData }],
+        structured: panelOutput,
+        rawAttempts: [
+          submission({
+            id: `child-${graph.panel.recordId}`,
+            structuredOutput: { status: 'valid', data: panelOutput },
+          }),
+        ],
+      },
+    }),
+  )
   const requestContribution = must(
     parseRecord({
       version: 1,
@@ -144,15 +189,22 @@ function assess(
       payload: { ...graph.synthesis.payload, purpose: 'correction' },
     }),
   )
+  const correctionReplacement = (recordId: string) => {
+    if (purpose !== 'correction') return null
+    if (recordId === graph.review.recordId) return []
+    if (recordId === correctionRoot.recordId) return [operation(correctionRoot)]
+    if (recordId === correctionSynthesis.recordId) return [operation(correctionSynthesis)]
+    return null
+  }
   const source = {
     ...graph.history,
     operations: [
       ...(purpose === 'correction' ? [operation(requestContribution), operation(request)] : []),
       ...graph.history.operations.flatMap((entry) => {
-        if (purpose === 'correction' && entry.recordId === graph.review.recordId) return []
-        if (purpose === 'correction' && entry.recordId === correctionRoot.recordId) return [operation(correctionRoot)]
-        if (purpose === 'correction' && entry.recordId === correctionSynthesis.recordId)
-          return [operation(correctionSynthesis)]
+        if (entry.recordId === null) return [entry]
+        const replacement = correctionReplacement(entry.recordId)
+        if (replacement !== null) return replacement
+        if (unusableOriginal && entry.recordId === panel.recordId) return [operation(panel)]
         if (entry.recordId === decision.recordId) return [operation(decision)]
         if (entry.recordId === synthesis.recordId) return [operation(synthesis)]
         return [entry]
@@ -180,6 +232,41 @@ describe('exclusion classification', () => {
   })
   it('authenticates correction-purpose excluded additional work before testing contradictions', () => {
     const result = assess([], 'correction')
+    expect(result.outcomes[0]?.subject.kind).toBe('cause')
+    expect(result.outcomes[0]?.outcome).toMatchObject({ state: 'final', disposition: 'report', blocking: false })
+  })
+  it('conserves an unknown-source exclusion error as a durable rule-error alongside a valid correction', () => {
+    const result = assess([], 'correction', true)
+    expect(result.diagnostics.map((item) => item.code)).toContain('unknown-reference')
+    expect(result.outcomes.some((item) => item.subject.kind === 'cause')).toBe(true)
+    expect(result.outcomes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          subject: expect.objectContaining({
+            kind: 'rule-error',
+            diagnostic: expect.objectContaining({ code: 'unknown-reference' }),
+          }),
+          outcome: expect.objectContaining({ state: 'pending-blocking' }),
+        }),
+      ]),
+    )
+  })
+  it('retains an unusable blocking original even when correction synthesis downgrades it', () => {
+    const result = assess([], 'correction', false, true)
+    expect(result.executableCauseIds).toEqual([])
+    expect(result.outcomes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          subject: expect.objectContaining({ kind: 'retained-finding' }),
+          outcome: expect.objectContaining({ state: 'pending-blocking' }),
+        }),
+      ]),
+    )
+    expect(result.diagnostics.map((item) => item.code)).toContain('unusable-finding')
+  })
+  it('allows a usable original to be downgraded by correction synthesis', () => {
+    const result = assess([], 'correction', false, false, true)
+    expect(result.diagnostics.map((item) => item.code)).not.toContain('unusable-finding')
     expect(result.outcomes[0]?.subject.kind).toBe('cause')
     expect(result.outcomes[0]?.outcome).toMatchObject({ state: 'final', disposition: 'report', blocking: false })
   })

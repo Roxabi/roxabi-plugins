@@ -31,9 +31,10 @@ result.
 
 Falsification runs only for causes admitted as `fix-original` by the mechanical D14
 assessment and the existing correction authority gates. Findings not selected for this
-correction remain durable original-UW dispositions: `sister-after`, `report`, or
-`pending-blocking` as assessed. Preserve every finding and rule error with its source.
-Pending blocks continuation; a sister or report is never dispatched as a correction.
+correction remain durable original-UW dispositions: `sister-after`, `sister-blocking`,
+`report`, or `pending-blocking` as assessed. Preserve every finding and rule error with
+its source. `pending-blocking` and unresolved `sister-blocking` hold continuation; a
+sister or report is never dispatched as a correction.
 
 This gate does not create issues. Sister creation and report promotion are explicit
 operator operations with exact confirmation and confirmed readback on the original UW.

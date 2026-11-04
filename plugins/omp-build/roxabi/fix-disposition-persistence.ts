@@ -31,18 +31,6 @@ export function dispositionSourceScopes(source: DispositionSource, add: (scope: 
   }
 }
 
-function adjudicationScopes(operation: DecodedHistory['operations'][number], add: (scope: Scope) => void): void {
-  const proposal = operation.record?.kind === 'cause-operation' ? operation.record.payload.proposal : null
-  if (proposal?.operation !== 'adjudicate-cause') return
-  for (const reference of proposal.references) if (reference.source === 'record') add(reference.record.scope)
-  if (proposal.judgment !== null)
-    for (const judgment of Object.values(proposal.judgment))
-      for (const reference of judgment.references) if (reference.source === 'record') add(reference.record.scope)
-}
-
-export function dispositionOperationScopes(histories: readonly DecodedHistory[], add: (scope: Scope) => void): void {
-  for (const history of histories) for (const operation of history.operations) adjudicationScopes(operation, add)
-}
 export async function saveDisposition(
   outcome: Disposition['payload'],
   original: Scope,

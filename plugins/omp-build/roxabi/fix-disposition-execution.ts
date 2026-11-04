@@ -6,12 +6,13 @@ import {
   type DispositionSource,
   type Ref,
   readCauseDispositionHeads,
+  readCauseHistoryClosure,
   type Scope,
   validateCauseDispositionRecords,
 } from '../dist/contracts.js'
 import type { FixActionResult, FixIdentity, PreparedFix } from './fix-contract.ts'
 import { failure } from './fix-contract.ts'
-import { dispositionOperationScopes, dispositionSourceScopes, saveDisposition } from './fix-disposition-persistence.ts'
+import { dispositionSourceScopes, saveDisposition } from './fix-disposition-persistence.ts'
 import type { FixDispositionStore } from './fix-disposition-store.ts'
 
 export type PersistedDispositions = {
@@ -23,18 +24,27 @@ export type PersistedDispositions = {
 async function loadDispositionHistories(
   store: FixDispositionStore,
   scopes: Map<string, Scope>,
-  addScope: (scope: Scope) => void,
 ): Promise<FixActionResult<readonly DecodedHistory[]>> {
-  let loaded = await store.read([...scopes.values()]).catch(() => null)
+  const loaded = await store.read([...scopes.values()]).catch(() => null)
   if (loaded === null) return failure('correction-disposition-history-unavailable')
   if (!loaded.ok) return failure(...loaded.diagnostics.map((item) => item.code))
-  dispositionOperationScopes(loaded.value, addScope)
-  if (scopes.size > loaded.value.length) {
-    loaded = await store.read([...scopes.values()]).catch(() => null)
-    if (loaded === null) return failure('correction-disposition-history-unavailable')
-    if (!loaded.ok) return failure(...loaded.diagnostics.map((item) => item.code))
-  }
-  return { ok: true, value: loaded.value }
+  const closure = await readCauseHistoryClosure(loaded.value, async (required) => {
+    const result = await store.read(required).catch(() => null)
+    if (result === null)
+      return {
+        ok: false as const,
+        reason: 'unreadable' as const,
+        diagnostics: [
+          { code: 'correction-disposition-history-unavailable', message: 'Disposition history unavailable' },
+        ],
+        histories: [],
+      }
+    return result.ok
+      ? { ok: true as const, scopes: [...required], histories: [...result.value], records: [] }
+      : { ok: false as const, reason: 'unreadable' as const, diagnostics: result.diagnostics, histories: [] }
+  })
+  if (!closure.ok) return failure(...closure.diagnostics.map((item) => item.code))
+  return { ok: true, value: closure.histories }
 }
 
 function reuseDispositionHead(
@@ -69,7 +79,7 @@ export async function persistCauseDispositions(
   addScope(prepared.causeContext.original)
   addScope(prepared.causeContext.effective.own.sourceAccepted.scope)
   dispositionSourceScopes(source, addScope)
-  const loaded = await loadDispositionHistories(store, scopeMap, addScope)
+  const loaded = await loadDispositionHistories(store, scopeMap)
   if (!loaded.ok) return loaded
   const operations = loaded.value.flatMap((history) => history.operations)
   const heads = readCauseDispositionHeads({ uw: prepared.causeContext.original, histories: loaded.value })

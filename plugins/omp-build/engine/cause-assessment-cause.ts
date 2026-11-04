@@ -80,7 +80,16 @@ export function assessCause(input: AssessmentState, cause: Cause): void {
   const findings = cause.findingIds
     .map((id) => decision.payload.judgment.findings.find((item) => item.id === id))
     .filter((item): item is FinalFinding => item !== undefined)
-  const assessment = assessCauseAdjudication({ context, histories, adjudications, cause, findings, decisionRef })
+  const assessment = assessCauseAdjudication({
+    context,
+    histories,
+    adjudications,
+    cause,
+    findings,
+    decisionRef,
+    validatedPrefix: input.validatedPrefix,
+    validationFrame: input.validationFrame,
+  })
   const { effectiveJudgment, effectiveFindings, predecessor, adjudication, localDiagnostics } = assessment
   for (const finding of findings) {
     if (finding.target === null)

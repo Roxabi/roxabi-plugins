@@ -112,6 +112,17 @@ function collectMatches(
   return { ok: true, value: [...rejected] }
 }
 
+function historicalPin(disposition: Disposition, history: DecodedHistory, context: Context): Result<readonly string[]> {
+  const validation = validateCauseDispositionRecords({ records: recordsOf(history), histories: context.histories })
+  if (validation.length) return { ok: false, diagnostics: validation }
+  if (disposition.payload.outcome.state === 'final' && disposition.payload.outcome.disposition === 'report')
+    return { ok: true, value: [] }
+  return {
+    ok: false,
+    diagnostics: [diagnostic('cause-origin-mismatch', 'Selected disposition belongs to another accepted Spec')],
+  }
+}
+
 function evaluatePin(pin: Selection[number], context: Context): Result<readonly string[]> {
   const pinErrors = observationRefDiagnostics('effective-finding-veto', pin, context.histories, [])
   if (pinErrors.length) return { ok: false, diagnostics: pinErrors }
@@ -123,11 +134,7 @@ function evaluatePin(pin: Selection[number], context: Context): Result<readonly 
       diagnostics: [diagnostic('cause-adjudication-unconfirmed', 'Selected disposition is not authenticated')],
     }
   const disposition = bound.value
-  if (!sameOwnSpecRef(disposition.payload.origin, context.own))
-    return {
-      ok: false,
-      diagnostics: [diagnostic('cause-origin-mismatch', 'Selected disposition belongs to another accepted Spec')],
-    }
+  if (!sameOwnSpecRef(disposition.payload.origin, context.own)) return historicalPin(disposition, history, context)
   if (disposition.payload.subject.kind !== 'cause' || disposition.payload.adjudication === null)
     return { ok: true, value: [] }
   const heads = readCauseDispositionHeads({ uw: disposition.payload.origin.uw, histories: context.histories })

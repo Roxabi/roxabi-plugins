@@ -1,7 +1,8 @@
 import { findingTargetSchema } from './finding-target-schema.ts'
+import { inspectFinding } from './producer-schema.ts'
 import { diagnostic } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
-import type { Diagnostic, Json } from './record-values.ts'
+import { type Diagnostic, findingSchema, type Json } from './record-values.ts'
 import { unique } from './result.ts'
 import { causeSchema } from './review-schema.ts'
 export function validateFinalFindingReferences(
@@ -49,6 +50,11 @@ function validateFindingSource(
     return
   }
   const original = originals.get(sourceId)
+  if (finalFinding.state === 'usable' && original !== undefined) {
+    const parsed = findingSchema.safeParse(original)
+    const inspection = inspectFinding(original, parsed.success ? (parsed.data.classes ?? []) : [])
+    if (!inspection.usable) diagnostics.push(...inspection.diagnostics)
+  }
   const rawTarget =
     original !== null && typeof original === 'object' && !Array.isArray(original) ? original.target : undefined
   const parsedTarget = findingTargetSchema.safeParse(rawTarget)
