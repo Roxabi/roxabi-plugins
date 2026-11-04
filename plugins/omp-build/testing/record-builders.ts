@@ -33,6 +33,7 @@ function envelope(recordId: string, operationId: string, inputs: string[] = []):
 export function finding(overrides: Partial<FindingData> = {}): FindingData {
   return {
     label: 'issue',
+    target: { format: 'omp-build-finding-target/1', kind: 'outside-spec', uw: TEST_SCOPE, element: 'widget save' },
     description: 'Widget save discards the selected region.',
     location: { file: 'src/widget.ts', line: 41 },
     rootCause: 'The save path serializes the stale region field.',
@@ -170,6 +171,7 @@ export function synthesisInventory(
     head?: string
     input?: string | null
     actionInputDigest?: string
+    actionInputs?: ReviewInputSnapshot
     policy?: Policy
   } = {},
 ): ReviewAttempt {
@@ -194,6 +196,7 @@ export function synthesisInventory(
           required: true,
           output: 'decision',
           classId: null,
+          ...(options.actionInputs ? { action: { actionId: id, inputs: options.actionInputs } } : {}),
           sourceFindingIds: [],
         },
       ],

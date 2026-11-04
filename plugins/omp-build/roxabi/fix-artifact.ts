@@ -1,5 +1,4 @@
-import type { CriterionDeclaration } from '../engine/criterion-evidence-schema.ts'
-import type { DebtObligation } from './correction-debt.ts'
+import type { CriterionDeclaration, Ref } from '../dist/contracts.js'
 import type { CorrectionOutcome } from './correction-policy-contract.ts'
 import type { FixActionResult, FixIdentity, FixRecord, PreparedFix, RecordPublisher } from './fix-contract.ts'
 import { failure, isRecordId } from './fix-contract.ts'
@@ -9,7 +8,7 @@ import { publish, record } from './fix-records.ts'
 export type PublishedFixArtifacts = {
   correctionIds: string[]
   falsificationIds: string[]
-  debtIds: string[]
+  causeDispositionRefs: Ref<'cause-disposition'>[]
 }
 
 type ArtifactState = PublishedFixArtifacts & { diagnostics: string[] }
@@ -20,6 +19,7 @@ async function publishCorrectionArtifact(
   publisher: RecordPublisher,
   decisionId: string,
   outcome: CorrectionOutcome,
+  disposition: Ref<'cause-disposition'>,
   state: ArtifactState,
   signal: AbortSignal | undefined,
   criterionSources: readonly CorrectionCriterionSource[],
@@ -57,6 +57,7 @@ async function publishCorrectionArtifact(
     {
       decisionId,
       causeId: outcome.cause.id,
+      causeDisposition: disposition,
       attempt: outcome.attempt,
       outcome: outcome.outcome,
       commitSHAs: [...outcome.commitSHAs],
@@ -104,78 +105,26 @@ async function publishCorrectionArtifact(
   return true
 }
 
-async function publishDebtArtifact(
-  prepared: PreparedFix,
-  identity: FixIdentity,
-  publisher: RecordPublisher,
-  decisionId: string,
-  obligation: DebtObligation,
-  state: ArtifactState,
-  signal: AbortSignal | undefined,
-): Promise<boolean> {
-  const receiptId = identity.nextRecordId('debt-receipt')
-  const evidence = obligation.evidence[0]
-  if (evidence === undefined) {
-    state.diagnostics.push(`debt-evidence-missing:${obligation.kind}`)
-    return true
-  }
-  const filing = obligation.issueAdmitted
-    ? await prepared.debtFiling.file({
-        decisionId,
-        receiptId,
-        target: prepared.target,
-        findingIds: obligation.findingIds,
-        causeIds: obligation.causeIds,
-        evidence,
-        retentionDiagnostics: obligation.retentionDiagnostics,
-        acceptedEvidencePolicyRef: prepared.policy.version === 'evidence-v1' ? prepared.policy.acceptanceRef : null,
-        fixRequestId: prepared.requestId,
-      })
-    : null
-  if (signal?.aborted) return false
-  const disposition: 'filed' | 'deferred' | 'retained' = !obligation.issueAdmitted
-    ? 'retained'
-    : filing?.ok
-      ? 'filed'
-      : 'deferred'
-  const debtRecord = record(
-    identity,
-    prepared.target,
-    'debt-receipt',
-    {
-      decisionId,
-      findingIds: [...obligation.findingIds],
-      causeIds: [...obligation.causeIds],
-      disposition,
-      target: filing?.ok ? filing.value.target : null,
-      evidence: {
-        admissionEvidence: evidence.evidence,
-        issueAdmitted: obligation.issueAdmitted,
-        filing: filing === null ? null : filing.ok ? filing.value.raw : { diagnostics: filing.diagnostics },
-      },
-    },
-    [decisionId, prepared.requestId],
-    receiptId,
-  )
-  const saved = await publish(publisher, debtRecord)
-  if (saved.ok) state.debtIds.push(saved.value.recordId)
-  else state.diagnostics.push(...saved.diagnostics)
-  return true
-}
-
 export async function publishFixArtifacts(
   prepared: PreparedFix,
   identity: FixIdentity,
   publisher: RecordPublisher,
   decisionId: string,
   outcomes: readonly CorrectionOutcome[],
-  debt: readonly DebtObligation[],
+  dispositions: { refs: Ref<'cause-disposition'>[]; executable: ReadonlyMap<string, Ref<'cause-disposition'>> },
   signal?: AbortSignal,
   criterionSources: readonly CorrectionCriterionSource[] = [],
 ): Promise<FixActionResult<PublishedFixArtifacts>> {
-  const state: ArtifactState = { correctionIds: [], falsificationIds: [], debtIds: [], diagnostics: [] }
+  const state: ArtifactState = {
+    correctionIds: [],
+    falsificationIds: [],
+    causeDispositionRefs: dispositions.refs,
+    diagnostics: [],
+  }
   if (signal?.aborted) return failure('fix-run-interrupted-cleanup-unproven')
   for (const outcome of outcomes) {
+    const disposition = dispositions.executable.get(outcome.cause.id)
+    if (disposition === undefined) return failure(`correction-disposition-missing:${outcome.cause.id}`)
     if (
       signal?.aborted ||
       !(await publishCorrectionArtifact(
@@ -184,17 +133,11 @@ export async function publishFixArtifacts(
         publisher,
         decisionId,
         outcome,
+        disposition,
         state,
         signal,
         criterionSources,
       ))
-    )
-      return failure('fix-run-interrupted-cleanup-unproven')
-  }
-  for (const obligation of debt) {
-    if (
-      signal?.aborted ||
-      !(await publishDebtArtifact(prepared, identity, publisher, decisionId, obligation, state, signal))
     )
       return failure('fix-run-interrupted-cleanup-unproven')
   }
@@ -204,7 +147,7 @@ export async function publishFixArtifacts(
         value: {
           correctionIds: state.correctionIds,
           falsificationIds: state.falsificationIds,
-          debtIds: state.debtIds,
+          causeDispositionRefs: state.causeDispositionRefs,
         },
       }
     : failure(...state.diagnostics)
@@ -233,7 +176,7 @@ export function publishFinalFixResult(
         candidateGitSHA,
         correctionResultIds: artifacts.correctionIds,
         falsificationResultIds: artifacts.falsificationIds,
-        debtReceiptIds: artifacts.debtIds,
+        causeDispositionRefs: artifacts.causeDispositionRefs,
         ...(criterionReceipt === undefined ? {} : { criterionReceipt }),
       },
       [
@@ -241,7 +184,6 @@ export function publishFinalFixResult(
         decisionId,
         ...artifacts.correctionIds,
         ...artifacts.falsificationIds,
-        ...artifacts.debtIds,
         ...(criterionReceipt === undefined ? [] : [criterionReceipt.sourceContributionId]),
       ],
     ),

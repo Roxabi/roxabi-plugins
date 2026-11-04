@@ -13,7 +13,7 @@ const relationIntentSchema = z.strictObject({
   addBlockers: z.array(issueRefSchema),
   removeBlockers: z.array(issueRefSchema),
 })
-const writesSchema = z.strictObject({ labels: labelIntentSchema, relations: relationIntentSchema })
+export const writesSchema = z.strictObject({ labels: labelIntentSchema, relations: relationIntentSchema })
 
 const shared = {
   draft: specDraftSchema,

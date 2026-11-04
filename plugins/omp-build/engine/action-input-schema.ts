@@ -23,6 +23,7 @@ export const deliveryDataRefSchema = recordInputRefSchema.extend({
     'implementation',
     'criterion-evidence',
     'correction-lineage',
+    'cause-state',
     'external-observation',
   ]),
 })

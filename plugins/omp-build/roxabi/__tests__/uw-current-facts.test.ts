@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { decodeHistory } from '../../adapters/github/history-codec.ts'
 import {
   type ParsedIssueSpec,
   parseIssueSpecBody,
@@ -121,8 +122,19 @@ function read(input: {
   const identities = input.identity?.ok ? input.identity.value : ledger(input.scope, input.fact.snapshot)
   const proposed = { ok: true as const, snapshot: input.fact.snapshot }
   const acceptedState = input.accepted ?? { status: 'absent' as const }
+  const histories = [
+    decodeHistory({
+      scope: input.scope,
+      expectedAuthor: 'operator',
+      stopAuthor: 'operator',
+      complete: true,
+      comments: [],
+      diagnostics: [],
+    }),
+  ]
   return {
     uw: input.scope,
+    histories,
     parsed: input.fact.parsed,
     identity: input.identity ?? { ok: true, value: identities },
     proposed,
@@ -133,6 +145,7 @@ function read(input: {
       proposed,
       accepted: acceptedState,
       identities,
+      histories,
       phase: 'initial-selection',
     }),
     graph: input.graph,

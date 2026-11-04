@@ -90,6 +90,10 @@ it.each([
     }
     const operations: UwOperations = {
       readUw: unexpected,
+      listReports: unexpected,
+      adjudicateCause: unexpected,
+      createSister: unexpected,
+      promoteReport: unexpected,
       prepare: unexpected,
       validateNormalization: () => ({ ok: true, value: judgement }),
       write: async (input) => {

@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'n
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { decodeHistory } from '../../contracts.ts'
-import { epicReviewGraph, reviewGraph } from '../../testing/record-graphs.ts'
+import { epicReviewGraph } from '../../testing/record-graphs.ts'
 import { serveBoundEpic } from './testing/epic-driver/epic-driver-bound-fixture.ts'
 import {
   type Comment,
@@ -14,7 +14,6 @@ import {
   issueComments,
   ME,
   prNode,
-  pullReviewInputs,
   RUN,
   recordHistory,
   serveComments,
@@ -22,6 +21,7 @@ import {
   servePr,
   strictSpecBody,
 } from './testing/epic-driver/epic-driver-records.ts'
+import { appendBoundReview, installReviewEvidence } from './testing/epic-driver/epic-driver-review-fixture.ts'
 import { cleanupSandbox, drive, git, sandbox, sandboxOf, writes } from './testing/epic-driver/epic-driver-sandbox.ts'
 
 afterEach(cleanupSandbox)
@@ -61,18 +61,19 @@ describe('epic-driver — unframed child', () => {
 
 describe('epic-driver — review bound', () => {
   function reviewed(number: number, outcomes: { blocking: boolean; author?: string }[]): void {
-    const comments = outcomes.flatMap((outcome, index) => {
-      const head = git(sandboxOf().epic, 'rev-parse', 'refs/remotes/origin/feat/2-first-child')
-      const graph = reviewGraph({
-        prefix: `bound-${number}-${index}`,
+    const head = git(sandboxOf().epic, 'rev-parse', 'refs/remotes/origin/feat/2-first-child')
+    const { mandate, issueRecords } = installReviewEvidence(head)
+    for (const [index, outcome] of outcomes.entries()) {
+      appendBoundReview({
+        number,
         head,
-        scope: { repository: 'o/r', target: `o/r#${number}` },
-        inputs: pullReviewInputs(number, head),
-        empty: !outcome.blocking,
+        prefix: `bound-${number}-${index}`,
+        blocking: outcome.blocking,
+        author: outcome.author ?? ME,
+        mandate,
+        issueRecords,
       })
-      return framedRecords(number, graph.records).map((comment) => ({ ...comment, author: outcome.author ?? ME }))
-    })
-    serveComments(number, [...issueComments(number), ...comments])
+    }
   }
 
   function openPrChild(): void {
@@ -112,7 +113,9 @@ describe('epic-driver — review bound', () => {
   it('does not count canonical records posted by another login', () => {
     openPrChild()
     reviewed(11, [{ blocking: true, author: 'mallory' }, { blocking: true, author: 'mallory' }, { blocking: true }])
-    expect(drive(['next', '--dry-run']).json().step).toMatchObject({ action: 'resume', ticket: 2, pr: { number: 11 } })
+    const run = drive(['next', '--dry-run'])
+    expect(run.code, `stdout:\n${run.stdout}\nstderr:\n${run.stderr}`).toBe(0)
+    expect(run.json().step).toMatchObject({ action: 'resume', ticket: 2, pr: { number: 11 } })
   })
 
   it('reads a canonical review graph after the first 100 REST comment records', () => {
@@ -122,13 +125,17 @@ describe('epic-driver — review bound', () => {
       body: `ordinary historical comment ${index}`,
     }))
     const head = git(sandboxOf().epic, 'rev-parse', 'refs/remotes/origin/feat/2-first-child')
-    const graph = reviewGraph({
-      prefix: 'pagination-review',
+    const { mandate, issueRecords } = installReviewEvidence(head)
+    appendBoundReview({
+      number: 11,
       head,
-      inputs: pullReviewInputs(11, head),
-      scope: { repository: 'o/r', target: 'o/r#11' },
+      prefix: 'pagination-review',
+      blocking: true,
+      author: ME,
+      mandate,
+      issueRecords,
     })
-    serveComments(11, [...padding, ...issueComments(11), ...framedRecords(11, graph.records)])
+    serveComments(11, [...padding, ...issueComments(11)])
 
     expect(drive(['next', '--dry-run']).json().step).toMatchObject({ action: 'resume', ticket: 2, pr: { number: 11 } })
   })

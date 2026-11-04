@@ -12,7 +12,8 @@ import {
   resolveInitialWorkflowBinding,
   uniqueHistories,
 } from './binding-resolution.ts'
-import { readComposedWorkflowHistory, validateComposedWorkflowHistories } from './history.ts'
+import { readCauseHistoryClosure } from './cause-history-closure.ts'
+import { readComposedWorkflowHistory } from './history.ts'
 import type { LandingFactsRead, WorkflowBindingRead, WorkflowPublication } from './types.ts'
 
 /**
@@ -123,18 +124,22 @@ async function completeLandingHistories(
   bound: Extract<WorkflowBindingRead, { ok: true }>['value'],
   options: GitHubOptions,
 ): Promise<{ ok: true; histories: DecodedHistory[] } | Extract<LandingFactsRead, { ok: false }>> {
-  if (bound.uwGraph.status !== 'complete') return { ok: true, histories: bound.histories }
-  const graphScopes = graphHistoryScopes(bound.uwGraph)
-  if (!graphScopes.ok) return landingRefusal('conflicting', graphScopes.diagnostics)
-  const known = new Set(bound.histories.map((history) => scopeKey(history.source.scope)))
-  const scopes = graphScopes.scopes.filter((scope) => !known.has(scopeKey(scope)))
-  if (scopes.length === 0) return { ok: true, histories: bound.histories }
-  const composed = await readComposedWorkflowHistory(scopes, options)
-  if (!composed.ok) return landingRefusal(composed.reason, composed.diagnostics)
-  const merged = mergeObservedHistories(bound.histories, composed.histories)
-  if (!merged.ok) return landingRefusal('conflicting', merged.diagnostics)
-  const validated = validateComposedWorkflowHistories(merged.histories)
-  return validated.ok ? merged : landingRefusal(validated.reason, validated.diagnostics)
+  let histories = bound.histories
+  if (bound.uwGraph.status === 'complete') {
+    const graphScopes = graphHistoryScopes(bound.uwGraph)
+    if (!graphScopes.ok) return landingRefusal('conflicting', graphScopes.diagnostics)
+    const known = new Set(histories.map((history) => scopeKey(history.source.scope)))
+    const scopes = graphScopes.scopes.filter((scope) => !known.has(scopeKey(scope)))
+    if (scopes.length > 0) {
+      const composed = await readComposedWorkflowHistory(scopes, options)
+      if (!composed.ok) return landingRefusal(composed.reason, composed.diagnostics)
+      const merged = mergeObservedHistories(histories, composed.histories)
+      if (!merged.ok) return landingRefusal('conflicting', merged.diagnostics)
+      histories = merged.histories
+    }
+  }
+  const closure = await readCauseHistoryClosure(histories, (scopes) => readComposedWorkflowHistory(scopes, options))
+  return closure.ok ? { ok: true, histories: closure.histories } : landingRefusal(closure.reason, closure.diagnostics)
 }
 
 /**

@@ -26,12 +26,15 @@ import { PR_EDITED } from '../testing/review-gate-gh.ts'
 
 export function registerReviewGateMandateCases(): void {
   describe('review-gate CLI mandate and binding', () => {
-    it('allows a green review whose input is the no-producer v2 hash', async () => {
+    it('allows a green review without treating its own published cause disposition as a prior input', async () => {
       const fixture = setupReviewGateFixture()
       await seedMandate(fixture)
       const input = await boundInput(fixture)
       expect(input.fingerprint).toMatch(/^[0-9a-f]{64}$/)
       publish(fixture, cleanReview(fixture.head, 'one', input), 'SUCCESS')
+      expect(
+        readState(fixture).issues['42']?.comments.some((comment) => comment.body.includes('kind=cause-disposition')),
+      ).toBe(true)
 
       const result = runReviewGate(fixture)
 
@@ -227,7 +230,12 @@ export function registerReviewGateMandateCases(): void {
       const result = runReviewGate(fixture)
 
       expect(result.status).toBe(1)
-      expect(JSON.parse(result.stdout)).toEqual({ ok: false, allowed: false, reason: 'review-state-wait' })
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        ok: false,
+        allowed: false,
+        reason: 'uw-not-deliverable',
+        detail: expect.arrayContaining([expect.objectContaining({ code: 'cause-adjudication-required' })]),
+      })
       expect(result.stderr).toBe('')
     })
 

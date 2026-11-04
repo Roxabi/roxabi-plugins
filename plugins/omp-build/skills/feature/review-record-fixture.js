@@ -183,7 +183,7 @@ export async function linkedApproval(head = HEADS[0]) {
       diagnostics: [],
       comments,
     }),
-    issue,
+    issue: reviews.issueHistory,
     input: inputs.fingerprint,
   }
 }

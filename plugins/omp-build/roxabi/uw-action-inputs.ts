@@ -65,12 +65,13 @@ async function resolveFiles(
 async function buildManifest(
   request: UwActionRequest,
   ports: UwActionPorts,
+  reviewedFingerprint?: string,
 ): Promise<
   Result<{ manifest: ActionInputManifest; verifiedPluginFiles: readonly { path: string; bytes: Uint8Array }[] }>
 > {
   const pin = await ports.plugin.resolveInstalledPluginPin()
   if (!pin.ok) return pin
-  const facts = await ports.readCurrentActionFacts(request)
+  const facts = await ports.readCurrentActionFacts(request, reviewedFingerprint)
   if (!facts.ok) return facts
   const references = await ports.repositoryReferences(request, facts.value.plannedPaths)
   if (!references.ok) return references
@@ -257,8 +258,9 @@ export async function replayStoredReviewAttempt(
 export async function currentActionFingerprint(
   request: UwActionRequest,
   ports: UwActionPorts,
+  reviewedFingerprint?: string,
 ): Promise<Result<string>> {
-  const manifest = await buildManifest(request, ports)
+  const manifest = await buildManifest(request, ports, reviewedFingerprint)
   return manifest.ok ? { ok: true, value: actionInputDigest(manifest.value.manifest) } : manifest
 }
 

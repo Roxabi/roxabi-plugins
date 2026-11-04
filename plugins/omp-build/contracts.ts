@@ -8,7 +8,7 @@ export { githubScope, readGitHubHistory } from './adapters/github/transport.ts'
 export { type Gh, GitHubHistoryReadError, type GitHubOptions, gh, viewer } from './adapters/github/types.ts'
 export { readNativeIssueFacts } from './adapters/github-native/issue-facts.ts'
 export { readIssueParentAssociation, readLinkedIssueAssociation } from './adapters/github-native/relations.ts'
-export { readUwGraph } from './adapters/github-native/uw-graph-reader.ts'
+export { readUwGraph, readUwSubtree } from './adapters/github-native/uw-graph-reader.ts'
 export { parseIssueSpecBody, renderIssueSpecBody } from './adapters/github-native/uw-spec.ts'
 export { rawSource } from './adapters/github-native/uw-spec-parser.ts'
 export {
@@ -16,6 +16,7 @@ export {
   readLandingFacts,
   readWorkflowBinding,
 } from './adapters/github-workflow/binding.ts'
+export { readCauseHistoryClosure } from './adapters/github-workflow/cause-history-closure.ts'
 export { readComposedWorkflowHistory } from './adapters/github-workflow/history.ts'
 export {
   readNativePullRequestFacts,
@@ -35,6 +36,10 @@ export type {
 export { hasNativeUserInterruptFlag } from './adapters/omp-native/user-interrupt.ts'
 export * from './contracts-delivery.ts'
 export * from './contracts-review.ts'
+export * from './engine/cause-disposition.ts'
+export * from './engine/cause-disposition-schema.ts'
+export { assessCauseHolds } from './engine/cause-hold.ts'
+export * from './engine/finding-target.ts'
 export {
   classifyHistory,
   type HistoryClassification,
@@ -144,6 +149,7 @@ export {
 } from './engine/uw-identity-schema.ts'
 export { normalizationJudgementSchema } from './engine/uw-normalization-schema.ts'
 export { canonicalSpec, specVersion, validateSpecIds } from './engine/uw-spec.ts'
+export type { OwnSpecRef } from './engine/uw-spec-schema.ts'
 export {
   criterionIdSchema,
   invariantIdSchema,
@@ -177,6 +183,7 @@ export { requireLandingMandate } from './engine/workflow-landing-admission.ts'
 export { effectiveMandateRole, type MandateRefusal, type MandateSelection } from './engine/workflow-mandate.ts'
 export { resolveOwnSpecAuthority, selectApplicableMandate } from './engine/workflow-mandate-admission.ts'
 export {
+  type AcceptedChildCommitment,
   acceptedChildCommitmentSchema,
   type MandatePayload,
   mandatePayloadSchema,

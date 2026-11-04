@@ -56,6 +56,7 @@ describe('buildRecord', () => {
     const graph = reviewGraph({ prefix: 'semantic-json' })
     const rawJudgment = {
       purpose: 'review' as const,
+      format: 'omp-build-cause-decision/1' as const,
       policy: { version: 'baseline' as const },
       sourceContributionIds: [graph.spec.recordId, graph.panel.recordId],
       findings: [
@@ -64,11 +65,13 @@ describe('buildRecord', () => {
           label: 'issue' as const,
           impactReason: 'The saved region is wrong.',
           state: 'usable' as const,
+          target: graph.decision.payload.judgment.findings[0]?.target,
           description: 'Save the selected region rather than the stale region.',
           sourceFindingIds: [`${graph.panel.recordId}:f0`],
         },
       ],
-      causes: [],
+      causes: graph.decision.payload.judgment.causes,
+      unassignedFindings: [],
       standards: {
         state: 'observed' as const,
         rows: [{ smell: 'State persistence', assessment: 'The save path must preserve the selected region.' }],

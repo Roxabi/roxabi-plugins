@@ -6,6 +6,7 @@ import {
   producerCriterionDeclarationSchema,
 } from './criterion-evidence-schema.ts'
 import { type CriterionVerdict, criterionVerdictSchema } from './criterion-verdict-schema.ts'
+import { findingTargetSchema } from './finding-target-schema.ts'
 import {
   identifierSchema,
   jsonSchema,
@@ -60,6 +61,7 @@ export type Policy = z.infer<typeof policySchema>
 
 export const findingSchema = z.strictObject({
   label: labelSchema,
+  target: findingTargetSchema,
   description: z.string().min(1),
   location: locationSchema,
   rootCause: z.string().min(1),

@@ -89,6 +89,7 @@ function admission(graph: UwGraphObservation) {
       allocations: new Map([['C1', { scope: root, recordId: 'identity-C1', kind: 'spec-identity' }]]),
       retired: new Map(),
     },
+    histories: [],
     phase: 'initial-selection',
   })
 }

@@ -23,6 +23,12 @@ export const cause: CorrectionCause = {
   paths: ['src/guard.txt'],
   proof: 'repository guard proof',
   findingIds: ['finding-1'],
+  judgment: {
+    necessary: { state: 'missing', value: null, reason: 'fixture', references: [] },
+    urgent: { state: 'missing', value: null, reason: 'fixture', references: [] },
+    tooLarge: { state: 'missing', value: null, reason: 'fixture', references: [] },
+  },
+  proposedDisposition: null,
 }
 
 export type Workspace = {

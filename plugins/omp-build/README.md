@@ -63,7 +63,7 @@ Symlinking into `~/.omp/agent/agents/` is not supported — use `link` (or the c
 
 `omp/index.ts` registers `/feature` and calls `runInstalledFeatureCommand` in `roxabi/feature-entry.ts`. That registered command does not dump `skills/feature/SKILL.md`. Explicit `skill://feature` or `/skill:feature` access supplies reference material for human decisions, not a second lifecycle or execution authority. The local T3 qualification below covers workflow integration, not semantic-model quality or hosted activation; both remain separately authorized.
 
-The UW contract cutover is delivered manually under [Q79](https://github.com/Roxabi/roxabi-plugins/issues/901). This release is not a new qualification of `/feature`: [#910](https://github.com/Roxabi/roxabi-plugins/issues/910) remains a separate qualification after #904, before normal `/feature` use resumes. Manual review and green CI do not manufacture native workflow authority.
+The UW contract cutover is delivered manually under [#901](https://github.com/Roxabi/roxabi-plugins/issues/901): #905 → #906 → #907 → #908 receive independent review and manual merges before the separate real [#910](https://github.com/Roxabi/roxabi-plugins/issues/910) qualification. This release alone does not qualify `/feature`; manual review and green CI do not manufacture native workflow authority.
 
 ### Controls
 
@@ -108,6 +108,8 @@ Three parts, one plugin, no second runtime, no database, and no mandatory local 
 GitHub comments hold the records: `mandate`, `spec-identity`, `operator-control`, `action-receipt`, `workflow-binding`, `review-interruption`, `review-replacement-grant`, `review`, `correction`, and `epic-event`. Mandates carry `format: 'omp-build-mandate/3'`; Spec assessments use `omp-build-spec-assessment/2`; action-receipt payloads require `format: 'omp-build-action-receipt/2'`; reviews carrying input require `inputFormat: 'omp-build:review-input/4'`. Missing/older incompatible formats, obsolete payload fields and the removed `kind: 'proof'` refuse explicitly. No active migration, automatic renewal, cross-format recovery or historical-completion exemption is provided. An interrupted initial pull-request review is terminalized by `review-interruption`; one linked replacement inventory may consume a one-use `review-replacement-grant` afterward.
 
 Trusted complete workflow records — `spec-identity`, mandate, `operator-control`, `action-receipt`, and `workflow-binding` — require readable UTC native creation/revision facts on every part, with `updatedAt === createdAt`. Missing or unreadable facts refuse as `record-unreadable`; a revised part refuses as `record-edited`. Foreign observations remain readable but never become authoritative. Foreign copies cannot veto authenticated candidates by reusing their identifiers; missing, conflicting or damaged expected-author records still refuse.
+
+Cause state is durable on its original UW: `cause-disposition`, exact-confirmed `cause-operation`, sister-only `debt-receipt`, and `report-promotion`. A newly published review explicitly references its complete dispositions through `causeDispositionRefs`; omitting that field cannot select historical semantics at a live admission gate. Historical verdicts remain diagnostic records, not fresh approvals. Admission authenticates the referenced decision, action inputs, accepted Spec and cited observations before a successor can release a hold.
 
 Removed integration configuration is not read during adoption, worktree start, review-input capture, or landing.
 
@@ -165,6 +167,10 @@ That final read preserves GitHub's documented repository Contents-read permissio
 Within one selected-record materialization or replay call, references to the same issue or PR share one complete history observation. Every reference still undergoes its own selector, authentication and digest checks. That observation is discarded after the call; it is not shared with a later confirmation, dispatch, publication or admission cut.
 
 Review admission reconstructs the currently eligible inputs from complete authenticated histories, not just the old manifest's listed records. A new eligible evidence receipt at the same HEAD changes the inputs or produces an explicit ambiguity. The review's own outputs stay outside its normative fingerprint; its authenticated stage annex supplies the records later stages actually need. Prose-only PR edits do not change that fingerprint.
+
+UW review and correction manifests pin the full prior disposition/adjudication lineage as `cause-state` delivery data. These records are not criterion evidence. A changed authenticated operator decision changes the next action's inputs; the current review's own dispositions remain outputs rather than circular self-inputs.
+
+Reconstructing an already selected review carries its persisted input fingerprint through fact collection to identify that review's authenticated outputs. A new review does not reuse this reconstruction parameter: prior dispositions and adjudications remain inputs.
 
 The separate read-only Instantané contains the index of criterion/invariant ids, titles, versions and paths; pinned diff, useful records, repository instructions and touched-area glossaries; and referenced assets copied from the verified installed plugin. Planning uses base references; review uses candidate references. The task carries only the procedure and index path, not copied UW data. Proposed or unframed normalization inputs do not fabricate an accepted Spec.
 
@@ -277,6 +283,17 @@ The thin command accepts explicit repository coordinates and a strict JSON propo
 
 `evidence` and `verdicts` read applicable delivery declarations and authenticated criterion verdicts, including the approved bound PR's review history; they do not publish. `action` accepts a JSON object containing `request: UwActionRequest`: it resolves the durable inputs and creates a local read-only snapshot without a GitHub write. Adding `reviewed: ActionInputs` instead replays the stored inputs against current durable sources. The request's code coordinates and references must be readable and match their pinned identities. The installed-plugin pin comes from trusted host composition, never the request file or argv; a missing or mismatched pin refuses.
 
+| Cause command | Boundary |
+|---|---|
+| `/uw reports example/demo#42` | Reads durable reports on that UW and its native subtree, without discovering every PR or creating an issue. |
+| `/uw adjudicate --request-file /absolute/path/adjudication.json` | Prepares a motivated decision on an exact pending disposition, then requests genuine confirmation. |
+| `/uw sister --request-file /absolute/path/sister.json` | Prepares the selected cause's framed same-parent sister; confirmation precedes allocation and relation writes. |
+| `/uw promote-report --request-file /absolute/path/promotion.json` | Promotes one exact durable report through the shared UW creation backend, with its own confirmed receipt. |
+
+Request files use the strict [cause request schemas](engine/cause-disposition-schema.ts). Adjudication names `pending`, `rejectedFindingIds`, `judgment`, `reason`, and `references`; supported necessity, urgency and size judgments require their cited observations. Rejection affects only the exact authenticated findings, never criterion satisfaction, CI or an unrelated later observation. Sister requests name the exact `disposition`, sizing `factors`, `tierOverride`, and label changes. Promotion names the exact `report`, a complete ordinary `create` input, and its `reason`.
+
+The confirmed operation intent is published and read back before any creation effect. An active or indeterminate parent holds sibling creation until parent coverage admission is available. An uncertain or partial effect is reported as such and must be reconciled from native facts; it is not success or permission to retry creation blindly.
+
 Delivery discovery enumerates all open, closed and merged PRs in the UW's repository, then selects their canonical approved bindings; mentions and branch names are not association authority. Each observation reads complete REST comment histories for the UW, candidate PRs and required mandate homes, reusing observations only within that call. This exhaustive discovery can be expensive and is separate from action/replay reads of their supplied subjects and cited sources. An unresolved binding claim or unreadable required history refuses the read rather than returning an apparently complete empty result.
 
 A create input has this shape; coordinates and content here are fictional:
@@ -342,7 +359,7 @@ Pause/abandonment containment covers the UW's own bound PR and its currently app
 
 An Arrêt d'UW is an `epic-event` whose `event` is the historical wire name `goal-stop`. Independent children continue. A shared-state stop is an `epic-event` whose `event` is `goal-report`. The hook runs once at the current base commit; another commit is `hook-stale`. The report heading remains the historical `## Epic run`. Merged is not complete before the hook and report are observed. Delivery matching, re-disarm, and which stops retry live in the `epic-driver-*` modules. A run id does not reset a spent review bound.
 
-Debt filing and epic fix-tickets spawn `bun --no-env-file` on the emitted `triage.ts`. The cwd is that file's directory, and `GITHUB_REPO` is set. Feature init imports only the emitted `migrate-labels.ts` and `init.ts`, and still binds the checkout with `defaultInitDeps(repository, checkout)`. The resolver is `triage-runtime.ts`. Paths come from that file. There is no sibling, home, or project fallback. A missing emit stays `issue-triage-unavailable` or `IssueTriageMissing`. `skill://issue-triage` remains the separate optional advisory skill, not the action runtime; it is not copied into this plugin. The generated `dist/issue-triage/` slice ships with omp-build so those actions need no separate plugin installation.
+Epic fix-tickets spawn `bun --no-env-file` on the emitted `triage.ts`. The cwd is that file's directory, and `GITHUB_REPO` is set. Cause sisters and report promotion instead use the operator-confirmed UW creation backend and injected issue-triage writer. Feature init imports only the emitted `migrate-labels.ts` and `init.ts`, and still binds the checkout with `defaultInitDeps(repository, checkout)`. The resolver is `triage-runtime.ts`. Paths come from that file. There is no sibling, home, or project fallback. A missing emit stays `issue-triage-unavailable` or `IssueTriageMissing`. `skill://issue-triage` remains the separate optional advisory skill, not the action runtime; it is not copied into this plugin. The generated `dist/issue-triage/` slice ships with omp-build so those actions need no separate plugin installation.
 
 ## Commands and tools
 
@@ -430,36 +447,15 @@ an atomic GitHub transaction or a compare-and-set guarantee.
 
 Review → fix record contract: [root causes and member references](skills/dev-review/root-causes.md).
 
-### Evidence-based review and fix policy
+### Review policy and cause dispositions
 
-The [evidence policy](skills/dev-review/evidence-policy.md) is not the live default.
-Prepared review uses `baseline`. Correction uses `baseline` unless the caller supplies
-`evidence-v1` with an acceptance reference, and debt filing accepts that reference
-only when it matches the independently supplied one. A record's policy field, a test
-fixture, or a passing replay does not switch the live path. The prepared review
-assembler does not read policy out of existing records.
+Prepared review uses `baseline`. The separate [evidence review policy](skills/dev-review/evidence-policy.md) requires independent operator acceptance for explicitly selected `evidence-v1` work. A record's policy field, a test fixture or a passing replay cannot switch the live policy; the prepared review assembler does not read policy from old records.
 
-When an independent acceptance is supplied for selected later work, that policy's rules are:
+Correction disposition follows the same evidence-backed D14 table under either review policy. Per-cause cited judgments determine correction, an exact-confirmed sister or an original-UW report; no review-policy value authorizes automatic issue filing or optional-neighbor work. Unsupported or contested blocking causes remain pending for motivated operator adjudication. Rejecting a finding cannot satisfy a missing criterion or bypass the head/input/CI and mandate gates.
 
-- Phase 4 qualifies supported applicability, evidence, consequence and unresolved
-  premises. The OMP-host Jev adapter supplies separate dimensions and per-result
-  backend identity, never a severity aggregate, incident probability or authority.
-  Unavailable/unusable Jev is disclosed degraded mode, not a fabricated score or
-  an automatic blocker.
-- Blocking status and correction permission are distinct. Selected required
-  corrections and admissible optional neighbors have explicit authorization and
-  coherent causal plans. An absent plan does not clear a blocker. A failed optional
-  addition is safely withdrawn and the required path revalidated, or the work stops
-  if separation is unestablished.
-- New debt issues require **importance AND prompt necessity AND excessive scope
-  for the current ticket**. Every other deferral stays only in PR comments; no
-  automatic bundle. Filing never discharges a required obligation.
-- Differential re-review needs its own acceptance: baseline, delta, affected paths
-  and residual obligations. Missing history or impact evidence means full review
-  plus explicit residual inspection. Unchanged deferrals need new grounds to reopen.
-- A missed required blocker, unauthorized correction, inadmissible debt issue or
-  lost residual suspends candidate use pending renewed supervised acceptance.
-  Existing head/input/CI safeguards and stopped review bounds remain intact.
+The optional evaluator supplies separate qualification dimensions and per-result backend identity, not aggregate severity, probability or authority. Unavailable evaluation is disclosed degraded mode, never a fabricated score or automatic clearance. Shadow outputs remain separate from authoritative records and authorize no effects.
+
+Differential re-review retains its independent acceptance requirements: baseline, delta, affected paths and residual obligations. Missing history or impact evidence requires full review plus explicit residual inspection. A missed required blocker, unauthorized correction, inadmissible sister or lost residual suspends candidate use pending renewed supervised acceptance; existing stopped review bounds remain intact.
 
 ### Earlier review/fix qualification (T2)
 
@@ -725,7 +721,9 @@ For built-in task spawns without a `model`: explicit call model, then `task.agen
 | `cleanup` | `/cleanup` (registered command) · the optional tail |
 | `ci-watch` | `/ci-watch` (registered command) · watches checks, then the merge |
 
-`dev-review` and `fix` dispatch native pipelines, not an inline Markdown walk. Baseline still applies blocking causes and defers non-blocking causes to one sibling issue; `evidence-v1` uses selected correction authorizations only when an independent acceptance reference is supplied. An admissible follow-up keeps its origin parent's complete `OWNER/REPO#N` coordinate, never a number reconstructed under the origin repository; an absent parent keeps it top-level. They read their own bundled files through `skill://dev-review/<file>`. `lib.sh` is the exception: it sits one level up, in a non-skill directory, and `skill://` rejects `..`, so `dev-review` Phase 1 traverses from `$SKILL_DIR` instead. **Nothing in this plugin exports `SKILL_DIR`** — only the registered commands print a skill directory (`omp/index.ts`) — so that fence asserts the variable (`${SKILL_DIR:?…}`) and stops when it is unset, rather than sourcing `/../shared/lib.sh` and detecting a base branch against nothing. `cleanup/analyze-branches.sh` has no such problem: it is a script, so it resolves `../shared/lib.sh` from its own `BASH_SOURCE`.
+`dev-review` and `fix` dispatch native pipelines, not an inline Markdown walk. Findings identify a local accepted criterion/invariant or explicitly declare outside-Spec work; outside-Spec findings may still block. Each cause receives an evidence-backed [cause disposition](GLOSSARY.md): fix in the original UW, propose a sister that blocks the original, propose a sister after the original, or retain a report on the original UW without creating an issue. Missing or contested blocking evidence stays blocking for motivated operator adjudication; it never triggers a blind fix or automatic report. Exclusions cover only explicitly excluded additional work, not introduced regression, security defects or invariant violations. A sister is created only after genuine confirmation of its exact framed proposal, under the same parent and through the existing UW writer. Active or indeterminate parent delivery holds the addition; accepted coverage belongs to the parent capability. No grouped nonblocking issue is created.
+
+They read their own bundled files through `skill://dev-review/<file>`. `lib.sh` is the exception: it sits one level up, in a non-skill directory, and `skill://` rejects `..`, so `dev-review` Phase 1 traverses from `$SKILL_DIR` instead. **Nothing in this plugin exports `SKILL_DIR`** — only the registered commands print a skill directory (`omp/index.ts`) — so that fence asserts the variable (`${SKILL_DIR:?…}`) and stops when it is unset, rather than sourcing `/../shared/lib.sh` and detecting a base branch against nothing. `cleanup/analyze-branches.sh` has no such problem: it is a script, so it resolves `../shared/lib.sh` from its own `BASH_SOURCE`.
 
 `promote` and `cleanup` are the #495 snapshot of dev-core's tail. They are
 **offered after land, never automatic, and never inside the review→fix loop**.

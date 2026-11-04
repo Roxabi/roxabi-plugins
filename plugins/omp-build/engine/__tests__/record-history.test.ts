@@ -5,6 +5,7 @@ import { encodedAdmissionReviewGraph } from '../../testing/record-admission.ts'
 import { finding, NATIVE_AUTHOR, submission, TEST_HEAD, TEST_SCOPE } from '../../testing/record-builders.ts'
 import { reviewGraph } from '../../testing/record-graphs.ts'
 import { history, observedComment, operation } from '../../testing/record-history.ts'
+import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { classifyHistory } from '../history-classification.ts'
 import { validateRecordGraph } from '../history-graph.ts'
 import { buildRecord, parseRecord } from '../record-construction.ts'
@@ -25,6 +26,11 @@ function correctionHistorySource(comments: ObservedComment[]) {
   }
 }
 
+function correctionExternalHistories() {
+  const { historyFrom, fixOnlyMandate } = roxabiWorkflowFixtures()
+  return [historyFrom([fixOnlyMandate({ repository: 'acme/widgets', target: 'acme/widgets#7' })])]
+}
+
 function correctionFixtureRecords() {
   const raw: unknown = JSON.parse(
     readFileSync(new URL('./fixtures/native-correction-records.json', import.meta.url), 'utf8'),
@@ -42,7 +48,7 @@ function correctionFrameSet(records: ReturnType<typeof correctionFixtureRecords>
   const comments: ObservedComment[] = []
   const locatorsByRecordId = new Map<string, Set<string>>()
   for (const record of records) {
-    const encoded = encodeRecord(record, correctionHistorySource(comments), null)
+    const encoded = encodeRecord(record, correctionHistorySource(comments), null, correctionExternalHistories())
     if (!encoded.ok)
       throw new Error(`Cannot encode correction fixture: ${encoded.diagnostics.map(({ code }) => code).join(', ')}`)
     const locators = new Set<string>()
@@ -74,7 +80,12 @@ function withoutRequestFrames(
 
 function conflictingRequestFrames(request: ReturnType<typeof correctionRequest>, existingComments: ObservedComment[]) {
   const conflictingRequest = { ...request, operationId: 'op-conflicting-correction-request' }
-  const encoded = encodeRecord(conflictingRequest, correctionHistorySource(existingComments), null)
+  const encoded = encodeRecord(
+    conflictingRequest,
+    correctionHistorySource(existingComments),
+    null,
+    correctionExternalHistories(),
+  )
   if (!encoded.ok)
     throw new Error(`Cannot encode conflicting request: ${encoded.diagnostics.map(({ code }) => code).join(', ')}`)
   return encoded.value.map((body, index) =>

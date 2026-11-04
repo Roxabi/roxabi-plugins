@@ -129,6 +129,10 @@ export function fixtureUwOperations(
   }
   return {
     readUw: unexpected,
+    listReports: unexpected,
+    adjudicateCause: unexpected,
+    createSister: unexpected,
+    promoteReport: unexpected,
     prepare: unexpected,
     validateNormalization() {
       throw new Error('unexpected UW operation')

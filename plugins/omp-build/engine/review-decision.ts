@@ -11,69 +11,14 @@ import { collectOriginals } from './review-decision-sources.ts'
 import { groupFor } from './review-groups.ts'
 import { analyzeReviewIdentity } from './review-identity.ts'
 import { reviewCandidateCode, reviewInputsFromInventory } from './review-inventory-input.ts'
+import { validateCauseReferences, validateFinalFindingReferences } from './review-partition.ts'
 import { readReviewRecovery } from './review-recovery.ts'
-import { causeSchema } from './review-schema.ts'
 
 export type DecisionBindings = {
   admissible: boolean
   diagnostics: Diagnostic[]
   records: ReadonlyMap<string, CanonicalRecord>
   originals: ReadonlyMap<string, Json>
-}
-
-function validateFinalFindingReferences(
-  record: Extract<CanonicalRecord, { kind: 'decision' }>,
-  originals: ReadonlyMap<string, Json>,
-  diagnostics: Diagnostic[],
-): Set<string> {
-  const covered = new Set<string>()
-  const findings = record.payload.judgment.findings
-  if (!unique(findings.map((finding) => finding.id)))
-    diagnostics.push(diagnostic('duplicate-reference', 'Decision repeats final finding IDs'))
-  for (const finalFinding of findings) {
-    if (!unique(finalFinding.sourceFindingIds))
-      diagnostics.push(diagnostic('duplicate-reference', `Final finding ${finalFinding.id} repeats a source`))
-    if (
-      finalFinding.state === 'usable' &&
-      finalFinding.sourceFindingIds.length > 1 &&
-      finalFinding.mergeReason === undefined
-    )
-      diagnostics.push(diagnostic('malformed', `Merged finding ${finalFinding.id} lacks merge reason`))
-    for (const sourceId of finalFinding.sourceFindingIds) {
-      if (!originals.has(sourceId)) {
-        diagnostics.push(diagnostic('unknown-reference', `Final finding ${finalFinding.id} references ${sourceId}`))
-        continue
-      }
-      if (covered.has(sourceId))
-        diagnostics.push(diagnostic('duplicate-reference', `Original finding ${sourceId} is covered more than once`))
-      covered.add(sourceId)
-    }
-  }
-  return covered
-}
-
-function validateCauseReferences(
-  record: Extract<CanonicalRecord, { kind: 'decision' }>,
-  diagnostics: Diagnostic[],
-): void {
-  const decision = record.payload.judgment
-  const caused = new Set<string>()
-  if (!unique(decision.causes.map((cause) => cause.id)))
-    diagnostics.push(diagnostic('duplicate-reference', 'Decision repeats cause IDs'))
-  const finalIds = new Set(decision.findings.map((finding) => finding.id))
-  for (const cause of decision.causes) {
-    if (!causeSchema.safeParse(cause).success)
-      diagnostics.push(diagnostic('malformed', `Cause ${cause.id} is incomplete`))
-    if (!unique(cause.findingIds))
-      diagnostics.push(diagnostic('duplicate-reference', `Cause ${cause.id} repeats a finding`))
-    for (const findingId of cause.findingIds) {
-      if (!finalIds.has(findingId))
-        diagnostics.push(diagnostic('unknown-reference', `Cause ${cause.id} references unknown finding ${findingId}`))
-      if (caused.has(findingId))
-        diagnostics.push(diagnostic('duplicate-reference', `Finding ${findingId} belongs to more than one cause`))
-      caused.add(findingId)
-    }
-  }
 }
 
 function validateDecisionBindingsFromGraph(
@@ -104,7 +49,7 @@ export function validateDecisionBindings(
   record: Extract<CanonicalRecord, { kind: 'decision' }>,
   history: DecodedHistory,
 ): DecisionBindings {
-  return validateDecisionBindingsFromGraph(record, history, validateRecordGraph(history, false))
+  return validateDecisionBindingsFromGraph(record, history, validateRecordGraph(history))
 }
 
 export function validateRetainedUnusableLabels(
@@ -118,7 +63,7 @@ export function validateRetainedUnusableLabels(
       const original = bindings.originals.get(sourceId)
       if (original === undefined) continue
       const knownLabel = inspectFinding(original, []).knownLabel
-      if (knownLabel === null || knownLabel !== finalFinding.label)
+      if (knownLabel !== finalFinding.label)
         diagnostics.push(
           diagnostic('malformed', `Unusable finding ${finalFinding.id} does not retain a known source label`),
         )
@@ -198,6 +143,7 @@ function inspectDecisionFindings(
   bindings: DecisionBindings,
   taxonomy: readonly string[],
   diagnostics: Diagnostic[],
+  rejected: ReadonlySet<string>,
 ): InspectedDecisionFindings {
   const groups: Record<Group, string[]> = { Blockers: [], Warnings: [], Suggestions: [], Praise: [] }
   const findings: { id: string; inspection: FindingInspection }[] = []
@@ -211,7 +157,8 @@ function inspectDecisionFindings(
       findings.push({ id: sourceId, inspection })
       if (!inspection.usable) diagnostics.push(...inspection.diagnostics)
     }
-    if (finalFinding.label !== null) groups[groupFor(finalFinding.label)].push(finalFinding.id)
+    if (finalFinding.label !== null && !rejected.has(finalFinding.id))
+      groups[groupFor(finalFinding.label)].push(finalFinding.id)
   }
   return { groups, findings }
 }
@@ -230,18 +177,19 @@ function decisionVerdict(
 
 // A caller that filters review authority must retain the original same-scope
 // observation for separately authenticated delivery receipts and evidence.
-export function validateDecision(
+export function assessDecision(
   record: Extract<CanonicalRecord, { kind: 'decision' }>,
   history: DecodedHistory,
   taxonomy: readonly string[],
   acceptedPolicyRef: string | null,
   externalHistories: readonly DecodedHistory[] = [],
   deliveryHistory: DecodedHistory = history,
+  rejected: ReadonlySet<string> = new Set(),
 ): DecisionAssessment {
   const bindings = validateDecisionBindingsFromGraph(record, history, validateRecordGraph(history))
   const diagnostics = [...bindings.diagnostics]
   validateDecisionPolicy(record, bindings, acceptedPolicyRef, diagnostics)
-  const inspected = inspectDecisionFindings(record, bindings, taxonomy, diagnostics)
+  const inspected = inspectDecisionFindings(record, bindings, taxonomy, diagnostics, rejected)
   const hasUnusable =
     record.payload.judgment.findings.some((finding) => finding.state === 'unusable') ||
     inspected.findings.some(({ inspection }) => !inspection.usable)
@@ -292,3 +240,15 @@ export function validateDecision(
     diagnostics,
   }
 }
+
+export function validateDecision(
+  record: Extract<CanonicalRecord, { kind: 'decision' }>,
+  history: DecodedHistory,
+  taxonomy: readonly string[],
+  acceptedPolicyRef: string | null,
+  externalHistories: readonly DecodedHistory[] = [],
+  deliveryHistory: DecodedHistory = history,
+): DecisionAssessment {
+  return assessDecision(record, history, taxonomy, acceptedPolicyRef, externalHistories, deliveryHistory)
+}
+export { validateFreshDecision } from './review-fresh-decision.ts'

@@ -180,6 +180,7 @@ test('abandoning a parent preserves factual child projection without restoring c
       proposed: childRead.proposed,
       accepted: childRead.accepted,
       identities: childRead.identity.value,
+      histories: childRead.histories,
       phase: 'delivery-transition',
       currentChildren: { ok: true, value: [] },
     }).deliverable,

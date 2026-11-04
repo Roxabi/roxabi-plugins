@@ -11,39 +11,22 @@ import type {
   TargetResolver,
 } from './fix-contract.ts'
 import { failure } from './fix-contract.ts'
-import type { CauseAdmission, CorrectionCause, DebtEvidence, FixFinding, FixPolicy } from './fix-domain'
-import { admitCorrectionCauses, orderSelectedCauses } from './fix-domain'
+import type { FixDispositionStore } from './fix-disposition-store.ts'
 import type { FixWorkflowRuntime } from './fix-native-dispatch.ts'
 import { actionTask } from './fix-native-dispatch.ts'
 import { nativeFixProfileByAction } from './native-review-profiles'
-
-export function selectedCorrectionOrder(
-  policy: FixPolicy,
-  causes: readonly CorrectionCause[],
-  findings: readonly FixFinding[],
-): CauseAdmission[] {
-  return orderSelectedCauses(admitCorrectionCauses(policy, causes, findings))
-}
-
-export type DefaultFixRequest = Omit<FixRequestInput, 'nativeTasks'> & {
-  debtEvidence?: DebtEvidence
-}
+export type DefaultFixRequest = Omit<FixRequestInput, 'nativeTasks'>
 
 export type DefaultFixWorkflow = {
   resolver: TargetResolver
   publisher: RecordPublisher
+  dispositionStore: FixDispositionStore
   readHistory(): Promise<DecodedHistory>
   workflow?: ReviewAuthority
   native: NativePort
   runtime: FixWorkflowRuntime
 }
 
-export const defaultDebtEvidence: DebtEvidence = {
-  important: 'unknown',
-  urgent: 'unknown',
-  tooLarge: 'unknown',
-  evidence: { source: 'fix-workflow', status: 'unqualified' },
-}
 export function admitDecisionExecution(
   decision: Extract<FixRecord, { kind: 'decision' }>,
   history: DecodedHistory,

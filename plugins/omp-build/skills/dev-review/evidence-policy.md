@@ -1,8 +1,8 @@
 # Evidence review policy — evidence-v1
 
-This is the single policy for the evidence-v1 candidate. `dev-review`, `root-causes`,
-`fix`, `falsification`, and `feature` consume it; none redefines qualification, plan
-admission, debt admission, or rollout state.
+This is the single review-classification policy for the evidence-v1 candidate.
+Correction dispositions follow `skill://dev-review/root-causes.md`, independently
+of review policy selection and rollout.
 
 ## Authority and rollout
 
@@ -54,14 +54,13 @@ paths and residual obligations separately; (2) collect and retain complete F; (3
 the evaluator once; (4) run qualification, exact-membership checking and plan admission
 as a **hypothetical** candidate decision; (5) render separate local candidate review
 bytes, a hypothetical fix plan, and a hypothetical receipt. The local render identifies
-`Mode: shadow`, retains every required blocker and residual, and records why each
-hypothetical plan/issue is admitted or comment-only. It contains no authoritative
-verdict declaration, and is never passed to a live writer/reader.
+`Mode: shadow`, retains every required blocker and residual, and records the
+hypothetical review selection. It contains no authoritative verdict declaration and
+is never passed to a live writer/reader.
 
-The local fix consumer may read those exact local bytes only to compute the same
-hypothetical plan, optional-withdrawal transition and receipt. It must not perform a
-write or treat a missing acceptance reference as a parsing failure. Its output is
-observation evidence, not a fix authorization.
+The local fix consumer may read those exact local bytes only for hypothetical
+observation. It must not write or treat a missing acceptance reference as a parsing
+failure. Its output is not fix authorization.
 
 An isolated fixture may exercise the active branch with an explicitly labelled
 **fictional acceptance event**. It may prove branch behavior only: it cannot establish
@@ -80,7 +79,7 @@ Phase 8, stops and bounds. Missing, malformed, self-generated, or unverified acc
 means shadow; it never authorizes a patch.
 
 Suspend candidate use immediately on a missed required blocker, an out-of-policy
-correction, an inadmissible debt issue, or a lost residual obligation. Retain the
+correction, an unauthorized issue, or a lost residual obligation. Retain the
 observations and ordinary stops/bounds, restore baseline authority and full review,
 and require renewed independent acceptance; suspension never resets review accounting.
 
@@ -103,59 +102,18 @@ the finding, evidence and residual obligations. Missing evidence is `unknown`, n
 refutation; it blocks only when it leaves an unresolved applicable required obligation.
 
 Supported current uses are evaluated against the accepted promise; hypothetical future
-uses do not create a required obligation. A known minor may be autonomously deferred
-only when the evidence establishes it is optional and the debt rule admits its handling.
+uses do not create a required obligation. Correction handling follows the cause
+disposition rules independently of this review classification.
 A disputed product promise or a requested promise change is human arbitration, not an
 agent disposition. Material Jev disagreement is investigated against the cited evidence,
 never voted away; no aggregate, confidence, availability or score waives an obligation.
 
-An **optional** finding may join a selected required plan only as
-`optional-neighbor-of RC-N` when all of these are recorded:
-
-1. it is a real current defect with an understood mechanism, independently evidenced
-   at each cited producer/consumer path;
-2. `RC-N` is a selected, safe required plan with exact member bindings, and the
-   optional work is within that already-authorized required fix;
-3. the correction preserves the accepted/promised contract;
-4. the correction introduces no dependency;
-5. caller compatibility is evidenced and preserved;
-6. a targeted behavioral proof is available for the optional correction.
-
-Separability is additionally mandatory: the optional correction must be separable from
-every required obligation so it can be safely withdrawn and the required paths
-revalidated.
-
-Every new discovery at a neighboring path is independently requalified; shared class,
-file, line, mechanism wording, or a prior neighbor decision is never inheritance.
-An optional-only set selects no plan, creates no red verdict and starts no new fix route.
-`none` means no selected plan, never no finding and never clearance of a required blocker.
-
-## Required membership versus optional neighbor
-
-One selected `authorization: required` plan may bind exact memberships for every
-symptom of its one demonstrated mechanism, including non-blocking members, when its
-minimal shared-producer correction resolves them all. Do not split that causal plan
-because members carry different labels, and do not require optional-neighbor metadata
-for those naturally resolved symptoms.
-
-`optional-neighbor-of RC-N` is only for an additional, independent correction beside
-that required plan. It never authorizes an unrelated improvement, a second mechanism
-hidden in a shared file, or a causal split that the cited evidence does not demonstrate.
-Its own exact memberships and all six conditions remain mandatory.
-
-## Selected-plan contract
-
-The seven causal lines remain mandatory. A candidate-selected RC additionally has:
-
-```markdown
-- authorization: required | optional-neighbor-of RC-N
-- admission: <bounded evidence; required's safe-plan evidence or optional's six conditions plus separability>
-```
-
-`findings:` retains exact `path:line` plus final rendered description memberships; a
-finding appears in at most one selected plan. Missing/malformed authorization, admission,
-seven-line plan, exact membership, proof, or safe boundary authorizes no active patch.
-Required members stay blockers; optional members are retained as findings.
+Every neighboring discovery is independently qualified for review; shared class,
+file, line, mechanism wording, or a prior decision is never inheritance. Causes
+retain exact finding memberships and the seven-field plan. Their necessary, urgent,
+and too-large judgments require cited evidence, and the engine assesses their
+disposition under `skill://dev-review/root-causes.md`. Review classification alone
+does not authorize a patch, create an issue, or clear a required blocker.
 
 Phase 4 alone computes the complete deduplicated F, performs active qualification and
 disposition before final labels/verdict, selects plans, and renders the authoritative
@@ -178,23 +136,11 @@ accepted for the selected differential use. Failure or uncertainty restores full
 no differential disposition becomes authoritative merely because the general candidate
 is active.
 
-## Correction and debt admission
+## Correction dispositions
 
-An active correction first needs a selected `required` plan. Optional neighbors may be
-changed only inside that already authorized correction. If an optional change fails
-application or falsification, withdraw it, restore/revalidate every required path and
-continue only if the required correction remains separable. If it is inseparable, stop;
-never consume a discretionary retry or invent a replacement plan.
-
-Issue creation is admissible only when the retained evidence establishes **all three**:
-`important AND urgent AND too-large`. This conjunction applies to every cause, uncited
-finding, malformed/unplanned record, failed correction, falsification discovery, bundle,
-receipt and feature handoff. The issue itself must use existing `issue-triage` transport
-and relationship ownership. If any predicate is absent, false, unknown, or disputed:
-post/retain a PR comment only; create no debt issue and no bundle. Required blockers
-remain blockers even when no safe plan or admissible debt issue exists.
-
-Candidate receipts list: retained evidence/dimensions, selected authorization and
-admission, optional withdrawals, required obligations revalidated or still residual,
-debt decision with all three predicates, and suspension if triggered. They never claim
-that a skipped/inconclusive falsification or unavailable evaluator is a pass.
+Persist each assessed cause outcome on the original UW before applying any
+`fix-original` work. A blocking or indeterminate cause with missing, contested or
+contradictory evidence stays pending; unsupported nonblocking work is a report.
+Reports create no issue. Sister creation requires an exact authenticated operator
+confirmation; a blocking sister holds the original. A skipped or inconclusive
+falsification is never a pass.

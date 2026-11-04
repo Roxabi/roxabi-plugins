@@ -1,3 +1,4 @@
+import { validateCauseDispositionRecords } from './cause-disposition.ts'
 import { classifyHistory } from './history-classification.ts'
 import { validateProspectiveRecord, validateRecordGraph } from './history-graph.ts'
 import type { DecodedHistory } from './history-schema.ts'
@@ -7,7 +8,8 @@ import { type ExternalRecordRef, isWorkflowKind } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
 import { type RecordProjectionConfig, type Result, recordMap } from './result.ts'
-import { validateDecision } from './review-decision.ts'
+import { validateFreshDecision } from './review-decision.ts'
+import { bindExternalRef, recordsOf } from './workflow-control.ts'
 import { scopedRefsOf, workflowInputMeaning } from './workflow-record-references.ts'
 
 function stringified(value: unknown): string {
@@ -82,6 +84,14 @@ function projectWorkflowRecord(
     ])
   const referenceDiagnostic = workflowReferenceDiagnostic(record, records, externalHistories)
   if (referenceDiagnostic !== null) return fail([referenceDiagnostic])
+  if (record.kind === 'cause-disposition' || record.kind === 'cause-operation' || record.kind === 'report-promotion') {
+    const candidates = [...records.values()].filter((item) => item.recordId !== record.recordId)
+    const diagnostics = validateCauseDispositionRecords({
+      records: [...candidates, record],
+      histories: [history, ...externalHistories],
+    })
+    if (diagnostics.length) return fail(diagnostics)
+  }
   return {
     ok: true,
     value: `# OMP build record\n\n- Kind: ${record.kind}\n- Record: ${record.recordId}\n- Operation: ${record.operationId}\n\n\`\`\`json\n${stringified(record.payload)}\n\`\`\``,
@@ -107,14 +117,17 @@ function projectReviewRecord(
     (Reflect.get(config, 'acceptedPolicy') !== null && typeof Reflect.get(config, 'acceptedPolicy') !== 'string')
   )
     return fail([diagnostic('unbound', `Review ${record.recordId} has no valid projection policy context`)])
-  const assessment = validateDecision(
+  const fresh = validateFreshDecision(
     decision,
     history,
     config.taxonomy,
     config.acceptedPolicy,
     externalHistories,
     deliveryHistory,
+    record.payload.causeDispositionRefs,
   )
+  if (!fresh.ok) return fail(fresh.diagnostics)
+  const assessment = fresh.value
   if (!assessment.admissible || assessment.verdict === null)
     return fail(
       assessment.diagnostics.length > 0
@@ -151,6 +164,57 @@ function projectOperatorContribution(record: Extract<CanonicalRecord, { kind: 'c
   }
 }
 
+function matchesCorrectionDisposition(
+  record: Extract<CanonicalRecord, { kind: 'correction-result' }>,
+  source: CanonicalRecord,
+): boolean {
+  return (
+    source.kind === 'cause-disposition' &&
+    source.payload.subject.kind === 'cause' &&
+    source.payload.subject.decision.recordId === record.payload.decisionId &&
+    equalScope(source.payload.subject.decision.scope, record) &&
+    source.payload.subject.cause.id === record.payload.causeId &&
+    source.payload.outcome.state === 'final' &&
+    source.payload.outcome.disposition === 'fix-original'
+  )
+}
+
+function correctionReferenceDiagnostics(
+  record: Extract<CanonicalRecord, { kind: 'fix-request' | 'correction-result' | 'fix-result' }>,
+  history: DecodedHistory,
+  externalHistories: readonly DecodedHistory[],
+): Diagnostic[] | null {
+  for (const ref of scopedRefsOf(record)) {
+    const sourceHistory = [history, ...externalHistories].find((item) => equalScope(item.source.scope, ref.scope))
+    if (!sourceHistory) return [diagnostic('missing-history', `No history supplied for ${ref.recordId}`)]
+    const source = bindExternalRef(ref, sourceHistory)
+    if (!source.ok) return source.diagnostics
+    if (record.kind === 'correction-result' && !matchesCorrectionDisposition(record, source.value))
+      return [
+        diagnostic('cause-effect-mismatch', `Correction ${record.recordId} does not match an admitted fix disposition`),
+      ]
+  }
+  return null
+}
+
+function projectionReferenceDiagnostics(
+  record: CanonicalRecord,
+  history: DecodedHistory,
+  externalHistories: readonly DecodedHistory[],
+): Diagnostic[] | null {
+  if (record.kind === 'debt-receipt') {
+    const candidates = recordsOf(history).filter((item) => item.recordId !== record.recordId)
+    const diagnostics = validateCauseDispositionRecords({
+      records: [...candidates, record],
+      histories: [history, ...externalHistories],
+    })
+    if (diagnostics.length) return diagnostics
+  }
+  if (record.kind === 'fix-request' || record.kind === 'correction-result' || record.kind === 'fix-result')
+    return correctionReferenceDiagnostics(record, history, externalHistories)
+  return null
+}
+
 export function projectRecord(
   record: CanonicalRecord,
   history: DecodedHistory,
@@ -170,6 +234,8 @@ export function projectRecord(
       diagnostic('unbound', `Record ${record.recordId} cannot be projected outside a complete bound history`),
     ])
   const records = new Map(graph.value.map((entry) => [entry.recordId, entry]))
+  const referenceDiagnostics = projectionReferenceDiagnostics(record, history, externalHistories)
+  if (referenceDiagnostics !== null) return fail(referenceDiagnostics)
   if (record.kind === 'review')
     return projectReviewRecord(record, projectionHistory, records, config, externalHistories, history)
   if (record.kind === 'contribution' && record.payload.host.origin === 'operator')

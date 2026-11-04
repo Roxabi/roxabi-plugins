@@ -77,6 +77,18 @@ function fixture(control: 'select' | 'new' = 'select', eligible = false) {
     delivered.push(result)
   }
   const operations: UwOperations = {
+    listReports: async () => {
+      throw new Error('unexpected listReports')
+    },
+    adjudicateCause: async () => {
+      throw new Error('unexpected adjudicateCause')
+    },
+    createSister: async () => {
+      throw new Error('unexpected createSister')
+    },
+    promoteReport: async () => {
+      throw new Error('unexpected promoteReport')
+    },
     readUw: async () => {
       throw new Error('unexpected readUw')
     },

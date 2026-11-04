@@ -45,6 +45,8 @@ export function knownRoleSelector(kind: string, selector: string): boolean {
       return reviewRecordSelector(kind, selector)
     case 'operator-control':
     case 'spec-identity':
+    case 'cause-disposition':
+    case 'cause-operation':
     case 'mandate':
     case 'workflow-binding':
     case 'decision':

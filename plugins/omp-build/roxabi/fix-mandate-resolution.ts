@@ -1,9 +1,12 @@
 import type {
+  AcceptedOwnSpec,
+  AssessSpecExact,
   CanonicalRecord,
   DecodedHistory,
   ExternalRecordRef,
   FixMandateAssessment,
   Json,
+  MandatePayload,
   Scope,
 } from '../dist/contracts.js'
 import {
@@ -13,9 +16,6 @@ import {
   resolveAcceptedSpec,
   resolveBoundWork,
 } from '../dist/contracts.js'
-import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
-import type { MandatePayload } from '../engine/workflow-mandate-schema.ts'
-import type { AssessSpecExact } from '../engine/workflow-receipt-schema.ts'
 import type { FixActionResult, FixTarget } from './fix-contract.ts'
 import { failure } from './fix-contract.ts'
 import {

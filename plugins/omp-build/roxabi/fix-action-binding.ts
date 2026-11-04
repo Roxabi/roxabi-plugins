@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from 'node:util'
+import type { DecodedHistory } from '../dist/contracts.js'
 import { recordsOf, validateActionInputs } from '../dist/contracts.js'
-import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { NativeBatch } from '../omp/review-runtime/contracts.ts'
 import type {
   BoundCorrectionAction,

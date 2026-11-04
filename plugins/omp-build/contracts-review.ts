@@ -13,6 +13,7 @@ export {
   type ReviewDecisionBindings,
   validateDecision,
   validateDecisionBindings,
+  validateFreshDecision,
   validateRetainedUnusableLabels,
   validateReviewDecisionBindings,
 } from './engine/review-decision.ts'
@@ -51,14 +52,19 @@ export {
 } from './engine/review-recovery-records.ts'
 export {
   type Cause,
+  type CauseJudgment,
   type CorrectionResult,
+  causeJudgmentSchema,
   causeSchema,
+  citedJudgmentSchema,
   correctionResultSchema,
   type DebtReceipt,
   type Decision,
+  type Disposition,
   debtReceiptSchema,
   decisionPayloadSchema,
   decisionSchema,
+  dispositionSchema,
   type FalsificationResult,
   type FinalFinding,
   type FinalReview,

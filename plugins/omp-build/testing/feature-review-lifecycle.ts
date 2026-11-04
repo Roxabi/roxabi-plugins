@@ -21,10 +21,20 @@ type Data = NativeData
 export function reviewInitialData(task: NativeTask): Data {
   if (task.name === 'spec') return { findings: [], specRows: [fixtureSpecRow(task.action)] }
   if (!task.name.startsWith('panel-')) return { findings: [] }
+  const spec = task.action.inputs.manifest.spec
+  if (spec.kind !== 'accepted') throw new Error('review-fixture-accepted-criterion-missing')
+  const criterion = spec.effective.spec.criteria[0]
+  if (criterion === undefined) throw new Error('review-fixture-accepted-criterion-missing')
   return {
     findings: [
       finding({
         label: 'issue(blocking)',
+        target: {
+          format: 'omp-build-finding-target/1',
+          kind: 'criterion',
+          spec: spec.effective.own,
+          id: criterion.id,
+        },
         description: 'Saving discards the selected region.',
         location: { file: 'src/save.ts', line: 1 },
         rootCause: 'The save path persists a stale selected region.',

@@ -6,7 +6,7 @@ import type { DecodedHistory, History } from '../engine/history-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import { resolveAcceptedSpec } from '../engine/workflow-accepted-spec.ts'
 import { acceptedActionInputs } from '../testing/action-input-fixtures.ts'
-import { reviewRoot, submission, synthesisInventory } from '../testing/record-builders.ts'
+import { finding, reviewRoot, submission, synthesisInventory } from '../testing/record-builders.ts'
 import { contribution, decision, finalReview } from '../testing/record-decisions.ts'
 import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
@@ -239,6 +239,7 @@ export function completedReplacementRecords(replacement: ReviewRoot): CanonicalR
           label: 'issue',
           impactReason: 'The selected region remains stale.',
           state: 'usable',
+          target: finding().target,
           sourceFindingIds: [`${panel.recordId}:f0`],
           description: 'Persist the selected region.',
         },

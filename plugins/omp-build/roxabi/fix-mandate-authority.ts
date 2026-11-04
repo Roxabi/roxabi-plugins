@@ -1,7 +1,13 @@
-import type { DecodedHistory, GitHubOptions, Json, Scope, ScopedRecordRef } from '../dist/contracts.js'
+import type {
+  AcceptedOwnSpec,
+  DecodedHistory,
+  GitHubOptions,
+  Json,
+  MandatePayload,
+  Scope,
+  ScopedRecordRef,
+} from '../dist/contracts.js'
 import { effectiveMandateRole, shippedProductVersion } from '../dist/contracts.js'
-import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
-import type { MandatePayload } from '../engine/workflow-mandate-schema.ts'
 import { linkedIssueBinding } from './fix-checkpoint-binding.ts'
 import { reconstructFixCheckpoint } from './fix-checkpoint-state.ts'
 import type { FixActionResult, FixRecord, FixTarget } from './fix-contract.ts'
@@ -48,10 +54,13 @@ export async function decideFixAuthority(input: {
 }): Promise<FixActionResult<FixAuthorityDecision>> {
   const history = await input.readHistory()
   if (!history.source.complete) return failure('fix-history-incomplete')
-  const checkpoint = reconstructFixCheckpoint(history, input.trustedLiveRequest)
-  if (checkpoint.status === 'blocked') return failure(...checkpoint.diagnostics)
   const linked = await linkedIssueBinding(input.target, input.options, input.uw)
   if (!linked.ok) return linked
+  const checkpoint = reconstructFixCheckpoint(history, input.trustedLiveRequest, [
+    ...(linked.value.history === null ? [] : [linked.value.history]),
+    ...linked.value.externalHistories,
+  ])
+  if (checkpoint.status === 'blocked') return failure(...checkpoint.diagnostics)
   const selected = await resolveCorrectionMandate({
     target: input.target,
     history,

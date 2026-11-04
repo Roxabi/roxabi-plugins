@@ -66,7 +66,7 @@ describe('standalone fix preparation', () => {
     expect(records).toEqual([])
   })
 
-  it('uses baseline policy by default for a bounded standalone correction', async () => {
+  it('refuses missing original UW before publishing or preparing an action', async () => {
     const records: FixRecord[] = []
     let sequence = 0
     const operations = confirmingUwOperations()
@@ -122,25 +122,9 @@ describe('standalone fix preparation', () => {
       },
     )
 
-    expect(result.ok).toBe(true)
-    expect(observedCode).toEqual({
-      repository: 'Acme/app',
-      base: 'b'.repeat(40),
-      head: 'a'.repeat(40),
-      referenceCommit: 'a'.repeat(40),
-    })
-    const inventory = records.find((record) => record.kind === 'review-attempt')
-    if (inventory?.kind !== 'review-attempt') throw new Error('expected correction inventory')
-    expect(inventory.payload).toMatchObject({ purpose: 'correction', policy: { version: 'baseline' } })
-    const source = records.find((record) => record.kind === 'contribution')
-    if (source?.kind !== 'contribution') throw new Error('expected operator contribution')
-    expect(source.payload).toMatchObject({
-      structured: null,
-      rawAttempts: [
-        { raw: { operatorRequest: { request: 'fix it' }, publishBinding: { publicationRepository: 'Acme/app' } } },
-      ],
-    })
-    expect(records.map((record) => record.kind)).toEqual(['contribution', 'fix-request', 'review-attempt'])
+    expect(result).toEqual({ ok: false, diagnostics: ['correction-original-uw-required'] })
+    expect(observedCode).toBeUndefined()
+    expect(records).toEqual([])
   })
 
   it('does not publish when a three-hop authority abort reaches standalone preparation', async () => {

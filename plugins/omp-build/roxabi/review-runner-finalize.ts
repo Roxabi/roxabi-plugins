@@ -5,9 +5,10 @@ import {
   decisionSchema,
   type Policy,
   type RecordDraft,
+  type Ref,
   reviewInventoryHasContextNegative,
   type Scope,
-  validateDecision,
+  validateFreshDecision,
 } from '../dist/contracts.js'
 import type { Result } from '../engine/result.ts'
 import type { PublishedContribution } from './review-contract.ts'
@@ -38,6 +39,8 @@ export async function finalizeReview(input: {
   canContinue: () => boolean
   readHistory: () => Promise<DecodedHistory>
   publish(record: CanonicalRecord, failurePrefix: string, externalHistories?: readonly DecodedHistory[]): Promise<void>
+  persistDecision(decision: Extract<CanonicalRecord, { kind: 'decision' }>): Promise<Ref<'cause-disposition'>[]>
+  retainFailedSynthesis(history: DecodedHistory, diagnostic: string): Promise<void>
   readExternalHistories(history: DecodedHistory): Promise<Result<readonly DecodedHistory[]>>
   onDecisionConfirmed(decisionId: string): void
 }): Promise<void> {
@@ -47,9 +50,15 @@ export async function finalizeReview(input: {
   const beforeFinal = await input.readHistory()
   requireFinalContext(beforeFinal, input.inventories)
   const contribution = input.contributions.find((item) => item.child.expectedId === 'synthesis')
-  if (!contribution || contribution.child.structured === null) throw new Error('synthesis-contribution-missing')
+  if (!contribution || contribution.child.structured === null) {
+    await input.retainFailedSynthesis(beforeFinal, 'synthesis-contribution-missing')
+    throw new Error('synthesis-contribution-missing')
+  }
   const judgment = decisionSchema.safeParse(contribution.child.structured)
-  if (!judgment.success || judgment.data.purpose !== 'review') throw new Error('synthesis-decision-invalid')
+  if (!judgment.success || judgment.data.purpose !== 'review') {
+    await input.retainFailedSynthesis(beforeFinal, 'synthesis-decision-invalid')
+    throw new Error('synthesis-decision-invalid')
+  }
   const decisionRecordId = input.identity.next('decision')
   const decision = requireRecord(
     buildRecord({
@@ -62,15 +71,20 @@ export async function finalizeReview(input: {
   if (!input.canContinue()) return
   await input.publish(decision, 'decision-unconfirmed')
   const history = await input.readHistory()
+  const causeDispositionRefs = await input.persistDecision(decision)
   const cited = await input.readExternalHistories(history)
   if (!cited.ok) throw new Error(`cited-history-unreadable:${cited.diagnostics.map((item) => item.code).join(',')}`)
-  const assessment = validateDecision(
+  const validated = validateFreshDecision(
     decision,
     history,
     input.review.canonicalClasses,
     input.review.policy.version === 'evidence-v1' ? input.review.policy.acceptanceRef : null,
     cited.value,
+    history,
+    causeDispositionRefs,
   )
+  if (!validated.ok) throw new Error(`decision-refused:${validated.diagnostics.map((item) => item.code).join(',')}`)
+  const assessment = validated.value
   if (!assessment.admissible) {
     throw new Error(`decision-refused:${assessment.diagnostics.map((item) => item.code).join(',')}`)
   }
@@ -89,6 +103,7 @@ export async function finalizeReview(input: {
         inventoryIds: [...input.inventories],
         inputFormat: 'omp-build:review-input/4',
         decisionId: decision.recordId,
+        causeDispositionRefs,
       },
     } satisfies Extract<RecordDraft, { kind: 'review' }>),
     'review',

@@ -51,6 +51,7 @@ async function currentSpecFacts(selected: SelectedFeature): Promise<CurrentSpecO
     proposed: read.proposed,
     accepted: read.accepted,
     identities: read.identity.value,
+    histories: read.histories,
     phase: 'delivery-transition',
     currentChildren,
   })

@@ -106,6 +106,7 @@ export async function createSynthesisBatch(input: {
       output: 'decision',
       classId: null,
       sourceFindingIds: [...input.sourceContributionIds],
+      action: { actionId: prepared.snapshot.actionId, inputs: prepared.inputs },
     },
   ]
   return createInventory({

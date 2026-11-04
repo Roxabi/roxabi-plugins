@@ -167,6 +167,7 @@ export async function readCanonicalEpic(repo: string, epic: number, full: string
         proposed: parent.proposed,
         accepted: parent.accepted,
         identities: parent.identity.value,
+        histories: parent.histories,
         phase: 'delivery-transition',
         currentChildren,
       })

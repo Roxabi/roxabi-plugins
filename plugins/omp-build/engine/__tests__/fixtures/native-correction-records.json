@@ -3,6 +3,28 @@
     "repository": "acme/widgets",
     "target": "acme/widgets#42",
     "version": 1,
+    "recordId": "workflow-binding:acme/widgets#42:mandate-fix-1",
+    "runId": "workflow-binding:acme/widgets#42:mandate-fix-1",
+    "operationId": "workflow-binding:acme/widgets#42:mandate-fix-1",
+    "inputs": [],
+    "kind": "workflow-binding",
+    "payload": {
+      "mandate": {
+        "scope": {
+          "repository": "acme/widgets",
+          "target": "acme/widgets#7"
+        },
+        "recordId": "mandate-fix-1",
+        "kind": "mandate"
+      },
+      "branch": "fix/42-save",
+      "base": "main"
+    }
+  },
+  {
+    "repository": "acme/widgets",
+    "target": "acme/widgets#42",
+    "version": 1,
     "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-1",
     "runId": "fix-28245174-555c-44d1-b988-0fd290103a82",
     "operationId": "fix-operation-d9281f79-ef3f-4366-a5a7-cb473f635c46-fix-28245174-555c-44d1-b988-0fd290103a82-contribution-1",
@@ -70,6 +92,21 @@
     "kind": "fix-request",
     "payload": {
       "requestContributionId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-1",
+      "originalSpec": {
+        "uw": {
+          "repository": "acme/widgets",
+          "target": "acme/widgets#7"
+        },
+        "version": "30ae08cc0fe1c01960ac7baf9b1d39ed1c03b5fbc629345b339baa2eaa0e3560",
+        "sourceAccepted": {
+          "scope": {
+            "repository": "acme/widgets",
+            "target": "acme/widgets#7"
+          },
+          "recordId": "mandate-fix-1",
+          "kind": "mandate"
+        }
+      },
       "existingReviewId": null,
       "scope": "repair persistence and authorization then prove each cause",
       "landing": false
@@ -90,8 +127,8 @@
       "rootAttemptId": "fix-28245174-555c-44d1-b988-0fd290103a82-review-attempt-3",
       "candidateGitSHA": "a55bb087c03b70bfd277ce0ac30108e58b1d782f",
       "inputFormat": "omp-build:review-input/4",
-      "input": null,
-      "actionInputDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "input": "2f685690bf0aa6ab58bd9242a4dcbf5e178e465b02cf82841719b8d359e49443",
+      "actionInputDigest": "2f685690bf0aa6ab58bd9242a4dcbf5e178e465b02cf82841719b8d359e49443",
       "slots": [
         {
           "slotId": "fix-intake",
@@ -101,7 +138,124 @@
           "required": true,
           "output": "findings",
           "classId": null,
-          "sourceFindingIds": []
+          "sourceFindingIds": [],
+          "action": {
+            "actionId": "fixture-fix-intake",
+            "inputs": {
+              "format": "omp-build-action-input-binding/1",
+              "manifest": {
+                "format": "omp-build-action-input/1",
+                "code": {
+                  "repository": "acme/widgets",
+                  "base": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "head": "a55bb087c03b70bfd277ce0ac30108e58b1d782f",
+                  "referenceCommit": "a55bb087c03b70bfd277ce0ac30108e58b1d782f"
+                },
+                "acceptedSources": [],
+                "deliveryData": [],
+                "repositoryReferences": [],
+                "plugin": {
+                  "name": "omp-build",
+                  "version": "0.15.0",
+                  "repository": "Roxabi/roxabi-plugins",
+                  "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "root": "plugins/omp-build",
+                  "files": []
+                },
+                "configuration": {
+                  "version": "0.15.0",
+                  "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "serialized": "config"
+                },
+                "expandedContext": [],
+                "purpose": "correction",
+                "subject": {
+                  "kind": "uw",
+                  "uw": {
+                    "repository": "acme/widgets",
+                    "target": "acme/widgets#7"
+                  },
+                  "pullRequest": {
+                    "repository": "acme/widgets",
+                    "target": "acme/widgets#42"
+                  },
+                  "binding": {
+                    "source": "record",
+                    "record": {
+                      "scope": {
+                        "repository": "acme/widgets",
+                        "target": "acme/widgets#42"
+                      },
+                      "kind": "workflow-binding",
+                      "recordId": "workflow-binding:acme/widgets#42:mandate-fix-1"
+                    },
+                    "selector": "/payload",
+                    "digest": "f3a325018356edbd42a78ac7b7f924ee6f568d8f86f34406c064bf702b3853d9"
+                  }
+                },
+                "spec": {
+                  "kind": "accepted",
+                  "effective": {
+                    "format": "omp-build-spec-effective/1",
+                    "resolution": "own-only",
+                    "own": {
+                      "uw": {
+                        "repository": "acme/widgets",
+                        "target": "acme/widgets#7"
+                      },
+                      "version": "30ae08cc0fe1c01960ac7baf9b1d39ed1c03b5fbc629345b339baa2eaa0e3560",
+                      "sourceAccepted": {
+                        "scope": {
+                          "repository": "acme/widgets",
+                          "target": "acme/widgets#7"
+                        },
+                        "recordId": "mandate-fix-1",
+                        "kind": "mandate"
+                      }
+                    },
+                    "versionVector": [
+                      {
+                        "uw": {
+                          "repository": "acme/widgets",
+                          "target": "acme/widgets#7"
+                        },
+                        "version": "30ae08cc0fe1c01960ac7baf9b1d39ed1c03b5fbc629345b339baa2eaa0e3560",
+                        "sourceAccepted": {
+                          "scope": {
+                            "repository": "acme/widgets",
+                            "target": "acme/widgets#7"
+                          },
+                          "recordId": "mandate-fix-1",
+                          "kind": "mandate"
+                        }
+                      }
+                    ],
+                    "spec": {
+                      "format": "omp-build-spec-content/1",
+                      "criteria": [
+                        {
+                          "id": "C1",
+                          "statement": "## Acceptance\n- [ ] Save keeps the selected region"
+                        }
+                      ],
+                      "invariants": [],
+                      "exclusions": [],
+                      "openQuestions": [],
+                      "sections": {
+                        "origin": "",
+                        "context": "",
+                        "change": ""
+                      },
+                      "version": "30ae08cc0fe1c01960ac7baf9b1d39ed1c03b5fbc629345b339baa2eaa0e3560"
+                    },
+                    "ancestry": "not-resolved"
+                  }
+                }
+              },
+              "fingerprint": "2f685690bf0aa6ab58bd9242a4dcbf5e178e465b02cf82841719b8d359e49443",
+              "stageSources": []
+            }
+          }
         }
       ],
       "stage": "initial",
@@ -147,7 +301,27 @@
                   "line": 1
                 },
                 "rootCause": "persistRegion always returns stale",
-                "symptomsEvidence": "persistRegion(\"current\") is stale"
+                "symptomsEvidence": "persistRegion(\"current\") is stale",
+                "target": {
+                  "format": "omp-build-finding-target/1",
+                  "kind": "criterion",
+                  "spec": {
+                    "uw": {
+                      "repository": "acme/widgets",
+                      "target": "acme/widgets#7"
+                    },
+                    "version": "30ae08cc0fe1c01960ac7baf9b1d39ed1c03b5fbc629345b339baa2eaa0e3560",
+                    "sourceAccepted": {
+                      "scope": {
+                        "repository": "acme/widgets",
+                        "target": "acme/widgets#7"
+                      },
+                      "recordId": "mandate-fix-1",
+                      "kind": "mandate"
+                    }
+                  },
+                  "id": "C1"
+                }
               },
               {
                 "label": "issue(blocking)",
@@ -157,7 +331,16 @@
                   "line": 1
                 },
                 "rootCause": "authorize always denies",
-                "symptomsEvidence": "authorize(\"operator\") is false"
+                "symptomsEvidence": "authorize(\"operator\") is false",
+                "target": {
+                  "format": "omp-build-finding-target/1",
+                  "kind": "outside-spec",
+                  "uw": {
+                    "repository": "acme/widgets",
+                    "target": "acme/widgets#7"
+                  },
+                  "element": "authorize operator"
+                }
               }
             ]
           },
@@ -165,10 +348,9 @@
             "toolCallId": "fix-smoke-yield-0002",
             "contentIndex": 0,
             "argumentDeltas": [
-              "{\"data\":{\"findings\":[{\"label\":\"issue(blocking)\",\"description\":\"Current region is not persisted.\",\"location\":{\"file\":\"src/persistence.ts\",\"line\":1},\"rootCause\":\"persistRegion always returns stale\",\"symptomsEvidence\":\"persistRegion(\\\"curr",
-              "ent\\\") is stale\"},{\"label\":\"issue(blocking)\",\"description\":\"Operator is not authorized.\",\"location\":{\"file\":\"src/authorization.ts\",\"line\":1},\"rootCause\":\"authorize always denies\",\"symptomsEvidence\":\"authorize(\\\"operator\\\") is false\"}]}}"
+              "{\"data\":{\"findings\":[{\"label\":\"issue(blocking)\",\"description\":\"Current region is not persisted.\",\"location\":{\"file\":\"src/persistence.ts\",\"line\":1},\"rootCause\":\"persistRegion always returns stale\",\"symptomsEvidence\":\"persistRegion(\\\"current\\\") is stale\",\"target\":{\"format\":\"omp-build-finding-target/1\",\"kind\":\"criterion\",\"spec\":{\"uw\":{\"repository\":\"acme/widgets\",\"target\":\"acme/widgets#7\"},\"version\":\"30ae08cc0fe1c01960ac7baf9b1d39ed1c03b5fbc629345b339baa2eaa0e3560\",\"sourceAccepted\":{\"scope\":{\"repository\":\"acme/widgets\",\"target\":\"acme/widgets#7\"},\"recordId\":\"mandate-fix-1\",\"kind\":\"mandate\"}},\"id\":\"C1\"}},{\"label\":\"issue(blocking)\",\"description\":\"Operator is not authorized.\",\"location\":{\"file\":\"src/authorization.ts\",\"line\":1},\"rootCause\":\"authorize always denies\",\"symptomsEvidence\":\"authorize(\\\"operator\\\") is false\",\"target\":{\"format\":\"omp-build-finding-target/1\",\"kind\":\"outside-spec\",\"uw\":{\"repository\":\"acme/widgets\",\"target\":\"acme/widgets#7\"},\"element\":\"authorize operator\"}}]}}"
             ],
-            "argumentText": "{\"data\":{\"findings\":[{\"label\":\"issue(blocking)\",\"description\":\"Current region is not persisted.\",\"location\":{\"file\":\"src/persistence.ts\",\"line\":1},\"rootCause\":\"persistRegion always returns stale\",\"symptomsEvidence\":\"persistRegion(\\\"current\\\") is stale\"},{\"label\":\"issue(blocking)\",\"description\":\"Operator is not authorized.\",\"location\":{\"file\":\"src/authorization.ts\",\"line\":1},\"rootCause\":\"authorize always denies\",\"symptomsEvidence\":\"authorize(\\\"operator\\\") is false\"}]}}",
+            "argumentText": "{\"data\":{\"findings\":[{\"label\":\"issue(blocking)\",\"description\":\"Current region is not persisted.\",\"location\":{\"file\":\"src/persistence.ts\",\"line\":1},\"rootCause\":\"persistRegion always returns stale\",\"symptomsEvidence\":\"persistRegion(\\\"current\\\") is stale\",\"target\":{\"format\":\"omp-build-finding-target/1\",\"kind\":\"criterion\",\"spec\":{\"uw\":{\"repository\":\"acme/widgets\",\"target\":\"acme/widgets#7\"},\"version\":\"30ae08cc0fe1c01960ac7baf9b1d39ed1c03b5fbc629345b339baa2eaa0e3560\",\"sourceAccepted\":{\"scope\":{\"repository\":\"acme/widgets\",\"target\":\"acme/widgets#7\"},\"recordId\":\"mandate-fix-1\",\"kind\":\"mandate\"}},\"id\":\"C1\"}},{\"label\":\"issue(blocking)\",\"description\":\"Operator is not authorized.\",\"location\":{\"file\":\"src/authorization.ts\",\"line\":1},\"rootCause\":\"authorize always denies\",\"symptomsEvidence\":\"authorize(\\\"operator\\\") is false\",\"target\":{\"format\":\"omp-build-finding-target/1\",\"kind\":\"outside-spec\",\"uw\":{\"repository\":\"acme/widgets\",\"target\":\"acme/widgets#7\"},\"element\":\"authorize operator\"}}]}}",
             "rawBlock": null,
             "toolCallArguments": {
               "data": {
@@ -181,7 +363,27 @@
                       "line": 1
                     },
                     "rootCause": "persistRegion always returns stale",
-                    "symptomsEvidence": "persistRegion(\"current\") is stale"
+                    "symptomsEvidence": "persistRegion(\"current\") is stale",
+                    "target": {
+                      "format": "omp-build-finding-target/1",
+                      "kind": "criterion",
+                      "spec": {
+                        "uw": {
+                          "repository": "acme/widgets",
+                          "target": "acme/widgets#7"
+                        },
+                        "version": "30ae08cc0fe1c01960ac7baf9b1d39ed1c03b5fbc629345b339baa2eaa0e3560",
+                        "sourceAccepted": {
+                          "scope": {
+                            "repository": "acme/widgets",
+                            "target": "acme/widgets#7"
+                          },
+                          "recordId": "mandate-fix-1",
+                          "kind": "mandate"
+                        }
+                      },
+                      "id": "C1"
+                    }
                   },
                   {
                     "label": "issue(blocking)",
@@ -191,7 +393,16 @@
                       "line": 1
                     },
                     "rootCause": "authorize always denies",
-                    "symptomsEvidence": "authorize(\"operator\") is false"
+                    "symptomsEvidence": "authorize(\"operator\") is false",
+                    "target": {
+                      "format": "omp-build-finding-target/1",
+                      "kind": "outside-spec",
+                      "uw": {
+                        "repository": "acme/widgets",
+                        "target": "acme/widgets#7"
+                      },
+                      "element": "authorize operator"
+                    }
                   }
                 ]
               }
@@ -207,7 +418,27 @@
                       "line": 1
                     },
                     "rootCause": "persistRegion always returns stale",
-                    "symptomsEvidence": "persistRegion(\"current\") is stale"
+                    "symptomsEvidence": "persistRegion(\"current\") is stale",
+                    "target": {
+                      "format": "omp-build-finding-target/1",
+                      "kind": "criterion",
+                      "spec": {
+                        "uw": {
+                          "repository": "acme/widgets",
+                          "target": "acme/widgets#7"
+                        },
+                        "version": "30ae08cc0fe1c01960ac7baf9b1d39ed1c03b5fbc629345b339baa2eaa0e3560",
+                        "sourceAccepted": {
+                          "scope": {
+                            "repository": "acme/widgets",
+                            "target": "acme/widgets#7"
+                          },
+                          "recordId": "mandate-fix-1",
+                          "kind": "mandate"
+                        }
+                      },
+                      "id": "C1"
+                    }
                   },
                   {
                     "label": "issue(blocking)",
@@ -217,7 +448,16 @@
                       "line": 1
                     },
                     "rootCause": "authorize always denies",
-                    "symptomsEvidence": "authorize(\"operator\") is false"
+                    "symptomsEvidence": "authorize(\"operator\") is false",
+                    "target": {
+                      "format": "omp-build-finding-target/1",
+                      "kind": "outside-spec",
+                      "uw": {
+                        "repository": "acme/widgets",
+                        "target": "acme/widgets#7"
+                      },
+                      "element": "authorize operator"
+                    }
                   }
                 ]
               }
@@ -256,7 +496,27 @@
                       "line": 1
                     },
                     "rootCause": "persistRegion always returns stale",
-                    "symptomsEvidence": "persistRegion(\"current\") is stale"
+                    "symptomsEvidence": "persistRegion(\"current\") is stale",
+                    "target": {
+                      "format": "omp-build-finding-target/1",
+                      "kind": "criterion",
+                      "spec": {
+                        "uw": {
+                          "repository": "acme/widgets",
+                          "target": "acme/widgets#7"
+                        },
+                        "version": "30ae08cc0fe1c01960ac7baf9b1d39ed1c03b5fbc629345b339baa2eaa0e3560",
+                        "sourceAccepted": {
+                          "scope": {
+                            "repository": "acme/widgets",
+                            "target": "acme/widgets#7"
+                          },
+                          "recordId": "mandate-fix-1",
+                          "kind": "mandate"
+                        }
+                      },
+                      "id": "C1"
+                    }
                   },
                   {
                     "label": "issue(blocking)",
@@ -266,7 +526,16 @@
                       "line": 1
                     },
                     "rootCause": "authorize always denies",
-                    "symptomsEvidence": "authorize(\"operator\") is false"
+                    "symptomsEvidence": "authorize(\"operator\") is false",
+                    "target": {
+                      "format": "omp-build-finding-target/1",
+                      "kind": "outside-spec",
+                      "uw": {
+                        "repository": "acme/widgets",
+                        "target": "acme/widgets#7"
+                      },
+                      "element": "authorize operator"
+                    }
                   }
                 ]
               }
@@ -311,7 +580,27 @@
                           "line": 1
                         },
                         "rootCause": "persistRegion always returns stale",
-                        "symptomsEvidence": "persistRegion(\"current\") is stale"
+                        "symptomsEvidence": "persistRegion(\"current\") is stale",
+                        "target": {
+                          "format": "omp-build-finding-target/1",
+                          "kind": "criterion",
+                          "spec": {
+                            "uw": {
+                              "repository": "acme/widgets",
+                              "target": "acme/widgets#7"
+                            },
+                            "version": "30ae08cc0fe1c01960ac7baf9b1d39ed1c03b5fbc629345b339baa2eaa0e3560",
+                            "sourceAccepted": {
+                              "scope": {
+                                "repository": "acme/widgets",
+                                "target": "acme/widgets#7"
+                              },
+                              "recordId": "mandate-fix-1",
+                              "kind": "mandate"
+                            }
+                          },
+                          "id": "C1"
+                        }
                       },
                       {
                         "label": "issue(blocking)",
@@ -321,7 +610,16 @@
                           "line": 1
                         },
                         "rootCause": "authorize always denies",
-                        "symptomsEvidence": "authorize(\"operator\") is false"
+                        "symptomsEvidence": "authorize(\"operator\") is false",
+                        "target": {
+                          "format": "omp-build-finding-target/1",
+                          "kind": "outside-spec",
+                          "uw": {
+                            "repository": "acme/widgets",
+                            "target": "acme/widgets#7"
+                          },
+                          "element": "authorize operator"
+                        }
                       }
                     ]
                   },
@@ -347,7 +645,27 @@
               "line": 1
             },
             "rootCause": "persistRegion always returns stale",
-            "symptomsEvidence": "persistRegion(\"current\") is stale"
+            "symptomsEvidence": "persistRegion(\"current\") is stale",
+            "target": {
+              "format": "omp-build-finding-target/1",
+              "kind": "criterion",
+              "spec": {
+                "uw": {
+                  "repository": "acme/widgets",
+                  "target": "acme/widgets#7"
+                },
+                "version": "30ae08cc0fe1c01960ac7baf9b1d39ed1c03b5fbc629345b339baa2eaa0e3560",
+                "sourceAccepted": {
+                  "scope": {
+                    "repository": "acme/widgets",
+                    "target": "acme/widgets#7"
+                  },
+                  "recordId": "mandate-fix-1",
+                  "kind": "mandate"
+                }
+              },
+              "id": "C1"
+            }
           },
           {
             "label": "issue(blocking)",
@@ -357,7 +675,16 @@
               "line": 1
             },
             "rootCause": "authorize always denies",
-            "symptomsEvidence": "authorize(\"operator\") is false"
+            "symptomsEvidence": "authorize(\"operator\") is false",
+            "target": {
+              "format": "omp-build-finding-target/1",
+              "kind": "outside-spec",
+              "uw": {
+                "repository": "acme/widgets",
+                "target": "acme/widgets#7"
+              },
+              "element": "authorize operator"
+            }
           }
         ]
       },
@@ -373,7 +700,27 @@
               "line": 1
             },
             "rootCause": "persistRegion always returns stale",
-            "symptomsEvidence": "persistRegion(\"current\") is stale"
+            "symptomsEvidence": "persistRegion(\"current\") is stale",
+            "target": {
+              "format": "omp-build-finding-target/1",
+              "kind": "criterion",
+              "spec": {
+                "uw": {
+                  "repository": "acme/widgets",
+                  "target": "acme/widgets#7"
+                },
+                "version": "30ae08cc0fe1c01960ac7baf9b1d39ed1c03b5fbc629345b339baa2eaa0e3560",
+                "sourceAccepted": {
+                  "scope": {
+                    "repository": "acme/widgets",
+                    "target": "acme/widgets#7"
+                  },
+                  "recordId": "mandate-fix-1",
+                  "kind": "mandate"
+                }
+              },
+              "id": "C1"
+            }
           }
         },
         {
@@ -387,7 +734,16 @@
               "line": 1
             },
             "rootCause": "authorize always denies",
-            "symptomsEvidence": "authorize(\"operator\") is false"
+            "symptomsEvidence": "authorize(\"operator\") is false",
+            "target": {
+              "format": "omp-build-finding-target/1",
+              "kind": "outside-spec",
+              "uw": {
+                "repository": "acme/widgets",
+                "target": "acme/widgets#7"
+              },
+              "element": "authorize operator"
+            }
           }
         }
       ]
@@ -409,8 +765,8 @@
       "rootAttemptId": "fix-28245174-555c-44d1-b988-0fd290103a82-review-attempt-3",
       "candidateGitSHA": "a55bb087c03b70bfd277ce0ac30108e58b1d782f",
       "inputFormat": "omp-build:review-input/4",
-      "input": null,
-      "actionInputDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "input": "2f685690bf0aa6ab58bd9242a4dcbf5e178e465b02cf82841719b8d359e49443",
+      "actionInputDigest": "2f685690bf0aa6ab58bd9242a4dcbf5e178e465b02cf82841719b8d359e49443",
       "slots": [
         {
           "slotId": "fix-synthesis",
@@ -420,7 +776,138 @@
           "required": true,
           "output": "decision",
           "classId": null,
-          "sourceFindingIds": []
+          "sourceFindingIds": [],
+          "action": {
+            "actionId": "fixture-fix-synthesis",
+            "inputs": {
+              "format": "omp-build-action-input-binding/1",
+              "manifest": {
+                "format": "omp-build-action-input/1",
+                "code": {
+                  "repository": "acme/widgets",
+                  "base": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "head": "a55bb087c03b70bfd277ce0ac30108e58b1d782f",
+                  "referenceCommit": "a55bb087c03b70bfd277ce0ac30108e58b1d782f"
+                },
+                "acceptedSources": [],
+                "deliveryData": [],
+                "repositoryReferences": [],
+                "plugin": {
+                  "name": "omp-build",
+                  "version": "0.15.0",
+                  "repository": "Roxabi/roxabi-plugins",
+                  "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "root": "plugins/omp-build",
+                  "files": []
+                },
+                "configuration": {
+                  "version": "0.15.0",
+                  "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "serialized": "config"
+                },
+                "expandedContext": [],
+                "purpose": "correction",
+                "subject": {
+                  "kind": "uw",
+                  "uw": {
+                    "repository": "acme/widgets",
+                    "target": "acme/widgets#7"
+                  },
+                  "pullRequest": {
+                    "repository": "acme/widgets",
+                    "target": "acme/widgets#42"
+                  },
+                  "binding": {
+                    "source": "record",
+                    "record": {
+                      "scope": {
+                        "repository": "acme/widgets",
+                        "target": "acme/widgets#42"
+                      },
+                      "kind": "workflow-binding",
+                      "recordId": "workflow-binding:acme/widgets#42:mandate-fix-1"
+                    },
+                    "selector": "/payload",
+                    "digest": "f3a325018356edbd42a78ac7b7f924ee6f568d8f86f34406c064bf702b3853d9"
+                  }
+                },
+                "spec": {
+                  "kind": "accepted",
+                  "effective": {
+                    "format": "omp-build-spec-effective/1",
+                    "resolution": "own-only",
+                    "own": {
+                      "uw": {
+                        "repository": "acme/widgets",
+                        "target": "acme/widgets#7"
+                      },
+                      "version": "30ae08cc0fe1c01960ac7baf9b1d39ed1c03b5fbc629345b339baa2eaa0e3560",
+                      "sourceAccepted": {
+                        "scope": {
+                          "repository": "acme/widgets",
+                          "target": "acme/widgets#7"
+                        },
+                        "recordId": "mandate-fix-1",
+                        "kind": "mandate"
+                      }
+                    },
+                    "versionVector": [
+                      {
+                        "uw": {
+                          "repository": "acme/widgets",
+                          "target": "acme/widgets#7"
+                        },
+                        "version": "30ae08cc0fe1c01960ac7baf9b1d39ed1c03b5fbc629345b339baa2eaa0e3560",
+                        "sourceAccepted": {
+                          "scope": {
+                            "repository": "acme/widgets",
+                            "target": "acme/widgets#7"
+                          },
+                          "recordId": "mandate-fix-1",
+                          "kind": "mandate"
+                        }
+                      }
+                    ],
+                    "spec": {
+                      "format": "omp-build-spec-content/1",
+                      "criteria": [
+                        {
+                          "id": "C1",
+                          "statement": "## Acceptance\n- [ ] Save keeps the selected region"
+                        }
+                      ],
+                      "invariants": [],
+                      "exclusions": [],
+                      "openQuestions": [],
+                      "sections": {
+                        "origin": "",
+                        "context": "",
+                        "change": ""
+                      },
+                      "version": "30ae08cc0fe1c01960ac7baf9b1d39ed1c03b5fbc629345b339baa2eaa0e3560"
+                    },
+                    "ancestry": "not-resolved"
+                  }
+                }
+              },
+              "fingerprint": "2f685690bf0aa6ab58bd9242a4dcbf5e178e465b02cf82841719b8d359e49443",
+              "stageSources": [
+                {
+                  "source": "record",
+                  "record": {
+                    "scope": {
+                      "repository": "acme/widgets",
+                      "target": "acme/widgets#42"
+                    },
+                    "kind": "contribution",
+                    "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                  },
+                  "selector": "/payload",
+                  "digest": "c2e961af4e2a6109ec2d180ae671dba2164f2ca49026b65292356e8bf4dce959"
+                }
+              ]
+            }
+          }
         }
       ],
       "stage": "synthesis",
@@ -473,7 +960,27 @@
                 "sourceFindingIds": [
                   "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f0"
                 ],
-                "description": "Current region is not persisted."
+                "description": "Current region is not persisted.",
+                "target": {
+                  "format": "omp-build-finding-target/1",
+                  "kind": "criterion",
+                  "spec": {
+                    "uw": {
+                      "repository": "acme/widgets",
+                      "target": "acme/widgets#7"
+                    },
+                    "version": "30ae08cc0fe1c01960ac7baf9b1d39ed1c03b5fbc629345b339baa2eaa0e3560",
+                    "sourceAccepted": {
+                      "scope": {
+                        "repository": "acme/widgets",
+                        "target": "acme/widgets#7"
+                      },
+                      "recordId": "mandate-fix-1",
+                      "kind": "mandate"
+                    }
+                  },
+                  "id": "C1"
+                }
               },
               {
                 "id": "final-audit",
@@ -483,7 +990,16 @@
                 "sourceFindingIds": [
                   "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f1"
                 ],
-                "description": "Operator is not authorized."
+                "description": "Operator is not authorized.",
+                "target": {
+                  "format": "omp-build-finding-target/1",
+                  "kind": "outside-spec",
+                  "uw": {
+                    "repository": "acme/widgets",
+                    "target": "acme/widgets#7"
+                  },
+                  "element": "authorize operator"
+                }
               }
             ],
             "causes": [
@@ -501,7 +1017,69 @@
                 "findingIds": [
                   "final-region"
                 ],
-                "authorization": "required"
+                "judgment": {
+                  "necessary": {
+                    "state": "supported",
+                    "value": true,
+                    "reason": "The selected region persistence finding requires the named correction.",
+                    "references": [
+                      {
+                        "source": "record",
+                        "record": {
+                          "scope": {
+                            "repository": "acme/widgets",
+                            "target": "acme/widgets#42"
+                          },
+                          "kind": "contribution",
+                          "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                        },
+                        "selector": "/payload/findings/0/data",
+                        "digest": "09634fec8373668a585455b7fcacf5bed481e8bffdbf43eade5a5ebf5b3c4a79"
+                      }
+                    ]
+                  },
+                  "urgent": {
+                    "state": "supported",
+                    "value": true,
+                    "reason": "The selected region persistence finding requires the named correction.",
+                    "references": [
+                      {
+                        "source": "record",
+                        "record": {
+                          "scope": {
+                            "repository": "acme/widgets",
+                            "target": "acme/widgets#42"
+                          },
+                          "kind": "contribution",
+                          "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                        },
+                        "selector": "/payload/findings/0/data",
+                        "digest": "09634fec8373668a585455b7fcacf5bed481e8bffdbf43eade5a5ebf5b3c4a79"
+                      }
+                    ]
+                  },
+                  "tooLarge": {
+                    "state": "supported",
+                    "value": false,
+                    "reason": "The selected region persistence finding requires the named correction.",
+                    "references": [
+                      {
+                        "source": "record",
+                        "record": {
+                          "scope": {
+                            "repository": "acme/widgets",
+                            "target": "acme/widgets#42"
+                          },
+                          "kind": "contribution",
+                          "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                        },
+                        "selector": "/payload/findings/0/data",
+                        "digest": "09634fec8373668a585455b7fcacf5bed481e8bffdbf43eade5a5ebf5b3c4a79"
+                      }
+                    ]
+                  }
+                },
+                "proposedDisposition": "fix-original"
               },
               {
                 "id": "cause-audit",
@@ -517,18 +1095,82 @@
                 "findingIds": [
                   "final-audit"
                 ],
-                "authorization": "required"
+                "judgment": {
+                  "necessary": {
+                    "state": "supported",
+                    "value": true,
+                    "reason": "The operator authorization finding requires the named correction.",
+                    "references": [
+                      {
+                        "source": "record",
+                        "record": {
+                          "scope": {
+                            "repository": "acme/widgets",
+                            "target": "acme/widgets#42"
+                          },
+                          "kind": "contribution",
+                          "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                        },
+                        "selector": "/payload/findings/1/data",
+                        "digest": "6ced8fcc983f8a6eeda0f0585a1fe67e71e68a5490dde56d30d35c59c54577e2"
+                      }
+                    ]
+                  },
+                  "urgent": {
+                    "state": "supported",
+                    "value": true,
+                    "reason": "The operator authorization finding requires the named correction.",
+                    "references": [
+                      {
+                        "source": "record",
+                        "record": {
+                          "scope": {
+                            "repository": "acme/widgets",
+                            "target": "acme/widgets#42"
+                          },
+                          "kind": "contribution",
+                          "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                        },
+                        "selector": "/payload/findings/1/data",
+                        "digest": "6ced8fcc983f8a6eeda0f0585a1fe67e71e68a5490dde56d30d35c59c54577e2"
+                      }
+                    ]
+                  },
+                  "tooLarge": {
+                    "state": "supported",
+                    "value": false,
+                    "reason": "The operator authorization finding requires the named correction.",
+                    "references": [
+                      {
+                        "source": "record",
+                        "record": {
+                          "scope": {
+                            "repository": "acme/widgets",
+                            "target": "acme/widgets#42"
+                          },
+                          "kind": "contribution",
+                          "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                        },
+                        "selector": "/payload/findings/1/data",
+                        "digest": "6ced8fcc983f8a6eeda0f0585a1fe67e71e68a5490dde56d30d35c59c54577e2"
+                      }
+                    ]
+                  }
+                },
+                "proposedDisposition": "fix-original"
               }
-            ]
+            ],
+            "format": "omp-build-cause-decision/1",
+            "exclusionClaims": [],
+            "unassignedFindings": []
           },
           "raw": {
             "toolCallId": "fix-smoke-yield-0004",
             "contentIndex": 0,
             "argumentDeltas": [
-              "{\"data\":{\"purpose\":\"correction\",\"policy\":{\"version\":\"baseline\"},\"sourceContributionIds\":[\"fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4\"],\"findings\":[{\"id\":\"final-region\",\"label\":\"issue(blocking)\",\"impactReason\":\"Current region behavior is broken.\",\"state\":\"usable\",\"sourceFindingIds\":[\"fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f0\"],\"description\":\"Current region is not persisted.\"},{\"id\":\"final-audit\",\"label\":\"issue(blocking)\",\"impactReason\":\"Operator authorization is broken.\",\"state\":\"usable\",\"sourceFindingIds\":[\"fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f1\"],\"description\":\"Operator is not authorized.\"}],\"",
-              "causes\":[{\"id\":\"cause-region\",\"title\":\"stale persistence\",\"mechanism\":\"persistRegion returns stale\",\"fix\":\"preserve current input\",\"failure\":\"current region is lost\",\"restored\":\"current region persists\",\"paths\":[\"src/persistence.ts\"],\"proof\":\"bun run proof:region\",\"findingIds\":[\"final-region\"],\"authorization\":\"required\"},{\"id\":\"cause-audit\",\"title\":\"denied operator\",\"mechanism\":\"authorize always denies\",\"fix\":\"authorize only operator\",\"failure\":\"operator cannot proceed\",\"restored\":\"operator is accepted and visitor rejected\",\"paths\":[\"src/authorization.ts\"],\"proof\":\"bun run proof:audit\",\"findingIds\":[\"final-audit\"],\"authorization\":\"required\"}]}}"
+              "{\"data\":{\"purpose\":\"correction\",\"policy\":{\"version\":\"baseline\"},\"sourceContributionIds\":[\"fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4\"],\"findings\":[{\"id\":\"final-region\",\"label\":\"issue(blocking)\",\"impactReason\":\"Current region behavior is broken.\",\"state\":\"usable\",\"sourceFindingIds\":[\"fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f0\"],\"description\":\"Current region is not persisted.\",\"target\":{\"format\":\"omp-build-finding-target/1\",\"kind\":\"criterion\",\"spec\":{\"uw\":{\"repository\":\"acme/widgets\",\"target\":\"acme/widgets#7\"},\"version\":\"30ae08cc0fe1c01960ac7baf9b1d39ed1c03b5fbc629345b339baa2eaa0e3560\",\"sourceAccepted\":{\"scope\":{\"repository\":\"acme/widgets\",\"target\":\"acme/widgets#7\"},\"recordId\":\"mandate-fix-1\",\"kind\":\"mandate\"}},\"id\":\"C1\"}},{\"id\":\"final-audit\",\"label\":\"issue(blocking)\",\"impactReason\":\"Operator authorization is broken.\",\"state\":\"usable\",\"sourceFindingIds\":[\"fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f1\"],\"description\":\"Operator is not authorized.\",\"target\":{\"format\":\"omp-build-finding-target/1\",\"kind\":\"outside-spec\",\"uw\":{\"repository\":\"acme/widgets\",\"target\":\"acme/widgets#7\"},\"element\":\"authorize operator\"}}],\"causes\":[{\"id\":\"cause-region\",\"title\":\"stale persistence\",\"mechanism\":\"persistRegion returns stale\",\"fix\":\"preserve current input\",\"failure\":\"current region is lost\",\"restored\":\"current region persists\",\"paths\":[\"src/persistence.ts\"],\"proof\":\"bun run proof:region\",\"findingIds\":[\"final-region\"],\"judgment\":{\"necessary\":{\"state\":\"supported\",\"value\":true,\"reason\":\"The selected region persistence finding requires the named correction.\",\"references\":[{\"source\":\"record\",\"record\":{\"scope\":{\"repository\":\"acme/widgets\",\"target\":\"acme/widgets#42\"},\"kind\":\"contribution\",\"recordId\":\"fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4\"},\"selector\":\"/payload/findings/0/data\",\"digest\":\"09634fec8373668a585455b7fcacf5bed481e8bffdbf43eade5a5ebf5b3c4a79\"}]},\"urgent\":{\"state\":\"supported\",\"value\":true,\"reason\":\"The selected region persistence finding requires the named correction.\",\"references\":[{\"source\":\"record\",\"record\":{\"scope\":{\"repository\":\"acme/widgets\",\"target\":\"acme/widgets#42\"},\"kind\":\"contribution\",\"recordId\":\"fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4\"},\"selector\":\"/payload/findings/0/data\",\"digest\":\"09634fec8373668a585455b7fcacf5bed481e8bffdbf43eade5a5ebf5b3c4a79\"}]},\"tooLarge\":{\"state\":\"supported\",\"value\":false,\"reason\":\"The selected region persistence finding requires the named correction.\",\"references\":[{\"source\":\"record\",\"record\":{\"scope\":{\"repository\":\"acme/widgets\",\"target\":\"acme/widgets#42\"},\"kind\":\"contribution\",\"recordId\":\"fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4\"},\"selector\":\"/payload/findings/0/data\",\"digest\":\"09634fec8373668a585455b7fcacf5bed481e8bffdbf43eade5a5ebf5b3c4a79\"}]}},\"proposedDisposition\":\"fix-original\"},{\"id\":\"cause-audit\",\"title\":\"denied operator\",\"mechanism\":\"authorize always denies\",\"fix\":\"authorize only operator\",\"failure\":\"operator cannot proceed\",\"restored\":\"operator is accepted and visitor rejected\",\"paths\":[\"src/authorization.ts\"],\"proof\":\"bun run proof:audit\",\"findingIds\":[\"final-audit\"],\"judgment\":{\"necessary\":{\"state\":\"supported\",\"value\":true,\"reason\":\"The operator authorization finding requires the named correction.\",\"references\":[{\"source\":\"record\",\"record\":{\"scope\":{\"repository\":\"acme/widgets\",\"target\":\"acme/widgets#42\"},\"kind\":\"contribution\",\"recordId\":\"fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4\"},\"selector\":\"/payload/findings/1/data\",\"digest\":\"6ced8fcc983f8a6eeda0f0585a1fe67e71e68a5490dde56d30d35c59c54577e2\"}]},\"urgent\":{\"state\":\"supported\",\"value\":true,\"reason\":\"The operator authorization finding requires the named correction.\",\"references\":[{\"source\":\"record\",\"record\":{\"scope\":{\"repository\":\"acme/widgets\",\"target\":\"acme/widgets#42\"},\"kind\":\"contribution\",\"recordId\":\"fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4\"},\"selector\":\"/payload/findings/1/data\",\"digest\":\"6ced8fcc983f8a6eeda0f0585a1fe67e71e68a5490dde56d30d35c59c54577e2\"}]},\"tooLarge\":{\"state\":\"supported\",\"value\":false,\"reason\":\"The operator authorization finding requires the named correction.\",\"references\":[{\"source\":\"record\",\"record\":{\"scope\":{\"repository\":\"acme/widgets\",\"target\":\"acme/widgets#42\"},\"kind\":\"contribution\",\"recordId\":\"fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4\"},\"selector\":\"/payload/findings/1/data\",\"digest\":\"6ced8fcc983f8a6eeda0f0585a1fe67e71e68a5490dde56d30d35c59c54577e2\"}]}},\"proposedDisposition\":\"fix-original\"}],\"format\":\"omp-build-cause-decision/1\",\"exclusionClaims\":[],\"unassignedFindings\":[]}}"
             ],
-            "argumentText": "{\"data\":{\"purpose\":\"correction\",\"policy\":{\"version\":\"baseline\"},\"sourceContributionIds\":[\"fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4\"],\"findings\":[{\"id\":\"final-region\",\"label\":\"issue(blocking)\",\"impactReason\":\"Current region behavior is broken.\",\"state\":\"usable\",\"sourceFindingIds\":[\"fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f0\"],\"description\":\"Current region is not persisted.\"},{\"id\":\"final-audit\",\"label\":\"issue(blocking)\",\"impactReason\":\"Operator authorization is broken.\",\"state\":\"usable\",\"sourceFindingIds\":[\"fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f1\"],\"description\":\"Operator is not authorized.\"}],\"causes\":[{\"id\":\"cause-region\",\"title\":\"stale persistence\",\"mechanism\":\"persistRegion returns stale\",\"fix\":\"preserve current input\",\"failure\":\"current region is lost\",\"restored\":\"current region persists\",\"paths\":[\"src/persistence.ts\"],\"proof\":\"bun run proof:region\",\"findingIds\":[\"final-region\"],\"authorization\":\"required\"},{\"id\":\"cause-audit\",\"title\":\"denied operator\",\"mechanism\":\"authorize always denies\",\"fix\":\"authorize only operator\",\"failure\":\"operator cannot proceed\",\"restored\":\"operator is accepted and visitor rejected\",\"paths\":[\"src/authorization.ts\"],\"proof\":\"bun run proof:audit\",\"findingIds\":[\"final-audit\"],\"authorization\":\"required\"}]}}",
+            "argumentText": "{\"data\":{\"purpose\":\"correction\",\"policy\":{\"version\":\"baseline\"},\"sourceContributionIds\":[\"fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4\"],\"findings\":[{\"id\":\"final-region\",\"label\":\"issue(blocking)\",\"impactReason\":\"Current region behavior is broken.\",\"state\":\"usable\",\"sourceFindingIds\":[\"fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f0\"],\"description\":\"Current region is not persisted.\",\"target\":{\"format\":\"omp-build-finding-target/1\",\"kind\":\"criterion\",\"spec\":{\"uw\":{\"repository\":\"acme/widgets\",\"target\":\"acme/widgets#7\"},\"version\":\"30ae08cc0fe1c01960ac7baf9b1d39ed1c03b5fbc629345b339baa2eaa0e3560\",\"sourceAccepted\":{\"scope\":{\"repository\":\"acme/widgets\",\"target\":\"acme/widgets#7\"},\"recordId\":\"mandate-fix-1\",\"kind\":\"mandate\"}},\"id\":\"C1\"}},{\"id\":\"final-audit\",\"label\":\"issue(blocking)\",\"impactReason\":\"Operator authorization is broken.\",\"state\":\"usable\",\"sourceFindingIds\":[\"fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f1\"],\"description\":\"Operator is not authorized.\",\"target\":{\"format\":\"omp-build-finding-target/1\",\"kind\":\"outside-spec\",\"uw\":{\"repository\":\"acme/widgets\",\"target\":\"acme/widgets#7\"},\"element\":\"authorize operator\"}}],\"causes\":[{\"id\":\"cause-region\",\"title\":\"stale persistence\",\"mechanism\":\"persistRegion returns stale\",\"fix\":\"preserve current input\",\"failure\":\"current region is lost\",\"restored\":\"current region persists\",\"paths\":[\"src/persistence.ts\"],\"proof\":\"bun run proof:region\",\"findingIds\":[\"final-region\"],\"judgment\":{\"necessary\":{\"state\":\"supported\",\"value\":true,\"reason\":\"The selected region persistence finding requires the named correction.\",\"references\":[{\"source\":\"record\",\"record\":{\"scope\":{\"repository\":\"acme/widgets\",\"target\":\"acme/widgets#42\"},\"kind\":\"contribution\",\"recordId\":\"fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4\"},\"selector\":\"/payload/findings/0/data\",\"digest\":\"09634fec8373668a585455b7fcacf5bed481e8bffdbf43eade5a5ebf5b3c4a79\"}]},\"urgent\":{\"state\":\"supported\",\"value\":true,\"reason\":\"The selected region persistence finding requires the named correction.\",\"references\":[{\"source\":\"record\",\"record\":{\"scope\":{\"repository\":\"acme/widgets\",\"target\":\"acme/widgets#42\"},\"kind\":\"contribution\",\"recordId\":\"fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4\"},\"selector\":\"/payload/findings/0/data\",\"digest\":\"09634fec8373668a585455b7fcacf5bed481e8bffdbf43eade5a5ebf5b3c4a79\"}]},\"tooLarge\":{\"state\":\"supported\",\"value\":false,\"reason\":\"The selected region persistence finding requires the named correction.\",\"references\":[{\"source\":\"record\",\"record\":{\"scope\":{\"repository\":\"acme/widgets\",\"target\":\"acme/widgets#42\"},\"kind\":\"contribution\",\"recordId\":\"fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4\"},\"selector\":\"/payload/findings/0/data\",\"digest\":\"09634fec8373668a585455b7fcacf5bed481e8bffdbf43eade5a5ebf5b3c4a79\"}]}},\"proposedDisposition\":\"fix-original\"},{\"id\":\"cause-audit\",\"title\":\"denied operator\",\"mechanism\":\"authorize always denies\",\"fix\":\"authorize only operator\",\"failure\":\"operator cannot proceed\",\"restored\":\"operator is accepted and visitor rejected\",\"paths\":[\"src/authorization.ts\"],\"proof\":\"bun run proof:audit\",\"findingIds\":[\"final-audit\"],\"judgment\":{\"necessary\":{\"state\":\"supported\",\"value\":true,\"reason\":\"The operator authorization finding requires the named correction.\",\"references\":[{\"source\":\"record\",\"record\":{\"scope\":{\"repository\":\"acme/widgets\",\"target\":\"acme/widgets#42\"},\"kind\":\"contribution\",\"recordId\":\"fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4\"},\"selector\":\"/payload/findings/1/data\",\"digest\":\"6ced8fcc983f8a6eeda0f0585a1fe67e71e68a5490dde56d30d35c59c54577e2\"}]},\"urgent\":{\"state\":\"supported\",\"value\":true,\"reason\":\"The operator authorization finding requires the named correction.\",\"references\":[{\"source\":\"record\",\"record\":{\"scope\":{\"repository\":\"acme/widgets\",\"target\":\"acme/widgets#42\"},\"kind\":\"contribution\",\"recordId\":\"fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4\"},\"selector\":\"/payload/findings/1/data\",\"digest\":\"6ced8fcc983f8a6eeda0f0585a1fe67e71e68a5490dde56d30d35c59c54577e2\"}]},\"tooLarge\":{\"state\":\"supported\",\"value\":false,\"reason\":\"The operator authorization finding requires the named correction.\",\"references\":[{\"source\":\"record\",\"record\":{\"scope\":{\"repository\":\"acme/widgets\",\"target\":\"acme/widgets#42\"},\"kind\":\"contribution\",\"recordId\":\"fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4\"},\"selector\":\"/payload/findings/1/data\",\"digest\":\"6ced8fcc983f8a6eeda0f0585a1fe67e71e68a5490dde56d30d35c59c54577e2\"}]}},\"proposedDisposition\":\"fix-original\"}],\"format\":\"omp-build-cause-decision/1\",\"exclusionClaims\":[],\"unassignedFindings\":[]}}",
             "rawBlock": null,
             "toolCallArguments": {
               "data": {
@@ -548,7 +1190,27 @@
                     "sourceFindingIds": [
                       "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f0"
                     ],
-                    "description": "Current region is not persisted."
+                    "description": "Current region is not persisted.",
+                    "target": {
+                      "format": "omp-build-finding-target/1",
+                      "kind": "criterion",
+                      "spec": {
+                        "uw": {
+                          "repository": "acme/widgets",
+                          "target": "acme/widgets#7"
+                        },
+                        "version": "30ae08cc0fe1c01960ac7baf9b1d39ed1c03b5fbc629345b339baa2eaa0e3560",
+                        "sourceAccepted": {
+                          "scope": {
+                            "repository": "acme/widgets",
+                            "target": "acme/widgets#7"
+                          },
+                          "recordId": "mandate-fix-1",
+                          "kind": "mandate"
+                        }
+                      },
+                      "id": "C1"
+                    }
                   },
                   {
                     "id": "final-audit",
@@ -558,7 +1220,16 @@
                     "sourceFindingIds": [
                       "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f1"
                     ],
-                    "description": "Operator is not authorized."
+                    "description": "Operator is not authorized.",
+                    "target": {
+                      "format": "omp-build-finding-target/1",
+                      "kind": "outside-spec",
+                      "uw": {
+                        "repository": "acme/widgets",
+                        "target": "acme/widgets#7"
+                      },
+                      "element": "authorize operator"
+                    }
                   }
                 ],
                 "causes": [
@@ -576,7 +1247,69 @@
                     "findingIds": [
                       "final-region"
                     ],
-                    "authorization": "required"
+                    "judgment": {
+                      "necessary": {
+                        "state": "supported",
+                        "value": true,
+                        "reason": "The selected region persistence finding requires the named correction.",
+                        "references": [
+                          {
+                            "source": "record",
+                            "record": {
+                              "scope": {
+                                "repository": "acme/widgets",
+                                "target": "acme/widgets#42"
+                              },
+                              "kind": "contribution",
+                              "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                            },
+                            "selector": "/payload/findings/0/data",
+                            "digest": "09634fec8373668a585455b7fcacf5bed481e8bffdbf43eade5a5ebf5b3c4a79"
+                          }
+                        ]
+                      },
+                      "urgent": {
+                        "state": "supported",
+                        "value": true,
+                        "reason": "The selected region persistence finding requires the named correction.",
+                        "references": [
+                          {
+                            "source": "record",
+                            "record": {
+                              "scope": {
+                                "repository": "acme/widgets",
+                                "target": "acme/widgets#42"
+                              },
+                              "kind": "contribution",
+                              "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                            },
+                            "selector": "/payload/findings/0/data",
+                            "digest": "09634fec8373668a585455b7fcacf5bed481e8bffdbf43eade5a5ebf5b3c4a79"
+                          }
+                        ]
+                      },
+                      "tooLarge": {
+                        "state": "supported",
+                        "value": false,
+                        "reason": "The selected region persistence finding requires the named correction.",
+                        "references": [
+                          {
+                            "source": "record",
+                            "record": {
+                              "scope": {
+                                "repository": "acme/widgets",
+                                "target": "acme/widgets#42"
+                              },
+                              "kind": "contribution",
+                              "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                            },
+                            "selector": "/payload/findings/0/data",
+                            "digest": "09634fec8373668a585455b7fcacf5bed481e8bffdbf43eade5a5ebf5b3c4a79"
+                          }
+                        ]
+                      }
+                    },
+                    "proposedDisposition": "fix-original"
                   },
                   {
                     "id": "cause-audit",
@@ -592,9 +1325,74 @@
                     "findingIds": [
                       "final-audit"
                     ],
-                    "authorization": "required"
+                    "judgment": {
+                      "necessary": {
+                        "state": "supported",
+                        "value": true,
+                        "reason": "The operator authorization finding requires the named correction.",
+                        "references": [
+                          {
+                            "source": "record",
+                            "record": {
+                              "scope": {
+                                "repository": "acme/widgets",
+                                "target": "acme/widgets#42"
+                              },
+                              "kind": "contribution",
+                              "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                            },
+                            "selector": "/payload/findings/1/data",
+                            "digest": "6ced8fcc983f8a6eeda0f0585a1fe67e71e68a5490dde56d30d35c59c54577e2"
+                          }
+                        ]
+                      },
+                      "urgent": {
+                        "state": "supported",
+                        "value": true,
+                        "reason": "The operator authorization finding requires the named correction.",
+                        "references": [
+                          {
+                            "source": "record",
+                            "record": {
+                              "scope": {
+                                "repository": "acme/widgets",
+                                "target": "acme/widgets#42"
+                              },
+                              "kind": "contribution",
+                              "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                            },
+                            "selector": "/payload/findings/1/data",
+                            "digest": "6ced8fcc983f8a6eeda0f0585a1fe67e71e68a5490dde56d30d35c59c54577e2"
+                          }
+                        ]
+                      },
+                      "tooLarge": {
+                        "state": "supported",
+                        "value": false,
+                        "reason": "The operator authorization finding requires the named correction.",
+                        "references": [
+                          {
+                            "source": "record",
+                            "record": {
+                              "scope": {
+                                "repository": "acme/widgets",
+                                "target": "acme/widgets#42"
+                              },
+                              "kind": "contribution",
+                              "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                            },
+                            "selector": "/payload/findings/1/data",
+                            "digest": "6ced8fcc983f8a6eeda0f0585a1fe67e71e68a5490dde56d30d35c59c54577e2"
+                          }
+                        ]
+                      }
+                    },
+                    "proposedDisposition": "fix-original"
                   }
-                ]
+                ],
+                "format": "omp-build-cause-decision/1",
+                "exclusionClaims": [],
+                "unassignedFindings": []
               }
             },
             "executionArguments": {
@@ -615,7 +1413,27 @@
                     "sourceFindingIds": [
                       "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f0"
                     ],
-                    "description": "Current region is not persisted."
+                    "description": "Current region is not persisted.",
+                    "target": {
+                      "format": "omp-build-finding-target/1",
+                      "kind": "criterion",
+                      "spec": {
+                        "uw": {
+                          "repository": "acme/widgets",
+                          "target": "acme/widgets#7"
+                        },
+                        "version": "30ae08cc0fe1c01960ac7baf9b1d39ed1c03b5fbc629345b339baa2eaa0e3560",
+                        "sourceAccepted": {
+                          "scope": {
+                            "repository": "acme/widgets",
+                            "target": "acme/widgets#7"
+                          },
+                          "recordId": "mandate-fix-1",
+                          "kind": "mandate"
+                        }
+                      },
+                      "id": "C1"
+                    }
                   },
                   {
                     "id": "final-audit",
@@ -625,7 +1443,16 @@
                     "sourceFindingIds": [
                       "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f1"
                     ],
-                    "description": "Operator is not authorized."
+                    "description": "Operator is not authorized.",
+                    "target": {
+                      "format": "omp-build-finding-target/1",
+                      "kind": "outside-spec",
+                      "uw": {
+                        "repository": "acme/widgets",
+                        "target": "acme/widgets#7"
+                      },
+                      "element": "authorize operator"
+                    }
                   }
                 ],
                 "causes": [
@@ -643,7 +1470,69 @@
                     "findingIds": [
                       "final-region"
                     ],
-                    "authorization": "required"
+                    "judgment": {
+                      "necessary": {
+                        "state": "supported",
+                        "value": true,
+                        "reason": "The selected region persistence finding requires the named correction.",
+                        "references": [
+                          {
+                            "source": "record",
+                            "record": {
+                              "scope": {
+                                "repository": "acme/widgets",
+                                "target": "acme/widgets#42"
+                              },
+                              "kind": "contribution",
+                              "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                            },
+                            "selector": "/payload/findings/0/data",
+                            "digest": "09634fec8373668a585455b7fcacf5bed481e8bffdbf43eade5a5ebf5b3c4a79"
+                          }
+                        ]
+                      },
+                      "urgent": {
+                        "state": "supported",
+                        "value": true,
+                        "reason": "The selected region persistence finding requires the named correction.",
+                        "references": [
+                          {
+                            "source": "record",
+                            "record": {
+                              "scope": {
+                                "repository": "acme/widgets",
+                                "target": "acme/widgets#42"
+                              },
+                              "kind": "contribution",
+                              "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                            },
+                            "selector": "/payload/findings/0/data",
+                            "digest": "09634fec8373668a585455b7fcacf5bed481e8bffdbf43eade5a5ebf5b3c4a79"
+                          }
+                        ]
+                      },
+                      "tooLarge": {
+                        "state": "supported",
+                        "value": false,
+                        "reason": "The selected region persistence finding requires the named correction.",
+                        "references": [
+                          {
+                            "source": "record",
+                            "record": {
+                              "scope": {
+                                "repository": "acme/widgets",
+                                "target": "acme/widgets#42"
+                              },
+                              "kind": "contribution",
+                              "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                            },
+                            "selector": "/payload/findings/0/data",
+                            "digest": "09634fec8373668a585455b7fcacf5bed481e8bffdbf43eade5a5ebf5b3c4a79"
+                          }
+                        ]
+                      }
+                    },
+                    "proposedDisposition": "fix-original"
                   },
                   {
                     "id": "cause-audit",
@@ -659,9 +1548,74 @@
                     "findingIds": [
                       "final-audit"
                     ],
-                    "authorization": "required"
+                    "judgment": {
+                      "necessary": {
+                        "state": "supported",
+                        "value": true,
+                        "reason": "The operator authorization finding requires the named correction.",
+                        "references": [
+                          {
+                            "source": "record",
+                            "record": {
+                              "scope": {
+                                "repository": "acme/widgets",
+                                "target": "acme/widgets#42"
+                              },
+                              "kind": "contribution",
+                              "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                            },
+                            "selector": "/payload/findings/1/data",
+                            "digest": "6ced8fcc983f8a6eeda0f0585a1fe67e71e68a5490dde56d30d35c59c54577e2"
+                          }
+                        ]
+                      },
+                      "urgent": {
+                        "state": "supported",
+                        "value": true,
+                        "reason": "The operator authorization finding requires the named correction.",
+                        "references": [
+                          {
+                            "source": "record",
+                            "record": {
+                              "scope": {
+                                "repository": "acme/widgets",
+                                "target": "acme/widgets#42"
+                              },
+                              "kind": "contribution",
+                              "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                            },
+                            "selector": "/payload/findings/1/data",
+                            "digest": "6ced8fcc983f8a6eeda0f0585a1fe67e71e68a5490dde56d30d35c59c54577e2"
+                          }
+                        ]
+                      },
+                      "tooLarge": {
+                        "state": "supported",
+                        "value": false,
+                        "reason": "The operator authorization finding requires the named correction.",
+                        "references": [
+                          {
+                            "source": "record",
+                            "record": {
+                              "scope": {
+                                "repository": "acme/widgets",
+                                "target": "acme/widgets#42"
+                              },
+                              "kind": "contribution",
+                              "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                            },
+                            "selector": "/payload/findings/1/data",
+                            "digest": "6ced8fcc983f8a6eeda0f0585a1fe67e71e68a5490dde56d30d35c59c54577e2"
+                          }
+                        ]
+                      }
+                    },
+                    "proposedDisposition": "fix-original"
                   }
-                ]
+                ],
+                "format": "omp-build-cause-decision/1",
+                "exclusionClaims": [],
+                "unassignedFindings": []
               }
             }
           },
@@ -705,7 +1659,27 @@
                     "sourceFindingIds": [
                       "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f0"
                     ],
-                    "description": "Current region is not persisted."
+                    "description": "Current region is not persisted.",
+                    "target": {
+                      "format": "omp-build-finding-target/1",
+                      "kind": "criterion",
+                      "spec": {
+                        "uw": {
+                          "repository": "acme/widgets",
+                          "target": "acme/widgets#7"
+                        },
+                        "version": "30ae08cc0fe1c01960ac7baf9b1d39ed1c03b5fbc629345b339baa2eaa0e3560",
+                        "sourceAccepted": {
+                          "scope": {
+                            "repository": "acme/widgets",
+                            "target": "acme/widgets#7"
+                          },
+                          "recordId": "mandate-fix-1",
+                          "kind": "mandate"
+                        }
+                      },
+                      "id": "C1"
+                    }
                   },
                   {
                     "id": "final-audit",
@@ -715,7 +1689,16 @@
                     "sourceFindingIds": [
                       "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f1"
                     ],
-                    "description": "Operator is not authorized."
+                    "description": "Operator is not authorized.",
+                    "target": {
+                      "format": "omp-build-finding-target/1",
+                      "kind": "outside-spec",
+                      "uw": {
+                        "repository": "acme/widgets",
+                        "target": "acme/widgets#7"
+                      },
+                      "element": "authorize operator"
+                    }
                   }
                 ],
                 "causes": [
@@ -733,7 +1716,69 @@
                     "findingIds": [
                       "final-region"
                     ],
-                    "authorization": "required"
+                    "judgment": {
+                      "necessary": {
+                        "state": "supported",
+                        "value": true,
+                        "reason": "The selected region persistence finding requires the named correction.",
+                        "references": [
+                          {
+                            "source": "record",
+                            "record": {
+                              "scope": {
+                                "repository": "acme/widgets",
+                                "target": "acme/widgets#42"
+                              },
+                              "kind": "contribution",
+                              "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                            },
+                            "selector": "/payload/findings/0/data",
+                            "digest": "09634fec8373668a585455b7fcacf5bed481e8bffdbf43eade5a5ebf5b3c4a79"
+                          }
+                        ]
+                      },
+                      "urgent": {
+                        "state": "supported",
+                        "value": true,
+                        "reason": "The selected region persistence finding requires the named correction.",
+                        "references": [
+                          {
+                            "source": "record",
+                            "record": {
+                              "scope": {
+                                "repository": "acme/widgets",
+                                "target": "acme/widgets#42"
+                              },
+                              "kind": "contribution",
+                              "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                            },
+                            "selector": "/payload/findings/0/data",
+                            "digest": "09634fec8373668a585455b7fcacf5bed481e8bffdbf43eade5a5ebf5b3c4a79"
+                          }
+                        ]
+                      },
+                      "tooLarge": {
+                        "state": "supported",
+                        "value": false,
+                        "reason": "The selected region persistence finding requires the named correction.",
+                        "references": [
+                          {
+                            "source": "record",
+                            "record": {
+                              "scope": {
+                                "repository": "acme/widgets",
+                                "target": "acme/widgets#42"
+                              },
+                              "kind": "contribution",
+                              "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                            },
+                            "selector": "/payload/findings/0/data",
+                            "digest": "09634fec8373668a585455b7fcacf5bed481e8bffdbf43eade5a5ebf5b3c4a79"
+                          }
+                        ]
+                      }
+                    },
+                    "proposedDisposition": "fix-original"
                   },
                   {
                     "id": "cause-audit",
@@ -749,9 +1794,74 @@
                     "findingIds": [
                       "final-audit"
                     ],
-                    "authorization": "required"
+                    "judgment": {
+                      "necessary": {
+                        "state": "supported",
+                        "value": true,
+                        "reason": "The operator authorization finding requires the named correction.",
+                        "references": [
+                          {
+                            "source": "record",
+                            "record": {
+                              "scope": {
+                                "repository": "acme/widgets",
+                                "target": "acme/widgets#42"
+                              },
+                              "kind": "contribution",
+                              "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                            },
+                            "selector": "/payload/findings/1/data",
+                            "digest": "6ced8fcc983f8a6eeda0f0585a1fe67e71e68a5490dde56d30d35c59c54577e2"
+                          }
+                        ]
+                      },
+                      "urgent": {
+                        "state": "supported",
+                        "value": true,
+                        "reason": "The operator authorization finding requires the named correction.",
+                        "references": [
+                          {
+                            "source": "record",
+                            "record": {
+                              "scope": {
+                                "repository": "acme/widgets",
+                                "target": "acme/widgets#42"
+                              },
+                              "kind": "contribution",
+                              "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                            },
+                            "selector": "/payload/findings/1/data",
+                            "digest": "6ced8fcc983f8a6eeda0f0585a1fe67e71e68a5490dde56d30d35c59c54577e2"
+                          }
+                        ]
+                      },
+                      "tooLarge": {
+                        "state": "supported",
+                        "value": false,
+                        "reason": "The operator authorization finding requires the named correction.",
+                        "references": [
+                          {
+                            "source": "record",
+                            "record": {
+                              "scope": {
+                                "repository": "acme/widgets",
+                                "target": "acme/widgets#42"
+                              },
+                              "kind": "contribution",
+                              "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                            },
+                            "selector": "/payload/findings/1/data",
+                            "digest": "6ced8fcc983f8a6eeda0f0585a1fe67e71e68a5490dde56d30d35c59c54577e2"
+                          }
+                        ]
+                      }
+                    },
+                    "proposedDisposition": "fix-original"
                   }
-                ]
+                ],
+                "format": "omp-build-cause-decision/1",
+                "exclusionClaims": [],
+                "unassignedFindings": []
               }
             },
             "durationMs": 71,
@@ -801,7 +1911,27 @@
                         "sourceFindingIds": [
                           "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f0"
                         ],
-                        "description": "Current region is not persisted."
+                        "description": "Current region is not persisted.",
+                        "target": {
+                          "format": "omp-build-finding-target/1",
+                          "kind": "criterion",
+                          "spec": {
+                            "uw": {
+                              "repository": "acme/widgets",
+                              "target": "acme/widgets#7"
+                            },
+                            "version": "30ae08cc0fe1c01960ac7baf9b1d39ed1c03b5fbc629345b339baa2eaa0e3560",
+                            "sourceAccepted": {
+                              "scope": {
+                                "repository": "acme/widgets",
+                                "target": "acme/widgets#7"
+                              },
+                              "recordId": "mandate-fix-1",
+                              "kind": "mandate"
+                            }
+                          },
+                          "id": "C1"
+                        }
                       },
                       {
                         "id": "final-audit",
@@ -811,7 +1941,16 @@
                         "sourceFindingIds": [
                           "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f1"
                         ],
-                        "description": "Operator is not authorized."
+                        "description": "Operator is not authorized.",
+                        "target": {
+                          "format": "omp-build-finding-target/1",
+                          "kind": "outside-spec",
+                          "uw": {
+                            "repository": "acme/widgets",
+                            "target": "acme/widgets#7"
+                          },
+                          "element": "authorize operator"
+                        }
                       }
                     ],
                     "causes": [
@@ -829,7 +1968,69 @@
                         "findingIds": [
                           "final-region"
                         ],
-                        "authorization": "required"
+                        "judgment": {
+                          "necessary": {
+                            "state": "supported",
+                            "value": true,
+                            "reason": "The selected region persistence finding requires the named correction.",
+                            "references": [
+                              {
+                                "source": "record",
+                                "record": {
+                                  "scope": {
+                                    "repository": "acme/widgets",
+                                    "target": "acme/widgets#42"
+                                  },
+                                  "kind": "contribution",
+                                  "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                                },
+                                "selector": "/payload/findings/0/data",
+                                "digest": "09634fec8373668a585455b7fcacf5bed481e8bffdbf43eade5a5ebf5b3c4a79"
+                              }
+                            ]
+                          },
+                          "urgent": {
+                            "state": "supported",
+                            "value": true,
+                            "reason": "The selected region persistence finding requires the named correction.",
+                            "references": [
+                              {
+                                "source": "record",
+                                "record": {
+                                  "scope": {
+                                    "repository": "acme/widgets",
+                                    "target": "acme/widgets#42"
+                                  },
+                                  "kind": "contribution",
+                                  "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                                },
+                                "selector": "/payload/findings/0/data",
+                                "digest": "09634fec8373668a585455b7fcacf5bed481e8bffdbf43eade5a5ebf5b3c4a79"
+                              }
+                            ]
+                          },
+                          "tooLarge": {
+                            "state": "supported",
+                            "value": false,
+                            "reason": "The selected region persistence finding requires the named correction.",
+                            "references": [
+                              {
+                                "source": "record",
+                                "record": {
+                                  "scope": {
+                                    "repository": "acme/widgets",
+                                    "target": "acme/widgets#42"
+                                  },
+                                  "kind": "contribution",
+                                  "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                                },
+                                "selector": "/payload/findings/0/data",
+                                "digest": "09634fec8373668a585455b7fcacf5bed481e8bffdbf43eade5a5ebf5b3c4a79"
+                              }
+                            ]
+                          }
+                        },
+                        "proposedDisposition": "fix-original"
                       },
                       {
                         "id": "cause-audit",
@@ -845,9 +2046,74 @@
                         "findingIds": [
                           "final-audit"
                         ],
-                        "authorization": "required"
+                        "judgment": {
+                          "necessary": {
+                            "state": "supported",
+                            "value": true,
+                            "reason": "The operator authorization finding requires the named correction.",
+                            "references": [
+                              {
+                                "source": "record",
+                                "record": {
+                                  "scope": {
+                                    "repository": "acme/widgets",
+                                    "target": "acme/widgets#42"
+                                  },
+                                  "kind": "contribution",
+                                  "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                                },
+                                "selector": "/payload/findings/1/data",
+                                "digest": "6ced8fcc983f8a6eeda0f0585a1fe67e71e68a5490dde56d30d35c59c54577e2"
+                              }
+                            ]
+                          },
+                          "urgent": {
+                            "state": "supported",
+                            "value": true,
+                            "reason": "The operator authorization finding requires the named correction.",
+                            "references": [
+                              {
+                                "source": "record",
+                                "record": {
+                                  "scope": {
+                                    "repository": "acme/widgets",
+                                    "target": "acme/widgets#42"
+                                  },
+                                  "kind": "contribution",
+                                  "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                                },
+                                "selector": "/payload/findings/1/data",
+                                "digest": "6ced8fcc983f8a6eeda0f0585a1fe67e71e68a5490dde56d30d35c59c54577e2"
+                              }
+                            ]
+                          },
+                          "tooLarge": {
+                            "state": "supported",
+                            "value": false,
+                            "reason": "The operator authorization finding requires the named correction.",
+                            "references": [
+                              {
+                                "source": "record",
+                                "record": {
+                                  "scope": {
+                                    "repository": "acme/widgets",
+                                    "target": "acme/widgets#42"
+                                  },
+                                  "kind": "contribution",
+                                  "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                                },
+                                "selector": "/payload/findings/1/data",
+                                "digest": "6ced8fcc983f8a6eeda0f0585a1fe67e71e68a5490dde56d30d35c59c54577e2"
+                              }
+                            ]
+                          }
+                        },
+                        "proposedDisposition": "fix-original"
                       }
-                    ]
+                    ],
+                    "format": "omp-build-cause-decision/1",
+                    "exclusionClaims": [],
+                    "unassignedFindings": []
                   },
                   "status": "success"
                 }
@@ -878,7 +2144,27 @@
             "sourceFindingIds": [
               "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f0"
             ],
-            "description": "Current region is not persisted."
+            "description": "Current region is not persisted.",
+            "target": {
+              "format": "omp-build-finding-target/1",
+              "kind": "criterion",
+              "spec": {
+                "uw": {
+                  "repository": "acme/widgets",
+                  "target": "acme/widgets#7"
+                },
+                "version": "30ae08cc0fe1c01960ac7baf9b1d39ed1c03b5fbc629345b339baa2eaa0e3560",
+                "sourceAccepted": {
+                  "scope": {
+                    "repository": "acme/widgets",
+                    "target": "acme/widgets#7"
+                  },
+                  "recordId": "mandate-fix-1",
+                  "kind": "mandate"
+                }
+              },
+              "id": "C1"
+            }
           },
           {
             "id": "final-audit",
@@ -888,7 +2174,16 @@
             "sourceFindingIds": [
               "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f1"
             ],
-            "description": "Operator is not authorized."
+            "description": "Operator is not authorized.",
+            "target": {
+              "format": "omp-build-finding-target/1",
+              "kind": "outside-spec",
+              "uw": {
+                "repository": "acme/widgets",
+                "target": "acme/widgets#7"
+              },
+              "element": "authorize operator"
+            }
           }
         ],
         "causes": [
@@ -906,7 +2201,69 @@
             "findingIds": [
               "final-region"
             ],
-            "authorization": "required"
+            "judgment": {
+              "necessary": {
+                "state": "supported",
+                "value": true,
+                "reason": "The selected region persistence finding requires the named correction.",
+                "references": [
+                  {
+                    "source": "record",
+                    "record": {
+                      "scope": {
+                        "repository": "acme/widgets",
+                        "target": "acme/widgets#42"
+                      },
+                      "kind": "contribution",
+                      "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                    },
+                    "selector": "/payload/findings/0/data",
+                    "digest": "09634fec8373668a585455b7fcacf5bed481e8bffdbf43eade5a5ebf5b3c4a79"
+                  }
+                ]
+              },
+              "urgent": {
+                "state": "supported",
+                "value": true,
+                "reason": "The selected region persistence finding requires the named correction.",
+                "references": [
+                  {
+                    "source": "record",
+                    "record": {
+                      "scope": {
+                        "repository": "acme/widgets",
+                        "target": "acme/widgets#42"
+                      },
+                      "kind": "contribution",
+                      "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                    },
+                    "selector": "/payload/findings/0/data",
+                    "digest": "09634fec8373668a585455b7fcacf5bed481e8bffdbf43eade5a5ebf5b3c4a79"
+                  }
+                ]
+              },
+              "tooLarge": {
+                "state": "supported",
+                "value": false,
+                "reason": "The selected region persistence finding requires the named correction.",
+                "references": [
+                  {
+                    "source": "record",
+                    "record": {
+                      "scope": {
+                        "repository": "acme/widgets",
+                        "target": "acme/widgets#42"
+                      },
+                      "kind": "contribution",
+                      "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                    },
+                    "selector": "/payload/findings/0/data",
+                    "digest": "09634fec8373668a585455b7fcacf5bed481e8bffdbf43eade5a5ebf5b3c4a79"
+                  }
+                ]
+              }
+            },
+            "proposedDisposition": "fix-original"
           },
           {
             "id": "cause-audit",
@@ -922,9 +2279,74 @@
             "findingIds": [
               "final-audit"
             ],
-            "authorization": "required"
+            "judgment": {
+              "necessary": {
+                "state": "supported",
+                "value": true,
+                "reason": "The operator authorization finding requires the named correction.",
+                "references": [
+                  {
+                    "source": "record",
+                    "record": {
+                      "scope": {
+                        "repository": "acme/widgets",
+                        "target": "acme/widgets#42"
+                      },
+                      "kind": "contribution",
+                      "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                    },
+                    "selector": "/payload/findings/1/data",
+                    "digest": "6ced8fcc983f8a6eeda0f0585a1fe67e71e68a5490dde56d30d35c59c54577e2"
+                  }
+                ]
+              },
+              "urgent": {
+                "state": "supported",
+                "value": true,
+                "reason": "The operator authorization finding requires the named correction.",
+                "references": [
+                  {
+                    "source": "record",
+                    "record": {
+                      "scope": {
+                        "repository": "acme/widgets",
+                        "target": "acme/widgets#42"
+                      },
+                      "kind": "contribution",
+                      "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                    },
+                    "selector": "/payload/findings/1/data",
+                    "digest": "6ced8fcc983f8a6eeda0f0585a1fe67e71e68a5490dde56d30d35c59c54577e2"
+                  }
+                ]
+              },
+              "tooLarge": {
+                "state": "supported",
+                "value": false,
+                "reason": "The operator authorization finding requires the named correction.",
+                "references": [
+                  {
+                    "source": "record",
+                    "record": {
+                      "scope": {
+                        "repository": "acme/widgets",
+                        "target": "acme/widgets#42"
+                      },
+                      "kind": "contribution",
+                      "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                    },
+                    "selector": "/payload/findings/1/data",
+                    "digest": "6ced8fcc983f8a6eeda0f0585a1fe67e71e68a5490dde56d30d35c59c54577e2"
+                  }
+                ]
+              }
+            },
+            "proposedDisposition": "fix-original"
           }
-        ]
+        ],
+        "format": "omp-build-cause-decision/1",
+        "exclusionClaims": [],
+        "unassignedFindings": []
       },
       "findings": null
     }
@@ -961,7 +2383,27 @@
             "sourceFindingIds": [
               "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f0"
             ],
-            "description": "Current region is not persisted."
+            "description": "Current region is not persisted.",
+            "target": {
+              "format": "omp-build-finding-target/1",
+              "kind": "criterion",
+              "spec": {
+                "uw": {
+                  "repository": "acme/widgets",
+                  "target": "acme/widgets#7"
+                },
+                "version": "30ae08cc0fe1c01960ac7baf9b1d39ed1c03b5fbc629345b339baa2eaa0e3560",
+                "sourceAccepted": {
+                  "scope": {
+                    "repository": "acme/widgets",
+                    "target": "acme/widgets#7"
+                  },
+                  "recordId": "mandate-fix-1",
+                  "kind": "mandate"
+                }
+              },
+              "id": "C1"
+            }
           },
           {
             "id": "final-audit",
@@ -971,7 +2413,16 @@
             "sourceFindingIds": [
               "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4:f1"
             ],
-            "description": "Operator is not authorized."
+            "description": "Operator is not authorized.",
+            "target": {
+              "format": "omp-build-finding-target/1",
+              "kind": "outside-spec",
+              "uw": {
+                "repository": "acme/widgets",
+                "target": "acme/widgets#7"
+              },
+              "element": "authorize operator"
+            }
           }
         ],
         "causes": [
@@ -989,7 +2440,69 @@
             "findingIds": [
               "final-region"
             ],
-            "authorization": "required"
+            "judgment": {
+              "necessary": {
+                "state": "supported",
+                "value": true,
+                "reason": "The selected region persistence finding requires the named correction.",
+                "references": [
+                  {
+                    "source": "record",
+                    "record": {
+                      "scope": {
+                        "repository": "acme/widgets",
+                        "target": "acme/widgets#42"
+                      },
+                      "kind": "contribution",
+                      "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                    },
+                    "selector": "/payload/findings/0/data",
+                    "digest": "09634fec8373668a585455b7fcacf5bed481e8bffdbf43eade5a5ebf5b3c4a79"
+                  }
+                ]
+              },
+              "urgent": {
+                "state": "supported",
+                "value": true,
+                "reason": "The selected region persistence finding requires the named correction.",
+                "references": [
+                  {
+                    "source": "record",
+                    "record": {
+                      "scope": {
+                        "repository": "acme/widgets",
+                        "target": "acme/widgets#42"
+                      },
+                      "kind": "contribution",
+                      "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                    },
+                    "selector": "/payload/findings/0/data",
+                    "digest": "09634fec8373668a585455b7fcacf5bed481e8bffdbf43eade5a5ebf5b3c4a79"
+                  }
+                ]
+              },
+              "tooLarge": {
+                "state": "supported",
+                "value": false,
+                "reason": "The selected region persistence finding requires the named correction.",
+                "references": [
+                  {
+                    "source": "record",
+                    "record": {
+                      "scope": {
+                        "repository": "acme/widgets",
+                        "target": "acme/widgets#42"
+                      },
+                      "kind": "contribution",
+                      "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                    },
+                    "selector": "/payload/findings/0/data",
+                    "digest": "09634fec8373668a585455b7fcacf5bed481e8bffdbf43eade5a5ebf5b3c4a79"
+                  }
+                ]
+              }
+            },
+            "proposedDisposition": "fix-original"
           },
           {
             "id": "cause-audit",
@@ -1005,9 +2518,74 @@
             "findingIds": [
               "final-audit"
             ],
-            "authorization": "required"
+            "judgment": {
+              "necessary": {
+                "state": "supported",
+                "value": true,
+                "reason": "The operator authorization finding requires the named correction.",
+                "references": [
+                  {
+                    "source": "record",
+                    "record": {
+                      "scope": {
+                        "repository": "acme/widgets",
+                        "target": "acme/widgets#42"
+                      },
+                      "kind": "contribution",
+                      "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                    },
+                    "selector": "/payload/findings/1/data",
+                    "digest": "6ced8fcc983f8a6eeda0f0585a1fe67e71e68a5490dde56d30d35c59c54577e2"
+                  }
+                ]
+              },
+              "urgent": {
+                "state": "supported",
+                "value": true,
+                "reason": "The operator authorization finding requires the named correction.",
+                "references": [
+                  {
+                    "source": "record",
+                    "record": {
+                      "scope": {
+                        "repository": "acme/widgets",
+                        "target": "acme/widgets#42"
+                      },
+                      "kind": "contribution",
+                      "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                    },
+                    "selector": "/payload/findings/1/data",
+                    "digest": "6ced8fcc983f8a6eeda0f0585a1fe67e71e68a5490dde56d30d35c59c54577e2"
+                  }
+                ]
+              },
+              "tooLarge": {
+                "state": "supported",
+                "value": false,
+                "reason": "The operator authorization finding requires the named correction.",
+                "references": [
+                  {
+                    "source": "record",
+                    "record": {
+                      "scope": {
+                        "repository": "acme/widgets",
+                        "target": "acme/widgets#42"
+                      },
+                      "kind": "contribution",
+                      "recordId": "fix-28245174-555c-44d1-b988-0fd290103a82-contribution-4"
+                    },
+                    "selector": "/payload/findings/1/data",
+                    "digest": "6ced8fcc983f8a6eeda0f0585a1fe67e71e68a5490dde56d30d35c59c54577e2"
+                  }
+                ]
+              }
+            },
+            "proposedDisposition": "fix-original"
           }
-        ]
+        ],
+        "format": "omp-build-cause-decision/1",
+        "exclusionClaims": [],
+        "unassignedFindings": []
       }
     }
   }

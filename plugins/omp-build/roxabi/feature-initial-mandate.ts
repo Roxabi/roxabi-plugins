@@ -23,6 +23,7 @@ export async function freshOwnSpec(
     proposed: read.proposed,
     accepted: read.accepted,
     identities: read.identity.value,
+    histories: read.histories,
     phase: 'initial-selection',
   })
   if (!initial.deliverable.ok)

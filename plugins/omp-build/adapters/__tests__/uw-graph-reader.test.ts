@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { githubScope } from '../github/transport.ts'
 import type { Gh } from '../github/types.ts'
 import { readUwGraph } from '../github-native/uw-graph.ts'
+import { readUwSubtree } from '../github-native/uw-graph-reader.ts'
 
 type Fixture = {
   labels?: string[]
@@ -31,7 +32,7 @@ function page<T>(values: readonly T[], cursor: string | undefined, repeat = fals
     },
   }
 }
-function graphGh(fixtures: Record<number, Fixture>, repeatLabels = false): Gh {
+function graphGh(fixtures: Record<number, Fixture>, repeatLabels = false, repeatChildren = false): Gh {
   return async (_cwd, args) => {
     const number = Number(variable(args, 'number'))
     const fixture = fixtures[number]
@@ -55,7 +56,7 @@ function graphGh(fixtures: Record<number, Fixture>, repeatLabels = false): Gh {
               variable(args, 'labelsCursor'),
               repeatLabels,
             ),
-            subIssues: page((fixture.children ?? []).map(node), variable(args, 'childrenCursor')),
+            subIssues: page((fixture.children ?? []).map(node), variable(args, 'childrenCursor'), repeatChildren),
             blockedBy: page((fixture.blockers ?? []).map(node), variable(args, 'blockersCursor')),
           },
         },
@@ -113,5 +114,52 @@ describe('readUwGraph', () => {
       status: 'incomplete',
       nodes: [expect.objectContaining({ uw: githubScope('acme/app', 1) })],
     })
+  })
+})
+
+describe('readUwSubtree', () => {
+  it('visits descendants only, without loading a parent, sibling or blocker', async () => {
+    const visited: number[] = []
+    const transport = graphGh({
+      1: { children: [2, 4], deny: true },
+      2: { children: [3], blockers: [5] },
+      3: {},
+      4: { deny: true },
+      5: { deny: true },
+    })
+    const gh: Gh = async (cwd, args) => {
+      visited.push(Number(variable(args, 'number')))
+      return transport(cwd, args)
+    }
+    const graph = await readUwSubtree(githubScope('acme/app', 2), { cwd: '/fixture', gh })
+    expect(graph.status).toBe('complete')
+    expect(visited).toEqual([2, 3])
+    expect(graph.nodes.map((node) => node.uw.target)).toEqual(['acme/app#2', 'acme/app#3'])
+  })
+
+  it('refuses an unreadable descendant rather than returning a partial subtree as complete', async () => {
+    const graph = await readUwSubtree(githubScope('acme/app', 1), {
+      cwd: '/fixture',
+      gh: graphGh({ 1: { children: [2] }, 2: { deny: true } }),
+    })
+    expect(graph.status).toBe('incomplete')
+  })
+
+  it('does not treat an unfinished child pagination as a complete subtree', async () => {
+    const graph = await readUwSubtree(githubScope('acme/app', 1), {
+      cwd: '/fixture',
+      gh: graphGh({ 1: { children: Array.from({ length: 201 }, (_, index) => index + 2) } }, false, true),
+    })
+    expect(graph.status).toBe('incomplete')
+    if (graph.status !== 'incomplete') throw new Error('expected incomplete subtree')
+    expect(graph.diagnostics).toContainEqual(expect.objectContaining({ code: 'graph-incomplete' }))
+  })
+
+  it('refuses child cycles instead of treating an ancestor as a descendant', async () => {
+    const graph = await readUwSubtree(githubScope('acme/app', 1), {
+      cwd: '/fixture',
+      gh: graphGh({ 1: { children: [2] }, 2: { children: [1] } }),
+    })
+    expect(graph.status).toBe('incomplete')
   })
 })

@@ -1,4 +1,3 @@
-import { createTrustedDebtFiling } from './debt-filing-writer.ts'
 import {
   actionRequest,
   codePin,
@@ -25,6 +24,8 @@ import {
   validScope,
 } from './fix-contract.ts'
 import type { FixPolicy } from './fix-domain'
+import { resolveFixOrigin } from './fix-origin.ts'
+import { validateCorrectionOrigin } from './fix-origin-validation.ts'
 import { publish, publishOperatorRequest, record } from './fix-records.ts'
 
 type StandalonePreparation = {
@@ -122,9 +123,12 @@ export async function prepareStandaloneFix(
 ): Promise<FixActionResult<PreparedFix>> {
   const base = await prepareStandaloneInputs(input, resolver, workflow, signal)
   if (!base.ok) return base
+  if (signal?.aborted) return failure('fix-run-interrupted-cleanup-unproven')
   const { target, policy, authorityInputs } = base.value
   if (input.nativeTasks.length === 0) return failure('fix-intake-tasks-required')
   if (invalidNativeTasks(input.nativeTasks)) return failure('fix-intake-tasks-invalid')
+  const origin = await resolveFixOrigin(input.uw, input.operations)
+  if (!origin.ok) return origin
 
   const published = await publishOperatorRequest(
     publisher,
@@ -136,6 +140,7 @@ export async function prepareStandaloneFix(
       scope: input.scope,
       existingReviewId: input.reviewId ?? null,
       contextInputs: authorityInputs,
+      originalSpec: origin.value.effective.own,
     },
     signal,
   )
@@ -160,6 +165,8 @@ export async function prepareStandaloneFix(
     }),
   )
   if (!preparedAction.ok) return failure(prepareRefusal(preparedAction.diagnostics))
+  const validOrigin = validateCorrectionOrigin(preparedAction.value.inputs.manifest, origin.value)
+  if (!validOrigin.ok) return validOrigin
   const fingerprint = preparedAction.value.inputs.fingerprint
   const tasks = input.nativeTasks.map((task) =>
     deliveryTask({
@@ -206,6 +213,7 @@ export async function prepareStandaloneFix(
   return {
     ok: true,
     value: {
+      causeContext: origin.value,
       target,
       requestId: request.recordId,
       inventoryId: inventory.recordId,
@@ -213,7 +221,6 @@ export async function prepareStandaloneFix(
       policy,
       cwd: input.cwd,
       publishBinding: input.publishBinding,
-      debtFiling: input.debtFiling ?? createTrustedDebtFiling(),
       subject,
       batch: {
         operationId: input.identity.operationId,
@@ -245,6 +252,8 @@ export async function prepareReviewBoundFix(
   if (!validPublishBinding(input.publishBinding, target)) return failure('fix-publish-binding-invalid')
   const authority = await admitReviewFix(target, input.cwd, input.reviewId, workflow)
   if (!authority.ok) return authority
+  const origin = await resolveFixOrigin(input.uw, input.operations)
+  if (!origin.ok) return origin
   const published = await publishOperatorRequest(
     publisher,
     input.identity,
@@ -255,6 +264,7 @@ export async function prepareReviewBoundFix(
       scope: input.scope,
       existingReviewId: input.reviewId,
       contextInputs: [input.reviewId, ...linkedAuthority.value],
+      originalSpec: origin.value.effective.own,
     },
     signal,
   )
@@ -265,6 +275,7 @@ export async function prepareReviewBoundFix(
   return {
     ok: true,
     value: {
+      causeContext: origin.value,
       target,
       requestId: request.recordId,
       inventoryId: input.reviewId,
@@ -272,7 +283,6 @@ export async function prepareReviewBoundFix(
       policy: input.policy ?? { version: 'baseline' },
       cwd: input.cwd,
       publishBinding: input.publishBinding,
-      debtFiling: input.debtFiling ?? createTrustedDebtFiling(),
       subject,
       batch: {
         operationId: input.identity.operationId,

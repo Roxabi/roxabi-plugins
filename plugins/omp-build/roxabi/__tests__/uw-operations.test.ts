@@ -1,4 +1,8 @@
+import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
+import { calculateTier } from '../../../issue-triage/skills/shared/domain/complexity.ts'
+import { renderIssueSpecBody } from '../../adapters/github-native/uw-spec.ts'
+import { prepareSpecAllocation } from '../../engine/uw-identity.ts'
 import {
   allocationRef,
   CREATED_UW,
@@ -14,9 +18,39 @@ import {
   WRITES,
 } from '../../testing/uw-operations-fixture.ts'
 import type { UwProposalInput } from '../uw-contract.ts'
+import { prepareCreateProposal } from '../uw-proposal-preparation.ts'
 import { UwGraphUnavailableError } from '../uw-read-port.ts'
 
 describe('UW operation write authority', () => {
+  it('binds ordinary creation context into the prepared exact proposal', async () => {
+    const { operations } = fixture()
+    await expect(operations.prepare(createInput())).resolves.toMatchObject({
+      ok: true,
+      value: { proposal: { operation: 'create', creation: { kind: 'operator-create' } } },
+    })
+  })
+
+  it('includes the exact sister context in the same proposal digest used for creation', () => {
+    const context = {
+      kind: 'sister' as const,
+      disposition: { scope: UW, recordId: 'disposition', kind: 'cause-disposition' as const },
+      dispositionDigest: 'a'.repeat(64),
+      original: UW,
+      originalObservationDigest: 'b'.repeat(64),
+      parent: null,
+      parentObservation: null,
+      relation: 'sister-blocked-by-original' as const,
+    }
+    const prepared = prepareCreateProposal(
+      createInput(),
+      { calculateTier, renderIssueSpecBody, prepareSpecAllocation },
+      context,
+    )
+    if ('diagnostics' in prepared) throw new Error('expected prepared creation')
+    expect(prepared.proposal.creation).toEqual(context)
+    expect(prepared.digest).toBe(createHash('sha256').update(JSON.stringify(prepared.proposal)).digest('hex'))
+  })
+
   it('writes after its confirmed allocation advances the ledger even though only updatedAt changed', async () => {
     const { operations, state } = fixture()
 

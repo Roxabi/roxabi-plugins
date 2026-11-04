@@ -160,6 +160,34 @@ describe('fix checkpoint UW delivery admission', () => {
     expect(git).toHaveBeenCalledTimes(1)
   })
 
+  it('refuses CI admission when the authenticated original UW history is absent', async () => {
+    const leaf = fixture({ state: 'CLOSED', stateReason: 'COMPLETED' })
+    const read = await leaf.reader.readUw(UW)
+    const prHistory = { ...leaf.history, source: { ...leaf.history.source, scope: PR }, operations: [] }
+    const git = vi.fn()
+    vi.spyOn(checkout, 'defaultGit').mockReturnValue(git)
+    const result = await authorizeFixAction(
+      {
+        cwd: '/worktree',
+        target: pullRequestTarget(),
+        branch: 'feature/41',
+        base: 'main',
+        options: { cwd: '/worktree' },
+      },
+      prHistory,
+      null,
+      [],
+      'fix',
+      { failedChecks: ['unit'], evidenceDigest: 'c'.repeat(64), failures: [] },
+      read,
+    )
+    expect(result).toMatchObject({
+      ok: false,
+      diagnostics: expect.arrayContaining(['fix-own-uw-unsettled', 'cause-history-unconfirmed']),
+    })
+    expect(git).not.toHaveBeenCalled()
+  })
+
   it('refuses default-fix advancement for a CLOSED/NOT_PLANNED blocker while preserving CLOSED/COMPLETED', async () => {
     const blocked = fixture({ state: 'CLOSED', stateReason: 'NOT_PLANNED' })
     const completed = fixture({ state: 'CLOSED', stateReason: 'COMPLETED' })

@@ -39,8 +39,10 @@ function encodedHistory(records: CanonicalRecord[]): DecodedHistory {
     comments,
     diagnostics: [],
   }
+  const original = { repository: TEST_SCOPE.repository, target: 'acme/widgets#7' }
+  const originHistory = roxabiWorkflowFixtures().historyFrom([roxabiWorkflowFixtures().fixOnlyMandate(original)])
   for (const record of records) {
-    const encoded = encodeRecord(record, source, null)
+    const encoded = encodeRecord(record, source, null, [originHistory])
     if (!encoded.ok) throw new Error(encoded.diagnostics.map((item) => item.message).join('; '))
     for (const body of encoded.value) {
       const id = String(comments.length + 100)
@@ -66,9 +68,11 @@ function ref(record: CanonicalRecord): RecordInputRef {
 function setup() {
   const records = fixtureRecords()
   const decision = records.find((record) => record.kind === 'decision')
+  const binding = records.find((record) => record.kind === 'workflow-binding')
   const initial = records.find((record) => record.kind === 'review-attempt' && record.payload.stage === 'initial')
   if (
     decision?.kind !== 'decision' ||
+    binding?.kind !== 'workflow-binding' ||
     initial?.kind !== 'review-attempt' ||
     initial.payload.stage !== 'initial' ||
     initial.payload.purpose !== 'correction'
@@ -84,9 +88,9 @@ function setup() {
     ...subject,
     binding: {
       source: 'record' as const,
-      record: { scope: TEST_SCOPE, kind: 'workflow-binding' as const, recordId: 'workflow-binding-fixture' },
+      record: { scope: TEST_SCOPE, kind: 'workflow-binding' as const, recordId: binding.recordId },
       selector: '/payload',
-      digest: '0'.repeat(64),
+      digest: canonicalValueDigest(binding.payload),
     },
   }
   const request: UwActionRequest = {

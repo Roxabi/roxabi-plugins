@@ -1,12 +1,12 @@
 import type { calculateTier } from '../../issue-triage/skills/shared/domain/complexity.ts'
 import type {
   IssueRef,
-  IssueWriteObservation,
   IssueWriteResult,
   IssueWriter,
   NativeIssueWritePlan,
 } from '../../issue-triage/skills/shared/domain/issue-write.ts'
 import type { renderIssueSpecBody } from '../adapters/github-native/uw-spec.ts'
+import type { CreationContext } from '../engine/cause-disposition-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { Result } from '../engine/result.ts'
 import type { UwDiagnostic, UwResult } from '../engine/uw-diagnostics.ts'
@@ -14,6 +14,7 @@ import type { prepareSpecAllocation } from '../engine/uw-identity.ts'
 import type { OperatorConfirmationEvidence } from '../engine/uw-identity-schema.ts'
 import type { NormalizationJudgement } from '../engine/uw-normalization-schema.ts'
 import { type ActionOperationPorts, actionOperationMethods } from './uw-action-operations.ts'
+import type { CauseEffectGuard } from './uw-cause-guard.ts'
 import type {
   OperatorPort,
   OperatorResult,
@@ -27,6 +28,7 @@ import type {
 } from './uw-contract.ts'
 import { bindSuccessorWriter } from './uw-normalization-internal.ts'
 import { validateNormalizationJudgement } from './uw-normalization-proposal.ts'
+import { issueRef, observation } from './uw-operation-observation.ts'
 import {
   parentRepositoryDiagnostics,
   prepareCreateProposal,
@@ -43,7 +45,21 @@ export type IdentityPublicationResult =
 
 export type UwOperationsPorts = {
   read(uw: Scope): Promise<UwRead>
+  listReports: UwOperations['listReports']
   writer: IssueWriter
+  guardedWriter(beforeEffect: CauseEffectGuard): IssueWriter
+  causeOperations(backend: {
+    prepare(
+      input: UwCreateInput,
+      context: CreationContext,
+    ): PreparedUwProposal | { diagnostics: readonly UwDiagnostic[] }
+    commit(
+      input: UwCreateInput,
+      prepared: PreparedUwProposal,
+      confirmation: OperatorConfirmationEvidence,
+      writer: IssueWriter,
+    ): Promise<UwOperationResult>
+  }): Pick<UwOperations, 'adjudicateCause' | 'createSister' | 'promoteReport'>
   operator: OperatorPort
   /** Engine/runtime values are loaded from the installed contracts facade by composition. */
   prepareSpecAllocation: typeof prepareSpecAllocation
@@ -62,36 +78,6 @@ export type UwOperationsPorts = {
   scopeOf(issue: IssueRef): Scope
   actions?: ActionOperationPorts['actions']
   delivery?: ActionOperationPorts['delivery']
-}
-
-function issueRef(uw: Scope): IssueRef | null {
-  const separator = uw.target.lastIndexOf('#')
-  const number = Number(uw.target.slice(separator + 1))
-  return separator < 1 || !Number.isSafeInteger(number) || number < 1 ? null : { repository: uw.repository, number }
-}
-
-function observation(read: UwRead): IssueWriteObservation | null {
-  const node = read.graph.nodes.find(
-    (candidate) => candidate.uw.repository === read.uw.repository && candidate.uw.target === read.uw.target,
-  )
-  const issue = issueRef(read.uw)
-  if (node === undefined || issue === null) return null
-  return {
-    issue,
-    title: node.title,
-    body: node.raw.body,
-    updatedAt: node.updatedAt,
-    labels: node.labels,
-    parent: node.parent === null ? null : issueRef(node.parent),
-    children: node.children.flatMap((child) => {
-      const ref = issueRef(child)
-      return ref === null ? [] : [ref]
-    }),
-    blockers: node.blockers.flatMap((blocker) => {
-      const ref = issueRef(blocker)
-      return ref === null ? [] : [ref]
-    }),
-  }
 }
 
 function diagnostic(uw: Scope, code: string, message: string): UwDiagnostic {
@@ -190,8 +176,9 @@ async function commitCreate(
   prepared: PreparedUwProposal,
   confirmation: OperatorConfirmationEvidence,
   ports: UwOperationsPorts,
+  writer: IssueWriter,
 ): Promise<UwOperationResult> {
-  const created = await ports.writer.create(issuePlan(prepared.proposal))
+  const created = await writer.create(issuePlan(prepared.proposal))
   if (created.status === 'uncertain')
     return { status: 'uncertain', diagnostics: created.diagnostics.map(({ code, message }) => ({ code, message })) }
   if (created.status !== 'written') return creationFailure(input, created, ports)
@@ -236,8 +223,15 @@ export function createUwOperations(ports: UwOperationsPorts): UwOperations {
     return prepareExistingProposal(input, read, observed, proposalPorts, successorNormalization)
   }
 
+  const causes = ports.causeOperations({
+    prepare: (input, context) => prepareCreateProposal(input, proposalPorts, context),
+    commit: (input, prepared, confirmation, writer) => commitCreate(input, prepared, confirmation, ports, writer),
+  })
+
   const operations: UwOperations = {
     readUw: ports.read,
+    listReports: ports.listReports,
+    ...causes,
     validateNormalization(request, value) {
       const parsed = ports.parseNormalization(request.uw, value)
       if (!parsed.ok) return parsed
@@ -250,7 +244,7 @@ export function createUwOperations(ports: UwOperationsPorts): UwOperations {
       const parentDiagnostics = parentRepositoryDiagnostics(request)
       return parentDiagnostics.length > 0
         ? { ok: false, diagnostics: [...parentDiagnostics] }
-        : preparedResult(prepareCreateProposal(request, proposalPorts))
+        : preparedResult(prepareCreateProposal(request, proposalPorts, { kind: 'operator-create' }))
     },
     async write(input) {
       const request = structuredClone(input)
@@ -266,11 +260,11 @@ export function createUwOperations(ports: UwOperationsPorts): UwOperations {
       const request = structuredClone(input)
       const parentDiagnostics = parentRepositoryDiagnostics(request)
       if (parentDiagnostics.length > 0) return { status: 'refused', diagnostics: parentDiagnostics }
-      const prepared = prepareCreateProposal(request, proposalPorts)
+      const prepared = prepareCreateProposal(request, proposalPorts, { kind: 'operator-create' })
       if ('diagnostics' in prepared) return { status: 'refused', diagnostics: prepared.diagnostics }
       return confirmedResult(
         await ports.operator.executeConfirmed(prepared, (confirmation) =>
-          commitCreate(request, prepared, confirmation, ports),
+          commitCreate(request, prepared, confirmation, ports, ports.writer),
         ),
       )
     },

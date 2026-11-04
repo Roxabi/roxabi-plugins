@@ -433,20 +433,22 @@ describe('feature recovery terminal and publication witnesses', () => {
     writeSim(box, (state) => {
       const pull = state.prs[String(pr)]
       if (pull === undefined) throw new Error('plain landing PR missing')
-      pull.comments.push(
-        ...criterionReviewGraph({
-          mandate: authority.mandate,
-          issueRecords,
-          pullHistory: criterionPullHistory({ repository: 'acme/app', target: `acme/app#${pr}` }, pull.comments),
-          scope: { repository: 'acme/app', target: 'acme/app#30' },
-          head,
-          inputs,
-          projection,
-          author: 'operator',
-          verdict: 'Approve (clean)',
-          prefix: 'feature-recovery-merged',
-        }).comments.map(({ body }) => ({ author: 'operator', body })),
-      )
+      const issue = state.issues[String(issueNumber)]
+      if (issue === undefined) throw new Error('plain landing origin missing')
+      const review = criterionReviewGraph({
+        mandate: authority.mandate,
+        issueRecords,
+        pullHistory: criterionPullHistory({ repository: 'acme/app', target: `acme/app#${pr}` }, pull.comments),
+        scope: { repository: 'acme/app', target: `acme/app#${pr}` },
+        head,
+        inputs,
+        projection,
+        author: 'operator',
+        verdict: 'Approve (clean)',
+        prefix: 'feature-recovery-merged',
+      })
+      issue.comments.push(...review.issueComments.map(({ body }) => ({ author: 'operator', body })))
+      pull.comments.push(...review.comments.map(({ body }) => ({ author: 'operator', body })))
       state.checks[head] = [
         {
           name: 'ci',

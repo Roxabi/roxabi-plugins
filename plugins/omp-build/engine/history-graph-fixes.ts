@@ -1,4 +1,4 @@
-import { diagnostic } from './record-diagnostics.ts'
+import { diagnostic, equalScope } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
 
@@ -51,20 +51,15 @@ function validateDebtReceipt(
   records: Map<string, CanonicalRecord>,
   diagnostics: Diagnostic[],
 ): void {
-  const decision = records.get(record.payload.decisionId)
-  if (decision?.kind !== 'decision')
-    diagnostics.push(diagnostic('unknown-reference', `Debt receipt ${record.recordId} lacks its decision`))
-  else {
-    const findings = new Set(decision.payload.judgment.findings.map((finding) => finding.id))
-    const causes = new Set(decision.payload.judgment.causes.map((cause) => cause.id))
+  const ref = record.payload.decision
+  if (equalScope(ref.scope, record)) {
+    const decision = records.get(ref.recordId)
     if (
-      record.payload.findingIds.some((id) => !findings.has(id)) ||
-      record.payload.causeIds.some((id) => !causes.has(id))
+      decision?.kind !== 'decision' ||
+      !decision.payload.judgment.causes.some((cause) => cause.id === record.payload.causeId)
     )
-      diagnostics.push(diagnostic('unknown-reference', `Debt receipt ${record.recordId} references another decision`))
+      diagnostics.push(diagnostic('unknown-reference', `Debt receipt ${record.recordId} lacks its decision cause`))
   }
-  if (!record.inputs.includes(record.payload.decisionId))
-    diagnostics.push(diagnostic('unbound', `Debt receipt ${record.recordId} does not bind its decision`))
 }
 
 function validateFixResultLinks(
@@ -107,7 +102,15 @@ function validateFixResult(
     records,
     diagnostics,
   )
-  validateFixResultLinks(record, record.payload.debtReceiptIds, 'debt-receipt', 'debt receipt', records, diagnostics)
+  for (const ref of record.payload.causeDispositionRefs) {
+    if (
+      equalScope(ref.scope, record) &&
+      (records.get(ref.recordId)?.kind !== 'cause-disposition' || !record.inputs.includes(ref.recordId))
+    )
+      diagnostics.push(
+        diagnostic('unknown-reference', `Fix result ${record.recordId} lacks disposition ${ref.recordId}`),
+      )
+  }
 }
 
 export function validateFixLinks(records: Map<string, CanonicalRecord>, diagnostics: Diagnostic[]): void {

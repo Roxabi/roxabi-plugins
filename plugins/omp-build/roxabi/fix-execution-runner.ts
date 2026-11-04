@@ -1,6 +1,6 @@
-import type { NativeBatch, NativeBatchResult } from '../omp/review-runtime/contracts.ts'
-import { groupCorrectionDebt } from './correction-debt.ts'
-import type { CorrectionEffectResult, NativeCorrectionExecutionOptions } from './correction-execution-contract.ts'
+import { sameOwnSpecRef } from '../dist/contracts.js'
+import type { NativeBatchResult } from '../omp/review-runtime/contracts.ts'
+import type { NativeCorrectionExecutionOptions } from './correction-execution-contract.ts'
 import { createNativeCorrectionExecution } from './correction-native-execution.ts'
 import { executeCorrectionPlan } from './correction-plan.ts'
 import { bindCorrectionAction } from './fix-action-binding.ts'
@@ -15,66 +15,37 @@ import {
 } from './fix-contributions-synthesis.ts'
 import { correctionObservationRefs } from './fix-correction-observation-refs.ts'
 import { correctionCriterionReceipt } from './fix-criterion-receipt.ts'
-import type { DebtEvidence, FixFinding } from './fix-domain'
+import { persistCauseDispositions } from './fix-disposition-execution.ts'
+import { admitStoredDecision, authorizeCorrectionContinuation, correctionStarted } from './fix-execution-authority.ts'
 import {
-  admitDecisionExecution,
   type DefaultFixRequest,
   type DefaultFixWorkflow,
-  defaultDebtEvidence,
   defaultIntakeTask,
   defaultSynthesisTask,
-  selectedCorrectionOrder,
 } from './fix-execution-policy.ts'
+import { pushAndReadHead, retainFailedOutput } from './fix-execution-support.ts'
 import { dispatchNativeBatch } from './fix-native-dispatch.ts'
+import { resolveFixOrigin } from './fix-origin.ts'
 import { prepareStandaloneFix } from './fix-preparation.ts'
-
-async function authorizeCorrectionContinuation(runtime: DefaultFixWorkflow['runtime']) {
-  const allowed =
-    runtime.beforeContinuation === undefined
-      ? { ok: true as const, value: undefined }
-      : await runtime.beforeContinuation()
-  return allowed.ok ? { ok: true as const, value: undefined } : allowed
-}
-
-async function correctionStarted(
-  runtime: DefaultFixWorkflow['runtime'],
-  batch: NativeBatch,
-): Promise<CorrectionEffectResult<void>> {
-  if (runtime.signal.aborted) return { ok: false, kind: 'terminal', diagnostics: ['fix-run-aborted'] }
-  runtime.onStarted(batch)
-  return { ok: true, value: undefined }
-}
-
-async function admitStoredDecision(
-  decision: Extract<FixRecord, { kind: 'decision' }>,
-  product: Pick<DefaultFixWorkflow, 'readHistory'>,
-  incompleteDiagnostic: string,
-  unreadableDiagnostic: string,
-): Promise<FixActionResult<void>> {
-  try {
-    const history = await product.readHistory()
-    if (!history.source.complete) return failure(incompleteDiagnostic)
-    return admitDecisionExecution(decision, history)
-  } catch (error) {
-    return failure(`${unreadableDiagnostic}:${error instanceof Error ? error.message : String(error)}`)
-  }
-}
 
 export async function executeDecision(
   prepared: PreparedFix,
   decision: Extract<FixRecord, { kind: 'decision' }>,
-  product: Pick<DefaultFixWorkflow, 'native' | 'publisher' | 'runtime' | 'readHistory'>,
+  product: Pick<DefaultFixWorkflow, 'native' | 'publisher' | 'runtime' | 'readHistory' | 'dispositionStore'>,
   identity: FixIdentity,
-  debtEvidence: DebtEvidence,
 ): Promise<FixActionResult<FixRecord>> {
   if (product.runtime.signal.aborted) return failure('fix-run-interrupted-cleanup-unproven')
-  const judgment = decision.payload.judgment
-  const findings: FixFinding[] = judgment.findings.map((finding) => ({
-    id: finding.id,
-    label: finding.label,
-    usable: finding.state === 'usable',
-  }))
-  const admissions = selectedCorrectionOrder(prepared.policy, judgment.causes, findings)
+  const disposition = await persistCauseDispositions(
+    prepared,
+    { kind: 'decision', decision },
+    identity,
+    product.dispositionStore,
+  )
+  if (!disposition.ok) return disposition
+  if (disposition.value.pending) return failure('correction-disposition-pending-blocking')
+  const admissions = decision.payload.judgment.causes
+    .filter((cause) => disposition.value.executable.has(cause.id))
+    .map((cause) => ({ status: 'selected' as const, cause, required: true }))
   const criterionSources: Parameters<NonNullable<NativeCorrectionExecutionOptions['onCriterionSource']>>[0][] = []
   const executor = createNativeCorrectionExecution({
     native: product.native,
@@ -93,6 +64,19 @@ export async function executeDecision(
     authorizeContinuation: async () => {
       const authorized = await authorizeCorrectionContinuation(product.runtime)
       if (!authorized.ok) return authorized
+      const origin = await resolveFixOrigin(prepared.causeContext.original, product.runtime.uw)
+      if (!origin.ok) return origin
+      if (!sameOwnSpecRef(origin.value.effective.own, prepared.causeContext.effective.own))
+        return failure('correction-origin-stale')
+      const current = await persistCauseDispositions(
+        prepared,
+        { kind: 'decision', decision },
+        identity,
+        product.dispositionStore,
+      )
+      if (!current.ok) return current
+      if (current.value.pending || JSON.stringify(current.value.refs) !== JSON.stringify(disposition.value.refs))
+        return failure('correction-disposition-changed')
       const admitted = await admitStoredDecision(
         decision,
         product,
@@ -117,15 +101,6 @@ export async function executeDecision(
   })
   const plan = await executeCorrectionPlan(admissions, executor)
   if (!plan.ok && plan.terminalDiagnostics !== null) return failure(...plan.terminalDiagnostics)
-  const debt = groupCorrectionDebt({
-    policy: prepared.policy,
-    findings,
-    causes: judgment.causes,
-    admissions,
-    outcomes: plan.outcomes,
-    retainedObligations: plan.retainedObligations,
-    evidenceFor: () => debtEvidence,
-  })
   if (product.runtime.signal.aborted) return failure('fix-run-interrupted-cleanup-unproven')
   const artifacts = await publishFixArtifacts(
     prepared,
@@ -133,22 +108,19 @@ export async function executeDecision(
     product.publisher,
     decision.recordId,
     plan.outcomes,
-    debt,
+    disposition.value,
     product.runtime.signal,
     criterionSources,
   )
   if (!artifacts.ok) return artifacts
   if (!plan.ok) return failure(...(plan.terminalDiagnostics ?? ['correction-terminal-cleanup-unproven']))
   if (product.runtime.signal.aborted) return failure('fix-run-interrupted-cleanup-unproven')
-  const applied = plan.outcomes.some((outcome) => outcome.outcome === 'applied')
-  if (applied) {
-    const pushed = await executor.push()
-    if (!pushed.ok) return failure(...pushed.diagnostics)
-    if (product.runtime.signal.aborted) return failure('fix-run-interrupted-cleanup-unproven')
-  }
-  const head = await executor.head()
-  if (!head.ok) return failure(...head.diagnostics)
-  if (product.runtime.signal.aborted) return failure('fix-run-interrupted-cleanup-unproven')
+  const head = await pushAndReadHead(
+    executor,
+    plan.outcomes.some((outcome) => outcome.outcome === 'applied'),
+    product.runtime.signal,
+  )
+  if (!head.ok) return head
   return publishFinalFixResult(
     prepared,
     identity,
@@ -195,7 +167,10 @@ export async function runDefaultFixWorkflow(
   )
   if (!preservedIntake.ok) return preservedIntake
   const intake = assessFixIntake(prepared.value, preservedIntake.value.result, preservedIntake.value.records)
-  if (!intake.complete) return failure(`native-intake-incomplete:${intake.diagnostics.join(';')}`)
+  if (!intake.complete)
+    return retainFailedOutput(prepared.value, intake.records, intake.diagnostics, product, input.identity, [
+      `native-intake-incomplete:${intake.diagnostics.join(';')}`,
+    ])
   if (product.runtime.signal.aborted) return failure('fix-run-interrupted-cleanup-unproven')
   const synthesis = await prepareCorrectionSynthesis(
     prepared.value,
@@ -236,8 +211,24 @@ export async function runDefaultFixWorkflow(
     preservedSynthesis.value,
     product.runtime.signal,
   )
-  if (!decision.ok) return decision
+  if (!decision.ok)
+    return retainFailedOutput(
+      prepared.value,
+      [...intake.records, ...preservedSynthesis.value.contributions],
+      decision.diagnostics,
+      product,
+      input.identity,
+      decision.diagnostics,
+    )
   if (product.runtime.signal.aborted) return failure('fix-run-interrupted-cleanup-unproven')
+  if (decision.value.kind !== 'decision') return failure('correction-synthesis-decision-invalid')
+  const retainedDecision = await persistCauseDispositions(
+    prepared.value,
+    { kind: 'decision', decision: decision.value },
+    input.identity,
+    product.dispositionStore,
+  )
+  if (!retainedDecision.ok) return retainedDecision
   const admission = await admitStoredDecision(
     decision.value as Extract<FixRecord, { kind: 'decision' }>,
     product,
@@ -251,22 +242,22 @@ export async function runDefaultFixWorkflow(
     decision.value as Extract<FixRecord, { kind: 'decision' }>,
     product,
     input.identity,
-    input.debtEvidence ?? defaultDebtEvidence,
   )
 }
 
 export async function runReviewBoundFixWorkflow(
   prepared: PreparedFix,
   decision: Extract<FixRecord, { kind: 'decision' }>,
-  product: Pick<DefaultFixWorkflow, 'native' | 'publisher' | 'runtime' | 'readHistory'>,
+  product: Pick<DefaultFixWorkflow, 'native' | 'publisher' | 'runtime' | 'readHistory' | 'dispositionStore'>,
   identity: FixIdentity,
-  debtEvidence: DebtEvidence = {
-    important: 'unknown',
-    urgent: 'unknown',
-    tooLarge: 'unknown',
-    evidence: { source: 'review-bound-fix', status: 'unqualified' },
-  },
 ): Promise<FixActionResult<FixRecord>> {
+  const retainedDecision = await persistCauseDispositions(
+    prepared,
+    { kind: 'decision', decision },
+    identity,
+    product.dispositionStore,
+  )
+  if (!retainedDecision.ok) return retainedDecision
   const admission = await admitStoredDecision(
     decision,
     product,
@@ -274,5 +265,5 @@ export async function runReviewBoundFixWorkflow(
     'review-fix-history-unreadable',
   )
   if (!admission.ok) return admission
-  return executeDecision(prepared, decision, product, identity, debtEvidence)
+  return executeDecision(prepared, decision, product, identity)
 }

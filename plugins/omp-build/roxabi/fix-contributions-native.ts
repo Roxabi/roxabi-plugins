@@ -1,4 +1,4 @@
-import type { ContextActionBinding } from '../engine/action-context.ts'
+import type { ContextActionBinding } from '../dist/contracts.js'
 import type { NativeBatchResult, NativeTask } from '../omp/review-runtime/contracts.ts'
 import { implementNativeOutcome } from './feature-native-outcome.ts'
 import type { FixActionResult, FixIdentity, FixRecord, PreparedFix, RecordPublisher } from './fix-contract.ts'

@@ -69,6 +69,12 @@ export function executor(
           state: 'usable',
           sourceFindingIds: ['finding-1'],
           description: cause.fix,
+          target: {
+            format: 'omp-build-finding-target/1',
+            kind: 'outside-spec',
+            uw: { repository: 'Acme/app', target: 'Acme/app#42' },
+            element: 'guard',
+          },
         },
       ],
     }).payload,

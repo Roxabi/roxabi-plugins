@@ -152,6 +152,7 @@ const ADMITTED_ROLE_SELECTOR: Record<DeliveryDataRef['role'], RegExp | null> = {
   implementation: /^\/payload\/(?:structured\/criteria|criterionReceipt\/criteria)\/\d+$/,
   'criterion-evidence': /^\/payload\/(?:structured\/criteria|criterionReceipt\/criteria)\/\d+\/evidence\/\d+$/,
   'correction-lineage': /^\/payload$/,
+  'cause-state': /^\/payload$/,
   // No frozen pointer yet. An unconstrained selector can launder native/raw as proof.
   'external-observation': null,
 }
@@ -206,6 +207,18 @@ function stageOverlap(input: ActionInputs, diagnostics: Diagnostic[]): void {
         message: `Delivery role ${ref.role} does not admit selector ${ref.selector}`,
       })
     }
+    if (
+      ref.role === 'cause-state' &&
+      ((input.manifest.purpose !== 'review' && input.manifest.purpose !== 'correction') ||
+        input.manifest.subject.kind !== 'uw' ||
+        (ref.record.kind !== 'cause-disposition' && ref.record.kind !== 'cause-operation') ||
+        ref.record.scope.repository !== input.manifest.subject.uw.repository ||
+        ref.record.scope.target !== input.manifest.subject.uw.target)
+    )
+      diagnostics.push({
+        code: 'malformed',
+        message: 'Cause state must select a disposition or operation on the review UW',
+      })
   }
 }
 

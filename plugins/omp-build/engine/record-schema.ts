@@ -1,4 +1,9 @@
 import { z } from 'zod'
+import {
+  causeDispositionPayloadSchema,
+  causeOperationPayloadSchema,
+  reportPromotionPayloadSchema,
+} from './cause-disposition-schema.ts'
 import { contributionSchema, identifierSchema, type Json, jsonSchema, scopeSchema } from './record-values.ts'
 import {
   type ReviewInterruptionPayload,
@@ -60,6 +65,9 @@ type PayloadByKind = {
   'correction-result': z.infer<typeof correctionResultSchema>
   'falsification-result': z.infer<typeof falsificationResultSchema>
   'debt-receipt': z.infer<typeof debtReceiptSchema>
+  'cause-disposition': z.infer<typeof causeDispositionPayloadSchema>
+  'cause-operation': z.infer<typeof causeOperationPayloadSchema>
+  'report-promotion': z.infer<typeof reportPromotionPayloadSchema>
   stop: z.infer<typeof stopSchema>
   'epic-event': Json
   'spec-identity': SpecIdentityPayload
@@ -82,6 +90,9 @@ export const recordSchema = z.discriminatedUnion('kind', [
   record('correction-result', correctionResultSchema),
   record('falsification-result', falsificationResultSchema),
   record('debt-receipt', debtReceiptSchema),
+  record('cause-disposition', causeDispositionPayloadSchema),
+  record('cause-operation', causeOperationPayloadSchema),
+  record('report-promotion', reportPromotionPayloadSchema),
   record('stop', stopSchema),
   record('epic-event', jsonSchema),
   record('spec-identity', specIdentityPayloadSchema),

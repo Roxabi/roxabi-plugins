@@ -1,3 +1,5 @@
+import { assessCauseHolds } from './cause-hold.ts'
+import type { DecodedHistory } from './history-schema.ts'
 import type { Scope } from './record-values.ts'
 import { projectNativeUwChildren } from './uw-child-admission.ts'
 import type { UwDiagnostic } from './uw-diagnostics.ts'
@@ -34,6 +36,7 @@ type UwAdmissionBase = {
   proposed: ProposedOwnSpecResult
   accepted: AcceptedOwnSpecResult
   identities: SpecIdentityLedger
+  histories: readonly DecodedHistory[]
 }
 type InitialUwAdmissionInput = UwAdmissionBase & { phase: 'initial-selection' }
 type TransitionUwAdmissionInput = UwAdmissionBase & {
@@ -232,6 +235,13 @@ export function assessUwAdmission(input: UwAdmissionInput): UwAdmission {
   if (root !== undefined) {
     const nodes = new Map(input.graph.nodes.map((node) => [scopeKey(node.uw), node]))
     deliverable.push(...blockerDiagnostics(root, nodes), ...transitionDiagnostics(input, root, nodes))
+  }
+  if (input.accepted.status === 'accepted') {
+    for (const hold of assessCauseHolds({ uw: input.uw, histories: input.histories })) {
+      deliverable.push(
+        diag(input.uw, hold.code, hold.recordId === undefined ? hold.message : `${hold.message} (${hold.recordId})`),
+      )
+    }
   }
   return {
     framed: { ok: framed.length === 0, diagnostics: framed },

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { encodeParts } from '../adapters/github/history-encoder.ts'
-import { canonicalValueDigest } from '../engine/action-input.ts'
+import { actionInputDigest, canonicalValueDigest } from '../engine/action-input.ts'
 import { parseRecord } from '../engine/record-construction.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import { standaloneReviewInputs } from '../testing/action-input-fixtures.ts'
@@ -68,7 +68,34 @@ function fixture() {
     const parsed = parseRecord(value)
     if (!parsed.ok) throw new Error(JSON.stringify(parsed.diagnostics))
     const record = parsed.value
-    if (record.kind === 'review-attempt') return { ...record, payload: { ...record.payload, candidateGitSHA: h1 } }
+    if (record.kind === 'review-attempt') {
+      const slots = record.payload.slots.map((slot) => {
+        if (slot.action === undefined) throw new Error('Expected captured fixture action')
+        const manifest = {
+          ...slot.action.inputs.manifest,
+          code: { ...slot.action.inputs.manifest.code, base, head: h1, referenceCommit: h1 },
+        }
+        return {
+          ...slot,
+          action: {
+            ...slot.action,
+            inputs: { ...slot.action.inputs, manifest, fingerprint: actionInputDigest(manifest) },
+          },
+        }
+      })
+      const action = slots[0]?.action
+      if (action === undefined) throw new Error('Expected captured inventory action')
+      return {
+        ...record,
+        payload: {
+          ...record.payload,
+          candidateGitSHA: h1,
+          input: action.inputs.fingerprint,
+          actionInputDigest: action.inputs.fingerprint,
+          slots,
+        },
+      }
+    }
     if (record.kind === 'contribution' && record.payload.content === 'operator-request') {
       const attempt = record.payload.rawAttempts[0]
       if (attempt === undefined) throw new Error('Expected operator request')

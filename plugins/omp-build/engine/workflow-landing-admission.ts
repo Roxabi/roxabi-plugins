@@ -225,6 +225,7 @@ function uwAdmissionAuthority(candidate: LandingCandidate, input: LandingMandate
     proposed: input.current.proposedSpec,
     accepted,
     identities: identities.value,
+    histories: input.histories,
     phase: 'landing',
     currentChildren: input.current.currentChildren,
   })

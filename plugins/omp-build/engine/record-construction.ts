@@ -45,28 +45,45 @@ function derivedInputs(draft: RecordDraft): string[] {
     case 'decision':
       return [draft.payload.originalContributionId, ...draft.payload.judgment.sourceContributionIds]
     case 'review':
-      return [draft.payload.decisionId, ...draft.payload.inventoryIds]
+      return [
+        draft.payload.decisionId,
+        ...draft.payload.inventoryIds,
+        ...scopedRefsOf(draft)
+          .filter((ref) => equalScope(ref.scope, draft))
+          .map((ref) => ref.recordId),
+      ]
     case 'fix-request':
-      return draft.payload.existingReviewId === null
-        ? [draft.payload.requestContributionId]
-        : [draft.payload.requestContributionId, draft.payload.existingReviewId]
+      return [
+        draft.payload.requestContributionId,
+        ...(draft.payload.existingReviewId === null ? [] : [draft.payload.existingReviewId]),
+        ...scopedRefsOf(draft)
+          .filter((ref) => equalScope(ref.scope, draft))
+          .map((ref) => ref.recordId),
+      ]
     case 'correction-result':
       return [
         draft.payload.decisionId,
         ...(draft.payload.appliedContributionId == null ? [] : [draft.payload.appliedContributionId]),
         ...(draft.payload.criterionObservations ?? []).map((item) => item.sourceContributionId),
+        ...scopedRefsOf(draft)
+          .filter((ref) => equalScope(ref.scope, draft))
+          .map((ref) => ref.recordId),
       ]
     case 'falsification-result':
       return [draft.payload.correctionResultId]
     case 'debt-receipt':
-      return [draft.payload.decisionId]
+      return scopedRefsOf(draft)
+        .filter((ref) => equalScope(ref.scope, draft))
+        .map((ref) => ref.recordId)
     case 'fix-result':
       return [
         draft.payload.requestId,
         draft.payload.decisionId,
         ...draft.payload.correctionResultIds,
         ...draft.payload.falsificationResultIds,
-        ...draft.payload.debtReceiptIds,
+        ...scopedRefsOf(draft)
+          .filter((ref) => equalScope(ref.scope, draft))
+          .map((ref) => ref.recordId),
         ...(draft.payload.criterionReceipt === undefined ? [] : [draft.payload.criterionReceipt.sourceContributionId]),
       ]
     case 'stop':
@@ -93,6 +110,9 @@ function derivedInputs(draft: RecordDraft): string[] {
     case 'operator-control':
     case 'action-receipt':
     case 'workflow-binding':
+    case 'cause-disposition':
+    case 'cause-operation':
+    case 'report-promotion':
       return scopedRefsOf(draft)
         .filter((ref) => equalScope(ref.scope, { repository: draft.repository, target: draft.target }))
         .map((ref) => ref.recordId)

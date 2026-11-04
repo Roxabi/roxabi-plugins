@@ -250,7 +250,7 @@ export function selectedDeclarations(
   const pins = manifestPins(inputs)
   const ownSpec = inputs.manifest.spec.effective.own
   for (const ref of inputs.manifest.deliveryData) {
-    if (ref.role === 'correction-lineage') continue
+    if (ref.role === 'correction-lineage' || ref.role === 'cause-state') continue
     if (ref.record.kind === 'fix-result') {
       appendCorrectionSelection(ref, histories, inputs, current.payload.actionId, mandate, ownSpec, pins, diagnostics, {
         declarations,

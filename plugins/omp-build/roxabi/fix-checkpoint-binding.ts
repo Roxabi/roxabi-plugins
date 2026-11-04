@@ -1,12 +1,10 @@
-import type { DecodedHistory, GitHubOptions, Scope } from '../dist/contracts.js'
+import type { AcceptedOwnSpec, AssessSpecExact, DecodedHistory, GitHubOptions, Scope } from '../dist/contracts.js'
 import {
   assessUwAdmission,
   projectNativeUwChildren,
   readNativePullRequestFacts,
   readWorkflowBinding,
 } from '../dist/contracts.js'
-import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
-import type { AssessSpecExact } from '../engine/workflow-receipt-schema.ts'
 import type { FixActionResult, FixTarget } from './fix-contract.ts'
 import { failure } from './fix-contract.ts'
 import { externalRef, objectValue } from './fix-mandate-types.ts'
@@ -71,7 +69,10 @@ export async function linkedIssueBinding(
   if (!confirmed.history.source.complete) return failure('fix-parent-history-incomplete')
   const native = liveNativeBranch(raw.value)
   if (native === null) return failure('fix-binding-unreadable')
-  const currentSpec = await freshBoundOwnSpec(uw, confirmed.mandateScope)
+  const currentSpec = await freshBoundOwnSpec(uw, confirmed.mandateScope, [
+    confirmed.history,
+    ...confirmed.histories.filter((item) => !sameScope(item.source.scope, confirmed.mandateScope)),
+  ])
   if (!currentSpec.ok) return currentSpec
   const pullRequest = { repository: target.repository, target: target.target }
   return {
@@ -91,6 +92,7 @@ export async function linkedIssueBinding(
 async function freshBoundOwnSpec(
   port: UwReadPort,
   scope: Scope,
+  histories: readonly DecodedHistory[],
 ): Promise<
   FixActionResult<
     AssessSpecExact['proposed'] & {
@@ -114,6 +116,7 @@ async function freshBoundOwnSpec(
     identities: read.identity.value,
     phase: 'delivery-transition',
     currentChildren: { ok: true, value: [] },
+    histories,
   })
   if (!admission.deliverable.ok)
     return failure('fix-own-uw-unsettled', ...admission.deliverable.diagnostics.map((item) => item.code))

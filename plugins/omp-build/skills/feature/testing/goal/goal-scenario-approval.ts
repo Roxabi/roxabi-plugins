@@ -58,7 +58,7 @@ export function approve(pr: number, sha: string, cwd: string): void {
   const pull = readSim().prs[String(pr)]
   if (!pull) throw new Error(`approve #${pr}: missing PR`)
   const pullHistory = criterionPullHistory({ repository: 'acme/app', target: `acme/app#${pr}` }, pull.comments)
-  const comments = criterionReviewGraph({
+  const review = criterionReviewGraph({
     mandate,
     issueRecords,
     issueHistory: history,
@@ -69,8 +69,12 @@ export function approve(pr: number, sha: string, cwd: string): void {
     projection: roxabiRecordFixtures().projection,
     prefix: `scenario-${pr}-${sha.slice(0, 8)}`,
     author: 'operator',
-  }).comments
-  for (const comment of comments) {
+  })
+  for (const comment of review.issueComments) {
+    const result = gh(['issue', 'comment', String(number), '--body', comment.body])
+    if (result.status !== 0) throw new Error(`approve origin #${number}: ${result.stderr}`)
+  }
+  for (const comment of review.comments) {
     const review = gh(['pr', 'comment', String(pr), '--body', comment.body])
     if (review.status !== 0) throw new Error(`approve #${pr}: ${review.stderr}`)
   }

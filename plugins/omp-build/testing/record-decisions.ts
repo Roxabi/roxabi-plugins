@@ -117,20 +117,56 @@ export function decision(
   const sourceContributionIds = options.sourceContributionIds ?? ['panel-findings']
   const originalContributionId = options.originalContributionId ?? 'synthesis-decision'
   const purpose = options.purpose ?? 'review'
+  const findings = options.findings ?? [
+    {
+      id: 'final-finding-0',
+      label: 'issue' as const,
+      impactReason: 'The saved region is wrong.',
+      state: 'usable' as const,
+      target: {
+        format: 'omp-build-finding-target/1' as const,
+        kind: 'outside-spec' as const,
+        uw: options.scope ?? TEST_SCOPE,
+        element: 'widget save',
+      },
+      sourceFindingIds: ['panel-findings:f0'],
+      description: 'Save the selected region rather than the stale region.',
+    },
+  ]
+  const causes: Decision['causes'] =
+    options.causes ??
+    findings
+      .filter((entry) => entry.state === 'usable')
+      .map((entry) => ({
+        id: `cause-${entry.id}`,
+        title: 'Restore widget save',
+        mechanism: 'The save path serializes stale data.',
+        fix: 'Persist the selected value.',
+        failure: 'The wrong region is saved.',
+        restored: 'The selected region survives reload.',
+        paths: ['src/widget.ts'],
+        proof: 'Verify the saved value after reload.',
+        findingIds: [entry.id],
+        judgment: {
+          necessary: { state: 'missing', value: null, reason: 'Fixture does not assert evidence', references: [] },
+          urgent: { state: 'missing', value: null, reason: 'Fixture does not assert evidence', references: [] },
+          tooLarge: { state: 'missing', value: null, reason: 'Fixture does not assert evidence', references: [] },
+        },
+        proposedDisposition:
+          entry.label === null || ['issue', 'issue(blocking)', 'todo', 'suggestion(blocking)'].includes(entry.label)
+            ? null
+            : 'report',
+      }))
   const common = {
+    format: 'omp-build-cause-decision/1' as const,
     policy: options.policy ?? BASELINE_POLICY,
     sourceContributionIds,
-    findings: options.findings ?? [
-      {
-        id: 'final-finding-0',
-        label: 'issue' as const,
-        impactReason: 'The saved region is wrong.',
-        state: 'usable' as const,
-        sourceFindingIds: ['panel-findings:f0'],
-        description: 'Save the selected region rather than the stale region.',
-      },
-    ],
-    causes: options.causes ?? [],
+    findings,
+    causes,
+    unassignedFindings: findings
+      .filter((entry) => entry.state === 'unusable')
+      .map((entry) => ({ findingId: entry.id, reason: 'Unusable fixture finding', diagnostics: [] })),
+    exclusionClaims: [],
   }
   return {
     ...(options.scope ?? TEST_SCOPE),
@@ -150,7 +186,7 @@ export function decision(
               ...common,
               standards: options.standards === undefined ? TEST_STANDARDS : options.standards,
               criterionVerdicts: [],
-              exclusionClaims: [],
+              exclusionClaims: common.exclusionClaims,
             }
           : { purpose, ...common },
     },
@@ -167,6 +203,7 @@ export function finalReview(
     input?: string | null
     inventoryIds?: string[]
     decisionId?: string
+    causeDispositionRefs?: Extract<CanonicalRecord, { kind: 'review' }>['payload']['causeDispositionRefs']
   } = {},
 ): ReviewRecord {
   const id = options.id ?? 'final-review'
@@ -182,6 +219,7 @@ export function finalReview(
       input: 'input' in options ? (options.input ?? null) : TEST_REVIEW_INPUT,
       inventoryIds,
       decisionId,
+      causeDispositionRefs: options.causeDispositionRefs ?? [],
     },
   }
 }

@@ -194,6 +194,7 @@ export async function captureReviewInput(
   const fingerprint = await currentActionFingerprint(
     request,
     createProductionActionPorts({ cwd, gh: deps.gh, readAuthor: deps.automationLogin, pluginPin: deps.pluginPin }),
+    deps.persistedFingerprint,
   )
   if (!fingerprint.ok) return refuse('unreadable', fingerprint.diagnostics.map((item) => item.message).join('; '))
   return { ok: true, input: fingerprint.value, body }

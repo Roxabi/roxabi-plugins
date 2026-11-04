@@ -10,6 +10,8 @@ import type { Scope, Verdict } from '../engine/record-values.ts'
 import type { RecordProjectionConfig } from '../engine/result.ts'
 import type { ObservedComment } from '../engine/review-schema.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
+import { recordsOf } from '../engine/workflow-control.ts'
+import { criterionDispositionRecords } from './criterion-dispositions.ts'
 import { NATIVE_AUTHOR, submission } from './record-builders.ts'
 import { contribution } from './record-decisions.ts'
 import { reviewGraph } from './record-graphs.ts'
@@ -62,7 +64,7 @@ export function encodeCriterionRecords(
     const encoded = encodeRecord(record, source, projection, externalHistories)
     if (!encoded.ok)
       throw new Error(
-        `Cannot encode fixture record ${record.recordId}: ${encoded.diagnostics.map(({ code }) => code).join(', ')}`,
+        `Cannot encode fixture record ${record.recordId}: ${encoded.diagnostics.map(({ code, message }) => `${code}: ${message}`).join(', ')}`,
       )
     for (const body of encoded.value) {
       const id = String(comments.length + 1)
@@ -165,8 +167,7 @@ export function criterionReviewGraph(options: {
   const { inputs, head, issueRecords, scope, projection } = options
   const row = criterionSatisfiedRow(options)
   const verdict = options.verdict ?? 'Approve (clean)'
-  const label =
-    verdict === 'Request changes' ? 'issue(blocking)' : verdict === 'Approve with comments' ? 'issue' : 'suggestion'
+  const label = verdict === 'Request changes' ? 'issue(blocking)' : 'suggestion'
   const graph = reviewGraph({
     prefix: options.prefix,
     scope,
@@ -222,24 +223,60 @@ export function criterionReviewGraph(options: {
     ],
     structured: judgment,
   })
-  const records: CanonicalRecord[] = [
-    root,
-    spec,
-    graph.panel,
-    graph.synthesis,
-    synthesisContribution,
-    decision,
-    graph.review,
-  ]
   const issueHistory =
     options.issueHistory ?? roxabiWorkflowFixtures().historyFrom(issueRecords, options.author ?? NATIVE_AUTHOR)
+  const prefixRecords: CanonicalRecord[] = [root, spec, graph.panel, graph.synthesis, synthesisContribution, decision]
+  const beforeReview = encodeCriterionRecords(
+    prefixRecords,
+    scope,
+    projection,
+    options.author,
+    [issueHistory],
+    options.pullHistory,
+  )
+  const boundDecision = recordsOf(beforeReview.history).find(
+    (record) => record.kind === 'decision' && record.recordId === decision.recordId,
+  )
+  if (boundDecision?.kind !== 'decision')
+    throw new Error('Fixture decision was not present in its authenticated history')
+  const { original, dispositions } = criterionDispositionRecords(inputs, boundDecision, [
+    issueHistory,
+    beforeReview.history,
+  ])
+  const persisted = encodeCriterionRecords(
+    dispositions,
+    original,
+    projection,
+    options.author,
+    [beforeReview.history],
+    issueHistory,
+  )
+  const refs = dispositions.map((record) => ({
+    scope: original,
+    kind: 'cause-disposition' as const,
+    recordId: record.recordId,
+  }))
+  const review = { ...graph.review, payload: { ...graph.review.payload, causeDispositionRefs: refs } }
+  const final = encodeCriterionRecords(
+    [review],
+    scope,
+    projection,
+    options.author,
+    [persisted.history],
+    beforeReview.history,
+  )
+  const records: CanonicalRecord[] = [...prefixRecords, review]
   return {
     ...graph,
     root,
     spec,
     decision,
     synthesisContribution,
+    review,
     records,
-    ...encodeCriterionRecords(records, scope, projection, options.author, [issueHistory], options.pullHistory),
+    comments: [...beforeReview.comments, ...final.comments],
+    history: final.history,
+    issueComments: persisted.comments,
+    issueHistory: persisted.history,
   }
 }

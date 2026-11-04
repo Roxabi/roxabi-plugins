@@ -6,11 +6,13 @@ import type {
   IssueWritePorts,
 } from '../../issue-triage/skills/shared/domain/issue-write.ts'
 import { createIssueWriter } from '../../issue-triage/skills/shared/domain/issue-write.ts'
+import { decodeHistory } from '../adapters/github/history-codec.ts'
 import { parseIssueSpecBody, rawSource, renderIssueSpecBody } from '../adapters/github-native/uw-spec.ts'
 import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { Scope } from '../engine/record-values.ts'
 import { prepareSpecAllocation, type SpecIdentityLedger } from '../engine/uw-identity.ts'
 import { createOperatorConfirmation } from '../omp/omp-operator-confirmation.ts'
+import { guardedCauseWriter } from '../roxabi/uw-cause-guard.ts'
 import type { UwRead } from '../roxabi/uw-contract.ts'
 import { createUwOperations, type IdentityPublicationResult, type UwOperationsPorts } from '../roxabi/uw-operations.ts'
 import { consultableProtocolOptions } from './protocol-retention.unit.ts'
@@ -86,6 +88,7 @@ function observation(state: State): IssueWriteObservation {
 export function fixture(
   options: {
     onConfirm?: (state: State) => void
+    confirm?: boolean
     conflictOnPatch?: boolean
     readBarrier?: Promise<void>
     publishIdentityResult?: IdentityPublicationResult
@@ -164,7 +167,7 @@ export function fixture(
     ui: {
       confirm: async () => {
         options.onConfirm?.(state)
-        return true
+        return options.confirm ?? true
       },
     },
     localProtocolOptions: consultableProtocolOptions(),
@@ -202,12 +205,37 @@ export function fixture(
         },
         identity: { ok: true, value: state.ledger },
         accepted: acceptedResult(state.acceptedSource, state.acceptedRefused),
+        histories: state.acceptedRefused
+          ? []
+          : [
+              decodeHistory({
+                scope: uw,
+                expectedAuthor: 'operator',
+                stopAuthor: null,
+                complete: true,
+                comments: [],
+                diagnostics: [],
+              }),
+            ],
         parsed: parseIssueSpecBody({ uw: UW, raw: rawSource(UW.target, state.body, state.updatedAt) }),
         proposed: {} as never,
         admission: {} as never,
       } as UwRead
     },
+    listReports: async (root) => ({ ok: true, value: { root, reports: [] } }),
     writer: createIssueWriter(issuePorts),
+    guardedWriter: (beforeEffect) => guardedCauseWriter(issuePorts, createIssueWriter, beforeEffect),
+    causeOperations: () => ({
+      adjudicateCause: async () => {
+        throw new Error('unexpected adjudication')
+      },
+      createSister: async () => {
+        throw new Error('unexpected sister')
+      },
+      promoteReport: async () => {
+        throw new Error('unexpected promotion')
+      },
+    }),
     operator,
     prepareSpecAllocation,
     renderIssueSpecBody,
@@ -239,5 +267,5 @@ export function fixture(
     acceptMaterial: async () => ({ status: 'refused', diagnostics: [] }),
     scopeOf: (issue) => (issue.number === CREATED.number ? CREATED_UW : UW),
   }
-  return { state, operations: createUwOperations(ports) }
+  return { state, ports, operations: createUwOperations(ports) }
 }

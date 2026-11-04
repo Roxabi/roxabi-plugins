@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import type { DecodedHistory, GitHubOptions, Scope } from '../dist/contracts.js'
+import type { AssessSpecExact, DecodedHistory, GitHubOptions, Scope } from '../dist/contracts.js'
 import {
   assessUwAdmission,
   composeChantier,
@@ -9,7 +9,6 @@ import {
   reconstructWorkflow,
   shippedProductVersion,
 } from '../dist/contracts.js'
-import type { AssessSpecExact } from '../engine/workflow-receipt-schema.ts'
 import { readNativeCiFailureEvidence } from './feature-ci-evidence.ts'
 import type { FixActionResult } from './fix-contract.ts'
 import { failure } from './fix-contract.ts'
@@ -129,7 +128,7 @@ export async function authorizeFixAction(
   }
   const commit = input.target.candidateGitSHA
   if (commit === null || !/^[0-9a-f]{40}$/.test(commit)) return failure('fix-config-unreadable')
-  const currentFacts = currentFixFacts(uw)
+  const currentFacts = currentFixFacts(uw, [history, ...(linked === null ? [] : [linked]), ...parents])
   if (!currentFacts.ok) return currentFacts
   return reconstructAuthorizedFix(input, history, linked, parents, reviewStep, liveEvidence, currentFacts.value, commit)
 }
@@ -166,7 +165,7 @@ function nativeTier(label: string): AssessSpecExact['proposed']['tier'] | null {
   return null
 }
 
-function currentFixFacts(uw: UwRead): FixActionResult<CurrentFixFacts> {
+function currentFixFacts(uw: UwRead, histories: readonly DecodedHistory[]): FixActionResult<CurrentFixFacts> {
   if (!uw.identity.ok) return failure('fix-own-uw-unsettled', ...uw.identity.diagnostics.map((item) => item.code))
   const admission = assessUwAdmission({
     uw: uw.uw,
@@ -176,6 +175,7 @@ function currentFixFacts(uw: UwRead): FixActionResult<CurrentFixFacts> {
     identities: uw.identity.value,
     phase: 'delivery-transition',
     currentChildren: { ok: true, value: [] },
+    histories,
   })
   if (!admission.deliverable.ok)
     return failure('fix-own-uw-unsettled', ...admission.deliverable.diagnostics.map((item) => item.code))

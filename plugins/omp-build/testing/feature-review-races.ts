@@ -2,20 +2,15 @@ import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdtempSync, rmSync, watch, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
-import { publishGitHubRecord } from '../adapters/github/publish.ts'
-import type { CanonicalRecord } from '../engine/record-schema.ts'
-import { withRoxabiGitHubPolicy } from '../roxabi/github-policy.ts'
-import { loadReviewConfig } from '../roxabi/review-assets.ts'
 import { reviewRecords } from '../skills/feature/workflow-records.js'
 import { reviewStep } from '../skills/feature/workflow-review-state.js'
 import { reviewInitialData } from './feature-review-lifecycle.ts'
-import { citedHistory, history, reviewRecord } from './feature-review-race-history.ts'
+import { citedHistory, history } from './feature-review-race-history.ts'
+import { nextReviewRecords } from './feature-review-race-reviews.ts'
 import { reviewDecision } from './feature-review-synthesis-sources.ts'
 import { createReviewDriver, type ReviewDriver } from './native-review-driver.ts'
 
 type Mode = 'latest' | 'pause'
-type ReviewRecord = Extract<CanonicalRecord, { kind: 'review' }>
-type DecisionRecord = Extract<CanonicalRecord, { kind: 'decision' }>
 
 function waitFor(file: string): Promise<void> {
   const { promise, resolve, reject } = Promise.withResolvers<void>()
@@ -118,59 +113,6 @@ async function continuationPrerequisites(cwd: string, kind: 'preflight' | 'check
       `fix-selection-not-confirmed-before-pause:${JSON.stringify({ complete: source.source.complete, summary, step, requests })}`,
     )
   return { complete: true, action: step.action, requests: requests.length }
-}
-
-async function nextReviewRecords(
-  cwd: string,
-): Promise<{ complete: boolean; reviews: number; action: string; reason: string }> {
-  const initial = await history(cwd)
-  const records = initial.operations.flatMap((operation) => (operation.record ? [operation.record] : []))
-  const review = [...records].reverse().find(reviewRecord)
-  if (review === undefined) throw new Error('latest-review-missing')
-  const decision = records.find((record) => record.recordId === review.payload.decisionId)
-  if (decision?.kind !== 'decision') throw new Error('latest-review-decision-missing')
-  const appended: CanonicalRecord[] = []
-  for (const round of [2, 3]) {
-    const id = `race-review-${round}`
-    const newerDecision: DecisionRecord = {
-      ...decision,
-      recordId: `${id}-decision`,
-      runId: id,
-      operationId: `${id}-decision`,
-      inputs: [...decision.inputs],
-    }
-    const newerReview: ReviewRecord = {
-      ...review,
-      recordId: id,
-      runId: id,
-      operationId: id,
-      inputs: review.inputs.map((input) => (input === decision.recordId ? newerDecision.recordId : input)),
-      payload: { ...review.payload, decisionId: newerDecision.recordId },
-    }
-    appended.push(newerDecision, newerReview)
-  }
-  const projection = { taxonomy: loadReviewConfig().canonicalClasses, acceptedPolicy: null }
-  const externalHistories = await citedHistory(cwd, initial)
-  for (const record of appended) {
-    const publication = await publishGitHubRecord(
-      record,
-      await history(cwd),
-      withRoxabiGitHubPolicy({ cwd }),
-      projection,
-      externalHistories,
-    )
-    if (publication.status !== 'confirmed')
-      throw new Error(
-        `third-review-publication-refused:${JSON.stringify({ recordId: record.recordId, kind: record.kind, diagnostics: publication.diagnostics })}`,
-      )
-  }
-  const current = await history(cwd)
-  const summary = reviewRecords(current, { externalHistories: await citedHistory(cwd, current) })
-  if (!current.source.complete || !summary.ok || summary.value.reviews !== 3)
-    throw new Error('third-review-history-invalid')
-  const step = reviewStep(summary.value, { head: summary.value.head })
-  if (step.action !== 'stop' || step.reason !== 'review-bound') throw new Error('third-review-bound-not-stopped')
-  return { complete: current.source.complete, reviews: summary.value.reviews, action: step.action, reason: step.reason }
 }
 
 async function settleReview(driver: ReviewDriver): Promise<void> {

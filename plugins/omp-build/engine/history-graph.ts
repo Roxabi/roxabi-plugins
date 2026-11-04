@@ -30,6 +30,7 @@ function validateOperation(
   recordsById: Map<string, CanonicalRecord>,
   diagnostics: Diagnostic[],
 ): void {
+  if (operation.authority === 'foreign') return
   if (incompleteOperation(operation, diagnostics)) return
   if (operation.record === null) return
   const record = operation.record
@@ -157,7 +158,7 @@ function validateReviewAttempt(
   requiredSlotsComplete(records, record, diagnostics, false)
 }
 
-export function validateRecordGraph(history: DecodedHistory, enforceAdmission = true): Result<CanonicalRecord[]> {
+export function validateRecordGraph(history: DecodedHistory): Result<CanonicalRecord[]> {
   const diagnostics: Diagnostic[] = [...history.diagnostics, ...history.source.diagnostics]
   if (!history.source.complete) diagnostics.push(diagnostic('incomplete', 'History pagination is incomplete'))
   const records = recordMap(history)
@@ -170,7 +171,7 @@ export function validateRecordGraph(history: DecodedHistory, enforceAdmission = 
   for (const record of records.values())
     if (record.kind === 'review-attempt') validateReviewAttempt(record, records, diagnostics)
   validateContributionConservation(records, diagnostics)
-  validateDecisionAndReviewLinks(records, diagnostics, enforceAdmission)
+  validateDecisionAndReviewLinks(records, diagnostics, true)
   validateFixLinks(records, diagnostics)
   return diagnostics.length === 0 ? { ok: true, value: [...records.values()] } : fail(diagnostics)
 }

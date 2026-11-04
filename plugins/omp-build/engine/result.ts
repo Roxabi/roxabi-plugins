@@ -50,7 +50,12 @@ export const unique = (values: readonly string[]): boolean => new Set(values).si
 export const recordMap = (history: DecodedHistory): Map<string, CanonicalRecord> => {
   const records = new Map<string, CanonicalRecord>()
   for (const operation of history.operations) {
-    if (operation.status === 'complete' && operation.record !== null && !records.has(operation.record.recordId))
+    if (
+      operation.authority !== 'foreign' &&
+      operation.status === 'complete' &&
+      operation.record !== null &&
+      !records.has(operation.record.recordId)
+    )
       records.set(operation.record.recordId, operation.record)
   }
   return records

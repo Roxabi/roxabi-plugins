@@ -23,12 +23,16 @@ import type { OperatorConfirmationEvidence } from '../engine/uw-identity-schema.
 import { defaultGh } from './feature-engine.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import type { TrustedHostPluginPin } from './uw-action-contract.ts'
+import { createCauseAdjudication } from './uw-cause-adjudication.ts'
+import { createCauseCreation } from './uw-cause-creation.ts'
+import { guardedCauseWriter } from './uw-cause-guard.ts'
 import type { OperatorPort, PreparedUwProposal, UwOperations, UwReadPort } from './uw-contract.ts'
 import { createProductionActionPorts, createProductionDeliveryPorts } from './uw-input-readers.ts'
 import { createInstalledMaterialOperations } from './uw-installed-material-operations.ts'
 import { rootObservation } from './uw-installed-observation.ts'
+import { diagnostic, diagnostics, listInstalledReports, postEffectDiagnostics } from './uw-installed-reports.ts'
 import { createUwOperations } from './uw-operations.ts'
-import { createInstalledUwReadPort, UwGraphUnavailableError } from './uw-read-port.ts'
+import { createInstalledUwReadPort } from './uw-read-port.ts'
 
 export type InstalledUwOperationsOptions = {
   cwd: string
@@ -38,30 +42,6 @@ export type InstalledUwOperationsOptions = {
   readAuthor?: string
   pluginPin?: TrustedHostPluginPin
   artifactsDir?: string | null
-}
-
-function diagnostic(uw: Scope, code: string, message: string): UwDiagnostic {
-  return { code, message, location: { kind: 'native', uw, connection: 'state' }, related: [] }
-}
-
-function diagnostics(uw: Scope, values: readonly { code?: unknown; message?: unknown }[]): readonly UwDiagnostic[] {
-  return values.map((value) =>
-    diagnostic(
-      uw,
-      typeof value.code === 'string' ? value.code : 'uw-publication-unconfirmed',
-      typeof value.message === 'string' ? value.message : 'UW publication was not confirmed',
-    ),
-  )
-}
-function postEffectDiagnostics(uw: Scope, error: unknown): readonly UwDiagnostic[] {
-  if (error instanceof UwGraphUnavailableError) return error.diagnostics
-  return [
-    diagnostic(
-      uw,
-      'post-effect-read-failed',
-      error instanceof Error ? error.message : 'UW read failed after durable effects',
-    ),
-  ]
 }
 
 function scopeOf(issue: IssueRef): Scope {
@@ -217,12 +197,11 @@ export async function createInstalledUwOperations(input: InstalledUwOperationsOp
     const uw = scopeOf(issue)
     return rootObservation(uw, await reader.readUw(uw))
   }
-  const writer = createIssueWriter(
-    createGhIssueWritePorts({
-      gh: (args) => gh(input.cwd, [...args]),
-      read: completeReader,
-    }),
-  )
+  const issuePorts = createGhIssueWritePorts({
+    gh: (args) => gh(input.cwd, [...args]),
+    read: completeReader,
+  })
+  const writer = createIssueWriter(issuePorts)
   const publishIdentity = async ({
     uw,
     proposal,
@@ -248,7 +227,22 @@ export async function createInstalledUwOperations(input: InstalledUwOperationsOp
   const acceptMaterial = createInstalledMaterialOperations({ operator: input.operator, reader, github })
   return createUwOperations({
     read: reader.readUw,
+    listReports: (uw) => listInstalledReports(uw, github),
     writer,
+    guardedWriter: (beforeEffect) => guardedCauseWriter(issuePorts, createIssueWriter, beforeEffect),
+    causeOperations(backend) {
+      return {
+        adjudicateCause: createCauseAdjudication({ reader, github, operator: input.operator }),
+        ...createCauseCreation({
+          reader,
+          github,
+          operator: input.operator,
+          prepare: backend.prepare,
+          commit: backend.commit,
+          guardedWriter: (beforeEffect) => guardedCauseWriter(issuePorts, createIssueWriter, beforeEffect),
+        }),
+      }
+    },
     operator: input.operator,
     prepareSpecAllocation,
     renderIssueSpecBody,
