@@ -25,6 +25,7 @@ export {
   validateRetainedUnusableLabels,
   validateReviewDecisionBindings,
 } from './engine/review-decision.ts'
+export { validateHistoricalReviewDecision } from './engine/review-fresh-decision.ts'
 export {
   type ReviewInterruptionPayload,
   type ReviewReplacementGrantPayload,

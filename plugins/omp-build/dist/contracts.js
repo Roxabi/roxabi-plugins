@@ -23343,6 +23343,7 @@ export {
   validateDecision2 as validateDecision,
   validateDecisionBindings,
   validateFreshDecision,
+  validateHistoricalReviewDecision,
   validateLocalFindingTarget,
   validateRecordGraph,
   validateRetainedReportPublication,
