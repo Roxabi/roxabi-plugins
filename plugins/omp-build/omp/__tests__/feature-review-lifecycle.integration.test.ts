@@ -11,6 +11,7 @@ import { criterionDeclarationSchema } from '../../engine/criterion-evidence-sche
 import type { DecodedHistory } from '../../engine/history-schema.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import { fixtureSourceReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
+import { create905Cut } from '../../testing/feature-review-905-cuts.ts'
 import {
   arrangeReviewFixture,
   REVIEW_BRANCH as BRANCH,
@@ -37,9 +38,12 @@ function arrange() {
 }
 
 function invoke(box: Box, cwd: string, control: 'continue' | 'pause' | 'resume', operation = 'omp-review-lifecycle') {
-  const run = spawnSync(BUN, [RUNNER, operation, cwd, JSON.stringify({ control })], {
+  // TEMPORARY #905: profile only the original mixed runner, never the full Vitest process.
+  const trace = operation === 'omp-review-mixed-dispositions' ? process.env.OMP_905_ENABLE_DIR : undefined
+  const profile = trace ? ['--cpu-prof', '--cpu-prof-name=runtime.cpuprofile', `--cpu-prof-dir=${trace}`] : []
+  const run = spawnSync(BUN, [...profile, RUNNER, operation, cwd, JSON.stringify({ control })], {
     cwd,
-    env: box.env,
+    env: { ...box.env, OMP_905_TRACE_DIR: trace },
     encoding: 'utf8',
   })
   if (run.status !== 0) throw new Error(`${operation} failed: ${run.stderr}\n${run.stdout}`)
@@ -455,10 +459,15 @@ describe('installed /feature review lifecycle through actual Bun and external bo
   })
 
   it('executes only fix-original while retaining sister-after and report without filing', async () => {
+    // TEMPORARY #905: establish the test's deadline relative to runner stage cuts.
+    const cut = create905Cut(process.env.OMP_905_ENABLE_DIR)
+    cut('test-start')
     const { box, cwd } = arrange()
     await seedReviewFixture(box, cwd)
     const before = readSim(box)
+    cut('runner-start')
     const observed = invoke(box, cwd, 'continue', 'omp-review-mixed-dispositions')
+    cut('runner-finish')
     const state = readSim(box)
     const review = reviewHistory(box, state)
     const issue = issueDecodedHistory(box, state)
@@ -520,6 +529,7 @@ describe('installed /feature review lifecycle through actual Bun and external bo
       ),
     ).toEqual([])
     expect(observed.terminal).toMatchObject({ status: 'complete', kind: 'fix-result' })
+    cut('test-finish')
   })
 
   it('persists confirmed local pause for a fresh review without another dispatch', async () => {

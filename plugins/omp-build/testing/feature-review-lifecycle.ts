@@ -3,6 +3,7 @@ import { existsSync, readFileSync, watch, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import type { NativeTask } from '../omp/review-runtime/contracts.ts'
 import { requiredReviewRecords } from '../skills/feature/workflow-records.js'
+import { create905Stage } from './feature-review-905-cuts.ts'
 import {
   correctionCriteria,
   guardCommand,
@@ -172,10 +173,8 @@ export async function invokeOmpReviewApplyFalsify(cwd: string, mixed = false): P
   let primary: unknown
   let failed = false
   let outcome: object | undefined
-  let stage = 'initial-review'
-  const nextStage = (next: string) => {
-    stage = next
-  }
+  // TEMPORARY #905: synchronous cuts survive a Vitest deadline or runner termination.
+  const { current, next: nextStage } = create905Stage(mixed ? process.env.OMP_905_TRACE_DIR : undefined)
   const applyTasks: Array<{ agent: string; proof: NativeTask['proofEvidence'] }> = []
   try {
     await driver.settle(mixed ? mixedReviewInitialData : reviewInitialData)
@@ -285,7 +284,7 @@ export async function invokeOmpReviewApplyFalsify(cwd: string, mixed = false): P
     failed = true
     primary = error
   }
-  const diagnostic = { stage, driver: () => driverDiagnostic(driver) }
+  const diagnostic = { stage: current.stage, driver: () => driverDiagnostic(driver) }
   await finishFixtureDiagnostic(driver.controller, diagnostic, failed, primary)
   if (outcome === undefined) throw new Error('native-fixture-outcome-missing')
   return outcome
