@@ -48,25 +48,7 @@ jobs:
       - name: Lint workflows (actionlint)
         run: actionlint
       - name: Test (vitest)
-        # TEMPORARY #905: the original full suite remains unfiltered.
-        env:
-          OMP_905_ENABLE_DIR: ${{ runner.temp }}/omp-905-trace
-        run: |
-          mkdir -p "$OMP_905_ENABLE_DIR"
-          bun run test
-      - name: Summarize temporary #905 trace
-        if: ${{ always() }}
-        run: |
-          mkdir -p "${RUNNER_TEMP}/omp-905-trace"
-          echo 'diagnostic unavailable unless summary.json reports observations' > "${RUNNER_TEMP}/omp-905-trace/availability.txt"
-          bun run plugins/omp-build/testing/feature-review-905-summary.ts "${RUNNER_TEMP}/omp-905-trace" || echo 'diagnostic summary unavailable'
-      - name: Upload temporary #905 trace
-        if: ${{ always() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: omp-905-full-vitest-trace
-          path: ${{ runner.temp }}/omp-905-trace/
-          if-no-files-found: warn
+        run: bun run test
       - name: Verify action pins resolve
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
