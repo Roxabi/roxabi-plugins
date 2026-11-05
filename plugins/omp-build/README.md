@@ -289,6 +289,8 @@ The thin command accepts explicit repository coordinates and a strict JSON propo
 
 `evidence` and `verdicts` read applicable delivery declarations and authenticated criterion verdicts, including the approved bound PR's review history; they do not publish. `action` accepts a JSON object containing `request: UwActionRequest`: it resolves the durable inputs and creates a local read-only snapshot without a GitHub write. Adding `reviewed: ActionInputs` instead replays the stored inputs against current durable sources. The request's code coordinates and references must be readable and match their pinned identities. The installed-plugin pin comes from trusted host composition, never the request file or argv; a missing or mismatched pin refuses.
 
+Review continuation binds the selected initial root to the current authenticated action subject, not an unresolved request placeholder. A PR review uses its exact PR history; an Epic final-range review uses its UW history with no invented PR. Both retain complete-history, fingerprint, head and subject checks; an Epic also retains the exact base-to-head range.
+
 | Cause command | Boundary |
 |---|---|
 | `/uw reports example/demo#42` | Reads durable reports on that UW and its native subtree, without discovering every PR or creating an issue. |

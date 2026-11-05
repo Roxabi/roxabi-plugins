@@ -1,23 +1,21 @@
-import { bindExternalRef, equalScope, reviewSubjectBound } from '../dist/contracts.js'
+import { bindExternalRef, canonicalValueDigest, equalScope, reviewSubjectBound } from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Result } from '../engine/result.ts'
-import type { ReviewRootRef, UwActionRequest } from './uw-action-contract.ts'
+import type { ActionSubject, ReviewRootRef, UwActionRequest } from './uw-action-contract.ts'
 import { actionFailure } from './uw-action-result.ts'
 
-/** Reauthenticate the selected inventory against the current complete PR history. */
+/** Reauthenticate the selected inventory against its current complete subject history. */
 export function authenticateReviewRoot(
   request: UwActionRequest,
   histories: readonly DecodedHistory[],
   reviewedFingerprint: string | undefined,
   root: ReviewRootRef | undefined,
+  subject: ActionSubject,
 ): Result<true> {
   if (root === undefined) return { ok: true, value: true }
-  if (
-    request.purpose !== 'review' ||
-    request.subject.pullRequest === null ||
-    !equalScope(root.scope, request.subject.pullRequest)
-  )
-    return actionFailure('review-input-changed', 'Selected review root is outside the current pull request')
+  const scope = subject.kind === 'uw' ? (subject.pullRequest ?? subject.uw) : subject.pullRequest
+  if (request.purpose !== 'review' || !equalScope(root.scope, scope))
+    return actionFailure('review-input-changed', 'Selected review root is outside the current review subject')
   const matching = histories.filter((history) => equalScope(history.source.scope, root.scope))
   if (matching.length !== 1 || matching[0] === undefined)
     return actionFailure('review-input-changed', 'Selected review root history is unavailable')
@@ -31,6 +29,9 @@ export function authenticateReviewRoot(
     record.payload.rootAttemptId !== record.recordId ||
     record.payload.actionInputDigest !== reviewedFingerprint ||
     !reviewSubjectBound(record, record.payload) ||
+    canonicalValueDigest(record.payload.inputSnapshot.manifest.subject) !== canonicalValueDigest(subject) ||
+    (record.payload.subject.kind === 'epic-range' &&
+      record.payload.subject.range !== `${request.code.base}..${request.code.head}`) ||
     record.payload.inputSnapshot.fingerprint !== reviewedFingerprint ||
     record.payload.candidateGitSHA !== request.code.head
   )

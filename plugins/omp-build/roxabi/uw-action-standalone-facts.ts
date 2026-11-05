@@ -59,7 +59,7 @@ export async function standaloneFacts(
       ? await readHistories([request.subject.pullRequest], source)
       : { ok: true as const, value: histories }
   if (!read.ok) return read
-  const authenticated = authenticateReviewRoot(request, read.value, reviewedFingerprint, reviewedRoot)
+  const authenticated = authenticateReviewRoot(request, read.value, reviewedFingerprint, reviewedRoot, request.subject)
   if (!authenticated.ok) return authenticated
   const selected = selectWorkflowBinding({
     pullRequest: request.subject.pullRequest,

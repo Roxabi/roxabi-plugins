@@ -89,7 +89,7 @@ async function finishFacts(
   observation?: EvidenceObservation,
   reviewedRoot?: ReviewRootRef,
 ): Promise<Result<CurrentActionFacts>> {
-  const authenticated = authenticateReviewRoot(request, histories, reviewedFingerprint, reviewedRoot)
+  const authenticated = authenticateReviewRoot(request, histories, reviewedFingerprint, reviewedRoot, subject)
   if (!authenticated.ok) return authenticated
   const expansion = expansionOrigin(request, histories, reviewedFingerprint)
   if (!expansion.ok) return expansion
