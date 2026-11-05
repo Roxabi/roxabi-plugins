@@ -73,7 +73,12 @@ Bun fixture runs continue to use the simulator source.
 Vitest runs unit and integration files in separate, non-overlapping resource
 groups. Integration uses at most one worker per four available CPUs (minimum
 one) to limit subprocess and I/O contention. `--project integration` selects
-the same integration files and keeps their 30-second per-test budget.
+the same integration files and keeps their 60-second per-test budget.
+
+The allowance covers the full lifecycle workload; it is not a performance
+optimization. Tests taking 30–60 seconds no longer trigger the previous
+timeout alarm. Do not automatically raise the budget again; reassess a tighter
+budget once the full workload demonstrably supports it.
 
 Vitest workers run under Node. The shared setup isolates the SDK's Bun-only
 logging and task-rendering dependencies, while fixture registry and event-bus

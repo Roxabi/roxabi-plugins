@@ -794,13 +794,13 @@ Feature domain simulators and subprocess harnesses live in `skills/feature/testi
 
 The executable GitHub simulator and the goal-only direct driver/workflow entries share one kernel: lock, hydration, audit, command handling, and atomic state replacement. The continuous goal selects those direct entries; its parent GitHub comments still spawn the executable CLI. Default driver, workflow, overlap, and drain coverage keep that subprocess CLI. It persists compact JSON without changing the decoded state or complete ordered call audit. Contended acquisition sleeps for 1 ms between attempts so short state transactions do not impose a 20 ms polling pause. The existing 10-second failed-acquisition deadline and cleanup remain unchanged. This increases polling frequency under sustained contention; it does not guarantee FIFO ownership or model an atomic GitHub transaction.
 
-The compiled fake `gh` used by integration fixtures disables automatic loading of ambient Bun configuration and `.env` files; fixtures pass their environment explicitly. It remains an external CLI process, and the existing test timeouts are unchanged.
+The compiled fake `gh` used by integration fixtures disables automatic loading of ambient Bun configuration and `.env` files; fixtures pass their environment explicitly. It remains an external CLI process.
 
 ### Quality contract
 
 Run `bun run quality:omp-build` for the same owned-source check used by the pre-commit hook and CI. Physical discovery feeds both the line counter and the pinned Biome command; warnings fail, and an empty lint set is not success.
 
-Vitest bounds concurrent test files globally at `min(8, max(1, availableParallelism() - 1))`. Both inline projects inherit the root value and share the default group, so the cap contains aggregate process and I/O pressure rather than excepting a single scenario. It preserves the installed non-watch default on runners with 1, 2, or 4 available CPUs; the unit 5s and integration 30s budgets remain unchanged.
+Vitest bounds concurrent test files globally at `min(8, max(1, availableParallelism() - 1))`. Both inline projects inherit the root value and share the default group, so the cap contains aggregate process and I/O pressure rather than excepting a single scenario. It preserves the installed non-watch default on runners with 1, 2, or 4 available CPUs; the unit budget is 5s and the integration budget is 60s.
 
 | Surface | Enforced limit |
 |---|---|
