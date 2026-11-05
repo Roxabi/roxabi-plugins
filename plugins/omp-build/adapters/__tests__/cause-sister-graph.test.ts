@@ -1,9 +1,10 @@
 import { expect, it, vi } from 'vitest'
 import { history } from '../../engine/__tests__/workflow-test-support.ts'
+import { readCauseDispositionHeads, resolveCauseSisterReceipt } from '../../engine/cause-disposition.ts'
 import type { Scope } from '../../engine/record-values.ts'
 import type { UwGraphObservation, UwNativeNode } from '../../engine/uw-graph.ts'
 import { fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
-import { sisterRecords } from '../../testing/cause-input-fixture.ts'
+import { causeOriginalHistory, sisterRecords } from '../../testing/cause-input-fixture.ts'
 import { observeCauseSisters } from '../github-workflow/cause-sister-graph.ts'
 
 const uw = { repository: 'acme/app', target: 'acme/app#42' }
@@ -29,9 +30,14 @@ function graph(root: Scope, completed = false): UwGraphObservation {
 
 it('loads only the authenticated receipt sister when its native edge is absent', async () => {
   const { graph: source, held, operation, identity, receipt } = sisterRecords()
-  const histories = [history([held, operation, receipt], uw), source.history, history([identity], sister)]
+  const histories = [causeOriginalHistory([held, operation, receipt]), source.history, history([identity], sister)]
+  const catalogues = fixtureReviewClassCatalogues()
+  const heads = readCauseDispositionHeads({ uw, histories, catalogues })
+  expect(heads, JSON.stringify(heads)).toMatchObject({ ok: true, value: [held] })
+  const resolved = resolveCauseSisterReceipt({ disposition: held, histories })
+  expect(resolved, JSON.stringify(resolved)).toMatchObject({ ok: true, value: receipt })
   const read = vi.fn(async (scope: Scope) => graph(scope, true))
-  const observed = await observeCauseSisters(graph(uw), histories, read, fixtureReviewClassCatalogues())
+  const observed = await observeCauseSisters(graph(uw), histories, read, catalogues)
   expect(read.mock.calls).toEqual([[sister]])
   expect(observed.nodes.map((item) => item.uw)).toEqual([uw, sister])
   expect(observed.nodes[1]?.native).toEqual({ state: 'CLOSED', stateReason: 'COMPLETED' })

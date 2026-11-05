@@ -7,10 +7,13 @@ import {
   decodeHistory,
   recordsOf,
   validateCauseDispositionRecords,
+  validateFreshDecision,
 } from '../dist/contracts.js'
 import type { NativeChildResult } from '../omp/review-runtime/contracts.ts'
+import { acceptedActionInputs } from '../testing/action-input-fixtures.ts'
 import { criterionImplementationRecords } from '../testing/criterion-accepted-plan.ts'
 import { criterionReviewGraph, encodeCriterionRecords } from '../testing/criterion-approval.ts'
+import { criterionEpicReviewGraph } from '../testing/criterion-range-approval.ts'
 import { fixtureHostReviewClassCatalogues } from '../testing/host-catalogue-fixture.ts'
 import { acceptedPullRequestReviewGraph } from '../testing/record-graphs.ts'
 import { observedComment, operation } from '../testing/record-history.ts'
@@ -24,15 +27,49 @@ const pullRequest = { repository: 'Acme/app', target: 'Acme/app#42' }
 
 function fixture(refuseWrite = false, validCriterion = false) {
   const fixtures = roxabiWorkflowFixtures()
-  const mandate = validCriterion
-    ? fixtures.featureMandate(original, { branch: 'fix/42-save' })
-    : fixtures.fixOnlyMandate(original)
+  const mandate = fixtures.featureMandate(original, { branch: 'fix/42-save' })
   const binding = fixtures.workflowBinding(pullRequest, mandate, 'fix/42-save', 'main')
-  const base = acceptedPullRequestReviewGraph({ mandate, binding, prefix: 'green-finalization', label: 'suggestion' })
+  const seed = acceptedPullRequestReviewGraph({ mandate, binding, prefix: 'green-finalization', label: 'suggestion' })
+  const issueRecords = criterionImplementationRecords(mandate, seed.inputs.manifest.code.head)
+  const missingImplementation = issueRecords.find(
+    (record) =>
+      record.kind === 'action-receipt' && record.payload.action === 'implement' && record.payload.phase === 'result',
+  )
+  if (
+    missingImplementation?.kind !== 'action-receipt' ||
+    missingImplementation.payload.action !== 'implement' ||
+    missingImplementation.payload.phase !== 'result' ||
+    missingImplementation.payload.structured === null
+  )
+    throw new Error('fixture implementation result missing')
+  const missingCriterion = missingImplementation.payload.structured.criteria[0]
+  if (!missingCriterion) throw new Error('fixture criterion declaration missing')
+  const missingDeclaration = {
+    source: 'record' as const,
+    role: 'implementation' as const,
+    record: { scope: original, recordId: missingImplementation.recordId, kind: 'action-receipt' as const },
+    selector: '/payload/structured/criteria/0',
+    digest: canonicalValueDigest(missingCriterion),
+  }
+  const manifest = { ...seed.inputs.manifest, deliveryData: [missingDeclaration] }
+  const base = validCriterion
+    ? seed
+    : acceptedPullRequestReviewGraph({
+        mandate,
+        binding,
+        prefix: 'green-finalization',
+        label: 'suggestion',
+        inputs: { ...seed.inputs, manifest, fingerprint: actionInputDigest(manifest) },
+      })
   const built = (() => {
-    if (!validCriterion) return { graph: base, origin: fixtures.historyFrom([mandate]) }
+    if (!validCriterion)
+      return {
+        graph: base,
+        origin: fixtures.historyFrom(
+          issueRecords.filter((record) => record.recordId !== missingImplementation.recordId),
+        ),
+      }
     const head = base.inputs.manifest.code.head
-    const issueRecords = criterionImplementationRecords(mandate, head)
     const origin = fixtures.historyFrom(issueRecords)
     const implementation = issueRecords.find(
       (record) =>
@@ -160,6 +197,8 @@ function fixture(refuseWrite = false, validCriterion = false) {
     usable: true,
     reason: null,
   }
+  const confirmed: string[] = []
+  const verdicts: (string | null)[] = []
   const input = {
     review: {
       context: {
@@ -210,6 +249,17 @@ function fixture(refuseWrite = false, validCriterion = false) {
         store,
       )
       if (!result.ok) throw new Error(`review-disposition-refused:${result.diagnostics.join(',')}`)
+      const fresh = validateFreshDecision(
+        decision,
+        target,
+        fixtureHostReviewClassCatalogues(),
+        null,
+        [origin],
+        target,
+        result.value.refs,
+      )
+      if (!fresh.ok) throw new Error(`fresh-decision-refused:${fresh.diagnostics.map((item) => item.code).join(',')}`)
+      verdicts.push(fresh.value.verdict)
       return result.value.refs
     },
     retainFailedSynthesis: async (history: DecodedHistory, diagnostic: string) => {
@@ -233,17 +283,153 @@ function fixture(refuseWrite = false, validCriterion = false) {
     },
     readExternalHistories: async () => ({ ok: true as const, value: [origin] }),
     loadCatalogues: async () => fixtureHostReviewClassCatalogues(),
-    onDecisionConfirmed: () => {},
+    onDecisionConfirmed: (id: string) => {
+      confirmed.push(id)
+    },
   }
-  return { graph, input, saved, getOrigin: () => origin, getTarget: () => target }
+  return { graph, input, saved, confirmed, verdicts, getOrigin: () => origin, getTarget: () => target }
 }
 
+describe('same-scope epic disposition readback', () => {
+  it('confirms the decision after persisted dispositions are visible in the epic history', async () => {
+    const fixtures = roxabiWorkflowFixtures()
+    const mandate = fixtures.epicMandate(original, [])
+    const accepted = acceptedActionInputs(mandate, 'review')
+    const base = 'a'.repeat(40)
+    const head = 'b'.repeat(40)
+    const range = `${base}..${head}`
+    const manifest = {
+      ...accepted.manifest,
+      code: { ...accepted.manifest.code, repository: original.repository, base, head },
+      acceptedSources: [
+        {
+          source: 'record' as const,
+          record: { scope: original, recordId: mandate.recordId, kind: mandate.kind },
+          selector: '/payload',
+          digest: canonicalValueDigest(mandate.payload),
+        },
+      ],
+    }
+    const inputs = { ...accepted, manifest, fingerprint: actionInputDigest(manifest) }
+    const graph = criterionEpicReviewGraph({
+      mandate,
+      inputs,
+      head,
+      range,
+      prefix: 'same-scope-finalization',
+      blocking: true,
+    })
+    if (graph.inputs.manifest.spec.kind !== 'accepted') throw new Error('accepted fixture required')
+    const effective = graph.inputs.manifest.spec.effective
+    const projection = roxabiRecordFixtures().projection
+    let history = encodeCriterionRecords(
+      [
+        fixtures.identityAllocation(original),
+        ...graph.issueRecords,
+        ...graph.records.filter((record) => record.recordId !== graph.decision.recordId),
+      ],
+      original,
+      projection,
+      'operator',
+    ).history
+    const identity = {
+      runId: 'same-scope-run',
+      operationId: 'same-scope-operation',
+      nextRecordId: (kind: string) => `same-scope-${kind}`,
+    }
+    const store: FixDispositionStore = {
+      catalogues: async () => fixtureHostReviewClassCatalogues(),
+      read: async () => ({ ok: true, value: [history] }),
+      publish: async (record) => {
+        history = encodeCriterionRecords([record], original, projection, 'operator', [], history).history
+        const operation = history.operations.find((item) => item.recordId === record.recordId)
+        if (operation?.status !== 'complete' || operation.record === null)
+          throw new Error(`disposition-readback-missing:${record.recordId}`)
+        return { status: 'confirmed', operation }
+      },
+    }
+    const child: NativeChildResult = {
+      id: 'synthesis-child',
+      expectedId: 'synthesis',
+      submissions: [],
+      proofEvidence: null,
+      raw: {},
+      partialText: null,
+      structured: graph.decision.payload.judgment,
+      usable: true,
+      reason: null,
+    }
+    const confirmed: string[] = []
+    let dispositionIds: string[] = []
+    await finalizeReview({
+      review: {
+        context: { subject: { kind: 'epic-range', range }, candidateGitSHA: head, input: graph.root.payload.input },
+        policy: { version: 'baseline' },
+        canonicalClasses: [],
+        authorize: async () => ({ ok: true }),
+      },
+      identity: {
+        runId: identity.runId,
+        operationId: identity.operationId,
+        next: (kind) => (kind === 'decision' ? graph.decision.recordId : `same-scope-${kind}`),
+      },
+      scope: original,
+      contributions: [{ id: graph.synthesisContribution.recordId, child }],
+      inventories: [graph.root.recordId, graph.synthesis.recordId],
+      canContinue: () => true,
+      readHistory: async () => history,
+      publish: async (record) => {
+        history = encodeCriterionRecords([record], original, projection, 'operator', [], history).history
+      },
+      persistDecision: async (decision) => {
+        const result = await persistCauseDispositions(
+          { causeContext: { original, effective } },
+          { kind: 'decision', decision },
+          identity,
+          store,
+        )
+        if (!result.ok) throw new Error(`review-disposition-refused:${result.diagnostics.join(',')}`)
+        const fresh = validateFreshDecision(
+          decision,
+          history,
+          fixtureHostReviewClassCatalogues(),
+          null,
+          [],
+          history,
+          result.value.refs,
+        )
+        expect(fresh).toMatchObject({ ok: true, value: { admissible: true } })
+        dispositionIds = result.value.refs.map((ref) => ref.recordId)
+        return result.value.refs
+      },
+      retainFailedSynthesis: async () => {
+        throw new Error('unexpected failed synthesis')
+      },
+      readExternalHistories: async () => ({ ok: true, value: [] }),
+      loadCatalogues: async () => fixtureHostReviewClassCatalogues(),
+      onDecisionConfirmed: (id) => {
+        confirmed.push(id)
+      },
+    })
+    expect(dispositionIds).toHaveLength(1)
+    expect(
+      recordsOf(history)
+        .filter((record) => record.kind === 'cause-disposition')
+        .map((record) => record.recordId),
+    ).toEqual(dispositionIds)
+    expect(confirmed).toEqual([graph.decision.recordId])
+    expect(recordsOf(history).some((record) => record.kind === 'review')).toBe(false)
+  })
+})
+
 describe('review decision disposition ingress', () => {
-  it('retains the nonblocking report even when independent criterion admission refuses the review', async () => {
+  it('retains the nonblocking report while incomplete criterion admission requests changes', async () => {
     const test = fixture()
-    await expect(finalizeReview(test.input)).rejects.toThrow(
-      'decision-refused:unconfirmed,missing-declaration,criterion-changes',
-    )
+    await finalizeReview(test.input)
+    const decision = test.saved.find((record) => record.kind === 'decision')
+    if (decision?.kind !== 'decision') throw new Error('expected saved decision')
+    expect(test.verdicts).toEqual(['Request changes'])
+    expect(test.confirmed).toEqual([decision.recordId])
     const dispositions = recordsOf(test.getOrigin()).filter((record) => record.kind === 'cause-disposition')
     expect(dispositions).toEqual([
       expect.objectContaining({
@@ -252,7 +438,7 @@ describe('review decision disposition ingress', () => {
         }),
       }),
     ])
-    expect(test.saved.map((record) => record.kind)).toEqual(['decision'])
+    expect(test.saved.map((record) => record.kind)).toEqual(['decision', 'review'])
   })
 
   it('publishes a criterion-admitted review after retaining its nonblocking report on the original UW', async () => {

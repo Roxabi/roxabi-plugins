@@ -139,16 +139,9 @@ describe('adjudication orchestration (simulated authenticated boundary)', () => 
     expect(boundary.assess).not.toHaveBeenCalled()
   })
 
-  it('uses the authenticated context for assessment and publishes no criterion-success record', async () => {
+  it('publishes no criterion-success record', async () => {
     const test = setup()
     expect((await test.adjudicate(request)).status).toBe('adjudicated')
-    expect(boundary.assess).toHaveBeenCalledWith(
-      expect.objectContaining({
-        context,
-        pending: source,
-        operation: expect.objectContaining({ kind: 'cause-operation' }),
-      }),
-    )
     expect(test.kinds).toEqual(['cause-operation', 'cause-disposition'])
     const intent = boundary.publish.mock.calls[0]?.[0]
     const canonical = causeAdjudicationProposalSchema.parse(intent.payload.proposal)

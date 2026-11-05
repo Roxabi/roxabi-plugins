@@ -1,7 +1,10 @@
+import { causeActionData } from '../../roxabi/uw-action-cause-data.ts'
+import { currentRootOutputRefs } from '../../roxabi/uw-action-closure.ts'
+import type { UwActionRequest } from '../../roxabi/uw-action-contract.ts'
 import { TOOLING_COMMIT } from '../../skills/feature/review-record-pin.js'
 import { acceptedPullRequestReviewGraph } from '../../testing/record-graphs.ts'
 import { operation } from '../../testing/record-history.ts'
-import { actionInputDigest, canonicalValueDigest } from '../action-input.ts'
+import { actionInputDigest } from '../action-input.ts'
 import { assessCauseDispositions } from '../cause-disposition.ts'
 import type { CauseContext } from '../finding-target.ts'
 import type { DecodedHistory } from '../history-schema.ts'
@@ -49,15 +52,21 @@ export function scenario(kind: 'editorial' | 'material', priorReviews: number) {
     })
   const initialProof = makeProof(initial.context)
   let own = appendAccountedRecords(initial.own, initialProof.authorityRecords)
-  const reviewInputs = (_prefix: string, context: CauseContext, head?: string) => {
+  const reviewInputs = (prefix: string, context: CauseContext, head?: string) => {
     const proof = makeProof(context, head)
-    const historicalPin = {
-      source: 'record' as const,
-      record: ref(initial.pending),
-      selector: '/payload',
-      role: 'cause-state' as const,
-      digest: canonicalValueDigest(initial.pending.payload),
+    const request: UwActionRequest = {
+      actionId: `${prefix}-root`,
+      purpose: 'review',
+      subject: proof.inputs.manifest.subject,
+      code: proof.inputs.manifest.code,
+      stageSources: [],
+      expandedContext: [],
     }
+    const histories = [own, source]
+    const historicalPins =
+      context.effective.own.version === initial.context.effective.own.version
+        ? []
+        : must(causeActionData(request, histories, currentRootOutputRefs(request, histories), initial.catalogues))
     const manifest = {
       ...proof.inputs.manifest,
       spec: { kind: 'accepted' as const, effective: context.effective },
@@ -67,10 +76,7 @@ export function scenario(kind: 'editorial' | 'material', priorReviews: number) {
         head === undefined
           ? initial.inputs.manifest.code
           : { ...initial.inputs.manifest.code, head, referenceCommit: head },
-      deliveryData:
-        context.effective.own.version === initial.context.effective.own.version
-          ? proof.inputs.manifest.deliveryData
-          : [...proof.inputs.manifest.deliveryData, historicalPin],
+      deliveryData: [...proof.inputs.manifest.deliveryData, ...historicalPins],
     }
     return withPinnedCatalogue({ ...proof.inputs, manifest, fingerprint: actionInputDigest(manifest) })
   }

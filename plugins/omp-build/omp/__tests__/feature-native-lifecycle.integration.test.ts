@@ -211,7 +211,14 @@ describe('feature native lifecycle through the installed OMP extension', () => {
     expect(
       readSim(box)
         .calls.slice(callsBefore)
-        .filter((args) => args.includes('--method')),
+        .filter((args) => {
+          const method = args.indexOf('--method')
+          return (
+            (method !== -1 && args[method + 1]?.toUpperCase() !== 'GET') ||
+            (args[0] === 'pr' && ['comment', 'edit', 'merge'].includes(args[1] ?? '')) ||
+            (args[0] === 'workflow' && args[1] === 'run')
+          )
+        }),
     ).toEqual([])
     expect(implementationRecords(box, 'start')).toHaveLength(1)
   })

@@ -1,7 +1,8 @@
 import { strict as assert } from 'node:assert'
 import { readFileSync } from 'node:fs'
-import { assessAdjudicationSuccessor } from '../cause-adjudication-successor.ts'
+import { assessAdjudicationSuccessor, assessHistoricalAdjudicationSuccessor } from '../cause-adjudication-successor.ts'
 import { validateCauseAdjudication, validateCauseDispositionRecords } from '../cause-disposition.ts'
+import { causeValidationFrame } from '../cause-validation-frame.ts'
 import { recordsOf } from '../workflow-control.ts'
 import { cataloguesForInputs } from './cause-catalogue-fixture.ts'
 import type { lineageFixture } from './cause-lineage-fixture.ts'
@@ -29,13 +30,18 @@ assert.equal(outcome.state, 'final')
 if (outcome.state !== 'final') throw new Error('Expected final disposition')
 assert.equal(outcome.disposition, 'report')
 assert.equal(outcome.blocking, false)
-const replay = assessAdjudicationSuccessor({
-  pending: last.pending,
-  operation: last.operation,
-  context: fixture.context,
-  histories,
-  catalogues,
-})
+const live = assessAdjudicationSuccessor({ pending: last.pending, operation: last.operation, histories, catalogues })
+assert.equal(live.ok, false)
+const replay = assessHistoricalAdjudicationSuccessor(
+  {
+    pending: last.pending,
+    operation: last.operation,
+    context: fixture.context,
+    histories,
+    catalogues,
+  },
+  causeValidationFrame(histories, catalogues),
+)
 assert.equal(replay.ok, true)
 if (!replay.ok) throw new Error('Final successor refused')
 assert.deepEqual(replay.value, fixture.pending.payload)

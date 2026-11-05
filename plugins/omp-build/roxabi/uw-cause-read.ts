@@ -1,5 +1,4 @@
 import {
-  assessAdjudicationSuccessor,
   assessCauseDispositions,
   bindExternalRef,
   canonicalValueDigest,
@@ -75,32 +74,6 @@ function assertDispositionRebound(ref: ExternalRecordRef, history: DecodedHistor
     throw new Error('cause-disposition-stale')
 }
 
-function assertAdjudicatedDisposition(
-  disposition: Extract<CanonicalRecord, { kind: 'cause-disposition' }>,
-  previousRef: ExternalRecordRef,
-  adjudicationRef: ExternalRecordRef,
-  loaded: readonly DecodedHistory[],
-  context: CauseContext,
-  catalogues: ReviewClassCatalogues,
-): void {
-  const previous = bindExternalRef(previousRef, home(loaded, previousRef.scope))
-  const operation = bindExternalRef(adjudicationRef, home(loaded, adjudicationRef.scope))
-  if (!previous.ok) fail(previous.diagnostics)
-  if (!operation.ok) fail(operation.diagnostics)
-  if (previous.value.kind !== 'cause-disposition' || operation.value.kind !== 'cause-operation')
-    throw new Error('cause-disposition-stale')
-  const assessed = assessAdjudicationSuccessor({
-    pending: previous.value,
-    operation: operation.value,
-    histories: loaded,
-    context,
-    catalogues,
-  })
-  if (!assessed.ok) fail(assessed.diagnostics)
-  if (canonicalValueDigest(assessed.value) !== canonicalValueDigest(disposition.payload))
-    throw new Error('cause-disposition-stale')
-}
-
 function assertDispositionAssessment(
   disposition: Extract<CanonicalRecord, { kind: 'cause-disposition' }>,
   decision: Extract<CanonicalRecord, { kind: 'decision' }>,
@@ -110,17 +83,24 @@ function assertDispositionAssessment(
 ): void {
   const previousRef = disposition.payload.previous
   const adjudicationRef = disposition.payload.adjudication
+  const adjudications: Extract<CanonicalRecord, { kind: 'cause-operation' }>[] = []
   if (previousRef !== null && adjudicationRef !== null) {
-    assertAdjudicatedDisposition(disposition, previousRef, adjudicationRef, loaded, context, catalogues)
-    return
+    const previous = bindExternalRef(previousRef, home(loaded, previousRef.scope))
+    const operation = bindExternalRef(adjudicationRef, home(loaded, adjudicationRef.scope))
+    if (!previous.ok) fail(previous.diagnostics)
+    if (!operation.ok) fail(operation.diagnostics)
+    if (previous.value.kind !== 'cause-disposition' || operation.value.kind !== 'cause-operation')
+      throw new Error('cause-disposition-stale')
+    adjudications.push(operation.value)
+  } else if (previousRef !== null || adjudicationRef !== null) {
+    throw new Error('cause-disposition-stale')
   }
-  if (previousRef !== null || adjudicationRef !== null) throw new Error('cause-disposition-stale')
   const assessed = assessCauseDispositions({
     context,
     source: { kind: 'decision', decision },
     histories: loaded,
     catalogues,
-    adjudications: [],
+    adjudications,
   })
   if (!assessed.ok) fail(assessed.diagnostics)
   const matching = assessed.value.outcomes.filter(

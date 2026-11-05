@@ -29,7 +29,7 @@ export function registerReviewGateFormatCases(): void {
     ])('refuses a mandate with %s as incompatible format', async (_name, mutate) => {
       const fixture = setupReviewGateFixture()
       await seedMandate(fixture)
-      publish(fixture, cleanReview(fixture.head, 'old-format', await boundInput(fixture)), 'SUCCESS')
+      publish(fixture, cleanReview(fixture, fixture.head, 'old-format', await boundInput(fixture)), 'SUCCESS')
       mutateMandatePayload(fixture, mutate)
       const result = runReviewGate(fixture)
       expect(result.status).toBe(1)

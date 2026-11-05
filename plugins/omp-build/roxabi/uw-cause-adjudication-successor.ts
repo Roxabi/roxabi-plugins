@@ -63,7 +63,6 @@ export async function publishAdjudicationSuccessor(args: {
   const assessed = assessAdjudicationSuccessor({
     pending: fresh.disposition,
     operation: bound.value,
-    context: fresh.context,
     histories,
     catalogues,
   })

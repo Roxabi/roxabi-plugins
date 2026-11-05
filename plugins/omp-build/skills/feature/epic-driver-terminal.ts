@@ -2,7 +2,7 @@ import {
   type CanonicalRecord,
   classifyHistory,
   type DecodedHistory,
-  validateDecision,
+  validateFreshDecision,
   validateRecordGraph,
 } from '../../dist/contracts.js'
 import type { UwAdmission } from '../../engine/uw-admission.ts'
@@ -12,7 +12,7 @@ import { readChildPrInventory } from './epic-driver-containment'
 import { disarmEpicControlTarget } from './epic-driver-control'
 import { gather } from './epic-driver-gather'
 import { adapterOptions, citedReviewHistories, diagnosticsText } from './epic-driver-github'
-import { epicEvents } from './epic-driver-history'
+import { epicEvents, reviewDispositionIds } from './epic-driver-history'
 import { type Disarm, publishEpicEvent, ticketStop } from './epic-driver-publication'
 import { reportPayload, reportText } from './epic-driver-report'
 import { git, Refused } from './epic-driver-runtime'
@@ -112,7 +112,25 @@ export async function review(
     cwd: options.cwd,
     gh: options.gh,
   })
-  const assessment = validateDecision(decision, authorityHistory, catalogues, null, externalHistories, epicHistory)
+  const dispositionIds = reviewDispositionIds(epicHistory, decision)
+  const refs = dispositionIds.map((recordId) => ({
+    scope: epicHistory.source.scope,
+    kind: 'cause-disposition' as const,
+    recordId,
+  }))
+  const result = validateFreshDecision(
+    decision,
+    authorityHistory,
+    catalogues,
+    null,
+    externalHistories,
+    epicHistory,
+    refs,
+  )
+  if (!result.ok) {
+    throw new Refused(`--decision-record ${decisionRecord} is not admissible: ${diagnosticsText(result.diagnostics)}`)
+  }
+  const assessment = result.value
   if (!assessment.admissible) {
     throw new Refused(
       `--decision-record ${decisionRecord} is not admissible: ${diagnosticsText(assessment.diagnostics)}`,
@@ -124,7 +142,7 @@ export async function review(
     run,
     'epic-review',
     `${range}:${decisionRecord}`,
-    { decisionId: decisionRecord, inventoryIds, range },
+    { decisionId: decisionRecord, inventoryIds, dispositionIds, range },
     [decisionRecord, ...inventoryIds],
     canPublish,
   )

@@ -3,15 +3,16 @@ import { canonicalValueDigest } from './action-input.ts'
 import { validateCauseAdjudication } from './cause-adjudication.ts'
 import { assessValidatedCauseDispositions } from './cause-assessment.ts'
 import type { CauseAdjudicationProposal, CauseDispositionPayload } from './cause-disposition-schema.ts'
+import { discoverCauseDispositionHeads } from './cause-heads.ts'
 import { causeDispositionLineage } from './cause-lineage.ts'
-import { type CauseValidationFrame, causeValidationFrame } from './cause-validation-frame.ts'
+import { type CauseValidationFrame, causeValidationFrame, historicalCauseContext } from './cause-validation-frame.ts'
 import type { CauseContext } from './finding-target.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Result } from './result.ts'
 import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
-import { bindExternalRef } from './workflow-control.ts'
+import { bindExternalRef, workflowOperationProblem } from './workflow-control.ts'
 
 type Disposition = Extract<CanonicalRecord, { kind: 'cause-disposition' }>
 type Operation = Extract<CanonicalRecord, { kind: 'cause-operation' }>
@@ -22,10 +23,32 @@ type Input = {
   context: CauseContext
   catalogues: ReviewClassCatalogues
 }
+type AdjudicationEvidence = Omit<Input, 'operation' | 'context'>
 const failure = (message: string): Result<never> => ({
   ok: false,
   diagnostics: [diagnostic('cause-chain-invalid', message)],
 })
+
+function resolveOrigin(input: AdjudicationEvidence, frame: CauseValidationFrame): Result<CauseContext> {
+  for (const history of input.histories) {
+    if (
+      workflowOperationProblem(history) !== null ||
+      input.histories.filter((item) => equalScope(item.source.scope, history.source.scope)).length !== 1
+    )
+      return failure('Adjudication histories are incomplete or ambiguous')
+  }
+  const scope = input.pending.payload.origin.uw
+  const history = input.histories.find((item) => equalScope(item.source.scope, scope))
+  if (!history || !equalScope(input.pending, scope)) return failure('Pending disposition scope is not authenticated')
+  const bound = bindExternalRef({ scope, kind: 'cause-disposition', recordId: input.pending.recordId }, history)
+  if (!bound.ok || canonicalValueDigest(bound.value) !== canonicalValueDigest(input.pending))
+    return failure('Pending disposition is not authenticated')
+  return historicalCauseContext(frame, input.pending.payload.origin)
+}
+
+export function resolveAdjudicationContext(input: AdjudicationEvidence): Result<CauseContext> {
+  return resolveOrigin(input, causeValidationFrame(input.histories, input.catalogues))
+}
 
 function authenticated(input: Input, frame: CauseValidationFrame): Result<null> {
   const { pending, operation, histories, context } = input
@@ -163,8 +186,23 @@ function assessSuccessor(
   return assessTransition(input, historical, prefix, frame)
 }
 
-export function assessAdjudicationSuccessor(input: Input): Result<CauseDispositionPayload> {
-  return assessSuccessor(input, false, causeValidationFrame(input.histories, input.catalogues))
+export function assessAdjudicationSuccessor(
+  input: AdjudicationEvidence & { operation: Operation },
+): Result<CauseDispositionPayload> {
+  const frame = causeValidationFrame(input.histories, input.catalogues)
+  const context = resolveOrigin(input, frame)
+  if (!context.ok) return context
+  const heads = discoverCauseDispositionHeads({ uw: context.value.original, histories: input.histories })
+  if (!heads.ok) return heads
+  if (
+    input.pending.payload.outcome.state !== 'pending-blocking' ||
+    !heads.value.some((head) => head.recordId === input.pending.recordId)
+  )
+    return {
+      ok: false,
+      diagnostics: [diagnostic('cause-disposition-stale', 'Pending disposition is not the current head')],
+    }
+  return assessSuccessor({ ...input, context: context.value }, true, frame)
 }
 
 export function assessHistoricalAdjudicationSuccessor(

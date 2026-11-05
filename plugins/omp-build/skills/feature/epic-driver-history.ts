@@ -3,9 +3,9 @@ import {
   classifyHistory,
   type DecodedHistory,
   type Json,
-  validateDecision,
   validateRecordGraph,
 } from '../../dist/contracts.js'
+import { validateHistoricalReviewDecision } from '../../engine/review-fresh-decision.ts'
 import type { UwAdmission } from '../../engine/uw-admission.ts'
 import { loadReviewClassCatalogues } from '../../roxabi/review-class-catalogues.ts'
 import { adapterOptions, citedReviewHistories, diagnosticsText } from './epic-driver-github'
@@ -83,19 +83,59 @@ export function sameReferences(left: readonly string[], right: readonly string[]
   )
 }
 
-type ReviewReferences = { run: string; range: string; decisionId: string; inventoryIds: string[] }
+type ReviewReferences = {
+  run: string
+  range: string
+  decisionId: string
+  inventoryIds: string[]
+  dispositionIds: string[]
+}
 type DecisionRecord = Extract<CanonicalRecord, { kind: 'decision' }>
 type ReviewAttempt = Extract<CanonicalRecord, { kind: 'review-attempt' }>
+
+export function reviewDispositionIds(history: DecodedHistory, decision: DecisionRecord): string[] {
+  return history.operations.flatMap((operation) => {
+    const record = operation.record
+    if (
+      operation.status !== 'complete' ||
+      operation.authority === 'foreign' ||
+      record?.kind !== 'cause-disposition' ||
+      record.payload.previous !== null
+    )
+      return []
+    const subject = record.payload.subject
+    const source =
+      subject.kind === 'cause'
+        ? subject.decision
+        : subject.kind === 'rule-error'
+          ? subject.source
+          : subject.contribution
+    if (source.scope.repository !== decision.repository || source.scope.target !== decision.target) return []
+    const matches =
+      subject.kind === 'retained-finding'
+        ? decision.payload.judgment.sourceContributionIds.includes(source.recordId)
+        : source.recordId === decision.recordId
+    return matches ? [record.recordId] : []
+  })
+}
 
 function reviewReferences({ record, payload }: EpicEvent): ReviewReferences {
   const run = eventText(payload, 'run')
   const range = eventText(payload, 'range')
   const decisionId = eventText(payload, 'decisionId')
   const inventoryIds = eventTextArray(payload, 'inventoryIds')
-  if (run === null || range === null || decisionId === null || inventoryIds === null || record.runId !== run) {
+  const dispositionIds = eventTextArray(payload, 'dispositionIds')
+  if (
+    run === null ||
+    range === null ||
+    decisionId === null ||
+    inventoryIds === null ||
+    dispositionIds === null ||
+    record.runId !== run
+  ) {
     throw new Refused(`Epic review event ${record.recordId} has malformed references`)
   }
-  return { run, range, decisionId, inventoryIds }
+  return { run, range, decisionId, inventoryIds, dispositionIds }
 }
 
 function reviewDecision(records: Map<string, CanonicalRecord>, event: EpicEvent, decisionId: string): DecisionRecord {
@@ -168,13 +208,32 @@ export async function reviewsFromEvents(repo: string, history: DecodedHistory): 
   })
   const reviews: Facts['reviews'] = []
   for (const event of events) {
-    const { run, range, decisionId, inventoryIds } = reviewReferences(event)
+    const { run, range, decisionId, inventoryIds, dispositionIds } = reviewReferences(event)
     const decision = reviewDecision(records, event, decisionId)
     const root = reviewRoot(records, event, decision, range)
     assertExactInventories(records, event, decisionId, inventoryIds, root)
     // Workflow receipts are accounted separately from review authority, but delivery
     // selection still needs the authenticated, complete same-scope history.
-    const assessment = validateDecision(decision, authorityHistory, catalogues, null, externalHistories, history)
+    const refs = dispositionIds.map((recordId) => ({
+      scope: history.source.scope,
+      kind: 'cause-disposition' as const,
+      recordId,
+    }))
+    const result = validateHistoricalReviewDecision(
+      decision,
+      authorityHistory,
+      catalogues,
+      null,
+      externalHistories,
+      history,
+      refs,
+    )
+    if (!result.ok) {
+      throw new Refused(
+        `Epic review event ${event.record.recordId} decision is not admissible: ${diagnosticsText(result.diagnostics)}`,
+      )
+    }
+    const assessment = result.value
     if (!assessment.admissible || assessment.verdict === null) {
       throw new Refused(
         `Epic review event ${event.record.recordId} decision is not admissible: ${diagnosticsText(assessment.diagnostics)}`,

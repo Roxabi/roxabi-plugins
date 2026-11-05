@@ -79,8 +79,9 @@ export async function finalizeReview(input: {
   )
   if (!input.canContinue()) return
   await input.publish(decision, 'decision-unconfirmed')
-  const history = await input.readHistory()
+  await input.readHistory()
   const causeDispositionRefs = await input.persistDecision(decision)
+  const history = await input.readHistory()
   const cited = await input.readExternalHistories(history)
   if (!cited.ok) throw new Error(`cited-history-unreadable:${cited.diagnostics.map((item) => item.code).join(',')}`)
   const catalogues = await input.loadCatalogues([history, ...cited.value])

@@ -2,16 +2,15 @@ import { decodeHistory } from '../../../../contracts.ts'
 import { actionInputDigest, canonicalValueDigest } from '../../../../engine/action-input.ts'
 import type { CanonicalRecord } from '../../../../engine/record-schema.ts'
 import { recordsOf } from '../../../../engine/workflow-control.ts'
+import { committedFixtureProjection, committedFixtureRecords } from '../../../../testing/committed-plugin-fixture.ts'
 import { criterionImplementationRecords } from '../../../../testing/criterion-accepted-plan.ts'
 import { criterionSatisfiedRow, encodeCriterionRecords } from '../../../../testing/criterion-approval.ts'
 import { criterionDispositionRecords } from '../../../../testing/criterion-dispositions.ts'
 import { submission } from '../../../../testing/record-builders.ts'
 import { contribution } from '../../../../testing/record-decisions.ts'
 import { reviewGraph } from '../../../../testing/record-graphs.ts'
-import { roxabiRecordFixtures } from '../../../../testing/roxabi-presets.ts'
 import { issueComments, ME, pullReviewInputs, recordHistory, serveComments } from './epic-driver-records.ts'
-
-const projection = roxabiRecordFixtures().projection
+import { git } from './epic-driver-sandbox.ts'
 
 /** Install a genuine accepted-C1 implementation record on the child UW. */
 export function installReviewEvidence(head: string) {
@@ -19,7 +18,14 @@ export function installReviewEvidence(head: string) {
   const parent = decodeHistory(recordHistory(1, issueComments(1)))
   const mandate = recordsOf(origin).find((record) => record.kind === 'mandate')
   if (mandate?.kind !== 'mandate') throw new Error('Expected child mandate')
-  const issueRecords = criterionImplementationRecords(mandate, head)
+  const issueRecords = committedFixtureRecords(
+    import.meta.dirname,
+    criterionImplementationRecords(mandate, head),
+    git(import.meta.dirname, 'rev-parse', 'HEAD'),
+  )
+  const receipt = issueRecords.find((record) => record.kind === 'action-receipt')
+  if (receipt?.kind !== 'action-receipt') throw new Error('Expected fixture action receipt')
+  const projection = committedFixtureProjection(import.meta.dirname, receipt.payload.inputs)
   const persisted = encodeCriterionRecords(issueRecords, origin.source.scope, projection, ME, [parent], origin)
   serveComments(2, [...issueComments(2), ...persisted.comments.map(({ body }) => ({ body, author: ME }))])
   return { mandate, issueRecords }
@@ -66,6 +72,7 @@ export function appendBoundReview(options: {
   }
   const manifest = { ...base.manifest, deliveryData: [selection] }
   const inputs = { ...base, manifest, fingerprint: actionInputDigest(manifest) }
+  const reviewProjection = committedFixtureProjection(import.meta.dirname, inputs)
   const graph = reviewGraph({ prefix, scope, head, inputs, empty: !blocking })
   const root = {
     ...graph.root,
@@ -130,7 +137,7 @@ export function appendBoundReview(options: {
   const before = encodeCriterionRecords(
     [root, spec, graph.panel, graph.synthesis, synthesis, decision],
     scope,
-    projection,
+    reviewProjection,
     ME,
     [issueHistory],
     pullHistory,
@@ -143,16 +150,16 @@ export function appendBoundReview(options: {
     inputs,
     decisionRecord,
     [issueHistory, before.history],
-    projection.catalogues,
+    reviewProjection.catalogues,
   )
-  const persisted = encodeCriterionRecords(dispositions, original, projection, ME, [before.history], issueHistory)
+  const persisted = encodeCriterionRecords(dispositions, original, reviewProjection, ME, [before.history], issueHistory)
   const refs = dispositions.map((record) => ({
     scope: original,
     kind: 'cause-disposition' as const,
     recordId: record.recordId,
   }))
   const review = { ...graph.review, payload: { ...graph.review.payload, causeDispositionRefs: refs } }
-  const final = encodeCriterionRecords([review], scope, projection, ME, [persisted.history], before.history)
+  const final = encodeCriterionRecords([review], scope, reviewProjection, ME, [persisted.history], before.history)
   if (author === ME)
     serveComments(2, [...issueComments(2), ...persisted.comments.map(({ body }) => ({ body, author: ME }))])
   serveComments(number, [

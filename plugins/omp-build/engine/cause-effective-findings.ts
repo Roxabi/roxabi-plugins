@@ -117,9 +117,18 @@ function collectMatches(
   return { ok: true, value: [...rejected] }
 }
 
-function historicalPin(disposition: Disposition): Result<readonly string[]> {
-  if (disposition.payload.outcome.state === 'final' && disposition.payload.outcome.disposition === 'report')
-    return { ok: true, value: [] }
+function historicalPin(disposition: Disposition, history: DecodedHistory, context: Context): Result<readonly string[]> {
+  const heads = discoverCauseDispositionHeads({ uw: disposition.payload.origin.uw, histories: context.histories })
+  if (!heads.ok) return heads
+  for (const head of heads.value) {
+    if (!sameOwnSpecRef(head.payload.origin, disposition.payload.origin)) continue
+    const lineage = causeDispositionLineage({ head, history })
+    if (!lineage.ok) return lineage
+    if (!lineage.value.some((member) => member.disposition.recordId === disposition.recordId)) continue
+    if (head.payload.outcome.state !== 'final' || head.payload.outcome.disposition !== 'report') break
+    const authenticated = lineageRejected(head, history, context)
+    return authenticated.ok ? { ok: true, value: [] } : authenticated
+  }
   return {
     ok: false,
     diagnostics: [diagnostic('cause-origin-mismatch', 'Selected disposition belongs to another accepted Spec')],
@@ -147,7 +156,7 @@ function evaluatePin(pin: Selection[number], context: Context): Result<readonly 
   }
   if (validation.length) return { ok: false, diagnostics: [...validation] }
   const disposition = bound.value
-  if (!sameOwnSpecRef(disposition.payload.origin, context.own)) return historicalPin(disposition)
+  if (!sameOwnSpecRef(disposition.payload.origin, context.own)) return historicalPin(disposition, history, context)
   if (disposition.payload.subject.kind !== 'cause' || disposition.payload.adjudication === null)
     return { ok: true, value: [] }
   if (!context.historical) {

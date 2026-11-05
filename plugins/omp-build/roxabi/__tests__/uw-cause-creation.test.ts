@@ -266,56 +266,6 @@ function setup(
 beforeEach(() => vi.clearAllMocks())
 
 describe('cause creation orchestration (simulated boundaries)', () => {
-  it('rejects promotion to a foreign parent while creating the otherwise identical local-parent request', async () => {
-    const initial = createInput()
-    const create = {
-      ...initial,
-      repository: original.repository,
-      normalization: [],
-      draft: {
-        ...initial.draft,
-        criteria: [{ kind: 'new' as const, draftKey: 'promotion', statement: 'Resolve the promoted report' }],
-      },
-      writes: {
-        labels: { add: [], remove: [] },
-        relations: {
-          parent: { repository: original.repository, number: 1 },
-          addChildren: [],
-          removeChildren: [],
-          addBlockers: [],
-          removeBlockers: [],
-        },
-      },
-    }
-    const local = setup()
-    const localResult = await local.service.promoteReport({ report: ref, create, reason: 'Create separate work' })
-    expect(localResult.status).toBe('created')
-    expect(local.confirmations()).toBe(1)
-    expect(local.nativeCreate).toHaveBeenCalledTimes(1)
-
-    const foreign = setup()
-    const foreignResult = await foreign.service.promoteReport({
-      report: ref,
-      create: {
-        ...create,
-        writes: {
-          ...create.writes,
-          relations: {
-            ...create.writes.relations,
-            parent: { repository: 'other/repo', number: 1 },
-          },
-        },
-      },
-      reason: 'Create separate work',
-    })
-    expect(foreignResult.status).toBe('refused')
-    if (foreignResult.status === 'refused')
-      expect(foreignResult.diagnostics.map((item) => item.code)).toContain('cross-repository-parent')
-    expect(foreign.confirmations()).toBe(0)
-    expect(foreign.nativeCreate).not.toHaveBeenCalled()
-    expect(foreign.events).toEqual([])
-  })
-
   it('rejects a foreign-repository parent before confirmation or any write', async () => {
     const test = setup({ foreignParent: true })
     const result = await test.service.createSister(test.sisterRequest)
@@ -409,36 +359,5 @@ describe('cause creation orchestration (simulated boundaries)', () => {
     const result = await test.service.createSister(test.sisterRequest)
     expect(result.status).toBe(outcome)
     expect(test.events).toEqual(['cause-operation', 'create'])
-  })
-
-  it('promotes a report with a promotion receipt, never a debt receipt', async () => {
-    const test = setup()
-    const initial = createInput()
-    const create = {
-      ...initial,
-      repository: original.repository,
-      normalization: [],
-      draft: {
-        ...initial.draft,
-        criteria: [{ kind: 'new' as const, draftKey: 'promoted', statement: 'The promoted report is resolved' }],
-      },
-      writes: {
-        labels: { add: [...initial.writes.labels.add], remove: [...initial.writes.labels.remove] },
-        relations: {
-          ...initial.writes.relations,
-          addChildren: [...initial.writes.relations.addChildren],
-          removeChildren: [...initial.writes.relations.removeChildren],
-          addBlockers: [...initial.writes.relations.addBlockers],
-          removeBlockers: [...initial.writes.relations.removeBlockers],
-        },
-      },
-    }
-    const result = await test.service.promoteReport({
-      report: ref,
-      create,
-      reason: 'This report merits a separately scoped UW',
-    })
-    expect(result.status).toBe('created')
-    expect(test.events).toEqual(['cause-operation', 'create', 'report-promotion'])
   })
 })

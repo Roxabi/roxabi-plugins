@@ -10,7 +10,15 @@ import {
 } from '../../../../contracts.ts'
 import { actionInputDigest, canonicalValueDigest } from '../../../../engine/action-input.ts'
 import { acceptedActionInputs } from '../../../../testing/action-input-fixtures.ts'
+import {
+  committedFixturePlugin,
+  committedFixtureProjection,
+  committedFixtureRecords,
+} from '../../../../testing/committed-plugin-fixture.ts'
+import { encodeCriterionRecords } from '../../../../testing/criterion-approval.ts'
+import { criterionDispositionRecords } from '../../../../testing/criterion-dispositions.ts'
 import { criterionEpicReviewGraph } from '../../../../testing/criterion-range-approval.ts'
+import { submission } from '../../../../testing/record-builders.ts'
 import { epicReviewGraph } from '../../../../testing/record-graphs.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../../../../testing/roxabi-presets.ts'
 import { git, sandboxOf } from './epic-driver-sandbox.ts'
@@ -121,7 +129,11 @@ export function pullReviewInputs(number: number, head: string) {
     },
     acceptedSources: [reference(mandate)],
     code: { repository: 'o/r', base: baseCommit, head, referenceCommit: head },
-    plugin: { ...base.manifest.plugin, commit: git(import.meta.dirname, 'rev-parse', 'HEAD') },
+    plugin: committedFixturePlugin(
+      import.meta.dirname,
+      base.manifest.plugin,
+      git(import.meta.dirname, 'rev-parse', 'HEAD'),
+    ),
   }
   return { ...base, manifest, fingerprint: actionInputDigest(manifest) }
 }
@@ -149,9 +161,14 @@ export function epicDecisionHistory(range: string, blocking: boolean, criteriaSa
       },
     ],
     code: { repository: mandate.repository, base: baseCommit, head, referenceCommit: head },
-    plugin: { ...base.manifest.plugin, commit: git(import.meta.dirname, 'rev-parse', 'HEAD') },
+    plugin: committedFixturePlugin(
+      import.meta.dirname,
+      base.manifest.plugin,
+      git(import.meta.dirname, 'rev-parse', 'HEAD'),
+    ),
   }
   const inputs = { ...base, manifest, fingerprint: actionInputDigest(manifest) }
+  const projection = committedFixtureProjection(import.meta.dirname, inputs)
   const options = {
     mandate,
     inputs,
@@ -160,48 +177,97 @@ export function epicDecisionHistory(range: string, blocking: boolean, criteriaSa
     prefix: `epic-${head.slice(0, 8)}`,
     blocking,
   }
-  const graph = criteriaSatisfied
-    ? criterionEpicReviewGraph(options)
-    : epicReviewGraph({
-        prefix: options.prefix,
-        head,
-        range,
-        inputs,
-        scope: { repository: 'o/r', target: 'o/r#1' },
-        empty: !blocking,
-      })
+  const criterion = criteriaSatisfied || blocking ? criterionEpicReviewGraph(options) : null
+  const graph =
+    criterion ??
+    epicReviewGraph({
+      prefix: options.prefix,
+      head,
+      range,
+      inputs,
+      scope: { repository: 'o/r', target: 'o/r#1' },
+      empty: true,
+    })
   const root = graph.root
-  const records = graph.records
-  const implementation =
-    criteriaSatisfied && 'issueRecords' in graph ? graph.issueRecords.filter((record) => record.kind !== 'mandate') : []
+  let records: CanonicalRecord[] = graph.records
+  if (blocking) {
+    if (criterion === null) throw new Error('Blocking epic review needs implementation evidence')
+    const selection = criterion.inputs.manifest.deliveryData.find((ref) => ref.role === 'implementation')
+    if (selection === undefined) throw new Error('Blocking epic review is missing implementation evidence')
+    const { role: _role, ...citation } = selection
+    const supported = (value: boolean) => ({
+      state: 'supported' as const,
+      value,
+      reason: 'The selected implementation record establishes this judgment',
+      references: [citation],
+    })
+    const judgment = {
+      ...criterion.decision.payload.judgment,
+      causes: criterion.decision.payload.judgment.causes.map((cause) => ({
+        ...cause,
+        judgment: { necessary: supported(true), urgent: supported(true), tooLarge: supported(false) },
+        proposedDisposition: 'fix-original' as const,
+      })),
+    }
+    const decision = { ...criterion.decision, payload: { ...criterion.decision.payload, judgment } }
+    const synthesis = {
+      ...criterion.synthesisContribution,
+      payload: {
+        ...criterion.synthesisContribution.payload,
+        structured: judgment,
+        rawAttempts: [
+          submission({
+            id: `child-${criterion.synthesisContribution.recordId}`,
+            structuredOutput: { status: 'valid', data: judgment },
+          }),
+        ],
+      },
+    }
+    records = criterion.records.map((record) => {
+      if (record.recordId === decision.recordId) return decision
+      if (record.recordId === synthesis.recordId) return synthesis
+      return record
+    })
+  }
+  const implementation = committedFixtureRecords(
+    import.meta.dirname,
+    criterion === null ? [] : criterion.issueRecords.filter((record) => record.kind !== 'mandate'),
+    inputs.manifest.plugin.commit,
+  )
   const parentHistory = decodeHistory(recordHistory(1, issueComments(1)))
   // Same-scope inputs must be in the encoded history, not just external histories.
   // The parent already contains these canonical frames; return only new frames.
-  const seed = framedBodies([mandate], ME, [], TEST_PROJECTION_CONFIG)
-  return framedBodies(
-    [
-      mandate,
-      ...implementation,
-      ...records,
-      epicEvent(
-        1,
-        `${root.recordId}-event`,
-        {
-          event: 'epic-review',
-          run: RUN,
-          decisionId: graph.decision.recordId,
-          inventoryIds: [root.recordId, graph.synthesis.recordId],
-          range,
-        },
-        [graph.decision.recordId, root.recordId, graph.synthesis.recordId],
-      ),
-    ],
-    ME,
-    [parentHistory],
-    TEST_PROJECTION_CONFIG,
-  )
+  const seed = framedBodies([mandate], ME, [], projection)
+  const prefix = framedBodies([mandate, ...implementation, ...records], ME, [parentHistory], projection)
     .slice(seed.length)
     .map((body) => ({ body, author: ME }))
+  const before = decodeHistory(recordHistory(1, [...issueComments(1), ...prefix]))
+  const decision = before.operations
+    .map((operation) => operation.record)
+    .find((record) => record?.kind === 'decision' && record.recordId === graph.decision.recordId)
+  if (decision?.kind !== 'decision') throw new Error('Fixture epic decision was not authenticated')
+  const { dispositions } = criterionDispositionRecords(
+    criterion?.inputs ?? inputs,
+    decision,
+    [before],
+    projection.catalogues,
+  )
+  const dispositionIds = dispositions.map((record) => record.recordId)
+  const event = epicEvent(
+    1,
+    `${root.recordId}-event`,
+    {
+      event: 'epic-review',
+      run: RUN,
+      decisionId: decision.recordId,
+      inventoryIds: [root.recordId, graph.synthesis.recordId],
+      dispositionIds,
+      range,
+    },
+    [decision.recordId, root.recordId, graph.synthesis.recordId],
+  )
+  const final = encodeCriterionRecords([...dispositions, event], before.source.scope, projection, ME, [], before)
+  return [...prefix, ...final.comments.map((comment) => ({ body: comment.body, author: ME }))]
 }
 
 export { childNode, prNode } from './epic-driver-nodes.ts'

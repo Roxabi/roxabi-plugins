@@ -1,6 +1,8 @@
+import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { decodeHistory } from '../adapters/github/history-codec.ts'
 import { encodeParts } from '../adapters/github/history-encoder.ts'
@@ -16,9 +18,11 @@ import {
 } from '../engine/review-context-lineage.ts'
 import type { NativeChildResult } from '../omp/review-runtime/contracts.ts'
 import { fixtureUwOperations, standaloneReviewInputs } from '../testing/action-input-fixtures.ts'
+import { committedFixtureInputs } from '../testing/committed-plugin-fixture.ts'
 import { NATIVE_AUTHOR, TEST_HEAD, TEST_SCOPE } from '../testing/record-builders.ts'
 import { finalReview } from '../testing/record-decisions.ts'
 import { observedComment } from '../testing/record-history.ts'
+import { toolingGh } from '../testing/review-gate-tooling-gh.ts'
 import { resolveNegativeContribution } from './uw-context-negative-contribution.ts'
 
 const published = vi.hoisted((): CanonicalRecord[] => [])
@@ -374,7 +378,9 @@ it('bulk selected records validate each sibling and observe later history change
 })
 
 it('production batch fact selection refuses a second action colliding with an authenticated slot', async () => {
-  const inputs = standaloneReviewInputs()
+  const tools = fileURLToPath(new URL('../../../', import.meta.url))
+  const commit = execFileSync('git', ['-C', tools, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+  const inputs = committedFixtureInputs(tools, standaloneReviewInputs(TEST_SCOPE, TEST_HEAD), commit)
   const initial = await nativeRoot(inputs, 'batch-collision', negative)
   const expandedInputs = expanded(inputs, initial.entry, 'region.txt')
   const decoded = history([initial.root, initial.entry])
@@ -398,9 +404,17 @@ it('production batch fact selection refuses a second action colliding with an au
   })
   const histories = vi.spyOn(actionObserve, 'readHistories').mockResolvedValue({ ok: true, value: [decoded] })
   try {
-    const source = { cwd: '/fixture', gh: async () => '[]' }
+    const source = {
+      cwd: '/fixture',
+      readAuthor: NATIVE_AUTHOR,
+      gh: async (_cwd: string, args: string[]) => {
+        const result = toolingGh(args, tools)
+        if (result === undefined) throw new Error(`Unexpected gh call: ${args.join(' ')}`)
+        return result
+      },
+    }
     const valid = await readProductionActionFactsBatch([request], source)
-    expect(valid.ok).toBe(true)
+    expect(valid.ok, JSON.stringify(valid)).toBe(true)
     const result = await readProductionActionFactsBatch(
       [request, { ...request, actionId: slot.action.actionId }],
       source,

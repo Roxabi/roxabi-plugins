@@ -4,6 +4,7 @@ import {
   readCauseDispositionHeads,
   readCauseHistoryClosure,
   readComposedWorkflowHistory,
+  resolveAdjudicationContext,
   resolveAdjudicationSources,
   resolveOwnSpecEffective,
   validateCauseDispositionRecords,
@@ -51,6 +52,7 @@ function sourceScopes(
     context.original,
     source.scope,
     context.effective.own.sourceAccepted.scope,
+    disposition.payload.origin.sourceAccepted.scope,
     ...references.flatMap((item) => (item.source === 'record' ? [item.record.scope] : [])),
   ]
   return [...new Map(scopes.map((scope) => [`${scope.repository}\0${scope.target}`, scope])).values()]
@@ -72,8 +74,8 @@ export async function readAdjudicationPending(
   if (original.accepted.status !== 'accepted') throw new Error('correction-spec-not-accepted')
   const effective = resolveOwnSpecEffective(original.accepted.value)
   if (!effective.ok) failure(effective.diagnostics)
-  const context = { original: ref.scope, effective: effective.value }
-  const loaded = await readComposedWorkflowHistory(sourceScopes(disposition, context, references), github)
+  const currentContext = { original: ref.scope, effective: effective.value }
+  const loaded = await readComposedWorkflowHistory(sourceScopes(disposition, currentContext, references), github)
   if (!loaded.ok) failure(loaded.diagnostics)
   const closure = await readCauseHistoryClosure(loaded.histories, (needed) =>
     readComposedWorkflowHistory(needed, github),
@@ -84,6 +86,9 @@ export async function readAdjudicationPending(
   const rebound = bindExternalRef(ref, home(histories, ref.scope))
   if (!rebound.ok || JSON.stringify(rebound.value) !== JSON.stringify(disposition))
     throw new Error('cause-disposition-stale')
+  const origin = resolveAdjudicationContext({ pending: disposition, histories, catalogues })
+  if (!origin.ok) failure(origin.diagnostics)
+  const context = origin.value
   const inputs = resolveAdjudicationSources({ pending: disposition, histories, context })
   if (!inputs.ok) failure(inputs.diagnostics)
   const own = home(histories, ref.scope)

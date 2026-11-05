@@ -27,7 +27,7 @@ export type ReportListing = {
 
 export { resolveCauseActionInputs, validateCauseAdjudication } from './cause-adjudication.ts'
 export { resolveAdjudicationSources } from './cause-adjudication-sources.ts'
-export { assessAdjudicationSuccessor } from './cause-adjudication-successor.ts'
+export { assessAdjudicationSuccessor, resolveAdjudicationContext } from './cause-adjudication-successor.ts'
 export { assessCauseDispositions } from './cause-assessment.ts'
 export { effectiveRejectedFindingIds } from './cause-effective-findings.ts'
 export { readCauseDispositionHeads, readRetainedCauseDispositionLedger } from './cause-heads.ts'

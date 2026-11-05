@@ -302,6 +302,8 @@ The confirmed operation intent is published and read back before any creation ef
 
 A blocking sister remains an obligation until a fresh authoritative completion observation, even if its native blocker edge is removed. Its creation receipt alone never proves completion. Historical report promotion authenticates the immutable report lineage on the originating UW; fresh parent and creation admission remain separate and do not require reopening the historical review's PR.
 
+Historical pending causes retain the accepted Spec that produced them. Adjudication reconstructs that origin from the complete authenticated Spec chain; current native acceptance, the exact live pending head and genuine operator confirmation remain mandatory. Immutable successor replay cannot authorize a new operation.
+
 Delivery discovery enumerates all open, closed and merged PRs in the UW's repository, then selects their canonical approved bindings; mentions and branch names are not association authority. Each observation reads complete REST comment histories for the UW, candidate PRs and required mandate homes, reusing observations only within that call. This exhaustive discovery can be expensive and is separate from action/replay reads of their supplied subjects and cited sources. An unresolved binding claim or unreadable required history refuses the read rather than returning an apparently complete empty result.
 
 A create input has this shape; coordinates and content here are fictional:

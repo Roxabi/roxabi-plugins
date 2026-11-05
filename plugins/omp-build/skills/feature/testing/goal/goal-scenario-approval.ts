@@ -1,9 +1,9 @@
 import { decodeHistory } from '../../../../contracts.ts'
 import type { ActionInputs } from '../../../../engine/action-input-schema.ts'
+import { committedFixtureProjection } from '../../../../testing/committed-plugin-fixture.ts'
 import { criterionPullHistory, criterionReviewGraph } from '../../../../testing/criterion-approval.ts'
-import { roxabiRecordFixtures } from '../../../../testing/roxabi-presets.ts'
 import type { Comment } from './goal-scenario-domain.ts'
-import { callWorkflow, gh, readSim } from './goal-scenario-sandbox.ts'
+import { callWorkflow, gh, readSim, toolingFixture } from './goal-scenario-sandbox.ts'
 
 export function nativeComments(issue: number, comments: Comment[]) {
   return comments.map((comment, index) => ({
@@ -32,6 +32,9 @@ export function approve(pr: number, sha: string, cwd: string): void {
     inputs.fingerprint !== captured.input
   )
     throw new Error(`approve #${pr}: captureReviewInput failed ${JSON.stringify(captured)}`)
+  const tooling = toolingFixture()
+  if (inputs.manifest.plugin.commit !== tooling.commit)
+    throw new Error(`approve #${pr}: captured tooling pin differs from the fixture checkout`)
   const subject = inputs.manifest.subject
   if (subject.kind !== 'uw') throw new Error(`approve #${pr}: expected UW review input`)
   const scope = subject.uw
@@ -66,7 +69,7 @@ export function approve(pr: number, sha: string, cwd: string): void {
     scope: { repository: 'acme/app', target: `acme/app#${pr}` },
     head: sha,
     inputs,
-    projection: roxabiRecordFixtures().projection,
+    projection: committedFixtureProjection(tooling.cwd, inputs),
     prefix: `scenario-${pr}-${sha.slice(0, 8)}`,
     author: 'operator',
   })

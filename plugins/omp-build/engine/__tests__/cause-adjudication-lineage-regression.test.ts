@@ -1,18 +1,22 @@
 import { expect, it } from 'vitest'
+import { causeActionData } from '../../roxabi/uw-action-cause-data.ts'
+import { currentRootOutputRefs } from '../../roxabi/uw-action-closure.ts'
+import type { UwActionRequest } from '../../roxabi/uw-action-contract.ts'
 import { acceptedPullRequestReviewGraph } from '../../testing/record-graphs.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
-import { actionInputDigest, canonicalValueDigest } from '../action-input.ts'
-import { assessAdjudicationSuccessor } from '../cause-adjudication-successor.ts'
+import { actionInputDigest } from '../action-input.ts'
+import { assessAdjudicationSuccessor, assessHistoricalAdjudicationSuccessor } from '../cause-adjudication-successor.ts'
 import {
   assessCauseDispositions,
   effectiveRejectedFindingIds,
   validateCauseAdjudication,
   validateCauseDispositionRecords,
 } from '../cause-disposition.ts'
+import { causeValidationFrame } from '../cause-validation-frame.ts'
 import { resolveOwnSpecEffective } from '../spec-effective.ts'
 import { resolveAcceptedSpec } from '../workflow-accepted-spec.ts'
 import { recordsOf } from '../workflow-control.ts'
-import { appendAccountedRecords, ref } from './cause-hold-fixture.ts'
+import { appendAccountedRecords } from './cause-hold-fixture.ts'
 import { lineageFixture } from './cause-lineage-fixture.ts'
 import { assessFixture, mandateAssessmentState, proposedAssessmentState } from './workflow-spec-assessment-support.ts'
 import { must } from './workflow-test-support.ts'
@@ -30,15 +34,30 @@ it('retains two distinct rejections across authenticated successors without resu
   expect(result.pending.payload.outcome).toMatchObject({ state: 'final', disposition: 'report', blocking: false })
   const last = result.transitions[1]
   if (!last) throw new Error('Expected second operation')
+  const histories = [result.own, result.source]
+  expect(
+    validateCauseDispositionRecords({ records: recordsOf(result.own), histories, catalogues: result.catalogues }),
+  ).toEqual([])
+  expect(
+    assessAdjudicationSuccessor({
+      pending: last.pending,
+      operation: last.operation,
+      histories,
+      catalogues: result.catalogues,
+    }).ok,
+  ).toBe(false)
   expect(
     must(
-      assessAdjudicationSuccessor({
-        pending: last.pending,
-        operation: last.operation,
-        context: result.context,
-        histories: [result.own, result.source],
-        catalogues: result.catalogues,
-      }),
+      assessHistoricalAdjudicationSuccessor(
+        {
+          pending: last.pending,
+          operation: last.operation,
+          context: result.context,
+          histories,
+          catalogues: result.catalogues,
+        },
+        causeValidationFrame(histories, result.catalogues),
+      ),
     ),
   ).toEqual(last.next.payload)
 })
@@ -72,13 +91,16 @@ it('validates a long authenticated lineage and its final disposition without los
   ).toContain('cause-adjudication-ambiguous')
   expect(
     must(
-      assessAdjudicationSuccessor({
-        pending: last.pending,
-        operation: last.operation,
-        context: result.context,
-        histories: [result.own, result.source],
-        catalogues: result.catalogues,
-      }),
+      assessHistoricalAdjudicationSuccessor(
+        {
+          pending: last.pending,
+          operation: last.operation,
+          context: result.context,
+          histories: [result.own, result.source],
+          catalogues: result.catalogues,
+        },
+        causeValidationFrame([result.own, result.source], result.catalogues),
+      ),
     ),
   ).toEqual(last.next.payload)
 })
@@ -100,17 +122,22 @@ it('does not carry an authenticated rejection from accepted Spec A into a fresh 
     prefix: 'admission-source',
     label: 'issue',
   })
-  const pin = {
-    source: 'record' as const,
-    record: ref(result.pending),
-    selector: '/payload',
-    role: 'cause-state' as const,
-    digest: canonicalValueDigest(result.pending.payload),
+  const request: UwActionRequest = {
+    actionId: base.root.recordId,
+    purpose: 'review',
+    subject: base.inputs.manifest.subject,
+    code: base.inputs.manifest.code,
+    stageSources: [],
+    expandedContext: [],
   }
+  const priorHistories = [own, result.source]
+  const pins = must(
+    causeActionData(request, priorHistories, currentRootOutputRefs(request, priorHistories), result.catalogues),
+  )
   const manifest = {
     ...base.inputs.manifest,
     spec: { kind: 'accepted' as const, effective },
-    deliveryData: [...base.inputs.manifest.deliveryData, pin],
+    deliveryData: [...base.inputs.manifest.deliveryData, ...pins],
   }
   const action = { ...base.inputs, manifest, fingerprint: actionInputDigest(manifest) }
   const fresh = acceptedPullRequestReviewGraph({

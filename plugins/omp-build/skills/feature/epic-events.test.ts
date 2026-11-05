@@ -16,8 +16,18 @@ describe('canonical Epic events', () => {
         range: `${sha('a')}..${sha('b')}`,
         decisionId: 'decision-1',
         inventoryIds: ['root-1', 'synthesis-1'],
+        dispositionIds: [],
       }),
     ).toMatchObject({ event: 'epic-review', decisionId: 'decision-1' })
+    expect(
+      parseEpicEvent({
+        event: 'epic-review',
+        run: RUN,
+        range: `${sha('a')}..${sha('b')}`,
+        decisionId: 'decision-1',
+        inventoryIds: ['root-1', 'synthesis-1'],
+      }),
+    ).toBeNull()
     expect(
       parseEpicEvent({ event: 'epic-review', run: RUN, range: 'main..head', decisionId: '', inventoryIds: [] }),
     ).toBeNull()

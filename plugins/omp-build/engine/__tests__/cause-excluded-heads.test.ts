@@ -205,7 +205,7 @@ function mixedFixture(includeExclusion = true) {
   if (adjudication.kind !== 'cause-operation') throw new Error('Expected operation')
   own = appendAccountedRecords(own, [adjudication])
   const outcome = must(
-    assessAdjudicationSuccessor({ pending, operation: adjudication, context, histories: [own, source], catalogues }),
+    assessAdjudicationSuccessor({ pending, operation: adjudication, histories: [own, source], catalogues }),
   )
   const head = must(
     buildRecord({

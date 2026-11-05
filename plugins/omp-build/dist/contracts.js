@@ -15402,9 +15402,23 @@ function collectMatches(disposition, rejectedIds, context) {
   }
   return { ok: true, value: [...rejected] };
 }
-function historicalPin(disposition) {
-  if (disposition.payload.outcome.state === "final" && disposition.payload.outcome.disposition === "report")
-    return { ok: true, value: [] };
+function historicalPin(disposition, history, context) {
+  const heads = discoverCauseDispositionHeads({ uw: disposition.payload.origin.uw, histories: context.histories });
+  if (!heads.ok)
+    return heads;
+  for (const head of heads.value) {
+    if (!sameOwnSpecRef(head.payload.origin, disposition.payload.origin))
+      continue;
+    const lineage = causeDispositionLineage({ head, history });
+    if (!lineage.ok)
+      return lineage;
+    if (!lineage.value.some((member) => member.disposition.recordId === disposition.recordId))
+      continue;
+    if (head.payload.outcome.state !== "final" || head.payload.outcome.disposition !== "report")
+      break;
+    const authenticated = lineageRejected(head, history, context);
+    return authenticated.ok ? { ok: true, value: [] } : authenticated;
+  }
   return {
     ok: false,
     diagnostics: [diagnostic2("cause-origin-mismatch", "Selected disposition belongs to another accepted Spec")]
@@ -15434,7 +15448,7 @@ function evaluatePin(pin, context) {
     return { ok: false, diagnostics: [...validation] };
   const disposition = bound.value;
   if (!sameOwnSpecRef(disposition.payload.origin, context.own))
-    return historicalPin(disposition);
+    return historicalPin(disposition, history, context);
   if (disposition.payload.subject.kind !== "cause" || disposition.payload.adjudication === null)
     return { ok: true, value: [] };
   if (!context.historical) {
@@ -16063,6 +16077,23 @@ var failure5 = (message) => ({
   ok: false,
   diagnostics: [diagnostic2("cause-chain-invalid", message)]
 });
+function resolveOrigin(input, frame) {
+  for (const history of input.histories) {
+    if (workflowOperationProblem(history) !== null || input.histories.filter((item) => equalScope(item.source.scope, history.source.scope)).length !== 1)
+      return failure5("Adjudication histories are incomplete or ambiguous");
+  }
+  const scope = input.pending.payload.origin.uw;
+  const history = input.histories.find((item) => equalScope(item.source.scope, scope));
+  if (!history || !equalScope(input.pending, scope))
+    return failure5("Pending disposition scope is not authenticated");
+  const bound = bindExternalRef({ scope, kind: "cause-disposition", recordId: input.pending.recordId }, history);
+  if (!bound.ok || canonicalValueDigest(bound.value) !== canonicalValueDigest(input.pending))
+    return failure5("Pending disposition is not authenticated");
+  return historicalCauseContext(frame, input.pending.payload.origin);
+}
+function resolveAdjudicationContext(input) {
+  return resolveOrigin(input, causeValidationFrame(input.histories, input.catalogues));
+}
 function authenticated(input, frame) {
   const { pending, operation, histories, context } = input;
   const confirmationKey = canonicalValueDigest([pending, operation, context]);
@@ -16167,7 +16198,19 @@ function assessSuccessor(input, historical, frame) {
   return assessTransition(input, historical, prefix, frame);
 }
 function assessAdjudicationSuccessor(input) {
-  return assessSuccessor(input, false, causeValidationFrame(input.histories, input.catalogues));
+  const frame = causeValidationFrame(input.histories, input.catalogues);
+  const context = resolveOrigin(input, frame);
+  if (!context.ok)
+    return context;
+  const heads = discoverCauseDispositionHeads({ uw: context.value.original, histories: input.histories });
+  if (!heads.ok)
+    return heads;
+  if (input.pending.payload.outcome.state !== "pending-blocking" || !heads.value.some((head) => head.recordId === input.pending.recordId))
+    return {
+      ok: false,
+      diagnostics: [diagnostic2("cause-disposition-stale", "Pending disposition is not the current head")]
+    };
+  return assessSuccessor({ ...input, context: context.value }, true, frame);
 }
 function assessHistoricalAdjudicationSuccessor(input, frame) {
   return assessSuccessor(input, true, frame);
@@ -17426,7 +17469,7 @@ async function reconcileFailedPost(record, current, options, expectedAuthor, sto
   }
   const afterFailure = current.operations.find((operation) => sameOperation(record, operation));
   if (afterFailure !== undefined)
-    return { status: "confirmed", operation: afterFailure };
+    return { status: "recovered", history: current };
   return publicationFailure("uncertain", current, [
     diagnostic3("github-write-uncertain", error instanceof Error ? error.message : String(error))
   ]);
@@ -17490,6 +17533,18 @@ async function confirmReadBack(record, current, resolveContext, externalHistorie
   }
   return { status: "confirmed", operation: readBack };
 }
+async function confirmPublicationWrite(record, current, options, expectedAuthor, stopAuthor, resolveContext, externalHistories, writeResult) {
+  if (writeResult?.status === "recovered")
+    return confirmReadBack(record, writeResult.history, resolveContext, externalHistories);
+  if (writeResult !== null)
+    return writeResult;
+  try {
+    current = await freshHistory(record, options, expectedAuthor, stopAuthor);
+  } catch (error) {
+    return publicationFailure("uncertain", current, publicationReadDiagnostics(error));
+  }
+  return confirmReadBack(record, current, resolveContext, externalHistories);
+}
 async function encodePublication(record, current, ownParts, resolveContext, externalHistories) {
   let resolved;
   try {
@@ -17542,14 +17597,7 @@ async function publishGitHubRecord(record, options, resolveContext, externalHist
   if (retainedDiagnostics !== null)
     return publicationFailure("refused", current, retainedDiagnostics);
   const writeResult = await publishMissingBodies(record, encoded.bodies, current, options, expectedAuthor, writer, stopAuthor);
-  if (writeResult !== null)
-    return writeResult;
-  try {
-    current = await freshHistory(record, options, expectedAuthor, stopAuthor);
-  } catch (error) {
-    return publicationFailure("uncertain", current, publicationReadDiagnostics(error));
-  }
-  return confirmReadBack(record, current, resolveContext, externalHistories);
+  return confirmPublicationWrite(record, current, options, expectedAuthor, stopAuthor, resolveContext, externalHistories, writeResult);
 }
 // plugins/omp-build/adapters/github/record-integrity.ts
 function recordOperation(histories, record) {
@@ -23219,6 +23267,7 @@ export {
   requestedSourceLocatorSchema,
   requireLandingMandate,
   resolveAcceptedSpec,
+  resolveAdjudicationContext,
   resolveAdjudicationSources,
   resolveAdmittedCorrectionCriterionSource,
   resolveBoundWork,

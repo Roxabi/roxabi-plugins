@@ -43,6 +43,28 @@ async function confirmReadBack(
   }
   return { status: 'confirmed', operation: readBack }
 }
+
+async function confirmPublicationWrite(
+  record: CanonicalRecord,
+  current: DecodedHistory,
+  options: GitHubOptions,
+  expectedAuthor: string,
+  stopAuthor: string | null,
+  resolveContext: PublicationContextResolver,
+  externalHistories: readonly DecodedHistory[],
+  writeResult: Awaited<ReturnType<typeof publishMissingBodies>>,
+): Promise<{ status: 'confirmed'; operation: OperationRead } | PublicationFailure> {
+  if (writeResult?.status === 'recovered')
+    return confirmReadBack(record, writeResult.history, resolveContext, externalHistories)
+  if (writeResult !== null) return writeResult
+  try {
+    current = await freshHistory(record, options, expectedAuthor, stopAuthor)
+  } catch (error) {
+    return publicationFailure('uncertain', current, publicationReadDiagnostics(error))
+  }
+  return confirmReadBack(record, current, resolveContext, externalHistories)
+}
+
 async function encodePublication(
   record: CanonicalRecord,
   current: DecodedHistory,
@@ -134,12 +156,14 @@ export async function publishGitHubRecord(
     writer,
     stopAuthor,
   )
-  if (writeResult !== null) return writeResult
-
-  try {
-    current = await freshHistory(record, options, expectedAuthor, stopAuthor)
-  } catch (error) {
-    return publicationFailure('uncertain', current, publicationReadDiagnostics(error))
-  }
-  return confirmReadBack(record, current, resolveContext, externalHistories)
+  return confirmPublicationWrite(
+    record,
+    current,
+    options,
+    expectedAuthor,
+    stopAuthor,
+    resolveContext,
+    externalHistories,
+    writeResult,
+  )
 }

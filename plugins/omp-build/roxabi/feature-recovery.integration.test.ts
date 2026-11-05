@@ -86,7 +86,12 @@ function effectCalls(box: Box, start: number): string[][] {
     .calls.slice(start)
     .filter((args) => {
       const joined = args.join(' ')
-      return joined.includes('--method') || /\b(comment|edit|merge)\b/.test(joined)
+      const method = args.indexOf('--method')
+      return (
+        (method !== -1 && args[method + 1]?.toUpperCase() !== 'GET') ||
+        /\b(comment|edit|merge)\b/.test(joined) ||
+        (args[0] === 'workflow' && args[1] === 'run')
+      )
     })
 }
 

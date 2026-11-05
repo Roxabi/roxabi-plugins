@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process'
 import path from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import type { Gh } from '../adapters/github/types.ts'
-import { fixtureCatalogueGhResponse } from '../testing/action-input-fixtures.ts'
+import { fixtureCatalogueGhResponse, fixtureReviewCatalogueReads } from '../testing/action-input-fixtures.ts'
 import { reviewBatchCohortFixture } from '../testing/review-batch-cohort-fixture.ts'
 import { seedMandate } from '../testing/review-gate-arrangement.ts'
 import {
@@ -35,14 +35,12 @@ function gateResponse(fixture: ReviewGateFixture, args: string[]): string {
 
 function nativeTransport(fixture: ReviewGateFixture, cohort: ReturnType<typeof reviewBatchCohortFixture>) {
   const visits: number[] = []
-  let catalogueReads = 0
+  const catalogueRequests: string[][] = []
   let unavailable = false
   const gh: Gh = async (_cwd, args) => {
+    if (args.includes('graphql') || args.some((arg) => arg.includes('/git/blobs/'))) catalogueRequests.push([...args])
     const catalogue = fixtureCatalogueGhResponse(args)
-    if (catalogue !== null) {
-      if (args.some((arg) => arg.includes('/git/blobs/'))) catalogueReads++
-      return catalogue
-    }
+    if (catalogue !== null) return catalogue
     const endpoint = args.find((arg) => arg.startsWith('repos/')) ?? ''
     const number = Number(/issues\/(\d+)\/comments/.exec(endpoint)?.[1])
     const comments = cohort.comments.get(number)
@@ -56,7 +54,7 @@ function nativeTransport(fixture: ReviewGateFixture, cohort: ReturnType<typeof r
   return {
     gh,
     visits,
-    catalogueReads: () => catalogueReads,
+    catalogueRequests,
     failIdentityRead: () => {
       unavailable = true
     },
@@ -87,6 +85,26 @@ function batch(first: UwActionRequest): ReviewActionBatch {
   }
 }
 
+function expectCatalogueCut(requests: readonly string[][], fixture: ReviewGateFixture): void {
+  const recursiveRef = fixtureReviewCatalogueReads()[0]?.ref
+  if (recursiveRef === undefined) throw new Error('Recursive catalogue fixture is missing')
+  expect(fixture.pin).not.toBe(recursiveRef.commit)
+  const lookups = requests.filter((args) => args.includes('graphql'))
+  expect(lookups).toHaveLength(2)
+  for (const commit of [fixture.pin, recursiveRef.commit]) {
+    const matching = lookups.filter(
+      (args) =>
+        args.includes('owner=Roxabi') &&
+        args.includes('name=roxabi-plugins') &&
+        args.includes(`expression=${commit}:${recursiveRef.path}`),
+    )
+    expect(matching).toHaveLength(1)
+  }
+  const blobs = requests.flatMap((args) => args.filter((arg) => arg.includes('/git/blobs/')))
+  expect(blobs).toHaveLength(2)
+  expect(blobs[0]).toBe(blobs[1])
+}
+
 it('discovers an authenticated recursive scope once per production fact cut and rebuilds its catalogue on later cuts', async () => {
   const fixture = setupReviewGateFixture()
   await seedMandate(fixture)
@@ -107,12 +125,13 @@ it('discovers an authenticated recursive scope once per production fact cut and 
   expect(observed.value[0]?.facts.spec.kind).toBe('accepted')
   expect(transport.visits.filter((number) => number === 44)).toHaveLength(1)
   expect(transport.visits.filter((number) => number === 43)).toHaveLength(1)
-  expect(transport.catalogueReads()).toBe(1)
+  expectCatalogueCut(transport.catalogueRequests, fixture)
+  const firstCutRequests = transport.catalogueRequests.length
   const later = await capture()
   expect(later).toEqual(observed)
   expect(transport.visits.filter((number) => number === 44)).toHaveLength(2)
   expect(transport.visits.filter((number) => number === 43)).toHaveLength(2)
-  expect(transport.catalogueReads()).toBe(2)
+  expectCatalogueCut(transport.catalogueRequests.slice(firstCutRequests), fixture)
 })
 
 it.each(['missing', 'foreign', 'unavailable'] as const)(

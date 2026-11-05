@@ -275,16 +275,32 @@ describe('cause state as action data', () => {
   it('does not attribute a same-fingerprint independent review to the selected root', () => {
     const { graph, inputs, pending, request } = actionFixture()
     const other = acceptedPullRequestReviewGraph({ mandate, binding, prefix: 'other-root', label: 'issue', inputs })
-    if (pending.payload.subject.kind !== 'cause') throw new Error('Expected cause subject')
-    const independent = must(
-      parseRecord({
-        ...pending,
-        recordId: 'other-cause',
-        operationId: 'other-cause-op',
-        payload: { ...pending.payload, subject: { ...pending.payload.subject, decision: ref(other.decision) } },
+    if (inputs.manifest.spec.kind !== 'accepted') throw new Error('Expected accepted Spec')
+    const pull = { ...graph.history, operations: [...graph.history.operations, ...other.history.operations] }
+    const assessed = must(
+      assessCauseDispositions({
+        context: { original: uw, effective: inputs.manifest.spec.effective },
+        source: { kind: 'decision', decision: other.decision },
+        histories: [originalHistory([pending]), pull],
+        catalogues: fixtureReviewClassCatalogues(),
+        adjudications: [],
       }),
     )
-    const pull = { ...graph.history, operations: [...graph.history.operations, ...other.history.operations] }
+    const payload = assessed.outcomes.find(
+      (item) => item.subject.kind === 'cause' && item.outcome.state === 'pending-blocking',
+    )
+    if (payload?.subject.kind !== 'cause') throw new Error('Expected independent pending cause')
+    const independent = must(
+      buildRecord({
+        version: 1,
+        ...uw,
+        recordId: 'other-cause',
+        runId: 'run',
+        operationId: 'other-cause-op',
+        kind: 'cause-disposition',
+        payload,
+      }),
+    )
     const histories = [originalHistory([pending, independent]), pull]
     expect(must(selectedReviewRoot(pull, graph.review.recordId)).recordId).toBe(graph.root.recordId)
     expect(must(selectedReviewRoot(pull, other.review.recordId)).recordId).toBe(other.root.recordId)

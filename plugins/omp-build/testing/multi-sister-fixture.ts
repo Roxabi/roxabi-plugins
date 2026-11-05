@@ -21,7 +21,7 @@ function must<T>(
 }
 
 /** One or two independently actionable sister causes from one authenticated review. */
-export function multiSisterFixture(count: 1 | 2 = 2) {
+export function multiSisterFixture(count: 1 | 2 = 2, disposition: 'sister-blocking' | 'report' = 'sister-blocking') {
   const fixtures = roxabiWorkflowFixtures()
   const uw = { repository: 'acme/app', target: 'acme/app#42' }
   const pr = { repository: 'acme/app', target: 'acme/app#44' }
@@ -43,7 +43,8 @@ export function multiSisterFixture(count: 1 | 2 = 2) {
     ownSpec: fixtures.ownSpecFromSnapshot(uw, parsed.snapshot),
   })
   const binding = fixtures.workflowBinding(pr, mandate, 'feat/42-save', 'main')
-  const base = acceptedPullRequestReviewGraph({ mandate, binding, prefix: 'admission-source', label: 'issue' })
+  const label = disposition === 'report' ? ('suggestion' as const) : ('issue' as const)
+  const base = acceptedPullRequestReviewGraph({ mandate, binding, prefix: 'admission-source', label })
   const evidence = {
     source: 'git-file' as const,
     repository: uw.repository,
@@ -68,7 +69,7 @@ export function multiSisterFixture(count: 1 | 2 = 2) {
   }
   const inputs = { ...base.inputs, manifest, fingerprint: actionInputDigest(manifest) }
   if (inputs.manifest.spec.kind !== 'accepted') throw new Error('fixture Spec not accepted')
-  const graph = acceptedPullRequestReviewGraph({ mandate, binding, prefix: 'admission-source', inputs, label: 'issue' })
+  const graph = acceptedPullRequestReviewGraph({ mandate, binding, prefix: 'admission-source', inputs, label })
   const context = { original: uw, effective: inputs.manifest.spec.effective }
   const original = graph.panel.payload.findings?.[0]
   const firstFinding = graph.decision.payload.judgment.findings[0]
@@ -81,8 +82,8 @@ export function multiSisterFixture(count: 1 | 2 = 2) {
   })
   const firstCause = baseCause && {
     ...baseCause,
-    judgment: { necessary: supported(true), urgent: supported(true), tooLarge: supported(true) },
-    proposedDisposition: 'sister-blocking' as const,
+    judgment: { necessary: supported(disposition !== 'report'), urgent: supported(true), tooLarge: supported(true) },
+    proposedDisposition: disposition,
   }
   if (!original || !firstFinding || !firstCause)
     throw new Error('multi-sister fixture requires a source finding and cause')
@@ -175,9 +176,9 @@ export function multiSisterFixture(count: 1 | 2 = 2) {
   const outcomes = assessment.outcomes.filter((item) => item.subject.kind === 'cause')
   if (
     outcomes.length !== count ||
-    outcomes.some((item) => item.outcome.state !== 'final' || item.outcome.disposition !== 'sister-blocking')
+    outcomes.some((item) => item.outcome.state !== 'final' || item.outcome.disposition !== disposition)
   )
-    throw new Error(`expected ${count} authenticated sister causes: ${JSON.stringify(assessment.outcomes)}`)
+    throw new Error(`expected ${count} authenticated ${disposition} causes: ${JSON.stringify(assessment.outcomes)}`)
   const dispositions = outcomes.map((payload, index) => {
     const record = must(
       buildRecord({

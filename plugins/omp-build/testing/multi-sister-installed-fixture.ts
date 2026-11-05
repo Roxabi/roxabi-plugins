@@ -28,9 +28,9 @@ type NativeIssue = {
 /** Installed operations with a stateful GitHub transport; all records are encoded and read back. */
 export async function installedMultiSisterFixture(
   count: 1 | 2 = 2,
-  options: { workflow?: boolean; currentPr?: number; head?: string; base?: string } = {},
+  options: { workflow?: boolean; currentPr?: number; head?: string; base?: string; report?: boolean } = {},
 ) {
-  const data = multiSisterFixture(count)
+  const data = multiSisterFixture(count, options.report ? 'report' : 'sister-blocking')
   const head = options.head ?? 'a'.repeat(40)
   const base = options.base ?? 'b'.repeat(40)
   const prior = options.workflow

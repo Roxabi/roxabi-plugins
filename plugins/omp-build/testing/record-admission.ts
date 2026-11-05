@@ -138,7 +138,7 @@ export function encodedAdmissionReviewGraph(
     const encoded = encodeRecord(record, source, projection)
     if (!encoded.ok)
       throw new Error(
-        `Cannot encode fixture record ${record.recordId}: ${encoded.diagnostics.map(({ code }) => code).join(', ')}`,
+        `Cannot encode fixture record ${record.recordId}: ${encoded.diagnostics.map(({ code, message }) => `${code}: ${message}`).join(', ')}`,
       )
     for (const body of encoded.value) {
       const id = String(nativeId++)

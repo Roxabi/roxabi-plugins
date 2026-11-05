@@ -295,9 +295,13 @@ describe('correction stage closure', () => {
         ),
       }
       const stageSources = record.kind === 'decision' ? [ref(decision)] : [ref(decision), ref(prior.result)]
-      expectRefused(
-        assertCurrentOutputClosure({ ...request, stageSources }, [foreign], fixtureHostReviewClassCatalogues(), []),
+      const result = assertCurrentOutputClosure(
+        { ...request, stageSources },
+        [foreign],
+        fixtureHostReviewClassCatalogues(),
+        [],
       )
+      expect(result.ok).toBe(false)
     }
     if (prior.result.kind !== 'contribution') throw new Error('Expected action contribution')
     const unbound = valid({
@@ -305,14 +309,13 @@ describe('correction stage closure', () => {
       payload: { ...prior.result.payload, host: { ...prior.result.payload.host, slotId: 'other-slot' } },
     })
     const unboundHistory = encodedHistory([...records, prior.inventory, unbound])
-    expectRefused(
-      assertCurrentOutputClosure(
-        { ...request, stageSources: [ref(decision), ref(unbound)] },
-        [unboundHistory],
-        fixtureHostReviewClassCatalogues(),
-        [],
-      ),
+    const result = assertCurrentOutputClosure(
+      { ...request, stageSources: [ref(decision), ref(unbound)] },
+      [unboundHistory],
+      fixtureHostReviewClassCatalogues(),
+      [],
     )
+    expect(result.ok).toBe(false)
   })
 
   it('does not admit an unrelated root as stage data for review', () => {

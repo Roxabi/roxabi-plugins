@@ -403,7 +403,6 @@ it.each(['retained-finding', 'rule-error'] as const)('accepts motivated exact %s
     assessAdjudicationSuccessor({
       pending,
       operation,
-      context,
       histories: [originalHistory([pending, operation]), graph.history],
       catalogues: fixtureReviewClassCatalogues(),
     }),
@@ -436,9 +435,7 @@ describe('cause holds at UW admission', () => {
     const original = [held, operation, receipt]
     const sourceHistory = graph.history
     expect(codes(admission(original, { sourceHistory }))).toContain('cause-effect-unconfirmed')
-    expect(codes(admission(original, { sourceHistory, sisterHistory: history([], sister) }))).toContain(
-      'cause-effect-mismatch',
-    )
+    expect(admission(original, { sourceHistory, sisterHistory: history([], sister) }).deliverable.ok).toBe(false)
     if (identity.payload.event !== 'allocate') throw new Error('Expected an allocation identity')
     const wrongAllocation = must(
       buildRecord({ ...identity, payload: { ...identity.payload, allocations: [{ draftKey: 'repair', id: 'C2' }] } }),

@@ -185,7 +185,7 @@ describe('fix checkpoint UW delivery admission', () => {
       [],
       'fix',
       { failedChecks: ['unit'], evidenceDigest: 'c'.repeat(64), failures: [] },
-      read,
+      { ...read, histories: [] },
     )
     expect(result).toMatchObject({
       ok: false,
